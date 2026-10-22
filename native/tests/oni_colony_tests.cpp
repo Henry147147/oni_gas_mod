@@ -22,6 +22,38 @@ MAOniColonyMaterial material(const char* id, std::int32_t hash, std::uint32_t in
 constexpr std::uint32_t oxygen = 3, carbon = 4, water = 5, steam = 6, brine = 7, vacuum = 9, W = 16, H = 12, GW = 20, GH = 15, X0 = 2, Y0 = 1;
 std::uint32_t public_cell(std::uint32_t x, std::uint32_t y) { return (X0 + x) + (Y0 + y) * GW; }
 int native_cell(std::uint32_t x, std::uint32_t y) { return static_cast<int>((X0 + x + 1) + (Y0 + y + 1) * (GW + 2)); }
+void conversion_batch_control() {
+    using namespace ma::oni::colony;
+    std::vector<MAOniColonyMaterial> mats{material("SaltWater",15,brine,false,.021,4100,1100),
+        material("Steam",14,steam,true,.018,4000)};
+    mats[0].high_temperature_k=372.5; mats[0].high_target=14; mats[0].high_byproduct=777; mats[0].high_byproduct_fraction=.07;
+    mats[1].low_target=13; // no paired water: this uses the identity conversion path
+    MAOniColonyConfig cfg{};cfg.struct_size=sizeof(cfg);cfg.abi_version=MA_ONI_COLONY_ABI_VERSION;
+    cfg.vacuum_index=vacuum;cfg.grid_width=cfg.width=3;cfg.grid_height=cfg.height=3;cfg.maximum_timestep_s=static_cast<double>(.1f);
+    std::vector<MAOniColonyCellView> expected(9),views(9);
+    std::vector<MAOniColonyReading> expected_readings;std::vector<MAOniColonyConstituent> expected_parts;
+    for (const bool germs : {false,true}) {
+        std::vector<MAOniColonyCell> cells(9,MAOniColonyCell{0,MA_ONI_COLONY_SOLID,0,0,0,0});
+        cells[4]={brine,MA_ONI_COLONY_FLUID,1100,420,germs?3u:0u,germs?1000:0};
+        start(cfg,mats,cells,1);advance(1,static_cast<double>(.2f),2);wait();
+        MAOniColonyStatus st{};copy(st,views.data(),static_cast<std::uint32_t>(views.size()));
+        require(st.state==1 && st.converted_kg>1 && st.maximum_relative_mass_error<1e-12 && st.maximum_relative_energy_error<1e-12,
+            "conversion batch control fault, missing conversion or open ledger");
+        std::vector<MAOniColonyReading> current;std::vector<MAOniColonyConstituent> parts;readings(current,parts);
+        if (germs) require(views[4].disease==3 && views[4].disease_count==1000,"conversion batch lost carried germs");
+        for (auto& view : views) { view.disease=0;view.disease_count=0; }
+        if (!germs) { expected=views;expected_readings=current;expected_parts=parts; }
+        else require(std::memcmp(views.data(),expected.data(),views.size()*sizeof(views[0]))==0 &&
+            current.size()==expected_readings.size() && parts.size()==expected_parts.size() &&
+            std::memcmp(current.data(),expected_readings.data(),current.size()*sizeof(current[0]))==0 &&
+            std::memcmp(parts.data(),expected_parts.data(),parts.size()*sizeof(parts[0]))==0,
+            "sterile joined conversion differs from the original germ-carrying path");
+        const auto image=checkpoint();advance(2,static_cast<double>(.2f),2);wait();const auto endpoint=checkpoint();
+        stop();restore(cfg,mats,image,1);advance(2,static_cast<double>(.2f),2);wait();
+        require(status().state==1 && checkpoint()==endpoint,"conversion batch cold continuation changed");stop();
+    }
+    std::cout<<"PASS sterile joined and germ-carrying conversions: view/composition bytes, ledgers and cold continuation\n";
+}
 void timestep_control() {
     std::vector<MAOniColonyMaterial> mats{material("Oxygen",11,oxygen,true,.016,1000)};
     MAOniColonyConfig cfg{};cfg.struct_size=sizeof(cfg);cfg.abi_version=MA_ONI_COLONY_ABI_VERSION;
@@ -128,6 +160,7 @@ int main(int argc, char** argv) {
         if (argc == 2 && std::strcmp(argv[1], "--timestep-only") == 0) { timestep_control(); return 0; }
         if (argc == 2 && std::strcmp(argv[1], "--projection-only") == 0) { projection_control(); return 0; }
         require(argc == 1, "Usage: ma_oni_colony_tests [--projection-only|--timestep-only]");
+        conversion_batch_control();
         timestep_control();
         projection_control();
         flooded_pocket_control();

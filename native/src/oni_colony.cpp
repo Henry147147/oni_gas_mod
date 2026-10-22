@@ -759,7 +759,22 @@ MacClosedWorld convert_identities(Session& s, MacClosedWorld world, double secon
     const auto plan_done = std::chrono::steady_clock::now();
     if (edits.empty()) return world;
     auto& L = s.ledger;
-    auto taken = world.with_fluid_transfers(edits, MacFluidTransferTopology::occupied_mixture);
+    // Sterile products need no extraction receipt to construct their passives.
+    // Keep the original take/give order while sharing its state copy/admission.
+    const auto planned_gives = static_cast<std::size_t>(std::count_if(products.begin(), products.end(), [](const auto& p) { return p.mass > 0; }));
+    const bool sterile = planned_gives <= 4096 && edits.size() <= 4096 - planned_gives &&
+        std::all_of(edits.begin(), edits.end(), [&](const auto& e) {
+        return world.state().cells[e.cell_index].passive_quantities.empty();
+    });
+    std::size_t joined_gives = 0;
+    auto taken = [&] {
+        if (!sterile) return world.with_fluid_transfers(edits, MacFluidTransferTopology::occupied_mixture);
+        auto combined = edits;
+        for (std::size_t q = 0; q < products.size(); ++q) if (products[q].mass > 0)
+            combined.push_back({products[q].cell, products[q].species, true, products[q].mass, temperature[q]});
+        joined_gives = combined.size() - edits.size();
+        return world.with_fluid_transfers(combined, MacFluidTransferTopology::occupied_mixture);
+    }();
     world = std::move(taken.world);
     std::vector<MacFluidTransfer> given;
     for (std::size_t q = 0; q < products.size(); ++q) {
@@ -767,7 +782,7 @@ MacClosedWorld convert_identities(Session& s, MacClosedWorld world, double secon
         L.extracted[parcel.species_index] += parcel.mass_kg; L.energy_out += parcel_energy(parcel);
         s.status.converted_kg += parcel.mass_kg;
         // The product keeps the germs the converted mass carried.
-        if (products[q].mass > 0) given.push_back({products[q].cell, products[q].species, true, products[q].mass, temperature[q], parcel.passives});
+        if (!sterile && products[q].mass > 0) given.push_back({products[q].cell, products[q].species, true, products[q].mass, temperature[q], parcel.passives});
         if (products[q].byproduct_kg > 0) {
             std::lock_guard lock(inputs);
             MAOniColonyReceipt r{}; r.sequence = ++receipt_sequence; r.completed_frame = s.status.completed_frames + 1;
@@ -778,7 +793,14 @@ MacClosedWorld convert_identities(Session& s, MacClosedWorld world, double secon
             receipts.push_back(r);
         }
     }
-    if (!given.empty()) {
+    if (joined_gives > 0) {
+        // The original two batches each incremented the saved revision.
+        world = world.with_passive_edits({});
+        for (std::size_t q = edits.size(); q < taken.parcels.size(); ++q) {
+            const auto& parcel = taken.parcels[q];
+            L.injected[parcel.species_index] += parcel.mass_kg; L.energy_in += parcel_energy(parcel);
+        }
+    } else if (!given.empty()) {
         auto result = world.with_fluid_transfers(given, MacFluidTransferTopology::occupied_mixture);
         world = std::move(result.world);
         for (const auto& parcel : result.parcels) { L.injected[parcel.species_index] += parcel.mass_kg; L.energy_in += parcel_energy(parcel); }
@@ -786,8 +808,8 @@ MacClosedWorld convert_identities(Session& s, MacClosedWorld world, double secon
     static const bool stage_log = std::getenv("MA_COLONY_STAGE_LOG") != nullptr;
     if (stage_log && s.status.completed_frames % 10 == 9) {
         const auto ms = [](auto a, auto b) { return std::chrono::duration<double, std::milli>(b - a).count(); };
-        std::fprintf(stderr, "[Mixed Atmospheres] conversions: %zu candidates read %.1f ms, plan %.1f ms, %zu edits applied %.1f ms\n",
-            candidates.size(), ms(scan_start, read_done), ms(read_done, plan_done), edits.size(), ms(plan_done, std::chrono::steady_clock::now()));
+        std::fprintf(stderr, "[Mixed Atmospheres] conversions: %zu candidates read %.1f ms, plan %.1f ms, %zu edits applied %.1f ms, joined %zu\n",
+            candidates.size(), ms(scan_start, read_done), ms(read_done, plan_done), edits.size(), ms(plan_done, std::chrono::steady_clock::now()), joined_gives);
     }
     return world;
 }

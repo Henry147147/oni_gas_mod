@@ -173,6 +173,47 @@ void unchanged_faces(const ma::testing::Setup& fixture) {
     catch (const std::invalid_argument&) { refused=true; }
     require(refused,"Unchanged faces bypassed source inventory admission");
 }
+void conversion_batches(const ma::testing::Setup& fixture) {
+    for (const unsigned phase : {0u,1u,2u}) {
+        auto state=fixture.state(4,2,false,phase==1);
+        if (phase==2) for (auto& cell : state.cells) {
+            std::vector<double> masses(fixture.registry.size()); masses[fixture.registry.index("water")]=1000;
+            cell.mixture=fixture.eos->initialize_at_temperature(masses,300,1).mixture;
+        }
+        for (auto& cell : state.cells) cell.passive_quantities.clear();
+        auto x=mac_field_values(state.momentum_x,state.full_momentum_x);
+        x[state.grid.x_face(1,0)]=MacScaled::from_parts(.75,MacExponent(-4096));
+        x[state.grid.x_face(2,0)]=MacScaled::from_double(.25);
+        store_mac_field(state.momentum_x,state.full_momentum_x,x);
+        MacClosedSettings settings; settings.vacuum=MacVacuumRepresentation::void_phase;
+        const MacClosedWorld source(fixture.registry,fixture.eos,state,settings); const auto saved=source.checkpoint();
+        const auto oxygen=fixture.registry.index(phase==2?"water":"oxygen"),nitrogen=fixture.registry.index("nitrogen");
+        const std::array take{MacFluidTransfer{0,oxygen,false,.002,0},MacFluidTransfer{1,oxygen,false,.003,0},
+            MacFluidTransfer{0,oxygen,false,.001,0}};
+        const std::array give{MacFluidTransfer{0,nitrogen,true,.0018,300},MacFluidTransfer{1,nitrogen,true,.0027,301},
+            MacFluidTransfer{0,nitrogen,true,.0009,302}};
+        const auto topology=MacFluidTransferTopology::occupied_mixture;
+        const auto taken=source.with_fluid_transfers(take,topology);
+        const auto given=taken.world.with_fluid_transfers(give,topology);
+        std::vector<MacFluidTransfer> edits(take.begin(),take.end()); edits.insert(edits.end(),give.begin(),give.end());
+        const auto joined=source.with_fluid_transfers(edits,topology);
+        const auto next=joined.world.with_passive_edits({});
+        require(next.checkpoint()==given.world.checkpoint() && source.checkpoint()==saved,
+            "Joined sterile conversion changed a primary field, revision or source");
+        const auto same=[](const MacScaled& a,const MacScaled& b) { return a.mantissa()==b.mantissa() && a.exponent()==b.exponent(); };
+        for (std::size_t n=0;n<joined.parcels.size();++n) {
+            const auto& a=joined.parcels[n]; const auto& b=n<take.size()?taken.parcels[n]:given.parcels[n-take.size()];
+            require(a.cell_index==b.cell_index && a.species_index==b.species_index && a.injected==b.injected &&
+                a.mass_kg==b.mass_kg && a.temperature_k==b.temperature_k && a.internal_energy_j==b.internal_energy_j &&
+                same(a.resolved_kinetic_energy,b.resolved_kinetic_energy) && same(a.potential_energy,b.potential_energy) &&
+                same(a.momentum_x,b.momentum_x) && same(a.momentum_y,b.momentum_y) && a.passives.empty() && b.passives.empty(),
+                "Joined sterile conversion changed an ordered ledger receipt");
+        }
+        const auto cold=MacClosedWorld::from_checkpoint(fixture.registry,fixture.eos,saved).with_fluid_transfers(edits,topology);
+        require(cold.world.with_passive_edits({}).checkpoint()==next.checkpoint(),"Joined conversion changed cold continuation");
+        account(source,joined);
+    }
+}
 }
 int main() {
     try {
@@ -210,6 +251,8 @@ int main() {
         liquid_controls(fixture);
         batch_controls(fixture);
         unchanged_faces(fixture);
+        conversion_batches(fixture);
+        std::cout << "PASS joined sterile conversions: ordered receipts, mixed cells, full-range momentum and cold revisions\n";
         std::cout << "PASS unchanged closed faces, revision/sharing, full-range and legacy normalization\n";
         std::cout << "PASS batched canonical momentum, overlapping/full-range transfers, cold continuation and empty passive sharing\n";
         std::cout << "PASS immutable gas/liquid point transfers, elastic parcel U, carried mechanics/potential, checkpoint continuation and atomic topology rejection\n";
