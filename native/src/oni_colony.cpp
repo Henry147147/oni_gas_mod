@@ -479,6 +479,7 @@ MacClosedWorld expel_blocked_liquid(Session& s, MacClosedWorld world) {
 }
 // Terrain edits at the start of a frame (docs/colony-owner.md#terrain).
 std::atomic<std::uint32_t> refused_terrain{UINT32_MAX}; // control hook: a public cell whose terrain edit throws
+std::atomic<std::size_t> refused_heat{SIZE_MAX};       // control hook: a rect cell whose heat edit is refused
 MacClosedWorld apply_terrain(Session& s, MacClosedWorld world, std::span<const MAOniColonyTerrain> edits) {
     for (const auto& e : edits) if (e.public_cell == refused_terrain.load(std::memory_order_relaxed)) throw std::runtime_error("Terrain edit refused (control)");
     const auto& st0 = world.state(); const auto w = st0.grid.width, h = st0.grid.height;
@@ -798,6 +799,9 @@ std::uint32_t species(MAOniColonySpecies* out, std::uint32_t capacity) {
             m.zero_pressure_density_kg_per_m3, m.energy_offset_j_per_kg};
     }
     return n;
+}
+void refuse_heat(std::int64_t public_cell) {
+    refused_heat.store(public_cell < 0 ? SIZE_MAX : rect_index(geometry, static_cast<std::uint32_t>(public_cell)), std::memory_order_relaxed);
 }
 void refuse_terrain(std::int64_t public_cell) { refused_terrain.store(public_cell < 0 ? UINT32_MAX : static_cast<std::uint32_t>(public_cell), std::memory_order_relaxed); }
 void refuse_reading(std::int64_t public_cell) {
@@ -1170,28 +1174,48 @@ void run_frame(std::uint64_t ticket, double seconds, const char* refusal, std::u
             world = world.with_passive_edits(edits);
         }
         lap(0); doing = "heat";
-        // Heat edits.
+        // Heat edits. A batch the solver refuses is split until the refused
+        // edits are found (a cell the reference EOS cannot evaluate, as for a
+        // liquid trace below binary64's normal range); the rest apply. A
+        // refused edit's heat goes to an open neighbour of its cell; with none
+        // it stays queued, unbooked, merged per cell, for the next frame.
         std::vector<MAOniColonyHeat> deferred;
-        for (std::size_t first = 0; first < heat.size(); first += 4096) {
+        {
+            const auto& st0 = world.state(); const auto W = st0.grid.width;
             std::vector<MacCellHeat> edits; std::vector<std::size_t> source;
-            for (std::size_t k = first; k < std::min(heat.size(), first + 4096); ++k) {
+            for (std::size_t k = 0; k < heat.size(); ++k) {
                 const auto i = rect_index(s.config, heat[k].public_cell);
-                if (world.state().grid.walls[i] || !(world.state().cells[i].mixture.mass() > 0) || heat[k].joules == 0) continue;
+                if (st0.grid.walls[i] || !(st0.cells[i].mixture.mass() > 0) || heat[k].joules == 0) continue;
                 edits.push_back({i, heat[k].joules, heat[k].maximum_temperature_k > 0 ? heat[k].maximum_temperature_k : 1e5});
                 source.push_back(k); L.heat += heat[k].joules;
             }
-            if (edits.empty()) continue;
-            const auto kept = deferred.size();
-            try { world = world.with_cell_heat(edits); }
-            catch (const std::exception&) {
-                // A cell the reference EOS cannot evaluate (a liquid trace below
-                // binary64's normal range) keeps its heat queued for the next frame.
-                for (std::size_t q = 0; q < edits.size(); ++q) {
-                    try { world = world.with_cell_heat(std::span(&edits[q], 1)); }
-                    catch (const std::exception&) { L.heat -= edits[q].joules; deferred.push_back(heat[source[q]]); }
+            std::vector<std::size_t> refused;
+            const auto apply = [&](const auto& self, std::size_t from, std::size_t count) -> void {
+                if (count == 0) return;
+                const auto hook = refused_heat.load(std::memory_order_relaxed);
+                const bool control = std::any_of(edits.begin() + static_cast<std::ptrdiff_t>(from), edits.begin() + static_cast<std::ptrdiff_t>(from + count),
+                    [&](const MacCellHeat& e) { return e.cell_index == hook; });
+                if (!control) try { world = world.with_cell_heat(std::span(edits.data() + from, count)); return; }
+                catch (const std::exception&) {}
+                if (count == 1) { refused.push_back(from); return; }
+                self(self, from, count / 2); self(self, from + count / 2, count - count / 2);
+            };
+            for (std::size_t first = 0; first < edits.size(); first += 4096) apply(apply, first, std::min<std::size_t>(4096, edits.size() - first));
+            for (const auto q : refused) {
+                const auto i = edits[q].cell_index; bool placed = false;
+                for (const auto n : {i % W > 0 ? i - 1 : SIZE_MAX, i % W + 1 < W ? i + 1 : SIZE_MAX, i >= W ? i - W : SIZE_MAX, i + W < st0.cells.size() ? i + W : SIZE_MAX}) {
+                    if (n == SIZE_MAX || world.state().grid.walls[n] || !(world.state().cells[n].mixture.mass() > 0)) continue;
+                    MacCellHeat moved = edits[q]; moved.cell_index = n;
+                    try { world = world.with_cell_heat(std::span(&moved, 1)); placed = true; break; } catch (const std::exception&) {}
                 }
+                if (placed) continue;
+                L.heat -= edits[q].joules;
+                const auto& h = heat[source[q]];
+                auto same = std::find_if(deferred.begin(), deferred.end(), [&](const MAOniColonyHeat& d) { return d.public_cell == h.public_cell; });
+                if (same != deferred.end()) same->joules += h.joules; else deferred.push_back(h);
+                if (std::getenv("MA_COLONY_LEDGER_LOG")) { std::fprintf(stderr, "[Mixed Atmospheres] heat refused at cell %u (%.6g J), deferred\n", h.public_cell, h.joules); std::fflush(stderr); }
             }
-            s.status.committed_heat += edits.size() - (deferred.size() - kept);
+            s.status.committed_heat += edits.size() - deferred.size();
         }
         if (!deferred.empty()) { std::lock_guard q(inputs); pending_heat.insert(pending_heat.end(), deferred.begin(), deferred.end()); }
         lap(1); doing = "reservoir";

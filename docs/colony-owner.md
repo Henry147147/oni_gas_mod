@@ -48,9 +48,10 @@ play.
   surface. A transfer too small to change its cell in binary64 (a few
   nanograms on a full liquid cell) is dropped with a zero receipt.
 - **Heat and terrain edits** a cell cannot take (the reference EOS refuses
-  it, as for a liquid trace below binary64's normal range) stay queued,
-  unbooked, for the next frame instead of faulting the owner; the rest of
-  their batch applies.
+  it, as for a liquid trace below binary64's normal range) do not fault the
+  owner; the rest of their batch applies. Refused heat goes to an open
+  neighbour of its cell, else waits, unbooked and merged per cell, for the
+  next frame; a refused terrain edit waits for the next frame.
 - **Native bodies** ([below](#native-bodies)): ONI's own heat code and other
   native processes meet a shadow of the owner's cells and their changes are
   booked to the owner; the owner runs element consumers and emitters

@@ -381,6 +381,22 @@ int main(int argc, char** argv) {
                 later.maximum_relative_mass_error < 1e-12, "a refused terrain edit waits a frame, the rest of its batch applies");
             ma::oni::colony::stop();
         }
+        // A cell that refuses its heat passes it to an open neighbour: the
+        // energy still reaches the owner and the ledger stays closed.
+        {
+            ma::oni::colony::restore(config, materials, image, 1);
+            const auto before = ma::oni::colony::status();
+            const MAOniColonyHeat warm{public_cell(4, 7), 0, 500, 0};
+            ma::oni::colony::refuse_heat(public_cell(4, 7));
+            ma::oni::colony::queue_heat(std::span(&warm, 1));
+            ma::oni::colony::advance(5, .2, 2); ma::oni::colony::wait();
+            ma::oni::colony::refuse_heat(-1);
+            const auto after = ma::oni::colony::status();
+            std::cout << "refused heat: committed " << after.committed_heat - before.committed_heat << ", state " << after.state << " " << after.error << "\n";
+            require(after.state == 1 && after.committed_heat == before.committed_heat + 1 && after.maximum_relative_energy_error < 1e-9,
+                "a refused heat edit goes to an open neighbour");
+            ma::oni::colony::stop();
+        }
         // A heat edit the cell cannot take (here more cooling than its gas
         // holds) stays queued, unbooked, instead of faulting the owner.
         {
