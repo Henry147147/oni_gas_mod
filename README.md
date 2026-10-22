@@ -68,7 +68,8 @@ Keep a copy of any colony you value.
 ### Limits
 
 - **Speed:** the solver is slower than vanilla. On a full asteroid the game
-  clock slows to the solver's pace (Terra: about 40% of real time on 12 cores;
+  clock slows to the solver's pace (Terra: about 35% of real time on a 12-core,
+  24-thread machine;
   see [implementation status](docs/implementation-status.md#base-game-playtest-plan));
   the camera, menus and pause stay responsive.
 - **Asteroids:** Terra is the tested asteroid. Rime, Arboria, Aridio, The
