@@ -225,6 +225,9 @@ and the legacy sink is zero. Maximum relative mass/energy errors are
 7.02e-16 / 1.10e-17. A synthetic control checks unchanged successful flow,
 the unchanged EOS domain, conversion and energy ledgers, workers, continuation
 and shared-budget rollback. The ten-cycle trace capture remains unresolved.
+Two in-game six-scenario batches subsequently pass 232 profile frames and 257
+legacy frames where the sixth arena previously faulted; maximum mass/energy
+ledger errors are 1.50e-15 / 5.64e-17.
 
 At a provisional `1e-60 kg` threshold, five captured fault worlds complete
 30 cold-restored intervals: total sink masses are `5.49e-59`, `6.63e-59`,
@@ -809,6 +812,35 @@ high-half frame-50 copy takes 9.5 ms → less than 0.1 ms; flow-only time is
 unchanged. Four dump endpoint checkpoints remain byte-identical. Clean
 83-executable/sixteen-variant comparisons retain existing outputs, and the
 branch/lifetime/continuation control passes ASan/UBSan/TSan.
+
+Untouched positive-zero constituent arrays share immutable storage. Mutable
+access materializes an independent array; owned arrays still copy deeply, so
+retained mutable references cannot change a copied inventory. Checkpoint
+reading compacts only positive-zero arrays and preserves signed-zero bits.
+The kernel retains unchanged wall arrays when storing its endpoint. Solver
+arithmetic, C ABI records and checkpoint bytes/format are unchanged; the C++
+inventory layout changes, so all native libraries must be rebuilt together.
+Clean Release/83 CTests and 99 MAC command comparisons pass, with only timings
+and the new inventory-control PASS line differing. The native colony diagnostic
+is timing-only; focused ASan/UBSan/TSan value controls pass. Heat, settling,
+phase and flow checkpoints match on two captured Terra worlds.
+
+High-lock same-state probes on the newer Terra capture give these medians
+(six samples after three warmups). Earlier operation results remain alive
+during each probe; these are component costs. Whole-lock frame measurements
+follow separately.
+
+| Operation | Dense arrays ms | Shared zero arrays ms |
+| --- | ---: | ---: |
+| Copy cell inventories | 9.63 | 2.58 |
+| Heat edit | 9.48 | 3.50 |
+| Liquid settling | 17.64 | 10.42 |
+| Phase relaxation | 40.89 | 46.36 |
+| Flow | 90.06 | 83.40 |
+
+The older Terra dump's flow probe improves 4.30 to 3.51 s. The phase probe's
+regression on the newer capture remains visible in the table; no numerical
+setting or accuracy tradeoff accompanies the storage change.
 Whole-lock Terra60 owner mean is 0.649 s → 0.638 s; observed frame interval
 is 0.848 s → 0.830 s. Both pass; candidate relative mass/energy errors are
 `5.25e-16` / `3.35e-17`.

@@ -20,6 +20,22 @@ void near(double a, double b, double scale, double relative = 2e-11) {
 using ma::testing::setup;
 using ma::testing::fingerprint;
 using ma::testing::export_case;
+void inventory_value_control() {
+    MixtureInventory source(8), untouched=source;
+    auto& held=source.masses[2]; auto copied=source; held=7;
+    check(copied.mass()==0 && untouched.mass()==0 && source.mass()==7,"Inventory copies alias a retained mutable reference");
+    auto nonzero=source; source.masses[2]=9;
+    check(nonzero.masses[2]==7,"Nonzero inventory copies share mutable storage");
+    MixtureInventory assigned(1); assigned=untouched; assigned.masses[3]=2;
+    check(untouched.mass()==0 && assigned.mass()==2,"Assigned zero inventories share mutable storage");
+    const auto& fixture=setup();auto state=fixture.state(3,1,false);
+    state.grid.walls[1]=1;state.cells[1]={MixtureInventory(fixture.registry.size()),{}};
+    state.cells[1].mixture.masses[0]=-0.0;
+    const MacClosedWorld world(fixture.registry,fixture.eos,state);const auto image=world.checkpoint();
+    const auto restored=MacClosedWorld::from_checkpoint(fixture.registry,fixture.eos,image);
+    check(restored.checkpoint()==image && std::signbit(restored.state().cells[1].mixture.masses[0]),
+        "Zero inventory storage changed checkpoint bits");
+}
 void heat_batch_control() {
     const auto& s=setup();
     const MacClosedWorld source(s.registry,s.eos,s.state(16,8,false));
@@ -349,11 +365,15 @@ void rejected_domains() {
 int main(int argc, char** argv) {
     try {
         std::cout << std::setprecision(17);
+        if (argc == 2 && std::string_view(argv[1]) == "--inventory-only") {
+            inventory_value_control(); std::cout << "PASS inventory value semantics: held references, assignment and signed-zero checkpoint bits\n"; return 0;
+        }
         if (argc == 2 && std::string_view(argv[1]) == "--heat-batch-only") {
             heat_batch_control(); std::cout << "PASS independent heat batches, ordered repeats/audits, cold/workers and first-error rollback\n"; return 0;
         }
         if (argc == 2 && std::string_view(argv[1]) == "--snapshot-only") {
-            snapshot_branches(); std::cout << "PASS copied world branches, lifetime, rollback and cold continuation\n"; return 0;
+            inventory_value_control(); std::cout << "PASS inventory value semantics: held references, assignment and signed-zero checkpoint bits\n";
+        snapshot_branches(); std::cout << "PASS copied world branches, lifetime, rollback and cold continuation\n"; return 0;
         }
         if (argc == 2 && std::string_view(argv[1]) == "--trace-sink-only") {
             trace_sink_receipt(); std::cout << "PASS booked trace sink, mass/energy/momentum/passives, rollback and exact cold/thread continuation\n"; return 0;
@@ -361,6 +381,7 @@ int main(int argc, char** argv) {
         for (const auto& m : setup().eos->reference().materials()) std::cout << "MATERIAL " << setup().registry.index(m.id) << ' ' <<
             (m.phase == ReferencePhase::ideal_gas ? 0 : 1) << ' ' << m.molar_mass_kg_per_mol << ' ' << m.cv_j_per_kg_k << ' ' <<
             m.energy_offset_j_per_kg << ' ' << m.zero_pressure_density_kg_per_m3 << ' ' << m.reference_bulk_modulus_pa << '\n';
+        inventory_value_control(); std::cout << "PASS inventory value semantics: held references, assignment and signed-zero checkpoint bits\n";
         snapshot_branches(); std::cout << "PASS copied world branches, lifetime, rollback and cold continuation\n";
         heat_batch_control(); std::cout << "PASS independent heat batches, ordered repeats/audits, cold/workers and first-error rollback\n";
         trace_sink_receipt(); std::cout << "PASS booked trace sink, mass/energy/momentum/passives, rollback and exact cold/thread continuation\n";

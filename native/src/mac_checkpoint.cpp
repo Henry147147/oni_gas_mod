@@ -300,6 +300,7 @@ MacClosedWorld MacClosedWorld::from_checkpoint(SpeciesRegistry registry,std::sha
     for (std::size_t i=0;i<count;++i) {
         MacMaterialCell cell{MixtureInventory(registry.size()),{}}; cell.mixture.energy=in.number();
         for (auto& mass : cell.mixture.masses) mass=in.number();
+        cell.mixture.masses.compact_checkpoint_zeros();
         const auto passives=in.u32(); check(passives<=in.remaining()/16,"Saved MAC passive count exceeds its payload");
         cell.passive_quantities.reserve(passives);
         for (std::size_t j=0;j<passives;++j) { const auto id=in.u64(); cell.passive_quantities.push_back({id,in.number()}); }

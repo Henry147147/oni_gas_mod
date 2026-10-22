@@ -80,11 +80,17 @@ uncertainty alone does not establish a pass. Gas/miscible-liquid mixing,
 partial pressures and latent heat have no vanilla analogue: retain them and
 report reference error for the user's judgment.
 
+The historical arena rows below are **invalid as floor evidence**. The harness
+left plants, seeds and critters inside the arenas, contrary to the specified
+empty setup. Their native heat exchange supplied 37–47 kJ in F1. Both vanilla
+and owner measurements must be repeated after the fixture removes those bodies;
+grids, fluid fills, metrics and bounds stay fixed. F4 has not been measured.
+
 | Scenario | Vanilla | Truth | Game profile | Errors / floor result |
 | --- | --- | --- | --- | --- |
-| F1 | Equalises [55.8, 56.6] s across three runs; final L/R/divider fractions about 0.47145/0.46973/0.05882 | Final fractions 64/136, 64/136, 8/136; dynamic truth unresolved | Equalises [5.6, 5.8] s; fractions 0.46793/0.47233/0.05975 | Divider error about 9.26e-4 versus vanilla below 7e-6: **fails**. Timing unresolved. |
-| F2 | Closed leakage 0; open equalisation censored at 120 s | Closed leakage 0; dynamic truth unresolved | Closed leakage 0; equalises [0, 0] s after fully open | Leakage matches truth; timing unresolved. Command-to-open delay 3.0 s in both. |
-| F3 | Levels [68.8, 69.0] s; final depth 2.0000003 m | Nominal depth 2 m; phase/compression correction and dynamic truth unresolved | Levels [7.4, 7.6] s; final depth 1.999846 m | Nominal depth errors 3e-7/1.54e-4 m; correction still needed. No floor pass claimed. |
+| F1 | Equalises [55.8, 56.6] s across three runs; final L/R/divider fractions about 0.47145/0.46973/0.05882 | Final fractions 64/136, 64/136, 8/136; dynamic truth unresolved | Equalises [5.6, 5.8] s; fractions 0.46793/0.47233/0.05975 | Historical divider errors about 9.26e-4 / below 7e-6; invalid fixture. |
+| F2 | Closed leakage 0; open equalisation censored at 120 s | Closed leakage 0; dynamic truth unresolved | Closed leakage 0; equalises [0, 0] s after fully open | Historical leakage zero and command-to-open delay 3.0 s in both; invalid fixture. |
+| F3 | Levels [68.8, 69.0] s; final depth 2.0000003 m | Nominal depth 2 m; phase/compression correction and dynamic truth unresolved | Levels [7.4, 7.6] s; final depth 1.999846 m | Historical nominal errors 3e-7/1.54e-4 m; invalid fixture and unresolved correction. |
 | F4 | pending | pending | pending | unmeasured |
 | F5 | Settling censored; oil below water; depths water/oil 4.0000004/2.000003 m | Water below oil; nominal depths 4/2 m; dynamic truth unresolved | Faults at 7 s on an endpoint range check | No arena floor result; captured-frame recovery under investigation. |
 
@@ -101,7 +107,7 @@ faults or skipped relaxations (mass/energy errors about 2e-15/5.5e-17;
 whole-colony sinks about 2.3e-7 kg / 0.075 J). Their F1 divider error was still
 4.76e-4, and F5 settled [9.8, 10.0] s with water below oil, depths
 3.999944/2.000000 m and zero overlap. These are historical stability results;
-they do not replace the arena measurements or establish floor acceptance.
+they do not establish floor acceptance and also require the fixture correction.
 Vanilla starts use the same catalogue and placed fields. F1 initially holds
 42.5673 kg O2; F2 106.418 kg O2; F3 40001.84 kg water.
 

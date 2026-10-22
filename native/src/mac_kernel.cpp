@@ -137,7 +137,7 @@ void store(const Exec& exec, const Model& model, const Grid& g, const Fields& f,
     const auto N = g.N, K = model.K(), P = model.P();
     exec.rows([&](std::size_t y0, std::size_t y1, std::size_t) { for (std::size_t i = y0 * g.W; i < y1 * g.W; ++i) {
         auto& cell = out.cells[i];
-        for (std::size_t k = 0; k < K; ++k) cell.mixture.masses[model.species[k].registry] = f.m[k * N + i];
+        if (!g.wall[i] || !cell.mixture.masses.implicit_zero()) for (std::size_t k = 0; k < K; ++k) cell.mixture.masses[model.species[k].registry] = f.m[k * N + i];
         cell.mixture.energy = f.U[i]; cell.energy_remainder_j.projected = f.U_remainder[i]; cell.energy_remainder_j.full = {};
         cell.passive_quantities.clear();
         for (std::size_t p = 0; p < P; ++p) {

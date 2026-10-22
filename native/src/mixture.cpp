@@ -5,7 +5,7 @@
 #include <stdexcept>
 
 namespace ma {
-double MixtureInventory::mass() const { return std::accumulate(masses.begin(), masses.end(), 0.0); }
+double MixtureInventory::mass() const { return masses.implicit_zero() ? 0.0 : std::accumulate(masses.begin(), masses.end(), 0.0); }
 
 double MixtureInventory::heat_capacity(const SpeciesRegistry& registry) const {
     if (masses.size() != registry.size()) throw std::invalid_argument("Registry/inventory size mismatch");

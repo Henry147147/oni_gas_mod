@@ -1,10 +1,11 @@
 #pragma once
+#include "mass_storage.hpp"
 #include "species.hpp"
 #include <vector>
 
 namespace ma {
 struct MixtureInventory {
-    std::vector<double> masses; // kg, one entry per stable registry species
+    MassStorage masses; // kg, one entry per stable registry species
     double energy = 0.0;       // J, including formation energy, excluding bulk kinetic energy
 
     explicit MixtureInventory(std::size_t count = 0) : masses(count, 0.0) {}
