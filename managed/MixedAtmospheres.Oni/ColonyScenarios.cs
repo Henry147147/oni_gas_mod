@@ -1010,8 +1010,10 @@ namespace MixedAtmospheres.Oni
                 var water = Place(LiquidReservoirConfig.ID, ref right, 1);
                 var waste = Place(LiquidReservoirConfig.ID, ref right, 1);
                 var rations = Place(RationBoxConfig.ID, ref right, 1);
-                // A cot each keeps the duplicants' stress down over the ten cycles.
-                for (var bed = 0; bed < 3; ++bed) Place(BedConfig.ID, ref right, 1);
+                // A cot each keeps the duplicants' stress down over the ten cycles;
+                // one that finds no room right of the pod goes left of the piles.
+                left -= 2;
+                for (var bed = 0; bed < 3; ++bed) if (Place(BedConfig.ID, ref right, 1) == null) Place(BedConfig.ID, ref left, -1);
                 water?.GetComponent<Storage>().AddLiquid(SimHashes.Water, 4500, 300, byte.MaxValue, 0, false, true);
                 if (rations != null)
                 {
@@ -1049,7 +1051,7 @@ namespace MixedAtmospheres.Oni
         {
             var def = Assets.GetBuildingDef(id);
             var pad = GameUtil.GetActiveTelepad(); Grid.CellToXY(Grid.PosToCell(pad), out _, out var py);
-            for (var tries = 0; tries < 12; ++tries, x += step)
+            for (var tries = 0; tries < 16; ++tries, x += step)
             {
                 // The origin is the bottom middle (left of middle for even widths).
                 var x0 = x - (def.WidthInCells - 1) / 2; var fits = true;
