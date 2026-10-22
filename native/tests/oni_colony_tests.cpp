@@ -362,6 +362,26 @@ int main(int argc, char** argv) {
             const auto after_fall = ma::oni::colony::status();
             require(after_fall.state == 1 && after_fall.closed_cells == held.closed_cells && after_fall.injected_kg == held.injected_kg,
                 "nothing closed or injected for the cancelled close");
+            // A solid placed after its close was queued and melted within the
+            // same native update: the owner closes the cell while ONI holds the
+            // melt water; the next shadow reopens the cell with it, once.
+            const auto melt = static_cast<std::size_t>(native_cell(8, 6));
+            const MAOniColonyTerrain placed{public_cell(8, 6), MA_ONI_COLONY_CLOSE};
+            ma::oni::colony::queue_terrain(std::span(&placed, 1));
+            ma::oni::colony::write_shadow(nc);
+            el[1][melt] = water; mass[1][melt] = 400; temperature[1][melt] = 280;
+            ma::oni::colony::capture_shadow(nc);
+            ma::oni::colony::advance(13, .2, 2); ma::oni::colony::wait();
+            const auto closed_over = ma::oni::colony::status();
+            require(closed_over.state == 1 && closed_over.closed_cells == after_fall.closed_cells + 1 && !ma::oni::colony::owns(native_cell(8, 6)),
+                "the close applied over ONI's melt water");
+            for (int b = 0; b < 2; ++b) { el[b][melt] = water; mass[b][melt] = 400; temperature[b][melt] = 280; }
+            for (int pass = 0; pass < 2; ++pass) { ma::oni::colony::write_shadow(nc); ma::oni::colony::capture_shadow(nc); }
+            ma::oni::colony::advance(14, .2, 2); ma::oni::colony::wait();
+            const auto reopened = ma::oni::colony::status();
+            require(reopened.state == 1 && ma::oni::colony::owns(native_cell(8, 6)) && reopened.opened_cells == closed_over.opened_cells + 1 &&
+                std::abs(reopened.injected_kg - closed_over.injected_kg - 400) < 1e-3, "the cell reopens with ONI's melt water, once");
+            require(reopened.maximum_relative_mass_error < 1e-12 && reopened.maximum_relative_energy_error < 1e-9, "reopened ledgers close");
         }
         // A different catalogue rejects the image.
         ma::oni::colony::stop();

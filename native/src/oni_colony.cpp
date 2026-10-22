@@ -111,7 +111,8 @@ std::shared_ptr<const Published> latest;
 MAOniColonyConfig geometry{};
 // Per cell: 0 closed (native), 1 owned, 2 closing (a solid replaced the
 // owned fluid and the owner closes the cell at its next step; the shadow and
-// native suppression already leave it to ONI).
+// native suppression already leave it to ONI), 3 opening (a queued open of a
+// closed cell; ONI keeps it until the owner opens it).
 std::unique_ptr<std::atomic<std::uint8_t>[]> owned;
 std::size_t owned_count = 0;
 std::array<std::atomic<std::uint64_t>, MA_ONI_HOOK_COUNT> suppressed{};
@@ -553,10 +554,11 @@ MacClosedWorld apply_terrain(Session& s, MacClosedWorld world, std::span<const M
             for (std::size_t k = 0; k < m.masses.size(); ++k) if (m.masses[k] > 0) cleared.push_back({i, k, false, m.masses[k], 0});
             continue;
         }
+        // The first edit that changes the cell takes it; one that would not
+        // (an open of an open cell, a close of a wall) does not hide a later one.
         if (touched[i]) continue;
-        touched[i] = 1;
-        if (e.kind == MA_ONI_COLONY_OPEN && st0.grid.walls[i]) opening.push_back(i);
-        if (e.kind == MA_ONI_COLONY_CLOSE && !st0.grid.walls[i]) closing.push_back(i);
+        if (e.kind == MA_ONI_COLONY_OPEN && st0.grid.walls[i]) { touched[i] = 1; opening.push_back(i); }
+        if (e.kind == MA_ONI_COLONY_CLOSE && !st0.grid.walls[i]) { touched[i] = 1; closing.push_back(i); }
     }
     if (!cleared.empty()) {
         // Replaced cells lose their fluid (traces first, the bulk last).
@@ -638,7 +640,12 @@ MacClosedWorld apply_terrain(Session& s, MacClosedWorld world, std::span<const M
         }
         world = move_material(std::move(world), moves, s.ledger, s.status);
         world = world.with_closed_cells(closing);
-        for (const auto i : closing) owned[i].store(0, std::memory_order_relaxed);
+        for (const auto i : closing) {
+            // A cell whose solid ONI removed while this close was in flight is
+            // already queued to open again.
+            auto state = owned[i].load(std::memory_order_relaxed);
+            while (state != 3 && !owned[i].compare_exchange_weak(state, 0, std::memory_order_relaxed)) {}
+        }
         s.status.closed_cells += closing.size();
     }
     if (!opening.empty()) {
@@ -664,11 +671,12 @@ MacClosedWorld apply_terrain(Session& s, MacClosedWorld world, std::span<const M
         world = move_material(std::move(world), moves, s.ledger, s.status);
         s.status.opened_cells += opening.size();
     }
-    // A queued close that did not happen (another edit of the cell came first)
-    // returns the cell to the owner.
-    for (const auto& e : edits) if (e.kind == MA_ONI_COLONY_CLOSE) {
-        const auto i = rect_index(s.config, e.public_cell); std::uint8_t closing_state = 2;
-        if (!world.state().grid.walls[i]) owned[i].compare_exchange_strong(closing_state, 1, std::memory_order_relaxed);
+    // A queued close or open that did not happen (the cell already had that
+    // state, or another edit of the cell came first) returns an open cell to
+    // the owner.
+    for (const auto& e : edits) if (e.kind == MA_ONI_COLONY_CLOSE || e.kind == MA_ONI_COLONY_OPEN) {
+        const auto i = rect_index(s.config, e.public_cell); std::uint8_t pending = e.kind == MA_ONI_COLONY_CLOSE ? 2 : 3;
+        if (!world.state().grid.walls[i]) owned[i].compare_exchange_strong(pending, 1, std::memory_order_relaxed);
     }
     return world;
 }
@@ -974,9 +982,12 @@ void queue_terrain(std::span<const MAOniColonyTerrain> edits) {
     std::lock_guard lock(inputs);
     require(pending_terrain.size() + edits.size() <= 1u << 20, "Too many queued colony terrain edits");
     // A queued close leaves the cell to ONI at once (the solid that replaced
-    // it is native); the owner displaces its fluid at its next step.
-    for (const auto& e : edits) if (e.kind == MA_ONI_COLONY_CLOSE) {
-        std::uint8_t open = 1; owned[rect_index(geometry, e.public_cell)].compare_exchange_strong(open, 2, std::memory_order_relaxed);
+    // it is native); the owner displaces its fluid at its next step. A queued
+    // open marks the wall as opening, so the shadow does not open it again.
+    for (const auto& e : edits) {
+        auto& state = owned[rect_index(geometry, e.public_cell)];
+        if (e.kind == MA_ONI_COLONY_CLOSE) { std::uint8_t open = 1; state.compare_exchange_strong(open, 2, std::memory_order_relaxed); }
+        if (e.kind == MA_ONI_COLONY_OPEN) { std::uint8_t closed = 0; state.compare_exchange_strong(closed, 3, std::memory_order_relaxed); }
     }
     pending_terrain.insert(pending_terrain.end(), edits.begin(), edits.end());
 }
@@ -1065,14 +1076,23 @@ void capture_shadow(const NativeCells& n) noexcept {
             const auto e = n.element[1][c]; const float m = n.mass[1][c], t = n.temperature[1][c];
             const auto cell = static_cast<std::uint32_t>((geometry.offset_x + i % geometry.width) + (geometry.offset_y + i / geometry.width) * geometry.grid_width);
             if (!sh.written) {
-                if (fluid(sh.before) || !fluid(e)) continue;
-                // A solid placed over owned fluid and gone before the owner
-                // closed the cell (unstable sand falling at once): the close is
-                // undone. The fluid native put back is its copy of the owner's.
-                if (owned[i].load(std::memory_order_relaxed) != 0) { undone.push_back({i, cell}); ++sum.changes; continue; }
+                if (!fluid(e)) continue;
+                const auto state = owned[i].load(std::memory_order_relaxed);
+                if (fluid(sh.before)) {
+                    // ONI holds fluid in a cell the owner closed and does not
+                    // reopen: a solid placed after its close was queued and
+                    // melted within the same native update. The owner opens the
+                    // cell again and takes ONI's fluid.
+                    if (state != 0 || e == vacuum || !(std::isfinite(m) && m > 0 && std::isfinite(t) && t > 0)) continue;
+                } else if (state == 2) {
+                    // A solid placed over owned fluid and gone before the owner
+                    // closed the cell (unstable sand falling at once): the close is
+                    // undone. The fluid native put back is its copy of the owner's.
+                    undone.push_back({i, cell}); ++sum.changes; continue;
+                } else if (!(std::isfinite(m) && m >= 0 && std::isfinite(t) && t >= 0)) continue;
                 // A native solid that melted (or sublimated away) this frame:
-                // the owner opens the cell and takes its fluid.
-                if (!(std::isfinite(m) && m >= 0 && std::isfinite(t) && t >= 0)) continue;
+                // the owner opens the cell and takes its fluid, once.
+                std::uint8_t closed = 0; owned[i].compare_exchange_strong(closed, 3, std::memory_order_relaxed);
                 opened.push_back({cell, MA_ONI_COLONY_OPEN});
                 if (e != vacuum && m > 0 && t > 0) { moves.push_back({cell, e, MA_ONI_COLONY_INJECT, 0, -1, 0, m, t, 0}); sum.mass_in_kg += m; }
                 ++sum.changes; continue;
@@ -1132,8 +1152,12 @@ void capture_shadow(const NativeCells& n) noexcept {
             // followed by an open at the next step.
             const auto before = pending_terrain.size();
             std::erase_if(pending_terrain, [&](const MAOniColonyTerrain& t) { return t.public_cell == cell && t.kind == MA_ONI_COLONY_CLOSE; });
-            if (pending_terrain.size() != before) owned[i].store(1, std::memory_order_relaxed);
-            else opened.push_back({cell, MA_ONI_COLONY_OPEN});
+            if (pending_terrain.size() != before) { owned[i].store(1, std::memory_order_relaxed); continue; }
+            // The close is in flight or done: the cell opens again without
+            // taking ONI's fluid (its copy of the owner's).
+            auto state = owned[i].load(std::memory_order_relaxed);
+            while ((state == 0 || state == 2) && !owned[i].compare_exchange_weak(state, 3, std::memory_order_relaxed)) {}
+            opened.push_back({cell, MA_ONI_COLONY_OPEN});
         }
         pending_germs.insert(pending_germs.end(), germs.begin(), germs.end());
         pending_heat.insert(pending_heat.end(), heat.begin(), heat.end());
@@ -1810,6 +1834,10 @@ void restore(const MAOniColonyConfig& config, std::span<const MAOniColonyMateria
     {
         std::lock_guard q(inputs);
         pending_transfers = std::move(transfers); pending_heat = std::move(heat); pending_terrain = std::move(terrain); pending_freezes = std::move(freezes);
+        // A wall queued to open is opening, as before the save.
+        for (const auto& e : pending_terrain) if (e.kind == MA_ONI_COLONY_OPEN) {
+            std::uint8_t closed = 0; owned[rect_index(geometry, e.public_cell)].compare_exchange_strong(closed, 3, std::memory_order_relaxed);
+        }
     }
     publish(*session);
 }

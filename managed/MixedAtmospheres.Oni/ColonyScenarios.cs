@@ -182,8 +182,11 @@ namespace MixedAtmospheres.Oni
             if (Once(42, "check"))
             {
                 string Describe(int cell) => $"{Grid.Element[cell].id} {Grid.Mass[cell]:G4} kg {Grid.Temperature[cell]:F1} K{(Grid.Solid[cell] ? " solid" : "")}{(ColonyOwner.OwnsFluidCell(cell) ? " owned" : "")}";
-                Record("ice melted into an owned cell", status.OpenedCells > recorded["opened"] && !Grid.Solid[Cell(6, 2)],
-                    $"opened {status.OpenedCells - recorded["opened"]}; ice cell {Describe(Cell(6, 2))}");
+                // The ice's 400 kg melts into the owner (it may melt before the
+                // owner ever closes its cell, so no opening need be counted).
+                var arenaWater = Enumerable.Range(0, Width).Sum(x => Enumerable.Range(0, Height).Sum(y => SpeciesMass(Cell(x, y), SimHashes.Water)));
+                Record("ice melted into an owned cell", !Grid.Solid[Cell(6, 2)] && ColonyOwner.OwnsFluidCell(Cell(6, 2)) && arenaWater > 380,
+                    $"opened {status.OpenedCells - recorded["opened"]}, closed {status.ClosedCells - recorded["closed"]}; ice cell {Describe(Cell(6, 2))}; owned water in the arena {arenaWater:G4} kg");
                 Record("melt water booked", status.InjectedKg > recorded["injected"] + 300, $"{status.InjectedKg - recorded["injected"]:G4} kg");
                 // A small cell of water freezes into ice debris, a larger one into a tile.
                 var frozen = Enumerable.Range(0, 4).Count(x => Grid.Solid[Cell(x, 1)]);

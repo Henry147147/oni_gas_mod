@@ -245,7 +245,10 @@ physics is no longer suppressed there, so the native solid stays as placed);
 at its next step the owner displaces the cell's contents equally into its open
 neighbours and closes it. A solid gone again before that step (unstable sand
 falling at once) cancels the close; the fluid ONI puts back there is its copy of
-the owner's, so nothing is injected;
+the owner's, so nothing is injected. A solid placed after its close was queued
+and melted within the same native update leaves fluid in a cell the owner then
+closes: the shadow reopens such a cell once and takes ONI's fluid (a queued
+open marks the wall as opening, so nothing opens or is taken twice);
 the normal momentum on its faces becomes heat of the neighbour that carried it.
 A cell inside a block closing at once sends its contents to the nearest
 open cell through the block (within 16); only a sealed cell's contents go to
