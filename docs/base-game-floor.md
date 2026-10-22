@@ -3,7 +3,8 @@
 User decision received 2026-10-22; definitions recorded before measurements.
 This protocol applies to saved **game profiles**, including scratch feature
 variants. It changes no existing physics gate. Only the user can change these
-setups or metrics after measurements begin. No floor results are available yet.
+setups or metrics after measurements begin. Results below are partial; the
+opt-in game profile has not passed the floor.
 
 ## Common setup and measurements
 
@@ -81,11 +82,25 @@ report reference error for the user's judgment.
 
 | Scenario | Vanilla | Truth | Game profile | Errors / floor result |
 | --- | --- | --- | --- | --- |
-| F1 | pending | pending | pending | unmeasured |
-| F2 | pending | pending | pending | unmeasured |
-| F3 | pending | pending | pending | unmeasured |
+| F1 | Equalises [55.8, 56.6] s across three runs; final L/R/divider fractions about 0.47145/0.46973/0.05882 | Final fractions 64/136, 64/136, 8/136; dynamic truth unresolved | Equalises [4.8, 5.0] s; fractions 0.47088/0.46982/0.05930 | Divider error about 4.76e-4 versus vanilla below 7e-6: **fails**. Timing unresolved. |
+| F2 | Closed leakage 0; open equalisation censored at 120 s | Closed leakage 0; dynamic truth unresolved | Closed leakage 0; equalises [0, 0.2] s after fully open | Leakage matches truth; timing unresolved. Command-to-open delays 3.0/2.8 s. |
+| F3 | Levels [68.8, 69.0] s; final depth 2.0000003 m | Nominal depth 2 m; phase/compression correction and dynamic truth unresolved | Levels [7.4, 7.6] s; final depth 1.999844 m | Nominal depth errors 3e-7/1.56e-4 m; correction still needed. No floor pass claimed. |
 | F4 | pending | pending | pending | unmeasured |
-| F5 | pending | pending | pending | unmeasured |
+| F5 | Settling censored; oil below water; depths water/oil 4.0000004/2.000003 m | Water below oil; nominal depths 4/2 m; dynamic truth unresolved | Settles [9.8, 10.0] s; water below oil; depths 3.999944/2.000000 m; zero overlap | Layer order improves; nominal depth errors water/oil 5.6e-5/0 m; corrections and timing unresolved. |
+
+The game runs use opt-in profile 17 at `eb42f8e`, GPU rendering, the low CPU
+lock and the unchanged 120 s scenarios. All four finish without faults or
+skipped relaxations, with maximum relative mass/energy errors about
+2e-15/5.5e-17. Whole-colony trace sinks are about 2.3e-7 kg / 0.075 J per run;
+these are stability and ledger passes, not accuracy-floor passes. Vanilla
+starts use the same runtime catalogue and placed fields. F1 initially holds
+42.5673 kg O2; F2 106.418 kg O2; F3 40001.84 kg water.
+
+The strict 8× F1 reference admits its first 0.0005 s interval (six accepted
+steps, seven rejections). Initial F2/F3/F5 admission probes reached a 120 s
+process limit; no resolved trajectories or event times are established.
+The matching reference solid heat model for F4 is still absent. These limits
+leave the affected truth metrics unresolved under the original protocol.
 
 ## Performance and feature variants
 
