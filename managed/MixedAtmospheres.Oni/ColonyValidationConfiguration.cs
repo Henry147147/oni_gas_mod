@@ -118,7 +118,9 @@ namespace MixedAtmospheres.Oni
                 configuration.VerifyNaturalAutosave || configuration.VerifyPersistentActors || configuration.VerifyLiveBreathing ||
                 configuration.VerifyTransientParticles || configuration.SubnormalCarbonParticle || configuration.ReloadInProcess ||
                 configuration.IdleReservoirLeaseOnly || configuration.PrivateOwnedLoadRejection ||
-                !string.IsNullOrEmpty(configuration.LoadSavePath) || !string.IsNullOrEmpty(configuration.PrivateFileProtocolAssemblySha256))
+                // A colony-owner long run may start from a prepared save (the ten-cycle run).
+                (!string.IsNullOrEmpty(configuration.LoadSavePath) && configuration.Mode != "colony-owner-load") ||
+                !string.IsNullOrEmpty(configuration.PrivateFileProtocolAssemblySha256))
                 throw new InvalidDataException("Long runs exclude fixed-window save, reload, actor, breathing and particle controls; " +
                     "natural autosaves still use the ordinary paired save path.");
         }
