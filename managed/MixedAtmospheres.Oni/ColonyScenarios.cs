@@ -986,6 +986,15 @@ namespace MixedAtmospheres.Oni
                         if (Grid.IsValidCell(cell) && Grid.Solid[cell] && Grid.Element[cell].hardness < 150 && Grid.Objects[cell, (int)ObjectLayer.Building] == null)
                             SimMessages.Dig(cell);
                     }
+                // Loose ground (sand, regolith) resting on the room would fall
+                // in and entomb the machines: dig its columns out too.
+                for (var x = px - 24; x <= px + 24; ++x)
+                    for (var y = py + 4; ; ++y)
+                    {
+                        var cell = Grid.XYToCell(x, y);
+                        if (!Grid.IsValidCell(cell) || !Grid.Solid[cell] || !Grid.Element[cell].IsUnstable || Grid.Objects[cell, (int)ObjectLayer.Building] != null) break;
+                        SimMessages.Dig(cell);
+                    }
             }
             if (Once(4, "floor"))
                 for (var x = px - 24; x <= px + 24; ++x)
@@ -998,15 +1007,18 @@ namespace MixedAtmospheres.Oni
             {
                 placed.Clear();
                 var left = px - 3; var right = px + 3;
-                // Left of the pod: generator, diffuser, coal and algae, enough
+                // Left of the pod: generator, the carbon dioxide scrubber beside
+                // it (gases mix but spread slowly along the base, so the scrubber
+                // sits by the largest source), diffuser, coal and algae, enough
                 // for the ten-cycle run with margin (the generator burns its
                 // coal whenever its loads draw power).
                 var generator = Place(GeneratorConfig.ID, ref left, -1);
+                var scrubber = Place(CO2ScrubberConfig.ID, ref left, -1);
                 var diffuser = Place(MineralDeoxidizerConfig.ID, ref left, -1);
                 Spill(SimHashes.Carbon, left, py, 5000); Spill(SimHashes.Carbon, left - 1, py, 5000); left -= 3;
                 Spill(SimHashes.Algae, left, py, 4500); Spill(SimHashes.Algae, left - 1, py, 4500);
-                // Right of the pod: scrubber, the water reservoirs and the ration box.
-                var scrubber = Place(CO2ScrubberConfig.ID, ref right, 1);
+                // Right of the pod: the water reservoirs (piped to the scrubber
+                // along the floor row and back one row up) and the ration box.
                 var water = Place(LiquidReservoirConfig.ID, ref right, 1);
                 var waste = Place(LiquidReservoirConfig.ID, ref right, 1);
                 var rations = Place(RationBoxConfig.ID, ref right, 1);
@@ -1047,6 +1059,8 @@ namespace MixedAtmospheres.Oni
                 Record("the life support shares the generator's circuit", loads.Count == 2 && circuit != ushort.MaxValue &&
                     loads.All(b => b.GetComponent<EnergyConsumer>()?.CircuitID == circuit),
                     $"generator circuit {circuit}; " + string.Join("; ", loads.Select(b => b.PrefabID().Name + ": " + MachineState(b.gameObject))));
+                var buried = Components.BuildingCompletes.Items.Where(b => b.GetComponent<EntombVulnerable>() != null).Select(b => (b.PrefabID().Name, cells: Entombing(b.gameObject))).Where(b => b.cells.Length > 0).ToList();
+                Record("no machine is entombed", buried.Count == 0, string.Join("; ", buried.Select(b => $"{b.Name}: {b.cells}")));
                 Record("the owner's ledgers stayed closed", status.MaximumRelativeMassError < 1e-9 && status.MaximumRelativeEnergyError < 1e-9,
                     $"mass {status.MaximumRelativeMassError:G3}, energy {status.MaximumRelativeEnergyError:G3}");
                 Finish();
@@ -1203,8 +1217,17 @@ namespace MixedAtmospheres.Oni
                 var source = g.GetComponent<Generator>(); var running = g.GetComponent<Operational>();
                 return $"[generator circuit {source?.CircuitID}, operational {running?.IsOperational}, joules {source?.JoulesAvailable:G4}]";
             }));
+            var solid = Entombing(building);
             return $"operational {operational?.IsOperational}, active {operational?.IsActive}, unmet [{flags}], powered {power?.IsPowered}, circuit {power?.CircuitID}, " +
-                $"consumer rate {consumer?.consumptionRate}, element available {consumer?.IsElementAvailable}; {sources}";
+                $"consumer rate {consumer?.consumptionRate}, element available {consumer?.IsElementAvailable}; {sources}" + (solid.Length > 0 ? $"; solid cells {solid}" : "");
+        }
+        // What entombs a building: the solid cells of its footprint.
+        internal static string Entombing(GameObject building)
+        {
+            var origin = Grid.PosToCell(building);
+            return string.Join(" ", (building.GetComponent<OccupyArea>()?.OccupiedCellsOffsets ?? new CellOffset[0])
+                .Select(o => Grid.OffsetCell(origin, o)).Where(c => Grid.IsValidCell(c) && Grid.Solid[c])
+                .Select(c => { Grid.CellToXY(c, out var x, out var y); return $"{Grid.Element[c].id}@{x},{y}"; }));
         }
         private static double CellMass(int cell)
         {
