@@ -255,7 +255,13 @@ stored heat, wall impulse, unresolved-update counts and gravity internal work.
 Published accounts contain only the audited interval's committed substeps,
 so retries cannot publish rejected heat or work. These observations preserve physical
 updates and the single interval entropy admission. Mixed-material conduction
-uses the reference pair's diagnostic entropy quadrature. Silent validation
+uses adaptive diagnostic entropy quadrature. Its energy path interpolates the
+stored endpoints, preserving the colder endpoint after a large transfer. Local
+refinement may reach depth 32 within the previous depth-20 tree's sample-work
+limit; tolerance is unchanged. `collect_conduction_entropy` (default true)
+controls only this per-stage report. The game disables it: the field is zero,
+while endpoint EOS validation, physical heat, conservation and the mandatory
+whole-interval entropy audit remain active. Silent validation
 controls compare heat/work reports with the oracle, reject a constrained
 budget without leakage, and require identical one/twelve-worker reports.
 
@@ -837,3 +843,12 @@ do not certify current automatic-multigrid active-cell performance.
   J/K products retain canonical momentum and count their projections. Other
   pressure, regularization and heat-deposition transients still lack complete
   per-value rounding ledgers; interval endpoints and inputs retain range checks.
+
+The conduction diagnostic control uses two 60-frame Terra runs under the whole
+CPU lock: report enabled/disabled mean owner advance 1.071/0.960 s, observed
+frame spacing 1.350/1.203 s. Both pass without faults; disabled-report maximum
+relative mass/energy errors are 1.06e-15/2.57e-16. The game omits only the
+per-stage conduction entropy report. Six offline on/off endpoints and four
+parent/candidate endpoints are byte-identical. Pipes and terrain fault replays
+now complete through production with the report enabled too. These runs use
+the owner inputs preceding the later managed cell-announcement change.

@@ -236,6 +236,17 @@ rendered `native-liquid-heat-domain` (Windows `-NativeDomain water-heat`) result
 are in [sealed native domain](../docs/sealed-native-domain.md). Fluid/solid
 exchange, variable material properties and phase change are not covered.
 
+The production conduction report integrates `dU/T` for mixed cells along a
+convex interpolation of the stored energy endpoints. Forming `U0 + x*(U1-U0)`
+can lose a cold endpoint after a large transfer. Adaptive Simpson refinement
+keeps its tolerance and previous maximum sample count, with depth 32 for narrow
+endpoint layers. `MacKernelOptions::collect_conduction_entropy` defaults true;
+the game omits this per-stage diagnostic to avoid its EOS quadrature cost.
+Physical heat, endpoint EOS validation, all energy accounts and the mandatory
+whole-interval entropy audit still run. `ma_mac_kernel_unit_tests
+--conduction-entropy-only` checks extreme endpoints, an analytic integral and
+identical fields/audits with the report enabled and disabled.
+
 ## Verification
 
 - `ma_mac_shock_heat_tests` (eight groups): exact unequal-capacity pairs, reflection,

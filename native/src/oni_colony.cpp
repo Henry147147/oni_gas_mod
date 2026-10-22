@@ -319,6 +319,7 @@ void activate(std::unique_ptr<Session> next, std::uint64_t thread) {
     // Leave two cores for the game's own threads.
     auto options = mac_kernel_default_options();
     options.threads = std::clamp(available_cpus(), 3U, 18U) - 2;
+    options.collect_conduction_entropy = false;
     set_mac_kernel_default_options(options);
     next->status = empty_status(); next->status.state = 1; next->status.session = ++sessions; next->status.start_thread = thread;
     start_thread.store(thread, std::memory_order_relaxed);

@@ -5,6 +5,7 @@
 // gas/liquid cells present, Newton relinearizes each against the complete EOS.
 // Viscosity relaxes the reference rank-one stress modes in multicolour order.
 #include "mac_kernel_detail.hpp"
+#include "mac_kernel_heat_entropy.hpp"
 #include "mixed_atmospheres/mac_phase_change.hpp"
 #include "mixed_atmospheres/thermal.hpp"
 #include <numeric>
@@ -88,29 +89,6 @@ double caloric_entropy(double capacity, double temperature, double before, doubl
     if (!(relative > -1)) throw EosRefinement{};
     const long double factor = relative == 0 ? 1 : std::log1p(relative) / relative;
     const auto value = static_cast<double>((static_cast<long double>(change) / temperature) * factor);
-    if (!std::isfinite(value)) throw ArithmeticRefinement{};
-    return value;
-}
-// Diagnostic dS = dU/T integral of one mixed cell's heat at fixed mass and
-// volume (adaptive Simpson, as the retained thermal oracle's). temperature(x)
-// reads the cell at U_before + x * change; it never changes the endpoint.
-template<class Temperature> double mixed_cell_entropy(const Temperature& temperature, double change, long double allowance) {
-    if (change == 0) return 0;
-    const auto sample = [&](double x) { return static_cast<long double>(change) / temperature(x); };
-    const auto fa = sample(0), fm = sample(.5), fb = sample(1), initial = (fa + 4 * fm + fb) / 6;
-    const auto refine = [&](auto&& self, double a, double b, long double left, long double middle, long double right,
-        long double estimate, long double tolerance, unsigned depth) -> long double {
-        const auto center = std::midpoint(a, b), ql = std::midpoint(a, center), qr = std::midpoint(center, b);
-        const auto fl = sample(ql), fr = sample(qr);
-        const auto first = (center - a) / 6 * (left + 4 * fl + middle), second = (b - center) / 6 * (middle + 4 * fr + right);
-        const auto refined = first + second, error = refined - estimate;
-        if (!std::isfinite(refined)) throw ArithmeticRefinement{};
-        if (std::abs(error) <= 15 * tolerance) return refined + error / 15;
-        if (depth == 0 || ql == a || qr == b) throw EosRefinement{};
-        return self(self, a, center, left, fl, middle, first, tolerance / 2, depth - 1) +
-            self(self, center, b, middle, fr, right, second, tolerance / 2, depth - 1);
-    };
-    const double value = static_cast<double>(refine(refine, 0, 1, fa, fm, fb, initial, allowance / 8, 20));
     if (!std::isfinite(value)) throw ArithmeticRefinement{};
     return value;
 }
@@ -424,22 +402,27 @@ void stage_conduction(Context& c, Fields& f, double dt, Accounts& acc) {
             o.ops += std::abs(before) + std::abs(h); o.moved += std::abs(h);
             redistribution(o.redistributed, before, low, f.U[i], f.U_remainder[i]);
             if (e.kind[i] != mixed_cell) {
-                o.entropy.add(caloric_entropy(e.Cv[i], e.T[i], before, f.U[i]));
-                o.entropy.add(f.U_remainder[i] / (e.T[i] + (f.U[i] - before) / e.Cv[i]) - low / e.T[i]);
+                const double entropy = caloric_entropy(e.Cv[i], e.T[i], before, f.U[i]);
+                if (c.options.collect_conduction_entropy) {
+                    o.entropy.add(entropy);
+                    o.entropy.add(f.U_remainder[i] / (e.T[i] + (f.U[i] - before) / e.Cv[i]) - low / e.T[i]);
+                }
                 continue;
             }
             const double change = f.U[i] - before;
             const auto temperature = [&](double x) {
-                DD energy; energy.add(before); energy.add(x * change);
+                const double energy = heat_path_energy(before, f.U[i], x);
                 State state;
-                if (!evaluate_state(model, f, N, i, stats(i), energy.value(), material_volume(f, g.V, i), state)) throw EosRefinement{};
+                if (!evaluate_state(model, f, N, i, stats(i), energy, material_volume(f, g.V, i), state)) throw EosRefinement{};
                 return state.T;
             };
             const double after = temperature(1);
-            const long double allowance = 128 * static_cast<long double>(eps) *
-                (std::abs(before) / e.T[i] + std::abs(f.U[i]) / after + e.Cv[i]);
-            o.entropy.add(mixed_cell_entropy(temperature, change, allowance));
-            o.entropy.add(f.U_remainder[i] / after - low / e.T[i]);
+            if (c.options.collect_conduction_entropy) {
+                const long double allowance = 128 * static_cast<long double>(eps) *
+                    (std::abs(before) / e.T[i] + std::abs(f.U[i]) / after + e.Cv[i]);
+                o.entropy.add(mixed_cell_entropy(temperature, change, allowance));
+                o.entropy.add(f.U_remainder[i] / after - low / e.T[i]);
+            }
         }
         return o;
     })) {

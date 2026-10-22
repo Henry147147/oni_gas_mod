@@ -3,6 +3,7 @@
 // fail-closed admission of unported selectors, the production policy's
 // equilibrium certificate and the interval audit report.
 #include "mac_kernel_fixture.hpp"
+#include "../src/mac_kernel_heat_entropy.hpp"
 #include <cstdlib>
 
 using namespace ma::testing;
@@ -20,10 +21,58 @@ MacClosedWorld production_run(MacClosedWorld w, std::size_t intervals, unsigned 
     for (std::size_t n = 0; n < intervals; ++n) w = advance_mac_production(w, seconds, 1024, o).world;
     return w;
 }
+void conduction_entropy_control() {
+    using ma::experimental::mac_kernel::heat_path_energy;
+    using ma::experimental::mac_kernel::mixed_cell_entropy;
+    bool endpoints = true;
+    for (const auto [before, after] : {std::pair{-1e18, 1.}, std::pair{1., -1e18},
+                                     std::pair{1e18, 1.}, std::pair{1., 1e18}}) {
+        endpoints = endpoints && heat_path_energy(before, after, 0) == before &&
+            heat_path_energy(before, after, 1) == after;
+    }
+    check(endpoints, "conduction diagnostic preserves extreme heat endpoints");
+    bool accurate = true;
+    for (const auto [before, after] : {std::pair{1., 1e6}, std::pair{1e6, 1.}}) {
+        const auto temperature = [&](double x) { return heat_path_energy(before, after, x); };
+        const double measured = mixed_cell_entropy(temperature, after - before, 1e-10L);
+        const long double expected = std::log(static_cast<long double>(after) / before);
+        accurate = accurate && std::abs(measured - expected) <= 1e-10L;
+    }
+    check(accurate, "conduction diagnostic resolves narrow heating and cooling layers");
+    auto sc = mixed(12, 12);
+    const auto& s = setup();
+    for (std::size_t i = 0; i < sc.state.cells.size(); ++i) if (!sc.state.grid.walls[i])
+        sc.state.cells[i].mixture = s.mixture(1, 100000, i % 12 < 6 ? 330 : 300, .2);
+    const auto source = owner(sc);
+    MacKernelOptions options;
+    const auto measured = advance_mac_production(source, .1, 1024, options);
+    const auto report = last_mac_production_report();
+    options.collect_conduction_entropy = false;
+    const auto omitted = advance_mac_production(source, .1, 1024, options);
+    const auto quiet = last_mac_production_report();
+    bool same = measured.world.checkpoint() == omitted.world.checkpoint() &&
+        report.entropy_change_j_per_k == quiet.entropy_change_j_per_k &&
+        report.entropy_allowance_j_per_k == quiet.entropy_allowance_j_per_k &&
+        report.energy_residual_j == quiet.energy_residual_j && report.energy_bound_j == quiet.energy_bound_j &&
+        report.audits.size() == quiet.audits.size();
+    for (std::size_t i = 0; i < report.audits.size() && same; ++i) {
+        const auto& a = report.audits[i]; const auto& b = quiet.audits[i];
+        same = a.passed && b.passed && a.residual == b.residual && a.bound == b.bound &&
+            a.rounding_allowance == b.rounding_allowance;
+    }
+    check(same && report.physical.conduction_contacts > 0 &&
+        report.physical.conductive_entropy_j_per_k > 0 && quiet.physical.conductive_entropy_j_per_k == 0 &&
+        !quiet.reference_fallback, "conduction diagnostic toggle preserves fields and interval audits");
+}
+
 }
 
 int main(int argc, char** argv) {
     try {
+        if (argc > 1 && std::string(argv[1]) == "--conduction-entropy-only") {
+            conduction_entropy_control();
+            return failures == 0 ? 0 : 1;
+        }
         std::vector<unsigned> thread_counts{1, 2, 4, 8, 12};
         if (argc > 1 && std::string(argv[1]) == "--quick") thread_counts = {1, 3};
         const auto& s = setup();
@@ -131,6 +180,7 @@ int main(int argc, char** argv) {
             }
             check(all && k.entropy_change_j_per_k >= -k.entropy_allowance_j_per_k, "interval audit covers every quantity");
         }
+        conduction_entropy_control();
         std::cout << (failures == 0 ? "ALL PASS" : "SOME FAILED") << '\n';
         return failures == 0 ? 0 : 1;
     } catch (const std::exception& e) { std::cerr << "FAIL " << e.what() << '\n'; return 1; }

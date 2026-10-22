@@ -15,7 +15,7 @@ namespace ma::experimental {
 // MacExecutionPolicy::production or advance_mac_production(); the reference
 // path and legacy checkpoint bytes are unchanged; production selection is
 // persisted in version 6. Execution options never
-// change results: the thread count only distributes fixed blocks, and every
+// change stored fields: the thread count only distributes fixed blocks, and every
 // reduction combines fixed block partials in block order.
 struct MacKernelOptions {
     // Worker threads; the result never depends on it.
@@ -31,6 +31,10 @@ struct MacKernelOptions {
     // the saved pressure setting.
     // Diagnostics only: wall-clock stage timing (does not affect results).
     bool collect_stage_timing = false;
+    // Diagnostic dS from conduction alone. Disabling it omits only the
+    // physical report field; endpoint EOS validation and the mandatory
+    // whole-interval entropy and conservation audits still run.
+    bool collect_conduction_entropy = true;
     void validate() const;
 };
 // Production admission (MAC_KERNEL.md, "Coverage and admission"): supported
@@ -81,6 +85,7 @@ struct MacKernelPhysicalReport {
     std::size_t conduction_stages = 0, conduction_contacts = 0, conduction_iterations = 0,
         unresolved_conduction_updates = 0;
     MacEnergy conductive_redistribution_j;
+    // Zero when collect_conduction_entropy is disabled.
     double conductive_entropy_j_per_k = 0;
     std::size_t viscosity_stages = 0, viscosity_modes = 0,
         unresolved_viscous_heat_updates = 0, unresolved_viscous_momentum_updates = 0;
