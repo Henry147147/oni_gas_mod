@@ -743,17 +743,19 @@ namespace MixedAtmospheres.Oni
         }
 
         // A steam geyser shifted to its active period erupts into the owner.
+        private static GameObject? geyser;
         private static void Geyser(int frame)
         {
             if (Once(0, "arena")) Arena((x, y) => y == 0 ? (SimHashes.Granite, 1000f, 300f) : (SimHashes.Oxygen, .3f, 300f));
             if (Once(6, "spawn"))
             {
                 recorded["water"] = ArenaSpecies(SimHashes.Steam) + ArenaSpecies(SimHashes.Water);
-                var geyser = GameUtil.KInstantiate(Assets.GetPrefab(GeyserGenericConfig.ID + "_" + GeyserGenericConfig.Steam),
+                geyser = GameUtil.KInstantiate(Assets.GetPrefab(GeyserGenericConfig.ID + "_" + GeyserGenericConfig.Steam),
                     Grid.CellToPosCBC(Cell(3, 1), Grid.SceneLayer.BuildingBack), Grid.SceneLayer.BuildingBack);
                 geyser.SetActive(true);
-                geyser.GetComponent<global::Geyser>().ShiftTimeTo(global::Geyser.TimeShiftStep.ActiveState);
             }
+            // Its configuration exists once it has spawned (a frame later).
+            if (Once(7, "erupt")) geyser!.GetComponent<global::Geyser>().ShiftTimeTo(global::Geyser.TimeShiftStep.ActiveState);
             if (Once(40, "check"))
             {
                 var added = ArenaSpecies(SimHashes.Steam) + ArenaSpecies(SimHashes.Water) - recorded["water"];

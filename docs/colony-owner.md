@@ -28,7 +28,9 @@ play.
   identities are announced to ONI's grid caches (`Grid.Element` follows only
   these announcements, so a cell the owner leaves is announced back with
   ONI's element). A cell a solid has just replaced shows the solid at once.
-  `Grid.Pressure` returns the owner's mechanical pressure.
+  `Grid.Pressure` returns the owner's mechanical pressure. A reading leaves
+  out constituents below 1e-300 kg (kernel rounding products that the
+  reference EOS cannot evaluate); the cell keeps them.
 - **Transactions.** Mass emission, mass consumption (radius), additive cell-mass
   edits and cell heat in the asteroid go to the owner and commit at the start
   of the next native frame, with consumed/emitted callbacks returned through the
@@ -410,6 +412,7 @@ Environment variables of the game process (the harness passes them through):
 - `MA_COLONY_DUMP_FRAME=n` (with the path): also write the world before frame
   n's flow.
 - `MA_COLONY_SLOW_DUMP=s` (with the path): also write the world before the
-  first flow step slower than s seconds.
+  first flow step still running after s seconds (a watchdog, so a step that
+  never finishes is caught).
 
 A failing transfer names its cell and the cell's contents in the fault.

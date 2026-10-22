@@ -139,29 +139,22 @@ def main() -> None:
         private_directory.mkdir()
         shutil.copy2(validator.resolve(), private_directory / "GameMonoFileProtocolValidation.dll")
     (output / "mod.yaml").write_text(
-        'title: "Mixed Atmospheres - Integration Probe"\n'
-        'description: "Developer probe only. Validates native loading and scoped simulation hooks; experimental physics requires explicit private configuration."\n'
+        'title: "Mixed Atmospheres"\n'
+        'description: "Private base-game playtest build (Linux). The mod\'s own solver runs every gas and liquid of a new colony; existing saves keep ONI\'s simulation."\n'
         'staticID: "MixedAtmospheres.IntegrationProbe"\n', encoding="utf-8")
     (output / "mod_info.yaml").write_text(
         f'minimumSupportedBuild: {args.oni_build}\nversion: "0.1.0-probe"\nAPIVersion: 2\n', encoding="utf-8")
     (output / "README.txt").write_text(
-        "Mixed Atmospheres - developer integration probe\n\n"
-        "This is NOT the playable gas/liquid overhaul. Default probes preserve native physics.\n"
-        "Explicit native-domain modes attempt experimental ownership in a disposable sealed room.\n"
-        "Sealed mixed-air and water equilibrium controls are separate from playable-colony readiness.\n"
-        "Scalar saves stay guarded; admitted actor-free colony saves retain paired native and physical state.\n"
-        "Place this complete folder under ONI's mods/Dev folder. Enable the probe,\n"
-        "restart to the main menu, and inspect integration-probe.json and Player.log.\n"
-        "Keep only one folder with staticID MixedAtmospheres.IntegrationProbe in mods/Dev;\n"
-        "duplicate copies can cause ONI to load an older probe instead.\n"
-        "Native libraries must remain under native/<platform>; the root DLLs are managed.\n"
-        "At the main menu this private probe also exports game-contract-local.\n"
-        "Those game-derived files are for local interface tests only: never redistribute them.\n"
-        "For colony checks, use tools/run_colony_validation.ps1 from the source\n"
-        "workspace. It creates a separate disposable colony and restores settings.\n"
-        "Never use an existing personal colony for development validation.\n"
-        "A successful report proves only its listed scoped checks, not\n"
-        "authoritative colony simulation replacement.\n",
+        "Mixed Atmospheres - private base-game playtest build (Linux)\n\n"
+        "Place this complete folder under ONI's mods/Dev folder as MixedAtmospheres, enable\n"
+        "Mixed Atmospheres in Mods and restart. A new base-game colony (Spaced Out! off) is\n"
+        "then simulated by the mod: every gas and liquid of the asteroid belongs to its solver.\n"
+        "Existing colonies and saves made without the mod keep ONI's own simulation; saves\n"
+        "made with it need the mod to load. Keep only one folder with staticID\n"
+        "MixedAtmospheres.IntegrationProbe in mods/Dev. Native libraries must remain under\n"
+        "native/<platform>; the root DLLs are managed. At the main menu the mod exports\n"
+        "game-contract-local for local interface tests: never redistribute those files.\n"
+        "Not a release; see the repository README for status and limits.\n",
         encoding="utf-8")
     if build_info is not None:
         (output / "native-build-provenance.json").write_text(json.dumps(build_info, indent=2) + "\n", encoding="utf-8")

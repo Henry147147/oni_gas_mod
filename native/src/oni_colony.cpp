@@ -1339,14 +1339,24 @@ void run_frame(std::uint64_t ticket, double seconds, const char* refusal, std::u
         if (const char* frame = std::getenv("MA_COLONY_DUMP_FRAME"); frame && s.status.completed_frames + 1 == std::strtoull(frame, nullptr, 10))
             dump(std::getenv("MA_COLONY_FAULT_DUMP"));
         std::optional<MacClosedAdvance> flowed;
-        const auto flow_started = std::chrono::steady_clock::now();
-        try { flowed.emplace(world.advanced(seconds, 65536, MacExecutionPolicy::production)); }
-        catch (...) { dump(std::getenv("MA_COLONY_FAULT_DUMP")); throw; }
         // MA_COLONY_SLOW_DUMP=s also writes the world before the first flow
-        // step that took longer than s seconds.
-        if (static bool slow_dumped = false; !slow_dumped) if (const char* slow = std::getenv("MA_COLONY_SLOW_DUMP"))
-            if (std::chrono::duration<double>(std::chrono::steady_clock::now() - flow_started).count() > std::atof(slow)) {
-                dump(std::getenv("MA_COLONY_FAULT_DUMP")); slow_dumped = true; }
+        // step still running after s seconds (a watchdog, so a step that
+        // never finishes is caught too).
+        static std::atomic<bool> slow_dumped{false};
+        std::mutex watch; std::condition_variable flow_done; bool finished = false; std::thread watchdog;
+        if (const char* slow = std::getenv("MA_COLONY_SLOW_DUMP"); slow && !slow_dumped.load())
+            watchdog = std::thread([&, limit = std::atof(slow)] {
+                std::unique_lock held(watch);
+                if (!flow_done.wait_for(held, std::chrono::duration<double>(limit), [&] { return finished; }) && !slow_dumped.exchange(true))
+                    dump(std::getenv("MA_COLONY_FAULT_DUMP"));
+            });
+        const auto stop_watchdog = [&] {
+            { std::lock_guard held(watch); finished = true; }
+            flow_done.notify_all(); if (watchdog.joinable()) watchdog.join();
+        };
+        try { flowed.emplace(world.advanced(seconds, 65536, MacExecutionPolicy::production)); }
+        catch (...) { stop_watchdog(); dump(std::getenv("MA_COLONY_FAULT_DUMP")); throw; }
+        stop_watchdog();
         auto advanced = std::move(*flowed);
         world = std::move(advanced.world);
         // Phase change (the production kernel has none): each cell holding a
