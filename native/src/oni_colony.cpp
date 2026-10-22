@@ -231,7 +231,8 @@ std::size_t rect_index(const MAOniColonyConfig& c, std::uint32_t public_cell) {
 }
 std::vector<long double> totals(const MacClosedWorld& w) {
     std::vector<long double> out(w.registry().size());
-    for (const auto& cell : w.state().cells) for (std::size_t k = 0; k < out.size(); ++k) out[k] += cell.mixture.masses[k];
+    // Zero masses add nothing; skipping them leaves every sum unchanged.
+    for (const auto& cell : w.state().cells) for (std::size_t k = 0; k < out.size(); ++k) if (const double m = cell.mixture.masses[k]; m != 0) out[k] += m;
     return out;
 }
 // A cell's reading. A trace far below binary64's normal range (a rounding
@@ -696,13 +697,37 @@ MacClosedWorld convert_identities(Session& s, MacClosedWorld world, double secon
     const double share = 1 - std::exp(-seconds / phase_relaxation_time_s);
     std::vector<MacFluidTransfer> edits; struct Product { std::size_t cell, species; double mass; std::int32_t byproduct; double byproduct_kg; };
     std::vector<Product> products;
-    for (std::size_t i = 0; i < st.cells.size() && edits.size() < 4000; ++i) {
+    // Cells holding a species some rule converts, read in parallel (each
+    // reading is the cell's own; the order of use below is the cells').
+    struct Candidate { std::size_t cell; double t = 0, liquid_volume = 0; bool read = false; };
+    std::vector<Candidate> candidates;
+    const auto scan_start = std::chrono::steady_clock::now();
+    for (std::size_t i = 0; i < st.cells.size(); ++i) {
         if (st.grid.walls[i] || s.space[i]) continue;
         const auto& m = st.cells[i].mixture;
         bool candidate = false; for (const auto& r : rules) candidate = candidate || m.masses[r.from] > 0;
-        if (!candidate) continue;
-        double t = 0, liquid_volume = 0;
-        try { const auto e = evaluate_cell(*cat.eos, m, mac_material_volume(st, i)); t = e.temperature_k; liquid_volume = e.liquid_volume_m3; } catch (...) { continue; }
+        if (candidate) candidates.push_back({i});
+    }
+    {
+        constexpr std::size_t block_size = 256;
+        const auto blocks = (candidates.size() + block_size - 1) / block_size;
+        const auto options = mac_kernel_default_options();
+        const auto threads = static_cast<unsigned>(std::min<std::size_t>(options.threads, std::max<std::size_t>(1, blocks)));
+        if (blocks > 0) mac_kernel::pool_for(threads).run(blocks, [&](std::size_t block) {
+            for (std::size_t q = block * block_size; q < std::min(candidates.size(), (block + 1) * block_size); ++q) {
+                auto& c = candidates[q];
+                try { const auto e = evaluate_cell(*cat.eos, st.cells[c.cell].mixture, mac_material_volume(st, c.cell)); c.t = e.temperature_k; c.liquid_volume = e.liquid_volume_m3; c.read = true; }
+                catch (...) {}
+            }
+        });
+    }
+    const auto read_done = std::chrono::steady_clock::now();
+    std::vector<double> temperature;
+    for (const auto& c : candidates) {
+        if (edits.size() >= 4000) break;
+        if (!c.read) continue;
+        const auto i = c.cell; const auto& m = st.cells[i].mixture;
+        const double t = c.t, liquid_volume = c.liquid_volume;
         // The liquid the projection shows (as project() picks it).
         std::size_t shown = SIZE_MAX; double best = 0;
         if (liquid_volume >= .5 * st.grid.volume_m3())
@@ -717,13 +742,12 @@ MacClosedWorld convert_identities(Session& s, MacClosedWorld world, double secon
             const double byproduct = r.byproduct != 0 ? (r.unseen ? converted : converted * std::clamp(r.fraction, 0.0, 1.0)) : 0;
             edits.push_back({i, r.from, false, converted, 0});
             products.push_back({i, r.to, converted - byproduct, r.byproduct, byproduct});
+            // The cell's temperature before conversion is the products' temperature.
+            temperature.push_back(t);
         }
     }
+    const auto plan_done = std::chrono::steady_clock::now();
     if (edits.empty()) return world;
-    // The cell's temperature before conversion is the products' temperature.
-    std::vector<double> temperature(edits.size());
-    for (std::size_t q = 0; q < edits.size(); ++q)
-        temperature[q] = evaluate_cell(*cat.eos, st.cells[edits[q].cell_index].mixture, mac_material_volume(st, edits[q].cell_index)).temperature_k;
     auto& L = s.ledger;
     auto taken = world.with_fluid_transfers(edits, MacFluidTransferTopology::occupied_mixture);
     world = std::move(taken.world);
@@ -748,6 +772,12 @@ MacClosedWorld convert_identities(Session& s, MacClosedWorld world, double secon
         auto result = world.with_fluid_transfers(given, MacFluidTransferTopology::occupied_mixture);
         world = std::move(result.world);
         for (const auto& parcel : result.parcels) { L.injected[parcel.species_index] += parcel.mass_kg; L.energy_in += parcel_energy(parcel); }
+    }
+    static const bool stage_log = std::getenv("MA_COLONY_STAGE_LOG") != nullptr;
+    if (stage_log && s.status.completed_frames % 10 == 9) {
+        const auto ms = [](auto a, auto b) { return std::chrono::duration<double, std::milli>(b - a).count(); };
+        std::fprintf(stderr, "[Mixed Atmospheres] conversions: %zu candidates read %.1f ms, plan %.1f ms, %zu edits applied %.1f ms\n",
+            candidates.size(), ms(scan_start, read_done), ms(read_done, plan_done), edits.size(), ms(plan_done, std::chrono::steady_clock::now()));
     }
     return world;
 }
