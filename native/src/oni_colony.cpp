@@ -75,6 +75,10 @@ struct Published {
 struct Ledger {
     std::vector<long double> initial, injected, extracted, sunk;
     std::vector<long double> converted; // phase change: + to the product species
+    // Gross phase change per species (evaporated plus condensed), the scale of
+    // a species whose only flow is phase change. Not saved: a restored owner
+    // starts it at |converted|.
+    std::vector<long double> converted_gross;
     long double initial_energy = 0, heat = 0, energy_in = 0, energy_out = 0, energy_sunk = 0;
 };
 struct Session {
@@ -731,7 +735,7 @@ void start(const MAOniColonyConfig& config, std::span<const MAOniColonyMaterial>
     next->reservoir = std::move(settled.reservoir);
     next->world = std::make_shared<const MacClosedWorld>(cat.registry, cat.eos, std::move(settled.state), settings_of(config));
     next->ledger.initial = totals(*next->world); next->ledger.initial_energy = energy_of(*next->world);
-    for (auto* v : {&next->ledger.injected, &next->ledger.extracted, &next->ledger.sunk, &next->ledger.converted}) v->assign(cat.registry.size(), 0);
+    for (auto* v : {&next->ledger.injected, &next->ledger.extracted, &next->ledger.sunk, &next->ledger.converted, &next->ledger.converted_gross}) v->assign(cat.registry.size(), 0);
     next->pairs = with_critical(cat, mac_saturation_pairs(cat.registry, *cat.eos));
     activate(std::move(next), thread);
 }
@@ -1407,7 +1411,7 @@ void run_frame(std::uint64_t ticket, double seconds, const char* refusal, std::u
                 auto relaxed = world.with_phase_relaxation(s.pairs, 1 - std::exp(-seconds / phase_relaxation_time_s));
                 if (relaxed.report.evaporated_kg + relaxed.report.condensed_kg > 0) {
                     const auto after = totals(relaxed.world);
-                    for (std::size_t k = 0; k < after.size(); ++k) L.converted[k] += after[k] - before[k];
+                    for (std::size_t k = 0; k < after.size(); ++k) { L.converted[k] += after[k] - before[k]; L.converted_gross[k] += std::abs(after[k] - before[k]); }
                     s.status.evaporated_kg += relaxed.report.evaporated_kg; s.status.condensed_kg += relaxed.report.condensed_kg;
                 }
                 world = std::move(relaxed.world);
@@ -1438,12 +1442,21 @@ void run_frame(std::uint64_t ticket, double seconds, const char* refusal, std::u
         lap(4); doing = "ledger";
         // Ledgers close: every species and U+K+G against the booked flows.
         const auto now = totals(world);
-        double mass_error = 0;
+        double mass_error = 0; std::size_t worst = 0;
         for (std::size_t k = 0; k < now.size(); ++k) {
             const long double expected = L.initial[k] + L.injected[k] - L.extracted[k] - L.sunk[k] + L.converted[k];
-            const long double scale = L.initial[k] + L.injected[k] + L.extracted[k] + L.sunk[k] + std::abs(L.converted[k]);
-            if (scale > 0) mass_error = std::max(mass_error, static_cast<double>(std::abs(now[k] - expected) / scale));
+            const long double scale = L.initial[k] + L.injected[k] + L.extracted[k] + L.sunk[k] + L.converted_gross[k];
+            if (scale > 0) { const auto e = static_cast<double>(std::abs(now[k] - expected) / scale); if (e > mass_error) { mass_error = e; worst = k; } }
             else if (now[k] != 0) throw std::runtime_error("The colony created an unbooked constituent");
+        }
+        // MA_COLONY_LEDGER_LOG=1: report each frame that raises the worst
+        // relative mass error above 1e-12, with its species (stderr).
+        if (mass_error > 1e-12 && mass_error > s.status.maximum_relative_mass_error && std::getenv("MA_COLONY_LEDGER_LOG")) {
+            const long double expected = L.initial[worst] + L.injected[worst] - L.extracted[worst] - L.sunk[worst] + L.converted[worst];
+            std::fprintf(stderr, "[Mixed Atmospheres] ledger frame %llu (%s): %s relative mass error %.3g (held %.17Lg, booked %.17Lg; injected %.6Lg extracted %.6Lg sunk %.6Lg converted %.6Lg)\n",
+                static_cast<unsigned long long>(s.status.completed_frames + 1), doing, cat.materials[worst].game.id.c_str(), mass_error, now[worst], expected,
+                L.injected[worst], L.extracted[worst], L.sunk[worst], L.converted[worst]);
+            std::fflush(stderr);
         }
         const long double expected_energy = L.initial_energy + L.heat + L.energy_in - L.energy_out - L.energy_sunk;
         const long double energy_scale = std::abs(L.initial_energy) + std::abs(L.heat) + std::abs(L.energy_in) + std::abs(L.energy_out) + std::abs(L.energy_sunk);
@@ -1563,6 +1576,7 @@ void restore(const MAOniColonyConfig& config, std::span<const MAOniColonyMateria
     }
     const auto K = next->catalogue->registry.size(); auto& L = next->ledger;
     for (auto* v : {&L.initial, &L.injected, &L.extracted, &L.sunk, &L.converted}) { v->resize(K); for (auto& x : *v) x = r.ld(); }
+    L.converted_gross.resize(K); for (std::size_t k = 0; k < K; ++k) L.converted_gross[k] = std::abs(L.converted[k]);
     next->pairs = with_critical(*next->catalogue, mac_saturation_pairs(next->catalogue->registry, *next->catalogue->eos));
     for (auto* x : {&L.initial_energy, &L.heat, &L.energy_in, &L.energy_out, &L.energy_sunk}) *x = r.ld();
     MAOniColonyStatus saved_status{};

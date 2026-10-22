@@ -54,7 +54,10 @@ play.
   ([below](#element-consumers-and-emitters)).
 - **Ledgers.** Every species and U+K+G are reconciled each frame against the
   imported inventory plus every booked flow (injections, extractions, the
-  space sink, heat); drift beyond 1e-8 (mass) or 1e-6 (energy) faults the owner.
+  space sink, heat, phase change); drift beyond 1e-8 (mass, relative to the
+  species' booked flows, its phase change counted gross) or 1e-6 (energy)
+  faults the owner. `MA_COLONY_LEDGER_LOG=1` reports on stderr each frame
+  that raises the worst species' mass drift above 1e-12.
 - **Open sky.** Whatever reaches a Space cell leaves through the sink, booked.
 - **Breathing** (easy mode): a cell is breathable with at least 15% oxygen by
   moles and 15 kPa oxygen partial pressure, carbon dioxide below 0.5% and
