@@ -970,8 +970,10 @@ namespace MixedAtmospheres.Oni
         // Life support for an unattended colony (the prepared save of
         // docs/playtest-plan.md#ready-to-play), built around the printing pod:
         // the pod's room is widened and floored; a coal generator powers an
-        // oxygen diffuser and a carbon dioxide scrubber; the scrubber takes
-        // water from a reservoir and returns polluted water to another; a
+        // oxygen diffuser and two carbon dioxide scrubbers, one by the
+        // generator and one where the duplicants eat and sleep (carbon dioxide
+        // spreads slowly along the base); the scrubbers take water from a
+        // reservoir and return polluted water each to its own; a
         // ration box holds the food. The duplicants supply coal and algae
         // from piles beside the machines. Harness only: instant building.
         private static readonly List<string> placed = new List<string>();
@@ -1010,23 +1012,28 @@ namespace MixedAtmospheres.Oni
             {
                 placed.Clear();
                 var left = px - 3; var right = px + 3;
-                // Left of the pod: generator, the carbon dioxide scrubber beside
-                // it (gases mix but spread slowly along the base, so the scrubber
-                // sits by the largest source), diffuser, coal and algae, enough
-                // for the ten-cycle run with margin (the generator burns its
-                // coal whenever its loads draw power).
+                // Left of the pod: generator, a carbon dioxide scrubber beside it
+                // with its own waste reservoir (gases mix but spread slowly
+                // along the base, so a scrubber sits by each source), diffuser,
+                // ration box, coal and algae, enough for the ten-cycle run with
+                // margin (the generator burns its coal whenever its loads draw
+                // power).
                 var generator = Place(GeneratorConfig.ID, ref left, -1);
                 var scrubber = Place(CO2ScrubberConfig.ID, ref left, -1);
+                var waste = Place(LiquidReservoirConfig.ID, ref left, -1);
                 var diffuser = Place(MineralDeoxidizerConfig.ID, ref left, -1);
+                var rations = Place(RationBoxConfig.ID, ref left, -1);
                 Spill(SimHashes.Carbon, left, py, 5000); Spill(SimHashes.Carbon, left - 1, py, 5000); left -= 3;
                 Spill(SimHashes.Algae, left, py, 4500); Spill(SimHashes.Algae, left - 1, py, 4500);
-                // Right of the pod: the water reservoirs (piped to the scrubber
-                // along the floor row and back one row up) and the ration box.
+                // Right of the pod, where the duplicants sleep: the water
+                // reservoir, the second scrubber with its own waste reservoir,
+                // and a cot each (stress over the ten cycles); a cot that finds
+                // no room goes left of the piles. Each scrubber has its own
+                // waste line: polluted water from one output would back up into
+                // the other's.
                 var water = Place(LiquidReservoirConfig.ID, ref right, 1);
-                var waste = Place(LiquidReservoirConfig.ID, ref right, 1);
-                var rations = Place(RationBoxConfig.ID, ref right, 1);
-                // A cot each keeps the duplicants' stress down over the ten cycles;
-                // one that finds no room right of the pod goes left of the piles.
+                var scrubber2 = Place(CO2ScrubberConfig.ID, ref right, 1);
+                var waste2 = Place(LiquidReservoirConfig.ID, ref right, 1);
                 left -= 2;
                 for (var bed = 0; bed < 3; ++bed) if (Place(BedConfig.ID, ref right, 1) == null) Place(BedConfig.ID, ref left, -1);
                 water?.GetComponent<Storage>().AddLiquid(SimHashes.Water, 4500, 300, byte.MaxValue, 0, false, true);
@@ -1039,27 +1046,29 @@ namespace MixedAtmospheres.Oni
                 if (generator != null)
                 {
                     var power = Grid.OffsetCell(Grid.PosToCell(generator), generator.GetComponent<Building>().Def.PowerOutputOffset);
-                    Wire(new[] { diffuser, scrubber }.Where(load => load != null)
+                    Wire(new[] { diffuser, scrubber, scrubber2 }.Where(load => load != null)
                         .Select(load => Route(power, Grid.OffsetCell(Grid.PosToCell(load), load!.GetComponent<Building>().Def.PowerInputOffset))).ToArray());
                 }
-                if (water != null && scrubber != null && waste != null)
-                {
-                    var def = scrubber.GetComponent<Building>().Def;
-                    Pipe(Game.Instance.liquidConduitSystem, LiquidConduitConfig.ID, Route(
-                        Grid.OffsetCell(Grid.PosToCell(water), water.GetComponent<Building>().Def.UtilityOutputOffset), Grid.OffsetCell(Grid.PosToCell(scrubber), def.UtilityInputOffset)));
-                    Pipe(Game.Instance.liquidConduitSystem, LiquidConduitConfig.ID, Route(
-                        Grid.OffsetCell(Grid.PosToCell(scrubber), def.UtilityOutputOffset), Grid.OffsetCell(Grid.PosToCell(waste), waste.GetComponent<Building>().Def.UtilityInputOffset)));
-                }
+                if (water != null)
+                    foreach (var (filter, drain) in new[] { (scrubber, waste), (scrubber2, waste2) })
+                    {
+                        if (filter == null || drain == null) continue;
+                        var def = filter.GetComponent<Building>().Def;
+                        Pipe(Game.Instance.liquidConduitSystem, LiquidConduitConfig.ID, Route(
+                            Grid.OffsetCell(Grid.PosToCell(water), water.GetComponent<Building>().Def.UtilityOutputOffset), Grid.OffsetCell(Grid.PosToCell(filter), def.UtilityInputOffset)));
+                        Pipe(Game.Instance.liquidConduitSystem, LiquidConduitConfig.ID, Route(
+                            Grid.OffsetCell(Grid.PosToCell(filter), def.UtilityOutputOffset), Grid.OffsetCell(Grid.PosToCell(drain), drain.GetComponent<Building>().Def.UtilityInputOffset)));
+                    }
                 Current.Stage = "built " + string.Join(", ", placed);
             }
             if (Once(30, "check"))
             {
-                Record("the base was built", placed.Count == 9, string.Join(", ", placed));
+                Record("the base was built", placed.Count == 11, string.Join(", ", placed));
                 // Its life support is wired: the generator's circuit reaches both
                 // loads (power flows once the duplicants have fed it coal).
                 var loads = Components.BuildingCompletes.Items.Where(b => b.PrefabID().Name == MineralDeoxidizerConfig.ID || b.PrefabID().Name == CO2ScrubberConfig.ID).ToList();
                 var circuit = Components.BuildingCompletes.Items.FirstOrDefault(b => b.PrefabID().Name == GeneratorConfig.ID)?.GetComponent<Generator>()?.CircuitID ?? ushort.MaxValue;
-                Record("the life support shares the generator's circuit", loads.Count == 2 && circuit != ushort.MaxValue &&
+                Record("the life support shares the generator's circuit", loads.Count == 3 && circuit != ushort.MaxValue &&
                     loads.All(b => b.GetComponent<EnergyConsumer>()?.CircuitID == circuit),
                     $"generator circuit {circuit}; " + string.Join("; ", loads.Select(b => b.PrefabID().Name + ": " + MachineState(b.gameObject))));
                 var buried = Components.BuildingCompletes.Items.Where(b => b.GetComponent<EntombVulnerable>() != null).Select(b => (b.PrefabID().Name, cells: Entombing(b.gameObject))).Where(b => b.cells.Length > 0).ToList();
@@ -1160,6 +1169,9 @@ namespace MixedAtmospheres.Oni
         private static Func<int, int, (SimHashes element, float mass, float temperature)>? filling;
         private static void Arena(Func<int, int, (SimHashes element, float mass, float temperature)> inside)
         {
+            // The world's plants, critters and items in the arena would take
+            // part (and block what the scenario builds there).
+            FloorArenas.Clear(x0 - 1, y0 - 1, Width + 2, Height + 2, out _);
             var tool = CellEventLogger.Instance.SandBoxTool;
             for (var y = -1; y <= Height; ++y)
                 for (var x = -1; x <= Width; ++x)
@@ -1221,8 +1233,13 @@ namespace MixedAtmospheres.Oni
                 return $"[generator circuit {source?.CircuitID}, operational {running?.IsOperational}, joules {source?.JoulesAvailable:G4}]";
             }));
             var solid = Entombing(building);
+            var origin = Grid.PosToCell(building);
+            var wet = string.Join(" ", (building.GetComponent<OccupyArea>()?.OccupiedCellsOffsets ?? new CellOffset[0])
+                .Select(o => Grid.OffsetCell(origin, o)).Where(c => Grid.IsValidCell(c) && Grid.IsSubstantialLiquid(c))
+                .Select(c => { Grid.CellToXY(c, out var x, out var y); return $"{Grid.Element[c].id} {Grid.Mass[c]:G3} kg@{x},{y}"; }));
             return $"operational {operational?.IsOperational}, active {operational?.IsActive}, unmet [{flags}], powered {power?.IsPowered}, circuit {power?.CircuitID}, " +
-                $"consumer rate {consumer?.consumptionRate}, element available {consumer?.IsElementAvailable}; {sources}" + (solid.Length > 0 ? $"; solid cells {solid}" : "");
+                $"consumer rate {consumer?.consumptionRate}, element available {consumer?.IsElementAvailable}; {sources}" + (solid.Length > 0 ? $"; solid cells {solid}" : "") +
+                (wet.Length > 0 ? $"; liquid cells {wet}" : "");
         }
         // What entombs a building: the solid cells of its footprint.
         internal static string Entombing(GameObject building)

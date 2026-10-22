@@ -167,9 +167,36 @@ namespace MixedAtmospheres.Oni
         private static bool Wall(int x, int y) => y >= 1 && y <= 8 && (Id == "f1" || Id == "f2") && x == 9 || Id == "f3" && x == 6 && y <= 8 ||
             Id == "f5" && y == 6 && x <= 8;
         private static bool Solid(int x, int y) => Wall(x, y) || Id == "f4" && x == 3;
+        // Removes every building, plant, critter and item in a rectangle
+        // (duplicants excepted and counted); returns how many went.
+        internal static int Clear(int left, int bottom, int w, int h, out int duplicants)
+        {
+            var found = new HashSet<UnityEngine.GameObject>();
+            for (var y = bottom; y < bottom + h; ++y)
+                for (var x = left; x < left + w; ++x)
+                {
+                    var cell = Grid.XYToCell(x, y);
+                    if (!Grid.IsValidCell(cell)) continue;
+                    for (var layer = 0; layer < (int)ObjectLayer.NumLayers; ++layer)
+                        if (Grid.Objects[cell, layer] is UnityEngine.GameObject o && o != null) found.Add(o);
+                }
+            foreach (var p in Components.Pickupables.Items)
+            {
+                if (p == null) continue;
+                Grid.CellToXY(Grid.PosToCell(p), out var px, out var py);
+                if (px >= left && px < left + w && py >= bottom && py < bottom + h) found.Add(p.gameObject);
+            }
+            duplicants = found.Count(o => o.GetComponent<MinionIdentity>() != null);
+            foreach (var o in found) if (o.GetComponent<MinionIdentity>() == null) Util.KDestroyGameObject(o);
+            return found.Count - duplicants;
+        }
         // The border, the solid walls and vacuum inside; F4's granite divider.
+        // The protocol's arena holds no buildings, debris or creatures: the
+        // plants, critters and seeds the world left there are removed first
+        // (they kept their own temperature and exchanged heat with the gas).
         private static void Build()
         {
+            placed["removed_objects"] = Clear(x0, y0, width, height, out var duplicants); placed["duplicants_inside"] = duplicants;
             for (var y = 0; y < height; ++y)
                 for (var x = 0; x < width; ++x)
                 {

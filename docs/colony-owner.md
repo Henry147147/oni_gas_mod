@@ -429,7 +429,9 @@ setting their powered flag (harness only).
 (`managed/MixedAtmospheres.Oni/FloorArenas.cs`): under the owner
 (`--mode colony-owner`) or under ONI's own simulation (`--mode colony-vanilla`,
 where the owner never starts). The arena is carved nine cells right of the
-printing pod, filled two ticks later (oxygen from the ideal-gas law at the
+printing pod, after the plants, critters and debris the world left there are
+removed (they keep their own temperature and would exchange heat with the
+gas; the record counts them), filled two ticks later (oxygen from the ideal-gas law at the
 stated pressure, liquid as full cells at the catalogue's reference density at
 1 atm, `ma_oni_colony_liquid_density`) and released by the protocol. Every
 200 ms tick's published game data is sampled for the arena's interior into
