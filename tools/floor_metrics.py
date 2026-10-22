@@ -229,7 +229,7 @@ def initial(arena: Arena) -> dict:
 def metrics(path: Path) -> dict:
     arena = load(path)
     return {"arena": arena.record["arena"], "simulation": arena.record["simulation"], "initial": initial(arena),
-            **METRICS[arena.record["arena"]](arena)}
+            "owner": arena.record.get("owner", "none"), **METRICS[arena.record["arena"]](arena)}
 
 
 def main():

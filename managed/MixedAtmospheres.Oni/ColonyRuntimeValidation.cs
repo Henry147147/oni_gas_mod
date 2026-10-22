@@ -416,7 +416,7 @@ namespace MixedAtmospheres.Oni
                 status.TimeSeconds, status.LastAdvanceMilliseconds, status.MaximumAdvanceMilliseconds, status.StageMilliseconds,
                 status.NativeHeatJoules, status.NativeMassInKg, status.NativeMassOutKg, status.NativeChanges,
                 status.EvaporatedKg, status.CondensedKg, status.SkippedRelaxations, status.ReleasedKg, status.ConvertedKg, status.SettledKg,
-                status.MaximumRelativeMassError, status.MaximumRelativeEnergyError, status.ReservoirKg, status.SpaceSinkKg,
+                status.MaximumRelativeMassError, status.MaximumRelativeEnergyError, status.ReservoirKg, status.SpaceSinkKg, status.TraceSinkKg, status.TraceSinkJoules,
                 status.InjectedKg, status.ExtractedKg, status.CommittedTransfers, status.CommittedHeat, status.OpenedCells, status.ClosedCells,
                 ColonyOwner.OwnedCells, ColonyOwner.Publications, ColonyOwnerPersistence.Saves, ColonyOwnerPersistence.Loads,
                 ColonyPacing.HeldTicks, ColonyPacing.UnityFrames, ColonyPacing.OwnerRate, ColonyPacing.TimeScale,

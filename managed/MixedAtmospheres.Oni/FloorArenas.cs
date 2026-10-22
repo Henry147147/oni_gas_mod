@@ -250,6 +250,14 @@ namespace MixedAtmospheres.Oni
                 ["placed"] = placed,
                 ["ticks"] = new Dictionary<string, long> { ["built"] = built, ["filled"] = filled, ["locked"] = locked, ["commanded"] = commanded,
                     ["opened"] = opened, ["release"] = release, ["last"] = release + Duration },
+                // Under the owner: its ledgers and the profile's trace sink, whole colony.
+                ["owner"] = ColonyOwner.Active ? (object)new Dictionary<string, object>
+                {
+                    ["maximum_relative_mass_error"] = ColonyOwner.Status.MaximumRelativeMassError,
+                    ["maximum_relative_energy_error"] = ColonyOwner.Status.MaximumRelativeEnergyError,
+                    ["trace_sink_kg"] = ColonyOwner.Status.TraceSinkKg, ["trace_sink_j"] = ColonyOwner.Status.TraceSinkJoules,
+                    ["skipped_relaxations"] = ColonyOwner.Status.SkippedRelaxations, ["error"] = ColonyOwner.Status.Error,
+                } : "none",
                 // A check on the tick length: game seconds from release to the end.
                 ["game_seconds_after_release"] = GameClock.Instance.GetTime() - releasedAt,
                 ["simulated_seconds_after_release"] = simulated - simulatedAt,
