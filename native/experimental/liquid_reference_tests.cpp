@@ -96,6 +96,25 @@ void trace_pressure_bracket() {
     }
 }
 
+void subnormal_geometry_readouts() {
+    const LiquidThermodynamicReference model("subnormal-geometry-v1", {water(), oxygen()});
+    const double tiny = std::numeric_limits<double>::denorm_min();
+    for (const auto& masses : std::vector<std::vector<double>>{{tiny, 1}, {1100, tiny}}) {
+        const auto initialized = model.initialize_at_temperature(masses, 300, 1);
+        const auto before = initialized.cell;
+        const auto recovered = model.evaluate(initialized.cell);
+        const std::size_t trace = masses[0] == tiny ? 0 : 1;
+        require(initialized.cell.masses_kg == masses && initialized.cell.internal_energy_j == before.internal_energy_j &&
+            recovered.partial_volumes_m3[trace] == tiny && recovered.gas_volume_m3 > 0 && recovered.liquid_volume_m3 > 0,
+            "Subnormal geometry readout lost primary inventory or positive phase volume");
+        near(recovered.temperature_k, 300);
+        near(recovered.mechanical_pressure_pa, initialized.state.mechanical_pressure_pa, 4e-13);
+    }
+    // A one-atom volume cannot absorb a one-atom readout projection.
+    rejects([&] { (void)model.initialize_at_temperature(std::vector<double>{tiny, tiny}, 300, tiny); },
+        ReferenceErrorCode::numerical_range);
+}
+
 void thermodynamic_derivatives() {
     const LiquidThermodynamicReference model("test-water-v1", {water()});
     const double mass = 1, volume = .001 / 1.2, temperature = 400, dv = volume * 2e-5, dt = .02;
@@ -699,6 +718,10 @@ void fused_isentropic_work() {
 }
 
 int main(int argc, char** argv) {
+    if (argc == 2 && std::string(argv[1]) == "--subnormal-geometry-only") {
+        try { subnormal_geometry_readouts(); std::cout << "PASS bounded subnormal geometry retains trace inventories\n"; return 0; }
+        catch (const std::exception& error) { std::cerr << "FAIL " << error.what() << '\n'; return 1; }
+    }
     if (argc == 2 && std::string(argv[1]) == "--trace-pressure-only") {
         try { trace_pressure_bracket(); std::cout << "PASS trace gas pressure bracket at partial and exact liquid fill\n"; return 0; }
         catch (const std::exception& error) { std::cerr << "FAIL " << error.what() << '\n'; return 1; }
@@ -708,6 +731,7 @@ int main(int argc, char** argv) {
         {"analytic pure-liquid compression and independent pressure-work integral", pure_compression},
         {"observed magma density ratio without gas", magma_compression},
         {"trace gas pressure bracket at partial and exact liquid fill", trace_pressure_bracket},
+        {"bounded subnormal geometry retains trace inventories", subnormal_geometry_readouts},
         {"Helmholtz/caloric/entropy derivatives and positive stiffness", thermodynamic_derivatives},
         {"common-pressure gas/two-liquid conserved-state roots", mixture_roundtrips},
         {"gas/liquid reversible entropy and energy cycle", mixture_adiabat},

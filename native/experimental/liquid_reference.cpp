@@ -38,6 +38,22 @@ struct Sum {
 Real boundary_roundoff(Real value, Real bound) {
     return 32 * std::numeric_limits<double>::epsilon() * std::max(std::abs(value), std::abs(bound));
 }
+double projected_volume(Real value, Real& projection_error) {
+    if (value > 0 && static_cast<double>(value) == 0) {
+        const double projected = std::numeric_limits<double>::denorm_min();
+        projection_error += static_cast<Real>(projected) - value;
+        return projected;
+    }
+    return checked(value);
+}
+double projected_elastic_energy(Real value, Real scale) {
+    if (value != 0 && static_cast<double>(value) == 0) {
+        check(std::abs(value) <= boundary_roundoff(value, scale), ReferenceErrorCode::numerical_range,
+            "Unresolved elastic-energy readout exceeds the conserved-energy precision");
+        return 0;
+    }
+    return checked(value);
+}
 Real compression_ratio(Real pressure, Real bulk) {
     const Real q = pressure / bulk;
     check(pressure == 0 || q > 0, ReferenceErrorCode::numerical_range, "Positive liquid compression underflowed");
@@ -93,7 +109,11 @@ Statistics statistics(const std::vector<ReferenceMaterial>& definitions, std::sp
     }
     result.mass = mass.get(); result.cv = cv.get(); result.offset = offset.get();
     result.gas_moles = moles.get(); result.nominal_liquid_volume = nominal.get();
-    checked(result.mass); checked(result.cv); checked(result.offset); checked(result.gas_moles); checked(result.nominal_liquid_volume);
+    checked(result.mass); checked(result.cv); checked(result.offset); checked(result.gas_moles);
+    // This private volume remains wide throughout the pressure/energy solve.
+    check(std::isfinite(result.nominal_liquid_volume) &&
+        result.nominal_liquid_volume <= std::numeric_limits<double>::max(),
+        ReferenceErrorCode::numerical_range, "Nominal liquid volume exceeds finite double range");
     if (result.mass > 0) check(result.minimum_temperature <= result.maximum_temperature && result.cv > 0,
         ReferenceErrorCode::temperature_outside_model, "Present materials have no common temperature range");
     return result;
@@ -198,6 +218,7 @@ ReferenceEquilibriumState finish(const std::vector<ReferenceMaterial>& definitio
     const Real gas_volume = has_gas ? stats.gas_moles * R * temperature / pressure : 0;
     check(!has_gas || (pressure > 0 && gas_volume > 0), ReferenceErrorCode::numerical_range, "Actual gas lost its positive pressure or headspace");
     Sum liquid_volume, entropy, energy;
+    Real volume_projection = 0;
     for (std::size_t i = 0; i < masses.size(); ++i) {
         if (masses[i] == 0) continue;
         const auto& material = definitions[i]; const Real amount = masses[i];
@@ -224,7 +245,7 @@ ReferenceEquilibriumState finish(const std::vector<ReferenceMaterial>& definitio
         }
         Sum specific_sum; specific_sum.add(material.energy_offset_j_per_kg);
         specific_sum.add(specific_thermal); specific_sum.add(specific_elastic);
-        result.partial_volumes_m3[i] = checked(partial);
+        result.partial_volumes_m3[i] = projected_volume(partial, volume_projection);
         const double specific = checked(specific_sum.get());
         const Real sensible = specific_thermal + specific_elastic;
         const Real reconstructed_sensible = static_cast<Real>(specific) - material.energy_offset_j_per_kg;
@@ -260,10 +281,13 @@ ReferenceEquilibriumState finish(const std::vector<ReferenceMaterial>& definitio
     }
     result.temperature_k = checked(temperature); result.mechanical_pressure_pa = checked(pressure);
     result.gas_pressure_pa = has_gas ? result.mechanical_pressure_pa : 0;
-    result.gas_volume_m3 = checked(gas_volume); result.liquid_volume_m3 = checked(liquid_volume.get());
-    result.vacuum_volume_m3 = checked(void_volume);
+    result.gas_volume_m3 = projected_volume(gas_volume, volume_projection);
+    result.liquid_volume_m3 = projected_volume(liquid_volume.get(), volume_projection);
+    result.vacuum_volume_m3 = projected_volume(void_volume, volume_projection);
+    check(volume_projection <= boundary_roundoff(volume, volume), ReferenceErrorCode::numerical_range,
+        "Unresolved volume readouts exceed the cell-volume precision");
     result.reference_energy_j = checked(stats.offset); result.thermal_energy_j = checked(stats.cv * temperature);
-    result.elastic_energy_j = checked(elastic.energy); result.entropy_j_per_k = checked(entropy.get());
+    result.elastic_energy_j = projected_elastic_energy(elastic.energy, energy_scale); result.entropy_j_per_k = checked(entropy.get());
     result.helmholtz_energy_j = checked(thermodynamic_total - temperature * entropy.get());
     result.intrinsic_heat_capacity_j_per_k = checked(stats.cv);
     result.equilibrium_heat_capacity_at_cell_volume_j_per_k = checked(effective_cv);
@@ -379,7 +403,8 @@ ReferenceTemperatureInitialization LiquidThermodynamicReference::initialize_at_t
     const Real elastic = compression(materials_, masses, pressure).energy;
     result.cell = {std::vector<double>(masses.begin(), masses.end()), checked(caloric + elastic), volume};
     result.caloric_reference_and_thermal_energy_j = checked(caloric);
-    result.initialized_elastic_energy_j = checked(elastic);
+    result.initialized_elastic_energy_j = projected_elastic_energy(elastic,
+        std::max({std::abs(caloric), std::abs(stats.offset), std::abs(stats.cv * temperature), std::abs(elastic)}));
     result.state = finish(materials_, masses, stats, volume, pressure, stats.mass > 0 ? temperature : 0, result.cell.internal_energy_j, iterations, options);
     return result;
 }
