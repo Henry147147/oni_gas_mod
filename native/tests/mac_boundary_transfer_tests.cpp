@@ -133,6 +133,46 @@ void batch_controls(const ma::testing::Setup& fixture) {
     try { (void)source.with_fluid_transfers(bad); } catch (const std::invalid_argument&) { refused=true; }
     require(refused && source.checkpoint()==saved,"Invalid fluid batch escaped rollback");
 }
+void unchanged_faces(const ma::testing::Setup& fixture) {
+    auto state=fixture.state(4,2,false);
+    state.grid.closed_x.assign(state.momentum_x.size(),0); state.grid.closed_y.assign(state.momentum_y.size(),0);
+    const auto face=state.grid.x_face(1,0); state.momentum_x[face]=.25;
+    auto full=mac_field_values(state.momentum_x,state.full_momentum_x);
+    full[state.grid.x_face(2,0)]=MacScaled::from_parts(.75,MacExponent(-4096));
+    store_mac_field(state.momentum_x,state.full_momentum_x,full);
+    const MacClosedWorld source(fixture.registry,fixture.eos,state); const auto image=source.checkpoint();
+    const auto next=source.with_closed_faces(state.grid.closed_x,state.grid.closed_y);
+    require(&next.state()==&source.state() && next.revision()==source.revision()+1 && next.time_s()==source.time_s() &&
+        ma::testing::fingerprint(next.state())==ma::testing::fingerprint(source.state()) && source.checkpoint()==image,
+        "Unchanged closed faces lost sharing, full-range momentum, revision or immutable input");
+    const auto cold=MacClosedWorld::from_checkpoint(fixture.registry,fixture.eos,next.checkpoint());
+    require(cold.checkpoint()==next.checkpoint(),"Unchanged closed faces changed saved primary fields");
+    auto mask=state.grid.closed_x; mask[face]=1;
+    const auto closed=source.with_closed_faces(mask,state.grid.closed_y);
+    require(closed.state().momentum_x[face]==0 && source.state().momentum_x[face]==.25,
+        "Changed face mask skipped momentum closure");
+    auto zero=fixture.state(2,2,false); zero.grid.closed_x.assign(zero.momentum_x.size(),0); zero.grid.closed_y.assign(zero.momentum_y.size(),0);
+    const auto zface=zero.grid.x_face(1,0); zero.momentum_x[zface]=-0.;
+    const MacClosedWorld negative(fixture.registry,fixture.eos,zero);
+    const auto normalized=negative.with_closed_faces(zero.grid.closed_x,zero.grid.closed_y);
+    require(std::signbit(negative.state().momentum_x[zface]) && !std::signbit(normalized.state().momentum_x[zface]),
+        "Unchanged faces bypassed negative-zero normalization");
+    zero.momentum_x[zface]=.125; zero.full_momentum_x=mac_field_values(zero.momentum_x,{});
+    const MacClosedWorld redundant(fixture.registry,fixture.eos,zero);
+    const auto compact=redundant.with_closed_faces(zero.grid.closed_x,zero.grid.closed_y);
+    require(!redundant.state().full_momentum_x.empty() && compact.state().full_momentum_x.empty(),
+        "Unchanged faces bypassed redundant full-field normalization");
+    bool refused=false;
+    try { (void)source.with_closed_faces({1},{}); } catch (const std::invalid_argument&) { refused=true; }
+    require(refused && source.checkpoint()==image,"Invalid unchanged-face request escaped rollback");
+    const MacPassiveEdit huge{0,99,std::numeric_limits<double>::max()};
+    const auto first=source.with_passive_edits(std::span(&huge,1));
+    const auto invalid=first.with_passive_edits(std::span(&huge,1));
+    refused=false;
+    try { (void)invalid.with_closed_faces(state.grid.closed_x,state.grid.closed_y); }
+    catch (const std::invalid_argument&) { refused=true; }
+    require(refused,"Unchanged faces bypassed source inventory admission");
+}
 }
 int main() {
     try {
@@ -169,6 +209,8 @@ int main() {
         require(rejected && ma::testing::fingerprint(source.state())==held,"Invalid later transfer partially changed source");
         liquid_controls(fixture);
         batch_controls(fixture);
+        unchanged_faces(fixture);
+        std::cout << "PASS unchanged closed faces, revision/sharing, full-range and legacy normalization\n";
         std::cout << "PASS batched canonical momentum, overlapping/full-range transfers, cold continuation and empty passive sharing\n";
         std::cout << "PASS immutable gas/liquid point transfers, elastic parcel U, carried mechanics/potential, checkpoint continuation and atomic topology rejection\n";
         return 0;

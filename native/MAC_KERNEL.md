@@ -782,6 +782,12 @@ timing and the new configured-control PASS line.
 
 ## Current active-cell baseline
 
+Unchanged closed-face masks can share the existing state while incrementing
+the revision. The full original inventory/EOS admission still runs. Guards
+retain negative-zero/full-field normalization and closure of moving faces.
+Three alternating high-lock pairs measure median calls at 27.8 → 14.3 ms,
+with identical checkpoint hashes. The in-game before/after pair is pending.
+
 External edit batches now avoid repeated full-field work. Independent heat
 cells run on the existing pool, retaining each cell's edit sequence and the
 original global audit/error order. Fluid transfers decode canonical momentum

@@ -509,6 +509,26 @@ MacClosedWorld MacClosedWorld::with_closed_faces(std::vector<std::uint8_t> x,std
     const auto& grid=state().grid;
     require((x.empty() || x.size() == grid.x_width()*grid.height) && (y.empty() || y.size() == grid.width*grid.y_height()),
         "Invalid MAC closed-face masks");
+    // Unchanged masks usually need only a revision. Preserve the old encoder's
+    // normalization for unusual caller-built states and any momentum to close.
+    const auto canonical_axis=[](const std::vector<double>& values,const std::vector<MacScaled>& full,
+        const std::vector<std::uint8_t>& mask) {
+        bool full_needed=full.empty();
+        for (std::size_t face=0;face<values.size();++face) {
+            if (values[face]==0 && std::signbit(values[face])) return false;
+            if (!full.empty() && values[face]==0 && !full[face].is_zero()) full_needed=true;
+            if (!mask.empty() && (mask[face]>1 || (mask[face] &&
+                (full.empty() ? values[face]!=0 : !full[face].is_zero())))) return false;
+        }
+        return full_needed;
+    };
+    if (x==grid.closed_x && y==grid.closed_y &&
+        canonical_axis(state().momentum_x,state().full_momentum_x,x) &&
+        canonical_axis(state().momentum_y,state().full_momentum_y,y)) {
+        // Retain the complete source/EOS admission performed by the old path.
+        static_cast<void>(mac_face_inertias(registry_,state(),*thermodynamics_));
+        auto candidate=*this; ++candidate.revision_; return candidate;
+    }
     auto next=state();
     const auto inertia=mac_face_inertias(registry_,state(),*thermodynamics_);
     auto jx=mac_field_values(next.momentum_x,next.full_momentum_x),jy=mac_field_values(next.momentum_y,next.full_momentum_y);
