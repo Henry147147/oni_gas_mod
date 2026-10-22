@@ -115,6 +115,18 @@ standalone continuation; trace EOS admission remains open. A captured filter
 arena also still forces extreme refinement at a sharp-interface gravity EOS
 boundary. Regional scheduling does not resolve these existing limits.
 
+The reference EOS tightens the initial pressure bracket for extreme gas traces
+using an upper thermal-energy bound and the liquid's minimum compliance over
+the supported pressure interval. This retains the declared root budget,
+tolerances and material ranges; ordinary roots keep their original bracket.
+A synthetic partial/exact liquid-fill control retains the gas and recovers its
+analytic pressure. A captured Oceania checkpoint now restores, though its flow
+failure remains open. Checkpoint format and conserved inputs are unchanged;
+previously unresolved trace roots can now produce a state.
+The whole-lock Terra60 smoke passes without faults or reference fallback at
+0.443 s mean owner time, with maximum relative mass/energy errors
+2.11e-16/3.32e-13 under the existing ledger bounds.
+
 ## Coverage and admission
 
 | Setting | Production kernel |

@@ -73,6 +73,29 @@ void magma_compression() {
     require(initial.initialized_elastic_energy_j > 0, "Compressed magma surrogate stored no elastic energy");
 }
 
+void trace_pressure_bracket() {
+    const LiquidThermodynamicReference model("trace-pressure-bracket-v1", {water(), oxygen()});
+    const double trace = std::ldexp(1., -300), temperature = 300;
+    for (double liquid_mass : {500., 1000.}) {
+        const auto initialized = model.initialize_at_temperature(std::vector<double>{liquid_mass, trace}, temperature, 1);
+        const long double nominal = static_cast<long double>(liquid_mass) / water().zero_pressure_density_kg_per_m3;
+        const long double gas_energy = static_cast<long double>(trace) / oxygen().molar_mass_kg_per_mol *
+            reference_gas_constant * temperature;
+        // For one liquid at fixed T, multiplying by (K+p) gives this exact quadratic.
+        const long double bulk = water().reference_bulk_modulus_pa;
+        const long double b = bulk * (1 - nominal) - gas_energy;
+        const long double expected = 2 * gas_energy * bulk / (b + std::sqrt(b * b + 4 * gas_energy * bulk));
+        near(initialized.state.mechanical_pressure_pa, static_cast<double>(expected), 4e-13);
+        const auto recovered = model.evaluate(initialized.cell);
+        near(recovered.mechanical_pressure_pa, initialized.state.mechanical_pressure_pa, 4e-13);
+        near(recovered.temperature_k, temperature);
+        require(initialized.cell.masses_kg[1] == trace && recovered.partial_volumes_m3[1] > 0 &&
+            initialized.state.pressure_iterations <= ReferenceRootOptions{}.maximum_iterations &&
+            recovered.pressure_iterations <= ReferenceRootOptions{}.maximum_iterations,
+            "Trace-pressure bracket lost gas or exceeded its root budget");
+    }
+}
+
 void thermodynamic_derivatives() {
     const LiquidThermodynamicReference model("test-water-v1", {water()});
     const double mass = 1, volume = .001 / 1.2, temperature = 400, dv = volume * 2e-5, dt = .02;
@@ -675,10 +698,16 @@ void fused_isentropic_work() {
 }
 }
 
-int main() {
+int main(int argc, char** argv) {
+    if (argc == 2 && std::string(argv[1]) == "--trace-pressure-only") {
+        try { trace_pressure_bracket(); std::cout << "PASS trace gas pressure bracket at partial and exact liquid fill\n"; return 0; }
+        catch (const std::exception& error) { std::cerr << "FAIL " << error.what() << '\n'; return 1; }
+    }
+    if (argc != 1) return 2;
     const std::vector<std::pair<const char*, std::function<void()>>> tests{
         {"analytic pure-liquid compression and independent pressure-work integral", pure_compression},
         {"observed magma density ratio without gas", magma_compression},
+        {"trace gas pressure bracket at partial and exact liquid fill", trace_pressure_bracket},
         {"Helmholtz/caloric/entropy derivatives and positive stiffness", thermodynamic_derivatives},
         {"common-pressure gas/two-liquid conserved-state roots", mixture_roundtrips},
         {"gas/liquid reversible entropy and energy cycle", mixture_adiabat},

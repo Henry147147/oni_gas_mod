@@ -114,6 +114,17 @@ Compression compression(const std::vector<ReferenceMaterial>& definitions, std::
     }
     return {energy.get(), contraction.get(), compliance.get()};
 }
+Real mixed_pressure_upper_bound(const std::vector<ReferenceMaterial>& definitions, std::span<const double> masses,
+    const Statistics& stats, Real delta, Real temperature, Real high) {
+    const Real gas_energy = stats.gas_moles * R * temperature;
+    const Real compliance = compression(definitions, masses, high).compliance;
+    // Liquid compliance decreases with pressure, so contraction(p) >= C(high)*p.
+    // The positive root of C*p*p - delta*p - nRT therefore bounds the root
+    // even at exact nominal fill, where a headspace-only bound is unavailable.
+    if (!(compliance > 0)) return delta < 0 ? gas_energy / (-delta) : 0;
+    const Real radical = std::sqrt(delta * delta + 4 * compliance * gas_energy);
+    return delta <= 0 ? 2 * gas_energy / (radical - delta) : (delta + radical) / (2 * compliance);
+}
 void temperature_in_range(Real temperature, const Statistics& stats) {
     check(std::isfinite(temperature) && temperature > 0, ReferenceErrorCode::insufficient_thermal_energy, "Reconstructed temperature is not positive");
     // This is an acceptance tolerance for arithmetic at a declared boundary,
@@ -127,12 +138,25 @@ void validate_options(const ReferenceRootOptions& options) {
         positive(options.relative_volume_tolerance) && options.relative_volume_tolerance < 1 && options.maximum_iterations > 0,
         ReferenceErrorCode::invalid_model, "Invalid reference root options");
 }
-template<class Function> Real pressure_root(Function residual, Real high, const ReferenceRootOptions& options, std::size_t& iterations) {
+template<class Function> Real pressure_root(Function residual, Real high, const ReferenceRootOptions& options,
+    std::size_t& iterations, Real physical_upper = 0) {
     check(std::isfinite(high) && high > 0, ReferenceErrorCode::compression_outside_model, "No positive supported pressure interval");
     const Real at_high = residual(high);
     check(std::isfinite(at_high), ReferenceErrorCode::numerical_range, "Pressure residual overflowed");
     check(at_high <= 0, ReferenceErrorCode::compression_outside_model, "Cell cannot fit inside its compression and thermal domain");
     if (at_high == 0) return high;
+    // Keep ordinary roots' original arithmetic. Extreme trace roots can spend
+    // the entire budget crossing empty pressure decades before resolving them.
+    if (physical_upper > 0 && std::isfinite(physical_upper) &&
+        options.maximum_iterations < static_cast<std::size_t>(std::numeric_limits<Real>::max_exponent)) {
+        const Real candidate = physical_upper * (1 + 32 * std::numeric_limits<double>::epsilon());
+        const Real unresolved = std::ldexp(high, -static_cast<int>(options.maximum_iterations)) /
+            options.relative_pressure_tolerance;
+        if (candidate < std::min(high, unresolved)) {
+            const Real value = residual(candidate);
+            if (std::isfinite(value) && value <= 0) high = candidate;
+        }
+    }
     Real low = 0;
     for (std::size_t n = 0; n < options.maximum_iterations; ++n) {
         ++iterations;
@@ -324,7 +348,8 @@ ReferenceEquilibriumState LiquidThermodynamicReference::evaluate(const Reference
             const auto elastic = compression(materials_, cell.masses_kg, p);
             const Real temperature = (available - elastic.energy) / stats.cv;
             return p * (nominal_delta - elastic.contracted_volume) + stats.gas_moles * R * temperature;
-        }, upper, options, iterations);
+        }, upper, options, iterations,
+            mixed_pressure_upper_bound(materials_, cell.masses_kg, stats, nominal_delta, available / stats.cv, upper));
     }
     const Real temperature = (available - compression(materials_, cell.masses_kg, pressure).energy) / stats.cv;
     return finish(materials_, cell.masses_kg, stats, cell.volume_m3, pressure, temperature, cell.internal_energy_j, iterations, options);
@@ -346,7 +371,8 @@ ReferenceTemperatureInitialization LiquidThermodynamicReference::initialize_at_t
         pressure = pressure_root([&](Real p) {
             const Real remaining = nominal_delta - compression(materials_, masses, p).contracted_volume;
             return stats.gas_moles > 0 ? p * remaining + stats.gas_moles * R * temperature : remaining;
-        }, stats.maximum_pressure, options, iterations);
+        }, stats.maximum_pressure, options, iterations,
+            mixed_pressure_upper_bound(materials_, masses, stats, nominal_delta, temperature, stats.maximum_pressure));
     }
     ReferenceTemperatureInitialization result;
     const Real caloric = stats.offset + stats.cv * temperature;
