@@ -852,6 +852,14 @@ MAOniResult ma_oni_colony_readings(std::uint64_t* frame, MAOniColonyReading* out
         std::copy(readings.begin(),readings.end(),out); std::copy(constituents.begin(),constituents.end(),parts);
     });
 }
+MAOniResult ma_oni_colony_liquid_density(const MAOniColonyMaterial* materials, std::uint32_t count, std::uint32_t native_index,
+    double pressure_pa, double* density) {
+    return boundary([&] {
+        if (!materials || !density) throw Failure(MA_ONI_INVALID_ARGUMENT,"Null liquid density argument");
+        try { *density=ma::oni::colony::liquid_density(std::span(materials,count),native_index,pressure_pa); }
+        catch (const std::exception& error) { throw Failure(MA_ONI_INVALID_ARGUMENT,error.what()); }
+    });
+}
 std::uint32_t ma_oni_colony_busy() { return ma::oni::colony::busy() ? 1U : 0U; }
 std::uint32_t ma_oni_abi_version() { return MA_ONI_ABI_VERSION; }
 const char* ma_oni_last_error() { return last_error.data(); }
