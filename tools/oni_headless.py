@@ -657,6 +657,7 @@ def colony_configuration(args, name: str, load_fixture: Path | None, inspection_
         **({"Cluster": "clusters/" + args.cluster} if isinstance(getattr(args, "cluster", None), str) else {}),
         **({"OverwriteSave": True} if getattr(args, "overwrite_save", False) is True else {}),
         **({"VanillaLoad": True} if getattr(args, "vanilla_load", False) is True else {}),
+        **({"Speed": args.speed} if isinstance(getattr(args, "speed", None), int) else {}),
     }
     if getattr(args, "long_run", False) is True:
         interval = getattr(args, "telemetry_interval_frames", None)
@@ -1068,6 +1069,8 @@ def main() -> int:
     play.add_argument("--overwrite-save", action="store_true", help="colony-owner --save-colony: save halfway and again at the end to the same file")
     play.add_argument("--cluster", choices=BASE_CLUSTERS,
                       help="colony-owner only: the base-game starting asteroid's cluster layout (default Terra, SandstoneDefault)")
+    play.add_argument("--speed", type=int, choices=(1, 2, 3),
+                      help="the game speed the colony keeps: 1 normal, 2 fast, 3 ultra (default: the game's own)")
     play.add_argument("--scenario", type=scenario_list,
                       help="colony-owner only: in-game system scenarios, comma-separated (docs/colony-owner.md#scenarios)")
     args = parser.parse_args()

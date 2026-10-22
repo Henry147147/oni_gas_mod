@@ -37,6 +37,8 @@ namespace MixedAtmospheres.Oni
         // A starting cluster layout ("clusters/<name>"); empty keeps the game's default (Terra).
         public string Cluster = "";
         public string ColonyName = "MA Visual Test";
+        // The game speed the colony keeps once it plays: 1 normal, 2 fast, 3 ultra.
+        public int Speed = 1;
         // colony-owner only: one in-game system check (ColonyScenarios).
         public string Scenario = "";
         // Ten ONI cycles are about 30,000 native frames of 0.2 s. A long run is
@@ -95,6 +97,8 @@ namespace MixedAtmospheres.Oni
                 configuration.CompletedFrames < MinimumFrames || configuration.CompletedFrames > MaximumLongRunFrames ||
                 configuration.TimeoutSeconds < MinimumTimeoutSeconds || configuration.TimeoutSeconds > MaximumLongRunTimeoutSeconds)
                 throw new InvalidDataException("Unsupported colony validation mode or limits.");
+            if (configuration.Speed < 1 || configuration.Speed > 3)
+                throw new InvalidDataException("Speed is 1 (normal), 2 (fast) or 3 (ultra).");
             if (configuration.VanillaLoad && configuration.Mode != "colony-owner-load")
                 throw new InvalidDataException("VanillaLoad needs the colony-owner-load mode.");
             if (configuration.OverwriteSave && (configuration.Mode != "colony-owner" || !configuration.SaveOnComplete))

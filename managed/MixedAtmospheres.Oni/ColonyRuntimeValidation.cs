@@ -292,6 +292,10 @@ namespace MixedAtmospheres.Oni
             Report.GameStarted = Game.Instance.GameStarted();
             if (!Report.GameStarted) return;
             if (LongRunColonyLost()) return;
+            // A requested game speed holds for the whole run (the player's
+            // speed control, not the owner's pacing scale).
+            var speed = SpeedControlScreen.Instance;
+            if (configuration.Speed != 1 && speed != null && speed.GetSpeed() != configuration.Speed - 1) speed.SetSpeed(configuration.Speed - 1);
             if (NativeSealedDomainValidation.IsMode)
             {
                 NativeSealedDomainValidation.Tick(); return;

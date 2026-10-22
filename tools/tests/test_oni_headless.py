@@ -1,4 +1,5 @@
 """Acceptance guards for private Linux playtest evidence and package isolation."""
+import argparse
 import contextlib
 import copy
 import hashlib
@@ -1389,6 +1390,12 @@ class EvidenceTests(unittest.TestCase):
         self.assertNotEqual(runner.classify("menu", "", self.probe, None, False)[1], 0)
         status, code = runner.classify("menu", "Steam not initialized in time", self.probe, None, False)
         self.assertEqual((status, code), ("blocked-steam-authentication", 3))
+
+    def test_speed_reaches_the_configuration_only_when_requested(self):
+        args = argparse.Namespace(mode="colony-owner", frames=60, timeout=600, keep_open=False)
+        self.assertNotIn("Speed", runner.colony_configuration(args, "c", None, 0))
+        args.speed = 2
+        self.assertEqual(runner.colony_configuration(args, "c", None, 0)["Speed"], 2)
 
     def test_vanilla_load_passes_only_on_refusal(self):
         refused = {"Status": "passed", "Stage": "vanilla-load-refused", "VanillaLoadResult": -1}
