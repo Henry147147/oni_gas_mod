@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Threading;
 using MixedAtmospheres.Core;
 using MixedAtmospheres.Core.Interop;
 using UnityEngine;
@@ -20,13 +21,15 @@ namespace MixedAtmospheres.Oni
         private static ulong publishedFrame = ulong.MaxValue;
         private static OniNativeColony.Reading[] readings = Array.Empty<OniNativeColony.Reading>();
         private static OniNativeColony.Constituent[] parts = Array.Empty<OniNativeColony.Constituent>();
-        internal static long Publications { get; private set; }
+        private static long publications;
+        internal static long Publications => Interlocked.Read(ref publications);
         internal static int RejectedCells { get; private set; }
         internal static string FirstRejection { get; private set; } = "";
-        internal static double LastBuildMilliseconds { get; private set; }
+        internal static double LastBuildMilliseconds { get; private set; } // worker
+        internal static double CopyMilliseconds { get; private set; }      // game thread
         internal static string LastError { get; private set; } = "";
 
-        internal static void Reset() { catalog = null; publishedFrame = ulong.MaxValue; Publications = 0; LastError = ""; }
+        internal static void Reset() { catalog = null; publishedFrame = ulong.MaxValue; Interlocked.Exchange(ref publications, 0); LastError = ""; }
 
         internal static void Configure()
         {
@@ -55,45 +58,76 @@ namespace MixedAtmospheres.Oni
             publishedFrame = ulong.MaxValue;
         }
 
-        // Called after each data request; builds readings once per completed frame.
+        // Called after each data request. The game thread copies the completed
+        // frame's readings (made on the solver thread); a worker builds the
+        // presentation from them, one frame at a time: a frame completed while
+        // a build runs waits for the next request, so the presentation may skip
+        // frames but never holds the game thread.
+        private static int building;
         internal static void Publish(ulong completedFrame)
         {
-            if (catalog == null || completedFrame == publishedFrame) return;
+            if (catalog == null || completedFrame == publishedFrame || Interlocked.CompareExchange(ref building, 1, 0) != 0) return;
             var started = System.Diagnostics.Stopwatch.GetTimestamp();
+            ulong frame; uint count, partCount;
             try
             {
-                OniNativeColony.Check(OniNativeColony.Readings(out var frame, null, 0, out var count, null, 0, out var partCount));
+                OniNativeColony.Check(OniNativeColony.Readings(out frame, null, 0, out count, null, 0, out partCount));
                 if (readings.Length < count) readings = new OniNativeColony.Reading[count + count / 4];
                 if (parts.Length < partCount) parts = new OniNativeColony.Constituent[partCount + partCount / 4];
                 OniNativeColony.Check(OniNativeColony.Readings(out frame, readings, (uint)readings.Length, out count, parts, (uint)parts.Length, out partCount));
-                var cells = new Dictionary<int, MixtureThermodynamicReading>((int)count);
-                var rejected = 0;
-                for (var r = 0; r < count; ++r)
-                {
-                    try { cells.Add((int)readings[r].PublicCell, Create(readings[r], (long)frame)); }
-                    catch (ArgumentException error)
-                    {
-                        // That cell keeps its vanilla projection.
-                        if (rejected++ == 0) FirstRejection = "cell " + readings[r].PublicCell + ": " + error.Message;
-                    }
-                }
-                RejectedCells = rejected;
-                if (cells.Count != 0) MixturePresentationRuntime.PublishNativeDomainFrame(Grid.WidthInCells, Grid.HeightInCells, (long)frame, cells);
-                publishedFrame = frame; ++Publications;
             }
-            catch (Exception error)
+            catch (Exception error) { Failed(error, completedFrame); Volatile.Write(ref building, 0); return; }
+            publishedFrame = frame;
+            CopyMilliseconds = Milliseconds(started);
+            int width = Grid.WidthInCells, height = Grid.HeightInCells;
+            // Configure replaces these arrays rather than editing them, so the
+            // worker keeps a consistent set even if the owner restarts.
+            var table = new Table(catalog!, ids, phases, molarMasses, readings, parts);
+            ThreadPool.QueueUserWorkItem(_ =>
             {
-                // Presentation never stops the owner; the vanilla projection stays visible.
-                if (LastError != error.Message) Debug.LogWarning("[Mixed Atmospheres] Colony presentation failed: " + error.Message);
-                LastError = error.Message; publishedFrame = completedFrame;
-            }
-            LastBuildMilliseconds = (System.Diagnostics.Stopwatch.GetTimestamp() - started) * 1000.0 / System.Diagnostics.Stopwatch.Frequency;
+                var begun = System.Diagnostics.Stopwatch.GetTimestamp();
+                try
+                {
+                    var cells = new Dictionary<int, MixtureThermodynamicReading>((int)count);
+                    var rejected = 0;
+                    for (var r = 0; r < count; ++r)
+                    {
+                        try { cells.Add((int)table.Readings[r].PublicCell, Create(table, table.Readings[r], (long)frame)); }
+                        catch (ArgumentException error)
+                        {
+                            // That cell keeps its vanilla projection.
+                            if (rejected++ == 0) FirstRejection = "cell " + table.Readings[r].PublicCell + ": " + error.Message;
+                        }
+                    }
+                    RejectedCells = rejected;
+                    if (cells.Count != 0 && MixturePresentationRuntime.PublishNativeDomainFrame(width, height, (long)frame, cells)) Interlocked.Increment(ref publications);
+                }
+                catch (Exception error) { Failed(error, frame); }
+                finally { LastBuildMilliseconds = Milliseconds(begun); Volatile.Write(ref building, 0); }
+            });
         }
+        // Presentation never stops the owner; the vanilla projection stays visible.
+        private static void Failed(Exception error, ulong frame)
+        {
+            if (LastError != error.Message) Debug.LogWarning("[Mixed Atmospheres] Colony presentation failed: " + error.Message);
+            LastError = error.Message; publishedFrame = frame;
+        }
+        private static double Milliseconds(long since) =>
+            (System.Diagnostics.Stopwatch.GetTimestamp() - since) * 1000.0 / System.Diagnostics.Stopwatch.Frequency;
 
         // Gas partial volumes follow the reading's ideal-gas contract (n R T / p),
         // scaled to the cell's headspace when that geometry agrees with it.
-        private static MixtureThermodynamicReading Create(OniNativeColony.Reading cell, long revision)
+        private sealed class Table
         {
+            internal readonly FluidMaterialCatalog Catalog; internal readonly string[] Ids; internal readonly NativeMatterPhase[] Phases;
+            internal readonly double[] MolarMasses; internal readonly OniNativeColony.Reading[] Readings; internal readonly OniNativeColony.Constituent[] Parts;
+            internal Table(FluidMaterialCatalog catalog, string[] ids, NativeMatterPhase[] phases, double[] molarMasses,
+                OniNativeColony.Reading[] readings, OniNativeColony.Constituent[] parts)
+            { Catalog = catalog; Ids = ids; Phases = phases; MolarMasses = molarMasses; Readings = readings; Parts = parts; }
+        }
+        private static MixtureThermodynamicReading Create(Table table, OniNativeColony.Reading cell, long revision)
+        {
+            var parts = table.Parts; var phases = table.Phases; var molarMasses = table.MolarMasses; var ids = table.Ids; var catalog = table.Catalog;
             var gasMoles = 0.0;
             for (var c = 0; c < cell.Constituents; ++c)
             {
@@ -125,7 +159,7 @@ namespace MixedAtmospheres.Oni
             var mechanical = gasVolume == 0 && vacuum > 0 ? 0 : cell.MechanicalPressurePa;
             return new MixtureThermodynamicReading(constituents, total, cell.InternalEnergyJoules, 0,
                 cell.TemperatureKelvin, gasVolume > 0 ? cell.GasPressurePa : 0, mechanical, 1, gasVolume, cell.LiquidVolumeCubicMetres,
-                vacuum, catalog!.Version, catalog.Fingerprint, revision, "colony:cell:" + cell.PublicCell,
+                vacuum, catalog.Version, catalog.Fingerprint, revision, "colony:cell:" + cell.PublicCell,
                 resolvedVacuumInterface: true);
         }
     }

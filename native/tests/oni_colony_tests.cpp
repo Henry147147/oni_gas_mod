@@ -366,10 +366,24 @@ int main(int argc, char** argv) {
             ma::oni::colony::refuse_reading(public_cell(4, 7));
             ma::oni::colony::advance(6, .2, 2); ma::oni::colony::wait();
             ma::oni::colony::copy(shown, after.data(), static_cast<std::uint32_t>(after.size()));
+            std::vector<MAOniColonyReading> refused_readings; std::vector<MAOniColonyConstituent> refused_parts;
+            ma::oni::colony::readings(refused_readings, refused_parts);
             ma::oni::colony::refuse_reading(-1);
             const std::size_t k = 4 + 7 * W;
             std::cout << "refused reading: state " << shown.state << " " << shown.error << "\n";
             require(shown.state == 1 && std::memcmp(&before[k], &after[k], sizeof(MAOniColonyCellView)) == 0, "a refused reading keeps the cell's previous view");
+            // The presentation's readings come from the projection's evaluation:
+            // each matches its cell's view, and the refused cell has none.
+            std::size_t matched = 0;
+            for (const auto& r : refused_readings) {
+                require(r.public_cell != public_cell(4, 7), "a refused cell has no presentation reading");
+                const auto& v = after[(r.public_cell % GW - X0) + (r.public_cell / GW - Y0) * W];
+                require(static_cast<float>(std::clamp(r.temperature_k, 1.0, 9999.0)) == v.temperature_k &&
+                    static_cast<float>(r.mechanical_pressure_pa) == v.pressure_pa, "a reading matches its cell's view");
+                ++matched;
+            }
+            std::cout << "readings matching their views: " << matched << "\n";
+            require(matched > 0, "the owner publishes readings");
             ma::oni::colony::stop();
         }
         // An injection too small to change its cell in binary64 (1e-14 kg on

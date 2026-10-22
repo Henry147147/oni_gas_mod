@@ -68,6 +68,9 @@ struct ArithmeticScope {
 struct Published {
     MAOniColonyStatus status{};
     std::vector<MAOniColonyCellView> views;
+    // The presentation's readings, in cell order, made with the views.
+    std::vector<MAOniColonyReading> readings;
+    std::vector<MAOniColonyConstituent> parts;
     std::shared_ptr<const MacClosedWorld> world;
     std::shared_ptr<const Catalogue> catalogue;
 };
@@ -275,14 +278,25 @@ long double parcel_energy(const MacFluidParcel& p) {
     return static_cast<long double>(p.internal_energy_j) + mac_energy_long_double(p.resolved_kinetic_energy) + mac_energy_long_double(p.potential_energy);
 }
 std::atomic<std::size_t> refused_reading{SIZE_MAX}; // control hook: a rect cell whose reading throws
-std::vector<MAOniColonyCellView> project(const Session& s, const MacClosedWorld& w) {
+struct Projection {
+    std::vector<MAOniColonyCellView> views;
+    std::vector<MAOniColonyReading> readings;
+    std::vector<MAOniColonyConstituent> parts;
+};
+// The views ONI sees and the presentation's readings, from one reference EOS
+// evaluation per cell on the solver thread; the game thread only copies them.
+Projection project(const Session& s, const MacClosedWorld& w) {
     const auto& st = w.state(); const auto& registry = w.registry(); const auto& c = *s.catalogue;
-    std::vector<MAOniColonyCellView> views(st.cells.size());
+    Projection out; out.views.resize(st.cells.size()); auto& views = out.views;
+    constexpr std::size_t block_size = 1024;
+    const auto blocks = (st.cells.size() + block_size - 1) / block_size;
+    std::vector<std::vector<MAOniColonyReading>> block_readings(blocks);
+    std::vector<std::vector<MAOniColonyConstituent>> block_parts(blocks);
     // A cell whose reading the reference EOS refuses keeps its previous view
     // for this frame (the owner's state is unchanged; only its reading waits).
     std::shared_ptr<const Published> previous; { std::lock_guard lock(publication); previous = latest; }
     const bool fallback = previous && previous->views.size() == views.size();
-    const auto project_cell = [&](std::size_t i) {
+    const auto project_cell = [&](std::size_t i, std::size_t block) {
         auto& v = views[i];
         if (st.grid.walls[i]) return;
         v.flags = MA_ONI_COLONY_VIEW_OWNED; v.element_index = s.config.vacuum_index;
@@ -314,27 +328,47 @@ std::vector<MAOniColonyCellView> project(const Session& s, const MacClosedWorld&
         v.liquid_fraction = static_cast<float>(reading.liquid_volume_m3 / st.grid.volume_m3());
         const auto germ = dominant_germ(st.cells[i].passive_quantities);
         v.disease = germ.first; v.disease_count = germ.second;
+        // A cell without a reading (refused above) keeps its vanilla presentation.
+        auto& parts = block_parts[block];
+        MAOniColonyReading r{};
+        r.public_cell = static_cast<std::uint32_t>((geometry.offset_x + i % geometry.width) + (geometry.offset_y + i / geometry.width) * geometry.grid_width);
+        r.first_constituent = static_cast<std::uint32_t>(parts.size());
+        r.temperature_k = reading.temperature_k; r.mechanical_pressure_pa = reading.mechanical_pressure_pa; r.gas_pressure_pa = reading.gas_pressure_pa;
+        r.internal_energy_j = m.energy; r.occupied_volume_m3 = mac_material_volume(st, i);
+        for (std::size_t k = 0; k < m.masses.size(); ++k) if (m.masses[k] > 0) {
+            parts.push_back({static_cast<std::uint32_t>(k), 0, m.masses[k], reading.partial_volumes_m3[k]});
+            if (!c.materials[k].game.gas) r.liquid_volume_m3 += reading.partial_volumes_m3[k];
+        }
+        r.constituents = static_cast<std::uint32_t>(parts.size()) - r.first_constituent;
+        block_readings[block].push_back(r);
     };
-    constexpr std::size_t block_size = 1024;
-    const auto blocks = (st.cells.size() + block_size - 1) / block_size;
     const auto options = mac_kernel_default_options();
     const auto threads = static_cast<unsigned>(std::min<std::size_t>(options.threads,
         std::max<std::size_t>(1, blocks / options.minimum_blocks_per_thread)));
     mac_kernel::pool_for(threads).run(blocks, [&](std::size_t block) {
-        for (std::size_t i = block * block_size; i < std::min(st.cells.size(), (block + 1) * block_size); ++i) project_cell(i);
+        for (std::size_t i = block * block_size; i < std::min(st.cells.size(), (block + 1) * block_size); ++i) project_cell(i, block);
     });
-    return views;
+    std::size_t reading_count = 0, part_count = 0;
+    for (std::size_t b = 0; b < blocks; ++b) { reading_count += block_readings[b].size(); part_count += block_parts[b].size(); }
+    out.readings.reserve(reading_count); out.parts.reserve(part_count);
+    for (std::size_t b = 0; b < blocks; ++b) {
+        const auto offset = static_cast<std::uint32_t>(out.parts.size());
+        for (auto r : block_readings[b]) { r.first_constituent += offset; out.readings.push_back(r); }
+        out.parts.insert(out.parts.end(), block_parts[b].begin(), block_parts[b].end());
+    }
+    return out;
 }
-void publish(const Session& s, std::vector<MAOniColonyCellView> views) {
+void publish(const Session& s, Projection projection) {
     auto p = std::make_shared<Published>();
-    p->status = s.status; p->views = std::move(views); p->world = s.world; p->catalogue = s.catalogue;
+    p->status = s.status; p->views = std::move(projection.views); p->readings = std::move(projection.readings); p->parts = std::move(projection.parts);
+    p->world = s.world; p->catalogue = s.catalogue;
     std::lock_guard lock(publication); latest = std::move(p);
 }
 void publish(const Session& s) { publish(s, project(s, *s.world)); }
 void fault(Session& s, const char* why) noexcept {
     s.status.state = 2; write_error(s.status, why);
     try { auto p = std::make_shared<Published>(); p->status = s.status;
-        { std::lock_guard lock(publication); if (latest) { p->views = latest->views; p->world = latest->world; p->catalogue = latest->catalogue; } latest = std::move(p); } }
+        { std::lock_guard lock(publication); if (latest) { p->views = latest->views; p->readings = latest->readings; p->parts = latest->parts; p->world = latest->world; p->catalogue = latest->catalogue; } latest = std::move(p); } }
     catch (...) {}
 }
 // The CPUs this process may run on (its affinity, as when the game is pinned).
@@ -820,29 +854,7 @@ double trace_reading_temperature(std::uint32_t public_cell, std::uint32_t native
 std::uint64_t readings(std::vector<MAOniColonyReading>& out, std::vector<MAOniColonyConstituent>& parts) {
     std::shared_ptr<const Published> p; { std::lock_guard lock(publication); p = latest; }
     require(p != nullptr && p->world != nullptr, "No colony owner is active");
-    const ArithmeticScope arithmetic;
-    const auto& w = *p->world; const auto& st = w.state(); const auto& eos = w.thermodynamics();
-    out.clear(); parts.clear();
-    for (std::size_t i = 0; i < st.cells.size(); ++i) {
-        const auto& m = st.cells[i].mixture;
-        if (st.grid.walls[i] || !(m.mass() > 0)) continue;
-        const double volume = mac_material_volume(st, i);
-        // A cell the reference EOS cannot read has no reading this frame.
-        std::optional<experimental::ReferenceEquilibriumState> evaluated;
-        try { evaluated.emplace(evaluate_cell(eos, m, volume)); } catch (const std::exception&) { continue; }
-        const auto& e = *evaluated;
-        MAOniColonyReading r{};
-        r.public_cell = static_cast<std::uint32_t>((geometry.offset_x + i % geometry.width) + (geometry.offset_y + i / geometry.width) * geometry.grid_width);
-        r.first_constituent = static_cast<std::uint32_t>(parts.size());
-        r.temperature_k = e.temperature_k; r.mechanical_pressure_pa = e.mechanical_pressure_pa; r.gas_pressure_pa = e.gas_pressure_pa;
-        r.internal_energy_j = m.energy; r.occupied_volume_m3 = volume;
-        for (std::size_t k = 0; k < m.masses.size(); ++k) if (m.masses[k] > 0) {
-            parts.push_back({static_cast<std::uint32_t>(k), 0, m.masses[k], e.partial_volumes_m3[k]});
-            if (!p->catalogue->materials[k].game.gas) r.liquid_volume_m3 += e.partial_volumes_m3[k];
-        }
-        r.constituents = static_cast<std::uint32_t>(parts.size()) - r.first_constituent;
-        out.push_back(r);
-    }
+    out = p->readings; parts = p->parts;
     return p->status.completed_frames;
 }
 
@@ -1520,9 +1532,9 @@ void run_frame(std::uint64_t ticket, double seconds, const char* refusal, std::u
         s.status.time_seconds = s.world->time_s(); s.status.last_frame_seconds = seconds;
         s.status.last_advance_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
         s.status.maximum_advance_ms = std::max(s.status.maximum_advance_ms, s.status.last_advance_ms);
-        auto views = project(s, *s.world);
+        auto projection = project(s, *s.world);
         lap(5); std::copy(std::begin(stage), std::end(stage), s.status.stage_ms);
-        publish(s, std::move(views));
+        publish(s, std::move(projection));
     } catch (const std::exception& error) { fault(s, (std::string(doing) + ": " + error.what()).c_str()); }
       catch (...) { fault(s, "Unknown colony advance failure"); }
 }

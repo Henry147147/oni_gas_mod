@@ -76,7 +76,11 @@ and refuses saves.
 After each completed owner frame the mod builds one mixture reading per open
 owned cell holding material (`ma_oni_colony_readings`: temperature, pressures,
 internal energy, occupied and liquid volume, each constituent's mass and
-volume) and hands the frame to the mixture presentation runtime. The gas
+volume) and hands the frame to the mixture presentation runtime. The readings
+come from the projection's EOS evaluation on the solver thread; the game
+thread only copies them (about 3 ms on Terra), and a worker builds the
+presentation frame (about 0.3 s), one at a time, so the presentation can skip
+a frame but never holds the game thread. The gas
 renderer, hover, overlays and status display then show the real mixture; each
 species uses the game's element id, name and substance colour, and breathing
 follows the easy-mode rule. A cell whose reading fails validation keeps the

@@ -190,24 +190,37 @@ namespace MixedAtmospheres.Oni
         }
 
         // Native completed readings from an explicitly bounded physical owner.
-        // This does not replace ownership outside the supplied cell set.
-        internal static void PublishNativeDomainFrame(int width, int height, long revision,
+        // This does not replace ownership outside the supplied cell set. Any
+        // thread may publish: the frame is described outside the lock, and a
+        // frame described for a model or session that has since been replaced
+        // is dropped (false).
+        internal static bool PublishNativeDomainFrame(int width, int height, long revision,
             IReadOnlyDictionary<int, MixtureThermodynamicReading> readings)
         {
+            if (width <= 0 || height <= 0 || revision < 0 || readings.Count == 0)
+                throw new ArgumentException("Invalid native domain frame.");
+            foreach (var reading in readings)
+                if (reading.Key < 0 || reading.Key >= (long)width * height || reading.Value.Revision != revision)
+                    throw new ArgumentException("Native domain cell or revision disagrees with its completed frame.");
+            MixturePresentationModel described; long epoch;
             lock (Sync)
             {
                 if (model == null || source != null || completedSource != null)
                     throw new InvalidOperationException("A native domain requires its own presentation session and model.");
-                if (width <= 0 || height <= 0 || revision < 0 || readings.Count == 0)
-                    throw new ArgumentException("Invalid native domain frame.");
+                described = model; epoch = resetEpoch;
+            }
+            var built = new FixtureSource(width, height, readings, revision, described);
+            lock (Sync)
+            {
+                if (model != described || resetEpoch != epoch) return false;
+                if (source != null || completedSource != null)
+                    throw new InvalidOperationException("A native domain requires its own presentation session and model.");
                 if (fixture != null && (fixture.IsFixture || revision < fixture.Revision))
                     throw new InvalidOperationException("Native domain publication changed owner or moved backwards.");
-                foreach (var reading in readings)
-                    if (reading.Key < 0 || reading.Key >= (long)width * height || reading.Value.Revision != revision)
-                        throw new ArgumentException("Native domain cell or revision disagrees with its completed frame.");
-                fixture = new FixtureSource(width, height, readings, revision, model);
+                fixture = built;
                 includeWorldCells = true; ++generation;
                 DevelopmentTelemetry.Sampler.ObservePublication(generation, System.Diagnostics.Stopwatch.GetTimestamp());
+                return true;
             }
         }
 

@@ -37,6 +37,10 @@ namespace MixedAtmospheres.Oni
         internal static string StartFailure { get; private set; } = "";
         internal static int OwnedCells { get; private set; }
         internal static long Publications { get; private set; }
+        // Game-thread time of the last and longest publication (data copy,
+        // views, events, receipts, actors, presentation hand-off).
+        internal static double PublicationMilliseconds { get; private set; }
+        internal static double MaximumPublicationMilliseconds { get; private set; }
         private static OniNativeColony.Status status = OniNativeColony.Status.Empty;
         private static bool considered;
         private static int x0, y0, width, height;
@@ -66,7 +70,7 @@ namespace MixedAtmospheres.Oni
             current?.Dispose(); current = null;
             if (Active) { var s = OniNativeColony.Status.Empty; _ = OniNativeColony.Stop(ref s); }
             ColonyPacing.Reset(); ColonyOwnerPersistence.Reset();
-            Active = false; considered = false; StartFailure = ""; loggedFault = ""; Publications = 0; Census.Clear(); molarMass = Array.Empty<double>();
+            Active = false; considered = false; StartFailure = ""; loggedFault = ""; Publications = 0; PublicationMilliseconds = MaximumPublicationMilliseconds = 0; Census.Clear(); molarMass = Array.Empty<double>();
         }
 
         private static bool InRect(int cell, out int index)
@@ -207,6 +211,7 @@ namespace MixedAtmospheres.Oni
             ColonyActors.Observe(source);
             if (!Active && ClusterManager.Instance != null && ColonyOwnerPersistence.TakePending() is var (saved, image)) Restore(saved, image);
             if (!Active) { TryStart(source); if (!Active) return pointer; }
+            var started = System.Diagnostics.Stopwatch.GetTimestamp();
             var output = OniNativeColony.Status.Empty;
             OniNativeColony.Check(OniNativeColony.Copy(ref output, views, (uint)views.Length));
             status = output;
@@ -251,6 +256,8 @@ namespace MixedAtmospheres.Oni
                 var previous = current; current = copy; previous?.Dispose();
                 ++Publications;
                 ColonyPresentation.Publish(status.CompletedFrames);
+                PublicationMilliseconds = (System.Diagnostics.Stopwatch.GetTimestamp() - started) * 1000.0 / System.Diagnostics.Stopwatch.Frequency;
+                MaximumPublicationMilliseconds = Math.Max(MaximumPublicationMilliseconds, PublicationMilliseconds);
                 return (IntPtr)copy.Pointer;
             }
             catch { copy.Dispose(); throw; }
