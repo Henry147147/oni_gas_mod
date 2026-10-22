@@ -514,8 +514,13 @@ namespace MixedAtmospheres.Oni
                 recorded["co2"] = ArenaSpecies(SimHashes.CarbonDioxide);
                 var generator = Build(MethaneGeneratorConfig.ID, Cell(3, 0));
                 generator.GetComponent<Storage>().AddGasChunk(SimHashes.Methane, 5, 300, byte.MaxValue, 0, false, true);
-                // A generator runs only on a circuit: a wire on its output.
+                // A generator runs only on a circuit (a wire on its output) and
+                // with its polluted-water output piped (here to a reservoir).
                 Wire(new List<int> { Grid.OffsetCell(Grid.PosToCell(generator), generator.GetComponent<Building>().Def.PowerOutputOffset) });
+                var tank = Build(LiquidReservoirConfig.ID, Cell(6, 0));
+                Pipe(Game.Instance.liquidConduitSystem, LiquidConduitConfig.ID, Route(
+                    Grid.OffsetCell(Grid.PosToCell(generator), generator.GetComponent<Building>().Def.UtilityOutputOffset),
+                    Grid.OffsetCell(Grid.PosToCell(tank), tank.GetComponent<Building>().Def.UtilityInputOffset)));
             }
             if (Once(32, "check"))
             {
@@ -647,19 +652,24 @@ namespace MixedAtmospheres.Oni
         private static void MaskStation(int frame)
         {
             if (Once(0, "arena")) Arena((x, y) => y == 0 ? (SimHashes.Granite, 1000f, 300f) : (SimHashes.Oxygen, 1.5f, 300f));
-            if (Once(6, "build")) { recorded["oxygen"] = ArenaSpecies(SimHashes.Oxygen); station = Build(OxygenMaskStationConfig.ID, Cell(3, 1)); }
+            if (Once(6, "build"))
+            {
+                recorded["oxygen"] = ArenaSpecies(SimHashes.Oxygen); recorded["receipts"] = ColonyActors.DeliveredKg; recorded["mass"] = ArenaMass();
+                station = Build(OxygenMaskStationConfig.ID, Cell(3, 1));
+            }
             if (Once(36, "check"))
             {
                 var held = station == null ? 0 : station.GetComponents<Storage>().Sum(s => s.GetMassAvailable(SimHashes.Oxygen));
                 var taken = recorded["oxygen"] - ArenaSpecies(SimHashes.Oxygen);
                 Record("the station filled with the owner's oxygen", held > .01 && Math.Abs(taken - held) < .01 * held + 1e-4,
-                    $"took {taken:G4} kg, holds {held:G4} kg; {MachineState(station)}");
+                    $"took {taken:G4} kg, holds {held:G4} kg, receipts {ColonyActors.DeliveredKg - recorded["receipts"]:G4} kg, arena mass {recorded["mass"]:G6} -> {ArenaMass():G6} kg; " +
+                    $"storages {string.Join(" ", station == null ? new string[0] : station.GetComponents<Storage>().Select(st => $"{st.MassStored():G4}/{st.capacityKg:G4}"))}; {MachineState(station)}");
                 Finish();
             }
         }
 
         // A polymer press turns stored petroleum into plastic and exhausts its
-        // steam and carbon dioxide into the owner.
+        // steam and carbon dioxide through a pipe and a vent into the owner.
         private static GameObject? press;
         private static void PolymerPress(int frame)
         {
@@ -669,8 +679,13 @@ namespace MixedAtmospheres.Oni
                 recorded["out"] = ArenaSpecies(SimHashes.Steam) + ArenaSpecies(SimHashes.Water) + ArenaSpecies(SimHashes.CarbonDioxide);
                 press = Build(PolymerizerConfig.ID, Cell(3, 1));
                 press.GetComponent<Storage>().AddLiquid(SimHashes.Petroleum, 20, 300, byte.MaxValue, 0);
+                // The press runs only with its exhaust piped: a gas pipe to a vent.
+                var vent = Build(GasVentConfig.ID, Cell(6, 1));
+                Pipe(Game.Instance.gasConduitSystem, GasConduitConfig.ID, Route(
+                    Grid.OffsetCell(Grid.PosToCell(press), press.GetComponent<Building>().Def.UtilityOutputOffset),
+                    Grid.OffsetCell(Grid.PosToCell(vent), vent.GetComponent<Building>().Def.UtilityInputOffset)));
             }
-            if (Once(40, "check"))
+            if (Once(90, "check"))
             {
                 var added = ArenaSpecies(SimHashes.Steam) + ArenaSpecies(SimHashes.Water) + ArenaSpecies(SimHashes.CarbonDioxide) - recorded["out"];
                 var left = press == null ? 0 : press.GetComponents<Storage>().Sum(s => s.GetMassAvailable(SimHashes.Petroleum));
@@ -767,15 +782,17 @@ namespace MixedAtmospheres.Oni
 
         // A steam rocket engine put into its burning state (as at launch)
         // exhausts hot steam into the owner.
+        private static RocketEngine? engine;
         private static void RocketExhaust(int frame)
         {
             if (Once(0, "arena")) Arena((x, y) => (SimHashes.Oxygen, .3f, 300f));
             if (Once(6, "burn"))
             {
                 recorded["steam"] = ArenaSpecies(SimHashes.Steam) + ArenaSpecies(SimHashes.Water);
-                var engine = Build(SteamEngineConfig.ID, Cell(3, 1)).GetComponent<RocketEngine>();
-                var smi = engine.GetSMI<RocketEngine.StatesInstance>(); smi.GoTo(smi.sm.burning);
+                engine = Build(SteamEngineConfig.ID, Cell(3, 1)).GetComponent<RocketEngine>();
             }
+            // Its state machine exists once it has spawned (a frame later).
+            if (Once(7, "ignite")) { var smi = engine!.GetSMI<RocketEngine.StatesInstance>(); smi.GoTo(smi.sm.burning); }
             if (Once(30, "check"))
             {
                 var added = ArenaSpecies(SimHashes.Steam) + ArenaSpecies(SimHashes.Water) - recorded["steam"];

@@ -382,7 +382,7 @@ setting their powered flag (harness only).
 | `wheezewort` | A Wheezewort's gas consumer runs through the owner, and the gas it takes returns to the arena or is held by the plant. |
 | `life-support` | The dev life-support building's consumer and emitter run through the owner: carbon dioxide in, oxygen out, and the emitter sees its full cell. |
 | `mask-station` | An oxygen mask station fills its storage with the owner's oxygen; the arena loses what the station holds. |
-| `polymer-press` | A polymer press works stored petroleum and exhausts steam and carbon dioxide into the owner. |
+| `polymer-press` | A polymer press works stored petroleum; its steam and carbon dioxide go through its exhaust pipe and a vent into the owner. |
 | `oxyfern` | A wild oxyfern's consumer takes the owner's carbon dioxide. |
 | `debris-heat` | Hot debris warms the owner's air through the native shadow; the energy ledger stays closed. |
 | `building-melt` | A lead ladder melting (the game's melt path) gives its mass to the owner as liquid. |
