@@ -218,9 +218,21 @@ restoring the checkpoint after every interval; these are not full arena runs.
 | F3 levelling start | 2.1537e-8 | 0.007906 |
 | F5 layering start | 2.0490e-8 | 0.008264 |
 
-The four feature-removal variants in the floor protocol remain scratch-only
-measurements requiring a user adoption decision. Momentum and per-cell
-gas/miscible-liquid composition are retained in every variant.
+The four feature-removal variants remain scratch-only and require a user
+adoption decision. [Measured Terra60 results](../docs/base-game-floor.md#performance-and-feature-variants)
+are recorded for every category. Only reduced liquid sound speed improved
+owner time (287.2 to 268.1 ms in whole-lock fast runs); the other tested
+variants were slower. None has passed the accuracy floor. Momentum and per-cell
+gas/miscible-liquid composition remain in every variant.
+
+Private numerical trials loosened the pressure root criterion to 1e-8 with
+geometric conservative U work (271.4 ms owner), delayed paired relaxation to
+integer 1 s boundaries (274.0 ms), and tried a 0.2f s maximum step (304.0 ms).
+They are not selected or persisted as production settings: reference field
+errors and affected floor metrics are unresolved. The current maximum is
+already 0.1f s; 0.05f s was a finer control, not a speedup. Full timings, ledger
+errors and trace totals are in the floor report. Physics gates retain their
+original settings and outputs.
 
 ## Coverage and admission
 

@@ -82,18 +82,27 @@ report reference error for the user's judgment.
 
 | Scenario | Vanilla | Truth | Game profile | Errors / floor result |
 | --- | --- | --- | --- | --- |
-| F1 | Equalises [55.8, 56.6] s across three runs; final L/R/divider fractions about 0.47145/0.46973/0.05882 | Final fractions 64/136, 64/136, 8/136; dynamic truth unresolved | Equalises [4.8, 5.0] s; fractions 0.47088/0.46982/0.05930 | Divider error about 4.76e-4 versus vanilla below 7e-6: **fails**. Timing unresolved. |
-| F2 | Closed leakage 0; open equalisation censored at 120 s | Closed leakage 0; dynamic truth unresolved | Closed leakage 0; equalises [0, 0.2] s after fully open | Leakage matches truth; timing unresolved. Command-to-open delays 3.0/2.8 s. |
-| F3 | Levels [68.8, 69.0] s; final depth 2.0000003 m | Nominal depth 2 m; phase/compression correction and dynamic truth unresolved | Levels [7.4, 7.6] s; final depth 1.999844 m | Nominal depth errors 3e-7/1.56e-4 m; correction still needed. No floor pass claimed. |
+| F1 | Equalises [55.8, 56.6] s across three runs; final L/R/divider fractions about 0.47145/0.46973/0.05882 | Final fractions 64/136, 64/136, 8/136; dynamic truth unresolved | Equalises [5.6, 5.8] s; fractions 0.46793/0.47233/0.05975 | Divider error about 9.26e-4 versus vanilla below 7e-6: **fails**. Timing unresolved. |
+| F2 | Closed leakage 0; open equalisation censored at 120 s | Closed leakage 0; dynamic truth unresolved | Closed leakage 0; equalises [0, 0] s after fully open | Leakage matches truth; timing unresolved. Command-to-open delay 3.0 s in both. |
+| F3 | Levels [68.8, 69.0] s; final depth 2.0000003 m | Nominal depth 2 m; phase/compression correction and dynamic truth unresolved | Levels [7.4, 7.6] s; final depth 1.999846 m | Nominal depth errors 3e-7/1.54e-4 m; correction still needed. No floor pass claimed. |
 | F4 | pending | pending | pending | unmeasured |
-| F5 | Settling censored; oil below water; depths water/oil 4.0000004/2.000003 m | Water below oil; nominal depths 4/2 m; dynamic truth unresolved | Settles [9.8, 10.0] s; water below oil; depths 3.999944/2.000000 m; zero overlap | Layer order improves; nominal depth errors water/oil 5.6e-5/0 m; corrections and timing unresolved. |
+| F5 | Settling censored; oil below water; depths water/oil 4.0000004/2.000003 m | Water below oil; nominal depths 4/2 m; dynamic truth unresolved | Faults at 7 s on an endpoint range check | No arena floor result; captured-frame recovery under investigation. |
 
-The game runs use opt-in profile 17 at `eb42f8e`, GPU rendering, the low CPU
-lock and the unchanged 120 s scenarios. All four finish without faults or
-skipped relaxations, with maximum relative mass/energy errors about
-2e-15/5.5e-17. Whole-colony trace sinks are about 2.3e-7 kg / 0.075 J per run;
-these are stability and ledger passes, not accuracy-floor passes. Vanilla
-starts use the same runtime catalogue and placed fields. F1 initially holds
+The game rows use opt-in profile 17, GPU rendering and the low CPU lock;
+`1a7bcf9` restricts ownership to the fixed arena rectangle. The recorded F1
+release has all 136 interior cells open; the earlier 126-owned count was
+before arena construction. F1 mass/energy errors are 3.5e-17/2.5e-16, sink zero;
+F2 errors are 6e-18/1.4e-16; F3 sink is 4.1e-10 kg. F1 ends with left/divider/right
+pressures about 47519/48636/48152 Pa: residual sloshing, rather than mass loss,
+contributes to its split error. Its temperatures are 293.804/294.383/294.947 K.
+
+Earlier whole-asteroid-owned F1/F2/F3/F5 runs at `eb42f8e` all finished without
+faults or skipped relaxations (mass/energy errors about 2e-15/5.5e-17;
+whole-colony sinks about 2.3e-7 kg / 0.075 J). Their F1 divider error was still
+4.76e-4, and F5 settled [9.8, 10.0] s with water below oil, depths
+3.999944/2.000000 m and zero overlap. These are historical stability results;
+they do not replace the arena measurements or establish floor acceptance.
+Vanilla starts use the same catalogue and placed fields. F1 initially holds
 42.5673 kg O2; F2 106.418 kg O2; F3 40001.84 kg water.
 
 The strict 8× F1 reference admits its first 0.0005 s interval (six accepted
@@ -117,9 +126,48 @@ Measure all four variants below outside the repository, without pushing or
 adopting them. Compare Terra60 against the best numerical profile under the
 same lock, and check F1–F5. Retain momentum and inertia in every variant.
 
-| Scratch-only feature variant | Terra60 gain | Floor / reference cost | Player effect |
-| --- | --- | --- | --- |
-| Simplified physical pressure | pending | pending | pending |
-| Fixed-temperature transitions, latent energy booked | pending | pending | pending |
-| Smeared liquid transport, density layering retained | pending | pending | pending |
-| Low-Mach / reduced acoustic speed | pending | pending | pending |
+The following Terra60 trials used fresh colonies, GPU rendering, fast speed
+and the whole CPU lock with the same managed observer. The selected numerical
+baseline was profile 17 at `3032412`: owner mean **287.2 ms**, observed mean
+**366.7 ms**. Separate private tolerance/cadence trials below have not passed
+the floor and are not adopted. These are single-run comparisons with timing
+noise, not accepted feature configurations. Observed means include the initial
+UI hand-off gap. Every row completed 60 frames without a fault or skipped
+relaxation, with closed mass/energy ledgers.
+
+| Scratch-only feature variant | Owner / observed mean ms | Owner change | Reference cost and player effect | Floor |
+| --- | ---: | ---: | --- | --- |
+| Barotropic pressure in full gas cells; physical EOS retained at vacuum fronts and in liquids/mixed cells | 1641.3 / 1789.1 | +471.5% | Hot bulk gas pressure is capped at its 293.15 K force law; thermal buoyancy changes. Original caloric entropy criterion is reported but disabled for this changed law. This is a scoped diagnostic, not a validated full pressure replacement. | Unresolved |
+| Fixed-temperature transitions; signed latent reservoir | 790.8 / 921.8 | +175.4% | Boiling ignores pressure; latent heat leaves fluid U through a named saved account, +5.774 MJ at frame 60. Newly created minority liquid makes subsequent flow expensive. | Unresolved |
+| Donor-cell liquid transport, density layering retained | 402.7 / 509.4 | +40.2% | Liquid fronts smear; gas reconstruction, momentum and density settling remain. | Unresolved |
+| Liquid sound speed ×0.2 (bulk modulus ×0.04), gas EOS unchanged | 268.1 / 349.8 | −6.6% | Liquid waves slow and liquids compress more; initial arena fill masses remain identical to the baseline. | Unresolved |
+
+The original pressure variant faulted before completing a frame; the scoped
+variant above made 157141 rejected attempts. A limited-linear smeared variant
+was also slower (419.8 ms owner). Restricting fixed-temperature nucleation to
+bulk phases did not help (803.1 ms owner, latent reservoir +3.996 MJ).
+No feature variant is pushed or selected by the game. Quantitative resolved
+reference errors and F1–F5 checks remain open; none is claimed to meet the floor.
+
+| Run | Maximum relative mass / energy error | Trace sink kg / J |
+| --- | --- | --- |
+| Numerical baseline | 3.95e-16 / 4.24e-17 | 3.694e-8 / 0.01304 |
+| Scoped barotropic pressure | 4.71e-15 / 3.20e-17 | 1.935e-8 / 0.005709 |
+| Fixed-temperature transitions | 4.43e-16 / 4.25e-17 | 3.444e-8 / 0.01301 |
+| Donor-cell liquids | 1.26e-15 / 2.74e-17 | 7.167e-8 / 0.06031 |
+| Reduced liquid sound speed | 4.56e-16 / 2.41e-17 | 3.422e-8 / 0.01258 |
+
+Private numerical trials, under the same whole-lock Terra60 protocol:
+
+| Trial | Owner / observed mean ms | Cost against the reference | Floor / adoption |
+| --- | ---: | --- | --- |
+| Pressure root tolerance 1e-8, geometric conservative pressure work | 271.4 / 353.7 | Root criterion loosened from 16 epsilon; quantitative field errors pending. Existing conservation/entropy checks retained. | Unresolved; scratch only |
+| Paired phase relaxation at integer 1 s boundaries | 274.0 / 363.1 | Up to 0.8 s extra phase lag; fixed-U equilibrium retained. Field errors pending. | Unresolved; scratch only |
+| Maximum step 0.2f s | 304.0 / 396.4 | One large trial per frame; more retries. Field errors pending. | Unresolved; scratch only |
+| Maximum step 0.1f s, baseline replicate | 284.8 / 373.3 | Current game step, two aligned trials per frame | Control |
+| Maximum step 0.05f s, finer control | 296.0 / 378.8 | Four aligned trials per frame | Control |
+
+Their maximum relative mass/energy errors are below 5.9e-16 / 4.9e-17;
+trace totals are 2.82e-8–3.77e-8 kg / 0.01155–0.01350 J. All complete without
+faults or skipped relaxations. None reaches the fast-speed target, and these
+ledger passes do not establish accuracy-floor acceptance.
