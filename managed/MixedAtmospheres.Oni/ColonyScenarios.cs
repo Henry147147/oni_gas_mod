@@ -1024,8 +1024,8 @@ namespace MixedAtmospheres.Oni
                 if (generator != null)
                 {
                     var power = Grid.OffsetCell(Grid.PosToCell(generator), generator.GetComponent<Building>().Def.PowerOutputOffset);
-                    foreach (var load in new[] { diffuser, scrubber })
-                        if (load != null) Wire(Route(power, Grid.OffsetCell(Grid.PosToCell(load), load.GetComponent<Building>().Def.PowerInputOffset)));
+                    Wire(new[] { diffuser, scrubber }.Where(load => load != null)
+                        .Select(load => Route(power, Grid.OffsetCell(Grid.PosToCell(load), load!.GetComponent<Building>().Def.PowerInputOffset))).ToArray());
                 }
                 if (water != null && scrubber != null && waste != null)
                 {
@@ -1040,6 +1040,13 @@ namespace MixedAtmospheres.Oni
             if (Once(30, "check"))
             {
                 Record("the base was built", placed.Count == 9, string.Join(", ", placed));
+                // Its life support is wired: the generator's circuit reaches both
+                // loads (power flows once the duplicants have fed it coal).
+                var loads = Components.BuildingCompletes.Items.Where(b => b.PrefabID().Name == MineralDeoxidizerConfig.ID || b.PrefabID().Name == CO2ScrubberConfig.ID).ToList();
+                var circuit = Components.BuildingCompletes.Items.FirstOrDefault(b => b.PrefabID().Name == GeneratorConfig.ID)?.GetComponent<Generator>()?.CircuitID ?? ushort.MaxValue;
+                Record("the life support shares the generator's circuit", loads.Count == 2 && circuit != ushort.MaxValue &&
+                    loads.All(b => b.GetComponent<EnergyConsumer>()?.CircuitID == circuit),
+                    $"generator circuit {circuit}; " + string.Join("; ", loads.Select(b => b.PrefabID().Name + ": " + MachineState(b.gameObject))));
                 Record("the owner's ledgers stayed closed", status.MaximumRelativeMassError < 1e-9 && status.MaximumRelativeEnergyError < 1e-9,
                     $"mass {status.MaximumRelativeMassError:G3}, energy {status.MaximumRelativeEnergyError:G3}");
                 Finish();
@@ -1073,7 +1080,7 @@ namespace MixedAtmospheres.Oni
         }
         private static void Spill(SimHashes element, int x, int y, float mass) =>
             ElementLoader.FindElementByHash(element).substance.SpawnResource(Grid.CellToPosCCC(Grid.XYToCell(x, y), Grid.SceneLayer.Ore), mass, 300, byte.MaxValue, 0);
-        private static void Wire(List<int> path) => Pipe(Game.Instance.electricalConduitSystem, WireConfig.ID, path);
+        private static void Wire(params List<int>[] paths) => Pipe(Game.Instance.electricalConduitSystem, WireConfig.ID, paths);
 
         private static double OwnedMass(SimHashes element)
         {
@@ -1087,18 +1094,34 @@ namespace MixedAtmospheres.Oni
         // connections (KAnimGraphTileVisualizer.UpdateConnections), which also
         // joins it to the network and survives a save and load.
         private static readonly System.Reflection.MethodInfo? updateConnections = AccessTools.Method(typeof(KAnimGraphTileVisualizer), "UpdateConnections");
-        private static void Pipe(IUtilityNetworkMgr network, string id, List<int> path)
+        private static void Pipe(IUtilityNetworkMgr network, string id, params List<int>[] paths)
         {
+            // Paths may share cells (two loads on one generator's port), and a
+            // cell may already hold a segment of this utility: each cell gets
+            // one segment carrying the union of its connections, so a second
+            // path joins the network instead of rewriting it.
             var def = Assets.GetBuildingDef(id);
-            var segments = path.Select(cell => def.Build(cell, Orientation.Neutral, null, def.DefaultElements(), 300, playsound: false)).ToList();
-            for (var k = 0; k < path.Count; ++k)
+            var wanted = new Dictionary<int, UtilityConnections>(); var cells = new List<int>();
+            foreach (var path in paths)
+                for (var k = 0; k < path.Count; ++k)
+                {
+                    var connections = (UtilityConnections)0;
+                    if (k > 0) connections |= UtilityConnectionsExtensions.DirectionFromToCell(path[k], path[k - 1]);
+                    if (k + 1 < path.Count) connections |= UtilityConnectionsExtensions.DirectionFromToCell(path[k], path[k + 1]);
+                    if (wanted.TryGetValue(path[k], out var had)) wanted[path[k]] = had | connections;
+                    else { wanted[path[k]] = connections; cells.Add(path[k]); }
+                }
+            var segments = cells.Select(cell =>
             {
-                var connections = (UtilityConnections)0;
-                if (k > 0) connections |= UtilityConnectionsExtensions.DirectionFromToCell(path[k], path[k - 1]);
-                if (k + 1 < path.Count) connections |= UtilityConnectionsExtensions.DirectionFromToCell(path[k], path[k + 1]);
+                var existing = Grid.Objects[cell, (int)def.ObjectLayer];
+                if (existing != null) { wanted[cell] |= network.GetConnections(cell, true); return existing; }
+                return def.Build(cell, Orientation.Neutral, null, def.DefaultElements(), 300, playsound: false);
+            }).ToList();
+            for (var k = 0; k < cells.Count; ++k)
+            {
                 var visualizer = segments[k] != null ? segments[k].GetComponent<KAnimGraphTileVisualizer>() : null;
                 if (visualizer == null || updateConnections == null) throw new InvalidOperationException("A utility segment cannot record its connections.");
-                updateConnections.Invoke(visualizer, new object[] { connections });
+                updateConnections.Invoke(visualizer, new object[] { wanted[cells[k]] });
             }
         }
 
@@ -1163,7 +1186,7 @@ namespace MixedAtmospheres.Oni
         }
         private static readonly Dictionary<bool, GameObject> generators = new Dictionary<bool, GameObject>();
         // A machine's operating state for a check's detail.
-        private static string MachineState(GameObject? building)
+        internal static string MachineState(GameObject? building)
         {
             if (building == null) return "no building";
             var operational = building.GetComponent<Operational>(); var power = building.GetComponent<EnergyConsumer>();

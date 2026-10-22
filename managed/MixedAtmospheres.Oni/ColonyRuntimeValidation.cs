@@ -439,6 +439,7 @@ namespace MixedAtmospheres.Oni
             // ONI pauses a colony when it loads it and after a save; an
             // unattended run plays on.
             if (SpeedControlScreen.Instance != null && SpeedControlScreen.Instance.IsPaused) SpeedControlScreen.Instance.Unpause(false);
+            LogDuplicants(status.CompletedFrames);
             if (configuration.Floor.Length != 0)
             {
                 if (!FloorArenas.Update()) { if (Time.frameCount % 60 == 0) WriteReport(); return; }
@@ -469,6 +470,48 @@ namespace MixedAtmospheres.Oni
             Report.FinishedUtc = System.DateTime.UtcNow.ToString("O");
             done = true; WriteReport();
             CaptureScreenshot("colony.png");
+        }
+        // MA_COLONY_DUPE_LOG=1: every 150 owner frames, each duplicant's needs
+        // and the air at its cell and the cell above (a long run's diagnosis).
+        private static readonly bool dupeLog = System.Environment.GetEnvironmentVariable("MA_COLONY_DUPE_LOG") == "1";
+        private static ulong dupeLogged;
+        private static void LogDuplicants(ulong frame)
+        {
+            if (!dupeLog || frame < dupeLogged + 150) return;
+            dupeLogged = frame;
+            string Air(int cell)
+            {
+                if (!Grid.IsValidCell(cell)) return "invalid";
+                var breathable = ColonyOwner.TryReadBreathingCell(cell, out _, out var offered) && offered != SimHashes.Vacuum;
+                var count = ColonyOwner.Composition(cell, out var indices, out var masses);
+                double moles = 0, o2 = 0, co2 = 0;
+                for (var k = 0; k < count; ++k)
+                {
+                    var e = ElementLoader.elements[(int)indices[k]]; if (!e.IsGas) continue;
+                    var n = masses[k] / (e.molarMass / 1000); moles += n;
+                    if (e.id == SimHashes.Oxygen || e.id == SimHashes.ContaminatedOxygen) o2 += n; else if (e.id == SimHashes.CarbonDioxide) co2 += n;
+                }
+                // Ideal-gas pressure of the cell's gas over a full cell (an estimate under liquid).
+                var pressure = moles * 8.314462618 * Grid.Temperature[cell];
+                return $"{Grid.Element[cell].id} {Grid.Mass[cell]:F2}kg p~{pressure / 1000:F0}kPa T={Grid.Temperature[cell] - 273.15f:F1}C O2={(moles > 0 ? 100 * o2 / moles : 0):F2}% CO2={(moles > 0 ? 100 * co2 / moles : 0):F2}% breathable={breathable}";
+            }
+            foreach (var building in Components.BuildingCompletes.Items)
+            {
+                var id = building.PrefabID().Name;
+                if (id != CO2ScrubberConfig.ID && id != MineralDeoxidizerConfig.ID && id != GeneratorConfig.ID) continue;
+                var stored = building.GetComponents<Storage>().SelectMany(s => s.items).Where(i => i != null)
+                    .Select(i => i.GetComponent<PrimaryElement>()).Where(e => e != null).GroupBy(e => e.ElementID)
+                    .Select(g => $"{g.Key} {g.Sum(e => e.Mass):F1}kg");
+                Debug.Log($"[Mixed Atmospheres] machine {id} frame {frame}: {ColonyScenarios.MachineState(building.gameObject)}; stored {string.Join(", ", stored)}");
+            }
+            foreach (var minion in Components.LiveMinionIdentities.Items)
+            {
+                var cell = Grid.PosToCell(minion);
+                float Value(Klei.AI.Amount a) => a.Lookup(minion.gameObject)?.value ?? float.NaN;
+                Grid.CellToXY(cell, out var x, out var y);
+                Debug.Log($"[Mixed Atmospheres] dupe {minion.name} frame {frame} at {x},{y} breath {Value(Db.Get().Amounts.Breath):F0} hp {Value(Db.Get().Amounts.HitPoints):F0} " +
+                    $"kcal {Value(Db.Get().Amounts.Calories) / 1000:F0} stress {Value(Db.Get().Amounts.Stress):F0}; air {Air(cell)}; above {Air(Grid.CellAbove(cell))}");
+            }
         }
         // A floor arena under ONI's own simulation: the owner never starts
         // (ColonyOwner.Available), so the arena is ONI's.
