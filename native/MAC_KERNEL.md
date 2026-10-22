@@ -153,6 +153,44 @@ the readout projection still rejects. The captured Terra continuation passes
 readout projections cost subnormal geometric/diagnostic detail, with no format
 or API change.
 
+## Saved game accuracy profiles
+
+The [2026-10-22 decision](../docs/completion-plan.md) permits numerical
+tradeoffs down to the measured [base-game floor](../docs/base-game-floor.md),
+for saved game profiles only. Gates retain their settings and bounds. Profile
+family 0 is legacy; family 1 (`base_game_floor`, checkpoint 16) saves an
+explicit per-constituent trace threshold, at most 1e-6 kg. New colonies have
+not selected this profile yet. A fresh prepared base will be used for its
+ten-cycle acceptance; old saves keep their existing profile.
+
+`with_trace_sink()` removes constituents strictly below that saved threshold.
+Its receipt contains registry-ordered mass, actual stored U+K+G and canonical
+J changes, removed passives and counts. The same operation wraps a selected
+owner's `advanced()` interval; those receipts return in `report.trace_sink`.
+The game owner books and persists them separately from the space sink.
+An unchanged inventory keeps the original shared state and revision. Failed
+advances publish no removal. Sink edits and ordinary flow retain the existing
+conservation bounds; removing material is an external account, not an entropy
+production stage.
+
+Chemical offsets follow the removed constituents. The remaining energy is
+shared by heat capacity, including elastic energy; this preserves an ideal
+gas mixture's temperature, while sacrificing trace-scale elastic partition
+detail. Each face keeps its velocity through its retained-inertia fraction;
+the sink books actual J and kinetic differences. Gas-containing cells keep
+their occupied volume; gas-free liquid holds at most its zero-pressure nominal
+volume or the grid volume. Empty cells retain no U, remainder or passives.
+
+| Game-profile tradeoff | Reference cost | Floor result / adoption |
+| --- | --- | --- |
+| Existing regional schedules, maximum step 0.1f s, gas expansion fraction 0.001 | Different adaptive trajectory and unresolved geometry; quantitative F1–F5 errors pending | Current baseline; floor unmeasured |
+| Existing tiny-capacity conduction/gravity entropy treatment | Thermal detail below component resolution; conservative heat repair and final EOS/entropy checks retained | Current baseline; floor unmeasured |
+| Booked trace sink | Removes sub-threshold composition and its booked mechanics; elastic energy shared by heat capacity | Threshold sweep/control in progress; not a new-colony default |
+
+The four feature-removal variants in the floor protocol remain scratch-only
+measurements requiring a user adoption decision. Momentum and per-cell
+gas/miscible-liquid composition are retained in every variant.
+
 ## Coverage and admission
 
 | Setting | Production kernel |

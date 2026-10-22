@@ -160,7 +160,19 @@ struct MacClosedSubstep {
 [[nodiscard]] MacClosedSubstep advance_mac_closed_substep(const SpeciesRegistry&, const FluidThermodynamics&,
     const MacTransportState&, double seconds, const MacClosedSettings& = {});
 
+// External material removed by the saved game profile, never an unbooked
+// numerical loss. Energies and canonical momenta are actual stored changes.
+struct MacTraceSinkReport {
+    std::vector<MacScaled> mass_kg;
+    MacEnergy internal_energy_j, kinetic_energy_j, potential_energy_j;
+    MacScaled momentum_x, momentum_y;
+    PassiveQuantities passives;
+    std::size_t constituents = 0, cells = 0;
+    MacPrimaryRoundingCounts primary_energy;
+    void merge(const MacTraceSinkReport&);
+};
 struct MacClosedAdvanceReport {
+    MacTraceSinkReport trace_sink;
     MacDiffusionReport diffusion;
     std::size_t interval_kernel_intervals = 0, interval_reference_fallbacks = 0;
     std::size_t interval_audit_exact_fallbacks = 0, interval_audit_retries = 0;
@@ -221,6 +233,7 @@ struct MacClosedAdvance;
 // interval contract. Restored production owners need no execution-policy flag.
 enum class MacExecutionPolicy { reference, exact_equilibrium, production };
 struct MacFluidTransferResult;
+struct MacTraceSink;
 struct MacPhaseRelaxation;
 struct MacLiquidSettling;
 struct MacLiquidSettlingReport { std::size_t faces = 0; double moved_kg = 0, released_j = 0; };
@@ -271,6 +284,10 @@ public:
     [[nodiscard]] std::uint64_t revision() const noexcept { return revision_; }
     [[nodiscard]] MacClosedAdvance advanced(double seconds, std::size_t attempt_budget = 1024,
         MacExecutionPolicy = MacExecutionPolicy::reference) const;
+    // Remove only constituents below the saved threshold, returning a named
+    // sink receipt for mass, U+K+G, canonical J and carried passives. Legacy
+    // and unchanged inventories return the original shared owner/revision.
+    [[nodiscard]] MacTraceSink with_trace_sink() const;
     // Immutable external heat exchange. Retains time, geometry, every mass and
     // canonical face momentum; checks the complete batch before returning it.
     [[nodiscard]] MacClosedWorld with_cell_heat(std::span<const MacCellHeat>,MacPrimaryRoundingCounts* accepted_rounding=nullptr) const;
@@ -327,6 +344,7 @@ public:
         std::shared_ptr<const FluidThermodynamics>,std::span<const std::uint8_t>,
         std::shared_ptr<const GasTransportProfile> = GasTransportProfile::standard());
 private:
+    [[nodiscard]] MacClosedAdvance advanced_without_trace_sink(double,std::size_t,MacExecutionPolicy) const;
     [[nodiscard]] MacClosedAdvance advanced_flow(double,std::size_t,MacExecutionPolicy,bool validation_reference = false) const;
     // The next revision of this owner holding a state its operation already
     // checked: same registry, EOS identity (shared, not copied), settings and
@@ -345,6 +363,7 @@ private:
     std::uint64_t revision_ = 1;
 };
 struct MacClosedAdvance { MacClosedWorld world; MacClosedAdvanceReport report; };
+struct MacTraceSink { MacClosedWorld world; MacTraceSinkReport report; };
 struct MacPhaseRelaxation { MacClosedWorld world; MacPhaseChangeReport report; };
 struct MacLiquidSettling { MacClosedWorld world; MacLiquidSettlingReport report; };
 struct MacFluidTransferResult {

@@ -7,6 +7,7 @@
 #include <array>
 #include <cmath>
 #include <limits>
+#include <map>
 #include <numeric>
 
 namespace ma::experimental {
@@ -655,6 +656,169 @@ MacClosedWorld MacClosedWorld::derived(MacTransportState next) const {
     if (revision_ == std::numeric_limits<std::uint64_t>::max()) throw std::overflow_error("MAC closed revision overflow");
     return MacClosedWorld(Derived{}, *this, std::move(next));
 }
+MacTraceSink MacClosedWorld::with_trace_sink() const {
+    require_mac_energy_environment();
+    const double threshold=settings_.trace_sink_threshold_kg;
+    if (settings_.game_profile==MacGameProfile::legacy || threshold==0) return {*this,{}};
+    // Avoid a full state copy on an unchanged inventory.
+    bool any=false;
+    for (std::size_t i=0;i<state().cells.size() && !any;++i) if (!state().grid.walls[i])
+        for (const double mass : state().cells[i].mixture.masses) if (mass>0 && mass<threshold) { any=true; break; }
+    if (!any) return {*this,{}};
+    auto next=state(); const auto& grid=next.grid;
+    MacTraceSinkReport report;
+    std::vector<MacScaledSum> removed_mass(registry_.size());
+    MacEnergySum removed_internal,removed_potential,removed_kinetic;
+    MacScaledSum removed_px,removed_py;
+    std::map<std::uint64_t,MacScaledSum> removed_passives;
+    std::map<std::uint64_t,MacScaledAccount> passive_accounts;
+    MacEnergyAccount energy_account; MacScaledAccount px_account,py_account;
+    std::vector<double> old_mass(next.cells.size()),new_mass(next.cells.size());
+    std::vector<std::uint8_t> changed(next.cells.size());
+    const auto& materials=thermodynamics_->reference().materials();
+    std::vector<double> density(registry_.size()),capacity(registry_.size()),offset(registry_.size());
+    for (std::size_t k=0;k<registry_.size();++k)
+        for (const auto& material : materials) if (material.id==registry_[k].id) {
+            density[k]=material.zero_pressure_density_kg_per_m3;
+            capacity[k]=material.cv_j_per_kg_k; offset[k]=material.energy_offset_j_per_kg; break;
+        }
+    for (std::size_t i=0;i<next.cells.size();++i) {
+        auto& cell=next.cells[i]; old_mass[i]=new_mass[i]=cell.mixture.mass();
+        if (grid.walls[i] || old_mass[i]==0) continue;
+        for (std::size_t k=0;k<registry_.size();++k) {
+            const double mass=cell.mixture.masses[k];
+            if (mass>0 && mass<threshold) {
+                removed_mass[k].add(mass); cell.mixture.masses[k]=0;
+                changed[i]=1; ++report.constituents;
+            }
+        }
+        if (!changed[i]) continue;
+        ++report.cells;
+        new_mass[i]=cell.mixture.mass();
+        const auto& before=state().cells[i];
+        MacEnergySum old_u; account_mac_cell_internal_energy(old_u,before);
+        if (new_mass[i]==0) { cell.mixture.energy=0; cell.energy_remainder_j={}; }
+        else {
+            // Keep chemical offsets with their constituents. Sharing the
+            // remaining energy by heat capacity preserves ideal-mixture T;
+            // elastic energy is shared by that same numerical trace rule.
+            MacScaledSum old_cv,new_cv; MacEnergySum sensible=old_u,retained;
+            for (std::size_t k=0;k<registry_.size();++k) {
+                if (before.mixture.masses[k]==0) continue;
+                const auto old_m=MacScaled::from_double(before.mixture.masses[k]);
+                const auto new_m=MacScaled::from_double(cell.mixture.masses[k]);
+                old_cv.add(old_m.multiplied(capacity[k])); new_cv.add(new_m.multiplied(capacity[k]));
+                sensible.add(old_m.multiplied(-offset[k])); retained.add(new_m.multiplied(offset[k]));
+            }
+            require(old_cv.sign()>0 && new_cv.sign()>0,"Trace sink retained material has no heat capacity");
+            const auto retained_capacity=new_cv.value(),total_capacity=old_cv.value();
+            for (std::size_t k=0;k<sensible.size();++k)
+                retained.add(sensible.component(k).shared(retained_capacity,total_capacity));
+            (void)store_mac_cell_internal_energy(cell,retained,&report.primary_energy);
+        }
+        MacEnergySum taken_u; account_mac_cell_internal_energy(taken_u,before);
+        account_mac_cell_internal_energy(taken_u,cell,-1);
+        for (std::size_t k=0;k<taken_u.size();++k) removed_internal.add(taken_u.component(k));
+        account_mac_cell_internal_energy(energy_account,before);
+        account_mac_cell_internal_energy(energy_account,cell,-1);
+        // Book the actual stored passive difference, including all of an empty
+        // cell's inventory; a sub-ulp fraction leaves that passive unchanged.
+        cell.passive_quantities.clear();
+        for (const auto& passive : before.passive_quantities) {
+            const double kept=new_mass[i]==0 ? 0 : MacScaled::from_double(passive.quantity).shared(new_mass[i],old_mass[i]).project().value;
+            if (kept>0) cell.passive_quantities.push_back({passive.identity,kept});
+            removed_passives[passive.identity].add(passive.quantity);
+            removed_passives[passive.identity].add(-kept);
+            passive_accounts[passive.identity].add(passive.quantity);
+            passive_accounts[passive.identity].add(-kept);
+        }
+        const double height=(static_cast<double>(i/grid.width)+.5)*grid.spacing_m;
+        const auto potential=[&](double mass) { return MacEnergy::from_double(mass).multiplied(settings_.gravity_m_per_s2).multiplied(height); };
+        removed_potential.add(potential(old_mass[i])); removed_potential.add(potential(new_mass[i]).negated());
+        energy_account.add(potential(old_mass[i])); energy_account.add(potential(new_mass[i]).negated());
+        if (next.occupied_volumes_m3.empty()) {
+            next.occupied_volumes_m3.resize(next.cells.size());
+            for (std::size_t j=0;j<next.cells.size();++j)
+                if (!grid.walls[j] && next.cells[j].mixture.mass()>0) next.occupied_volumes_m3[j]=grid.volume_m3();
+        }
+        if (new_mass[i]==0) next.occupied_volumes_m3[i]=0;
+        else {
+            bool gas=false; double liquid_volume=0;
+            for (std::size_t k=0;k<registry_.size();++k) if (cell.mixture.masses[k]>0) {
+                if (registry_[k].phase==Phase::gas) gas=true;
+                else {
+                    require(density[k]>0,"Trace sink liquid has no density profile");
+                    liquid_volume+=cell.mixture.masses[k]/density[k];
+                }
+            }
+            if (!gas) next.occupied_volumes_m3[i]=std::min(grid.volume_m3(),liquid_volume);
+        }
+    }
+    // Scale each canonical face once using simultaneous endpoint masses. The
+    // sink carries actual J and K differences, preserving the retained wind.
+    for (std::size_t axis=0;axis<2;++axis) {
+        const auto original=axis==0 ? mac_field_values(state().momentum_x,state().full_momentum_x) : mac_field_values(state().momentum_y,state().full_momentum_y);
+        auto momenta=original;
+        for (std::size_t f=0;f<momenta.size();++f) {
+            const auto x=axis==0 ? f%grid.x_width() : f%grid.width;
+            const auto y=axis==0 ? f/grid.x_width() : f/grid.width;
+            auto first=std::numeric_limits<std::size_t>::max(),second=first;
+            if (axis==0) {
+                if (x || grid.periodic_x) first=(x+grid.width-1)%grid.width+y*grid.width;
+                if (x<grid.width) second=x+y*grid.width;
+            } else {
+                if (y || grid.periodic_y) first=x+((y+grid.height-1)%grid.height)*grid.width;
+                if (y<grid.height) second=x+y*grid.width;
+            }
+            const auto absent=std::numeric_limits<std::size_t>::max();
+            if (first!=absent && grid.walls[first]) first=absent;
+            if (second!=absent && grid.walls[second]) second=absent;
+            if (!(first!=absent && changed[first]) && !(second!=absent && changed[second])) continue;
+            double old_i=0,new_i=0;
+            for (const auto i : {first,second}) if (i!=absent) { old_i+=.5*old_mass[i]; new_i+=.5*new_mass[i]; }
+            if (old_i==new_i || original[f].is_zero()) continue;
+            require(old_i>0 && new_i>=0,"Trace sink face has invalid inertia");
+            momenta[f]=new_i==0 ? MacScaled{} : original[f].shared(new_i,old_i);
+            auto& carried=axis==0 ? removed_px : removed_py;
+            auto& account=axis==0 ? px_account : py_account;
+            carried.add(original[f]); carried.add(momenta[f].negated());
+            account.add(original[f]); account.add(momenta[f].negated());
+            const auto old_k=MacEnergy::kinetic(old_i,original[f]),new_k=MacEnergy::kinetic(new_i,momenta[f]);
+            removed_kinetic.add(old_k); removed_kinetic.add(new_k.negated());
+            energy_account.add(old_k); energy_account.add(new_k.negated());
+        }
+        if (axis==0) store_mac_field(next.momentum_x,next.full_momentum_x,momenta);
+        else store_mac_field(next.momentum_y,next.full_momentum_y,momenta);
+    }
+    report.mass_kg.reserve(registry_.size());
+    for (const auto& mass : removed_mass) report.mass_kg.push_back(mass.value());
+    report.internal_energy_j=removed_internal.value(); report.kinetic_energy_j=removed_kinetic.value();
+    report.potential_energy_j=removed_potential.value();
+    report.momentum_x=removed_px.value(); report.momentum_y=removed_py.value();
+    for (const auto& [identity,amount] : removed_passives) if (amount.sign()>0)
+        report.passives.push_back({identity,amount.value().require_representable()});
+    energy_account.add(report.internal_energy_j.negated()); energy_account.add(report.kinetic_energy_j.negated());
+    energy_account.add(report.potential_energy_j.negated());
+    px_account.add(report.momentum_x.negated()); py_account.add(report.momentum_y.negated());
+    require(energy_account.within_bound() && px_account.within_bound() && py_account.within_bound(),
+        "Trace sink U+K+G/momentum account failed");
+    for (std::size_t k=0;k<registry_.size();++k) {
+        MacScaledAccount mass_account;
+        for (std::size_t i=0;i<next.cells.size();++i) if (changed[i] && state().cells[i].mixture.masses[k]!=next.cells[i].mixture.masses[k]) {
+            mass_account.add(state().cells[i].mixture.masses[k]); mass_account.add(-next.cells[i].mixture.masses[k]);
+        }
+        mass_account.add(report.mass_kg[k].negated());
+        require(mass_account.within_bound(),"Trace sink constituent account failed");
+    }
+    for (const auto& passive : report.passives) passive_accounts[passive.identity].add(-passive.quantity);
+    for (const auto& [identity,account] : passive_accounts) {
+        (void)identity; require(account.within_bound(),"Trace sink passive account failed");
+    }
+    // EOS validation is performed by the next ordinary stage. This operation
+    // deliberately does not evaluate a trace that is about to leave the world.
+    return {derived(std::move(next)),std::move(report)};
+}
+
 MacPhaseRelaxation MacClosedWorld::with_phase_relaxation(std::span<const MacSaturationPair> pairs, double fraction) const {
     require_mac_energy_environment();
     if (revision_ == std::numeric_limits<std::uint64_t>::max()) throw std::overflow_error("MAC closed revision overflow");
@@ -696,6 +860,7 @@ void combine(double& a,double b) { a+=b; }
 void combine(std::size_t& a,std::size_t b) { a+=b; }
 void combine(MacEnergy& a,MacEnergy b) { MacEnergySum sum;sum.add(a);sum.add(b);a=sum.value(); }
 void combine_report(MacClosedAdvanceReport& a,const MacClosedAdvanceReport& b) {
+    a.trace_sink.merge(b.trace_sink);
     a.primary_energy.merge(b.primary_energy);
     // Every MacClosedAdvanceReport field is accumulated here; a field added to
     // the report must be added to this list (main's pressure-root restarts were
@@ -743,7 +908,31 @@ void combine_diffusion(MacDiffusionReport& a,const MacDiffusionReport& b) {
     for(std::size_t i=0;i<b.species_mass_residual.size();++i) { a.species_mass_residual[i]+=b.species_mass_residual[i];a.species_mass_bound[i]+=b.species_mass_bound[i]; }
 }
 }
+void MacTraceSinkReport::merge(const MacTraceSinkReport& other) {
+    constituents+=other.constituents; cells+=other.cells;
+    primary_energy.merge(other.primary_energy);
+    if (!other.mass_kg.empty()) {
+        if (mass_kg.empty()) mass_kg.resize(other.mass_kg.size());
+        require(mass_kg.size()==other.mass_kg.size(),"Trace sink registry coverage differs");
+        for (std::size_t k=0;k<mass_kg.size();++k) combine(mass_kg[k],other.mass_kg[k]);
+    }
+    combine(internal_energy_j,other.internal_energy_j); combine(kinetic_energy_j,other.kinetic_energy_j);
+    combine(potential_energy_j,other.potential_energy_j); combine(momentum_x,other.momentum_x); combine(momentum_y,other.momentum_y);
+    add_passive_quantities(passives,other.passives,1);
+}
 MacClosedAdvance MacClosedWorld::advanced(double seconds,std::size_t budget,MacExecutionPolicy policy) const {
+    if (settings_.game_profile==MacGameProfile::legacy || settings_.trace_sink_threshold_kg==0)
+        return advanced_without_trace_sink(seconds,budget,policy);
+    require(std::isfinite(seconds) && seconds>0 && seconds<=10 && budget>0 && budget<=65536,"Invalid MAC trace-sink interval/budget");
+    auto before=with_trace_sink();
+    auto result=before.world.advanced_without_trace_sink(seconds,budget,policy);
+    auto after=result.world.with_trace_sink();
+    result.world=std::move(after.world);
+    result.report.trace_sink.merge(before.report); result.report.trace_sink.merge(after.report);
+    result.report.primary_energy.merge(before.report.primary_energy); result.report.primary_energy.merge(after.report.primary_energy);
+    return result;
+}
+MacClosedAdvance MacClosedWorld::advanced_without_trace_sink(double seconds,std::size_t budget,MacExecutionPolicy policy) const {
     // Persist an explicit production request before any diffusion/certificate
     // path. Restoring then advances the same kernel without a caller policy.
     if (policy == MacExecutionPolicy::production && settings_.numerical_kernel != MacNumericalKernel::production) {

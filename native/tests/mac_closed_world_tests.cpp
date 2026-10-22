@@ -1,4 +1,6 @@
 #include "mac_fixture.hpp"
+#include "mixed_atmospheres/mac_kernel.hpp"
+#include <map>
 #include <algorithm>
 #include <cmath>
 #include <iomanip>
@@ -170,6 +172,96 @@ void snapshot_branches() {
     check(rejected && sibling.checkpoint() == before && survivor.checkpoint() == heated_image,
         "Rejected branch changed another owner");
 }
+void trace_sink_receipt() {
+    const auto& set=setup(); auto state=set.state(2,2,false);
+    const auto ni=set.registry.index("nitrogen"),ox=set.registry.index("oxygen"),he=set.registry.index("helium"),water=set.registry.index("water");
+    constexpr double trace=0x1p-30, threshold=0x1p-20;
+    for (std::size_t i=0;i<state.cells.size();++i) {
+        std::vector<double> mass(set.registry.size());
+        if (i==0) { mass[ni]=1; mass[he]=trace; }
+        if (i==1) mass[he]=trace;
+        if (i==2) { mass[water]=500; mass[he]=trace; }
+        if (i==3) { mass[ox]=1; mass[water]=trace; }
+        state.cells[i].mixture=set.eos->initialize_at_temperature(mass,300,1).mixture;
+        state.cells[i].passive_quantities={{17,static_cast<double>(i+1)}};
+    }
+    (void)add_mac_cell_internal_energy(state.cells[1],MacEnergy::from_double(0x1p-100));
+    const auto inertia=mac_face_inertias(set.registry,state,*set.eos);
+    for (std::size_t y=0;y<2;++y) state.momentum_x[state.grid.x_face(1,y)]=inertia.x[state.grid.x_face(1,y)]*.25;
+    for (std::size_t x=0;x<2;++x) state.momentum_y[state.grid.y_face(x,1)]=inertia.y[state.grid.y_face(x,1)]*-.125;
+    auto full=mac_field_values(state.momentum_x,state.full_momentum_x);
+    full[state.grid.x_face(1,0)]=MacScaled::from_parts(.5,MacExponent(-2000));
+    store_mac_field(state.momentum_x,state.full_momentum_x,full);
+    MacClosedSettings settings; settings.numerical_kernel=MacNumericalKernel::production;
+    settings.vacuum=MacVacuumRepresentation::void_phase; settings.step_control=MacStepControl::regional_predictive;
+    settings.gravity_m_per_s2=9.81;
+    const MacClosedWorld legacy(set.registry,set.eos,state,settings);
+    const auto legacy_image=legacy.checkpoint();
+    check(legacy.with_trace_sink().world.checkpoint()==legacy_image && legacy.with_trace_sink().report.constituents==0,
+        "Legacy owner acquired trace removal");
+    settings.game_profile=MacGameProfile::base_game_floor; settings.trace_sink_threshold_kg=threshold;
+    auto edge_settings=settings; edge_settings.trace_sink_threshold_kg=trace;
+    const MacClosedWorld edge(set.registry,set.eos,state,edge_settings);
+    check(edge.with_trace_sink().world.checkpoint()==edge.checkpoint() && edge.with_trace_sink().report.constituents==0,
+        "A constituent exactly at the threshold entered the trace sink");
+    const MacClosedWorld source(set.registry,set.eos,state,settings);
+    const auto original=source.checkpoint(); const auto sunk=source.with_trace_sink();
+    check(sunk.report.constituents==4 && sunk.report.cells==4 && source.checkpoint()==original &&
+        source.time_s()==sunk.world.time_s() && sunk.world.revision()==source.revision()+1,
+        "Trace sink changed its immutable source, clock or removal set");
+    const auto& after=sunk.world.state();
+    check(after.cells[1].mixture.mass()==0 && after.cells[1].mixture.energy==0 &&
+        after.cells[1].energy_remainder_j.is_zero() && after.cells[1].passive_quantities.empty() && after.occupied_volumes_m3[1]==0 &&
+        after.cells[0].mixture.masses[ni]==1 && after.cells[2].mixture.masses[water]==500 && after.cells[3].mixture.masses[ox]==1,
+        "Trace sink changed bulk mass or left material in vacuum");
+    for (std::size_t k=0;k<set.registry.size();++k) {
+        MacScaledAccount account;
+        for (std::size_t i=0;i<state.cells.size();++i) { account.add(state.cells[i].mixture.masses[k]); account.add(-after.cells[i].mixture.masses[k]); }
+        account.add(sunk.report.mass_kg[k].negated()); check(account.within_bound(),"Trace sink constituent receipt does not close");
+    }
+    MacEnergyAccount energy; MacScaledAccount px,py; std::map<std::uint64_t,MacScaledAccount> passives;
+    const auto totals=[&](const MacTransportState& st,bool negative) {
+        const auto faces=mac_face_inertias(set.registry,st,*set.eos);
+        const auto sign=[&](MacEnergy value){return negative ? value.negated() : value;};
+        for (std::size_t i=0;i<st.cells.size();++i) {
+            account_mac_cell_internal_energy(energy,st.cells[i],negative ? -1 : 1);
+            energy.add(sign(MacEnergy::from_double(st.cells[i].mixture.mass()).multiplied(settings.gravity_m_per_s2).multiplied(static_cast<double>(i/2)+.5)));
+            for (const auto& passive : st.cells[i].passive_quantities) passives[passive.identity].add(negative ? -passive.quantity : passive.quantity);
+        }
+        for (std::size_t axis=0;axis<2;++axis) {
+            const auto values=axis==0 ? mac_field_values(st.momentum_x,st.full_momentum_x) : mac_field_values(st.momentum_y,st.full_momentum_y);
+            const auto& masses=axis==0 ? faces.x : faces.y;
+            for (std::size_t f=0;f<values.size();++f) {
+                (axis==0 ? px : py).add(sign(values[f])); energy.add(sign(MacEnergy::kinetic(masses[f],values[f])));
+            }
+        }
+    };
+    totals(state,false); totals(after,true);
+    for (const auto& value : {sunk.report.internal_energy_j,sunk.report.kinetic_energy_j,sunk.report.potential_energy_j}) energy.add(value.negated());
+    px.add(sunk.report.momentum_x.negated()); py.add(sunk.report.momentum_y.negated());
+    for (const auto& passive : sunk.report.passives) passives[passive.identity].add(-passive.quantity);
+    check(energy.within_bound() && px.within_bound() && py.within_bound() &&
+        !sunk.report.kinetic_energy_j.is_zero() && !sunk.report.momentum_y.is_zero(),
+        "Trace sink U+K+G or momentum receipt does not close");
+    for (const auto& [id,account] : passives) { (void)id; check(account.within_bound(),"Trace sink passive receipt does not close"); }
+    check(!after.full_momentum_x.empty() && !after.full_momentum_x[state.grid.x_face(1,0)].is_zero() &&
+        after.momentum_x[state.grid.x_face(1,1)]!=0 && sunk.world.with_trace_sink().report.constituents==0 &&
+        sunk.world.with_trace_sink().world.checkpoint()==sunk.world.checkpoint(),
+        "Trace sink lost retained wind/full momentum or changed an unchanged inventory");
+    for (const auto i : {std::size_t{0},std::size_t{2},std::size_t{3}})
+        near(set.eos->evaluate(after.cells[i].mixture,mac_material_volume(after,i)).temperature_k,300,300,1e-12);
+    const auto cold=MacClosedWorld::from_checkpoint(set.registry,set.eos,original);
+    const auto options=mac_kernel_default_options(); auto serial=options; serial.threads=1; set_mac_kernel_default_options(serial);
+    const auto one=source.advanced(.00001,4096);
+    auto parallel=options; parallel.threads=12; set_mac_kernel_default_options(parallel);
+    const auto many=cold.advanced(.00001,4096); set_mac_kernel_default_options(options);
+    check(one.world.checkpoint()==many.world.checkpoint() && one.report.trace_sink.constituents>=4 &&
+        one.report.trace_sink.mass_kg[he].require_representable()>=3*trace,
+        "Saved trace policy lost exact cold/thread continuation or hid its receipt");
+    bool failed=false;
+    try { (void)source.advanced(.2,1); } catch (const std::exception&) { failed=true; }
+    check(failed && source.checkpoint()==original,"Failed trace-profile advance published a partial sink");
+}
 void rejected_domains() {
     const auto& set = setup(); const auto original = set.state(2, 1, false); const auto held = fingerprint(original);
     for (int control = 0; control < 10; ++control) {
@@ -220,10 +312,14 @@ int main(int argc, char** argv) {
         if (argc == 2 && std::string_view(argv[1]) == "--snapshot-only") {
             snapshot_branches(); std::cout << "PASS copied world branches, lifetime, rollback and cold continuation\n"; return 0;
         }
+        if (argc == 2 && std::string_view(argv[1]) == "--trace-sink-only") {
+            trace_sink_receipt(); std::cout << "PASS booked trace sink, mass/energy/momentum/passives, rollback and exact cold/thread continuation\n"; return 0;
+        }
         for (const auto& m : setup().eos->reference().materials()) std::cout << "MATERIAL " << setup().registry.index(m.id) << ' ' <<
             (m.phase == ReferencePhase::ideal_gas ? 0 : 1) << ' ' << m.molar_mass_kg_per_mol << ' ' << m.cv_j_per_kg_k << ' ' <<
             m.energy_offset_j_per_kg << ' ' << m.zero_pressure_density_kg_per_m3 << ' ' << m.reference_bulk_modulus_pa << '\n';
         snapshot_branches(); std::cout << "PASS copied world branches, lifetime, rollback and cold continuation\n";
+        trace_sink_receipt(); std::cout << "PASS booked trace sink, mass/energy/momentum/passives, rollback and exact cold/thread continuation\n";
         gas_pressure(); std::cout << "PASS pressure-driven retained gas momentum and trace transport\n";
         wet_corner(); std::cout << "PASS elastic gas-liquid pressure transport at a solid corner\n";
         constant_contact(); std::cout << "PASS constant-p/T variable-density mixture contact\n";
