@@ -30,7 +30,8 @@ play.
   ONI's element). A cell a solid has just replaced shows the solid at once.
   `Grid.Pressure` returns the owner's mechanical pressure. A reading leaves
   out constituents below 1e-300 kg (kernel rounding products that the
-  reference EOS cannot evaluate); the cell keeps them.
+  reference EOS cannot evaluate); the cell keeps them. A cell whose reading
+  still fails keeps its previous view for the frame.
 - **Transactions.** Mass emission, mass consumption (radius), additive cell-mass
   edits and cell heat in the asteroid go to the owner and commit at the start
   of the next native frame, with consumed/emitted callbacks returned through the

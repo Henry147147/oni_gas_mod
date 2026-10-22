@@ -250,6 +250,10 @@ namespace MixedAtmospheres.Oni
                     string.Join(" ", Enumerable.Range(-1, Height + 2).Select(y => $"{Grid.Element[Cell(4, y)].id}:{Grid.Mass[Cell(4, y)]:G4}{(Grid.Solid[Cell(4, y)] ? "S" : "")}{(ColonyOwner.OwnsFluidCell(Cell(4, y)) ? "o" : "")}")) +
                     "; far row 2 " + string.Join(" ", Enumerable.Range(4, 5).Select(x => $"{Grid.Element[Cell(x, 2)].id}:{Grid.Mass[Cell(x, 2)]:G4}{(ColonyOwner.OwnsFluidCell(Cell(x, 2)) ? "o" : "")}")));
             }
+            // A vent's emission waits for the owner's next step; switching the
+            // vent off before the check lets the last of it land.
+            if (Once(96, "vent off"))
+                powered.FirstOrDefault(b => b != null && b.GetComponent<Vent>() != null)?.GetComponent<BuildingEnabledButton>().IsEnabled = false;
             // ONI's pipes move a packet one segment per second: the first
             // reaches the vent after about eight seconds.
             if (Once(100, "check"))
@@ -525,7 +529,10 @@ namespace MixedAtmospheres.Oni
             if (Once(32, "check"))
             {
                 var added = ArenaSpecies(SimHashes.CarbonDioxide) - recorded["co2"];
-                Record("the generator's exhaust reached the owner", added > .005, $"+{added:G4} kg carbon dioxide; {MachineState(powered.FirstOrDefault())}");
+                var gen = powered.FirstOrDefault(); var def = gen?.GetComponent<Building>().Def;
+                var outCell = gen == null ? -1 : gen.GetComponent<Building>().GetUtilityOutputCell();
+                Record("the generator's exhaust reached the owner", added > .005, $"+{added:G4} kg carbon dioxide; {MachineState(gen)}; output {def?.OutputConduitType} at {outCell}, " +
+                    $"liquid pipe there {outCell >= 0 && Grid.Objects[outCell, (int)ObjectLayer.LiquidConduit] != null}, gas pipe there {outCell >= 0 && Grid.Objects[outCell, (int)ObjectLayer.GasConduit] != null}");
                 Finish();
             }
         }
@@ -840,7 +847,7 @@ namespace MixedAtmospheres.Oni
                 var on = sensor != null && sensor.IsSwitchedOn;
                 Record("the sensor found the minority carbon dioxide", on && Grid.Element[Cell(3, 2)].id == SimHashes.Oxygen,
                     $"switched on {on}, cell shows {Grid.Element[Cell(3, 2)].id}, CO2 {SpeciesMass(Cell(3, 2), SimHashes.CarbonDioxide):G3} kg, " +
-                    $"sensing {(sensor != null ? ElementLoader.elements[Traverse.Create(sensor).Field("desiredElementIdx").GetValue<int>()].id.ToString() : "-")}");
+                    $"sensing {(sensor != null ? ElementLoader.elements[Convert.ToInt32(Traverse.Create(sensor).Field("desiredElementIdx").GetValue())].id.ToString() : "-")}");
                 Finish();
             }
         }

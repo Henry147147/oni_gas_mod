@@ -270,16 +270,27 @@ std::pair<std::uint32_t, std::int32_t> dominant_germ(std::span<const PassiveQuan
 long double parcel_energy(const MacFluidParcel& p) {
     return static_cast<long double>(p.internal_energy_j) + mac_energy_long_double(p.resolved_kinetic_energy) + mac_energy_long_double(p.potential_energy);
 }
+std::atomic<std::size_t> refused_reading{SIZE_MAX}; // control hook: a rect cell whose reading throws
 std::vector<MAOniColonyCellView> project(const Session& s, const MacClosedWorld& w) {
     const auto& st = w.state(); const auto& registry = w.registry(); const auto& c = *s.catalogue;
     std::vector<MAOniColonyCellView> views(st.cells.size());
+    // A cell whose reading the reference EOS refuses keeps its previous view
+    // for this frame (the owner's state is unchanged; only its reading waits).
+    std::shared_ptr<const Published> previous; { std::lock_guard lock(publication); previous = latest; }
+    const bool fallback = previous && previous->views.size() == views.size();
     const auto project_cell = [&](std::size_t i) {
         auto& v = views[i];
         if (st.grid.walls[i]) return;
         v.flags = MA_ONI_COLONY_VIEW_OWNED; v.element_index = s.config.vacuum_index;
         const auto& m = st.cells[i].mixture;
         if (!(m.mass() > 0)) return;
-        const auto reading = evaluate_cell(w.thermodynamics(), m, mac_material_volume(st, i));
+        std::optional<experimental::ReferenceEquilibriumState> evaluated;
+        try {
+            if (i == refused_reading.load(std::memory_order_relaxed)) throw std::runtime_error("Reading refused (control)");
+            evaluated.emplace(evaluate_cell(w.thermodynamics(), m, mac_material_volume(st, i)));
+        }
+        catch (const std::exception&) { if (!fallback) throw; v = previous->views[i]; return; }
+        const auto& reading = *evaluated;
         double gas = 0, liquid = 0, best_gas = 0, best_liquid = 0; std::size_t gas_k = 0, liquid_k = 0;
         for (std::size_t k = 0; k < registry.size(); ++k) {
             const double mass = m.masses[k]; if (mass == 0) continue;
@@ -778,6 +789,9 @@ std::uint32_t species(MAOniColonySpecies* out, std::uint32_t capacity) {
     }
     return n;
 }
+void refuse_reading(std::int64_t public_cell) {
+    refused_reading.store(public_cell < 0 ? SIZE_MAX : rect_index(geometry, static_cast<std::uint32_t>(public_cell)), std::memory_order_relaxed);
+}
 double trace_reading_temperature(std::uint32_t public_cell, std::uint32_t native_index, double trace_kg) {
     std::shared_ptr<const Published> p; { std::lock_guard lock(publication); p = latest; }
     require(p != nullptr && p->world != nullptr, "No colony owner is active");
@@ -796,7 +810,10 @@ std::uint64_t readings(std::vector<MAOniColonyReading>& out, std::vector<MAOniCo
         const auto& m = st.cells[i].mixture;
         if (st.grid.walls[i] || !(m.mass() > 0)) continue;
         const double volume = mac_material_volume(st, i);
-        const auto e = evaluate_cell(eos, m, volume);
+        // A cell the reference EOS cannot read has no reading this frame.
+        std::optional<experimental::ReferenceEquilibriumState> evaluated;
+        try { evaluated.emplace(evaluate_cell(eos, m, volume)); } catch (const std::exception&) { continue; }
+        const auto& e = *evaluated;
         MAOniColonyReading r{};
         r.public_cell = static_cast<std::uint32_t>((geometry.offset_x + i % geometry.width) + (geometry.offset_y + i / geometry.width) * geometry.grid_width);
         r.first_constituent = static_cast<std::uint32_t>(parts.size());

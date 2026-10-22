@@ -316,6 +316,22 @@ int main(int argc, char** argv) {
             require(traced == plain, "a subnormal liquid trace keeps the cell readable");
             ma::oni::colony::stop();
         }
+        // A cell whose reading the reference EOS refuses keeps its previous
+        // view for the frame instead of faulting the owner.
+        {
+            ma::oni::colony::restore(config, materials, image, 1);
+            ma::oni::colony::advance(5, .2, 2); ma::oni::colony::wait();
+            std::vector<MAOniColonyCellView> before(cells.size()), after(cells.size()); MAOniColonyStatus shown{};
+            ma::oni::colony::copy(shown, before.data(), static_cast<std::uint32_t>(before.size()));
+            ma::oni::colony::refuse_reading(public_cell(4, 7));
+            ma::oni::colony::advance(6, .2, 2); ma::oni::colony::wait();
+            ma::oni::colony::copy(shown, after.data(), static_cast<std::uint32_t>(after.size()));
+            ma::oni::colony::refuse_reading(-1);
+            const std::size_t k = 4 + 7 * W;
+            std::cout << "refused reading: state " << shown.state << " " << shown.error << "\n";
+            require(shown.state == 1 && std::memcmp(&before[k], &after[k], sizeof(MAOniColonyCellView)) == 0, "a refused reading keeps the cell's previous view");
+            ma::oni::colony::stop();
+        }
         // A heat edit the cell cannot take (here more cooling than its gas
         // holds) stays queued, unbooked, instead of faulting the owner.
         {
