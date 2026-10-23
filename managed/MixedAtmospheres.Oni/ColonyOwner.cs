@@ -333,17 +333,30 @@ namespace MixedAtmospheres.Oni
         }
         private static void DeliverReceipts(OwnedGameDataSnapshot copy)
         {
+            var begun=publicationLog ? System.Diagnostics.Stopwatch.GetTimestamp() : 0;
             OniNativeColony.Check(OniNativeColony.CopyReceipts(receipts, (uint)receipts.Length, out var count));
-            if (count == 0) return;
+            var copied=publicationLog ? System.Diagnostics.Stopwatch.GetTimestamp() : 0;
+            if (count == 0)
+            {
+                if(publicationLog && (copied-begun)*1000.0/System.Diagnostics.Stopwatch.Frequency>.1)
+                    Debug.Log(FormattableString.Invariant($"[Mixed Atmospheres] receipt delivery frame {status.CompletedFrames} available 0 delivered 0 copy_ms {(copied-begun)*1000.0/System.Diagnostics.Stopwatch.Frequency:F3}"));
+                return;
+            }
             var consumed = new List<Sim.MassConsumedCallback>(); var emitted = new List<Sim.MassEmittedCallback>();
             var removed = new List<Sim.ConsumedMassInfo>();
             var through = 0UL; var delivered = (int)Math.Min(count, (uint)receipts.Length);
+            var byproducts=0;long byproductTicks=0;
             for (var k = 0; k < delivered; ++k)
             {
                 var r = receipts[k]; through = r.Sequence;
                 if (ColonyPipePorts.Receipt(in r)) continue;
                 if (ColonyActors.IsConsumerReceipt(r)) { if (r.MassKg > 0) removed.Add(ColonyActors.Event(r)); }
-                else if (r.Kind == OniNativeColony.Byproduct) SpawnByproduct(r);
+                else if (r.Kind == OniNativeColony.Byproduct)
+                {
+                    var before=publicationLog ? System.Diagnostics.Stopwatch.GetTimestamp() : 0;
+                    SpawnByproduct(r);
+                    if(publicationLog) { byproductTicks+=System.Diagnostics.Stopwatch.GetTimestamp()-before;++byproducts; }
+                }
                 else if (r.Kind == OniNativeColony.Extract)
                     consumed.Add(new Sim.MassConsumedCallback { callbackIdx = r.Callback, elemIdx = (ushort)r.NativeIndex, mass = r.MassKg,
                         temperature = r.MassKg > 0 ? r.TemperatureK : 0, diseaseIdx = OniNativeColony.DiseaseIdx(r.Disease), diseaseCount = r.DiseaseCount });
@@ -351,11 +364,19 @@ namespace MixedAtmospheres.Oni
                     emitted.Add(new Sim.MassEmittedCallback { callbackIdx = r.Callback, elemIdx = (ushort)r.NativeIndex, suceeded = (byte)(r.MassKg > 0 ? 1 : 0),
                         mass = r.MassKg, temperature = r.TemperatureK, diseaseIdx = OniNativeColony.DiseaseIdx(r.Disease), diseaseCount = r.DiseaseCount });
             }
+            var dispatched=publicationLog ? System.Diagnostics.Stopwatch.GetTimestamp() : 0;
             copy.AppendEvents<Sim.MassConsumedCallback>(SnapshotEventChannel.MassConsumedCallbacks, consumed.ToArray());
             copy.AppendEvents<Sim.MassEmittedCallback>(SnapshotEventChannel.MassEmittedCallbacks, emitted.ToArray());
             copy.AppendEvents<Sim.ConsumedMassInfo>(SnapshotEventChannel.RemovedMassEntries, removed.ToArray());
+            var appended=publicationLog ? System.Diagnostics.Stopwatch.GetTimestamp() : 0;
             OniNativeColony.Check(OniNativeColony.AckReceipts(through));
+            var acknowledged=publicationLog ? System.Diagnostics.Stopwatch.GetTimestamp() : 0;
             ColonyPipePorts.Acknowledged(through);
+            if(publicationLog)
+            {
+                var finished=System.Diagnostics.Stopwatch.GetTimestamp();var factor=1000.0/System.Diagnostics.Stopwatch.Frequency;
+                Debug.Log(FormattableString.Invariant($"[Mixed Atmospheres] receipt delivery frame {status.CompletedFrames} available {count} delivered {delivered} copy_ms {(copied-begun)*factor:F3} dispatch_ms {(dispatched-copied)*factor:F3} byproducts {byproducts} byproduct_ms {byproductTicks*factor:F3} append_ms {(appended-dispatched)*factor:F3} ack_ms {(acknowledged-appended)*factor:F3} settle_ms {(finished-acknowledged)*factor:F3}"));
+            }
         }
 
         // Mass and heat messages for owned fluid cells go to the owner. Returns

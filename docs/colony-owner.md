@@ -320,6 +320,39 @@ Per publication, views/snapshot/overlay/receipts average
 the solver; these costs must not be added directly to the observed spacing.
 The clock calculation itself offers little scope for a large speed gain.
 
+The canonical exact-v3 kernel3 bundle has a separate WHOLE-lock GPU99 Terra60
+diagnostic at fast speed. All 60 owner samples and 59 intervals are retained;
+owner mean/p95/max is 203.095/236.185/260.667 ms, observed spacing
+250.900/341.254/766.029 ms. Maximum mass/energy errors are
+3.749e-16/6.717e-16, trace sink 1.193e-7 kg / 0.127787 J, with no fault,
+rejection or skipped relaxation and verified cleanup. Fallback count is not
+exposed. Instrumentation is enabled, so this is not a speed acceptance run.
+
+The 50 observed intervals after frame 10 have an aligned observed-minus-owner
+gap of 39.627 ms (p95 106.704, max 167.661). Logs contain 841 publications
+across startup/measurement/shutdown; frames 10–59 contain 419, or 8.38 per
+owner frame. Their costs are:
+
+| Publication work | Mean ms per publication | Summed ms per owner frame |
+| --- | ---: | ---: |
+| Native fluid-view copy/status | 0.0589 | 0.493 |
+| Managed snapshot capture | 1.0722 | 8.985 |
+| Overlay | 0.9395 | 7.873 |
+| Receipt handling | 1.0173 | 8.525 |
+| Actor publication | 0.00223 | 0.0187 |
+| Retirement | 0.01230 | 0.103 |
+| Presentation hand-off | 0.08015 | 0.672 |
+
+Native end projection averages 2.183 ms over six sampled frames. Presentation
+copying averages 0.621 ms per completed frame; pacing update/tick CPU costs
+are 0.181/0.0198 ms. The next submission precedes observation of the previous
+completion in 29 of 50 steady cases. These costs overlap; neither the table
+sum nor the submission logs alone identify removable critical-path time.
+Receipt sub-laps now distinguish copy, dispatch, byproduct creation, event
+append, native acknowledgement and managed settlement under the existing
+publication flag. They preserve all original callbacks and ordering and are
+disabled with that flag in final timing runs.
+
 Fluid-view copies reuse the immutable native publication when its session and
 completed frame have not changed. Status still refreshes, including live native
 heat/mass exchanges; snapshots, overlays, receipts, actors and presentation run
@@ -795,6 +828,9 @@ Environment variables of the game process (the harness passes them through):
 - `MA_COLONY_PUBLICATION_LOG=1`: each managed publication's view copy, snapshot
   capture, overlay, receipts, actors, retirement and presentation hand-off in
   milliseconds, plus the presentation copy and pacing CPU time separately.
+  Nonempty receipt deliveries also split native copying, dispatch, byproduct
+  creation, event appending, acknowledgement and managed settlement; empty
+  copies over 0.1 ms are logged separately.
   Positive native-frame submissions record actor queuing and time since the
   first observed completion; first completion observations record time since
   the matching submission and owner advance time. Submission targets are
