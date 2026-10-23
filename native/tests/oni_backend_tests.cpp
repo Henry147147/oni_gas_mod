@@ -17,6 +17,9 @@ static void require(bool condition,const char* message) {
 int main() {
     try {
         require(ma_oni_colony_precise_receipt_version()==2,"precise receipt observation capability");
+        require(ma_oni_colony_actor_batch_version()==1 &&
+            ma_oni_colony_queue_actor_batch(nullptr,0,nullptr,0,nullptr,0)==MA_ONI_INVALID_ARGUMENT,
+            "atomic actor batch capability/empty request");
         std::uint32_t copied_views=123; MAOniColonyStatus cached_status{}; cached_status.struct_size=sizeof(cached_status); cached_status.abi_version=1;
         const auto held_cached_status=cached_status;
         require(ma_oni_colony_copy_changed(0,0,&cached_status,nullptr,0,nullptr)==MA_ONI_INVALID_ARGUMENT &&

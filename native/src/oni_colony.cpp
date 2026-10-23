@@ -20,6 +20,7 @@
 #endif
 #include <cmath>
 #include <condition_variable>
+#include <cstddef>
 #include <cstdio>
 #include <cstring>
 #include <limits>
@@ -34,6 +35,7 @@
 
 static_assert(sizeof(MAOniColonySpecies) == 40 && sizeof(MAOniColonyReading) == 64 && sizeof(MAOniColonyConstituent) == 24);
 static_assert(sizeof(MAOniColonyPassive)==16);
+static_assert(sizeof(MAOniColonyActorJob)==24 && offsetof(MAOniColonyActorJob,token)==16);
 static_assert(sizeof(MAOniColonySampleCell)==24 && sizeof(MAOniColonySamplePart)==16);
 static_assert(sizeof(MAOniColonyMaterial) == 168 && sizeof(MAOniColonyConfig) == 56 && sizeof(MAOniColonyCell) == 24 &&
     sizeof(MAOniColonyStatus) == 600 && sizeof(MAOniColonyCellView) == 32 && sizeof(MAOniColonyTransfer) == 48 &&
@@ -1051,6 +1053,48 @@ void queue_transfers(std::span<const MAOniColonyTransfer> edits) {
     std::lock_guard lock(inputs);
     require(pending_transfers.size() + edits.size() <= 1u << 20, "Too many queued colony transfers");
     pending_transfers.insert(pending_transfers.end(), edits.begin(), edits.end());
+}
+void queue_actor_batch(std::span<const MAOniColonyTransfer> edits,std::span<const MAOniColonyActorJob> jobs,
+    std::span<const MAOniColonyPassive> passives) {
+    const ArithmeticScope arithmetic;
+    require(active(),"No colony owner is active");
+    require(!edits.empty() && edits.size()<=(1u<<20) && jobs.size()<=edits.size(),"Invalid actor batch size");
+    for (const auto& edit : edits) validate_transfer(edit);
+    std::map<std::uint64_t,PipeJob> staged_jobs;
+    std::size_t passive_cursor=0; std::uint32_t previous_index=0; std::uint64_t previous_token=0;
+    for (std::size_t n=0;n<jobs.size();++n) {
+        const auto& job=jobs[n];
+        require(job.reserved==0 && job.transfer_index<edits.size() && (!n || job.transfer_index>previous_index) &&
+            job.token && (!n || (previous_token!=UINT64_MAX && job.token==previous_token+1)) &&
+            job.first_passive==passive_cursor && job.passive_count<=65537 &&
+            passive_cursor<=passives.size() && job.passive_count<=passives.size()-passive_cursor,"Invalid actor job descriptor");
+        const auto& transfer=edits[job.transfer_index];
+        require(transfer.callback==-1 && transfer.disease==0 && transfer.disease_count==0 &&
+            (transfer.kind==MA_ONI_COLONY_INJECT || transfer.kind==MA_ONI_COLONY_EXTRACT_GAS || transfer.kind==MA_ONI_COLONY_EXTRACT_LIQUID) &&
+            (transfer.kind==MA_ONI_COLONY_INJECT || job.passive_count==0),"Invalid actor pipe job request");
+        PassiveQuantities germs; germs.reserve(job.passive_count); std::uint64_t previous_identity=0;
+        for (const auto& passive : passives.subspan(passive_cursor,job.passive_count)) {
+            require(passive.identity>previous_identity && std::isfinite(passive.quantity) && passive.quantity>0,"Invalid actor pipe passive");
+            germs.push_back({passive.identity,passive.quantity}); previous_identity=passive.identity;
+        }
+        validate_passive_quantities(germs);
+        staged_jobs.emplace(job.token,PipeJob{transfer,std::move(germs)});
+        passive_cursor+=job.passive_count; previous_index=job.transfer_index; previous_token=job.token;
+    }
+    require(passive_cursor==passives.size(),"Unused actor batch passives");
+    std::lock_guard lock(inputs);
+    require(jobs.empty() || precise_receipts_enabled,"Actor pipe jobs require precise receipts");
+    require(pending_transfers.size()<= (1u<<20)-edits.size(),"Too many queued colony transfers");
+    require(jobs.empty() || (accepted_job_token!=UINT64_MAX && jobs.front().token==accepted_job_token+1),"Actor pipe tokens must be fresh and contiguous");
+    // Allocate every map node and vector capacity before changing the pending
+    // input sequence. Integer-key node merges and reserved POD appends cannot
+    // allocate or throw; the worker cannot drain until this lock is released.
+    std::map<std::size_t,std::uint64_t> staged_indices;
+    for (const auto& job : jobs) staged_indices.emplace(pending_transfers.size()+job.transfer_index,job.token);
+    pending_transfers.reserve(pending_transfers.size()+edits.size());
+    pending_transfers.insert(pending_transfers.end(),edits.begin(),edits.end());
+    pending_job_tokens.merge(staged_indices); pipe_jobs.merge(staged_jobs);
+    if (!jobs.empty()) accepted_job_token=jobs.back().token;
 }
 std::pair<std::uint32_t,std::uint64_t> queue_pipe_job(std::uint64_t token,const MAOniColonyTransfer& transfer,std::span<const MAOniColonyPassive> passives) {
     const ArithmeticScope arithmetic;

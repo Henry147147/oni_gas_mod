@@ -18,6 +18,7 @@ void copy(MAOniColonyStatus&, MAOniColonyCellView*, std::uint32_t capacity);
 bool copy_changed(std::uint64_t session,std::uint64_t frame,MAOniColonyStatus&,MAOniColonyCellView*,std::uint32_t capacity);
 std::uint32_t composition(std::uint32_t public_cell, std::uint32_t* indices, double* masses, std::uint32_t capacity);
 void queue_transfers(std::span<const MAOniColonyTransfer>);
+void queue_actor_batch(std::span<const MAOniColonyTransfer>,std::span<const MAOniColonyActorJob>,std::span<const MAOniColonyPassive>);
 void queue_heat(std::span<const MAOniColonyHeat>);
 void queue_terrain(std::span<const MAOniColonyTerrain>);
 std::uint32_t copy_receipts(MAOniColonyReceipt*, std::uint32_t capacity);

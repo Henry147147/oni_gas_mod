@@ -448,6 +448,21 @@ uint32 pending-job count and, for each queued job, uint32 saved transfer index,
 uint64 token, uint32 passive count and ordered uint64 identity/binary64 quantity
 pairs after the frozen-cell list. The existing SHA-256 covers them.
 
+Pump consumers require `ma_oni_colony_actor_batch_version()` capability 1 and
+the atomic ordered actor-batch enqueue. A 24-byte descriptor identifies a
+transfer index, passive offset/count, reserved zero and uint64 job token.
+Descriptors preserve actor order; new job tokens are contiguous and fresh.
+Every descriptor, passive payload and transfer is checked before admission.
+After allocations succeed, transfers and durable metadata commit under one
+input lock, so a worker cannot take ordinary actor A before its intervening
+pump job and later actor B are queued. Replaying a batch containing jobs
+rejects without duplicating ordinary actors. The single-job idempotent API
+and owner8 persistence rules are unchanged. Controls compare live ordering,
+receipts and checkpoints with the existing enqueue sequence, compare cold
+continuation under the existing transient-callback policy, reject malformed
+or repeated batches without mutation, and race 50 three-request batches
+against worker advances without splitting a batch across completed frames.
+
 This adapter addition changes owner-wrapper bytes, not the physical solver
 image, its profile or transfer arithmetic. Controls cover fractional/multiple
 passives, zero results, token gaps/reuse, partial acknowledgements, old-version

@@ -13,6 +13,7 @@
 #include <filesystem>
 #include <iostream>
 #include <stdexcept>
+#include <thread>
 #include <vector>
 
 namespace {
@@ -231,6 +232,115 @@ void pipe_job_control() {
     ack_receipts(nothing.sequence); enable_precise_receipts(false); stop();
     std::cout<<"PASS durable pipe jobs: full fractional passives, idempotence, token grouping, queued injection/extraction cold continuation, legacy7 and save barriers\n";
 }
+void actor_batch_control() {
+    using namespace ma::oni::colony;
+    std::vector<MAOniColonyMaterial> mats{material("Oxygen",11,oxygen,true,.016,1000),material("CarbonDioxide",12,carbon,true,.044,850)};
+    MAOniColonyConfig cfg{}; cfg.struct_size=sizeof(cfg); cfg.abi_version=MA_ONI_COLONY_ABI_VERSION;
+    cfg.vacuum_index=vacuum; cfg.grid_width=cfg.width=3; cfg.grid_height=cfg.height=3; cfg.maximum_timestep_s=.1;
+    std::vector<MAOniColonyCell> cells(9,MAOniColonyCell{0,MA_ONI_COLONY_SOLID,0,0,0,0});
+    cells[4]={oxygen,MA_ONI_COLONY_FLUID,1.2f,300,3,103};
+    start(cfg,mats,cells,1); enable_precise_receipts(true); const auto initial=checkpoint();
+    std::array<MAOniColonyTransfer,5> edits{};
+    for (auto& e : edits) { e.public_cell=4; e.kind=MA_ONI_COLONY_INJECT; e.native_index=oxygen; e.temperature_k=300; e.mass_kg=.02; e.callback=71; }
+    edits[1].native_index=carbon; edits[1].callback=-1;
+    edits[2].kind=MA_ONI_COLONY_EXTRACT; edits[2].native_index=carbon; edits[2].callback=72; edits[2].mass_kg=.009;
+    edits[3].kind=MA_ONI_COLONY_EXTRACT_GAS; edits[3].callback=-1; edits[3].mass_kg=.015;
+    edits[4].callback=73;
+    const std::array<MAOniColonyPassive,2> passives{{{1,.125},{0x100000000ULL,std::ldexp(1.,-500)}}};
+    std::array<MAOniColonyActorJob,2> jobs{{{1,0,2,0,1},{3,2,0,0,2}}};
+    queue_transfers(std::span(edits).first(1)); const auto ordinary_pending=checkpoint();
+    (void)queue_pipe_job(1,edits[1],passives);
+    queue_transfers(std::span(edits).subspan(2,1));
+    (void)queue_pipe_job(2,edits[3],{});
+    queue_transfers(std::span(edits).last(1)); const auto ordered_pending=checkpoint();
+    const auto outcomes=[&](bool live) {
+        advance(1,.2,2); wait(); require(status().state==1,"actor batch advance faulted");
+        std::vector<MAOniColonyReceipt> receipts(32); const auto count=copy_receipts(receipts.data(),32);
+        require(count>=(live?5u:2u) && count<=32,"actor batch lost an ordered outcome"); receipts.resize(count);
+        if (live) require(receipts.front().callback==71 && receipts.back().callback==73,"actor batch reordered ordinary actors");
+        std::vector<std::vector<std::uint8_t>> sidecars;
+        for (const auto& r : receipts) {
+            const auto bytes=copy_precise_receipt(r.sequence,nullptr,0); sidecars.emplace_back(bytes);
+            require(bytes && copy_precise_receipt(r.sequence,sidecars.back().data(),bytes)==bytes,"actor batch lost precise outcome");
+        }
+        require(pipe_job_state(1).first==2 && pipe_job_state(2).first==2,"actor jobs did not commit together");
+        ack_receipts(receipts.back().sequence);
+        return std::pair{receipts,sidecars};
+    };
+    const auto same=[](const auto& a,const auto& b) {
+        return a.first.size()==b.first.size() &&
+            std::memcmp(a.first.data(),b.first.data(),a.first.size()*sizeof(MAOniColonyReceipt))==0 && a.second==b.second;
+    };
+    const auto baseline=outcomes(true); const auto completed=checkpoint(); stop();
+    restore(cfg,mats,initial,1); enable_precise_receipts(true);
+    const auto rejects=[&](auto&& call) {
+        const auto before=checkpoint(); bool rejected=false;
+        try { call(); } catch (const std::invalid_argument&) { rejected=true; }
+        require(rejected && checkpoint()==before,"rejected actor batch partially changed saved inputs");
+    };
+    auto invalid_jobs=jobs; invalid_jobs[1].token=4;
+    rejects([&] { queue_actor_batch(edits,invalid_jobs,passives); });
+    invalid_jobs=jobs; invalid_jobs[1].transfer_index=1;
+    rejects([&] { queue_actor_batch(edits,invalid_jobs,passives); });
+    invalid_jobs=jobs; invalid_jobs[1].reserved=1;
+    rejects([&] { queue_actor_batch(edits,invalid_jobs,passives); });
+    invalid_jobs=jobs; invalid_jobs[1].first_passive=1;
+    rejects([&] { queue_actor_batch(edits,invalid_jobs,passives); });
+    auto invalid_passives=passives; invalid_passives[1].identity=1;
+    rejects([&] { queue_actor_batch(edits,jobs,invalid_passives); });
+    auto invalid_edits=edits; invalid_edits.back().mass_kg=-1;
+    rejects([&] { queue_actor_batch(invalid_edits,jobs,passives); });
+    require(pipe_job_state(1).first==0 && pipe_job_state(2).first==0,"invalid actor batch accepted a token prefix");
+    queue_actor_batch(edits,jobs,passives);
+    require(checkpoint()==ordered_pending,"atomic actor batch differs from ordered single enqueues before advance");
+    rejects([&] { queue_actor_batch(edits,jobs,passives); });
+    const auto queued=checkpoint();
+    require(same(outcomes(true),baseline) && checkpoint()==completed,"atomic actor live order/physics differs from single enqueues");
+    stop(); restore(cfg,mats,ordered_pending,1);
+    // Owner8 deliberately strips transient callback handles and drops their
+    // extractions. Compare both cold paths under that unchanged save policy.
+    const auto cold_baseline=outcomes(false); const auto cold_completed=checkpoint();
+    stop(); restore(cfg,mats,queued,1);
+    require(checkpoint()==queued,"cold actor batch did not preserve pending order/metadata");
+    rejects([&] { queue_actor_batch(edits,jobs,passives); });
+    const auto resumed=outcomes(false);
+    require(same(resumed,cold_baseline) && checkpoint()==cold_completed,"actor batch cold continuation differs in physics, receipts, passives or owner bytes");
+    stop(); restore(cfg,mats,initial,1); enable_precise_receipts(false);
+    rejects([&] { queue_actor_batch(edits,jobs,passives); });
+    enable_precise_receipts(true); queue_actor_batch(std::span(edits).first(1),{},{});
+    require(checkpoint()==ordinary_pending,"ordinary-only actor batch changes legacy enqueue bytes"); stop();
+    start(cfg,mats,cells,1); enable_precise_receipts(true);
+    std::exception_ptr producer_error;
+    std::thread producer([&] {
+        try {
+            for (std::uint64_t n=0;n<50;++n) {
+                std::array<MAOniColonyTransfer,3> batch{};
+                for (auto& e : batch) { e.public_cell=4; e.kind=MA_ONI_COLONY_INJECT; e.native_index=oxygen; e.temperature_k=300; e.mass_kg=.0001; }
+                batch[0].callback=static_cast<std::int32_t>(2000+2*n);
+                batch[1].callback=-1; batch[1].native_index=carbon;
+                batch[2].callback=static_cast<std::int32_t>(2001+2*n);
+                const MAOniColonyActorJob descriptor{1,0,0,0,n+1};
+                queue_actor_batch(batch,std::span(&descriptor,1),{});
+            }
+        } catch (...) { producer_error=std::current_exception(); }
+    });
+    for (std::uint64_t ticket=1;ticket<=50;++ticket) advance(ticket,.01,2);
+    producer.join(); if (producer_error) std::rethrow_exception(producer_error);
+    advance(51,.01,2); wait(); require(status().state==1,"concurrent actor batches faulted");
+    std::array<MAOniColonyReceipt,256> concurrent{};
+    const auto count=copy_receipts(concurrent.data(),256); require(count==150,"concurrent actor batches lost or duplicated requests");
+    std::array<std::uint64_t,50> frames{}; frames.fill(UINT64_MAX); std::array<unsigned,50> counts{};
+    for (std::size_t i=0;i<count;++i) {
+        const auto& r=concurrent[i]; std::uint64_t n=0;
+        if (r.callback>=2000 && r.callback<2100) n=static_cast<std::uint64_t>(r.callback-2000)/2;
+        else { const auto token=receipt_job(r.sequence); require(token>=1 && token<=50,"concurrent actor batch lost job identity"); n=token-1; }
+        if (frames[n]==UINT64_MAX) frames[n]=r.completed_frame;
+        require(frames[n]==r.completed_frame,"one actor batch crossed the worker input-drain boundary"); ++counts[n];
+    }
+    require(std::all_of(counts.begin(),counts.end(),[](auto n){return n==3;}),"concurrent actor batch grouped wrong actors");
+    ack_receipts(concurrent[count-1].sequence); stop();
+    std::cout<<"PASS atomic actor batch: exact order, all-or-nothing invalid/replay admission, full passives and owner8 cold continuation\n";
+}
 void view_cache_control() {
     using namespace ma::oni::colony;
     std::vector<MAOniColonyMaterial> mats{material("Oxygen",11,oxygen,true,.016,1000)};
@@ -443,12 +553,14 @@ int main(int argc, char** argv) {
         if (argc == 2 && std::strcmp(argv[1], "--pipe-jobs-only") == 0) { pipe_job_control(); return 0; }
         if (argc == 2 && std::strcmp(argv[1], "--sample-only") == 0) { sample_control(); return 0; }
         if (argc == 2 && std::strcmp(argv[1], "--view-cache-only") == 0) { view_cache_control(); return 0; }
+        if (argc == 2 && std::strcmp(argv[1], "--actor-batch-only") == 0) { actor_batch_control(); return 0; }
         require(argc == 1, "Usage: ma_oni_colony_tests [--projection-only|--timestep-only|--precise-receipts-only]");
         precise_receipt_control();
         release_capture_control();
         pipe_job_control();
         sample_control();
         view_cache_control();
+        actor_batch_control();
         conversion_batch_control();
         timestep_control();
         projection_control();

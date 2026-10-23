@@ -840,6 +840,16 @@ MAOniResult ma_oni_colony_enable_precise_receipts(std::uint32_t enabled) {
     });
 }
 std::uint32_t ma_oni_colony_precise_receipt_version() { return 2; }
+std::uint32_t ma_oni_colony_actor_batch_version() { return 1; }
+MAOniResult ma_oni_colony_queue_actor_batch(const MAOniColonyTransfer* transfers,std::uint32_t count,
+    const MAOniColonyActorJob* jobs,std::uint32_t job_count,const MAOniColonyPassive* passives,std::uint32_t passive_count) {
+    return boundary([&] {
+        if (!transfers || !count || (job_count && !jobs) || (passive_count && !passives))
+            throw Failure(MA_ONI_INVALID_ARGUMENT,"Invalid actor batch buffers");
+        try { ma::oni::colony::queue_actor_batch(std::span(transfers,count),std::span(jobs,job_count),std::span(passives,passive_count)); }
+        catch (const std::invalid_argument& error) { throw Failure(MA_ONI_INVALID_ARGUMENT,error.what()); }
+    });
+}
 MAOniResult ma_oni_colony_copy_precise_receipt(std::uint64_t sequence,std::uint8_t* buffer,std::uint32_t capacity,std::uint32_t* bytes) {
     return boundary([&] {
         if (!bytes || (capacity && !buffer)) throw Failure(MA_ONI_INVALID_ARGUMENT,"Invalid precise receipt buffer");

@@ -186,6 +186,20 @@ MA_ONI_API MAOniResult ma_oni_colony_wait(void);
  * survive owner checkpoint v8; transient callback handles are never persisted.
  * Save requires all committed pipe outcomes acknowledged first. */
 typedef struct MAOniColonyPassive { uint64_t identity; double quantity; } MAOniColonyPassive;
+/* Atomic actor enqueue: descriptors tag transfers with NEW durable pipe jobs.
+ * Indices strictly increase; tokens are fresh/contiguous in descriptor order.
+ * Passive slices are contiguous/exhaustive; reserved=0. The entire ordered
+ * batch is admitted or rejected together. Batches containing jobs reject
+ * replay; ordinary-only batches retain ordinary non-idempotent semantics.
+ * Existing single-job semantics
+ * and owner checkpoint v8 remain unchanged. Requires capability1 before use. */
+typedef struct MAOniColonyActorJob {
+    uint32_t transfer_index, first_passive, passive_count, reserved;
+    uint64_t token;
+} MAOniColonyActorJob;
+MA_ONI_API uint32_t ma_oni_colony_actor_batch_version(void);
+MA_ONI_API MAOniResult ma_oni_colony_queue_actor_batch(const MAOniColonyTransfer*, uint32_t count,
+    const MAOniColonyActorJob*, uint32_t job_count, const MAOniColonyPassive*, uint32_t passive_count);
 MA_ONI_API MAOniResult ma_oni_colony_queue_pipe_job(uint64_t token, const MAOniColonyTransfer*,
     const MAOniColonyPassive*, uint32_t passive_count, uint32_t* state, uint64_t* last_receipt_sequence);
 MA_ONI_API MAOniResult ma_oni_colony_pipe_job_state(uint64_t token, uint32_t* state, uint64_t* last_receipt_sequence);
