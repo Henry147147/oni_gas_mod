@@ -510,6 +510,57 @@ verified, fallback count unavailable. Seven pure/seven hook/37 inspection,
 latent/foreign-phase returns, biological evolution and saved retries remain
 open, so production activation stays off.
 
+### Valve/shutoff acceptance under construction
+
+The fixed `mixed-pipe-valves` control builds manual valves and powered shutoffs
+for both phases, with separate single-cell inputs/outputs and passive sinks.
+Each gas input starts 0.375 kg O2 + 0.625 kg CO2; each liquid starts 3 kg water
++ 7 kg polluted water, with fractional/tiny germs at 300 K. Native topology
+readiness can shift every stage equally by at most 20 frames. Hold closed for
+10 frames, then set manual rates 0.1/1 kg/s and enable native powered shutoffs
+for 10 frames. Manual output should be 0.2/2 kg within one native tick
+(0.021/0.21 kg); shutoffs transfer full 1/10 kg within 1e-6 kg. Require original
+mixture proportions within 1e-10 and zero transfer after closing. Fill manual
+outputs to leave 0.01/0.1 kg room and verify full capacity/no overflow within
+1e-7 kg. Empty shutoff outputs into owned sinks and refill inputs while still
+disabled, proving closure with real output room; reopen and require full mixed
+transfer. Final exact mass/U/germ accounts must close. No production setting
+or native valve decision is replaced by this control.
+
+The first setup timed out before initialized prefab ports were available. A
+second setup creates the pipes after initialization; it reaches flow checks
+but fails 9/15 at frame 35. Gas manual flow is 0.200000003 kg, liquid manual
+flow 1 kg against the 2 kg expectation, and both shutoffs remain blocked by
+their native automation controller. Refilling that still-full input is
+correctly rejected. These are unresolved fixture/acceptance failures, not a
+valve pass. Native world mass/energy errors are 2.957e-16/3.612e-17, trace sink
+zero, no native fault, cleanup verified. Diagnostic LOW owner mean/p95/max
+312.90/433.01/462.11 ms, observed 531.64/542.33/5095.39 ms (35/34 samples,
+no gaps); no performance claim. The next setup supplies the unconnected
+automation value through its initialized native controller and records native
+rate/max, ports and elapsed game clock without changing the flow criteria.
+
+### Vent surface-germ preparation (runtime inactive)
+
+A small pure helper prepares the vent's surface exchange separately from
+conduit scheduling. For a single integer population it preserves the native
+integer-to-binary32, 5% scaling, then integer truncation sequence in each
+direction. For a mixture, each supported fluid identity is sampled in stable
+identity order using that same rule. Fractions and quantities beyond native
+integer range stay in the fluid; total incoming counts are capped against
+remaining body integer capacity before any native mutation. Empty fluid never
+receives a massless germ population. Mass and heat are unchanged.
+
+The building still has exactly its observed native single germ identity.
+After native mutations, each identity's actual body change minus its planned
+transfer is recorded as native competition/identity conversion. This differs
+from biological growth/death and from fluid transfer; no hidden mixed body is
+invented. Pure controls cover native integer rounding, simultaneous identities,
+tiny fractions, huge populations, capacity, unsupported identities, arbitrary
+observed identity changes and exact replay bytes. They do not establish live
+stronger/weaker native competition, vent readiness, all-ID biological evolution
+or saved continuation. The helper has no runtime caller yet.
+
 ## Precise owner receipts
 
 The optional native adapter exports `ma_oni_colony_enable_precise_receipts`,
