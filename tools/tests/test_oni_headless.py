@@ -9,6 +9,7 @@ import json
 import os
 from pathlib import Path
 import re
+import signal
 import subprocess
 import struct
 import sys
@@ -1642,14 +1643,54 @@ class SandboxTests(unittest.TestCase):
 
 
 class ProcessTests(unittest.TestCase):
+    def test_exited_launcher_still_retires_its_term_resistant_game(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            ready = root / "ready"
+            # The launcher exits after its child has installed SIG_IGN. This
+            # reproduces an exited bwrap launcher with a surviving ONI child.
+            worker = ("import os,signal,time; from pathlib import Path; "
+                      "signal.signal(signal.SIGTERM,signal.SIG_IGN); "
+                      f"Path({str(ready)!r}).write_text(str(os.getpid())); time.sleep(60)")
+            launcher = ("import subprocess,sys,time; from pathlib import Path; "
+                        f"subprocess.Popen([sys.executable,'-c',{worker!r}]); "
+                        f"p=Path({str(ready)!r}); "
+                        "\nwhile not p.exists(): time.sleep(.01)\n")
+            record = runner.spawn([sys.executable, "-c", launcher], root / "log", dict(os.environ))
+            try:
+                runner.CHILDREN[record["pid"]].wait(timeout=10)
+                self.assertFalse(runner.alive(record))
+                self.assertTrue(runner.process_group_alive(record))
+                worker_record = runner.identity(int(ready.read_text()))
+                runner.stop_process(record)
+                for _ in range(100):
+                    if not runner.alive(worker_record):
+                        break
+                    runner.time.sleep(.01)
+                self.assertFalse(runner.alive(worker_record))
+                self.assertFalse(runner.process_group_alive(record))
+            finally:
+                try:
+                    os.killpg(record["pid"], signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                runner.CHILDREN.pop(record["pid"], None)
+
+    def test_reused_leader_pid_never_signals_the_new_group(self):
+        current = runner.identity(os.getpid())
+        stale = dict(current, start_ticks=str(int(current["start_ticks"]) - 1))
+        with mock.patch.object(runner.os, "killpg") as kill:
+            runner.stop_process(stale)
+        kill.assert_not_called()
+
     def test_stop_process_tolerates_already_exited_process(self):
         with tempfile.TemporaryDirectory() as directory:
             record = runner.spawn(["true"], Path(directory) / "log", dict(os.environ))
             runner.CHILDREN[record["pid"]].wait()
             runner.stop_process(record)
             # Simulate exit between the identity check and the signal.
-            with mock.patch.object(runner, "alive", return_value=True), \
-                    mock.patch.object(runner.os, "getpgid", side_effect=ProcessLookupError):
+            with mock.patch.object(runner, "process_group_alive", return_value=True), \
+                    mock.patch.object(runner.os, "killpg", side_effect=ProcessLookupError):
                 runner.stop_process(record)
 
     def test_session_commands_share_one_lock(self):

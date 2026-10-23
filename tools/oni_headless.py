@@ -113,7 +113,8 @@ def digest(path: Path) -> str:
 def identity(pid: int) -> dict:
     # Parse after the final ')' because Linux process names can contain spaces.
     fields = Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()
-    return {"pid": pid, "start_ticks": fields[19], "state": fields[0]}
+    return {"pid": pid, "start_ticks": fields[19], "state": fields[0],
+            "process_group": int(fields[2]), "session": int(fields[3])}
 
 
 def alive(record: dict | None) -> bool:
@@ -129,19 +130,45 @@ def alive(record: dict | None) -> bool:
         return False
 
 
+def process_group_alive(record: dict | None) -> bool:
+    """Find live members even when the recorded launcher has already exited."""
+    if not record:
+        return False
+    pid = record["pid"]
+    try:
+        leader = identity(pid)
+        if leader["start_ticks"] != record["start_ticks"]:
+            return False  # The PID now names an unrelated process.
+        if leader["process_group"] != pid or leader["session"] != pid:
+            raise RuntimeError(f"Refusing to signal a process group not owned by the runner: {pid}")
+    except (FileNotFoundError, ProcessLookupError):
+        pass
+    # Linux reserves a process-group ID while its members exist. A launcher
+    # can disappear while its game survives in that same session and group.
+    for path in Path("/proc").iterdir():
+        if not path.name.isdecimal():
+            continue
+        try:
+            member = identity(int(path.name))
+        except (FileNotFoundError, ProcessLookupError, PermissionError):
+            continue
+        if (member["process_group"] == pid and member["session"] == pid and
+                int(member["start_ticks"]) >= int(record["start_ticks"]) and member["state"] != "Z"):
+            return True
+    return False
+
+
 def stop_process(record: dict | None) -> None:
-    """Stop a recorded process group; a process that already exited is not an error."""
-    if not alive(record):
+    """Stop the whole owned group, including children of an exited launcher."""
+    if not process_group_alive(record):
         return
     pid = record["pid"]
     try:
-        if os.getpgid(pid) != pid:
-            raise RuntimeError(f"Refusing to signal a process group not owned by the runner: {pid}")
         os.killpg(pid, signal.SIGTERM)
         deadline = time.monotonic() + 5
-        while alive(record) and time.monotonic() < deadline:
+        while process_group_alive(record) and time.monotonic() < deadline:
             time.sleep(.1)
-        if alive(record):
+        if process_group_alive(record):
             os.killpg(pid, signal.SIGKILL)
     except ProcessLookupError:
         pass  # Exited between the identity check and the signal.
@@ -840,7 +867,7 @@ def playtest(args, state: Path, session: dict) -> int:
         raise ValueError("Supply the native Linux ONI installation.")
     if not alive(session.get("steam")) or not alive(session.get("xvfb")):
         raise RuntimeError("Run 'start' and sign in to Steam first.")
-    if alive(session.get("game")):
+    if process_group_alive(session.get("game")):
         raise RuntimeError("A previous retained game is running; use 'stop-game' first.")
     if alive(session.get("game_display")):
         stop_private_display(session["game_display"])
@@ -1154,7 +1181,8 @@ def main() -> int:
     session = read_session(state)
     if args.command == "status":
         print(json.dumps({"state": str(state), "display": session.get("display"),
-                          "processes": {name: alive(session.get(name)) for name in ("xvfb", "wm", "steam", "vnc", "web", "game")},
+                          "processes": {name: (process_group_alive if name == "game" else alive)(session.get(name))
+                                        for name in ("xvfb", "wm", "steam", "vnc", "web", "game")},
                           "latest_run": session.get("latest_run"), "steam_authentication": "check Steam UI"}, indent=2))
     elif args.command == "screenshot":
         path = args.output or Path(tempfile.gettempdir()) / f"oni-desktop-{secrets.token_hex(4)}.png"

@@ -146,8 +146,11 @@ always keeps `full_mod_completion_verified` and
 Post-spawn bookkeeping and evidence-write failures enter cleanup;
 `--keep-open` commits retention only after writing the result. A failure to
 record a freshly spawned child's identity also attempts bounded direct-child
-cleanup and reports incomplete cleanup explicitly. These paths have mocked
-fault coverage; they do not establish complete descendant-process containment.
+cleanup and reports incomplete cleanup explicitly. Recorded process-group
+cleanup also finds surviving children after their launcher exits, sends TERM,
+and escalates to KILL after five seconds. A real exited-launcher control checks
+a child that ignores TERM; a reused launcher PID is never signalled. Children
+that leave the recorded process group/session are outside this cleanup.
 
 `python3 -m unittest discover -s tools/tests` runs the runner's guards with the
 other tool tests. The headless module runs only on Linux; other platforms skip
