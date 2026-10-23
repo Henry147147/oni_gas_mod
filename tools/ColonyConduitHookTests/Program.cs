@@ -33,6 +33,11 @@ internal static class Program
         Check(scheduling==(string)biology.GetField("ExpectedSchedulingSignature",BindingFlags.Static|BindingFlags.NonPublic)!.GetRawConstantValue()!,
             "Pipe worker scheduling changed: the supported game must join prior conduit jobs and run disease updates before the next gas/liquid flows.");
         Console.WriteLine("PASS native biology scheduling: inspected synchronous StepTheSim/flow/job/disease bodies match the supported worker-join boundary");
+        var contact=assembly.GetType("MixedAtmospheres.Oni.ColonyPipeContactHeat")!;
+        Check(System.Runtime.InteropServices.Marshal.SizeOf(contact.GetNestedType("Input",BindingFlags.NonPublic)!)==44&&
+            System.Runtime.InteropServices.Marshal.SizeOf(contact.GetNestedType("Output",BindingFlags.NonPublic)!)==20,
+            "Native contact layouts differ from the read-only C ABI.");
+        Console.WriteLine("PASS conduit contact ABI: registered input44/output20 byte layouts, no runtime activation");
         var hook=assembly.GetType("MixedAtmospheres.Oni.ColonyMixedPipeFlowPatch")!;
         var transpiler=hook.GetMethod("Transpiler",BindingFlags.NonPublic|BindingFlags.Static)!;
         var original=AccessTools.Method(typeof(ConduitFlow),"UpdateConduit");

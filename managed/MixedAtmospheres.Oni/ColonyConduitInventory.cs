@@ -232,8 +232,9 @@ namespace MixedAtmospheres.Oni
             if (!(temperature > 0) || double.IsInfinity(temperature)) throw new InvalidOperationException("Invalid pipe temperature.");
             return temperature;
         }
-        internal PipeInventory WithHeat(double heat) => parts.Length == 0 && heat != 0
-            ? throw new InvalidOperationException("Cannot heat an empty pipe.") : new PipeInventory(parts, Energy.Plus(new PipeAmount(heat)), germs);
+        internal PipeInventory WithHeat(double heat)=>WithHeat(new PipeAmount(heat));
+        internal PipeInventory WithHeat(PipeAmount heat) => parts.Length == 0 && heat.Sign != 0
+            ? throw new InvalidOperationException("Cannot heat an empty pipe.") : new PipeInventory(parts, Energy.Plus(heat), germs);
         internal PipeInventory WithDiseaseDelta(int id, double delta)=>WithDiseaseDelta(id,new PipeAmount(delta));
         internal PipeInventory WithDiseaseDelta(int id, PipeAmount delta)
         {

@@ -129,6 +129,7 @@ namespace MixedAtmospheres.Oni
             ColonyPipeThermalProbe.Reset();
             ColonyGermEvolutionProbe.Reset();
             ColonyPipeBiology.Reset();
+            ColonyPipeContactHeat.Reset();
             ColonyValveControl.Reset();
             Active=false;Flows.Clear();Materials.Clear();NativeElements.Clear();NativeIndices.Clear();DiseaseExchange.Clear();initial=supplied=removed=PipeInventory.Empty;heat=default;projecting=0;controlSeeding=false;transferScope=null;
             ColonyPipePorts.Reset();MixtureInspection.SetPipeReader(null);
@@ -292,11 +293,12 @@ namespace MixedAtmospheres.Oni
             var cell=Ensure(flow,index);
             var result=ReadRaw(flow,index);
             var changed=false;
-            if(cell.Inventory.Count>0 && result.temperature!=cell.Shadow.temperature)
+            var currentContact=ColonyPipeContactHeat.TryTake(flow,index,result,cell.Shadow,out var contactHeat);
+            if(cell.Inventory.Count>0 && (currentContact||result.temperature!=cell.Shadow.temperature))
             {
                 var element=ElementLoader.FindElementByHash(cell.Shadow.element);
-                var exchanged=(double)cell.Shadow.mass*element.specificHeatCapacity*1000*((double)result.temperature-cell.Shadow.temperature);
-                cell.Inventory=cell.Inventory.WithHeat(exchanged);lock(Accounts)heat=heat.Plus(new PipeAmount(exchanged));
+                var exchanged=currentContact?contactHeat:new PipeAmount((double)cell.Shadow.mass*element.specificHeatCapacity*1000*((double)result.temperature-cell.Shadow.temperature));
+                cell.Inventory=cell.Inventory.WithHeat(exchanged);lock(Accounts)heat=heat.Plus(exchanged);
                 changed=true;
             }
             // Native disease growth/death is reconciled separately from moves;
@@ -460,14 +462,30 @@ namespace MixedAtmospheres.Oni
     [HarmonyPatch]
     internal static class ColonyMixedPipeThermalPatch
     {
-        private static MethodBase TargetMethod()=>AccessTools.Method(AccessTools.TypeByName("ConduitTemperatureManager"),"Sim200ms");
-        private static void Prefix(float __0,ref ColonyPipeThermalProbe.Scope? __state)=>__state=ColonyPipeThermalProbe.Begin(__0);
-        private static void Postfix(ColonyPipeThermalProbe.Scope? __state)
+        internal sealed class Scope
         {
-            ColonyPipeThermalProbe.AfterNative(__state);ColonyConduits.ThermalBoundary();ColonyPipeThermalProbe.AfterBook(__state);
+            internal ColonyPipeThermalProbe.Scope? Probe;
+            internal ColonyPipeContactHeat.Scope? Contact;
         }
-        private static Exception? Finalizer(Exception? __exception,ColonyPipeThermalProbe.Scope? __state)
-        {ColonyPipeThermalProbe.EndScope(__state);return __exception;}
+        private static MethodBase TargetMethod()=>AccessTools.Method(AccessTools.TypeByName("ConduitTemperatureManager"),"Sim200ms");
+        private static void Prefix(float __0,ref Scope? __state)
+        {
+            var contact=ColonyPipeContactHeat.Begin(__0);
+            if(contact!=null)__state=new Scope{Contact=contact};
+            var probe=ColonyPipeThermalProbe.Begin(__0);
+            if(probe!=null){__state??=new Scope();__state.Probe=probe;}
+        }
+        private static void Postfix(Scope? __state)
+        {
+            ColonyPipeThermalProbe.AfterNative(__state?.Probe);__state?.Contact?.Validate();
+            ColonyConduits.ThermalBoundary();__state?.Contact?.Complete();ColonyPipeThermalProbe.AfterBook(__state?.Probe);
+        }
+        private static Exception? Finalizer(Exception? __exception,Scope? __state)
+        {
+            try{ColonyPipeThermalProbe.EndScope(__state?.Probe);}
+            finally{ColonyPipeContactHeat.End(__state?.Contact);}
+            return __exception;
+        }
     }
     [HarmonyPatch(typeof(ConduitFlow),"UpdateConduit")]
     internal static class ColonyMixedPipeFlowPatch

@@ -13,6 +13,7 @@
     <Compile Include="../../managed/MixedAtmospheres.Oni/ColonyConduitSurfaceGerms.cs" Link="ColonyConduitSurfaceGerms.cs" />
     <Compile Include="../../managed/MixedAtmospheres.Oni/ColonyGermEvolution.cs" Link="ColonyGermEvolution.cs" />
     <Compile Include="../../managed/MixedAtmospheres.Oni/ColonyGermPopulation.cs" Link="ColonyGermPopulation.cs" />
+    <Compile Include="../../managed/MixedAtmospheres.Oni/ColonyConduitContactWork.cs" Link="ColonyConduitContactWork.cs" />
     <Compile Include="../../managed/MixedAtmospheres.Oni/ColonySaveEnvelope.cs" Link="ColonySaveEnvelope.cs" />
   </ItemGroup>
 </Project>

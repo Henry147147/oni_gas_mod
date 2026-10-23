@@ -750,6 +750,40 @@ declaration test checks all targets and the direct guard; executing patched
 public I/O is confined to this actual-game control because the game's bundled
 Harmony cannot patch inside the .NET 10 runner (removed BinaryFormatter API).
 
+## Represented body contact work (explicit thermal acceptance)
+
+`MA_COLONY_PIPE_CONTACT_HEAT=1` selects the pending managed contact correction
+only in the existing thermal fixture. The original setup, stage600 endpoint,
+temperature limits and endpoint heat bound stay fixed. Native replay version1
+captures registered inputs before the physical update; every post-call carrier
+temperature must match its replayed bits before settlement. Each contact
+credits exact represented body work `Cbody*(Tbefore-Tafter)`, with kJ-to-J
+conversion retaining all arithmetic components. Separately observed earlier
+carrier heat stays booked; the same contact's rounded carrier delta is not
+credited again. A 2000-case independent integer oracle covers the complete
+binary32 input exponent range and exact partition/cancellation identities.
+
+This is conditional on a live unique body registration and an unchanged fluid
+inventory during the native call; unsupported identities, phase transitions
+or carrier mismatches fail explicitly. Phase/component-storage integration,
+pending native body save state and production activation remain gated. The
+actual601-frame acceptance will use the parent's frozen2569 native bundle;
+existing4/5 failures remain recorded until the unchanged heat check passes.
+
+The coupled run passes **5/5 at 601 frames** with that original bound:
+body -90674.695667621563 J, mixture/booked +90674.695667621563 J, residual
+exactly 0 J versus 0.2458838828 J permitted. Final body 353.2604675293 K and
+mixture 353.2597317210 K both agree with 353.2601236134 K analytic equilibrium
+within 0.001 K. Both 0.5 kg constituents remain; the exact pipe U audit closes.
+All 586 recorded carrier validations pass. No fault, trace sink 0, world M/E
+errors 2.964e-15/5.533e-17, 601/600 samples without gaps, cleanup verified.
+Native rejected attempts 13704, skipped relaxations 0; no fallback counter is
+exposed. LOW diagnostic owner mean/p95/max 359.812/454.501/718.199 ms and
+observed 456.684/630.994/4540.225 ms include concurrent HIGH work, user GPU load and
+thermal logging; these establish no speed gain. This clears the isolated
+finite-body heat failure, while phase, storage, full runtime persistence and
+production activation remain open.
+
 ## All-ID biology control (not production or saved runtime)
 
 Before measuring `mixed-pipe-all-germs`, fix the setup: the same 8x6 oxygen

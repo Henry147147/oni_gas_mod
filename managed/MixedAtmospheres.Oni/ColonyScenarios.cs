@@ -1411,6 +1411,7 @@ namespace MixedAtmospheres.Oni
                 var a=ColonyConduits.MaterialOf(SimHashes.Oxygen);var b=ColonyConduits.MaterialOf(SimHashes.Hydrogen);
                 var contents=PipeInventory.Single(a,.5,300,255,0).Joined(PipeInventory.Single(b,.5,300,255,0));
                 ColonyConduits.SupplyControlInventory(Game.Instance.gasConduitFlow,ThermalCell,contents);
+                if(Environment.GetEnvironmentVariable("MA_COLONY_PIPE_CONTACT_HEAT")=="1")ColonyPipeContactHeat.StartControl();
                 var body=mixedThermalBody!;var thermalMass=body.GetComponent<Building>().Def.MassForTemperatureModification;
                 var bodyCv=(double)thermalMass*body.Element.specificHeatCapacity*1000;var fluidCv=.5*(a.HeatCapacity+b.HeatCapacity);
                 recorded["thermal body Cv"]=bodyCv;recorded["thermal fluid Cv"]=fluidCv;recorded["thermal body T"]=body.Temperature;
