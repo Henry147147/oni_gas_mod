@@ -763,6 +763,7 @@ void configured_inputs_valid(const MAOniDomainConfig* config,const MAOniDomainPh
 
 extern "C" {
 std::uint32_t ma_oni_colony_abi_version() { return MA_ONI_COLONY_ABI_VERSION; }
+std::uint32_t ma_oni_colony_game_kernel_version() { return 1; }
 MAOniResult ma_oni_colony_start(const MAOniColonyConfig* config,const MAOniColonyMaterial* materials,std::uint32_t material_count,
     const MAOniColonyCell* cells,std::uint32_t cell_count,MAOniColonyStatus* output) {
     return boundary([&] {

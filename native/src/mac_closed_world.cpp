@@ -1,3 +1,4 @@
+#include "mac_game_bridge.hpp"
 #include "mixed_atmospheres/mac_closed_world.hpp"
 #include "mixed_atmospheres/mac_phase_change.hpp"
 #include "mixed_atmospheres/mac_kernel.hpp"
@@ -183,6 +184,24 @@ std::optional<StaticEquilibrium> exact_static_equilibrium(const SpeciesRegistry&
 }
 }
 void MacClosedSettings::validate() const {
+    if (numerical_kernel==MacNumericalKernel::game) {
+        game.validate();
+        require(game_profile==MacGameProfile::game_kernel && vacuum==MacVacuumRepresentation::void_phase &&
+            step_control==MacStepControl::doubling && subcell_void==MacSubcellVoidPolicy::exact_geometry &&
+            !compatible_void_pressure_work && !recover_mixed_eos_endpoint && !trace_sink_per_substep && !fast_phase_trial_eos &&
+            diffusion.mode==MacDiffusionMode::disabled && phase_change==MacPhaseChange::none &&
+            pressure_integration==MacPressureIntegration::discrete_gradient_midpoint &&
+            std::isfinite(gravity_m_per_s2) && gravity_m_per_s2>=0 &&
+            std::isfinite(maximum_timestep_s) && maximum_timestep_s>0 && maximum_timestep_s<=1 &&
+            std::isfinite(trace_sink_threshold_kg) && trace_sink_threshold_kg>=0 && trace_sink_threshold_kg<=1e-6 &&
+            preconditioner==PressurePreconditioner::automatic && maximum_outgoing_volume_fraction==.4 &&
+            reconstruction==MacMaterialReconstruction::limited_linear && momentum_reconstruction==MacMomentumReconstruction::limited_linear &&
+            compression_viscosity==MacCompressionViscosity::acoustic_quadratic && shock_heat==MacShockHeatRegularization::pressure_sensed_acoustic &&
+            gas_expansion_volume_fraction==16*eps && viscosity.shear_pa_s==0 && viscosity.bulk_pa_s==0,
+            "Invalid diagnostic game-kernel settings");
+        return;
+    }
+    require(game_profile!=MacGameProfile::game_kernel,"Game profile requires numerical kernel3");
     viscosity.validate();
     diffusion.validate();
     require(game_profile == MacGameProfile::base_game_floor ||
@@ -634,7 +653,9 @@ MacClosedWorld::MacClosedWorld(SpeciesRegistry registry, std::shared_ptr<const F
     require(settings_.vacuum == MacVacuumRepresentation::void_phase || state.occupied_volumes_m3.empty(), "MAC occupied volumes require the void phase");
     require(settings_.phase_change == MacPhaseChange::none || !mac_saturation_pairs(registry_, *thermodynamics_).empty(),
         "MAC saturation phase change requires a calibrated liquid/vapour pair");
-    const auto inertia = mac_face_inertias(registry_, state, *thermodynamics_); const Topology topology(state.grid);
+    const auto inertia = settings_.numerical_kernel==MacNumericalKernel::game ?
+        MacGameKernelAccess::inertias(registry_,state) : mac_face_inertias(registry_, state, *thermodynamics_); const Topology topology(state.grid);
+    if(settings_.numerical_kernel==MacNumericalKernel::game)MacGameKernelAccess::validate(*this,state);
     // A void-phase state whose occupied cells are all filled has no occupied volumes.
     bool partial = false;
     for (std::size_t i = 0; i < state.occupied_volumes_m3.size(); ++i)
@@ -663,6 +684,7 @@ MacClosedWorld MacClosedWorld::derived(MacTransportState next) const {
     return MacClosedWorld(Derived{}, *this, std::move(next));
 }
 MacTraceSink MacClosedWorld::with_trace_sink() const {
+    if(settings_.numerical_kernel==MacNumericalKernel::game)return MacGameKernelAccess::trace(*this);
     require_mac_energy_environment();
     const double threshold=settings_.trace_sink_threshold_kg;
     if (settings_.game_profile==MacGameProfile::legacy || threshold==0) return {*this,{}};
@@ -840,6 +862,7 @@ MacPhaseRelaxation MacClosedWorld::with_phase_relaxation_in_cells(std::span<cons
     return {derived(std::move(advanced.state)), advanced.report};
 }
 MacClosedWorld MacClosedWorld::with_cell_heat(std::span<const MacCellHeat> edits,MacPrimaryRoundingCounts* accepted_rounding) const {
+    if(settings_.numerical_kernel==MacNumericalKernel::game){auto next=MacGameKernelAccess::heat(*this,edits);if(accepted_rounding)*accepted_rounding={};return next;}
     require_mac_energy_environment();
     require(!edits.empty() && edits.size() <= 4096, "MAC heat batch must contain 1..4096 edits");
     if (revision_ == std::numeric_limits<std::uint64_t>::max()) throw std::overflow_error("MAC closed revision overflow");
@@ -966,6 +989,7 @@ void MacTraceSinkReport::merge(const MacTraceSinkReport& other) {
     add_passive_quantities(passives,other.passives,1);
 }
 MacClosedAdvance MacClosedWorld::advanced(double seconds,std::size_t budget,MacExecutionPolicy policy) const {
+    if(settings_.numerical_kernel==MacNumericalKernel::game)return MacGameKernelAccess::advance(*this,seconds,budget);
     if (settings_.game_profile==MacGameProfile::legacy || settings_.trace_sink_threshold_kg==0)
         return advanced_without_trace_sink(seconds,budget,policy);
     require(std::isfinite(seconds) && seconds>0 && seconds<=10 && budget>0 && budget<=65536,"Invalid MAC trace-sink interval/budget");

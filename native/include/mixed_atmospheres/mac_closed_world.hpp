@@ -31,7 +31,7 @@ enum class MacShockHeatRegularization {
 // keeps selected physical laws through audited reference fallback for unported
 // selectors/range flags; value 1 is the narrower legacy interval port.
 // Value 1 is reserved for the retired interval port and always rejects.
-enum class MacNumericalKernel { reference = 0, retired_interval_audited = 1, production = 2 };
+enum class MacNumericalKernel { reference = 0, retired_interval_audited = 1, production = 2, game = 3 };
 // Persisted temporal pressure scheme. The moment path preserves pressure work
 // with two Legendre moments; the surrounding split remains second order.
 enum class MacPressureIntegration { discrete_gradient_midpoint = 0, two_moment = 1, two_moment_coupled = 2 };
@@ -57,7 +57,19 @@ enum class MacPhaseChange { none = 0, saturation = 1 };
 enum class MacStepControl { doubling = 0, predictive = 1, regional_predictive = 2 };
 // Saved game-profile family. Legacy retains every pre-profile trajectory;
 // scientific gates never select the base-game accuracy-floor profile.
-enum class MacGameProfile { legacy = 0, base_game_floor = 1 };
+enum class MacGameProfile { legacy = 0, base_game_floor = 1, game_kernel = 2 };
+// Saved settings of the opt-in diagnostic game kernel; never selected by gates.
+struct MacGameSettings {
+    double liquid_stiffness_ratio = .04;
+    unsigned flow_parts = 2;
+    double pressure_relative_tolerance = 1e-8;
+    double gas_heat_mixing = 0;
+    bool sharpen_liquid_interfaces = true;
+    double interface_detail_fraction = 0;
+    double phase_relaxation_time_s = 1;
+    std::vector<MacSaturationPair> saturation_pairs;
+    void validate() const;
+};
 struct MacClosedSettings {
     // Physical setting additions require updating the checkpoint schema and
     // its complete-identity/continuation controls in mac_checkpoint.cpp.
@@ -99,6 +111,7 @@ struct MacClosedSettings {
     // Binary64 production EOS inside phase root searches; accepted endpoints
     // still use the strict reference EOS. Older profiles keep strict trials.
     bool fast_phase_trial_eos = false;
+    MacGameSettings game;
     void validate() const;
 };
 struct MacClosedSubstep {
@@ -182,6 +195,7 @@ struct MacTraceSinkReport {
 };
 struct MacClosedAdvanceReport {
     MacTraceSinkReport trace_sink;
+    std::vector<double> game_converted_mass_kg;
     MacDiffusionReport diffusion;
     std::size_t interval_kernel_intervals = 0, interval_reference_fallbacks = 0;
     std::size_t interval_audit_exact_fallbacks = 0, interval_audit_retries = 0;
@@ -237,7 +251,8 @@ struct MacClosedAdvanceReport {
 };
 struct MacClosedAdvance;
 // Reference/exact_equilibrium retain the saved numerical selection. An
-// explicit production request selects and persists numerical kernel 2, with
+// explicit production request selects and persists numerical kernel 2, except
+// for an already selected game kernel (3). Kernel 2 uses
 // exact_equilibrium's certificate and the production substep kernel under the
 // interval contract. Restored production owners need no execution-policy flag.
 enum class MacExecutionPolicy { reference, exact_equilibrium, production };
@@ -286,6 +301,11 @@ class MacClosedWorld {
 public:
     MacClosedWorld(SpeciesRegistry, std::shared_ptr<const FluidThermodynamics>, MacTransportState, MacClosedSettings = {},
         std::shared_ptr<const GasTransportProfile> = GasTransportProfile::standard());
+    // New-colony import from declared temperatures, never a save migration.
+    [[nodiscard]] static MacClosedWorld game_colony(SpeciesRegistry,
+        std::shared_ptr<const FluidThermodynamics>, MacTransportState,
+        std::span<const double> temperatures, MacClosedSettings);
+    [[nodiscard]] ReferenceEquilibriumState cell_reading(std::size_t cell) const;
     [[nodiscard]] const MacTransportState& state() const noexcept { return *state_snapshot_; }
     [[nodiscard]] const SpeciesRegistry& registry() const noexcept { return registry_; }
     [[nodiscard]] const FluidThermodynamics& thermodynamics() const noexcept { return *thermodynamics_; }
@@ -367,6 +387,7 @@ private:
     [[nodiscard]] MacClosedWorld derived(MacTransportState next) const;
     struct Derived {};
     MacClosedWorld(Derived, const MacClosedWorld& from, MacTransportState state);
+    friend struct MacGameKernelAccess;
     friend struct MacKernelAccess; // production kernel publication (mac_kernel.cpp)
     SpeciesRegistry registry_;
     std::shared_ptr<const FluidThermodynamics> thermodynamics_;

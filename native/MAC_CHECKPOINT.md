@@ -114,11 +114,17 @@ current binary has.
 
 ### Version assignment
 
-Version **20 is reserved for the diagnostic game kernel** (2026-10-23),
-claimed immediately after fetching `ffd80f3`. It will persist numerical
-kernel3, game-profile family2 and its numerical settings. This reservation
-does not enable the kernel or change any existing image; implementation and
-in-game acceptance follow separately. Versions2–19 retain their byte layouts.
+Version **20 is the diagnostic game kernel** (2026-10-23),
+claimed immediately after fetching `ffd80f3`. It persists numerical
+kernel3, game-profile family2 and its numerical settings, with a separate sparse
+payload: model identity; clock/revision; nonperiodic grid; timestep, gravity,
+conduction and trace threshold; liquid stiffness, flow parts, pressure tolerance,
+gas heat mixing, interface settings, phase time and calibrated pairs; walls and
+face masks; per-cell U, sorted present species and all passives; canonical face J.
+Derived occupied volumes and caches are rebuilt from the saved own-EOS state.
+Counts, canonical ordering, domains, checksum and trailing bytes are checked.
+Versions2–19 retain their byte layouts and continuation. See
+[diagnostic game kernel](MAC_GAME_KERNEL.md); game acceptance remains open.
 
 
 Version **10 carries persistent primary-U corrections**. It stores complete

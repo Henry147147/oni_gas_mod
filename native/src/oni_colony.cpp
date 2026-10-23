@@ -205,7 +205,8 @@ void write_error(MAOniColonyStatus& s, const char* text) { std::snprintf(s.error
 
 void validate(const MAOniColonyConfig& c) {
     require(c.struct_size == sizeof(c) && c.abi_version == MA_ONI_COLONY_ABI_VERSION, "Invalid colony configuration ABI");
-    require((c.flags & ~(MA_ONI_COLONY_PHYSICS_CONDUCTION | MA_ONI_COLONY_GAME_FLOOR)) == 0, "Unknown colony physics flag");
+    require((c.flags & ~(MA_ONI_COLONY_PHYSICS_CONDUCTION | MA_ONI_COLONY_GAME_FLOOR | MA_ONI_COLONY_GAME_KERNEL)) == 0, "Unknown colony physics flag");
+    require((c.flags&(MA_ONI_COLONY_GAME_FLOOR|MA_ONI_COLONY_GAME_KERNEL))!=(MA_ONI_COLONY_GAME_FLOOR|MA_ONI_COLONY_GAME_KERNEL),"Colony game profiles are exclusive");
     require(c.grid_width >= 3 && c.grid_height >= 3 && c.grid_width <= 65535 && c.grid_height <= 65535, "Invalid colony grid");
     require(c.width >= 2 && c.height >= 2 && c.width <= MA_ONI_COLONY_MAXIMUM_SIDE && c.height <= MA_ONI_COLONY_MAXIMUM_SIDE &&
         static_cast<std::uint64_t>(c.width) * c.height <= MA_ONI_COLONY_MAXIMUM_CELLS, "Colony rectangle is outside its size bounds");
@@ -242,6 +243,12 @@ std::vector<MacSaturationPair> with_critical(const Catalogue& cat, std::vector<M
 // including both liquid-floor starts; new-colony selection stays opt-in.
 constexpr double game_floor_trace_kg = 1e-11;
 MacClosedSettings settings_of(const MAOniColonyConfig& c) {
+    if(c.flags&MA_ONI_COLONY_GAME_KERNEL) {
+        require(!(c.flags&MA_ONI_COLONY_GAME_FLOOR),"Game kernels are exclusive");
+        MacClosedSettings game;game.numerical_kernel=MacNumericalKernel::game;game.game_profile=MacGameProfile::game_kernel;
+        game.vacuum=MacVacuumRepresentation::void_phase;game.thermal_conduction=(c.flags&MA_ONI_COLONY_PHYSICS_CONDUCTION)!=0;game.gravity_m_per_s2=c.gravity_m_per_s2;
+        game.maximum_timestep_s=static_cast<double>(.2f);game.trace_sink_threshold_kg=game_floor_trace_kg;return game;
+    }
     MacClosedSettings s; s.maximum_timestep_s = c.maximum_timestep_s; s.numerical_kernel = MacNumericalKernel::production;
     s.gravity_m_per_s2 = c.gravity_m_per_s2; s.thermal_conduction = (c.flags & MA_ONI_COLONY_PHYSICS_CONDUCTION) != 0;
     s.vacuum = MacVacuumRepresentation::void_phase; s.reconstruction = MacMaterialReconstruction::interface_plic;
@@ -359,9 +366,9 @@ Projection project(const Session& s, const MacClosedWorld& w) {
         std::optional<experimental::ReferenceEquilibriumState> evaluated;
         try {
             if (i == refused_reading.load(std::memory_order_relaxed)) throw std::runtime_error("Reading refused (control)");
-            evaluated.emplace(evaluate_cell(w.thermodynamics(), m, mac_material_volume(st, i)));
+            evaluated.emplace(w.settings().numerical_kernel==MacNumericalKernel::game?w.cell_reading(i):evaluate_cell(w.thermodynamics(), m, mac_material_volume(st, i)));
         }
-        catch (const std::exception&) { if (!fallback) throw; v = previous->views[i]; return; }
+        catch (const std::exception&) { if (w.settings().numerical_kernel==MacNumericalKernel::game || !fallback) throw; v = previous->views[i]; return; }
         if (!std::isfinite(evaluated->temperature_k)) { if (!fallback) throw std::runtime_error("A cell reads a non-finite temperature"); v = previous->views[i]; return; }
         const auto& reading = *evaluated;
         double gas = 0, liquid = 0, best_gas = 0, best_liquid = 0; std::size_t gas_k = 0, liquid_k = 0;
@@ -700,6 +707,7 @@ MacClosedWorld apply_terrain(Session& s, MacClosedWorld world, std::span<const M
     if (!opening.empty()) {
         world = world.with_opened_cells(opening);
         for (const auto i : opening) owned[i].store(1, std::memory_order_relaxed);
+        if(world.settings().numerical_kernel!=MacNumericalKernel::game){
         // Refill each opened cell from its gas neighbours at their pressure:
         // with m such neighbours each gives 1/(m+1) of its gas.
         std::vector<Move> moves; const auto& registry = world.registry();
@@ -718,6 +726,7 @@ MacClosedWorld apply_terrain(Session& s, MacClosedWorld world, std::span<const M
             }
         }
         world = move_material(std::move(world), moves, s.ledger, s.status);
+        }
         s.status.opened_cells += opening.size();
     }
     // A queued close or open that did not happen (the cell already had that
@@ -786,7 +795,7 @@ MacClosedWorld convert_identities(Session& s, MacClosedWorld world, double secon
         if (blocks > 0) mac_kernel::pool_for(threads).run(blocks, [&](std::size_t block) {
             for (std::size_t q = block * block_size; q < std::min(candidates.size(), (block + 1) * block_size); ++q) {
                 auto& c = candidates[q];
-                try { const auto e = evaluate_cell(*cat.eos, st.cells[c.cell].mixture, mac_material_volume(st, c.cell)); c.t = e.temperature_k; c.liquid_volume = e.liquid_volume_m3; c.read = true; }
+                try { const auto e = world.settings().numerical_kernel==MacNumericalKernel::game?world.cell_reading(c.cell):evaluate_cell(*cat.eos, st.cells[c.cell].mixture, mac_material_volume(st, c.cell)); c.t = e.temperature_k; c.liquid_volume = e.liquid_volume_m3; c.read = true; }
                 catch (...) {}
             }
         });
@@ -906,7 +915,16 @@ void start(const MAOniColonyConfig& config, std::span<const MAOniColonyMaterial>
         if (c.disease != 0 && c.disease_count > 0 && cell.mixture.mass() > 0) cell.passive_quantities = {{c.disease, static_cast<double>(c.disease_count)}};
     }
     next->reservoir = std::move(settled.reservoir);
+    if(config.flags&MA_ONI_COLONY_GAME_KERNEL) {
+        auto cfg=settings_of(config);cfg.game.saturation_pairs=with_critical(cat,mac_saturation_pairs(cat.registry,*cat.eos));
+        for(auto& pair:cfg.game.saturation_pairs)if(!std::isfinite(pair.critical_temperature_k))pair.critical_temperature_k=1e300;
+        std::vector<double> temperatures(settled.state.cells.size());
+        for(std::size_t i=0;i<temperatures.size();++i)if(!settled.state.grid.walls[i]&&settled.state.cells[i].mixture.mass()>0)
+            temperatures[i]=cat.eos->evaluate(settled.state.cells[i].mixture,mac_material_volume(settled.state,i)).temperature_k;
+        next->world=std::make_shared<const MacClosedWorld>(MacClosedWorld::game_colony(cat.registry,cat.eos,std::move(settled.state),temperatures,cfg));
+    } else {
     next->world = std::make_shared<const MacClosedWorld>(cat.registry, cat.eos, std::move(settled.state), settings_of(config));
+    }
     next->ledger.initial = totals(*next->world); next->ledger.initial_energy = energy_of(*next->world);
     for (auto* v : {&next->ledger.injected, &next->ledger.extracted, &next->ledger.sunk, &next->ledger.converted, &next->ledger.converted_gross,
                     &next->ledger.trace}) v->assign(cat.registry.size(), 0);
@@ -1913,7 +1931,7 @@ void run_frame(std::uint64_t ticket, double seconds, const char* refusal, std::u
         // Phase change (the production kernel has none): each cell holding a
         // liquid/vapour pair relaxes toward saturation at fixed U and volume.
         step("phase change");
-        if (!s.pairs.empty()) {
+        if (world.settings().numerical_kernel!=MacNumericalKernel::game && !s.pairs.empty()) {
             const auto before = totals(world);
             try {
                 // First-order relaxation with a 1 s time constant: a cell moves
@@ -1941,7 +1959,7 @@ void run_frame(std::uint64_t ticket, double seconds, const char* refusal, std::u
             }
         }
         step("settling");
-        try {
+        if(world.settings().numerical_kernel!=MacNumericalKernel::game) try {
             auto settled = world.with_liquid_settling(std::min(.25, 1 - std::exp(-seconds / settling_time_s)));
             s.status.settled_kg += settled.report.moved_kg; world = std::move(settled.world);
         } catch (const std::domain_error&) { ++s.status.skipped_relaxations; }
@@ -2182,6 +2200,7 @@ void restore(const MAOniColonyConfig& config, std::span<const MAOniColonyMateria
     const auto physical = r.u64(); require(physical == r.bytes.size() - r.at, "Colony checkpoint physical image length differs");
     next->world = std::make_shared<const MacClosedWorld>(MacClosedWorld::from_checkpoint(next->catalogue->registry, next->catalogue->eos,
         r.bytes.subspan(r.at, static_cast<std::size_t>(physical))));
+    require(((config.flags&MA_ONI_COLONY_GAME_KERNEL)!=0)==(next->world->settings().numerical_kernel==MacNumericalKernel::game),"Saved core kernel differs from saved colony flags");
     activate(std::move(next), thread);
     // Ledger bounds and counters continue from the saved session.
     auto& st = session->status;

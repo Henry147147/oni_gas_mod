@@ -1,3 +1,4 @@
+#include "mac_game_bridge.hpp"
 #include "mixed_atmospheres/mac_closed_world.hpp"
 #include "mixed_atmospheres/fluid_thermodynamics.hpp"
 #include "mixed_atmospheres/passive_quantities.hpp"
@@ -76,6 +77,7 @@ MacFluidTransferResult MacClosedWorld::with_fluid_transfers(std::span<const MacF
 }
 
 MacFluidTransferResult MacClosedWorld::with_fluid_transfers(std::span<const MacFluidTransfer> edits,MacFluidTransferTopology topology) const {
+    if(settings_.numerical_kernel==MacNumericalKernel::game)return MacGameKernelAccess::transfers(*this,edits,topology);
     require_mac_energy_environment();
     require(topology==MacFluidTransferTopology::single_phase || topology==MacFluidTransferTopology::occupied_mixture,
         "Unknown MAC fluid transfer topology policy");
@@ -306,6 +308,7 @@ MacFluidTransferResult MacClosedWorld::with_fluid_transfers(std::span<const MacF
 }
 
 MacClosedWorld MacClosedWorld::with_opened_cells(std::span<const std::size_t> cells) const {
+    if(settings_.numerical_kernel==MacNumericalKernel::game)return MacGameKernelAccess::terrain(*this,cells,true);
     require_mac_energy_environment();
     require(!cells.empty() && cells.size() <= 4096,"MAC terrain batch must contain 1..4096 cells");
     if (revision_ == std::numeric_limits<std::uint64_t>::max()) throw std::overflow_error("MAC closed revision overflow");
@@ -322,6 +325,7 @@ MacClosedWorld MacClosedWorld::with_opened_cells(std::span<const std::size_t> ce
     return candidate;
 }
 MacClosedWorld MacClosedWorld::with_closed_cells(std::span<const std::size_t> cells) const {
+    if(settings_.numerical_kernel==MacNumericalKernel::game)return MacGameKernelAccess::terrain(*this,cells,false);
     require_mac_energy_environment();
     require(!cells.empty() && cells.size() <= 4096,"MAC terrain batch must contain 1..4096 cells");
     if (revision_ == std::numeric_limits<std::uint64_t>::max()) throw std::overflow_error("MAC closed revision overflow");
@@ -509,6 +513,7 @@ MacLiquidSettling MacClosedWorld::with_liquid_settling(double fraction) const {
 }
 
 MacClosedWorld MacClosedWorld::with_closed_faces(std::vector<std::uint8_t> x,std::vector<std::uint8_t> y) const {
+    if(settings_.numerical_kernel==MacNumericalKernel::game)return MacGameKernelAccess::faces(*this,std::move(x),std::move(y));
     require_mac_energy_environment();
     if (revision_ == std::numeric_limits<std::uint64_t>::max()) throw std::overflow_error("MAC closed revision overflow");
     const auto& grid=state().grid;

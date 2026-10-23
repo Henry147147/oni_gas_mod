@@ -118,6 +118,25 @@ void read_field(Reader& in,std::size_t count,std::vector<double>& projected,std:
 std::vector<std::uint8_t> MacClosedWorld::checkpoint() const {
     require_mac_energy_environment(); Writer out;
     for (auto value : magic) out.byte(static_cast<std::uint8_t>(value));
+    if(settings_.numerical_kernel==MacNumericalKernel::game) {
+        settings_.validate();out.u32(20);const auto model=identity(registry_,*thermodynamics_);out.count(model.size());for(auto b:model)out.byte(b);
+        out.number(time_s_);out.u64(revision_);const auto& st=state();const auto& g=st.grid;
+        out.count(g.width);out.count(g.height);out.number(g.spacing_m);out.number(g.depth_m);
+        out.number(settings_.maximum_timestep_s);out.number(settings_.gravity_m_per_s2);out.byte(settings_.thermal_conduction?1:0);out.number(settings_.trace_sink_threshold_kg);
+        const auto& cfg=settings_.game;out.number(cfg.liquid_stiffness_ratio);out.u32(cfg.flow_parts);out.number(cfg.pressure_relative_tolerance);
+        out.number(cfg.gas_heat_mixing);out.byte(cfg.sharpen_liquid_interfaces?1:0);out.number(cfg.interface_detail_fraction);out.number(cfg.phase_relaxation_time_s);
+        out.count(cfg.saturation_pairs.size());for(const auto& p:cfg.saturation_pairs){out.count(p.liquid);out.count(p.vapour);out.number(p.critical_temperature_k);}
+        out.count(st.cells.size());for(auto wall:g.walls)out.byte(wall);
+        for(const auto& mask:{g.closed_x,g.closed_y}){out.count(mask.size());for(auto value:mask)out.byte(value);}
+        for(const auto& cell:st.cells){check(cell.energy_remainder_j.is_zero(),"Game checkpoint cannot omit a primary correction");out.number(cell.mixture.energy);
+            std::size_t present=0;for(auto mass:cell.mixture.masses)if(mass>0)++present;out.count(present);
+            for(std::size_t key=0;key<cell.mixture.masses.size();++key)if(cell.mixture.masses[key]>0){out.count(key);out.number(cell.mixture.masses[key]);}
+            out.count(cell.passive_quantities.size());for(const auto& q:cell.passive_quantities){out.u64(q.identity);out.number(q.quantity);}
+        }
+        check(st.full_momentum_x.empty()&&st.full_momentum_y.empty(),"Game checkpoint cannot omit full-range momentum");
+        for(const auto* field:{&st.momentum_x,&st.momentum_y}){out.count(field->size());for(auto value:*field)out.number(value);}
+        out.u64(checksum(out.bytes));return out.bytes;
+    }
     // Keep every pre-viscosity checkpoint byte unchanged when disabled.
     const bool viscous=settings_.viscosity.shear_pa_s>0 || settings_.viscosity.bulk_pa_s>0;
     const bool production=settings_.numerical_kernel==MacNumericalKernel::production;
@@ -203,6 +222,26 @@ MacClosedWorld MacClosedWorld::from_checkpoint(SpeciesRegistry registry,std::sha
     Reader in{bytes.first(bytes.size()-8)};
     for (auto value : magic) check(in.byte()==static_cast<std::uint8_t>(value),"Unrecognized MAC checkpoint signature");
     const auto version=in.u32();
+    if(version==20) {
+        const auto model=identity(registry,*eos);check(in.u32()==model.size()&&model.size()<=in.remaining(),"Saved game model size differs");for(auto value:model)check(in.byte()==value,"Saved game registry/EOS identity differs");
+        const double time=in.number();const auto revision=in.u64();check(time>=0&&revision>0,"Invalid saved game clock");
+        MacTransportState st;st.grid.width=in.u32();st.grid.height=in.u32();st.grid.spacing_m=in.number();st.grid.depth_m=in.number();
+        MacClosedSettings cfg;cfg.numerical_kernel=MacNumericalKernel::game;cfg.game_profile=MacGameProfile::game_kernel;cfg.vacuum=MacVacuumRepresentation::void_phase;cfg.thermal_conduction=true;
+        cfg.maximum_timestep_s=in.number();cfg.gravity_m_per_s2=in.number();cfg.thermal_conduction=in.flag();cfg.trace_sink_threshold_kg=in.number();
+        cfg.game.liquid_stiffness_ratio=in.number();cfg.game.flow_parts=in.u32();cfg.game.pressure_relative_tolerance=in.number();cfg.game.gas_heat_mixing=in.number();cfg.game.sharpen_liquid_interfaces=in.flag();cfg.game.interface_detail_fraction=in.number();cfg.game.phase_relaxation_time_s=in.number();
+        const auto pairs=in.u32();check(pairs<=65536&&pairs<=in.remaining()/16,"Invalid saved game pairs");for(std::size_t n=0;n<pairs;++n){MacSaturationPair pair;pair.liquid=in.u32();pair.vapour=in.u32();pair.critical_temperature_k=in.number();cfg.game.saturation_pairs.push_back(pair);}cfg.validate();
+        const auto cells=in.u32();check(st.grid.width>0&&st.grid.height>0&&static_cast<std::uint64_t>(st.grid.width)*st.grid.height==cells&&cells<=in.remaining()/17,"Invalid saved game geometry");
+        st.grid.walls.reserve(cells);for(std::size_t i=0;i<cells;++i)st.grid.walls.push_back(in.flag()?1:0);
+        const auto nx=st.grid.x_width()*st.grid.height,ny=st.grid.width*st.grid.y_height();
+        for(auto* mask:{&st.grid.closed_x,&st.grid.closed_y}){const auto count=in.u32();const auto expected=mask==&st.grid.closed_x?nx:ny;check((count==0||count==expected)&&count<=in.remaining(),"Invalid saved game face masks");for(std::size_t f=0;f<count;++f)mask->push_back(in.flag()?1:0);}
+        st.cells.resize(cells);for(auto& cell:st.cells){cell.mixture=MixtureInventory(registry.size());cell.mixture.energy=in.number();const auto count=in.u32();check(count<=registry.size()&&count<=in.remaining()/12,"Invalid saved sparse game cell");std::size_t previous=0;
+            for(std::size_t n=0;n<count;++n){const auto key=in.u32();const auto mass=in.number();check(key<registry.size()&&mass>0&&(n==0||key>previous),"Noncanonical saved game constituent");cell.mixture.masses[key]=mass;previous=key;}
+            const auto passive=in.u32();check(passive<=in.remaining()/16,"Invalid saved game passives");std::uint64_t last=0;for(std::size_t n=0;n<passive;++n){const auto id=in.u64();const double q=in.number();check(q>0&&(n==0||id>last),"Noncanonical saved game passive");cell.passive_quantities.push_back({id,q});last=id;}
+        }
+        for(auto* field:{&st.momentum_x,&st.momentum_y}){const auto count=in.u32();check(count==(field==&st.momentum_x?nx:ny)&&count<=in.remaining()/8,"Invalid saved game momentum coverage");field->reserve(count);for(std::size_t f=0;f<count;++f)field->push_back(in.number());}
+        check(in.remaining()==0,"Trailing saved game data");MacClosedWorld result(std::move(registry),std::move(eos),std::move(st),cfg,std::move(transport));result.time_s_=time;result.revision_=revision;return result;
+    }
+
     const bool moment_version=version==moment_format_version || version==coupled_moment_format_version;
     const bool void_version=version==void_format_version;
     const bool phase_version=version==phase_format_version;

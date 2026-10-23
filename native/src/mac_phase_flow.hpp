@@ -23,6 +23,15 @@ struct MacPhaseFlow {
 inline MacPhaseFlow advance_mac_phase_flow(const MacClosedWorld& source, double seconds,
     std::size_t budget, std::span<const MacSaturationPair> pairs) {
     MacPhaseFlow result{source, {}, 0, 0, {}, {}, 0, 0};
+    if(source.settings().numerical_kernel==MacNumericalKernel::game) {
+        auto next=source.advanced(seconds,budget,MacExecutionPolicy::production);
+        result.trace_sink=next.report.trace_sink;result.substeps=next.report.substeps;
+        result.rejected_attempts=next.report.rejected_attempts;
+        result.evaporated_kg=next.report.evaporated_kg;result.condensed_kg=next.report.condensed_kg;
+        result.converted.assign(next.report.game_converted_mass_kg.begin(),next.report.game_converted_mass_kg.end());
+        for(auto mass:result.converted)result.converted_gross.push_back(std::abs(mass));
+        result.world=std::move(next.world);return result;
+    }
     auto remaining = budget;
     const auto totals = [](const MacClosedWorld& w) {
         std::vector<long double> values(w.registry().size());

@@ -21,6 +21,8 @@ extern "C" {
  * its booked trace sink. New colonies only; a restored colony keeps the
  * profile its save holds. */
 #define MA_ONI_COLONY_GAME_FLOOR 2U
+/* Explicit new-colony diagnostic kernel; exclusive with GAME_FLOOR. */
+#define MA_ONI_COLONY_GAME_KERNEL 4U
 
 typedef struct MAOniColonyMaterial {
     uint32_t struct_size, abi_version;
@@ -141,6 +143,7 @@ typedef struct MAOniColonyHeat { uint32_t public_cell, reserved; double joules, 
 typedef struct MAOniColonyTerrain { uint32_t public_cell, kind; } MAOniColonyTerrain;
 
 MA_ONI_API uint32_t ma_oni_colony_abi_version(void);
+MA_ONI_API uint32_t ma_oni_colony_game_kernel_version(void);
 MA_ONI_API MAOniResult ma_oni_colony_start(const MAOniColonyConfig*, const MAOniColonyMaterial*, uint32_t material_count,
     const MAOniColonyCell*, uint32_t cell_count, MAOniColonyStatus*);
 MA_ONI_API MAOniResult ma_oni_colony_restore(const MAOniColonyConfig*, const MAOniColonyMaterial*, uint32_t material_count,
