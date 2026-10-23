@@ -29,6 +29,7 @@
     <Compile Include="../../managed/MixedAtmospheres.Oni/OwnedGameDataSnapshot.cs" Link="OwnedGameDataSnapshot.cs" />
     <Compile Include="../../managed/MixedAtmospheres.Oni/ColonyFrameTiming.cs" Link="ColonyFrameTiming.cs" />
     <Compile Include="../../managed/MixedAtmospheres.Oni/ColonyMenuReload.cs" Link="ColonyMenuReload.cs" />
+    <Compile Include="../../managed/MixedAtmospheres.Oni/ColonyFrameWindow.cs" Link="ColonyFrameWindow.cs" />
     <Compile Include="../../managed/MixedAtmospheres.Oni/ColonyCheckpointMetadata.cs" Link="ColonyCheckpointMetadata.cs" />
     <Compile Include="../../managed/MixedAtmospheres.Oni/ColonySaveEnvelope.cs" Link="ColonySaveEnvelope.cs" />
     <Compile Include="../../managed/MixedAtmospheres.Oni/ExperimentalFluidMessageRouter.cs" Link="ExperimentalFluidMessageRouter.cs" />

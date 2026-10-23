@@ -107,3 +107,12 @@ durable-frame metadata record both. Completion reporting now refreshes save
 counters and adds a separately labelled native completion status, preserving
 the sampled physical frame. Cold/menu readback of the overwritten file,
 in-flight callbacks and full mixed-pipe saves remain open.
+
+The first frame-93 menu control fails: the old endpoint code compares the
+restored absolute frame with a 30-frame request before initializing its
+baseline, completes immediately, and attempts menu teardown during startup.
+ONI reports `Game.StopBE` null errors; the owned process group is stopped and
+verified gone. The file's frame-93 admission is established, but it has no
+continuation/menu acceptance. The frame window now initializes before the
+comparison and counts new frames using subtraction, with explicit controls
+for zero, large saved frames and the integer limit. A repeat remains required.

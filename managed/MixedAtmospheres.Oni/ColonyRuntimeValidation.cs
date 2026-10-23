@@ -392,7 +392,7 @@ namespace MixedAtmospheres.Oni
 
         // A normal new colony with the colony owner (docs/colony-owner.md): pass
         // after the requested owner frames without a fault.
-        private static ulong colonyOwnerBaseline;
+        private static readonly ColonyFrameWindow colonyWindow = new ColonyFrameWindow();
         private static System.DateTime colonyOwnerWallStart;
         private static void ColonyOwnerScene()
         {
@@ -447,6 +447,8 @@ namespace MixedAtmospheres.Oni
             if (faulted) throw new InvalidOperationException("Colony owner faulted: " + status.Error);
             var loading = configuration.Mode == "colony-owner-load";
             if (loading && ColonyOwnerPersistence.Loads != (OwnerReloadRequested && ownerReload.Stage>=2 ? 2 : 1)) throw new InvalidOperationException("The loaded colony did not restore its owner.");
+            colonyWindow.Start(loading ? status.CompletedFrames : 0);
+            if(loading) Report.RestoredFrame=colonyWindow.Baseline;
             // ONI pauses a colony when it loads it and after a save; an
             // unattended run plays on.
             if (SpeedControlScreen.Instance != null && SpeedControlScreen.Instance.IsPaused) SpeedControlScreen.Instance.Unpause(false);
@@ -462,13 +464,12 @@ namespace MixedAtmospheres.Oni
                     throw new InvalidOperationException("Colony scenarios failed: " + string.Join("; ", ColonyScenarios.Results.Where(r => !r.Passed)
                         .Select(r => r.Name + ": " + string.Join(", ", r.Checks.Where(check => !check.Passed).Select(check => check.Name + " (" + check.Detail + ")")))));
             }
-            else if (status.CompletedFrames < colonyOwnerBaseline + (ulong)configuration.CompletedFrames)
+            else if (!colonyWindow.HasReached(status.CompletedFrames, (ulong)configuration.CompletedFrames))
             {
-                if (colonyOwnerBaseline == 0 && loading) { colonyOwnerBaseline = status.CompletedFrames; Report.RestoredFrame = status.CompletedFrames; }
                 // Overwriting a save: the first save at half the frames, the
                 // second to the same path at the end.
                 if (configuration.OverwriteSave && Report.FirstColonySaveFrame == 0 &&
-                    status.CompletedFrames >= colonyOwnerBaseline + (ulong)configuration.CompletedFrames / 2)
+                    colonyWindow.HasReached(status.CompletedFrames, (ulong)configuration.CompletedFrames / 2))
                 {
                     SaveColony(); Report.FirstColonySaveFrame = ColonyOwnerPersistence.LastSavedFrame; Report.ColonySavePath = "";
                 }
@@ -662,6 +663,7 @@ namespace MixedAtmospheres.Oni
         {
             ShutdownTelemetry();
             if(OwnerReloadRequested) ownerReload.Shutdown();
+            colonyWindow.Reset();
             ColonyConduits.Reset();
             actualColonyActive = false; publisher?.Dispose(); publisher = null;
             if (NativeSealedDomainValidation.IsMode) NativeSealedDomainValidation.Shutdown();

@@ -30,6 +30,17 @@ internal static unsafe class Program
     [MethodImpl(MethodImplOptions.NoInlining)]
     private static int Run(bool benchmark)
     {
+        Test("owner windows count newly advanced frames at zero, high restores and the integer limit", () =>
+        {
+            var window=new ColonyFrameWindow();
+            foreach(var start in new[]{0UL,93UL,300000UL,ulong.MaxValue-30})
+            {
+                window.Reset();window.Start(start);window.Start(start+1);
+                Check(window.Baseline==start && !window.HasReached(start,30) && !window.HasReached(start+29,30));
+                Check(window.HasReached(start+30,30));
+                if(start>0) Check(!window.HasReached(start-1,30));
+            }
+        });
         Test("owner menu reload retires sessions and preserves source, profile and colony identity", () =>
         {
             var flow=new ColonyMenuReload();flow.Begin(7,5,"colony","hash");

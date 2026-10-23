@@ -60,7 +60,7 @@ namespace MixedAtmospheres.Oni
         {
             if(!OwnerReloadRequested || ownerReload.Stage!=1) return;
             ownerReload.MainMenu(ColonyOwner.Active);
-            colonyOwnerBaseline=0;colonyOwnerWallStart=default;Report.GameStarted=false;
+            colonyWindow.Reset();colonyOwnerWallStart=default;Report.GameStarted=false;
             Report.RestoredFrame=0;Report.Status="pending";Report.Stage="reloading-owner-colony";
         }
     }
