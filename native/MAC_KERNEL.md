@@ -391,8 +391,11 @@ The [accepted selector-3 design](../docs/game-kernel-spec.md) now has an
 Profiles18/19 retain their existing paths and new colonies keep the prior
 default. The initial dense owner bridge passed a whole-lock Terra60 with
 closed trace/physical ledgers and zero faults/retries/skipped phase, but is
-slower:210.27ms owner and266.07ms observed mean, versus the production figures
-below. It has not passed the fixed floor or performance acceptance.
+slower initially:210.27ms owner and266.07ms observed mean. An exact cache/copy
+step now improves a clean paired run from214.42/256.71ms owner/observed to
+194.11/239.11ms (9.47%/6.86%), with unchanged checkpoint bytes and closed
+ledgers. Full evidence is in the backend note. It has not passed the fixed
+floor or performance acceptance.
 The last Codex whole-lock profile18 Terra60 measured owner168.6 ms and
 observed257.7 ms mean, versus443/569 ms at the accuracy-floor brief's starting
 revision. Those improvements precede selector3; the fast clock is not met.

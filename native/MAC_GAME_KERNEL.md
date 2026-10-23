@@ -34,6 +34,33 @@ rejections/faults/skipped phase, M/E1.67e-16/7.10e-16 and trace1.183e-7kg /
 core and owner regressions now require those counts and actual sink booking.
 This is basic execution/conservation evidence, not a floor or performance pass.
 
+
+## Exact integration speed step
+
+Caching material-profile indexes, sharing an unchanged settled face-mask state
+(with the same revision increment), and moving tick arrays change no solver
+arithmetic or checkpoint bytes. Clean Release85CTest and all100 applicable MAC
+outputs (99 legacy invocations plus the new kernel control) match the parent,
+apart from timing fields. Actual core20 twelve-tick images match at1/4/8/12
+workers, and native-owner continuation controls pass at each count.
+
+Clean whole-lock Terra60, requested fast2, identical managed assemblies and
+12workers; mean/p95/max in milliseconds:
+
+| Metric | Before | After |
+| --- | --- | --- |
+| Owner advance |214.421/237.971/259.746|194.112/210.494/247.371|
+| Observed interval |256.714/342.880/747.360|239.111/344.533/726.670|
+| Relative mass/energy error |2.20e-16/7.72e-16|1.67e-16/7.09e-16|
+| Trace sink kg/J |1.17480e-7/0.127785|1.18098e-7/0.127624|
+
+Both complete60frames,120flow halves, zero rejections/faults/skipped phase.
+Owner mean improves9.47%, observed mean6.86%; this does not meet2x.
+The owner timer ends before projection/publication. Whole-lock offline AB/BA
+repeats pinned to physical cores give104.130/103.042ms per tick (~1%); the
+larger gain is in owner edits/readings. Fixed floor errors are unchanged by
+this exact step; their acceptance remains open.
+
 ## Open acceptance work
 
 No private-playtest-ready or performance pass is claimed. The coupled material

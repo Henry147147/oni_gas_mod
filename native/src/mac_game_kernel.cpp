@@ -207,6 +207,7 @@ MacGameKernelAccess::reading(const MacClosedWorld &world,
     std::shared_ptr<const FluidThermodynamics> eos;
     double ratio = 0;
     std::vector<k::Species> species;
+    std::vector<std::size_t> profile_keys;
   };
   thread_local Cache cache;
   bool groups = cache.species.size() == world.registry_.size();
@@ -219,6 +220,9 @@ MacGameKernelAccess::reading(const MacClosedWorld &world,
     cache.eos = world.thermodynamics_;
     cache.ratio = world.settings_.game.liquid_stiffness_ratio;
     cache.species = table(world.registry_, *cache.eos, cache.ratio);
+    cache.profile_keys.clear();
+    for (const auto &m : cache.eos->reference().materials())
+      cache.profile_keys.push_back(world.registry_.index(m.id));
   }
   const auto &species = cache.species;
   const auto e = k::evaluate(species, cell.mixture.masses, cell.mixture.energy,
@@ -242,8 +246,7 @@ MacGameKernelAccess::reading(const MacClosedWorld &world,
   out.partial_volumes_m3.resize(species.size());
   out.specific_internal_energies_j_per_kg.resize(species.size());
   std::size_t profile = 0;
-  for (const auto &m : world.thermodynamics().reference().materials()) {
-    const auto key = world.registry_.index(m.id);
+  for (const auto key : cache.profile_keys) {
     const auto &s = species[key];
     const auto mass = cell.mixture.masses[key];
     out.partial_volumes_m3[profile] =
@@ -439,7 +442,7 @@ MacClosedAdvance MacGameKernelAccess::advance(const MacClosedWorld &source,
             "Game interval exceeds its tick budget");
     const double dt =
         std::min(source.settings_.maximum_timestep_s, seconds - elapsed);
-    const auto next =
+    auto next =
         cache.tick->advance(state, dt, source.settings_.gravity_m_per_s2,
                             source.settings_.trace_sink_threshold_kg);
     state = std::move(next.state);
@@ -820,6 +823,21 @@ MacClosedWorld MacGameKernelAccess::terrain(const MacClosedWorld &source,
 MacClosedWorld MacGameKernelAccess::faces(const MacClosedWorld &source,
                                           std::vector<std::uint8_t> x,
                                           std::vector<std::uint8_t> y) {
+  const auto &current = source.state();
+  const auto settled = [](const auto &mask, const auto &momentum) {
+    for (std::size_t f = 0; f < mask.size(); ++f)
+      if (mask[f] && momentum[f] != 0)
+        return false;
+    return true;
+  };
+  if (x == current.grid.closed_x && y == current.grid.closed_y &&
+      settled(x, current.momentum_x) && settled(y, current.momentum_y)) {
+    if (source.revision_ == std::numeric_limits<std::uint64_t>::max())
+      throw std::overflow_error("MAC closed revision overflow");
+    auto result = source;
+    ++result.revision_;
+    return result;
+  }
   auto next = source.state();
   require((x.empty() || x.size() == next.momentum_x.size()) &&
               (y.empty() || y.size() == next.momentum_y.size()),
