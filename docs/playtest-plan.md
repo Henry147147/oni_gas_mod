@@ -231,6 +231,10 @@ buildable and the asteroid loadable.
 
 ## What plays differently from vanilla
 
+- In the explicit mixed-pipe implementation, a deconstruction spill that cannot
+  fit stays owned at its source and appears as "Fluid waiting for space". It
+  releases when room opens. This behavior passes its focused control; normal
+  activation still awaits complete pipe heat, biology, phase and save checks.
 - Gases mix and stay mixed, and so do miscible liquids. CO2 does not collect in
   pits the way it does in vanilla, so scrubbing serves whole rooms.
 - Pressure is physical. Gas compresses and expands into vacuum. Liquid is nearly
