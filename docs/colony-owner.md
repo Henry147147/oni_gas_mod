@@ -712,6 +712,16 @@ not leave a success-looking report from the previous frame.
 
 Environment variables of the game process (the harness passes them through):
 
+- `MA_COLONY_FLOOR_ADMISSION_DUMP=path`: F4 writes a private `MAFLRQ01`
+  marker describing its exact requested binary32 fill and border. Before native
+  UpdateData, the backend waits for either raw native array to match every
+  requested tuple and writes both arrays once, without edits. The fresh-path
+  `MAFLPR01` capture stores six u32 geometry fields, u64 native ticket, binary64
+  step seconds, u32 matching-array mask and count, then each u32 public cell
+  and both arrays' u32 element/float mass/float temperature. The request has
+  the same geometry, u32 count and one such tuple per cell. Missing matching
+  input is not admission; this diagnostic establishes no floor pass or owner
+  heat alignment by itself. Leave it unset in timing runs.
 - `MA_COLONY_KERNEL3=1`: explicitly request the diagnostic flag-4 game kernel
   for a **new** colony. It is exclusive with `MA_COLONY_GAME_FLOOR=1` and
   requires native capability `ma_oni_colony_game_kernel_version() == 1`;

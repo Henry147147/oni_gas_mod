@@ -4,6 +4,7 @@
 #include "../src/oni_precise_receipt.hpp"
 #include "../src/oni_release_capture.hpp"
 #include "../src/oni_transfer_capture.hpp"
+#include "../src/oni_floor_capture.hpp"
 #include <cstdlib>
 #include "../src/oni_sha256.hpp"
 #include "mixed_atmospheres/mac_kernel.hpp"
@@ -81,6 +82,39 @@ struct ReceiptReader {
         return static_cast<std::uint32_t>(integer(4));
     }
 };
+void floor_capture_control() {
+    using namespace ma::oni::colony;
+    const auto path=(std::filesystem::temp_directory_path()/("ma-floor-control-"+
+        std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()))).string();
+    struct Cleanup {std::string path;~Cleanup(){std::error_code ignored;
+        std::filesystem::remove(path,ignored);std::filesystem::remove(path+".request",ignored);}} cleanup{path};
+    std::array<std::array<std::uint16_t,25>,2> elements{};
+    std::array<std::array<float,25>,2> masses{},temperatures{};
+    NativeCells source{};source.pitch=source.rows=5;
+    for(unsigned b=0;b<2;++b){source.element[b]=elements[b].data();source.mass[b]=masses[b].data();source.temperature[b]=temperatures[b].data();}
+    detail::FloorCapture capture;capture.configure(path.c_str());
+    require(!capture.observe(source,6,.2),"floor capture ran before marker");
+    detail::PreciseReceiptWriter marker;constexpr char magic[]="MAFLRQ01";marker.bytes.insert(marker.bytes.end(),magic,magic+8);
+    for(const auto dimension:{3u,3u,0u,0u,3u,3u})marker.u32(dimension);
+    marker.u32(1);marker.u32(4);marker.u32(oxygen);marker.u32(std::bit_cast<std::uint32_t>(1.2f));marker.u32(std::bit_cast<std::uint32_t>(300.f));
+    {std::ofstream file(path+".request",std::ios::binary);file.write(reinterpret_cast<const char*>(marker.bytes.data()),static_cast<std::streamsize>(marker.bytes.size()));}
+    require(!capture.observe(source,6,.2) && !std::filesystem::exists(path),"floor capture admitted stale native inputs");
+    elements[0][12]=oxygen;masses[0][12]=1.2f;temperatures[0][12]=300;
+    const auto before_elements=elements;const auto before_masses=masses;const auto before_temperatures=temperatures;
+    require(capture.observe(source,7,.2),"floor capture missed exact pre-update fill");
+    require(elements==before_elements && masses==before_masses && temperatures==before_temperatures,"floor capture mutated native arrays");
+    std::ifstream file(path,std::ios::binary);const std::vector<std::uint8_t> bytes(std::istreambuf_iterator<char>(file),{});
+    require(bytes.size()==84 && std::memcmp(bytes.data(),"MAFLPR01",8)==0,"floor capture framing");
+    ReceiptReader row{bytes};row.at=32;
+    require(row.integer(8)==7 && row.f64()==.2 && row.integer(4)==1 && row.integer(4)==1 && row.integer(4)==4,"floor capture source identity");
+    require(row.integer(4)==oxygen && row.integer(4)==std::bit_cast<std::uint32_t>(1.2f) && row.integer(4)==std::bit_cast<std::uint32_t>(300.f),"floor capture matching array changed");
+    require(row.integer(4)==0 && row.integer(4)==0 && row.integer(4)==0 && row.at==bytes.size(),"floor capture omitted unmatched source array");
+    require(!capture.observe(source,8,.2),"floor capture repeated after success");
+    detail::FloorCapture again;again.configure(path.c_str());bool refused=false;
+    try{(void)again.observe(source,9,.2);}catch(const std::runtime_error&){refused=true;}
+    require(refused,"floor capture clobbered prior evidence");
+    std::cout<<"PASS floor admission capture: exact fill, both native arrays, source ticket, no edits or overwrite\n";
+}
 void transfer_capture_control() {
     using namespace ma::oni::colony;
     const auto path=(std::filesystem::temp_directory_path()/("ma-transfer-control-"+
@@ -624,6 +658,7 @@ int main(int argc, char** argv) {
         if (argc == 2 && std::strcmp(argv[1], "--timestep-only") == 0) { timestep_control(); return 0; }
         if (argc == 2 && std::strcmp(argv[1], "--projection-only") == 0) { projection_control(); return 0; }
         if (argc == 2 && std::strcmp(argv[1], "--precise-receipts-only") == 0) { precise_receipt_control(); return 0; }
+        if (argc == 2 && std::strcmp(argv[1], "--floor-capture-only") == 0) { floor_capture_control(); return 0; }
         if (argc == 2 && std::strcmp(argv[1], "--transfer-capture-only") == 0) { transfer_capture_control(); return 0; }
         if (argc == 2 && std::strcmp(argv[1], "--release-capture-only") == 0) { release_capture_control(); return 0; }
         if (argc == 2 && std::strcmp(argv[1], "--pipe-jobs-only") == 0) { pipe_job_control(); return 0; }
@@ -634,6 +669,7 @@ int main(int argc, char** argv) {
         require(argc == 1, "Usage: ma_oni_colony_tests [--projection-only|--timestep-only|--precise-receipts-only]");
         precise_receipt_control();
         transfer_capture_control();
+        floor_capture_control();
         release_capture_control();
         pipe_job_control();
         sample_control();

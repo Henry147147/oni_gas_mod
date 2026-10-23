@@ -262,6 +262,17 @@ with no fault or skipped relaxation. Accepted external heat spans **1.285 J**.
 Dynamic truth and the compression/heat correction remain unresolved; this
 establishes reliable cadence and accounting, not a floor pass.
 
+### F4 admission audit
+
+The interrupted vanilla journal starts with an empty-room row, then its first
+fluid row already has hot-room cells at 353.15/344.4 K and cold-room cells at
+283.15/291.9 K. Thus its first-fluid `t=0` label follows a conduction interval;
+it does not prove the frozen initial heat or starting temperatures. Do not
+seed truth from that row or promote the interrupted run to acceptance. The
+fixed geometry, fills, temperatures, duration and metrics remain unchanged.
+An opt-in pre-UpdateData capture is being validated to establish actual input
+admission and native source-array/clock provenance before rerunning F4.
+
 ## Performance and feature variants
 
 Each numerical step needs same-lock Terra60 before/after, affected floor

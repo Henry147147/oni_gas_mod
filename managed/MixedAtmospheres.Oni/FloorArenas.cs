@@ -381,6 +381,31 @@ namespace MixedAtmospheres.Oni
                 }
         }
 
+        // Evidence only: the native hook waits for these exact binary32 inputs
+        // before its first heat update, and records both native source arrays.
+        private static void RequestAdmissionCapture()
+        {
+            var path=Environment.GetEnvironmentVariable("MA_COLONY_FLOOR_ADMISSION_DUMP");
+            if(string.IsNullOrEmpty(path)) return;
+            using(var stream=new FileStream(path+".request.tmp",FileMode.CreateNew,FileAccess.Write))
+            using(var writer=new BinaryWriter(stream))
+            {
+                writer.Write(System.Text.Encoding.ASCII.GetBytes("MAFLRQ01"));
+                foreach(var dimension in new[]{Grid.WidthInCells,Grid.HeightInCells,x0,y0,width,height})writer.Write((uint)dimension);
+                writer.Write((uint)(width*height));
+                for(var y=0;y<height;++y)for(var x=0;x<width;++x)
+                {
+                    var border=x==0 || y==0 || x==width-1 || y==height-1;
+                    var element=border?SimHashes.Unobtanium:x==3?SimHashes.Granite:SimHashes.Oxygen;
+                    var mass=border?20000:x==3?placed["granite_tile_kg"]:placed[x<3?"hot_cell_kg":"cold_cell_kg"];
+                    var temperature=border?Room:x==3?318.15:x<3?353.15:283.15;
+                    writer.Write((uint)Cell(x,y));writer.Write((uint)ElementLoader.FindElementByHash(element).idx);
+                    writer.Write((float)mass);writer.Write((float)temperature);
+                }
+            }
+            File.Move(path+".request.tmp",path+".request");
+        }
+
         // Gas from the ideal-gas law at the stated pressure (1 m^3 cells);
         // liquid as full cells at 1 atm in the colony catalogue's reference EOS.
         // Every other open cell is emptied again: under the owner, closing the
@@ -417,6 +442,7 @@ namespace MixedAtmospheres.Oni
                         for (var x = 1; x <= 2; ++x) Replace(x, y, SimHashes.Oxygen, placed["hot_cell_kg"], 353.15);
                         for (var x = 4; x <= 5; ++x) Replace(x, y, SimHashes.Oxygen, placed["cold_cell_kg"], 283.15);
                     }
+                    RequestAdmissionCapture();
                     break;
                 case "f5":
                     var w = FullCell(SimHashes.Water); var oil = FullCell(SimHashes.CrudeOil);

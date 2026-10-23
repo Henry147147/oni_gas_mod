@@ -2,6 +2,7 @@
 #include "oni_sha256.hpp"
 #include "oni_domain.hpp"
 #include "oni_colony.hpp"
+#include "oni_floor_capture.hpp"
 #include "oni_funchook_storage.hpp"
 #include "mixed_atmospheres/fluid_thermodynamics.hpp"
 #include <funchook.h>
@@ -257,6 +258,18 @@ void on_update_data(void* self,void* data) {
     std::unique_lock<std::mutex> frame_lock;
     if (!worker_frame_fence.owns_lock()) frame_lock=std::unique_lock<std::mutex>(ma::oni::domain_frame_mutex());
     const auto pending=pending_timestep; pending_timestep={};
+    static auto floor_capture=[] { ma::oni::colony::detail::FloorCapture capture;
+        capture.configure(std::getenv("MA_COLONY_FLOOR_ADMISSION_DUMP"));return capture; }();
+    if(pending.ticket && floor_capture.enabled()) {
+        try {
+            ma::oni::colony::NativeCells cells{};
+            if(native_cells(data,cells) && floor_capture.observe(cells,pending.ticket,pending.seconds))
+                std::fprintf(stderr,"[Mixed Atmospheres] native floor admission captured before UpdateData ticket %llu\n",
+                    static_cast<unsigned long long>(pending.ticket));
+        } catch(const std::exception& error) {
+            floor_capture.stop();std::fprintf(stderr,"[Mixed Atmospheres] native floor admission capture failed: %s\n",error.what());
+        }
+    }
     // Colony shadow: native bodies and actors meet the owner's cells during
     // UpdateData, and what they change there is booked to the owner.
     ma::oni::colony::NativeCells shadow{};
