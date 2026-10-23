@@ -226,6 +226,8 @@ MacClosedSettings settings_of(const MAOniColonyConfig& c) {
     if (c.flags & MA_ONI_COLONY_GAME_FLOOR) {
         s.game_profile = MacGameProfile::base_game_floor; s.trace_sink_threshold_kg = game_floor_trace_kg;
         s.compatible_void_pressure_work = true; s.recover_mixed_eos_endpoint = true;
+        const char* substep_trace = std::getenv("MA_COLONY_SUBSTEP_TRACE");
+        s.trace_sink_per_substep = substep_trace && std::strcmp(substep_trace, "1") == 0;
     }
     return s;
 }

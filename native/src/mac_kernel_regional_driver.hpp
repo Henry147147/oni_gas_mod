@@ -66,8 +66,9 @@ void audit_regions(const SpeciesRegistry& registry, const FluidThermodynamics& e
     const auto before = totals(c,w.start,-1), after = totals(c,w.current,1);
     for (std::size_t q = 0; q < c.quantities(); ++q) {
         auto& receipt = receipts[quantity_name(c,q)]; auto a = receipt.value; a.quantity = quantity_name(c,q);
-        const double external = q == c.q_jx() ? report.wall_impulse_x :
+        double external = q == c.q_jx() ? report.wall_impulse_x :
             q == c.q_jy() ? report.wall_impulse_y + report.body_impulse_y : 0;
+        if (report.trace_sink.constituents > 0) external += trace_external(c, report.trace_sink, q);
         const double stage = receipt.operands.value();
         Quantity total = before[q]; total.merge(after[q]); total.add(-external); total.add(stage); total.add(-stage);
         // Count the same endpoint/reduction operations plus each component's
@@ -95,7 +96,9 @@ void audit_regions(const SpeciesRegistry& registry, const FluidThermodynamics& e
     }
     DD s0,s1; double allowance0 = 0, allowance1 = 0, rest_operand = 0;
     entropy(c,w.start,s0,allowance0,&rest,&rest_operand); entropy(c,w.current,s1,allowance1);
-    s1.add(-s0.hi); s1.add(-s0.lo); report.entropy_change_j_per_k = s1.value();
+    s1.add(-s0.hi); s1.add(-s0.lo);
+    if (report.trace_sink.constituents > 0) s1.add(report.trace_entropy_out_j_per_k);
+    report.entropy_change_j_per_k = s1.value();
     // Resting endpoints are identical, so count their original operands twice.
     report.entropy_allowance_j_per_k += 256 * eps * rest_operand;
     s1.add(-report.gravity_entropy_bound_j_per_k);
@@ -170,7 +173,13 @@ MacKernelReport run_regional(const SpeciesRegistry& registry, const FluidThermod
     DD wall_x,wall_y,body_y,entropy_allowance,gravity_entropy,caloric;
     for (std::size_t n = 0; n < parts.size(); ++n) {
         if (!solved[n]) { body_y.add(resting_body[n]); wall_y.add(-resting_body[n]); continue; }
-        const auto& k = solved[n]->report;
+        auto& k = solved[n]->report;
+        if(k.trace_sink.constituents>0) {
+            MacEnergySum removed;for(const auto& mass:k.trace_sink.mass_kg)removed.add(mass);
+            const auto shifted=removed.value().multiplied(settings.gravity_m_per_s2).multiplied(static_cast<double>(parts[n].y)*g.h);
+            MacEnergySum potential;potential.add(k.trace_sink.potential_energy_j);potential.add(shifted);k.trace_sink.potential_energy_j=potential.value();
+            report.trace_sink.merge(k.trace_sink);report.trace_entropy_out_j_per_k+=k.trace_entropy_out_j_per_k;
+        }
         regional_report(report,k); regional_physical(physical,k.physical);
         wall_x.add(k.wall_impulse_x); wall_y.add(k.wall_impulse_y); body_y.add(k.body_impulse_y);
         entropy_allowance.add(k.entropy_allowance_j_per_k); gravity_entropy.add(k.gravity_entropy_bound_j_per_k);

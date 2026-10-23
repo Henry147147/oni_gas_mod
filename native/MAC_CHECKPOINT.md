@@ -37,7 +37,7 @@ stored by their bits. Counts are unsigned 32-bit values. The image is bounded to
    [phase change](MAC_PHASE_CHANGE.md); 12 for the [unresolved gas opt-in](MAC_VACUUM.md#unresolved-gas-opt-in);
    13 for predictive step control; 14 for a configured gas-expansion fraction;
    15 for regional predictive control; 16 for a saved game profile;
-   17 for saved game root/work policies),
+   17 for saved game root/work policies; 18 for saved substep trace removal),
    and a length-prefixed binary model identity.
 2. Physical time and unsigned 64-bit revision.
 3. Width/height, spacing/depth and two periodicity flags.
@@ -81,21 +81,24 @@ stored by their bits. Counts are unsigned 32-bit values. The image is bounded to
    Version 17 appends two boolean bytes: compatible void pressure work, then
    mixed-EOS endpoint recovery. At least one must be enabled. Version 16
    restores both disabled and retains its bytes and continuation.
+   Version 18 adds one canonical true byte for substep trace removal. Earlier
+   versions restore it disabled; the version17 two-byte prefix is always present
+   in 18, including when both root/work flags are false.
 5. Cell count and one boolean wall flag per cell.
 6. Each cell's U, complete ordered constituent masses and passive entries
    (unsigned 64-bit identity and binary64 quantity).
 7. For each axis, the projected face count/values and full face count/values.
    Full fields are empty or complete. A full value has a binary64 significand
    and a length-prefixed canonical decimal exponent.
-8. Versions 9–17: a count (0, or the cell count) and each cell's occupied volume
+8. Versions 9–18: a count (0, or the cell count) and each cell's occupied volume
    (binary64). The count is 0 exactly when every occupied cell fills its grid
    volume; a restored owner that would canonicalize a stored vector rejects.
-9. Versions 10–17: the cell count followed by each correction's projected binary64
+9. Versions 10–18: the cell count followed by each correction's projected binary64
    value and boolean full-value flag. A flagged value adds its normalized binary64
    significand and length-prefixed canonical decimal exponent. The full value is
    required exactly when its projection rounds. High/low overlap, scalar negative
    zero and incomplete coverage reject; so does an entirely zero correction vector
-   in version 10, which versions 11–17 (selected by their opt-in setting) admit.
+   in version 10, which versions 11–18 (selected by their opt-in setting) admit.
 10. Unsigned 64-bit FNV-1a integrity checksum over all previous bytes.
 
 Version 2 is written for the reference kernel whenever both viscosity coefficients
@@ -159,6 +162,13 @@ each flag combination, malformed/noncanonical flags, old-image identity,
 thread independence and byte-exact cold continuation. New-colony selection
 and the trace threshold are separate decisions backed by floor measurements.
 
+Version **18 saves substep trace removal**, claimed immediately after a fresh
+fetch of `26b2526` (2026-10-23). It adds `trace_sink_per_substep`; older profiles
+restore false and retain their exact bytes and continuation. Only explicit
+new game-profile selection enables it; old saves never migrate implicitly.
+New-profile dump captures must be regenerated; existing images keep their
+saved policy.
+
 Reference owners write version 2, 3 or 5 according to their settings; production
 owners write version 6, or 7/8 with two-moment pressure. A void-phase owner without
 U corrections writes version 9. Any owner with nonzero corrections writes version
@@ -182,6 +192,7 @@ U corrections writes version 9. Any owner with nonzero corrections writes versio
 | 15 | supported production (2), regional predictive control | either | disabled |
 | 16 | supported production (2), saved base-game-floor profile and trace threshold | either | disabled |
 | 17 | supported production (2), saved game root/work policies | either | disabled |
+| 18 | supported production (2), saved substep trace sink | either | disabled |
 
 Version 4 and version-5 images carrying selector 1 reject explicitly as retired.
 The old wire layout and selector meaning are reserved, never remapped to

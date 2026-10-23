@@ -302,6 +302,8 @@ struct PhysicalAccounts {
     [[nodiscard]] MacKernelPhysicalReport report() const;
 };
 struct Accounts {
+    MacTraceSinkReport trace_sink;
+    DD trace_entropy;
     std::size_t caloric_cells = 0, unresolved_conduction_cells = 0;
     MacEnergySum caloric_redistribution;
     // Operand magnitudes for the 128-epsilon interval bound and counted

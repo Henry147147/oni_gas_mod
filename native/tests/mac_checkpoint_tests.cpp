@@ -95,6 +95,26 @@ void game_profile_checkpoint(const ma::testing::Setup& setup) {
             require(refused,"Malformed or noncanonical game root/work policies were accepted");
         }
     }
+    const auto version17_image=MacClosedWorld(setup.registry,setup.eos,state,settings).checkpoint();
+    settings.trace_sink_per_substep=true;
+    for(unsigned policies=0;policies<4;++policies) {
+        settings.compatible_void_pressure_work=(policies&1)!=0;settings.recover_mixed_eos_endpoint=(policies&2)!=0;
+        const MacClosedWorld source(setup.registry,setup.eos,state,settings);const auto image=source.checkpoint();
+        const auto restored=MacClosedWorld::from_checkpoint(setup.registry,setup.eos,image);
+        require(image[8]==18 && restored.settings().trace_sink_per_substep && restored.checkpoint()==image &&
+            source.advanced(.02).world.checkpoint()==restored.advanced(.02).world.checkpoint(),"Substep trace checkpoint identity or continuation changed");
+        std::uint32_t size=0;for(std::size_t i=0;i<4;++i)size|=static_cast<std::uint32_t>(image[12+i])<<(8*i);
+        const std::size_t flag=16+size+16+26+45+16+4+12+4+4+4+4+4+8+12+2;
+        require(image.at(flag)==1,"Substep trace wire position changed");
+        for(const auto malformed:{0,2}) {
+            auto corrupt=image;corrupt.at(flag)=static_cast<std::uint8_t>(malformed);seal(corrupt);bool refused=false;
+            try{(void)MacClosedWorld::from_checkpoint(setup.registry,setup.eos,corrupt);}catch(const std::exception&){refused=true;}
+            require(refused,"Noncanonical substep trace flag accepted");
+        }
+    }
+    settings.trace_sink_per_substep=false;
+    const auto restored17=MacClosedWorld::from_checkpoint(setup.registry,setup.eos,version17_image);
+    require(!restored17.settings().trace_sink_per_substep && restored17.checkpoint()==version17_image,"Version17 acquired the substep trace policy");
     const auto restored16=MacClosedWorld::from_checkpoint(setup.registry,setup.eos,version16_image);
     require(!restored16.settings().compatible_void_pressure_work && !restored16.settings().recover_mixed_eos_endpoint &&
         restored16.checkpoint()==version16_image &&

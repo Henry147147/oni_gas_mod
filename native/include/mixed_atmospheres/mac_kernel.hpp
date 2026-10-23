@@ -95,6 +95,8 @@ struct MacKernelPhysicalReport {
     MacEnergy gravity_internal_change_wide_j;
 };
 struct MacKernelReport {
+    MacTraceSinkReport trace_sink;
+    double trace_entropy_out_j_per_k = 0;
     std::size_t substeps = 0, attempts = 0, rejected_attempts = 0, audit_retries = 0;
     // Regional mode sums local steps; empty components require no work.
     std::size_t independent_regions = 0, empty_regions = 0;

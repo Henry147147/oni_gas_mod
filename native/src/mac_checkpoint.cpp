@@ -37,6 +37,8 @@ constexpr std::uint32_t regional_format_version=15;
 constexpr std::uint32_t game_profile_format_version=16;
 // Version 17 appends the two opt-in game root/work policy flags.
 constexpr std::uint32_t game_numerics_format_version=17;
+// Version18 saves substep trace removal; earlier settings keep their bytes.
+constexpr std::uint32_t substep_trace_format_version=18;
 void check(bool value,const char* message) { if (!value) throw std::invalid_argument(message); }
 std::uint64_t checksum(std::span<const std::uint8_t> bytes) {
     std::uint64_t result=14695981039346656037ULL;
@@ -131,9 +133,10 @@ std::vector<std::uint8_t> MacClosedWorld::checkpoint() const {
     const bool regional=settings_.step_control==MacStepControl::regional_predictive;
     const bool configured_expansion=settings_.gas_expansion_volume_fraction!=16 * std::numeric_limits<double>::epsilon();
     const bool game_profile=settings_.game_profile!=MacGameProfile::legacy;
-    const bool game_numerics=settings_.compatible_void_pressure_work || settings_.recover_mixed_eos_endpoint;
+    const bool substep_trace=settings_.trace_sink_per_substep;
+    const bool game_numerics=settings_.compatible_void_pressure_work || settings_.recover_mixed_eos_endpoint || substep_trace;
     const bool phase=settings_.phase_change!=MacPhaseChange::none, primary=carried || phase || subcell || stepped;
-    out.u32(game_numerics ? game_numerics_format_version : game_profile ? game_profile_format_version : regional ? regional_format_version : configured_expansion ? gas_expansion_format_version : stepped ? step_control_format_version : subcell ? subcell_void_format_version : phase ? phase_format_version : primary ? primary_format_version : voids ? void_format_version : coupled ? coupled_moment_format_version : moments ? moment_format_version : production ? production_format_version : diffusive ? diffusion_format_version : viscous ? viscous_format_version : legacy_format_version);
+    out.u32(substep_trace ? substep_trace_format_version : game_numerics ? game_numerics_format_version : game_profile ? game_profile_format_version : regional ? regional_format_version : configured_expansion ? gas_expansion_format_version : stepped ? step_control_format_version : subcell ? subcell_void_format_version : phase ? phase_format_version : primary ? primary_format_version : voids ? void_format_version : coupled ? coupled_moment_format_version : moments ? moment_format_version : production ? production_format_version : diffusive ? diffusion_format_version : viscous ? viscous_format_version : legacy_format_version);
     const auto model=identity(registry_,*thermodynamics_); out.count(model.size());
     for (auto value : model) out.byte(value);
     out.number(time_s_); out.u64(revision_);
@@ -158,6 +161,7 @@ std::vector<std::uint8_t> MacClosedWorld::checkpoint() const {
     if (configured_expansion || regional) out.number(settings_.gas_expansion_volume_fraction);
     if (game_profile) { out.u32(static_cast<std::uint32_t>(settings_.game_profile)); out.number(settings_.trace_sink_threshold_kg); }
     if (game_numerics) { out.byte(settings_.compatible_void_pressure_work ? 1 : 0); out.byte(settings_.recover_mixed_eos_endpoint ? 1 : 0); }
+    if (substep_trace) out.byte(1);
     if(diffusive) {
         // Discrete flux formulation. Diffusion images were never released; the
         // earlier version-4 diffusion layouts no longer parse and reject.
@@ -199,7 +203,8 @@ MacClosedWorld MacClosedWorld::from_checkpoint(SpeciesRegistry registry,std::sha
     const bool moment_version=version==moment_format_version || version==coupled_moment_format_version;
     const bool void_version=version==void_format_version;
     const bool phase_version=version==phase_format_version;
-    const bool game_numerics_version=version==game_numerics_format_version;
+    const bool substep_trace_version=version==substep_trace_format_version;
+    const bool game_numerics_version=version==game_numerics_format_version || substep_trace_version;
     const bool game_profile_version=version==game_profile_format_version || game_numerics_version;
     const bool regional_version=version==regional_format_version || game_profile_version;
     const bool configured_expansion=version==gas_expansion_format_version || regional_version;
@@ -279,7 +284,11 @@ MacClosedWorld MacClosedWorld::from_checkpoint(SpeciesRegistry registry,std::sha
     }
     if (game_numerics_version) {
         settings.compatible_void_pressure_work=in.flag(); settings.recover_mixed_eos_endpoint=in.flag();
-        check(settings.compatible_void_pressure_work || settings.recover_mixed_eos_endpoint,"Noncanonical saved MAC game numerical policies");
+        check(substep_trace_version || settings.compatible_void_pressure_work || settings.recover_mixed_eos_endpoint,"Noncanonical saved MAC game numerical policies");
+    }
+    if (substep_trace_version) {
+        settings.trace_sink_per_substep=in.flag();
+        check(settings.trace_sink_per_substep,"Noncanonical saved MAC substep trace policy");
     }
     if (settings.diffusion.mode!=MacDiffusionMode::disabled) {
         check(in.u32()==mac_diffusion_formulation,"Unsupported saved gas diffusion formulation");

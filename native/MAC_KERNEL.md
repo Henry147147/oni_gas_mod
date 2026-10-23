@@ -187,6 +187,7 @@ volume or the grid volume. Empty cells retain no U, remainder or passives.
 | Existing regional schedules, maximum step 0.1f s, gas expansion fraction 0.001 | Different adaptive trajectory and unresolved geometry; quantitative F1–F5 errors pending | Current baseline; floor unmeasured |
 | Existing tiny-capacity conduction/gravity entropy treatment | Thermal detail below component resolution; conservative heat repair and final EOS/entropy checks retained | Current baseline; floor unmeasured |
 | Booked trace sink | Removes sub-threshold composition and its booked mechanics; elastic energy shared by heat capacity | Opt-in threshold 1e-11 kg; full floor acceptance pending |
+| Substep trace sink (opt-in) | Books newly formed traces immediately after transport; keeps the same constituent threshold and stored-difference ledger | Reference/floor error pending; old profiles retain interval-only removal |
 | Compatible void pressure work | Uses geometric face sweeps for U work when an initial liquid void closes, matching canonical J/K; changes those trajectories | Selected by the opt-in profile; floor measurements pending |
 | Mixed-EOS endpoint recovery | After the original 200 iterations fail, accepts a bracket endpoint satisfying the unchanged Newton criterion; successful old roots are unchanged | Selected by the opt-in profile; floor measurements pending |
 
@@ -277,6 +278,48 @@ errors 7.63e-16/3.82e-17 and trace sink 3.517e-8 kg / 0.01258 J.
 Fast observed p95/max were 545.6/2942.5 ms; at 1×, 586.9/2942.1 ms. The maxima
 include the initial UI hand-off gap; fast frames 10–60 averaged 325.0 ms
 (p95 446.5, max 545.6). No fast-speed target pass is claimed.
+
+A version-18 opt-in saves `trace_sink_per_substep`. New colonies select it
+with `MA_COLONY_GAME_FLOOR=1 MA_COLONY_SUBSTEP_TRACE=1`; the first variable
+alone retains profile17. Restore uses the saved flag, so old colonies never
+switch implicitly. The kernel removes traces after transport, books their
+actual stored mass/U/K/G/J/passive differences and carries the entropy removed
+through the interval and regional audits. Retained momentum scales with face
+inertia. The threshold remains 1e-11 kg in the game selector.
+
+The preceding private prototype clears three cold-restored intervals from
+both long-run captures: sink totals 1.731e-7 kg / 1.885 J at frame1621 and
+8.027e-8 kg / 0.5924 J at frame3319. Volcanea/Oceania/filter totals are
+2.840e-9/6.222e-9/1.293e-8 kg and 0.001827/0.002617/0.05535 J. Relative
+mass/energy errors stay below 1.7e-16/1.2e-17. The full frame1621 endpoint is
+byte-identical with one/twelve workers. These are preliminary flow controls,
+not a ten-cycle or floor pass; thousands of substeps still limit pace.
+The focused synthetic control checks internal removal in two disconnected
+regions, every ledger, cold/thread identity, old-profile identity and rollback.
+
+The saved policy passes fresh whole-lock Terra60 runs with the same pinned
+managed DLLs and GPU rendering as the preceding profile17 baseline. The
+threshold stays 1e-11 kg; only the removal time changes. Profile18's frame50
+dump confirms the saved selector. No faults or skipped relaxations occur.
+
+| Speed | Owner mean / p95 / max ms, profile17 → 18 | Observed mean / p95 / max ms, profile17 → 18 |
+| --- | --- | --- |
+| Fast (2×) | 208.0 / 355.9 / 627.9 → 179.6 / 350.5 / 415.2 | 303.0 / 485.0 / 3030.3 → 274.5 / 425.3 / 2864.6 |
+| 1× | 218.1 / 378.6 / 451.8 → 186.3 / 357.5 / 500.0 | 321.7 / 526.3 / 3071.0 → 281.5 / 403.4 / 2902.9 |
+
+| Profile18 run | Maximum relative mass / energy error | Trace sink kg / J |
+| --- | --- | --- |
+| fast | 2.9e-16 / 4.54e-17 | 5.361e-08 / 0.01939 |
+| normal | 3.05e-16 / 5.06e-17 | 5.467e-08 / 0.01982 |
+
+Observed statistics include the initial UI pause. Neither run meets the fast
+clock target. Floor comparisons and the fresh-base long run remain pending;
+this policy is explicitly selected, not a production-default change. Clean
+Release/83 CTests pass; all 99 legacy MAC command outputs/exits and the owner
+diagnostic remain identical apart from timings and the new control PASS line.
+The version18 long-capture endpoints match the preliminary prototype exactly
+after removing only the new saved flag. Rebuild C++ consumers, including the
+private bench driver, against the new headers; package native libraries together.
 
 ## Coverage and admission
 

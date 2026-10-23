@@ -93,6 +93,9 @@ struct MacClosedSettings {
     // Saved game-profile policies; older images retain both original rules.
     bool compatible_void_pressure_work = false;
     bool recover_mixed_eos_endpoint = false;
+    // Book newly formed traces after each production transport stage. Older
+    // profiles retain their interval-boundary sink and exact continuation.
+    bool trace_sink_per_substep = false;
     void validate() const;
 };
 struct MacClosedSubstep {

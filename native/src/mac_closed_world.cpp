@@ -188,6 +188,8 @@ void MacClosedSettings::validate() const {
     require(game_profile == MacGameProfile::base_game_floor ||
         (!compatible_void_pressure_work && !recover_mixed_eos_endpoint),
         "MAC game numerical policies require a saved game profile");
+    require(!trace_sink_per_substep || (game_profile == MacGameProfile::base_game_floor && trace_sink_threshold_kg > 0),
+        "Substep trace removal requires an enabled saved game trace sink");
     require(std::isfinite(trace_sink_threshold_kg) && trace_sink_threshold_kg >= 0 && trace_sink_threshold_kg <= 1e-6 &&
         ((game_profile == MacGameProfile::legacy && trace_sink_threshold_kg == 0) ||
          (game_profile == MacGameProfile::base_game_floor && numerical_kernel == MacNumericalKernel::production &&

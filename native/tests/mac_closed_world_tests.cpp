@@ -318,6 +318,75 @@ void trace_sink_receipt() {
     try { (void)source.advanced(.2,1); } catch (const std::exception&) { failed=true; }
     check(failed && source.checkpoint()==original,"Failed trace-profile advance published a partial sink");
 }
+void substep_trace_receipt() {
+    const auto& set=setup(); auto state=set.state(6,6,false);
+    const auto ni=set.registry.index("nitrogen"),he=set.registry.index("helium"),ox=set.registry.index("oxygen");
+    constexpr double threshold=1e-6;
+    for (std::size_t i=0;i<state.cells.size();++i) {
+        state.cells[i]={MixtureInventory(set.registry.size()),{}};
+        if (i/state.grid.width==2) state.grid.walls[i]=1;
+    }
+    for (const auto i : {std::size_t{2},std::size_t{25}}) {
+        std::vector<double> mass(set.registry.size()); mass[ni]=.001; mass[he]=1.5*threshold; mass[ox]=.0001;
+        state.cells[i].mixture=set.eos->initialize_at_temperature(mass,300,1).mixture;
+        state.cells[i].passive_quantities={{17,1.25},{21,.75}};
+    }
+    const auto inertias=mac_face_inertias(set.registry,state,*set.eos);
+    state.momentum_x[state.grid.x_face(2,4)]=inertias.x[state.grid.x_face(2,4)]*.25;
+    MacClosedSettings settings; settings.numerical_kernel=MacNumericalKernel::production;
+    settings.vacuum=MacVacuumRepresentation::void_phase; settings.step_control=MacStepControl::regional_predictive;
+    settings.game_profile=MacGameProfile::base_game_floor; settings.trace_sink_threshold_kg=threshold;
+    settings.subcell_void=MacSubcellVoidPolicy::expand_unresolved_gas; settings.gas_expansion_volume_fraction=.001;
+    settings.compatible_void_pressure_work=true; settings.recover_mixed_eos_endpoint=true;
+    settings.gravity_m_per_s2=9.81; settings.maximum_timestep_s=.001;
+    const MacClosedWorld legacy(set.registry,set.eos,state,settings); const auto old_image=legacy.checkpoint();
+    check(old_image[8]==17 && legacy.with_trace_sink().report.constituents==0,"Control starts with a trace or changed legacy format");
+    settings.trace_sink_per_substep=true;
+    const MacClosedWorld source(set.registry,set.eos,state,settings); const auto image=source.checkpoint();
+    const auto cold=MacClosedWorld::from_checkpoint(set.registry,set.eos,image);
+    check(image[8]==18 && cold.settings().trace_sink_per_substep && cold.checkpoint()==image,"Substep policy did not round trip");
+    const auto saved=mac_kernel_default_options();auto options=saved;options.threads=1;set_mac_kernel_default_options(options);
+    const auto one=source.advanced(.002,32768); const auto internal=last_mac_production_report();
+    options.threads=12;set_mac_kernel_default_options(options);const auto many=cold.advanced(.002,32768);
+    check(one.world.checkpoint()==many.world.checkpoint() && internal.trace_sink.constituents>0 &&
+        one.report.interval_reference_fallbacks==0 && many.report.interval_reference_fallbacks==0,
+        "Substep sink was not used internally or changed workers/fell back");
+    MacEnergyAccount energy;MacScaledAccount px,py;std::map<std::uint64_t,MacScaledAccount> passives;
+    const auto totals=[&](const MacTransportState& st,bool negative) {
+        const auto inertia=mac_face_inertias(set.registry,st,*set.eos);
+        const auto sign=[&](MacEnergy value){return negative?value.negated():value;};
+        for(std::size_t i=0;i<st.cells.size();++i) {
+            account_mac_cell_internal_energy(energy,st.cells[i],negative?-1:1);
+            energy.add(sign(MacEnergy::from_double(st.cells[i].mixture.mass()).multiplied(settings.gravity_m_per_s2).multiplied(static_cast<double>(i/st.grid.width)+.5)));
+            for(const auto& p:st.cells[i].passive_quantities)passives[p.identity].add(negative?-p.quantity:p.quantity);
+        }
+        for(std::size_t axis=0;axis<2;++axis) {
+            const auto values=axis==0?mac_field_values(st.momentum_x,st.full_momentum_x):mac_field_values(st.momentum_y,st.full_momentum_y);
+            const auto& masses=axis==0?inertia.x:inertia.y;
+            for(std::size_t f=0;f<values.size();++f){(axis==0?px:py).add(sign(values[f]));energy.add(sign(MacEnergy::kinetic(masses[f],values[f])));}
+        }
+    };
+    totals(source.state(),false);totals(one.world.state(),true);
+    const auto& sink=one.report.trace_sink;
+    for(const auto& value:{sink.internal_energy_j,sink.kinetic_energy_j,sink.potential_energy_j})energy.add(value.negated());
+    px.add(sink.momentum_x.negated());py.add(sink.momentum_y.negated());
+    px.add(one.report.full_wall_impulse_x);py.add(one.report.full_wall_impulse_y);py.add(one.report.full_body_impulse_y);
+    for(const auto& p:sink.passives)passives[p.identity].add(-p.quantity);
+    check(energy.within_bound() && px.within_bound() && py.within_bound(),"Substep trace U+K+G or momentum ledger did not close");
+    for(const auto& [id,account]:passives){(void)id;check(account.within_bound(),"Substep trace passive ledger did not close");}
+    for(std::size_t k=0;k<set.registry.size();++k) {
+        MacScaledAccount account;for(std::size_t i=0;i<state.cells.size();++i){account.add(state.cells[i].mixture.masses[k]);account.add(-one.world.state().cells[i].mixture.masses[k]);}
+        if(!sink.mass_kg.empty())account.add(sink.mass_kg[k].negated());
+        check(account.within_bound(),"Substep trace species ledger did not close");
+    }
+    const auto restored=MacClosedWorld::from_checkpoint(set.registry,set.eos,one.world.checkpoint());
+    check(restored.advanced(.002,32768).world.checkpoint()==one.world.advanced(.002,32768).world.checkpoint(),"Substep trace cold continuation differs");
+    bool refused=false;try{(void)source.advanced(.002,1);}catch(const std::exception&){refused=true;}
+    const auto old=MacClosedWorld::from_checkpoint(set.registry,set.eos,old_image);
+    check(refused && source.checkpoint()==image && !old.settings().trace_sink_per_substep && old.checkpoint()==old_image,
+        "Substep trace rollback or legacy policy identity changed");
+    set_mac_kernel_default_options(saved);
+}
 void rejected_domains() {
     const auto& set = setup(); const auto original = set.state(2, 1, false); const auto held = fingerprint(original);
     for (int control = 0; control < 10; ++control) {
@@ -375,6 +444,9 @@ int main(int argc, char** argv) {
             inventory_value_control(); std::cout << "PASS inventory value semantics: held references, assignment and signed-zero checkpoint bits\n";
         snapshot_branches(); std::cout << "PASS copied world branches, lifetime, rollback and cold continuation\n"; return 0;
         }
+        if (argc == 2 && std::string_view(argv[1]) == "--substep-trace-only") {
+            substep_trace_receipt(); std::cout << "PASS substep trace sink: internal booking, ledgers, workers, cold continuation and rollback\n"; return 0;
+        }
         if (argc == 2 && std::string_view(argv[1]) == "--trace-sink-only") {
             trace_sink_receipt(); std::cout << "PASS booked trace sink, mass/energy/momentum/passives, rollback and exact cold/thread continuation\n"; return 0;
         }
@@ -385,6 +457,7 @@ int main(int argc, char** argv) {
         snapshot_branches(); std::cout << "PASS copied world branches, lifetime, rollback and cold continuation\n";
         heat_batch_control(); std::cout << "PASS independent heat batches, ordered repeats/audits, cold/workers and first-error rollback\n";
         trace_sink_receipt(); std::cout << "PASS booked trace sink, mass/energy/momentum/passives, rollback and exact cold/thread continuation\n";
+        substep_trace_receipt(); std::cout << "PASS substep trace sink: internal booking, ledgers, workers, cold continuation and rollback\n";
         gas_pressure(); std::cout << "PASS pressure-driven retained gas momentum and trace transport\n";
         wet_corner(); std::cout << "PASS elastic gas-liquid pressure transport at a solid corner\n";
         constant_contact(); std::cout << "PASS constant-p/T variable-density mixture contact\n";

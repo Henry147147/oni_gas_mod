@@ -213,6 +213,19 @@ Totals totals(Context& c, const Fields& f, double sign) {
     for (const auto& part : parts) for (std::size_t q = 0; q < Q; ++q) t[q].merge(part[q]);
     return t;
 }
+double trace_external(const Context& c,const MacTraceSinkReport& sink,std::size_t q) {
+    if(sink.constituents==0)return 0;
+    if(q<c.model.K())return -sink.mass_kg[c.model.species[q].registry].project().value;
+    if(q<c.model.K()+c.model.P()) {
+        const auto id=c.model.passive_ids[q-c.model.K()];double value=0;
+        for(const auto& passive:sink.passives)if(passive.identity==id)value-=passive.quantity;
+        return value;
+    }
+    if(q==c.q_jx())return -sink.momentum_x.project().value;
+    if(q==c.q_jy())return -sink.momentum_y.project().value;
+    MacEnergySum energy;energy.add(sink.internal_energy_j);energy.add(sink.kinetic_energy_j);energy.add(sink.potential_energy_j);
+    return -energy.value().project().value;
+}
 // Exact replay of one quantity's operands (escalation path).
 void exact_replay(Context& c, std::size_t q, const Fields& a, const Fields& b, double external, double stage, MacEnergyAccount& exact) {
     for (const auto* f : {&b, &a}) {
@@ -310,6 +323,98 @@ void expand_unresolved_gas(Context& c, Fields& f, Accounts& acc) {
         f.Vo[i] = g.V;
     }
 }
+DD trace_entropy_cells(const Context& c,const Fields& f,const std::vector<std::size_t>& cells) {
+    DD value;const auto& model=c.model;const auto N=c.g.N;
+    for(const auto i:cells) {
+        const auto stats=cell_stats(model,f,N,i);if(stats.kind==empty)continue;
+        State state;const double volume=material_volume(f,c.g.V,i);
+        if(!evaluate_state(model,f,N,i,stats,f.U[i],volume,state))reject("Trace entropy left its EOS domain");
+        double headspace=state.Vg;
+        if(stats.kind==mixed_cell){const double liquid=liquid_at(model,f,N,i,state.p).volume;if(liquid<=.5*volume)headspace=volume-liquid;}
+        for(std::size_t k=0;k<model.K();++k) {
+            const double mass=f.m[k*N+i];if(mass==0)continue;const auto& sp=model.species[k];
+            if(!(state.T>=sp.tmin*(1-32*eps)&&state.T<=sp.tmax*(1+32*eps)))reject("Trace entropy temperature outside range");
+            value.add(mass*sp.cv*std::log(state.T/experimental::entropy_reference_temperature_k));
+            if(sp.entropy_offset!=0)value.add(mass*sp.entropy_offset);
+            if(sp.gas){const double n=mass/sp.molar_mass;value.add(n*experimental::reference_gas_constant*(std::log(headspace)-std::log(n)));}
+        }
+        value.add(f.U_remainder[i]/state.T);
+    }
+    return value;
+}
+// The saved substep policy uses the public sink's constituent threshold and
+// books actual stored differences directly in the kernel's SoA fields.
+void sink_substep_traces(Context& c, Fields& f, Accounts& accounts) {
+    if (!c.settings.trace_sink_per_substep) return;
+    const auto& g=c.g;const auto& model=c.model;const auto N=g.N;
+    std::vector<double> old_mass(N),new_mass(N);std::vector<unsigned char> changed(N);
+    std::vector<std::size_t> cells;
+    for(std::size_t i=0;i<N;++i)if(!g.wall[i]) {
+        bool tiny=false;
+        for(std::size_t k=0;k<model.K();++k){const auto m=f.m[k*N+i];old_mass[i]+=m;tiny=tiny||(m>0&&m<c.settings.trace_sink_threshold_kg);}
+        new_mass[i]=old_mass[i];
+        if(tiny){changed[i]=1;cells.push_back(i);}
+    }
+    if(cells.empty())return;
+    auto entropy_out=trace_entropy_cells(c,f,cells);
+    MacTraceSinkReport report;report.cells=cells.size();
+    std::vector<MacScaledSum> removed_mass(model.K()),removed_passives(model.P());
+    MacEnergySum internal,potential,kinetic;MacScaledSum px,py;
+    if(f.Vo.empty()){f.Vo.resize(N);for(std::size_t i=0;i<N;++i)if(old_mass[i]>0)f.Vo[i]=g.V;}
+    for(const auto i:cells) {
+        MacEnergySum old_u;old_u.add(f.U[i]);old_u.add(f.U_remainder[i]);
+        MacEnergySum sensible=old_u,retained;MacScaledSum old_cv,new_cv;
+        double kept_mass=0,liquid_volume=0;bool gas=false;
+        for(std::size_t k=0;k<model.K();++k){
+            const double before=f.m[k*N+i];if(before==0)continue;
+            const auto& sp=model.species[k];const auto old_m=MacScaled::from_double(before);
+            old_cv.add(old_m.multiplied(sp.cv));sensible.add(old_m.multiplied(-sp.offset));
+            if(before<c.settings.trace_sink_threshold_kg){removed_mass[k].add(before);f.m[k*N+i]=0;++report.constituents;}
+            const double kept=f.m[k*N+i];kept_mass+=kept;const auto new_m=MacScaled::from_double(kept);
+            new_cv.add(new_m.multiplied(sp.cv));retained.add(new_m.multiplied(sp.offset));
+            if(kept>0){if(sp.gas)gas=true;else liquid_volume+=kept/sp.rho0;}
+        }
+        new_mass[i]=kept_mass;
+        if(kept_mass==0){f.U[i]=f.U_remainder[i]=f.Vo[i]=0;}
+        else {
+            require(old_cv.sign()>0&&new_cv.sign()>0,"Trace SoA retained heat capacity invalid");
+            const auto kept_cv=new_cv.value(),total_cv=old_cv.value();
+            for(std::size_t n=0;n<sensible.size();++n)retained.add(sensible.component(n).shared(kept_cv,total_cv));
+            MacMaterialCell stored;(void)store_mac_cell_internal_energy(stored,retained,&report.primary_energy);
+            require(stored.energy_remainder_j.full.is_zero(),"Trace SoA energy remainder left binary64");
+            f.U[i]=stored.mixture.energy;f.U_remainder[i]=stored.energy_remainder_j.projected;
+            if(!gas)f.Vo[i]=std::min(g.V,liquid_volume);
+        }
+        old_u.add(-f.U[i]);old_u.add(-f.U_remainder[i]);
+        for(std::size_t n=0;n<old_u.size();++n)internal.add(old_u.component(n));
+        const auto height=(static_cast<double>(i/g.W)+.5)*g.h;
+        potential.add(MacEnergy::from_double(old_mass[i]).multiplied(c.settings.gravity_m_per_s2).multiplied(height));
+        potential.add(MacEnergy::from_double(new_mass[i]).multiplied(c.settings.gravity_m_per_s2).multiplied(height).negated());
+        for(std::size_t p=0;p<model.P();++p){const auto before=f.q[p*N+i];const auto kept=kept_mass==0?0:MacScaled::from_double(before).shared(kept_mass,old_mass[i]).project().value;removed_passives[p].add(before);removed_passives[p].add(-kept);f.q[p*N+i]=kept;}
+    }
+    const auto faces=[&](std::vector<double>& js,const auto& left,const auto& right,MacScaledSum& carried){
+        for(std::size_t fidx=0;fidx<js.size();++fidx){const auto l=left[fidx],r=right[fidx];
+            if(!(l!=none&&changed[l])&&!(r!=none&&changed[r]))continue;
+            const double before=.5*(l!=none?old_mass[l]:0)+.5*(r!=none?old_mass[r]:0);
+            const double after=.5*(l!=none?new_mass[l]:0)+.5*(r!=none?new_mass[r]:0);
+            if(before==after||js[fidx]==0)continue;
+            require(before>0&&after>=0,"Trace SoA invalid face inertia");
+            const auto old_j=MacScaled::from_double(js[fidx]);
+            const auto new_j=after==0?MacScaled{}:old_j.shared(after,before);
+            const double stored=new_j.project().value;const auto stored_j=MacScaled::from_double(stored);
+            carried.add(old_j);carried.add(stored_j.negated());
+            kinetic.add(MacEnergy::kinetic(before,old_j));kinetic.add(MacEnergy::kinetic(after,stored_j).negated());js[fidx]=stored;
+        }
+    };
+    faces(f.jx,g.xl,g.xr,px);faces(f.jy,g.yl,g.yr,py);
+    const auto after_entropy=trace_entropy_cells(c,f,cells);entropy_out.add(-after_entropy.hi);entropy_out.add(-after_entropy.lo);
+    report.mass_kg.resize(model.registry_size);
+    for(std::size_t k=0;k<model.K();++k)report.mass_kg[model.species[k].registry]=removed_mass[k].value();
+    for(std::size_t p=0;p<model.P();++p)if(removed_passives[p].sign()>0)report.passives.push_back({model.passive_ids[p],removed_passives[p].value().require_representable()});
+    report.internal_energy_j=internal.value();report.potential_energy_j=potential.value();report.kinetic_energy_j=kinetic.value();
+    report.momentum_x=px.value();report.momentum_y=py.value();
+    accounts.trace_sink.merge(report);accounts.trace_entropy.add(entropy_out);c.ws.stats_valid=false;
+}
 void substep(Context& c, Fields& f, double dt, Accounts& acc) {
     const bool timed = c.options.collect_stage_timing;
     const auto run = [&](auto&& stage, double seconds, double& slot) {
@@ -327,6 +432,7 @@ void substep(Context& c, Fields& f, double dt, Accounts& acc) {
     run(stage_compression, .5 * dt, tm.compression_ms);
     { double unused = 0; run(c.settings.pressure_integration != MacPressureIntegration::discrete_gradient_midpoint ?
         stage_pressure_transport_moments : stage_pressure_transport, dt, unused); }
+    sink_substep_traces(c, f, acc);
     run(stage_compression, .5 * dt, tm.compression_ms);
     run(stage_shock_heat, .5 * dt, tm.shock_heat_ms);
     if (!boiling) run(stage_conduction, .5 * dt, tm.conduction_ms);
@@ -334,6 +440,9 @@ void substep(Context& c, Fields& f, double dt, Accounts& acc) {
     expand_unresolved_gas(c, f, acc);
 }
 void merge(Accounts& a, const Accounts& b) {
+    if (b.trace_sink.constituents > 0) {
+        a.trace_sink.merge(b.trace_sink); a.trace_entropy.add(b.trace_entropy);
+    }
     a.caloric_cells += b.caloric_cells; a.unresolved_conduction_cells += b.unresolved_conduction_cells;
     for (std::size_t n = 0; n < b.caloric_redistribution.size(); ++n) a.caloric_redistribution.add(b.caloric_redistribution.component(n));
     for (std::size_t q = 0; q < a.operands.size(); ++q) {
@@ -553,6 +662,7 @@ MacKernelReport run_interval(const SpeciesRegistry& registry, const FluidThermod
             if (q < model.K()) external = acc.conversion[q].value();
             if (q == c.q_jx()) external = acc.wall_x;
             if (q == c.q_jy()) external = acc.wall_y + acc.body_y;
+            if (acc.trace_sink.constituents > 0) external += trace_external(c, acc.trace_sink, q);
             // Shared interval rule (mac_interval_audit.hpp): residual against
             // 128 epsilons of the absolute operands, with an outward error
             // envelope; undecidable comparisons replay exactly. Operands here
@@ -605,6 +715,7 @@ MacKernelReport run_interval(const SpeciesRegistry& registry, const FluidThermod
             endpoint_ok = false;
         }
         DD change = s1; change.add(-s0.hi); change.add(-s0.lo);
+        if (acc.trace_sink.constituents > 0) change.add(acc.trace_entropy);
         report.entropy_change_j_per_k = change.value();
         // Every stage except the gravity reconciliation must produce entropy;
         // that reconciliation is credited by its concavity bound.
@@ -614,6 +725,9 @@ MacKernelReport run_interval(const SpeciesRegistry& registry, const FluidThermod
         const bool entropy_ok = endpoint_ok && change.value() >= -report.entropy_allowance_j_per_k;
         report.timing.audit_ms += since(audit_time);
         if (passed && entropy_ok) {
+            if (acc.trace_sink.constituents > 0) {
+                report.trace_sink = acc.trace_sink; report.trace_entropy_out_j_per_k = acc.trace_entropy.value();
+            }
             report.mixing_heat_j = acc.mixing_heat; report.wall_heat_j = acc.wall_heat;
             report.compression_heat_j = acc.compression_heat; report.shock_heat_transfer_j = acc.shock_heat;
             report.wall_impulse_x = acc.wall_x; report.wall_impulse_y = acc.wall_y; report.body_impulse_y = acc.body_y;
@@ -785,6 +899,7 @@ MacClosedAdvance advance_mac_production_flow(const MacClosedWorld& world, double
     MacKernelAccess::publish_state(result.world, std::move(endpoint));
     MacKernelAccess::stamp(result.world, start + seconds, revision + 1);
     auto& r = result.report;
+    if (k.trace_sink.constituents > 0) r.trace_sink.merge(k.trace_sink);
     r.interval_kernel_intervals = 1;
     r.primary_energy.merge({k.rounded_energy_writes,k.discarded_energy_remainders});
     r.interval_audit_retries = k.audit_retries; r.interval_unresolved_updates = k.unresolved_updates;
