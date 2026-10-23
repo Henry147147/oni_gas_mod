@@ -251,7 +251,7 @@ The release stamp now identifies the interval before the first fully open
 completed owner frame, rather than the submitted game clock. Maximum
 mass/energy errors are **1.210e-17 / 1.758e-17**, trace sink
 **1.697e-11 kg / 0.000213 J**, with no fault or skipped relaxation. F1's static
-split still fails; the F5 retained rerun and the F4 source model remain open.
+split still fails; the F4 source model remains open.
 
 The retained F3 rerun records **605 consecutive samples**, zero gaps or
 refused projections, and full inventory residual **1.455e-11 kg**. Levelling
@@ -261,6 +261,15 @@ is bracketed at **[7.0, 7.2] s**; final nominal depth is **1.9998392342 m**
 with no fault or skipped relaxation. Accepted external heat spans **1.285 J**.
 Dynamic truth and the compression/heat correction remain unresolved; this
 establishes reliable cadence and accounting, not a floor pass.
+
+The retained F5 rerun also records **605 consecutive samples**, zero repeats,
+skips or refused projections, full inventory residual **7.276e-12 kg** and
+accepted external heat span **zero**. Water settles below crude oil in
+**[6.8, 7.0] s**, with depths **3.9999357643 / 2.0000000192 m** and no interface
+overlap. Maximum mass/energy errors are **3.299e-16 / 4.897e-18**, trace sink
+**2.218e-9 kg / 0.00080854 J**, with no fault or skipped relaxation and verified
+process cleanup. Native/owner phase and compression corrections plus resolved
+dynamic truth remain open; the reliable sampler is not a floor acceptance.
 
 ### F4 admission audit
 
