@@ -20,6 +20,12 @@ namespace MixedAtmospheres.Oni
         internal readonly string Key, Text, Tooltip;
         internal MixtureInspectionDetailRow(string key, string text, string tooltip = "") { Key = key; Text = text; Tooltip = tooltip; }
     }
+    internal sealed class MixturePipeReading
+    {
+        internal readonly string Title;
+        internal readonly IReadOnlyList<string> Hover,Details;
+        internal MixturePipeReading(string title,IReadOnlyList<string> hover,IReadOnlyList<string> details){Title=title;Hover=hover;Details=details;}
+    }
 
     /// <summary>Read-only cell and container surfaces over the shared completed-frame projection.</summary>
     public static class MixtureInspection
@@ -37,6 +43,7 @@ namespace MixedAtmospheres.Oni
         private sealed class InspectionData
         {
             internal readonly List<(string label, MixturePresentation reading)> Owned = new List<(string, MixturePresentation)>();
+            internal readonly List<MixturePipeReading> Pipes=new List<MixturePipeReading>();
             internal readonly List<string> Native = new List<string>();
             internal readonly List<string> NativeUnavailable = new List<string>();
             internal readonly List<string> Errors = new List<string>();
@@ -46,7 +53,13 @@ namespace MixedAtmospheres.Oni
         private static readonly FieldInfo ConsumerCell = AccessTools.Field(typeof(ConduitConsumer), "utilityCell");
         private static readonly FieldInfo DispenserCell = AccessTools.Field(typeof(ConduitDispenser), "utilityCell");
         private static readonly FieldInfo FlowGrid = AccessTools.Field(typeof(ConduitFlow), "grid");
+        private static readonly FieldInfo FilterPort=AccessTools.Field(typeof(ElementFilter),"portInfo"),
+            FilterInput=AccessTools.Field(typeof(ElementFilter),"inputCell"),FilterOutput=AccessTools.Field(typeof(ElementFilter),"outputCell"),
+            FilterSelected=AccessTools.Field(typeof(ElementFilter),"filteredCell");
+        private static readonly FieldInfo FilterType=AccessTools.Field(FilterPort.FieldType,"conduitType");
         private static int generation, sessionBindingCount;
+        private static Func<ConduitFlow,int,string,MixturePipeReading?>? pipeReader;
+        internal static void SetPipeReader(Func<ConduitFlow,int,string,MixturePipeReading?>? reader){pipeReader=reader;++generation;}
         private static long hoverDraws, detailsDraws, ownedContainerDraws, nativeContainerDraws;
         // Private in-game evidence only. Ordinary hover has no observer and
         // performs no diagnostic capture or additional list allocation.
@@ -159,6 +172,7 @@ namespace MixedAtmospheres.Oni
             var data = ResolveContainers(target);
             var text = new StringBuilder();
             foreach (var owned in data.Owned) text.Append(owned.label).Append('\n').Append(FormatFullComposition(owned.reading)).Append('\n');
+            foreach(var pipe in data.Pipes)text.Append(pipe.Title).Append('\n').Append(string.Join("\n",pipe.Details)).Append('\n');
             if (data.Native.Count > 0) text.Append("Native inventory · one material per packet\n").Append(string.Join("\n", data.Native)).Append('\n');
             foreach (var unavailable in data.NativeUnavailable) text.Append(unavailable).Append('\n');
             foreach (var error in data.Errors) text.Append(error).Append('\n');
@@ -332,6 +346,12 @@ namespace MixedAtmospheres.Oni
                 foreach (var row in AddReadingDetails(panel, key, item.reading)) ownedDetailKeys.Add(key + "." + row.Key);
                 Interlocked.Increment(ref ownedContainerDraws);
             }
+            for(var i=0;i<data.Pipes.Count;++i)
+            {
+                var pipe=data.Pipes[i];var key="MixedAtmospheres.Pipe."+i.ToString(CultureInfo.InvariantCulture);
+                panel.SetLabel(key,pipe.Title+"\n"+string.Join("\n",pipe.Details),"Complete mixed pipe contents.");
+                ownedDetailKeys.Add(key);Interlocked.Increment(ref ownedContainerDraws);
+            }
             if (data.Native.Count != 0)
             {
                 panel.SetLabel("MixedAtmospheres.NativeInventory", "Native inventory · one material per packet\n" + string.Join("\n", data.Native),
@@ -421,6 +441,12 @@ namespace MixedAtmospheres.Oni
                     foreach (var warning in item.reading.Warnings) Line(drawer, card, warning, true);
                     drawer.EndShadowBar();
                     Interlocked.Increment(ref ownedContainerDraws);
+                }
+                foreach(var pipe in data.Pipes)
+                {
+                    MixtureHoverLayout.Request(drawer);drawer.BeginShadowBar(false);drawer.DrawText(pipe.Title,card.Styles_Title.Standard);
+                    foreach(var line in pipe.Hover)Line(drawer,card,line);
+                    drawer.EndShadowBar();Interlocked.Increment(ref ownedContainerDraws);
                 }
                 if (data.Errors.Count != 0)
                 {
@@ -522,6 +548,17 @@ namespace MixedAtmospheres.Oni
                 // secondary inputs; do not guess from the building origin.
                 AddNativePort(consumer, consumer.conduitType, () => (int)ConsumerCell.GetValue(consumer)!, "Input port packet", result);
             }
+            var filter=target.GetComponent<ElementFilter>();
+            if(filter!=null&&!suppressed.Contains(target))
+            {
+                var type=(ConduitType)FilterType.GetValue(FilterPort.GetValue(filter))!;
+                if(type==ConduitType.Gas||type==ConduitType.Liquid)
+                {
+                    AddNativePort(filter,type,()=>(int)FilterInput.GetValue(filter)!,"Input port packet",result);
+                    AddNativePort(filter,type,()=>(int)FilterSelected.GetValue(filter)!,"Filtered port packet",result);
+                    AddNativePort(filter,type,()=>(int)FilterOutput.GetValue(filter)!,"Other port packet",result);
+                }
+            }
             cached.Frame = Time.frameCount; cached.Generation = generation; cached.Data = result;
             return result;
         }
@@ -544,6 +581,15 @@ namespace MixedAtmospheres.Oni
                 flow = type == ConduitType.Gas ? Game.Instance.gasConduitFlow : type == ConduitType.Liquid ? Game.Instance.liquidConduitFlow : null;
             var grid = flow == null ? null : FlowGrid.GetValue(flow) as Array;
             var cell = owner.isSpawned ? getCell() : -1;
+            if(pipeReader!=null&&flow!=null&&cell>=0&&cell<Grid.WidthInCells*Grid.HeightInCells&&cell<(grid?.Length??0))
+            {
+                try
+                {
+                    var reading=pipeReader(flow,cell,label.Replace(" packet"," contents"));
+                    if(reading!=null){result.Pipes.Add(reading);return;}
+                }
+                catch(Exception error){result.Errors.Add(label+" unavailable: "+error.Message);return;}
+            }
             Func<ConduitFlow.ConduitContents>? read = flow == null ? null : () => flow.GetContents(cell);
             if (!TryReadNativePort(owner.isSpawned, cell, Grid.WidthInCells * Grid.HeightInCells, grid?.Length ?? 0, read,
                 out var contents, out var unavailable))

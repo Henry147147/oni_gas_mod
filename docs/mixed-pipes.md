@@ -98,7 +98,7 @@ not yet authorize live output, saving or migration.
 
 ## Explicit internal-flow fixture
 
-The `mixed-pipes` harness scenario alone activates the current runtime. It
+The `mixed-pipes` and `mixed-pipe-filter` harness scenarios alone activate the current runtime. It
 reuses ONI's conduit graph, native branch scheduling, bridge/valve rate
 decisions and callbacks while moving actual owned mixtures. External scalar
 inputs/removals/dumps, cross-world scalar edges and saving are gated while
@@ -137,9 +137,35 @@ mass/energy errors are 6.678e-17/4.995e-17, trace sink 0 kg/0 J, no owner
 fault, verified process cleanup. Diagnostic owner mean/p95/max is
 210.356/260.087/272.580 ms; observed spacing 383.958/400.380/3178.467 ms,
 with the same polling, startup/build inclusion and concurrent-HIGH caveats.
-Fallback counts remain unavailable. Valves, filters, machine recipes, vents,
+Fallback counts remain unavailable. Valves, machine recipes, vents,
 destruction, all-disease evolution and complete save continuation remain
 separate acceptance work.
+
+The `mixed-pipe-filter` scenario adds actual powered gas/liquid filters,
+element sensors and a germ sensor. The first run passed one-cell composition,
+unblocked filtering, all sensor cases and inspection, but failed four
+partial/blocked-output checks: the native room gate required empty outputs.
+The correction preserves its existing power/status/history state machine
+while supplying actual selected/nonselected output capacity. The criteria
+remain unchanged. Immutable `pipes-filter-732-v4` passes all 17 checks after
+33 frames: only the selected species reaches its filtered output; each
+output fills independently; blocked remainder stays in the source; minority,
+trace and exact-threshold element sensing agree with the world threshold;
+the germ sensor sums all identities; inspection shows full composition.
+
+The final gas source retains 0.125 kg oxygen and 0.25 kg carbon dioxide;
+the liquid source retains 1 kg water and 4 kg polluted water. Supplied/held
+mass is 61.117187362106051 kg, removed mass and exact U residual are zero;
+every mass, heat and germ account closes. World mass/energy errors are
+1.021e-16/4.839e-17, sink 0 kg/0 J, no owner fault, cleanup verified.
+Diagnostic owner mean/p95/max is 225.884/284.354/498.647 ms (33 samples);
+observed spacing 373.319/516.006/3271.280 ms (32 contiguous samples), under
+the same polling/startup/concurrent-HIGH limits. Fallback count is unavailable.
+The model exclusion/capacity and installed-game native staging adversaries,
+six pure groups, five hook groups, 37 inspection checks, 135 harness checks
+and 83 native tests pass. A one-ulp compatibility correction now preserves
+native movable mass, so newly received material is not advanced prematurely.
+No production pipe activation or mixed save writer is enabled.
 
 All ordinary inspection is read-only. Heat/germ reconciliation occurs at
 deterministic pipe/thermal update boundaries, never because a hover or audit

@@ -53,6 +53,35 @@ namespace MixedAtmospheres.Oni
             (Action<ConduitFlow,int,ConduitFlow.ConduitContents>)Delegate.CreateDelegate(
                 typeof(Action<ConduitFlow,int,ConduitFlow.ConduitContents>),AccessTools.Method(typeof(ConduitFlow),"SetContents"));
         private static readonly Func<ConduitFlow,int,ConduitFlow.ConduitContents> ReadGrid=MakeGridReader();
+        private enum MassPublication { Staged,Added,Removed }
+        private delegate void StageMass(ref ConduitFlow.ConduitContents value,float initial,float added);
+        private delegate void RemoveMass(ref ConduitFlow.ConduitContents value,float removed);
+        private static readonly Func<ConduitFlow.ConduitContents,float> Movable=MakeBudgetReader();
+        private static readonly StageMass SetStages=MakeStageWriter();
+        private static readonly RemoveMass RemoveNative=MakeRemoval();
+        private static Func<ConduitFlow.ConduitContents,float> MakeBudgetReader()
+        {
+            var type=typeof(ConduitFlow.ConduitContents);var method=new DynamicMethod("MixedPipeBudget",typeof(float),new[]{type},typeof(ColonyConduits),true);
+            var il=method.GetILGenerator();il.Emit(OpCodes.Ldarga_S,(byte)0);il.Emit(OpCodes.Ldfld,AccessTools.Field(type,"initial_mass"));
+            il.Emit(OpCodes.Ldarga_S,(byte)0);il.Emit(OpCodes.Ldfld,AccessTools.Field(type,"removed_mass"));il.Emit(OpCodes.Sub);il.Emit(OpCodes.Ret);
+            return (Func<ConduitFlow.ConduitContents,float>)method.CreateDelegate(typeof(Func<ConduitFlow.ConduitContents,float>));
+        }
+        private static StageMass MakeStageWriter()
+        {
+            var type=typeof(ConduitFlow.ConduitContents);var method=new DynamicMethod("MixedPipeStages",typeof(void),new[]{type.MakeByRefType(),typeof(float),typeof(float)},typeof(ColonyConduits),true);
+            var il=method.GetILGenerator();il.Emit(OpCodes.Ldarg_0);il.Emit(OpCodes.Ldarg_1);il.Emit(OpCodes.Stfld,AccessTools.Field(type,"initial_mass"));
+            il.Emit(OpCodes.Ldarg_0);il.Emit(OpCodes.Ldarg_2);il.Emit(OpCodes.Stfld,AccessTools.Field(type,"added_mass"));
+            il.Emit(OpCodes.Ldarg_0);il.Emit(OpCodes.Ldc_R4,0f);il.Emit(OpCodes.Stfld,AccessTools.Field(type,"removed_mass"));il.Emit(OpCodes.Ret);
+            return (StageMass)method.CreateDelegate(typeof(StageMass));
+        }
+        private static RemoveMass MakeRemoval()
+        {
+            var type=typeof(ConduitFlow.ConduitContents);var target=AccessTools.Method(type,"RemoveMass");
+            var method=new DynamicMethod("MixedPipeRemoveStage",typeof(void),new[]{type.MakeByRefType(),typeof(float)},typeof(ColonyConduits),true);
+            var il=method.GetILGenerator();il.Emit(OpCodes.Ldarg_0);il.Emit(OpCodes.Ldarg_1);il.Emit(OpCodes.Call,target);
+            if(target.ReturnType!=typeof(void))il.Emit(OpCodes.Pop);il.Emit(OpCodes.Ret);
+            return (RemoveMass)method.CreateDelegate(typeof(RemoveMass));
+        }
 
         private static Func<ConduitFlow,int,ConduitFlow.ConduitContents> MakeGridReader()
         {
@@ -84,7 +113,6 @@ namespace MixedAtmospheres.Oni
             }
             var cells=checked((int)(config.GridWidth*config.GridHeight));
             Flows.Add(Game.Instance.gasConduitFlow,new Flow(cells,Game.Instance.gasConduitFlow));Flows.Add(Game.Instance.liquidConduitFlow,new Flow(cells,Game.Instance.liquidConduitFlow));
-            Active=true;
             // Take initial inventory at a deterministic activation boundary,
             // never when an overlay happens to read a previously unseen pipe.
             foreach(var flow in Flows.Keys)
@@ -94,13 +122,28 @@ namespace MixedAtmospheres.Oni
                         var cell=checked((int)(y*config.GridWidth+x));
                         if(flow.HasConduit(cell))_=Ensure(flow,cell);
                     }
+            Active=true;MixtureInspection.SetPipeReader(ColonyPipeInspection.Read);
         }
         internal static void Reset()
         {
             Active=false;Flows.Clear();Materials.Clear();NativeElements.Clear();NativeIndices.Clear();DiseaseExchange.Clear();initial=supplied=removed=PipeInventory.Empty;heat=default;projecting=0;controlSeeding=false;transferScope=null;
+            MixtureInspection.SetPipeReader(null);
         }
         internal static PipeMaterial Material(int id) => Materials.TryGetValue(id,out var value)?value:throw new InvalidOperationException("Unknown mixed pipe material: "+id);
         internal static PipeMaterial MaterialOf(SimHashes element)=>Material(NativeIndices[element]);
+        internal static SimHashes ElementHash(int ordinal)=>NativeElements[ordinal];
+        internal static bool HasRoom(ConduitFlow flow,int cell)=>TryRead(flow,cell,out var inventory)&&flow.HasConduit(cell)&&
+            inventory.Total.Minus(new PipeAmount(Flows[flow].Capacity)).Sign<0;
+        internal static PipeInventory TransferSelected(ConduitFlow flow,int source,int target,int selected,bool excluding=false)
+        {
+            if(!Owns(flow,source)||!Owns(flow,target)||source==target||!flow.HasConduit(source)||!flow.HasConduit(target))return PipeInventory.Empty;
+            SyncNative(flow,source);SyncNative(flow,target);
+            var from=Ensure(flow,source);var to=Ensure(flow,target);
+            var moved=PipeInventory.Transfer(from.Inventory,to.Inventory,from.Inventory.Mass,Flows[flow].Capacity,Material,selected,excluding);
+            from.Inventory=moved.Source;to.Inventory=moved.Target;
+            if(moved.Parcel.Count>0){Publish(flow,source,MassPublication.Removed);Publish(flow,target,(float)moved.Parcel.Mass>0?MassPublication.Added:MassPublication.Staged);}
+            return moved.Parcel;
+        }
         internal static bool Owns(ConduitFlow flow,int cell) => Active && geometry.Contains(cell) && Flows.ContainsKey(flow);
         internal static bool TryRead(ConduitFlow flow,int cell,out PipeInventory inventory)
         {
@@ -147,14 +190,25 @@ namespace MixedAtmospheres.Oni
             lock(Accounts) initial=initial.Joined(inventory);
             return current;
         }
-        private static ConduitFlow.ConduitContents Project(Cell cell,ConduitFlow.ConduitContents contents)
+        private static ConduitFlow.ConduitContents Project(Cell cell,ConduitFlow.ConduitContents contents,bool consolidate=false)
         {
             if(cell.Inventory.Count==0)return ConduitFlow.ConduitContents.Empty;
             // Preserve native initial/added/removed bookkeeping whenever its
             // rounded mass already represents the authoritative inventory.
             var mass=(float)cell.Inventory.Mass;
+            if(mass==0)return ConduitFlow.ConduitContents.Empty; // inventory retains the unrepresentable trace
             var element=NativeElements[cell.Inventory.Dominant];
-            if(contents.mass!=mass) contents=new ConduitFlow.ConduitContents(element,mass,(float)cell.Inventory.Temperature(Material),byte.MaxValue,0);
+            if(consolidate)SetStages(ref contents,mass,0);
+            else if(contents.mass!=mass)
+            {
+                // Correct the scalar mass without making newly received mass
+                // movable earlier than native scheduling allows.
+                var budget=Math.Min(mass,Math.Max(0,Movable(contents)));var deferred=mass-budget;
+                for(var attempt=0;budget+deferred!=mass&&attempt<2;++attempt)
+                {budget=BitConverter.Int32BitsToSingle(BitConverter.SingleToInt32Bits(budget)-1);deferred=mass-budget;}
+                if(budget<0||budget+deferred!=mass)throw new InvalidOperationException("Cannot project pipe mass without changing its movement budget.");
+                SetStages(ref contents,budget,deferred);
+            }
             contents.element=element;contents.temperature=(float)cell.Inventory.Temperature(Material);
             contents.diseaseIdx=byte.MaxValue;contents.diseaseCount=0;
             foreach(var germ in cell.Inventory.Germs)
@@ -162,9 +216,11 @@ namespace MixedAtmospheres.Oni
                 {contents.diseaseIdx=checked((byte)germ.Id);contents.diseaseCount=(int)Math.Min(int.MaxValue,germ.Mass);}
             return contents;
         }
-        private static void Publish(ConduitFlow flow,int index)
+        private static void Publish(ConduitFlow flow,int index,MassPublication mode=MassPublication.Staged)
         {
-            var cell=Ensure(flow,index);var projection=Project(cell,ReadGrid(flow,index));
+            var cell=Ensure(flow,index);var contents=ReadGrid(flow,index);var mass=(float)cell.Inventory.Mass;
+            if(mode==MassPublication.Removed&&contents.mass>mass)RemoveNative(ref contents,contents.mass-mass);
+            var projection=Project(cell,contents,mode==MassPublication.Added);
             ++projecting;try{SetNative(flow,index,projection);}finally{--projecting;}
             cell.Shadow=projection;
         }
@@ -304,7 +360,7 @@ namespace MixedAtmospheres.Oni
             if(accepted>transfer.Parcel.Mass)accepted=BitConverter.Int32BitsToSingle(BitConverter.SingleToInt32Bits(accepted)-1);
             transfer=PipeInventory.Transfer(incoming,current.Inventory,accepted,Flows[flow].Capacity,Material);
             current.Inventory=transfer.Target;lock(Accounts)supplied=supplied.Joined(transfer.Parcel);
-            Publish(flow,cell);result=accepted;return true;
+            Publish(flow,cell,MassPublication.Added);result=accepted;return true;
         }
         internal static bool Remove(ConduitFlow flow,int cell,float mass,ref ConduitFlow.ConduitContents result)
         {
@@ -313,7 +369,7 @@ namespace MixedAtmospheres.Oni
             {
                 if(scope.Source!=cell||mass!=scope.Amount)throw new InvalidOperationException("Native pipe edge removed a different staged source/amount.");
                 var parcel=Ensure(flow,cell).Inventory.Split(mass,Material).Parcel;
-                Move(flow,cell,scope.Target,mass);Publish(flow,cell);Publish(flow,scope.Target);scope.Target=-1;
+                Move(flow,cell,scope.Target,mass);Publish(flow,cell,MassPublication.Removed);Publish(flow,scope.Target,MassPublication.Added);scope.Target=-1;
                 var shadow=new Cell(parcel,default);result=Project(shadow,default);return true;
             }
             // No float-only world/storage dispatch from an unfinished control.

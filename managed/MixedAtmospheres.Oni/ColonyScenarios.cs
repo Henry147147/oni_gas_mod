@@ -39,7 +39,7 @@ namespace MixedAtmospheres.Oni
         private static readonly List<GameObject> powered = new List<GameObject>();
 
         internal static void Reset() { Results.Clear(); index = 0; Next(); }
-        private static void Next() { Current = new Result(); started = 0; step = 0; recorded.Clear(); powered.Clear(); filling = null; pipeCells.Clear(); generators.Clear(); }
+        private static void Next() { Current = new Result(); started = 0; step = 0; recorded.Clear(); powered.Clear(); filling = null; pipeCells.Clear(); generators.Clear(); mixedFilters.Clear();mixedSensors.Clear();mixedDiseaseSensor=null; }
 
         // Called every Unity frame while the owner runs. Returns true when
         // every scenario of the list is done.
@@ -96,6 +96,7 @@ namespace MixedAtmospheres.Oni
                     case "sensor": Sensor(frame); break;
                     case "filter": Filter(frame); break;
                     case "mixed-pipes": MixedPipes(frame); break;
+                    case "mixed-pipe-filter": MixedPipeFilter(frame); break;
                     case "pacu": Pacu(frame); break;
                     case "liquid-pump": LiquidPump(frame); break;
                     case "base": Base(frame, status); break;
@@ -1117,6 +1118,104 @@ namespace MixedAtmospheres.Oni
         }
 
         private static readonly List<int> pipeCells = new List<int>();
+        private static readonly List<GameObject> mixedFilters=new List<GameObject>(),mixedSensors=new List<GameObject>();
+        private static GameObject? mixedDiseaseSensor;
+        private static int MixedPort(GameObject building,string name)=>(int)AccessTools.Field(typeof(ElementFilter),name).GetValue(building.GetComponent<ElementFilter>());
+        private static void MixedPipeFilter(int frame)
+        {
+            if(Once(0,"arena"))Arena((x,y)=>(SimHashes.Oxygen,1f,300f));
+            if(Once(5,"build filters and sensors"))
+            {
+                mixedFilters.Add(Build(GasFilterConfig.ID,Cell(5,1)));mixedFilters.Add(Build(LiquidFilterConfig.ID,Cell(5,3)));
+                for(var phase=0;phase<2;++phase)
+                    for(var sample=0;sample<3;++sample)mixedSensors.Add(Build(phase==0?"GasConduitElementSensor":"LiquidConduitElementSensor",Cell(1+sample,4+phase)));
+                mixedDiseaseSensor=Build("GasConduitDiseaseSensor",Cell(0,4));
+            }
+            if(Once(7,"connect isolated filter ports"))
+            {
+                for(var phase=0;phase<2;++phase)
+                {
+                    var network=phase==0?Game.Instance.gasConduitSystem:Game.Instance.liquidConduitSystem;
+                    var id=phase==0?GasConduitConfig.ID:LiquidConduitConfig.ID;
+                    var paths=new List<List<int>>();
+                    foreach(var name in new[]{"inputCell","outputCell","filteredCell"})
+                    {var cell=MixedPort(mixedFilters[phase],name);if(!InArena(cell))throw new InvalidOperationException("Mixed filter port leaves its arena.");paths.Add(new List<int>{cell});}
+                    for(var sample=0;sample<3;++sample)paths.Add(new List<int>{Cell(1+sample,4+phase)});
+                    if(phase==0)paths.Add(new List<int>{Cell(0,4)});
+                    Pipe(network,id,paths.ToArray());
+                }
+            }
+            if(Once(8,"seed actual mixed filter inputs"))
+            {
+                ColonyConduits.StartControl();
+                for(var phase=0;phase<2;++phase)
+                {
+                    var flow=phase==0?Game.Instance.gasConduitFlow:Game.Instance.liquidConduitFlow;
+                    var a=phase==0?SimHashes.Oxygen:SimHashes.Water;var b=phase==0?SimHashes.CarbonDioxide:SimHashes.DirtyWater;
+                    mixedFilters[phase].GetComponent<Filterable>().SelectedTag=ElementLoader.FindElementByHash(b).tag;
+                    ColonyConduits.Seed(flow,MixedPort(mixedFilters[phase],"inputCell"),a,phase==0?.375f:3,300,0,4000);
+                    ColonyConduits.Seed(flow,MixedPort(mixedFilters[phase],"inputCell"),b,phase==0?.625f:7,300,1,6000);
+                    ColonyConduits.TryRead(flow,MixedPort(mixedFilters[phase],"inputCell"),out var mixture);
+                    Record((phase==0?"gas":"liquid")+" filter receives two constituents in one cell",mixture.Count==2,$"{mixture.Count} constituents, {mixture.Mass:R} kg");
+                    for(var sample=0;sample<3;++sample)
+                    {
+                        mixedSensors[phase*3+sample].GetComponent<Filterable>().SelectedTag=ElementLoader.FindElementByHash(a).tag;
+                        var first=sample==0?(phase==0?.375f:3):sample==1?(phase==0?.0005f:.005f):(phase==0?1f/1024:10f/1024);
+                        var second=sample==0?(phase==0?.625f:7):sample==1?(phase==0?.9995f:9.995f):(phase==0?999f/1024:9990f/1024);
+                        ColonyConduits.Seed(flow,Cell(1+sample,4+phase),a,first,300,255,0);ColonyConduits.Seed(flow,Cell(1+sample,4+phase),b,second,300,255,0);
+                    }
+                }
+                ColonyConduits.Seed(Game.Instance.gasConduitFlow,Cell(0,4),SimHashes.Oxygen,.375f,300,0,400000);
+                ColonyConduits.Seed(Game.Instance.gasConduitFlow,Cell(0,4),SimHashes.CarbonDioxide,.625f,300,1,600000);
+            }
+            if(Once(16,"check selective filter and composition sensors"))
+            {
+                for(var phase=0;phase<2;++phase)
+                {
+                    CheckMixedFilter(phase,phase==0?.375:3,phase==0?.625:7,0,0,"unblocked");
+                    var flow=phase==0?Game.Instance.gasConduitFlow:Game.Instance.liquidConduitFlow;
+                    ColonyConduits.Seed(flow,MixedPort(mixedFilters[phase],"inputCell"),phase==0?SimHashes.Oxygen:SimHashes.Water,phase==0?.375f:3,300,0,4000);
+                    ColonyConduits.Seed(flow,MixedPort(mixedFilters[phase],"inputCell"),phase==0?SimHashes.CarbonDioxide:SimHashes.DirtyWater,phase==0?.625f:7,300,1,6000);
+                    for(var sample=0;sample<3;++sample)
+                    {
+                        var on=mixedSensors[phase*3+sample].GetComponent<ConduitElementSensor>().IsSwitchedOn;
+                        Record((phase==0?"gas":"liquid")+" element sensor "+new[]{"finds a minority","excludes a trace","includes the exact threshold"}[sample],on==(sample!=1),$"on {on}; sample {sample}");
+                    }
+                }
+                var values=new object[]{0,0,false};AccessTools.Method(typeof(ConduitDiseaseSensor),"GetContentsDisease").Invoke(mixedDiseaseSensor!.GetComponent<ConduitDiseaseSensor>(),values);
+                ColonyConduits.TryRead(Game.Instance.gasConduitFlow,Cell(0,4),out var germs);
+                var expected=(int)Math.Floor(germs.Germs.ToArray().Sum(g=>g.Mass));var most=germs.Germs.ToArray().Max(g=>g.Mass);
+                Record("pipe germ sensor counts every identity",(bool)values[2]&&(int)values[1]==expected&&expected>most,$"sensor {values[1]}, total {expected}, largest identity {most:R}");
+                var pipeObject=Grid.Objects[Cell(1,4),(int)ObjectLayer.GasConduit];
+                var inspection=MixtureInspection.GetContainerInspectionText(pipeObject);
+                var oxygenName=ElementLoader.FindElementByHash(SimHashes.Oxygen).name;var co2Name=ElementLoader.FindElementByHash(SimHashes.CarbonDioxide).name;
+                Record("pipe inspection shows both actual constituents",inspection.Contains(oxygenName)&&inspection.Contains(co2Name)&&!inspection.Contains("Native inventory"),inspection);
+            }
+            if(Once(24,"check capacity remainder"))
+            {
+                for(var phase=0;phase<2;++phase)
+                {
+                    CheckMixedFilter(phase,phase==0?.75:6,phase==0?1:10,0,phase==0?.25:4,"filtered capacity");
+                    ColonyConduits.Seed(phase==0?Game.Instance.gasConduitFlow:Game.Instance.liquidConduitFlow,MixedPort(mixedFilters[phase],"inputCell"),
+                        phase==0?SimHashes.Oxygen:SimHashes.Water,phase==0?.375f:5,300,0,4000);
+                }
+            }
+            if(Once(32,"check blocked selected output still passes remainder"))
+            {
+                CheckMixedFilter(0,1,1,.125,.25,"blocked selected output");CheckMixedFilter(1,10,10,1,4,"blocked selected output");
+                Record("filter and sensor inventories conserve every account",ColonyConduits.Audit(out var detail),detail);Finish();
+            }
+        }
+        private static void CheckMixedFilter(int phase,double passed,double filtered,double keptA,double keptB,string stage)
+        {
+            var flow=phase==0?Game.Instance.gasConduitFlow:Game.Instance.liquidConduitFlow;var a=ColonyConduits.MaterialOf(phase==0?SimHashes.Oxygen:SimHashes.Water).Id;
+            var b=ColonyConduits.MaterialOf(phase==0?SimHashes.CarbonDioxide:SimHashes.DirtyWater).Id;
+            ColonyConduits.TryRead(flow,MixedPort(mixedFilters[phase],"inputCell"),out var source);ColonyConduits.TryRead(flow,MixedPort(mixedFilters[phase],"outputCell"),out var rest);
+            ColonyConduits.TryRead(flow,MixedPort(mixedFilters[phase],"filteredCell"),out var chosen);
+            var okay=Math.Abs(rest.SpeciesMass(a)-passed)<1e-9&&rest.SpeciesMass(b)==0&&Math.Abs(chosen.SpeciesMass(b)-filtered)<1e-9&&chosen.SpeciesMass(a)==0&&
+                Math.Abs(source.SpeciesMass(a)-keptA)<1e-9&&Math.Abs(source.SpeciesMass(b)-keptB)<1e-9;
+            Record((phase==0?"gas":"liquid")+" filter "+stage,okay,$"main {rest.SpeciesMass(a):R}/{rest.SpeciesMass(b):R}; selected {chosen.SpeciesMass(a):R}/{chosen.SpeciesMass(b):R}; held {source.SpeciesMass(a):R}/{source.SpeciesMass(b):R}; {MachineState(mixedFilters[phase])}");
+        }
         private static void MixedPipes(int frame)
         {
             if(Once(0,"arena"))Arena((x,y)=>(SimHashes.Oxygen,1f,300f));

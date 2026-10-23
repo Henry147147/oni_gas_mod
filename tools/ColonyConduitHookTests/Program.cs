@@ -90,6 +90,13 @@ internal static class Program
             }
             Check(((ConduitFlow.ConduitContents)AccessTools.Field(cellType,"Shadow").GetValue(owned)!).temperature==300,
                 "Inspection changed the native reconciliation boundary.");
+            object staged=new ConduitFlow.ConduitContents(SimHashes.Oxygen,.25f,300,255,0);
+            AccessTools.Field(typeof(ConduitFlow.ConduitContents),"added_mass").SetValue(staged,MathF.BitDecrement(MathF.BitDecrement(.25f)));
+            object?[] stagingRead={flow,0,staged};runtime.GetMethod("ReadNative",flags)!.Invoke(null,stagingRead);
+            var stagedProjection=(ConduitFlow.ConduitContents)stagingRead[2]!;
+            var movable=(Delegate)runtime.GetField("Movable",flags)!.GetValue(null)!;
+            Check(stagedProjection.mass==.5f&&(float)movable.DynamicInvoke(stagedProjection)! == .25f,
+                "A one-ulp scalar correction made recently received mass movable before its native tick.");
         }
         finally{runtime.GetMethod("Reset",flags)!.Invoke(null,null);}
         Console.WriteLine("PASS owned pipe boundary: ordinary scalar native edges cannot cross a world ownership boundary");

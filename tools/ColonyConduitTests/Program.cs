@@ -99,6 +99,18 @@ static class Program
         var passed = PipeInventory.Transfer(filtered.Source, PipeInventory.Empty, 1, .4, Material, 2);
         Near(passed.Target.SpeciesMass(1), 0); Near(passed.Target.SpeciesMass(2), .4);
         Account(mixture, passed.Source, passed.Target, filtered.Target);
+        var selectedCapacity=PipeInventory.Single(B,.75,450);
+        var blocked=PipeInventory.Transfer(mixture,selectedCapacity,1,1,Material,2);
+        var remainder=PipeInventory.Transfer(blocked.Source,PipeInventory.Empty,1,1,Material,2,true);
+        Near(blocked.Target.SpeciesMass(1),0);Near(blocked.Target.SpeciesMass(2),1);
+        Near(remainder.Target.SpeciesMass(1),.4);Near(remainder.Target.SpeciesMass(2),0);Near(remainder.Source.SpeciesMass(2),.35);
+        Account(mixture.Joined(selectedCapacity),blocked.Target,remainder.Source,remainder.Target);
+        var allPassed=mixture.Split(2,Material,-1,true);
+        Check(allPassed.Remaining.Count==0&&Save(allPassed.Parcel).SequenceEqual(Save(mixture)),"unselected full pass changed inventory");
+        var sensorBoundary=PipeInventory.Single(A,1.0/1024,300).Joined(PipeInventory.Single(B,999.0/1024,300));
+        Check(sensorBoundary.ContainsFraction(1,1e-3)&&mixture.ContainsFraction(1,1e-3),"minority or exact-threshold pipe sensor missed constituent");
+        var sensorTrace=PipeInventory.Single(A,.0005,300).Joined(PipeInventory.Single(B,.9995,300));
+        Check(!sensorTrace.ContainsFraction(1,1e-3)&&!sensorTrace.ContainsFraction(3,1e-3),"trace/absent constituent activated pipe sensor");
 
         var state = mixture; var destination = PipeInventory.Empty;
         for (var i = 0; i < 1000; ++i)
