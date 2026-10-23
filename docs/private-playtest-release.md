@@ -116,3 +116,14 @@ verified gone. The file's frame-93 admission is established, but it has no
 continuation/menu acceptance. The frame window now initializes before the
 comparison and counts new frames using subtraction, with explicit controls
 for zero, large saved frames and the integer limit. A repeat remains required.
+
+The corrected window repeats frame 93→123 with all 30 new intervals sampled,
+three duplicants alive, no owner fault/rejection/skipped relaxation, mass/energy
+errors 5.311e-16/1.227e-15 and trace sink 2.276e-7 kg / 0.237336 J. Ordinary
+menu teardown still fails independently at `Game.StopBE`; no second session
+starts. Cleanup is verified after explicitly stopping that bounded failure.
+Inspection identifies two unguarded Unity `Component.gameObject` reads of
+destroyed save roots in the native managed cleanup path. A narrow quit guard
+preserves every original instruction except those two getters, using Unity's
+existing null check before access. Installed-layout and unknown-layout controls
+pass; actual menu acceptance still requires its game repeat.

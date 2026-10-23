@@ -30,6 +30,29 @@ internal static unsafe class Program
     [MethodImpl(MethodImplOptions.NoInlining)]
     private static int Run(bool benchmark)
     {
+        Test("quit cleanup preserves native instructions and only guards its two destroyed-root reads", () =>
+        {
+            var getter=HarmonyLib.AccessTools.PropertyGetter(typeof(UnityEngine.Component),"gameObject");
+            var safe=HarmonyLib.AccessTools.Method(typeof(ColonyQuitCleanup),nameof(ColonyQuitCleanup.ExistingGameObject));
+            var original=HarmonyLib.PatchProcessor.GetOriginalInstructions(HarmonyLib.AccessTools.Method(typeof(Game),"StopBE")).ToArray();
+            var transformed=ColonyQuitCleanup.Transpiler(original.Select(i=>new HarmonyLib.CodeInstruction(i))).ToArray();
+            Check(transformed.Length==original.Length);var changed=0;
+            for(var i=0;i<original.Length;++i)
+            {
+                var from=original[i];var to=transformed[i];
+                Check(from.labels.SequenceEqual(to.labels) && from.blocks.SequenceEqual(to.blocks));
+                if(Equals(from.operand,getter)) { Check(to.opcode==System.Reflection.Emit.OpCodes.Call && Equals(to.operand,safe));++changed; }
+                else Check(from.opcode==to.opcode && Equals(from.operand,to.operand));
+            }
+            Check(changed==2);
+            foreach(var count in new[]{0,1,3})
+            {
+                var refused=false;
+                try { _=ColonyQuitCleanup.Transpiler(Enumerable.Range(0,count).Select(_=>new HarmonyLib.CodeInstruction(System.Reflection.Emit.OpCodes.Callvirt,getter))).ToArray(); }
+                catch(NotSupportedException) { refused=true; }
+                Check(refused);
+            }
+        });
         Test("owner windows count newly advanced frames at zero, high restores and the integer limit", () =>
         {
             var window=new ColonyFrameWindow();
