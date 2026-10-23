@@ -186,6 +186,20 @@ relative mass/energy errors **5.542e-16 / 5.432e-18**. Three repeated and three
 skipped owner-frame observations are explicit in the record. There is no fault
 or skipped phase relaxation. Dynamic resolved truth remains pending.
 
+Fresh profile-18 F1 with the same complete sampler records 605 samples, no
+refused projections, and maximum full-ledger inventory residual **7.105e-15 kg**.
+Initial O2 is **42.567310333251946 kg**, with sensible heat
+**12540999.879670504 J**, matching the clean vanilla inputs at the precision
+described above. Final L/R/divider mass fractions are
+**0.470143180159 / 0.470527356652 / 0.059329463190**. Divider error
+**5.05934e-4** still exceeds vanilla's **2.91e-6** maximum: this analytic split
+metric **fails**. Maximum mass/energy errors are **1.224e-17 / 1.883e-17**,
+trace sink **2.698e-12 kg / 3.167e-6 J**, with no fault or skipped relaxation.
+The observed row-time equalisation bracket remains [9.0, 9.2] s. Five repeated
+and five skipped owner observations are recorded; source-aligned cadence and
+resolved dynamic truth remain open, so this bracket is provisional. Complete
+inventories establish mass accounting, not complete dynamic floor acceptance.
+
 ## Performance and feature variants
 
 Each numerical step needs same-lock Terra60 before/after, affected floor

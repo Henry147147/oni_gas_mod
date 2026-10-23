@@ -20,6 +20,9 @@ namespace MixedAtmospheres.Oni
         internal static int ReceiptEmptyComparisons { get; private set; }
         internal static ulong ReceiptEntriesCompared { get; private set; }
         internal static int ReceiptGrowthComparisons { get; private set; }
+        internal static System.Collections.Generic.List<double> ReceiptPinnedMilliseconds { get; } = new System.Collections.Generic.List<double>();
+        internal static System.Collections.Generic.List<double> ReceiptMarshalledMilliseconds { get; } = new System.Collections.Generic.List<double>();
+        internal static System.Collections.Generic.List<uint> ReceiptComparedCounts { get; } = new System.Collections.Generic.List<uint>();
         private static ulong viewFrame = ulong.MaxValue, readingFrame = ulong.MaxValue;
         private static OniNativeColony.CellView[] views = Array.Empty<OniNativeColony.CellView>();
         private static OniNativeColony.Reading[] readings = Array.Empty<OniNativeColony.Reading>();
@@ -34,15 +37,21 @@ namespace MixedAtmospheres.Oni
         [DllImport("mixed_atmospheres_oni", EntryPoint = "ma_oni_colony_copy_receipts", CallingConvention = CallingConvention.Cdecl)]
         internal static extern int ReceiptsMarshalled([Out] OniNativeColony.Receipt[] output, uint capacity, out uint count);
 
-        internal static void Receipts(OniNativeColony.Receipt[] actual, uint capacity, uint count)
+        internal static void Receipts(OniNativeColony.Receipt[] actual, uint capacity, uint count, long pinnedTicks)
         {
             if (count == 0 ? ReceiptEmptyComparisons >= 64 : ReceiptComparisons >= 128) return;
             if (receipts.Length != actual.Length) receipts = new OniNativeColony.Receipt[actual.Length];
+            var started = System.Diagnostics.Stopwatch.GetTimestamp();
             OniNativeColony.Check(ReceiptsMarshalled(receipts, capacity, out var expectedCount));
+            var marshalledTicks = System.Diagnostics.Stopwatch.GetTimestamp() - started;
             // The owner may append committed outcomes between the two copies.
             // Neither copy acknowledges: the already-returned prefix is stable.
             if (expectedCount < count) throw new InvalidOperationException("Colony receipt prefix disappeared before acknowledgement.");
             Same(actual, receipts, Math.Min(count, capacity));
+            var millisecondsPerTick = 1000.0 / System.Diagnostics.Stopwatch.Frequency;
+            ReceiptPinnedMilliseconds.Add(pinnedTicks * millisecondsPerTick);
+            ReceiptMarshalledMilliseconds.Add(marshalledTicks * millisecondsPerTick);
+            ReceiptComparedCounts.Add(Math.Min(count, capacity));
             if (expectedCount > count) ++ReceiptGrowthComparisons;
             if (count == 0) ++ReceiptEmptyComparisons;
             else { ++ReceiptComparisons; ReceiptEntriesCompared += Math.Min(count, capacity); }

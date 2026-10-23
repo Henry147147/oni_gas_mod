@@ -131,8 +131,10 @@ namespace MixedAtmospheres.Oni
             if (ColonyCopyValidation.UseMarshalledReceipts)
                 return ColonyCopyValidation.ReceiptsMarshalled(receipts, capacity, out count);
             int result;
+            var started = ColonyCopyValidation.ReceiptEnabled ? System.Diagnostics.Stopwatch.GetTimestamp() : 0;
             fixed (Receipt* pointer = receipts) result = CopyReceiptsPinned(pointer, capacity, out count);
-            if (result == 0 && ColonyCopyValidation.ReceiptEnabled) ColonyCopyValidation.Receipts(receipts, capacity, count);
+            if (result == 0 && ColonyCopyValidation.ReceiptEnabled)
+                ColonyCopyValidation.Receipts(receipts, capacity, count, System.Diagnostics.Stopwatch.GetTimestamp() - started);
             return result;
         }
         // Additive precision sidecar; legacy receipt48 remains unchanged.

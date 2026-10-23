@@ -384,6 +384,15 @@ timing or replay of identical inputs is needed to isolate the binding's cost.
 Both games exited cleanly with no retained game process; neither establishes
 the 2× target or an accuracy-floor pass.
 
+A separate F1 diagnostic isolates empty-queue copy calls within the same
+publication. Across 64 byte-control pairs, pinned versus marshalled mean times
+are **0.00123 / 0.25140 ms**, p95 **0.0010 / 0.3187 ms**, and maxima
+**0.0428 / 0.3796 ms**; medians are **0.00050 / 0.23045 ms**. No nonempty
+receipts occurred in that floor run. This supports about **0.250 ms per empty
+receipt publication** of component savings, not an end-to-end speedup. These
+are LOW-lock diagnostics and retain call warm-up; normal timing runs disable
+the byte control and all paired timers.
+
 Submission/completion timing uses independent queued frame identities. ONI can
 submit the next tick before publishing the previous completion, so pairing a
 completion with the latest submission gives invalid latencies. A focused
@@ -693,7 +702,10 @@ Environment variables of the game process (the harness passes them through):
 - `MA_COLONY_RECEIPT_COPY_CONTROL=1`: compare pinned receipt prefixes against
   the previous binding before acknowledgement (up to 128 nonempty and 64 empty
   queues). The owner report records comparison, entry and growth counts. This
-  adds copying and is excluded from speed measurements.
+  adds copying and is excluded from speed measurements. It also records paired
+  native-call durations and compared-prefix sizes. Timing excludes the byte
+  comparison; the two calls share one live queue, with no acknowledgement
+  between them. Queue-lock contention and first-call warm-up remain visible.
 - `MA_COLONY_DUPE_LOG=1`: every 150 owner frames, each duplicant's breath,
   health, calories and stress with the air at its cell and the cell above
   (mass, composition, breathability), and the prepared base's machines.
