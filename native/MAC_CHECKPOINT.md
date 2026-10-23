@@ -114,6 +114,15 @@ current binary has.
 
 ### Version assignment
 
+Version **21 is reserved for the positive-volume game profile** (2026-10-23),
+claimed immediately after fetching `2569eab`. It will save the liquid
+constitutive-law selector and linear iteration caps alongside the existing
+kernel3 settings. Core20 retains the linear law and200-iteration policy,
+unchanged bytes and continuation. No21 writer or new-colony selection is
+active at this reservation. Old dumps remain valid for their saved profile;
+new-profile dumps must be generated after integration.
+
+
 Version **20 is the diagnostic game kernel** (2026-10-23),
 claimed immediately after fetching `ffd80f3`. It persists numerical
 kernel3, game-profile family2 and its numerical settings, with a separate sparse
