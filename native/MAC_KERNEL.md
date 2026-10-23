@@ -304,14 +304,17 @@ dump confirms the saved selector. No faults or skipped relaxations occur.
 
 | Speed | Owner mean / p95 / max ms, profile17 → 18 | Observed mean / p95 / max ms, profile17 → 18 |
 | --- | --- | --- |
-| Fast (2×) | 208.0 / 355.9 / 627.9 → 179.6 / 350.5 / 415.2 | 303.0 / 485.0 / 3030.3 → 274.5 / 425.3 / 2864.6 |
+| Fast (2×) | 208.0 / 355.9 / 627.9 → 175.8 / 390.7 / 471.5 | 303.0 / 485.0 / 3030.3 → 268.9 / 484.0 / 2945.7 |
 | 1× | 218.1 / 378.6 / 451.8 → 186.3 / 357.5 / 500.0 | 321.7 / 526.3 / 3071.0 → 281.5 / 403.4 / 2902.9 |
 
 | Profile18 run | Maximum relative mass / energy error | Trace sink kg / J |
 | --- | --- | --- |
-| fast | 2.9e-16 / 4.54e-17 | 5.361e-08 / 0.01939 |
+| fast | 3.9e-16 / 5.15e-17 | 5.454e-08 / 0.0198 |
 | normal | 3.05e-16 / 5.06e-17 | 5.467e-08 / 0.01982 |
 
+The fast row is a rerun without a dump. The earlier 179.6/274.5 ms fast
+means included a frame50 checkpoint write inside the flow timer and are
+superseded here; the normal row never wrote a dump.
 Observed statistics include the initial UI pause. Neither run meets the fast
 clock target. Floor comparisons and the fresh-base long run remain pending;
 this policy is explicitly selected, not a production-default change. Clean
@@ -320,6 +323,7 @@ diagnostic remain identical apart from timings and the new control PASS line.
 The version18 long-capture endpoints match the preliminary prototype exactly
 after removing only the new saved flag. Rebuild C++ consumers, including the
 private bench driver, against the new headers; package native libraries together.
+
 
 ## Coverage and admission
 
