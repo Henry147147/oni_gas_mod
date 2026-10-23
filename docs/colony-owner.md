@@ -707,6 +707,20 @@ migration, numerical setting change or ten-cycle pass is implied.
 
 Environment variables of the game process (the harness passes them through):
 
+- `MA_COLONY_TRANSFER_DUMP=path`: on an individual fluid-transfer failure,
+  write the exact pre-edit material/world image and a `path.request` sidecar.
+  Both paths must be fresh; existing evidence is never overwritten. The world
+  has the same material-record/timestep/checkpoint framing as flow dumps.
+  The little-endian `MATREQ01` request contains failed frame (u64), actual
+  config flags and topology (u32 each), local cell and registry species (u64),
+  injection and passive-observation flags (u32), binary64 mass and temperature,
+  then passive count (u32) and identity/quantity pairs (u64/binary64).
+  This captures failures before flow, including legacy trace extraction faults.
+  Verify both files and the checkpoint checksum before replay. Capture failure
+  leaves the original owner fault intact. Successful frames do no capture work;
+  physical arithmetic and checkpoint bytes are unchanged. Leave it unset for
+  timing runs. Owner reports also expose actual config flags and maximum step;
+  do not infer a saved profile from a fixture name (pipe controls use flags 1).
 - `MA_COLONY_FAULT_DUMP=path`: on a failing flow step, write the material
   records and the world before that step; the scratch benchmark loads it.
 - `MA_COLONY_DUMP_FRAME=n` (with the path): also write the world before frame

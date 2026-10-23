@@ -3,6 +3,8 @@
 #include "../src/oni_colony.hpp"
 #include "../src/oni_precise_receipt.hpp"
 #include "../src/oni_release_capture.hpp"
+#include "../src/oni_transfer_capture.hpp"
+#include <cstdlib>
 #include "../src/oni_sha256.hpp"
 #include "mixed_atmospheres/mac_kernel.hpp"
 #include <algorithm>
@@ -79,6 +81,47 @@ struct ReceiptReader {
         return static_cast<std::uint32_t>(integer(4));
     }
 };
+void transfer_capture_control() {
+    using namespace ma::oni::colony;
+    const auto path=(std::filesystem::temp_directory_path()/("ma-transfer-control-"+
+        std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()))).string();
+    const char* previous=std::getenv("MA_COLONY_TRANSFER_DUMP");
+    struct Cleanup {
+        std::string path, previous; bool had_previous;
+        ~Cleanup() { stop(); if(had_previous) setenv("MA_COLONY_TRANSFER_DUMP",previous.c_str(),1);
+            else unsetenv("MA_COLONY_TRANSFER_DUMP");
+            std::error_code ignored;
+            std::filesystem::remove(path,ignored); std::filesystem::remove(path+".request",ignored); }
+    } cleanup{path,previous?previous:"",previous!=nullptr};
+    require(setenv("MA_COLONY_TRANSFER_DUMP",path.c_str(),1)==0,"could not set transfer capture path");
+    std::vector<MAOniColonyMaterial> mats{material("Oxygen",11,oxygen,true,.016,1000)};
+    MAOniColonyConfig cfg{}; cfg.struct_size=sizeof(cfg); cfg.abi_version=MA_ONI_COLONY_ABI_VERSION;
+    cfg.vacuum_index=vacuum; cfg.grid_width=cfg.width=3; cfg.grid_height=cfg.height=3; cfg.maximum_timestep_s=.1;
+    std::vector<MAOniColonyCell> cells(9,MAOniColonyCell{0,MA_ONI_COLONY_SOLID,0,0,0,0});
+    cells[4]={oxygen,MA_ONI_COLONY_FLUID,1.2f,300,0,0};
+    start(cfg,mats,cells,1);
+    const MAOniColonyTransfer injection{4,oxygen,MA_ONI_COLONY_INJECT,0,-1,0,1e308,1e308,0};
+    queue_transfers(std::span(&injection,1)); advance(1,.2,2); wait();
+    require(status().state==2,"unrepresentable transfer did not fault for capture control");
+    const auto read=[](const std::string& name) {
+        std::ifstream in(name,std::ios::binary); require(in.good(),"missing failed-transfer evidence");
+        return std::vector<std::uint8_t>(std::istreambuf_iterator<char>(in),{});
+    };
+    const auto image=read(path),request=read(path+".request");
+    ReceiptReader world{image}; require(world.integer(4)==1,"capture material count");
+    require(image.size()>4+sizeof(mats[0])+16 && std::memcmp(image.data()+4,mats.data(),sizeof(mats[0]))==0,"capture material records changed");
+    world.at+=sizeof(mats[0]); require(world.f64()==.2,"capture attempted timestep changed");
+    require(std::memcmp(image.data()+world.at,"MACCLS01",8)==0,"capture lacks replayable physical checkpoint");
+    require(request.size()>=8 && std::memcmp(request.data(),"MATREQ01",8)==0,"capture request magic");
+    ReceiptReader edit{request}; edit.at=8;
+    require(edit.integer(8)==1 && edit.integer(4)==cfg.flags && edit.integer(4)==1,"capture frame/profile/topology changed");
+    require(edit.integer(8)==4 && edit.integer(8)==0 && edit.integer(4)==1 && edit.integer(4)==0,"capture edit identity changed");
+    require(edit.f64()==injection.mass_kg && edit.f64()==injection.temperature_k && edit.integer(4)==0 && edit.at==request.size(),"capture binary64 request changed");
+    ma::experimental::MacFluidTransfer second{4,0,true,1,300};
+    require(!detail::capture_transfer(path.c_str(),mats,{},.1,second,9,3),"capture overwrote existing private evidence");
+    require(read(path)==image && read(path+".request")==request,"capture clobbered first failure");
+    std::cout<<"PASS failed-transfer capture: exact pre-edit checkpoint/request, recorded flags, fresh paths, no clobber\n";
+}
 void precise_receipt_control() {
     using namespace ma::experimental;
     using namespace ma::oni::colony;
@@ -581,6 +624,7 @@ int main(int argc, char** argv) {
         if (argc == 2 && std::strcmp(argv[1], "--timestep-only") == 0) { timestep_control(); return 0; }
         if (argc == 2 && std::strcmp(argv[1], "--projection-only") == 0) { projection_control(); return 0; }
         if (argc == 2 && std::strcmp(argv[1], "--precise-receipts-only") == 0) { precise_receipt_control(); return 0; }
+        if (argc == 2 && std::strcmp(argv[1], "--transfer-capture-only") == 0) { transfer_capture_control(); return 0; }
         if (argc == 2 && std::strcmp(argv[1], "--release-capture-only") == 0) { release_capture_control(); return 0; }
         if (argc == 2 && std::strcmp(argv[1], "--pipe-jobs-only") == 0) { pipe_job_control(); return 0; }
         if (argc == 2 && std::strcmp(argv[1], "--sample-only") == 0) { sample_control(); return 0; }
@@ -589,6 +633,7 @@ int main(int argc, char** argv) {
         if (argc == 2 && std::strcmp(argv[1], "--sample-history-only") == 0) { sample_history_control(); return 0; }
         require(argc == 1, "Usage: ma_oni_colony_tests [--projection-only|--timestep-only|--precise-receipts-only]");
         precise_receipt_control();
+        transfer_capture_control();
         release_capture_control();
         pipe_job_control();
         sample_control();

@@ -6,6 +6,7 @@
 #include "oni_radial_consumption.hpp"
 #include "oni_precise_receipt.hpp"
 #include "oni_release_capture.hpp"
+#include "oni_transfer_capture.hpp"
 #include "oni_sha256.hpp"
 #include "mixed_atmospheres/mac_closed_world.hpp"
 #include "mixed_atmospheres/mac_kernel.hpp"
@@ -1785,6 +1786,14 @@ void run_frame(std::uint64_t ticket, double seconds, const char* refusal, std::u
                     std::string where = " (" + std::string(e.inject ? "injecting " : "extracting ") + std::to_string(e.mass_kg) + " kg " + cat.materials[e.species_index].game.id +
                         " at " + std::to_string(s.config.offset_x + e.cell_index % W) + "," + std::to_string(s.config.offset_y + e.cell_index / W) + " holding";
                     for (std::size_t k = 0; k < m.masses.size(); ++k) if (m.masses[k] > 0) { char b[64]; std::snprintf(b, sizeof b, " %s %.3g", cat.materials[k].game.id.c_str(), m.masses[k]); where += b; }
+                    if (const auto* path=std::getenv("MA_COLONY_TRANSFER_DUMP"); path && *path) {
+                        bool captured=false;
+                        try { const auto image=world.checkpoint(); captured=detail::capture_transfer(path,s.materials,image,seconds,e,s.status.completed_frames+1,s.config.flags); }
+                        catch (...) {}
+                        std::fprintf(stderr,"[Mixed Atmospheres] failed transfer capture %s at frame %llu: %s\n",
+                            captured?"saved":"failed",static_cast<unsigned long long>(s.status.completed_frames+1),path);
+                        std::fflush(stderr);
+                    }
                     throw std::runtime_error(failure + where + ")");
                 }
             }
