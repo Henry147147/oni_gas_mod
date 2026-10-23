@@ -541,7 +541,7 @@ def mod_failure_lines(log: str, identifiers: tuple[str, ...] = ()) -> list[str]:
 
 def classify(mode: str, log: str, probe: dict | None, report: dict | None, timed_out: bool,
              player_exit: int | None = None, identifiers: tuple[str, ...] = (),
-             expected_platform: str = "LinuxPlayer") -> tuple[str, int]:
+             expected_platform: str = "LinuxPlayer", diagnostic_stopped: bool = False) -> tuple[str, int]:
     # Positive evidence of a mod failure outranks the Steam block so it is never
     # hidden; result.json records steam_blocked separately.
     if "[Mixed Atmospheres] Integration probe failed:" in log or "[Mixed Atmospheres] Colony validation failed:" in log:
@@ -554,7 +554,7 @@ def classify(mode: str, log: str, probe: dict | None, report: dict | None, timed
         return "blocked-steam-authentication", 3
     if timed_out:
         return "timeout", 2
-    if player_exit not in (None, 0):
+    if player_exit not in (None, 0) and not diagnostic_stopped:
         return "failed-game-exit", 2
     if not probe_passed(probe, expected_platform):
         return "failed-integration-probe", 2
@@ -564,6 +564,10 @@ def classify(mode: str, log: str, probe: dict | None, report: dict | None, timed
         return "failed-main-menu-contract-export", 2
     if mode == "menu":
         return "passed-scoped-main-menu", 0
+    if diagnostic_stopped:
+        if not report or report.get("Status") == "failed" or report.get("GameStarted") is not True:
+            return "failed-diagnostic-colony-state", 2
+        return "stopped-diagnostic-owner-frame-limit", 0
     if not report or report.get("Status") not in ("passed", "failed"):
         return "missing-completed-colony-report", 2
     if report["Status"] == "failed":
@@ -855,6 +859,10 @@ def playtest(args, state: Path, session: dict) -> int:
         raise ValueError("Completed inspection requires 1..300 seconds, a colony mode and automatic cleanup.")
     if private_display and args.keep_open:
         raise ValueError("A private test display requires automatic game cleanup; omit --keep-open.")
+    owner_limit = getattr(args, "diagnostic_owner_frame_limit", None)
+    if owner_limit is not None and (type(owner_limit) is not int or not 1 <= owner_limit <= 100000 or
+            args.mode not in ("colony-owner", "colony-owner-load") or args.keep_open or inspection_seconds):
+        raise ValueError("Diagnostic owner frame limit requires 1..100000, a colony-owner mode and automatic cleanup without inspection.")
     gpu_display = getattr(args, "gpu_display", None)
     if gpu_display and private_display:
         raise ValueError("--gpu-display and --private-display are alternatives.")
@@ -924,6 +932,8 @@ def playtest(args, state: Path, session: dict) -> int:
         (output / "runtime").mkdir(mode=0o700)
         record = spawn(arguments, output / "console.log", env)
         retain = False
+        stopped_for_limit = False
+        limit_report = None
         try:
             session.update(game=record, game_display=display_record, latest_run=str(output))
             write_json(state / "session.json", session)
@@ -940,6 +950,22 @@ def playtest(args, state: Path, session: dict) -> int:
             menu_seen = completed_seen = None
             inspection_started = None
             while alive(record):
+                if owner_limit is not None:
+                    candidate = None
+                    try: candidate = read_json(colony_file.parent / "colony-owner.json")
+                    except (OSError, ValueError): pass
+                    frame = candidate.get("CompletedFrames") if isinstance(candidate, dict) else None
+                    if type(frame) is int and frame >= owner_limit:
+                        limit_report = candidate
+                        # Stop before screenshot/classification can leave more
+                        # physical frames running. The finalizer stays safe
+                        # if process cleanup itself raises.
+                        stop_process(record)
+                        if process_group_alive(record):
+                            raise RuntimeError("Diagnostic frame stop left game processes alive")
+                        stopped_for_limit = True
+                        break
+
                 # Only the menu gate reads Player.log while running; a long
                 # colony log is read once after the game exits.
                 log = (output / "Player.log").read_text(errors="replace") if args.mode == "menu" and (output / "Player.log").exists() else ""
@@ -982,13 +1008,19 @@ def playtest(args, state: Path, session: dict) -> int:
                 if time.monotonic() >= deadline:
                     timed_out = True
                     break
-                time.sleep(1)
+                time.sleep(.05 if owner_limit is not None else 1)
             screenshot(state, screen, output / "desktop-final.png")
             probe = read_json(probe_file) if probe_file.exists() else None
             report = read_json(colony_file) if colony_file.exists() else None
             log = (output / "Player.log").read_text(errors="replace") if (output / "Player.log").exists() else ""
             player_exit = CHILDREN[record["pid"]].poll()
-            status, code = classify(args.mode, log, probe, report, timed_out, player_exit, (mod_id,))
+            status, code = classify(args.mode, log, probe, report, timed_out, player_exit, (mod_id,), diagnostic_stopped=stopped_for_limit)
+            final_owner_report = limit_report
+            if stopped_for_limit:
+                try: final_owner_report = read_json(colony_file.parent / "colony-owner.json")
+                except (OSError, ValueError): pass
+                if final_owner_report.get("Error") or final_owner_report.get("State", 1) != 1:
+                    status, code = "failed-diagnostic-owner-state", 2
             observer_file = mod / "native-backend-observation-report.json"
             try:
                 observer_report = read_json(observer_file) if observer_file.exists() else None
@@ -1027,16 +1059,22 @@ def playtest(args, state: Path, session: dict) -> int:
                     reload_in_process=bool(getattr(args,"reload_in_process",False)))
                 if code == 0 and not domain_ok:
                     status, code = "failed-native-domain", 2
-            elif code == 0 and not observer_ok:
+            elif code == 0 and not observer_ok and not stopped_for_limit:
                 status, code = "failed-native-observer", 2
             telemetry = telemetry_summary(telemetry_file) if long_run else None
             telemetry_ok = long_run and long_run_telemetry_passed(telemetry, report)
-            if code == 0 and long_run and not telemetry_ok:
+            if code == 0 and long_run and not telemetry_ok and not stopped_for_limit:
                 status, code = "failed-long-run-telemetry", 2
             retain_on_success = args.keep_open and code == 0
             result = {
                 "status": status, "exit_code": code, "mode": args.mode, "output": str(output), "mod_id": mod_id,
                 "observed_player_exit_code": player_exit, "timed_out": timed_out,
+                "diagnostic_owner_frame_limit": owner_limit,
+                "diagnostic_owner_frame_limit_hit": stopped_for_limit,
+                "diagnostic_game_cleanup_verified": True if stopped_for_limit else None,
+                "diagnostic_first_observed_owner_frame": limit_report.get("CompletedFrames") if limit_report else None,
+                "diagnostic_final_owner_frame": final_owner_report.get("CompletedFrames") if final_owner_report else None,
+                "diagnostic_owner_frame_overshoot": max(0, final_owner_report.get("CompletedFrames", 0) - owner_limit) if stopped_for_limit else None,
                 "platform": "native Linux", "display": screen["display"], "steam_display": session["display"],
                 "private_display": private_display, "private_display_process": display_record, "software_rendering": not gpu_display,
                 "renderer": player_renderer(output),
@@ -1068,7 +1106,7 @@ def playtest(args, state: Path, session: dict) -> int:
             print(f"{status}: {output / 'result.json'}")
             return_code = code
         finally:
-            if not retain:
+            if not retain and not stopped_for_limit:
                 stop_process(record)
 
     if private_display:
@@ -1093,6 +1131,8 @@ def main() -> int:
     play.add_argument("--mode", choices=("menu", "presentation", "tile-hover", "snapshot-copy", "native-observer", "colony-owner", "colony-owner-load", "native-configured-domain", "native-configured-water-domain", "native-configured-vacuum-domain", "native-domain", "native-solid-heat-domain", "native-mixed-domain", "native-mixed-heat-domain", "native-viscous-domain", "native-import-domain", "native-liquid-import-domain", "native-liquid-domain", "native-liquid-transfer-domain", "native-heat-domain", "native-liquid-heat-domain", "native-transfer-domain", "native-radius-domain", "native-rectangular-domain", "native-actor-domain", "native-liquid-actor-domain", "native-carbon-domain", "native-carbon-particle-domain", "native-breathing-read-domain", "native-pressure-read-domain", "native-liquid-pressure-read-domain", "native-conduction-domain", "native-gravity-domain", "native-liquid-gravity-domain", "native-checkpoint-domain", "native-paired-checkpoint-domain", "native-save-domain", "native-load-domain", "load-rejection", "colony-vanilla"), default="menu")
     play.add_argument("--frames", type=int, metavar="1..10000 (1..100000 with --long-run)",
                       help="Native frames to complete (default 30, or 30000 = ten ONI cycles with --long-run)")
+    play.add_argument("--diagnostic-owner-frame-limit", type=int, metavar="1..100000",
+                      help="Stop the owned game at the first observed absolute owner counter at/above this value; records a diagnostic stop, not scenario acceptance")
     play.add_argument("--timeout", type=int, metavar="30..7200 (30..172800 with --long-run)",
                       help="Game-side validation limit in seconds (default 600, or 172800 = 48 h with --long-run)")
     play.add_argument("--long-run", action="store_true",

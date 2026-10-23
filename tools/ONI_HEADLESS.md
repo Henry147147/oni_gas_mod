@@ -434,3 +434,21 @@ Software rendering cannot certify accelerated GPU compatibility or
 representative GPU performance. Game-scale performance, the DLC matrix and a
 ten-cycle colony remain open; the mod's unfinished gates are in
 [implementation status](../docs/implementation-status.md).
+
+## Bounded owner diagnostics
+
+Named scenarios finish at their own fixed acceptance endpoint; `--frames`
+does not shorten that endpoint. To inspect only an initial segment, use
+`--diagnostic-owner-frame-limit 40` with `colony-owner` or `colony-owner-load`.
+The limit is an absolute completed-owner counter, including restored frames.
+The host stops its owned game process at the first observed counter at or above
+the limit, verifies process-group cleanup before capturing/classifying, and
+writes `stopped-diagnostic-owner-frame-limit`, not a scenario acceptance pass.
+Real owner/runtime/probe faults still fail. Retained games and completed-scene
+inspection cannot be combined with this option.
+
+This is an observed stop, not an exact physical-step cap: publication and
+shutdown can overshoot. `result.json` records the requested limit, first
+observed counter, final reported counter, overshoot and cleanup verification.
+Report those facts; do not describe a truncated scenario as a passed check or
+use its timings as completed-scenario acceptance.

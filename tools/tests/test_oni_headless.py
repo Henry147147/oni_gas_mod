@@ -23,6 +23,7 @@ if not sys.platform.startswith("linux"):
 SPEC = importlib.util.spec_from_file_location("oni_headless", Path(__file__).parents[1] / "oni_headless.py")
 runner = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(runner)
+classify_original = runner.classify
 import oni_native_domain_evidence as domain_evidence
 
 
@@ -1793,7 +1794,7 @@ def _mock_playtest_case(failure=None, outcome=("passed-scoped-main-menu", 0)):
         state.mkdir()
         output = root / "evidence"
         args = mock.Mock(package=package, game_dir=game, output=output, mode="menu",
-                         frames=1, timeout=30, keep_open=True, inspection_seconds=0, load_save=None, mod_id=None, save_colony=False, resave_before_resume=False)
+                         frames=1, timeout=30, keep_open=True, inspection_seconds=0, load_save=None, mod_id=None, save_colony=False, resave_before_resume=False, diagnostic_owner_frame_limit=None)
         steam = {"unit_role": "steam"}
         xvfb = {"unit_role": "xvfb"}
         session = {"steam": steam, "xvfb": xvfb, "display": ":unit"}
@@ -1950,6 +1951,56 @@ class LaunchLifetimeTests(unittest.TestCase):
                 else:
                     cleanup.assert_called_once_with(record)
                     self.assertLess(events.index("write:result.json"), events.index("cleanup"))
+
+
+class DiagnosticOwnerLimitTests(unittest.TestCase):
+    def test_named_scenario_stops_before_screenshot_and_writes_non_acceptance_receipt(self):
+        for owner_fault, cleanup_fails in ((False, False), (True, False), (False, True)):
+            with _mock_playtest_case() as (args,state,session,record,events,writes,cleanup):
+                args.mode="colony-owner";args.keep_open=False;args.scenario="mixed-pipe-thermal"
+                args.diagnostic_owner_frame_limit=40
+                runner.verify_package.return_value={"unit":"manifest","native_observer_enabled":True}
+                original_spawn=runner.spawn.side_effect
+                stopped=False
+                def spawn(*values):
+                    result=original_spawn(*values)
+                    mod=next(path.parent for path,value in writes if path.name=="colony-validation.json")
+                    evidence=mod/"game-contract-local/colony-validation";evidence.mkdir(parents=True)
+                    (evidence/"colony-owner.json").write_text(json.dumps({"CompletedFrames":41,"State":2 if owner_fault else 1,"Error":"real fault" if owner_fault else ""}))
+                    (evidence/"colony-validation.json").write_text(json.dumps({"Status":"pending","GameStarted":True}))
+                    (mod/"integration-probe.json").write_text(json.dumps({**{key:True for key in runner.PROBE_FLAGS},"Platform":"LinuxPlayer"}))
+                    (args.output/"Player.log").write_text(runner.MAIN_MENU_MARKER+"\n"+runner.EXPORT_DONE_MARKER+"\n")
+                    return result
+                def stop(value):
+                    nonlocal stopped
+                    events.append("cleanup")
+                    if cleanup_fails and cleanup.call_count == 1:
+                        raise OSError("unit first diagnostic cleanup failed")
+                    stopped=True
+                runner.spawn.side_effect=spawn;cleanup.side_effect=stop
+                runner.screenshot.side_effect=lambda *unused:events.append("screenshot")
+                with mock.patch.object(runner,"alive",side_effect=lambda value:value is session["steam"] or value is session["xvfb"] or value is record and not stopped), mock.patch.object(runner,"classify",side_effect=classify_original):
+                    if cleanup_fails:
+                        with self.assertRaises(OSError):runner.playtest(args,state,session)
+                        self.assertEqual(cleanup.call_count,2)
+                        self.assertFalse(any(path.name=="result.json" for path,value in writes))
+                        continue
+                    code=runner.playtest(args,state,session)
+                receipt=next(value for path,value in writes if path.name=="result.json")
+                self.assertEqual(code,2 if owner_fault else 0)
+                self.assertEqual(receipt["status"],"failed-diagnostic-owner-state" if owner_fault else "stopped-diagnostic-owner-frame-limit")
+                self.assertEqual((receipt["diagnostic_owner_frame_limit_hit"],receipt["diagnostic_final_owner_frame"],receipt["diagnostic_owner_frame_overshoot"]),(True,41,1))
+                self.assertFalse(receipt["full_mod_completion_verified"])
+                self.assertTrue(receipt["diagnostic_game_cleanup_verified"])
+                self.assertLess(events.index("cleanup"),events.index("screenshot"))
+                cleanup.assert_called_once_with(record)
+
+    def test_invalid_or_retained_limits_refuse_before_launch(self):
+        for value,mode,keep in ((0,"colony-owner",False),(True,"colony-owner",False),(40,"menu",False),(40,"colony-owner",True)):
+            with _mock_playtest_case() as (args,state,session,record,events,writes,cleanup):
+                args.diagnostic_owner_frame_limit=value;args.mode=mode;args.keep_open=keep
+                with self.assertRaises(ValueError):runner.playtest(args,state,session)
+                self.assertNotIn("spawn",events)
 
 
 class SpawnLifetimeTests(unittest.TestCase):
