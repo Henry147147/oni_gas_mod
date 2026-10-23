@@ -21,6 +21,7 @@ namespace MixedAtmospheres.Oni
         [DllImport("SimDLL", EntryPoint = "SIM_EndSave")] private static extern void EndSave();
         private static (OniNativeColony.Config config, byte[] image)? pending;
         internal static int Saves { get; private set; }
+        internal static ulong LastSavedFrame { get; private set; }
         internal static int Loads { get; private set; }
 
         private static byte[] CatalogueHash(OniNativeColony.Material[] materials)
@@ -45,14 +46,15 @@ namespace MixedAtmospheres.Oni
             int size; byte* data = BeginSave(&size, offsetX, offsetY); byte[] native;
             try { native = new ReadOnlySpan<byte>(data, size).ToArray(); } finally { EndSave(); }
             var image = ColonyOwner.Checkpoint();
+            var completedFrame = ColonyCheckpointMetadata.CompletedFrames(image);
             var config = ConfigBytes(ColonyOwner.Config);
             // Pipe ownership is not enabled until its full runtime is ready.
             // A null pipe image writes the exact historical MACOLP01 bytes.
             var payload = ColonyPipePayload.Encode(config, image, null);
-            var envelope = ColonySaveEnvelope.Create(OniBuild, MaterialModel, ColonyOwner.Status.CompletedFrames,
+            var envelope = ColonySaveEnvelope.Create(OniBuild, MaterialModel, completedFrame,
                 CatalogueHash(ColonyOwner.Materials), native, payload);
-            envelope.WriteLengthPrefixed(writer); ++Saves;
-            UnityEngine.Debug.Log($"[Mixed Atmospheres] Colony saved at owner frame {ColonyOwner.Status.CompletedFrames} ({envelope.EncodedLength} bytes).");
+            envelope.WriteLengthPrefixed(writer); ++Saves; LastSavedFrame=completedFrame;
+            UnityEngine.Debug.Log($"[Mixed Atmospheres] Colony saved at owner frame {completedFrame} ({envelope.EncodedLength} bytes).");
             return true;
         }
 

@@ -116,8 +116,8 @@ namespace MixedAtmospheres.Oni
             if ((configuration.Mode == "load-rejection") != configuration.PrivateOwnedLoadRejection ||
                 (configuration.Mode == "load-rejection" && (configuration.IdleReservoirLeaseOnly || fileProtocolHash.Length != 0)))
                 throw new InvalidDataException("Private load rejection validation requires its explicit flag and a separate native-only colony.");
-            if (configuration.SaveOnComplete && configuration.Mode != "colony-owner" && (!NativeSealedDomainValidation.IsMode || NativeSealedDomainValidation.ColonyRestoreMode))
-                throw new InvalidDataException("SaveOnComplete requires an initial native domain validation scene.");
+            if (configuration.SaveOnComplete && configuration.Mode != "colony-owner" && configuration.Mode != "colony-owner-load" && (!NativeSealedDomainValidation.IsMode || NativeSealedDomainValidation.ColonyRestoreMode))
+                throw new InvalidDataException("SaveOnComplete requires a colony owner or an initial native domain validation scene.");
             if (configuration.SaveBeforeResume && !NativeSealedDomainValidation.ColonyRestoreMode)
                 throw new InvalidDataException("SaveBeforeResume requires an admitted saved-colony validation scene.");
             if (configuration.VerifySaveIoRecovery && (configuration.Mode!="native-save-domain" || configuration.CompletedFrames<16))
@@ -469,12 +469,12 @@ namespace MixedAtmospheres.Oni
                 if (configuration.OverwriteSave && Report.FirstColonySaveFrame == 0 &&
                     status.CompletedFrames >= colonyOwnerBaseline + (ulong)configuration.CompletedFrames / 2)
                 {
-                    SaveColony(); Report.FirstColonySaveFrame = status.CompletedFrames; Report.ColonySavePath = "";
+                    SaveColony(); Report.FirstColonySaveFrame = ColonyOwnerPersistence.LastSavedFrame; Report.ColonySavePath = "";
                 }
                 if (Time.frameCount % 60 == 0) WriteReport();
                 return;
             }
-            if (configuration.SaveOnComplete && Report.ColonySavePath.Length == 0) { SaveColony(); Report.ColonySaveFrame = status.CompletedFrames; }
+            if (configuration.SaveOnComplete && Report.ColonySavePath.Length == 0) { SaveColony(); Report.ColonySaveFrame = ColonyOwnerPersistence.LastSavedFrame; }
             Report.Status = "passed"; Report.Stage = "completed";
             Report.ActiveDlcIds = SaveLoader.Instance.GameInfo.dlcIds.ToArray();
             Report.FinishedUtc = System.DateTime.UtcNow.ToString("O");

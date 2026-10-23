@@ -30,6 +30,27 @@ internal static unsafe class Program
     [MethodImpl(MethodImplOptions.NoInlining)]
     private static int Run(bool benchmark)
     {
+        Test("save frame metadata follows durable image across reservoir and trace framing", () =>
+        {
+            const ulong durable=0x100000002;
+            foreach(var version in new uint[]{6,7,8})
+            {
+                using var stream=new MemoryStream();using var writer=new BinaryWriter(stream);
+                writer.Write(System.Text.Encoding.ASCII.GetBytes("MACOLN01"));writer.Write(version);writer.Write(new byte[56]);
+                writer.Write(2u);writer.Write(new byte[2*168]);writer.Write(9u);writer.Write(new byte[9]);
+                writer.Write(9u);writer.Write(new byte[9]);writer.Write(3u);writer.Write(new byte[3*32]);
+                writer.Write(new byte[(version>=7?6*2+8:5*2+5)*16]);if(version>=7)writer.Write(new byte[16]);
+                writer.Write(durable);var image=stream.ToArray();
+                Check(ColonyCheckpointMetadata.CompletedFrames(image)==durable);
+                foreach(var length in new[]{0,8,12,68,image.Length-1})
+                {
+                    var rejected=false;try{ColonyCheckpointMetadata.CompletedFrames(image.AsSpan(0,length));}catch(InvalidDataException){rejected=true;}
+                    Check(rejected);
+                }
+                var corrupt=(byte[])image.Clone();BinaryPrimitives.WriteUInt32LittleEndian(corrupt.AsSpan(68,4),uint.MaxValue);
+                var refused=false;try{ColonyCheckpointMetadata.CompletedFrames(corrupt);}catch(InvalidDataException){refused=true;}Check(refused);
+            }
+        });
         Test("report readers see complete replacements and failed writes preserve the last report", () =>
         {
             var directory=Path.Combine(Path.GetTempPath(),"ma-report-"+Guid.NewGuid().ToString("N"));
