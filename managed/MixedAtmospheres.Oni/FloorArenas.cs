@@ -25,7 +25,7 @@ namespace MixedAtmospheres.Oni
 
         internal static string Id { get; private set; } = "";
         private static long ticks;
-        private static long built = -1, filled = -1, locked = -1, commanded = -1, opened = -1, release = -1;
+        private static long cleared = -1, built = -1, filled = -1, locked = -1, commanded = -1, opened = -1, release = -1;
         private static double releasedAt = -1, simulatedAt = -1; // game clock and simulated time at release, s
         private static int width, height, x0, y0;
         private static Door? door;
@@ -37,7 +37,7 @@ namespace MixedAtmospheres.Oni
         internal static void Configure(string id, string directory)
         {
             if (Array.IndexOf(Ids, id) < 0) throw new ArgumentException("Unknown floor arena " + id);
-            Id = id; output = directory; ticks = 0; built = filled = locked = commanded = opened = release = -1; releasedAt = -1;
+            Id = id; output = directory; ticks = 0; cleared = built = filled = locked = commanded = opened = release = -1; releasedAt = -1;
             door = null; simulated = 0; seen.Clear(); placed.Clear(); samples?.Dispose(); samples = null;
             (width, height) = id switch { "f1" or "f2" => (19, 10), "f3" => (22, 14), "f4" => (7, 4), _ => (10, 14) };
         }
@@ -97,10 +97,19 @@ namespace MixedAtmospheres.Oni
         internal static bool Update()
         {
             if (Id.Length == 0) return false;
-            if (built < 0)
+            // The world's objects go two ticks before the arena is built: ONI
+            // removes them at the end of a frame, and a replacement in a cell
+            // they still occupy did not take (a divider cell stayed open).
+            if (cleared < 0)
             {
                 if (ticks < 2) return false;
-                Anchor(); Build(); built = ticks; return false;
+                Anchor(); placed["removed_objects"] = Clear(x0, y0, width, height, out var duplicants, "floor arena cleared");
+                placed["duplicants_inside"] = duplicants; cleared = ticks; return false;
+            }
+            if (built < 0)
+            {
+                if (ticks < cleared + 2) return false;
+                Build(); built = ticks; return false;
             }
             if (filled < 0)
             {
@@ -198,7 +207,6 @@ namespace MixedAtmospheres.Oni
         // (they kept their own temperature and exchanged heat with the gas).
         private static void Build()
         {
-            placed["removed_objects"] = Clear(x0, y0, width, height, out var duplicants, "floor arena cleared"); placed["duplicants_inside"] = duplicants;
             for (var y = 0; y < height; ++y)
                 for (var x = 0; x < width; ++x)
                 {
@@ -287,7 +295,7 @@ namespace MixedAtmospheres.Oni
                 ["cells"] = "interior, rows y=1..height-2, x=1..width-2; per cell: constituent count, (element index, kg) each, temperature K",
                 ["elements"] = seen.ToDictionary(e => e.Key.ToString(CultureInfo.InvariantCulture), e => (object)e.Value),
                 ["placed"] = placed,
-                ["ticks"] = new Dictionary<string, long> { ["built"] = built, ["filled"] = filled, ["locked"] = locked, ["commanded"] = commanded,
+                ["ticks"] = new Dictionary<string, long> { ["cleared"] = cleared, ["built"] = built, ["filled"] = filled, ["locked"] = locked, ["commanded"] = commanded,
                     ["opened"] = opened, ["release"] = release, ["last"] = release + Duration },
                 // Under the owner: its ledgers and the profile's trace sink, whole colony.
                 ["owner"] = ColonyOwner.Active ? (object)new Dictionary<string, object>
