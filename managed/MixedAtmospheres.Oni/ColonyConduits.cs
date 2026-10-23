@@ -128,6 +128,7 @@ namespace MixedAtmospheres.Oni
         {
             ColonyPipeThermalProbe.Reset();
             ColonyGermEvolutionProbe.Reset();
+            ColonyPipeBiology.Reset();
             ColonyValveControl.Reset();
             Active=false;Flows.Clear();Materials.Clear();NativeElements.Clear();NativeIndices.Clear();DiseaseExchange.Clear();initial=supplied=removed=PipeInventory.Empty;heat=default;projecting=0;controlSeeding=false;transferScope=null;
             ColonyPipePorts.Reset();MixtureInspection.SetPipeReader(null);
@@ -250,6 +251,19 @@ namespace MixedAtmospheres.Oni
         {
             foreach(var change in changes)
             {DiseaseExchange.TryGetValue(change.Id,out var before);DiseaseExchange[change.Id]=before.Plus(change.Amount);}
+        }
+        internal static IEnumerable<(ConduitFlow Flow,int Cell,PipeInventory Inventory)> BiologicalCells()
+        {
+            foreach(var flow in Flows)
+                for(var index=0;index<flow.Value.Cells.Length;++index)
+                    if(flow.Value.Cells[index] is Cell cell&&cell.Inventory.Count>0&&flow.Key.HasConduit(index))
+                    {SyncNative(flow.Key,index);yield return(flow.Key,index,cell.Inventory);}
+        }
+        internal static void CommitBiology(ConduitFlow flow,int index,PipeInventory inventory,IEnumerable<PipePart> changes)
+        {
+            var cell=Ensure(flow,index);cell.Inventory=inventory;
+            lock(Accounts)BookGermExchange(changes);
+            Publish(flow,index);
         }
         private static void Publish(ConduitFlow flow,int index,MassPublication mode=MassPublication.Staged)
         {

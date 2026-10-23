@@ -750,6 +750,79 @@ declaration test checks all targets and the direct guard; executing patched
 public I/O is confined to this actual-game control because the game's bundled
 Harmony cannot patch inside the .NET 10 runner (removed BinaryFormatter API).
 
+## All-ID biology control (not production or saved runtime)
+
+Before measuring `mixed-pipe-all-germs`, fix the setup: the same 8x6 oxygen
+arena, isolated gas conduits at (1,3), (3,3), (5,3), (6,3), and liquid at
+(3,4), constructed at stage5. At stage10 activate owned pipes and seed:
+
+- gas (1,3): 0.5 kg O2/280 K, 16777219 food germs;
+- gas (3,3): 0.25 kg O2 + 0.25 kg polluted O2/293.15 K;
+- gas (5,3): 0.5 kg O2/280 K, food population `1e30 + 1e-240` and
+  slimelung `1e-240`;
+- gas (6,3): 0.5 kg O2/900 K, one slimelung;
+- liquid (3,4): 0.5 kg water + 0.5 kg polluted water/293.15 K.
+
+Both mixed-medium cells carry every actual native database disease ID with
+population `1000.25 + 0.125*ID`. Every ID owns a separate clock and birth/death
+account on the original native disease-manager cadence. Cells outside ownership
+still run the original updater. One-material/one-ID integer cultures retain the
+actual captured native mass, cached growth descriptor, current native
+temperature and binary32 event residue. The single O2 culture is compared on
+every update against a separate original-native manager with copied initial
+culture data and the same read-only temperature handle.
+
+For mixtures, sum public per-material effects in native ordinal order weighted
+by mass fraction; apply the temperature effect once per identity. Fractional or
+wide populations enter expected-population mode until extinction. That mode
+uses public density cutoffs and half-life factors directly: under-population
+death is an absolute rate, while normal/over-population changes are proportional
+to the exact expansion population. Native pending residue is booked as an
+actual change on mode transition. Every actual positive/negative change is a
+per-ID birth/death; deaths stop at the available population. Unrepresentable
+birth overflow refuses without changing the caller's population. No trace is
+deleted through a projected dominant germ. Count/mass scaling was considered
+but rejected before adoption because absolute under-population death would
+change under that scaling.
+
+At stage80 require at least20 independent original-native comparisons with zero
+count/ID/residue mismatches, at least20 native cadence ticks and40 expected-mode
+updates, a measured biological change for each database ID, wide food count
+above int.MaxValue and below1e30, positive slimelung below1e-240, hot-cell
+extinction and exact all-ID/mass/heat audit closure. Also compare the expected
+material RHS against the original public equation for every database ID, four
+materials, masses0/0.5/5 kg and counts1/1000/1000000: error at most
+max(1e-9,1.3e-7*abs(native RHS)). Stage80/hostcap110 stay fixed. Full runtime
+persistence, biology in component storage/particles and production activation
+remain gated; this control does not claim those acceptances.
+
+The first actual run passes **9/9 at81 frames**: 70 native cadence ticks,
+70 independent original-native single-culture matches, all four database IDs,
+144 public material-RHS checks (maximum absolute difference 0.0002784729,
+within the fixed relative bound), 700 expected-population updates and exact
+per-ID/mass/U audits. Wide food ends at9.6817040902771413e29 and minority
+slimelung at1.4164164042483473e-241. All four IDs have measured deaths; the
+hot integer culture extinguishes. Fresh pipe cultures retain native captured
+mass0, so this run has no births; the separate positive-mass native oracle
+above covers that branch. No native fault, sink zero, M/E4.501e-16/3.694e-17,
+cleanup verified. LOW owner mean/p95/max183.936/225.821/325.855ms, observed
+276.310/324.904/4613.815ms (81/80samples, no gaps), diagnostic only.
+
+The follow-up also passes9/9 with the activation boundary pin enabled under
+Mono. Game.StepTheSim runs disease before gas/liquid flow updates; the preceding
+conduit jobs return only after the native JobManager worker wait (or inline
+serial completion). Five inspected method-body hashes pin this supported
+synchronous boundary before any row masking is enabled. Independent original
+count/ID/residue comparisons stay70/70; all biological totals above are
+unchanged. Optional `MA_COLONY_PIPE_BIOLOGY_TIMING=1` reports capture6.381119ms
+and commit0.462489ms mean per native tick for five cells, including fixture
+oracle work and cold compilation. This is a profiling baseline, not a speed
+gain. Timers are disabled by default. Follow-up owner189.181/224.234/260.564ms,
+observed271.504/339.701/3236.779ms (81/80samples, no gaps),
+M/E4.100e-16/4.828e-17, sink zero, no fault and verified cleanup. Release,
+nine pure groups, eleven installed-declaration/direct groups,216snapshot and
+326Python checks (four skips) pass before rebase.
+
 ## Precise owner receipts
 
 The optional native adapter exports `ma_oni_colony_enable_precise_receipts`,

@@ -234,9 +234,10 @@ namespace MixedAtmospheres.Oni
         }
         internal PipeInventory WithHeat(double heat) => parts.Length == 0 && heat != 0
             ? throw new InvalidOperationException("Cannot heat an empty pipe.") : new PipeInventory(parts, Energy.Plus(new PipeAmount(heat)), germs);
-        internal PipeInventory WithDiseaseDelta(int id, double delta)
+        internal PipeInventory WithDiseaseDelta(int id, double delta)=>WithDiseaseDelta(id,new PipeAmount(delta));
+        internal PipeInventory WithDiseaseDelta(int id, PipeAmount delta)
         {
-            var changes = new[] { new PipePart(id, new PipeAmount(delta)) };
+            var changes = new[] { new PipePart(id, delta) };
             return new PipeInventory(parts, Energy, Join(germs, changes, false));
         }
         internal PipeInventory Joined(PipeInventory other)

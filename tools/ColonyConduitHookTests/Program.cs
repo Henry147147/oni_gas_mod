@@ -28,6 +28,11 @@ internal static class Program
             cultureAllocate.GetParameters()[1].ParameterType==typeof(ConduitFlow.ConduitContents).MakeByRefType(),
             "Native culture allocation bound an inherited generic overload instead of the actual two-argument allocator.");
         Console.WriteLine("PASS native germ oracle binding: declared allocator uses original temperature handle and by-ref contents, excluding inherited overloads");
+        var biology=assembly.GetType("MixedAtmospheres.Oni.ColonyPipeBiology")!;
+        var scheduling=(string)biology.GetMethod("SchedulingSignature",BindingFlags.Static|BindingFlags.NonPublic)!.Invoke(null,null)!;
+        Check(scheduling==(string)biology.GetField("ExpectedSchedulingSignature",BindingFlags.Static|BindingFlags.NonPublic)!.GetRawConstantValue()!,
+            "Pipe worker scheduling changed: the supported game must join prior conduit jobs and run disease updates before the next gas/liquid flows.");
+        Console.WriteLine("PASS native biology scheduling: inspected synchronous StepTheSim/flow/job/disease bodies match the supported worker-join boundary");
         var hook=assembly.GetType("MixedAtmospheres.Oni.ColonyMixedPipeFlowPatch")!;
         var transpiler=hook.GetMethod("Transpiler",BindingFlags.NonPublic|BindingFlags.Static)!;
         var original=AccessTools.Method(typeof(ConduitFlow),"UpdateConduit");
