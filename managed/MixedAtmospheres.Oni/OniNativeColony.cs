@@ -106,6 +106,15 @@ namespace MixedAtmospheres.Oni
             if (result == 0 && ColonyCopyValidation.Enabled) ColonyCopyValidation.Views(status, views, capacity);
             return result;
         }
+        [DllImport(Library, EntryPoint = "ma_oni_colony_copy_changed", CallingConvention = CallingConvention.Cdecl)]
+        private static unsafe extern int CopyChangedPinned(ulong session, ulong frame, ref Status status, CellView* views, uint capacity, out uint copied);
+        internal static unsafe int CopyChanged(ulong session, ulong frame, ref Status status, CellView[] views, out bool copied)
+        {
+            uint changed; int result;
+            fixed (CellView* pointer = views)
+                result = CopyChangedPinned(session, frame, ref status, pointer, (uint)views.Length, out changed);
+            copied = changed != 0; return result;
+        }
         [DllImport(Library, EntryPoint = "ma_oni_colony_composition", CallingConvention = CallingConvention.Cdecl)]
         internal static extern int Composition(uint cell, [Out] uint[] indices, [Out] double[] masses, uint capacity, out uint count);
         [DllImport(Library, EntryPoint = "ma_oni_colony_queue_transfers", CallingConvention = CallingConvention.Cdecl)]

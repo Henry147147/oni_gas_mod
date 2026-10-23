@@ -320,6 +320,20 @@ Per publication, views/snapshot/overlay/receipts average
 the solver; these costs must not be added directly to the observed spacing.
 The clock calculation itself offers little scope for a large speed gain.
 
+Fluid-view copies reuse the immutable native publication when its session and
+completed frame have not changed. Status still refreshes, including live native
+heat/mass exchanges; snapshots, overlays, receipts, actors and presentation run
+on every publication. New buffers and restored sessions force a full copy. An
+optional older native library retains the complete-copy path. A profile-18
+Terra60 control compared 455 publications byte for byte with complete copies:
+61 copies and 394 cache hits, with no changed-frame comparisons or mismatches.
+There were no faults or skipped relaxations; maximum relative mass/energy errors
+were 4.30e-16 / 4.88e-17, and the trace sink held 5.380e-8 kg / 0.019311 J.
+This LOW-lock diagnostic establishes copy equivalence, not a frame-time gain.
+Native controls also cover unchanged-buffer guards, live exchanges, new frames,
+restored sessions and byte-exact checkpoint continuation. No physical arithmetic,
+saved profile or checkpoint bytes change.
+
 Submission/completion timing uses independent queued frame identities. ONI can
 submit the next tick before publishing the previous completion, so pairing a
 completion with the latest submission gives invalid latencies. A focused
@@ -617,6 +631,13 @@ Environment variables of the game process (the harness passes them through):
   with the same package and physical profile. Otherwise blittable output
   arrays stay pinned for the duration of the native copy. This changes no
   solver setting or saved data.
+- `MA_COLONY_UNCACHED_VIEWS=1`: benchmark complete fluid-view copies on every
+  publication with the same package and saved physical profile. Status and all
+  other publication work run in either mode.
+- `MA_COLONY_VIEW_CACHE_CONTROL=1`: compare reused views with a complete copy,
+  byte for byte on matching native session/frame pairs (up to 512 comparisons).
+  `colony-owner.json` records copy, hit, comparison and changed-frame counts.
+  This adds copying and is excluded from speed measurements.
 - `MA_COLONY_DUPE_LOG=1`: every 150 owner frames, each duplicant's breath,
   health, calories and stress with the air at its cell and the cell above
   (mass, composition, breathability), and the prepared base's machines.

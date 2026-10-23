@@ -425,6 +425,8 @@ namespace MixedAtmospheres.Oni
                 PresentationBuildMilliseconds = ColonyPresentation.LastBuildMilliseconds, PresentationCopyMilliseconds = ColonyPresentation.CopyMilliseconds,
                 ColonyOwner.PublicationMilliseconds, ColonyOwner.MaximumPublicationMilliseconds, PresentationError = ColonyPresentation.LastError,
                 ColonyCopyValidation.ViewComparisons, ColonyCopyValidation.ReadingComparisons, CopyControlChangedFrames = ColonyCopyValidation.ChangedFrames,
+                ViewCopies = ColonyViewCache.Copies, ViewCacheHits = ColonyViewCache.Hits,
+                ViewCacheComparisons = ColonyViewCache.Comparisons, ViewCacheChangedDuringComparison = ColonyViewCache.ChangedDuringComparison,
                 PresentationRevision = MixturePresentationRuntime.CurrentRevision, RendererTextureWrites = MixtureWorldRendering.TextureWrites,
                 RendererError = MixtureWorldRendering.LastError,
                 BlockedMilliseconds = ColonyOwner.BlockedMilliseconds.ToDictionary(item => item.Key.ToString(), item => item.Value),

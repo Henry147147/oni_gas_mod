@@ -17,6 +17,11 @@ static void require(bool condition,const char* message) {
 int main() {
     try {
         require(ma_oni_colony_precise_receipt_version()==2,"precise receipt observation capability");
+        std::uint32_t copied_views=123; MAOniColonyStatus cached_status{}; cached_status.struct_size=sizeof(cached_status); cached_status.abi_version=1;
+        const auto held_cached_status=cached_status;
+        require(ma_oni_colony_copy_changed(0,0,&cached_status,nullptr,0,nullptr)==MA_ONI_INVALID_ARGUMENT &&
+            ma_oni_colony_copy_changed(0,0,&cached_status,nullptr,0,&copied_views)==MA_ONI_INVALID_ARGUMENT && copied_views==123 &&
+            std::memcmp(&cached_status,&held_cached_status,sizeof(cached_status))==0,"invalid/inactive cached copy changed outputs");
         const std::uint32_t sample_cell=1; std::uint32_t sample_parts=123; MAOniColonyStatus sample_status{}; sample_status.state=99;
         const auto held_sample_status=sample_status; double sample_converted=456;
         require(ma_oni_colony_sample(nullptr,1,&sample_status,nullptr,nullptr,0,&sample_parts,&sample_converted)==MA_ONI_INVALID_ARGUMENT &&

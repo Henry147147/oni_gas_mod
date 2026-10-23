@@ -75,7 +75,7 @@ namespace MixedAtmospheres.Oni
 
         internal static void ResetForNewSession()
         {
-            ColonyPresentation.Reset(); ColonyActors.Reset();
+            ColonyPresentation.Reset(); ColonyActors.Reset(); ColonyViewCache.Reset();
             current?.Dispose(); current = null;
             if (Active) { var s = OniNativeColony.Status.Empty; _ = OniNativeColony.Stop(ref s); }
             ColonyPacing.Reset(); ColonyOwnerPersistence.Reset();
@@ -241,7 +241,7 @@ namespace MixedAtmospheres.Oni
                 lapStarted = now;
             }
             var output = OniNativeColony.Status.Empty;
-            OniNativeColony.Check(OniNativeColony.Copy(ref output, views, (uint)views.Length));
+            ColonyViewCache.Copy(ref output, views);
             Lap("views");
             status = output;
             if (publicationLog && status.CompletedFrames != completionObservedFrame)

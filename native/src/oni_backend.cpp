@@ -790,6 +790,15 @@ MAOniResult ma_oni_colony_composition(std::uint32_t cell,std::uint32_t* indices,
         catch (const std::invalid_argument& error) { throw Failure(MA_ONI_INVALID_ARGUMENT,error.what()); }
     });
 }
+MAOniResult ma_oni_colony_copy_changed(std::uint64_t session,std::uint64_t frame,MAOniColonyStatus* output,
+    MAOniColonyCellView* views,std::uint32_t capacity,std::uint32_t* copied) {
+    return boundary([&] {
+        if (!output || !copied || output->struct_size!=sizeof(*output) || output->abi_version!=MA_ONI_COLONY_ABI_VERSION || (!views && capacity))
+            throw Failure(MA_ONI_INVALID_ARGUMENT,"Invalid cached colony view request");
+        try { *copied=ma::oni::colony::copy_changed(session,frame,*output,views,capacity)?1u:0u; }
+        catch (const std::invalid_argument& error) { throw Failure(MA_ONI_INVALID_ARGUMENT,error.what()); }
+    });
+}
 MAOniResult ma_oni_colony_queue_transfers(const MAOniColonyTransfer* edits,std::uint32_t count) {
     return boundary([&] {
         if (!edits || !count) throw Failure(MA_ONI_INVALID_ARGUMENT,"An empty colony transfer batch");

@@ -147,6 +147,12 @@ MA_ONI_API MAOniResult ma_oni_colony_restore(const MAOniColonyConfig*, const MAO
     const uint8_t* image, uint32_t image_bytes, MAOniColonyStatus*);
 MA_ONI_API MAOniResult ma_oni_colony_status(MAOniColonyStatus*);
 MA_ONI_API MAOniResult ma_oni_colony_copy(MAOniColonyStatus*, MAOniColonyCellView*, uint32_t capacity);
+/* Exact publication cache: status always refreshes as with copy(). When the
+ * previous successful copy has this session/frame, leaves views untouched
+ * and sets copied=0; otherwise copies the complete views and sets copied=1.
+ * A new session invalidates the cache, including a restored equal frame. */
+MA_ONI_API MAOniResult ma_oni_colony_copy_changed(uint64_t session, uint64_t completed_frame,
+    MAOniColonyStatus*, MAOniColonyCellView*, uint32_t capacity, uint32_t* copied);
 /* Constituents of one public cell: native element indices and masses. */
 MA_ONI_API MAOniResult ma_oni_colony_composition(uint32_t public_cell, uint32_t* native_indices, double* masses_kg,
     uint32_t capacity, uint32_t* count);

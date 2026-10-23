@@ -912,17 +912,28 @@ MAOniColonyStatus status() {
     s.native_changes = exchanged.changes;
     return s;
 }
-void copy(MAOniColonyStatus& out, MAOniColonyCellView* views, std::uint32_t capacity) {
+namespace {
+bool copy_published(MAOniColonyStatus& out, MAOniColonyCellView* views, std::uint32_t capacity,
+    std::optional<std::pair<std::uint64_t,std::uint64_t>> previous) {
     std::shared_ptr<const Published> p; { std::lock_guard lock(publication); p = latest; }
     require(p != nullptr, "No colony owner is active");
+    const bool changed=!previous || previous->first!=p->status.session || previous->second!=p->status.completed_frames;
     if (views) {
         require(capacity >= p->views.size(), "Colony view buffer is too small");
-        std::copy(p->views.begin(), p->views.end(), views);
+        if (changed) std::copy(p->views.begin(), p->views.end(), views);
     }
     out = p->status;
     std::lock_guard q(inputs);
     out.native_heat_j = exchanged.heat_j; out.native_mass_in_kg = exchanged.mass_in_kg; out.native_mass_out_kg = exchanged.mass_out_kg;
     out.native_changes = exchanged.changes;
+    return changed;
+}
+}
+void copy(MAOniColonyStatus& out,MAOniColonyCellView* views,std::uint32_t capacity) {
+    (void)copy_published(out,views,capacity,std::nullopt);
+}
+bool copy_changed(std::uint64_t session_id,std::uint64_t frame,MAOniColonyStatus& out,MAOniColonyCellView* views,std::uint32_t capacity) {
+    return copy_published(out,views,capacity,std::pair{session_id,frame});
 }
 std::uint32_t composition(std::uint32_t public_cell, std::uint32_t* indices, double* masses, std::uint32_t capacity) {
     std::shared_ptr<const Published> p; { std::lock_guard lock(publication); p = latest; }

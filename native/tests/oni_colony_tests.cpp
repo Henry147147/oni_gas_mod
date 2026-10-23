@@ -231,6 +231,43 @@ void pipe_job_control() {
     ack_receipts(nothing.sequence); enable_precise_receipts(false); stop();
     std::cout<<"PASS durable pipe jobs: full fractional passives, idempotence, token grouping, queued injection/extraction cold continuation, legacy7 and save barriers\n";
 }
+void view_cache_control() {
+    using namespace ma::oni::colony;
+    std::vector<MAOniColonyMaterial> mats{material("Oxygen",11,oxygen,true,.016,1000)};
+    MAOniColonyConfig cfg{}; cfg.struct_size=sizeof(cfg); cfg.abi_version=MA_ONI_COLONY_ABI_VERSION;
+    cfg.vacuum_index=vacuum; cfg.grid_width=cfg.width=3; cfg.grid_height=cfg.height=3; cfg.maximum_timestep_s=.1;
+    std::vector<MAOniColonyCell> cells(9,MAOniColonyCell{0,MA_ONI_COLONY_SOLID,0,0,0,0});
+    cells[4]={oxygen,MA_ONI_COLONY_FLUID,1.2f,300,0,0}; start(cfg,mats,cells,1);
+    std::array<MAOniColonyCellView,9> actual{},expected{}; MAOniColonyStatus current{},reference{};
+    require(copy_changed(UINT64_MAX,UINT64_MAX,current,actual.data(),9),"initial view cache did not copy");
+    copy(reference,expected.data(),9);
+    require(std::memcmp(actual.data(),expected.data(),sizeof(actual))==0 && std::memcmp(&current,&reference,sizeof(current))==0,
+        "initial cached view/status differs from complete copy");
+    const auto session_id=current.session;
+    std::array<MAOniColonyCellView,9> sentinel{}; std::memset(sentinel.data(),0x55,sizeof(sentinel)); const auto unchanged=sentinel;
+    require(!copy_changed(session_id,0,current,sentinel.data(),9) && std::memcmp(sentinel.data(),unchanged.data(),sizeof(sentinel))==0,
+        "same-frame cache wrote the destination");
+    bool rejected=false; try { copy_changed(session_id,0,current,actual.data(),1); } catch (const std::invalid_argument&) { rejected=true; }
+    require(rejected,"cache accepted an undersized unchanged buffer");
+    std::array<std::uint16_t,25> elements[2]{}; std::array<float,25> masses[2]{},temperatures[2]{};
+    NativeCells native; native.pitch=native.rows=5;
+    for (int i=0;i<2;++i) { elements[i][12]=oxygen; native.element[i]=elements[i].data(); native.mass[i]=masses[i].data(); native.temperature[i]=temperatures[i].data(); }
+    write_shadow(native); for (int i=0;i<2;++i) temperatures[i][12]+=1;
+    capture_shadow(native); const auto before=checkpoint();
+    require(!copy_changed(session_id,0,current,actual.data(),9) && current.native_changes>0 && current.native_heat_j>0,
+        "same-frame cache hid live native exchanges");
+    copy(reference,expected.data(),9);
+    require(std::memcmp(&current,&reference,sizeof(current))==0 && std::memcmp(actual.data(),expected.data(),sizeof(actual))==0 && checkpoint()==before,
+        "same-frame status/views differ or copy changed the physical checkpoint");
+    advance(1,.2,2); wait(); require(status().state==1 && copy_changed(session_id,0,current,actual.data(),9),"new physical frame was cached");
+    copy(reference,expected.data(),9); require(std::memcmp(actual.data(),expected.data(),sizeof(actual))==0,"new-frame view copy differs");
+    const auto saved=checkpoint(); stop(); restore(cfg,mats,saved,1);
+    require(copy_changed(session_id,1,current,actual.data(),9) && current.session!=session_id && current.completed_frames==1,
+        "restored equal frame reused a prior session's views");
+    copy(reference,expected.data(),9); require(std::memcmp(actual.data(),expected.data(),sizeof(actual))==0 && checkpoint()==saved,"restored cache changed continuation");
+    stop();
+    std::cout<<"PASS immutable view reuse: complete bytes/status, unchanged buffer, live exchanges, new frame, cold session and checkpoint\n";
+}
 void sample_control() {
     using namespace ma::oni::colony;
     std::vector<MAOniColonyMaterial> mats{material("Oxygen",11,oxygen,true,.016,1000),material("CarbonDioxide",12,carbon,true,.044,850)};
@@ -405,11 +442,13 @@ int main(int argc, char** argv) {
         if (argc == 2 && std::strcmp(argv[1], "--release-capture-only") == 0) { release_capture_control(); return 0; }
         if (argc == 2 && std::strcmp(argv[1], "--pipe-jobs-only") == 0) { pipe_job_control(); return 0; }
         if (argc == 2 && std::strcmp(argv[1], "--sample-only") == 0) { sample_control(); return 0; }
+        if (argc == 2 && std::strcmp(argv[1], "--view-cache-only") == 0) { view_cache_control(); return 0; }
         require(argc == 1, "Usage: ma_oni_colony_tests [--projection-only|--timestep-only|--precise-receipts-only]");
         precise_receipt_control();
         release_capture_control();
         pipe_job_control();
         sample_control();
+        view_cache_control();
         conversion_batch_control();
         timestep_control();
         projection_control();
