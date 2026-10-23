@@ -307,6 +307,32 @@ Seven pure/seven hook/209 snapshot and 135 harness checks pass. All pipe runs
 above use the unchanged legacy owner profile, Config.Flags=1; they do not select
 `MA_COLONY_GAME_FLOOR=1` or establish game-floor/profile acceptance.
 
+### Exact inventory cost
+
+`PipeAmount` now uses TwoSum directly for two single atoms and retains an
+already-canonical two-atom pair. It preserves exact sums and serialized atoms;
+it changes neither fluxes nor saved physics. Private baseline/candidate seven
+pure groups and a 9000-state serialized corpus agree (SHA256
+`5F28739BF325A89F5D33FE8BFE4B89A4EAD4BC2B5A78C65264EDB4EB484C0F45`).
+WHOLE CPU-only model measurements use five sets of 20,000 transfers after
+50,000 warm-up moves, with the material delegate cached on both sides:
+
+| Constituents | Before / after, microseconds per transfer | Before / after, bytes allocated |
+| --- | --- | --- |
+| 1 | 0.548 / 0.310 | 2332 / 1044 |
+| 2 | 1.015 / 0.660 | 4652 / 2556 |
+| 6 | 2.317 / 1.179 | 10948 / 4752 |
+
+These are .NET 10 model medians and allocations, not Unity/whole-game speed
+gains. Main seven pure, seven installed hook and 209 snapshot groups pass.
+Immutable `pipes-account-e3f-v1` also passes all 27 live pump checks in 71
+frames on the same legacy profile/native pair. Every pipe account remains
+exact; world mass/energy errors 6.614e-16/3.478e-17, trace sink zero, no fault,
+cleanup verified, fallback count unavailable. Diagnostic LOW owner
+mean/p95/max 189.865/272.293/400.121 ms, observed
+271.873/383.998/3078.944 ms (71/70 samples, no gaps), instrumentation off.
+Concurrent-HIGH/startup caveats remain; this is a behavior regression check.
+
 Full production activation and mixed saves remain off. Finite-body mixed-Cv
 equilibrium, deterministic germ growth/death, foreign-phase cleanup returns,
 phase teardown and saved component scheduling still need acceptance controls.

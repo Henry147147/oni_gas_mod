@@ -44,6 +44,13 @@ namespace MixedAtmospheres.Oni
         {
             if (other.atoms == null) return this;
             if (atoms == null) return other;
+            if (atoms.Length == 1 && other.atoms.Length == 1)
+            {
+                var a = atoms[0]; var b = other.atoms[0]; var total = a + b;
+                if (double.IsInfinity(total)) throw new InvalidOperationException("Pipe account overflow.");
+                var virtualB = total - a; var error = (a - (total - virtualB)) + (b - virtualB);
+                return error == 0 ? new PipeAmount(total) : new PipeAmount(new[] { error, total });
+            }
             var current = atoms;
             foreach (var value in other.atoms)
             {
@@ -66,6 +73,9 @@ namespace MixedAtmospheres.Oni
         private PipeAmount Canonical()
         {
             if(atoms==null||atoms.Length<2)return this;
+            // TwoSum already produced a canonical expansion when its leading
+            // atom is the correctly rounded total. Avoid rebuilding that pair.
+            if(atoms.Length==2&&Value==atoms[1])return this;
             var remaining=this;var descending=new List<double>(atoms.Length);
             while(remaining.Sign!=0)
             {
