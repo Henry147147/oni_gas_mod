@@ -50,6 +50,13 @@ constexpr double phase_relaxation_time_s = 1;
 constexpr double settling_time_s = 2;
 constexpr double reservoir_release_kg_per_s = 50;
 void require(bool ok, const char* why) { if (!ok) throw std::invalid_argument(why); }
+bool stage_logging_enabled() noexcept {
+    static const bool enabled=[] {
+        const auto* value=std::getenv("MA_COLONY_STAGE_LOG");
+        return value && std::strcmp(value,"1")==0;
+    }();
+    return enabled;
+}
 
 // Unity can use FTZ/DAZ and reduced x87 precision: select the solver's
 // arithmetic on this thread and restore the caller's on exit.
@@ -847,7 +854,7 @@ MacClosedWorld convert_identities(Session& s, MacClosedWorld world, double secon
         world = std::move(result.world);
         for (const auto& parcel : result.parcels) { L.injected[parcel.species_index] += parcel.mass_kg; L.energy_in += parcel_energy(parcel); }
     }
-    static const bool stage_log = std::getenv("MA_COLONY_STAGE_LOG") != nullptr;
+    const bool stage_log = stage_logging_enabled();
     if (stage_log && s.status.completed_frames % 10 == 9) {
         const auto ms = [](auto a, auto b) { return std::chrono::duration<double, std::milli>(b - a).count(); };
         std::fprintf(stderr, "[Mixed Atmospheres] conversions: %zu candidates read %.1f ms, plan %.1f ms, %zu edits applied %.1f ms, joined %zu\n",
@@ -1418,7 +1425,7 @@ void run_frame(std::uint64_t ticket, double seconds, const char* refusal, std::u
     auto& s = *session;
     const char* doing = "frame input"; // named in a fault
     // MA_COLONY_STAGE_LOG=1: every tenth frame, each stage's wall time (stderr).
-    static const bool stage_log = std::getenv("MA_COLONY_STAGE_LOG") != nullptr;
+    const bool stage_log = stage_logging_enabled();
     std::vector<std::pair<const char*, double>> steps; auto step_mark = std::chrono::steady_clock::now();
     const auto step = [&](const char* next) {
         if (stage_log) {

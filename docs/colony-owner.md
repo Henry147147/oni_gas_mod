@@ -334,10 +334,13 @@ Native controls also cover unchanged-buffer guards, live exchanges, new frames,
 restored sessions and byte-exact checkpoint continuation. No physical arithmetic,
 saved profile or checkpoint bytes change.
 
-An instrument-free WHOLE-lock fast Terra60 pair uses the same immutable
+A diagnostic WHOLE-lock fast Terra60 pair uses the same immutable
 native/managed bundle and profile 18, changing only
 `MA_COLONY_UNCACHED_VIEWS`. Each run completes 60 frames, with all 60 owner
 samples and 59 observed intervals. The observed maxima include startup.
+Native stage logging was unintentionally enabled: the old implementation
+treated `MA_COLONY_STAGE_LOG=0` as present and therefore active. These numbers
+are retained as diagnostics, not instrument-free performance acceptance.
 
 | Fluid views | Owner mean / p95 / max ms | Observed mean / p95 / max ms | Maximum relative mass / energy error | Trace sink kg / J |
 | --- | ---: | ---: | --- | --- |
@@ -366,8 +369,10 @@ relaxations, maximum mass/energy errors 4.28e-16 / 4.69e-17 and trace sink
 frame-time measurements use the same package with the control disabled.
 
 The matching WHOLE-lock fast Terra60 pair below changes only
-`MA_COLONY_MARSHALLED_RECEIPTS`; view caching is enabled in both. All diagnostic
-controls and logs are disabled. Each run completes 60 frames with all 60 owner
+`MA_COLONY_MARSHALLED_RECEIPTS`; view caching is enabled in both. Managed byte
+controls and publication logging are disabled, but the same stage-flag mistake
+above enabled native diagnostics. These are diagnostic results. Each run
+completes 60 frames with all 60 owner
 samples and 59 observed intervals. Observed maxima retain startup.
 
 | Receipt binding | Owner mean / p95 / max ms | Observed mean / p95 / max ms | Maximum relative mass / energy error | Trace sink kg / J |
