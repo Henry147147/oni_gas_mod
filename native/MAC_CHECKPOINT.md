@@ -37,7 +37,8 @@ stored by their bits. Counts are unsigned 32-bit values. The image is bounded to
    [phase change](MAC_PHASE_CHANGE.md); 12 for the [unresolved gas opt-in](MAC_VACUUM.md#unresolved-gas-opt-in);
    13 for predictive step control; 14 for a configured gas-expansion fraction;
    15 for regional predictive control; 16 for a saved game profile;
-   17 for saved game root/work policies; 18 for saved substep trace removal),
+   17 for saved game root/work policies; 18 for saved substep trace removal;
+   19 for saved fast phase-trial EOS),
    and a length-prefixed binary model identity.
 2. Physical time and unsigned 64-bit revision.
 3. Width/height, spacing/depth and two periodicity flags.
@@ -84,6 +85,9 @@ stored by their bits. Counts are unsigned 32-bit values. The image is bounded to
    Version 18 adds one canonical true byte for substep trace removal. Earlier
    versions restore it disabled; the version17 two-byte prefix is always present
    in 18, including when both root/work flags are false.
+   Version 19 appends a canonical true byte for fast phase-trial EOS. Its
+   complete version-18 prefix permits either trace flag; versions 18 and older
+   restore strict phase trials and retain their bytes and continuation.
 5. Cell count and one boolean wall flag per cell.
 6. Each cell's U, complete ordered constituent masses and passive entries
    (unsigned 64-bit identity and binary64 quantity).
@@ -169,6 +173,14 @@ new game-profile selection enables it; old saves never migrate implicitly.
 New-profile dump captures must be regenerated; existing images keep their
 saved policy.
 
+Version **19 saves fast phase-trial EOS**, claimed immediately after a fresh
+fetch of `17db27c` (2026-10-23). `fast_phase_trial_eos` uses the production EOS
+inside phase equilibrium root searches, refining uncertain trials with the
+reference. Accepted endpoints and entropy retain the strict EOS. Only explicit
+new game-profile selection enables it; older images restore false. New-profile
+dumps must be regenerated. Controls cover every prefix flag combination,
+canonical flags, reference-root accuracy, workers and byte-exact continuation.
+
 Reference owners write version 2, 3 or 5 according to their settings; production
 owners write version 6, or 7/8 with two-moment pressure. A void-phase owner without
 U corrections writes version 9. Any owner with nonzero corrections writes version
@@ -193,6 +205,7 @@ U corrections writes version 9. Any owner with nonzero corrections writes versio
 | 16 | supported production (2), saved base-game-floor profile and trace threshold | either | disabled |
 | 17 | supported production (2), saved game root/work policies | either | disabled |
 | 18 | supported production (2), saved substep trace sink | either | disabled |
+| 19 | supported production (2), saved fast phase-trial EOS | either | disabled |
 
 Version 4 and version-5 images carrying selector 1 reject explicitly as retired.
 The old wire layout and selector meaning are reserved, never remapped to

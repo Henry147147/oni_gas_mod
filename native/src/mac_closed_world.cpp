@@ -186,7 +186,7 @@ void MacClosedSettings::validate() const {
     viscosity.validate();
     diffusion.validate();
     require(game_profile == MacGameProfile::base_game_floor ||
-        (!compatible_void_pressure_work && !recover_mixed_eos_endpoint),
+        (!compatible_void_pressure_work && !recover_mixed_eos_endpoint && !fast_phase_trial_eos),
         "MAC game numerical policies require a saved game profile");
     require(!trace_sink_per_substep || (game_profile == MacGameProfile::base_game_floor && trace_sink_threshold_kg > 0),
         "Substep trace removal requires an enabled saved game trace sink");
@@ -828,7 +828,7 @@ MacTraceSink MacClosedWorld::with_trace_sink() const {
 MacPhaseRelaxation MacClosedWorld::with_phase_relaxation(std::span<const MacSaturationPair> pairs, double fraction) const {
     require_mac_energy_environment();
     if (revision_ == std::numeric_limits<std::uint64_t>::max()) throw std::overflow_error("MAC closed revision overflow");
-    auto advanced = advance_mac_phase_change(registry_, *thermodynamics_, state(), pairs, false, fraction);
+    auto advanced = advance_mac_phase_change(registry_, *thermodynamics_, state(), pairs, false, fraction, settings_.fast_phase_trial_eos);
     auto candidate=derived(std::move(advanced.state));
     return {std::move(candidate), advanced.report};
 }
@@ -836,7 +836,7 @@ MacPhaseRelaxation MacClosedWorld::with_phase_relaxation_in_cells(std::span<cons
     std::span<const std::size_t> cells, double fraction) const {
     require_mac_energy_environment();
     if (revision_ == std::numeric_limits<std::uint64_t>::max()) throw std::overflow_error("MAC closed revision overflow");
-    auto advanced = advance_mac_phase_change_in_cells(registry_, *thermodynamics_, state(), pairs, cells, fraction);
+    auto advanced = advance_mac_phase_change_in_cells(registry_, *thermodynamics_, state(), pairs, cells, fraction, settings_.fast_phase_trial_eos);
     return {derived(std::move(advanced.state)), advanced.report};
 }
 MacClosedWorld MacClosedWorld::with_cell_heat(std::span<const MacCellHeat> edits,MacPrimaryRoundingCounts* accepted_rounding) const {

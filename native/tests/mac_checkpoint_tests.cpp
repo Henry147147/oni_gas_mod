@@ -112,6 +112,32 @@ void game_profile_checkpoint(const ma::testing::Setup& setup) {
             require(refused,"Noncanonical substep trace flag accepted");
         }
     }
+    const auto version18_image=MacClosedWorld(setup.registry,setup.eos,state,settings).checkpoint();
+    settings.fast_phase_trial_eos=true;
+    for (unsigned policies=0;policies<8;++policies) {
+        settings.compatible_void_pressure_work=(policies&1)!=0; settings.recover_mixed_eos_endpoint=(policies&2)!=0;
+        settings.trace_sink_per_substep=(policies&4)!=0;
+        const MacClosedWorld source(setup.registry,setup.eos,state,settings);const auto image=source.checkpoint();
+        const auto restored=MacClosedWorld::from_checkpoint(setup.registry,setup.eos,image);
+        require(image[8]==19 && restored.settings().fast_phase_trial_eos && restored.checkpoint()==image &&
+            source.advanced(.02).world.checkpoint()==restored.advanced(.02).world.checkpoint(),"Fast phase policy changed on restore or continuation");
+        std::uint32_t size=0;for(std::size_t i=0;i<4;++i)size|=static_cast<std::uint32_t>(image[12+i])<<(8*i);
+        const std::size_t flag=16+size+16+26+45+16+4+12+4+4+4+4+4+8+12+3;
+        require(image.at(flag)==1,"Fast phase policy wire position changed");
+        for (const auto malformed:{0,2}) {
+            auto corrupt=image;corrupt.at(flag)=static_cast<std::uint8_t>(malformed);seal(corrupt);bool refused=false;
+            try{(void)MacClosedWorld::from_checkpoint(setup.registry,setup.eos,corrupt);}catch(const std::exception&){refused=true;}
+            require(refused,"Noncanonical fast phase flag accepted");
+        }
+    }
+    settings.fast_phase_trial_eos=false;
+    const auto restored18=MacClosedWorld::from_checkpoint(setup.registry,setup.eos,version18_image);
+    require(!restored18.settings().fast_phase_trial_eos && restored18.checkpoint()==version18_image,"Version18 acquired fast phase trials");
+    auto invalid_fast=settings;invalid_fast.game_profile=MacGameProfile::legacy;
+    invalid_fast.trace_sink_threshold_kg=0;invalid_fast.trace_sink_per_substep=false;invalid_fast.fast_phase_trial_eos=true;
+    bool invalid_fast_refused=false;try{invalid_fast.validate();}catch(const std::invalid_argument&){invalid_fast_refused=true;}
+    require(invalid_fast_refused,"Legacy profile accepted fast phase trials");
+    std::cout << "PASS saved fast phase trial policy, strict old continuation and canonical flags\n";
     settings.trace_sink_per_substep=false;
     const auto restored17=MacClosedWorld::from_checkpoint(setup.registry,setup.eos,version17_image);
     require(!restored17.settings().trace_sink_per_substep && restored17.checkpoint()==version17_image,"Version17 acquired the substep trace policy");

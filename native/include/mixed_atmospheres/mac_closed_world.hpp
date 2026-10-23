@@ -96,6 +96,9 @@ struct MacClosedSettings {
     // Book newly formed traces after each production transport stage. Older
     // profiles retain their interval-boundary sink and exact continuation.
     bool trace_sink_per_substep = false;
+    // Binary64 production EOS inside phase root searches; accepted endpoints
+    // still use the strict reference EOS. Older profiles keep strict trials.
+    bool fast_phase_trial_eos = false;
     void validate() const;
 };
 struct MacClosedSubstep {

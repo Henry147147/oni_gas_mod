@@ -188,6 +188,7 @@ volume or the grid volume. Empty cells retain no U, remainder or passives.
 | Existing tiny-capacity conduction/gravity entropy treatment | Thermal detail below component resolution; conservative heat repair and final EOS/entropy checks retained | Current baseline; floor unmeasured |
 | Booked trace sink | Removes sub-threshold composition and its booked mechanics; elastic energy shared by heat capacity | Opt-in threshold 1e-11 kg; full floor acceptance pending |
 | Substep trace sink (opt-in) | Books newly formed traces immediately after transport; keeps the same constituent threshold and stored-difference ledger | Reference/floor error pending; old profiles retain interval-only removal |
+| Fast phase-trial EOS (opt-in) | Uses the production binary64 EOS during equilibrium root searches; uncertain trials refine with the reference, and accepted endpoints and entropy remain strict | Checkpoint 19; reference and floor measurements below; older saves retain strict trials |
 | Compatible void pressure work | Uses geometric face sweeps for U work when an initial liquid void closes, matching canonical J/K; changes those trajectories | Selected by the opt-in profile; floor measurements pending |
 | Mixed-EOS endpoint recovery | After the original 200 iterations fail, accepts a bracket endpoint satisfying the unchanged Newton criterion; successful old roots are unchanged | Selected by the opt-in profile; floor measurements pending |
 
@@ -197,6 +198,39 @@ A synthetic liquid with trace gas recovers its analytic pressure `2^-154 Pa`;
 temperature admission stays enforced. Cold continuation across 1/12 workers
 is byte-identical. These controls establish correctness of the policies,
 not a Terra speed claim or a floor pass.
+
+`MA_COLONY_FAST_PHASE_EOS=1`, together with `MA_COLONY_GAME_FLOOR=1`, selects
+saved `fast_phase_trial_eos` for a new colony. It composes with the independent
+substep trace option. Root tolerances, iteration caps, phase frequency and
+fixed-U conversion are unchanged. The reference and all gate defaults retain
+strict trials; restoring a version-18 or older save never selects this option.
+
+The following timing trials overlapped an abandoned F4 game process outside
+the CPU locks. They are provisional; matched repeats after cleanup are needed.
+The numerical comparisons and ledger checks remain valid.
+
+On the regenerated profile-18 Terra50 state, a high-lock twelve-worker pair
+measures strict/fast phase work at 24.11/7.43 ms. Stored endpoint bytes are
+identical after accounting for the saved flag/version; that is a control for
+this state, not a claim of universal identical trajectories. An instrumented
+trial comparison finds maximum temperature/relative-pressure differences
+9.1e-13 K / 5.7e-10. Mixed-pair and cold-flow controls retain fixed U/J, pair
+mass, strict endpoint entropy, worker independence and exact save continuation.
+Clean comparisons keep all 99 legacy MAC outputs and exits, apart from timings
+and three new PASS lines.
+
+Whole-lock, GPU-rendered Terra60 at fast speed measures profile-18/19 mean
+owner time 175.8/168.9 ms and observed spacing 268.9/264.6 ms. Profile 19 has
+owner p95/max 371.3/491.4 ms and observed p95/max 444.8/2720.4 ms (including
+the harness UI pause). All 60 frames pass without faults or skipped relaxation;
+maximum relative mass/energy errors are 2.74e-16/2.78e-17 and the trace sink
+books 5.289e-8 kg / 0.01954 J. The speed target and complete floor comparison
+remain open; the option is not selected for older saves or gate settings.
+At normal speed, the same whole-lock comparison measures mean owner time
+186.3/146.4 ms and observed spacing 281.5/262.8 ms (59 sampled owner frames
+in the new 60-frame run). New-profile owner p95/max are 201.1/330.1 ms and
+observed p95/max 423.4/2719.9 ms. All 60 frames pass, with mass/energy errors
+2.50e-16/2.79e-17, sink 5.251e-8 kg / 0.01845 J and no skipped relaxation.
 
 Two floor-profile failure paths retain their existing equations and audit
 bounds. An isolated positive pressure scalar with exactly zero RHS returns

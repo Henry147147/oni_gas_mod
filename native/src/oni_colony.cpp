@@ -228,6 +228,8 @@ MacClosedSettings settings_of(const MAOniColonyConfig& c) {
         s.compatible_void_pressure_work = true; s.recover_mixed_eos_endpoint = true;
         const char* substep_trace = std::getenv("MA_COLONY_SUBSTEP_TRACE");
         s.trace_sink_per_substep = substep_trace && std::strcmp(substep_trace, "1") == 0;
+        const char* fast_phase = std::getenv("MA_COLONY_FAST_PHASE_EOS");
+        s.fast_phase_trial_eos = fast_phase && std::strcmp(fast_phase, "1") == 0;
     }
     return s;
 }

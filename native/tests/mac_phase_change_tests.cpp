@@ -37,7 +37,7 @@ struct Water {
         water = registry.index("water"); steam = registry.index("steam"); air = registry.index("nitrogen");
     }
 };
-void parallel_control() {
+void parallel_control(bool fast = false) {
     const Water s(true); constexpr std::size_t W = 64, H = 35;
     MacTransportState st; st.grid = {W, H, 1, 1, false, false, std::vector<std::uint8_t>(W * H, 0)};
     const auto water_b = s.registry.index("water_b"), steam_b = s.registry.index("steam_b");
@@ -52,15 +52,35 @@ void parallel_control() {
     const std::array<MacSaturationPair, 2> pairs{{{s.water, s.steam}, {water_b, steam_b}}};
     const auto image = [&](const MacTransportState& state) { return MacClosedWorld(s.registry, s.eos, state).checkpoint(); };
     const auto held = image(st);
+    if (fast) {
+        for (const double fraction : {.18, 1.}) {
+            const auto truth = advance_mac_phase_change(s.registry, *s.eos, st, pairs, false, fraction);
+            const auto candidate = advance_mac_phase_change(s.registry, *s.eos, st, pairs, false, fraction, true);
+            for (std::size_t i = 0; i < st.cells.size(); ++i) {
+                const auto& before = st.cells[i].mixture; const auto& after = candidate.state.cells[i].mixture;
+                check(after.energy == before.energy,
+                    "Fast trial EOS changed stored U or passives");
+                for (std::size_t k = 0; k < s.registry.size(); ++k)
+                    check(std::abs(after.masses[k] - truth.state.cells[i].mixture.masses[k]) <= 1e-9 * before.mass(),
+                        "Fast trial EOS departed from the strict equilibrium root");
+                for (const auto& pair : pairs)
+                    check(std::abs((after.masses[pair.liquid] + after.masses[pair.vapour]) -
+                        (before.masses[pair.liquid] + before.masses[pair.vapour])) <= 0x1p-45 * before.mass(),
+                        "Fast trial EOS lost pair mass");
+            }
+            check(candidate.state.momentum_x == st.momentum_x && candidate.state.momentum_y == st.momentum_y,
+                "Fast trial EOS changed canonical momentum");
+        }
+    }
     const auto saved_options = mac_kernel_default_options();
     auto options = saved_options; options.threads = 1; options.minimum_blocks_per_thread = 1;
     set_mac_kernel_default_options(options);
-    const auto serial = advance_mac_phase_change(s.registry, *s.eos, st, pairs, false, .18);
-    const auto first = advance_mac_phase_change(s.registry, *s.eos, st, std::span(pairs).first(1), false, .18);
-    const auto sequential = advance_mac_phase_change(s.registry, *s.eos, first.state, std::span(pairs).last(1), false, .18);
+    const auto serial = advance_mac_phase_change(s.registry, *s.eos, st, pairs, false, .18, fast);
+    const auto first = advance_mac_phase_change(s.registry, *s.eos, st, std::span(pairs).first(1), false, .18, fast);
+    const auto sequential = advance_mac_phase_change(s.registry, *s.eos, first.state, std::span(pairs).last(1), false, .18, fast);
     check(image(serial.state) == image(sequential.state), "Cell-local phase work changed pair order");
     options.threads = 12; set_mac_kernel_default_options(options);
-    const auto parallel = advance_mac_phase_change(s.registry, *s.eos, st, pairs, false, .18);
+    const auto parallel = advance_mac_phase_change(s.registry, *s.eos, st, pairs, false, .18, fast);
     const auto fields = [](const MacPhaseChangeReport& r) {
         return std::tie(r.evaporating_cells, r.condensing_cells, r.eos_evaluations, r.unevaluable_cells,
             r.evaporated_kg, r.condensed_kg, r.entropy_change_j_per_k, r.entropy_allowance_j_per_k);
@@ -73,14 +93,26 @@ void parallel_control() {
     auto expected = serial.state;
     for (std::size_t i = 0; i < st.cells.size(); ++i)
         if (std::find(cells.begin(), cells.end(), i) == cells.end()) expected.cells[i] = st.cells[i];
-    const auto selected = advance_mac_phase_change_in_cells(s.registry, *s.eos, st, pairs, cells, .18);
+    const auto selected = advance_mac_phase_change_in_cells(s.registry, *s.eos, st, pairs, cells, .18, fast);
     check(ma::testing::fingerprint(selected.state) == ma::testing::fingerprint(expected),
         "Selected-cell phase change touched another cell, U or momentum");
     options.threads = 1; set_mac_kernel_default_options(options);
-    const auto selected_serial = advance_mac_phase_change_in_cells(s.registry, *s.eos, st, pairs, cells, .18);
+    const auto selected_serial = advance_mac_phase_change_in_cells(s.registry, *s.eos, st, pairs, cells, .18, fast);
     check(image(selected.state) == image(selected_serial.state) && fields(selected.report) == fields(selected_serial.report),
         "Selected-cell phase state or report depends on worker count");
-    const auto owner = MacClosedWorld(s.registry, s.eos, st).with_phase_relaxation_in_cells(pairs, cells, .18).world;
+    MacClosedSettings settings;
+    if (fast) {
+        settings.numerical_kernel = MacNumericalKernel::production;
+        settings.vacuum = MacVacuumRepresentation::void_phase;
+        settings.step_control = MacStepControl::regional_predictive;
+        settings.game_profile = MacGameProfile::base_game_floor; settings.fast_phase_trial_eos = true;
+    }
+    const auto owner = MacClosedWorld(s.registry, s.eos, st, settings).with_phase_relaxation_in_cells(pairs, cells, .18).world;
+    check(ma::testing::fingerprint(owner.state()) == ma::testing::fingerprint(selected.state),
+        "Saved phase trial setting did not reach selected relaxation");
+    if (fast) check(ma::testing::fingerprint(MacClosedWorld(s.registry, s.eos, st, settings).
+        with_phase_relaxation(pairs, .18).world.state()) == ma::testing::fingerprint(serial.state),
+        "Saved phase trial setting did not reach full relaxation");
     const auto restored = MacClosedWorld::from_checkpoint(s.registry, s.eos, owner.checkpoint());
     check(restored.with_phase_relaxation_in_cells(pairs, cells, .18).world.checkpoint() ==
         owner.with_phase_relaxation_in_cells(pairs, cells, .18).world.checkpoint(), "Selected-cell phase cold continuation changed");
@@ -89,10 +121,11 @@ void parallel_control() {
     catch (const std::invalid_argument&) { invalid = true; }
     check(invalid && image(st) == held, "Selected-cell phase admission or source atomicity failed");
     set_mac_kernel_default_options(saved_options);
-    std::cout << "PASS ordered phase pairs: primary bytes, reports and one/many workers\n";
-    std::cout << "PASS selected phase cells: other cells and U/J unchanged, workers, admission and cold continuation\n";
+    if (fast) std::cout << "PASS fast phase trial EOS: strict root accuracy, fixed U/J, pair mass, workers and saved continuation\n";
+    else std::cout << "PASS ordered phase pairs: primary bytes, reports and one/many workers\n";
+    if (!fast) std::cout << "PASS selected phase cells: other cells and U/J unchanged, workers, admission and cold continuation\n";
 }
-void cold_phase_flow_control() {
+void cold_phase_flow_control(bool fast = false) {
     const Water s;
     auto materials = s.eos->reference().materials();
     for (auto& material : materials) material.minimum_temperature_k = 270;
@@ -108,6 +141,7 @@ void cold_phase_flow_control() {
     settings.subcell_void = MacSubcellVoidPolicy::expand_unresolved_gas;
     settings.step_control = MacStepControl::regional_predictive; settings.maximum_timestep_s = .005;
     settings.reconstruction = MacMaterialReconstruction::interface_plic;
+    if (fast) { settings.game_profile = MacGameProfile::base_game_floor; settings.fast_phase_trial_eos = true; }
     MacClosedWorld world(s.registry, eos, st, settings);
     const std::array<MacSaturationPair, 1> pairs{{{s.water, s.steam}}};
     const auto held = world.checkpoint();
@@ -163,7 +197,8 @@ void cold_phase_flow_control() {
     try { (void)advance_mac_phase_flow(world, .05, serial.substeps + serial.rejected_attempts - 1, pairs); }
     catch (const std::exception&) { exhausted = true; }
     check(exhausted && world.checkpoint() == held, "Cold phase flow exceeded its shared budget or changed its source");
-    std::cout << "PASS cold phase flow: unchanged success, EOS floor, species/energy ledgers, workers, cold continuation and shared budget\n";
+    if (fast) std::cout << "PASS fast trial cold phase flow: EOS floor, ledgers, workers, exact continuation and budget\n";
+    else std::cout << "PASS cold phase flow: unchanged success, EOS floor, species/energy ledgers, workers, cold continuation and shared budget\n";
 }
 double vapour_pressure(const Water& s, const MixtureInventory& m, double volume) {
     const auto e = s.eos->evaluate(m, volume); return e.gas_pressure_pa * e.partial_volumes_m3[1] / e.gas_volume_m3;
@@ -299,6 +334,8 @@ int main(int argc, char** argv) {
         vacuum_boiling(s);
         parallel_control();
         cold_phase_flow_control();
+        parallel_control(true);
+        cold_phase_flow_control(true);
         std::cout << "MAC phase-change tests passed\n"; return 0;
     } catch (const std::exception& e) { std::cerr << "FAIL " << e.what() << '\n'; return 1; }
 }

@@ -57,11 +57,13 @@ struct MacPhaseChangeAdvance { MacTransportState state; MacPhaseChangeReport rep
 // With skip_sharp_interfaces, cells that sharp-interface boiling converts
 // (mac_interface_phase_fraction, mac_interface_vapour_fraction) are left as
 // they are.
+// With fast_trial_eos, root trials use the production EOS, refining uncertain
+// states with the reference. Accepted endpoints and entropy remain strict.
 // With fraction < 1 each cell moves only that fraction of the way to
 // equilibrium (a first-order relaxation over the caller's interval).
 [[nodiscard]] MacPhaseChangeAdvance advance_mac_phase_change(const SpeciesRegistry&, const FluidThermodynamics&,
-    const MacTransportState&, std::span<const MacSaturationPair>, bool skip_sharp_interfaces = false, double fraction = 1);
+    const MacTransportState&, std::span<const MacSaturationPair>, bool skip_sharp_interfaces = false, double fraction = 1, bool fast_trial_eos = false);
 // Restrict that operation to these cells; an empty list changes no cells.
 [[nodiscard]] MacPhaseChangeAdvance advance_mac_phase_change_in_cells(const SpeciesRegistry&, const FluidThermodynamics&,
-    const MacTransportState&, std::span<const MacSaturationPair>, std::span<const std::size_t> cells, double fraction = 1);
+    const MacTransportState&, std::span<const MacSaturationPair>, std::span<const std::size_t> cells, double fraction = 1, bool fast_trial_eos = false);
 }

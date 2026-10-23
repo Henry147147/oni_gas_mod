@@ -95,7 +95,7 @@ std::vector<MacSaturationPair> mac_saturation_pairs(const SpeciesRegistry& regis
 
 static MacPhaseChangeAdvance advance_cells(const SpeciesRegistry& registry, const FluidThermodynamics& model,
     const MacTransportState& source, std::span<const MacSaturationPair> pairs, bool skip_sharp_interfaces, double fraction,
-    std::span<const std::uint8_t> selected) {
+    std::span<const std::uint8_t> selected, bool fast_trial_eos) {
     require_mac_energy_environment(); model.validate_registry(registry);
     require(std::isfinite(fraction) && fraction > 0 && fraction <= 1, "Invalid MAC phase relaxation fraction");
     MacPhaseChangeAdvance result{source, {}}; auto& total_report = result.report;
@@ -152,6 +152,24 @@ static MacPhaseChangeAdvance advance_cells(const SpeciesRegistry& registry, cons
     constexpr std::size_t block_size = 1024;
     const auto blocks = (source.cells.size() + block_size - 1) / block_size;
     std::vector<Partial> partials(blocks);
+    mac_kernel::Model trial_model;
+    std::vector<mac_kernel::Fields> trial_fields;
+    if (fast_trial_eos) {
+        trial_model.registry_size = registry.size();
+        trial_model.recover_mixed_eos_endpoint = true;
+        for (std::size_t k = 0; k < materials.size(); ++k) {
+            const auto& m = materials[k]; mac_kernel::Species sp;
+            sp.registry = registry.index(m.id); sp.profile = k;
+            sp.gas = m.phase == ReferencePhase::ideal_gas;
+            sp.molar_mass = m.molar_mass_kg_per_mol; sp.cv = m.cv_j_per_kg_k; sp.offset = m.energy_offset_j_per_kg;
+            sp.rho0 = m.zero_pressure_density_kg_per_m3; sp.bulk = m.reference_bulk_modulus_pa;
+            sp.maximum_ratio = m.maximum_density_ratio; sp.tmin = m.minimum_temperature_k; sp.tmax = m.maximum_temperature_k;
+            (sp.gas ? trial_model.gases : trial_model.liquids).push_back(k);
+            trial_model.species.push_back(sp);
+        }
+        trial_fields.resize(blocks);
+        for (auto& fields : trial_fields) fields.m.resize(trial_model.K());
+    }
     const auto advance_cell = [&](std::size_t i, Partial& part) {
         if (g.walls[i] || (!selected.empty() && !selected[i])) return;
         auto& cell = result.state.cells[i].mixture;
@@ -208,6 +226,25 @@ static MacPhaseChangeAdvance advance_cells(const SpeciesRegistry& registry, cons
             const auto departure = [&](double moved) -> std::optional<double> {
                 auto trial = cell; trial.masses[pair.liquid] = ml - moved; trial.masses[pair.vapour] = mv + moved;
                 if (trial.masses[pair.liquid] < 0 || trial.masses[pair.vapour] < 0) return std::nullopt;
+                if (fast_trial_eos && moved != 0) {
+                    auto& fields = trial_fields[i / block_size];
+                    for (std::size_t k = 0; k < trial_model.K(); ++k) fields.m[k] = trial.masses[trial_model.species[k].registry];
+                    try {
+                        const auto stats = mac_kernel::cell_stats(trial_model, fields, 1, 0);
+                        mac_kernel::State state;
+                        if (mac_kernel::evaluate_state(trial_model, fields, 1, 0, stats, trial.energy, volume, state)) {
+                            const double moles = stats.nR / gas_constant;
+                            const double vapour = trial.masses[pair.vapour] / materials[vapour_profile].molar_mass_kg_per_mol;
+                            const double pressure = stats.nR > 0 ? state.p * (vapour / moles) : state.p;
+                            ++report.eos_evaluations;
+                            return pressure - mac_saturation_pressure(model, liquid_profile, vapour_profile, state.T, state.p);
+                        }
+                    } catch (const mac_kernel::EosRefinement&) {
+                    } catch (const mac_kernel::ArithmeticRefinement&) {
+                    } catch (const ReferenceError&) {
+                    } catch (const std::domain_error&) {}
+                    // Uncertain trial: retain the original reference admission.
+                }
                 try {
                     const auto e = moved == 0 ? before : model.evaluate(trial, volume); ++report.eos_evaluations;
                     // Dalton partial pressure; vapour formed in a gas-free cell starts at the cell pressure.
@@ -296,13 +333,13 @@ static MacPhaseChangeAdvance advance_cells(const SpeciesRegistry& registry, cons
     return result;
 }
 MacPhaseChangeAdvance advance_mac_phase_change(const SpeciesRegistry& registry, const FluidThermodynamics& model,
-    const MacTransportState& source, std::span<const MacSaturationPair> pairs, bool skip_sharp_interfaces, double fraction) {
-    return advance_cells(registry, model, source, pairs, skip_sharp_interfaces, fraction, {});
+    const MacTransportState& source, std::span<const MacSaturationPair> pairs, bool skip_sharp_interfaces, double fraction, bool fast_trial_eos) {
+    return advance_cells(registry, model, source, pairs, skip_sharp_interfaces, fraction, {}, fast_trial_eos);
 }
 MacPhaseChangeAdvance advance_mac_phase_change_in_cells(const SpeciesRegistry& registry, const FluidThermodynamics& model,
-    const MacTransportState& source, std::span<const MacSaturationPair> pairs, std::span<const std::size_t> cells, double fraction) {
+    const MacTransportState& source, std::span<const MacSaturationPair> pairs, std::span<const std::size_t> cells, double fraction, bool fast_trial_eos) {
     std::vector<std::uint8_t> selected(source.cells.size());
     for (const auto i : cells) { require(i < selected.size(), "Invalid selected phase cell"); selected[i] = 1; }
-    return advance_cells(registry, model, source, pairs, false, fraction, selected);
+    return advance_cells(registry, model, source, pairs, false, fraction, selected, fast_trial_eos);
 }
 }
