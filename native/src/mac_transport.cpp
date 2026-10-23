@@ -499,8 +499,28 @@ MacMassFluxes validate_parcels(const SpeciesRegistry& registry, const FluidTherm
         };
         for (std::size_t k = 0; k < plan.parcels.size(); ++k) {
             const auto& parcel = plan.parcels[k];
-            part(plan.parcel_material_volumes_m3[k], plan.parcel_void_volumes_m3[k], mac_parcel_volume(parcel).project().value,
-                !mac_parcel_mass_scaled(parcel).is_zero());
+            const auto volume = mac_parcel_volume(parcel), mass = mac_parcel_mass_scaled(parcel);
+            const double projected_volume = volume.project().value;
+            if (projected_volume == 0 || (plan.parcel_material_volumes_m3[k] == 0 && !mass.is_zero())) {
+                // A normalized parcel retains its full positive amount when
+                // a geometric readout underflows. Recover its material part
+                // at the void donor's constant density; keep the same bound
+                // and require both supplied readouts to agree with the parts.
+                const double source_volume = plan.source_volumes_m3[parcel.donor];
+                const double source_material = plan.source_material_volumes_m3[parcel.donor];
+                const double source_mass = source.cells[parcel.donor].mixture.mass();
+                require(std::isfinite(source_material) && source_material >= 0 && source_material <= source_volume &&
+                    (mass.is_zero() || source_mass > 0), "Invalid MAC void-phase source material volume");
+                const auto material = mass.is_zero() ? MacScaled{} : source_material == source_volume ? volume :
+                    mass.shared(source_material, source_mass);
+                const auto vacuum = mac_scaled_difference(volume, material);
+                MacScaledSum residual; residual.add(material); residual.add(vacuum); residual.add(volume.negated());
+                MacScaledSum margin; margin.add(residual.value().magnitude()); margin.add(volume.multiplied(64 * eps).negated());
+                require(material.mantissa() >= 0 && vacuum.mantissa() >= 0 && mass.is_zero() == material.is_zero() &&
+                    material.project().value == plan.parcel_material_volumes_m3[k] &&
+                    vacuum.project().value == plan.parcel_void_volumes_m3[k] && margin.sign() <= 0,
+                    "Invalid MAC void-phase material/void split");
+            } else part(plan.parcel_material_volumes_m3[k], plan.parcel_void_volumes_m3[k], projected_volume, !mass.is_zero());
         }
         for (std::size_t i = 0; i < count; ++i) if (!source.grid.walls[i]) {
             require(std::isfinite(plan.source_material_volumes_m3[i]) && plan.source_material_volumes_m3[i] >= 0 &&

@@ -100,6 +100,21 @@ occupied volume is the sum of the material parts it receives, or the grid volume
 less the void parts when those are smaller, so neither a thin layer nor a thin void
 loses precision. A rejected split falls back to the donor's average composition.
 
+A normalized full-range parcel may carry positive mass while its geometric
+readout rounds to zero. Validation recovers that material part at the void
+donor's density in `MacScaled`, checks both supplied readouts and retains the
+same 64-epsilon relative volume bound. Ordinary parcels keep their original
+arithmetic; no mass is removed and no checkpoint field changes. The focused
+void-phase control checks filled/partial donors, unchanged binary64 projections
+and rejection of false wide and ordinary readouts. This clears the second
+0.0005 s interval of the fixed 8× F1 reference probe; dynamic truth and the
+16× comparison remain open.
+Release and all 83 CTests pass; all 99 clean MAC outputs match apart from
+timings and the new PASS line. Terra60 with profile 18 under the whole lock has
+no fault or skipped phase relaxation, mass/energy errors of 3.31e-16/5.19e-17
+and a trace sink of 5.44e-8 kg /0.01995 J.
+This is a validation fix with no measured game speedup.
+
 **Scope.** The void phase requires reconstructed parcels (material selector 1, 2
 or 3) and midpoint pressure. It rejects gas diffusion, which still assumes filled
 cells. The reference path also rejects conduction and viscosity, and a partly

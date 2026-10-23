@@ -1,6 +1,7 @@
 // Void phase (MAC_VACUUM.md, "Void phase"): gas entering vacuum keeps its own
 // volume, so each cell holds material and exact vacuum separated by a PLIC line.
 #include "mac_fixture.hpp"
+#include "mixed_atmospheres/mac_reconstruction.hpp"
 #include <cstring>
 #include <functional>
 
@@ -10,6 +11,41 @@ void require(bool ok, const char* what) { if (!ok) throw std::runtime_error(what
 template<class F> void rejects(F&& f, const char* text, const char* what) {
     try { f(); } catch (const std::exception& e) { if (std::strstr(e.what(), text)) return; throw std::runtime_error(std::string(what) + ": " + e.what()); }
     throw std::runtime_error(what);
+}
+void full_range_parcel_geometry() {
+    const auto& s = setup();
+    for (const double filled : {1., .5}) {
+        auto source = s.state(2, 1, false);
+        for (auto& cell : source.cells) cell = {s.mixture(filled, 100000, 300), {}};
+        source.occupied_volumes_m3.assign(2, filled);
+        source.momentum_x.assign(3, 0); source.momentum_y.assign(4, 0);
+        const std::vector<double> volumes(2, 1);
+        MacMassFluxes sweep{std::vector<double>(3), std::vector<double>(4)};
+        sweep.full_x.assign(3, {}); sweep.full_x[1] = MacScaled::from_double(1).shifted(-1200);
+        const auto plan = reconstruct_mac_parcels(s.registry, *s.eos, source, volumes, sweep, .4, source.occupied_volumes_m3);
+        require(plan.parcels.size() == 1 && !mac_parcel_mass_scaled(plan.parcels[0]).is_zero() &&
+            mac_parcel_volume(plan.parcels[0]).project().value == 0 && plan.parcel_material_volumes_m3[0] == 0,
+            "Void control did not retain a positive parcel below geometric readout range");
+        const auto next = advance_mac_parcel_transport(s.registry, source, *s.eos, plan);
+        for (std::size_t i = 0; i < source.cells.size(); ++i)
+            require(next.state.cells[i].mixture.masses == source.cells[i].mixture.masses &&
+                next.state.cells[i].mixture.energy == source.cells[i].mixture.energy,
+                "Unresolved geometric atom changed a binary64 inventory projection");
+        require(std::abs(next.report.energy_residual_j) <= next.report.energy_bound_j, "Wide void parcel energy account failed");
+        auto bad = plan; bad.parcel_material_volumes_m3[0] = std::numeric_limits<double>::denorm_min();
+        rejects([&] { static_cast<void>(advance_mac_parcel_transport(s.registry, source, *s.eos, bad)); },
+            "material/void split", "Wide void parcel accepted a false geometric readout");
+        if (filled == 1) {
+            sweep.full_x.clear(); sweep.x[1] = .1;
+            const std::vector<double> expanded{1.1, .9};
+            auto ordinary = reconstruct_mac_parcels(s.registry, *s.eos, source, expanded, sweep, .4, expanded);
+            require(!mac_parcel_mass_scaled(ordinary.parcels[0]).is_zero(), "Ordinary control did not carry mass");
+            ordinary.parcel_material_volumes_m3[0] = 0; ordinary.parcel_void_volumes_m3[0] = .1;
+            rejects([&] { static_cast<void>(advance_mac_parcel_transport(s.registry, source, *s.eos, ordinary)); },
+                "material/void split", "Ordinary parcel accepted a false zero-material readout");
+        }
+    }
+    std::cout << "PASS full-range void parcel geometry, unchanged projections and invalid readout refusal\n";
 }
 MacClosedSettings void_settings(double dt = 2e-4) {
     MacClosedSettings s; s.vacuum = MacVacuumRepresentation::void_phase; s.maximum_timestep_s = dt;
@@ -411,6 +447,7 @@ int main() {
     try {
         one_dimensional(); two_dimensional(); gravity(); checkpoint_and_policy(); production();
         liquid_surfaces(MacMaterialReconstruction::limited_linear); liquid_surfaces(MacMaterialReconstruction::interface_plic); void_conduction(); transfers(); gas_removal_surface(); rejections();
+        full_range_parcel_geometry();
         std::cout << "MAC void-phase tests passed\n"; return 0;
     } catch (const std::exception& error) { std::cerr << "FAIL " << error.what() << '\n'; return 1; }
 }
