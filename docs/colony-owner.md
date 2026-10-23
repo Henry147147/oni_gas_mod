@@ -436,6 +436,17 @@ accuracy floor; profile 19 remains an opt-in experiment.
 
 ## Saves
 
+**Reserved 2026-10-23, immediately after fetching `7e3db57`:** owner wrapper
+`MACOLN01` version **9** is assigned to durable explicit-energy/momentum
+moving-parcel jobs and their full passive inventories. The parent gameplay
+worker owns the additive ABI, owner queue/receipt framing and version-9 codec;
+Codex owns conservative solver admission. A physical mixed parcel commits or
+refuses as one ordered batch; refusal consumes nothing and leaves the exact
+managed reservation available for retry or return. Existing mass/temperature
+jobs and version-8 bytes remain unchanged when the new facility is unused.
+This is a reservation, not an enabled writer or gameplay acceptance. Core
+physical checkpoint versions are assigned separately.
+
 **Reserved 2026-10-23, immediately after fetching `81b0021`:** owner wrapper
 `MACOLN01` version **8** is assigned to durable mixed-pipe job tokens, queued
 full-passive injections/extractions and the accepted-token watermark. This is
