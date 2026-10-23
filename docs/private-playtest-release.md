@@ -127,3 +127,20 @@ destroyed save roots in the native managed cleanup path. A narrow quit guard
 preserves every original instruction except those two getters, using Unity's
 existing null check before access. Installed-layout and unknown-layout controls
 pass; actual menu acceptance still requires its game repeat.
+
+With that guard, the overwritten frame-93 save passes cold load and actual
+same-process menu reload. Both sessions advance to frame 123 (30 new frames,
+31 samples each, no gaps). Session 1 retires through shutdown/main menu and
+session 2 restores the same source hash, colony GUID and saved flags 5.
+Loads are 2, saves 0; all three duplicants survive. No owner fault, rejection,
+skipped relaxation, presentation error or renderer error occurs; cleanup is
+verified. Mass error is 5.311e-16 in both legs; energy errors are
+1.218e-15/1.216e-15. Trace sink totals are 2.27547e-7 kg / 0.237334 J and
+2.27599e-7 kg / 0.237344 J.
+
+LOW-lock owner mean/p95/max is 202.548/226.834/305.944 ms then
+202.870/218.786/232.084 ms; observed spacing is
+916.629/2073.797/17455.309 ms then 905.596/1336.330/18511.905 ms. These
+include startup/pauses and are lifecycle diagnostics, not speed acceptance.
+The two trajectories have no identical input transcript and are not claimed
+byte-identical. In-flight callbacks and mixed-pipe manual/autosaves remain open.
