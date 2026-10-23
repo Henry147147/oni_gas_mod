@@ -71,6 +71,16 @@ censored, that metric remains unresolved. Do not silently substitute a game
 profile as truth. Include the same solid/door heat exchange model in F4's
 offline reference; absence of that model leaves its dynamic truth unresolved.
 
+The optional game release capture is taken after terrain edits, before flow.
+In F1 the owner's opening helper has already moved 6.25% of the gas into the
+divider; F3/F5 captures likewise include pre-release evolution. These are
+intermediate replay states, not the frozen initial world. Reconstruct oracle
+initial fields directly from this protocol and the private runtime catalogue,
+including the actual binary32 placed masses/temperatures and zero initial
+velocity. Do not carry the game opening prefix into the truth. Earlier
+capture-based admission probes establish execution only, not a resolved floor
+trajectory. No such trajectory has been accepted.
+
 For each analogous metric report vanilla, game profile, truth and absolute
 errors (seconds for timing, mass fraction for split/leakage, metres for depth,
 kelvins for temperature). A game profile passes only if its error is no larger

@@ -686,6 +686,13 @@ Environment variables of the game process (the harness passes them through):
   scenarios produce no release capture. It changes no fixture, physics,
   checkpoint or solver setting; leave it unset for timing runs. Verify the
   completed dump's MAC checksum before reference work and keep it private.
+  This is before fluid advance but **after the owner applies terrain edits**.
+  Opening a gas-filled room immediately refills new cells from its neighbours;
+  the F1 image therefore already holds 6.25% of the gas in the divider. These
+  captures are game intermediate states, not frozen-protocol initial worlds.
+  They may support exact replay of that suffix, but must not seed initial-state
+  oracle comparisons. F3/F5 also include pre-release evolution; reconstruct
+  resolved starts from the fixed protocol and runtime catalogue instead.
 - `MA_COLONY_SLOW_DUMP=s` (with the path): also write the world before the
   first flow step still running after s seconds (a watchdog, so a step that
   never finishes is caught).
