@@ -14,6 +14,7 @@ namespace MixedAtmospheres.Oni
     internal static class ColonyPresentation
     {
         private const string Version = "oni-colony-presentation-v1";
+        private static readonly object sessionGate = new object();
         private static FluidMaterialCatalog? catalog;
         private static string[] ids = Array.Empty<string>();
         private static NativeMatterPhase[] phases = Array.Empty<NativeMatterPhase>();
@@ -30,33 +31,44 @@ namespace MixedAtmospheres.Oni
         internal static double CopyMilliseconds { get; private set; }      // game thread
         internal static string LastError { get; private set; } = "";
 
-        internal static void Reset() { catalog = null; publishedFrame = ulong.MaxValue; Interlocked.Exchange(ref publications, 0); LastError = ""; }
+        internal static void Reset()
+        {
+            lock (sessionGate)
+            {
+                catalog = null; publishedFrame = ulong.MaxValue;
+                Interlocked.Exchange(ref publications, 0); LastError = "";
+                RejectedCells = 0; FirstRejection = ""; LastBuildMilliseconds = 0; CopyMilliseconds = 0;
+            }
+        }
 
         internal static void Configure()
         {
-            OniNativeColony.Check(OniNativeColony.SpeciesList(null, 0, out var count));
-            var species = new OniNativeColony.Species[count];
-            OniNativeColony.Check(OniNativeColony.SpeciesList(species, count, out count));
-            var materials = new List<FluidMaterial>(); var styles = new List<MixtureSpeciesStyle>();
-            ids = new string[count]; phases = new NativeMatterPhase[count]; molarMasses = new double[count];
-            for (var k = 0; k < count; ++k)
+            lock (sessionGate)
             {
-                var s = species[k]; var element = ElementLoader.elements[(int)s.NativeIndex];
-                ids[k] = element.id.ToString(); phases[k] = s.Phase == 1 ? NativeMatterPhase.Gas : NativeMatterPhase.Liquid;
-                molarMasses[k] = s.MolarMassKgPerMol;
-                materials.Add(new FluidMaterial(ids[k], phases[k], s.MolarMassKgPerMol, s.CvJoulesPerKgKelvin,
-                    phases[k] == NativeMatterPhase.Liquid ? s.DensityKgPerCubicMetre : 0, s.EnergyOffsetJoulesPerKg, 1, 1e9));
-                Color colour = element.substance.colour;
-                var name = global::STRINGS.UI.StripLinkFormatting(element.name);
-                styles.Add(new MixtureSpeciesStyle(ids[k], string.IsNullOrWhiteSpace(name) ? ids[k] : name, new MixtureSrgbColor(colour.r, colour.g, colour.b)));
+                OniNativeColony.Check(OniNativeColony.SpeciesList(null, 0, out var count));
+                var species = new OniNativeColony.Species[count];
+                OniNativeColony.Check(OniNativeColony.SpeciesList(species, count, out count));
+                var materials = new List<FluidMaterial>(); var styles = new List<MixtureSpeciesStyle>();
+                ids = new string[count]; phases = new NativeMatterPhase[count]; molarMasses = new double[count];
+                for (var k = 0; k < count; ++k)
+                {
+                    var s = species[k]; var element = ElementLoader.elements[(int)s.NativeIndex];
+                    ids[k] = element.id.ToString(); phases[k] = s.Phase == 1 ? NativeMatterPhase.Gas : NativeMatterPhase.Liquid;
+                    molarMasses[k] = s.MolarMassKgPerMol;
+                    materials.Add(new FluidMaterial(ids[k], phases[k], s.MolarMassKgPerMol, s.CvJoulesPerKgKelvin,
+                        phases[k] == NativeMatterPhase.Liquid ? s.DensityKgPerCubicMetre : 0, s.EnergyOffsetJoulesPerKg, 1, 1e9));
+                    Color colour = element.substance.colour;
+                    var name = global::STRINGS.UI.StripLinkFormatting(element.name);
+                    styles.Add(new MixtureSpeciesStyle(ids[k], string.IsNullOrWhiteSpace(name) ? ids[k] : name, new MixtureSrgbColor(colour.r, colour.g, colour.b)));
+                }
+                catalog = new FluidMaterialCatalog(Version, materials);
+                // Easy-mode breathing (docs/colony-owner.md): no upper oxygen bound.
+                var breathing = new AtmosphereSettings { HardMode = false, MaximumOxygenFraction = 1 };
+                MixturePresentationRuntime.ResetProviders();
+                MixturePresentationRuntime.Configure(new MixturePresentationModel(catalog, styles, breathing,
+                    SimHashes.Oxygen.ToString(), SimHashes.CarbonDioxide.ToString()));
+                publishedFrame = ulong.MaxValue;
             }
-            catalog = new FluidMaterialCatalog(Version, materials);
-            // Easy-mode breathing (docs/colony-owner.md): no upper oxygen bound.
-            var breathing = new AtmosphereSettings { HardMode = false, MaximumOxygenFraction = 1 };
-            MixturePresentationRuntime.ResetProviders();
-            MixturePresentationRuntime.Configure(new MixturePresentationModel(catalog, styles, breathing,
-                SimHashes.Oxygen.ToString(), SimHashes.CarbonDioxide.ToString()));
-            publishedFrame = ulong.MaxValue;
         }
 
         // Called after each data request. The game thread copies the completed
@@ -85,32 +97,44 @@ namespace MixedAtmospheres.Oni
             // Configure replaces these arrays rather than editing them, so the
             // worker keeps a consistent set even if the owner restarts.
             var table = new Table(catalog!, ids, phases, molarMasses, readings, parts);
+            var producerSession = MixturePresentationRuntime.NativeDomainSession;
             ThreadPool.QueueUserWorkItem(_ =>
             {
                 var begun = System.Diagnostics.Stopwatch.GetTimestamp();
                 try
                 {
                     var cells = new Dictionary<int, MixtureThermodynamicReading>((int)count);
-                    var rejected = 0;
+                    var rejected = 0; var firstRejection = "";
                     for (var r = 0; r < count; ++r)
                     {
                         try { cells.Add((int)table.Readings[r].PublicCell, Create(table, table.Readings[r], (long)frame)); }
                         catch (ArgumentException error)
                         {
                             // That cell keeps its vanilla projection.
-                            if (rejected++ == 0) FirstRejection = "cell " + table.Readings[r].PublicCell + ": " + error.Message;
+                            if (rejected++ == 0) firstRejection = "cell " + table.Readings[r].PublicCell + ": " + error.Message;
                         }
                     }
-                    RejectedCells = rejected;
-                    if (cells.Count != 0 && MixturePresentationRuntime.PublishNativeDomainFrame(width, height, (long)frame, cells)) Interlocked.Increment(ref publications);
+                    lock (sessionGate)
+                    {
+                        if (catalog != table.Catalog) return;
+                        if (cells.Count != 0 && !MixturePresentationRuntime.PublishNativeDomainFrame(width, height, (long)frame, cells, producerSession)) return;
+                        RejectedCells = rejected;
+                        if (rejected > 0) FirstRejection = firstRejection;
+                        if (cells.Count != 0) Interlocked.Increment(ref publications);
+                    }
                 }
                 catch (Exception error)
                 {
                     // A frame still building when the owner stops or the game
                     // shuts the presentation down is dropped, not a failure.
-                    if (catalog == table.Catalog && MixturePresentationRuntime.CurrentModel != null) Failed(error, frame);
+                    lock (sessionGate)
+                        if (catalog == table.Catalog && MixturePresentationRuntime.CurrentModel != null) Failed(error, frame);
                 }
-                finally { LastBuildMilliseconds = Milliseconds(begun); Volatile.Write(ref building, 0); }
+                finally
+                {
+                    lock (sessionGate) if (catalog == table.Catalog) LastBuildMilliseconds = Milliseconds(begun);
+                    Volatile.Write(ref building, 0);
+                }
             });
         }
         // Presentation never stops the owner; the vanilla projection stays visible.

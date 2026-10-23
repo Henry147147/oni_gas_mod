@@ -21,6 +21,34 @@ internal static class MixtureRuntimeTests
             check(!MixturePresentationRuntime.HasProvider && MixturePresentationRuntime.AcquireFrame() == null);
             check(!MixturePresentationRuntime.TryGetCell(0, out _));
         });
+        test("retired native presentation worker cannot publish into a new session with the same model", () =>
+        {
+            var setup=Setup(); var retiredSession=MixturePresentationRuntime.NativeDomainSession;
+            var stale=new Dictionary<int,MixtureThermodynamicReading> { [0]=new MixtureThermodynamicReading(
+                Array.Empty<MixtureThermodynamicConstituent>(),0,0,0,0,0,0,1,0,0,1,setup.catalog.Version,setup.catalog.Fingerprint,99) };
+            using var entered=new System.Threading.ManualResetEventSlim();
+            using var release=new System.Threading.ManualResetEventSlim();
+            var worker=Task.Run(() => { entered.Set();release.Wait();return MixturePresentationRuntime.PublishNativeDomainFrame(1,1,99,stale,retiredSession); });
+            try
+            {
+                check(entered.Wait(TimeSpan.FromSeconds(10)));
+                MixturePresentationRuntime.ResetProviders();
+                // Reusing the very same model proves that model identity and
+                // catalogue fingerprints alone cannot identify old inputs.
+                MixturePresentationRuntime.Configure(setup.model);
+                var currentSession=MixturePresentationRuntime.NativeDomainSession;
+                check(currentSession!=retiredSession);
+                var fresh=new Dictionary<int,MixtureThermodynamicReading> { [0]=new MixtureThermodynamicReading(
+                    Array.Empty<MixtureThermodynamicConstituent>(),0,0,0,0,0,0,1,0,0,1,setup.catalog.Version,setup.catalog.Fingerprint,1) };
+                check(MixturePresentationRuntime.PublishNativeDomainFrame(1,1,1,fresh,currentSession));
+                var frame=MixturePresentationRuntime.AcquireFrameFor(7)!;
+                release.Set();check(worker.Wait(TimeSpan.FromSeconds(10)) && !worker.Result);
+                check(MixturePresentationRuntime.CurrentRevision==1 && ReferenceEquals(frame,MixturePresentationRuntime.AcquireFrameFor(7)));
+                MixturePresentationRuntime.ResetProviders();
+                check(!MixturePresentationRuntime.PublishNativeDomainFrame(1,1,99,stale,retiredSession));
+            }
+            finally { release.Set();worker.Wait(); }
+        });
         test("fixture ownership is explicit copied and stable for a Unity frame", () =>
         {
             var setup = Setup();

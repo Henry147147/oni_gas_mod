@@ -33,6 +33,7 @@ namespace MixedAtmospheres.Oni
         internal static string LastShutdownError { get; private set; } = "";
 
         internal static MixturePresentationModel? CurrentModel { get { lock (Sync) return model; } }
+        internal static long NativeDomainSession { get { lock (Sync) return resetEpoch; } }
         internal static bool HasProvider { get { lock (Sync) return world != null || fixture != null || Registrations.Count != 0; } }
         internal static bool HasWorldProvider { get { lock (Sync) return (world != null && includeWorldCells) || fixture != null; } }
         internal static int InventoryProviderCount { get { lock (Sync) return Registrations.Count; } }
@@ -196,6 +197,13 @@ namespace MixedAtmospheres.Oni
         // is dropped (false).
         internal static bool PublishNativeDomainFrame(int width, int height, long revision,
             IReadOnlyDictionary<int, MixtureThermodynamicReading> readings)
+            => PublishNativeDomainFrame(width, height, revision, readings, null);
+
+        // Producers capture the session before queuing their background work.
+        // Capturing it only when the worker finishes can admit retired inputs
+        // into a newly configured colony with the same material catalogue.
+        internal static bool PublishNativeDomainFrame(int width, int height, long revision,
+            IReadOnlyDictionary<int, MixtureThermodynamicReading> readings, long? expectedSession)
         {
             if (width <= 0 || height <= 0 || revision < 0 || readings.Count == 0)
                 throw new ArgumentException("Invalid native domain frame.");
@@ -205,6 +213,7 @@ namespace MixedAtmospheres.Oni
             MixturePresentationModel described; long epoch;
             lock (Sync)
             {
+                if (expectedSession.HasValue && expectedSession.Value != resetEpoch) return false;
                 if (model == null || source != null || completedSource != null)
                     throw new InvalidOperationException("A native domain requires its own presentation session and model.");
                 described = model; epoch = resetEpoch;
