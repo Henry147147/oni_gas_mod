@@ -15,11 +15,11 @@ physics gates, frozen arenas, bounds or the user's decisions.
 
 | Completion item | Current evidence and remaining work | Owner |
 | --- | --- | --- |
-| Full mixed gas/liquid pipes and ports | Explicit pump/storage 27/27, atomic world output 10/10 and real teardown 10/10 pass. Normal mixed ownership remains off. Finish vents, recipe-specific consumers/storage/reservoirs, phase damage/returns, all readers and activation. | Pipe worker |
-| Heat and germs | Correct pipe body capacity uses registered thermal mass, not construction mass. Corrected thermal equilibrium agrees, but the approximately 1.21 J energy residual exceeds the fixed endpoint bound and remains unresolved. Every germ identity must grow/die by medium; minority retention alone is insufficient, in pipes and world cells. | Pipe worker / gameplay owner |
+| Full mixed gas/liquid pipes and ports | Explicit pump/storage 27/27, atomic world output 10/10, real teardown 10/10, valve/shutoff 23/23 and gas vent 13/13 pass. Normal mixed ownership remains off. Finish liquid outlets, recipe-specific consumers/storage/reservoirs, phase damage/returns, all readers and activation. | Pipe worker |
+| Heat and germs | Correct pipe body capacity uses registered thermal mass, not construction mass. Corrected thermal equilibrium agrees, but the approximately 1.06 J measured energy residual exceeds the fixed endpoint bound and remains unresolved. The shared native integer germ helper passes 247 bit-exact native comparisons (32 births, 534,021 deaths, one extinction). Every identity still needs integrated evolution and durable clocks, in pipes and world cells. | Pipe worker / gameplay owner |
 | Conserved gameplay transactions | Existing life-support, plant, critter, source and machine scenarios pass on the packet path. Verify recipe-only consumption, blocked input/output and power/heat accounting on the final mixed path, including storage, bottles, suits and rocket tanks/cargo. A generic converter preflight is not a per-recipe atomicity proof. | Gameplay owner / pipe worker |
-| Exact saves with mixed activity | Historical owner saves/load/overwrite and missing-mod rejection pass. Mixed saves are explicitly refused. Finish the pre-header quiescence barrier, durable ports/retries/component scheduling, in-flight manual/autosaves, cold/menu reload, interrupted-save checks and byte-exact continuation. Old saves retain their recorded profile. | Pipe worker / gameplay owner |
-| Whole-asteroid reliability | Every base-game asteroid imports; older Oceania/Volcanea checks faulted. Oceania and Volcanea now pass 30 frames on profile 18; longer reliability remains open. The prepared profile-18 late colony stalls after frame 4,383; pass that region before resuming ten cycles. One legacy transfer fault at frame 456 did not recur in a 601-frame retry and is not claimed fixed. | Solver / gameplay owners |
+| Exact saves with mixed activity | Historical owner saves/load/overwrite and missing-mod rejection pass. Mixed saves are explicitly refused; the early public-ingress guard passes 7/7 actual game checks with existing destination/writer bytes preserved. Finish the pre-header quiescence barrier, durable ports/retries/component scheduling, in-flight manual/autosaves, cold/menu reload, interrupted-save checks and byte-exact continuation. Old saves retain their recorded profile. | Pipe worker / gameplay owner |
+| Whole-asteroid reliability | Every base-game asteroid imports; older Oceania/Volcanea checks faulted. Oceania and Volcanea now pass 30 frames on profile 18; longer reliability remains open. Opt-in kernel3 fails Oceania after two frames (liquid strain admission) and Volcanea before its first completed frame (pressure convergence); neither is accepted. The prepared profile-18 late colony stalls after frame 4,383; pass that region before resuming ten cycles. One legacy transfer fault at frame 456 did not recur in a 601-frame retry and is not claimed fixed. | Solver / gameplay owners |
 | Numerical acceptance for the selected profile | F1 static split currently fails the vanilla comparison. F2 requires accepted external-heat/kinetic correction; F3/F5 dynamic references and compression/phase corrections remain open; F4 lacks a completed aligned solid/fluid measurement. Finish affected evaporation, steam and freeze/melt checks. New kernel integration is diagnostic until accepted. | Solver / gameplay owners |
 | Ordinary player build and presentation | Select only an accepted profile for new colonies; no development fixture required. Verify normal startup, full world/pipe/storage/spill inspection and sensors, responsive pause/menu, clean shutdown, clear faults and missing/incompatible-mod saves. | Gameplay owner |
 | Ten-cycle colony acceptance and package | After the shorter failure-region check passes, run the prepared colony ten cycles with every duplicant alive, no owner fault/fallback and closed ledgers, including autosaves. Validate one immutable final bundle, then provide private Linux install/run/known-behaviour instructions and hashes. | Gameplay owner |
@@ -144,3 +144,42 @@ LOW-lock owner mean/p95/max is 202.548/226.834/305.944 ms then
 include startup/pauses and are lifecycle diagnostics, not speed acceptance.
 The two trajectories have no identical input transcript and are not claimed
 byte-identical. In-flight callbacks and mixed-pipe manual/autosaves remain open.
+
+## Paired native pipe heat trace
+
+The unchanged legacy thermal package reproduces the existing failure at its
+fixed 601-frame endpoint: 4/5 checks pass. A private observer pairs all 587
+managed contacts with 587 actual native flow/clamp/temperature call triplets.
+The observer preserves native return bits, rounding/flush modes, exception
+flags and errno in 240,000 direct-versus-detoured controls. The installed-game
+hash and actual game-process load are verified; initial attempts hidden by the
+isolated home mount are excluded from evidence.
+
+| Quantity | Measured joules |
+| --- | ---: |
+| Native contact heat delivered to fluid | 90,673.992929773 |
+| Heat inferred from the rounded carrier temperature | 90,674.229153523 |
+| Actual registered-body heat loss | 90,675.287708655 |
+| Native heat minus inferred carrier heat | -0.236223750 |
+| Body heat loss minus native contact heat | 1.294778882 |
+| Closed body-plus-mixture residual | -1.058555132 |
+| Fixed endpoint error bound | 0.245883836 |
+
+The registered body capacity is 1,940.000057 J/K (5 kg), and the two-species
+mixture capacity is 1,702.5 J/K (1 kg). Final body/mixture temperatures are
+353.260162354/353.259457704 K against the analytic 353.260123613 K equilibrium.
+Mass and exact pipe-inventory accounts pass, but heat conservation does not.
+Using the native contact heat alone would still exceed the fixed bound.
+Replaying each represented body update as
+`f32(Tbody + f32(Qnative / Cbody))` reproduces the complete actual body loss
+exactly: 90,675.287708655 J, with zero difference. All 587 pre-call managed
+snapshots match the actual native dt, fluid/body temperatures and capacities
+bit-for-bit after binary32 projection. The remaining work is a scoped contact
+adapter that credits represented body work to its physical mixture. No guessed
+endpoint residual ledger or relaxed bound is adopted.
+
+The run completes the fixed scenario with no owner fault, no skipped phase
+relaxation and 11,065 legacy rejected attempts. Owner maximum relative
+mass/energy errors are 1.771e-15/5.865e-17; the trace sink is zero. Process
+cleanup is verified. The owner world audit does not include the independent
+pipe/body contact account and cannot erase that failed thermal check.

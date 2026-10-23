@@ -32,6 +32,8 @@ namespace MixedAtmospheres.Oni
             internal ConduitFlow.ConduitContents Before,Shadow,After;
             internal BodyReading BodyBefore,BodyAfter;
             internal double RegisteredMass,BodyCv,BodyCvUnrounded,CarrierCv;
+            internal float BodyConductivity,DefinitionConductivity,CarrierConductivity;
+            internal bool Insulated;
         }
         internal readonly struct BodyReading
         {
@@ -63,7 +65,9 @@ namespace MixedAtmospheres.Oni
                 var carrier=ElementLoader.FindElementByHash(sample.Shadow.element);
                 scope.Rows.Add(new Row{Flow=sample.Flow,Cell=sample.Cell,Body=body,Inventory=sample.Inventory,Before=sample.Native,Shadow=sample.Shadow,
                     BodyBefore=new BodyReading(body),RegisteredMass=mass,BodyCv=(double)(mass*cp)*1000,BodyCvUnrounded=(double)mass*cp*1000,
-                    CarrierCv=(double)sample.Shadow.mass*carrier.specificHeatCapacity*1000});
+                    CarrierCv=(double)sample.Shadow.mass*carrier.specificHeatCapacity*1000,
+                    BodyConductivity=body.Element.thermalConductivity,DefinitionConductivity=building.Def.ThermalConductivity,
+                    CarrierConductivity=carrier.thermalConductivity,Insulated=building.Def.ThermalConductivity<1f});
             }
             if(scope.Rows.Count==0)return null;
             lock(WorkLock)
@@ -121,7 +125,7 @@ namespace MixedAtmospheres.Oni
             if(writer==null)
             {
                 writer=new StreamWriter(new FileStream(PathSetting!,FileMode.CreateNew,FileAccess.Write,FileShare.Read));
-                writer.WriteLine("owner_frame\tordinal\tdt\tphase\tcell\tcarrier_element\tnative_mass_before\tnative_mass_after\tshadow_temp\tnative_temp_before\tnative_temp_after\tcarrier_cv_j_k\tregistered_body_mass\tbody_cv_native_j_k\tbody_cv_unrounded_j_k\tbody_handle_before\tbody_record_before\tbody_native_temp_before\tbody_callback_temp_before\tbody_internal_temp_before\tbody_pending_kj_before\tbody_handle_after\tbody_record_after\tbody_native_temp_after\tbody_callback_temp_after\tbody_internal_temp_after\tbody_pending_kj_after\tbody_enabled\tbody_bypass\tpipe_mass_before\tpipe_mass_after\tpipe_energy_delta_j\tlagged_carrier_work_j\tcurrent_carrier_work_j\texpected_booked_j\tunattributed_body_snapshot_delta_j");
+                writer.WriteLine("owner_frame\tordinal\tdt\tphase\tcell\tcarrier_element\tnative_mass_before\tnative_mass_after\tshadow_temp\tnative_temp_before\tnative_temp_after\tcarrier_cv_j_k\tregistered_body_mass\tbody_cv_native_j_k\tbody_cv_unrounded_j_k\tbody_handle_before\tbody_record_before\tbody_native_temp_before\tbody_callback_temp_before\tbody_internal_temp_before\tbody_pending_kj_before\tbody_handle_after\tbody_record_after\tbody_native_temp_after\tbody_callback_temp_after\tbody_internal_temp_after\tbody_pending_kj_after\tbody_enabled\tbody_bypass\tpipe_mass_before\tpipe_mass_after\tpipe_energy_delta_j\tlagged_carrier_work_j\tcurrent_carrier_work_j\texpected_booked_j\tunattributed_body_snapshot_delta_j\tbody_element_conductivity\tdefinition_conductivity\tcarrier_conductivity\tregistered_conduit_conductivity\tinsulated");
             }
             foreach(var row in scope.Rows)
             {
@@ -133,7 +137,8 @@ namespace MixedAtmospheres.Oni
                     b.Handle,b.RecordHandle,b.NativeTemperature,b.CallbackTemperature,b.InternalTemperature,b.PendingKilojoules,b.Enabled,b.Bypass,
                     row.Inventory.Mass,after.Mass,after.Energy.Minus(row.Inventory.Energy).Value,
                     row.CarrierCv*((double)row.Before.temperature-row.Shadow.temperature),row.CarrierCv*((double)row.After.temperature-row.Before.temperature),
-                    row.CarrierCv*((double)row.After.temperature-row.Shadow.temperature),row.BodyCv*(b.NativeTemperature-a.NativeTemperature)};
+                    row.CarrierCv*((double)row.After.temperature-row.Shadow.temperature),row.BodyCv*(b.NativeTemperature-a.NativeTemperature),row.BodyConductivity,row.DefinitionConductivity,row.CarrierConductivity,
+                    (double)(row.BodyConductivity*row.DefinitionConductivity),row.Insulated};
                 for(var i=0;i<values.Length;++i)
                 {
                     if(i!=0)writer.Write('\t');
