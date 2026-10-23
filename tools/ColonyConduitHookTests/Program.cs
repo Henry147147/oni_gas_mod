@@ -123,6 +123,35 @@ internal static class Program
             Check(dispenser.empty&&!dispenser.blocked&&ReferenceEquals(AccessTools.Field(cellType,"Inventory").GetValue(owned),inventory),
                 "Owned pump status changed a physical inventory or retained a stale empty state.");
             Console.WriteLine("PASS pump status boundary: inactive/full, reopened outlet and emptied buffer update readers without changing inventories");
+            portsRuntime.GetProperty("Enabled",flags)!.SetValue(null,true);
+            var secondMaterial=Activator.CreateInstance(materialType,BindingFlags.NonPublic|BindingFlags.Instance,null,new object[]{ordinal+1,2000.0,0.0},null)!;
+            materials.Add(ordinal+1,secondMaterial);
+            var left=inventoryType.GetMethod("Single",flags)!.Invoke(null,new object[]{material,.5,300.0,0,50.0})!;
+            var right=inventoryType.GetMethod("Single",flags)!.Invoke(null,new object[]{secondMaterial,.5,500.0,1,70.0})!;
+            var expectedMix=inventoryType.GetMethod("Joined",BindingFlags.NonPublic|BindingFlags.Instance)!.Invoke(left,new[]{right})!;
+            byte[] Image(object value){using var stream=new MemoryStream();using var writer=new BinaryWriter(stream);inventoryType.GetMethod("Write",BindingFlags.NonPublic|BindingFlags.Instance)!.Invoke(value,new object[]{writer});return stream.ToArray();}
+            var buffers=(System.Collections.IDictionary)portsRuntime.GetField("Buffers",flags)!.GetValue(null)!;
+            buffers.Add(1000UL,Activator.CreateInstance(bufferType,BindingFlags.NonPublic|BindingFlags.Instance,null,new object[]{(byte)1,0,left},null)!);
+            buffers.Add(1001UL,Activator.CreateInstance(bufferType,BindingFlags.NonPublic|BindingFlags.Instance,null,new object[]{(byte)1,0,right},null)!);
+            var pumpBuffers=(System.Collections.IList)AccessTools.Field(pumpStateType,"Buffers").GetValue(pumpState)!;pumpBuffers.Add(1000UL);pumpBuffers.Add(1001UL);
+            pumpRuntime.GetMethod("Consolidate",flags)!.Invoke(null,new[]{pumpState});
+            Check(pumpBuffers.Count==1&&buffers.Count==1,"Completed pump intakes retained independently drainable buffers.");
+            var mixed=AccessTools.Field(bufferType,"Inventory").GetValue(buffers[pumpBuffers[0]!])!;
+            Check(Image(mixed).SequenceEqual(Image(expectedMix)),"Pump storage coalescence changed species, heat or per-identity germs.");
+            var lookup=Delegate.CreateDelegate(typeof(Func<,>).MakeGenericType(typeof(int),materialType),runtime.GetMethod("Material",flags)!);
+            var moved=inventoryType.GetMethod("Transfer",flags)!.Invoke(null,new object?[]{mixed,empty,.25,1.0,lookup,null,false})!;
+            var parcel=moved.GetType().GetField("Item3")!.GetValue(moved)!;
+            var expectedA=inventoryType.GetMethod("Single",flags)!.Invoke(null,new object[]{material,.125,300.0,0,12.5})!;
+            var expectedB=inventoryType.GetMethod("Single",flags)!.Invoke(null,new object[]{secondMaterial,.125,500.0,1,17.5})!;
+            var expectedParcel=inventoryType.GetMethod("Joined",BindingFlags.NonPublic|BindingFlags.Instance)!.Invoke(expectedA,new[]{expectedB})!;
+            Check(Image(parcel).SequenceEqual(Image(expectedParcel)),"Partial storage discharge sampled an arrival packet instead of the complete mixture.");
+
+            var merge=portsRuntime.GetMethod("MergeBuffers",flags)!;
+            try{merge.Invoke(null,new object[]{new[]{(ulong)pumpBuffers[0]!, (ulong)pumpBuffers[0]!}});throw new Exception("Duplicate buffer merged twice.");}
+            catch(TargetInvocationException error)when(error.InnerException is InvalidOperationException){}
+            Check(Image(AccessTools.Field(bufferType,"Inventory").GetValue(buffers[pumpBuffers[0]!])!).SequenceEqual(Image(expectedMix)),"Rejected buffer merge changed inventory.");
+            Console.WriteLine("PASS pump storage mixing: separate compositions become one exact inventory, partial discharge samples both, rejected duplicate preserves state");
+
         }
         finally{runtime.GetMethod("Reset",flags)!.Invoke(null,null);}
         Console.WriteLine("PASS owned pipe boundary: ordinary scalar native edges cannot cross a world ownership boundary");

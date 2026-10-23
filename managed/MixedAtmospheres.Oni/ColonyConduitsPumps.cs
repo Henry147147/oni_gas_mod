@@ -89,6 +89,7 @@ namespace MixedAtmospheres.Oni
         {
             if(!Requests.TryGetValue(localId,out var state))return;
             state.Pending.Remove(localId);Requests.Remove(localId);
+            Consolidate(state);
             if(state.Consumer!=null)
             {
                 foreach(var receipt in receipts??Array.Empty<OniNativeColony.Receipt>())
@@ -167,6 +168,13 @@ namespace MixedAtmospheres.Oni
             state.Storage.OnStorageChange?.Invoke(null!);
         }
         private static void Prune(State state)=>state.Buffers.RemoveAll(id=>!state.Pending.ContainsKey(id)&&ColonyPipePorts.BufferInventory(id).Count==0);
+        private static void Consolidate(State state)
+        {
+            var completed=state.Buffers.Where(id=>!state.Pending.ContainsKey(id)).ToArray();
+            if(completed.Length<2)return;
+            var keep=ColonyPipePorts.MergeBuffers(completed);
+            state.Buffers.RemoveAll(id=>!state.Pending.ContainsKey(id)&&id!=keep);
+        }
     }
     [HarmonyPatch]
     internal static class ColonyMixedPumpStorageMassPatch

@@ -39,7 +39,7 @@ namespace MixedAtmospheres.Oni
         private static readonly List<GameObject> powered = new List<GameObject>();
 
         internal static void Reset() { Results.Clear(); index = 0; Next(); }
-        private static void Next() { Current = new Result(); started = 0; step = 0; recorded.Clear(); powered.Clear(); filling = null; pipeCells.Clear(); generators.Clear(); mixedFilters.Clear();mixedSensors.Clear();mixedDiseaseSensor=null;mixedBoundaryJobs.Clear();mixedPumps.Clear();mixedPumpHeldOutputs.Clear(); }
+        private static void Next() { Current = new Result(); started = 0; step = 0; recorded.Clear(); powered.Clear(); filling = null; pipeCells.Clear(); generators.Clear(); mixedFilters.Clear();mixedSensors.Clear();mixedDiseaseSensor=null;mixedBoundaryJobs.Clear();mixedPumps.Clear();mixedPumpHeldOutputs.Clear();mixedPumpDischargeSources.Clear();mixedThermalBody=null; }
 
         // Called every Unity frame while the owner runs. Returns true when
         // every scenario of the list is done.
@@ -99,6 +99,7 @@ namespace MixedAtmospheres.Oni
                     case "mixed-pipe-filter": MixedPipeFilter(frame); break;
                     case "mixed-pipe-boundary": MixedPipeBoundary(frame); break;
                     case "mixed-pipe-pumps": MixedPipePumps(frame); break;
+                    case "mixed-pipe-thermal": MixedPipeThermal(frame); break;
                     case "mixed-pipe-catalogue": MixedPipeCatalogue(frame); break;
                     case "pacu": Pacu(frame); break;
                     case "liquid-pump": LiquidPump(frame); break;
@@ -1147,8 +1148,68 @@ namespace MixedAtmospheres.Oni
             }
             Record("catalogue routes conserve every account",ColonyConduits.Audit(out var detail),detail);
         }
+        private static PrimaryElement? mixedThermalBody;
+        private static int ThermalCell=>Cell(3,3);
+        private static bool ThermalAt(int at,string label)=>Once(at+(recorded.TryGetValue("thermal setup delay",out var delay)?(int)delay:0),label);
+        private static void MixedPipeThermal(int frame)
+        {
+            if(Once(0,"isolated finite-body thermal arena"))Arena((x,y)=>(SimHashes.Vacuum,0f,300f));
+            if(Once(5,"build finite radiant pipe body"))
+            {
+                Pipe(Game.Instance.gasConduitSystem,"GasConduitRadiant",new List<int>{ThermalCell});
+                mixedThermalBody=Grid.Objects[ThermalCell,(int)ObjectLayer.GasConduit].GetComponent<PrimaryElement>();
+            }
+            if(frame>=8&&step<=8)
+            {
+                if(!Game.Instance.gasConduitFlow.HasConduit(ThermalCell))
+                {
+                    Current.Stage="waiting for native thermal pipe topology";
+                    if(frame>=30){Record("native thermal topology became ready",false,"readiness expired");Finish();}return;
+                }
+                recorded["thermal setup delay"]=frame-8;
+            }
+            if(ThermalAt(8,"heat the finite native construction body"))mixedThermalBody!.Temperature=400;
+            if(ThermalAt(14,"seed equal-mass gases with different Cv"))
+            {
+                ColonyConduits.StartControl();
+                var a=ColonyConduits.MaterialOf(SimHashes.Oxygen);var b=ColonyConduits.MaterialOf(SimHashes.Hydrogen);
+                var contents=PipeInventory.Single(a,.5,300,255,0).Joined(PipeInventory.Single(b,.5,300,255,0));
+                ColonyConduits.SupplyControlInventory(Game.Instance.gasConduitFlow,ThermalCell,contents);
+                var body=mixedThermalBody!;var bodyCv=(double)body.Mass*body.Element.specificHeatCapacity*1000;var fluidCv=.5*(a.HeatCapacity+b.HeatCapacity);
+                recorded["thermal body Cv"]=bodyCv;recorded["thermal fluid Cv"]=fluidCv;recorded["thermal body T"]=body.Temperature;
+                recorded["thermal initial U"]=contents.Energy.Value;recorded["thermal initial exchange"]=ColonyConduits.ExchangedHeatJoules;
+                recorded["thermal equilibrium"]=(bodyCv*body.Temperature+fluidCv*300)/(bodyCv+fluidCv);
+                Record("thermal body is finite and both species Cv matter",bodyCv>0&&fluidCv>0&&Math.Max(a.HeatCapacity,b.HeatCapacity)>2*Math.Min(a.HeatCapacity,b.HeatCapacity)&&body.Temperature>399,
+                    $"owner flags {ColonyOwner.Config.Flags}; body {body.Mass:R} kg, Cv {bodyCv:R} J/K, T {body.Temperature:R} K; species Cv {a.HeatCapacity:R}/{b.HeatCapacity:R}; equilibrium {recorded["thermal equilibrium"]:R} K");
+            }
+            if(recorded.TryGetValue("thermal initial U",out var initialU)&&frame<600+(int)recorded["thermal setup delay"])
+            {
+                ColonyConduits.TryRead(Game.Instance.gasConduitFlow,ThermalCell,out var observation);
+                var bodyT=(double)mixedThermalBody!.Temperature;
+                var bodyHeat=recorded["thermal body Cv"]*(bodyT-recorded["thermal body T"]);
+                Current.Stage=$"finite-body observation: body {bodyT:R} K; mixture {observation.Temperature(ColonyConduits.Material):R} K; truth {recorded["thermal equilibrium"]:R} K; body heat {bodyHeat:R} J; fluid heat {observation.Energy.Value-initialU:R} J";
+            }
+            if(ThermalAt(600,"finite-body heat and analytic equilibrium"))
+            {
+                ColonyConduits.TryRead(Game.Instance.gasConduitFlow,ThermalCell,out var contents);
+                var bodyT=(double)mixedThermalBody!.Temperature;var fluidT=contents.Temperature(ColonyConduits.Material);var equilibrium=recorded["thermal equilibrium"];
+                var bodyHeat=recorded["thermal body Cv"]*(bodyT-recorded["thermal body T"]);var fluidHeat=contents.Energy.Value-recorded["thermal initial U"];
+                var exchange=ColonyConduits.ExchangedHeatJoules-recorded["thermal initial exchange"];
+                // Native construction temperatures are binary32 readouts. The
+                // heat check permits two endpoint ulps, not a mixed-Cv rescale.
+                double Ulp(float value)=>Math.Abs((double)BitConverter.Int32BitsToSingle(BitConverter.SingleToInt32Bits(value)+1)-value);
+                var bound=2*recorded["thermal body Cv"]*(Ulp((float)bodyT)+Ulp((float)recorded["thermal body T"]))+1e-7*Math.Max(1,Math.Abs(fluidHeat));
+                Record("finite body pays the actual fluid heat",Math.Abs(bodyHeat+fluidHeat)<=bound,
+                    $"body {bodyHeat:R} J; fluid {fluidHeat:R} J; booked {exchange:R} J; residual {bodyHeat+fluidHeat:R} J; endpoint bound {bound:R} J");
+                Record("finite body and mixed gas reach analytic equilibrium",Math.Abs(bodyT-equilibrium)<=.1&&Math.Abs(fluidT-equilibrium)<=.1,
+                    $"body {bodyT:R} K; mixture {fluidT:R} K; truth {equilibrium:R} K");
+                Record("finite-body pipe still retains both original masses",contents.Count==2&&contents.SpeciesMass(ColonyConduits.MaterialOf(SimHashes.Oxygen).Id)==.5&&contents.SpeciesMass(ColonyConduits.MaterialOf(SimHashes.Hydrogen).Id)==.5,$"{contents.Mass:R} kg, {contents.Count} constituents");
+                Record("finite-body pipe accounts close",ColonyConduits.Audit(out var detail),detail);Finish();
+            }
+        }
         private static readonly List<GameObject> mixedPumps=new List<GameObject>();
         private static readonly List<ulong> mixedPumpHeldOutputs=new List<ulong>();
+        private static readonly List<PipeInventory> mixedPumpDischargeSources=new List<PipeInventory>();
         private static int PumpOutlet(GameObject pump)=>(int)AccessTools.Field(typeof(ConduitDispenser),"utilityCell").GetValue(pump.GetComponent<ConduitDispenser>());
         private static bool PumpAt(int at,string label)=>Once(at+(recorded.TryGetValue("pump setup delay",out var delay)?(int)delay:0),label);
         private static void MixedPipePumps(int frame)
@@ -1252,6 +1313,7 @@ namespace MixedAtmospheres.Oni
                 for(var phase=0;phase<2;++phase)
                 {
                     var flow=phase==0?Game.Instance.gasConduitFlow:Game.Instance.liquidConduitFlow;
+                    mixedPumpDischargeSources.Add(ColonyPipePumps.Inventory(mixedPumps[phase].GetComponent<Storage>()));
                     ColonyConduits.TransferSelected(flow,PumpOutlet(mixedPumps[phase]),phase==0?Cell(0,4):Cell(7,4),-1,true,phase==0?.25:3);
                 }
             }
@@ -1261,6 +1323,16 @@ namespace MixedAtmospheres.Oni
                 {
                     var flow=phase==0?Game.Instance.gasConduitFlow:Game.Instance.liquidConduitFlow;ColonyConduits.TryRead(flow,PumpOutlet(mixedPumps[phase]),out var output);
                     Record((phase==0?"gas":"liquid")+" pump fills partial room without overflow",Math.Abs(output.Mass-(phase==0?1:10))<1e-5&&output.Total.Minus(new PipeAmount(phase==0?1:10)).Sign<=0,$"{output.Mass:R} kg; {output.Count} constituents");
+                    var before=mixedPumpDischargeSources[phase];var after=ColonyPipePumps.Inventory(mixedPumps[phase].GetComponent<Storage>());
+                    var fraction=after.Mass/before.Mass;var largest=0.0;var okay=before.Count>=2&&after.Count==before.Count&&fraction>0&&fraction<1;
+                    foreach(var part in before.Parts){var error=Math.Abs(after.SpeciesMass(part.Id)-part.Mass*fraction);largest=Math.Max(largest,error);okay&=error<=1e-11*Math.Max(1,part.Mass);}
+                    foreach(var germ in before.Germs)
+                    {
+                        var amount=0.0;foreach(var remaining in after.Germs)if(remaining.Id==germ.Id)amount=remaining.Mass;
+                        okay&=Math.Abs(amount-germ.Mass*fraction)<=1e-11*Math.Max(1,germ.Mass);
+                    }
+                    okay&=Math.Abs(after.Energy.Value-before.Energy.Value*fraction)<=1e-10*Math.Max(1,Math.Abs(before.Energy.Value));
+                    Record((phase==0?"gas":"liquid")+" partial pump discharge samples the complete stored mixture",okay,$"held {before.Mass:R} -> {after.Mass:R} kg; remaining fraction {fraction:R}; largest species residual {largest:R} kg");
                     mixedPumps[phase].GetComponent<ConduitDispenser>().SetOnState(false);
                     ColonyPipePorts.HoldForPort(flow,PumpOutlet(mixedPumps[phase]),double.MaxValue);
                 }

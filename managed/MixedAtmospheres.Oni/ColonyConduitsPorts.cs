@@ -199,6 +199,25 @@ namespace MixedAtmospheres.Oni
         }
         internal static bool IsPending(ulong localId)=>Jobs.Values.Any(p=>p.Job.LocalId==localId);
         internal static PipeInventory BufferInventory(ulong localId)=>Buffers.TryGetValue(localId,out var buffer)?buffer.Inventory:PipeInventory.Empty;
+        internal static ulong MergeBuffers(IReadOnlyList<ulong> ids)
+        {
+            Require();if(ids.Count==0)return 0;
+            var seen=new HashSet<ulong>();var merged=PipeInventory.Empty;Buffer? first=null;ulong keep=0;
+            foreach(var id in ids)
+            {
+                if(!seen.Add(id)||IsPending(id))throw new InvalidOperationException("Only distinct completed buffers may mix.");
+                if(!Buffers.TryGetValue(id,out var buffer))continue;
+                if(first==null){first=buffer;keep=id;}
+                else if(first.Cell!=buffer.Cell||first.Phase!=buffer.Phase)throw new InvalidOperationException("Storage cannot merge different pipe ports.");
+                merged=merged.Joined(buffer.Inventory);
+            }
+            if(first==null)return 0;
+            // Validate/allocate the complete mixture before retiring any ID.
+            // Native token history and pending reservations are unchanged.
+            first.Inventory=merged;
+            foreach(var id in ids)if(id!=keep)Buffers.Remove(id);
+            return keep;
+        }
         internal static void PlaceBuffer(ulong localId)
         {
             Require();if(!Buffers.TryGetValue(localId,out var buffer))return;

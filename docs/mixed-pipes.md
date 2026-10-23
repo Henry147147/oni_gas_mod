@@ -285,9 +285,79 @@ groups, six installed hook groups, 37 inspection, 209 snapshot/backend and 135
 harness checks pass. The native batch implementation independently passes the
 parent's 83 CTests and concurrent ordered-batch controls.
 
+Completed pump intakes now coalesce into one exact storage inventory before
+notifications/discharge; pending reservations retain their independent job
+identities. The previous buffer list could discharge an older arrival mixture
+instead of the aggregate. A seventh installed hook control combines two
+different compositions and two germ identities, checks byte-exact combined
+inventory and proportional quarter discharge, and rejects duplicate mixing
+without mutation. `pipes-storage-340-v1` passes 27/27 live checks in 71 frames:
+the original 25 plus gas/liquid aggregate partial discharge. Gas storage
+1 -> 0.75 kg has largest species residual 5.551e-17 kg; liquid 20 -> 17 kg has
+zero residual. All per-species/germ/U proportions and exact pipe accounts pass.
+Seventy-two native stored notifications still run; final port buffers fall
+from 13 in v7 to 7 (including auxiliary fixture buffers). This is a correctness
+and bookkeeping change, without a whole-game speed claim.
+
+That run's world mass/energy errors are 2.744e-16/2.482e-13, trace sink zero,
+no fault, cleanup verified; fallback count unavailable. Diagnostic LOW owner
+mean/p95/max 198.703/376.249/415.441 ms (71 samples), observed
+285.590/421.944/3046.178 ms (70 contiguous samples, no gaps), controls off.
+Seven pure/seven hook/209 snapshot and 135 harness checks pass. All pipe runs
+above use the unchanged legacy owner profile, Config.Flags=1; they do not select
+`MA_COLONY_GAME_FLOOR=1` or establish game-floor/profile acceptance.
+
 Full production activation and mixed saves remain off. Finite-body mixed-Cv
 equilibrium, deterministic germ growth/death, foreign-phase cleanup returns,
 phase teardown and saved component scheduling still need acceptance controls.
+
+The finite-body control `mixed-pipe-thermal` is defined before its first run:
+an isolated native radiant gas pipe at arena coordinate (3,3), surrounding
+vacuum, no connected source/sink, and its real construction mass/material heat
+capacity. At setup stage 8 the body is heated to 400 K; six frames later the
+owned cell receives exactly 0.5 kg oxygen plus 0.5 kg hydrogen, both at 300 K.
+Topology readiness may delay setup by at most 22 frames, shifting every later
+stage equally. After 586 further frames, compare both temperatures with
+`(Cbody*Tbody_initial + Cmixture*300)/(Cbody+Cmixture)`, requiring each within
+0.1 K. Compare actual body heat loss with mixture U gain; its measurement bound
+is two binary32 endpoint ulps of body temperature plus 1e-7 of fluid heat.
+Also require both original species masses and exact pipe-account closure.
+Report the body's real mass/Cv, both species Cv, temperature endpoints, heat
+partition, booked heat and residual. A closed pipe ledger alone is insufficient.
+
+First immutable run `pipes-thermal-340-v1` stops at owner frame 456 before the
+final check: an unrelated whole-colony consumer at (103,333) extracts 1e-6 kg
+CO2 beside brine/water traces and faults with no positive thermal energy above
+reference. The result/Player.log detect the fault even though the last completed
+frame's live report has an empty Error field. Cleanup passes; no private dump
+was enabled. Actual initial body is 25 kg, Cv 9700.0002861022949 J/K; oxygen and
+hydrogen Cv 1004.9999952316284/2400.0000953674316, analytic equilibrium
+385.06906383847286 K. Final thermal metrics remain unresolved, with their
+criteria unchanged. This run also uses legacy Config.Flags=1. Parent owns an
+opt-in transfer-stage capture for a same-profile replay; a scoped arena would
+be an explicit fixture change, not removal of this full-colony failure.
+
+### Biological update still to implement
+
+Current native reconciliation evolves only the projected germ identity;
+minority identities remain in inventory but do not yet grow or die. Owned pump
+buffers also need biological updates. Retention is not complete biological
+acceptance.
+
+Proposed mixed-medium rule, not adopted: on the fixed native disease tick,
+evaluate each identity independently using ONI's public element-growth and
+temperature functions. For a mixture, evaluate each constituent's material
+rule against the whole cell's population and mass, then combine material
+changes by exact constituent mass fractions; apply the temperature term once
+at the mixture temperature. This reduces to the native material rule for a
+single constituent. It does not distribute germs among fictitious native
+packets. Each identity needs its own saved native rounding accumulator plus
+exact sub-integer/overflow representation; every birth/death is booked to
+that identity's named biological exchange. Native-compatible single-species
+integer populations must retain the exact native count/rounding trajectory.
+The extension outside native integer range, fractional populations, storage
+tick timing, and mixed-medium truth remain unresolved. No rule is selected
+until these limits and single/native versus mixed controls are established.
 
 ## Precise owner receipts
 

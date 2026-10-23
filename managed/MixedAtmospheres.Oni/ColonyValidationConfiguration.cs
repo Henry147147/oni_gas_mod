@@ -66,7 +66,7 @@ namespace MixedAtmospheres.Oni
         internal const int DefaultTelemetryIntervalFrames = 300, MinimumTelemetryIntervalFrames = 10, MaximumTelemetryIntervalFrames = 10000;
         internal static readonly string[] Scenarios = { "terrain", "heat", "phase", "freeze-melt", "deoxidizer", "pipes",
             "door", "sublimation", "falling", "breathing", "airflow", "electrolysis", "vent-overpressure", "space-heater",
-            "bottle-emptier", "gas-generator", "germs", "puft", "plant", "wheezewort", "life-support", "mask-station", "polymer-press", "oxyfern", "debris-heat", "building-melt", "geyser", "rocket-exhaust", "meteor", "sensor", "filter", "mixed-pipes", "mixed-pipe-filter", "mixed-pipe-boundary", "mixed-pipe-pumps", "mixed-pipe-catalogue", "pacu", "liquid-pump", "base" };
+            "bottle-emptier", "gas-generator", "germs", "puft", "plant", "wheezewort", "life-support", "mask-station", "polymer-press", "oxyfern", "debris-heat", "building-melt", "geyser", "rocket-exhaust", "meteor", "sensor", "filter", "mixed-pipes", "mixed-pipe-filter", "mixed-pipe-boundary", "mixed-pipe-pumps", "mixed-pipe-thermal", "mixed-pipe-catalogue", "pacu", "liquid-pump", "base" };
         internal static readonly string[] Modes =
         {
             "snapshot-copy", "native-observer", "native-import-domain", "native-liquid-import-domain", "native-domain",
