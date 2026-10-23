@@ -353,6 +353,15 @@ append, native acknowledgement and managed settlement under the existing
 publication flag. They preserve all original callbacks and ordering and are
 disabled with that flag in final timing runs.
 
+The user subsequently confirmed a concurrent vLLM GPU workload. A current
+observation shows 29,208 MiB held by vLLM on the 32,607 MiB RTX 5090, at 98%
+GPU utilization. CPU locks do not isolate that workload; the runs above have
+no recorded historical GPU-load trace and remain potentially contended
+diagnostics. The successful runs show the NVIDIA renderer and no observed
+GPU out-of-memory error. A quiet GPU window is needed for final game-speed
+acceptance. This does not explain the separately recorded invalid cluster
+argument or absent GPU-display setting, which failed launch configuration.
+
 Fluid-view copies reuse the immutable native publication when its session and
 completed frame have not changed. Status still refreshes, including live native
 heat/mass exchanges; snapshots, overlays, receipts, actors and presentation run
@@ -479,6 +488,8 @@ managed reservation available for retry or return. Existing mass/temperature
 jobs and version-8 bytes remain unchanged when the new facility is unused.
 This is a reservation, not an enabled writer or gameplay acceptance. Core
 physical checkpoint versions are assigned separately.
+The checked full-range request format and remaining integration boundaries
+are specified in [moving-parcels.md](moving-parcels.md).
 
 The read-only `ma_oni_colony_parcel_context_version()` capability 1 and
 `ma_oni_colony_copy_parcel_context()` expose the actual coordinate reference
