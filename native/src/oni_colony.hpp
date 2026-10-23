@@ -33,6 +33,9 @@ std::uint32_t species(MAOniColonySpecies* out, std::uint32_t capacity);
 // Readings and constituents of the latest completed frame; returns the frame.
 std::uint64_t readings(std::vector<MAOniColonyReading>&, std::vector<MAOniColonyConstituent>&);
 void sample(std::span<const std::uint32_t>,MAOniColonyStatus&,std::vector<MAOniColonySampleCell>&,std::vector<MAOniColonySamplePart>&,double* booked_mass=nullptr);
+void sample_history(std::uint32_t retained_frames);
+void sample_frame(std::uint64_t,std::span<const std::uint32_t>,MAOniColonyStatus&,std::vector<MAOniColonySampleCell>&,
+    std::vector<MAOniColonySamplePart>&,double* booked_mass,double* booked_heat);
 double liquid_density(std::span<const MAOniColonyMaterial> materials, std::uint32_t native_index, double pressure_pa);
 // Control hook: the temperature read for one cell of the latest frame with
 // one constituent replaced by trace_kg.

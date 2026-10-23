@@ -10,7 +10,7 @@ namespace MixedAtmospheres.Oni
 {
     // The fixed comparison arenas F1-F5 of docs/base-game-floor.md. One arena
     // is carved beside the printing pod of a new colony and sampled at every
-    // 200 ms simulation tick from that tick's published game data, under ONI's
+    // 200 ms simulation tick from native data or retained owner frames, under ONI's
     // own simulation (mode colony-vanilla: the colony owner never starts) or
     // under the colony owner. Coordinates are local and include the Unobtanium
     // border. Numbers only: tools/floor_metrics.py computes the metrics.
@@ -38,15 +38,23 @@ namespace MixedAtmospheres.Oni
         private struct SampleCell { internal uint PublicCell, FirstConstituent, Constituents, Flags; internal double TemperatureK; }
         [StructLayout(LayoutKind.Sequential)]
         private struct SamplePart { internal uint NativeIndex, Reserved; internal double MassKg; }
-        [DllImport("mixed_atmospheres_oni", EntryPoint = "ma_oni_colony_sample", CallingConvention = CallingConvention.Cdecl)]
-        private static extern int Sample([In] uint[] cells, uint count, out OniNativeColony.Status source,
-            [Out] SampleCell[] rows, [Out] SamplePart[] parts, uint capacity, out uint partCount, out double bookedMassKg);
+        [DllImport("mixed_atmospheres_oni", EntryPoint = "ma_oni_colony_sample_history", CallingConvention = CallingConvention.Cdecl)]
+        private static extern int RetainSamples(uint frames);
+        [DllImport("mixed_atmospheres_oni", EntryPoint = "ma_oni_colony_sample_frame", CallingConvention = CallingConvention.Cdecl)]
+        private static extern int SampleFrame(ulong frame, [In] uint[] cells, uint count, out OniNativeColony.Status source,
+            [Out] SampleCell[] rows, [Out] SamplePart[] parts, uint capacity, out uint partCount, out double bookedMassKg, out double bookedHeatJ);
         private static uint[] ownerRequested = Array.Empty<uint>();
         private static SampleCell[] ownerRows = Array.Empty<SampleCell>();
         private static SamplePart[] ownerParts = Array.Empty<SamplePart>();
         private static readonly Dictionary<int, int> ownerCells = new Dictionary<int, int>();
         private static readonly List<ulong[]> ownerSampleFrames = new List<ulong[]>();
         private static readonly List<Dictionary<string, object>> ownerSampleAudits = new List<Dictionary<string, object>>();
+        private static bool historyStarted;
+        private static ulong nextOwnerFrame;
+        private static long ownerTickOffset, lastOwnerSampleTick = -1;
+        private static double lastOwnerSampleTime = -1;
+        private static OniNativeColony.Status ownerSource;
+        private static bool ownerReleaseStamped;
 
         internal static void Configure(string id, string directory)
         {
@@ -54,6 +62,8 @@ namespace MixedAtmospheres.Oni
             Id = id; output = directory; ticks = 0; cleared = uncovered = built = filled = locked = commanded = opened = release = -1; releasedAt = -1;
             door = null; simulated = 0; seen.Clear(); placed.Clear(); samples?.Dispose(); samples = null;
             ownerRequested = Array.Empty<uint>(); ownerCells.Clear(); ownerSampleFrames.Clear(); ownerSampleAudits.Clear();
+            historyStarted = false; nextOwnerFrame = 0; ownerTickOffset = 0; lastOwnerSampleTick = -1; lastOwnerSampleTime = -1;
+            ownerReleaseStamped = false;
             (width, height) = id switch { "f1" or "f2" => (19, 10), "f3" => (22, 14), "f4" => (7, 4), _ => (10, 14) };
         }
 
@@ -61,20 +71,57 @@ namespace MixedAtmospheres.Oni
         // before it is sent.
         private static double simulated;
         internal static void OnFrame(float seconds) { if (Id.Length != 0 && seconds > 0) simulated += seconds; }
-        // Every native message, after the owner's publication. The game asks
-        // for its data about once per Unity frame; the first update after the
-        // simulated time passes each 0.2 s mark is that tick's sample.
+        // Every native message, after owner publication. Native-only runs use
+        // the submitted tick; fluid-only owner arenas drain retained frames.
         internal static void OnNativeMessage(int message, IntPtr data)
         {
             if (Id.Length == 0 || message != PrepareGameData || data == IntPtr.Zero) return;
             var tick = (long)Math.Floor(simulated / .2 + 1e-9);
-            if (tick <= ticks) return;
-            ticks = tick;
+            var newTick = tick > ticks;
+            if (newTick) ticks = tick;
             var update = (Sim.GameDataUpdate*)data;
+            // The native submitted clock can be ahead of the owner. Retain
+            // and drain every completed fluid frame rather than relabelling
+            // whichever world happens to be latest when this message arrives.
+            if (ColonyOwner.Active && Id != "f4")
+            {
+                if (!historyStarted)
+                {
+                    OniNativeColony.Check(RetainSamples(64));
+                    CaptureOwnerSample();
+                    ownerTickOffset = ticks - checked((long)ownerSource.CompletedFrames);
+                    nextOwnerFrame = ownerSource.CompletedFrames + 1; historyStarted = true;
+                }
+                var latest = OniNativeColony.Status.Empty;
+                OniNativeColony.Check(OniNativeColony.CopyStatus(ref latest));
+                if (filled < 0 || samples == null) { nextOwnerFrame = latest.CompletedFrames + 1; return; }
+                while (nextOwnerFrame <= latest.CompletedFrames)
+                {
+                    var sampleTick = checked((long)nextOwnerFrame + ownerTickOffset);
+                    if (ownerReleaseStamped && sampleTick > release + Duration) break;
+                    CaptureOwnerSample(nextOwnerFrame, sampleTick);
+                    if (release >= 0 && !ownerReleaseStamped && Id != "f2" && ReleaseIsOpen())
+                    {
+                        // Opening precedes this completed interval. Its prior
+                        // retained row is the release's t=0 sample.
+                        release = sampleTick - 1; ownerReleaseStamped = true;
+                    }
+                    if (lastOwnerSampleTime >= 0 && Math.Abs(ownerSource.TimeSeconds - lastOwnerSampleTime - .2) > 1e-6)
+                        throw new InvalidDataException("Floor owner interval is not the frozen 0.2 seconds.");
+                    WriteSample(update, sampleTick); lastOwnerSampleTime = ownerSource.TimeSeconds;
+                    lastOwnerSampleTick = sampleTick; ++nextOwnerFrame;
+                }
+                return;
+            }
+            if (!newTick) return;
             if (filled < 0 || samples == null || release >= 0 && ticks > release + Duration) return;
-            CaptureOwnerSample();
+            CaptureOwnerSample(ulong.MaxValue, ticks);
+            WriteSample(update, ticks);
+        }
+        private static void WriteSample(Sim.GameDataUpdate* update, long sampleTick)
+        {
             var line = new System.Text.StringBuilder(32 * width * height);
-            line.Append(ticks.ToString(CultureInfo.InvariantCulture));
+            line.Append(sampleTick.ToString(CultureInfo.InvariantCulture));
             var fluid = false;
             // Per cell: its constituents (count, then element and kg each) and
             // its temperature. ONI's cell holds one element; an owned cell
@@ -109,22 +156,32 @@ namespace MixedAtmospheres.Oni
                 if (!seen.ContainsKey(element)) seen[element] = Describe(ElementLoader.elements[element]);
                 line.Append(' ').Append(element).Append(' ').Append(kg.ToString("R", CultureInfo.InvariantCulture));
             }
-            samples.WriteLine(line.ToString());
+            samples!.WriteLine(line.ToString());
             // F4: heat exchange starts with the fill; t = 0 is the first sample
             // holding it (the game applies the fill at its next step).
-            if (Id == "f4" && release < 0 && fluid) release = ticks;
+            if (Id == "f4" && release < 0 && fluid) release = sampleTick;
             // F2: t = 0 is the first sample after the door is fully open.
             if (commanded >= 0 && opened < 0 && !ElementLoader.elements[update->elementIdx[Cell(9, 4)]].IsSolid &&
-                !ElementLoader.elements[update->elementIdx[Cell(9, 5)]].IsSolid) opened = release = ticks;
+                !ElementLoader.elements[update->elementIdx[Cell(9, 5)]].IsSolid &&
+                (!historyStarted || OwnerOpen(9,4) && OwnerOpen(9,5)))
+            { opened = release = sampleTick; ownerReleaseStamped = historyStarted; }
         }
+        private static bool OwnerOpen(int x,int y) => ownerCells.TryGetValue(Cell(x,y),out var index) && (ownerRows[index].Flags & 1) != 0;
+        private static bool ReleaseIsOpen() => Id switch
+        {
+            "f1" => Enumerable.Range(1,8).All(y => OwnerOpen(9,y)),
+            "f3" => Enumerable.Range(1,8).All(y => OwnerOpen(6,y)),
+            "f5" => Enumerable.Range(1,8).All(x => OwnerOpen(x,6)),
+            _ => false
+        };
 
-        private static void CaptureOwnerSample()
+        private static void CaptureOwnerSample(ulong frame = ulong.MaxValue, long sampleTick = -1)
         {
             ownerCells.Clear();
             if (!ColonyOwner.Active) return;
             // Floor samples measure fixed simulation intervals. Complete the
             // already submitted owner work before reading the native tick's row.
-            OniNativeColony.Check(OniNativeColony.Wait());
+            if (frame == ulong.MaxValue) OniNativeColony.Check(OniNativeColony.Wait());
             if (ownerRequested.Length == 0)
             {
                 if (Marshal.SizeOf<SampleCell>() != 24 || Marshal.SizeOf<SamplePart>() != 16)
@@ -139,21 +196,24 @@ namespace MixedAtmospheres.Oni
                 ownerRequested = requested.ToArray(); ownerRows = new SampleCell[ownerRequested.Length];
                 ownerParts = new SamplePart[checked(ownerRequested.Length * ColonyOwner.Materials.Length)];
             }
-            OniNativeColony.Check(Sample(ownerRequested, (uint)ownerRequested.Length, out var source,
-                ownerRows, ownerParts, (uint)ownerParts.Length, out _, out var bookedMass));
+            OniNativeColony.Check(SampleFrame(frame, ownerRequested, (uint)ownerRequested.Length, out var source,
+                ownerRows, ownerParts, (uint)ownerParts.Length, out _, out var bookedMass, out var bookedHeat));
+            ownerSource = source;
             var refused = new List<uint>();
             for (var k = 0; k < ownerRows.Length; ++k)
             {
                 ownerCells.Add((int)ownerRows[k].PublicCell, k);
                 if ((ownerRows[k].Flags & 2) != 0) refused.Add(ownerRows[k].PublicCell);
             }
-            ownerSampleFrames.Add(new[] { (ulong)ticks, source.CompletedFrames });
+            if (sampleTick < 0) return;
+            ownerSampleFrames.Add(new[] { (ulong)sampleTick, source.CompletedFrames });
             ownerSampleAudits.Add(new Dictionary<string, object> {
-                ["tick"] = ticks, ["frame"] = source.CompletedFrames, ["time_s"] = source.TimeSeconds,
+                ["tick"] = sampleTick, ["frame"] = source.CompletedFrames, ["time_s"] = source.TimeSeconds,
                 ["projection_refused_cells"] = refused, ["native_mass_in_kg"] = source.NativeMassInKg,
                 ["native_mass_out_kg"] = source.NativeMassOutKg, ["trace_sink_kg"] = source.TraceSinkKg,
                 ["injected_kg"] = source.InjectedKg, ["extracted_kg"] = source.ExtractedKg, ["reservoir_kg"] = source.ReservoirKg,
                 ["expected_fluid_and_reservoir_kg"] = bookedMass,
+                ["accepted_external_heat_j"] = bookedHeat,
                 ["space_sink_kg"] = source.SpaceSinkKg, ["native_heat_j"] = source.NativeHeatJoules, ["mass_error"] = source.MaximumRelativeMassError,
                 ["energy_error"] = source.MaximumRelativeEnergyError });
         }
@@ -220,6 +280,8 @@ namespace MixedAtmospheres.Oni
             }
             if (release >= 0 && releasedAt < 0) { releasedAt = GameClock.Instance.GetTime(); simulatedAt = simulated; }
             if (release < 0 || ticks < release + Duration) return false;
+            if (historyStarted && !ownerReleaseStamped) return false;
+            if (historyStarted && lastOwnerSampleTick < release + Duration) return false;
             Finish(); return true;
         }
 
@@ -390,7 +452,8 @@ namespace MixedAtmospheres.Oni
                 ["arena"] = Id, ["width"] = width, ["height"] = height, ["tick_seconds"] = .2,
                 ["origin_x"] = x0, ["origin_y"] = y0, ["grid_width"] = Grid.WidthInCells, ["grid_height"] = Grid.HeightInCells,
                 ["temperature_storage"] = "binary32",
-                ["fluid_sampling"] = ColonyOwner.Active ? "single completed owner frame" : "native published update",
+                ["fluid_sampling"] = historyStarted ? "retained completed owner frames" : ColonyOwner.Active ? "single completed owner frame" : "native published update",
+                ["owner_sample_history"] = historyStarted, ["owner_tick_offset"] = ownerTickOffset,
                 ["owner_sample_frames"] = ownerSampleFrames,
                 ["owner_sample_audits"] = ownerSampleAudits,
                 ["simulation"] = ColonyOwner.Active ? "colony owner" : "ONI native",

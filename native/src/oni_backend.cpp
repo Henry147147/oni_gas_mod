@@ -925,6 +925,29 @@ MAOniResult ma_oni_colony_readings(std::uint64_t* frame, MAOniColonyReading* out
         std::copy(readings.begin(),readings.end(),out); std::copy(constituents.begin(),constituents.end(),parts);
     });
 }
+MAOniResult ma_oni_colony_sample_history(std::uint32_t frames) {
+    return boundary([&] {
+        try { ma::oni::colony::sample_history(frames); }
+        catch (const std::invalid_argument& error) { throw Failure(MA_ONI_INVALID_ARGUMENT,error.what()); }
+    });
+}
+MAOniResult ma_oni_colony_sample_frame(std::uint64_t frame,const std::uint32_t* cells,std::uint32_t count,
+    MAOniColonyStatus* status,MAOniColonySampleCell* rows,MAOniColonySamplePart* parts,std::uint32_t capacity,
+    std::uint32_t* part_count,double* booked_mass,double* booked_heat) {
+    return boundary([&] {
+        if (!cells || !count || count>4096 || !status || !part_count || !booked_mass || !booked_heat || (!parts && capacity))
+            throw Failure(MA_ONI_INVALID_ARGUMENT,"Invalid retained arena sample buffer");
+        MAOniColonyStatus captured{}; double mass=0,heat=0;
+        std::vector<MAOniColonySampleCell> sampled; std::vector<MAOniColonySamplePart> constituents;
+        try { ma::oni::colony::sample_frame(frame,std::span(cells,count),captured,sampled,constituents,&mass,&heat); }
+        catch (const std::invalid_argument& error) { throw Failure(MA_ONI_INVALID_ARGUMENT,error.what()); }
+        *part_count=static_cast<std::uint32_t>(constituents.size());
+        if (!rows && !parts && capacity==0) { *status=captured; *booked_mass=mass; *booked_heat=heat; return; }
+        if (!rows || capacity<constituents.size() || (!parts && !constituents.empty())) throw Failure(MA_ONI_BUFFER_TOO_SMALL,"Retained arena sample buffer is too small");
+        std::copy(sampled.begin(),sampled.end(),rows); if (parts) std::copy(constituents.begin(),constituents.end(),parts);
+        *status=captured; *booked_mass=mass; *booked_heat=heat;
+    });
+}
 MAOniResult ma_oni_colony_sample(const std::uint32_t* cells,std::uint32_t count,MAOniColonyStatus* status,
     MAOniColonySampleCell* rows,MAOniColonySamplePart* parts,std::uint32_t capacity,std::uint32_t* part_count,double* booked_mass) {
     return boundary([&] {

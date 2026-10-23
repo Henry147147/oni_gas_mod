@@ -52,6 +52,24 @@ class FloorMetricsTests(unittest.TestCase):
             arena.record["owner_sample_audits"][1]["tick"] = 99
             with self.assertRaisesRegex(ValueError, "tick"):
                 floor_metrics.sampling(arena)
+    def test_retained_sampling_rejects_source_clock_gaps_and_distinguishes_accepted_heat(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = write(Path(folder), "f1", 3, 3, {"release": 0}, {1: OXYGEN},
+                         [(0, lambda x, y: (1, 1.0, 300)), (1, lambda x, y: (1, 1.0, 300))])
+            arena = floor_metrics.load(path)
+            arena.record.update(simulation="colony owner", owner_sample_history=True, owner_tick_offset=-10)
+            arena.record["owner_sample_audits"] = [dict(tick=t, frame=10+t, time_s=.2*t,
+                injected_kg=0, extracted_kg=0, reservoir_kg=0, trace_sink_kg=0, space_sink_kg=0,
+                projection_refused_cells=[], native_heat_j=0, accepted_external_heat_j=h)
+                for t,h in [(0,25.25),(1,24.25)]]
+            self.assertEqual(floor_metrics.sampling(arena)["accepted_external_heat_span_j"], 1)
+            arena.record["owner_sample_audits"][1]["frame"] = 12
+            with self.assertRaisesRegex(ValueError, "source clock"):
+                floor_metrics.sampling(arena)
+            arena.record["owner_sample_audits"][1]["frame"] = 11
+            arena.record["owner_sample_audits"][1]["time_s"] = .4
+            with self.assertRaisesRegex(ValueError, "fixed tick"):
+                floor_metrics.sampling(arena)
     def test_legacy_short_float_text_and_exact_temperature_export_have_identical_heat(self):
         stored = struct.unpack("<f", struct.pack("<f", 293.15))[0]
         results = []

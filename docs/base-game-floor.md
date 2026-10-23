@@ -222,6 +222,37 @@ split failure and unresolved dynamic reference remain. Other owner scenarios
 still require the barrier rerun. Vanilla sampling and all fixed setups,
 physical settings and metric definitions are unchanged.
 
+The wait-only F2 rerun still recorded four repeat/skip pairs. The completed
+sampler therefore retains up to 64 immutable owner frames for these small
+arenas and drains each frame exactly once on its source clock. Missing history
+or a non-0.2 s interval fails the diagnostic. Gate/door release is stamped from
+the sampled owner geometry. Normal games retain no history; saves and physics
+are unchanged. F4 keeps its existing path because its native solid temperatures
+still need an aligned source; this does not establish a conduction result.
+
+The first retained F2 run has **669 consecutive samples**, zero repeats, skips
+or refused projections, and maximum full-ledger inventory residual
+**1.421e-14 kg**. Closed leakage is **zero**, command-to-open delay **3.0 s**,
+and the release-sample pressure test holds at the first open sample. Maximum
+mass/energy errors are **1.413e-17 / 8.347e-18**, trace sink
+**2.697e-12 kg / 3.165e-6 J**, with no fault or skipped relaxation.
+
+Retained samples also expose cumulative **accepted external heat** from the
+frame ledger. The old published `native_heat_j` field was not that ledger and
+remained zero. F2 accepts **159654.733 J after release** through the endpoint;
+this must enter the door-heat truth calculation. The existing pressure target
+uses the release snapshot, so its post-release heat/kinetic correction remains
+unresolved along with the dynamic oracle. No dynamic floor pass follows.
+
+The retained F1 release-stamp control also records **605 consecutive frames**,
+zero repeats/skips/refusals and residual **7.105e-15 kg**. Initial mass/heat,
+the [9.0, 9.2] s bracket and all final fractions match the earlier F1 runs.
+The release stamp now identifies the interval before the first fully open
+completed owner frame, rather than the submitted game clock. Maximum
+mass/energy errors are **1.210e-17 / 1.758e-17**, trace sink
+**1.697e-11 kg / 0.000213 J**, with no fault or skipped relaxation. F1's static
+split still fails; F3/F5 retained reruns and the F4 source model remain open.
+
 ## Performance and feature variants
 
 Each numerical step needs same-lock Terra60 before/after, affected floor

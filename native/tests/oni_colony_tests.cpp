@@ -341,6 +341,38 @@ void actor_batch_control() {
     ack_receipts(concurrent[count-1].sequence); stop();
     std::cout<<"PASS atomic actor batch: exact order, all-or-nothing invalid/replay admission, full passives and owner8 cold continuation\n";
 }
+void sample_history_control() {
+    using namespace ma::oni::colony;
+    std::vector<MAOniColonyMaterial> mats{material("Oxygen",11,oxygen,true,.016,1000)};
+    MAOniColonyConfig cfg{}; cfg.struct_size=sizeof(cfg); cfg.abi_version=MA_ONI_COLONY_ABI_VERSION;
+    cfg.vacuum_index=vacuum; cfg.grid_width=cfg.width=3; cfg.grid_height=cfg.height=3; cfg.maximum_timestep_s=.1;
+    std::vector<MAOniColonyCell> cells(9,MAOniColonyCell{0,MA_ONI_COLONY_SOLID,0,0,0,0});
+    cells[4]={oxygen,MA_ONI_COLONY_FLUID,1.2f,300,0,0}; start(cfg,mats,cells,1);
+    const auto initial=checkpoint(); sample_history(3); require(checkpoint()==initial,"history enabled changed checkpoint");
+    const std::uint32_t cell=4; MAOniColonyStatus source{};
+    std::vector<MAOniColonySampleCell> rows; std::vector<MAOniColonySamplePart> parts; double mass=-1,heat=-1;
+    const auto read=[&](std::uint64_t frame) { sample_frame(frame,std::span(&cell,1),source,rows,parts,&mass,&heat); };
+    read(0); const auto first=parts; require(source.completed_frames==0 && heat==0,"history initial frame/heat");
+    const MAOniColonyHeat warm{4,0,25.25,1000}; queue_heat(std::span(&warm,1)); advance(1,.2,2); wait();
+    const MAOniColonyHeat cool{4,0,-1,1000}; queue_heat(std::span(&cool,1)); advance(2,.2,2); wait();
+    require(status().state==1,"history heat control faulted"); const auto at2=checkpoint();
+    read(0); require(heat==0 && source.completed_frames==0 && parts.size()==first.size() &&
+        std::memcmp(parts.data(),first.data(),first.size()*sizeof(MAOniColonySamplePart))==0,"old history frame mutated");
+    read(1); require(heat==25.25 && source.completed_frames==1,"history lost accepted external heat epoch");
+    read(2); require(heat==24.25 && source.completed_frames==2 && checkpoint()==at2,"history heat/read changed physical state");
+    advance(3,.2,2); wait();
+    const auto before=checkpoint(); bool rejected=false;
+    try { read(0); } catch (const std::invalid_argument&) { rejected=true; }
+    require(rejected && checkpoint()==before,"evicted history silently returned another world");
+    read(UINT64_MAX); require(source.completed_frames==3 && heat==24.25,"latest history selector");
+    const MAOniColonyHeat overcap{4,0,1e12,301}; queue_heat(std::span(&overcap,1)); advance(4,.2,2); wait();
+    read(4); require(heat==24.25 && status().state==1,"queued refused heat was counted as accepted");
+    sample_history(0); rejected=false; try { read(4); } catch (const std::invalid_argument&) { rejected=true; }
+    require(rejected,"disabled history retained old samples"); stop(); start(cfg,mats,cells,1);
+    rejected=false; try { read(1); } catch (const std::invalid_argument&) { rejected=true; }
+    require(rejected,"new session exposed prior history"); stop();
+    std::cout<<"PASS retained arena samples: exact completed frame, accepted/deferred heat, bounded eviction, readonly checkpoint and session reset\n";
+}
 void view_cache_control() {
     using namespace ma::oni::colony;
     std::vector<MAOniColonyMaterial> mats{material("Oxygen",11,oxygen,true,.016,1000)};
@@ -554,6 +586,7 @@ int main(int argc, char** argv) {
         if (argc == 2 && std::strcmp(argv[1], "--sample-only") == 0) { sample_control(); return 0; }
         if (argc == 2 && std::strcmp(argv[1], "--view-cache-only") == 0) { view_cache_control(); return 0; }
         if (argc == 2 && std::strcmp(argv[1], "--actor-batch-only") == 0) { actor_batch_control(); return 0; }
+        if (argc == 2 && std::strcmp(argv[1], "--sample-history-only") == 0) { sample_history_control(); return 0; }
         require(argc == 1, "Usage: ma_oni_colony_tests [--projection-only|--timestep-only|--precise-receipts-only]");
         precise_receipt_control();
         release_capture_control();
@@ -561,6 +594,7 @@ int main(int argc, char** argv) {
         sample_control();
         view_cache_control();
         actor_batch_control();
+        sample_history_control();
         conversion_batch_control();
         timestep_control();
         projection_control();

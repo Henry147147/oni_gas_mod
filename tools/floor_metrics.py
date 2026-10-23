@@ -257,6 +257,12 @@ def sampling(arena: Arena) -> dict | None:
     deltas = [b - a for a, b in zip(frames, frames[1:])]
     if any(d < 0 for d in deltas):
         raise ValueError("Owner sample frame went backwards")
+    if arena.record.get("owner_sample_history"):
+        offset = arena.record["owner_tick_offset"]
+        if any(a["tick"] != a["frame"] + offset for a in audits) or any(d != 1 for d in deltas):
+            raise ValueError("Retained owner samples are not consecutive on their source clock")
+        if any(abs(b["time_s"] - a["time_s"] - arena.dt) > 1e-6 for a, b in zip(audits, audits[1:])):
+            raise ValueError("Retained owner sample interval differs from the fixed tick")
     result = {"source": arena.record.get("fluid_sampling"), "samples": len(audits),
             "owner_frame_repeats": deltas.count(0), "owner_frame_skips": sum(max(0, d - 1) for d in deltas),
             "projection_refused_samples": sum(bool(cells) for cells in refused),
@@ -267,6 +273,11 @@ def sampling(arena: Arena) -> dict | None:
         if len(residuals) != len(audits):
             raise ValueError("Some samples lack their full booked inventory")
         result["maximum_booked_inventory_residual_kg"] = max(map(abs, residuals))
+    if any("accepted_external_heat_j" in a for a in audits):
+        if not all("accepted_external_heat_j" in a for a in audits):
+            raise ValueError("Some samples lack accepted external heat")
+        heat = [a["accepted_external_heat_j"] for a in audits]
+        result["accepted_external_heat_span_j"] = max(heat) - min(heat)
     return result
 
 

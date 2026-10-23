@@ -445,6 +445,16 @@ mixed-pipe save acceptance are pending. Older versions 6/7 and their recorded
 solver profiles remain readable. No colony silently acquires mixed pipe
 ownership.
 
+Fixed-floor diagnostics can retain up to 64 immutable completed publications
+through `ma_oni_colony_sample_history`, restricted to owners of at most 4096
+cells. `ma_oni_colony_sample_frame` reads an exact frame and fails if it was
+not retained; the latest selector is `UINT64_MAX`. Its extra heat output is
+cumulative accepted external heat from that frame's ledger, including body
+exchange. It is separate from live queued-input counters. The history is
+disabled in normal games and absent from checkpoints. Floor F1/F2/F3/F5 drain
+consecutive frames and check physical 0.2 s intervals; F4's native solid
+temperature alignment remains open.
+
 ONI's native section of the save becomes a `MACOLONY` envelope holding the
 original native bytes and the colony checkpoint (`MACOLN01` version 8, which
 also reads version 6/7 saves: configuration, material records, space and

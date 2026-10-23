@@ -246,6 +246,16 @@ typedef struct MAOniColonySampleCell {
 typedef struct MAOniColonySamplePart { uint32_t native_index, reserved; double mass_kg; } MAOniColonySamplePart;
 MA_ONI_API MAOniResult ma_oni_colony_sample(const uint32_t* cells, uint32_t count, MAOniColonyStatus*,
     MAOniColonySampleCell* rows, MAOniColonySamplePart* parts, uint32_t capacity, uint32_t* part_count, double* booked_mass_kg);
+/* Optional fixed-arena history:0 disables;1..64 retains that many immutable
+ * completed frames. Requires an owner of at most4096 cells; never persisted.
+ * Enable before the measured window. Exact-frame lookup fails if unavailable;
+ * UINT64_MAX selects latest. Same buffer rules as sample(). booked_heat is
+ * cumulative accepted EXTERNAL heat in that frame's ledger, including body
+ * exchange, not a live counter of heat still queued. Solids retain flags0. */
+MA_ONI_API MAOniResult ma_oni_colony_sample_history(uint32_t retained_frames);
+MA_ONI_API MAOniResult ma_oni_colony_sample_frame(uint64_t completed_frame,
+    const uint32_t* cells, uint32_t count, MAOniColonyStatus*, MAOniColonySampleCell*, MAOniColonySamplePart*,
+    uint32_t capacity, uint32_t* part_count, double* booked_mass_kg, double* booked_heat_j);
 /* A catalogue liquid's reference density (kg/m^3) at a pressure, from the
  * same material records as start: the mass of one full cell. Needs no owner. */
 MA_ONI_API MAOniResult ma_oni_colony_liquid_density(const MAOniColonyMaterial*, uint32_t material_count, uint32_t native_index,

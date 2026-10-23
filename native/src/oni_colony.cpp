@@ -81,7 +81,7 @@ struct ArithmeticScope {
 
 struct Published {
     MAOniColonyConfig config{};
-    double booked_mass_kg=0;
+    double booked_mass_kg=0, booked_heat_j=0;
     MAOniColonyStatus status{};
     std::vector<MAOniColonyCellView> views;
     // The presentation's readings, in cell order, made with the views.
@@ -124,6 +124,8 @@ std::mutex publication;
 std::atomic<bool> enabled{};
 std::unique_ptr<Session> session;
 std::shared_ptr<const Published> latest;
+std::uint32_t retained_sample_frames=0;
+std::map<std::uint64_t,std::shared_ptr<const Published>> sample_frames; // publication lock; diagnostics only
 // Geometry and ownership are published before enabled and unchanged while it is set.
 MAOniColonyConfig geometry{};
 // Per cell: 0 closed (native), 1 owned, 2 closing (a solid replaced the
@@ -417,13 +419,19 @@ void publish(const Session& s, Projection projection) {
     for (std::size_t k=0;k<L.initial.size();++k)
         booked+=L.initial[k]+L.injected[k]-L.extracted[k]-L.sunk[k]-L.trace[k]+L.converted[k];
     p->booked_mass_kg=static_cast<double>(booked);
-    std::lock_guard lock(publication); latest = std::move(p);
+    p->booked_heat_j=static_cast<double>(L.heat);
+    std::lock_guard lock(publication);
+    if (retained_sample_frames) {
+        sample_frames.emplace(p->status.completed_frames,p);
+        while (sample_frames.size()>retained_sample_frames) sample_frames.erase(sample_frames.begin());
+    }
+    latest = std::move(p);
 }
 void publish(const Session& s) { publish(s, project(s, *s.world)); }
 void fault(Session& s, const char* why) noexcept {
     s.status.state = 2; write_error(s.status, why);
     try { auto p = std::make_shared<Published>(); p->config=s.config; p->status = s.status;
-        { std::lock_guard lock(publication); if (latest) { p->views = latest->views; p->readings = latest->readings; p->parts = latest->parts; p->world = latest->world; p->catalogue = latest->catalogue; p->booked_mass_kg=latest->booked_mass_kg; } latest = std::move(p); } }
+        { std::lock_guard lock(publication); if (latest) { p->views = latest->views; p->readings = latest->readings; p->parts = latest->parts; p->world = latest->world; p->catalogue = latest->catalogue; p->booked_mass_kg=latest->booked_mass_kg; p->booked_heat_j=latest->booked_heat_j; } latest = std::move(p); } }
     catch (...) {}
 }
 // The CPUs this process may run on (its affinity, as when the game is pinned).
@@ -910,7 +918,7 @@ void stop() noexcept {
     solver.settle(true);
     std::lock_guard lock(lifecycle);
     session.reset();
-    std::lock_guard p(publication); latest.reset();
+    std::lock_guard p(publication); latest.reset(); sample_frames.clear(); retained_sample_frames=0;
 }
 
 MAOniColonyStatus status() {
@@ -1001,10 +1009,24 @@ std::uint64_t readings(std::vector<MAOniColonyReading>& out, std::vector<MAOniCo
     out = p->readings; parts = p->parts;
     return p->status.completed_frames;
 }
-void sample(std::span<const std::uint32_t> cells,MAOniColonyStatus& source,
-    std::vector<MAOniColonySampleCell>& rows,std::vector<MAOniColonySamplePart>& parts,double* booked_mass) {
+void sample_history(std::uint32_t frames) {
+    require(frames<=64,"Arena history requires 0..64 retained frames");
+    std::lock_guard lock(publication);
+    require(latest && latest->world && latest->config.width*static_cast<std::uint64_t>(latest->config.height)<=4096,
+        "History requires an active small arena owner");
+    std::map<std::uint64_t,std::shared_ptr<const Published>> next;
+    if (frames) next.emplace(latest->status.completed_frames,latest);
+    sample_frames.swap(next); retained_sample_frames=frames;
+}
+void sample_frame(std::uint64_t frame,std::span<const std::uint32_t> cells,MAOniColonyStatus& source,
+    std::vector<MAOniColonySampleCell>& rows,std::vector<MAOniColonySamplePart>& parts,double* booked_mass,double* booked_heat) {
     require(!cells.empty() && cells.size()<=4096,"An arena sample requires 1..4096 cells");
-    std::shared_ptr<const Published> p; { std::lock_guard lock(publication); p=latest; }
+    std::shared_ptr<const Published> p;
+    { std::lock_guard lock(publication);
+      if (frame==UINT64_MAX) p=latest;
+      else if (const auto found=sample_frames.find(frame); found!=sample_frames.end()) p=found->second;
+    }
+    require(p!=nullptr,"Requested arena frame is not retained");
     require(p && p->world && p->catalogue,"No colony owner is active");
     const ArithmeticScope arithmetic;
     auto ordered=std::vector<std::uint32_t>(cells.begin(),cells.end()); std::sort(ordered.begin(),ordered.end());
@@ -1030,6 +1052,11 @@ void sample(std::span<const std::uint32_t> cells,MAOniColonyStatus& source,
     }
     source=p->status; rows=std::move(sampled); parts=std::move(compositions);
     if (booked_mass) *booked_mass=p->booked_mass_kg;
+    if (booked_heat) *booked_heat=p->booked_heat_j;
+}
+void sample(std::span<const std::uint32_t> cells,MAOniColonyStatus& source,
+    std::vector<MAOniColonySampleCell>& rows,std::vector<MAOniColonySamplePart>& parts,double* booked_mass) {
+    sample_frame(UINT64_MAX,cells,source,rows,parts,booked_mass,nullptr);
 }
 
 namespace {
