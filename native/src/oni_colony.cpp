@@ -1139,6 +1139,11 @@ void capture_shadow(const NativeCells& n) noexcept {
                 sum.mass_out_kg += mass; };
             const auto give = [&](std::uint16_t element, double mass, double temperature) {
                 moves.push_back({cell, element, MA_ONI_COLONY_INJECT, 0, -1, 0, mass, temperature, 0}); sum.mass_in_kg += mass; };
+            static const bool mass_log = std::getenv("MA_COLONY_HEAT_LOG") != nullptr;
+            if (mass_log)
+                std::fprintf(stderr, "[Mixed Atmospheres] native mass at %u,%u: element %u %.6g kg %.4f K -> element %u %.6g kg %.4f K\n",
+                    cell % geometry.grid_width, cell / geometry.grid_width, static_cast<unsigned>(sh.element), static_cast<double>(sh.mass),
+                    static_cast<double>(sh.temperature), static_cast<unsigned>(e), static_cast<double>(m), static_cast<double>(t));
             if (e == sh.element) {
                 const double delta = static_cast<double>(m) - sh.mass;
                 if (delta < 0) take(e, -delta, !(m > 0));

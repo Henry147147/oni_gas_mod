@@ -168,8 +168,9 @@ namespace MixedAtmospheres.Oni
             Id == "f5" && y == 6 && x <= 8;
         private static bool Solid(int x, int y) => Wall(x, y) || Id == "f4" && x == 3;
         // Removes every building, plant, critter and item in a rectangle
-        // (duplicants excepted and counted); returns how many went.
-        internal static int Clear(int left, int bottom, int w, int h, out int duplicants)
+        // (duplicants excepted and counted); returns how many went, naming
+        // them in the log under `label` when one is given.
+        internal static int Clear(int left, int bottom, int w, int h, out int duplicants, string? label = null)
         {
             var found = new HashSet<UnityEngine.GameObject>();
             for (var y = bottom; y < bottom + h; ++y)
@@ -187,6 +188,7 @@ namespace MixedAtmospheres.Oni
                 if (px >= left && px < left + w && py >= bottom && py < bottom + h) found.Add(p.gameObject);
             }
             duplicants = found.Count(o => o.GetComponent<MinionIdentity>() != null);
+            if (label != null && found.Count > 0) Debug.Log($"[Mixed Atmospheres] {label}: " + string.Join(", ", found.Select(o => o.name)));
             foreach (var o in found) if (o.GetComponent<MinionIdentity>() == null) Util.KDestroyGameObject(o);
             return found.Count - duplicants;
         }
@@ -196,7 +198,7 @@ namespace MixedAtmospheres.Oni
         // (they kept their own temperature and exchanged heat with the gas).
         private static void Build()
         {
-            placed["removed_objects"] = Clear(x0, y0, width, height, out var duplicants); placed["duplicants_inside"] = duplicants;
+            placed["removed_objects"] = Clear(x0, y0, width, height, out var duplicants, "floor arena cleared"); placed["duplicants_inside"] = duplicants;
             for (var y = 0; y < height; ++y)
                 for (var x = 0; x < width; ++x)
                 {
@@ -218,6 +220,8 @@ namespace MixedAtmospheres.Oni
         // border pushed its fluid into the arena.
         private static void Fill()
         {
+            // What removing the plants dropped (seeds, harvests) goes too.
+            placed["removed_at_fill"] = Clear(x0, y0, width, height, out _, "floor arena cleared at fill");
             for (var y = 1; y < height - 1; ++y)
                 for (var x = 1; x < width - 1; ++x)
                     if (!Solid(x, y)) Replace(x, y, SimHashes.Vacuum, 0, 0);
