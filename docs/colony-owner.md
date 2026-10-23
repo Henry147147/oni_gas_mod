@@ -335,6 +335,14 @@ accuracy floor; profile 19 remains an opt-in experiment.
 
 ## Saves
 
+**Reserved 2026-10-23, immediately after fetching `81b0021`:** owner wrapper
+`MACOLN01` version **8** is assigned to durable mixed-pipe job tokens, queued
+full-passive injections/extractions and the accepted-token watermark. This is
+an owner adapter format, separate from `MACCLS01` physical versions. Its
+implementation and mixed-pipe save acceptance are pending; the writer below
+still emits version 7. Older versions 6/7 and their recorded solver profiles
+must remain readable. No colony silently acquires mixed pipe ownership.
+
 ONI's native section of the save becomes a `MACOLONY` envelope holding the
 original native bytes and the colony checkpoint (`MACOLN01` version 7, which
 also reads version 6 saves: configuration, material records, space and
