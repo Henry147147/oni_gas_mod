@@ -75,7 +75,9 @@ namespace MixedAtmospheres.Oni
                         for (var k = 0; k < count; ++k) Part((int)indices[k], masses[k]);
                     }
                     else { line.Append(" 1"); Part(update->elementIdx[cell], update->mass[cell]); }
-                    line.Append(' ').Append(update->temperature[cell].ToString("R", CultureInfo.InvariantCulture));
+                    // Widen before formatting: float R's short text round-trips
+                    // through float, but the offline reader uses doubles.
+                    line.Append(' ').Append(((double)update->temperature[cell]).ToString("R", CultureInfo.InvariantCulture));
                 }
             void Part(int element, double kg)
             {
@@ -301,6 +303,7 @@ namespace MixedAtmospheres.Oni
             var record = new Dictionary<string, object>
             {
                 ["arena"] = Id, ["width"] = width, ["height"] = height, ["tick_seconds"] = .2,
+                ["temperature_storage"] = "binary32",
                 ["simulation"] = ColonyOwner.Active ? "colony owner" : "ONI native",
                 ["cells"] = "interior, rows y=1..height-2, x=1..width-2; per cell: constituent count, (element index, kg) each, temperature K",
                 ["elements"] = seen.ToDictionary(e => e.Key.ToString(CultureInfo.InvariantCulture), e => (object)e.Value),

@@ -12,6 +12,7 @@ sample before. Final metrics average the last 1 s (five samples).
 import argparse
 import json
 import math
+import struct
 from pathlib import Path
 
 GAS_CONSTANT = 8.314462618
@@ -27,6 +28,11 @@ class Arena:
         self.elements = {int(k): v for k, v in record["elements"].items()}
         self.ticks = record["ticks"]
         self.rows = rows  # [tick, (element, mass, temperature) per interior cell]
+        # Legacy float.ToString("R") samples used float-round-trip text. Put
+        # their original binary32 value back before deriving heat/pressure.
+        self.temperature_storage = record.get("temperature_storage", "binary32")
+        if self.temperature_storage not in ("binary32", "binary64"):
+            raise ValueError("Unknown floor temperature storage")
 
     def cells(self, row):
         """{(x, y): ([(element description, kg), ...], temperature)} of one sample."""
@@ -38,7 +44,10 @@ class Arena:
                 n = int(row[k]) if listed else 1; k += 1 if listed else 0
                 parts = [(self.elements[int(row[k + 2 * j])], row[k + 2 * j + 1]) for j in range(n)]
                 k += 2 * n
-                out[(x, y)] = (parts, row[k]); k += 1
+                temperature = row[k]
+                if self.temperature_storage == "binary32":
+                    temperature = struct.unpack("<f", struct.pack("<f", temperature))[0]
+                out[(x, y)] = (parts, temperature); k += 1
         return out
 
     def series(self, start: int):

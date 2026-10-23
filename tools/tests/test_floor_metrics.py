@@ -1,6 +1,7 @@
 import json
 import sys
 import tempfile
+import struct
 import unittest
 from pathlib import Path
 
@@ -15,6 +16,7 @@ WATER = {"id": "Water", "phase": "liquid", "molar_mass_kg_per_mol": .018, "speci
 
 def write(folder: Path, arena: str, width: int, height: int, ticks: dict, elements: dict, frames, placed=None) -> Path:
     record = {"arena": arena, "width": width, "height": height, "tick_seconds": .2, "simulation": "synthetic",
+              "temperature_storage": "binary64",
               "cells": "per cell: constituent count, (element index, kg) each, temperature K",
               "elements": {str(k): v for k, v in elements.items()}, "placed": placed or {}, "ticks": ticks}
     path = folder / f"floor-{arena}.json"
@@ -33,6 +35,24 @@ def write(folder: Path, arena: str, width: int, height: int, ticks: dict, elemen
 
 
 class FloorMetricsTests(unittest.TestCase):
+    def test_legacy_short_float_text_and_exact_temperature_export_have_identical_heat(self):
+        stored = struct.unpack("<f", struct.pack("<f", 293.15))[0]
+        results = []
+        with tempfile.TemporaryDirectory() as folder:
+            for label, temperature in (("legacy", 293.15), ("exact", stored)):
+                target = Path(folder) / label; target.mkdir()
+                path = write(target, "f1", 19, 10, {"release": 0}, {1: OXYGEN},
+                             [(t, lambda x, y: (1, 1.0, temperature)) for t in range(8)])
+                record = json.loads(path.read_text())
+                if label == "legacy":
+                    record.pop("temperature_storage")
+                else:
+                    record["temperature_storage"] = "binary32"
+                path.write_text(json.dumps(record))
+                results.append(floor_metrics.metrics(path))
+        self.assertEqual(results[0], results[1])
+        self.assertEqual(results[0]["initial"]["elements"]["Oxygen"]["heat_j"], 136 * 1000 * stored)
+
     def test_f1_equalises_after_its_persistent_bracket_and_splits_by_volume(self):
         left_kg = 101325 * .032 / (8.314462618 * 293.15)
         uniform = left_kg * 64 / 136

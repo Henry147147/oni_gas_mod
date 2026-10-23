@@ -140,6 +140,20 @@ F3 books 5.16e-10 kg / 8.71e-4 J and F5 2.15e-9 kg / 1.74e-3 J.
 Maximum relative mass/energy errors across these owner runs are
 2.03e-15 / 8.25e-17, with no faults or skipped phase relaxation.
 
+Temperature samples come from binary32 game fields. The metrics reader
+reconstructs that original value for legacy short float-round-trip text;
+new exports print the exact widened value and declare `temperature_storage`.
+This fixes an apparent sensible-heat offset without changing the arena or
+metric. In the fresh profile-18 F1 run, initial O2 mass agrees with vanilla
+within 7.1e-15 kg and first-sample heat within 0.00048 J of 12.541 MJ. At
+release, after the fixed closed hold, the sensible-heat difference is about
++0.141 J. Account for kinetic/gravitational energy and publication precision
+before treating a release-sample sensible-heat difference as a starting-input
+mismatch. F1's divider split still fails: error 5.059e-4, versus vanilla's
+at most 2.91e-6. Profile 18 equalises at [9.0, 9.2] s with no fault or skipped
+relaxation; mass/energy errors 1.16e-17 / 1.99e-17 and trace sink
+1.393e-10 kg / 0.003834 J. F2–F5 profile-18 measurements remain open.
+
 ## Performance and feature variants
 
 Each numerical step needs same-lock Terra60 before/after, affected floor
