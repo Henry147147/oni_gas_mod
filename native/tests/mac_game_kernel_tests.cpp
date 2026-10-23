@@ -134,6 +134,45 @@ int main() {
     }
     require(refused, "Game checkpoint ignored corruption");
     set_mac_kernel_default_options(options);
+    // An isolated fluid cell has no passive rows after transport. Export must
+    // accept that sparse representation, including after a refused boundary.
+    auto isolated_state = f.state(3, 3, false);
+    for (std::size_t i = 0; i < isolated_state.cells.size(); ++i) {
+      isolated_state.grid.walls[i] = i != 4;
+      isolated_state.cells[i].mixture = MixtureInventory(f.registry.size());
+      isolated_state.cells[i].passive_quantities.clear();
+    }
+    isolated_state.cells[4].mixture.masses[oxygen] = 1;
+    auto isolated_cfg = config();
+    isolated_cfg.maximum_timestep_s = .1;
+    isolated_cfg.thermal_conduction = false;
+    auto isolated = MacClosedWorld::game_colony(
+        f.registry, f.eos, std::move(isolated_state),
+        std::vector<double>(9, 300), isolated_cfg);
+    const auto isolated_image = isolated.checkpoint();
+    threads.threads = 1;
+    set_mac_kernel_default_options(threads);
+    const auto isolated_next = isolated.advanced(.2).world;
+    MacMovingParcel illegal;
+    illegal.cell_index = 4;
+    illegal.species_index = f.registry.size();
+    illegal.mass_kg = 1;
+    const auto refused_parcel = isolated.with_moving_parcels(std::span(&illegal, 1));
+    require(!refused_parcel.accepted() && refused_parcel.receipts.empty() &&
+                refused_parcel.world.checkpoint() == isolated_image,
+            "Isolated parcel refusal changed the source");
+    threads.threads = 12;
+    set_mac_kernel_default_options(threads);
+    const auto isolated_cold = MacClosedWorld::from_checkpoint(
+        f.registry, f.eos, refused_parcel.world.checkpoint()).advanced(.2).world;
+    require(isolated_cold.checkpoint() == isolated_next.checkpoint() &&
+                isolated_next.state().cells[4].mixture.masses[oxygen] == 1 &&
+                isolated_next.state().cells[4].mixture.energy ==
+                    isolated.state().cells[4].mixture.energy &&
+                isolated_next.state().cells[4].passive_quantities.empty(),
+            "Passive-free isolated export changed physics or continuation");
+    set_mac_kernel_default_options(options);
+    std::cout << "PASS passive-free isolated game export after refusal, workers1/12 and cold continuation\n";
     std::cout
         << "PASS diagnostic game kernel own-EOS import/readings, sparse "
            "checkpoint20, workers1/12 and cold continuation, heat/parcel/wall "

@@ -75,10 +75,11 @@ MacTransportState dense(const MacTransportState &source, const k::State &state,
     for (std::size_t a = state.masses.offsets[i];
          a < state.masses.offsets[i + 1]; ++a)
       cell.mixture.masses[state.masses.species[a]] = state.masses.mass[a];
-    for (std::size_t a = state.passives.offsets[i];
-         a < state.passives.offsets[i + 1]; ++a)
-      cell.passive_quantities.push_back(
-          {state.passives.species[a], state.passives.mass[a]});
+    if (!state.passives.mass.empty())
+      for (std::size_t a = state.passives.offsets[i];
+           a < state.passives.offsets[i + 1]; ++a)
+        cell.passive_quantities.push_back(
+            {state.passives.species[a], state.passives.mass[a]});
     result.occupied_volumes_m3[i] = readings[i].mass == 0 ? 0
                                     : readings[i].nR > 0
                                         ? result.grid.volume_m3()

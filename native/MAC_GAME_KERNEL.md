@@ -67,6 +67,35 @@ Energy report fields expose the accepted audit residual and bound in joules,
 with matching wide fields. This corrects a diagnostic units error; the native
 owner ledger audit and core20 physical bytes are unchanged.
 
+## Whole-asteroid reliability
+
+The unchanged `f329bff` diagnostic bundle fails both new LOW-lock checks.
+Oceania completes2/60 frames in two runs, then its post-transport EOS rejects
+a liquid strain. Completed-frame mass/energy errors are1.52e-16/3.16e-17 and
+1.95e-16/2.17e-17; trace sinks are8.85e-10kg/0.001013J and
+9.02e-10kg/0.001019J. Volcanea completes0/60: a pressure component exhausts
+the200-iteration cap. All runs exit and the game process is verified gone.
+These failures block whole-asteroid and private-release acceptance.
+
+Exact captured inputs reproduce both failures offline. A private400-iteration
+cap clears60 Volcanea ticks with global/region audits and sink1.06714e-7kg /
+0.139128J; this is not an in-game or saved-profile acceptance. Oceania still
+fails after experimental post-transport trace booking through the1mg ceiling.
+Neither experiment is adopted. Raising stiffness alone also fails the captured
+Oceania case; those probes initialize fresh worlds at declared temperatures,
+and do not continue an old save under different settings.
+
+A separate passive-free isolated-cell control exposed an export crash: an
+absent sparse passive column has no offsets. Export now skips that column.
+The focused control advances a quiet cell, repeats after a refused parcel,
+and compares requested1/12-worker cold continuation. Existing successful
+solver arithmetic and checkpoint bytes are unchanged.
+
+An unadopted exact liquid-stage prototype reuses existing EOS values and an
+ordered phase buffer. Six whole-lock offline AB/BA runs on the captured Terra
+world measure105.587 to103.057ms per tick (2.40%); all30-tick images match.
+It still needs the in-game comparison before adoption.
+
 ## Open acceptance work
 
 No private-playtest-ready or performance pass is claimed. The coupled material
