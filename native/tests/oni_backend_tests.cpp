@@ -17,6 +17,16 @@ static void require(bool condition,const char* message) {
 int main() {
     try {
         require(ma_oni_colony_precise_receipt_version()==2,"precise receipt observation capability");
+        static_assert(sizeof(MAOniColonyParcelContext)==72);
+        MAOniColonyParcelContext parcel_context{};parcel_context.struct_size=sizeof(parcel_context);parcel_context.abi_version=1;
+        parcel_context.session=456;const auto original_context=parcel_context;
+        require(ma_oni_colony_parcel_context_version()==1 &&
+            ma_oni_colony_copy_parcel_context(nullptr)==MA_ONI_INVALID_ARGUMENT &&
+            ma_oni_colony_copy_parcel_context(&parcel_context)==MA_ONI_INVALID_ARGUMENT &&
+            std::memcmp(&parcel_context,&original_context,sizeof(parcel_context))==0,"invalid/inactive parcel context changed output");
+        parcel_context.reserved=1;const auto invalid_context=parcel_context;
+        require(ma_oni_colony_copy_parcel_context(&parcel_context)==MA_ONI_INVALID_ARGUMENT &&
+            std::memcmp(&parcel_context,&invalid_context,sizeof(parcel_context))==0,"invalid parcel context header changed output");
         require(ma_oni_colony_actor_batch_version()==1 &&
             ma_oni_colony_queue_actor_batch(nullptr,0,nullptr,0,nullptr,0)==MA_ONI_INVALID_ARGUMENT,
             "atomic actor batch capability/empty request");

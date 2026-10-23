@@ -14,6 +14,7 @@ void stop() noexcept;
 [[nodiscard]] bool active() noexcept;
 [[nodiscard]] bool busy() noexcept;
 [[nodiscard]] MAOniColonyStatus status();
+[[nodiscard]] MAOniColonyParcelContext parcel_context();
 void copy(MAOniColonyStatus&, MAOniColonyCellView*, std::uint32_t capacity);
 bool copy_changed(std::uint64_t session,std::uint64_t frame,MAOniColonyStatus&,MAOniColonyCellView*,std::uint32_t capacity);
 std::uint32_t composition(std::uint32_t public_cell, std::uint32_t* indices, double* masses, std::uint32_t capacity);

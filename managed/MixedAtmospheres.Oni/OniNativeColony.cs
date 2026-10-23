@@ -91,6 +91,10 @@ namespace MixedAtmospheres.Oni
 
         [DllImport(Library, EntryPoint = "ma_oni_colony_game_kernel_version")]
         internal static extern uint GameKernelVersion();
+        [DllImport(Library, EntryPoint = "ma_oni_colony_parcel_context_version", CallingConvention = CallingConvention.Cdecl)]
+        internal static extern uint ParcelContextVersion();
+        [DllImport(Library, EntryPoint = "ma_oni_colony_copy_parcel_context", CallingConvention = CallingConvention.Cdecl)]
+        internal static extern int CopyParcelContext(ref ColonyParcelContext context);
         [DllImport(Library, EntryPoint = "ma_oni_colony_abi_version", CallingConvention = CallingConvention.Cdecl)] internal static extern uint Version();
         [DllImport(Library, EntryPoint = "ma_oni_colony_start", CallingConvention = CallingConvention.Cdecl)]
         internal static extern int Start(ref Config config, [In] Material[] materials, uint materialCount, [In] Cell[] cells, uint cellCount, ref Status status);

@@ -44,6 +44,21 @@ typedef struct MAOniColonyConfig {
     double gravity_m_per_s2, maximum_timestep_s;
 } MAOniColonyConfig;
 
+/* Read-only coordinates for explicit moving parcels. Potential energy uses
+ * core-local y: public cell centre height is
+ * ((public_cell / grid_width) - offset_y + 0.5) * cell_height_m.
+ * Read all fields from one completed publication; no live setting changes.
+ * Caller sets struct_size/abi_version and reserved=0. Other input fields are
+ * ignored; failure leaves the complete output unchanged. */
+typedef struct MAOniColonyParcelContext {
+    uint32_t struct_size, abi_version, flags, reserved;
+    uint64_t session;
+    uint32_t grid_width, grid_height, offset_x, offset_y, width, height;
+    double cell_width_m, cell_height_m, gravity_m_per_s2;
+} MAOniColonyParcelContext;
+MA_ONI_API uint32_t ma_oni_colony_parcel_context_version(void);
+MA_ONI_API MAOniResult ma_oni_colony_copy_parcel_context(MAOniColonyParcelContext*);
+
 /* One public cell of the owned rectangle at import, row-major from the bottom. */
 #define MA_ONI_COLONY_SOLID 0U
 #define MA_ONI_COLONY_FLUID 1U

@@ -223,6 +223,26 @@ void precise_receipt_control() {
     }
     std::cout<<"PASS precise adapter receipts: scaled range, traces/passives, sequence/ack, opt-in byte-identical trajectory and legacy receipts\n";
 }
+void parcel_context_control() {
+    using namespace ma::oni::colony;
+    std::vector<MAOniColonyMaterial> mats{material("Oxygen",11,oxygen,true,.032,1000)};
+    MAOniColonyConfig cfg{};cfg.struct_size=sizeof(cfg);cfg.abi_version=MA_ONI_COLONY_ABI_VERSION;
+    cfg.vacuum_index=vacuum;cfg.grid_width=8;cfg.grid_height=9;cfg.offset_x=2;cfg.offset_y=3;
+    cfg.width=cfg.height=3;cfg.gravity_m_per_s2=3.75;cfg.maximum_timestep_s=.1;
+    std::vector<MAOniColonyCell> cells(9,MAOniColonyCell{0,MA_ONI_COLONY_SOLID,0,0,0,0});
+    cells[4]={oxygen,MA_ONI_COLONY_FLUID,1,300,0,0};
+    start(cfg,mats,cells,1);const auto image=checkpoint();const auto context=parcel_context();
+    require(context.struct_size==72 && context.abi_version==1 && context.reserved==0 && context.flags==cfg.flags &&
+        context.grid_width==8 && context.grid_height==9 && context.offset_x==2 && context.offset_y==3 &&
+        context.width==3 && context.height==3 && context.cell_width_m==1 && context.cell_height_m==1 &&
+        context.gravity_m_per_s2==3.75 && context.session==status().session && checkpoint()==image,
+        "parcel context changed state or lost saved physical coordinates");
+    stop();restore(cfg,mats,image,1);const auto restored=parcel_context();
+    require(restored.session!=context.session && restored.offset_y==context.offset_y &&
+        restored.gravity_m_per_s2==context.gravity_m_per_s2 && restored.cell_height_m==context.cell_height_m && checkpoint()==image,
+        "parcel context did not follow restored session/coordinates");
+    stop();std::cout<<"PARCEL CONTEXT PASS\n";
+}
 void pipe_job_control() {
     using namespace ma::oni::colony;
     std::vector<MAOniColonyMaterial> mats{material("Oxygen",11,oxygen,true,.016,1000),material("CarbonDioxide",12,carbon,true,.044,850)};
@@ -671,6 +691,7 @@ int main(int argc, char** argv) {
         transfer_capture_control();
         floor_capture_control();
         release_capture_control();
+        parcel_context_control();
         pipe_job_control();
         sample_control();
         view_cache_control();

@@ -37,6 +37,8 @@
 static_assert(sizeof(MAOniColonySpecies) == 40 && sizeof(MAOniColonyReading) == 64 && sizeof(MAOniColonyConstituent) == 24);
 static_assert(sizeof(MAOniColonyPassive)==16);
 static_assert(sizeof(MAOniColonyActorJob)==24 && offsetof(MAOniColonyActorJob,token)==16);
+static_assert(sizeof(MAOniColonyParcelContext)==72 && offsetof(MAOniColonyParcelContext,session)==16 &&
+    offsetof(MAOniColonyParcelContext,cell_width_m)==48);
 static_assert(sizeof(MAOniColonySampleCell)==24 && sizeof(MAOniColonySamplePart)==16);
 static_assert(sizeof(MAOniColonyMaterial) == 168 && sizeof(MAOniColonyConfig) == 56 && sizeof(MAOniColonyCell) == 24 &&
     sizeof(MAOniColonyStatus) == 600 && sizeof(MAOniColonyCellView) == 32 && sizeof(MAOniColonyTransfer) == 48 &&
@@ -947,6 +949,15 @@ MAOniColonyStatus status() {
     s.native_heat_j = exchanged.heat_j; s.native_mass_in_kg = exchanged.mass_in_kg; s.native_mass_out_kg = exchanged.mass_out_kg;
     s.native_changes = exchanged.changes;
     return s;
+}
+MAOniColonyParcelContext parcel_context() {
+    std::shared_ptr<const Published> p; { std::lock_guard lock(publication); p=latest; }
+    require(p && p->world,"No colony owner is active");
+    const auto& c=p->config;
+    const auto spacing=p->world->state().grid.spacing_m;
+    return {sizeof(MAOniColonyParcelContext),1,c.flags,0,p->status.session,
+        c.grid_width,c.grid_height,c.offset_x,c.offset_y,c.width,c.height,
+        spacing,spacing,p->world->settings().gravity_m_per_s2};
 }
 namespace {
 bool copy_published(MAOniColonyStatus& out, MAOniColonyCellView* views, std::uint32_t capacity,

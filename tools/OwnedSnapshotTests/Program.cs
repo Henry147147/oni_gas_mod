@@ -30,6 +30,13 @@ internal static unsafe class Program
     [MethodImpl(MethodImplOptions.NoInlining)]
     private static int Run(bool benchmark)
     {
+        Test("moving parcel coordinates retain the native ABI and explicit potential reference", () =>
+        {
+            Check(Marshal.SizeOf<ColonyParcelContext>()==72 &&
+                Marshal.OffsetOf<ColonyParcelContext>(nameof(ColonyParcelContext.Session)).ToInt32()==16 &&
+                Marshal.OffsetOf<ColonyParcelContext>(nameof(ColonyParcelContext.CellWidthMetres)).ToInt32()==48);
+            var context=ColonyParcelContext.Empty;Check(context.Size==72 && context.Version==1 && context.Reserved==0);
+        });
         Test("quit cleanup preserves native instructions and only guards its two destroyed-root reads", () =>
         {
             var getter=HarmonyLib.AccessTools.PropertyGetter(typeof(UnityEngine.Component),"gameObject");

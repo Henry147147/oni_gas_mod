@@ -855,6 +855,15 @@ MAOniResult ma_oni_colony_enable_precise_receipts(std::uint32_t enabled) {
 }
 std::uint32_t ma_oni_colony_precise_receipt_version() { return 2; }
 std::uint32_t ma_oni_colony_actor_batch_version() { return 1; }
+std::uint32_t ma_oni_colony_parcel_context_version() { return 1; }
+MAOniResult ma_oni_colony_copy_parcel_context(MAOniColonyParcelContext* output) {
+    return boundary([&] {
+        if (!output || output->struct_size!=sizeof(*output) || output->abi_version!=1 || output->reserved)
+            throw Failure(MA_ONI_INVALID_ARGUMENT,"Invalid parcel context header");
+        try { const auto next=ma::oni::colony::parcel_context(); *output=next; }
+        catch (const std::invalid_argument& error) { throw Failure(MA_ONI_INVALID_ARGUMENT,error.what()); }
+    });
+}
 MAOniResult ma_oni_colony_queue_actor_batch(const MAOniColonyTransfer* transfers,std::uint32_t count,
     const MAOniColonyActorJob* jobs,std::uint32_t job_count,const MAOniColonyPassive* passives,std::uint32_t passive_count) {
     return boundary([&] {

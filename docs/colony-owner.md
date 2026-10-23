@@ -447,6 +447,20 @@ jobs and version-8 bytes remain unchanged when the new facility is unused.
 This is a reservation, not an enabled writer or gameplay acceptance. Core
 physical checkpoint versions are assigned separately.
 
+The read-only `ma_oni_colony_parcel_context_version()` capability 1 and
+`ma_oni_colony_copy_parcel_context()` expose the actual coordinate reference
+without enabling moving-parcel admission. The 72-byte record contains its
+size/version, saved flags, reserved zero, session, public-grid and owner
+geometry, cell width/height and saved solver gravity from one immutable
+publication. Potential energy is **core-local**: a public cell's centre is
+`(public_y - offset_y + 0.5) * cell_height_m`. The managed particle owner must
+convert its continuous global pose with that same saved origin and gravity;
+no hard-coded 9.81 or second global-height correction is allowed. Invalid or
+inactive queries leave the caller's record unchanged. Queries preserve
+checkpoint bytes, and a restored session reports the same physical reference
+with its new session identity. This provides metadata only; parcel admission,
+durability and full liquid ports remain separate acceptance.
+
 **Reserved 2026-10-23, immediately after fetching `81b0021`:** owner wrapper
 `MACOLN01` version **8** is assigned to durable mixed-pipe job tokens, queued
 full-passive injections/extractions and the accepted-token watermark. This is
