@@ -365,6 +365,25 @@ relaxations, maximum mass/energy errors 4.28e-16 / 4.69e-17 and trace sink
 1.166e-7 kg / 0.038514 J. This LOW-lock control establishes equivalence;
 frame-time measurements use the same package with the control disabled.
 
+The matching WHOLE-lock fast Terra60 pair below changes only
+`MA_COLONY_MARSHALLED_RECEIPTS`; view caching is enabled in both. All diagnostic
+controls and logs are disabled. Each run completes 60 frames with all 60 owner
+samples and 59 observed intervals. Observed maxima retain startup.
+
+| Receipt binding | Owner mean / p95 / max ms | Observed mean / p95 / max ms | Maximum relative mass / energy error | Trace sink kg / J |
+| --- | ---: | ---: | --- | --- |
+| Previous array marshaller | 173.09 / 213.08 / 353.96 | 301.70 / 365.46 / 5096.28 | 2.10e-16 / 4.67e-17 | 5.542e-8 / 0.018870 |
+| Pinned array | 190.36 / 348.12 / 528.30 | 322.39 / 488.10 / 5218.97 | 3.50e-16 / 4.64e-17 | 5.587e-8 / 0.019620 |
+
+Both runs have zero faults or skipped relaxations; a separate fallback counter
+is unavailable. Frames 10–60 give owner/observed means 170.97/212.37 versus
+192.06/239.03 ms. This pair establishes no whole-game speed improvement. The
+physical work histories also differ: 190 versus 276 rejected flow attempts,
+802 versus 844 committed transfers and 378 versus 468 publications. Component
+timing or replay of identical inputs is needed to isolate the binding's cost.
+Both games exited cleanly with no retained game process; neither establishes
+the 2× target or an accuracy-floor pass.
+
 Submission/completion timing uses independent queued frame identities. ONI can
 submit the next tick before publishing the previous completion, so pairing a
 completion with the latest submission gives invalid latencies. A focused
