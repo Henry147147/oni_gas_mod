@@ -19,11 +19,12 @@ namespace MixedAtmospheres.Oni
         };
         private static bool ContinueOwnerMenuReload()
         {
-            if(!OwnerReloadRequested) return false;
+            if(!OwnerReloadRequested) { RefreshOwnerCompletionReport(); return false; }
             var guid=SaveLoader.Instance.GameInfo.colonyGuid.ToString("N");var hash=OwnerReloadInputHash();
             if(ownerReload.Stage==0)
             {
                 ownerReload.Begin(ColonyOwner.Status.Session,ColonyOwner.Config.Flags,guid,hash);
+                RefreshOwnerCompletionReport();
                 ReportJson.WriteAtomic(Path.Combine(OutputDirectory,"first-load-colony-validation.json"),Report);
                 File.Copy(Path.Combine(OutputDirectory,"colony-owner.json"),Path.Combine(OutputDirectory,"first-load-colony-owner.json"),false);
                 Report.Status="pending";Report.Stage="returning-to-main-menu-for-owner-reload";Report.FinishedUtc="";
@@ -32,11 +33,28 @@ namespace MixedAtmospheres.Oni
                 driver.StartCoroutine(ReturnToMenuAfterScreenshot("first-load-colony.png"));return true;
             }
             ownerReload.Complete(ColonyOwner.Status.Session,ColonyOwner.Config.Flags,guid,hash,ColonyOwnerPersistence.Loads);
+            RefreshOwnerCompletionReport();
+            return false;
+        }
+        private static void RefreshOwnerCompletionReport()
+        {
+            var status=OniNativeColony.Status.Empty;
+            OniNativeColony.Check(OniNativeColony.CopyStatus(ref status));
             var path=Path.Combine(OutputDirectory,"colony-owner.json");
             var final=Newtonsoft.Json.Linq.JObject.Parse(File.ReadAllText(path));
-            final["OwnerMenuReload"]=Newtonsoft.Json.Linq.JToken.Parse(ReportJson.Serialize(OwnerReloadReport()!));
+            final["Saves"]=ColonyOwnerPersistence.Saves;
+            final["Loads"]=ColonyOwnerPersistence.Loads;
+            final["LastSavedFrame"]=ColonyOwnerPersistence.LastSavedFrame;
+            var reload=OwnerReloadReport();
+            final["OwnerMenuReload"]=reload==null ? Newtonsoft.Json.Linq.JValue.CreateNull() : Newtonsoft.Json.Linq.JToken.Parse(ReportJson.Serialize(reload));
+            final["CompletionStatus"]=Newtonsoft.Json.Linq.JToken.Parse(ReportJson.Serialize(new {
+                Scope="native status after validation actions; top-level physical fields retain their sampled frame",
+                status.State,status.Session,status.CompletedFrames,status.Substeps,status.RejectedAttempts,status.SkippedRelaxations,
+                status.MaximumRelativeMassError,status.MaximumRelativeEnergyError,status.TraceSinkKg,status.TraceSinkJoules,status.Error
+            }));
             ReportJson.WriteAtomicText(path,final.ToString(Newtonsoft.Json.Formatting.Indented));
-            return false;
+            if(status.State!=1 || status.Error.Length!=0)
+                throw new InvalidOperationException("Owner failed during validation completion: "+status.Error);
         }
         private static void ObserveOwnerReloadMainMenu()
         {

@@ -90,5 +90,20 @@ restored 32-frame prefix is not missing measurement data.
 The harness admits explicit loaded-owner overwrite and same-process menu
 reload controls. The latter checks owner shutdown, a new session, source-save
 hash, colony identity and saved flags across two loads; it does not establish
-byte-exact physical continuation without an input transcript. Actual overwrite
-and menu runs, in-flight callbacks and full mixed-pipe saves remain open.
+byte-exact physical continuation without an input transcript.
+
+The loaded-owner overwrite run completes two ordinary writes to the same
+path, at durable frames 63 and 93 after restoring frame 32. All three duplicants
+survive; game validation passes and process cleanup is verified. The last
+sampled physical frame is 92, with mass/energy errors 5.311e-16/9.283e-16,
+trace sink 1.744e-7 kg / 0.182721 J, and no fault/rejection/skipped relaxation.
+LOW-lock owner mean/p95/max is 224.681/240.183/343.756 ms; observed spacing
+843.777/1505.081/18627.540 ms includes save pauses. All 60 newly advanced
+intervals are sampled; these timings are not performance acceptance.
+
+The sampler rejects the stale final save count: the physical status JSON was
+written before the second write and said one save, while the game log and
+durable-frame metadata record both. Completion reporting now refreshes save
+counters and adds a separately labelled native completion status, preserving
+the sampled physical frame. Cold/menu readback of the overwritten file,
+in-flight callbacks and full mixed-pipe saves remain open.
