@@ -24,6 +24,13 @@ int main() {
             "invalid precise receipt buffer changed size output");
         require(ma_oni_colony_copy_precise_receipt(1,nullptr,0,&receipt_bytes)==MA_ONI_OK && receipt_bytes==0 &&
             ma_oni_colony_wait()==MA_ONI_OK,"absent precise receipt or idle wait failed");
+        std::uint32_t job_state=123; std::uint64_t last_receipt=456,job_token=789;
+        require(ma_oni_colony_queue_pipe_job(1,nullptr,nullptr,0,&job_state,&last_receipt)==MA_ONI_INVALID_ARGUMENT &&
+            ma_oni_colony_pipe_job_state(1,nullptr,&last_receipt)==MA_ONI_INVALID_ARGUMENT &&
+            ma_oni_colony_pipe_job_state(1,&job_state,&last_receipt)==MA_ONI_INVALID_ARGUMENT && job_state==123 && last_receipt==456,
+            "invalid/inactive durable pipe job changed outputs");
+        require(ma_oni_colony_receipt_job(1,nullptr)==MA_ONI_INVALID_ARGUMENT &&
+            ma_oni_colony_receipt_job(1,&job_token)==MA_ONI_OK && job_token==0,"unknown pipe receipt token");
         static_assert(sizeof(MAOniDomainPublicationInfo)==64);
         require(ma_oni_domain_publication_abi_version()==1,"native publication ABI version");
         MAOniDomainPublicationInfo publication{};publication.struct_size=sizeof(publication);publication.abi_version=1;publication.token=99;

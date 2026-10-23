@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <span>
 #include <vector>
+#include <utility>
 
 namespace ma::oni::colony {
 void start(const MAOniColonyConfig&, std::span<const MAOniColonyMaterial>, std::span<const MAOniColonyCell>, std::uint64_t thread);
@@ -22,6 +23,9 @@ std::uint32_t copy_receipts(MAOniColonyReceipt*, std::uint32_t capacity);
 void ack_receipts(std::uint64_t through);
 void enable_precise_receipts(bool enabled);
 std::uint32_t copy_precise_receipt(std::uint64_t sequence, std::uint8_t*, std::uint32_t capacity);
+std::pair<std::uint32_t,std::uint64_t> queue_pipe_job(std::uint64_t, const MAOniColonyTransfer&, std::span<const MAOniColonyPassive>);
+std::pair<std::uint32_t,std::uint64_t> pipe_job_state(std::uint64_t);
+std::uint64_t receipt_job(std::uint64_t);
 [[nodiscard]] std::vector<std::uint8_t> checkpoint();
 std::uint32_t species(MAOniColonySpecies* out, std::uint32_t capacity);
 // Readings and constituents of the latest completed frame; returns the frame.

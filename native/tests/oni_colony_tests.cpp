@@ -3,6 +3,7 @@
 #include "../src/oni_colony.hpp"
 #include "../src/oni_precise_receipt.hpp"
 #include "../src/oni_release_capture.hpp"
+#include "../src/oni_sha256.hpp"
 #include "mixed_atmospheres/mac_kernel.hpp"
 #include <algorithm>
 #include <array>
@@ -141,6 +142,90 @@ void precise_receipt_control() {
         enable_precise_receipts(false); stop();
     }
     std::cout<<"PASS precise adapter receipts: scaled range, traces/passives, sequence/ack, opt-in byte-identical trajectory and legacy receipts\n";
+}
+void pipe_job_control() {
+    using namespace ma::oni::colony;
+    std::vector<MAOniColonyMaterial> mats{material("Oxygen",11,oxygen,true,.016,1000),material("CarbonDioxide",12,carbon,true,.044,850)};
+    MAOniColonyConfig cfg{}; cfg.struct_size=sizeof(cfg); cfg.abi_version=MA_ONI_COLONY_ABI_VERSION;
+    cfg.vacuum_index=vacuum; cfg.grid_width=cfg.width=3; cfg.grid_height=cfg.height=3; cfg.maximum_timestep_s=.1;
+    std::vector<MAOniColonyCell> cells(9,MAOniColonyCell{0,MA_ONI_COLONY_SOLID,0,0,0,0});
+    cells[4]={oxygen,MA_ONI_COLONY_FLUID,1.2f,300,3,103};
+    start(cfg,mats,cells,1); const auto empty8=checkpoint();
+    // A genuine version7 framing: same synthetic fields, no version8 suffix.
+    auto legacy7=empty8; constexpr char physical_magic[]="MACCLS01";
+    const auto physical=std::search(legacy7.begin(),legacy7.end(),physical_magic,physical_magic+8);
+    require(physical!=legacy7.end() && physical-legacy7.begin()>20,"cannot locate synthetic physical image");
+    const auto position=physical-legacy7.begin();
+    require(std::all_of(legacy7.begin()+position-20,legacy7.begin()+position-8,[](auto b){return b==0;}),"unexpected empty job suffix");
+    legacy7.erase(legacy7.begin()+position-20,legacy7.begin()+position-8); legacy7[8]=7;
+    const auto digest=ma::oni::hash_memory(legacy7.data(),legacy7.size()-64);
+    std::copy(digest.begin(),digest.end(),legacy7.end()-64);
+    stop(); restore(cfg,mats,legacy7,1); require(checkpoint()==empty8,"legacy7 restore changed physical profile/state");
+    enable_precise_receipts(true);
+    const MAOniColonyTransfer legacy{4,oxygen,MA_ONI_COLONY_INJECT,0,-1,0,.02,300,0};
+    queue_transfers(std::span(&legacy,1));
+    const MAOniColonyTransfer injection{4,carbon,MA_ONI_COLONY_INJECT,0,-1,0,.1234567890123,311.1234567890123,0};
+    const std::array<MAOniColonyPassive,2> passives{{{3,.125},{7,.3333333333333333}}};
+    require(queue_pipe_job(1,injection,passives)==std::pair<std::uint32_t,std::uint64_t>{1,0},"pipe token admission");
+    const auto pending=checkpoint(); require(pipe_job_state(1).first==1,"save consumed pending pipe job");
+    bool rejected=false; try { enable_precise_receipts(false); } catch (const std::invalid_argument&) { rejected=true; }
+    require(rejected,"disabled precise delivery while pipe job was queued");
+    const auto injection_outcome=[&] {
+        require(queue_pipe_job(1,injection,passives).first==1,"duplicate pending token was requeued");
+        auto different=injection; different.mass_kg=std::nextafter(different.mass_kg,1.);
+        bool refused=false; try { (void)queue_pipe_job(1,different,passives); } catch (const std::invalid_argument&) { refused=true; }
+        require(refused,"same pipe token accepted changed input");
+        refused=false; try { (void)queue_pipe_job(3,injection,passives); } catch (const std::invalid_argument&) { refused=true; }
+        require(refused && pipe_job_state(3).first==0,"pipe token gap admitted");
+        advance(1,.2,2); wait(); require(status().state==1,"pipe injection fault");
+        MAOniColonyReceipt receipt{}; require(copy_receipts(&receipt,1)==1 && receipt_job(receipt.sequence)==1,"durable token receipt association");
+        require(pipe_job_state(1)==std::pair<std::uint32_t,std::uint64_t>{2,receipt.sequence},"pipe completion boundary");
+        refused=false; try { (void)checkpoint(); } catch (const std::invalid_argument&) { refused=true; }
+        require(refused,"saved uncredited committed pipe job");
+        std::vector<std::uint8_t> wire(copy_precise_receipt(receipt.sequence,nullptr,0));
+        copy_precise_receipt(receipt.sequence,wire.data(),static_cast<std::uint32_t>(wire.size()));
+        ReceiptReader r{wire}; require(r.header(receipt.sequence,1)==1,"pipe injection parcel count");
+        require(r.integer(4)==carbon && r.integer(4)==4 && r.integer(4)==1,"pipe injection indices");
+        require(r.f64()==injection.mass_kg && r.f64()==injection.temperature_k,"pipe injection precision"); (void)r.f64();
+        for (int i=0;i<4;++i) (void)r.scaled();
+        require(r.integer(4)==2,"fractional/multiple pipe passives omitted");
+        for (const auto& passive : passives) require(r.integer(8)==passive.identity && r.f64()==passive.quantity,"pipe injection passives rounded");
+        require(r.at==wire.size(),"unexpected pipe parcel bytes");
+        ack_receipts(receipt.sequence); require(pipe_job_state(1).first==3 && receipt_job(receipt.sequence)==0,"pipe outcome not retired");
+        return wire;
+    };
+    const auto expected_wire=injection_outcome(); const auto expected=checkpoint();
+    stop(); restore(cfg,mats,pending,1);
+    require(pipe_job_state(1).first==1 && injection_outcome()==expected_wire && checkpoint()==expected,"queued pipe injection cold continuation differs");
+    const MAOniColonyTransfer extraction{4,vacuum,MA_ONI_COLONY_EXTRACT_GAS,0,-1,0,.33333333333333,0,0};
+    queue_pipe_job(2,extraction,{}); const auto pending_extraction=checkpoint();
+    const auto extraction_outcome=[&] {
+        advance(2,.2,2); wait(); require(status().state==1,"pipe extraction fault");
+        std::array<MAOniColonyReceipt,2> receipts{}; require(copy_receipts(receipts.data(),2)==2,"mixture pipe extraction missed constituent outcome");
+        const auto last=pipe_job_state(2); require(last.first==2 && last.second==receipts[1].sequence,"pipe last outcome sequence");
+        std::vector<std::vector<std::uint8_t>> wires;
+        for (const auto& receipt : receipts) {
+            require(receipt_job(receipt.sequence)==2,"extraction token lost across load");
+            std::vector<std::uint8_t> wire(copy_precise_receipt(receipt.sequence,nullptr,0));
+            copy_precise_receipt(receipt.sequence,wire.data(),static_cast<std::uint32_t>(wire.size()));
+            // Legacy receipt sequences intentionally restart after restore.
+            std::fill(wire.begin()+8,wire.begin()+16,0); wires.push_back(std::move(wire));
+        }
+        ack_receipts(receipts[0].sequence); require(pipe_job_state(2)==last,"partial acknowledgement prematurely retired pipe job");
+        bool refused=false; try { (void)checkpoint(); } catch (const std::invalid_argument&) { refused=true; }
+        require(refused,"partial pipe outcome save admitted");
+        ack_receipts(receipts[1].sequence); require(pipe_job_state(2).first==3,"full pipe outcome not retired");
+        return wires;
+    };
+    const auto expected_extraction=extraction_outcome(); const auto expected_end=checkpoint();
+    stop(); restore(cfg,mats,pending_extraction,1);
+    require(pipe_job_state(2).first==1 && extraction_outcome()==expected_extraction && checkpoint()==expected_end,"queued extraction dropped or changed across restore");
+    require(queue_pipe_job(2,extraction,{}).first==3,"retired pipe token requeued");
+    auto zero=extraction; zero.mass_kg=0; queue_pipe_job(3,zero,{}); advance(3,.2,2); wait();
+    MAOniColonyReceipt nothing{}; require(copy_receipts(&nothing,1)==1 && receipt_job(nothing.sequence)==3 &&
+        copy_precise_receipt(nothing.sequence,nullptr,0)==28,"zero extraction lacks durable outcome");
+    ack_receipts(nothing.sequence); enable_precise_receipts(false); stop();
+    std::cout<<"PASS durable pipe jobs: full fractional passives, idempotence, token grouping, queued injection/extraction cold continuation, legacy7 and save barriers\n";
 }
 void conversion_batch_control() {
     using namespace ma::oni::colony;
@@ -281,9 +366,11 @@ int main(int argc, char** argv) {
         if (argc == 2 && std::strcmp(argv[1], "--projection-only") == 0) { projection_control(); return 0; }
         if (argc == 2 && std::strcmp(argv[1], "--precise-receipts-only") == 0) { precise_receipt_control(); return 0; }
         if (argc == 2 && std::strcmp(argv[1], "--release-capture-only") == 0) { release_capture_control(); return 0; }
+        if (argc == 2 && std::strcmp(argv[1], "--pipe-jobs-only") == 0) { pipe_job_control(); return 0; }
         require(argc == 1, "Usage: ma_oni_colony_tests [--projection-only|--timestep-only|--precise-receipts-only]");
         precise_receipt_control();
         release_capture_control();
+        pipe_job_control();
         conversion_batch_control();
         timestep_control();
         projection_control();

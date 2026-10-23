@@ -26,12 +26,16 @@ struct PreciseReceiptWriter {
         u64(sequence); u64(frame); u32(static_cast<std::uint32_t>(count));
     }
     void parcel(const experimental::MacFluidParcel& p, std::uint32_t native_index, std::uint32_t public_cell) {
+        parcel(p,native_index,public_cell,p.passives);
+    }
+    void parcel(const experimental::MacFluidParcel& p, std::uint32_t native_index, std::uint32_t public_cell,
+        std::span<const ma::PassiveQuantity> carried) {
         u32(native_index); u32(public_cell); u32(p.injected ? 1 : 0);
         f64(p.mass_kg); f64(p.temperature_k); f64(p.internal_energy_j);
         scaled(p.resolved_kinetic_energy); scaled(p.potential_energy); scaled(p.momentum_x); scaled(p.momentum_y);
-        if (p.passives.size() > std::numeric_limits<std::uint32_t>::max()) throw std::length_error("Too many precise receipt passives");
-        u32(static_cast<std::uint32_t>(p.passives.size()));
-        for (const auto& passive : p.passives) { u64(passive.identity); f64(passive.quantity); }
+        if (carried.size() > std::numeric_limits<std::uint32_t>::max()) throw std::length_error("Too many precise receipt passives");
+        u32(static_cast<std::uint32_t>(carried.size()));
+        for (const auto& passive : carried) { u64(passive.identity); f64(passive.quantity); }
     }
 };
 }

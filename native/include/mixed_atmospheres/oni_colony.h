@@ -122,7 +122,7 @@ typedef struct MAOniColonyTransfer {
 typedef struct MAOniColonyReceipt {
     uint64_t sequence, completed_frame;
     int32_t callback; uint32_t kind, native_index, public_cell;
-    float mass_kg, temperature_k; /* binary32 exactly equal to the committed amount */
+    float mass_kg, temperature_k; /* binary32 compatibility projection; precise sidecars retain original parcels */
     uint32_t disease; int32_t disease_count;
 } MAOniColonyReceipt;
 typedef struct MAOniColonyHeat { uint32_t public_cell, reserved; double joules, maximum_temperature_k; } MAOniColonyHeat;
@@ -166,6 +166,22 @@ MA_ONI_API MAOniResult ma_oni_colony_copy_precise_receipt(uint64_t sequence, uin
 /* Wait for queued/running advances. Call while the game submitter is paused
  * to establish a save boundary; this does not acknowledge any receipts. */
 MA_ONI_API MAOniResult ma_oni_colony_wait(void);
+/* Durable pipe jobs: tokens are accepted contiguously from 1. Repeating an
+ * accepted token never queues another transfer; pending requests must match.
+ * callback=-1, disease/count=0; kind is INJECT, EXTRACT_GAS or EXTRACT_LIQUID.
+ * Passives are positive, finite and strictly ordered by nonzero identity;
+ * only injections supply them. Requires precise receipts enabled.
+ * State: 0 future/unknown, 1 queued, 2 committed, 3 all outcomes acknowledged.
+ * last_receipt_sequence is nonzero only in state2; settle a reservation only
+ * after handling every outcome through that sequence. Native pending jobs
+ * survive owner checkpoint v8; transient callback handles are never persisted.
+ * Save requires all committed pipe outcomes acknowledged first. */
+typedef struct MAOniColonyPassive { uint64_t identity; double quantity; } MAOniColonyPassive;
+MA_ONI_API MAOniResult ma_oni_colony_queue_pipe_job(uint64_t token, const MAOniColonyTransfer*,
+    const MAOniColonyPassive*, uint32_t passive_count, uint32_t* state, uint64_t* last_receipt_sequence);
+MA_ONI_API MAOniResult ma_oni_colony_pipe_job_state(uint64_t token, uint32_t* state, uint64_t* last_receipt_sequence);
+/* Zero for a non-pipe or acknowledged receipt. */
+MA_ONI_API MAOniResult ma_oni_colony_receipt_job(uint64_t sequence, uint64_t* token);
 /* Size query with a null buffer; the image describes the latest completed frame. */
 MA_ONI_API MAOniResult ma_oni_colony_checkpoint(uint8_t* buffer, uint32_t capacity, uint32_t* bytes);
 MA_ONI_API MAOniResult ma_oni_colony_stop(MAOniColonyStatus*);

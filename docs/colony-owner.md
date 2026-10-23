@@ -339,13 +339,14 @@ accuracy floor; profile 19 remains an opt-in experiment.
 `MACOLN01` version **8** is assigned to durable mixed-pipe job tokens, queued
 full-passive injections/extractions and the accepted-token watermark. This is
 an owner adapter format, separate from `MACCLS01` physical versions. Its
-implementation and mixed-pipe save acceptance are pending; the writer below
-still emits version 7. Older versions 6/7 and their recorded solver profiles
-must remain readable. No colony silently acquires mixed pipe ownership.
+native queue/receipt/save controls pass; full managed integration and in-game
+mixed-pipe save acceptance are pending. Older versions 6/7 and their recorded
+solver profiles remain readable. No colony silently acquires mixed pipe
+ownership.
 
 ONI's native section of the save becomes a `MACOLONY` envelope holding the
-original native bytes and the colony checkpoint (`MACOLN01` version 7, which
-also reads version 6 saves: configuration, material records, space and
+original native bytes and the colony checkpoint (`MACOLN01` version 8, which
+also reads version 6/7 saves: configuration, material records, space and
 liquid-blocking masks, reservoir, ledgers including the trace sink's, continuing
 counters, the inputs queued for the next step, the `MACCLS01` physical image
 and a SHA-256). Inputs in flight at the save keep their mass but not their
@@ -355,6 +356,26 @@ breath, a consumer) is dropped and asked again after the load. Loading hands the
 owner at the first completed frame; a different catalogue or geometry rejects
 the save. A game without the mod passes the envelope to its native loader,
 which refuses it.
+
+The optional durable pipe-job API accepts contiguous tokens from 1, with
+full sorted passive lists for injections. Repeating a token never queues
+another transfer. State queries distinguish future, queued, committed and
+fully acknowledged work; committed jobs report the last receipt sequence so
+the client can group every constituent before settling its reservation. Pipe
+outcomes are hidden until the complete physical frame is committed and
+published. A save refuses unacknowledged committed pipe outcomes. Pending
+pipe injections and extractions survive a load with their tokens/passives;
+callbacks remain transient. Version 8 adds uint64 accepted-token watermark,
+uint32 pending-job count and, for each queued job, uint32 saved transfer index,
+uint64 token, uint32 passive count and ordered uint64 identity/binary64 quantity
+pairs after the frozen-cell list. The existing SHA-256 covers them.
+
+This adapter addition changes owner-wrapper bytes, not the physical solver
+image, its profile or transfer arithmetic. Controls cover fractional/multiple
+passives, zero results, token gaps/reuse, partial acknowledgements, old-version
+framing and byte-identical queued injection/extraction continuation. Germ
+representation remainders in binary64 world cells still need observed
+before/after metadata and a named managed account before exact port acceptance.
 
 ## Import
 

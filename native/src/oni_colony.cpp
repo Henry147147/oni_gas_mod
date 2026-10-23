@@ -33,6 +33,7 @@
 #include <xmmintrin.h>
 
 static_assert(sizeof(MAOniColonySpecies) == 40 && sizeof(MAOniColonyReading) == 64 && sizeof(MAOniColonyConstituent) == 24);
+static_assert(sizeof(MAOniColonyPassive)==16);
 static_assert(sizeof(MAOniColonyMaterial) == 168 && sizeof(MAOniColonyConfig) == 56 && sizeof(MAOniColonyCell) == 24 &&
     sizeof(MAOniColonyStatus) == 600 && sizeof(MAOniColonyCellView) == 32 && sizeof(MAOniColonyTransfer) == 48 &&
     sizeof(MAOniColonyReceipt) == 48 && sizeof(MAOniColonyHeat) == 24, "Colony ABI layout changed");
@@ -126,6 +127,11 @@ std::vector<MAOniColonyTerrain> pending_terrain;
 std::vector<MAOniColonyReceipt> receipts;
 bool precise_receipts_enabled = false; // adapter opt-in; never part of physical state
 std::map<std::uint64_t, std::vector<std::uint8_t>> precise_receipts;
+struct PipeJob { MAOniColonyTransfer transfer; PassiveQuantities passives; std::uint64_t last_receipt=0; };
+std::map<std::uint64_t,PipeJob> pipe_jobs; // queued or committed, until every outcome is acknowledged
+std::map<std::size_t,std::uint64_t> pending_job_tokens; // indices in pending_transfers
+std::map<std::uint64_t,std::uint64_t> receipt_jobs; // sequence -> durable job token
+std::uint64_t accepted_job_token=0;
 std::uint64_t receipt_sequence = 0, acknowledged = 0, sessions = 0;
 std::atomic<std::uint64_t> start_thread{};
 // Native shadow: per owned cell, what write_shadow put there this frame.
@@ -432,6 +438,7 @@ void activate(std::unique_ptr<Session> next, std::uint64_t thread) {
     for (auto& v : suppressed) v.store(0, std::memory_order_relaxed);
     { std::lock_guard lock(inputs); pending_transfers.clear(); pending_heat.clear(); pending_terrain.clear(); pending_freezes.clear(); receipts.clear();
       precise_receipts.clear(); precise_receipts_enabled = false;
+      pipe_jobs.clear(); pending_job_tokens.clear(); receipt_jobs.clear(); accepted_job_token=0;
       receipt_sequence = acknowledged = 0; exchanged = {}; }
     publish(*next);
     session = std::move(next);
@@ -968,18 +975,65 @@ std::uint64_t readings(std::vector<MAOniColonyReading>& out, std::vector<MAOniCo
     return p->status.completed_frames;
 }
 
-void queue_transfers(std::span<const MAOniColonyTransfer> edits) {
-    require(active(), "No colony owner is active");
-    for (const auto& e : edits) {
+namespace {
+void validate_transfer(const MAOniColonyTransfer& e) {
         const auto kind = e.kind & ~MA_ONI_COLONY_CONSUMER;
         require(kind >= MA_ONI_COLONY_INJECT && kind <= MA_ONI_COLONY_EXTRACT_LIQUID && (kind != MA_ONI_COLONY_INJECT || kind == e.kind) &&
             e.disease <= 256 && e.radius <= 64 && std::isfinite(e.disease_count) && e.disease_count >= 0 && (e.disease != 0 || e.disease_count == 0) &&
             std::isfinite(e.mass_kg) && e.mass_kg >= 0 && std::isfinite(e.temperature_k) && e.temperature_k >= 0, "Invalid colony transfer");
         (void)rect_index(geometry, e.public_cell);
-    }
+}
+std::pair<std::uint32_t,std::uint64_t> job_state_locked(std::uint64_t token) {
+    if (!token || token>accepted_job_token) return {0,0};
+    const auto found=pipe_jobs.find(token);
+    if (found==pipe_jobs.end()) return {3,0};
+    return {found->second.last_receipt?2u:1u,found->second.last_receipt};
+}
+}
+void queue_transfers(std::span<const MAOniColonyTransfer> edits) {
+    require(active(), "No colony owner is active");
+    for (const auto& e : edits) validate_transfer(e);
     std::lock_guard lock(inputs);
     require(pending_transfers.size() + edits.size() <= 1u << 20, "Too many queued colony transfers");
     pending_transfers.insert(pending_transfers.end(), edits.begin(), edits.end());
+}
+std::pair<std::uint32_t,std::uint64_t> queue_pipe_job(std::uint64_t token,const MAOniColonyTransfer& transfer,std::span<const MAOniColonyPassive> passives) {
+    const ArithmeticScope arithmetic;
+    require(active(),"No colony owner is active"); validate_transfer(transfer);
+    require(token && transfer.callback==-1 && transfer.disease==0 && transfer.disease_count==0 &&
+        (transfer.kind==MA_ONI_COLONY_INJECT || transfer.kind==MA_ONI_COLONY_EXTRACT_GAS || transfer.kind==MA_ONI_COLONY_EXTRACT_LIQUID),"Invalid pipe job request");
+    require(passives.size()<=65537 && (transfer.kind==MA_ONI_COLONY_INJECT || passives.empty()),"Invalid pipe job passives");
+    PassiveQuantities germs; germs.reserve(passives.size()); std::uint64_t previous=0;
+    for (const auto& passive : passives) {
+        require(passive.identity>previous && std::isfinite(passive.quantity) && passive.quantity>0,"Invalid pipe job passive quantity");
+        germs.push_back({passive.identity,passive.quantity}); previous=passive.identity;
+    }
+    validate_passive_quantities(germs);
+    std::lock_guard lock(inputs);
+    require(precise_receipts_enabled,"Pipe jobs require precise receipts");
+    if (token<=accepted_job_token) {
+        if (const auto found=pipe_jobs.find(token); found!=pipe_jobs.end()) {
+            require(std::memcmp(&found->second.transfer,&transfer,sizeof(transfer))==0 && found->second.passives.size()==germs.size(),"Pipe token reused for a different request");
+            for (std::size_t i=0;i<germs.size();++i)
+                require(found->second.passives[i].identity==germs[i].identity && found->second.passives[i].quantity==germs[i].quantity,"Pipe token reused for different passives");
+        }
+        return job_state_locked(token);
+    }
+    require(accepted_job_token!=std::numeric_limits<std::uint64_t>::max() && token==accepted_job_token+1,"Pipe tokens must be contiguous");
+    require(pending_transfers.size()<1u<<20,"Too many queued colony transfers");
+    // All potentially allocating operations precede the accepted watermark.
+    // Roll back metadata if an allocation refuses the transfer.
+    const auto index=pending_transfers.size();
+    pipe_jobs.emplace(token,PipeJob{transfer,std::move(germs)});
+    try { pending_job_tokens.emplace(index,token); pending_transfers.push_back(transfer); }
+    catch (...) { pending_job_tokens.erase(index); pipe_jobs.erase(token); throw; }
+    accepted_job_token=token; return {1,0};
+}
+std::pair<std::uint32_t,std::uint64_t> pipe_job_state(std::uint64_t token) {
+    require(active(),"No colony owner is active"); std::lock_guard lock(inputs); return job_state_locked(token);
+}
+std::uint64_t receipt_job(std::uint64_t sequence) {
+    std::lock_guard lock(inputs); const auto found=receipt_jobs.find(sequence); return found==receipt_jobs.end()?0:found->second;
 }
 void queue_heat(std::span<const MAOniColonyHeat> edits) {
     require(active(), "No colony owner is active");
@@ -1020,15 +1074,28 @@ void queue_terrain(std::span<const MAOniColonyTerrain> edits) {
 }
 std::uint32_t copy_receipts(MAOniColonyReceipt* out, std::uint32_t capacity) {
     std::lock_guard lock(inputs);
-    const auto count = static_cast<std::uint32_t>(std::min<std::size_t>(capacity, receipts.size()));
+    std::size_t available=receipts.size();
+    if (!receipt_jobs.empty()) {
+        available=0;
+        for (const auto& receipt : receipts) {
+            const auto job=receipt_jobs.find(receipt.sequence);
+            if (job!=receipt_jobs.end() && pipe_jobs.at(job->second).last_receipt==0) break;
+            ++available;
+        }
+    }
+    const auto count = static_cast<std::uint32_t>(std::min<std::size_t>(capacity, available));
     if (out) std::copy(receipts.begin(), receipts.begin() + count, out);
-    return static_cast<std::uint32_t>(receipts.size());
+    return static_cast<std::uint32_t>(available);
 }
 void ack_receipts(std::uint64_t through) {
     std::lock_guard lock(inputs);
     require(through >= acknowledged && through <= receipt_sequence, "Colony receipt acknowledgement is out of order");
+    for (const auto& [sequence,token] : receipt_jobs)
+        if (sequence<=through) require(pipe_jobs.at(token).last_receipt!=0,"Cannot acknowledge an unfinished pipe job");
     std::erase_if(receipts, [&](const MAOniColonyReceipt& r) { return r.sequence <= through; });
     precise_receipts.erase(precise_receipts.begin(), precise_receipts.upper_bound(through));
+    receipt_jobs.erase(receipt_jobs.begin(),receipt_jobs.upper_bound(through));
+    std::erase_if(pipe_jobs,[&](const auto& item){return item.second.last_receipt && item.second.last_receipt<=through;});
     acknowledged = through;
 }
 void enable_precise_receipts(bool enabled_mode) {
@@ -1036,10 +1103,12 @@ void enable_precise_receipts(bool enabled_mode) {
     require(active(), "No colony owner is active");
     if (precise_receipts_enabled == enabled_mode) return;
     require(receipts.empty(), "Cannot change precise receipt mode with outstanding receipts");
+    require(pipe_jobs.empty(),"Cannot change precise receipt mode with pending pipe jobs");
     precise_receipts_enabled = enabled_mode;
 }
 std::uint32_t copy_precise_receipt(std::uint64_t sequence, std::uint8_t* out, std::uint32_t capacity) {
     std::lock_guard lock(inputs);
+    if (const auto job=receipt_jobs.find(sequence); job!=receipt_jobs.end() && pipe_jobs.at(job->second).last_receipt==0) return 0;
     const auto found = precise_receipts.find(sequence);
     if (found == precise_receipts.end()) return 0;
     require(found->second.size() <= std::numeric_limits<std::uint32_t>::max(), "Precise receipt exceeds 4 GiB");
@@ -1318,8 +1387,12 @@ void run_frame(std::uint64_t ticket, double seconds, const char* refusal, std::u
             throw std::runtime_error("Native frame ticket or timestep is invalid");
         std::vector<MAOniColonyTransfer> transfers; std::vector<MAOniColonyHeat> heat; std::vector<MAOniColonyTerrain> terrain;
         std::vector<Freeze> freezes; std::vector<GermEdit> germ_edits;
+        std::map<std::size_t,std::uint64_t> job_tokens;
+        std::map<std::size_t,PassiveQuantities> job_passives;
+        std::map<std::uint64_t,std::uint64_t> committed_jobs;
         { std::lock_guard q(inputs); transfers.swap(pending_transfers); heat.swap(pending_heat); terrain.swap(pending_terrain); freezes.swap(pending_freezes);
-          germ_edits.swap(pending_germs); }
+          germ_edits.swap(pending_germs); job_tokens.swap(pending_job_tokens);
+          for (const auto& [index,token] : job_tokens) job_passives.emplace(index,pipe_jobs.at(token).passives); }
         auto world = *s.world;
         const auto& cat = *s.catalogue; const auto& registry = cat.registry;
         auto& L = s.ledger;
@@ -1531,7 +1604,9 @@ void run_frame(std::uint64_t ticket, double seconds, const char* refusal, std::u
                 const auto order = nearby(st, centre, 2);
                 if (order.empty() || !(t.mass_kg > 0) || !(t.temperature_k > 0)) { plans.push_back({edits.size(), 0, &t}); continue; }
                 plans.push_back({edits.size(), 1, &t}); edits.push_back({order.front(), k, true, t.mass_kg, t.temperature_k});
-                if (t.disease != 0 && t.disease_count >= 1) edits.back().passives = {{t.disease, t.disease_count}};
+                const auto input=job_passives.find(static_cast<std::size_t>(&t-transfers.data()));
+                if (input!=job_passives.end()) edits.back().passives=input->second;
+                else if (t.disease != 0 && t.disease_count >= 1) edits.back().passives = {{t.disease, t.disease_count}};
             } else {
                 const auto order = nearby(st, centre, t.radius);
                 std::vector<double> available(st.cells.size());
@@ -1593,6 +1668,10 @@ void run_frame(std::uint64_t ticket, double seconds, const char* refusal, std::u
                 r.mass_kg = static_cast<float>(mass); r.temperature_k = mass > 0 ? static_cast<float>(heat_capacity_t / mass) : 0;
                 const auto germ = dominant_germ(germs); r.disease = germ.first; r.disease_count = germ.second;
                 receipts.push_back(r);
+                const auto job=job_tokens.find(static_cast<std::size_t>(p.source-transfers.data()));
+                if (job!=job_tokens.end()) {
+                    receipt_jobs.emplace(r.sequence,job->second); committed_jobs[job->second]=r.sequence;
+                }
                 if (precise_receipts_enabled) {
                     std::size_t count = 0;
                     for (std::size_t e = p.first; e < p.first + p.count; ++e)
@@ -1604,7 +1683,12 @@ void run_frame(std::uint64_t ticket, double seconds, const char* refusal, std::u
                         const auto cell = static_cast<std::uint32_t>(parcel.cell_index);
                         const auto public_cell = (s.config.offset_x + cell % s.config.width) +
                             (s.config.offset_y + cell / s.config.width) * s.config.grid_width;
-                        wire.parcel(parcel, cat.materials[parcel.species_index].game.native_index, public_cell);
+                        // The solver returns extracted passives on the parcel;
+                        // a successful injection adds its full supplied list.
+                        // Its parcel deliberately leaves that list empty.
+                        const auto carried=parcel.injected && parcel.mass_kg>0 ?
+                            std::span<const PassiveQuantity>(edits[e].passives) : std::span<const PassiveQuantity>(parcel.passives);
+                        wire.parcel(parcel, cat.materials[parcel.species_index].game.native_index, public_cell,carried);
                     }
                     precise_receipts.emplace(r.sequence, std::move(wire.bytes));
                 }
@@ -1624,7 +1708,7 @@ void run_frame(std::uint64_t ticket, double seconds, const char* refusal, std::u
                     (parcel.injected ? s.status.injected_kg : s.status.extracted_kg) += parcel.mass_kg;
                 }
                 ++s.status.committed_transfers;
-                if (p.source->callback < 0) continue;
+                if (p.source->callback < 0 && !job_tokens.contains(static_cast<std::size_t>(p.source-transfers.data()))) continue;
                 const auto kind = p.source->kind & ~MA_ONI_COLONY_CONSUMER;
                 const bool phase = kind == MA_ONI_COLONY_EXTRACT_GAS || kind == MA_ONI_COLONY_EXTRACT_LIQUID;
                 if (!phase) {
@@ -1786,6 +1870,10 @@ void run_frame(std::uint64_t ticket, double seconds, const char* refusal, std::u
             std::fprintf(stderr, "%s\n", line.c_str()); std::fflush(stderr);
         }
         publish(s, std::move(projection));
+        // Pipe outcomes become readable only after the physical frame is
+        // committed and published; a fault cannot credit an uncommitted edit.
+        if (!committed_jobs.empty()) { std::lock_guard q(inputs);
+          for (const auto& [token,last] : committed_jobs) pipe_jobs.at(token).last_receipt=last; }
     } catch (const std::exception& error) { fault(s, (std::string(doing) + ": " + error.what()).c_str()); }
       catch (...) { fault(s, "Unknown colony advance failure"); }
 }
@@ -1811,10 +1899,11 @@ struct Reader {
     long double ld() { const double hi = f64(), lo = f64(); return static_cast<long double>(hi) + lo; }
 };
 constexpr char magic[8] = {'M', 'A', 'C', 'O', 'L', 'N', '0', '1'};
+// Version 8 adds durable pending pipe jobs and their full passives/token watermark.
 // Version 7 adds the trace-sink ledger; version 6 the liquid-blocking cells; version 5 the inputs queued at the save; version 4 the phase-change
 // conversion ledger; version 3 stored the continuing counters explicitly
 // (version 2 the raw status struct).
-constexpr std::uint32_t checkpoint_version = 7;
+constexpr std::uint32_t checkpoint_version = 8;
 }
 std::vector<std::uint8_t> checkpoint() {
     solver.settle(false);
@@ -1845,13 +1934,21 @@ std::vector<std::uint8_t> checkpoint() {
     // is dropped and asked again after the load; an injection (exhaled gas, an
     // emitter's output) and native-side changes without callbacks are kept.
     std::vector<MAOniColonyTransfer> transfers; std::vector<MAOniColonyHeat> heat; std::vector<MAOniColonyTerrain> terrain; std::vector<Freeze> freezes;
+    struct SavedJob { std::uint32_t index; std::uint64_t token; PassiveQuantities passives; };
+    std::vector<SavedJob> saved_jobs; std::uint64_t saved_job_token=0;
     {
         std::lock_guard q(inputs);
-        for (auto t : pending_transfers) {
+        for (const auto& [token,job] : pipe_jobs) { (void)token; require(job.last_receipt==0,"Drain committed pipe outcomes before saving"); }
+        saved_job_token=accepted_job_token;
+        for (std::size_t i=0;i<pending_transfers.size();++i) {
+            auto t=pending_transfers[i];
             const bool answered = t.callback >= 0 || (t.kind & MA_ONI_COLONY_CONSUMER) != 0;
             if (answered && (t.kind & ~MA_ONI_COLONY_CONSUMER) != MA_ONI_COLONY_INJECT) continue;
+            if (const auto job=pending_job_tokens.find(i); job!=pending_job_tokens.end())
+                saved_jobs.push_back({static_cast<std::uint32_t>(transfers.size()),job->second,pipe_jobs.at(job->second).passives});
             t.callback = -1; t.kind &= ~MA_ONI_COLONY_CONSUMER; transfers.push_back(t);
         }
+        require(saved_jobs.size()==pipe_jobs.size(),"Pending pipe jobs are missing from the save queue");
         heat = pending_heat; terrain = pending_terrain; freezes = pending_freezes;
     }
     w.u32(static_cast<std::uint32_t>(transfers.size())); w.raw(transfers.data(), transfers.size() * sizeof(MAOniColonyTransfer));
@@ -1859,6 +1956,11 @@ std::vector<std::uint8_t> checkpoint() {
     w.u32(static_cast<std::uint32_t>(terrain.size())); w.raw(terrain.data(), terrain.size() * sizeof(MAOniColonyTerrain));
     w.u32(static_cast<std::uint32_t>(freezes.size()));
     for (const auto& f : freezes) { w.u32(f.public_cell); w.u32(f.native_index); w.f64(f.mass_kg); }
+    w.u64(saved_job_token); w.u32(static_cast<std::uint32_t>(saved_jobs.size()));
+    for (const auto& job : saved_jobs) {
+        w.u32(job.index); w.u64(job.token); w.u32(static_cast<std::uint32_t>(job.passives.size()));
+        for (const auto& passive : job.passives) { w.u64(passive.identity); w.f64(passive.quantity); }
+    }
     const auto image = s.world->checkpoint();
     w.u64(image.size()); w.raw(image.data(), image.size());
     const auto digest = hash_memory(w.bytes.data(), w.bytes.size());
@@ -1874,7 +1976,7 @@ void restore(const MAOniColonyConfig& config, std::span<const MAOniColonyMateria
     require(std::memcmp(digest.data(), image.data() + image.size() - 64, 64) == 0, "Colony checkpoint checksum differs");
     Reader r{image.first(image.size() - 64)};
     char head[8]; r.raw(head, 8); require(std::memcmp(head, magic, 8) == 0, "Unsupported colony checkpoint");
-    const auto version = r.u32(); require(version == 6 || version == checkpoint_version, "Unsupported colony checkpoint");
+    const auto version = r.u32(); require(version == 6 || version == 7 || version == checkpoint_version, "Unsupported colony checkpoint");
     MAOniColonyConfig saved{}; r.raw(&saved, sizeof(saved));
     require(std::memcmp(&saved, &config, sizeof(config)) == 0, "Colony checkpoint geometry or physics differs from the loaded game");
     const auto count = r.u32(); require(count == materials.size(), "Colony checkpoint catalogue differs from the running game");
@@ -1915,6 +2017,29 @@ void restore(const MAOniColonyConfig& config, std::span<const MAOniColonyMateria
     read_array(transfers); read_array(heat); read_array(terrain);
     freezes.resize(r.u32()); require(freezes.size() <= 1u << 20, "Colony checkpoint holds too many queued inputs");
     for (auto& f : freezes) { f.public_cell = r.u32(); f.native_index = r.u32(); f.mass_kg = r.f64(); }
+    std::map<std::size_t,std::uint64_t> restored_tokens; std::map<std::uint64_t,PipeJob> restored_jobs; std::uint64_t restored_watermark=0;
+    if (version>=8) {
+        restored_watermark=r.u64(); const auto job_count=r.u32(); require(job_count<=transfers.size(),"Too many pending pipe jobs");
+        std::size_t previous_index=0;
+        for (std::uint32_t i=0;i<job_count;++i) {
+            const auto index=r.u32(); const auto token=r.u64(); const auto n=r.u32();
+            require(index<transfers.size() && (i==0 || index>previous_index) && token && token<=restored_watermark &&
+                !restored_jobs.contains(token) && n<=65537 && n<=(r.bytes.size()-r.at)/16,"Invalid saved pipe job index/token/passives");
+            previous_index=index; const auto& t=transfers[index]; (void)rect_index(config,t.public_cell);
+            require(t.callback==-1 && t.disease==0 && t.disease_count==0 && t.radius<=64 &&
+                std::isfinite(t.mass_kg) && t.mass_kg>=0 && std::isfinite(t.temperature_k) && t.temperature_k>=0 &&
+                (t.kind==MA_ONI_COLONY_INJECT || t.kind==MA_ONI_COLONY_EXTRACT_GAS || t.kind==MA_ONI_COLONY_EXTRACT_LIQUID) &&
+                (t.kind==MA_ONI_COLONY_INJECT || n==0),"Invalid saved pipe transfer");
+            PipeJob job{t,{}}; job.passives.reserve(n); std::uint64_t previous=0;
+            for (std::uint32_t j=0;j<n;++j) {
+                const auto identity=r.u64(); const auto quantity=r.f64();
+                require(identity>previous && std::isfinite(quantity) && quantity>0,"Invalid saved pipe passive quantity");
+                previous=identity; job.passives.push_back({identity,quantity});
+            }
+            validate_passive_quantities(job.passives);
+            restored_tokens.emplace(index,token); restored_jobs.emplace(token,std::move(job));
+        }
+    }
     const auto physical = r.u64(); require(physical == r.bytes.size() - r.at, "Colony checkpoint physical image length differs");
     next->world = std::make_shared<const MacClosedWorld>(MacClosedWorld::from_checkpoint(next->catalogue->registry, next->catalogue->eos,
         r.bytes.subspan(r.at, static_cast<std::size_t>(physical))));
@@ -1931,6 +2056,10 @@ void restore(const MAOniColonyConfig& config, std::span<const MAOniColonyMateria
     {
         std::lock_guard q(inputs);
         pending_transfers = std::move(transfers); pending_heat = std::move(heat); pending_terrain = std::move(terrain); pending_freezes = std::move(freezes);
+        pending_job_tokens=std::move(restored_tokens); pipe_jobs=std::move(restored_jobs); accepted_job_token=restored_watermark;
+        // Pending durable jobs must publish full outcomes even before the
+        // managed client has finished rebuilding its port objects.
+        precise_receipts_enabled=!pipe_jobs.empty();
         // A wall queued to open is opening, as before the save.
         for (const auto& e : pending_terrain) if (e.kind == MA_ONI_COLONY_OPEN) {
             std::uint8_t closed = 0; owned[rect_index(geometry, e.public_cell)].compare_exchange_strong(closed, 3, std::memory_order_relaxed);

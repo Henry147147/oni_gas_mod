@@ -840,6 +840,30 @@ MAOniResult ma_oni_colony_copy_precise_receipt(std::uint64_t sequence,std::uint8
 MAOniResult ma_oni_colony_wait() {
     return boundary([&] { ma::oni::colony::wait(); });
 }
+MAOniResult ma_oni_colony_queue_pipe_job(std::uint64_t token,const MAOniColonyTransfer* transfer,
+    const MAOniColonyPassive* passives,std::uint32_t count,std::uint32_t* state,std::uint64_t* last) {
+    return boundary([&] {
+        if (!transfer || (count && !passives) || !state || !last) throw Failure(MA_ONI_INVALID_ARGUMENT,"Invalid pipe job request/output");
+        try {
+            const auto result=ma::oni::colony::queue_pipe_job(token,*transfer,std::span(passives,count));
+            *state=result.first; *last=result.second;
+        } catch (const std::invalid_argument& error) { throw Failure(MA_ONI_INVALID_ARGUMENT,error.what()); }
+    });
+}
+MAOniResult ma_oni_colony_pipe_job_state(std::uint64_t token,std::uint32_t* state,std::uint64_t* last) {
+    return boundary([&] {
+        if (!state || !last) throw Failure(MA_ONI_INVALID_ARGUMENT,"Invalid pipe job state output");
+        try {
+            const auto result=ma::oni::colony::pipe_job_state(token); *state=result.first; *last=result.second;
+        } catch (const std::invalid_argument& error) { throw Failure(MA_ONI_INVALID_ARGUMENT,error.what()); }
+    });
+}
+MAOniResult ma_oni_colony_receipt_job(std::uint64_t sequence,std::uint64_t* token) {
+    return boundary([&] {
+        if (!token) throw Failure(MA_ONI_INVALID_ARGUMENT,"Invalid pipe receipt token output");
+        *token=ma::oni::colony::receipt_job(sequence);
+    });
+}
 MAOniResult ma_oni_colony_checkpoint(std::uint8_t* buffer,std::uint32_t capacity,std::uint32_t* bytes) {
     return boundary([&] {
         if (!bytes) throw Failure(MA_ONI_INVALID_ARGUMENT,"Invalid colony checkpoint size output");
