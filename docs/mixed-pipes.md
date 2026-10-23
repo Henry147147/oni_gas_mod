@@ -58,3 +58,38 @@ because an environment variable or a new default changes. The codec controls
 check exact legacy bytes, new-image re-encoding/continuation, incompatible
 catalogue/geometry, malformed lengths, duplicate cells, corruption and the
 outer envelope's coverage of the pipe payload.
+
+## Precise owner receipts
+
+The optional native adapter exports `ma_oni_colony_enable_precise_receipts`,
+`ma_oni_colony_copy_precise_receipt` and `ma_oni_colony_wait`. Start and restore
+reset the opt-in. Changing it requires an empty receipt queue; repeating the
+current mode is harmless. Size queries and repeated copies leave receipts
+intact; the existing acknowledgement retires both legacy and precise data.
+The 48-byte legacy receipt, physical trajectory and native checkpoint bytes
+remain unchanged. A solid byproduct has no precise fluid sidecar. This API
+alone does not enable mixed pipe ownership.
+
+**MARECP01** is an ephemeral, little-endian payload (claimed 2026-10-23 after
+fetching `56b35ea`), never a solver checkpoint. The eight-byte magic is followed
+by uint64 sequence, uint64 completed frame and uint32 parcel count. Each parcel
+stores uint32 native element index, uint32 actual global cell index, uint32
+injected flag, then binary64 mass, temperature and signed internal energy.
+Four scaled terms follow, in order: resolved kinetic energy, potential energy,
+x momentum, y momentum. Each stores its original binary64 mantissa, uint32
+ASCII exponent length and exact signed decimal base-two exponent. Finally a
+uint32 passive count precedes pairs of uint64 identity and binary64 quantity.
+No exponent or conserved quantity is projected through float or through the
+binary64 value range. Zero parcels and quantum-cleanup constituents are kept.
+A phase extraction's per-species sidecar includes only that species; other
+transfers include every original parcel associated with that legacy receipt.
+Missing or retired sequences return zero bytes; an undersized buffer receives
+no partial write and reports the required size.
+
+The focused native control covers exponents beyond int64 and binary64 range,
+trace masses, multiple fractional passives, identity/copy/ack lifetime, and
+identical enabled/disabled trajectory, checkpoint and legacy receipt bytes.
+Mixed-pipe save integration must drain and credit relevant receipts while the
+game submitter is paused, before releasing its save barrier. Waiting for the
+owner does not acknowledge or deliver receipts. Exact return injection and
+in-flight save/restore remain separate acceptance work.

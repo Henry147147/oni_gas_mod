@@ -20,6 +20,8 @@ void queue_heat(std::span<const MAOniColonyHeat>);
 void queue_terrain(std::span<const MAOniColonyTerrain>);
 std::uint32_t copy_receipts(MAOniColonyReceipt*, std::uint32_t capacity);
 void ack_receipts(std::uint64_t through);
+void enable_precise_receipts(bool enabled);
+std::uint32_t copy_precise_receipt(std::uint64_t sequence, std::uint8_t*, std::uint32_t capacity);
 [[nodiscard]] std::vector<std::uint8_t> checkpoint();
 std::uint32_t species(MAOniColonySpecies* out, std::uint32_t capacity);
 // Readings and constituents of the latest completed frame; returns the frame.

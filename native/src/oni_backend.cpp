@@ -823,6 +823,23 @@ MAOniResult ma_oni_colony_ack_receipts(std::uint64_t through) {
         catch (const std::invalid_argument& error) { throw Failure(MA_ONI_INVALID_ARGUMENT,error.what()); }
     });
 }
+MAOniResult ma_oni_colony_enable_precise_receipts(std::uint32_t enabled) {
+    return boundary([&] {
+        if (enabled > 1) throw Failure(MA_ONI_INVALID_ARGUMENT,"Precise receipt mode must be zero or one");
+        try { ma::oni::colony::enable_precise_receipts(enabled != 0); }
+        catch (const std::invalid_argument& error) { throw Failure(MA_ONI_INVALID_ARGUMENT,error.what()); }
+    });
+}
+MAOniResult ma_oni_colony_copy_precise_receipt(std::uint64_t sequence,std::uint8_t* buffer,std::uint32_t capacity,std::uint32_t* bytes) {
+    return boundary([&] {
+        if (!bytes || (capacity && !buffer)) throw Failure(MA_ONI_INVALID_ARGUMENT,"Invalid precise receipt buffer");
+        *bytes=ma::oni::colony::copy_precise_receipt(sequence,buffer,capacity);
+        if (buffer && capacity < *bytes) throw Failure(MA_ONI_BUFFER_TOO_SMALL,"Precise receipt buffer is too small");
+    });
+}
+MAOniResult ma_oni_colony_wait() {
+    return boundary([&] { ma::oni::colony::wait(); });
+}
 MAOniResult ma_oni_colony_checkpoint(std::uint8_t* buffer,std::uint32_t capacity,std::uint32_t* bytes) {
     return boundary([&] {
         if (!bytes) throw Failure(MA_ONI_INVALID_ARGUMENT,"Invalid colony checkpoint size output");

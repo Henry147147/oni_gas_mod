@@ -1,6 +1,7 @@
 // Colony owner control (docs/colony-owner.md). Made-up materials and
 // inventories, not game data.
 #include "../src/oni_colony.hpp"
+#include "../src/oni_precise_receipt.hpp"
 #include "mixed_atmospheres/mac_kernel.hpp"
 #include <algorithm>
 #include <array>
@@ -22,6 +23,93 @@ MAOniColonyMaterial material(const char* id, std::int32_t hash, std::uint32_t in
 constexpr std::uint32_t oxygen = 3, carbon = 4, water = 5, steam = 6, brine = 7, vacuum = 9, W = 16, H = 12, GW = 20, GH = 15, X0 = 2, Y0 = 1;
 std::uint32_t public_cell(std::uint32_t x, std::uint32_t y) { return (X0 + x) + (Y0 + y) * GW; }
 int native_cell(std::uint32_t x, std::uint32_t y) { return static_cast<int>((X0 + x + 1) + (Y0 + y + 1) * (GW + 2)); }
+struct ReceiptReader {
+    const std::vector<std::uint8_t>& bytes; std::size_t at = 0;
+    std::uint64_t integer(unsigned n) {
+        require(at + n <= bytes.size(), "truncated precise receipt"); std::uint64_t value = 0;
+        for (unsigned i = 0; i < n; ++i) value |= static_cast<std::uint64_t>(bytes[at++]) << (8 * i);
+        return value;
+    }
+    double f64() { return std::bit_cast<double>(integer(8)); }
+    ma::experimental::MacEnergy scaled() {
+        const auto mantissa = f64(); const auto n = integer(4);
+        require(n <= 20000 && at + n <= bytes.size(), "bad precise exponent length");
+        const std::string exponent(bytes.begin() + at, bytes.begin() + at + n); at += n;
+        return ma::experimental::MacEnergy::from_parts(mantissa, ma::experimental::MacExponent::from_decimal(exponent));
+    }
+    std::uint32_t header(std::uint64_t sequence, std::uint64_t frame) {
+        require(bytes.size() >= 28 && std::memcmp(bytes.data(), "MARECP01", 8) == 0, "precise wire magic"); at = 8;
+        require(integer(8) == sequence && integer(8) == frame, "precise wire receipt identity");
+        return static_cast<std::uint32_t>(integer(4));
+    }
+};
+void precise_receipt_control() {
+    using namespace ma::experimental;
+    using namespace ma::oni::colony;
+    MacFluidParcel parcel{}; parcel.injected = false;
+    parcel.mass_kg = 1e-240; parcel.temperature_k = 311.1234567890123; parcel.internal_energy_j = -1e-230;
+    parcel.resolved_kinetic_energy = MacEnergy::from_parts(.75, MacExponent::from_decimal("92233720368547758080"));
+    parcel.potential_energy = MacEnergy::from_parts(-.625, MacExponent::from_decimal("-92233720368547758080"));
+    parcel.momentum_x = MacEnergy::from_parts(.875, -2400); parcel.momentum_y = MacEnergy::from_double(-3.25);
+    parcel.passives = {{std::uint64_t{1} << 63, 1e-230}, {7, .1234567890123}};
+    detail::PreciseReceiptWriter wire; wire.header(123, 456, 1); wire.parcel(parcel, carbon, 987);
+    ReceiptReader reader{wire.bytes}; require(reader.header(123,456) == 1, "precise parcel count");
+    require(reader.integer(4) == carbon && reader.integer(4) == 987 && reader.integer(4) == 0, "precise parcel indices");
+    require(reader.f64() == parcel.mass_kg && reader.f64() == parcel.temperature_k && reader.f64() == parcel.internal_energy_j,
+        "precise binary64 mass, temperature or signed internal energy changed");
+    for (const auto& value : {parcel.resolved_kinetic_energy, parcel.potential_energy, parcel.momentum_x, parcel.momentum_y}) {
+        const auto decoded = reader.scaled();
+        require(decoded.mantissa() == value.mantissa() && decoded.exponent() == value.exponent(), "precise scaled term was projected or rounded");
+    }
+    require(reader.integer(4) == 2, "precise passive count");
+    for (const auto& passive : parcel.passives)
+        require(reader.integer(8) == passive.identity && reader.f64() == passive.quantity, "precise passive identity/quantity changed");
+    require(reader.at == wire.bytes.size(), "precise parcel trailing bytes");
+
+    std::vector<MAOniColonyMaterial> mats{material("Oxygen",11,oxygen,true,.016,1000),material("CarbonDioxide",12,carbon,true,.044,850)};
+    MAOniColonyConfig cfg{}; cfg.struct_size=sizeof(cfg); cfg.abi_version=MA_ONI_COLONY_ABI_VERSION;
+    cfg.vacuum_index=vacuum; cfg.grid_width=cfg.width=3; cfg.grid_height=cfg.height=3; cfg.maximum_timestep_s=.1;
+    std::vector<MAOniColonyCell> cells(9,MAOniColonyCell{0,MA_ONI_COLONY_SOLID,0,0,0,0});
+    cells[4]={oxygen,MA_ONI_COLONY_FLUID,1.2f,300,3,103};
+    std::vector<std::uint8_t> expected; std::vector<MAOniColonyReceipt> old_receipts;
+    for (const bool precise : {false,true}) {
+        start(cfg,mats,cells,1); if (precise) enable_precise_receipts(true);
+        const MAOniColonyTransfer injection{4,carbon,MA_ONI_COLONY_INJECT,0,71,4,.1234567890123,311.1234567890123,57};
+        queue_transfers(std::span(&injection,1)); advance(1,.2,2); wait();
+        const MAOniColonyTransfer removal{4,vacuum,MA_ONI_COLONY_EXTRACT_GAS,0,72,0,.33333333333333,0,0};
+        queue_transfers(std::span(&removal,1)); advance(2,.2,2); wait();
+        require(status().state==1, "precise receipt live owner fault");
+        std::vector<MAOniColonyReceipt> got(8); got.resize(copy_receipts(got.data(),8));
+        require(got.size()==3, "precise mixed extraction needs one receipt per species");
+        if (!precise) { expected=checkpoint(); old_receipts=got; }
+        else {
+            require(checkpoint()==expected && std::memcmp(got.data(),old_receipts.data(),got.size()*sizeof(got[0]))==0,
+                "precise receipt opt-in changed trajectory/checkpoint or legacy receipt bytes");
+            enable_precise_receipts(true);
+            bool rejected=false; try { enable_precise_receipts(false); } catch (const std::invalid_argument&) { rejected=true; }
+            require(rejected, "precise mode change discarded outstanding sidecars");
+        }
+        for (const auto& r : got) {
+            const auto size=copy_precise_receipt(r.sequence,nullptr,0);
+            if (!precise) { require(size==0, "legacy mode allocated a sidecar"); continue; }
+            require(size>28, "missing precise transfer receipt");
+            std::vector<std::uint8_t> bytes(size,0xa5);
+            require(copy_precise_receipt(r.sequence,bytes.data(),size-1)==size && std::all_of(bytes.begin(),bytes.end(),[](auto b){return b==0xa5;}),
+                "undersized precise copy partially wrote or consumed receipt");
+            require(copy_precise_receipt(r.sequence,bytes.data(),size)==size, "precise receipt copy size changed");
+            ReceiptReader decoded{bytes}; require(decoded.header(r.sequence,r.completed_frame)==1, "precise phase receipt grouped wrong species");
+            require(decoded.integer(4)==r.native_index && decoded.integer(4)==4 && decoded.integer(4)==(r.callback==71?1u:0u), "precise receipt parcel association");
+            const auto mass=decoded.f64(); const auto temperature=decoded.f64(); const auto internal=decoded.f64();
+            require(mass>0 && temperature>0 && std::isfinite(internal), "precise receipt physical fields");
+            if (r.callback==71) require(mass==injection.mass_kg && temperature==injection.temperature_k && mass!=static_cast<double>(r.mass_kg),
+                "precise injection rounded through legacy float packet");
+        }
+        ack_receipts(got.back().sequence);
+        for (const auto& r : got) require(copy_precise_receipt(r.sequence,nullptr,0)==0, "acknowledged precise receipt retained");
+        enable_precise_receipts(false); stop();
+    }
+    std::cout<<"PASS precise adapter receipts: scaled range, traces/passives, sequence/ack, opt-in byte-identical trajectory and legacy receipts\n";
+}
 void conversion_batch_control() {
     using namespace ma::oni::colony;
     std::vector<MAOniColonyMaterial> mats{material("SaltWater",15,brine,false,.021,4100,1100),
@@ -159,7 +247,9 @@ int main(int argc, char** argv) {
     try {
         if (argc == 2 && std::strcmp(argv[1], "--timestep-only") == 0) { timestep_control(); return 0; }
         if (argc == 2 && std::strcmp(argv[1], "--projection-only") == 0) { projection_control(); return 0; }
-        require(argc == 1, "Usage: ma_oni_colony_tests [--projection-only|--timestep-only]");
+        if (argc == 2 && std::strcmp(argv[1], "--precise-receipts-only") == 0) { precise_receipt_control(); return 0; }
+        require(argc == 1, "Usage: ma_oni_colony_tests [--projection-only|--timestep-only|--precise-receipts-only]");
+        precise_receipt_control();
         conversion_batch_control();
         timestep_control();
         projection_control();

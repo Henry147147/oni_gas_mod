@@ -155,6 +155,17 @@ MA_ONI_API MAOniResult ma_oni_colony_queue_heat(const MAOniColonyHeat*, uint32_t
 MA_ONI_API MAOniResult ma_oni_colony_queue_terrain(const MAOniColonyTerrain*, uint32_t count);
 MA_ONI_API MAOniResult ma_oni_colony_copy_receipts(MAOniColonyReceipt*, uint32_t capacity, uint32_t* count);
 MA_ONI_API MAOniResult ma_oni_colony_ack_receipts(uint64_t through_sequence);
+/* Optional exact adapter receipts. Enable before any outstanding receipts;
+ * start/restore resets this opt-in. Repeating the current mode is harmless.
+ * Size-query/copy by legacy sequence; bytes=0 means no sidecar (e.g. a solid
+ * byproduct). Ack retires both representations together. Undersized buffers
+ * fail without consuming the receipt. Wire format: docs/mixed-pipes.md.
+ * No solver settings, checkpoint bytes or legacy receipt layouts change. */
+MA_ONI_API MAOniResult ma_oni_colony_enable_precise_receipts(uint32_t enabled);
+MA_ONI_API MAOniResult ma_oni_colony_copy_precise_receipt(uint64_t sequence, uint8_t* buffer, uint32_t capacity, uint32_t* bytes);
+/* Wait for queued/running advances. Call while the game submitter is paused
+ * to establish a save boundary; this does not acknowledge any receipts. */
+MA_ONI_API MAOniResult ma_oni_colony_wait(void);
 /* Size query with a null buffer; the image describes the latest completed frame. */
 MA_ONI_API MAOniResult ma_oni_colony_checkpoint(uint8_t* buffer, uint32_t capacity, uint32_t* bytes);
 MA_ONI_API MAOniResult ma_oni_colony_stop(MAOniColonyStatus*);

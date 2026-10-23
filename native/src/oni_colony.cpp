@@ -4,6 +4,7 @@
 #include "oni_catalogue.hpp"
 #include "oni_colony_import.hpp"
 #include "oni_radial_consumption.hpp"
+#include "oni_precise_receipt.hpp"
 #include "oni_sha256.hpp"
 #include "mixed_atmospheres/mac_closed_world.hpp"
 #include "mixed_atmospheres/mac_kernel.hpp"
@@ -121,6 +122,8 @@ std::vector<MAOniColonyTransfer> pending_transfers;
 std::vector<MAOniColonyHeat> pending_heat;
 std::vector<MAOniColonyTerrain> pending_terrain;
 std::vector<MAOniColonyReceipt> receipts;
+bool precise_receipts_enabled = false; // adapter opt-in; never part of physical state
+std::map<std::uint64_t, std::vector<std::uint8_t>> precise_receipts;
 std::uint64_t receipt_sequence = 0, acknowledged = 0, sessions = 0;
 std::atomic<std::uint64_t> start_thread{};
 // Native shadow: per owned cell, what write_shadow put there this frame.
@@ -425,6 +428,7 @@ void activate(std::unique_ptr<Session> next, std::uint64_t thread) {
     for (std::size_t i = 0; i < owned_count; ++i) owned[i].store(next->world->state().grid.walls[i] ? 0 : 1, std::memory_order_relaxed);
     for (auto& v : suppressed) v.store(0, std::memory_order_relaxed);
     { std::lock_guard lock(inputs); pending_transfers.clear(); pending_heat.clear(); pending_terrain.clear(); pending_freezes.clear(); receipts.clear();
+      precise_receipts.clear(); precise_receipts_enabled = false;
       receipt_sequence = acknowledged = 0; exchanged = {}; }
     publish(*next);
     session = std::move(next);
@@ -1021,7 +1025,24 @@ void ack_receipts(std::uint64_t through) {
     std::lock_guard lock(inputs);
     require(through >= acknowledged && through <= receipt_sequence, "Colony receipt acknowledgement is out of order");
     std::erase_if(receipts, [&](const MAOniColonyReceipt& r) { return r.sequence <= through; });
+    precise_receipts.erase(precise_receipts.begin(), precise_receipts.upper_bound(through));
     acknowledged = through;
+}
+void enable_precise_receipts(bool enabled_mode) {
+    std::lock_guard lock(inputs);
+    require(active(), "No colony owner is active");
+    if (precise_receipts_enabled == enabled_mode) return;
+    require(receipts.empty(), "Cannot change precise receipt mode with outstanding receipts");
+    precise_receipts_enabled = enabled_mode;
+}
+std::uint32_t copy_precise_receipt(std::uint64_t sequence, std::uint8_t* out, std::uint32_t capacity) {
+    std::lock_guard lock(inputs);
+    const auto found = precise_receipts.find(sequence);
+    if (found == precise_receipts.end()) return 0;
+    require(found->second.size() <= std::numeric_limits<std::uint32_t>::max(), "Precise receipt exceeds 4 GiB");
+    const auto size = static_cast<std::uint32_t>(found->second.size());
+    if (out && capacity >= size) std::copy(found->second.begin(), found->second.end(), out);
+    return size;
 }
 
 bool owns(int native_cell) noexcept {
@@ -1563,12 +1584,27 @@ void run_frame(std::uint64_t ticket, double seconds, const char* refusal, std::u
         if (!plans.empty()) {
             std::lock_guard q(inputs);
             const auto receipt = [&](const MAOniColonyTransfer& t, std::uint32_t native_index, long double mass, long double heat_capacity_t,
-                                     const PassiveQuantities& germs) {
+                                     const PassiveQuantities& germs, const Pending& p, std::optional<std::size_t> only_species) {
                 MAOniColonyReceipt r{}; r.sequence = ++receipt_sequence; r.completed_frame = s.status.completed_frames + 1;
                 r.callback = t.callback; r.kind = t.kind; r.native_index = native_index; r.public_cell = t.public_cell;
                 r.mass_kg = static_cast<float>(mass); r.temperature_k = mass > 0 ? static_cast<float>(heat_capacity_t / mass) : 0;
                 const auto germ = dominant_germ(germs); r.disease = germ.first; r.disease_count = germ.second;
                 receipts.push_back(r);
+                if (precise_receipts_enabled) {
+                    std::size_t count = 0;
+                    for (std::size_t e = p.first; e < p.first + p.count; ++e)
+                        if (!only_species || parcels[e].species_index == *only_species) ++count;
+                    detail::PreciseReceiptWriter wire; wire.header(r.sequence, r.completed_frame, count);
+                    for (std::size_t e = p.first; e < p.first + p.count; ++e) {
+                        const auto& parcel = parcels[e];
+                        if (only_species && parcel.species_index != *only_species) continue;
+                        const auto cell = static_cast<std::uint32_t>(parcel.cell_index);
+                        const auto public_cell = (s.config.offset_x + cell % s.config.width) +
+                            (s.config.offset_y + cell / s.config.width) * s.config.grid_width;
+                        wire.parcel(parcel, cat.materials[parcel.species_index].game.native_index, public_cell);
+                    }
+                    precise_receipts.emplace(r.sequence, std::move(wire.bytes));
+                }
             };
             for (const auto& p : plans) {
                 std::map<std::size_t, std::pair<long double, long double>> by_species; // mass, sum m T
@@ -1591,10 +1627,10 @@ void run_frame(std::uint64_t ticket, double seconds, const char* refusal, std::u
                 if (!phase) {
                     long double mass = 0, heat_capacity_t = 0;
                     for (const auto& [k, entry] : by_species) { mass += entry.first; heat_capacity_t += entry.second; }
-                    receipt(*p.source, p.source->native_index, mass, heat_capacity_t, all_germs);
-                } else if (by_species.empty()) receipt(*p.source, geometry.vacuum_index, 0, 0, {});
+                    receipt(*p.source, p.source->native_index, mass, heat_capacity_t, all_germs, p, {});
+                } else if (by_species.empty()) receipt(*p.source, geometry.vacuum_index, 0, 0, {}, p, {});
                 // A mixture leaves one receipt per constituent.
-                else for (const auto& [k, entry] : by_species) receipt(*p.source, cat.materials[k].game.native_index, entry.first, entry.second, germs_of[k]);
+                else for (const auto& [k, entry] : by_species) receipt(*p.source, cat.materials[k].game.native_index, entry.first, entry.second, germs_of[k], p, k);
             }
         }
         // The profile's trace sink before the flow is the flow's own (advanced()

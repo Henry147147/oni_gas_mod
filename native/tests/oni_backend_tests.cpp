@@ -1,6 +1,7 @@
 #include "mixed_atmospheres/oni_backend.h"
 #include "mixed_atmospheres/oni_domain.h"
 #include "mixed_atmospheres/oni_publication.h"
+#include "mixed_atmospheres/oni_colony.h"
 #include "../src/oni_sha256.hpp"
 #include "../src/oni_funchook_storage.hpp"
 #include <array>
@@ -15,6 +16,14 @@ static void require(bool condition,const char* message) {
 }
 int main() {
     try {
+        std::uint32_t receipt_bytes=99;
+        require(ma_oni_colony_enable_precise_receipts(2)==MA_ONI_INVALID_ARGUMENT &&
+            ma_oni_colony_enable_precise_receipts(1)==MA_ONI_INVALID_ARGUMENT,"invalid/inactive precise receipt mode admitted");
+        require(ma_oni_colony_copy_precise_receipt(1,nullptr,0,nullptr)==MA_ONI_INVALID_ARGUMENT &&
+            ma_oni_colony_copy_precise_receipt(1,nullptr,1,&receipt_bytes)==MA_ONI_INVALID_ARGUMENT && receipt_bytes==99,
+            "invalid precise receipt buffer changed size output");
+        require(ma_oni_colony_copy_precise_receipt(1,nullptr,0,&receipt_bytes)==MA_ONI_OK && receipt_bytes==0 &&
+            ma_oni_colony_wait()==MA_ONI_OK,"absent precise receipt or idle wait failed");
         static_assert(sizeof(MAOniDomainPublicationInfo)==64);
         require(ma_oni_domain_publication_abi_version()==1,"native publication ABI version");
         MAOniDomainPublicationInfo publication{};publication.struct_size=sizeof(publication);publication.abi_version=1;publication.token=99;
