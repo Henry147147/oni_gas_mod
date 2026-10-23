@@ -285,6 +285,7 @@ static class Program
         Console.WriteLine("PASS precise pipe receipts: committed binary64 values, every passive/zero parcel, huge scaled mechanics, exact sparse accounts and malformed framing");
         PortSettlementTests.Run();
         SurfaceGermTests.Run();
+        GermEvolutionTests.Run();
         if (args.Contains("--benchmark"))
         {
             foreach (var seed in new[] { PipeInventory.Single(A, 1, 300), mixture })

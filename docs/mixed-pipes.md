@@ -639,6 +639,117 @@ contiguous samples, no gaps); no performance comparison. Production/save
 activation, different-strength body coverage, partial storage/teardown,
 thermal accuracy, all-ID biological evolution and liquid particles remain open.
 
+### Common integer germ-evolution oracle (control only)
+
+`ColonyGermEvolution` is shared by future pipe and world adapters. It accepts
+the native public API's material count change and temperature multiplier,
+preserves binary32 accumulation and truncation, and returns the actual integer
+birth/death change plus the next binary32 residue. Extinction resets residue;
+unsupported conversion/addition overflow is refused without altering the
+caller's exact population. This is the native integer domain only. Fractional
+and overflow population evolution, mixture material weighting and saved clocks
+are not implemented or adopted by this helper.
+
+Before its first measurement, `mixed-pipe-biology` is fixed as follows: mixed
+pipe ownership remains off; the game runs its original pipe disease updater.
+At stage 5 create isolated gas conduits at (1,3), (3,3), (5,3). At stage 10 seed
+0.5 kg per cell: O2/280 K with 16777219 food-poisoning germs, polluted O2/
+293.15 K with 1000 slimelung germs, and O2/900 K with one slimelung germ. Disease
+indices come from the actual database. A read-only observer predicts each
+native update using the same public growth/temperature APIs, then compares
+the native integer count, disease identity and binary32 residue bits. At stage
+80 require at least 20 comparisons, both identities, zero mismatches or
+unsupported steps, at least one native extinction reset, and both native birth
+and death. Host cap 110; a cap stop is not accepted. World fluids still use
+MacClosedWorld; only the auxiliary native pipe disease process is the oracle.
+
+The first run is **5/6 at 81 frames**: all 177 actual count/identity/residue-bit
+comparisons match, with two identities, 534021 deaths, one extinction reset,
+zero unsupported steps and zero mismatches. The required birth was not
+observed. That remains a coverage failure, not full biology acceptance. World
+mass/energy errors 6.533e-16/4.627e-17, sink zero, no native fault, verified
+cleanup. Diagnostic LOW owner mean/p95/max 172.960/206.156/226.059 ms, observed
+251.775/291.503/2928.818 ms (81/80 samples, no gaps); no speed claim.
+
+Native declaration inspection shows culture mass is captured by allocation;
+later count/identity updates do not update that mass, and cached growth info
+refreshes on disease-identity change. Their actual values must be measured and
+saved, rather than reconstructing a restored culture from its current packet.
+The common adapter therefore exposes captured-culture and current-mass world
+entrypoints separately, sharing the same scalar accumulation implementation.
+
+Before the next measurement, v2 retains all three real packets and every
+native-match/extinction/domain criterion. It additionally creates an isolated
+native disease manager using the existing temperature manager read-only. A
+fixed ordered search of PO2, polluted water, water, O2; food/slimelung; counts
+1000/100000/10000000; and existing temperature handles finds the first native
+public-rule case that grows with positive allocated mass (0.5 kg gas/5 kg
+liquid). It allocates only the isolated manager's data, never real pipe/world
+data, and advances that original native method once per completed owner frame
+at 0.2 s. Require at least 20 real-pipe comparisons plus 20 isolated reference
+comparisons and reference births. Report real-pipe culture mass, deaths and
+the isolated reference separately. This tests the general native equation's
+positive branch; it does not claim ordinary pipe reproduction or adopt new
+pipe/world evolution. Stage80/host110 bounds stay unchanged.
+
+V2 is **5/7 in 81 frames**. Real-pipe comparison remains 177 bit-equal updates,
+and measured captured culture mass is exactly 0..0. The selector found no
+isolated positive-mass case because it demanded an immediate integer birth;
+positive fractional growth was excluded. This remains a coverage failure.
+V3 keeps the real-pipe setup fixed, adds candidate counts 1/10/100/10000/1000000
+and accepts positive residue of at least 1/60 per step so the existing
+70-step reference window can accumulate a birth. It reports the best candidate
+if none qualify. No live pipe data, growth rules or acceptance criterion is
+changed. V2 world M/E 3.677e-16/4.648e-17, sink zero, no native fault, verified
+cleanup; LOW diagnostic owner 180.859/214.137/247.566 ms and observed
+261.246/325.901/3102.410 ms (81/80 samples, no gaps).
+
+V3 finds a positive public-rule case but stops at frame 11 with an ambiguous
+reflection lookup between the declared native culture allocator and its
+inherited generic allocator. This is an oracle binding failure; no native
+evolution is replaced. V4 selects the declared two-argument, by-ref-contents
+allocator explicitly and adds an installed-declaration control before another
+game run. Inputs and all matching/growth criteria stay unchanged. V3 world M/E
+5.681e-17/3.674e-17, sink zero, no native solver fault, cleanup verified; LOW
+owner 187.449/251.709/251.709 ms, observed 525.319/3096.125/3096.125 ms
+(11/10 samples). Earlier failures remain recorded.
+
+V4 passes **7/7 in 81 frames**. All 247 original-native updates match count,
+identity and residue bits: 177 real-pipe updates and 70 isolated positive-mass
+updates, with 32 births, 534021 deaths, one extinction, two identities and no
+unsupported steps or mismatches. The positive reference is 0.5 kg polluted
+oxygen at 293.15 K with 1000 slimelung germs; real-pipe captured mass remains
+exactly 0..0. No evolution is replaced by this oracle. World M/E errors are
+6.807e-16/4.658e-17, trace sink zero, no native fault, cleanup verified. LOW
+diagnostic owner mean/p95/max is 190.451/215.898/258.889 ms and observed is
+280.405/332.944/3390.454 ms (81/80 samples, no gaps); concurrent HIGH work and
+the user's GPU workload prevent an isolated speed claim. All-ID mixed-cell
+evolution, fractional/overflow rules and saved clocks remain open.
+
+### Early mixed-save refusal
+
+While runtime persistence remains incomplete, active mixed-pipe controls refuse
+saving at the public `SaveLoader.Save(string, bool, bool)`, `InitialSave`,
+delayed initial/save and game/writer entrypoints. The file entrypoint refuses
+before opening or truncating its destination. Writer entrypoints protect only
+their own subsequent writes: an external caller may have opened its stream
+already. Inactive ordinary owner saves pass these guards unchanged. There is
+no callback dispatch, native save barrier or new payload in this temporary
+guard; it does not establish mixed save/load support.
+
+The actual-game `mixed-pipe-save-guard` control passes **7/7 at 11 frames**:
+all six patched methods refuse while an existing destination's sentinel bytes
+and the supplied writer's position/bytes stay unchanged; ownership remains
+active. No native fault, M/E errors 5.902e-17/4.586e-17, trace sink zero and
+cleanup verified. LOW diagnostic owner mean/p95/max is
+267.904/372.482/372.482 ms, observed 637.633/3134.905/3134.905 ms (11/10
+samples, no gaps), without a speed claim. Release, nine pure control groups,
+ten installed-declaration/direct groups, 216 snapshot/persistence controls and
+326 Python checks (four skips) pass after rebasing onto `f329bff`. The installed
+declaration test checks all targets and the direct guard; executing patched
+public I/O is confined to this actual-game control because the game's bundled
+Harmony cannot patch inside the .NET 10 runner (removed BinaryFormatter API).
+
 ## Precise owner receipts
 
 The optional native adapter exports `ma_oni_colony_enable_precise_receipts`,

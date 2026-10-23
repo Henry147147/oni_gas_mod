@@ -22,6 +22,12 @@ internal static class Program
     static int Run()
     {
         var assembly=typeof(MixtureInspection).Assembly;
+        var cultureProbe=assembly.GetType("MixedAtmospheres.Oni.ColonyGermEvolutionProbe")!;
+        var cultureAllocate=(MethodInfo)cultureProbe.GetField("AllocateCulture",BindingFlags.Static|BindingFlags.NonPublic)!.GetValue(null)!;
+        Check(cultureAllocate.DeclaringType==typeof(ConduitDiseaseManager)&&cultureAllocate.GetParameters().Length==2&&
+            cultureAllocate.GetParameters()[1].ParameterType==typeof(ConduitFlow.ConduitContents).MakeByRefType(),
+            "Native culture allocation bound an inherited generic overload instead of the actual two-argument allocator.");
+        Console.WriteLine("PASS native germ oracle binding: declared allocator uses original temperature handle and by-ref contents, excluding inherited overloads");
         var hook=assembly.GetType("MixedAtmospheres.Oni.ColonyMixedPipeFlowPatch")!;
         var transpiler=hook.GetMethod("Transpiler",BindingFlags.NonPublic|BindingFlags.Static)!;
         var original=AccessTools.Method(typeof(ConduitFlow),"UpdateConduit");
@@ -184,6 +190,19 @@ internal static class Program
 
         }
         finally{runtime.GetMethod("Reset",flags)!.Invoke(null,null);}
+        var saveGuard=assembly.GetType("MixedAtmospheres.Oni.ColonyMixedPipeSaveGuard")!;
+        var savePrefix=saveGuard.GetMethod("Prefix",flags)!;
+        var saveTargets=((IEnumerable<MethodBase>)saveGuard.GetMethod("TargetMethods",flags)!.Invoke(null,null)!).ToArray();
+        Check(saveTargets.Length==6&&saveTargets.All(method=>method.GetMethodBody()!=null),"Mixed save guard omitted a pinned ingress.");
+        savePrefix.Invoke(null,null); // Inactive legacy/ordinary owner saves pass through.
+        try
+        {
+            runtime.GetProperty("Active",flags)!.SetValue(null,true);
+            try{savePrefix.Invoke(null,null);throw new Exception("Unsupported active mixed saves passed the early guard.");}
+            catch(TargetInvocationException error)when(error.InnerException is NotSupportedException refusal&&refusal.Message.Contains("mixed-pipe")){}
+        }
+        finally{runtime.GetMethod("Reset",flags)!.Invoke(null,null);}
+        Console.WriteLine("PASS mixed save ingress declarations: six original bodies pinned, inactive pass-through, active guard refusal; public I/O checked in game");
         Console.WriteLine("PASS owned pipe boundary: ordinary scalar native edges cannot cross a world ownership boundary");
         Console.WriteLine("PASS pipe readers: repeated inspection cannot import native heat or mutate authoritative inventory/reconciliation state");
         var materialRecord=assembly.GetType("MixedAtmospheres.Oni.OniNativeColony+Material")!;

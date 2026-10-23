@@ -11,6 +11,7 @@
     <Compile Include="../../managed/MixedAtmospheres.Oni/ColonyConduitSettlement.cs" Link="ColonyConduitSettlement.cs" />
     <Compile Include="../../managed/MixedAtmospheres.Oni/ColonyConduitJobs.cs" Link="ColonyConduitJobs.cs" />
     <Compile Include="../../managed/MixedAtmospheres.Oni/ColonyConduitSurfaceGerms.cs" Link="ColonyConduitSurfaceGerms.cs" />
+    <Compile Include="../../managed/MixedAtmospheres.Oni/ColonyGermEvolution.cs" Link="ColonyGermEvolution.cs" />
     <Compile Include="../../managed/MixedAtmospheres.Oni/ColonySaveEnvelope.cs" Link="ColonySaveEnvelope.cs" />
   </ItemGroup>
 </Project>
