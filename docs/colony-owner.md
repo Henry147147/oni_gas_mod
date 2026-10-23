@@ -506,6 +506,26 @@ Numbers only: no saves or captures are kept.
 
 ## Diagnostics
 
+Bounded prepared-colony replay, 2026-10-23: the immutable `b36ed23` native pair
+with the pinned managed output path restored `base-trace-144` unchanged at
+owner frame 32 (saved physical profile 18). It completed 4,351 further frames,
+to counter 4,383, then the flow watchdog exceeded eight seconds before frame
+4,384. The run stopped at that first severe stall; its complete private
+65,913,344-byte version-18 world dump passed the MAC checksum and was handed
+to the solver worker. The game process group's termination was verified.
+The ten-cycle check remains pending this shorter check.
+
+This was a LOW-lock diagnostic replay with concurrent HIGH-lock work and
+stage/watchdog instrumentation, **not performance acceptance**. The sampled
+owner mean/p95/max was 339.119/821.478/2320.494 ms (4,309 samples); polled
+observed spacing was 412.109/903.235/3509.717 ms (4,308 intervals, averaged
+across missed counters). These completed-frame statistics exclude the
+unfinished flow that exceeded eight seconds. No fault or skipped relaxation
+was reported before termination; no separate fallback counter is exposed.
+Maximum relative mass/energy errors were 6.641e-15/5.236e-17, trace sink
+1.309969e-6 kg and 0.962829 J, with 71,836 rejected attempts. No profile
+migration, numerical setting change or ten-cycle pass is implied.
+
 Environment variables of the game process (the harness passes them through):
 
 - `MA_COLONY_FAULT_DUMP=path`: on a failing flow step, write the material
