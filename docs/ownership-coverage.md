@@ -15,7 +15,10 @@ The [base-game playtest](playtest-plan.md) scopes this inventory with
 base-game Linux registry (`runtime-identities-linux-base.json`, captured in game
 with no DLC loaded), assigns each in-scope entry to one gameplay system, and
 copies the system's status from the script's table of implemented systems with
-their sources and in-game check; `status` prints the checklist. Out-of-scope
+their sources and in-game check; `status` prints implementation coverage plus
+the separate [private-playtest acceptance blockers](private-playtest-release.md).
+`gate` fails until both are complete. Broad system checks do not certify every
+recipe, the final mixed-pipe path or a releasable package. Out-of-scope
 entries name their reason (DLC content, Spaced Out! radiation, ONI's unchanged
 light model). Entries without fluid interaction (`native`) need no adapter.
 

@@ -1,0 +1,13 @@
+{
+  "scope": "linux-base-game-private-playtest",
+  "requirements": [
+    {"id": "mixed-pipes-and-ports", "status": "open", "evidence": "docs/mixed-pipes.md"},
+    {"id": "heat-and-all-germ-identities", "status": "open", "evidence": "docs/mixed-pipes.md"},
+    {"id": "conserved-gameplay-transactions", "status": "open", "evidence": "docs/colony-owner.md"},
+    {"id": "exact-in-flight-saves", "status": "open", "evidence": "docs/mixed-pipes.md"},
+    {"id": "whole-asteroid-reliability", "status": "open", "evidence": "docs/colony-owner.md"},
+    {"id": "selected-profile-accuracy", "status": "open", "evidence": "docs/base-game-floor.md"},
+    {"id": "ordinary-player-build", "status": "open", "evidence": "docs/playtest-plan.md"},
+    {"id": "ten-cycle-acceptance-and-package", "status": "open", "evidence": "docs/colony-owner.md"}
+  ]
+}

@@ -18,6 +18,11 @@ import sys
 ROOT = Path(__file__).resolve().parents[1]
 INVENTORY = ROOT / "docs/coverage-inventory.json"
 BASE = ROOT / "docs/runtime-identities-linux-base.json"
+PRIVATE_STATUS = ROOT / "docs/private-playtest-status.json"
+PRIVATE_REQUIREMENTS = frozenset((
+    "mixed-pipes-and-ports", "heat-and-all-germ-identities", "conserved-gameplay-transactions",
+    "exact-in-flight-saves", "whole-asteroid-reliability", "selected-profile-accuracy",
+    "ordinary-player-build", "ten-cycle-acceptance-and-package"))
 
 # Systems out of this playtest, with the reason recorded on their entries.
 OUT_SYSTEMS = {
@@ -302,17 +307,40 @@ def status(inventory: dict) -> dict:
             "systems": {name: dict(counts) for name, counts in sorted(systems.items())}, "open_systems": open_systems}
 
 
+def readiness(inventory: dict, acceptance: dict) -> dict:
+    """Implementation coverage alone cannot certify a playable package."""
+    if acceptance.get("scope") != "linux-base-game-private-playtest":
+        raise ValueError("Incorrect private-playtest acceptance scope")
+    rows = acceptance.get("requirements", [])
+    ids = [row["id"] for row in rows]
+    if len(ids) != len(set(ids)) or set(ids) != PRIVATE_REQUIREMENTS:
+        raise ValueError("Private-playtest requirements are missing, duplicated or unknown")
+    for row in rows:
+        if row.get("status") not in ("open", "passed"):
+            raise ValueError("Unknown private-playtest acceptance status")
+        evidence = row.get("evidence", "")
+        if not evidence.startswith("docs/") or ".." in Path(evidence).parts or not (ROOT / evidence).is_file():
+            raise ValueError("Private-playtest requirement needs repository evidence")
+    report = status(inventory)
+    blockers = [row["id"] for row in rows if row["status"] != "passed"]
+    report.update(private_playtest_ready=not (blockers or report["open_systems"] or report["unmarked"]),
+                  open_acceptances=blockers,
+                  acceptance_record="docs/private-playtest-release.md")
+    return report
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("action", choices=("apply", "status"))
+    parser.add_argument("action", choices=("apply", "status", "gate"))
     args = parser.parse_args()
     inventory = json.loads(INVENTORY.read_text(encoding="utf-8"))
     if args.action == "apply":
         apply(inventory, json.loads(BASE.read_text(encoding="utf-8")))
         inventory["source_hashes"]["runtime_identities_linux_base"] = hashlib.sha256(BASE.read_bytes()).hexdigest()
         INVENTORY.write_text(json.dumps(inventory, indent=2) + "\n", encoding="utf-8")
-    print(json.dumps(status(inventory), indent=1))
-    return 0
+    report = readiness(inventory, json.loads(PRIVATE_STATUS.read_text(encoding="utf-8")))
+    print(json.dumps(report, indent=1))
+    return 1 if args.action == "gate" and not report["private_playtest_ready"] else 0
 
 
 if __name__ == "__main__":
