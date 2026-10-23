@@ -384,6 +384,53 @@ after removing only the new saved flag. Rebuild C++ consumers, including the
 private bench driver, against the new headers; package native libraries together.
 
 
+## Game-kernel prototype
+
+The [accepted selector-3 design](../docs/game-kernel-spec.md) is being tested
+outside the repository. It is not a production selection, a checkpoint format
+or an in-game performance result. Profiles18/19 retain their existing paths.
+The last Codex whole-lock profile18 Terra60 measured owner168.6 ms and
+observed257.7 ms mean, versus443/569 ms at the accuracy-floor brief's starting
+revision. Those improvements precede selector3; the fast clock is not met.
+
+The private prototype couples closed-form per-cell EOS, two fixed0.1 s flow
+halves, one fluid heat solve, fixed-U latent phase relaxation, the1e-11 kg
+trace sink, full64-bit passives, density layering and bounded liquid-interface
+compression. A direct geometric liquid remap was rejected after excessive
+compression and a thermal fault. The retained correction preserves J and
+books its actual kinetic/gravitational work; local scalar limiting avoids
+draining thermal energy. Gas and bulk material transport remain donor-cell,
+so the design's limited-linear/FCT transport is not complete.
+
+Matched whole-lock, pinned0–11, twelve-worker,60-tick offline Terra runs:
+
+| Exact change | Before mean ms | After mean ms | Evidence |
+| --- | --- | --- | --- |
+| EOS/phase cleanup and removal of duplicate partial-stage audits, before interface correction |77.57 /76.98 |63.90 /63.84 | Physical bytes unchanged |
+| Independent interface-correction clusters in parallel, with interfaces/passives/layering enabled |105.12 /105.46 |86.67 /87.02 | ABBA order; physical and passive bytes unchanged |
+
+The latter removes17.5% of prototype time; interface work falls from32.2–32.5
+to12.5–12.9 ms. After-change p95 is92.2–95.1 ms, max98.6–107.1 ms. These
+partial offline ticks omit owner edits/publication and do not establish a
+game-frame speedup. A later run with region audits enabled measures109.5 ms
+mean,119.5 ms p95 and124.5 ms max; it is not a matched audit-cost comparison.
+The numerical changes against the reference remain
+unquantified; no floor pass is claimed.
+
+One/twelve-worker60-tick primary and passive images agree byte-for-byte.
+Global species/energy/momentum/passive relative residuals are below
+9.4e-17/1.6e-17/2.9e-18/2.8e-17; trace totals are1.1761e-7 kg /0.12743 J.
+Once-per-tick audits also close in all1,306 connected fluid regions, with
+maximum relative residual below2.5e-16. A sealed two-room wind control checks
+separate wall-impact heat, trace/passive receipts and detects an artificial
+cross-wall heat transfer whose global total closes. Cold-object continuation
+passes six ticks; an actual saved checkpoint codec is still absent.
+
+Open: fixed-floor/reference comparisons, limited-linear/FCT transport, saved
+vacuum-front cap, sleeping, registered-solid heat, profile2/checkpoint and
+batched owner edits/cached physical publication. Old saves never migrate
+implicitly; new-profile ten-cycle acceptance needs a fresh prepared base.
+
 ## Coverage and admission
 
 | Setting | Production kernel |
