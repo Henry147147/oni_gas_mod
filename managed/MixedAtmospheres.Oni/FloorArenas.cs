@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Runtime.InteropServices;
 using HarmonyLib;
 
 namespace MixedAtmospheres.Oni
@@ -33,12 +34,26 @@ namespace MixedAtmospheres.Oni
         private static readonly SortedDictionary<int, Dictionary<string, object>> seen = new SortedDictionary<int, Dictionary<string, object>>();
         private static readonly Dictionary<string, double> placed = new Dictionary<string, double>();
         private static string output = "";
+        [StructLayout(LayoutKind.Sequential)]
+        private struct SampleCell { internal uint PublicCell, FirstConstituent, Constituents, Flags; internal double TemperatureK; }
+        [StructLayout(LayoutKind.Sequential)]
+        private struct SamplePart { internal uint NativeIndex, Reserved; internal double MassKg; }
+        [DllImport("mixed_atmospheres_oni", EntryPoint = "ma_oni_colony_sample", CallingConvention = CallingConvention.Cdecl)]
+        private static extern int Sample([In] uint[] cells, uint count, out OniNativeColony.Status source,
+            [Out] SampleCell[] rows, [Out] SamplePart[] parts, uint capacity, out uint partCount, out double bookedMassKg);
+        private static uint[] ownerRequested = Array.Empty<uint>();
+        private static SampleCell[] ownerRows = Array.Empty<SampleCell>();
+        private static SamplePart[] ownerParts = Array.Empty<SamplePart>();
+        private static readonly Dictionary<int, int> ownerCells = new Dictionary<int, int>();
+        private static readonly List<ulong[]> ownerSampleFrames = new List<ulong[]>();
+        private static readonly List<Dictionary<string, object>> ownerSampleAudits = new List<Dictionary<string, object>>();
 
         internal static void Configure(string id, string directory)
         {
             if (Array.IndexOf(Ids, id) < 0) throw new ArgumentException("Unknown floor arena " + id);
             Id = id; output = directory; ticks = 0; cleared = uncovered = built = filled = locked = commanded = opened = release = -1; releasedAt = -1;
             door = null; simulated = 0; seen.Clear(); placed.Clear(); samples?.Dispose(); samples = null;
+            ownerRequested = Array.Empty<uint>(); ownerCells.Clear(); ownerSampleFrames.Clear(); ownerSampleAudits.Clear();
             (width, height) = id switch { "f1" or "f2" => (19, 10), "f3" => (22, 14), "f4" => (7, 4), _ => (10, 14) };
         }
 
@@ -57,6 +72,7 @@ namespace MixedAtmospheres.Oni
             ticks = tick;
             var update = (Sim.GameDataUpdate*)data;
             if (filled < 0 || samples == null || release >= 0 && ticks > release + Duration) return;
+            CaptureOwnerSample();
             var line = new System.Text.StringBuilder(32 * width * height);
             line.Append(ticks.ToString(CultureInfo.InvariantCulture));
             var fluid = false;
@@ -68,16 +84,24 @@ namespace MixedAtmospheres.Oni
                 for (var x = 1; x < width - 1; ++x)
                 {
                     var cell = Cell(x, y);
-                    if (ColonyOwner.OwnsFluidCell(cell))
+                    double temperature = update->temperature[cell];
+                    if (ownerCells.TryGetValue(cell, out var ownedIndex) && (ownerRows[ownedIndex].Flags & 1) != 0)
                     {
-                        var count = ColonyOwner.Composition(cell, out var indices, out var masses);
-                        line.Append(' ').Append(count);
-                        for (var k = 0; k < count; ++k) Part((int)indices[k], masses[k]);
+                        var reading = ownerRows[ownedIndex];
+                        line.Append(' ').Append(reading.Constituents);
+                        for (var k = 0; k < reading.Constituents; ++k)
+                        {
+                            var part = ownerParts[reading.FirstConstituent + k];
+                            Part((int)part.NativeIndex, part.MassKg);
+                        }
+                        // Match the public binary32 projection, while mass and
+                        // temperature come from the same completed owner frame.
+                        temperature = reading.TemperatureK;
                     }
                     else { line.Append(" 1"); Part(update->elementIdx[cell], update->mass[cell]); }
                     // Widen before formatting: float R's short text round-trips
                     // through float, but the offline reader uses doubles.
-                    line.Append(' ').Append(((double)update->temperature[cell]).ToString("R", CultureInfo.InvariantCulture));
+                    line.Append(' ').Append(temperature.ToString("R", CultureInfo.InvariantCulture));
                 }
             void Part(int element, double kg)
             {
@@ -92,6 +116,43 @@ namespace MixedAtmospheres.Oni
             // F2: t = 0 is the first sample after the door is fully open.
             if (commanded >= 0 && opened < 0 && !ElementLoader.elements[update->elementIdx[Cell(9, 4)]].IsSolid &&
                 !ElementLoader.elements[update->elementIdx[Cell(9, 5)]].IsSolid) opened = release = ticks;
+        }
+
+        private static void CaptureOwnerSample()
+        {
+            ownerCells.Clear();
+            if (!ColonyOwner.Active) return;
+            if (ownerRequested.Length == 0)
+            {
+                if (Marshal.SizeOf<SampleCell>() != 24 || Marshal.SizeOf<SamplePart>() != 16)
+                    throw new InvalidDataException("Floor sample ABI layout differs.");
+                // The fixed fixture owns precisely this arena. Bound capacity
+                // by its catalogue; one call then copies one immutable frame.
+                var c = ColonyOwner.Config;
+                if (c.Width != width || c.Height != height || c.OffsetX != x0 || c.OffsetY != y0)
+                    throw new InvalidDataException("Floor owner geometry differs from its fixed arena.");
+                var requested = new List<uint>();
+                for (var y = 1; y < height - 1; ++y) for (var x = 1; x < width - 1; ++x) requested.Add((uint)Cell(x, y));
+                ownerRequested = requested.ToArray(); ownerRows = new SampleCell[ownerRequested.Length];
+                ownerParts = new SamplePart[checked(ownerRequested.Length * ColonyOwner.Materials.Length)];
+            }
+            OniNativeColony.Check(Sample(ownerRequested, (uint)ownerRequested.Length, out var source,
+                ownerRows, ownerParts, (uint)ownerParts.Length, out _, out var bookedMass));
+            var refused = new List<uint>();
+            for (var k = 0; k < ownerRows.Length; ++k)
+            {
+                ownerCells.Add((int)ownerRows[k].PublicCell, k);
+                if ((ownerRows[k].Flags & 2) != 0) refused.Add(ownerRows[k].PublicCell);
+            }
+            ownerSampleFrames.Add(new[] { (ulong)ticks, source.CompletedFrames });
+            ownerSampleAudits.Add(new Dictionary<string, object> {
+                ["tick"] = ticks, ["frame"] = source.CompletedFrames, ["time_s"] = source.TimeSeconds,
+                ["projection_refused_cells"] = refused, ["native_mass_in_kg"] = source.NativeMassInKg,
+                ["native_mass_out_kg"] = source.NativeMassOutKg, ["trace_sink_kg"] = source.TraceSinkKg,
+                ["injected_kg"] = source.InjectedKg, ["extracted_kg"] = source.ExtractedKg, ["reservoir_kg"] = source.ReservoirKg,
+                ["expected_fluid_and_reservoir_kg"] = bookedMass,
+                ["space_sink_kg"] = source.SpaceSinkKg, ["native_heat_j"] = source.NativeHeatJoules, ["mass_error"] = source.MaximumRelativeMassError,
+                ["energy_error"] = source.MaximumRelativeEnergyError });
         }
 
         // Every Unity frame: build, fill and release at their ticks. True
@@ -162,7 +223,7 @@ namespace MixedAtmospheres.Oni
         private static void RequestReleaseCapture((int x, int y)[] gates)
         {
             var path = Environment.GetEnvironmentVariable("MA_COLONY_RELEASE_DUMP");
-            if (string.IsNullOrEmpty(path) || Id != "f1" && Id != "f3") return;
+            if (string.IsNullOrEmpty(path) || Id != "f1" && Id != "f3" && Id != "f5") return;
             if (!ColonyOwner.Active) throw new InvalidOperationException("Release world capture requires the colony owner.");
             if (File.Exists(path) || File.Exists(path + ".request")) throw new IOException("Release capture requires a fresh private output path.");
             var c = ColonyOwner.Config;
@@ -324,7 +385,11 @@ namespace MixedAtmospheres.Oni
             var record = new Dictionary<string, object>
             {
                 ["arena"] = Id, ["width"] = width, ["height"] = height, ["tick_seconds"] = .2,
+                ["origin_x"] = x0, ["origin_y"] = y0, ["grid_width"] = Grid.WidthInCells, ["grid_height"] = Grid.HeightInCells,
                 ["temperature_storage"] = "binary32",
+                ["fluid_sampling"] = ColonyOwner.Active ? "single completed owner frame" : "native published update",
+                ["owner_sample_frames"] = ownerSampleFrames,
+                ["owner_sample_audits"] = ownerSampleAudits,
                 ["simulation"] = ColonyOwner.Active ? "colony owner" : "ONI native",
                 ["cells"] = "interior, rows y=1..height-2, x=1..width-2; per cell: constituent count, (element index, kg) each, temperature K",
                 ["elements"] = seen.ToDictionary(e => e.Key.ToString(CultureInfo.InvariantCulture), e => (object)e.Value),

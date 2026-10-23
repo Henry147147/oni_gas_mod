@@ -906,6 +906,22 @@ MAOniResult ma_oni_colony_readings(std::uint64_t* frame, MAOniColonyReading* out
         std::copy(readings.begin(),readings.end(),out); std::copy(constituents.begin(),constituents.end(),parts);
     });
 }
+MAOniResult ma_oni_colony_sample(const std::uint32_t* cells,std::uint32_t count,MAOniColonyStatus* status,
+    MAOniColonySampleCell* rows,MAOniColonySamplePart* parts,std::uint32_t capacity,std::uint32_t* part_count,double* booked_mass) {
+    return boundary([&] {
+        if (!cells || !count || count>4096 || !status || !part_count || !booked_mass || (!parts && capacity)) throw Failure(MA_ONI_INVALID_ARGUMENT,"Invalid arena sample buffers");
+        MAOniColonyStatus source{}; std::vector<MAOniColonySampleCell> sampled; std::vector<MAOniColonySamplePart> compositions;
+        double booked=0;
+        try { ma::oni::colony::sample(std::span(cells,count),source,sampled,compositions,&booked); }
+        catch (const std::invalid_argument& error) { throw Failure(MA_ONI_INVALID_ARGUMENT,error.what()); }
+        *part_count=static_cast<std::uint32_t>(compositions.size());
+        if (!rows && !parts && !capacity) { *status=source; *booked_mass=booked; return; }
+        if (!rows || capacity<compositions.size() || (!parts && !compositions.empty())) throw Failure(MA_ONI_BUFFER_TOO_SMALL,"Arena sample buffer is too small");
+        std::copy(sampled.begin(),sampled.end(),rows);
+        if (parts) std::copy(compositions.begin(),compositions.end(),parts);
+        *status=source; *booked_mass=booked;
+    });
+}
 MAOniResult ma_oni_colony_liquid_density(const MAOniColonyMaterial* materials, std::uint32_t count, std::uint32_t native_index,
     double pressure_pa, double* density) {
     return boundary([&] {

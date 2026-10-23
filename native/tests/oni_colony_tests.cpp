@@ -231,6 +231,33 @@ void pipe_job_control() {
     ack_receipts(nothing.sequence); enable_precise_receipts(false); stop();
     std::cout<<"PASS durable pipe jobs: full fractional passives, idempotence, token grouping, queued injection/extraction cold continuation, legacy7 and save barriers\n";
 }
+void sample_control() {
+    using namespace ma::oni::colony;
+    std::vector<MAOniColonyMaterial> mats{material("Oxygen",11,oxygen,true,.016,1000),material("CarbonDioxide",12,carbon,true,.044,850)};
+    MAOniColonyConfig cfg{}; cfg.struct_size=sizeof(cfg); cfg.abi_version=MA_ONI_COLONY_ABI_VERSION;
+    cfg.vacuum_index=vacuum; cfg.grid_width=cfg.width=3; cfg.grid_height=cfg.height=3; cfg.maximum_timestep_s=.1;
+    std::vector<MAOniColonyCell> cells(9,MAOniColonyCell{0,MA_ONI_COLONY_SOLID,0,0,0,0});
+    cells[4]={oxygen,MA_ONI_COLONY_FLUID,1.2f,300,0,0}; start(cfg,mats,cells,1);
+    const MAOniColonyTransfer injection{4,carbon,MA_ONI_COLONY_INJECT,0,-1,0,.1234567890123,311.1234567890123,0};
+    refuse_reading(4); queue_transfers(std::span(&injection,1)); advance(1,.2,2); wait();
+    require(status().state==1,"sample refused-reading fixture fault");
+    std::vector<MAOniColonyReading> presentation; std::vector<MAOniColonyConstituent> visible; readings(presentation,visible);
+    require(presentation.empty() && visible.empty(),"refused projection control did not omit presentation reading");
+    const auto saved=checkpoint();
+    const std::array<std::uint32_t,3> requested{4,0,8}; MAOniColonyStatus source{};
+    std::vector<MAOniColonySampleCell> rows; std::vector<MAOniColonySamplePart> parts;
+    sample(requested,source,rows,parts);
+    require(source.completed_frames==1 && rows.size()==3 && rows[0].flags==3 && rows[0].temperature_k==300 && rows[0].constituents==2 &&
+        rows[1].flags==0 && rows[1].constituents==0 && rows[2].flags==0,"sample lost ownership/refusal/order/projected temperature");
+    double mass=0; for (const auto& part : parts) mass+=part.mass_kg;
+    require(parts.size()==2 && parts[0].native_index==oxygen && parts[1].native_index==carbon &&
+        parts[0].mass_kg==static_cast<double>(1.2f) && parts[1].mass_kg==injection.mass_kg && mass>1.3,"sample omitted refused cell constituent mass");
+    bool rejected=false; const std::array<std::uint32_t,2> duplicate{4,4};
+    try { sample(duplicate,source,rows,parts); } catch (const std::invalid_argument&) { rejected=true; }
+    require(rejected && checkpoint()==saved,"sample admitted duplicate cells or mutated trajectory/checkpoint");
+    refuse_reading(-1); stop();
+    std::cout<<"PASS immutable full-composition arena sample, refused projections, source frame/audits and unchanged checkpoint\n";
+}
 void conversion_batch_control() {
     using namespace ma::oni::colony;
     std::vector<MAOniColonyMaterial> mats{material("SaltWater",15,brine,false,.021,4100,1100),
@@ -246,6 +273,12 @@ void conversion_batch_control() {
         cells[4]={brine,MA_ONI_COLONY_FLUID,1100,420,germs?3u:0u,germs?1000:0};
         start(cfg,mats,cells,1);advance(1,static_cast<double>(.2f),2);wait();
         MAOniColonyStatus st{};copy(st,views.data(),static_cast<std::uint32_t>(views.size()));
+        const std::array<std::uint32_t,1> sampled_cells{4}; MAOniColonyStatus sampled_status{};
+        std::vector<MAOniColonySampleCell> sampled_rows; std::vector<MAOniColonySamplePart> sampled_parts; double booked_mass=0;
+        sample(sampled_cells,sampled_status,sampled_rows,sampled_parts,&booked_mass);
+        double remaining=0; for (const auto& part : sampled_parts) remaining+=part.mass_kg;
+        require(booked_mass<1100 && std::abs(remaining+sampled_status.reservoir_kg-booked_mass)<1e-8,
+            "sample full booked inventory omitted solid-byproduct conversion flows");
         require(st.state==1 && st.converted_kg>1 && st.maximum_relative_mass_error<1e-12 && st.maximum_relative_energy_error<1e-12,
             "conversion batch control fault, missing conversion or open ledger");
         std::vector<MAOniColonyReading> current;std::vector<MAOniColonyConstituent> parts;readings(current,parts);
@@ -371,10 +404,12 @@ int main(int argc, char** argv) {
         if (argc == 2 && std::strcmp(argv[1], "--precise-receipts-only") == 0) { precise_receipt_control(); return 0; }
         if (argc == 2 && std::strcmp(argv[1], "--release-capture-only") == 0) { release_capture_control(); return 0; }
         if (argc == 2 && std::strcmp(argv[1], "--pipe-jobs-only") == 0) { pipe_job_control(); return 0; }
+        if (argc == 2 && std::strcmp(argv[1], "--sample-only") == 0) { sample_control(); return 0; }
         require(argc == 1, "Usage: ma_oni_colony_tests [--projection-only|--timestep-only|--precise-receipts-only]");
         precise_receipt_control();
         release_capture_control();
         pipe_job_control();
+        sample_control();
         conversion_batch_control();
         timestep_control();
         projection_control();

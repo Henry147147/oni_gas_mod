@@ -235,10 +235,49 @@ def initial(arena: Arena) -> dict:
     return {"tick": tick, "elements": out, "placed": arena.record.get("placed", {})}
 
 
+def sampling(arena: Arena) -> dict | None:
+    """Audit the sampler without changing any frozen scenario metric."""
+    audits = arena.record.get("owner_sample_audits")
+    if audits is None or arena.record.get("simulation") != "colony owner":
+        return None
+    if len(audits) != len(arena.rows) or not audits:
+        raise ValueError("Owner sample audits do not match the exported rows")
+    frames, inventories, refused, residuals = [], [], [], []
+    for row, audit in zip(arena.rows, audits):
+        if row[0] != audit["tick"]:
+            raise ValueError("Owner audit tick does not match its sample")
+        frames.append(int(audit["frame"]))
+        cells = arena.cells(row)
+        total = math.fsum(m for e, m, _ in constituents(cells, list(cells)) if e["phase"] in ("gas", "liquid"))
+        inventories.append(math.fsum((total, -audit["injected_kg"], audit["extracted_kg"],
+                                      audit["reservoir_kg"], audit["trace_sink_kg"], audit["space_sink_kg"])))
+        if "expected_fluid_and_reservoir_kg" in audit:
+            residuals.append(math.fsum((total, audit["reservoir_kg"], -audit["expected_fluid_and_reservoir_kg"])))
+        refused.append(audit["projection_refused_cells"])
+    deltas = [b - a for a, b in zip(frames, frames[1:])]
+    if any(d < 0 for d in deltas):
+        raise ValueError("Owner sample frame went backwards")
+    result = {"source": arena.record.get("fluid_sampling"), "samples": len(audits),
+            "owner_frame_repeats": deltas.count(0), "owner_frame_skips": sum(max(0, d - 1) for d in deltas),
+            "projection_refused_samples": sum(bool(cells) for cells in refused),
+            "projection_refused_cell_samples": sum(map(len, refused)),
+            "projection_refused_unique_cells": len({cell for cells in refused for cell in cells}),
+            "inventory_span_before_identity_conversion_accounting_kg": max(inventories) - min(inventories)}
+    if residuals:
+        if len(residuals) != len(audits):
+            raise ValueError("Some samples lack their full booked inventory")
+        result["maximum_booked_inventory_residual_kg"] = max(map(abs, residuals))
+    return result
+
+
 def metrics(path: Path) -> dict:
     arena = load(path)
-    return {"arena": arena.record["arena"], "simulation": arena.record["simulation"], "initial": initial(arena),
-            "owner": arena.record.get("owner", "none"), **METRICS[arena.record["arena"]](arena)}
+    result = {"arena": arena.record["arena"], "simulation": arena.record["simulation"], "initial": initial(arena),
+              "owner": arena.record.get("owner", "none"), **METRICS[arena.record["arena"]](arena)}
+    audit = sampling(arena)
+    if audit is not None:
+        result["sampling"] = audit
+    return result
 
 
 def main():

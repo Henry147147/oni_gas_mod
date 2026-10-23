@@ -17,6 +17,13 @@ static void require(bool condition,const char* message) {
 int main() {
     try {
         require(ma_oni_colony_precise_receipt_version()==2,"precise receipt observation capability");
+        const std::uint32_t sample_cell=1; std::uint32_t sample_parts=123; MAOniColonyStatus sample_status{}; sample_status.state=99;
+        const auto held_sample_status=sample_status; double sample_converted=456;
+        require(ma_oni_colony_sample(nullptr,1,&sample_status,nullptr,nullptr,0,&sample_parts,&sample_converted)==MA_ONI_INVALID_ARGUMENT &&
+            ma_oni_colony_sample(&sample_cell,0,&sample_status,nullptr,nullptr,0,&sample_parts,&sample_converted)==MA_ONI_INVALID_ARGUMENT &&
+            ma_oni_colony_sample(&sample_cell,1,&sample_status,nullptr,nullptr,0,&sample_parts,&sample_converted)==MA_ONI_INVALID_ARGUMENT &&
+            sample_parts==123 && sample_converted==456 && std::memcmp(&sample_status,&held_sample_status,sizeof(sample_status))==0,
+            "invalid/inactive arena sample changed outputs");
         std::uint32_t receipt_bytes=99;
         require(ma_oni_colony_enable_precise_receipts(2)==MA_ONI_INVALID_ARGUMENT &&
             ma_oni_colony_enable_precise_receipts(1)==MA_ONI_INVALID_ARGUMENT,"invalid/inactive precise receipt mode admitted");

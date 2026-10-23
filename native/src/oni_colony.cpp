@@ -34,6 +34,7 @@
 
 static_assert(sizeof(MAOniColonySpecies) == 40 && sizeof(MAOniColonyReading) == 64 && sizeof(MAOniColonyConstituent) == 24);
 static_assert(sizeof(MAOniColonyPassive)==16);
+static_assert(sizeof(MAOniColonySampleCell)==24 && sizeof(MAOniColonySamplePart)==16);
 static_assert(sizeof(MAOniColonyMaterial) == 168 && sizeof(MAOniColonyConfig) == 56 && sizeof(MAOniColonyCell) == 24 &&
     sizeof(MAOniColonyStatus) == 600 && sizeof(MAOniColonyCellView) == 32 && sizeof(MAOniColonyTransfer) == 48 &&
     sizeof(MAOniColonyReceipt) == 48 && sizeof(MAOniColonyHeat) == 24, "Colony ABI layout changed");
@@ -70,6 +71,8 @@ struct ArithmeticScope {
 };
 
 struct Published {
+    MAOniColonyConfig config{};
+    double booked_mass_kg=0;
     MAOniColonyStatus status{};
     std::vector<MAOniColonyCellView> views;
     // The presentation's readings, in cell order, made with the views.
@@ -399,15 +402,19 @@ Projection project(const Session& s, const MacClosedWorld& w) {
 }
 void publish(const Session& s, Projection projection) {
     auto p = std::make_shared<Published>();
-    p->status = s.status; p->views = std::move(projection.views); p->readings = std::move(projection.readings); p->parts = std::move(projection.parts);
+    p->config=s.config; p->status = s.status; p->views = std::move(projection.views); p->readings = std::move(projection.readings); p->parts = std::move(projection.parts);
     p->world = s.world; p->catalogue = s.catalogue;
+    long double booked=0; const auto& L=s.ledger;
+    for (std::size_t k=0;k<L.initial.size();++k)
+        booked+=L.initial[k]+L.injected[k]-L.extracted[k]-L.sunk[k]-L.trace[k]+L.converted[k];
+    p->booked_mass_kg=static_cast<double>(booked);
     std::lock_guard lock(publication); latest = std::move(p);
 }
 void publish(const Session& s) { publish(s, project(s, *s.world)); }
 void fault(Session& s, const char* why) noexcept {
     s.status.state = 2; write_error(s.status, why);
-    try { auto p = std::make_shared<Published>(); p->status = s.status;
-        { std::lock_guard lock(publication); if (latest) { p->views = latest->views; p->readings = latest->readings; p->parts = latest->parts; p->world = latest->world; p->catalogue = latest->catalogue; } latest = std::move(p); } }
+    try { auto p = std::make_shared<Published>(); p->config=s.config; p->status = s.status;
+        { std::lock_guard lock(publication); if (latest) { p->views = latest->views; p->readings = latest->readings; p->parts = latest->parts; p->world = latest->world; p->catalogue = latest->catalogue; p->booked_mass_kg=latest->booked_mass_kg; } latest = std::move(p); } }
     catch (...) {}
 }
 // The CPUs this process may run on (its affinity, as when the game is pinned).
@@ -973,6 +980,36 @@ std::uint64_t readings(std::vector<MAOniColonyReading>& out, std::vector<MAOniCo
     require(p != nullptr && p->world != nullptr, "No colony owner is active");
     out = p->readings; parts = p->parts;
     return p->status.completed_frames;
+}
+void sample(std::span<const std::uint32_t> cells,MAOniColonyStatus& source,
+    std::vector<MAOniColonySampleCell>& rows,std::vector<MAOniColonySamplePart>& parts,double* booked_mass) {
+    require(!cells.empty() && cells.size()<=4096,"An arena sample requires 1..4096 cells");
+    std::shared_ptr<const Published> p; { std::lock_guard lock(publication); p=latest; }
+    require(p && p->world && p->catalogue,"No colony owner is active");
+    const ArithmeticScope arithmetic;
+    auto ordered=std::vector<std::uint32_t>(cells.begin(),cells.end()); std::sort(ordered.begin(),ordered.end());
+    require(std::adjacent_find(ordered.begin(),ordered.end())==ordered.end(),"Duplicate arena sample cell");
+    for (const auto cell : cells) (void)rect_index(p->config,cell);
+    std::vector<MAOniColonySampleCell> sampled; std::vector<MAOniColonySamplePart> compositions; sampled.reserve(cells.size());
+    const auto& state=p->world->state();
+    for (const auto cell : cells) {
+        const auto index=rect_index(p->config,cell); const auto& mixture=state.cells[index].mixture;
+        MAOniColonySampleCell row{}; row.public_cell=cell; row.first_constituent=static_cast<std::uint32_t>(compositions.size());
+        if (!state.grid.walls[index]) {
+            row.flags=1; row.temperature_k=p->views[index].temperature_k;
+            for (std::size_t k=0;k<mixture.masses.size();++k) if (mixture.masses[k]>0)
+                compositions.push_back({p->catalogue->materials[k].game.native_index,0,mixture.masses[k]});
+            row.constituents=static_cast<std::uint32_t>(compositions.size())-row.first_constituent;
+            if (row.constituents) {
+                const auto reading=std::lower_bound(p->readings.begin(),p->readings.end(),cell,
+                    [](const MAOniColonyReading& r,std::uint32_t c){return r.public_cell<c;});
+                if (reading==p->readings.end() || reading->public_cell!=cell) row.flags|=2;
+            }
+        }
+        sampled.push_back(row);
+    }
+    source=p->status; rows=std::move(sampled); parts=std::move(compositions);
+    if (booked_mass) *booked_mass=p->booked_mass_kg;
 }
 
 namespace {

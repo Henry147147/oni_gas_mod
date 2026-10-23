@@ -208,6 +208,24 @@ typedef struct MAOniColonyConstituent {
 MA_ONI_API MAOniResult ma_oni_colony_species(MAOniColonySpecies*, uint32_t capacity, uint32_t* count);
 MA_ONI_API MAOniResult ma_oni_colony_readings(uint64_t* completed_frame, MAOniColonyReading*, uint32_t capacity, uint32_t* count,
     MAOniColonyConstituent*, uint32_t constituent_capacity, uint32_t* constituent_count);
+/* Fixed-arena diagnostics: all requested compositions and their projected
+ * binary32 temperatures from ONE immutable completed world. Unlike the
+ * presentation table, includes cells whose EOS projection was refused.
+ * flags:1 owned/open,2 refused projection (temperature keeps its old view).
+ * Each output row has one entry per requested cell, in request order. Parts
+ * name native element indices directly. Max4096 distinct requested cells.
+ * Query with null rows/parts and capacity0; count gives required parts.
+ * booked_mass is the full owner's expected fluid+reservoir mass from all
+ * ledger terms (including identity conversions, not only public queued-input
+ * counters). It is comparable to the sampled mass only for a complete arena.
+ * An undersized copy writes count only; other outputs stay unchanged. */
+typedef struct MAOniColonySampleCell {
+    uint32_t public_cell, first_constituent, constituents, flags;
+    double temperature_k;
+} MAOniColonySampleCell;
+typedef struct MAOniColonySamplePart { uint32_t native_index, reserved; double mass_kg; } MAOniColonySamplePart;
+MA_ONI_API MAOniResult ma_oni_colony_sample(const uint32_t* cells, uint32_t count, MAOniColonyStatus*,
+    MAOniColonySampleCell* rows, MAOniColonySamplePart* parts, uint32_t capacity, uint32_t* part_count, double* booked_mass_kg);
 /* A catalogue liquid's reference density (kg/m^3) at a pressure, from the
  * same material records as start: the mass of one full cell. Needs no owner. */
 MA_ONI_API MAOniResult ma_oni_colony_liquid_density(const MAOniColonyMaterial*, uint32_t material_count, uint32_t native_index,

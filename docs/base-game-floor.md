@@ -154,6 +154,38 @@ at most 2.91e-6. Profile 18 equalises at [9.0, 9.2] s with no fault or skipped
 relaxation; mass/energy errors 1.16e-17 / 1.99e-17 and trace sink
 1.393e-10 kg / 0.003834 J. F2–F5 profile-18 measurements remain open.
 
+### Sampler integrity audit, 2026-10-23
+
+Earlier owner rows above used one composition request per cell; a completion
+could occur during the row. Treat those dynamic measurements as provisional.
+The presentation reading table is also unsuitable for a complete inventory:
+a refused reference-EOS projection keeps the previous visual value and omits
+its reading, while its material remains in the physical world.
+
+The owner exporter now samples every requested composition, the binary32
+projected temperatures and source audit counters from one immutable completed
+world. It records tick/frame/time, refused projection cells and the full
+ledger's expected fluid-plus-reservoir mass. Solid temperatures still come from
+the native published update. `floor_metrics.py` reports repeated/skipped owner
+frames, refusal counts and the maximum sampled inventory residual against that
+ledger. Geometry, placed inputs, event definitions and acceptance bounds are
+unchanged; no floor pass follows merely from sampler integrity.
+
+The public queued-input mass counters exclude identity-conversion transactions.
+Do not infer a mass loss from their partial balance, or add the gross
+`ConvertedKg` counter as though every conversion removed mass. The F3 audit
+found about 14 micrograms of conversion activity; the complete ledger includes
+the corresponding extraction/product entries. The synthetic solid-byproduct
+control verifies this accounting separately from the scenario measurements.
+
+Fresh profile-18 F3 with the complete sampler records 605 samples, no refused
+projections, and maximum sampled fluid-plus-reservoir residual **7.276e-12 kg**
+against the full ledger. Levelling is bracketed at **[7.2, 7.4] s**, final nominal
+depth **1.999841353 m**, trace sink **6.019e-9 kg / 0.007721 J**, and maximum
+relative mass/energy errors **5.542e-16 / 5.432e-18**. Three repeated and three
+skipped owner-frame observations are explicit in the record. There is no fault
+or skipped phase relaxation. Dynamic resolved truth remains pending.
+
 ## Performance and feature variants
 
 Each numerical step needs same-lock Terra60 before/after, affected floor

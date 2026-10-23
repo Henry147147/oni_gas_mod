@@ -35,6 +35,23 @@ def write(folder: Path, arena: str, width: int, height: int, ticks: dict, elemen
 
 
 class FloorMetricsTests(unittest.TestCase):
+    def test_atomic_sampling_reports_refusals_and_checks_booked_inventory(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = write(Path(folder), "f1", 3, 3, {"release": 0}, {1: OXYGEN},
+                         [(0, lambda x, y: (1, 1.0, 300)), (1, lambda x, y: (1, 2.0, 300)), (2, lambda x, y: (1, 1.75, 300))])
+            record = json.loads(path.read_text()); record["simulation"] = "colony owner"
+            record["fluid_sampling"] = "single completed owner frame"
+            record["owner_sample_audits"] = [dict(tick=t, frame=f, injected_kg=i, extracted_kg=0, reservoir_kg=0, expected_fluid_and_reservoir_kg=1+i+c,
+                trace_sink_kg=0, space_sink_kg=0, projection_refused_cells=r)
+                for t, f, i, c, r in ((0, 10, 0, 0, []), (1, 10, 1, 0, [5]), (2, 12, 1, -.25, [5, 6]))]
+            path.write_text(json.dumps(record)); arena = floor_metrics.load(path)
+            result = floor_metrics.sampling(arena)
+            self.assertEqual((result["owner_frame_repeats"], result["owner_frame_skips"]), (1, 1))
+            self.assertEqual((result["projection_refused_samples"], result["projection_refused_cell_samples"], result["projection_refused_unique_cells"]), (2, 3, 2))
+            self.assertEqual(result["maximum_booked_inventory_residual_kg"], 0)
+            arena.record["owner_sample_audits"][1]["tick"] = 99
+            with self.assertRaisesRegex(ValueError, "tick"):
+                floor_metrics.sampling(arena)
     def test_legacy_short_float_text_and_exact_temperature_export_have_identical_heat(self):
         stored = struct.unpack("<f", struct.pack("<f", 293.15))[0]
         results = []

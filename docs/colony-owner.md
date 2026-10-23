@@ -535,6 +535,16 @@ masses and each sampled element's properties read from the game.
 `tools/floor_metrics.py floor-<id>.json` computes the protocol's metrics.
 Numbers only: no saves or captures are kept.
 
+Owner samples use `ma_oni_colony_sample`: requested-cell compositions from one
+completed physical world, its projected binary32 temperatures, source status
+and full booked fluid-plus-reservoir mass. Unlike the presentation table it
+retains material whose EOS projection was refused and flags that refusal.
+Records include frame/time stamps and audit counters, so repeated observations,
+conversion flows and actual omissions can be distinguished. The exporter uses
+the native published temperatures for solid cells. This is optional fixture
+instrumentation; ordinary readers, physics, settings and checkpoint bytes are
+unchanged. Earlier per-cell owner samples remain provisional until rerun.
+
 ## Verification
 
 - `ma_oni_colony_tests` (CTest `oni_colony_owner`): a made-up asteroid with
@@ -575,7 +585,7 @@ Environment variables of the game process (the harness passes them through):
   records and the world before that step; the scratch benchmark loads it.
 - `MA_COLONY_DUMP_FRAME=n` (with the path): also write the world before frame
   n's flow.
-- `MA_COLONY_RELEASE_DUMP=path`: fixed F1/F3 owner fixtures atomically publish
+- `MA_COLONY_RELEASE_DUMP=path`: fixed F1/F3/F5 owner fixtures atomically publish
   a geometry-bound gate marker before queuing removal. The owner writes a
   private material/world dump immediately before the first fully open flow,
   once per session, with frame/time in the log. The path must be fresh; malformed
