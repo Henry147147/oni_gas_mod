@@ -270,8 +270,15 @@ fluid row already has hot-room cells at 353.15/344.4 K and cold-room cells at
 it does not prove the frozen initial heat or starting temperatures. Do not
 seed truth from that row or promote the interrupted run to acceptance. The
 fixed geometry, fills, temperatures, duration and metrics remain unchanged.
-An opt-in pre-UpdateData capture is being validated to establish actual input
-admission and native source-array/clock provenance before rerunning F4.
+The opt-in pre-UpdateData capture now proves vanilla admission in the actual
+Linux game. Both arrays match all 28 requested tuples (mask 3) before native
+ticket 509, with binary32 step 0.20000000298023224 s. Each contains
+4.962862968444824 kg O2 and 400 kg granite, plus 360000 kg of zero-capacity
+border material; total initial heat is 102103025.81511155 J from the runtime
+capacities. The complete 840-byte capture and 484-byte request agree exactly.
+The bounded diagnostic stops immediately after capture (expected harness exit
+143), with process cleanup verified. This proves the vanilla starting state,
+not the full 20000 s result, the owner's source alignment or dynamic truth.
 
 ## Performance and feature variants
 
