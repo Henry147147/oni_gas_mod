@@ -11,6 +11,7 @@
 #include <limits>
 #include <memory>
 #include <optional>
+#include <string>
 
 namespace ma::experimental {
 // Persisted selectors. The original index-space linear path keeps value 1.
@@ -285,6 +286,36 @@ using MacGasTransfer = MacFluidTransfer;
 using MacGasParcel = MacFluidParcel;
 using MacGasTransferResult = MacFluidTransferResult;
 enum class MacFluidTransferTopology { single_phase, occupied_mixture };
+// A moving material parcel. All mechanics use the core-local coordinates and
+// carry their full scaled range; temperature is derived from the final U.
+struct MacMovingParcel {
+    std::size_t cell_index = 0, species_index = 0;
+    double mass_kg = 0;
+    MacEnergy internal_energy_j, kinetic_energy_j, potential_energy_j;
+    MacScaled momentum_x, momentum_y;
+    PassiveQuantities passives{};
+};
+struct MacParcelPassiveCredit { std::uint64_t identity = 0; MacEnergySum quantity; };
+struct MacParcelGridCredit {
+    // Exact additive changes of the represented native operands. Iterate all
+    // components; value() is only a rounded estimate, not settlement authority.
+    MacEnergySum mass_kg, internal_energy_j, kinetic_energy_j, potential_energy_j;
+    MacEnergySum momentum_x, momentum_y;
+    std::vector<MacParcelPassiveCredit> passives;
+};
+struct MacParcelDepositReceipt {
+    // Nominal admitted source portion before primary-write rounding. Exact
+    // grid credits plus work/impulse define settlement; keep every remainder.
+    MacMovingParcel consumed;
+    MacParcelGridCredit grid;
+    MacEnergySum kinetic_mixing_heat_j, potential_work_j;
+    // Impulse on the fluid. Grid DeltaJ = consumed J + wall impulse.
+    MacScaled wall_impulse_x, wall_impulse_y;
+    PassiveQuantities passives_before{}, passives_after{};
+};
+enum class MacParcelRefusal { none, invalid_request, unrepresentable_primary,
+    invalid_equilibrium, conservation };
+struct MacParcelDepositResult;
 struct MacCellHeat {
     std::size_t cell_index;
     double joules, maximum_temperature_k;
@@ -323,6 +354,9 @@ public:
     // Immutable external heat exchange. Retains time, geometry, every mass and
     // canonical face momentum; checks the complete batch before returning it.
     [[nodiscard]] MacClosedWorld with_cell_heat(std::span<const MacCellHeat>,MacPrimaryRoundingCounts* accepted_rounding=nullptr) const;
+    // One physical mixture is one ordered atomic batch. A normal refusal
+    // returns the original world and no consumed receipts; no fallback runs.
+    [[nodiscard]] MacParcelDepositResult with_moving_parcels(std::span<const MacMovingParcel>) const;
     // Declared point sources, not an aperture/pump flow model. Injection is at
     // rest; extraction carries the selected species at the local face speeds.
     // Filled gas cells without passive metadata only; unsupported void/liquid
@@ -402,6 +436,17 @@ struct MacClosedAdvance { MacClosedWorld world; MacClosedAdvanceReport report; }
 struct MacTraceSink { MacClosedWorld world; MacTraceSinkReport report; };
 struct MacPhaseRelaxation { MacClosedWorld world; MacPhaseChangeReport report; };
 struct MacLiquidSettling { MacClosedWorld world; MacLiquidSettlingReport report; };
+struct MacParcelDepositResult {
+    MacClosedWorld world;
+    std::vector<MacParcelDepositReceipt> receipts;
+    MacParcelRefusal refusal = MacParcelRefusal::none;
+    std::string reason;
+    MacEnergy energy_residual_j, energy_bound_j;
+    MacScaled momentum_x_residual, momentum_x_bound;
+    MacScaled momentum_y_residual, momentum_y_bound;
+    MacPrimaryRoundingCounts primary_energy{};
+    [[nodiscard]] bool accepted() const noexcept { return refusal == MacParcelRefusal::none; }
+};
 struct MacFluidTransferResult {
     MacClosedWorld world;
     std::vector<MacFluidParcel> parcels;

@@ -29,6 +29,7 @@ Topic documents:
 | [Gas diffusion](MAC_DIFFUSION.md) | Conservative mixture-averaged fluxes, physical/accelerated modes, transport data and validation |
 | [Range arithmetic](MAC_RANGE.md) | `MacEnergy`/`MacScaled`/`MacExponent` and where full-range values are used |
 | [Diagnostic game kernel](MAC_GAME_KERNEL.md) | Opt-in selector3, saved profile2, own-EOS game integration and acceptance limits |
+| [Moving material admission](MAC_PARCEL_DEPOSIT.md) | Atomic moving-material admission, exact grid credits and refusal |
 | [Production kernel](MAC_KERNEL.md) | Consolidated interval-audited implementation, geometric pressure solve and deterministic workers |
 | [Retired interval kernel](MAC_INTERVAL_KERNEL.md) | Selector-1 retirement and explicit rejection of its old checkpoints |
 | [Pressure multigrid](MAC_MULTIGRID.md) | Geometric preconditioning in the production kernel and independent component controls |

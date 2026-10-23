@@ -55,7 +55,9 @@ Clean whole-lock Terra60, requested fast2, identical managed assemblies and
 | Trace sink kg/J |1.17480e-7/0.127785|1.18098e-7/0.127624|
 
 Both complete60frames,120flow halves, zero rejections/faults/skipped phase.
-Owner mean improves9.47%, observed mean6.86%; this does not meet2x.
+Measured owner mean falls9.47%, observed mean6.86%; this does not meet2x.
+The user's vLLM workload shares the GPU outside CPU locks, so these runs do
+not establish isolated causal speed gains or final GPU performance acceptance.
 The owner timer ends before projection/publication. Whole-lock offline AB/BA
 repeats pinned to physical cores give104.130/103.042ms per tick (~1%); the
 larger gain is in owner edits/readings. Fixed floor errors are unchanged by
