@@ -1,11 +1,18 @@
-# Game kernel: a low-Mach solver spec for playable speed
+# Game kernel: a semi-implicit solver spec for playable speed
 
-**Status: proposed 2026-10-23, not accepted.** This is a design for a third
-numerical kernel (`numerical_kernel = 3`, "game kernel") that the saved game
-profile would select. It changes nothing for the reference oracle, the physics
-gates, the production kernel or old saves. It needs the user decisions listed
-at the [end](#decisions-needed). Nothing here is built or measured except
-where a measurement is cited.
+**Status: accepted design, 2026-10-23.** All seven decisions below were
+taken by the user on 2026-10-23; the kernel is not built or measured yet. This is a design for a third numerical kernel
+(`numerical_kernel = 3`, "game kernel") that the saved game profile would
+select. It changes nothing for the reference oracle, the physics gates, the
+production kernel or old saves. The user's decisions are recorded at the
+[end](#decisions). Nothing here is built or measured except where a
+measurement is cited.
+
+The user's requirement for the kernel, stated when deciding on pressure: it
+must **feel real and have no inconsistencies**. No flash equalization, and
+nothing a reader can see (pressure, temperature, mass, composition) may
+disagree with the cell's own state. Speed comes from the numerics, not from
+replacing the physics with region averages.
 
 ## Why the current kernel cannot get there
 
@@ -97,70 +104,111 @@ User decisions that the game kernel keeps, with no exceptions:
 
 One pass per game tick over a structure-of-arrays state, no substep retries,
 one linear solve for pressure and one for heat, and every stage cell- or
-face-local so that twelve workers scale.
+face-local so that twelve workers scale. Every cell keeps its own physical
+pressure from its own masses, volume and energy; what changes against the
+production kernel is how the pressure is advanced in time, not what it is.
 
 ### State
 
 Per cell: present-species masses (sparse, species-major as now), stored
 internal energy U, one volume fraction per liquid phase present, passives
 (germs), a region id. Per face: canonical normal momentum J. Per region
-(connected open component, as the regional controller already finds them): the
-thermodynamic gas pressure `p0`, the gas volume, and a sleep counter. About
-200 bytes per cell: 250,000 cells is about 50 MB, against 1.6 KiB per cell
-now.
+(connected open component, as the regional controller already finds them): a
+sleep counter and the region's totals for the audit. About 200 bytes per
+cell: 250,000 cells is about 50 MB, against 1.6 KiB per cell now.
 
 ### Time
 
 The tick is the step: 0.2 s of game time per pass. Cells whose advective
 Courant number exceeds the limit (fronts, jets) subcycle locally within the
 tick; faces between differently stepped cells carry one time-integrated flux,
-which the user accepted on 2026-10-18. There is no acoustic step limit because
-there are no acoustics (below). A pass never rejects: every stage is
+which the user accepted on 2026-10-18. Sound does not limit the step because
+pressure is implicit (below). A pass never rejects: every stage is
 positivity-preserving by construction, so admission cannot fail and no work
 is ever discarded. The attempt budget, halving schedule and predictive
 controller go away for this kernel.
 
-### Pressure: low-Mach splitting
+### Pressure: semi-implicit, all speeds (decision 1)
 
-Pressure is `p = p0(region) + p'(cell)`.
+The user rejected a region-average pressure: it flash-equalizes a breached
+room and shows a pressure the cell's own gas does not have. The game kernel
+instead keeps the production kernel's physics (each cell's pressure is its
+own ideal-gas mixture pressure from its masses, volume and U; momentum on
+faces is driven by the local pressure gradient and gravity) and changes only
+the time integration, in the manner of the ICE family of semi-implicit
+compressible methods:
 
-- **`p0`** is the region's thermodynamic pressure: ideal-gas mixture moles of
-  the region's gas in the region's gas volume (region volume less liquid
-  volume), in closed form. Region totals are exact sums of cell inventories.
-  A region whose liquid volume depends on temperature solves one scalar
-  Newton root per region per tick, not one per cell per substep.
-- **`p'`** is the dynamic perturbation from one variable-coefficient Poisson
-  solve per tick: a projection that makes the face velocities consistent with
-  mass conservation, with a source term for the gas volume created or removed
-  by heating, cooling and phase change in the tick. Gravity enters as the
-  hydrostatic part of `p'`, so dense gas pools and liquid heads are physical.
-  The solve uses the existing geometric multigrid or Jacobi PCG on static
-  row-block partitions with fixed-order reductions. Per tick that is one
-  linear solve of about ten iterations where the current kernel does 49,371.
-- **Liquids are incompressible.** Density is the catalogue's `ρ(T)`; there is
-  no elastic EOS, no liquid sound speed, no 1,000 kg water cells. A sealed,
-  completely liquid-filled region that expands on heating pushes its excess
-  volume to the owner's existing reservoir entry with a receipt, instead of
-  storing elastic energy.
-- **Vacuum.** A region with no gas is void. A gas cell beside void expands
-  into it by an explicit front rule: the void cell joins the region and
-  receives mass by the projected flux, with the front limited to one cell per
-  tick (vanilla's rate). Free expansion keeps U and does no work; the entropy
-  produced is reported in the ledger. Thin fronts therefore never force small
-  steps.
+- The pressure at the end of the tick is unknown; the mass and energy
+  equations are linearized about the current state, which gives one symmetric
+  positive-definite linear system for the new pressure field (a Helmholtz
+  equation: compressibility on the diagonal, `dt² / ρ` face coefficients off
+  it). One linear solve per tick with the existing geometric multigrid or
+  Jacobi PCG on static row-block partitions, about ten iterations. The
+  production kernel solves the same physics as a nonlinear root with EOS
+  evaluations per cell per Newton step and 49,371 linear iterations per tick;
+  the game kernel takes the linearization as its time-integration error.
+- Face momentum is then updated by the new pressure gradient and gravity, and
+  masses, U and passives move by the resulting face volumes. Pressure work on
+  each cell is booked from the actual face sweeps (`p · dV` from the same
+  volumes that moved the mass), so U+K+G is conserved by construction and
+  there is no separate energy closure to retry.
+- Because the pressure is implicit, a sound wave that would cross more than
+  one cell in a step is not resolved: it is damped within the step. Mass still
+  moves only as fast as the momentum equation accelerates it through the
+  opening, so a breached wall equalizes over the time the gas takes to flow,
+  with inertia and sloshing, not within one tick. The overlay, hover and every
+  reader show the cell's own pressure, so there is nothing inconsistent to see.
+- Gravity enters the same solve, so dense gas pools, pressure heads and
+  hydrostatic liquid columns are physical.
+- There is no entropy admission and no per-cell EOS root. The nonlinearity
+  of the ideal gas is handled by the linearization; the measured floor
+  (F1, F2) decides whether one Picard correction per tick is needed.
 
-What this drops: sound waves in gas and liquid, and the physical speed of
-expansion into vacuum. Pressure differences within a region equalize within a
-tick instead of over several seconds of resolved sloshing (F1 measures this;
-vanilla takes 56 s and the production kernel 9 s against an analytic final
-split).
+What this drops against the production kernel: resolved acoustics (waves
+faster than a cell per tick are smeared, not propagated), the strict 16-epsilon
+nonlinear closure of each substep, and the entropy admission gate. The player
+keeps real pressure everywhere, gradual equalization, winds and inertia.
+
+### Liquids (decision 2)
+
+Liquids keep the catalogue density `ρ(T)` and carry a **saved stiffness**: a
+pressure rise per fractional volume deficit, used in the same implicit
+pressure solve. Because the solve is implicit, the stiffness does not limit
+the step, only the conditioning of the solve, which the independent component
+solves already handle for stiff pockets. A sealed, completely liquid-filled
+region that expands on heating therefore stays in place and raises its own
+pressure (the user's choice), and ONI's readers see that pressure. The
+elastic energy of the compression is booked into U through the same `p · dV`
+work, so energy closes. The stiffness is a saved profile setting. The user
+chose a **reduced, tunable starting value**, about 1/25 of the catalogue's
+bulk modulus (the measured "liquid sound ×0.2" variant), to be tuned with the
+vacuum cap at performance evaluation; the real modulus is the upper choice. A
+heated sealed tank reaches lower pressures than reality. There is no
+liquid sound speed to resolve either way and no 1,000 kg water cell, because
+the compression is small at any pressure the game produces.
+
+### Vacuum (decision 3)
+
+A region with no gas is void. A gas cell beside void is accelerated into it
+by its own pressure gradient (the void cell joins the region at zero
+pressure), so the front is resolved by the momentum equation and its cells
+subcycle locally at the advective limit. The number of local subcycles a
+front may take per tick is a **saved, tunable cap** (`front_cells_per_tick`):
+up to the cap the front advances at its physical rate, beyond it the front's
+flux is held at the cap's rate for the rest of the tick. The user chose this
+over one cell per tick, keeping as much of the physical front as the cap
+allows, with the cap left for later performance evaluation. A large breach
+into vacuum costs the cap times the front's cell count in extra local work
+that tick; the bulk of the region still takes one step. Free expansion into
+the void keeps U and does no work; the entropy it produces is reported in the
+ledger.
 
 ### Transport
 
 Flux-form, one limited-linear (MUSCL) reconstruction pass per tick, with
 Zalesak flux-corrected limiting so every species, passive and liquid fraction
 stays nonnegative and bounded without a retry. U is transported with the
-material and takes the `p0 dV` work of its region. Face momentum moves by
+material and takes the `p · dV` work of its own face sweeps. Face momentum moves by
 limited upwind dual transport with the same shared face volumes. Immiscible
 liquid phases layer by density as a buoyant exchange flux inside the same
 pass, replacing the separate settling stage and its world copy; miscible
@@ -174,22 +222,24 @@ Conduction between fluid cells and with registered solid faces is one
 backward-Euler linear solve per tick on the same partitions (Jacobi PCG,
 warm-started). Mixed cells use the cell's total heat capacity; there is no
 per-cell EOS relinearization. Shock heat and compression regularization do
-not exist in a low-Mach kernel; viscosity is an explicit face term.
+not exist in this kernel: unresolved compression is damped by the implicit
+pressure step and its work is booked exactly. Viscosity is an explicit face term.
 
 ### Phase change
 
 Cell-local saturation relaxation once per tick at fixed U and volume, as the
 owner does now (`1 − exp(−dt / 1 s)` of the way to equilibrium, latent heat
 booked per pair, Clausius–Clapeyron from the catalogue), but fused into the
-pass rather than a separate world copy. Its vapour volume feeds the pressure
-source term of the same tick.
+pass rather than a separate world copy. The vapour it creates raises the
+cell's own pressure before the next tick's solve.
 
 ### EOS
 
 Closed forms only. Gas: ideal mixture, T from U with per-species constant or
 tabulated `Cv`, with the catalogue's chemical offsets. Liquid: `ρ(T)` and
-`c(T)` from the catalogue. Mixed cell: gas in the volume the liquid leaves.
-No Newton roots, no bisection, no long double. The presentation fields
+`c(T)` from the catalogue and the saved stiffness. Mixed cell: gas in the
+volume the liquid leaves. No Newton roots, no bisection, no long double; the
+linearized pressure solve replaces them. The presentation fields
 (temperature, pressure, composition, breathability) fall out of the final
 pass as arrays, so the end-of-frame projection that re-evaluates the
 reference EOS on every cell is removed.
@@ -250,7 +300,7 @@ one such step per tick plus one heat solve.
 | Per cell per 0.2 s tick, one core | ns (estimate) |
 | --- | ---: |
 | Reconstruction, FCT transport, momentum | 300 |
-| Pressure projection, about ten PCG or two V-cycles | 200 |
+| Implicit pressure solve, about ten PCG or two V-cycles | 200 |
 | Conduction solve | 100 |
 | EOS, phase change, region totals, audit | 100 |
 | Total | 700 |
@@ -262,16 +312,22 @@ one such step per tick plus one heat solve.
 
 Against the fast clock on Terra the margin is large even if the estimate is
 off by 5×. Against the release gate the margin is about 3× before adapters.
-Memory is about 50 MB at 250,000 cells.
+Memory is about 50 MB at 250,000 cells. The vacuum front cap (decision 3) and
+a Picard correction (decision 1) add to this where they apply; the prototype
+measures both.
 
 ## What the player notices
 
-- Rooms equalize pressure within a tick; no audible-speed pressure waves.
-  Winds, drafts and jets from vents and pumps still exist and carry momentum.
-- Gas reaches vacuum one cell per tick, like vanilla, instead of at the
-  physical front speed.
-- Liquids keep their catalogue density. There is no compressed-liquid storage
-  and no liquid sound; levelling and layering keep inertia.
+- Every cell shows its own pressure. A breached room equalizes over the
+  seconds the gas takes to flow through the opening, with inertia and damped
+  sloshing; pressure waves faster than a cell per tick are not shown. Winds,
+  drafts and jets from vents and pumps exist and carry momentum.
+- Gas reaches vacuum at its physical front speed up to the saved cap of cells
+  per tick, then at the cap.
+- Liquids keep their catalogue density and compress only slightly under the
+  saved stiffness. A sealed full tank that is heated raises its pressure
+  instead of leaking volume. There is no 1,000 kg water cell and no liquid
+  sound; levelling and layering keep inertia.
 - Gases and miscible liquids mix and stay mixed; partial pressures, breathing,
   pressure-dependent boiling and latent heat are as in the current plan.
 
@@ -281,8 +337,9 @@ The game kernel is judged by the [base-game floor](base-game-floor.md), not by
 the physics gates, which continue to validate the reference:
 
 - F1–F5 with the floor's unchanged setups, metrics and bounds: an error no
-  larger than vanilla's. F1 and F2 (equalization timing and split) are the
-  cases the low-Mach split affects most and must be measured first.
+  larger than vanilla's. F1 and F2 (equalization timing and split) test the
+  implicit pressure's linearization and damping and must be measured first;
+  they decide whether a Picard correction per tick is needed.
 - Terra60 at fast speed under the whole lock: mean observed tick spacing at
   most 0.1 s, closed ledgers, no faults, owner mean/p95/max reported.
 - The ten-cycle unattended run from a fresh prepared base on the new profile.
@@ -321,26 +378,45 @@ gates keep passing on them.
 - **A bucket or cellular model** (region-only state, no momentum). Faster
   still, but it removes per-cell composition and momentum, which the user has
   locked.
+- **Low-Mach splitting** (one thermodynamic pressure per region plus a
+  projection). Cheapest of the momentum-keeping designs, but it flash-
+  equalizes a breached room and shows a region pressure the cell's gas does
+  not have. Rejected by the user on 2026-10-23 as not feeling real.
 - **Only the tradeoff variants measured so far.** All four kept the substep
   structure and were slower or within 7%.
 
-## Decisions needed
+## Decisions
 
 Each is a user decision under the 2026-10-22 floor amendment, which requires
-separate adoption for pressure, boiling, sharp interfaces and acoustic detail:
+separate adoption for pressure, boiling, sharp interfaces and acoustic detail.
 
-1. Low-Mach pressure for the game profile: region thermodynamic pressure plus
-   a projection, no resolved acoustics.
-2. Incompressible liquids in the game profile, with thermal expansion of a
-   sealed full region booked to the reservoir.
-3. The explicit one-cell-per-tick vacuum front rule with free-expansion
-   entropy reported, not resolved.
-4. Audits as fault-only checks at 1e-12 relative, with entropy as a diagnostic
-   rather than an admission gate, for the game profile only.
-5. No sharp-interface boiling in the game profile; cell-local saturation
-   relaxation only.
-6. A new kernel selector, checkpoint version and profile family; old saves
-   keep their kernel.
-7. The floor (F1–F5, Terra60 fast, ten cycles) as the game kernel's
-   acceptance, with the physics gates continuing to validate the reference
-   only.
+Taken 2026-10-23:
+
+1. **Pressure: semi-implicit, all speeds.** Every cell keeps its own physical
+   pressure; one linearized implicit pressure solve per tick; no resolved
+   acoustics. The user's requirement: it must feel real, no flash
+   equalization and no inconsistencies between what readers show and the
+   cell's state. The region-average (low-Mach) design is rejected.
+2. **Liquids: incompressible density with a saved stiffness** in the implicit
+   solve; a sealed full-liquid region that expands raises its own pressure
+   rather than booking volume to the reservoir. The stiffness starts at a
+   reduced, tunable value, about 1/25 of the catalogue's bulk modulus.
+3. **Vacuum front: physical rate up to a saved, tunable cap of cells per
+   tick**, keeping as much of the front as the cap allows; the cap is left
+   for later performance evaluation.
+4. **Audits: fault-only at 1e-12 relative**, once per tick per region in
+   double-double; a failure stops the owner and dumps the state. Entropy is a
+   ledger diagnostic, never an admission gate. Game profile only.
+5. **Boiling: cell-local saturation relaxation only**, pressure-dependent with
+   latent heat; no sharp-interface model in the game profile.
+6. **Persistence: a new kernel selector, checkpoint version and profile
+   family.** Old saves keep their kernel; there is no migration, and the
+   ten-cycle acceptance starts from a fresh prepared base.
+7. **Acceptance: the floor** (F1–F5 no worse than vanilla), Terra60 at fast
+   speed under the whole lock, and the ten-cycle run. The physics gates
+   continue to validate the reference only and are not run against kernel 3.
+
+Tunables left for performance evaluation (saved profile settings, not
+physics gates): the vacuum front cap in cells per tick, the liquid stiffness,
+the sleep thresholds, and whether the pressure solve takes one Picard
+correction per tick.

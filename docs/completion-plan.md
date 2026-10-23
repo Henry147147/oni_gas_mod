@@ -8,6 +8,16 @@ still require separate authorization.
 
 Amendments:
 
+- **Game kernel, 2026-10-23 (user decision):** the saved game profile gets a
+  third numerical kernel, specified and decided in
+  [game-kernel-spec.md](game-kernel-spec.md): semi-implicit all-speed
+  pressure with every cell's own physical pressure and no resolved
+  acoustics, liquids at catalogue density with a saved reduced stiffness, a
+  tunable vacuum front cap, fault-only 1e-12 audits with entropy as a
+  diagnostic, cell-local saturation boiling, a new checkpoint version and
+  profile family without migration, and acceptance by the base-game floor,
+  Terra60 at fast speed and the ten-cycle run. The reference oracle, the
+  production kernel, the physics gates and old saves are unchanged.
 - **Base-game accuracy floor, 2026-10-22 (user decision):** for the game's
   saved solver profile only, replace the "within 0.1 K and 1% of resolved
   references" bound, the prohibition on a production `balanced` configuration,
