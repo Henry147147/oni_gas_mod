@@ -79,11 +79,12 @@ namespace MixedAtmospheres.Oni
         // ONI's disease byte (255: none) and the owner's germ identity.
         internal static uint Germ(byte diseaseIdx) => diseaseIdx == byte.MaxValue ? 0u : diseaseIdx + 1u;
         internal static byte DiseaseIdx(uint germ) => germ == 0 || germ > 255 ? byte.MaxValue : (byte)(germ - 1);
-        internal static void CheckLayouts()
+        internal static unsafe void CheckLayouts()
         {
             if (Marshal.SizeOf<Material>() != 168 || Marshal.SizeOf<Config>() != 56 || Marshal.SizeOf<Cell>() != 24 || Marshal.SizeOf<Status>() != 600 ||
                 Marshal.SizeOf<CellView>() != 32 || Marshal.SizeOf<Transfer>() != 48 || Marshal.SizeOf<Receipt>() != 48 || Marshal.SizeOf<Heat>() != 24 ||
-                Marshal.SizeOf<Species>() != 40 || Marshal.SizeOf<Reading>() != 64 || Marshal.SizeOf<Constituent>() != 24)
+                Marshal.SizeOf<Species>() != 40 || Marshal.SizeOf<Reading>() != 64 || Marshal.SizeOf<Constituent>() != 24 ||
+                sizeof(CellView) != 32 || sizeof(Reading) != 64 || sizeof(Constituent) != 24)
                 throw new InvalidOperationException("Colony owner ABI layouts differ from the native library.");
             if (Version() != AbiVersion) throw new InvalidOperationException("Colony owner ABI version differs from the native library.");
         }
@@ -95,7 +96,16 @@ namespace MixedAtmospheres.Oni
         internal static extern int Restore(ref Config config, [In] Material[] materials, uint materialCount, [In] byte[] image, uint bytes, ref Status status);
         [DllImport(Library, EntryPoint = "ma_oni_colony_status", CallingConvention = CallingConvention.Cdecl)] internal static extern int CopyStatus(ref Status status);
         [DllImport(Library, EntryPoint = "ma_oni_colony_copy", CallingConvention = CallingConvention.Cdecl)]
-        internal static extern int Copy(ref Status status, [Out] CellView[] views, uint capacity);
+        private static unsafe extern int CopyPinned(ref Status status, CellView* views, uint capacity);
+        internal static unsafe int Copy(ref Status status, CellView[] views, uint capacity)
+        {
+            if (capacity > views.Length) throw new ArgumentOutOfRangeException(nameof(capacity));
+            if (ColonyCopyValidation.UseMarshalledOutputs) return ColonyCopyValidation.CopyMarshalled(ref status, views, capacity);
+            int result;
+            fixed (CellView* pointer = views) result = CopyPinned(ref status, pointer, capacity);
+            if (result == 0 && ColonyCopyValidation.Enabled) ColonyCopyValidation.Views(status, views, capacity);
+            return result;
+        }
         [DllImport(Library, EntryPoint = "ma_oni_colony_composition", CallingConvention = CallingConvention.Cdecl)]
         internal static extern int Composition(uint cell, [Out] uint[] indices, [Out] double[] masses, uint capacity, out uint count);
         [DllImport(Library, EntryPoint = "ma_oni_colony_queue_transfers", CallingConvention = CallingConvention.Cdecl)]
@@ -114,8 +124,23 @@ namespace MixedAtmospheres.Oni
         [DllImport(Library, EntryPoint = "ma_oni_colony_species", CallingConvention = CallingConvention.Cdecl)]
         internal static extern int SpeciesList([Out] Species[]? species, uint capacity, out uint count);
         [DllImport(Library, EntryPoint = "ma_oni_colony_readings", CallingConvention = CallingConvention.Cdecl)]
-        internal static extern int Readings(out ulong frame, [Out] Reading[]? readings, uint capacity, out uint count,
-            [Out] Constituent[]? constituents, uint constituentCapacity, out uint constituentCount);
+        private static unsafe extern int ReadingsPinned(out ulong frame, Reading* readings, uint capacity, out uint count,
+            Constituent* constituents, uint constituentCapacity, out uint constituentCount);
+        internal static unsafe int Readings(out ulong frame, Reading[]? readings, uint capacity, out uint count,
+            Constituent[]? constituents, uint constituentCapacity, out uint constituentCount)
+        {
+            if (capacity > (readings?.Length ?? 0)) throw new ArgumentOutOfRangeException(nameof(capacity));
+            if (constituentCapacity > (constituents?.Length ?? 0)) throw new ArgumentOutOfRangeException(nameof(constituentCapacity));
+            if (ColonyCopyValidation.UseMarshalledOutputs)
+                return ColonyCopyValidation.ReadingsMarshalled(out frame, readings, capacity, out count, constituents, constituentCapacity, out constituentCount);
+            int result;
+            fixed (Reading* readingPointer = readings)
+            fixed (Constituent* partPointer = constituents)
+                result = ReadingsPinned(out frame, readingPointer, capacity, out count, partPointer, constituentCapacity, out constituentCount);
+            if (result == 0 && readings != null && constituents != null && ColonyCopyValidation.Enabled)
+                ColonyCopyValidation.Readings(frame, readings, count, constituents, constituentCount);
+            return result;
+        }
         [DllImport(Library, EntryPoint = "ma_oni_colony_busy", CallingConvention = CallingConvention.Cdecl)] internal static extern uint Busy();
         [DllImport(Library, EntryPoint = "ma_oni_colony_liquid_density", CallingConvention = CallingConvention.Cdecl)]
         internal static extern int LiquidDensity([In] Material[] materials, uint count, uint nativeIndex, double pressurePa, out double densityKgPerCubicMetre);

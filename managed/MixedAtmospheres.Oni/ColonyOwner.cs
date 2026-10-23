@@ -46,6 +46,7 @@ namespace MixedAtmospheres.Oni
         // views, events, receipts, actors, presentation hand-off).
         internal static double PublicationMilliseconds { get; private set; }
         internal static double MaximumPublicationMilliseconds { get; private set; }
+        private static readonly bool publicationLog = Environment.GetEnvironmentVariable("MA_COLONY_PUBLICATION_LOG") == "1";
         private static OniNativeColony.Status status = OniNativeColony.Status.Empty;
         private static bool considered;
         private static int x0, y0, width, height;
@@ -225,8 +226,19 @@ namespace MixedAtmospheres.Oni
             if (!Active && ClusterManager.Instance != null && ColonyOwnerPersistence.TakePending() is var (saved, image)) Restore(saved, image);
             if (!Active) { TryStart(source); if (!Active) return pointer; }
             var started = System.Diagnostics.Stopwatch.GetTimestamp();
+            var lapStarted = started;
+            var laps = publicationLog ? new System.Text.StringBuilder() : null;
+            void Lap(string name)
+            {
+                if (laps == null) return;
+                var now = System.Diagnostics.Stopwatch.GetTimestamp();
+                laps.AppendFormat(System.Globalization.CultureInfo.InvariantCulture, " {0} {1:F3}", name,
+                    (now - lapStarted) * 1000.0 / System.Diagnostics.Stopwatch.Frequency);
+                lapStarted = now;
+            }
             var output = OniNativeColony.Status.Empty;
             OniNativeColony.Check(OniNativeColony.Copy(ref output, views, (uint)views.Length));
+            Lap("views");
             status = output;
             if (status.State == 2 && loggedFault != status.Error)
             {
@@ -234,6 +246,7 @@ namespace MixedAtmospheres.Oni
                 Debug.LogError("[Mixed Atmospheres] Colony owner faulted; fluids are frozen: " + status.Error);
             }
             var copy = OwnedGameDataSnapshot.Capture(source, Grid.WidthInCells, Grid.HeightInCells);
+            Lap("snapshot");
             try
             {
                 var masses = copy.CellBuffer<float>(nameof(Sim.GameDataUpdate.mass));
@@ -264,13 +277,19 @@ namespace MixedAtmospheres.Oni
                     elements[global] = element;
                 }
                 copy.AppendEvents<Sim.SubstanceChangeInfo>(SnapshotEventChannel.SubstanceChangeInfo, changes.ToArray());
+                Lap("overlay");
                 DeliverReceipts(copy);
+                Lap("receipts");
                 ColonyActors.Publish(copy);
+                Lap("actors");
                 var previous = current; current = copy; previous?.Dispose();
+                Lap("retire");
                 ++Publications;
                 ColonyPresentation.Publish(status.CompletedFrames);
+                Lap("presentation");
                 PublicationMilliseconds = (System.Diagnostics.Stopwatch.GetTimestamp() - started) * 1000.0 / System.Diagnostics.Stopwatch.Frequency;
                 MaximumPublicationMilliseconds = Math.Max(MaximumPublicationMilliseconds, PublicationMilliseconds);
+                if (laps != null) Debug.Log($"[Mixed Atmospheres] publication frame {status.CompletedFrames} native {source->numFramesProcessed}:{laps}");
                 return (IntPtr)copy.Pointer;
             }
             catch { copy.Dispose(); throw; }
@@ -315,7 +334,13 @@ namespace MixedAtmospheres.Oni
             if (count <= 0 || payload == null || !Available) return false;
             if (ColonyActors.TryHandle(message, length, count, payload, Active)) return true;
             if (!Active) return false;
-            if (message == NewGameFrame && length >= 4) { ColonyActors.QueueFrame(*(float*)payload); return false; }
+            if (message == NewGameFrame && length >= 4)
+            {
+                ColonyActors.QueueFrame(*(float*)payload);
+                if (publicationLog && *(float*)payload > 0)
+                    Debug.Log($"[Mixed Atmospheres] submit after frame {status.CompletedFrames}; busy {OniNativeColony.Busy()}");
+                return false;
+            }
             switch (message)
             {
                 case MassEmission: return Claim(length, 24, count, payload, (data, list) =>

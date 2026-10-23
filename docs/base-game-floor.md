@@ -117,6 +117,29 @@ process limit; no resolved trajectories or event times are established.
 The matching reference solid heat model for F4 is still absent. These limits
 leave the affected truth metrics unresolved under the original protocol.
 
+### Corrected fixture measurements
+
+The rectangle-opening and repeated object removal in `0c347d9` remove the
+buried hatch that supplied the earlier F1 heat. The following runs use that
+corrected fixture (`0c347d9`/`13ebb2c`), the same frozen setups, the low CPU
+lock and GPU rendering. Owner rows use saved profile 17. F1 vanilla was
+repeated three times; the event bracket was identical. These are baseline
+measurements, not acceptance of profiles 18 or 19.
+
+| Scenario | Vanilla | Profile 17 | Truth comparison / status |
+| --- | --- | --- | --- |
+| F1 | Equalises [56.4, 56.6] s; final L/R/divider fractions about 0.47148–0.47152 / 0.46966–0.46969 / 0.0588233–0.0588264 | Equalises [9.0, 9.2] s; fractions 0.470084 / 0.470615 / 0.059330 | Against the analytic final fractions, owner divider error 5.06e-4 exceeds all three vanilla errors (1.07e-8–2.91e-6). This split metric does not meet the floor. Dynamic truth remains unresolved. |
+| F2 | No closed leakage; opens in 2.8 s; equalisation censored at 120 s | No closed leakage; opens in 3.0 s; equalises at the first open sample | Locked initial room masses and temperatures match. Heat at release differs because the hold and opening exchange heat with the door; include that exchange in dynamic truth. |
+| F3 | Levels [68.8, 69.0] s; mean depth 2.0000003 m | Levels [7.6, 7.8] s; mean depth 1.999848 m | Nominal depth errors 3.02e-7 / 1.52e-4 m; compression/thermal correction and dynamic truth remain unresolved. No floor pass. |
+| F4 | Interrupted by display loss before its fixed 20000 s duration | Unmeasured | No complete conduction measurement; rerun both modes. |
+| F5 | Settling censored at 120 s; crude oil below water; depths water/oil 4.000000 / 2.000000 m | Settles at the first sample; water below crude oil; depths 3.999946 / 2.000000 m; interface overlap zero | Owner layer order matches physical truth. Depth corrections and resolved settling time remain unresolved. |
+
+F2's initial fields at the start of the closed hold are identical; the
+release-sample heat is not the initial setup. Owner F1/F2 sinks are zero;
+F3 books 5.16e-10 kg / 8.71e-4 J and F5 2.15e-9 kg / 1.74e-3 J.
+Maximum relative mass/energy errors across these owner runs are
+2.03e-15 / 8.25e-17, with no faults or skipped phase relaxation.
+
 ## Performance and feature variants
 
 Each numerical step needs same-lock Terra60 before/after, affected floor

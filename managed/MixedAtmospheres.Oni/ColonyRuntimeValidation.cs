@@ -424,6 +424,7 @@ namespace MixedAtmospheres.Oni
                 PresentationFrames = ColonyPresentation.Publications, PresentationRejectedCells = ColonyPresentation.RejectedCells, ColonyPresentation.FirstRejection,
                 PresentationBuildMilliseconds = ColonyPresentation.LastBuildMilliseconds, PresentationCopyMilliseconds = ColonyPresentation.CopyMilliseconds,
                 ColonyOwner.PublicationMilliseconds, ColonyOwner.MaximumPublicationMilliseconds, PresentationError = ColonyPresentation.LastError,
+                ColonyCopyValidation.ViewComparisons, ColonyCopyValidation.ReadingComparisons, CopyControlChangedFrames = ColonyCopyValidation.ChangedFrames,
                 PresentationRevision = MixturePresentationRuntime.CurrentRevision, RendererTextureWrites = MixtureWorldRendering.TextureWrites,
                 RendererError = MixtureWorldRendering.LastError,
                 BlockedMilliseconds = ColonyOwner.BlockedMilliseconds.ToDictionary(item => item.Key.ToString(), item => item.Value),

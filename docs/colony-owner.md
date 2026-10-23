@@ -284,6 +284,41 @@ stay responsive. A tick posted while a step runs joins the next step (at most
 10 s of game time waits), so the owner never drops game time. The solver uses
 predictive step control ([MAC_SOLVER.md](../native/MAC_SOLVER.md)).
 
+The output arrays for cell views and composition readings are blittable and
+stay pinned only during their synchronous native copy. This avoids Mono's
+per-element array marshalling. An in-game control compared 61 view outputs
+and 60 reading/constituent outputs byte for byte with the old binding, with
+no changed-frame skips. Median view-copy time in the diagnostic runs fell
+from 5.479 to 0.617 ms; the other publication work remains.
+
+The matched fast Terra60 pair below uses one immutable native/managed package
+(`c625615` native code) and saved profile 18; only the copy-binding benchmark
+selector differs. Publication logs, stage logs and the byte control are off.
+Both runs complete 60 frames (60 owner samples, 59 observed intervals), with
+zero faults or skipped relaxations. Regional flow prohibits reference
+fallback in code; the status does not expose a separate fallback counter.
+
+| Output binding | Owner mean / p95 / max ms | Observed mean / p95 / max ms | Maximum relative mass / energy error | Trace sink kg / J |
+| --- | ---: | ---: | --- | --- |
+| Previous array marshaller | 160.7 / 228.5 / 302.1 | 252.6 / 358.7 / 2832.8 | 2.35e-16 / 4.68e-17 | 5.563e-8 / 0.019187 |
+| Pinned arrays | 164.9 / 208.0 / 311.5 | 248.5 / 351.8 / 2845.9 | 2.36e-16 / 4.72e-17 | 5.365e-8 / 0.018930 |
+
+The mean observed improvement is small in this single pair; owner times and
+flow rejection counts vary between colonies. For profiling only, frames
+10–60 give owner/observed means 159.7/205.2 versus 163.1/202.9 ms, reducing
+the approximate gap from 45.5 to 39.9 ms. Full-run means above retain the
+initial UI hand-off. The gap still includes native end-of-frame projection,
+managed publication, pacing and Unity scheduling. This is an exact copy
+optimization; it changes no physics, saved profile or checkpoint bytes, and
+does not establish the 2× target or the accuracy floor.
+
+With the pinned bindings, a fresh optional profile-19 colony also passes the
+evaporation/vapour, freeze/melt, space-heater and gas-generator exhaust
+scenarios (201 frames, low CPU lock). No faults or skipped relaxation;
+maximum mass/energy errors 7.00e-16 / 4.31e-17 and trace sink
+1.624e-7 kg / 0.051353 J. This checks those gameplay windows, not the full
+accuracy floor; profile 19 remains an opt-in experiment.
+
 ## Saves
 
 ONI's native section of the save becomes a `MACOLONY` envelope holding the
@@ -468,6 +503,19 @@ Environment variables of the game process (the harness passes them through):
   never finishes is caught).
 - `MA_COLONY_STAGE_LOG=1`: every tenth owner frame, each stage's wall time and
   the frame's edit counts (in the run's `Player.log`).
+- `MA_COLONY_PUBLICATION_LOG=1`: each managed publication's view copy, snapshot
+  capture, overlay, receipts, actors, retirement and presentation hand-off in
+  milliseconds, plus positive native-frame submissions. Use with the stage
+  log to locate work between owner advances; logging changes measured timing.
+- `MA_COLONY_COPY_CONTROL=1`: compare pinned output-array copies against the
+  previous array-marshalling path, byte for byte on matching completed frames
+  (up to 64 frames). `colony-owner.json` records view/reading comparison counts
+  and publications that changed between the paired calls. This adds copying
+  work and is excluded from speed measurements.
+- `MA_COLONY_MARSHALLED_OUTPUT=1`: benchmark the previous output-array binding
+  with the same package and physical profile. Otherwise blittable output
+  arrays stay pinned for the duration of the native copy. This changes no
+  solver setting or saved data.
 - `MA_COLONY_DUPE_LOG=1`: every 150 owner frames, each duplicant's breath,
   health, calories and stress with the air at its cell and the cell above
   (mass, composition, breathability), and the prepared base's machines.
