@@ -251,7 +251,16 @@ The release stamp now identifies the interval before the first fully open
 completed owner frame, rather than the submitted game clock. Maximum
 mass/energy errors are **1.210e-17 / 1.758e-17**, trace sink
 **1.697e-11 kg / 0.000213 J**, with no fault or skipped relaxation. F1's static
-split still fails; F3/F5 retained reruns and the F4 source model remain open.
+split still fails; the F5 retained rerun and the F4 source model remain open.
+
+The retained F3 rerun records **605 consecutive samples**, zero gaps or
+refused projections, and full inventory residual **1.455e-11 kg**. Levelling
+is bracketed at **[7.0, 7.2] s**; final nominal depth is **1.9998392342 m**
+(error **0.0001607658 m**). Maximum mass/energy errors are
+**5.266e-16 / 5.120e-18**, trace sink **6.9998e-9 kg / 0.01002245 J**,
+with no fault or skipped relaxation. Accepted external heat spans **1.285 J**.
+Dynamic truth and the compression/heat correction remain unresolved; this
+establishes reliable cadence and accounting, not a floor pass.
 
 ## Performance and feature variants
 
