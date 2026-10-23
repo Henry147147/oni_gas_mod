@@ -127,6 +127,7 @@ namespace MixedAtmospheres.Oni
         internal static void Reset()
         {
             ColonyPipeThermalProbe.Reset();
+            ColonyValveControl.Reset();
             Active=false;Flows.Clear();Materials.Clear();NativeElements.Clear();NativeIndices.Clear();DiseaseExchange.Clear();initial=supplied=removed=PipeInventory.Empty;heat=default;projecting=0;controlSeeding=false;transferScope=null;
             ColonyPipePorts.Reset();MixtureInspection.SetPipeReader(null);
         }

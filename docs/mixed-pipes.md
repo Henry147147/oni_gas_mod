@@ -510,7 +510,7 @@ verified, fallback count unavailable. Seven pure/seven hook/37 inspection,
 latent/foreign-phase returns, biological evolution and saved retries remain
 open, so production activation stays off.
 
-### Valve/shutoff acceptance under construction
+### Valve/shutoff acceptance
 
 The fixed `mixed-pipe-valves` control builds manual valves and powered shutoffs
 for both phases, with separate single-cell inputs/outputs and passive sinks.
@@ -539,6 +539,24 @@ zero, no native fault, cleanup verified. Diagnostic LOW owner mean/p95/max
 no gaps); no performance claim. The next setup supplies the unconnected
 automation value through its initialized native controller and records native
 rate/max, ports and elapsed game clock without changing the flow criteria.
+
+The corrected `pipes-valves-e96-v4` control passes **23/23 in 45 frames**.
+Both phases observe two native valve calls with dt sum 2 s (game-clock elapsed
+1.933303833 s). Manual output is 0.200000003/2 kg and powered shutoffs deliver
+1/10 kg, all with the original two-species composition. Closed leakage is zero;
+partial outputs are 0.999999999776/9.99999999404 kg, with exact capacity never
+exceeded. Disabled shutoffs retain full inputs while their outputs have real
+room, then reopen with complete mixtures. All 41.689999997 kg and germ accounts
+close exactly, with zero U residual. The change supplies the fixture's native
+automation controller after initialization; it changes no production rate or
+operational decision. The prior liquid 1 kg cause remains unproven because its
+native clock was not recorded; the new observer is explicit-fixture-only.
+
+World mass/energy errors are 5.050e-16/4.767e-17, trace sink zero, no fault,
+cleanup verified, fallback count unavailable. Diagnostic LOW owner mean/p95/max
+205.538/302.927/369.177 ms, observed 322.030/431.218/3071.469 ms (45/44
+contiguous samples, no gaps); no performance claim. This does not activate
+production mixed pipes or establish vent, thermal, biology or save acceptance.
 
 ### Vent surface-germ preparation (runtime inactive)
 

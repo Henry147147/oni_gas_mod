@@ -6,6 +6,23 @@ using HarmonyLib;
 
 namespace MixedAtmospheres.Oni
 {
+    // Explicit fixture-only observation of the native conduit clock. No state
+    // or transfer setting is changed, and ordinary games never enable it.
+    internal static class ColonyValveControl
+    {
+        private sealed class Sample {internal int Calls;internal double Seconds,Requested;}
+        private static Dictionary<ValveBase,Sample>? samples;
+        internal static void Begin(IEnumerable<ValveBase> valves)
+        {samples=new Dictionary<ValveBase,Sample>();foreach(var valve in valves)samples.Add(valve,new Sample());}
+        internal static void Reset()=>samples=null;
+        internal static void Observe(object instance,float dt)
+        {
+            if(samples==null||!(instance is ValveBase valve)||!samples.TryGetValue(valve,out var sample))return;
+            ++sample.Calls;sample.Seconds+=dt;sample.Requested+=(float)(valve.CurrentFlow*dt);
+        }
+        internal static string Describe(ValveBase valve)=>samples!=null&&samples.TryGetValue(valve,out var sample)?
+            $"native calls {sample.Calls}, dt sum {sample.Seconds:R}s, unconstrained request {sample.Requested:R}kg":"native clock control inactive";
+    }
     // Reuse native rate/operation/topology decisions. AddElement reserves the
     // chosen destination; its matching RemoveElement moves the whole mixture
     // atomically. No dominant-element scalar is ever imported as that mixture.
@@ -31,8 +48,9 @@ namespace MixedAtmospheres.Oni
             yield return AccessTools.Method(typeof(ConduitOverflow),"ConduitUpdate");
             yield return AccessTools.Method(typeof(ConduitPreferentialFlow),"ConduitUpdate");
         }
-        private static void Prefix(object __instance,ref ColonyConduits.TransferScope? __state)
+        private static void Prefix(object __instance,float __0,ref ColonyConduits.TransferScope? __state)
         {
+            ColonyValveControl.Observe(__instance,__0);
             if(!ColonyConduits.Active)return;
             var fields=Cached.GetOrAdd(__instance.GetType(),type=>new Fields(type));
             var type=(ConduitType)fields.Type.GetValue(fields.Port==null?__instance:fields.Port.GetValue(__instance));
