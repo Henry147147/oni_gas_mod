@@ -486,9 +486,12 @@ Codex owns conservative solver admission. A physical mixed parcel commits or
 refuses as one ordered batch; refusal consumes nothing and leaves the exact
 managed reservation available for retry or return. Existing mass/temperature
 jobs and version-8 bytes remain unchanged when the new facility is unused.
-This is a reservation, not an enabled writer or gameplay acceptance. Core
-physical checkpoint versions are assigned separately.
-The checked full-range request format and remaining integration boundaries
+The explicit native queue now writes wrapper9 after its first admitted moving
+job and preserves the canonical request through cold continuation. Completed
+outcomes must be settled before saving. Production managed callers and full
+mixed-save gameplay acceptance remain gated. Core physical checkpoint versions
+are assigned separately.
+The checked full-range request/outcome formats and integration boundaries
 are specified in [moving-parcels.md](moving-parcels.md).
 
 The read-only `ma_oni_colony_parcel_context_version()` capability 1 and

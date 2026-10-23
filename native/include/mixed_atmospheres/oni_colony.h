@@ -221,6 +221,17 @@ MA_ONI_API MAOniResult ma_oni_colony_queue_actor_batch(const MAOniColonyTransfer
 MA_ONI_API MAOniResult ma_oni_colony_queue_pipe_job(uint64_t token, const MAOniColonyTransfer*,
     const MAOniColonyPassive*, uint32_t passive_count, uint32_t* state, uint64_t* last_receipt_sequence);
 MA_ONI_API MAOniResult ma_oni_colony_pipe_job_state(uint64_t token, uint32_t* state, uint64_t* last_receipt_sequence);
+/* One physical mixture, canonical MAPARC01 request and MAPOUT01 outcome.
+ * Uses the shared durable pipe-token sequence. Never retry an unknown request
+ * under a new token until its prior outcome is settled. The session fences
+ * stale asynchronous submissions; restored queued jobs use the new session.
+ * A moving receipt has kind7 and zero legacy mass/temperature; settle only
+ * through the complete outcome. Normal refusal is an outcome, not a fault. */
+#define MA_ONI_COLONY_MOVING_PARCEL 7U
+MA_ONI_API uint32_t ma_oni_colony_moving_parcel_version(void);
+MA_ONI_API MAOniResult ma_oni_colony_queue_moving_parcel(uint64_t session,uint64_t token,
+    const uint8_t* request,uint32_t bytes,uint32_t* state,uint64_t* last_receipt_sequence);
+MA_ONI_API MAOniResult ma_oni_colony_copy_moving_outcome(uint64_t sequence,uint8_t* buffer,uint32_t capacity,uint32_t* bytes);
 /* Zero for a non-pipe or acknowledged receipt. */
 MA_ONI_API MAOniResult ma_oni_colony_receipt_job(uint64_t sequence, uint64_t* token);
 /* Size query with a null buffer; the image describes the latest completed frame. */

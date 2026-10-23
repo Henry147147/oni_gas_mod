@@ -11,6 +11,10 @@
 #include <atomic>
 #include <bit>
 #include <cstdio>
+#include <cfenv>
+#include <cerrno>
+#include <cmath>
+#include <xmmintrin.h>
 #include <cstring>
 #include <memory>
 #include <mutex>
@@ -891,6 +895,22 @@ MAOniResult ma_oni_colony_queue_pipe_job(std::uint64_t token,const MAOniColonyTr
             const auto result=ma::oni::colony::queue_pipe_job(token,*transfer,std::span(passives,count));
             *state=result.first; *last=result.second;
         } catch (const std::invalid_argument& error) { throw Failure(MA_ONI_INVALID_ARGUMENT,error.what()); }
+    });
+}
+std::uint32_t ma_oni_colony_moving_parcel_version() { return 1; }
+MAOniResult ma_oni_colony_queue_moving_parcel(std::uint64_t session,std::uint64_t token,const std::uint8_t* request,
+    std::uint32_t bytes,std::uint32_t* state,std::uint64_t* last) {
+    return boundary([&] {
+        if(!request || !bytes || !state || !last)throw Failure(MA_ONI_INVALID_ARGUMENT,"Invalid moving parcel input/output");
+        try {const auto result=ma::oni::colony::queue_moving_parcel(session,token,std::span(request,bytes));*state=result.first;*last=result.second;}
+        catch(const std::invalid_argument& error) {throw Failure(MA_ONI_INVALID_ARGUMENT,error.what());}
+    });
+}
+MAOniResult ma_oni_colony_copy_moving_outcome(std::uint64_t sequence,std::uint8_t* buffer,std::uint32_t capacity,std::uint32_t* bytes) {
+    return boundary([&] {
+        if(!bytes || (capacity && !buffer))throw Failure(MA_ONI_INVALID_ARGUMENT,"Invalid moving outcome buffer");
+        *bytes=ma::oni::colony::copy_moving_outcome(sequence,buffer,capacity);
+        if(buffer && capacity<*bytes)throw Failure(MA_ONI_BUFFER_TOO_SMALL,"Moving outcome buffer is too small");
     });
 }
 MAOniResult ma_oni_colony_pipe_job_state(std::uint64_t token,std::uint32_t* state,std::uint64_t* last) {

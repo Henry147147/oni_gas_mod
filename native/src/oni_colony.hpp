@@ -27,6 +27,8 @@ void ack_receipts(std::uint64_t through);
 void enable_precise_receipts(bool enabled);
 std::uint32_t copy_precise_receipt(std::uint64_t sequence, std::uint8_t*, std::uint32_t capacity);
 std::pair<std::uint32_t,std::uint64_t> queue_pipe_job(std::uint64_t, const MAOniColonyTransfer&, std::span<const MAOniColonyPassive>);
+std::pair<std::uint32_t,std::uint64_t> queue_moving_parcel(std::uint64_t session,std::uint64_t token,std::span<const std::uint8_t>);
+std::uint32_t copy_moving_outcome(std::uint64_t,std::uint8_t*,std::uint32_t);
 std::pair<std::uint32_t,std::uint64_t> pipe_job_state(std::uint64_t);
 std::uint64_t receipt_job(std::uint64_t);
 [[nodiscard]] std::vector<std::uint8_t> checkpoint();

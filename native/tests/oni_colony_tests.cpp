@@ -348,6 +348,113 @@ void parcel_context_control() {
         "parcel context did not follow restored session/coordinates");
     stop();std::cout<<"PARCEL CONTEXT PASS\n";
 }
+void quiet_game_cell_control() {
+    using namespace ma::oni::colony;
+    std::vector<MAOniColonyMaterial> mats{material("Oxygen",11,oxygen,true,.032,1000),material("CarbonDioxide",12,carbon,true,.044,850)};
+    MAOniColonyConfig cfg{};cfg.struct_size=sizeof(cfg);cfg.abi_version=MA_ONI_COLONY_ABI_VERSION;
+    cfg.flags=MA_ONI_COLONY_GAME_KERNEL;cfg.vacuum_index=vacuum;cfg.grid_width=cfg.width=3;cfg.grid_height=cfg.height=3;cfg.maximum_timestep_s=.1;
+    std::vector<MAOniColonyCell> cells(9,MAOniColonyCell{0,MA_ONI_COLONY_SOLID,0,0,0,0});cells[4]={oxygen,MA_ONI_COLONY_FLUID,1,300,0,0};
+    start(cfg,mats,cells,1);advance(1,.2,2);wait();require(status().state==1 && status().completed_frames==1,"quiet single-cell game owner failed");
+    stop();std::cout<<"QUIET GAME CELL PASS\n";
+}
+void moving_job_control() {
+    using namespace ma::oni::colony;
+    using namespace ma::oni::colony::detail;
+    using ma::experimental::MacEnergy;
+    std::vector<MAOniColonyMaterial> mats{material("Oxygen",11,oxygen,true,.032,1000),material("CarbonDioxide",12,carbon,true,.044,850)};
+    MAOniColonyConfig cfg{};cfg.struct_size=sizeof(cfg);cfg.abi_version=MA_ONI_COLONY_ABI_VERSION;
+    cfg.vacuum_index=vacuum;cfg.grid_width=cfg.width=3;cfg.grid_height=cfg.height=3;cfg.maximum_timestep_s=.1;
+    std::vector<MAOniColonyCell> cells(9,MAOniColonyCell{0,MA_ONI_COLONY_SOLID,0,0,0,0});
+    cells[4]={oxygen,MA_ONI_COLONY_FLUID,1,300,0,0};
+    start(cfg,mats,cells,1);const auto old=checkpoint();require(old[8]==8,"unused moving facility changed checkpoint version");
+    const auto first_session=status().session;
+    MovingParcelInput item;item.public_cell=4;item.native_index=carbon;item.mass_kg=.125;
+    item.internal_energy_j=MacEnergy::from_double(.125*850*330);item.kinetic_energy_j=MacEnergy::from_double(.0625);
+    item.potential_energy_j=MacEnergy::from_double(.125*9.81*1.5);item.momentum_x=MacEnergy::from_double(.125);
+    item.passives={{3,.125},{7,1e-240}};
+    const std::array items{item};const auto wire=encode_moving_parcels(items);
+    const auto rejects=[&](auto action) {bool refused=false;try{action();}catch(const std::invalid_argument&){refused=true;}require(refused,"invalid moving admission accepted");};
+    rejects([&]{(void)queue_moving_parcel(first_session,1,wire);});enable_precise_receipts(true);
+    rejects([&]{(void)queue_moving_parcel(first_session+1,1,wire);});
+    rejects([&]{(void)queue_moving_parcel(first_session,2,wire);});
+    require(queue_moving_parcel(first_session,1,wire)==std::pair<std::uint32_t,std::uint64_t>{1,0},"moving job not queued");
+    require(queue_moving_parcel(first_session,1,wire).first==1,"moving pending retry duplicated");
+    auto changed=items;changed[0].mass_kg=.25;const auto different=encode_moving_parcels(changed);
+    rejects([&]{(void)queue_moving_parcel(first_session,1,different);});
+    MAOniColonyTransfer legacy{4,carbon,MA_ONI_COLONY_INJECT,0,-1,0,.125,330,0};
+    rejects([&]{(void)queue_pipe_job(1,legacy,{});});
+    const auto pending=checkpoint();require(pending[8]==9 && copy_moving_outcome(1,nullptr,0)==0,"moving durability/publication framing");
+    const auto corrupt_pending=[&](bool marker_damage) {
+        auto bad=pending;constexpr std::string_view magic="MAPARC01";
+        const auto payload=std::search(bad.begin(),bad.end(),magic.begin(),magic.end());require(payload!=bad.end(),"saved moving payload absent");
+        const auto at=static_cast<std::size_t>(payload-bad.begin());
+        if(marker_damage)bad[at+12]^=1;else {bad[at+8]=0;bad[at+9]=0;bad[at+10]=0;bad[at+11]=0;}
+        const auto digest=ma::oni::hash_memory(bad.data(),bad.size()-64);std::copy(digest.begin(),digest.end(),bad.end()-64);
+        rejects([&]{restore(cfg,mats,bad,1);});require(checkpoint()==pending,"invalid moving restore replaced live colony");
+    };
+    corrupt_pending(false);corrupt_pending(true);
+    const auto finish=[&] {
+        advance(1,.2,2);wait();require(status().state==1,"moving job faulted owner");
+        MAOniColonyReceipt receipt{};require(copy_receipts(&receipt,1)==1 && receipt.kind==MA_ONI_COLONY_MOVING_PARCEL &&
+            receipt.mass_kg==0 && receipt_job(receipt.sequence)==1 && pipe_job_state(1).first==2,"moving receipt/token association");
+        rejects([&]{(void)checkpoint();});
+        const auto size=copy_moving_outcome(receipt.sequence,nullptr,0);require(size>0,"moving outcome missing");
+        std::vector<std::uint8_t> bytes(size,0xcd);copy_moving_outcome(receipt.sequence,bytes.data(),size-1);
+        require(std::all_of(bytes.begin(),bytes.end(),[](auto v){return v==0xcd;}),"undersized moving buffer was modified");
+        copy_moving_outcome(receipt.sequence,bytes.data(),size);const auto result=decode_moving_outcome(bytes);
+        require(!result.refusal && result.session==status().session && result.token==1 && result.consumed.size()==1 &&
+            result.consumed[0].public_cell==4 && result.consumed[0].native_index==carbon && result.consumed[0].mass_kg==.125 &&
+            result.consumed[0].passives[1].quantity==1e-240 && result.grid[0].mass_kg.sign()>0,"moving result lost source/grid/passives");
+        ack_receipts(receipt.sequence);require(copy_moving_outcome(receipt.sequence,nullptr,0)==0 && pipe_job_state(1).first==3,"moving acknowledgement leaked outcome");
+        require(status().maximum_relative_mass_error<1e-12 && status().maximum_relative_energy_error<1e-12,"moving owner ledger does not close");
+        return checkpoint();
+    };
+    const auto expected=finish();stop();restore(cfg,mats,pending,1);
+    require(checkpoint()==pending && status().session!=first_session,"moving pending restore changed bytes/session");
+    rejects([&]{(void)queue_moving_parcel(first_session,1,wire);});
+    require(queue_moving_parcel(status().session,1,wire).first==1,"restored moving token not recognized");
+    require(finish()==expected,"moving pending cold continuation differs");stop();
+    // Unsupported mechanics refuse as a completed outcome. Compare against
+    // a no-input continuation to prove no rejected candidate escaped.
+    start(cfg,mats,cells,1);advance(1,.2,2);wait();const auto no_input=checkpoint();stop();
+    start(cfg,mats,cells,1);enable_precise_receipts(true);
+    auto invalid=items;invalid[0].kinetic_energy_j={};const auto invalid_wire=encode_moving_parcels(invalid);
+    (void)queue_moving_parcel(status().session,1,invalid_wire);advance(1,.2,2);wait();
+    require(status().state==1,"normal moving refusal faulted owner");MAOniColonyReceipt receipt{};require(copy_receipts(&receipt,1)==1,"refusal receipt missing");
+    std::vector<std::uint8_t> refused_wire(copy_moving_outcome(receipt.sequence,nullptr,0));
+    copy_moving_outcome(receipt.sequence,refused_wire.data(),static_cast<std::uint32_t>(refused_wire.size()));
+    const auto refused=decode_moving_outcome(refused_wire);require(refused.refusal && refused.grid.empty() && refused.consumed.empty(),"refused moving job consumed source");
+    ack_receipts(receipt.sequence);require(status().injected_kg==0,"refused moving job booked mass");
+    // Owner metadata differs (durable token/version/counter), physical image must not.
+    const auto image=checkpoint();constexpr std::string_view core_magic="MACCLS01";
+    const auto physical=[&](const auto& bytes) {return std::search(bytes.begin(),bytes.end(),core_magic.begin(),core_magic.end());};
+    const auto a=physical(image),b=physical(no_input);
+    require(a!=image.end() && b!=no_input.end() && std::equal(a,image.end()-64,b,no_input.end()-64),"refused moving candidate changed physical state");
+    stop();
+    for(const auto flags : {0u,MA_ONI_COLONY_GAME_KERNEL}) {
+        cfg.flags=flags;start(cfg,mats,cells,1);enable_precise_receipts(true);
+        auto left=item;left.native_index=oxygen;left.internal_energy_j=MacEnergy::from_double(.125*1000*330);
+        left.momentum_x=MacEnergy::from_double(-.125);left.passives={{3,.25}};
+        const std::array mixture{left,item};const auto mixed_wire=encode_moving_parcels(mixture);
+        (void)queue_moving_parcel(status().session,1,mixed_wire);advance(1,.2,2);wait();
+        require(status().state==1,"physical mixed moving batch faulted owner");
+        require(copy_receipts(&receipt,1)==1 && copy_receipts(nullptr,0)==1,"physical mixture fragmented into unrelated receipts");
+        std::vector<std::uint8_t> bytes(copy_moving_outcome(receipt.sequence,nullptr,0));
+        copy_moving_outcome(receipt.sequence,bytes.data(),static_cast<std::uint32_t>(bytes.size()));
+        const auto result=decode_moving_outcome(bytes);
+        require(!result.refusal && result.consumed.size()==2 && result.grid.size()==2 &&
+            result.consumed[0].native_index==oxygen && result.consumed[1].native_index==carbon &&
+            result.grid[0].wall_impulse_x.mantissa()!=0 && result.grid[1].wall_impulse_x.mantissa()!=0 &&
+            status().maximum_relative_mass_error<1e-12 && status().maximum_relative_energy_error<1e-12,
+            "mixed moving game/reference receipt lost order, wall impulse or conservation");
+        ack_receipts(receipt.sequence);stop();
+        start(cfg,mats,cells,1);enable_precise_receipts(true);
+        auto unknown=mixture;unknown[1].native_index=65535;const auto unknown_wire=encode_moving_parcels(unknown);(void)queue_moving_parcel(status().session,1,unknown_wire);advance(1,.2,2);wait();
+        require(status().state==1 && status().injected_kg==0 && copy_receipts(&receipt,1)==1,"unknown minority admitted part of moving mixture");
+        bytes.resize(copy_moving_outcome(receipt.sequence,nullptr,0));copy_moving_outcome(receipt.sequence,bytes.data(),static_cast<std::uint32_t>(bytes.size()));const auto denied=decode_moving_outcome(bytes);require(denied.refusal==1 && denied.consumed.empty() && denied.grid.empty(),"unknown moving minority not atomically refused");ack_receipts(receipt.sequence);stop();
+    }
+    std::cout<<"MOVING PARCEL DURABILITY PASS\n";
+}
 void pipe_job_control() {
     using namespace ma::oni::colony;
     std::vector<MAOniColonyMaterial> mats{material("Oxygen",11,oxygen,true,.016,1000),material("CarbonDioxide",12,carbon,true,.044,850)};
@@ -780,13 +887,14 @@ void trace_sink_control() {
 
 int main(int argc, char** argv) {
     try {
+        if (argc == 2 && std::strcmp(argv[1], "--quiet-game-cell-only") == 0) {quiet_game_cell_control();return 0;}
         if (argc == 2 && std::strcmp(argv[1], "--timestep-only") == 0) { timestep_control(); return 0; }
         if (argc == 2 && std::strcmp(argv[1], "--projection-only") == 0) { projection_control(); return 0; }
         if (argc == 2 && std::strcmp(argv[1], "--precise-receipts-only") == 0) { precise_receipt_control(); return 0; }
         if (argc == 2 && std::strcmp(argv[1], "--floor-capture-only") == 0) { floor_capture_control(); return 0; }
         if (argc == 2 && std::strcmp(argv[1], "--transfer-capture-only") == 0) { transfer_capture_control(); return 0; }
         if (argc == 2 && std::strcmp(argv[1], "--release-capture-only") == 0) { release_capture_control(); return 0; }
-        if (argc == 2 && std::strcmp(argv[1], "--pipe-jobs-only") == 0) { pipe_job_control(); return 0; }
+        if (argc == 2 && std::strcmp(argv[1], "--pipe-jobs-only") == 0) { moving_job_control(); pipe_job_control(); return 0; }
         if (argc == 2 && std::strcmp(argv[1], "--parcel-wire-only") == 0) { parcel_wire_control(); parcel_outcome_control(); return 0; }
         if (argc == 2 && std::strcmp(argv[1], "--sample-only") == 0) { sample_control(); return 0; }
         if (argc == 2 && std::strcmp(argv[1], "--view-cache-only") == 0) { view_cache_control(); return 0; }
@@ -800,6 +908,8 @@ int main(int argc, char** argv) {
         parcel_wire_control();
         parcel_outcome_control();
         parcel_context_control();
+        quiet_game_cell_control();
+        moving_job_control();
         pipe_job_control();
         sample_control();
         view_cache_control();

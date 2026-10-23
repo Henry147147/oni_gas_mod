@@ -84,7 +84,7 @@ internal static unsafe class Program
         Test("save frame metadata follows durable image across reservoir and trace framing", () =>
         {
             const ulong durable=0x100000002;
-            foreach(var version in new uint[]{6,7,8})
+            foreach(var version in new uint[]{6,7,8,9})
             {
                 using var stream=new MemoryStream();using var writer=new BinaryWriter(stream);
                 writer.Write(System.Text.Encoding.ASCII.GetBytes("MACOLN01"));writer.Write(version);writer.Write(new byte[56]);

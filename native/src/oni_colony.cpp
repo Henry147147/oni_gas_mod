@@ -5,6 +5,7 @@
 #include "oni_colony_import.hpp"
 #include "oni_radial_consumption.hpp"
 #include "oni_precise_receipt.hpp"
+#include "oni_parcel_admission.hpp"
 #include "oni_release_capture.hpp"
 #include "oni_transfer_capture.hpp"
 #include "oni_sha256.hpp"
@@ -144,11 +145,14 @@ std::vector<MAOniColonyTerrain> pending_terrain;
 std::vector<MAOniColonyReceipt> receipts;
 bool precise_receipts_enabled = false; // adapter opt-in; never part of physical state
 std::map<std::uint64_t, std::vector<std::uint8_t>> precise_receipts;
-struct PipeJob { MAOniColonyTransfer transfer; PassiveQuantities passives; std::uint64_t last_receipt=0; };
+struct PipeJob { MAOniColonyTransfer transfer; PassiveQuantities passives; std::uint64_t last_receipt=0; std::shared_ptr<const std::vector<std::uint8_t>> moving_wire{}; };
 std::map<std::uint64_t,PipeJob> pipe_jobs; // queued or committed, until every outcome is acknowledged
 std::map<std::size_t,std::uint64_t> pending_job_tokens; // indices in pending_transfers
 std::map<std::uint64_t,std::uint64_t> receipt_jobs; // sequence -> durable job token
 std::uint64_t accepted_job_token=0;
+bool moving_protocol_used=false; // persisted only after explicit admission
+std::atomic<std::uint64_t> live_parcel_session{0};
+std::map<std::uint64_t,std::vector<std::uint8_t>> moving_outcomes;
 std::uint64_t receipt_sequence = 0, acknowledged = 0, sessions = 0;
 std::atomic<std::uint64_t> start_thread{};
 // Native shadow: per owned cell, what write_shadow put there this frame.
@@ -473,9 +477,10 @@ void activate(std::unique_ptr<Session> next, std::uint64_t thread) {
     { std::lock_guard lock(inputs); pending_transfers.clear(); pending_heat.clear(); pending_terrain.clear(); pending_freezes.clear(); receipts.clear();
       precise_receipts.clear(); precise_receipts_enabled = false;
       pipe_jobs.clear(); pending_job_tokens.clear(); receipt_jobs.clear(); accepted_job_token=0;
-      receipt_sequence = acknowledged = 0; exchanged = {}; }
+      receipt_sequence = acknowledged = 0; exchanged = {}; moving_protocol_used=false; moving_outcomes.clear(); }
     publish(*next);
     session = std::move(next);
+    live_parcel_session.store(session->status.session,std::memory_order_release);
     enabled.store(true, std::memory_order_release);
 }
 
@@ -1169,7 +1174,7 @@ std::pair<std::uint32_t,std::uint64_t> queue_pipe_job(std::uint64_t token,const 
     require(precise_receipts_enabled,"Pipe jobs require precise receipts");
     if (token<=accepted_job_token) {
         if (const auto found=pipe_jobs.find(token); found!=pipe_jobs.end()) {
-            require(std::memcmp(&found->second.transfer,&transfer,sizeof(transfer))==0 && found->second.passives.size()==germs.size(),"Pipe token reused for a different request");
+            require(!found->second.moving_wire && std::memcmp(&found->second.transfer,&transfer,sizeof(transfer))==0 && found->second.passives.size()==germs.size(),"Pipe token reused for a different request");
             for (std::size_t i=0;i<germs.size();++i)
                 require(found->second.passives[i].identity==germs[i].identity && found->second.passives[i].quantity==germs[i].quantity,"Pipe token reused for different passives");
         }
@@ -1184,6 +1189,45 @@ std::pair<std::uint32_t,std::uint64_t> queue_pipe_job(std::uint64_t token,const 
     try { pending_job_tokens.emplace(index,token); pending_transfers.push_back(transfer); }
     catch (...) { pending_job_tokens.erase(index); pipe_jobs.erase(token); throw; }
     accepted_job_token=token; return {1,0};
+}
+std::pair<std::uint32_t,std::uint64_t> queue_moving_parcel(std::uint64_t expected_session,std::uint64_t token,std::span<const std::uint8_t> wire) {
+    const ArithmeticScope arithmetic;
+    require(active(),"No colony owner is active");
+    const auto context=parcel_context();
+    require(expected_session && context.session==expected_session,"Stale moving parcel session");
+    const auto request=detail::decode_moving_parcels(wire);
+    for(const auto& item : request) {
+        const auto x=item.public_cell%context.grid_width,y=item.public_cell/context.grid_width;
+        require(x>=context.offset_x && y>=context.offset_y && x-context.offset_x<context.width && y-context.offset_y<context.height,
+            "Moving parcel cell is outside the owner");
+    }
+    auto payload=std::make_shared<const std::vector<std::uint8_t>>(wire.begin(),wire.end());
+    MAOniColonyTransfer marker{};marker.kind=MA_ONI_COLONY_INJECT;marker.callback=-1;
+    marker.public_cell=request.front().public_cell;marker.native_index=request.front().native_index;
+    std::lock_guard lock(inputs);
+    require(active() && expected_session && live_parcel_session.load(std::memory_order_acquire)==expected_session,"Stale moving parcel session");
+    require(token && precise_receipts_enabled,"Moving parcels require a token and precise receipts");
+    if(token<=accepted_job_token) {
+        if(const auto found=pipe_jobs.find(token);found!=pipe_jobs.end())
+            require(found->second.moving_wire && *found->second.moving_wire==*payload,"Moving token reused for a different request");
+        return job_state_locked(token);
+    }
+    require(accepted_job_token!=UINT64_MAX && token==accepted_job_token+1,"Moving tokens must be contiguous");
+    require(pending_transfers.size()<1u<<20,"Too many queued colony transfers");
+    const auto index=pending_transfers.size();
+    pipe_jobs.emplace(token,PipeJob{marker,{},0,std::move(payload)});
+    try {pending_job_tokens.emplace(index,token);pending_transfers.push_back(marker);}
+    catch(...) {pending_job_tokens.erase(index);pipe_jobs.erase(token);throw;}
+    accepted_job_token=token;moving_protocol_used=true;return {1,0};
+}
+std::uint32_t copy_moving_outcome(std::uint64_t sequence,std::uint8_t* output,std::uint32_t capacity) {
+    std::lock_guard lock(inputs);
+    const auto job=receipt_jobs.find(sequence);
+    if(job==receipt_jobs.end() || !pipe_jobs.at(job->second).last_receipt)return 0;
+    const auto found=moving_outcomes.find(sequence);if(found==moving_outcomes.end())return 0;
+    const auto size=static_cast<std::uint32_t>(found->second.size());
+    if(output && capacity>=size)std::copy(found->second.begin(),found->second.end(),output);
+    return size;
 }
 std::pair<std::uint32_t,std::uint64_t> pipe_job_state(std::uint64_t token) {
     require(active(),"No colony owner is active"); std::lock_guard lock(inputs); return job_state_locked(token);
@@ -1250,6 +1294,7 @@ void ack_receipts(std::uint64_t through) {
         if (sequence<=through) require(pipe_jobs.at(token).last_receipt!=0,"Cannot acknowledge an unfinished pipe job");
     std::erase_if(receipts, [&](const MAOniColonyReceipt& r) { return r.sequence <= through; });
     precise_receipts.erase(precise_receipts.begin(), precise_receipts.upper_bound(through));
+    moving_outcomes.erase(moving_outcomes.begin(),moving_outcomes.upper_bound(through));
     receipt_jobs.erase(receipt_jobs.begin(),receipt_jobs.upper_bound(through));
     std::erase_if(pipe_jobs,[&](const auto& item){return item.second.last_receipt && item.second.last_receipt<=through;});
     acknowledged = through;
@@ -1545,10 +1590,15 @@ void run_frame(std::uint64_t ticket, double seconds, const char* refusal, std::u
         std::vector<Freeze> freezes; std::vector<GermEdit> germ_edits;
         std::map<std::size_t,std::uint64_t> job_tokens;
         std::map<std::size_t,PassiveQuantities> job_passives;
+        std::map<std::size_t,std::shared_ptr<const std::vector<std::uint8_t>>> moving_jobs;
         std::map<std::uint64_t,std::uint64_t> committed_jobs;
         { std::lock_guard q(inputs); transfers.swap(pending_transfers); heat.swap(pending_heat); terrain.swap(pending_terrain); freezes.swap(pending_freezes);
           germ_edits.swap(pending_germs); job_tokens.swap(pending_job_tokens);
-          for (const auto& [index,token] : job_tokens) job_passives.emplace(index,pipe_jobs.at(token).passives); }
+          for (const auto& [index,token] : job_tokens) {
+              const auto& job=pipe_jobs.at(token);
+              if(job.moving_wire)moving_jobs.emplace(index,job.moving_wire);
+              else job_passives.emplace(index,job.passives);
+          } }
         auto world = *s.world;
         const auto& cat = *s.catalogue; const auto& registry = cat.registry;
         auto& L = s.ledger;
@@ -1726,6 +1776,7 @@ void run_frame(std::uint64_t ticket, double seconds, const char* refusal, std::u
             for (const auto& [k, x] : take) if (x > 0) edits.push_back({cell, k, false, x, 0});
         };
         for (const auto& t : transfers) {
+            if(moving_jobs.contains(static_cast<std::size_t>(&t-transfers.data())))continue;
             const auto centre = rect_index(s.config, t.public_cell);
             const auto& st = world.state();
             const auto kind = t.kind & ~MA_ONI_COLONY_CONSUMER;
@@ -1887,6 +1938,67 @@ void run_frame(std::uint64_t ticket, double seconds, const char* refusal, std::u
                 // A mixture leaves one receipt per constituent.
                 else for (const auto& [k, entry] : by_species) receipt(*p.source, cat.materials[k].game.native_index, entry.first, entry.second, germs_of[k], p, k);
             }
+        }
+        const auto moving_started=std::chrono::steady_clock::now();
+        std::size_t moving_items=0,moving_accepted=0,moving_refused=0;
+        if(!moving_jobs.empty())step("moving parcels");
+        for(const auto& [index,payload] : moving_jobs) {
+            const auto requests=detail::decode_moving_parcels(*payload);moving_items+=requests.size();
+            const auto token=job_tokens.at(index);
+            detail::MovingParcelOutcome outcome;
+            {std::lock_guard q(inputs);require(receipt_sequence!=UINT64_MAX,"Receipt sequence exhausted");outcome.sequence=receipt_sequence+1;}
+            outcome.frame=s.status.completed_frames+1;outcome.token=token;outcome.session=s.status.session;
+            std::vector<MacMovingParcel> batch;batch.reserve(requests.size());
+            for(const auto& item : requests) {
+                if(!cat.has_native(item.native_index)) {outcome.refusal=1;outcome.reason="Unknown moving parcel material";break;}
+                MacMovingParcel parcel;parcel.cell_index=rect_index(s.config,item.public_cell);parcel.species_index=cat.species_of_native(item.native_index);
+                parcel.mass_kg=item.mass_kg;parcel.internal_energy_j=item.internal_energy_j;parcel.kinetic_energy_j=item.kinetic_energy_j;
+                parcel.potential_energy_j=item.potential_energy_j;parcel.momentum_x=item.momentum_x;parcel.momentum_y=item.momentum_y;parcel.passives=item.passives;
+                batch.push_back(std::move(parcel));
+            }
+            std::optional<MacParcelDepositResult> candidate;
+            if(!outcome.refusal) {candidate.emplace(world.with_moving_parcels(batch));detail::append_core_outcome(outcome,*candidate,requests);}
+            std::vector<long double> masses;long double energy=0;
+            if(!outcome.refusal) {
+                try {
+                    masses.resize(batch.size());
+                    const auto total=[](const MacEnergySum& sum) {
+                        long double value=0;for(std::size_t n=0;n<sum.size();++n)value+=mac_energy_long_double(sum.component(n));
+                        if(!std::isfinite(value))throw std::invalid_argument("Moving parcel exceeds owner reporting range");
+                        return value;
+                    };
+                    for(std::size_t n=0;n<outcome.grid.size();++n) {
+                        masses[n]=total(outcome.grid[n].mass_kg);
+                        energy+=total(outcome.grid[n].internal_energy_j)+total(outcome.grid[n].kinetic_energy_j)+total(outcome.grid[n].potential_energy_j);
+                    }
+                    if(!std::isfinite(energy))throw std::invalid_argument("Moving parcel exceeds owner reporting range");
+                } catch(const std::exception&) {outcome.refusal=16;outcome.reason="Moving parcel exceeds owner reporting range";outcome.consumed.clear();outcome.grid.clear();}
+            }
+            std::vector<std::uint8_t> encoded;
+            try {encoded=detail::encode_moving_outcome(outcome);}
+            catch(const std::invalid_argument&) {
+                outcome.refusal=17;outcome.reason="Moving parcel receipt capacity";outcome.consumed.clear();outcome.grid.clear();
+                encoded=detail::encode_moving_outcome(outcome);
+            }
+            MAOniColonyReceipt receipt{};receipt.sequence=outcome.sequence;receipt.completed_frame=outcome.frame;
+            receipt.callback=-1;receipt.kind=MA_ONI_COLONY_MOVING_PARCEL;receipt.public_cell=requests.front().public_cell;
+            receipt.native_index=requests.front().native_index;
+            // Reserve publication storage before committing the physical edit.
+            {std::lock_guard q(inputs);
+                receipts.reserve(receipts.size()+1);moving_outcomes.emplace(receipt.sequence,std::move(encoded));
+                receipt_jobs.emplace(receipt.sequence,token);committed_jobs.emplace(token,receipt.sequence);
+                receipts.push_back(receipt);receipt_sequence=receipt.sequence;
+            }
+            if(!outcome.refusal) {
+                for(std::size_t n=0;n<batch.size();++n) {L.injected[batch[n].species_index]+=masses[n];s.status.injected_kg+=static_cast<double>(masses[n]);}
+                L.energy_in+=energy;world=std::move(candidate->world);++moving_accepted;
+            } else ++moving_refused;
+            ++s.status.committed_transfers;
+        }
+        if(stage_log && !moving_jobs.empty()) {
+            const double ms=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-moving_started).count();
+            std::fprintf(stderr,"[Mixed Atmospheres] moving parcels frame %llu: batches %zu items %zu accepted %zu refused %zu ms %.6f\n",
+                static_cast<unsigned long long>(s.status.completed_frames+1),moving_jobs.size(),moving_items,moving_accepted,moving_refused,ms);
         }
         // The profile's trace sink before the flow is the flow's own (advanced()
         // applies it at both ends of its interval).
@@ -2067,11 +2179,13 @@ struct Reader {
     long double ld() { const double hi = f64(), lo = f64(); return static_cast<long double>(hi) + lo; }
 };
 constexpr char magic[8] = {'M', 'A', 'C', 'O', 'L', 'N', '0', '1'};
+// Version 9 adds canonical moving payloads per durable job, only after explicit
+// moving admission. Unused facilities retain exact version8 output.
 // Version 8 adds durable pending pipe jobs and their full passives/token watermark.
 // Version 7 adds the trace-sink ledger; version 6 the liquid-blocking cells; version 5 the inputs queued at the save; version 4 the phase-change
 // conversion ledger; version 3 stored the continuing counters explicitly
 // (version 2 the raw status struct).
-constexpr std::uint32_t checkpoint_version = 8;
+constexpr std::uint32_t checkpoint_version = 9;
 }
 std::vector<std::uint8_t> checkpoint() {
     solver.settle(false);
@@ -2080,7 +2194,10 @@ std::vector<std::uint8_t> checkpoint() {
     require(session->status.state == 1, "A faulted colony owner cannot be saved");
     const ArithmeticScope arithmetic;
     const auto& s = *session; Writer w;
-    w.raw(magic, 8); w.u32(checkpoint_version); w.raw(&s.config, sizeof(s.config));
+    // Keep the queue and selected wrapper framing one coherent save snapshot.
+    std::unique_lock input_snapshot(inputs);
+    const std::uint32_t saved_version=moving_protocol_used?9:8;
+    w.raw(magic, 8); w.u32(saved_version); w.raw(&s.config, sizeof(s.config));
     w.u32(static_cast<std::uint32_t>(s.materials.size())); w.raw(s.materials.data(), s.materials.size() * sizeof(MAOniColonyMaterial));
     w.u32(static_cast<std::uint32_t>(s.space.size())); w.raw(s.space.data(), s.space.size());
     w.u32(static_cast<std::uint32_t>(s.blocking.size())); w.raw(s.blocking.data(), s.blocking.size());
@@ -2102,10 +2219,9 @@ std::vector<std::uint8_t> checkpoint() {
     // is dropped and asked again after the load; an injection (exhaled gas, an
     // emitter's output) and native-side changes without callbacks are kept.
     std::vector<MAOniColonyTransfer> transfers; std::vector<MAOniColonyHeat> heat; std::vector<MAOniColonyTerrain> terrain; std::vector<Freeze> freezes;
-    struct SavedJob { std::uint32_t index; std::uint64_t token; PassiveQuantities passives; };
+    struct SavedJob { std::uint32_t index; std::uint64_t token; PassiveQuantities passives; std::shared_ptr<const std::vector<std::uint8_t>> moving_wire{}; };
     std::vector<SavedJob> saved_jobs; std::uint64_t saved_job_token=0;
     {
-        std::lock_guard q(inputs);
         for (const auto& [token,job] : pipe_jobs) { (void)token; require(job.last_receipt==0,"Drain committed pipe outcomes before saving"); }
         saved_job_token=accepted_job_token;
         for (std::size_t i=0;i<pending_transfers.size();++i) {
@@ -2113,7 +2229,7 @@ std::vector<std::uint8_t> checkpoint() {
             const bool answered = t.callback >= 0 || (t.kind & MA_ONI_COLONY_CONSUMER) != 0;
             if (answered && (t.kind & ~MA_ONI_COLONY_CONSUMER) != MA_ONI_COLONY_INJECT) continue;
             if (const auto job=pending_job_tokens.find(i); job!=pending_job_tokens.end())
-                saved_jobs.push_back({static_cast<std::uint32_t>(transfers.size()),job->second,pipe_jobs.at(job->second).passives});
+                saved_jobs.push_back({static_cast<std::uint32_t>(transfers.size()),job->second,pipe_jobs.at(job->second).passives,pipe_jobs.at(job->second).moving_wire});
             t.callback = -1; t.kind &= ~MA_ONI_COLONY_CONSUMER; transfers.push_back(t);
         }
         require(saved_jobs.size()==pipe_jobs.size(),"Pending pipe jobs are missing from the save queue");
@@ -2128,6 +2244,10 @@ std::vector<std::uint8_t> checkpoint() {
     for (const auto& job : saved_jobs) {
         w.u32(job.index); w.u64(job.token); w.u32(static_cast<std::uint32_t>(job.passives.size()));
         for (const auto& passive : job.passives) { w.u64(passive.identity); w.f64(passive.quantity); }
+        if(saved_version>=9) {
+            w.u32(job.moving_wire?static_cast<std::uint32_t>(job.moving_wire->size()):0);
+            if(job.moving_wire)w.raw(job.moving_wire->data(),job.moving_wire->size());
+        }
     }
     const auto image = s.world->checkpoint();
     w.u64(image.size()); w.raw(image.data(), image.size());
@@ -2144,7 +2264,7 @@ void restore(const MAOniColonyConfig& config, std::span<const MAOniColonyMateria
     require(std::memcmp(digest.data(), image.data() + image.size() - 64, 64) == 0, "Colony checkpoint checksum differs");
     Reader r{image.first(image.size() - 64)};
     char head[8]; r.raw(head, 8); require(std::memcmp(head, magic, 8) == 0, "Unsupported colony checkpoint");
-    const auto version = r.u32(); require(version == 6 || version == 7 || version == checkpoint_version, "Unsupported colony checkpoint");
+    const auto version = r.u32(); require(version == 6 || version == 7 || version == 8 || version == checkpoint_version, "Unsupported colony checkpoint");
     MAOniColonyConfig saved{}; r.raw(&saved, sizeof(saved));
     require(std::memcmp(&saved, &config, sizeof(config)) == 0, "Colony checkpoint geometry or physics differs from the loaded game");
     const auto count = r.u32(); require(count == materials.size(), "Colony checkpoint catalogue differs from the running game");
@@ -2205,6 +2325,16 @@ void restore(const MAOniColonyConfig& config, std::span<const MAOniColonyMateria
                 previous=identity; job.passives.push_back({identity,quantity});
             }
             validate_passive_quantities(job.passives);
+            if(version>=9) {
+                const auto bytes=r.u32();require(bytes<=detail::maximum_parcel_wire_bytes && bytes<=r.bytes.size()-r.at,"Invalid saved moving payload size");
+                if(bytes) {
+                    const auto wire=r.bytes.subspan(r.at,bytes);const auto request=detail::decode_moving_parcels(wire);
+                    for(const auto& item : request)(void)rect_index(config,item.public_cell);
+                    require(t.kind==MA_ONI_COLONY_INJECT && t.mass_kg==0 && t.temperature_k==0 && t.radius==0 && job.passives.empty() &&
+                        t.public_cell==request.front().public_cell && t.native_index==request.front().native_index,"Saved moving marker differs from payload");
+                    job.moving_wire=std::make_shared<const std::vector<std::uint8_t>>(wire.begin(),wire.end());r.at+=bytes;
+                }
+            }
             restored_tokens.emplace(index,token); restored_jobs.emplace(token,std::move(job));
         }
     }
@@ -2228,7 +2358,7 @@ void restore(const MAOniColonyConfig& config, std::span<const MAOniColonyMateria
         pending_job_tokens=std::move(restored_tokens); pipe_jobs=std::move(restored_jobs); accepted_job_token=restored_watermark;
         // Pending durable jobs must publish full outcomes even before the
         // managed client has finished rebuilding its port objects.
-        precise_receipts_enabled=!pipe_jobs.empty();
+        precise_receipts_enabled=!pipe_jobs.empty();moving_protocol_used=version>=9;
         // A wall queued to open is opening, as before the save.
         for (const auto& e : pending_terrain) if (e.kind == MA_ONI_COLONY_OPEN) {
             std::uint8_t closed = 0; owned[rect_index(geometry, e.public_cell)].compare_exchange_strong(closed, 3, std::memory_order_relaxed);

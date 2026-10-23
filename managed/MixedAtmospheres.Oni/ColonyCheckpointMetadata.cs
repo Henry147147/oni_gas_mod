@@ -13,7 +13,7 @@ namespace MixedAtmospheres.Oni
             if (image.Length < 12 || !image.Slice(0,8).SequenceEqual(new byte[]{77,65,67,79,76,78,48,49}))
                 throw new InvalidDataException("Missing colony checkpoint framing.");
             var version=BinaryPrimitives.ReadUInt32LittleEndian(image.Slice(8,4));
-            if(version<6 || version>8) throw new InvalidDataException("Unsupported colony checkpoint metadata version.");
+            if(version<6 || version>9) throw new InvalidDataException("Unsupported colony checkpoint metadata version.");
             var at=12;
             Skip(image,ref at,56); // MAOniColonyConfig
             var materials=U32(image,ref at);
