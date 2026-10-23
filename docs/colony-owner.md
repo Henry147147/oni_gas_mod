@@ -398,6 +398,29 @@ receipt publication** of component savings, not an end-to-end speedup. These
 are LOW-lock diagnostics and retain call warm-up; normal timing runs disable
 the byte control and all paired timers.
 
+The replacement WHOLE-lock fast Terra60 series uses one immutable package
+with the corrected stage switch, saved profile 18, diagnostic environment
+variables removed and zero diagnostic log lines/control counts verified in
+each run. A→B changes only view caching; B→C changes only receipt marshalling.
+Each completes 60 frames with 60 owner samples and 59 observed intervals.
+
+| Path | Owner mean / p95 / max ms | Observed mean / p95 / max ms | Maximum relative mass / energy error | Trace sink kg / J |
+| --- | ---: | ---: | --- | --- |
+| A: complete views, old receipts | 167.28 / 202.35 / 315.78 | 269.71 / 339.46 / 3857.64 | 2.60e-16 / 4.66e-17 | 5.566e-8 / 0.019158 |
+| B: cached views, old receipts | 169.77 / 222.24 / 342.15 | 261.79 / 331.12 / 3074.75 | 2.13e-16 / 4.64e-17 | 5.383e-8 / 0.019236 |
+| C: cached views, pinned receipts | 177.03 / 301.48 / 391.32 | 265.18 / 377.37 / 3035.15 | 4.29e-16 / 2.79e-17 | 5.242e-8 / 0.018566 |
+
+All have zero faults or skipped relaxations and verified process cleanup;
+fallback count remains unavailable. The maxima include initial UI hand-off.
+Frames 10–60 give observed means 205.57 / 207.58 / 219.26 ms, so these single
+runs do not establish an end-to-end gain or meet 2×. CPU locks exclude other
+agent builds/tests; a separate process inspection found background CPU service
+activity, so these are not exclusive-hardware measurements. Component byte
+equivalence and receipt call savings remain separate evidence. The child's
+catalogue-wide pipe fixture also verifies 127 receipt entries and 64 empty
+queues without mismatch; 74 paired calls average 0.00103 / 0.26837 ms pinned
+versus marshalled, including actual nonempty mixed-pipe outcomes.
+
 Submission/completion timing uses independent queued frame identities. ONI can
 submit the next tick before publishing the previous completion, so pairing a
 completion with the latest submission gives invalid latencies. A focused
