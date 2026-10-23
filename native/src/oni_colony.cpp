@@ -5,6 +5,7 @@
 #include "oni_colony_import.hpp"
 #include "oni_radial_consumption.hpp"
 #include "oni_precise_receipt.hpp"
+#include "oni_release_capture.hpp"
 #include "oni_sha256.hpp"
 #include "mixed_atmospheres/mac_closed_world.hpp"
 #include "mixed_atmospheres/mac_kernel.hpp"
@@ -101,6 +102,7 @@ struct Session {
     std::shared_ptr<const MacClosedWorld> world;
     Ledger ledger;
     MAOniColonyStatus status{};
+    detail::ReleaseCapture release_capture; // diagnostics only, never serialized
 };
 
 std::mutex lifecycle; // start, restore, stop, advance and checkpoint
@@ -412,6 +414,7 @@ unsigned available_cpus() {
 }
 void activate(std::unique_ptr<Session> next, std::uint64_t thread) {
     require(!enabled.load(std::memory_order_acquire), "A colony owner is already active");
+    next->release_capture.configure(std::getenv("MA_COLONY_RELEASE_DUMP"));
     // Execution only: the kernel's results never depend on its thread count.
     // Leave two logical CPUs for the game's own threads. The measured regional
     // workload gains nothing from oversubscribing twelve workers on this host.
@@ -1642,10 +1645,20 @@ void run_frame(std::uint64_t ticket, double seconds, const char* refusal, std::u
         const auto dump = [&](const char* path) {
             if (std::FILE* f = path ? std::fopen(path, "wb") : nullptr) {
                 const auto image = world.checkpoint(); const auto count = static_cast<std::uint32_t>(s.materials.size());
-                std::fwrite(&count, 4, 1, f); std::fwrite(s.materials.data(), sizeof(MAOniColonyMaterial), count, f);
-                std::fwrite(&seconds, 8, 1, f); std::fwrite(image.data(), 1, image.size(), f); std::fclose(f);
+                const bool ok = std::fwrite(&count, 4, 1, f)==1 && std::fwrite(s.materials.data(), sizeof(MAOniColonyMaterial), count, f)==count &&
+                    std::fwrite(&seconds, 8, 1, f)==1 && std::fwrite(image.data(), 1, image.size(), f)==image.size();
+                return std::fclose(f)==0 && ok;
             }
+            return false;
         };
+        if (s.release_capture.ready(s.config,world.state().grid.walls)) {
+            const auto temporary=s.release_capture.path+".tmp";
+            require(dump(temporary.c_str()),"Could not write the requested release capture");
+            require(std::rename(temporary.c_str(),s.release_capture.path.c_str())==0,"Could not publish the requested release capture");
+            s.release_capture.captured();
+            std::fprintf(stderr,"[Mixed Atmospheres] release capture before frame %llu at %.17g s: %s\n",
+                static_cast<unsigned long long>(s.status.completed_frames+1),world.time_s(),s.release_capture.path.c_str());
+        }
         if (const char* frame = std::getenv("MA_COLONY_DUMP_FRAME"); frame && s.status.completed_frames + 1 == std::strtoull(frame, nullptr, 10))
             dump(std::getenv("MA_COLONY_FAULT_DUMP"));
         std::optional<MacPhaseFlow> flowed;

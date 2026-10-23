@@ -147,7 +147,9 @@ namespace MixedAtmospheres.Oni
                         // The t = 0 sample is this tick's: the wall goes at the next.
                         var wall = Id == "f1" ? Enumerable.Range(1, 8).Select(y => (9, y)) : Id == "f3" ? Enumerable.Range(1, 8).Select(y => (6, y))
                             : Enumerable.Range(1, 8).Select(x => (x, 6));
-                        foreach (var (x, y) in wall) Replace(x, y, SimHashes.Vacuum, 0, 0);
+                        var gates = wall.ToArray();
+                        RequestReleaseCapture(gates);
+                        foreach (var (x, y) in gates) Replace(x, y, SimHashes.Vacuum, 0, 0);
                         release = ticks;
                     }
                     break;
@@ -155,6 +157,25 @@ namespace MixedAtmospheres.Oni
             if (release >= 0 && releasedAt < 0) { releasedAt = GameClock.Instance.GetTime(); simulatedAt = simulated; }
             if (release < 0 || ticks < release + Duration) return false;
             Finish(); return true;
+        }
+
+        private static void RequestReleaseCapture((int x, int y)[] gates)
+        {
+            var path = Environment.GetEnvironmentVariable("MA_COLONY_RELEASE_DUMP");
+            if (string.IsNullOrEmpty(path) || Id != "f1" && Id != "f3") return;
+            if (!ColonyOwner.Active) throw new InvalidOperationException("Release world capture requires the colony owner.");
+            if (File.Exists(path) || File.Exists(path + ".request")) throw new IOException("Release capture requires a fresh private output path.");
+            var c = ColonyOwner.Config;
+            using (var file = new BinaryWriter(File.Create(path + ".request.tmp")))
+            {
+                file.Write(System.Text.Encoding.ASCII.GetBytes("MAREL001"));
+                foreach (var dimension in new[] { c.GridWidth, c.GridHeight, c.OffsetX, c.OffsetY, c.Width, c.Height }) file.Write(dimension);
+                file.Write((uint)gates.Length);
+                foreach (var (x, y) in gates) file.Write((uint)Cell(x, y));
+            }
+            // Publishing precedes every gate removal message. A native worker
+            // cannot miss the marker while applying the already queued edits.
+            File.Move(path + ".request.tmp", path + ".request");
         }
 
         // The element's identity and the properties the metrics need, read

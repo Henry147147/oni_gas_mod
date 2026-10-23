@@ -532,6 +532,14 @@ Environment variables of the game process (the harness passes them through):
   records and the world before that step; the scratch benchmark loads it.
 - `MA_COLONY_DUMP_FRAME=n` (with the path): also write the world before frame
   n's flow.
+- `MA_COLONY_RELEASE_DUMP=path`: fixed F1/F3 owner fixtures atomically publish
+  a geometry-bound gate marker before queuing removal. The owner writes a
+  private material/world dump immediately before the first fully open flow,
+  once per session, with frame/time in the log. The path must be fresh; malformed
+  markers, failed writes and geometry mismatches fail the diagnostic. Other
+  scenarios produce no release capture. It changes no fixture, physics,
+  checkpoint or solver setting; leave it unset for timing runs. Verify the
+  completed dump's MAC checksum before reference work and keep it private.
 - `MA_COLONY_SLOW_DUMP=s` (with the path): also write the world before the
   first flow step still running after s seconds (a watchdog, so a step that
   never finishes is caught).

@@ -2,11 +2,14 @@
 // inventories, not game data.
 #include "../src/oni_colony.hpp"
 #include "../src/oni_precise_receipt.hpp"
+#include "../src/oni_release_capture.hpp"
 #include "mixed_atmospheres/mac_kernel.hpp"
 #include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstring>
+#include <chrono>
+#include <filesystem>
 #include <iostream>
 #include <stdexcept>
 #include <vector>
@@ -23,6 +26,35 @@ MAOniColonyMaterial material(const char* id, std::int32_t hash, std::uint32_t in
 constexpr std::uint32_t oxygen = 3, carbon = 4, water = 5, steam = 6, brine = 7, vacuum = 9, W = 16, H = 12, GW = 20, GH = 15, X0 = 2, Y0 = 1;
 std::uint32_t public_cell(std::uint32_t x, std::uint32_t y) { return (X0 + x) + (Y0 + y) * GW; }
 int native_cell(std::uint32_t x, std::uint32_t y) { return static_cast<int>((X0 + x + 1) + (Y0 + y + 1) * (GW + 2)); }
+void release_capture_control() {
+    const auto path=(std::filesystem::temp_directory_path()/("ma-release-control-"+
+        std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()))).string();
+    struct Cleanup { std::string path; ~Cleanup() { std::error_code ignored; std::filesystem::remove(path+".request",ignored); } } cleanup{path};
+    MAOniColonyConfig cfg{}; cfg.grid_width=cfg.width=3; cfg.grid_height=cfg.height=3;
+    std::vector<std::uint8_t> walls(9); walls[4]=walls[5]=1; const auto initial=walls;
+    ma::oni::colony::detail::ReleaseCapture capture; capture.configure(path.c_str());
+    require(!capture.ready(cfg,walls),"release capture ran before marker publication");
+    const auto request=[&](bool malformed) {
+        ma::oni::colony::detail::PreciseReceiptWriter bytes;
+        constexpr char magic[]="MAREL001"; bytes.bytes.insert(bytes.bytes.end(),magic,magic+8);
+        for (const auto dimension : {3u,3u,0u,0u,3u,3u}) bytes.u32(dimension);
+        bytes.u32(2); bytes.u32(4); bytes.u32(malformed?4u:5u);
+        std::ofstream out(path+".request",std::ios::binary|std::ios::trunc);
+        out.write(reinterpret_cast<const char*>(bytes.bytes.data()),static_cast<std::streamsize>(bytes.bytes.size()));
+        require(out.good(),"could not prepare release marker control");
+    };
+    request(true); bool rejected=false;
+    try { (void)capture.ready(cfg,walls); } catch (const std::invalid_argument&) { rejected=true; }
+    require(rejected && walls==initial,"invalid release marker admitted or altered physics");
+    request(false); require(!capture.ready(cfg,walls),"release capture ran while gates closed");
+    walls[4]=0; require(!capture.ready(cfg,walls),"release capture ran with one gate still closed");
+    walls[5]=0; const auto opened=walls; require(capture.ready(cfg,walls) && walls==opened,"release capture missed fully open gate or altered physics");
+    capture.captured(); require(!capture.ready(cfg,walls),"release capture repeated after its first image");
+    capture.configure(path.c_str()); auto incompatible=cfg; incompatible.grid_height=4; rejected=false;
+    try { (void)capture.ready(incompatible,walls); } catch (const std::invalid_argument&) { rejected=true; }
+    require(rejected,"release request geometry mismatch admitted");
+    std::cout<<"PASS release capture marker: fresh, geometry-bound, all-gates-open, once only, no physical edits\n";
+}
 struct ReceiptReader {
     const std::vector<std::uint8_t>& bytes; std::size_t at = 0;
     std::uint64_t integer(unsigned n) {
@@ -248,8 +280,10 @@ int main(int argc, char** argv) {
         if (argc == 2 && std::strcmp(argv[1], "--timestep-only") == 0) { timestep_control(); return 0; }
         if (argc == 2 && std::strcmp(argv[1], "--projection-only") == 0) { projection_control(); return 0; }
         if (argc == 2 && std::strcmp(argv[1], "--precise-receipts-only") == 0) { precise_receipt_control(); return 0; }
+        if (argc == 2 && std::strcmp(argv[1], "--release-capture-only") == 0) { release_capture_control(); return 0; }
         require(argc == 1, "Usage: ma_oni_colony_tests [--projection-only|--timestep-only|--precise-receipts-only]");
         precise_receipt_control();
+        release_capture_control();
         conversion_batch_control();
         timestep_control();
         projection_control();
