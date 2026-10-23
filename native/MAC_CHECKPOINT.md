@@ -114,6 +114,13 @@ current binary has.
 
 ### Version assignment
 
+Version **20 is reserved for the diagnostic game kernel** (2026-10-23),
+claimed immediately after fetching `ffd80f3`. It will persist numerical
+kernel3, game-profile family2 and its numerical settings. This reservation
+does not enable the kernel or change any existing image; implementation and
+in-game acceptance follow separately. Versions2–19 retain their byte layouts.
+
+
 Version **10 carries persistent primary-U corrections**. It stores complete
 physical settings (including pressure and vacuum selectors), the occupied-volume
 sidecar and one canonical correction per cell. Nonzero corrections select this
