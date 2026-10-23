@@ -152,6 +152,36 @@ internal static class Program
             Check(Image(AccessTools.Field(bufferType,"Inventory").GetValue(buffers[pumpBuffers[0]!])!).SequenceEqual(Image(expectedMix)),"Rejected buffer merge changed inventory.");
             Console.WriteLine("PASS pump storage mixing: separate compositions become one exact inventory, partial discharge samples both, rejected duplicate preserves state");
 
+            var ventRuntime=assembly.GetType("MixedAtmospheres.Oni.ColonyPipeVents")!;
+            var ventStateType=ventRuntime.GetNestedType("State",BindingFlags.NonPublic)!;
+            var ventState=RuntimeHelpers.GetUninitializedObject(ventStateType);
+            var ventStorage=(Storage)RuntimeHelpers.GetUninitializedObject(typeof(Storage));
+            var otherStorage=(Storage)RuntimeHelpers.GetUninitializedObject(typeof(Storage));
+            var ventConsumer=(ConduitConsumer)RuntimeHelpers.GetUninitializedObject(typeof(ConduitConsumer));ventConsumer.storage=ventStorage;
+            AccessTools.Field(ventStateType,"Storage").SetValue(ventState,ventStorage);
+            AccessTools.Field(ventStateType,"Consumer").SetValue(ventState,ventConsumer);
+            AccessTools.Field(ventStateType,"Buffers").SetValue(ventState,new List<ulong>{2000,2001});
+            AccessTools.Field(ventStateType,"Pending").SetValue(ventState,new HashSet<ulong>{2001});
+            buffers.Add(2000UL,Activator.CreateInstance(bufferType,BindingFlags.NonPublic|BindingFlags.Instance,null,new object[]{(byte)1,0,parcel},null)!);
+            var reserve=inventoryType.GetMethod("Single",flags)!.Invoke(null,new object[]{material,.25,300.0,0,1e-240})!;
+            var traceMass=inventoryType.GetMethod("Single",flags)!.Invoke(null,new object[]{material,1e-240,300.0,0,0.0})!;
+            reserve=inventoryType.GetMethod("Joined",BindingFlags.NonPublic|BindingFlags.Instance)!.Invoke(reserve,new[]{traceMass})!;
+            var jobType=assembly.GetType("MixedAtmospheres.Oni.PipePortJob")!;
+            var job=Activator.CreateInstance(jobType,BindingFlags.NonPublic|BindingFlags.Instance,null,new object?[]{2001UL,2001UL,0,(byte)1,0u,(uint)ordinal,1u,0u,.25,300.0,reserve,null},null)!;
+            var pendingType=portsRuntime.GetNestedType("Pending",BindingFlags.NonPublic)!;
+            ((System.Collections.IDictionary)portsRuntime.GetField("Jobs",flags)!.GetValue(null)!).Add(2001UL,
+                Activator.CreateInstance(pendingType,BindingFlags.NonPublic|BindingFlags.Instance,null,new[]{job},null)!);
+            ((System.Collections.IDictionary)ventRuntime.GetField("States",flags)!.GetValue(null)!).Add(ventStorage,ventState);
+            ventRuntime.GetProperty("Enabled",flags)!.SetValue(null,true);
+            var inventoryMethod=ventRuntime.GetMethod("Inventory",flags)!;var heldBefore=Image(inventoryMethod.Invoke(null,new object[]{ventStorage})!);
+            for(var repeat=0;repeat<100;++repeat)
+            {
+                object?[] ventRead={ventStorage,0f};Check((bool)ventRuntime.GetMethod("ReadMass",flags)!.Invoke(null,ventRead)!&&((float)ventRead[1]!) == .5f,"Vent storage omitted native-queued reservations or required scalar packets.");
+            }
+            object?[] foreignRead={otherStorage,0f};Check(!(bool)ventRuntime.GetMethod("ReadMass",flags)!.Invoke(null,foreignRead)!,"Vent storage ownership aliased another native object.");
+            Check(heldBefore.SequenceEqual(Image(inventoryMethod.Invoke(null,new object[]{ventStorage})!))&&Image(reserve).SequenceEqual(Image(AccessTools.Field(jobType,"Reserved").GetValue(job)!)),"Vent capacity/inspection reads changed precise inventory or pending reservations.");
+            Console.WriteLine("PASS vent storage readers: completed mixtures and native-queued reservations share capacity, traces survive repeated reads, foreign storage stays native");
+
         }
         finally{runtime.GetMethod("Reset",flags)!.Invoke(null,null);}
         Console.WriteLine("PASS owned pipe boundary: ordinary scalar native edges cannot cross a world ownership boundary");

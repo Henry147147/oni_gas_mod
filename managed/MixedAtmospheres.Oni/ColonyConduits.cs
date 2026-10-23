@@ -244,6 +244,12 @@ namespace MixedAtmospheres.Oni
                 {contents.diseaseIdx=checked((byte)germ.Id);contents.diseaseCount=(int)Math.Min(int.MaxValue,germ.Mass);}
             return contents;
         }
+        internal static ConduitFlow.ConduitContents Compatibility(PipeInventory inventory)=>Project(new Cell(inventory,default),default,true);
+        internal static void BookGermExchange(IEnumerable<PipePart> changes)
+        {
+            foreach(var change in changes)
+            {DiseaseExchange.TryGetValue(change.Id,out var before);DiseaseExchange[change.Id]=before.Plus(change.Amount);}
+        }
         private static void Publish(ConduitFlow flow,int index,MassPublication mode=MassPublication.Staged)
         {
             var cell=Ensure(flow,index);var contents=ReadGrid(flow,index);var mass=(float)cell.Inventory.Mass;
@@ -428,7 +434,8 @@ namespace MixedAtmospheres.Oni
     [HarmonyPatch(typeof(ConduitFlow),nameof(ConduitFlow.RemoveElement),new[]{typeof(int),typeof(float)})]
     internal static class ColonyMixedPipeRemovePatch
     {
-        private static bool Prefix(ConduitFlow __instance,int __0,float __1,ref ConduitFlow.ConduitContents __result)=>!ColonyConduits.Remove(__instance,__0,__1,ref __result);
+        private static bool Prefix(ConduitFlow __instance,int __0,float __1,ref ConduitFlow.ConduitContents __result)=>
+            !ColonyPipeVents.Remove(__instance,__0,__1,ref __result)&&!ColonyConduits.Remove(__instance,__0,__1,ref __result);
     }
     [HarmonyPatch(typeof(ConduitFlow),"DumpPipeContents")]
     internal static class ColonyMixedPipeDumpPatch

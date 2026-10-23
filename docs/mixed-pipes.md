@@ -4,8 +4,9 @@ The playtest requires an actual composition in each gas/liquid conduit cell,
 selective filtering, recipe-specific consumption, conserved heat and germs,
 and exact save continuation. Ordinary colonies still send mixture
 constituents as separate native packets. Explicit harness controls validate
-internal mixing/filtering/readers, precise world receipts and real mixed pump
-storage/output. Full production ports and the mixed save writer remain off;
+internal mixing/filtering/readers, precise world receipts, mixed pump
+storage/output, manual valves/powered shutoffs and native-controlled gas vents.
+Full production ports and the mixed save writer remain off;
 thermal, all-germ biology, remaining component ports and teardown/save
 acceptance are still open.
 
@@ -558,7 +559,7 @@ cleanup verified, fallback count unavailable. Diagnostic LOW owner mean/p95/max
 contiguous samples, no gaps); no performance claim. This does not activate
 production mixed pipes or establish vent, thermal, biology or save acceptance.
 
-### Vent surface-germ preparation (runtime inactive)
+### Vent surface-germ preparation (explicit controls only)
 
 A small pure helper prepares the vent's surface exchange separately from
 conduit scheduling. For a single integer population it preserves the native
@@ -577,7 +578,66 @@ invented. Pure controls cover native integer rounding, simultaneous identities,
 tiny fractions, huge populations, capacity, unsupported identities, arbitrary
 observed identity changes and exact replay bytes. They do not establish live
 stronger/weaker native competition, vent readiness, all-ID biological evolution
-or saved continuation. The helper has no runtime caller yet.
+or saved continuation. A new explicit gas-vent control exercises the helper;
+production activation remains off.
+
+### Gas-vent acceptance under construction
+
+Frozen before the first measurement: `mixed-pipe-gas-vents` has two sealed
+one-cell sites at arena (2,2)/(5,2), each initially 100 kg O2 at 300 K, with
+solid cardinal neighbours. Each native gas vent receives one inlet cell with
+0.375 kg O2 + 0.625 kg CO2 at 300 K. Germ quantities are 1000.25 for identity 0
+and 2000.5 + 1e-240 for identity 1. The two native bodies start with identity
+0/1 and 100 germs respectively; actual native disease strengths are reported.
+At stage 20 both vents must be blocked by native overpressure, with zero world
+delivery and all 2 kg/two constituents/two germ identities retained across
+inlets and owned storage. Exact accounts must close. Replace each site's gas
+with 0.1 kg O2 at 300 K, then check at stage 60 that all 2 kg (0.75 kg O2,
+1.25 kg CO2, within 1e-6 kg) and both germ identities reached the world, every
+inlet/storage is empty without native storage packets, native readers report
+unblocked, no jobs remain and every mass/heat/passive account closes exactly.
+Host safety cap is 90 owner frames; hitting it is stopped, not accepted.
+
+The adapter retains native consumer and Exhaust rate, power, capacity and
+overpressure decisions, with compatibility scalars used only for original
+notifications. Completed mixtures coalesce, pending output reservations keep
+occupying storage, all constituents are admitted atomically, and committed
+precise receipts settle the actual world changes. Surface transfer is staged
+before admission; rejection restores the original buffer before any body
+mutation. Native body competition remains measured independently. This is gas
+only; liquid particles, thermal work, all-ID biological evolution, teardown of
+component buffers and durable component/save continuation remain blockers.
+
+The first bounded v1 run reaches stage 60 in 61 frames and passes 12/13.
+Native overpressure retains both complete mixtures; opening delivers exactly
+2 kg (0.75/1.25 kg), empties all inlets/owned buffers/jobs without native
+storage packets, and every mass/U/passive account closes. The failed assertion
+read `ToWorld.Germs`, but that ledger intentionally stores mass/U only;
+`PassiveExchange` holds actual sequential MARECP02 before/after world changes.
+The rerun corrects that field, preserving the requirement for both delivered
+identities. Native bodies are observed as 0/100 -> 255/0 and 1/100 -> 1/99;
+their measured transfer and competition remain separate. Public native disease
+strength fields report 0/0, so differing-strength coverage is not established.
+
+World mass/energy errors are 1.850e-16/5.521e-17, trace sink zero, no native
+fault or transfer dump, cleanup verified. Retained boundary heat is
+-2.910383e-11 J; one passive representation remainder and mechanical G remain
+booked. Diagnostic LOW owner mean/p95/max 175.953/211.448/222.255 ms, observed
+272.282/347.125/3085.409 ms (61/60 samples, no gaps). No timing gain or complete
+vent acceptance is claimed from that first run.
+
+The corrected v2 run passes **13/13 in 61 frames**, with the same native hashes,
+inventories, stages and physical criteria. Actual sequential native world germ
+changes are 1905.5/3802; exact representation remainders are 0/2e-240. Both
+mixtures move completely, storage/ports empty, native readers and overpressure
+remain coherent, and all mass/U/germ accounts close. Body outcomes and the
+-2.910383e-11 J heat remainder match the first run. World mass/energy errors
+are 1.731e-16/4.819e-17, trace sink zero, no fault or capture, cleanup verified.
+Concurrent HIGH work makes this LOW run diagnostic: owner mean/p95/max
+436.385/593.952/637.843 ms, observed 597.794/696.738/4965.419 ms (61/60
+contiguous samples, no gaps); no performance comparison. Production/save
+activation, different-strength body coverage, partial storage/teardown,
+thermal accuracy, all-ID biological evolution and liquid particles remain open.
 
 ## Precise owner receipts
 

@@ -5,7 +5,7 @@ using System.Linq;
 
 namespace MixedAtmospheres.Oni
 {
-    // Explicit boundary-control runtime only. Live pumps/vents and the save
+    // Explicit boundary-control runtime only. Production pumps/vents and the save
     // writer remain gated until their component state and durable buffers are
     // included in a separately versioned runtime image.
     internal static class ColonyPipePorts
@@ -125,7 +125,7 @@ namespace MixedAtmospheres.Oni
         }
         internal static void Reset()
         {
-            Enabled=false;actorBatch=null;controlFrames=null;ColonyPipePumps.Reset();ColonyPipeTeardown.Reset();Jobs.Clear();Buffers.Clear();Seen.Clear();nextLocal=nextNative=1;
+            Enabled=false;actorBatch=null;controlFrames=null;ColonyPipePumps.Reset();ColonyPipeVents.Reset();ColonyPipeTeardown.Reset();Jobs.Clear();Buffers.Clear();Seen.Clear();nextLocal=nextNative=1;
             FromWorld=ToWorld=PipeInventory.Empty;HeatRemainder=PipeAmount.Zero;
             passiveRemainders.Clear();passiveExchange.Clear();kinetic=new PipeScaledAccount();potential=new PipeScaledAccount();momentumX=new PipeScaledAccount();momentumY=new PipeScaledAccount();
         }
@@ -228,6 +228,7 @@ namespace MixedAtmospheres.Oni
                 var settled=PipePortSettlement.Calculate(pending.Job,pending.Receipts.Complete(native,receipt.Sequence),ColonyConduits.Material);
                 Credit(pending.Job,settled);Jobs.Remove(token);
                 ColonyPipePumps.Completed(pending.Job.LocalId,pending.Legacy);
+                ColonyPipeVents.Completed(pending.Job.LocalId,settled);
                 if(controlFrames!=null)controlFrames.Add(pending.Job.LocalId,receipt.CompletedFrame);
             }
             Seen.Add(receipt.Sequence);return true;
@@ -253,6 +254,14 @@ namespace MixedAtmospheres.Oni
         }
         internal static bool IsPending(ulong localId)=>Jobs.Values.Any(p=>p.Job.LocalId==localId);
         internal static PipeInventory BufferInventory(ulong localId)=>Buffers.TryGetValue(localId,out var buffer)?buffer.Inventory:PipeInventory.Empty;
+        internal static void ReplaceBufferGerms(ulong localId,PipeInventory inventory)
+        {
+            Require();if(!Buffers.TryGetValue(localId,out var buffer)||IsPending(localId))throw new InvalidOperationException("Only a completed owned buffer may change surface germs.");
+            if(buffer.Inventory.Energy.Minus(inventory.Energy).Sign!=0||buffer.Inventory.Parts.Length!=inventory.Parts.Length)throw new InvalidOperationException("Surface exchange changed mass or heat.");
+            for(var i=0;i<inventory.Parts.Length;++i)
+                if(buffer.Inventory.Parts[i].Id!=inventory.Parts[i].Id||buffer.Inventory.Parts[i].Amount.Minus(inventory.Parts[i].Amount).Sign!=0)throw new InvalidOperationException("Surface exchange changed a constituent.");
+            buffer.Inventory=inventory;
+        }
         internal static PipeInventory OwnedInventory(ulong localId)
         {
             if(Buffers.TryGetValue(localId,out var buffer))return buffer.Inventory;

@@ -101,6 +101,7 @@ namespace MixedAtmospheres.Oni
                     case "mixed-pipe-output": MixedPipeOutput(frame); break;
                     case "mixed-pipe-teardown": MixedPipeTeardown(frame); break;
                     case "mixed-pipe-valves": MixedPipeValves(frame); break;
+                    case "mixed-pipe-gas-vents": MixedPipeGasVents(frame); break;
                     case "mixed-pipe-pumps": MixedPipePumps(frame); break;
                     case "mixed-pipe-thermal": MixedPipeThermal(frame); break;
                     case "mixed-pipe-catalogue": MixedPipeCatalogue(frame); break;

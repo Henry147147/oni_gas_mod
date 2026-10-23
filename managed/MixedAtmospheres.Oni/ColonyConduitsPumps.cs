@@ -68,7 +68,7 @@ namespace MixedAtmospheres.Oni
             if(!States.TryGetValue(consumer.storage,out var state))
             {
                 if(consumer.storage.items.Count!=0)throw new NotSupportedException("A mixed pump cannot silently adopt existing native storage packets.");
-                state=new State(consumer,dispenser,handle,cell,phase,flow);States.Add(consumer.storage,state);ByOutlet.Add((flow,cell),state);MixtureInspection.SetConduitStorageReader(Inspect);
+                state=new State(consumer,dispenser,handle,cell,phase,flow);States.Add(consumer.storage,state);ByOutlet.Add((flow,cell),state);MixtureInspection.SetConduitStorageReader(ColonyPipeVents.InspectStorage);
             }
             if(!ReferenceEquals(state.Consumer,consumer)||state.Handle!=handle||state.Cell!=cell||state.Phase!=phase)
                 throw new InvalidOperationException("Mixed pump component or native handle identity changed.");
@@ -146,7 +146,7 @@ namespace MixedAtmospheres.Oni
             }
             Prune(state);return true;
         }
-        private static MixturePipeReading? Inspect(Storage storage)=>Owns(storage)?ColonyPipeInspection.Describe(Inventory(storage),"Pump contents"):null;
+        internal static MixturePipeReading? InspectStorage(Storage storage)=>Owns(storage)?ColonyPipeInspection.Describe(Inventory(storage),"Pump contents"):null;
         internal static void ProjectStatus(ConduitDispenser dispenser)
         {
             if(!Enabled||dispenser.storage==null||!States.TryGetValue(dispenser.storage,out var state))return;
@@ -182,7 +182,7 @@ namespace MixedAtmospheres.Oni
         private static IEnumerable<MethodBase> TargetMethods()
         {yield return AccessTools.Method(typeof(Storage),"MassStored");yield return AccessTools.Method(typeof(Storage),"ExactMassStored");}
         private static bool Prefix(Storage __instance,ref float __result)
-        {if(!ColonyPipePumps.ReadMass(__instance,out var mass))return true;__result=mass;return false;}
+        {if(!ColonyPipePumps.ReadMass(__instance,out var mass)&&!ColonyPipeVents.ReadMass(__instance,out mass))return true;__result=mass;return false;}
     }
     [HarmonyPatch(typeof(ElementConsumer),"IsStorageFull")]
     internal static class ColonyMixedPumpFullPatch
@@ -195,7 +195,7 @@ namespace MixedAtmospheres.Oni
     {
         private static IEnumerable<MethodBase> TargetMethods()
         {yield return AccessTools.Method(typeof(Storage),"AddGasChunk");yield return AccessTools.Method(typeof(Storage),"AddLiquid");}
-        private static bool Prefix(Storage __instance,SimHashes __0,float __1)=>!ColonyPipePumps.SuppressStorage(__instance,__0,__1);
+        private static bool Prefix(Storage __instance,SimHashes __0,float __1)=>!ColonyPipePumps.SuppressStorage(__instance,__0,__1)&&!ColonyPipeVents.SuppressStorage(__instance,__0,__1);
     }
     // Native ConduitUpdate clears blocked even when isOn is false and it never
     // calls Dispense. Keep the owned container's reader coherent at that final
