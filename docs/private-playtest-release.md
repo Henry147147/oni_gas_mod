@@ -49,3 +49,30 @@ measurements may overlap HIGH work and establish behavior, not performance.
 
 No separate fallback counter is exposed. The 30-frame result establishes no
 ten-cycle or speed acceptance, and does not erase earlier failing profiles.
+
+## Diagnostic game-kernel checks
+
+The opt-in kernel3/core20 corrected bundle runs in the actual game, with no
+default or old-save migration. Its whole-lock Terra60 result is
+210.27/226.40/275.22 ms owner mean/p95/max and
+266.07/404.87/766.01 ms observed spacing. Mass/energy errors are
+1.673e-16/7.099e-16, trace sink 1.183e-7 kg / 0.12784 J; 120 half steps, no
+rejection, fault or skipped phase work. The adapter trace metadata defect in
+the first diagnostic was corrected before this result. The new bridge remains
+slower than profile18; these results establish neither speed nor floor acceptance.
+
+A hash-identical corrected bundle then passes all ten existing evaporation,
+door and freeze/melt checks in 139 frames. Mass/energy errors are
+3.891e-16/1.472e-15, trace sink 2.508e-7 kg / 0.262600 J, with no
+fault/rejection/skipped relaxation and verified cleanup. LOW-lock diagnostic
+owner mean/p95/max is 222.214/338.487/364.019 ms; observed
+269.668/390.172/844.487 ms (139/138 samples, none missed). This is phase and
+terrain smoke coverage, not all-machine, mixed-pipe, save or long-run acceptance.
+
+The same immutable corrected kernel3 bundle also builds a fresh prepared base
+and writes its ordinary managed save at frame 31, with all three duplicants
+alive and all four base checks passing. Saved flags are 5; no legacy save is
+migrated. Maximum mass/energy errors are 4.034e-16/4.083e-16, trace sink
+6.353e-8 kg / 0.058867 J, with no fault/skipped relaxation and verified
+cleanup. This proves save creation only; fresh-process/menu continuation,
+in-flight callbacks and full mixed-pipe saves remain separate acceptance.

@@ -231,6 +231,13 @@ buildable and the asteroid loadable.
 
 ## What plays differently from vanilla
 
+- The opt-in diagnostic kernel3 profile dampens very rapid pressure waves and
+  makes liquids more compressible (saved stiffness K/25). Two backward-Euler
+  0.1 s halves cover a tick; donor-cell gas transport spreads composition
+  fronts, internal fluid heat updates once per tick and latent phase relaxation
+  once per second. A bounded sharp-interface correction remains for liquids.
+  Mixing, inertia, per-cell physical pressure and latent heat remain present.
+  These saved family-2 numerical choices have no default or floor acceptance.
 - In the explicit mixed-pipe implementation, a deconstruction spill that cannot
   fit stays owned at its source and appears as "Fluid waiting for space". It
   releases when room opens. This behavior passes its focused control; normal
