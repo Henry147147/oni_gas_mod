@@ -4,6 +4,7 @@ using System.Linq;
 using System.Buffers.Binary;
 using System.Security.Cryptography;
 using System.Numerics;
+using MixedAtmospheres.Core;
 using MixedAtmospheres.Oni;
 
 static class Program
@@ -45,6 +46,51 @@ static class Program
     }
     static void Main(string[] args)
     {
+        byte[] AmountImage(PipeAmount amount){using var stream=new MemoryStream();using var writer=new BinaryWriter(stream);amount.Write(writer);return stream.ToArray();}
+        var operands=new[]{1.0,Math.ScaleB(1,-53),Math.ScaleB(1,-106),-.75,-Math.ScaleB(1,-54),1e200,-1e200,1e-240};
+        var expectedAmount=operands.Aggregate(PipeAmount.Zero,(sum,value)=>sum.Plus(new PipeAmount(value)));
+        var exactOracle=operands.Aggregate(default(CoupledAccountQuantity),(sum,value)=>sum.Add(CoupledAccountQuantity.FromDouble(value)));
+        Check(exactOracle.TryGetRoundedValue(out var expectedRounded),"bad exact account oracle");
+        var random=new Random(7);
+        for(var repeat=0;repeat<128;++repeat)
+        {
+            var shuffled=(double[])operands.Clone();
+            for(var i=shuffled.Length-1;i>0;--i){var other=random.Next(i+1);(shuffled[i],shuffled[other])=(shuffled[other],shuffled[i]);}
+            var amount=shuffled.Aggregate(PipeAmount.Zero,(sum,value)=>sum.Plus(new PipeAmount(value)));
+            Check(amount.Minus(expectedAmount).Sign==0,"parallel account reduction changed exact total");
+            Check(AmountImage(amount).SequenceEqual(AmountImage(expectedAmount)),"parallel account reduction changed checkpoint atoms");
+            Check(amount.Value==expectedRounded,"pipe expansion projection differs from exact integer oracle");
+        }
+        using(var stream=new MemoryStream())
+        {
+            using(var writer=new BinaryWriter(stream,System.Text.Encoding.UTF8,true)){writer.Write(3);writer.Write(Math.ScaleB(1,-106));writer.Write(Math.ScaleB(1,-53));writer.Write(1.0);}
+            var legacyAtoms=stream.ToArray();stream.Position=0;using var reader=new BinaryReader(stream);
+            var legacyAmount=PipeAmount.Read(reader);Check(AmountImage(legacyAmount).SequenceEqual(legacyAtoms),"legacy expansion bytes changed");
+            Check(legacyAmount.Value==Math.BitIncrement(1),"legacy half-ulp projection lost its decisive trace");
+        }
+        var threeTier=new PipeAmount(Math.BitIncrement(1)).Plus(new PipeAmount(Math.ScaleB(1,-53))).Plus(new PipeAmount(-Math.ScaleB(1,-106)));
+        using(var stream=new MemoryStream(AmountImage(threeTier)))using(var reader=new BinaryReader(stream))
+        {
+            var cold=PipeAmount.Read(reader);
+            Check(cold.Value==Math.BitIncrement(1)&&AmountImage(cold).SequenceEqual(AmountImage(threeTier)),"three-tier half-ulp continuation differs");
+        }
+        for(var sample=0;sample<32;++sample)
+        {
+            var values=new double[13];
+            for(var i=0;i<12;i+=2){values[i]=Math.ScaleB(.5+.5*random.NextDouble(),random.Next(-900,900));values[i+1]=-values[i];}
+            values[12]=Math.ScaleB(.5+.5*random.NextDouble(),random.Next(-900,900));
+            var reference=values.Aggregate(default(CoupledAccountQuantity),(sum,value)=>sum.Add(CoupledAccountQuantity.FromDouble(value)));
+            Check(reference.TryGetRoundedValue(out var projected),"wide scalar oracle overflow");
+            byte[]? expected=null;
+            for(var repeat=0;repeat<8;++repeat)
+            {
+                for(var i=values.Length-1;i>0;--i){var other=random.Next(i+1);(values[i],values[other])=(values[other],values[i]);}
+                var total=values.Aggregate(PipeAmount.Zero,(sum,value)=>sum.Plus(new PipeAmount(value)));
+                var bytes=AmountImage(total);expected??=bytes;
+                Check(total.Value==projected&&expected.SequenceEqual(bytes),"wide scalar reduction/projection depends on order");
+            }
+        }
+        Console.WriteLine("PASS pipe scalar determinism: permuted reductions, exact integer rounding oracle, half-ulp traces and legacy expansion bytes");
         var mixture = PipeInventory.Single(A, .4, 300, 7, 40).Joined(PipeInventory.Single(B, .6, 500, 8, 60));
         Near(mixture.Mass, 1); Near(mixture.Temperature(Material), 450);
         Check(mixture.Count == 2 && mixture.Germs.Length == 2, "one-cell composition lost");
@@ -181,6 +227,11 @@ static class Program
         Reject(()=>new PipeBoundaryState(default,mechanical,mechanical,mechanical,mechanical,3,2,new[]{queued,queued}));
         Reject(()=>new PipePortJob(3,0,35,1,36,1,1,0,.5,300,reservation));
         Reject(()=>new PipePortJob(3,0,35,1,36,1,1,0,.25,300,reservation,new[]{new PipeReceiptPassive(2,.5),new PipeReceiptPassive(1,.5)}));
+        Reject(()=>new PipePortJob(3,0,35,1,36,2,1,0,.25,300,reservation));
+        Reject(()=>new PipePortJob(3,0,35,1,36,1,1,65,.25,300,reservation));
+        Reject(()=>new PipePortJob(3,0,35,1,36,1,1,0,.25,300,reservation,new[]{new PipeReceiptPassive(1,.5001)}));
+        Reject(()=>new PipePortJob(3,0,35,1,36,1,1,0,.25,300,reservation,new[]{new PipeReceiptPassive(2,.5)}));
+        Reject(()=>new PipePortJob(3,0,35,1,36,1,1,0,.25,300,reservation.WithDiseaseDelta(0,-1e-240),new[]{new PipeReceiptPassive(1,.5)}));
         var outside=new PipePortJob(1,0,35,1,uint.MaxValue,1,1,0,.25,300,reservation);
         Reject(()=>new ColonyConduitCheckpoint(geometry,hash,Array.Empty<PipeCellImage>(),mixture,mixture,mixture,default,
             boundary:new PipeBoundaryState(default,mechanical,mechanical,mechanical,mechanical,2,1,new[]{outside})));

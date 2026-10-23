@@ -95,6 +95,7 @@ namespace MixedAtmospheres.Oni
                     case "meteor": Meteor(frame, status); break;
                     case "sensor": Sensor(frame); break;
                     case "filter": Filter(frame); break;
+                    case "mixed-pipes": MixedPipes(frame); break;
                     case "pacu": Pacu(frame); break;
                     case "liquid-pump": LiquidPump(frame); break;
                     case "base": Base(frame, status); break;
@@ -1116,6 +1117,61 @@ namespace MixedAtmospheres.Oni
         }
 
         private static readonly List<int> pipeCells = new List<int>();
+        private static void MixedPipes(int frame)
+        {
+            if(Once(0,"arena"))Arena((x,y)=>(SimHashes.Oxygen,1f,300f));
+            if(Once(5,"build"))
+            {
+                Build("GasConduitBridge",Cell(2,1));Build("LiquidConduitBridge",Cell(2,4));
+                Build("GasConduitBridge",Cell(6,1));Build("GasConduitBridge",Cell(6,2));
+                Build("LiquidConduitBridge",Cell(6,4));Build("LiquidConduitBridge",Cell(6,3));
+                Pipe(Game.Instance.gasConduitSystem,GasConduitConfig.ID,new List<int>{Cell(1,1),Cell(1,2)},
+                    new List<int>{Cell(3,1),Cell(4,1),Cell(5,1)},new List<int>{Cell(4,1),Cell(4,2),Cell(5,2)},
+                    new List<int>{Cell(7,1)},new List<int>{Cell(7,2)});
+                Pipe(Game.Instance.liquidConduitSystem,LiquidConduitConfig.ID,new List<int>{Cell(1,4),Cell(1,3)},
+                    new List<int>{Cell(3,4),Cell(4,4),Cell(5,4)},new List<int>{Cell(4,4),Cell(4,3),Cell(5,3)},
+                    new List<int>{Cell(7,4)},new List<int>{Cell(7,3)});
+            }
+            if(Once(8,"fill mixed cells"))
+            {
+                ColonyConduits.StartControl();
+                var gas=Game.Instance.gasConduitFlow;var liquid=Game.Instance.liquidConduitFlow;
+                var a=ColonyConduits.Seed(gas,Cell(1,1),SimHashes.Oxygen,.375f,280,0,375000);
+                var b=ColonyConduits.Seed(gas,Cell(1,1),SimHashes.CarbonDioxide,.625f,320,1,625000);
+                var c=ColonyConduits.Seed(liquid,Cell(1,4),SimHashes.Water,3,285,0,300000);
+                var d=ColonyConduits.Seed(liquid,Cell(1,4),SimHashes.DirtyWater,7,315,1,700000);
+                ColonyConduits.TryRead(gas,Cell(1,1),out var gasMix);ColonyConduits.TryRead(liquid,Cell(1,4),out var liquidMix);
+                Record("one gas pipe cell owns both constituents",a==.375f&&b==.625f&&gasMix.Count==2,$"{a:R}/{b:R} kg; {gasMix.Count} constituents");
+                Record("one liquid pipe cell owns both constituents",c==3&&d==7&&liquidMix.Count==2,$"{c:R}/{d:R} kg; {liquidMix.Count} constituents");
+                var oxygen=.375*ColonyConduits.MaterialOf(SimHashes.Oxygen).HeatCapacity;var co2=.625*ColonyConduits.MaterialOf(SimHashes.CarbonDioxide).HeatCapacity;
+                var water=3*ColonyConduits.MaterialOf(SimHashes.Water).HeatCapacity;var dirty=7*ColonyConduits.MaterialOf(SimHashes.DirtyWater).HeatCapacity;
+                var gasExpected=(oxygen*280+co2*320)/(oxygen+co2);var liquidExpected=(water*285+dirty*315)/(water+dirty);
+                Record("mixture equilibrium temperature uses every constituent heat capacity",Math.Abs(gasMix.Temperature(ColonyConduits.Material)-gasExpected)<1e-9&&
+                    Math.Abs(liquidMix.Temperature(ColonyConduits.Material)-liquidExpected)<1e-9,$"gas {gasMix.Temperature(ColonyConduits.Material):R}/{gasExpected:R} K; liquid {liquidMix.Temperature(ColonyConduits.Material):R}/{liquidExpected:R} K");
+            }
+            foreach(var fillFrame in new[]{10,12,14,16})
+                if(Once(fillFrame,"additional mixed packet "+fillFrame))
+                {
+                    ColonyConduits.Seed(Game.Instance.gasConduitFlow,Cell(1,1),SimHashes.Oxygen,.375f,280,0,375000);
+                    ColonyConduits.Seed(Game.Instance.gasConduitFlow,Cell(1,1),SimHashes.CarbonDioxide,.625f,320,1,625000);
+                    ColonyConduits.Seed(Game.Instance.liquidConduitFlow,Cell(1,4),SimHashes.Water,3,285,0,300000);
+                    ColonyConduits.Seed(Game.Instance.liquidConduitFlow,Cell(1,4),SimHashes.DirtyWater,7,315,1,700000);
+                }
+            if(Once(25,"check internal flow"))
+            {
+                foreach(var phase in new[]{1,2})
+                {
+                    var flow=phase==1?Game.Instance.gasConduitFlow:Game.Instance.liquidConduitFlow;var y=phase==1?1:4;
+                    var mixed=0;var reached=0.0;
+                    foreach(var cell in new[]{Cell(3,y),Cell(4,y),Cell(5,y),Cell(4,y+(phase==1?1:-1)),Cell(5,y+(phase==1?1:-1)),Cell(7,y),Cell(7,y+(phase==1?1:-1))})
+                        if(ColonyConduits.TryRead(flow,cell,out var inventory)){if(inventory.Count==2)++mixed;reached+=inventory.Mass;}
+                    Record((phase==1?"gas":"liquid")+" bridge and native branches carry actual mixtures",mixed>=2&&reached>0,$"{mixed} downstream mixed cells; {reached:R} kg");
+                }
+                Record("pipe mass, energy and every germ account close exactly",ColonyConduits.Audit(out var detail),detail);
+                Record("native pipe conduction exchanged booked heat",Math.Abs(ColonyConduits.ExchangedHeatJoules)>1e-6,$"{ColonyConduits.ExchangedHeatJoules:R} J");
+                Record("native pipe disease evolution exchanged booked germs",ColonyConduits.HasDiseaseExchange,detail);Finish();
+            }
+        }
         // A utility path as ONI's build tool lays it: each segment records its
         // connections (KAnimGraphTileVisualizer.UpdateConnections), which also
         // joins it to the network and survives a save and load.

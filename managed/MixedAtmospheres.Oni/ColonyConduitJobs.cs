@@ -19,10 +19,10 @@ namespace MixedAtmospheres.Oni
         internal PipePortJob(ulong localId,ulong nativeToken,int pipeCell,byte phase,uint worldCell,uint nativeIndex,uint kind,uint radius,
             double mass,double temperature,PipeInventory reserved,IEnumerable<PipeReceiptPassive>? passives=null)
         {
-            if(localId==0||phase!=1&&phase!=2||kind!=1&&kind!=3&&kind!=4||!(mass>0)||double.IsInfinity(mass)||
+            if(localId==0||phase!=1&&phase!=2||kind!=1&&kind!=3&&kind!=4||radius>64||!(mass>0)||double.IsInfinity(mass)||
                 double.IsNaN(temperature)||double.IsInfinity(temperature)||kind==1&&!(temperature>0)||kind!=1&&temperature!=0)
                 throw new InvalidDataException("Invalid durable pipe job.");
-            if(kind==1&&(reserved.Count!=1||new PipeAmount(mass).Minus(reserved.Total).Sign>0)||kind!=1&&reserved.Count!=0||
+            if(kind==1&&(reserved.Count!=1||nativeIndex>int.MaxValue||reserved.Parts[0].Id!=(int)nativeIndex||new PipeAmount(mass).Minus(reserved.Total).Sign>0)||kind!=1&&reserved.Count!=0||
                 kind==3&&phase!=1||kind==4&&phase!=2)throw new InvalidDataException("Invalid pipe job reservation.");
             LocalId=localId;NativeToken=nativeToken;PipeCell=pipeCell;Phase=phase;WorldCell=worldCell;NativeIndex=nativeIndex;Kind=kind;Radius=radius;
             RequestedMass=mass;Temperature=temperature;Reserved=reserved;Passives=(passives??Array.Empty<PipeReceiptPassive>()).ToArray();
@@ -31,6 +31,10 @@ namespace MixedAtmospheres.Oni
             foreach(var passive in Passives)
             {
                 if(passive.Identity<=previous||passive.Identity>0x100000000UL||!(passive.Quantity>0)||double.IsInfinity(passive.Quantity))throw new InvalidDataException("Invalid pipe job passive.");
+                var available=PipeAmount.Zero;
+                foreach(var germ in reserved.Germs)
+                    if(germ.Id>=0&&(ulong)germ.Id+1==passive.Identity)available=germ.Amount;
+                if(new PipeAmount(passive.Quantity).Minus(available).Sign>0)throw new InvalidDataException("Pipe job passive exceeds its durable reservation.");
                 previous=passive.Identity;
             }
         }

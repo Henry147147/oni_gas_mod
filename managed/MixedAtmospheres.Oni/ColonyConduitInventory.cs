@@ -20,9 +20,27 @@ namespace MixedAtmospheres.Oni
         internal int Sign => atoms == null ? 0 : Math.Sign(atoms[atoms.Length - 1]);
         internal double Value
         {
-            get { double value = 0; if (atoms != null) foreach (var atom in atoms) value += atom; return value; }
+            get
+            {
+                if(atoms==null)return 0;
+                var count=atoms.Length-1;var high=atoms[count];var low=0.0;
+                while(count>0)
+                {
+                    var previous=high;var next=atoms[--count];high=previous+next;
+                    low=next-(high-previous);if(low!=0)break;
+                }
+                // Resolve a half-ulp tie using the next exact lower part.
+                // Adding low parts upwards can erase that decisive bit.
+                if(count>0&&((low<0&&atoms[count-1]<0)||(low>0&&atoms[count-1]>0)))
+                {
+                    var doubled=low*2;var rounded=high+doubled;
+                    if(rounded-high==doubled)high=rounded;
+                }
+                return high;
+            }
         }
-        internal PipeAmount Plus(PipeAmount other)
+        internal PipeAmount Plus(PipeAmount other)=>RawPlus(other).Canonical();
+        private PipeAmount RawPlus(PipeAmount other)
         {
             if (other.atoms == null) return this;
             if (atoms == null) return other;
@@ -44,6 +62,18 @@ namespace MixedAtmospheres.Oni
                 current = result;
             }
             return new PipeAmount(current);
+        }
+        private PipeAmount Canonical()
+        {
+            if(atoms==null||atoms.Length<2)return this;
+            var remaining=this;var descending=new List<double>(atoms.Length);
+            while(remaining.Sign!=0)
+            {
+                var high=remaining.Value;descending.Add(high);
+                remaining=remaining.RawPlus(new PipeAmount(-high));
+                if(descending.Count>4096)throw new InvalidOperationException("Pipe expansion normalization failed.");
+            }
+            descending.Reverse();return new PipeAmount(descending.ToArray());
         }
         internal PipeAmount Minus(PipeAmount other) => Plus(other.Negated());
         internal PipeAmount Negated()
@@ -73,9 +103,30 @@ namespace MixedAtmospheres.Oni
         {
             var count = reader.ReadInt32();
             if (count < 0 || count > 4096) throw new InvalidDataException("Invalid pipe amount size.");
-            var result = Zero;
-            for (var i = 0; i < count; ++i) result = result.Plus(new PipeAmount(reader.ReadDouble()));
-            return result;
+            var result = Zero;var original=new double[count];var nonoverlapping=true;
+            for (var i = 0; i < count; ++i)
+            {
+                original[i]=reader.ReadDouble();
+                if(double.IsNaN(original[i])||double.IsInfinity(original[i])||original[i]==0)throw new InvalidDataException("Invalid pipe expansion atom.");
+                if(i>0)
+                {
+                    var exponent=(int)(((ulong)BitConverter.DoubleToInt64Bits(Math.Abs(original[i]))>>52)&2047);
+                    var power=exponent-1076;
+                    var half=power< -1074?0:power< -1022?BitConverter.Int64BitsToDouble(1L<<(power+1074)):
+                        BitConverter.Int64BitsToDouble((long)(power+1023)<<52);
+                    if(Math.Abs(original[i-1])>half)nonoverlapping=false;
+                }
+            }
+            // Preserve valid old schema1 expansion bytes. New arithmetic uses
+            // one canonical exact expansion, independent of reduction order.
+            if(nonoverlapping)return new PipeAmount(original);
+            try{foreach(var atom in original)result=result.RawPlus(new PipeAmount(atom));}
+            catch(InvalidOperationException error){throw new InvalidDataException("Invalid pipe expansion.",error);}
+            if((result.atoms?.Length??0)!=count)throw new InvalidDataException("Invalid pipe expansion.");
+            for(var i=0;i<count;++i)
+                if(BitConverter.DoubleToInt64Bits(result.atoms![i])!=BitConverter.DoubleToInt64Bits(original[i]))
+                    throw new InvalidDataException("Invalid pipe expansion ordering.");
+            return new PipeAmount(original);
         }
     }
 

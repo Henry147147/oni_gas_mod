@@ -59,6 +59,8 @@ def main() -> None:
     if args.game_dir:
         run(["dotnet", "build", "managed/MixedAtmospheres.Oni", "-c", "Release", "--nologo",
              "-p:OniGameDir=" + str(Path(args.game_dir).resolve())])
+        run(["dotnet", "run", "--project", "tools/ColonyConduitHookTests", "-c", "Release",
+             "-p:OniGameDir=" + str(Path(args.game_dir).resolve()), "--", str(Path(args.game_dir).resolve())])
         run(["dotnet", "run", "--project", "tools/OwnedSnapshotTests", "-c", "Release",
              "-p:OniGameDir=" + str(Path(args.game_dir).resolve()), "--", str(Path(args.game_dir).resolve())])
         run(["dotnet", "run", "--project", "tools/OwnedReservoirTests", "-c", "Release",

@@ -40,6 +40,7 @@ namespace MixedAtmospheres.Oni
         internal static bool TryWriteSave(BinaryWriter writer, int offsetX, int offsetY)
         {
             if (!ColonyOwner.Active) return false;
+            if (ColonyConduits.Active) throw new NotSupportedException("The mixed-pipe control cannot save until its durable port jobs and save barrier are validated.");
             if (ColonyOwner.Status.State != 1) throw new InvalidOperationException("A faulted colony owner cannot be saved: " + ColonyOwner.Status.Error);
             int size; byte* data = BeginSave(&size, offsetX, offsetY); byte[] native;
             try { native = new ReadOnlySpan<byte>(data, size).ToArray(); } finally { EndSave(); }

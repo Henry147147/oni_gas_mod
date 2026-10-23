@@ -4,6 +4,7 @@
     <Nullable>enable</Nullable><TreatWarningsAsErrors>true</TreatWarningsAsErrors>
   </PropertyGroup>
   <ItemGroup>
+    <ProjectReference Include="../../managed/MixedAtmospheres.Core/MixedAtmospheres.Core.csproj" />
     <Compile Include="../../managed/MixedAtmospheres.Oni/ColonyConduitInventory.cs" Link="ColonyConduitInventory.cs" />
     <Compile Include="../../managed/MixedAtmospheres.Oni/ColonyConduitCheckpoint.cs" Link="ColonyConduitCheckpoint.cs" />
     <Compile Include="../../managed/MixedAtmospheres.Oni/ColonyConduitReceipts.cs" Link="ColonyConduitReceipts.cs" />

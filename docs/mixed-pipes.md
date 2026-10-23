@@ -2,9 +2,10 @@
 
 The playtest requires an actual composition in each gas/liquid conduit cell,
 selective filtering, recipe-specific consumption, conserved heat and germs,
-and exact save continuation. The current live adapter still sends mixture
-constituents as separate native packets. The inventory and format controls
-below are groundwork; they do not activate mixed conduit ownership.
+and exact save continuation. Ordinary colonies still send mixture
+constituents as separate native packets. The explicit harness fixture below
+activates limited internal pipe ownership; production ports and the new save
+writer remain off.
 
 ## Conserved inventory
 
@@ -24,12 +25,27 @@ float temperature cannot represent, and fractional/multiple germ identities.
 Live storage changes, world receipts and all conduit integrations remain to
 be validated; these controls do not establish end-to-end game conservation.
 
-Initial model measurement (Release, high CPU lock, 2026-10-23): median
+Initial model measurement at `56b35ea` (Release, high CPU lock, 2026-10-23): median
 0.176 us/transfer and 752 allocated bytes with one species; 0.368 us and
 1,584 bytes with two species. Each uses five repeats of 20,000 alternating
 moves after 50,000 warm-up moves. This measures the pure inventory only;
 allocation remains an optimization target after the live correctness checks.
 Run with `dotnet run --project tools/ColonyConduitTests -c Release -- --benchmark`.
+
+For the new runtime, `PipeMaterial.Id` and constituent IDs are native element
+ordinals in the saved catalogue. Compatibility projections map them back to
+`SimHashes`; a negative element hash must never be cast to or confused with an
+ordinal. The existing catalogue fingerprint covers both `NativeIndex` and
+`ElementHash`. Disease IDs inside inventories are native zero-based disease
+indices; world/job passive identities are one-based. Job radius is at most
+64, an injection reserves exactly its requested native constituent, and each
+supplied passive is bounded by the exact per-ID durable reservation.
+
+Schemas 1/2 were dormant groundwork: no live mixed-pipe save or writer has
+been enabled. Their encoded numeric bytes remain unchanged. Any previously
+activated image with an ambiguous identity convention must be refused, never
+reinterpreted. The eventual live schema will tag the identity convention
+alongside durable port buffers and physical scheduling state.
 
 ## Saved framing
 
@@ -79,6 +95,59 @@ passive ordering and byte/count bounds are validated. Committed outcomes must
 be credited before both save images are captured; receipt sequence numbers
 are transient and are never restored as credit identities. This codec does
 not yet authorize live output, saving or migration.
+
+## Explicit internal-flow fixture
+
+The `mixed-pipes` harness scenario alone activates the current runtime. It
+reuses ONI's conduit graph, native branch scheduling, bridge/valve rate
+decisions and callbacks while moving actual owned mixtures. External scalar
+inputs/removals/dumps, cross-world scalar edges and saving are gated while
+the boundary/job integrations are unfinished. Ordinary colonies and old saves
+retain their existing packet behavior.
+
+The first fixture failed its branching check because both branches ended
+without consumers; each bridge's complete mixture remained in one output
+cell. The corrected fixture keeps the same requirement of at least two
+downstream mixed cells per phase, adds real consuming bridge endpoints and
+supplies several packets. On the immutable `pipes-core-a643-v2` bundle
+(native precise sidecar `529744c`), all five checks pass after 26 frames:
+one-cell gas/liquid composition, bridge/native branching and exact pipe
+mass/U/every-germ accounts. Gas reaches two mixed cells (2 kg), liquid three
+(30 kg); supplied/held mass is 32 kg, removed mass and U residual are zero.
+This fixture exchanges no heat and does not prove live conduction, phase
+change, filters, machines, external ports or save continuation.
+
+LOW-lock diagnostic timings with concurrent HIGH work allowed: owner
+mean/p95/max 171.766/208.443/233.359 ms (26 samples); observed report-completion
+spacing 328.146/287.490/3019.882 ms (25 contiguous samples, 10 ms polling,
+including arena/build work). These are fixture diagnostics, not performance
+acceptance. World mass/energy errors are 1.126e-16/5.552e-17, trace sink is
+0 kg/0 J, no owner fault occurred, and process cleanup was verified. The
+colony report does not expose a fallback count. Installed-game contract
+controls retain every original native move instruction, reject unknown
+layouts and verify cached access and legacy/boundary behavior.
+
+The subsequent `pipes-heat-732-v1` bundle uses rebuilt native metadata/capability
+2 and passes all eight checks after 26 frames. Gas mixing gives
+303.3540374939621 K and liquid mixing 306 K, exactly matching the analytic
+heat-capacity weighted temperatures. Native conduction exchanges
+-737.16118018637644 J and native disease 1 changes by -14,591 germs; the
+32 kg inventory, U and every germ account still close exactly. World
+mass/energy errors are 6.678e-17/4.995e-17, trace sink 0 kg/0 J, no owner
+fault, verified process cleanup. Diagnostic owner mean/p95/max is
+210.356/260.087/272.580 ms; observed spacing 383.958/400.380/3178.467 ms,
+with the same polling, startup/build inclusion and concurrent-HIGH caveats.
+Fallback counts remain unavailable. Valves, filters, machine recipes, vents,
+destruction, all-disease evolution and complete save continuation remain
+separate acceptance work.
+
+All ordinary inspection is read-only. Heat/germ reconciliation occurs at
+deterministic pipe/thermal update boundaries, never because a hover or audit
+was opened. A 100-read adversary with changed native temperature leaves the
+inventory and reconciliation state unchanged. Scalar sums also normalize
+to an order-independent exact expansion; 128 permuted reductions and wide
+integer-oracle cases preserve bytes and correctly resolve half-ulp traces.
+Previously encoded valid expansion bytes remain unchanged on re-encoding.
 
 ## Precise owner receipts
 

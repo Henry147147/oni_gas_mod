@@ -650,6 +650,7 @@ namespace MixedAtmospheres.Oni
         internal static void Shutdown()
         {
             ShutdownTelemetry();
+            ColonyConduits.Reset();
             actualColonyActive = false; publisher?.Dispose(); publisher = null;
             if (NativeSealedDomainValidation.IsMode) NativeSealedDomainValidation.Shutdown();
             ColonyOwner.ResetForNewSession();
