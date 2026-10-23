@@ -5,6 +5,7 @@
 #include "../src/oni_release_capture.hpp"
 #include "../src/oni_transfer_capture.hpp"
 #include "../src/oni_floor_capture.hpp"
+#include "../src/oni_parcel_wire.hpp"
 #include <cstdlib>
 #include "../src/oni_sha256.hpp"
 #include "mixed_atmospheres/mac_kernel.hpp"
@@ -222,6 +223,52 @@ void precise_receipt_control() {
         enable_precise_receipts(false); stop();
     }
     std::cout<<"PASS precise adapter receipts: scaled range, traces/passives, sequence/ack, opt-in byte-identical trajectory and legacy receipts\n";
+}
+void parcel_wire_control() {
+    using namespace ma::oni::colony::detail;
+    using ma::experimental::MacEnergy;using ma::experimental::MacExponent;
+    MovingParcelInput item;item.public_cell=11;item.native_index=oxygen;item.mass_kg=.25;
+    item.internal_energy_j=MacEnergy::from_parts(-.75,MacExponent::from_decimal("99999999999999999999999"));
+    item.kinetic_energy_j=MacEnergy::from_parts(.5,MacExponent::from_decimal("-99999999999999999999999"));
+    item.potential_energy_j=MacEnergy::from_double(-37);item.momentum_x=MacEnergy::from_double(12);item.momentum_y=MacEnergy::from_double(-13);
+    item.passives={{1,1e-240},{UINT64_MAX,37.5}};
+    auto other=item;other.native_index=carbon;other.mass_kg=.5;
+    const std::array inputs{item,other};const auto wire=encode_moving_parcels(inputs);
+    const auto decoded=decode_moving_parcels(wire);
+    require(decoded.size()==2 && decoded[0].public_cell==11 && decoded[1].native_index==carbon &&
+        decoded[0].internal_energy_j.exponent()==item.internal_energy_j.exponent() &&
+        decoded[0].internal_energy_j.mantissa()==-.75 && decoded[0].passives[0].quantity==1e-240 &&
+        decoded[0].passives[1].identity==UINT64_MAX && encode_moving_parcels(decoded)==wire,
+        "moving parcel wire narrowed range, identities or canonical bytes");
+    const auto rejects=[&](std::span<const std::uint8_t> bytes) {
+        bool refused=false;try{(void)decode_moving_parcels(bytes);}catch(const std::invalid_argument&){refused=true;}
+        require(refused,"malformed moving parcel wire admitted");
+    };
+    for(std::size_t size=0;size<wire.size();++size)rejects(std::span(wire).first(size));
+    auto bad=wire;bad.push_back(0);rejects(bad);bad=wire;bad[0]='X';rejects(bad);
+    MovingParcelInput zero;zero.public_cell=11;zero.native_index=oxygen;zero.mass_kg=1;
+    const std::array zeros{zero};const auto basic=encode_moving_parcels(zeros);
+    require(basic.size()==97 && basic[12]==11 && basic[13]==0 && basic[36]==1 && basic[40]=='0',"parcel wire is not canonical little endian");
+    bad=basic;bad[35]=128;rejects(bad); // negative zero U
+    bad=basic;bad[40]='1';rejects(bad); // zero with nonzero exponent
+    bad=basic;bad[36]=0;rejects(bad); // empty exponent
+    bad=basic;bad[36]=2;bad[40]='+';bad.insert(bad.begin()+41,'0');rejects(bad);
+    bad=basic;bad.erase(bad.begin()+40);const std::string enormous(20000,'9');
+    bad.insert(bad.begin()+40,enormous.begin(),enormous.end());bad[36]=0x20;bad[37]=0x4e;rejects(bad);
+    bad=basic;for(unsigned i=0;i<8;++i)bad[20+i]=0;rejects(bad); // zero mass
+    bad=basic;bad[27]=0x7f;bad[26]=0xf8;rejects(bad); // NaN mass
+    const auto invalid=[&](MovingParcelInput value) {
+        bool refused=false;try{const std::array values{value};(void)encode_moving_parcels(values);}catch(const std::invalid_argument&){refused=true;}
+        require(refused,"invalid native moving parcel producer admitted");
+    };
+    auto wrong=zero;wrong.kinetic_energy_j=MacEnergy::from_double(-1);invalid(wrong);
+    wrong=zero;wrong.passives={{1,1},{1,2}};invalid(wrong);
+    wrong=zero;wrong.passives={{0,1}};invalid(wrong);
+    wrong=zero;wrong.passives={{1,0}};invalid(wrong);
+    bool refused=false;try{const std::array duplicate{item,item};(void)encode_moving_parcels(duplicate);}catch(const std::invalid_argument&){refused=true;}
+    require(refused,"duplicate parcel identity admitted");
+    std::vector<std::uint8_t> oversized(maximum_parcel_wire_bytes+1);rejects(oversized);
+    std::cout<<"MOVING PARCEL WIRE PASS\n";
 }
 void parcel_context_control() {
     using namespace ma::oni::colony;
@@ -682,6 +729,7 @@ int main(int argc, char** argv) {
         if (argc == 2 && std::strcmp(argv[1], "--transfer-capture-only") == 0) { transfer_capture_control(); return 0; }
         if (argc == 2 && std::strcmp(argv[1], "--release-capture-only") == 0) { release_capture_control(); return 0; }
         if (argc == 2 && std::strcmp(argv[1], "--pipe-jobs-only") == 0) { pipe_job_control(); return 0; }
+        if (argc == 2 && std::strcmp(argv[1], "--parcel-wire-only") == 0) { parcel_wire_control(); return 0; }
         if (argc == 2 && std::strcmp(argv[1], "--sample-only") == 0) { sample_control(); return 0; }
         if (argc == 2 && std::strcmp(argv[1], "--view-cache-only") == 0) { view_cache_control(); return 0; }
         if (argc == 2 && std::strcmp(argv[1], "--actor-batch-only") == 0) { actor_batch_control(); return 0; }
@@ -691,6 +739,7 @@ int main(int argc, char** argv) {
         transfer_capture_control();
         floor_capture_control();
         release_capture_control();
+        parcel_wire_control();
         parcel_context_control();
         pipe_job_control();
         sample_control();
