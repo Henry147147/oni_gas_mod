@@ -70,9 +70,25 @@ owner mean/p95/max is 222.214/338.487/364.019 ms; observed
 terrain smoke coverage, not all-machine, mixed-pipe, save or long-run acceptance.
 
 The same immutable corrected kernel3 bundle also builds a fresh prepared base
-and writes its ordinary managed save at frame 31, with all three duplicants
+and writes its ordinary managed save, with all three duplicants
 alive and all four base checks passing. Saved flags are 5; no legacy save is
 migrated. Maximum mass/energy errors are 4.034e-16/4.083e-16, trace sink
 6.353e-8 kg / 0.058867 J, with no fault/skipped relaxation and verified
-cleanup. This proves save creation only; fresh-process/menu continuation,
-in-flight callbacks and full mixed-pipe saves remain separate acceptance.
+cleanup. The old cached report said frame 31; cold load established that the
+durable native image was frame 32. Save metadata now reads the frame from the
+returned image rather than the asynchronously cached status; native bytes and
+solver arithmetic are unchanged.
+
+Cold load of that same save restores flags 5 even with both new-colony profile
+selectors set, and advances frame 32 to 92 with three duplicants alive. There
+is one load, no save, no fault/skipped relaxation, and verified cleanup. Maximum
+mass/energy errors are 5.001e-16/7.530e-16, trace sink 1.743e-7 kg / 0.183282 J.
+LOW-lock owner mean/p95/max is 380.768/426.751/495.950 ms and observed spacing
+484.173/635.552/689.296 ms; all 60 newly advanced intervals were sampled. The
+restored 32-frame prefix is not missing measurement data.
+
+The harness admits explicit loaded-owner overwrite and same-process menu
+reload controls. The latter checks owner shutdown, a new session, source-save
+hash, colony identity and saved flags across two loads; it does not establish
+byte-exact physical continuation without an input transcript. Actual overwrite
+and menu runs, in-flight callbacks and full mixed-pipe saves remain open.

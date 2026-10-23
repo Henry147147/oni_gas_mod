@@ -122,8 +122,8 @@ namespace MixedAtmospheres.Oni
                 throw new InvalidDataException("SaveBeforeResume requires an admitted saved-colony validation scene.");
             if (configuration.VerifySaveIoRecovery && (configuration.Mode!="native-save-domain" || configuration.CompletedFrames<16))
                 throw new InvalidDataException("Save IO recovery requires the explicit source-save validation scene and at least sixteen frames.");
-            if(configuration.ReloadInProcess && (!NativeSealedDomainValidation.ColonyRestoreMode || !configuration.SaveBeforeResume))
-                throw new InvalidDataException("In-process reload requires a saved-colony load and the paused initial autosave control.");
+            if(configuration.ReloadInProcess && configuration.Mode != "colony-owner-load" && (!NativeSealedDomainValidation.ColonyRestoreMode || !configuration.SaveBeforeResume))
+                throw new InvalidDataException("In-process reload requires an owner load or a native-domain load with its paused autosave control.");
             Directory.CreateDirectory(OutputDirectory);
             if (configuration.Floor.Length != 0) FloorArenas.Configure(configuration.Floor, OutputDirectory);
             if (NativeSealedDomainValidation.IsMode)
@@ -275,6 +275,7 @@ namespace MixedAtmospheres.Oni
             if (configuration == null || done) return;
             if (configuration.Mode == "load-rejection" && OwnedReservoirLoadVisualValidation.ObserveMainMenu(menu)) return;
             NativeSealedDomainValidation.ObserveReloadMainMenu();
+            ObserveOwnerReloadMainMenu();
             if(driver!=null) {driver.Initialize(menu);return;}
             var runner = new GameObject("Mixed Atmospheres private colony validation");
             UnityEngine.Object.DontDestroyOnLoad(runner);
@@ -283,7 +284,7 @@ namespace MixedAtmospheres.Oni
 
         internal static void UpdateColony()
         {
-            if (configuration == null || done) return;
+            if (configuration == null || done || OwnerReloadRequested && ownerReload.Stage==1) return;
             if (configuration.Mode == "load-rejection")
             {
                 try { OwnedReservoirLoadVisualValidation.Tick(); }
@@ -438,14 +439,14 @@ namespace MixedAtmospheres.Oni
                 BlockedMilliseconds = ColonyOwner.BlockedMilliseconds.ToDictionary(item => item.Key.ToString(), item => item.Value),
                 LongestBlockMilliseconds = ColonyOwner.LongestBlockMilliseconds.ToDictionary(item => item.Key.ToString(), item => item.Value),
                 Census = ColonyOwner.Census.OrderByDescending(item => item.Value).ToDictionary(item => item.Key.ToString(), item => item.Value),
-                Scenario = ColonyScenarios.Current, Scenarios = ColonyScenarios.Results,
+                Scenario = ColonyScenarios.Current, Scenarios = ColonyScenarios.Results, OwnerMenuReload = OwnerReloadReport(),
                 Consumers = ColonyActors.Consumers, Emitters = ColonyActors.Emitters, NativeActors = ColonyActors.Native, ActorTransfers = ColonyActors.Queued, ConsumerEvents = ColonyActors.Delivered,
                 Error = status.Error
             };
             ReportJson.WriteAtomic(Path.Combine(OutputDirectory, "colony-owner.json"), owner);
             if (faulted) throw new InvalidOperationException("Colony owner faulted: " + status.Error);
             var loading = configuration.Mode == "colony-owner-load";
-            if (loading && ColonyOwnerPersistence.Loads != 1) throw new InvalidOperationException("The loaded colony did not restore its owner.");
+            if (loading && ColonyOwnerPersistence.Loads != (OwnerReloadRequested && ownerReload.Stage>=2 ? 2 : 1)) throw new InvalidOperationException("The loaded colony did not restore its owner.");
             // ONI pauses a colony when it loads it and after a save; an
             // unattended run plays on.
             if (SpeedControlScreen.Instance != null && SpeedControlScreen.Instance.IsPaused) SpeedControlScreen.Instance.Unpause(false);
@@ -478,6 +479,7 @@ namespace MixedAtmospheres.Oni
             Report.Status = "passed"; Report.Stage = "completed";
             Report.ActiveDlcIds = SaveLoader.Instance.GameInfo.dlcIds.ToArray();
             Report.FinishedUtc = System.DateTime.UtcNow.ToString("O");
+            if(ContinueOwnerMenuReload()) return;
             done = true; WriteReport();
             CaptureScreenshot("colony.png");
         }
@@ -630,11 +632,11 @@ namespace MixedAtmospheres.Oni
             capture?.GetMethod("CaptureScreenshot", new[] { typeof(string), typeof(int) })?.Invoke(null,
                 new object[] { Path.Combine(OutputDirectory, NativeSealedDomainValidation.ReloadScreenshotName(filename)), 1 });
         }
-        private static System.Collections.IEnumerator ReturnToMenuAfterScreenshot()
+        private static System.Collections.IEnumerator ReturnToMenuAfterScreenshot(string filename="first-load-native-domain.png")
         {
             // Unity captures at the end of the frame. Starting the loading
             // overlay immediately would put that overlay in the evidence PNG.
-            var path=Path.Combine(OutputDirectory,"first-load-native-domain.png");
+            var path=Path.Combine(OutputDirectory,filename);
             var deadline=Time.realtimeSinceStartup+10;
             yield return new WaitForEndOfFrame();
             while(!CompletedScreenshot(path)) {
@@ -659,6 +661,7 @@ namespace MixedAtmospheres.Oni
         internal static void Shutdown()
         {
             ShutdownTelemetry();
+            if(OwnerReloadRequested) ownerReload.Shutdown();
             ColonyConduits.Reset();
             actualColonyActive = false; publisher?.Dispose(); publisher = null;
             if (NativeSealedDomainValidation.IsMode) NativeSealedDomainValidation.Shutdown();

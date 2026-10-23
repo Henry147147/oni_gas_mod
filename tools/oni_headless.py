@@ -1195,14 +1195,14 @@ def main() -> int:
         print(f"oni_headless: {reason}", file=sys.stderr)
         return 2
     state = args.state.resolve()
-    if args.command == "run" and args.reload_in_process and (args.mode != "native-load-domain" or not args.resave_before_resume):
-        parser.error("--reload-in-process requires native-load-domain --resave-before-resume")
+    if args.command == "run" and args.reload_in_process and args.mode != "colony-owner-load" and (args.mode != "native-load-domain" or not args.resave_before_resume):
+        parser.error("--reload-in-process requires colony-owner-load or native-load-domain --resave-before-resume")
     if args.command == "run" and args.resave_before_resume and args.mode != "native-load-domain":
         parser.error("--resave-before-resume requires native-load-domain")
     if args.command == "run" and args.verify_save_io_recovery and (args.mode != "native-save-domain" or args.frames<16):
         parser.error("--verify-save-io-recovery requires native-save-domain and at least sixteen frames")
-    if args.command == "run" and args.save_colony and (not (args.mode.startswith("native-") or args.mode == "colony-owner") or args.mode in ("native-observer", "native-load-domain")):
-        parser.error("--save-colony requires an initial native domain scene")
+    if args.command == "run" and args.save_colony and (not (args.mode.startswith("native-") or args.mode in ("colony-owner", "colony-owner-load")) or args.mode in ("native-observer", "native-load-domain")):
+        parser.error("--save-colony requires an owner colony or an initial native domain scene")
     if args.command == "run" and isinstance(getattr(args, "cluster", None), str) and args.mode != "colony-owner":
         parser.error("--cluster needs --mode colony-owner")
     if args.command == "run" and getattr(args, "scenario", None) and args.mode != "colony-owner":

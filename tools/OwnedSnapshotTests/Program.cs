@@ -30,6 +30,16 @@ internal static unsafe class Program
     [MethodImpl(MethodImplOptions.NoInlining)]
     private static int Run(bool benchmark)
     {
+        Test("owner menu reload retires sessions and preserves source, profile and colony identity", () =>
+        {
+            var flow=new ColonyMenuReload();flow.Begin(7,5,"colony","hash");
+            var refused=false;try{flow.MainMenu(false);}catch(InvalidDataException){refused=true;}Check(refused);
+            flow.Shutdown();refused=false;try{flow.MainMenu(true);}catch(InvalidDataException){refused=true;}Check(refused);
+            flow.MainMenu(false);
+            foreach(var value in new[]{(7UL,5U,"colony","hash",2),(8UL,3U,"colony","hash",2),(8UL,5U,"other","hash",2),(8UL,5U,"colony","changed",2),(8UL,5U,"colony","hash",1)})
+            {refused=false;try{flow.Complete(value.Item1,value.Item2,value.Item3,value.Item4,value.Item5);}catch(InvalidDataException){refused=true;}Check(refused&&!flow.Verified);}
+            flow.Complete(8,5,"colony","hash",2);Check(flow.Verified&&flow.ShutdownObserved&&flow.MainMenuObserved);
+        });
         Test("save frame metadata follows durable image across reservoir and trace framing", () =>
         {
             const ulong durable=0x100000002;

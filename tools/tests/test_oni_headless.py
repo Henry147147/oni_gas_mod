@@ -2226,6 +2226,21 @@ class ConfiguredDomainMirrorTests(unittest.TestCase):
         self.assertIn("native-configured-domain",managed);self.assertIn("native-configured-water-domain",managed)
         self.assertIn("native-configured-domain",runner.LONG_RUN_MODES);self.assertIn("native-configured-water-domain",runner.LONG_RUN_MODES)
 
+    def test_owner_load_admits_overwrite_and_menu_reload_controls(self):
+        for options in (("--save-colony", "--overwrite-save"), ("--reload-in-process",)):
+            seen=[]
+            with tempfile.TemporaryDirectory() as state:
+                source=Path(state)/"input.sav"
+                source.write_bytes(b"private fixture placeholder")
+                with mock.patch.object(sys,"argv",["oni_headless","--state",state,"run","--package",state,
+                        "--mode","colony-owner-load","--load-save",str(source),*options]), \
+                        mock.patch.object(runner,"locked_command",side_effect=lambda args,state,session:seen.append(args) or 0):
+                    self.assertEqual(runner.main(),0)
+            self.assertEqual(len(seen),1)
+            configuration=runner.colony_configuration(seen[0],"MA-unit",None,0)
+            self.assertEqual(configuration["SaveOnComplete"],"--save-colony" in options)
+            self.assertEqual(configuration.get("ReloadInProcess",False),"--reload-in-process" in options)
+
     def test_configured_rooms_admit_source_saves_and_long_runs_but_not_long_run_saves(self):
         for mode in ("native-configured-domain","native-configured-water-domain"):
             self.assertIsNone(runner.run_limits_error(_run_args(mode=mode,frames=9000,timeout=172800,long_run=True)))
