@@ -20,7 +20,7 @@ internal static unsafe partial class Program
 
     private static int Main(string[] args)
     {
-        if (args.Length is not (4 or 6) || args[2] is not ("baseline" or "multi-region" or "fluid-actors" or "sealed-gas" or "sealed-water-small-heat" or "sealed-water-heat" or "sealed-water-transfer" or "sealed-water" or "sealed-heat" or "sealed-conduction" or "sealed-gravity" or "sealed-water-gravity" or "sealed-checkpoint" or "sealed-pair" or "sealed-restore" or "sealed-restore-water" or "sealed-restore-gravity" or "sealed-restore-water-gravity" or "zero-time-frame" or "native-disease-retention" or "sanitize" or "rebuild-shadow" or "load-shadow" or "transition" or "filtered-transition" or "reject-custom-envelope"))
+        if (args.Length is not (4 or 6) || args[2] is not ("baseline" or "multi-region" or "fluid-actors" or "sealed-gas" or "sealed-water-small-heat" or "sealed-water-heat" or "sealed-water-transfer" or "sealed-water" or "sealed-heat" or "sealed-conduction" or "sealed-gravity" or "sealed-water-gravity" or "sealed-checkpoint" or "sealed-pair" or "sealed-restore" or "sealed-restore-water" or "sealed-restore-gravity" or "sealed-restore-water-gravity" or "zero-time-frame" or "native-disease-retention" or "sanitize" or "rebuild-shadow" or "load-shadow" or "transition" or "filtered-transition" or "reject-custom-envelope" or "floor-f4"))
         {
             Console.Error.WriteLine("Usage: dotnet NativeShadowProbe.dll <SimDLL.dll|libSimDLL.so> <game-contract-local> <mode> <report.json> [<observer library> <game root>]");
             return 2;
@@ -48,6 +48,14 @@ internal static unsafe partial class Program
             report["elementsSha256"] = Convert.ToHexStringLower(SHA256.HashData(contract.Elements));
             report["diseasesSha256"] = Convert.ToHexStringLower(SHA256.HashData(contract.Diseases));
             report["elementCount"] = contract.Count;
+            if (args[2] == "floor-f4")
+            {
+                Require(args.Length == 4, "Vanilla F4 must run without an owner/observer library.");
+                using var vanilla = new NativeSim(nativePath);
+                VerifyNativeFloorF4(vanilla, contract, report);
+                report["passed"] = true;
+                return FinishReport(report, args[3]);
+            }
             using var observer = args.Length == 6 ? LoadObserver(args[4], args[5]) : null;
             using (var sim = new NativeSim(nativePath))
             {
@@ -273,8 +281,13 @@ internal static unsafe partial class Program
             report["error"] = error.ToString();
             Console.Error.WriteLine(error);
         }
+        return FinishReport(report, args[3]);
+    }
+
+    private static int FinishReport(Dictionary<string, object?> report, string output)
+    {
         report["completedUtc"] = DateTime.UtcNow;
-        var destination = Path.GetFullPath(args[3]);
+        var destination = Path.GetFullPath(output);
         Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
         File.WriteAllText(destination, JsonSerializer.Serialize(report, Json));
         Console.WriteLine(destination);

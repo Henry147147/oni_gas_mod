@@ -127,6 +127,36 @@ process limit; no resolved trajectories or event times are established.
 The matching reference solid heat model for F4 is still absent. These limits
 leave the affected truth metrics unresolved under the original protocol.
 
+### F4 isolated native completion probe
+
+The explicit `NativeShadowProbe floor-f4` mode runs the licensed native
+simulation with no mod owner or observer loaded. It copies all 28 binary32
+material/mass/temperature tuples from the Unity-proved `MAFLRQ01` admission
+request, verifies the actual initial native arrays, and samples 100,001 times
+over 20,000 nominal seconds. Its disposable 64×64 embedding differs from
+Unity's world coordinates and partitions: this is numerical comparison
+evidence, **not a completed aligned Unity floor measurement**. The frozen
+7×4 arena, inputs, sampling and metrics are unchanged. No world snapshots,
+saves or screenshots are written.
+
+The initial oxygen and granite masses are 4.962862968444824 kg and 400 kg;
+the boundary has 360,000 kg Unobtanium with zero runtime heat capacity.
+Initial heat is 102,103,025.81511155 J and total heat capacity is
+320,987.68584269116 J/K, giving a common caloric temperature of
+318.0901645714532 K. The native timestep is binary32 0.2 s; nominal sample
+times retain the fixed 0.2 s protocol.
+
+| Metric | Isolated native result | Limit |
+| --- | --- | --- |
+| Persistent 35 K room-difference crossing | [1.4, 1.6] s | Needs Unity alignment and resolved dynamic truth |
+| Final hot/cold mass-weighted room temperatures | 318.9563369751 / 317.1917190552 K | Last 1 s average |
+| Final fluid mass-weighted temperature | 317.9769643298 K | Absolute common-temperature error 0.1132002417 K |
+| Final / maximum absolute heat drift | +18.7065483 / 20.9790360 J | Native rounding is measured, not booked away |
+| Maximum mass drift | 0 kg | Across the complete arena |
+
+The run completes all steps with no native diagnostic errors. It does not
+supply a mod-profile result or fill F4's missing resolved solid/fluid model.
+
 ### Corrected fixture measurements
 
 The rectangle-opening and repeated object removal in `0c347d9` remove the

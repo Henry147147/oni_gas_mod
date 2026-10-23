@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from pathlib import Path
 import resource
 import subprocess
@@ -18,7 +19,7 @@ from native_probe_process import add_runtime_arguments, ProbeRuntime
 
 MODES = ("baseline", "multi-region", "fluid-actors", "rebuild-shadow", "load-shadow", "transition", "filtered-transition", "sanitize", "reject-custom-envelope")
 DOMAIN_MODES = ("sealed-gas", "sealed-water-small-heat", "sealed-water-heat", "sealed-water-transfer", "sealed-water", "sealed-heat", "sealed-conduction", "sealed-gravity", "sealed-water-gravity", "sealed-checkpoint", "sealed-pair", "sealed-restore", "sealed-restore-water", "sealed-restore-gravity", "sealed-restore-water-gravity")
-EXPERIMENT_MODES = ("zero-time-frame","native-disease-retention")
+EXPERIMENT_MODES = ("zero-time-frame","native-disease-retention","floor-f4")
 
 
 def no_core_dump() -> None:
@@ -34,11 +35,16 @@ def main() -> int:
     add_runtime_arguments(parser)
     parser.add_argument("--observer", type=Path)
     parser.add_argument("--game", type=Path)
+    parser.add_argument("--floor-request", type=Path, help="floor-f4: exact private MAFLRQ01 input proved in Unity")
     parser.add_argument("--mode", choices=(*MODES, *DOMAIN_MODES, *EXPERIMENT_MODES, "all", "domains"), default="all")
     args = parser.parse_args()
     if not sys.platform.startswith("linux"):
         parser.error("Use run.ps1 on Windows")
     runtime = ProbeRuntime(args, parser)
+    if args.mode == "floor-f4" and (args.observer or args.game or not args.floor_request or not args.floor_request.is_file()):
+        parser.error("floor-f4 requires --floor-request and must run without an observer/game owner")
+    if args.floor_request and args.mode != "floor-f4":
+        parser.error("--floor-request is only valid for floor-f4")
     if bool(args.observer) != bool(args.game) or (args.mode in (*DOMAIN_MODES, "zero-time-frame", "domains") and not args.observer):
         parser.error("Sealed domains and zero-time controls require both --observer and --game")
     if args.observer and not args.observer.is_file(): parser.error("Native observer library is missing")
@@ -60,8 +66,12 @@ def main() -> int:
         item = {"mode": mode, "expectedNegativeControl": mode in ("sanitize", "reject-custom-envelope"), "passed": False}
         try:
             with (output / f"{mode}.log").open("w") as log:
-                child = subprocess.run(command, stdout=log, stderr=subprocess.STDOUT, timeout=45,
-                                       preexec_fn=no_core_dump, check=False, env=runtime.environment())
+                environment = runtime.environment()
+                if args.floor_request:
+                    environment = dict(os.environ if environment is None else environment)
+                    environment["MA_NATIVE_FLOOR_REQUEST"] = str(args.floor_request.resolve())
+                child = subprocess.run(command, stdout=log, stderr=subprocess.STDOUT, timeout=240 if mode == "floor-f4" else 45,
+                                       preexec_fn=no_core_dump, check=False, env=environment)
             item["exitCode"] = child.returncode
             report = json.loads(report_path.read_text()) if report_path.is_file() else {}
             if mode == "sanitize":

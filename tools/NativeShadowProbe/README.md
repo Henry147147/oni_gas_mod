@@ -49,6 +49,16 @@ and `--game`. Each mode writes `<mode>.json` and `<mode>.log`, plus a
 `--wine-prefix` (a prefix mapping the host at `Z:`, with Windows x64 .NET 10)
 and `--windows-dotnet`. Wine runs never count as Windows OS or Unity tests.
 
+The explicit `floor-f4` mode measures only the licensed native simulation,
+without loading an observer or mod owner. Supply `--floor-request` with the
+private `MAFLRQ01` inputs already proved by the Unity admission capture. It
+checks all 28 starting material/mass/temperature tuples, embeds the fixed
+7×4 arena in the disposable 64×64 world, and takes 100,001 samples over
+20,000 nominal seconds, with a 240-second process bound. Its report contains
+aggregate numerical metrics only. Different coordinates/partitions and Unity
+frame alignment remain unproved; this isolated result is not floor acceptance.
+The ordinary 45-second bounds and default mode lists are unchanged.
+
 On Windows, `run.ps1` runs one mode (`-ProbeDirectory`, `-NativeDll`,
 `-ContractDirectory`, `-OutputDirectory`, `-Mode`, optional `-Observer` and
 `-GameDirectory`). It copies the assemblies to a local temporary folder first,
