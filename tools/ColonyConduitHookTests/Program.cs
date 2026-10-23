@@ -97,6 +97,32 @@ internal static class Program
             var movable=(Delegate)runtime.GetField("Movable",flags)!.GetValue(null)!;
             Check(stagedProjection.mass==.5f&&(float)movable.DynamicInvoke(stagedProjection)! == .25f,
                 "A one-ulp scalar correction made recently received mass movable before its native tick.");
+            var pumpRuntime=assembly.GetType("MixedAtmospheres.Oni.ColonyPipePumps")!;
+            var portsRuntime=assembly.GetType("MixedAtmospheres.Oni.ColonyPipePorts")!;
+            pumpRuntime.GetProperty("Enabled",flags)!.SetValue(null,true);
+            var consumer=(ElementConsumer)RuntimeHelpers.GetUninitializedObject(typeof(ElementConsumer));
+            var storage=(Storage)RuntimeHelpers.GetUninitializedObject(typeof(Storage));
+            var dispenser=(ConduitDispenser)RuntimeHelpers.GetUninitializedObject(typeof(ConduitDispenser));
+            consumer.storage=storage;dispenser.storage=storage;dispenser.isOn=false;
+            var pumpStateType=pumpRuntime.GetNestedType("State",BindingFlags.NonPublic)!;
+            var pumpState=Activator.CreateInstance(pumpStateType,BindingFlags.NonPublic|BindingFlags.Instance,null,new object[]{consumer,dispenser,123,0,(byte)1,flow},null)!;
+            var bufferType=portsRuntime.GetNestedType("Buffer",BindingFlags.NonPublic)!;
+            var buffer=Activator.CreateInstance(bufferType,BindingFlags.NonPublic|BindingFlags.Instance,null,new object[]{(byte)1,0,inventory},null)!;
+            ((System.Collections.IDictionary)portsRuntime.GetField("Buffers",flags)!.GetValue(null)!).Add(999UL,buffer);
+            ((System.Collections.IList)AccessTools.Field(pumpStateType,"Buffers").GetValue(pumpState)!).Add(999UL);
+            ((System.Collections.IDictionary)pumpRuntime.GetField("ByOutlet",flags)!.GetValue(null)!).Add((flow,0),pumpState);
+            var full=inventoryType.GetMethod("Single",flags)!.Invoke(null,new object[]{material,1.0,300.0,0,0.0})!;
+            AccessTools.Field(cellType,"Inventory").SetValue(owned,full);
+            pumpRuntime.GetMethod("ProjectPipe",flags)!.Invoke(null,new object[]{flow,0});
+            Check(dispenser.blocked&&!dispenser.empty,"Inactive full pump status was not invalidated by an outlet publication.");
+            AccessTools.Field(cellType,"Inventory").SetValue(owned,inventory);
+            pumpRuntime.GetMethod("ProjectPipe",flags)!.Invoke(null,new object[]{flow,0});
+            Check(!dispenser.blocked&&!dispenser.empty,"Opening outlet room retained stale blocked state.");
+            var empty=inventoryType.GetField("Empty",flags)!.GetValue(null)!;AccessTools.Field(bufferType,"Inventory").SetValue(buffer,empty);
+            pumpRuntime.GetMethod("ProjectPipe",flags)!.Invoke(null,new object[]{flow,0});
+            Check(dispenser.empty&&!dispenser.blocked&&ReferenceEquals(AccessTools.Field(cellType,"Inventory").GetValue(owned),inventory),
+                "Owned pump status changed a physical inventory or retained a stale empty state.");
+            Console.WriteLine("PASS pump status boundary: inactive/full, reopened outlet and emptied buffer update readers without changing inventories");
         }
         finally{runtime.GetMethod("Reset",flags)!.Invoke(null,null);}
         Console.WriteLine("PASS owned pipe boundary: ordinary scalar native edges cannot cross a world ownership boundary");

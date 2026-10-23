@@ -59,6 +59,8 @@ namespace MixedAtmospheres.Oni
         private static readonly FieldInfo FilterType=AccessTools.Field(FilterPort.FieldType,"conduitType");
         private static int generation, sessionBindingCount;
         private static Func<ConduitFlow,int,string,MixturePipeReading?>? pipeReader;
+        private static Func<Storage,MixturePipeReading?>? conduitStorageReader;
+        internal static void SetConduitStorageReader(Func<Storage,MixturePipeReading?>? reader){conduitStorageReader=reader;++generation;}
         internal static void SetPipeReader(Func<ConduitFlow,int,string,MixturePipeReading?>? reader){pipeReader=reader;++generation;}
         private static long hoverDraws, detailsDraws, ownedContainerDraws, nativeContainerDraws;
         // Private in-game evidence only. Ordinary hover has no observer and
@@ -528,6 +530,15 @@ namespace MixedAtmospheres.Oni
             {
                 if (suppressed.Contains(storageRoots[storage])) continue;
                 if (storage is Component component && suppressed.Contains(component.gameObject)) continue;
+                if(conduitStorageReader!=null&&storage is Storage nativeStorage)
+                {
+                    try
+                    {
+                        var reading=conduitStorageReader(nativeStorage);
+                        if(reading!=null){result.Pipes.Add(reading);continue;}
+                    }
+                    catch(Exception error){result.Errors.Add("Conduit storage unavailable: "+error.Message);continue;}
+                }
                 foreach (var item in storage.GetItems()) if (item != null && !suppressed.Contains(item)) AddNativePrimary(item, "Stored packet", result, seenPackets);
             }
             var conduit = target.GetComponent<Conduit>();

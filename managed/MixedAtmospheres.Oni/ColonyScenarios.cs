@@ -39,7 +39,7 @@ namespace MixedAtmospheres.Oni
         private static readonly List<GameObject> powered = new List<GameObject>();
 
         internal static void Reset() { Results.Clear(); index = 0; Next(); }
-        private static void Next() { Current = new Result(); started = 0; step = 0; recorded.Clear(); powered.Clear(); filling = null; pipeCells.Clear(); generators.Clear(); mixedFilters.Clear();mixedSensors.Clear();mixedDiseaseSensor=null;mixedBoundaryJobs.Clear(); }
+        private static void Next() { Current = new Result(); started = 0; step = 0; recorded.Clear(); powered.Clear(); filling = null; pipeCells.Clear(); generators.Clear(); mixedFilters.Clear();mixedSensors.Clear();mixedDiseaseSensor=null;mixedBoundaryJobs.Clear();mixedPumps.Clear();mixedPumpHeldOutputs.Clear(); }
 
         // Called every Unity frame while the owner runs. Returns true when
         // every scenario of the list is done.
@@ -98,6 +98,8 @@ namespace MixedAtmospheres.Oni
                     case "mixed-pipes": MixedPipes(frame); break;
                     case "mixed-pipe-filter": MixedPipeFilter(frame); break;
                     case "mixed-pipe-boundary": MixedPipeBoundary(frame); break;
+                    case "mixed-pipe-pumps": MixedPipePumps(frame); break;
+                    case "mixed-pipe-catalogue": MixedPipeCatalogue(frame); break;
                     case "pacu": Pacu(frame); break;
                     case "liquid-pump": LiquidPump(frame); break;
                     case "base": Base(frame, status); break;
@@ -1118,6 +1120,177 @@ namespace MixedAtmospheres.Oni
             return total;
         }
 
+        private static void MixedPipeCatalogue(int frame)
+        {
+            if(Once(0,"catalogue arena"))Arena((x,y)=>(SimHashes.Oxygen,1f,300f));
+            if(Once(5,"catalogue cells"))
+            {
+                Pipe(Game.Instance.gasConduitSystem,GasConduitConfig.ID,new List<int>{Cell(3,5)});
+                Pipe(Game.Instance.liquidConduitSystem,LiquidConduitConfig.ID,new List<int>{Cell(3,5)});
+            }
+            if(Once(8,"all catalogue fluid routes"))
+            {ColonyConduits.StartControl();ColonyPipePorts.StartControl();CataloguePipeRoutes();Finish();}
+        }
+        private static void CataloguePipeRoutes()
+        {
+            for(var phase=0;phase<2;++phase)
+            {
+                var entries=ColonyOwner.Materials.Where(m=>m.Phase==(uint)(phase+1)).OrderBy(m=>m.NativeIndex).ToArray();
+                var inventory=PipeInventory.Empty;
+                for(var i=0;i<entries.Length;++i)inventory=inventory.Joined(PipeInventory.Single(ColonyConduits.Material((int)entries[i].NativeIndex),1e-6,300,i%2,i%2==0?.25:1e-240));
+                var flow=phase==0?Game.Instance.gasConduitFlow:Game.Instance.liquidConduitFlow;
+                ColonyConduits.SupplyControlInventory(flow,Cell(3,5),inventory);ColonyConduits.TryRead(flow,Cell(3,5),out var routed);
+                var okay=routed.Count==entries.Length&&entries.Any(m=>m.ElementHash<0)&&entries.All(m=>routed.SpeciesMass((int)m.NativeIndex)>0&&ColonyConduits.ElementHash((int)m.NativeIndex)==(SimHashes)m.ElementHash);
+                Record((phase==0?"all catalogue gases":"all catalogue liquids")+" retain native ordinal and hash routing",okay,$"{routed.Count}/{entries.Length} constituents; {entries.Count(m=>m.ElementHash<0)} negative hashes");
+                Record((phase==0?"gas":"liquid")+" catalogue cell retains simultaneous germ identities",routed.Germs.Length==2,$"{routed.Germs.Length} germ identities");
+                ColonyPipePorts.HoldForPort(flow,Cell(3,5),double.MaxValue);
+            }
+            Record("catalogue routes conserve every account",ColonyConduits.Audit(out var detail),detail);
+        }
+        private static readonly List<GameObject> mixedPumps=new List<GameObject>();
+        private static readonly List<ulong> mixedPumpHeldOutputs=new List<ulong>();
+        private static int PumpOutlet(GameObject pump)=>(int)AccessTools.Field(typeof(ConduitDispenser),"utilityCell").GetValue(pump.GetComponent<ConduitDispenser>());
+        private static bool PumpAt(int at,string label)=>Once(at+(recorded.TryGetValue("pump setup delay",out var delay)?(int)delay:0),label);
+        private static void MixedPipePumps(int frame)
+        {
+            if(Once(0,"mixed pump chambers"))Arena((x,y)=>x==4?(SimHashes.Unobtanium,20000f,300f):x<4?
+                ((x+y)%2==0?SimHashes.Oxygen:SimHashes.CarbonDioxide,1.2f,300f):
+                (y<=2?((x+y)%2==0?SimHashes.Water:SimHashes.DirtyWater,500f,300f):(SimHashes.Oxygen,1.2f,300f)));
+            if(Once(5,"build inactive pumps"))
+            {
+                mixedPumps.Add(Build(GasPumpConfig.ID,Cell(1,0)));mixedPumps.Add(Build(LiquidPumpConfig.ID,Cell(5,0)));
+                foreach(var pump in mixedPumps)pump.GetComponent<ElementConsumer>().EnableConsumption(false);
+                SimMessages.AddRemoveSubstance(Cell(1,1),SimHashes.Oxygen,CellEventLogger.Instance.OxygenModifierSimUpdate,.01f,300,0,1000);
+                SimMessages.AddRemoveSubstance(Cell(1,1),SimHashes.CarbonDioxide,CellEventLogger.Instance.OxygenModifierSimUpdate,.01f,300,1,2000);
+                SimMessages.AddRemoveSubstance(Cell(5,1),SimHashes.Water,CellEventLogger.Instance.OxygenModifierSimUpdate,.01f,300,0,1000);
+                SimMessages.AddRemoveSubstance(Cell(5,1),SimHashes.DirtyWater,CellEventLogger.Instance.OxygenModifierSimUpdate,.01f,300,1,2000);
+            }
+            if(Once(7,"isolated pump outputs"))
+            {
+                Pipe(Game.Instance.gasConduitSystem,GasConduitConfig.ID,new List<int>{PumpOutlet(mixedPumps[0])},new List<int>{Cell(0,4)},new List<int>{Cell(3,5)});
+                Pipe(Game.Instance.liquidConduitSystem,LiquidConduitConfig.ID,new List<int>{PumpOutlet(mixedPumps[1])},new List<int>{Cell(7,4)},new List<int>{Cell(3,5)});
+            }
+            if(frame>=8&&step<=8)
+            {
+                var ready=mixedPumps.Count==2;
+                for(var phase=0;ready&&phase<2;++phase)
+                {
+                    var flow=phase==0?Game.Instance.gasConduitFlow:Game.Instance.liquidConduitFlow;
+                    ready=flow.HasConduit(PumpOutlet(mixedPumps[phase]))&&flow.HasConduit(Cell(3,5))&&flow.HasConduit(phase==0?Cell(0,4):Cell(7,4));
+                }
+                if(!ready)
+                {
+                    Current.Stage="waiting for native pump pipe topology";
+                    if(frame>=30){Record("native pump pipe topology became ready",false,"readiness barrier expired before intake activation");Finish();}
+                    return;
+                }
+                recorded["pump setup delay"]=frame-8;
+            }
+            if(PumpAt(8,"own fresh pump storage and catalogue routes"))
+            {
+                ColonyConduits.StartControl();ColonyPipePorts.StartControl();ColonyPipePumps.StartControl();
+                CataloguePipeRoutes();
+                foreach(var pump in mixedPumps)pump.GetComponent<ElementConsumer>().EnableConsumption(true);
+            }
+            if(PumpAt(18,"actual powered mixed pump outputs"))
+            {
+                Record("both real pump components own their intake",ColonyPipePumps.BoundPumps==2,$"{ColonyPipePumps.BoundPumps} pumps; {ColonyPipePumps.Queued} requests; {ColonyPipePumps.Notifications} notifications");
+                for(var phase=0;phase<2;++phase)
+                {
+                    var pump=mixedPumps[phase];var flow=phase==0?Game.Instance.gasConduitFlow:Game.Instance.liquidConduitFlow;
+                    ColonyConduits.TryRead(flow,PumpOutlet(pump),out var output);var held=ColonyPipePumps.Inventory(pump.GetComponent<Storage>());var all=output.Joined(held);
+                    Record((phase==0?"gas":"liquid")+" pump emits a real one-cell mixture",output.Count>=2,$"{output.Count} pipe constituents; {output.Mass:R} kg; {MachineState(pump)}");
+                    Record((phase==0?"gas":"liquid")+" pump retains simultaneous germ identities",all.Germs.Length>=2,$"{all.Germs.Length} germ identities");
+                    Record((phase==0?"gas":"liquid")+" pump has one authoritative inventory",pump.GetComponent<Storage>().items.Count==0&&ColonyPipePumps.Owns(pump.GetComponent<Storage>()),$"native packets {pump.GetComponent<Storage>().items.Count}; owned buffer {held.Mass:R} kg");
+                    Record((phase==0?"gas":"liquid")+" native pump accumulator receives consumed mass",pump.GetComponent<ElementConsumer>().AverageConsumeRate>0,$"{pump.GetComponent<ElementConsumer>().AverageConsumeRate:R} kg/s");
+                }
+            }
+            if(PumpAt(20,"hold output while native storage fills"))
+            {
+                // RequireOutputs intentionally wants an empty outlet. Stop the
+                // native dispenser while keeping that outlet empty to measure
+                // the real storage limit without replacing its operational gate.
+                for(var phase=0;phase<2;++phase)
+                {
+                    var flow=phase==0?Game.Instance.gasConduitFlow:Game.Instance.liquidConduitFlow;
+                    mixedPumps[phase].GetComponent<ConduitDispenser>().SetOnState(false);
+                    mixedPumpHeldOutputs.Add(ColonyPipePorts.HoldForPort(flow,PumpOutlet(mixedPumps[phase]),double.MaxValue));
+                }
+            }
+            if(PumpAt(42,"restore controlled full outputs"))
+            {
+                for(var phase=0;phase<2;++phase)
+                {
+                    var flow=phase==0?Game.Instance.gasConduitFlow:Game.Instance.liquidConduitFlow;var cell=PumpOutlet(mixedPumps[phase]);
+                    ColonyPipePorts.PlaceBuffer(mixedPumpHeldOutputs[phase]);ColonyConduits.TryRead(flow,cell,out var output);
+                    var room=new PipeAmount(phase==0?1:10).Minus(output.Total);
+                    if(room.Sign>0)
+                    {
+                        var material=ColonyConduits.MaterialOf(phase==0?SimHashes.Oxygen:SimHashes.Water);
+                        var energy=room.Times(material.HeatCapacity*300).Plus(room.Times(material.EnergyOffset));
+                        ColonyConduits.SupplyControlInventory(flow,cell,PipeInventory.Conserved(new[]{new PipePart(material.Id,room)},energy,Array.Empty<PipePart>()));
+                    }
+                    mixedPumps[phase].GetComponent<ConduitDispenser>().SetOnState(true);
+                }
+            }
+            if(PumpAt(45,"blocked output preserves native storage capacity"))
+            {
+                for(var phase=0;phase<2;++phase)
+                {
+                    var pump=mixedPumps[phase];var storage=pump.GetComponent<Storage>();var flow=phase==0?Game.Instance.gasConduitFlow:Game.Instance.liquidConduitFlow;
+                    ColonyConduits.TryRead(flow,PumpOutlet(pump),out var output);var held=ColonyPipePumps.Inventory(storage);
+                    Record((phase==0?"gas":"liquid")+" pump stops at blocked capacity",Math.Abs(output.Mass-(phase==0?1:10))<1e-5&&Math.Abs(held.Mass-storage.capacityKg)<1e-5&&pump.GetComponent<ConduitDispenser>().blocked,
+                        $"pipe {output.Mass:R}; exact room {new PipeAmount(phase==0?1:10).Minus(output.Total).Value:R}; buffer {held.Mass:R}/{storage.capacityKg:R}; blocked {pump.GetComponent<ConduitDispenser>().blocked}; isOn {pump.GetComponent<ConduitDispenser>().isOn}; always {pump.GetComponent<ConduitDispenser>().alwaysDispense}; {MachineState(pump)}");
+                }
+                Record("native pump stored notifications and accumulators still run",ColonyPipePumps.Notifications>0&&mixedPumps.All(p=>p.GetComponent<ElementConsumer>().AverageConsumeRate>=0),$"notifications {ColonyPipePumps.Notifications}");
+                var text=MixtureInspection.GetContainerInspectionText(mixedPumps[0]);
+                Record("pump inspection exposes actual held mixture",text.Contains("Pump contents")&&!text.Contains("Native inventory"),text);
+            }
+            if(PumpAt(46,"release partial output room"))
+            {
+                recorded["pump requests before room"]=ColonyPipePumps.Queued;
+                for(var phase=0;phase<2;++phase)
+                {
+                    var flow=phase==0?Game.Instance.gasConduitFlow:Game.Instance.liquidConduitFlow;
+                    ColonyConduits.TransferSelected(flow,PumpOutlet(mixedPumps[phase]),phase==0?Cell(0,4):Cell(7,4),-1,true,phase==0?.25:3);
+                }
+            }
+            if(PumpAt(52,"partial output refills and disable pumps"))
+            {
+                for(var phase=0;phase<2;++phase)
+                {
+                    var flow=phase==0?Game.Instance.gasConduitFlow:Game.Instance.liquidConduitFlow;ColonyConduits.TryRead(flow,PumpOutlet(mixedPumps[phase]),out var output);
+                    Record((phase==0?"gas":"liquid")+" pump fills partial room without overflow",Math.Abs(output.Mass-(phase==0?1:10))<1e-5&&output.Total.Minus(new PipeAmount(phase==0?1:10)).Sign<=0,$"{output.Mass:R} kg; {output.Count} constituents");
+                    mixedPumps[phase].GetComponent<ConduitDispenser>().SetOnState(false);
+                    ColonyPipePorts.HoldForPort(flow,PumpOutlet(mixedPumps[phase]),double.MaxValue);
+                }
+                recorded["requests before empty outlet"]=ColonyPipePumps.Queued;
+            }
+            if(PumpAt(64,"native empty outlet resumes intake then disable"))
+            {
+                Record("pumps resume intake after output room opens",ColonyPipePumps.Queued>recorded["requests before empty outlet"],$"{recorded["requests before empty outlet"]:R} -> {ColonyPipePumps.Queued}");
+                for(var phase=0;phase<2;++phase)
+                {
+                    var pump=mixedPumps[phase];var flow=phase==0?Game.Instance.gasConduitFlow:Game.Instance.liquidConduitFlow;
+                    // Make real storage room and leave the outlet empty. The
+                    // disabled intake check then cannot pass because of either
+                    // full storage or a blocked native outlet.
+                    pump.GetComponent<ConduitDispenser>().SetOnState(true);
+                    ColonyPipePumps.Dispense(pump.GetComponent<ConduitDispenser>());
+                    pump.GetComponent<ConduitDispenser>().SetOnState(false);
+                    ColonyPipePorts.HoldForPort(flow,PumpOutlet(pump),double.MaxValue);
+                    pump.GetComponent<Operational>().SetFlag(BuildingEnabledButton.EnabledFlag,false);
+                    var storage=pump.GetComponent<Storage>();ColonyConduits.TryRead(flow,PumpOutlet(pump),out var empty);
+                    Record((phase==0?"gas":"liquid")+" disabled pump still has real intake room",ColonyPipePumps.Inventory(storage).Mass<storage.capacityKg&&empty.Count==0,$"{ColonyPipePumps.Inventory(storage).Mass:R}/{storage.capacityKg:R} kg; outlet {empty.Mass:R} kg");
+                }
+            }
+            if(PumpAt(66,"record disabled requests"))recorded["pump requests"]=ColonyPipePumps.Queued;
+            if(PumpAt(70,"disabled pumps and exact final accounts"))
+            {
+                Record("disabled pumps queue no further world consumption",ColonyPipePumps.Queued==recorded["pump requests"],$"{recorded["pump requests"]:R} -> {ColonyPipePumps.Queued}");
+                Record("pump pipe and world accounts close",ColonyConduits.Audit(out var detail),detail);Finish();
+            }
+        }
         private static readonly List<ulong> mixedBoundaryJobs=new List<ulong>();
         private static void MixedPipeBoundary(int frame)
         {

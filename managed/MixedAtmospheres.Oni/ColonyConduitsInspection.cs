@@ -8,6 +8,10 @@ namespace MixedAtmospheres.Oni
         internal static MixturePipeReading? Read(ConduitFlow flow,int cell,string label)
         {
             if(!ColonyConduits.TryRead(flow,cell,out var inventory))return null;
+            return Describe(inventory,label);
+        }
+        internal static MixturePipeReading Describe(PipeInventory inventory,string label)
+        {
             var hover=new List<string>();var detail=new List<string>();
             if(inventory.Count==0)return new MixturePipeReading(label,new[]{"Empty"},new[]{"Empty"});
             var temperature=inventory.Temperature(ColonyConduits.Material);

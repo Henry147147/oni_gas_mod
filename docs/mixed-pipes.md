@@ -219,11 +219,75 @@ unavailable. Release83, seven pure groups, five hook groups, 37 inspection,
 credited before legacy acknowledgement; inactive colonies avoid all optional
 pipe receipt queries and acknowledgement allocations.
 
-This boundary fixture is explicit and does not enable component ports. Full
-pumps, vents, native storage/recipe adapters, destruction, pipe phase behavior
-and saved physical scheduling remain open. ONI's ordinary conduit save omits
+This boundary fixture is explicit and does not enable component ports. The
+separate pump control below adds bounded component coverage. Vents, native
+storage/recipe adapters, destruction, pipe phase behavior and saved physical
+scheduling remain open. ONI's ordinary conduit save omits
 transient movement staging, fairness directions and timers; an inventory-only
 round trip does not establish deterministic gameplay continuation.
+
+## Catalogue and real pump controls
+
+The explicit `mixed-pipe-catalogue` control routes all 29 registered gases and
+49 liquids through actual owned conduit cells, preserving two simultaneous
+germ identities and exact inventory/heat accounts. Nineteen gas and 27 liquid
+compatibility hashes are negative; authoritative identities remain native
+ordinals. Immutable `pipes-catalogue-e652-v1` passes 5/5 checks in nine frames,
+retaining 0.000078 kg in two buffers. This checks identity/routing, not every
+material's phase or thermal behavior. World mass/energy errors are
+5.902e-17/4.637e-17, trace sink zero, no owner fault, cleanup verified.
+
+`mixed-pipe-pumps` owns fresh gas/liquid pump storage and queues their complete
+phase extractions as durable jobs inside one ordered native actor batch.
+Ordinary A/pump/B requests cannot cross a frame boundary between separate
+enqueues. The optional batch capability is required before intake activation;
+inactive colonies keep their original final actor batch. Native registrations,
+power, rates, output requirements, consumed/stored notifications and
+accumulators remain active. The original callback reaches its storage boundary
+once, where owned inventory replaces the scalar packet write. Storage readers
+and inspection report that actual inventory. Outlet publications and buffer
+changes invalidate derived empty/blocked status without moving material.
+
+The 25 fixed checks cover mixed single-cell outputs, both germ identities,
+empty scalar storage, native notifications/accumulators, blocked storage
+capacity, partial outlet refill, resumed intake, disabled intake with real
+room, and exact mass/U/germ/mechanical accounts. Native `RequireOutputs` waits
+for an empty outlet; the fixture honors that gate. Its first live v2 run passed
+21/25: four setup assumptions incorrectly expected intake through a nonempty
+outlet. Corrected stages fill storage with the dispenser off and outlet empty,
+then restore an exactly full outlet using explicitly booked fixture supply.
+V3 and v5 passed 24/25 and v4 passed 23/25: the remaining failures exposed stale
+blocked indicators. A direct installed-component control now checks inactive
+full storage, reopened room and emptied buffers without changing inventory.
+V6 stopped during setup before the pump checks because native topology was not
+ready; bounded readiness now precedes activation and shifts later stages by the
+same delay. These failed runs do not establish pump acceptance.
+
+Immutable `pipes-pumps-736-v7` passes all 25 checks in 71 completed frames.
+Seventy original stored notifications run; blocked buffers hold exactly 1 kg
+gas and 20 kg liquid beside exactly full 1/10 kg outlet cells. Partial outlets
+refill without overflow. Queued intake rises 35 to 42 after the outlets empty,
+then stays 42 after disabling pumps with actual intake room. Final held mass
+is 35.250078 kg, fixture supply 0.20007798807907107 kg, extraction
+35.050000011920929 kg; all pipe accounts close exactly. External pipe heat is
+185.04549009075419 J, germ-1 exchange -16, two passive remainder identities
+and all mechanical accounts retained. World mass/energy errors are
+9.591e-16/5.563e-17, trace sink 0 kg/0 J, no owner fault, cleanup verified;
+fallback count is unavailable. Receipt control compares 3155 byte-equal entries
+in 128 nonempty/64 empty queues, with no prefix growth. Paired native-call means
+are 0.002326 ms pinned and 0.487217 ms marshalled over 192 calls.
+
+Diagnostic LOW owner mean/p95/max is 387.155/753.413/784.952 ms (71 samples),
+observed 553.488/906.194/4904.638 ms (70 contiguous samples, no gaps). These
+include startup, polling and receipt instrumentation; concurrent HIGH work was
+permitted. They establish behavior, not a whole-game speed gain. Seven pure
+groups, six installed hook groups, 37 inspection, 209 snapshot/backend and 135
+harness checks pass. The native batch implementation independently passes the
+parent's 83 CTests and concurrent ordered-batch controls.
+
+Full production activation and mixed saves remain off. Finite-body mixed-Cv
+equilibrium, deterministic germ growth/death, foreign-phase cleanup returns,
+phase teardown and saved component scheduling still need acceptance controls.
 
 ## Precise owner receipts
 

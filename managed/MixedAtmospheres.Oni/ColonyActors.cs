@@ -203,6 +203,7 @@ namespace MixedAtmospheres.Oni
         {
             TakeNative();
             if (!(seconds > 0) || owned.Count == 0) return;
+            using var pipeBatch = ColonyPipePumps.BeginActorBatch();
             var list = new List<OniNativeColony.Transfer>(owned.Count);
             foreach (var entry in owned)
             {
@@ -210,6 +211,7 @@ namespace MixedAtmospheres.Oni
                 if (!a.Emitter)
                 {
                     if (!(a.Rate > 0) || !Grid.IsValidCell(a.Cell)) continue;
+                    if (pipeBatch != null && ColonyPipePumps.QueueConsumer(entry.Key, a.Cell, a.Kind, a.Radius, a.Rate * seconds, list, pipeBatch)) continue;
                     list.Add(new OniNativeColony.Transfer { PublicCell = (uint)a.Cell, NativeIndex = a.Kind == OniNativeColony.Extract ? a.NativeIndex : 0,
                         Kind = a.Kind | OniNativeColony.ConsumerFlag, Radius = a.Radius, Callback = entry.Key, MassKg = a.Rate * seconds });
                     continue;
@@ -230,7 +232,8 @@ namespace MixedAtmospheres.Oni
                     MassKg = a.Mass * seconds, TemperatureK = a.Temperature, Disease = germs > 0 ? a.Disease : 0, DiseaseCount = germs });
             }
             if (list.Count == 0) return;
-            OniNativeColony.Check(OniNativeColony.QueueTransfers(list.ToArray(), (uint)list.Count));
+            if (pipeBatch == null) OniNativeColony.Check(OniNativeColony.QueueTransfers(list.ToArray(), (uint)list.Count));
+            else pipeBatch.Commit(list);
             Queued += list.Count;
         }
 

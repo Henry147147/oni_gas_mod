@@ -134,25 +134,27 @@ namespace MixedAtmospheres.Oni
         internal static SimHashes ElementHash(int ordinal)=>NativeElements[ordinal];
         internal static bool HasRoom(ConduitFlow flow,int cell)=>TryRead(flow,cell,out var inventory)&&flow.HasConduit(cell)&&
             inventory.Total.Minus(new PipeAmount(Flows[flow].Capacity)).Sign<0;
-        internal static PipeInventory TransferSelected(ConduitFlow flow,int source,int target,int selected,bool excluding=false)
+        internal static PipeInventory TransferSelected(ConduitFlow flow,int source,int target,int selected,bool excluding=false,double maximum=double.MaxValue)
         {
             if(!Owns(flow,source)||!Owns(flow,target)||source==target||!flow.HasConduit(source)||!flow.HasConduit(target))return PipeInventory.Empty;
             SyncNative(flow,source);SyncNative(flow,target);
             var from=Ensure(flow,source);var to=Ensure(flow,target);
-            var moved=PipeInventory.Transfer(from.Inventory,to.Inventory,from.Inventory.Mass,Flows[flow].Capacity,Material,selected,excluding);
+            var moved=PipeInventory.Transfer(from.Inventory,to.Inventory,Math.Min(maximum,(double)Flows[flow].Capacity),Flows[flow].Capacity,Material,selected,excluding);
             from.Inventory=moved.Source;to.Inventory=moved.Target;
             if(moved.Parcel.Count>0){Publish(flow,source,MassPublication.Removed);Publish(flow,target,(float)moved.Parcel.Mass>0?MassPublication.Added:MassPublication.Staged);}
             return moved.Parcel;
         }
         internal static void SupplyControlInventory(ConduitFlow flow,int cell,PipeInventory incoming)
         {
-            if(!Owns(flow,cell)||!flow.HasConduit(cell))throw new InvalidOperationException("Control source is not an owned pipe.");
+            if(!Owns(flow,cell)||!flow.HasConduit(cell))throw new InvalidOperationException($"Control source is not an owned pipe: phase {flow.conduitType}, cell {cell}, active {Active}, owned {Owns(flow,cell)}, conduit {flow.HasConduit(cell)}.");
             SyncNative(flow,cell);var target=Ensure(flow,cell);
-            var transfer=PipeInventory.Transfer(incoming,target.Inventory,incoming.Mass,Flows[flow].Capacity,Material);
-            if(transfer.Source.Count!=0)throw new InvalidOperationException("Exact control inventory exceeds its pipe capacity.");
-            target.Inventory=transfer.Target;lock(Accounts)supplied=supplied.Joined(transfer.Parcel);Publish(flow,cell,MassPublication.Added);
+            var joined=target.Inventory.Joined(incoming);
+            if(joined.Total.Minus(new PipeAmount(Flows[flow].Capacity)).Sign>0)throw new InvalidOperationException("Exact control inventory exceeds its pipe capacity.");
+            // Fixture initialization accepts an exact expansion, not a scalar
+            // dispatch request; no low room atom may be left uninitialized.
+            target.Inventory=joined;lock(Accounts)supplied=supplied.Joined(incoming);Publish(flow,cell,MassPublication.Added);
         }
-        internal static PipeInventory TakeForPort(ConduitFlow flow,int cell,int species,double maximum)
+        internal static PipeInventory TakeForPort(ConduitFlow flow,int cell,int? species,double maximum)
         {
             if(!Owns(flow,cell)||!flow.HasConduit(cell))throw new InvalidOperationException("Port source is not an owned pipe.");
             SyncNative(flow,cell);var source=Ensure(flow,cell);var split=source.Inventory.Split(maximum,Material,species);
@@ -162,7 +164,7 @@ namespace MixedAtmospheres.Oni
         {
             if(!Owns(flow,cell)||!flow.HasConduit(cell))return buffer;
             SyncNative(flow,cell);var target=Ensure(flow,cell);
-            var moved=PipeInventory.Transfer(buffer,target.Inventory,buffer.Mass,Flows[flow].Capacity,Material);
+            var moved=PipeInventory.Transfer(buffer,target.Inventory,double.MaxValue,Flows[flow].Capacity,Material);
             target.Inventory=moved.Target;if(moved.Parcel.Count>0)Publish(flow,cell,MassPublication.Added);return moved.Source;
         }
         internal static bool Owns(ConduitFlow flow,int cell) => Active && geometry.Contains(cell) && Flows.ContainsKey(flow);
@@ -246,7 +248,7 @@ namespace MixedAtmospheres.Oni
             if(mode==MassPublication.Removed&&contents.mass>mass)RemoveNative(ref contents,contents.mass-mass);
             var projection=Project(cell,contents,mode==MassPublication.Added);
             ++projecting;try{SetNative(flow,index,projection);}finally{--projecting;}
-            cell.Shadow=projection;
+            cell.Shadow=projection;ColonyPipePumps.ProjectPipe(flow,index);
         }
         internal static void ReadNative(ConduitFlow flow,int index,ref ConduitFlow.ConduitContents result)
         {

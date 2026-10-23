@@ -13,6 +13,7 @@ namespace MixedAtmospheres.Oni
         private sealed class Pending
         {
             internal readonly PipePortJob Job;internal readonly PipePortReceiptGroup Receipts=new PipePortReceiptGroup();
+            internal List<OniNativeColony.Receipt>? Legacy;
             internal Pending(PipePortJob job){Job=job;}
         }
         private sealed class Buffer
@@ -26,6 +27,51 @@ namespace MixedAtmospheres.Oni
         private static SortedDictionary<ulong,PipeAmount> passiveRemainders=new SortedDictionary<ulong,PipeAmount>(),passiveExchange=new SortedDictionary<ulong,PipeAmount>();
         private static PipeScaledAccount kinetic=new PipeScaledAccount(),potential=new PipeScaledAccount(),momentumX=new PipeScaledAccount(),momentumY=new PipeScaledAccount();
         private static ulong nextLocal=1,nextNative=1;
+        private static ActorBatch? actorBatch;
+        internal sealed class ActorBatch : IDisposable
+        {
+            private readonly ulong firstLocal=nextLocal,firstNative=nextNative;
+            private readonly List<(Pending Pending,uint Index)> prepared=new List<(Pending,uint)>();
+            private bool committed,disposed;
+            internal ActorBatch()
+            {
+                Require();if(actorBatch!=null)throw new InvalidOperationException("Nested actor input transactions are unsupported.");
+                actorBatch=this;
+            }
+            internal ulong Extract(List<OniNativeColony.Transfer> ordered,int pipeCell,byte phase,uint worldCell,double mass,uint radius)
+            {
+                if(disposed||committed||!ReferenceEquals(actorBatch,this))throw new InvalidOperationException("Actor input transaction is closed.");
+                var job=new PipePortJob(nextLocal,nextNative,pipeCell,phase,worldCell,0,phase==1?3u:4u,radius,mass,0,PipeInventory.Empty);
+                var pending=new Pending(job);prepared.Add((pending,checked((uint)ordered.Count)));Jobs.Add(job.NativeToken,pending);
+                ordered.Add(Transfer(job));checked{++nextLocal;++nextNative;}return job.LocalId;
+            }
+            internal void Commit(List<OniNativeColony.Transfer> ordered)
+            {
+                if(disposed||committed||!ReferenceEquals(actorBatch,this))throw new InvalidOperationException("Actor input transaction is closed.");
+                if(prepared.Count==0)
+                    OniNativeColony.Check(OniNativeColony.QueueTransfers(ordered.ToArray(),(uint)ordered.Count));
+                else
+                {
+                    var jobs=prepared.Select(p=>new OniNativeColony.ActorBatchJob{TransferIndex=p.Index,Token=p.Pending.Job.NativeToken}).ToArray();
+                    OniNativeColony.Check(OniNativeColony.QueueActorBatch(ordered.ToArray(),(uint)ordered.Count,jobs,(uint)jobs.Length,
+                        Array.Empty<OniNativeColony.PipePassive>(),0));
+                }
+                committed=true;
+                foreach(var item in prepared)ColonyPipePumps.Accepted(item.Pending.Job.LocalId);
+            }
+            public void Dispose()
+            {
+                if(disposed)return;disposed=true;
+                if(!committed)
+                {
+                    foreach(var item in prepared){Jobs.Remove(item.Pending.Job.NativeToken);ColonyPipePumps.Aborted(item.Pending.Job.LocalId);}
+                    nextLocal=firstLocal;nextNative=firstNative;
+                }
+                if(ReferenceEquals(actorBatch,this))actorBatch=null;
+            }
+        }
+        private static OniNativeColony.Transfer Transfer(PipePortJob job)=>new OniNativeColony.Transfer
+        {PublicCell=job.WorldCell,NativeIndex=job.NativeIndex,Kind=job.Kind,Radius=job.Radius,Callback=-1,MassKg=job.RequestedMass,TemperatureK=job.Temperature};
         internal static bool Enabled { get; private set; }
         internal static PipeInventory FromWorld { get; private set; }=PipeInventory.Empty;
         internal static PipeInventory ToWorld { get; private set; }=PipeInventory.Empty;
@@ -49,9 +95,15 @@ namespace MixedAtmospheres.Oni
         }
         internal static void Reset()
         {
-            Enabled=false;Jobs.Clear();Buffers.Clear();Seen.Clear();nextLocal=nextNative=1;
+            Enabled=false;actorBatch=null;ColonyPipePumps.Reset();Jobs.Clear();Buffers.Clear();Seen.Clear();nextLocal=nextNative=1;
             FromWorld=ToWorld=PipeInventory.Empty;HeatRemainder=PipeAmount.Zero;
             passiveRemainders.Clear();passiveExchange.Clear();kinetic=new PipeScaledAccount();potential=new PipeScaledAccount();momentumX=new PipeScaledAccount();momentumY=new PipeScaledAccount();
+        }
+        internal static ulong HoldForPort(ConduitFlow flow,int cell,double mass)
+        {
+            Require();if(actorBatch!=null)throw new InvalidOperationException("A new port buffer cannot cross an open actor transaction.");
+            var inventory=ColonyConduits.TakeForPort(flow,cell,null,mass);if(inventory.Count==0)return 0;
+            var id=nextLocal++;Buffers.Add(id,new Buffer(flow.conduitType==ConduitType.Gas?(byte)1:(byte)2,cell,inventory));return id;
         }
         internal static ulong Extract(int pipeCell,byte phase,uint worldCell,double mass,uint radius)
         {
@@ -92,8 +144,8 @@ namespace MixedAtmospheres.Oni
         }
         private static ulong Submit(PipePortJob job)
         {
-            var transfer=new OniNativeColony.Transfer{PublicCell=job.WorldCell,NativeIndex=job.NativeIndex,Kind=job.Kind,Radius=job.Radius,
-                Callback=-1,MassKg=job.RequestedMass,TemperatureK=job.Temperature};
+            if(actorBatch!=null)throw new InvalidOperationException("An individual pipe job cannot cross an open actor transaction.");
+            var transfer=Transfer(job);
             var passives=job.Passives.Select(p=>new OniNativeColony.PipePassive{Identity=p.Identity,Quantity=p.Quantity}).ToArray();
             // Allocate managed bookkeeping before native acceptance. A failed
             // request must never consume a contiguous native token.
@@ -115,12 +167,14 @@ namespace MixedAtmospheres.Oni
             var bytes=new byte[count];OniNativeColony.Check(OniNativeColony.CopyPreciseReceipt(receipt.Sequence,bytes,count,out var copied));
             if(copied!=count)throw new InvalidDataException("Native pipe outcome changed while copying.");
             var parsed=PipeReceipt.Decode(bytes,receipt.Sequence);pending.Receipts.Add(parsed);
+            if(ColonyPipePumps.IsPumpJob(pending.Job.LocalId))(pending.Legacy??=new List<OniNativeColony.Receipt>()).Add(receipt);
             var native=ReadState(token);
             if(native.State!=2||native.LastReceipt<receipt.Sequence)throw new InvalidDataException("Native pipe outcome is not a committed token group.");
             if(native.LastReceipt==receipt.Sequence)
             {
                 var settled=PipePortSettlement.Calculate(pending.Job,pending.Receipts.Complete(native,receipt.Sequence),ColonyConduits.Material);
                 Credit(pending.Job,settled);Jobs.Remove(token);
+                ColonyPipePumps.Completed(pending.Job.LocalId,pending.Legacy);
             }
             Seen.Add(receipt.Sequence);return true;
         }
@@ -143,6 +197,7 @@ namespace MixedAtmospheres.Oni
             if(!Enabled||Seen.Count==0)return;
             Seen.RemoveWhere(sequence=>sequence<=through);
         }
+        internal static bool IsPending(ulong localId)=>Jobs.Values.Any(p=>p.Job.LocalId==localId);
         internal static PipeInventory BufferInventory(ulong localId)=>Buffers.TryGetValue(localId,out var buffer)?buffer.Inventory:PipeInventory.Empty;
         internal static void PlaceBuffer(ulong localId)
         {
@@ -160,7 +215,8 @@ namespace MixedAtmospheres.Oni
         // the game save barrier or persist the still-owned port buffers.
         internal static PipeBoundaryState ValidateSealedBoundary()
         {
-            Require();var state=new PipeBoundaryState(HeatRemainder,kinetic,potential,momentumX,momentumY,nextLocal,nextNative,Jobs.Values.Select(p=>p.Job),
+            Require();if(actorBatch!=null)throw new InvalidOperationException("Actor input transaction must finish before a pipe save barrier.");
+            var state=new PipeBoundaryState(HeatRemainder,kinetic,potential,momentumX,momentumY,nextLocal,nextNative,Jobs.Values.Select(p=>p.Job),
                 passiveRemainders.Select(p=>new PipePassiveBalance(p.Key,p.Value)));
             PipePortSaveBoundary.Validate(state,ReadState);return state;
         }

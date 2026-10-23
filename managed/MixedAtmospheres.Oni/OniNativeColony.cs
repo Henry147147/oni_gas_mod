@@ -81,7 +81,7 @@ namespace MixedAtmospheres.Oni
         internal static byte DiseaseIdx(uint germ) => germ == 0 || germ > 255 ? byte.MaxValue : (byte)(germ - 1);
         internal static unsafe void CheckLayouts()
         {
-            if (Marshal.SizeOf<Material>() != 168 || Marshal.SizeOf<Config>() != 56 || Marshal.SizeOf<Cell>() != 24 || Marshal.SizeOf<Status>() != 600 ||
+            if (Marshal.SizeOf<ActorBatchJob>() != 24 || Marshal.OffsetOf<ActorBatchJob>(nameof(ActorBatchJob.Token)).ToInt32() != 16 || Marshal.SizeOf<Material>() != 168 || Marshal.SizeOf<Config>() != 56 || Marshal.SizeOf<Cell>() != 24 || Marshal.SizeOf<Status>() != 600 ||
                 Marshal.SizeOf<CellView>() != 32 || Marshal.SizeOf<Transfer>() != 48 || Marshal.SizeOf<Receipt>() != 48 || Marshal.SizeOf<Heat>() != 24 ||
                 Marshal.SizeOf<Species>() != 40 || Marshal.SizeOf<Reading>() != 64 || Marshal.SizeOf<Constituent>() != 24 ||
                 sizeof(CellView) != 32 || sizeof(Reading) != 64 || sizeof(Constituent) != 24 || sizeof(Receipt) != 48)
@@ -148,6 +148,14 @@ namespace MixedAtmospheres.Oni
         internal static extern int Wait();
         [StructLayout(LayoutKind.Sequential)]
         internal struct PipePassive { public ulong Identity; public double Quantity; }
+        [StructLayout(LayoutKind.Sequential)]
+        internal struct ActorBatchJob
+        {public uint TransferIndex,FirstPassive,PassiveCount,Reserved;public ulong Token;}
+        [DllImport(Library, EntryPoint = "ma_oni_colony_actor_batch_version", CallingConvention = CallingConvention.Cdecl)]
+        internal static extern uint ActorBatchVersion();
+        [DllImport(Library, EntryPoint = "ma_oni_colony_queue_actor_batch", CallingConvention = CallingConvention.Cdecl)]
+        internal static extern int QueueActorBatch([In] Transfer[] transfers,uint count,[In] ActorBatchJob[] jobs,uint jobCount,
+            [In] PipePassive[] passives,uint passiveCount);
         [DllImport(Library, EntryPoint = "ma_oni_colony_queue_pipe_job", CallingConvention = CallingConvention.Cdecl)]
         internal static extern int QueuePipeJob(ulong token, in Transfer transfer, [In] PipePassive[] passives, uint count, out uint state, out ulong lastReceipt);
         [DllImport(Library, EntryPoint = "ma_oni_colony_pipe_job_state", CallingConvention = CallingConvention.Cdecl)]
