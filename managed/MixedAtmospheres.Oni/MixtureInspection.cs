@@ -60,6 +60,9 @@ namespace MixedAtmospheres.Oni
         private static int generation, sessionBindingCount;
         private static Func<ConduitFlow,int,string,MixturePipeReading?>? pipeReader;
         private static Func<Storage,MixturePipeReading?>? conduitStorageReader;
+        private static Func<int,MixturePipeReading?>? cellSpillReader;
+        internal static void SetCellSpillReader(Func<int,MixturePipeReading?>? reader){cellSpillReader=reader;++generation;}
+        internal static MixturePipeReading? ReadCellSpill(int cell)=>cellSpillReader?.Invoke(cell);
         internal static void SetConduitStorageReader(Func<Storage,MixturePipeReading?>? reader){conduitStorageReader=reader;++generation;}
         internal static void SetPipeReader(Func<ConduitFlow,int,string,MixturePipeReading?>? reader){pipeReader=reader;++generation;}
         private static long hoverDraws, detailsDraws, ownedContainerDraws, nativeContainerDraws;
@@ -291,6 +294,14 @@ namespace MixedAtmospheres.Oni
 
         internal static bool TryDrawCell(SelectToolHoverTextCard card, HoverTextDrawer drawer, int cell, bool selected)
         {
+            var spill=ReadCellSpill(cell);
+            if(spill!=null)
+            {
+                MixtureHoverLayout.Request(drawer);drawer.BeginShadowBar(false);
+                drawer.DrawText(spill.Title,card.Styles_Title.Standard);
+                foreach(var line in spill.Hover)Line(drawer,card,line);
+                drawer.EndShadowBar();
+            }
             if (!MixturePresentationRuntime.TryGetCell(cell, out var reading) || reading == null) return false;
             MixtureHoverLayout.Request(drawer);
             drawer.BeginShadowBar(selected);
@@ -328,6 +339,8 @@ namespace MixedAtmospheres.Oni
         {
             if (panel == null || target == null) return;
             var selection = target.GetComponent<CellSelectionObject>();
+            if(selection!=null&&ReadCellSpill(selection.SelectedCell) is MixturePipeReading spill)
+                panel.SetLabel("MixedAtmospheres.PipeSpill",spill.Title+"\n"+string.Join("\n",spill.Details),"Retained fluid will return when nearby space becomes available.");
             if (selection != null && MixturePresentationRuntime.TryGetCell(selection.SelectedCell, out var cell) && cell != null)
             {
                 // Replace the selected CELL's dominant-material description;
@@ -647,7 +660,7 @@ namespace MixedAtmospheres.Oni
         private static void Postfix(CellSelectionObject __instance)
         {
             MixtureInspection.UpdateSelection(__instance, true);
-            if (DetailsScreen.Instance != null && MixturePresentationRuntime.TryGetCell(__instance.SelectedCell, out _))
+            if (DetailsScreen.Instance != null && (MixturePresentationRuntime.TryGetCell(__instance.SelectedCell, out _)||MixtureInspection.ReadCellSpill(__instance.SelectedCell)!=null))
                 DetailsScreen.Instance.Trigger(-1514841199);
         }
     }

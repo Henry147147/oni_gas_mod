@@ -39,7 +39,7 @@ namespace MixedAtmospheres.Oni
         private static readonly List<GameObject> powered = new List<GameObject>();
 
         internal static void Reset() { Results.Clear(); index = 0; Next(); }
-        private static void Next() { Current = new Result(); started = 0; step = 0; recorded.Clear(); powered.Clear(); filling = null; pipeCells.Clear(); generators.Clear(); mixedFilters.Clear();mixedSensors.Clear();mixedDiseaseSensor=null;mixedBoundaryJobs.Clear();mixedPumps.Clear();mixedPumpHeldOutputs.Clear();mixedPumpDischargeSources.Clear();mixedOutputJobs.Clear();mixedThermalBody=null; }
+        private static void Next() { Current = new Result(); started = 0; step = 0; recorded.Clear(); powered.Clear(); filling = null; pipeCells.Clear(); generators.Clear(); mixedFilters.Clear();mixedSensors.Clear();mixedDiseaseSensor=null;mixedBoundaryJobs.Clear();mixedPumps.Clear();mixedPumpHeldOutputs.Clear();mixedPumpDischargeSources.Clear();mixedOutputJobs.Clear();mixedTeardownPipes.Clear();mixedThermalBody=null; }
 
         // Called every Unity frame while the owner runs. Returns true when
         // every scenario of the list is done.
@@ -99,6 +99,7 @@ namespace MixedAtmospheres.Oni
                     case "mixed-pipe-filter": MixedPipeFilter(frame); break;
                     case "mixed-pipe-boundary": MixedPipeBoundary(frame); break;
                     case "mixed-pipe-output": MixedPipeOutput(frame); break;
+                    case "mixed-pipe-teardown": MixedPipeTeardown(frame); break;
                     case "mixed-pipe-pumps": MixedPipePumps(frame); break;
                     case "mixed-pipe-thermal": MixedPipeThermal(frame); break;
                     case "mixed-pipe-catalogue": MixedPipeCatalogue(frame); break;
@@ -1148,6 +1149,59 @@ namespace MixedAtmospheres.Oni
                 ColonyPipePorts.HoldForPort(flow,Cell(3,5),double.MaxValue);
             }
             Record("catalogue routes conserve every account",ColonyConduits.Audit(out var detail),detail);
+        }
+        private static readonly List<GameObject> mixedTeardownPipes=new List<GameObject>();
+        private static void MixedPipeTeardown(int frame)
+        {
+            if(Once(0,"open and fully sealed spill sites"))Arena((x,y)=>x>=2&&x<=6&&y>=1?(SimHashes.Unobtanium,20000f,300f):(SimHashes.Oxygen,1f,300f));
+            if(Once(5,"build open and sealed gas/liquid pipes"))
+            {
+                for(var phase=0;phase<2;++phase)
+                {
+                    var flow=phase==0?Game.Instance.gasConduitSystem:Game.Instance.liquidConduitSystem;var id=phase==0?GasConduitConfig.ID:LiquidConduitConfig.ID;
+                    var open=phase==0?Cell(0,0):Cell(7,0);Pipe(flow,id,new List<int>{open},new List<int>{Cell(4,3)});
+                    var layer=phase==0?ObjectLayer.GasConduit:ObjectLayer.LiquidConduit;
+                    mixedTeardownPipes.Add(Grid.Objects[open,(int)layer]);mixedTeardownPipes.Add(Grid.Objects[Cell(4,3),(int)layer]);
+                }
+            }
+            if(Once(10,"demolish complete mixed pipe cells"))
+            {
+                ColonyConduits.StartControl();ColonyPipePorts.StartControl();ColonyPipeTeardown.StartControl();
+                for(var phase=0;phase<2;++phase)
+                    for(var site=0;site<2;++site)
+                    {
+                        var flow=phase==0?Game.Instance.gasConduitFlow:Game.Instance.liquidConduitFlow;
+                        var cell=site==1?Cell(4,3):phase==0?Cell(0,0):Cell(7,0);
+                        var a=ColonyConduits.MaterialOf(phase==0?SimHashes.Oxygen:SimHashes.Water);var b=ColonyConduits.MaterialOf(phase==0?SimHashes.CarbonDioxide:SimHashes.DirtyWater);
+                        var inventory=PipeInventory.Single(a,phase==0?.375:3,300,0,.25).Joined(PipeInventory.Single(b,phase==0?.625:7,300,1,1e-240));
+                        ColonyConduits.SupplyControlInventory(flow,cell,inventory);
+                        mixedTeardownPipes[phase*2+site].GetComponent<Deconstructable>().ForceDestroyAndGetMaterials();
+                    }
+            }
+            if(Once(18,"open spills land and sealed spills stay owned"))
+            {
+                var removed=!Game.Instance.gasConduitFlow.HasConduit(Cell(0,0))&&!Game.Instance.liquidConduitFlow.HasConduit(Cell(7,0))&&
+                    !Game.Instance.gasConduitFlow.HasConduit(Cell(4,3))&&!Game.Instance.liquidConduitFlow.HasConduit(Cell(4,3));
+                Record("actual deconstruction removes every native conduit",removed,$"removed {removed}");
+                Record("open mixed spills deliver every constituent",ColonyPipePorts.ToWorld.Mass==11&&ColonyPipePorts.ToWorld.Count==4,$"{ColonyPipePorts.ToWorld.Mass:R} kg, {ColonyPipePorts.ToWorld.Count} species");
+                Record("sealed mixed spills retain their complete inventory",ColonyPipePorts.Held.Mass==11&&ColonyPipeTeardown.ActiveSpills==2,$"{ColonyPipePorts.Held.Mass:R} kg, {ColonyPipeTeardown.ActiveSpills} spills; {ColonyPipeTeardown.LastAdmissionError}");
+                ColonyPipeTeardown.Tick(ColonyOwner.Status.CompletedFrames);var attempts=ColonyPipeTeardown.Attempts;
+                var inspection=MixtureInspection.ReadCellSpill(Cell(4,3));var text=inspection==null?"":inspection.Title+"\n"+string.Join("\n",inspection.Details);
+                for(var repeat=0;repeat<100;++repeat){_=MixtureInspection.ReadCellSpill(Cell(4,3));ColonyPipeTeardown.Tick(ColonyOwner.Status.CompletedFrames);}
+                Record("retained spill inspection shows both phases and all constituents",text.Contains("Fluid waiting for space")&&new[]{SimHashes.Oxygen,SimHashes.CarbonDioxide,SimHashes.Water,SimHashes.DirtyWater}.All(id=>text.Contains(ElementLoader.FindElementByHash(id).name)),text);
+                Record("inspection and repeated publications do not retry within a physics frame",ColonyPipeTeardown.Attempts==attempts,$"{attempts} -> {ColonyPipeTeardown.Attempts} attempts");
+                Record("blocked teardown closes every account",ColonyConduits.Audit(out var detail),detail);
+            }
+            if(Once(20,"open the sealed spill cell"))SimMessages.ReplaceElement(Cell(4,3),SimHashes.Oxygen,CellEventLogger.Instance.SandBoxTool,1,300);
+            if(Once(32,"retained spills release after space opens"))
+            {
+                Record("every demolished mixture eventually reaches the world",ColonyPipePorts.ToWorld.Mass==22&&ColonyPipePorts.Held.Count==0&&ColonyPipePorts.PendingCount==0&&ColonyPipeTeardown.ActiveSpills==0,
+                    $"world {ColonyPipePorts.ToWorld.Mass:R} kg; held {ColonyPipePorts.Held.Mass:R} kg; pending {ColonyPipePorts.PendingCount}; spills {ColonyPipeTeardown.ActiveSpills}");
+                Record("released spill inspection disappears",MixtureInspection.ReadCellSpill(Cell(4,3))==null,"read-only cell spill reader");
+                Record("all teardown germ identities remain delivered or booked",ColonyPipePorts.PassiveExchange(1).Negated().Value==1&&ColonyPipePorts.PassiveExchange(2).Sign<0,
+                    $"delivered {ColonyPipePorts.PassiveExchange(1).Negated().Value:R}/{ColonyPipePorts.PassiveExchange(2).Negated().Value:R}; remainders {ColonyPipePorts.PassiveRemainder(1).Value:R}/{ColonyPipePorts.PassiveRemainder(2).Value:R}");
+                Record("completed teardown closes every account",ColonyConduits.Audit(out var detail),detail);Finish();
+            }
         }
         private static readonly List<ulong[]> mixedOutputJobs=new List<ulong[]>();
         private static void MixedPipeOutput(int frame)

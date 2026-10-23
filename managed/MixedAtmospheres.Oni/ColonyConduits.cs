@@ -311,6 +311,7 @@ namespace MixedAtmospheres.Oni
             foreach(var flow in Flows)
                 for(var i=0;i<flow.Value.Cells.Length;++i)
                     if(flow.Value.Cells[i] is Cell cell&&cell.Inventory.Count>0&&flow.Key.HasConduit(i))SyncNative(flow.Key,i);
+            ColonyPipeTeardown.Tick(ColonyOwner.Status.CompletedFrames);
         }
         internal static bool Compatible(bool native,ConduitFlow flow,int source,int target)
         {
@@ -401,7 +402,7 @@ namespace MixedAtmospheres.Oni
             // No float-only world/storage dispatch from an unfinished control.
             result=ConduitFlow.ConduitContents.Empty;return true;
         }
-        internal static bool CanDump(ConduitFlow flow,int cell)=>!Owns(flow,cell);
+        internal static bool CanDump(ConduitFlow flow,int cell)=>!Owns(flow,cell)||ColonyPipeTeardown.Dump(flow,cell);
     }
     [HarmonyPatch(typeof(ConduitFlow),nameof(ConduitFlow.GetContents))]
     internal static class ColonyMixedPipeReadPatch

@@ -10,6 +10,14 @@ namespace MixedAtmospheres.Oni
     // included in a separately versioned runtime image.
     internal static class ColonyPipePorts
     {
+        internal sealed class AdmissionRejected : InvalidOperationException
+        {internal AdmissionRejected(InvalidOperationException error):base(error.Message,error){}}
+        private static void CheckAdmission(int result)
+        {
+            if(result==0)return;
+            try{OniNativeColony.Check(result);}
+            catch(InvalidOperationException error){throw new AdmissionRejected(error);}
+        }
         private sealed class Pending
         {
             internal readonly PipePortJob Job;internal readonly PipePortReceiptGroup Receipts=new PipePortReceiptGroup();
@@ -74,7 +82,7 @@ namespace MixedAtmospheres.Oni
                 else
                 {
                     var jobs=prepared.Select(p=>new OniNativeColony.ActorBatchJob{TransferIndex=p.Index,FirstPassive=p.FirstPassive,PassiveCount=p.PassiveCount,Token=p.Pending.Job.NativeToken}).ToArray();
-                    OniNativeColony.Check(OniNativeColony.QueueActorBatch(ordered.ToArray(),(uint)ordered.Count,jobs,(uint)jobs.Length,
+                    CheckAdmission(OniNativeColony.QueueActorBatch(ordered.ToArray(),(uint)ordered.Count,jobs,(uint)jobs.Length,
                         passives.ToArray(),checked((uint)passives.Count)));
                 }
                 committed=true;
@@ -117,7 +125,7 @@ namespace MixedAtmospheres.Oni
         }
         internal static void Reset()
         {
-            Enabled=false;actorBatch=null;controlFrames=null;ColonyPipePumps.Reset();Jobs.Clear();Buffers.Clear();Seen.Clear();nextLocal=nextNative=1;
+            Enabled=false;actorBatch=null;controlFrames=null;ColonyPipePumps.Reset();ColonyPipeTeardown.Reset();Jobs.Clear();Buffers.Clear();Seen.Clear();nextLocal=nextNative=1;
             FromWorld=ToWorld=PipeInventory.Empty;HeatRemainder=PipeAmount.Zero;
             passiveRemainders.Clear();passiveExchange.Clear();kinetic=new PipeScaledAccount();potential=new PipeScaledAccount();momentumX=new PipeScaledAccount();momentumY=new PipeScaledAccount();
         }
@@ -245,6 +253,12 @@ namespace MixedAtmospheres.Oni
         }
         internal static bool IsPending(ulong localId)=>Jobs.Values.Any(p=>p.Job.LocalId==localId);
         internal static PipeInventory BufferInventory(ulong localId)=>Buffers.TryGetValue(localId,out var buffer)?buffer.Inventory:PipeInventory.Empty;
+        internal static PipeInventory OwnedInventory(ulong localId)
+        {
+            if(Buffers.TryGetValue(localId,out var buffer))return buffer.Inventory;
+            foreach(var pending in Jobs.Values)if(pending.Job.LocalId==localId)return pending.Job.Reserved;
+            return PipeInventory.Empty;
+        }
         internal static ulong MergeBuffers(IReadOnlyList<ulong> ids)
         {
             Require();if(ids.Count==0)return 0;

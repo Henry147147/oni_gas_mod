@@ -433,6 +433,46 @@ no fault, cleanup verified, fallback count unavailable. Seven pure/seven hook,
 181.436/261.063/261.063 ms, observed 393.974/3135.041/3135.041 ms (19/18
 contiguous samples, no gaps), controls off. No performance acceptance is claimed.
 
+### Conservative teardown control
+
+`mixed-pipe-teardown` is defined before its first measurement. Its 8x6 arena
+has a sealed solid region x=2..6, y=1..5, a central blocked spill cell (4,3), and
+open spill cells (0,0)/(7,0). Each phase has one pipe in its open cell and one
+in the central solid cell. Seed every gas pipe with 0.375 kg O2 + 0.625 kg CO2,
+every liquid pipe with 3 kg water + 7 kg polluted water, and each mixture with
+germ quantities 0.25/1e-240 at 300 K. Demolish actual native prefabs at stage
+10. At stage 18 require all native conduits removed, 11 kg/four species spilled,
+11 kg held in two refused spills, complete cell inspection, no repeated retry
+within a physical frame and exact accounts. At stage 20 open the central cell;
+by stage 32 require all 22 kg released, no pending/root/buffer inventory, hidden
+spill inspection, all germ quantities delivered/booked and exact accounts.
+
+The native dump receives its scalar contents by value. After reserving the
+complete owned mixture, suppress that scalar emission while its caller retains
+normal cleanup. Refused spill buffers remain owned at their source coordinate;
+completed returned constituents merge before retry. Retries use completed
+owner frames and stable IDs, with no wall-clock load input. Hover/selected-cell
+details label held contents "Fluid waiting for space" without replacing native
+solid descriptions. Inspection cannot dispatch or alter inventory. This remains
+explicit-only; phase damage/returns and saved retry scheduling are separate
+acceptances, not established by a warm open-spill check.
+
+Immutable `pipes-teardown-ffd-v1` passes all 10 checks in 33 frames, legacy
+Flags=1/SHA-identical `79e0545` native pair. Four real native prefabs disappear;
+11 kg spills, 11 kg remains in two sealed spill trackers. The cell reader
+reports both phases/all four constituents, 100 reads and repeated same-frame
+ticks keep attempts 18 -> 18. After opening the cell, all 22 kg and germ
+quantities 1/4e-240 reach the world, with zero held/pending/root state and no
+remaining spill inspection. All accounts close exactly; retained boundary
+heat is -0.095180099629942561 J and mechanical G remains booked. World
+mass/energy errors 1.800e-16/5.583e-17, trace sink zero, no fault, cleanup
+verified, fallback count unavailable. Seven pure/seven hook/37 inspection,
+209 snapshot and 135 harness checks pass. Diagnostic LOW owner mean/p95/max
+175.969/219.020/228.368 ms, observed 311.533/458.943/2982.569 ms
+(33/32 contiguous samples, no gaps); no speed claim. Phase-induced pipe damage,
+latent/foreign-phase returns, biological evolution and saved retries remain
+open, so production activation stays off.
+
 ## Precise owner receipts
 
 The optional native adapter exports `ma_oni_colony_enable_precise_receipts`,
