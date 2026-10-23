@@ -712,6 +712,13 @@ not leave a success-looking report from the previous frame.
 
 Environment variables of the game process (the harness passes them through):
 
+- `MA_COLONY_KERNEL3=1`: explicitly request the diagnostic flag-4 game kernel
+  for a **new** colony. It is exclusive with `MA_COLONY_GAME_FLOOR=1` and
+  requires native capability `ma_oni_colony_game_kernel_version() == 1`;
+  older bundles refuse it clearly. Normal defaults are unchanged. Loads ignore
+  both new-colony selectors and restore the save's recorded flags/timestep.
+  The backend's implementation and acceptance are separate solver work; this
+  selector does not establish a new-profile or performance pass.
 - `MA_COLONY_TRANSFER_DUMP=path`: on an individual fluid-transfer failure,
   write the exact pre-edit material/world image and a `path.request` sidecar.
   Both paths must be fresh; existing evidence is never overwritten. The world

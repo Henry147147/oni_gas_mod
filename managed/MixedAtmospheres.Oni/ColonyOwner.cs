@@ -25,6 +25,23 @@ namespace MixedAtmospheres.Oni
         // then only a test run selects it (MA_COLONY_GAME_FLOOR=1). A restored
         // colony keeps the profile its save holds.
         internal static bool NewColoniesUseGameFloor => Environment.GetEnvironmentVariable("MA_COLONY_GAME_FLOOR") == "1";
+        internal static bool NewColoniesUseGameKernel => Environment.GetEnvironmentVariable("MA_COLONY_KERNEL3") == "1";
+        private static uint NewColonyFlags()
+        {
+            if (NewColoniesUseGameFloor && NewColoniesUseGameKernel)
+                throw new InvalidOperationException("Select either MA_COLONY_KERNEL3 or MA_COLONY_GAME_FLOOR for a new colony, not both.");
+            if (NewColoniesUseGameKernel) RequireGameKernel();
+            return OniNativeColony.PhysicsConduction | (NewColoniesUseGameKernel ? OniNativeColony.GameKernel :
+                NewColoniesUseGameFloor ? OniNativeColony.GameFloor : 0);
+        }
+        private static void RequireGameKernel()
+        {
+            uint version;
+            try { version = OniNativeColony.GameKernelVersion(); }
+            catch (System.EntryPointNotFoundException) { version = 0; }
+            if (version != 1)
+                throw new NotSupportedException("This native bundle does not support the requested diagnostic game kernel. Use a matching native/managed package.");
+        }
         // Native messages seen while the owner runs, by hash (development census).
         internal static readonly Dictionary<int, long> Census = new Dictionary<int, long>();
         internal static void Count(int message, int count) { if (Active) Census[message] = (Census.TryGetValue(message, out var n) ? n : 0) + count; }
@@ -178,7 +195,7 @@ namespace MixedAtmospheres.Oni
             return image;
         }
         // The configuration and catalogue the running game would give this asteroid.
-        internal static (OniNativeColony.Config config, OniNativeColony.Material[] materials) Describe()
+        internal static (OniNativeColony.Config config, OniNativeColony.Material[] materials) Describe(uint? savedFlags = null)
         {
             if (ClusterManager.Instance == null || ClusterManager.Instance.WorldContainers.Count != 1)
                 throw new NotSupportedException("The colony owner needs exactly one asteroid.");
@@ -186,7 +203,7 @@ namespace MixedAtmospheres.Oni
             var described = new OniNativeColony.Config
             {
                 Size = 56, Version = OniNativeColony.AbiVersion,
-                Flags = OniNativeColony.PhysicsConduction | (NewColoniesUseGameFloor ? OniNativeColony.GameFloor : 0),
+                Flags = savedFlags ?? NewColonyFlags(),
                 VacuumIndex = ElementLoader.FindElementByHash(SimHashes.Vacuum).idx,
                 GridWidth = (uint)Grid.WidthInCells, GridHeight = (uint)Grid.HeightInCells,
                 OffsetX = (uint)world.WorldOffset.x, OffsetY = (uint)world.WorldOffset.y, Width = (uint)world.WorldSize.x, Height = (uint)world.WorldSize.y,
@@ -205,10 +222,10 @@ namespace MixedAtmospheres.Oni
         {
             if (Active) throw new InvalidOperationException("A colony owner is already active.");
             OniNativeColony.CheckLayouts();
-            var (live, catalogue) = Describe();
+            if ((saved.Flags & OniNativeColony.GameKernel) != 0) RequireGameKernel();
+            var (live, catalogue) = Describe(saved.Flags);
             // New-colony defaults may change; the native image validates its saved timestep.
             live.MaximumTimestepSeconds = saved.MaximumTimestepSeconds;
-            live.Flags = (live.Flags & ~OniNativeColony.GameFloor) | (saved.Flags & OniNativeColony.GameFloor);
             if (!live.Equals(saved)) throw new NotSupportedException("The saved colony geometry differs from the loaded asteroid.");
             config = saved; materials = catalogue;
             x0 = (int)config.OffsetX; y0 = (int)config.OffsetY; width = (int)config.Width; height = (int)config.Height;

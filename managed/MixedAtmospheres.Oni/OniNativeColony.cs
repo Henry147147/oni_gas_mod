@@ -8,7 +8,7 @@ namespace MixedAtmospheres.Oni
     internal static class OniNativeColony
     {
         private const string Library = "mixed_atmospheres_oni";
-        internal const uint AbiVersion = 1, PhysicsConduction = 1, GameFloor = 2;
+        internal const uint AbiVersion = 1, PhysicsConduction = 1, GameFloor = 2, GameKernel = 4;
         internal const uint Solid = 0, Fluid = 1, Space = 2;
         internal const uint Inject = 1, Extract = 2, ExtractGas = 3, ExtractLiquid = 4, Byproduct = 5, ConsumerFlag = 0x100;
         internal const uint ViewGas = 1, ViewLiquid = 2, ViewOwned = 4;
@@ -89,6 +89,8 @@ namespace MixedAtmospheres.Oni
             if (Version() != AbiVersion) throw new InvalidOperationException("Colony owner ABI version differs from the native library.");
         }
 
+        [DllImport(Library, EntryPoint = "ma_oni_colony_game_kernel_version")]
+        internal static extern uint GameKernelVersion();
         [DllImport(Library, EntryPoint = "ma_oni_colony_abi_version", CallingConvention = CallingConvention.Cdecl)] internal static extern uint Version();
         [DllImport(Library, EntryPoint = "ma_oni_colony_start", CallingConvention = CallingConvention.Cdecl)]
         internal static extern int Start(ref Config config, [In] Material[] materials, uint materialCount, [In] Cell[] cells, uint cellCount, ref Status status);
