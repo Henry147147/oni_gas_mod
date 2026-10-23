@@ -435,6 +435,7 @@ MacClosedAdvance MacGameKernelAccess::advance(const MacClosedWorld &source,
   MacClosedAdvance result{source, {}};
   auto state = sparse(source.state());
   double elapsed = 0;
+  MacEnergySum energy_residual, energy_bound;
   std::vector<k::Eos> last;
   result.report.game_converted_mass_kg.assign(source.registry_.size(), 0);
   while (elapsed < seconds) {
@@ -462,8 +463,9 @@ MacClosedAdvance MacGameKernelAccess::advance(const MacClosedWorld &source,
     result.report.wall_impulse_x += next.wall_px;
     result.report.wall_impulse_y += next.wall_py;
     result.report.body_impulse_y += next.body_py;
-    result.report.energy_residual_j =
-        std::max(result.report.energy_residual_j, next.energy_error);
+    energy_residual.add(next.energy_residual.hi);
+    energy_residual.add(next.energy_residual.lo);
+    energy_bound.add(1e-12 * next.energy_operands.value());
     ++result.report.attempts;
     result.report.substeps += cfg.flow_parts;
     ++result.report.phase_change_stages;
@@ -475,6 +477,11 @@ MacClosedAdvance MacGameKernelAccess::advance(const MacClosedWorld &source,
   require(std::isfinite(result.world.time_s_) &&
               result.world.time_s_ > source.time_s_,
           "Game clock cannot advance");
+  result.report.energy_residual_wide_j = energy_residual.value();
+  result.report.energy_bound_wide_j = energy_bound.value();
+  result.report.energy_residual_j =
+      result.report.energy_residual_wide_j.project().value;
+  result.report.energy_bound_j = result.report.energy_bound_wide_j.project().value;
   result.report.full_wall_impulse_x =
       MacScaled::from_double(result.report.wall_impulse_x);
   result.report.full_wall_impulse_y =

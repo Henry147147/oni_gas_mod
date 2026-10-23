@@ -61,6 +61,10 @@ repeats pinned to physical cores give104.130/103.042ms per tick (~1%); the
 larger gain is in owner edits/readings. Fixed floor errors are unchanged by
 this exact step; their acceptance remains open.
 
+Energy report fields expose the accepted audit residual and bound in joules,
+with matching wide fields. This corrects a diagnostic units error; the native
+owner ledger audit and core20 physical bytes are unchanged.
+
 ## Open acceptance work
 
 No private-playtest-ready or performance pass is claimed. The coupled material

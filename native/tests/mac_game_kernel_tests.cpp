@@ -69,6 +69,16 @@ int main() {
     threads.threads = 1;
     set_mac_kernel_default_options(threads);
     auto first = world.advanced(.2);
+    require(first.report.energy_bound_j >=
+                1e-12L * std::abs(energy(world)) &&
+                std::abs(first.report.energy_residual_j) <=
+                    first.report.energy_bound_j &&
+                first.report.energy_residual_wide_j.project().value ==
+                    first.report.energy_residual_j &&
+                first.report.energy_bound_wide_j.project().value ==
+                    first.report.energy_bound_j,
+            "Game energy diagnostics must report joules and matching wide fields");
+    std::cout << "PASS game-kernel energy diagnostics in joules with matching wide fields\n";
     require(first.report.trace_sink.constituents > 0 &&
                 first.report.trace_sink.cells > 0,
             "Game flow trace receipt metadata was omitted");

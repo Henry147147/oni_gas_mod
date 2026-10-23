@@ -20,6 +20,7 @@ struct TickResult {
   double sink_internal = 0, sink_kinetic = 0, sink_potential = 0, sink_px = 0,
          sink_py = 0, wall_px = 0, wall_py = 0, body_py = 0, evaporated = 0,
          condensed = 0;
+  DoubleDouble energy_residual, energy_operands;
   double region_error = 0, entropy_change = 0, trace_entropy = 0,
          phase_entropy_change = 0, entropy_ms = 0, flow_entropy = 0,
          layer_entropy = 0, surface_entropy = 0, heat_entropy = 0,
@@ -323,6 +324,8 @@ public:
     if (!energy.closed() || !mx.closed() || !my.closed())
       throw std::runtime_error(
           "Private coupled energy/momentum/sink audit failed");
+    out.energy_residual = energy.residual;
+    out.energy_operands = energy.operands;
     out.energy_error =
         energy.operands.value()
             ? std::abs(energy.residual.value()) / energy.operands.value()
