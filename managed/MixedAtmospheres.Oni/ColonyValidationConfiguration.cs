@@ -116,8 +116,8 @@ namespace MixedAtmospheres.Oni
                 throw new InvalidDataException("Speed is 1 (normal), 2 (fast) or 3 (ultra).");
             if (configuration.VanillaLoad && configuration.Mode != "colony-owner-load")
                 throw new InvalidDataException("VanillaLoad needs the colony-owner-load mode.");
-            if (configuration.OverwriteSave && (configuration.Mode != "colony-owner" || !configuration.SaveOnComplete))
-                throw new InvalidDataException("OverwriteSave needs the colony-owner mode and SaveOnComplete.");
+            if (configuration.OverwriteSave && (configuration.Mode != "colony-owner" && configuration.Mode != "colony-owner-load" || !configuration.SaveOnComplete))
+                throw new InvalidDataException("OverwriteSave needs an owner colony and SaveOnComplete.");
             if (!string.IsNullOrEmpty(configuration.Scenario) &&
                 (configuration.Mode != "colony-owner" || configuration.Scenario.Split(',').Any(name => !Scenarios.Contains(name, StringComparer.Ordinal))))
                 throw new InvalidDataException("A colony scenario needs the colony-owner mode and one of: " + string.Join(", ", Scenarios) + ".");

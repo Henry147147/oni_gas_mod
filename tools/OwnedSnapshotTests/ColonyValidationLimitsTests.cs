@@ -53,6 +53,9 @@ internal static class ColonyValidationLimitsTests
             foreach(var speed in new[]{0,4})reject(()=>Valid(new ColonyValidationConfiguration{Speed=speed}));
             reject(()=>Valid(new ColonyValidationConfiguration{Mode="colony-owner",OverwriteSave=true}));
             check(Valid(new ColonyValidationConfiguration{Mode="colony-owner",OverwriteSave=true,SaveOnComplete=true}).OverwriteSave);
+            reject(()=>Valid(new ColonyValidationConfiguration{Mode="colony-owner-load",OverwriteSave=true}));
+            check(Valid(new ColonyValidationConfiguration{Mode="colony-owner-load",OverwriteSave=true,SaveOnComplete=true}).OverwriteSave);
+            reject(()=>Valid(new ColonyValidationConfiguration{Mode="native-load-domain",OverwriteSave=true,SaveOnComplete=true}));
             reject(()=>Valid(new ColonyValidationConfiguration{Mode="colony-owner",VanillaLoad=true}));
             check(Valid(new ColonyValidationConfiguration{Mode="colony-owner-load",VanillaLoad=true}).VanillaLoad);
         });
