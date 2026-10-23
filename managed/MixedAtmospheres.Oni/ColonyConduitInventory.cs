@@ -184,6 +184,10 @@ namespace MixedAtmospheres.Oni
             if (parts.Length == 0 && (energy.Sign != 0 || diseases.Length != 0)) throw new InvalidDataException("Massless pipe inventory carries energy or germs.");
             Total = total;
         }
+        // Boundary parcels already carry native committed U and all passives.
+        // Never reconstruct them from a float temperature compatibility view.
+        internal static PipeInventory Conserved(PipePart[] masses,PipeAmount energy,PipePart[] diseases)
+            =>new PipeInventory((PipePart[])masses.Clone(),energy,(PipePart[])diseases.Clone());
         internal static PipeInventory Single(PipeMaterial material, double mass, double temperature, int disease = 0, double count = 0)
         {
             if (mass < 0 || double.IsNaN(mass) || double.IsInfinity(mass) || !(temperature > 0) || double.IsInfinity(temperature) || count < 0 || double.IsNaN(count) || double.IsInfinity(count))

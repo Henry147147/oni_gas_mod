@@ -283,6 +283,7 @@ static class Program
         Reject(()=>PipeReceipt.Decode(brokenReceipt,42));
         brokenReceipt=(byte[])preciseImage.Clone();brokenReceipt[76]=(byte)'+';Reject(()=>PipeReceipt.Decode(brokenReceipt,42));
         Console.WriteLine("PASS precise pipe receipts: committed binary64 values, every passive/zero parcel, huge scaled mechanics, exact sparse accounts and malformed framing");
+        PortSettlementTests.Run();
         if (args.Contains("--benchmark"))
         {
             foreach (var seed in new[] { PipeInventory.Single(A, 1, 300), mixture })

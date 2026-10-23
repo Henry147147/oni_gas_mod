@@ -324,6 +324,7 @@ namespace MixedAtmospheres.Oni
             for (var k = 0; k < delivered; ++k)
             {
                 var r = receipts[k]; through = r.Sequence;
+                if (ColonyPipePorts.Receipt(in r)) continue;
                 if (ColonyActors.IsConsumerReceipt(r)) { if (r.MassKg > 0) removed.Add(ColonyActors.Event(r)); }
                 else if (r.Kind == OniNativeColony.Byproduct) SpawnByproduct(r);
                 else if (r.Kind == OniNativeColony.Extract)
@@ -337,6 +338,7 @@ namespace MixedAtmospheres.Oni
             copy.AppendEvents<Sim.MassEmittedCallback>(SnapshotEventChannel.MassEmittedCallbacks, emitted.ToArray());
             copy.AppendEvents<Sim.ConsumedMassInfo>(SnapshotEventChannel.RemovedMassEntries, removed.ToArray());
             OniNativeColony.Check(OniNativeColony.AckReceipts(through));
+            ColonyPipePorts.Acknowledged(through);
         }
 
         // Mass and heat messages for owned fluid cells go to the owner. Returns

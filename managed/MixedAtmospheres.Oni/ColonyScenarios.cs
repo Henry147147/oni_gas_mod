@@ -39,7 +39,7 @@ namespace MixedAtmospheres.Oni
         private static readonly List<GameObject> powered = new List<GameObject>();
 
         internal static void Reset() { Results.Clear(); index = 0; Next(); }
-        private static void Next() { Current = new Result(); started = 0; step = 0; recorded.Clear(); powered.Clear(); filling = null; pipeCells.Clear(); generators.Clear(); mixedFilters.Clear();mixedSensors.Clear();mixedDiseaseSensor=null; }
+        private static void Next() { Current = new Result(); started = 0; step = 0; recorded.Clear(); powered.Clear(); filling = null; pipeCells.Clear(); generators.Clear(); mixedFilters.Clear();mixedSensors.Clear();mixedDiseaseSensor=null;mixedBoundaryJobs.Clear(); }
 
         // Called every Unity frame while the owner runs. Returns true when
         // every scenario of the list is done.
@@ -97,6 +97,7 @@ namespace MixedAtmospheres.Oni
                     case "filter": Filter(frame); break;
                     case "mixed-pipes": MixedPipes(frame); break;
                     case "mixed-pipe-filter": MixedPipeFilter(frame); break;
+                    case "mixed-pipe-boundary": MixedPipeBoundary(frame); break;
                     case "pacu": Pacu(frame); break;
                     case "liquid-pump": LiquidPump(frame); break;
                     case "base": Base(frame, status); break;
@@ -1117,6 +1118,64 @@ namespace MixedAtmospheres.Oni
             return total;
         }
 
+        private static readonly List<ulong> mixedBoundaryJobs=new List<ulong>();
+        private static void MixedPipeBoundary(int frame)
+        {
+            if(Once(0,"arena"))Arena((x,y)=>(SimHashes.Oxygen,1f,300f));
+            if(Once(5,"isolated boundary pipes"))
+            {
+                Pipe(Game.Instance.gasConduitSystem,GasConduitConfig.ID,new List<int>{Cell(1,3)},new List<int>{Cell(1,5)});
+                Pipe(Game.Instance.liquidConduitSystem,LiquidConduitConfig.ID,new List<int>{Cell(6,3)},new List<int>{Cell(6,5)});
+            }
+            if(Once(8,"precise pipe injections"))
+            {
+                ColonyConduits.StartControl();ColonyPipePorts.StartControl();
+                for(var phase=0;phase<2;++phase)
+                {
+                    var flow=phase==0?Game.Instance.gasConduitFlow:Game.Instance.liquidConduitFlow;
+                    var first=ColonyConduits.MaterialOf(phase==0?SimHashes.Oxygen:SimHashes.Water);
+                    var second=ColonyConduits.MaterialOf(phase==0?SimHashes.CarbonDioxide:SimHashes.DirtyWater);
+                    var source=phase==0?Cell(1,3):Cell(6,3);var world=(uint)(phase==0?Cell(2,1):Cell(5,1));
+                    var massA=phase==0?.25:3;var massB=phase==0?.75:7;var temperature=phase==0?311.123456789:300.123456789;
+                    var mixture=PipeInventory.Single(first,massA,temperature,0,.25).Joined(PipeInventory.Single(second,massB,temperature,1,1e-240));
+                    ColonyConduits.SupplyControlInventory(flow,source,mixture);
+                    mixedBoundaryJobs.Add(ColonyPipePorts.Inject(flow,source,world,first.Id,massA));
+                    mixedBoundaryJobs.Add(ColonyPipePorts.Inject(flow,source,world,second.Id,massB));
+                }
+                Record("queued reservations remain fully accounted",ColonyConduits.Audit(out var detail),detail);
+            }
+            if(Once(14,"committed injection parcels"))
+            {
+                Record("all four precise injection jobs retired",ColonyPipePorts.PendingCount==0,ColonyPipePorts.Report);
+                Record("injections retain exact mass U and passive remainders",ColonyConduits.Audit(out var detail),detail);
+                mixedBoundaryJobs.Add(ColonyPipePorts.Extract(Cell(1,5),1,(uint)Cell(2,1),1,2));
+                mixedBoundaryJobs.Add(ColonyPipePorts.Extract(Cell(6,5),2,(uint)Cell(5,1),10,2));
+            }
+            if(Once(22,"actual mixed extraction groups"))
+            {
+                Record("all phase extraction outcomes retired",ColonyPipePorts.PendingCount==0,ColonyPipePorts.Report);
+                for(var phase=0;phase<2;++phase)
+                {
+                    var id=mixedBoundaryJobs[4+phase];var buffer=ColonyPipePorts.BufferInventory(id);
+                    Record((phase==0?"gas":"liquid")+" extraction keeps every committed constituent",buffer.Count>=2&&buffer.Mass>0,$"{buffer.Count} constituents, {buffer.Mass:R} kg, {buffer.Germs.Length} germ identities");
+                    ColonyPipePorts.PlaceBuffer(id);
+                    var flow=phase==0?Game.Instance.gasConduitFlow:Game.Instance.liquidConduitFlow;
+                    ColonyConduits.TryRead(flow,phase==0?Cell(1,5):Cell(6,5),out var received);
+                    Record((phase==0?"gas":"liquid")+" extraction enters one actual mixed pipe cell",received.Count>=2&&received.Mass>0,$"{received.Count} constituents, {received.Mass:R} kg; retained port buffer {ColonyPipePorts.BufferInventory(id).Mass:R} kg");
+                }
+                Record("world pipe boundary accounts all close",ColonyConduits.Audit(out var detail),detail);
+                // The sealed border has no extractable gas. Its zero outcome
+                // must still retire a token and preserve the queue watermark.
+                mixedBoundaryJobs.Add(ColonyPipePorts.Extract(Cell(1,5),1,(uint)Cell(-1,0),.001,0));
+            }
+            if(Once(28,"zero outcome and sealed token boundary"))
+            {
+                Record("zero extraction also retires its native token",ColonyPipePorts.PendingCount==0&&ColonyPipePorts.BufferInventory(mixedBoundaryJobs[6]).Count==0,ColonyPipePorts.Report);
+                OniNativeColony.Check(OniNativeColony.Wait());var boundary=ColonyPipePorts.ValidateSealedBoundary();
+                Record("managed native pending suffix agrees",boundary.Jobs.Length==0&&boundary.NextNativeToken==8,$"next token {boundary.NextNativeToken}; pending {boundary.Jobs.Length}");
+                Record("final precise port accounts close",ColonyConduits.Audit(out var detail),detail);Finish();
+            }
+        }
         private static readonly List<int> pipeCells = new List<int>();
         private static readonly List<GameObject> mixedFilters=new List<GameObject>(),mixedSensors=new List<GameObject>();
         private static GameObject? mixedDiseaseSensor;

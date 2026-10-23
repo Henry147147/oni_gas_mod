@@ -58,6 +58,13 @@ namespace MixedAtmospheres.Oni
             if(remainder.Sign<0){--bin;remainder+=32;}
             AddBin(bin,significand<<(int)remainder);
         }
+        internal PipeScaledAccount WithAdded(PipeScaledAccount other)
+        {
+            var result=new PipeScaledAccount();
+            foreach(var bin in bins)result.bins.Add(bin.Key,bin.Value);
+            foreach(var bin in other.bins)result.AddBin(bin.Key,bin.Value);
+            return result;
+        }
         private void AddBin(BigInteger index,BigInteger value)
         {
             while(!value.IsZero)

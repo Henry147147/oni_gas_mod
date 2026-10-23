@@ -127,7 +127,7 @@ namespace MixedAtmospheres.Oni
         internal static void Reset()
         {
             Active=false;Flows.Clear();Materials.Clear();NativeElements.Clear();NativeIndices.Clear();DiseaseExchange.Clear();initial=supplied=removed=PipeInventory.Empty;heat=default;projecting=0;controlSeeding=false;transferScope=null;
-            MixtureInspection.SetPipeReader(null);
+            ColonyPipePorts.Reset();MixtureInspection.SetPipeReader(null);
         }
         internal static PipeMaterial Material(int id) => Materials.TryGetValue(id,out var value)?value:throw new InvalidOperationException("Unknown mixed pipe material: "+id);
         internal static PipeMaterial MaterialOf(SimHashes element)=>Material(NativeIndices[element]);
@@ -144,6 +144,27 @@ namespace MixedAtmospheres.Oni
             if(moved.Parcel.Count>0){Publish(flow,source,MassPublication.Removed);Publish(flow,target,(float)moved.Parcel.Mass>0?MassPublication.Added:MassPublication.Staged);}
             return moved.Parcel;
         }
+        internal static void SupplyControlInventory(ConduitFlow flow,int cell,PipeInventory incoming)
+        {
+            if(!Owns(flow,cell)||!flow.HasConduit(cell))throw new InvalidOperationException("Control source is not an owned pipe.");
+            SyncNative(flow,cell);var target=Ensure(flow,cell);
+            var transfer=PipeInventory.Transfer(incoming,target.Inventory,incoming.Mass,Flows[flow].Capacity,Material);
+            if(transfer.Source.Count!=0)throw new InvalidOperationException("Exact control inventory exceeds its pipe capacity.");
+            target.Inventory=transfer.Target;lock(Accounts)supplied=supplied.Joined(transfer.Parcel);Publish(flow,cell,MassPublication.Added);
+        }
+        internal static PipeInventory TakeForPort(ConduitFlow flow,int cell,int species,double maximum)
+        {
+            if(!Owns(flow,cell)||!flow.HasConduit(cell))throw new InvalidOperationException("Port source is not an owned pipe.");
+            SyncNative(flow,cell);var source=Ensure(flow,cell);var split=source.Inventory.Split(maximum,Material,species);
+            source.Inventory=split.Remaining;if(split.Parcel.Count>0)Publish(flow,cell,MassPublication.Removed);return split.Parcel;
+        }
+        internal static PipeInventory ReceivePortBuffer(ConduitFlow flow,int cell,PipeInventory buffer)
+        {
+            if(!Owns(flow,cell)||!flow.HasConduit(cell))return buffer;
+            SyncNative(flow,cell);var target=Ensure(flow,cell);
+            var moved=PipeInventory.Transfer(buffer,target.Inventory,buffer.Mass,Flows[flow].Capacity,Material);
+            target.Inventory=moved.Target;if(moved.Parcel.Count>0)Publish(flow,cell,MassPublication.Added);return moved.Source;
+        }
         internal static bool Owns(ConduitFlow flow,int cell) => Active && geometry.Contains(cell) && Flows.ContainsKey(flow);
         internal static bool TryRead(ConduitFlow flow,int cell,out PipeInventory inventory)
         {
@@ -159,26 +180,29 @@ namespace MixedAtmospheres.Oni
                     {
                         held=held.Joined(cell.Inventory);if(cell.Inventory.Count>0)++cells;
                     }
-            var left=initial.Joined(supplied);var right=held.Joined(removed);var okay=true;
+            held=held.Joined(ColonyPipePorts.Held);
+            var left=initial.Joined(supplied).Joined(ColonyPipePorts.FromWorld);var right=held.Joined(removed).Joined(ColonyPipePorts.ToWorld);var okay=true;
             foreach(var material in Materials.Keys)
             {
                 PipeAmount Amount(PipeInventory inventory)
                 {foreach(var part in inventory.Parts)if(part.Id==material)return part.Amount;return default;}
                 if(Amount(left).Minus(Amount(right)).Sign!=0)okay=false;
             }
-            var energy=left.Energy.Plus(heat).Minus(right.Energy);okay&=energy.Sign==0;
+            var energy=left.Energy.Plus(heat).Minus(right.Energy).Minus(ColonyPipePorts.HeatRemainder);okay&=energy.Sign==0;
             var diseaseIds=new HashSet<int>();foreach(var germ in left.Germs)diseaseIds.Add(germ.Id);
             foreach(var germ in right.Germs)diseaseIds.Add(germ.Id);foreach(var disease in DiseaseExchange.Keys)diseaseIds.Add(disease);
+            foreach(var identity in ColonyPipePorts.PassiveIdentities)diseaseIds.Add(checked((int)(identity-1)));
             foreach(var disease in diseaseIds)
             {
                 PipeAmount Germs(PipeInventory inventory)
                 {foreach(var germ in inventory.Germs)if(germ.Id==disease)return germ.Amount;return default;}
                 DiseaseExchange.TryGetValue(disease,out var exchange);
-                if(Germs(left).Plus(exchange).Minus(Germs(right)).Sign!=0)okay=false;
+                if(Germs(left).Plus(exchange).Plus(ColonyPipePorts.PassiveExchange((ulong)disease+1)).Minus(Germs(right)).Minus(ColonyPipePorts.PassiveRemainder((ulong)disease+1)).Sign!=0)okay=false;
             }
             detail=$"{cells} occupied cells; held {held.Mass:R} kg; supplied {supplied.Mass:R} kg; removed {removed.Mass:R} kg; external heat {heat.Value:R} J; exact U residual {energy.Value:R} J; accounts exact {okay}";
             var diseases=new List<int>(DiseaseExchange.Keys);diseases.Sort();
             foreach(var disease in diseases)detail+=$"; germ {disease} exchange {DiseaseExchange[disease].Value:R}";
+            if(ColonyPipePorts.Enabled)detail+="; "+ColonyPipePorts.Report;
             return okay;
         }
         private static Cell Ensure(ConduitFlow flow,int cell)

@@ -175,6 +175,56 @@ to an order-independent exact expansion; 128 permuted reductions and wide
 integer-oracle cases preserve bytes and correctly resolve half-ulp traces.
 Previously encoded valid expansion bytes remain unchanged on re-encoding.
 
+## World boundary settlement controls
+
+`ColonyConduitSettlement.cs` computes a complete native job outcome before
+changing any pipe account. Injection consumes only the committed mass and
+returns undispatched reservation; its native U is authoritative and the
+energy difference stays in a named boundary heat account. Actual sequential
+passive observations supply the world-side quantity. Rounded-away increments,
+erased old low parts and fractional quantities remain in the exact passive
+representation account. Extraction retains every committed species, U and
+passive, including quantum-cleanup constituents. Mechanical terms remain in
+exact sparse accounts rather than becoming heat or overflowing a double.
+
+The seventh pure control group covers full/partial/refused injection,
+1e-240 mass and heat remainder, tiny/huge/fractional passive changes,
+multiple extraction outcomes, duplicate/missing outcome watermarks and
+unchanged replay bytes. A sealed save-boundary validator checks the pending
+native-token suffix with at most k+2 queries: every pending token queued,
+its predecessor retired and the next watermark unaccepted. Missing first,
+middle or last jobs and stale watermarks are rejected. Its caller must first
+pause submission, wait and drain/acknowledge committed outcomes; validation
+does not create that barrier. These are model controls, not live component
+ports or mixed-save acceptance.
+
+The immutable `pipes-boundary-7e6-v1` fixture passes all 12 checks after
+29 frames. Four constituent injections deliver 11 kg with simultaneous
+fractional/tiny germ identities. Grouped phase extractions return three gas
+constituents (1 kg) and two liquid constituents (9.9577839173929856 kg), each
+with two germ identities, into actual mixed pipe cells. The gas capacity
+boundary retains 1.3593399390905969e-17 kg in its owned port buffer. Zero
+extraction also retires its token; the empty pending suffix and next token 8
+agree with the native queue. Mass, U and every germ account close exactly,
+including -0.055509135519969277 J retained boundary heat, two passive remainder
+identities and exact K/G/J accounts. Later pipe conduction exchanges
+22.85902061863537 J without changing that closure.
+
+World mass/energy errors are 1.337e-16/3.694e-17, sink 0 kg/0 J, no owner fault,
+cleanup verified. Diagnostic owner mean/p95/max is 190.783/236.985/238.318 ms
+(29 samples), observed spacing 344.699/448.890/3071.215 ms (28 contiguous
+samples); startup/polling/concurrent-HIGH caveats apply. Fallback count is
+unavailable. Release83, seven pure groups, five hook groups, 37 inspection,
+209 snapshot/backend controls and 135 harness checks pass. Receipts are
+credited before legacy acknowledgement; inactive colonies avoid all optional
+pipe receipt queries and acknowledgement allocations.
+
+This boundary fixture is explicit and does not enable component ports. Full
+pumps, vents, native storage/recipe adapters, destruction, pipe phase behavior
+and saved physical scheduling remain open. ONI's ordinary conduit save omits
+transient movement staging, fairness directions and timers; an inventory-only
+round trip does not establish deterministic gameplay continuation.
+
 ## Precise owner receipts
 
 The optional native adapter exports `ma_oni_colony_enable_precise_receipts`,
