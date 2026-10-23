@@ -30,6 +30,20 @@ internal static unsafe class Program
     [MethodImpl(MethodImplOptions.NoInlining)]
     private static int Run(bool benchmark)
     {
+        Test("publication geometry maps offset rectangles and same-count shape changes", () =>
+        {
+            Check(ColonyPublicationMap.Create(6,5,2,1,3,2).SequenceEqual(new[]{8,9,10,14,15,16}));
+            Check(ColonyPublicationMap.Create(6,5,1,0,2,3).SequenceEqual(new[]{1,2,7,8,13,14}));
+            Check(ColonyPublicationMap.Create(7,4,0,0,7,4).SequenceEqual(Enumerable.Range(0,28)));
+            Check(ColonyPublicationMap.Create(6,5,5,4,1,1).SequenceEqual(new[]{29}));
+            foreach(var rectangle in new[]{(0,5,0,0,1,1),(6,5,-1,0,1,1),(6,5,0,-1,1,1),(6,5,0,0,0,1),
+                (6,5,4,0,3,1),(6,5,0,4,1,2),(int.MaxValue,2,0,0,1,1)})
+            {
+                var refused=false;
+                try{_=ColonyPublicationMap.Create(rectangle.Item1,rectangle.Item2,rectangle.Item3,rectangle.Item4,rectangle.Item5,rectangle.Item6);}
+                catch(ArgumentOutOfRangeException){refused=true;}Check(refused);
+            }
+        });
         Test("moving parcel coordinates retain the native ABI and explicit potential reference", () =>
         {
             Check(Marshal.SizeOf<ColonyParcelContext>()==72 &&

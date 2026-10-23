@@ -70,6 +70,10 @@ namespace MixedAtmospheres.Oni
         private static OniNativeColony.Status status = OniNativeColony.Status.Empty;
         private static bool considered;
         private static int x0, y0, width, height;
+        private static int[] publicationCells=Array.Empty<int>();
+        private static readonly bool uncachedCellMap=Environment.GetEnvironmentVariable("MA_COLONY_UNCACHED_CELL_MAP")=="1";
+        private static readonly bool cellMapControl=Environment.GetEnvironmentVariable("MA_COLONY_CELL_MAP_CONTROL")=="1";
+        internal static long CellMapComparisons { get; private set; }
         private static OniNativeColony.Config config;
         private static OniNativeColony.Material[] materials = Array.Empty<OniNativeColony.Material>();
         private static OniNativeColony.CellView[] views = Array.Empty<OniNativeColony.CellView>();
@@ -96,6 +100,7 @@ namespace MixedAtmospheres.Oni
             current?.Dispose(); current = null;
             if (Active) { var s = OniNativeColony.Status.Empty; _ = OniNativeColony.Stop(ref s); }
             ColonyPacing.Reset(); ColonyOwnerPersistence.Reset();
+            publicationCells=Array.Empty<int>();CellMapComparisons=0;
             Active = false; considered = false; StartFailure = ""; loggedFault = ""; Publications = 0; PublicationMilliseconds = MaximumPublicationMilliseconds = 0; Census.Clear(); molarMass = Array.Empty<double>();
             completionObservedAt = 0; completionObservedFrame = ulong.MaxValue; frameTiming.Reset();
         }
@@ -147,6 +152,7 @@ namespace MixedAtmospheres.Oni
                 OniNativeColony.CheckLayouts();
                 (config, materials) = Describe();
                 x0 = (int)config.OffsetX; y0 = (int)config.OffsetY; width = (int)config.Width; height = (int)config.Height;
+                publicationCells=ColonyPublicationMap.Create(Grid.WidthInCells,Grid.HeightInCells,x0,y0,width,height);
                 catalogued = new bool[ElementLoader.elements.Count];
                 foreach (var m in materials) catalogued[m.NativeIndex] = true;
                 var vacuum = ElementLoader.FindElementByHash(SimHashes.Vacuum).idx;
@@ -154,7 +160,13 @@ namespace MixedAtmospheres.Oni
                 var zones = World.Instance.zoneRenderData;
                 for (var i = 0; i < cells.Length; ++i)
                 {
-                    var global = (x0 + i % width) + (y0 + i / width) * Grid.WidthInCells;
+                    var global = uncachedCellMap ? (x0+i%width)+(y0+i/width)*Grid.WidthInCells : publicationCells[i];
+                    if(cellMapControl)
+                    {
+                        if(global!=(x0+i%width)+(y0+i/width)*Grid.WidthInCells)
+                            throw new InvalidOperationException("Cached owner publication cell differs from current geometry.");
+                        ++CellMapComparisons;
+                    }
                     var element = ElementLoader.elements[source->elementIdx[global]];
                     uint kind = element.IsSolid ? OniNativeColony.Solid :
                         element.IsVacuum && zones != null && zones.GetSubWorldZoneType(global) == ProcGen.SubWorld.ZoneType.Space ? OniNativeColony.Space :
@@ -229,6 +241,7 @@ namespace MixedAtmospheres.Oni
             if (!live.Equals(saved)) throw new NotSupportedException("The saved colony geometry differs from the loaded asteroid.");
             config = saved; materials = catalogue;
             x0 = (int)config.OffsetX; y0 = (int)config.OffsetY; width = (int)config.Width; height = (int)config.Height;
+            publicationCells=ColonyPublicationMap.Create(Grid.WidthInCells,Grid.HeightInCells,x0,y0,width,height);
             var output = OniNativeColony.Status.Empty;
             OniNativeColony.Check(OniNativeColony.Restore(ref config, materials, (uint)materials.Length, image, (uint)image.Length, ref output));
             status = output; views = new OniNativeColony.CellView[width * height]; considered = true; Active = true; ColonyPacingDriver.Ensure(); ConfigurePresentation();
@@ -287,7 +300,13 @@ namespace MixedAtmospheres.Oni
                 for (var i = 0; i < views.Length; ++i)
                 {
                     var view = views[i];
-                    var global = (x0 + i % width) + (y0 + i / width) * Grid.WidthInCells;
+                    var global = uncachedCellMap ? (x0+i%width)+(y0+i/width)*Grid.WidthInCells : publicationCells[i];
+                    if(cellMapControl)
+                    {
+                        if(global!=(x0+i%width)+(y0+i/width)*Grid.WidthInCells)
+                            throw new InvalidOperationException("Cached owner publication cell differs from current geometry.");
+                        ++CellMapComparisons;
+                    }
                     // A cell the owner does not publish shows native's cell, as
                     // does one a solid has just replaced (the owner displaces its
                     // fluid at its next step). ONI's Grid.Element follows only

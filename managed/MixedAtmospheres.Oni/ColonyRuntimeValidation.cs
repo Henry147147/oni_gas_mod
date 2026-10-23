@@ -427,6 +427,7 @@ namespace MixedAtmospheres.Oni
                 ColonyOwner.PublicationMilliseconds, ColonyOwner.MaximumPublicationMilliseconds, PresentationError = ColonyPresentation.LastError,
                 ColonyCopyValidation.ViewComparisons, ColonyCopyValidation.ReadingComparisons, CopyControlChangedFrames = ColonyCopyValidation.ChangedFrames,
                 ViewCopies = ColonyViewCache.Copies, ViewCacheHits = ColonyViewCache.Hits,
+                PublicationCellMapComparisons = ColonyOwner.CellMapComparisons,
                 OwnerConfigFlags = ColonyOwner.Config.Flags, OwnerMaximumTimestepSeconds = ColonyOwner.Config.MaximumTimestepSeconds,
                 ViewCacheComparisons = ColonyViewCache.Comparisons, ViewCacheChangedDuringComparison = ColonyViewCache.ChangedDuringComparison,
                 ReceiptCopyComparisons = ColonyCopyValidation.ReceiptComparisons, ReceiptCopyEmptyComparisons = ColonyCopyValidation.ReceiptEmptyComparisons,

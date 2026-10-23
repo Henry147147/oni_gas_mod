@@ -397,6 +397,38 @@ uncached run. Frames 10–60 give owner/observed means 174.08/211.90 versus
 it does not meet the 2× target. Native timing and trajectory vary with the
 game's live input history even though the copy operation is exact.
 
+The fixed owner rectangle now also supplies a cached public-cell map, rebuilt
+on creation and restore and retired on session reset. This removes repeated
+integer division/remainder from publication and initial import. It retains
+fresh native snapshots, all terrain and `Grid.Element` checks, identical event
+order, receipts, actors and presentation. No solver arithmetic, saved setting
+or checkpoint bytes change. `MA_COLONY_UNCACHED_CELL_MAP=1` selects the original
+calculation for comparison; `MA_COLONY_CELL_MAP_CONTROL=1` compares every index
+and is disabled for timings. Offset/same-count shape/edge/invalid-geometry
+controls pass as part of 217 snapshot tests. A real flags5/core20 control checks
+55,345,152 indices with no mismatch over40frames, no gaps or faults, closed
+ledgers and verified cleanup.
+
+A subsequent WHOLE-lock Terra60 pair uses one immutable package and seed147147,
+changing only that cache bypass. Native instrumentation and index comparisons
+are off; managed publication laps are deliberately on. Each run has60owner
+samples/59intervals with no gaps, faults, retries or skipped relaxation;
+fallback count remains unavailable. Package hashes match before and after.
+
+| Public-cell map | Owner mean / p95 / max ms | Observed mean / p95 / max ms | Mass / energy error | Trace sink kg / J |
+| --- | ---: | ---: | --- | --- |
+| Original calculation | 204.891 / 226.328 / 262.522 | 250.482 / 361.558 / 765.871 | 6.940e-16 / 7.551e-16 | 1.22055e-7 / 0.1270655 |
+| Cached geometry | 198.195 / 219.398 / 248.868 | 244.009 / 300.531 / 786.563 | 3.750e-16 / 7.183e-16 | 1.19237e-7 / 0.1278435 |
+
+In frames10–59 overlay cost per publication is0.941660→0.845575ms (10.20%
+lower in this pair). Publication counts differ432→379, while snapshot cost
+per publication stays1.04175→1.05300ms and receipts cost8.585→8.523ms per owner.
+One baseline view-copy lap stalls153ms; its cause is not yet attributed.
+A separate mapping-only .NET10 six-pair AB/BA control gives0.262992→0.129417ms
+for98,304cells with identical destinations. The live pair is potentially GPU
+contended by vLLM and includes managed instrumentation; its whole-frame means
+are diagnostic observations, not an isolated gain or2× acceptance.
+
 The legacy 48-byte receipt output also stays pinned during its synchronous
 native copy, avoiding per-element marshalling of the 4096-entry destination.
 Receipt selection, ordering, callbacks, precise sidecars and acknowledgement
