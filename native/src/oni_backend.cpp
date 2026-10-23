@@ -396,7 +396,19 @@ ma::oni::DomainChunkHeat prepare_chunk_contact(void* accessor,void* chunk,float 
     ma::oni::DomainChunkHeat result{};
     std::int32_t cell{};float temperature{},capacity{},conductivity{},factor{};
     // Colony cells: items exchange natively with the shadow (booked at capture).
-    if (!ma::oni::domain_active()) return result;
+    if (!ma::oni::domain_active()) {
+        static const bool heat_log=std::getenv("MA_COLONY_HEAT_LOG")!=nullptr;
+        if (heat_log && accessor && chunk) {
+            std::memcpy(&cell,static_cast<const std::uint8_t*>(accessor)+8,4);
+            if (ma::oni::colony::owns(cell)) {
+                const auto* c=static_cast<const std::uint8_t*>(chunk);
+                std::memcpy(&temperature,c+4,4);std::memcpy(&capacity,c+8,4);std::memcpy(&conductivity,c+12,4);std::memcpy(&factor,c+16,4);
+                std::fprintf(stderr,"[Mixed Atmospheres] native chunk at native cell %d: %.4f K, capacity %.6g, conductivity %.6g, factor %.6g\n",
+                    cell,static_cast<double>(temperature),static_cast<double>(capacity),static_cast<double>(conductivity),static_cast<double>(factor));
+            }
+        }
+        return result;
+    }
     // The pinned Windows PDB and Linux specialized call independently verify
     // this 16-byte accessor and 44-byte record. Copy fields without aliasing
     // the native compiler's C++ object type or retaining its addresses.

@@ -470,8 +470,9 @@ Environment variables of the game process (the harness passes them through):
   health, calories and stress with the air at its cell and the cell above
   (mass, composition, breathability), and the prepared base's machines.
 - `MA_COLONY_HEAT_LOG=1`: each heat or mass change ONI's native update made to
-  an owned cell (its cell, element, mass, temperatures, booked joules); for
-  small arenas, since it writes a line per changed cell and frame.
+  an owned cell (its cell, element, mass, temperatures, booked joules), and
+  each native item chunk in contact with one (its temperature and heat
+  capacity); for small arenas, since it writes lines every frame.
 - `MA_COLONY_GAME_FLOOR=1`: new colonies run the game-floor profile (test runs
   only until the profile is selected).
 
