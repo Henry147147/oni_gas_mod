@@ -408,14 +408,18 @@ Matched whole-lock, pinned0–11, twelve-worker,60-tick offline Terra runs:
 | --- | --- | --- | --- |
 | EOS/phase cleanup and removal of duplicate partial-stage audits, before interface correction |77.57 /76.98 |63.90 /63.84 | Physical bytes unchanged |
 | Independent interface-correction clusters in parallel, with interfaces/passives/layering enabled |105.12 /105.46 |86.67 /87.02 | ABBA order; physical and passive bytes unchanged |
+| One shared worker pool, with region audits and entropy diagnostics |98.30 /98.27 |89.95 /88.32 | Physical/passive/entropy/sink bytes unchanged |
+| Reuse transport vector capacities, after heat-layout caching |88.60 /88.95 |83.23 /83.00 | Physical/passive/entropy/sink bytes unchanged |
 
-The latter removes17.5% of prototype time; interface work falls from32.2–32.5
+The interface change removes17.5% of prototype time; its work falls from32.2–32.5
 to12.5–12.9 ms. After-change p95 is92.2–95.1 ms, max98.6–107.1 ms. These
 partial offline ticks omit owner edits/publication and do not establish a
-game-frame speedup. A later run with region audits enabled measures109.5 ms
-mean,119.5 ms p95 and124.5 ms max; it is not a matched audit-cost comparison.
-The numerical changes against the reference remain
-unquantified; no floor pass is claimed.
+game-frame speedup. The latest capacity-reuse change removes6.4%: transport
+falls from18.7–19.4 to14.3–14.4 ms, after-change p95 is86.6–88.7 ms and
+max105.8–112.1 ms. Warm/cold-object continuation also agrees. Heat-layout
+caching saves about0.7 ms in that stage, with no established whole-tick gain;
+pressure-layout caching was slower and rejected. The numerical changes
+against the reference remain unquantified; no floor pass is claimed.
 
 One/twelve-worker60-tick primary and passive images agree byte-for-byte.
 Global species/energy/momentum/passive relative residuals are below
@@ -425,6 +429,17 @@ maximum relative residual below2.5e-16. A sealed two-room wind control checks
 separate wall-impact heat, trace/passive receipts and detects an artificial
 cross-wall heat transfer whose global total closes. Cold-object continuation
 passes six ticks; an actual saved checkpoint codec is still absent.
+
+Entropy is diagnostic, as the design requires, and currently exposes an
+unresolved flow error: Terra60 totals -70.46 MJ/K, of which flow contributes
+-70.54 MJ/K. A zero-gravity diagnostic removes the loss; gravity stays enabled.
+Upwind body-force and conservative velocity-filter trials did not repair it
+and remain unselected. Frozen F1 starts now come directly from the protocol,
+rather than from post-opening game captures. The strict8× reference advances
+past its former full-range parcel fault, but resolved event times and the16×
+uncertainty control remain open. A standalone finite-body heat component passes
+analytic/shared-heat/worker controls; the native contact model and its coupling
+are not integrated.
 
 Open: fixed-floor/reference comparisons, limited-linear/FCT transport, saved
 vacuum-front cap, sleeping, registered-solid heat, profile2/checkpoint and
