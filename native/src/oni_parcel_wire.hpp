@@ -2,6 +2,7 @@
 // Original adapter wire format. Carries scaled mechanics without projecting
 // them into binary64 or choosing a physical admission/rounding policy.
 #include "mixed_atmospheres/mac_scaled.hpp"
+#include "mixed_atmospheres/mac_energy.hpp"
 #include "mixed_atmospheres/passive_quantities.hpp"
 #include "mixed_atmospheres/fluid_thermodynamics.hpp"
 #include <bit>
@@ -48,6 +49,13 @@ struct ParcelWireReader {
             std::abs(mantissa)>=.5 && std::abs(mantissa)<1),"Noncanonical parcel significand");
         return experimental::MacEnergy::from_parts(mantissa,exponent);
     }
+    experimental::MacEnergySum sum() {
+        const auto count=u32();
+        require(count<=65536 && count<=(bytes.size()-at)/13,"Invalid parcel credit component count");
+        experimental::MacEnergySum result;
+        for(std::uint32_t i=0;i<count;++i) {const auto value=scaled();require(!value.is_zero(),"Zero parcel credit component");result.add(value);}
+        return result;
+    }
 };
 inline std::vector<MovingParcelInput> decode_moving_parcels(std::span<const std::uint8_t> bytes) {
     using Reader=ParcelWireReader;
@@ -81,8 +89,9 @@ inline std::vector<MovingParcelInput> decode_moving_parcels(std::span<const std:
 }
 struct ParcelWireWriter {
     std::vector<std::uint8_t> bytes;
+    std::size_t limit=maximum_parcel_wire_bytes;
     void raw(std::string_view text) {
-        ParcelWireReader::require(text.size()<=maximum_parcel_wire_bytes-bytes.size(),"Moving parcel wire is too large");
+        ParcelWireReader::require(bytes.size()<=limit && text.size()<=limit-bytes.size(),"Moving parcel wire is too large");
         bytes.insert(bytes.end(),text.begin(),text.end());
     }
     void u32(std::uint32_t v) { for(unsigned i=0;i<4;++i) {const auto b=static_cast<char>(v>>(8*i));raw(std::string_view(&b,1));} }
@@ -91,6 +100,11 @@ struct ParcelWireWriter {
     void scaled(const experimental::MacEnergy& value) {
         f64(value.mantissa());const auto exponent=value.exponent().to_string();
         u32(static_cast<std::uint32_t>(exponent.size()));raw(exponent);
+    }
+    void sum(const experimental::MacEnergySum& value) {
+        ParcelWireReader::require(value.size()<=65536,"Too many parcel credit components");
+        u32(static_cast<std::uint32_t>(value.size()));
+        for(std::size_t i=0;i<value.size();++i)scaled(value.component(i));
     }
 };
 inline std::vector<std::uint8_t> encode_moving_parcels(std::span<const MovingParcelInput> items) {

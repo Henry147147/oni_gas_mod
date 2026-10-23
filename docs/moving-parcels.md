@@ -52,10 +52,38 @@ Actual native grid mass, U/K/G/J and passive changes require additive scaled
 **component arrays** in receipts. A single significand cannot represent, for
 example, `1 - 1e-100`; `.value()` is an estimate and cannot settle an exact
 account. Nominal consumed source data and actual grid credits remain separate;
-managed settlement retains every measured difference. Receipt framing and
-durable queue integration are still pending. Existing `MARECP01/02` and
+managed settlement retains every measured difference. Durable queue integration
+is still pending. Existing `MARECP01/02` and
 mass/temperature jobs retain their layouts and behavior.
 
 `MACOLN01` wrapper 9 is reserved for pending moving-parcel jobs; version 8
 output remains unchanged while that facility is unused. No core physical
 checkpoint version is claimed by this request wire.
+
+## Exact outcome wire
+
+`MAPOUT01` is a bounded receipt codec, not yet a runtime capability. Its
+little-endian header contains the magic; uint64 sequence, completed frame,
+job token and live session; uint32 refusal code; and a uint32 byte length
+followed by a refusal reason (at most 4,096 bytes). A uint32 length then
+frames the nominal consumed `MAPARC01` request, followed by uint32 grid-credit
+count. Refusals consume nothing, have no credits and carry a reason. Successful
+outcomes have one grid credit for each consumed input, in matching order.
+
+Each credit contains six additive scaled-component arrays: mass, U, K, G,
+Jx and Jy. An array is a uint32 count followed by that many nonzero scaled
+values. It then contains sorted uint64 passive identities with component-array
+changes, component arrays for kinetic mixing heat and potential work, scalar
+wall impulses Jx/Jy, and separate observed passive inventories before and after.
+The final six scaled scalars are energy residual/bound, Jx residual/bound and
+Jy residual/bound; bounds are nonnegative. No component estimate settles an
+account. The complete outcome is at most 64 MiB, each expansion at most 65,536
+components. Refusal codes are core codes 1–4, publication range 16 and receipt
+capacity 17; success is 0. Live session IDs fence asynchronous work and are
+not durable colony identities.
+
+Native controls retain `1 - 1e-100` mass credit, signed formation energy,
+mechanical exponents beyond fixed-width integers, fractional passive changes,
+work and wall impulses through a byte-exact encode/decode round trip. Every
+truncated prefix, malformed identity/status/count/bound and trailing byte is
+rejected. These controls do not establish runtime admission or save acceptance.
