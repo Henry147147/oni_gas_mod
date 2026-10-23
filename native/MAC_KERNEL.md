@@ -842,6 +842,41 @@ The older Terra dump's flow probe improves 4.30 to 3.51 s. The phase probe's
 regression on the newer capture remains visible in the table; no numerical
 setting or accuracy tradeoff accompanies the storage change.
 
+A follow-up skips constituent presence/range scans for implicit positive-zero
+inventories and initializes the SoA mass array contiguously before copying
+owned arrays. Shape, energy, passive and momentum validation still runs;
+owned signed-zero arrays retain their original path. Phase pair reads use a
+const view, avoiding empty-array materialization. Arithmetic and checkpoint
+bytes remain unchanged. Clean Release/83 CTests and all 99 MAC command
+comparisons pass with timing-only differences; the native owner diagnostic
+also matches apart from timing. High-lock newer-dump flow medians improve 72.31 to
+66.13 ms; the older dump measures 2.865 to 3.052 s. Phase-only gains in a
+quieter repeat are 0.7–1.2%. These component probes retain prior results and
+exclude their first of nine samples. Flow and phase checkpoints match both
+dumps; the phase-only probe also matches heat and settling checkpoints.
+
+The follow-up's matched whole-lock Terra60 runs use GPU rendering, profile
+17 and identical managed DLLs; no own validation overlaps the runs:
+
+| Speed | Owner mean / p95 / max ms, before → after | Observed mean / p95 / max ms, before → after |
+| --- | --- | --- |
+| Fast (2×) | 215.2 / 293.7 / 530.7 → 208.0 / 355.9 / 627.9 | 302.7 / 423.4 / 2966.8 → 303.0 / 485.0 / 3030.3 |
+| 1× | 229.1 / 430.9 / 489.6 → 218.1 / 378.6 / 451.8 | 329.8 / 505.2 / 3022.5 → 321.7 / 526.3 / 3071.0 |
+
+These single pairs have varying early spikes. Observed means include the
+initial UI pause. Frames 10–60 observed means are 258.2→242.6 ms at fast speed
+and 269.6→268.8 ms at 1×; those 50-interval subsets do not establish acceptance.
+Every run completes without faults or skipped relaxations:
+
+| Follow-up run | Maximum relative mass / energy error | Trace sink kg / J |
+| --- | --- | --- |
+| parent-fast | 3.22e-16 / 4.22e-17 | 3.384e-08 / 0.0115 |
+| new-fast | 2.55e-16 / 4.75e-17 | 3.549e-08 / 0.01322 |
+| parent-normal | 2.36e-16 / 3.78e-17 | 3.58e-08 / 0.01304 |
+| new-normal | 2.17e-16 / 3.28e-17 | 3.484e-08 / 0.01218 |
+
+The fast-clock target remains open; no numerical or profile setting changes.
+
 Fresh matched whole-lock Terra60 runs, identical managed DLLs, GPU rendering
 and opt-in profile 17 measure the complete storage change:
 

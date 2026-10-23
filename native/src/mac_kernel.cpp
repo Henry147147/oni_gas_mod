@@ -85,7 +85,8 @@ Model build_model(const SpeciesRegistry& registry, const FluidThermodynamics& eo
     std::set<std::uint64_t> ids;
     for (const auto& cell : state.cells) {
         require(cell.mixture.masses.size() == registry.size(), "Production kernel inventory shape differs");
-        for (std::size_t k = 0; k < registry.size(); ++k) if (cell.mixture.masses[k] != 0) present[k] = 1;
+        if (!cell.mixture.masses.implicit_zero())
+            for (std::size_t k = 0; k < registry.size(); ++k) if (cell.mixture.masses[k] != 0) present[k] = 1;
         for (const auto& p : cell.passive_quantities) ids.insert(p.identity);
     }
     const auto& materials = eos.reference().materials();
@@ -113,10 +114,11 @@ Model build_model(const SpeciesRegistry& registry, const FluidThermodynamics& eo
 }
 std::size_t load(const Exec& exec, const Model& model, const Grid& g, const MacTransportState& state, Fields& f) {
     const auto N = g.N, K = model.K(), P = model.P();
-    f.m.resize(K * N); f.U.resize(N); f.U_remainder.resize(N); f.q.assign(P * N, 0);
+    f.m.assign(K * N, 0); f.U.resize(N); f.U_remainder.resize(N); f.q.assign(P * N, 0);
     exec.rows([&](std::size_t y0, std::size_t y1, std::size_t) { for (std::size_t i = y0 * g.W; i < y1 * g.W; ++i) {
         const auto& cell = state.cells[i];
-        for (std::size_t k = 0; k < K; ++k) f.m[k * N + i] = cell.mixture.masses[model.species[k].registry];
+        if (!cell.mixture.masses.implicit_zero())
+            for (std::size_t k = 0; k < K; ++k) f.m[k * N + i] = cell.mixture.masses[model.species[k].registry];
         f.U[i] = cell.mixture.energy; f.U_remainder[i] = cell.energy_remainder_j.projected;
         std::size_t p = 0;
         for (const auto& entry : cell.passive_quantities) {
@@ -705,7 +707,8 @@ bool mac_kernel_normal_range(const MacTransportState& state) {
     const auto normal = [](double v) { return std::isfinite(v) && std::abs(v) <= 0x1p450; };
     for (const auto& cell : state.cells) {
         if (!normal(cell.mixture.energy)) return false;
-        for (const double m : cell.mixture.masses) if (!normal(m)) return false;
+        if (!cell.mixture.masses.implicit_zero())
+            for (const double m : cell.mixture.masses) if (!normal(m)) return false;
         for (const auto& p : cell.passive_quantities) if (!normal(p.quantity)) return false;
     }
     for (const double j : state.momentum_x) if (!normal(j)) return false;

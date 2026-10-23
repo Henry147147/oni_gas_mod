@@ -155,11 +155,14 @@ static MacPhaseChangeAdvance advance_cells(const SpeciesRegistry& registry, cons
     const auto advance_cell = [&](std::size_t i, Partial& part) {
         if (g.walls[i] || (!selected.empty() && !selected[i])) return;
         auto& cell = result.state.cells[i].mixture;
+        // Pair updates keep owned arrays at their original size. An implicit
+        // zero array has no phase mass to update, so this view stays valid.
+        const std::vector<double>& pair_masses = cell.masses;
         auto& report = part.report; auto& entropy = part.entropy; auto& allowance = part.allowance;
         for (const auto& entry : prepared) {
             const auto& pair = entry.pair;
             const auto liquid_profile = entry.liquid, vapour_profile = entry.vapour;
-            const double ml = cell.masses[pair.liquid], mv = cell.masses[pair.vapour];
+            const double ml = pair_masses[pair.liquid], mv = pair_masses[pair.vapour];
             if (ml == 0 && mv == 0) continue;
             // Void phase (MAC_VACUUM.md, "Phase change"): a partly filled cell
             // holding the pair's liquid relaxes at its grid volume, its gas first
