@@ -705,6 +705,11 @@ Maximum relative mass/energy errors were 6.641e-15/5.236e-17, trace sink
 1.309969e-6 kg and 0.962829 J, with 71,836 rejected attempts. No profile
 migration, numerical setting change or ten-cycle pass is implied.
 
+Owner telemetry and the overall validation report are replaced atomically so
+concurrent measurement readers see complete documents. A fault writes its final
+state/error and last completed-frame counters before validation stops; it does
+not leave a success-looking report from the previous frame.
+
 Environment variables of the game process (the harness passes them through):
 
 - `MA_COLONY_TRANSFER_DUMP=path`: on an individual fluid-transfer failure,

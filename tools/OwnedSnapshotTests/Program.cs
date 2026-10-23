@@ -30,6 +30,45 @@ internal static unsafe class Program
     [MethodImpl(MethodImplOptions.NoInlining)]
     private static int Run(bool benchmark)
     {
+        Test("report readers see complete replacements and failed writes preserve the last report", () =>
+        {
+            var directory=Path.Combine(Path.GetTempPath(),"ma-report-"+Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(directory);
+            try
+            {
+                var path=Path.Combine(directory,"owner.json");
+                ReportJson.WriteAtomicText(path,System.Text.Json.JsonSerializer.Serialize(new { Generation=0, Text=new string('x',8192) }));
+                var reads=0; var finished=0;
+                using var started=new System.Threading.ManualResetEventSlim();
+                var reader=System.Threading.Tasks.Task.Run(() =>
+                {
+                    do
+                    {
+                        using var stream=new FileStream(path,FileMode.Open,FileAccess.Read,FileShare.ReadWrite|FileShare.Delete);
+                        using var text=new StreamReader(stream);
+                        using var row=System.Text.Json.JsonDocument.Parse(text.ReadToEnd());
+                        var generation=row.RootElement.GetProperty("Generation").GetInt32();
+                        Check(row.RootElement.GetProperty("Text").GetString() == new string(generation%2==0?'x':'y',8192+generation));
+                        System.Threading.Interlocked.Increment(ref reads); started.Set();
+                    } while(System.Threading.Volatile.Read(ref finished)==0);
+                });
+                try
+                {
+                    Check(started.Wait(TimeSpan.FromSeconds(10)));
+                    for(var generation=1;generation<=100;++generation)
+                        ReportJson.WriteAtomicText(path,System.Text.Json.JsonSerializer.Serialize(new { Generation=generation, Text=new string(generation%2==0?'x':'y',8192+generation) }));
+                }
+                finally { System.Threading.Volatile.Write(ref finished,1); reader.GetAwaiter().GetResult(); }
+                Check(reads>0 && !File.Exists(path+".tmp"));
+                var expected=File.ReadAllBytes(path); Directory.CreateDirectory(path+".tmp");
+                var rejected=false;
+                try { ReportJson.WriteAtomicText(path,"replacement"); }
+                catch(IOException) { rejected=true; } catch(UnauthorizedAccessException) { rejected=true; }
+                Check(rejected && expected.SequenceEqual(File.ReadAllBytes(path)));
+                Directory.Delete(path+".tmp");
+            }
+            finally { Directory.Delete(directory,true); }
+        });
         Test("handoff timing keeps queued frames separate from observed completion", () =>
         {
             var timing = new ColonyFrameTiming();

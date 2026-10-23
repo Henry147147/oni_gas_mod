@@ -407,12 +407,12 @@ namespace MixedAtmospheres.Oni
             var status = ColonyOwner.Status;
             if (colonyOwnerWallStart == default) colonyOwnerWallStart = System.DateTime.UtcNow;
             Report.PhysicsOwner = "colony owner (MacClosedWorld); native ONI for solids";
-            if (status.State == 2) throw new InvalidOperationException("Colony owner faulted: " + status.Error);
+            var faulted = status.State == 2;
             // A system scenario (ColonyScenarios) decides when the run ends;
             // its checks of this frame go into the report below.
-            var scenarioDone = configuration!.Scenario.Length != 0 && ColonyScenarios.Update(configuration.Scenario, status);
+            var scenarioDone = configuration!.Scenario.Length != 0 && !faulted && ColonyScenarios.Update(configuration.Scenario, status);
             var owner = new {
-                SchemaVersion = 1, status.Session, status.CompletedFrames, status.Substeps, status.RejectedAttempts, status.Species,
+                SchemaVersion = 1, status.State, Faulted = faulted, status.Session, status.CompletedFrames, status.Substeps, status.RejectedAttempts, status.Species,
                 status.TimeSeconds, status.LastAdvanceMilliseconds, status.MaximumAdvanceMilliseconds, status.StageMilliseconds,
                 status.NativeHeatJoules, status.NativeMassInKg, status.NativeMassOutKg, status.NativeChanges,
                 status.EvaporatedKg, status.CondensedKg, status.SkippedRelaxations, status.ReleasedKg, status.ConvertedKg, status.SettledKg,
@@ -442,7 +442,8 @@ namespace MixedAtmospheres.Oni
                 Consumers = ColonyActors.Consumers, Emitters = ColonyActors.Emitters, NativeActors = ColonyActors.Native, ActorTransfers = ColonyActors.Queued, ConsumerEvents = ColonyActors.Delivered,
                 Error = status.Error
             };
-            File.WriteAllText(Path.Combine(OutputDirectory, "colony-owner.json"), ReportJson.Serialize(owner));
+            ReportJson.WriteAtomic(Path.Combine(OutputDirectory, "colony-owner.json"), owner);
+            if (faulted) throw new InvalidOperationException("Colony owner faulted: " + status.Error);
             var loading = configuration.Mode == "colony-owner-load";
             if (loading && ColonyOwnerPersistence.Loads != 1) throw new InvalidOperationException("The loaded colony did not restore its owner.");
             // ONI pauses a colony when it loads it and after a save; an
@@ -654,7 +655,7 @@ namespace MixedAtmospheres.Oni
                 }
             } catch(IOException) {return false;}
         }
-        private static void WriteReport() => File.WriteAllText(ReportPath, ReportJson.Serialize(Report));
+        private static void WriteReport() => ReportJson.WriteAtomic(ReportPath, Report);
         internal static void Shutdown()
         {
             ShutdownTelemetry();
