@@ -3,6 +3,7 @@ using System.IO;
 using System.Linq;
 using System.Buffers.Binary;
 using System.Security.Cryptography;
+using System.Numerics;
 using MixedAtmospheres.Oni;
 
 static class Program
@@ -71,6 +72,19 @@ static class Program
         var split = trace.Split(1, Material);
         Check(split.Remaining.Count == 1 && split.Remaining.Mass > 0, "sub-resolution mass was discarded");
         Near(split.Remaining.Temperature(Material), 300); Account(trace, split.Remaining, split.Parcel);
+        var lastTrace = PipeInventory.Single(A,1,300).Joined(PipeInventory.Single(B,1e-240,300));
+        foreach (var request in new[] { Math.BitDecrement(1), 1, Math.BitIncrement(1), .33333334f, .00000001f })
+        {
+            var flux = lastTrace.Split(request,Material);Account(lastTrace,flux.Remaining,flux.Parcel);
+            var wanted = new PipeAmount(request);
+            if (wanted.Minus(lastTrace.Total).Sign>0) wanted=lastTrace.Total;
+            Check(flux.Parcel.Total.Minus(wanted).Sign==0,"native shared flux changed aggregate mass");
+            Check(flux.Parcel.SpeciesMass(2)<=lastTrace.SpeciesMass(2),"bulk correction created trace mass");
+        }
+        var almostFull=PipeInventory.Single(A,Math.BitDecrement(1),300).Joined(PipeInventory.Single(B,1e-240,300));
+        var capacityTest=PipeInventory.Transfer(lastTrace,almostFull,1,1,Material);
+        Check(capacityTest.Target.Total.Minus(new PipeAmount(1)).Sign<=0,"rounded target mass exceeded exact capacity");
+        Account(lastTrace.Joined(almostFull),capacityTest.Source,capacityTest.Target);
         var warmed = mixture.WithHeat(1600); Near(warmed.Temperature(Material), 451);
         var dumped = warmed.Split(2, Material); Check(dumped.Remaining.Count == 0, "destruction did not evacuate all contents");
         Check(Save(dumped.Parcel).SequenceEqual(Save(warmed)), "evacuation changed inventory");
@@ -106,7 +120,7 @@ static class Program
         Check(decoded.Encode().SequenceEqual(image), "pipe image continuation differs");
         Reject(() => ColonyConduitCheckpoint.Decode(image[..^1],geometry,hash));
         var corrupt=(byte[])image.Clone();corrupt[80]^=1;Reject(()=>ColonyConduitCheckpoint.Decode(corrupt,geometry,hash));
-        foreach (var (offset,value) in new[]{(8,2),(68,int.MaxValue)})
+        foreach (var (offset,value) in new[]{(8,3),(68,int.MaxValue)})
         {
             corrupt=(byte[])image.Clone();BinaryPrimitives.WriteInt32LittleEndian(corrupt.AsSpan(offset),value);
             SHA256.HashData(corrupt.AsSpan(0,corrupt.Length-32)).CopyTo(corrupt.AsSpan(corrupt.Length-32));
@@ -135,6 +149,77 @@ static class Program
         try {ColonySaveEnvelope.Parse(envelope,744825,3,hash);throw new Exception("Outer hash ignored pipe contents");}
         catch(InvalidDataException){}
         Console.WriteLine("PASS pipe persistence: exact legacy bytes, mixed continuation, catalogue/geometry/schema bounds, corruption and root-envelope coverage");
+        var enormous=BigInteger.Parse("922337203685477580812345");
+        var mechanical=new PipeScaledAccount();
+        foreach(var value in new[]{new PipeScaledValue(.5,enormous),new PipeScaledValue(.5,enormous),new PipeScaledValue(-1,enormous),
+            new PipeScaledValue(1e308,0),new PipeScaledValue(1e-300,0),new PipeScaledValue(-1e308,0)})mechanical.Add(value);
+        Check(!mechanical.IsZero,"scaled account dropped a small term");
+        mechanical.Add(new PipeScaledValue(-1e-300,0));Check(mechanical.IsZero,"scaled cancellation differs");
+        mechanical.Add(new PipeScaledValue(.75,enormous));mechanical.Add(new PipeScaledValue(-.625,-enormous));
+        byte[] MechanicalImage(PipeScaledAccount value){using var stream=new MemoryStream();using var writer=new BinaryWriter(stream);value.Write(writer);return stream.ToArray();}
+        var mechanicalImage=MechanicalImage(mechanical);
+        using(var stream=new MemoryStream(mechanicalImage))using(var reader=new BinaryReader(stream))
+            Check(MechanicalImage(PipeScaledAccount.Read(reader,mechanicalImage.Length)).SequenceEqual(mechanicalImage),"scaled checkpoint changed huge exponents");
+        var reservation=PipeInventory.Single(A,.25,300,0,.5);
+        var prepared=new PipePortJob(1,0,35,1,36,1,1,0,.25,300,reservation,new[]{new PipeReceiptPassive(1,.5)});
+        var queued=new PipePortJob(2,1,36,2,35,0,4,2,5,0,PipeInventory.Empty);
+        var passiveResidual=new PipeAmount(.5).Plus(new PipeAmount(1e-240));
+        var boundaryState=new PipeBoundaryState(new PipeAmount(1e-240),mechanical,new PipeScaledAccount(),new PipeScaledAccount(),new PipeScaledAccount(),3,2,new[]{prepared,queued},
+            new[]{new PipePassiveBalance(0x100000000UL,passiveResidual)});
+        var pipeV2=new ColonyConduitCheckpoint(geometry,hash,new[]{new PipeCellImage(1,35,PipeInventory.Single(A,1,300)),new PipeCellImage(2,36,PipeInventory.Single(B,1,300))},
+            mixture,PipeInventory.Empty,PipeInventory.Empty,default,boundary:boundaryState).Encode();
+        var replayV2=ColonyConduitCheckpoint.Decode(pipeV2,geometry,hash,id=>id==1?(byte)1:(byte)2);
+        Check(replayV2.SchemaVersion==2&&replayV2.Encode().SequenceEqual(pipeV2),"durable boundary continuation differs");
+        Check(replayV2.Boundary!.Jobs[0].NativeToken==0&&replayV2.Boundary.Jobs[1].NativeToken==1&&replayV2.Boundary.NextNativeToken==2,
+            "prepared and already-native-queued jobs lost their distinction");
+        Check(MechanicalImage(replayV2.Boundary.Kinetic).SequenceEqual(mechanicalImage)&&replayV2.Boundary.UnreleasedHeat.Minus(new PipeAmount(1e-240)).Sign==0,
+            "boundary mechanics or unreleased heat changed");
+        Check(replayV2.Boundary.PassiveRemainders.Single().Identity==0x100000000UL&&replayV2.Boundary.PassiveRemainders.Single().Quantity.Minus(passiveResidual).Sign==0,
+            "full-identity passive remainder lost its tiny component");
+        Check(BinaryPrimitives.ReadInt32LittleEndian(image.AsSpan(8))==1&&ColonyConduitCheckpoint.Decode(image,geometry,hash).Encode().SequenceEqual(image),"schema1 migrated");
+        Reject(()=>new PipeBoundaryState(default,mechanical,mechanical,mechanical,mechanical,3,1,new[]{queued}));
+        Reject(()=>new PipeBoundaryState(default,mechanical,mechanical,mechanical,mechanical,3,2,new[]{queued,queued}));
+        Reject(()=>new PipePortJob(3,0,35,1,36,1,1,0,.5,300,reservation));
+        Reject(()=>new PipePortJob(3,0,35,1,36,1,1,0,.25,300,reservation,new[]{new PipeReceiptPassive(2,.5),new PipeReceiptPassive(1,.5)}));
+        var outside=new PipePortJob(1,0,35,1,uint.MaxValue,1,1,0,.25,300,reservation);
+        Reject(()=>new ColonyConduitCheckpoint(geometry,hash,Array.Empty<PipeCellImage>(),mixture,mixture,mixture,default,
+            boundary:new PipeBoundaryState(default,mechanical,mechanical,mechanical,mechanical,2,1,new[]{outside})));
+        Console.WriteLine("PASS pipe schema2: exact sparse mechanical/heat accounts, prepared/native-queued reservations and watermarks, schema1 preservation and invalid jobs");
+        byte[] ReceiptImage(bool observed=false)
+        {
+            using var stream=new MemoryStream();using var writer=new BinaryWriter(stream);
+            writer.Write(System.Text.Encoding.ASCII.GetBytes(observed?"MARECP02":"MARECP01"));writer.Write(42UL);writer.Write(100UL);writer.Write(2u);
+            foreach(var zero in new[]{false,true})
+            {
+                writer.Write(zero?2u:1u);writer.Write(zero?36u:35u);writer.Write(zero?1u:0u);
+                writer.Write(zero?0:.4);writer.Write(zero?0:293.123456789);writer.Write(zero?0:123456.789);
+                foreach(var quantity in new[]{.75,-.625,.5,-.25}){writer.Write(zero?0:quantity);PipeScaledValue.WriteExponent(writer,zero?0:enormous);}
+                writer.Write(zero?0u:2u);
+                if(!zero){writer.Write(1UL);writer.Write(.5);writer.Write(255UL);writer.Write(40.25);}
+                if(observed)
+                {
+                    writer.Write(zero?0u:1u);
+                    if(!zero){writer.Write(1UL);writer.Write(1e100);writer.Write(1e100);}
+                }
+            }
+            return stream.ToArray();
+        }
+        var preciseImage=ReceiptImage();var precise=PipeReceipt.Decode(preciseImage,42);
+        Check(precise.Sequence==42&&precise.CompletedFrame==100&&precise.Parcels.Length==2,"precise receipt identity/zero record lost");
+        Check(precise.Parcels[0].PublicCell==35&&precise.Parcels[0].Mass==.4&&precise.Parcels[0].InternalEnergy==123456.789&&
+            precise.Parcels[0].Passives[1].Quantity==40.25&&precise.Parcels[0].Kinetic.Exponent==enormous,"precise committed quantities rounded");
+        Check(precise.Parcels[1].Injected&&precise.Parcels[1].Mass==0,"zero injected parcel omitted");
+        var observedReceipt=PipeReceipt.Decode(ReceiptImage(true),42);
+        var observation=observedReceipt.Parcels[0].Observations.Single();
+        Check(observedReceipt.WireVersion==2&&observation.Before==1e100&&observation.After==1e100,"actual passive storage observation changed");
+        var representationRemainder=new PipeAmount(observation.Before).Plus(new PipeAmount(.5)).Minus(new PipeAmount(observation.After));
+        Check(representationRemainder.Minus(new PipeAmount(.5)).Sign==0,"native rounded-away passive increment lost its remainder account");
+        Reject(()=>PipeReceipt.Decode(preciseImage,43));Reject(()=>PipeReceipt.Decode(preciseImage[..^1],42));
+        Reject(()=>PipeReceipt.Decode(preciseImage.Concat(new byte[]{0}).ToArray(),42));
+        var brokenReceipt=(byte[])preciseImage.Clone();BinaryPrimitives.WriteUInt32LittleEndian(brokenReceipt.AsSpan(24),uint.MaxValue);
+        Reject(()=>PipeReceipt.Decode(brokenReceipt,42));
+        brokenReceipt=(byte[])preciseImage.Clone();brokenReceipt[76]=(byte)'+';Reject(()=>PipeReceipt.Decode(brokenReceipt,42));
+        Console.WriteLine("PASS precise pipe receipts: committed binary64 values, every passive/zero parcel, huge scaled mechanics, exact sparse accounts and malformed framing");
         if (args.Contains("--benchmark"))
         {
             foreach (var seed in new[] { PipeInventory.Single(A, 1, 300), mixture })

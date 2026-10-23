@@ -178,20 +178,46 @@ namespace MixedAtmospheres.Oni
         internal (PipeInventory Remaining, PipeInventory Parcel) Split(double maximum, Func<int, PipeMaterial> material, int? only = null)
         {
             if (maximum < 0 || double.IsNaN(maximum) || double.IsInfinity(maximum)) throw new ArgumentOutOfRangeException(nameof(maximum));
-            var selected = only.HasValue ? SpeciesMass(only.Value) : Mass;
-            if (maximum == 0 || selected == 0) return (this, Empty);
+            var selectedAmount = Total;
+            if (only.HasValue)
+            {
+                selectedAmount = PipeAmount.Zero;
+                foreach (var part in parts) if (part.Id == only.Value) selectedAmount = part.Amount;
+            }
+            if (maximum == 0 || selectedAmount.Sign == 0) return (this, Empty);
             if ((!only.HasValue || parts.Length == 1) && Total.Minus(new PipeAmount(maximum)).Sign <= 0) return (Empty, this);
-            var fraction = Math.Min(1, maximum / selected);
-            var moved = new List<PipePart>();
-            var room = new PipeAmount(maximum);
-            foreach (var part in parts)
+            var wanted = new PipeAmount(maximum);
+            if (wanted.Minus(selectedAmount).Sign > 0) wanted = selectedAmount;
+            var fraction = Math.Min(1, wanted.Value / selectedAmount.Value);
+            var amounts = new PipeAmount[parts.Length];var actual = PipeAmount.Zero;var largest = -1;
+            for (var i = 0; i < parts.Length; ++i)
+            {
+                var part = parts[i];
                 if (!only.HasValue || part.Id == only.Value)
                 {
                     var amount = part.Amount.Times(fraction);
-                    if (amount.Minus(room).Sign > 0) amount = room;
-                    if (amount.Sign > 0) moved.Add(new PipePart(part.Id, amount));
-                    room = room.Minus(amount);
+                    if (amount.Minus(part.Amount).Sign > 0) amount = part.Amount;
+                    amounts[i] = amount;actual = actual.Plus(amount);
+                    if (largest < 0 || part.Mass > parts[largest].Mass) largest = i;
                 }
+            }
+            // Product rounding is corrected in a constituent with room,
+            // starting with the largest. Never put a bulk-sized ulp into a
+            // trace merely because that trace is last in catalogue order.
+            var correction = wanted.Minus(actual);
+            void Correct(int i)
+            {
+                if (only.HasValue && parts[i].Id != only.Value) return;
+                var adjusted = amounts[i].Plus(correction);
+                if (adjusted.Sign < 0) adjusted = PipeAmount.Zero;
+                if (adjusted.Minus(parts[i].Amount).Sign > 0) adjusted = parts[i].Amount;
+                correction = correction.Minus(adjusted.Minus(amounts[i]));amounts[i] = adjusted;
+            }
+            Correct(largest);
+            for (var i = 0; correction.Sign != 0 && i < parts.Length; ++i) if (i != largest) Correct(i);
+            if (correction.Sign != 0) throw new InvalidOperationException("Pipe shared flux cannot be represented within its constituents.");
+            var moved = new List<PipePart>();
+            for (var i = 0; i < parts.Length; ++i) if (amounts[i].Sign > 0) moved.Add(new PipePart(parts[i].Id,amounts[i]));
             var values = moved.ToArray();
             var movedMass = PipeAmount.Zero;
             foreach (var part in values) movedMass = movedMass.Plus(part.Amount);
@@ -221,7 +247,10 @@ namespace MixedAtmospheres.Oni
             PipeInventory source, PipeInventory target, double requested, double capacity, Func<int, PipeMaterial> material, int? only = null)
         {
             if (capacity < 0 || double.IsNaN(capacity) || double.IsInfinity(capacity)) throw new ArgumentOutOfRangeException(nameof(capacity));
-            var accepted = Math.Min(requested, Math.Max(0, capacity - target.Mass));
+            var room = new PipeAmount(capacity).Minus(target.Total);
+            var accepted = room.Sign <= 0 ? 0 : Math.Min(requested, room.Value);
+            while (accepted > 0 && new PipeAmount(accepted).Minus(room).Sign > 0)
+                accepted = BitConverter.Int64BitsToDouble(BitConverter.DoubleToInt64Bits(accepted)-1);
             var split = source.Split(accepted, material, only);
             return (split.Remaining, target.Joined(split.Parcel), split.Parcel);
         }

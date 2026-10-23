@@ -116,6 +116,23 @@ namespace MixedAtmospheres.Oni
         internal static extern int QueueTerrain([In] Terrain[] terrain, uint count);
         [DllImport(Library, EntryPoint = "ma_oni_colony_copy_receipts", CallingConvention = CallingConvention.Cdecl)]
         internal static extern int CopyReceipts([Out] Receipt[] receipts, uint capacity, out uint count);
+        // Additive precision sidecar; legacy receipt48 remains unchanged.
+        [DllImport(Library, EntryPoint = "ma_oni_colony_enable_precise_receipts", CallingConvention = CallingConvention.Cdecl)]
+        internal static extern int EnablePreciseReceipts(uint enabled);
+        [DllImport(Library, EntryPoint = "ma_oni_colony_precise_receipt_version", CallingConvention = CallingConvention.Cdecl)]
+        internal static extern uint PreciseReceiptVersion();
+        [DllImport(Library, EntryPoint = "ma_oni_colony_copy_precise_receipt", CallingConvention = CallingConvention.Cdecl)]
+        internal static extern int CopyPreciseReceipt(ulong sequence, [Out] byte[]? bytes, uint capacity, out uint count);
+        [DllImport(Library, EntryPoint = "ma_oni_colony_wait", CallingConvention = CallingConvention.Cdecl)]
+        internal static extern int Wait();
+        [StructLayout(LayoutKind.Sequential)]
+        internal struct PipePassive { public ulong Identity; public double Quantity; }
+        [DllImport(Library, EntryPoint = "ma_oni_colony_queue_pipe_job", CallingConvention = CallingConvention.Cdecl)]
+        internal static extern int QueuePipeJob(ulong token, in Transfer transfer, [In] PipePassive[] passives, uint count, out uint state, out ulong lastReceipt);
+        [DllImport(Library, EntryPoint = "ma_oni_colony_pipe_job_state", CallingConvention = CallingConvention.Cdecl)]
+        internal static extern int PipeJobState(ulong token, out uint state, out ulong lastReceipt);
+        [DllImport(Library, EntryPoint = "ma_oni_colony_receipt_job", CallingConvention = CallingConvention.Cdecl)]
+        internal static extern int ReceiptJob(ulong sequence, out ulong token);
         [DllImport(Library, EntryPoint = "ma_oni_colony_ack_receipts", CallingConvention = CallingConvention.Cdecl)] internal static extern int AckReceipts(ulong through);
         [DllImport(Library, EntryPoint = "ma_oni_colony_checkpoint", CallingConvention = CallingConvention.Cdecl)]
         internal static extern int Checkpoint([Out] byte[]? buffer, uint capacity, out uint bytes);

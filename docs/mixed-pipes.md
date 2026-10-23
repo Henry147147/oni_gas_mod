@@ -59,6 +59,27 @@ check exact legacy bytes, new-image re-encoding/continuation, incompatible
 catalogue/geometry, malformed lengths, duplicate cells, corruption and the
 outer envelope's coverage of the pipe payload.
 
+**MACPIP01 schema 2** was claimed after fresh fetch/fast-forward
+`2129f2b` on 2026-10-23. Schema 1 remains readable and re-encodes with its
+original bytes. Schema 2 appends named unreleased-boundary-heat and exact
+uint64-identity passive representation-remainder accounts,
+four exact mechanical exchange accounts (K, gravitational energy, x/y
+momentum), next local-job/native-token watermarks and ordered durable port
+jobs. Mechanical accounts use sparse balanced signed base-2^32 digits with
+arbitrary-precision decimal bin indices; huge exponents and small residuals
+survive exact cancellation and checkpointing.
+
+A job stores its local identity, native token, pipe cell/phase, actual world
+request cell, native species, operation/radius, requested mass/temperature,
+reserved inventory and every uint64-identity/binary64 passive. Token zero
+means prepared and unsubmitted; a positive token means already queued in
+the native checkpoint. Only injections (1), gas extractions (3) and liquid
+extractions (4) are accepted. Jobs, watermarks, phases, geometry, reservations,
+passive ordering and byte/count bounds are validated. Committed outcomes must
+be credited before both save images are captured; receipt sequence numbers
+are transient and are never restored as credit identities. This codec does
+not yet authorize live output, saving or migration.
+
 ## Precise owner receipts
 
 The optional native adapter exports `ma_oni_colony_enable_precise_receipts`,
@@ -93,3 +114,29 @@ Mixed-pipe save integration must drain and credit relevant receipts while the
 game submitter is paused, before releasing its save barrier. Waiting for the
 owner does not acknowledge or deliver receipts. Exact return injection and
 in-flight save/restore remain separate acceptance work.
+
+The managed reader also accepts the agreed **MARECP02** job extension:
+after each parcel's passive list, uint32 observation count and sorted
+`{ uint64 identity, binary64 before, binary64 after }` entries. These are
+sequential per-edit storage observations, so `before + supplied - after`
+can be retained exactly in the schema-2 passive remainder account. The
+ordinary MARECP01 reader remains unchanged. Reader controls cover huge
+exponents, zero parcels, every passive, malformed framing and a fractional
+increment rounded away beside a large native count. This is codec evidence;
+ports remain disabled until native observations and in-flight job/save
+controls establish the complete boundary account.
+
+Full port activation must first require
+`ma_oni_colony_precise_receipt_version() >= 2`; an older native bundle or
+missing export refuses activation before any job is queued. Ordinary legacy
+colonies do not query this optional export.
+
+Native world passive quantities are binary64 per identity: adding a tiny
+quantity to a large existing count can round away, and a large incoming
+quantity can erase the old low part. Echoed input passives are therefore
+insufficient evidence of what the world stored. Durable job requests accept
+at most 65,537 sorted positive passives with identities through 0x100000000;
+schema-2 jobs and passive remainder accounts enforce these same limits.
+Actual sequential MARECP02 observations and a named signed representation
+remainder are required for both injection and extraction. No complete
+world/pipe germ-conservation or output/save acceptance has passed yet.

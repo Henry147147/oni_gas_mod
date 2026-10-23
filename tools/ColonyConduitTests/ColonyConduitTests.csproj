@@ -6,6 +6,8 @@
   <ItemGroup>
     <Compile Include="../../managed/MixedAtmospheres.Oni/ColonyConduitInventory.cs" Link="ColonyConduitInventory.cs" />
     <Compile Include="../../managed/MixedAtmospheres.Oni/ColonyConduitCheckpoint.cs" Link="ColonyConduitCheckpoint.cs" />
+    <Compile Include="../../managed/MixedAtmospheres.Oni/ColonyConduitReceipts.cs" Link="ColonyConduitReceipts.cs" />
+    <Compile Include="../../managed/MixedAtmospheres.Oni/ColonyConduitJobs.cs" Link="ColonyConduitJobs.cs" />
     <Compile Include="../../managed/MixedAtmospheres.Oni/ColonySaveEnvelope.cs" Link="ColonySaveEnvelope.cs" />
   </ItemGroup>
 </Project>

@@ -48,9 +48,12 @@ namespace MixedAtmospheres.Oni
         internal readonly PipeInventory Initial, Supplied, Removed;
         internal readonly PipeAmount ExternalHeat;
         internal readonly PipePart[] DiseaseExchange;
+        internal readonly PipeBoundaryState? Boundary;
+        internal int SchemaVersion=>Boundary==null?1:2;
 
         internal ColonyConduitCheckpoint(PipeGeometry geometry, byte[] catalogueHash, IEnumerable<PipeCellImage> cells,
-            PipeInventory initial, PipeInventory supplied, PipeInventory removed, PipeAmount heat, IEnumerable<PipePart>? diseaseExchange = null)
+            PipeInventory initial, PipeInventory supplied, PipeInventory removed, PipeAmount heat, IEnumerable<PipePart>? diseaseExchange = null,
+            PipeBoundaryState? boundary = null)
         {
             if (catalogueHash == null || catalogueHash.Length != 32) throw new InvalidDataException("Invalid pipe catalogue identity.");
             Geometry = new PipeGeometry(geometry.GridWidth, geometry.GridHeight, geometry.X, geometry.Y, geometry.Width, geometry.Height);
@@ -70,18 +73,20 @@ namespace MixedAtmospheres.Oni
             if (DiseaseExchange.Length > 256) throw new InvalidDataException("Too many pipe disease exchange accounts.");
             for (var i = 1; i < DiseaseExchange.Length; ++i)
                 if (DiseaseExchange[i-1].Id == DiseaseExchange[i].Id) throw new InvalidDataException("Duplicate pipe disease exchange account.");
+            Boundary=boundary;Boundary?.Validate(geometry,null);
         }
         internal byte[] Encode()
         {
             using var stream = new MemoryStream();
             using (var writer = new BinaryWriter(stream, Encoding.UTF8, true))
             {
-                writer.Write(Magic); writer.Write(1); Geometry.Write(writer); writer.Write(CatalogueHash);
+                writer.Write(Magic); writer.Write(SchemaVersion); Geometry.Write(writer); writer.Write(CatalogueHash);
                 writer.Write(Cells.Length);
                 foreach (var cell in Cells) { writer.Write(cell.Phase); writer.Write(cell.Cell); cell.Inventory.Write(writer); }
                 Initial.Write(writer); Supplied.Write(writer); Removed.Write(writer); ExternalHeat.Write(writer);
                 writer.Write(DiseaseExchange.Length);
                 foreach (var item in DiseaseExchange) { writer.Write(item.Id); item.Amount.Write(writer); }
+                Boundary?.Write(writer);
             }
             if (stream.Length > MaximumBytes - 32) throw new InvalidDataException("Pipe checkpoint exceeds its byte limit.");
             var body = stream.ToArray();
@@ -100,7 +105,8 @@ namespace MixedAtmospheres.Oni
             {
                 using var stream = new MemoryStream(image, 0, end, false);
                 using var reader = new BinaryReader(stream);
-                if (!reader.ReadBytes(8).AsSpan().SequenceEqual(Magic) || reader.ReadInt32() != 1) throw new InvalidDataException("Unsupported pipe checkpoint.");
+                if (!reader.ReadBytes(8).AsSpan().SequenceEqual(Magic)) throw new InvalidDataException("Unsupported pipe checkpoint.");
+                var version=reader.ReadInt32();if(version!=1&&version!=2)throw new InvalidDataException("Unsupported pipe checkpoint schema.");
                 var geometry = PipeGeometry.Read(reader); var catalogue = reader.ReadBytes(32);
                 if (!geometry.Equals(expectedGeometry) || expectedCatalogue.Length != 32 || !catalogue.AsSpan().SequenceEqual(expectedCatalogue))
                     throw new InvalidDataException("Pipe checkpoint catalogue or geometry differs.");
@@ -120,8 +126,9 @@ namespace MixedAtmospheres.Oni
                 if (count < 0 || count > 256) throw new InvalidDataException("Invalid pipe disease exchange count.");
                 var diseases = new PipePart[count];
                 for (var i = 0; i < count; ++i) diseases[i] = new PipePart(reader.ReadInt32(), PipeAmount.Read(reader));
+                var boundary=version==2?PipeBoundaryState.Read(reader,image.Length):null;boundary?.Validate(geometry,materialPhase);
                 if (stream.Position != end) throw new InvalidDataException("Trailing pipe checkpoint data.");
-                var result = new ColonyConduitCheckpoint(geometry, catalogue, cells, initial, supplied, removed, heat, diseases);
+                var result = new ColonyConduitCheckpoint(geometry, catalogue, cells, initial, supplied, removed, heat, diseases,boundary);
                 if (!result.Encode().AsSpan().SequenceEqual(image)) throw new InvalidDataException("Noncanonical pipe checkpoint.");
                 return result;
             }
