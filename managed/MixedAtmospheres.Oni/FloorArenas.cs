@@ -122,6 +122,9 @@ namespace MixedAtmospheres.Oni
         {
             ownerCells.Clear();
             if (!ColonyOwner.Active) return;
+            // Floor samples measure fixed simulation intervals. Complete the
+            // already submitted owner work before reading the native tick's row.
+            OniNativeColony.Check(OniNativeColony.Wait());
             if (ownerRequested.Length == 0)
             {
                 if (Marshal.SizeOf<SampleCell>() != 24 || Marshal.SizeOf<SamplePart>() != 16)

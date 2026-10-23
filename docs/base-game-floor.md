@@ -200,6 +200,18 @@ and five skipped owner observations are recorded; source-aligned cadence and
 resolved dynamic truth remain open, so this bracket is provisional. Complete
 inventories establish mass accounting, not complete dynamic floor acceptance.
 
+The floor-only owner sampler now waits for already submitted owner work before
+reading that tick's atomic snapshot. A fixed F1 rerun records **605 consecutive
+owner frames**, with **zero repeats, skips or refused projections**. Initial
+gas mass and sensible heat, the [9.0, 9.2] s equalisation bracket and all three
+final mass fractions match the preceding run exactly. Maximum inventory
+residual remains **7.105e-15 kg**. Maximum mass/energy errors are
+**1.126e-17 / 1.724e-17**, trace sink **2.686e-12 kg / 3.153e-6 J**, with no
+fault or skipped relaxation. This corrects F1's sampled cadence; its analytic
+split failure and unresolved dynamic reference remain. Other owner scenarios
+still require the barrier rerun. Vanilla sampling and all fixed setups,
+physical settings and metric definitions are unchanged.
+
 ## Performance and feature variants
 
 Each numerical step needs same-lock Terra60 before/after, affected floor
