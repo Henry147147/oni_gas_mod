@@ -39,7 +39,7 @@ namespace MixedAtmospheres.Oni
         private static readonly List<GameObject> powered = new List<GameObject>();
 
         internal static void Reset() { Results.Clear(); index = 0; Next(); }
-        private static void Next() { Current = new Result(); started = 0; step = 0; recorded.Clear(); powered.Clear(); filling = null; pipeCells.Clear(); generators.Clear(); mixedFilters.Clear();mixedSensors.Clear();mixedDiseaseSensor=null;mixedBoundaryJobs.Clear();mixedPumps.Clear();mixedPumpHeldOutputs.Clear();mixedPumpDischargeSources.Clear();mixedThermalBody=null; }
+        private static void Next() { Current = new Result(); started = 0; step = 0; recorded.Clear(); powered.Clear(); filling = null; pipeCells.Clear(); generators.Clear(); mixedFilters.Clear();mixedSensors.Clear();mixedDiseaseSensor=null;mixedBoundaryJobs.Clear();mixedPumps.Clear();mixedPumpHeldOutputs.Clear();mixedPumpDischargeSources.Clear();mixedOutputJobs.Clear();mixedThermalBody=null; }
 
         // Called every Unity frame while the owner runs. Returns true when
         // every scenario of the list is done.
@@ -98,6 +98,7 @@ namespace MixedAtmospheres.Oni
                     case "mixed-pipes": MixedPipes(frame); break;
                     case "mixed-pipe-filter": MixedPipeFilter(frame); break;
                     case "mixed-pipe-boundary": MixedPipeBoundary(frame); break;
+                    case "mixed-pipe-output": MixedPipeOutput(frame); break;
                     case "mixed-pipe-pumps": MixedPipePumps(frame); break;
                     case "mixed-pipe-thermal": MixedPipeThermal(frame); break;
                     case "mixed-pipe-catalogue": MixedPipeCatalogue(frame); break;
@@ -1148,6 +1149,53 @@ namespace MixedAtmospheres.Oni
             }
             Record("catalogue routes conserve every account",ColonyConduits.Audit(out var detail),detail);
         }
+        private static readonly List<ulong[]> mixedOutputJobs=new List<ulong[]>();
+        private static void MixedPipeOutput(int frame)
+        {
+            if(Once(0,"atomic mixed output arena"))Arena((x,y)=>(SimHashes.Oxygen,1f,300f));
+            if(Once(5,"isolated output source pipes"))
+            {
+                Pipe(Game.Instance.gasConduitSystem,GasConduitConfig.ID,new List<int>{Cell(1,3)});
+                Pipe(Game.Instance.liquidConduitSystem,LiquidConduitConfig.ID,new List<int>{Cell(6,3)});
+            }
+            if(Once(10,"reserve and dispatch complete owned mixtures"))
+            {
+                ColonyConduits.StartControl();ColonyPipePorts.StartControl();ColonyPipePorts.BeginCompletionControl();
+                for(var phase=0;phase<2;++phase)
+                {
+                    var flow=phase==0?Game.Instance.gasConduitFlow:Game.Instance.liquidConduitFlow;var source=phase==0?Cell(1,3):Cell(6,3);
+                    var a=ColonyConduits.MaterialOf(phase==0?SimHashes.Oxygen:SimHashes.Water);
+                    var b=ColonyConduits.MaterialOf(phase==0?SimHashes.CarbonDioxide:SimHashes.DirtyWater);
+                    var inventory=PipeInventory.Single(a,phase==0?.375:3,300,0,.25).Joined(PipeInventory.Single(b,phase==0?.625:7,300,1,1e-240));
+                    ColonyConduits.SupplyControlInventory(flow,source,inventory);var id=ColonyPipePorts.HoldForPort(flow,source,double.MaxValue);
+                    var before=ColonyPipePorts.BufferInventory(id);var rejected=false;
+                    try{ColonyPipePorts.DispatchBuffer(id,uint.MaxValue);}catch(InvalidOperationException){rejected=true;}
+                    var next=ColonyPipePorts.NextNativeToken;OniNativeColony.Check(OniNativeColony.PipeJobState(next,out var nativeState,out var last));
+                    Record((phase==0?"gas":"liquid")+" rejected atomic output preserves source and native token",rejected&&ReferenceEquals(before,ColonyPipePorts.BufferInventory(id))&&next==(phase==0?1UL:3UL)&&nativeState==0&&last==0,
+                        $"rejected {rejected}; same source {ReferenceEquals(before,ColonyPipePorts.BufferInventory(id))}; next token {next}; native state {nativeState}/{last}");
+                    var jobs=ColonyPipePorts.DispatchBuffer(id,(uint)(phase==0?Cell(1,1):Cell(6,1)));mixedOutputJobs.Add(jobs);
+                    Record((phase==0?"gas":"liquid")+" complete mixture queued as two durable constituent jobs",jobs.Length==2&&ColonyPipePorts.BufferInventory(id).Count==0,$"{jobs.Length} jobs; source remainder {ColonyPipePorts.BufferInventory(id).Mass:R} kg");
+                }
+            }
+            if(Once(18,"verify atomic mixed output receipts"))
+            {
+                for(var phase=0;phase<2;++phase)
+                {
+                    var frames=new List<ulong>();var complete=true;
+                    foreach(var id in mixedOutputJobs[phase]){if(!ColonyPipePorts.TryControlFrame(id,out var completed))complete=false;else frames.Add(completed);}
+                    Record((phase==0?"gas":"liquid")+" output constituents commit in the same physical frame",complete&&frames.Count==2&&frames.Distinct().Count()==1,string.Join(",",frames));
+                }
+                var delivered=ColonyPipePorts.ToWorld;
+                var okay=delivered.SpeciesMass(ColonyConduits.MaterialOf(SimHashes.Oxygen).Id)==.375&&delivered.SpeciesMass(ColonyConduits.MaterialOf(SimHashes.CarbonDioxide).Id)==.625&&
+                    delivered.SpeciesMass(ColonyConduits.MaterialOf(SimHashes.Water).Id)==3&&delivered.SpeciesMass(ColonyConduits.MaterialOf(SimHashes.DirtyWater).Id)==7;
+                Record("all mixed-output species reach the world",okay,$"{delivered.Mass:R} kg; {delivered.Count} constituents");
+                Record("mixed-output preserves simultaneous fractional and tiny germ delivery",ColonyPipePorts.PassiveExchange(1).Sign<0&&ColonyPipePorts.PassiveExchange(2).Sign<0,
+                    $"world changes {ColonyPipePorts.PassiveExchange(1).Negated().Value:R}/{ColonyPipePorts.PassiveExchange(2).Negated().Value:R}; remainders {ColonyPipePorts.PassiveRemainder(1).Value:R}/{ColonyPipePorts.PassiveRemainder(2).Value:R}");
+                OniNativeColony.Check(OniNativeColony.Wait());
+                var state=ColonyPipePorts.ValidateSealedBoundary();Record("atomic output job suffix retires without token gaps",ColonyPipePorts.PendingCount==0&&state.NextNativeToken==5,$"pending {ColonyPipePorts.PendingCount}; next {state.NextNativeToken}");
+                Record("atomic mixed output closes every pipe and world boundary account",ColonyConduits.Audit(out var detail),detail);Finish();
+            }
+        }
         private static PrimaryElement? mixedThermalBody;
         private static int ThermalCell=>Cell(3,3);
         private static bool ThermalAt(int at,string label)=>Once(at+(recorded.TryGetValue("thermal setup delay",out var delay)?(int)delay:0),label);
@@ -1175,12 +1223,13 @@ namespace MixedAtmospheres.Oni
                 var a=ColonyConduits.MaterialOf(SimHashes.Oxygen);var b=ColonyConduits.MaterialOf(SimHashes.Hydrogen);
                 var contents=PipeInventory.Single(a,.5,300,255,0).Joined(PipeInventory.Single(b,.5,300,255,0));
                 ColonyConduits.SupplyControlInventory(Game.Instance.gasConduitFlow,ThermalCell,contents);
-                var body=mixedThermalBody!;var bodyCv=(double)body.Mass*body.Element.specificHeatCapacity*1000;var fluidCv=.5*(a.HeatCapacity+b.HeatCapacity);
+                var body=mixedThermalBody!;var thermalMass=body.GetComponent<Building>().Def.MassForTemperatureModification;
+                var bodyCv=(double)thermalMass*body.Element.specificHeatCapacity*1000;var fluidCv=.5*(a.HeatCapacity+b.HeatCapacity);
                 recorded["thermal body Cv"]=bodyCv;recorded["thermal fluid Cv"]=fluidCv;recorded["thermal body T"]=body.Temperature;
                 recorded["thermal initial U"]=contents.Energy.Value;recorded["thermal initial exchange"]=ColonyConduits.ExchangedHeatJoules;
                 recorded["thermal equilibrium"]=(bodyCv*body.Temperature+fluidCv*300)/(bodyCv+fluidCv);
                 Record("thermal body is finite and both species Cv matter",bodyCv>0&&fluidCv>0&&Math.Max(a.HeatCapacity,b.HeatCapacity)>2*Math.Min(a.HeatCapacity,b.HeatCapacity)&&body.Temperature>399,
-                    $"owner flags {ColonyOwner.Config.Flags}; body {body.Mass:R} kg, Cv {bodyCv:R} J/K, T {body.Temperature:R} K; species Cv {a.HeatCapacity:R}/{b.HeatCapacity:R}; equilibrium {recorded["thermal equilibrium"]:R} K");
+                    $"owner flags {ColonyOwner.Config.Flags}; body construction {body.Mass:R} kg, registered thermal mass {thermalMass:R} kg, Cv {bodyCv:R} J/K, T {body.Temperature:R} K; species Cv {a.HeatCapacity:R}/{b.HeatCapacity:R}; equilibrium {recorded["thermal equilibrium"]:R} K");
             }
             if(recorded.TryGetValue("thermal initial U",out var initialU)&&frame<600+(int)recorded["thermal setup delay"])
             {

@@ -3,9 +3,11 @@
 The playtest requires an actual composition in each gas/liquid conduit cell,
 selective filtering, recipe-specific consumption, conserved heat and germs,
 and exact save continuation. Ordinary colonies still send mixture
-constituents as separate native packets. The explicit harness fixture below
-activates limited internal pipe ownership; production ports and the new save
-writer remain off.
+constituents as separate native packets. Explicit harness controls validate
+internal mixing/filtering/readers, precise world receipts and real mixed pump
+storage/output. Full production ports and the mixed save writer remain off;
+thermal, all-germ biology, remaining component ports and teardown/save
+acceptance are still open.
 
 ## Conserved inventory
 
@@ -13,8 +15,8 @@ writer remain off.
 and every disease identity. Exact floating-point expansions retain small
 components when a larger quantity is added. Internal moves subtract and add
 the same shared flux; no endpoint mass, heat or passive is clipped to close
-an account. A native scalar packet will be a compatibility projection rather
-than the source of truth.
+an account. In the explicit controls, the native scalar packet is a
+compatibility projection; owned composition remains authoritative.
 
 The focused `tools/ColonyConduitTests` control checks two materials in one
 cell, different heat capacities/formation energies, selective filtering with
@@ -22,8 +24,9 @@ blocked output capacity, 1,000 repeated transfers, heat, passives, evacuation,
 retention of a 1e-240 kg component and byte-exact cold continuation. Native
 scalar dispatch controls retain mass below float resolution, energy that a
 float temperature cannot represent, and fractional/multiple germ identities.
-Live storage changes, world receipts and all conduit integrations remain to
-be validated; these controls do not establish end-to-end game conservation.
+The precise-receipt and fresh-pump controls below validate live storage and
+boundary settlement. They do not establish full production port/save/thermal/
+biological integration or complete end-to-end game conservation.
 
 Initial model measurement at `56b35ea` (Release, high CPU lock, 2026-10-23): median
 0.176 us/transfer and 752 allocated bytes with one species; 0.368 us and
@@ -98,7 +101,8 @@ not yet authorize live output, saving or migration.
 
 ## Explicit internal-flow fixture
 
-The `mixed-pipes` and `mixed-pipe-filter` harness scenarios alone activate the current runtime. It
+The `mixed-pipes` and `mixed-pipe-filter` harness scenarios activate internal
+ownership; separate catalogue, boundary and pump controls are described below. It
 reuses ONI's conduit graph, native branch scheduling, bridge/valve rate
 decisions and callbacks while moving actual owned mixtures. External scalar
 inputs/removals/dumps, cross-world scalar edges and saving are gated while
@@ -363,6 +367,20 @@ criteria unchanged. This run also uses legacy Config.Flags=1. Parent owns an
 opt-in transfer-stage capture for a same-profile replay; a scoped arena would
 be an explicit fixture change, not removal of this full-colony failure.
 
+The unchanged parent capture bundle `79e0545`, legacy Flags=1, reaches frame
+601 without a native fault or either transfer-capture file; the original 456
+failure is not erased. Its thermal checks pass 3/5 with the original naive body
+capacity: observed body/mixture 353.2601318359375/353.2594036595591 K, body heat
+-453376.7345637898 J versus fluid/booked +90674.137143025291 J. Inspection of
+the actual registration contract then identifies a fixture error:
+`StructureTemperatureComponents.SimRegister` uses
+`BuildingDef.MassForTemperatureModification`, not physical construction mass.
+The corrected fixture reads that declared mass and reports both. A 5 kg thermal
+mass predicts 353.2601236134025 K, but still leaves approximately -1.20977 J
+body-plus-fluid residual, above the original two-endpoint-ulp bound. No energy
+bound is loosened, and thermal acceptance remains unresolved. Capture-run world
+mass/energy errors 1.772e-15/5.731e-17, trace sink zero, cleanup verified.
+
 ### Biological update still to implement
 
 Current native reconciliation evolves only the projected germ identity;
@@ -384,6 +402,36 @@ integer populations must retain the exact native count/rounding trajectory.
 The extension outside native integer range, fractional populations, storage
 tick timing, and mixed-medium truth remain unresolved. No rule is selected
 until these limits and single/native versus mixed controls are established.
+
+### Atomic output control
+
+The next explicit `mixed-pipe-output` setup is fixed before measurement: two
+isolated source cells hold gas 0.375 kg O2 + 0.625 kg CO2 and liquid 3 kg water
++ 7 kg polluted water, each pair carrying germ-0 quantity 0.25 and germ-1
+quantity 1e-240. Move each full mixture into an owned buffer. A deliberately
+out-of-rectangle native admission must preserve the exact source object and
+both token frontiers; then a valid output atomically queues its two constituent
+jobs with all passive slices. The source debits only after strong native batch
+admission. After receipt settlement require both constituents of each buffer
+to share a physical completed frame, all four exact masses to reach the world,
+both germ identities to be booked, contiguous retired tokens and exact
+pipe/boundary accounts. Undispatched reservation/remainder stays owned.
+Completion-frame instrumentation is allocated only by this explicit control
+and is absent from normal runtime. This is an output primitive for vents and
+teardown, not completed component integration or save acceptance.
+
+Immutable `pipes-output-79e-v1` passes all 10 checks in 19 frames, using the
+SHA-identical parent `79e0545` native pair and legacy Flags=1. Both rejected
+batches preserve source identity and unaccepted tokens 1/3. All four accepted
+jobs complete in physical frame 13, delivering exactly 11 kg and germ quantities
+0.5/2e-240; no mass/germ remainder remains. The named boundary heat account
+retains -0.055493040752480738 J and the mechanical G account is retained; every
+pipe/boundary account closes exactly. Native token 5 is unaccepted after all
+outcomes retire. World mass/energy errors 5.899e-17/4.933e-17, trace sink zero,
+no fault, cleanup verified, fallback count unavailable. Seven pure/seven hook,
+209 snapshot and 135 harness checks pass. Diagnostic LOW owner mean/p95/max
+181.436/261.063/261.063 ms, observed 393.974/3135.041/3135.041 ms (19/18
+contiguous samples, no gaps), controls off. No performance acceptance is claimed.
 
 ## Precise owner receipts
 

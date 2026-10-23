@@ -28,10 +28,15 @@ namespace MixedAtmospheres.Oni
         private static PipeScaledAccount kinetic=new PipeScaledAccount(),potential=new PipeScaledAccount(),momentumX=new PipeScaledAccount(),momentumY=new PipeScaledAccount();
         private static ulong nextLocal=1,nextNative=1;
         private static ActorBatch? actorBatch;
+        private static Dictionary<ulong,ulong>? controlFrames;
+        internal static void BeginCompletionControl(){Require();controlFrames=new Dictionary<ulong,ulong>();}
+        internal static bool TryControlFrame(ulong localId,out ulong frame)
+        {frame=0;return controlFrames!=null&&controlFrames.TryGetValue(localId,out frame);}
         internal sealed class ActorBatch : IDisposable
         {
             private readonly ulong firstLocal=nextLocal,firstNative=nextNative;
-            private readonly List<(Pending Pending,uint Index)> prepared=new List<(Pending,uint)>();
+            private readonly List<(Pending Pending,uint Index,uint FirstPassive,uint PassiveCount)> prepared=new List<(Pending,uint,uint,uint)>();
+            private readonly List<OniNativeColony.PipePassive> passives=new List<OniNativeColony.PipePassive>();
             private bool committed,disposed;
             internal ActorBatch()
             {
@@ -42,7 +47,23 @@ namespace MixedAtmospheres.Oni
             {
                 if(disposed||committed||!ReferenceEquals(actorBatch,this))throw new InvalidOperationException("Actor input transaction is closed.");
                 var job=new PipePortJob(nextLocal,nextNative,pipeCell,phase,worldCell,0,phase==1?3u:4u,radius,mass,0,PipeInventory.Empty);
-                var pending=new Pending(job);prepared.Add((pending,checked((uint)ordered.Count)));Jobs.Add(job.NativeToken,pending);
+                var pending=new Pending(job);prepared.Add((pending,checked((uint)ordered.Count),checked((uint)passives.Count),0));Jobs.Add(job.NativeToken,pending);
+                ordered.Add(Transfer(job));checked{++nextLocal;++nextNative;}return job.LocalId;
+            }
+            internal ulong Inject(List<OniNativeColony.Transfer> ordered,int pipeCell,byte phase,uint worldCell,PipeInventory reservation,uint radius)
+            {
+                if(disposed||committed||!ReferenceEquals(actorBatch,this))throw new InvalidOperationException("Actor input transaction is closed.");
+                if(reservation.Count!=1)throw new InvalidOperationException("One native injection reserves exactly one constituent.");
+                var quantities=new List<PipeReceiptPassive>();
+                foreach(var germ in reservation.Germs)
+                {
+                    var amount=Floor(germ.Amount);if(amount>0)quantities.Add(new PipeReceiptPassive(checked((ulong)germ.Id+1),amount));
+                }
+                var job=new PipePortJob(nextLocal,nextNative,pipeCell,phase,worldCell,checked((uint)reservation.Parts[0].Id),1,radius,
+                    Floor(reservation.Total),reservation.Temperature(ColonyConduits.Material),reservation,quantities);
+                var pending=new Pending(job);var first=checked((uint)passives.Count);
+                foreach(var passive in quantities)passives.Add(new OniNativeColony.PipePassive{Identity=passive.Identity,Quantity=passive.Quantity});
+                prepared.Add((pending,checked((uint)ordered.Count),first,checked((uint)quantities.Count)));Jobs.Add(job.NativeToken,pending);
                 ordered.Add(Transfer(job));checked{++nextLocal;++nextNative;}return job.LocalId;
             }
             internal void Commit(List<OniNativeColony.Transfer> ordered)
@@ -52,9 +73,9 @@ namespace MixedAtmospheres.Oni
                     OniNativeColony.Check(OniNativeColony.QueueTransfers(ordered.ToArray(),(uint)ordered.Count));
                 else
                 {
-                    var jobs=prepared.Select(p=>new OniNativeColony.ActorBatchJob{TransferIndex=p.Index,Token=p.Pending.Job.NativeToken}).ToArray();
+                    var jobs=prepared.Select(p=>new OniNativeColony.ActorBatchJob{TransferIndex=p.Index,FirstPassive=p.FirstPassive,PassiveCount=p.PassiveCount,Token=p.Pending.Job.NativeToken}).ToArray();
                     OniNativeColony.Check(OniNativeColony.QueueActorBatch(ordered.ToArray(),(uint)ordered.Count,jobs,(uint)jobs.Length,
-                        Array.Empty<OniNativeColony.PipePassive>(),0));
+                        passives.ToArray(),checked((uint)passives.Count)));
                 }
                 committed=true;
                 foreach(var item in prepared)ColonyPipePumps.Accepted(item.Pending.Job.LocalId);
@@ -77,6 +98,7 @@ namespace MixedAtmospheres.Oni
         internal static PipeInventory ToWorld { get; private set; }=PipeInventory.Empty;
         internal static PipeAmount HeatRemainder { get; private set; }
         internal static int PendingCount=>Jobs.Count;
+        internal static ulong NextNativeToken=>nextNative;
         internal static PipeInventory Held
         {
             get{var held=PipeInventory.Empty;foreach(var job in Jobs.Values)held=held.Joined(job.Job.Reserved);foreach(var buffer in Buffers.Values)held=held.Joined(buffer.Inventory);return held;}
@@ -95,7 +117,7 @@ namespace MixedAtmospheres.Oni
         }
         internal static void Reset()
         {
-            Enabled=false;actorBatch=null;ColonyPipePumps.Reset();Jobs.Clear();Buffers.Clear();Seen.Clear();nextLocal=nextNative=1;
+            Enabled=false;actorBatch=null;controlFrames=null;ColonyPipePumps.Reset();Jobs.Clear();Buffers.Clear();Seen.Clear();nextLocal=nextNative=1;
             FromWorld=ToWorld=PipeInventory.Empty;HeatRemainder=PipeAmount.Zero;
             passiveRemainders.Clear();passiveExchange.Clear();kinetic=new PipeScaledAccount();potential=new PipeScaledAccount();momentumX=new PipeScaledAccount();momentumY=new PipeScaledAccount();
         }
@@ -104,6 +126,29 @@ namespace MixedAtmospheres.Oni
             Require();if(actorBatch!=null)throw new InvalidOperationException("A new port buffer cannot cross an open actor transaction.");
             var inventory=ColonyConduits.TakeForPort(flow,cell,null,mass);if(inventory.Count==0)return 0;
             var id=nextLocal++;Buffers.Add(id,new Buffer(flow.conduitType==ConduitType.Gas?(byte)1:(byte)2,cell,inventory));return id;
+        }
+        internal static ulong[] DispatchBuffer(ulong localId,uint worldCell,uint radius=0)
+        {
+            Require();if(!Buffers.TryGetValue(localId,out var buffer)||buffer.Inventory.Count==0)return Array.Empty<ulong>();
+            uint capability;
+            try{capability=OniNativeColony.ActorBatchVersion();}
+            catch(EntryPointNotFoundException error){throw new NotSupportedException("Mixed output requires atomic native actor batches.",error);}
+            if(capability<1)throw new NotSupportedException("Mixed output requires atomic native actor batches.");
+            var remaining=buffer.Inventory;var ordered=new List<OniNativeColony.Transfer>();var ids=new List<ulong>();
+            using var batch=new ActorBatch();
+            foreach(var part in buffer.Inventory.Parts)
+            {
+                var split=remaining.Split(double.MaxValue,ColonyConduits.Material,part.Id);
+                if(split.Parcel.Count==0)continue;
+                ids.Add(batch.Inject(ordered,buffer.Cell,buffer.Phase,worldCell,split.Parcel,radius));remaining=split.Remaining;
+            }
+            if(ordered.Count==0)return Array.Empty<ulong>();
+            // The native batch has a strong all-or-nothing admission contract.
+            // Debit storage only after admission, before any receipt callback
+            // can run on this game thread. Rejection leaves the source intact.
+            batch.Commit(ordered);
+            if(remaining.Count==0)Buffers.Remove(localId);else buffer.Inventory=remaining;
+            return ids.ToArray();
         }
         internal static ulong Extract(int pipeCell,byte phase,uint worldCell,double mass,uint radius)
         {
@@ -175,6 +220,7 @@ namespace MixedAtmospheres.Oni
                 var settled=PipePortSettlement.Calculate(pending.Job,pending.Receipts.Complete(native,receipt.Sequence),ColonyConduits.Material);
                 Credit(pending.Job,settled);Jobs.Remove(token);
                 ColonyPipePumps.Completed(pending.Job.LocalId,pending.Legacy);
+                if(controlFrames!=null)controlFrames.Add(pending.Job.LocalId,receipt.CompletedFrame);
             }
             Seen.Add(receipt.Sequence);return true;
         }
