@@ -17,7 +17,7 @@ namespace MixedAtmospheres.Oni
     // F2 door is built instantly.
     internal static unsafe class FloorArenas
     {
-        internal static readonly string[] Ids = { "f1", "f2", "f3", "f4", "f5" };
+        internal static readonly string[] Ids = FloorArenaIds.All;
         private const int PrepareGameData = 1078620451;
         private const double Atmosphere = 101325, GasConstant = 8.314462618, Room = 293.15;
         // Gas, door, levelling and layering runs last 120 s after release; F4 20000 s.

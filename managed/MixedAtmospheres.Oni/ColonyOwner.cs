@@ -47,6 +47,9 @@ namespace MixedAtmospheres.Oni
         internal static double PublicationMilliseconds { get; private set; }
         internal static double MaximumPublicationMilliseconds { get; private set; }
         private static readonly bool publicationLog = Environment.GetEnvironmentVariable("MA_COLONY_PUBLICATION_LOG") == "1";
+        private static long completionObservedAt;
+        private static ulong completionObservedFrame = ulong.MaxValue;
+        private static readonly ColonyFrameTiming frameTiming = new ColonyFrameTiming();
         private static OniNativeColony.Status status = OniNativeColony.Status.Empty;
         private static bool considered;
         private static int x0, y0, width, height;
@@ -77,6 +80,7 @@ namespace MixedAtmospheres.Oni
             if (Active) { var s = OniNativeColony.Status.Empty; _ = OniNativeColony.Stop(ref s); }
             ColonyPacing.Reset(); ColonyOwnerPersistence.Reset();
             Active = false; considered = false; StartFailure = ""; loggedFault = ""; Publications = 0; PublicationMilliseconds = MaximumPublicationMilliseconds = 0; Census.Clear(); molarMass = Array.Empty<double>();
+            completionObservedAt = 0; completionObservedFrame = ulong.MaxValue; frameTiming.Reset();
         }
 
         private static bool InRect(int cell, out int index)
@@ -240,6 +244,14 @@ namespace MixedAtmospheres.Oni
             OniNativeColony.Check(OniNativeColony.Copy(ref output, views, (uint)views.Length));
             Lap("views");
             status = output;
+            if (publicationLog && status.CompletedFrames != completionObservedFrame)
+            {
+                var now = System.Diagnostics.Stopwatch.GetTimestamp();
+                var matched = frameTiming.Observe(status.CompletedFrames, out var submittedAt);
+                var elapsed = matched ? (now - submittedAt) * 1000.0 / System.Diagnostics.Stopwatch.Frequency : 0;
+                Debug.Log(FormattableString.Invariant($"[Mixed Atmospheres] handoff frame {status.CompletedFrames} matched {(matched ? 1 : 0)} submit_to_observed_ms {elapsed:F3} owner_ms {status.LastAdvanceMilliseconds:F3} frame_s {status.LastFrameSeconds:R}"));
+                completionObservedAt = now; completionObservedFrame = status.CompletedFrames;
+            }
             if (status.State == 2 && loggedFault != status.Error)
             {
                 loggedFault = status.Error;
@@ -336,9 +348,16 @@ namespace MixedAtmospheres.Oni
             if (!Active) return false;
             if (message == NewGameFrame && length >= 4)
             {
+                var begun = publicationLog ? System.Diagnostics.Stopwatch.GetTimestamp() : 0;
                 ColonyActors.QueueFrame(*(float*)payload);
                 if (publicationLog && *(float*)payload > 0)
-                    Debug.Log($"[Mixed Atmospheres] submit after frame {status.CompletedFrames}; busy {OniNativeColony.Busy()}");
+                {
+                    var now = System.Diagnostics.Stopwatch.GetTimestamp();
+                    var factor = 1000.0 / System.Diagnostics.Stopwatch.Frequency;
+                    var ready = completionObservedAt == 0 ? 0 : (now - completionObservedAt) * factor;
+                    var submittedFrame = frameTiming.Submit(status.CompletedFrames, now);
+                    Debug.Log(FormattableString.Invariant($"[Mixed Atmospheres] submit target_frame {submittedFrame} observed_frame {status.CompletedFrames} since_observed_ms {ready:F3} queue_actors_ms {(now - begun) * factor:F3}; busy {OniNativeColony.Busy()}"));
+                }
                 return false;
             }
             switch (message)

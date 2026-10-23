@@ -1,3 +1,4 @@
+using System;
 using HarmonyLib;
 using UnityEngine;
 
@@ -19,16 +20,33 @@ namespace MixedAtmospheres.Oni
         private static ulong seenFrames;
         private static bool scaled;
         private static float playerScale = 1;
+        private static readonly bool publicationLog = Environment.GetEnvironmentVariable("MA_COLONY_PUBLICATION_LOG") == "1";
+        private static long updateTicks, tickTicks, updateCalls, tickCalls, maximumUpdateTicks, loggedHeldTicks;
+        private static ulong loggedFrame = ulong.MaxValue;
         private static readonly AccessTools.FieldRef<Game, int> subTick = AccessTools.FieldRefAccess<Game, int>("simSubTick");
         private static readonly AccessTools.FieldRef<Game, float> simDt = AccessTools.FieldRefAccess<Game, float>("simDt");
 
-        internal static void Reset() { HeldTicks = UnityFrames = 0; OwnerRate = 0; seenFrames = 0; }
+        internal static void Reset()
+        {
+            HeldTicks = UnityFrames = 0; OwnerRate = 0; seenFrames = 0;
+            updateTicks = tickTicks = updateCalls = tickCalls = maximumUpdateTicks = loggedHeldTicks = 0;
+            loggedFrame = ulong.MaxValue;
+        }
         internal static bool Busy => Enabled && ColonyOwner.Active && OniNativeColony.Busy() != 0;
 
         // Game.SimEveryTick runs one 1/60 s sub tick per 1/60 s of game time
         // and posts the 200 ms simulation tick on every twelfth. While the
         // owner is busy, the sub ticks before that one still run.
         internal static bool BeforeSimEveryTick(Game game, ref float dt)
+        {
+            if (!publicationLog) return BeforeTick(game, ref dt);
+            var begun = System.Diagnostics.Stopwatch.GetTimestamp();
+            var result = BeforeTick(game, ref dt);
+            tickTicks += System.Diagnostics.Stopwatch.GetTimestamp() - begun; ++tickCalls;
+            return result;
+        }
+
+        private static bool BeforeTick(Game game, ref float dt)
         {
             if (!Busy) return true;
             var allowed = (12 - subTick(game)) / 60f - simDt(game) - 1e-4f;
@@ -39,6 +57,21 @@ namespace MixedAtmospheres.Oni
         }
 
         internal static void Update()
+        {
+            if (!publicationLog) { UpdateClock(); return; }
+            var begun = System.Diagnostics.Stopwatch.GetTimestamp();
+            UpdateClock();
+            var elapsed = System.Diagnostics.Stopwatch.GetTimestamp() - begun;
+            updateTicks += elapsed; ++updateCalls; maximumUpdateTicks = Math.Max(maximumUpdateTicks, elapsed);
+            var frame = ColonyOwner.Status.CompletedFrames;
+            if (!ColonyOwner.Active || frame == loggedFrame) return;
+            var factor = 1000.0 / System.Diagnostics.Stopwatch.Frequency;
+            Debug.Log(FormattableString.Invariant($"[Mixed Atmospheres] pacing frame {frame} update_calls {updateCalls} update_ms {updateTicks * factor:F3} update_max_ms {maximumUpdateTicks * factor:F3} tick_calls {tickCalls} tick_ms {tickTicks * factor:F3} held {HeldTicks - loggedHeldTicks} owner_rate {OwnerRate:F3} scale {Time.timeScale:F3}"));
+            loggedFrame = frame; loggedHeldTicks = HeldTicks;
+            updateTicks = tickTicks = updateCalls = tickCalls = maximumUpdateTicks = 0;
+        }
+
+        private static void UpdateClock()
         {
             if (!Enabled || !ColonyOwner.Active)
             {

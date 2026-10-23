@@ -5,6 +5,13 @@ using Newtonsoft.Json;
 
 namespace MixedAtmospheres.Oni
 {
+    // Shared with the pure configuration checks, which do not load the Unity
+    // arena builder. These are the fixed floor identities, not new scenarios.
+    internal static class FloorArenaIds
+    {
+        internal static readonly string[] All = { "f1", "f2", "f3", "f4", "f5" };
+    }
+
     // Explicit private development request read from colony-validation.json.
     // Parsing and the limits that need no live game state stay engine-free so
     // the same rules can be tested without Unity or a native simulator.
@@ -103,7 +110,7 @@ namespace MixedAtmospheres.Oni
                 configuration.TimeoutSeconds < MinimumTimeoutSeconds || configuration.TimeoutSeconds > MaximumLongRunTimeoutSeconds)
                 throw new InvalidDataException("Unsupported colony validation mode or limits.");
             if ((configuration.Mode == "colony-vanilla") != (configuration.Floor.Length != 0 && configuration.Mode != "colony-owner") ||
-                configuration.Floor.Length != 0 && (Array.IndexOf(FloorArenas.Ids, configuration.Floor) < 0 || configuration.Scenario.Length != 0))
+                configuration.Floor.Length != 0 && (Array.IndexOf(FloorArenaIds.All, configuration.Floor) < 0 || configuration.Scenario.Length != 0))
                 throw new InvalidDataException("colony-vanilla runs one floor arena (f1..f5); colony-owner may run one instead of scenarios.");
             if (configuration.Speed < 1 || configuration.Speed > 3)
                 throw new InvalidDataException("Speed is 1 (normal), 2 (fast) or 3 (ultra).");

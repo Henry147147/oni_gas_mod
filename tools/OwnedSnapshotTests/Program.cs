@@ -30,6 +30,21 @@ internal static unsafe class Program
     [MethodImpl(MethodImplOptions.NoInlining)]
     private static int Run(bool benchmark)
     {
+        Test("handoff timing keeps queued frames separate from observed completion", () =>
+        {
+            var timing = new ColonyFrameTiming();
+            Check(timing.Submit(0, 100) == 1 && timing.Submit(0, 200) == 2);
+            Check(timing.Observe(1, out var first) && first == 100);
+            Check(timing.Observe(2, out var second) && second == 200);
+            Check(!timing.Observe(2, out _));
+            // A fresh process can restore a nonzero owner frame; missed
+            // observations must not shift the next submission's identity.
+            timing.Reset();
+            Check(timing.Submit(32, 300) == 33 && timing.Submit(32, 400) == 34);
+            Check(timing.Observe(34, out var fourth) && fourth == 400);
+            Check(timing.Submit(34, 500) == 35);
+            Check(timing.Observe(35, out var fifth) && fifth == 500);
+        });
         Test("all actual game channels are deep copied", () =>
         {
             using var source = new NativeFixture();

@@ -312,6 +312,20 @@ managed publication, pacing and Unity scheduling. This is an exact copy
 optimization; it changes no physics, saved profile or checkpoint bytes, and
 does not establish the 2× target or the accuracy floor.
 
+A separate profile-18 diagnostic splits the remaining work. Per owner-frame
+interval, pacing update/tick checks take 0.179/0.022 ms and presentation copying
+0.447 ms. Native end-of-frame projection averages 8.97 ms (six sampled frames).
+Per publication, views/snapshot/overlay/receipts average
+0.603/0.860/0.940/0.967 ms over 336 steady calls. Some publication work overlaps
+the solver; these costs must not be added directly to the observed spacing.
+The clock calculation itself offers little scope for a large speed gain.
+
+Submission/completion timing uses independent queued frame identities. ONI can
+submit the next tick before publishing the previous completion, so pairing a
+completion with the latest submission gives invalid latencies. A focused
+control covers that ordering, skipped observations and restored frame numbers.
+The diagnostic leaves clock targets, tick admission and physical state unchanged.
+
 With the pinned bindings, a fresh optional profile-19 colony also passes the
 evaporation/vapour, freeze/melt, space-heater and gas-generator exhaust
 scenarios (201 frames, low CPU lock). No faults or skipped relaxation;
@@ -505,8 +519,14 @@ Environment variables of the game process (the harness passes them through):
   the frame's edit counts (in the run's `Player.log`).
 - `MA_COLONY_PUBLICATION_LOG=1`: each managed publication's view copy, snapshot
   capture, overlay, receipts, actors, retirement and presentation hand-off in
-  milliseconds, plus positive native-frame submissions. Use with the stage
-  log to locate work between owner advances; logging changes measured timing.
+  milliseconds, plus the presentation copy and pacing CPU time separately.
+  Positive native-frame submissions record actor queuing and time since the
+  first observed completion; first completion observations record time since
+  the matching submission and owner advance time. Submission targets are
+  numbered independently of the last observed completion: the next tick can
+  be queued before the previous completion is published. Discard unmatched
+  startup observations or aggregated timesteps when comparing latencies. Use with the
+  stage log to locate work between owner advances; logging changes timing.
 - `MA_COLONY_COPY_CONTROL=1`: compare pinned output-array copies against the
   previous array-marshalling path, byte for byte on matching completed frames
   (up to 64 frames). `colony-owner.json` records view/reading comparison counts

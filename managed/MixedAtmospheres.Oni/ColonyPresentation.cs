@@ -22,6 +22,7 @@ namespace MixedAtmospheres.Oni
         private static OniNativeColony.Reading[] readings = Array.Empty<OniNativeColony.Reading>();
         private static OniNativeColony.Constituent[] parts = Array.Empty<OniNativeColony.Constituent>();
         private static long publications;
+        private static readonly bool publicationLog = Environment.GetEnvironmentVariable("MA_COLONY_PUBLICATION_LOG") == "1";
         internal static long Publications => Interlocked.Read(ref publications);
         internal static int RejectedCells { get; private set; }
         internal static string FirstRejection { get; private set; } = "";
@@ -79,6 +80,7 @@ namespace MixedAtmospheres.Oni
             catch (Exception error) { Failed(error, completedFrame); Volatile.Write(ref building, 0); return; }
             publishedFrame = frame;
             CopyMilliseconds = Milliseconds(started);
+            if (publicationLog) Debug.Log(FormattableString.Invariant($"[Mixed Atmospheres] presentation copy frame {frame} copy_ms {CopyMilliseconds:F3}"));
             int width = Grid.WidthInCells, height = Grid.HeightInCells;
             // Configure replaces these arrays rather than editing them, so the
             // worker keeps a consistent set even if the owner restarts.

@@ -27,6 +27,7 @@
     <Compile Include="../../managed/MixedAtmospheres.Oni/MixtureBreathingCellRead.cs" Link="MixtureBreathingCellRead.cs" />
     <Compile Include="../../managed/MixedAtmospheres.Oni/NativePressureReadPlan.cs" Link="NativePressureReadPlan.cs" />
     <Compile Include="../../managed/MixedAtmospheres.Oni/OwnedGameDataSnapshot.cs" Link="OwnedGameDataSnapshot.cs" />
+    <Compile Include="../../managed/MixedAtmospheres.Oni/ColonyFrameTiming.cs" Link="ColonyFrameTiming.cs" />
     <Compile Include="../../managed/MixedAtmospheres.Oni/ColonySaveEnvelope.cs" Link="ColonySaveEnvelope.cs" />
     <Compile Include="../../managed/MixedAtmospheres.Oni/ExperimentalFluidMessageRouter.cs" Link="ExperimentalFluidMessageRouter.cs" />
     <Compile Include="../../managed/MixedAtmospheres.Oni/ExperimentalFluidFrameCoordinator.cs" Link="ExperimentalFluidFrameCoordinator.cs" />

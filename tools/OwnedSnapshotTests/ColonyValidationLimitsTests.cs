@@ -17,20 +17,22 @@ internal static class ColonyValidationLimitsTests
             throw new InvalidOperationException("Expected a configuration rejection");
         }
         ColonyValidationConfiguration Request(string mode,int frames,int timeout,bool longRun=false,int interval=ColonyValidationLimits.DefaultTelemetryIntervalFrames)=>
-            new ColonyValidationConfiguration{Mode=mode,CompletedFrames=frames,TimeoutSeconds=timeout,LongRun=longRun,TelemetryIntervalFrames=interval};
+            new ColonyValidationConfiguration{Mode=mode,CompletedFrames=frames,TimeoutSeconds=timeout,LongRun=longRun,TelemetryIntervalFrames=interval,
+                Floor=mode=="colony-vanilla"?"f1":""};
         ColonyValidationConfiguration Valid(ColonyValidationConfiguration value) {ColonyValidationLimits.Validate(value);return value;}
         string Rejected(ColonyValidationConfiguration value)=>Message(()=>ColonyValidationLimits.Validate(value));
         const string Unsupported="Unsupported colony validation mode or limits.";
         test("colony validation requests keep their declared fields and short defaults",()=> {
             var fields=typeof(ColonyValidationConfiguration).GetFields(BindingFlags.Public|BindingFlags.Instance).Select(field=>field.Name).ToArray();
             check(fields.SequenceEqual(new[]{"Mode","LoadSavePath","AutoStartNewColony","ReuseGeneratedWorld","IdleReservoirLeaseOnly",
-                "PrivateFileProtocolAssemblySha256","PrivateOwnedLoadRejection","QuitWhenComplete","SaveOnComplete","SaveBeforeResume",
+                "PrivateFileProtocolAssemblySha256","PrivateOwnedLoadRejection","QuitWhenComplete","SaveOnComplete","OverwriteSave","VanillaLoad","SaveBeforeResume",
                 "VerifySaveIoRecovery","VerifyNaturalAutosave","VerifyPersistentActors","VerifyLiveBreathing","VerifyTransientParticles",
-                "SubnormalCarbonParticle","ReloadInProcess","CompletedFrames","TimeoutSeconds","Seed","ColonyName","LongRun","TelemetryIntervalFrames"}));
+                "SubnormalCarbonParticle","ReloadInProcess","CompletedFrames","TimeoutSeconds","Seed","Cluster","ColonyName","Floor","Speed","Scenario","LongRun","TelemetryIntervalFrames"}));
             var defaults=Valid(new ColonyValidationConfiguration());
             check(defaults.Mode=="snapshot-copy" && defaults.CompletedFrames==30 && defaults.TimeoutSeconds==600 && defaults.LoadSavePath=="" &&
-                !defaults.LongRun && defaults.TelemetryIntervalFrames==ColonyValidationLimits.DefaultTelemetryIntervalFrames);
-            check(ColonyValidationLimits.Modes.Length==37 && ColonyValidationLimits.Modes.Distinct().Count()==37 &&
+                !defaults.LongRun && defaults.TelemetryIntervalFrames==ColonyValidationLimits.DefaultTelemetryIntervalFrames &&
+                defaults.Floor=="" && defaults.Scenario=="" && defaults.Speed==1 && !defaults.OverwriteSave && !defaults.VanillaLoad);
+            check(ColonyValidationLimits.Modes.Length==40 && ColonyValidationLimits.Modes.Distinct().Count()==40 &&
                 ColonyValidationLimits.Modes.Contains("native-configured-domain") && ColonyValidationLimits.Modes.Contains("native-configured-water-domain") && ColonyValidationLimits.Modes.Contains("native-configured-vacuum-domain"));
             foreach(var mode in ColonyValidationLimits.Modes)
             {
@@ -38,6 +40,21 @@ internal static class ColonyValidationLimitsTests
                 var widest=Valid(Request(mode,10000,7200));check(widest.CompletedFrames==10000 && widest.TimeoutSeconds==7200);
             }
             check(Valid(new ColonyValidationConfiguration{Mode="native-domain",CompletedFrames=120,TimeoutSeconds=1800,AutoStartNewColony=true,QuitWhenComplete=true,SaveOnComplete=true}).SaveOnComplete);
+        });
+        test("floor and colony controls require their declared modes and keep fixed identities",()=> {
+            foreach(var mode in new[]{"colony-owner","colony-vanilla"})
+                foreach(var arena in new[]{"f1","f2","f3","f4","f5"})
+                    check(Valid(new ColonyValidationConfiguration{Mode=mode,Floor=arena}).Floor==arena);
+            reject(()=>Valid(new ColonyValidationConfiguration{Mode="colony-vanilla"}));
+            reject(()=>Valid(new ColonyValidationConfiguration{Mode="colony-owner",Floor="f6"}));
+            reject(()=>Valid(new ColonyValidationConfiguration{Mode="colony-owner",Floor="f1",Scenario="door"}));
+            reject(()=>Valid(new ColonyValidationConfiguration{Mode="native-domain",Floor="f1"}));
+            foreach(var speed in new[]{1,2,3})check(Valid(new ColonyValidationConfiguration{Speed=speed}).Speed==speed);
+            foreach(var speed in new[]{0,4})reject(()=>Valid(new ColonyValidationConfiguration{Speed=speed}));
+            reject(()=>Valid(new ColonyValidationConfiguration{Mode="colony-owner",OverwriteSave=true}));
+            check(Valid(new ColonyValidationConfiguration{Mode="colony-owner",OverwriteSave=true,SaveOnComplete=true}).OverwriteSave);
+            reject(()=>Valid(new ColonyValidationConfiguration{Mode="colony-owner",VanillaLoad=true}));
+            check(Valid(new ColonyValidationConfiguration{Mode="colony-owner-load",VanillaLoad=true}).VanillaLoad);
         });
         test("short requests reject their old out-of-range values and name the explicit long-run opt-in",()=> {
             foreach(var value in new[]{Request("native-domain",0,600),Request("native-domain",-1,600),Request("native-domain",120,29),
