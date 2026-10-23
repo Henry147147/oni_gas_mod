@@ -58,6 +58,7 @@ void release_capture_control() {
 }
 struct ReceiptReader {
     const std::vector<std::uint8_t>& bytes; std::size_t at = 0;
+    bool observations=false;
     std::uint64_t integer(unsigned n) {
         require(at + n <= bytes.size(), "truncated precise receipt"); std::uint64_t value = 0;
         for (unsigned i = 0; i < n; ++i) value |= static_cast<std::uint64_t>(bytes[at++]) << (8 * i);
@@ -71,7 +72,8 @@ struct ReceiptReader {
         return ma::experimental::MacEnergy::from_parts(mantissa, ma::experimental::MacExponent::from_decimal(exponent));
     }
     std::uint32_t header(std::uint64_t sequence, std::uint64_t frame) {
-        require(bytes.size() >= 28 && std::memcmp(bytes.data(), "MARECP01", 8) == 0, "precise wire magic"); at = 8;
+        observations=bytes.size()>=28 && std::memcmp(bytes.data(),"MARECP02",8)==0;
+        require(bytes.size() >= 28 && (observations || std::memcmp(bytes.data(), "MARECP01", 8) == 0), "precise wire magic"); at = 8;
         require(integer(8) == sequence && integer(8) == frame, "precise wire receipt identity");
         return static_cast<std::uint32_t>(integer(4));
     }
@@ -190,6 +192,8 @@ void pipe_job_control() {
         for (int i=0;i<4;++i) (void)r.scaled();
         require(r.integer(4)==2,"fractional/multiple pipe passives omitted");
         for (const auto& passive : passives) require(r.integer(8)==passive.identity && r.f64()==passive.quantity,"pipe injection passives rounded");
+        require(r.observations && r.integer(4)==2 && r.integer(8)==3 && r.f64()==103 && r.f64()==103.125 &&
+            r.integer(8)==7 && r.f64()==0 && r.f64()==passives[1].quantity,"pipe injection passive before/after metadata");
         require(r.at==wire.size(),"unexpected pipe parcel bytes");
         ack_receipts(receipt.sequence); require(pipe_job_state(1).first==3 && receipt_job(receipt.sequence)==0,"pipe outcome not retired");
         return wire;

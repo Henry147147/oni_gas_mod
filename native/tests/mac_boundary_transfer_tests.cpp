@@ -8,6 +8,54 @@ namespace {
 using namespace ma;
 using namespace ma::experimental;
 void require(bool condition,const char* message) { if (!condition) throw std::runtime_error(message); }
+void passive_observation_controls(const ma::testing::Setup& fixture) {
+    auto state=fixture.state(2,2,false);
+    for (auto& cell : state.cells) cell.passive_quantities.clear();
+    state.cells[0].passive_quantities={{3,1},{7,1e-240}};
+    const MacClosedWorld source(fixture.registry,fixture.eos,state);
+    const auto oxygen=fixture.registry.index("oxygen");
+    std::vector<MacFluidTransfer> edits{
+        {0,oxygen,true,.01,300,{{3,1e-240}}},
+        {0,oxygen,true,.01,300,{{3,1e30}}},
+        {0,oxygen,true,.01,300,{{7,1e30}}},
+        {0,oxygen,true,.01,300,{{3,.125}}},
+        {0,oxygen,false,.02,0},
+        {0,oxygen,true,0,300,{{3,.5}}}};
+    const auto plain=source.with_fluid_transfers(edits);
+    for (auto& edit : edits) edit.observe_passives=true;
+    const auto observed=source.with_fluid_transfers(edits);
+    require(plain.world.checkpoint()==observed.world.checkpoint(),"Passive observation changed physical checkpoint bytes");
+    const auto same=[](const MacEnergy& a,const MacEnergy& b){return a.mantissa()==b.mantissa() && a.exponent()==b.exponent();};
+    const auto quantities=[](const PassiveQuantities& a,const PassiveQuantities& b){
+        if (a.size()!=b.size()) return false;
+        for (std::size_t i=0;i<a.size();++i) if (a[i].identity!=b[i].identity || a[i].quantity!=b[i].quantity) return false;
+        return true;
+    };
+    for (std::size_t i=0;i<edits.size();++i) {
+        const auto& a=plain.parcels[i]; const auto& b=observed.parcels[i];
+        require(a.passives_before.empty() && a.passives_after.empty() && a.cell_index==b.cell_index && a.species_index==b.species_index &&
+            a.injected==b.injected && a.mass_kg==b.mass_kg && a.temperature_k==b.temperature_k && a.internal_energy_j==b.internal_energy_j &&
+            same(a.resolved_kinetic_energy,b.resolved_kinetic_energy) && same(a.potential_energy,b.potential_energy) &&
+            same(a.momentum_x,b.momentum_x) && same(a.momentum_y,b.momentum_y) && quantities(a.passives,b.passives),
+            "Default parcel metadata or existing physical receipt changed");
+        const auto& before=i?observed.parcels[i-1].passives_after:state.cells[0].passive_quantities;
+        require(quantities(before,b.passives_before),"Observation used batch-wide instead of sequential cell passives");
+    }
+    require(quantities(observed.parcels.back().passives_after,observed.world.state().cells[0].passive_quantities) &&
+        quantities(observed.parcels.back().passives_before,observed.parcels.back().passives_after),"Zero transfer observation changed or missed actual cell");
+    const auto amount=[](const PassiveQuantities& values,std::uint64_t identity) {
+        for (const auto& q : values) if (q.identity==identity) return q.quantity;
+        return 0.;
+    };
+    for (std::size_t i=0;i<4;++i) {
+        const auto& input=edits[i].passives[0]; const auto& p=observed.parcels[i];
+        MacEnergySum remainder; remainder.add(amount(p.passives_before,input.identity)); remainder.add(input.quantity);
+        remainder.add(-amount(p.passives_after,input.identity));
+        const double expected=i==0 || i==2?1e-240:i==1?1:.125;
+        remainder.add(-expected); require(remainder.sign()==0,"Observed tiny/huge passive remainder lost an exact atom");
+    }
+    std::cout<<"PASS optional sequential passive observations, zero transfers, tiny/huge remainders and unchanged physical/default parcel bytes\n";
+}
 MacEnergySum total(const MacClosedWorld& world) {
     MacEnergySum value; const auto& state=world.state();
     const auto inertia=mac_face_inertias(world.registry(),state,world.thermodynamics());
@@ -218,6 +266,7 @@ void conversion_batches(const ma::testing::Setup& fixture) {
 int main() {
     try {
         const auto& fixture=ma::testing::setup(); auto state=fixture.state(2,2,false);
+        passive_observation_controls(fixture);
         for (auto& cell : state.cells) cell.passive_quantities.clear();
         state.momentum_x[state.grid.x_face(1,0)]=.25; state.momentum_x[state.grid.x_face(1,1)]=-.15;
         state.momentum_y[state.grid.y_face(0,1)]=.1; state.momentum_y[state.grid.y_face(1,1)]=-.2;

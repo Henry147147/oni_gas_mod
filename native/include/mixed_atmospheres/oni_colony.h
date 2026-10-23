@@ -162,6 +162,9 @@ MA_ONI_API MAOniResult ma_oni_colony_ack_receipts(uint64_t through_sequence);
  * fail without consuming the receipt. Wire format: docs/mixed-pipes.md.
  * No solver settings, checkpoint bytes or legacy receipt layouts change. */
 MA_ONI_API MAOniResult ma_oni_colony_enable_precise_receipts(uint32_t enabled);
+/* Highest optional receipt wire capability; durable jobs require version2
+ * before any queue submission. Other clients retain MARECP01 sidecars. */
+MA_ONI_API uint32_t ma_oni_colony_precise_receipt_version(void);
 MA_ONI_API MAOniResult ma_oni_colony_copy_precise_receipt(uint64_t sequence, uint8_t* buffer, uint32_t capacity, uint32_t* bytes);
 /* Wait for queued/running advances. Call while the game submitter is paused
  * to establish a save boundary; this does not acknowledge any receipts. */

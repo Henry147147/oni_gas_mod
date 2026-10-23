@@ -159,7 +159,11 @@ MacFluidTransferResult MacClosedWorld::with_fluid_transfers(std::span<const MacF
         const double mass=edit.inject ? edit.mass_kg : std::min(edit.mass_kg,cell.mixture.masses[edit.species_index]);
         const auto temperature=edit.inject ? edit.temperature_k : before.temperature_k;
         MacFluidParcel packet{edit.cell_index,edit.species_index,edit.inject,mass,temperature,0,{},{},{},{}};
-        if (mass == 0) { parcels.push_back(packet); continue; }
+        if (edit.observe_passives) packet.passives_before=cell.passive_quantities;
+        if (mass == 0) {
+            if (edit.observe_passives) packet.passives_after=cell.passive_quantities;
+            parcels.push_back(packet); continue;
+        }
         std::vector<double> contents(registry_.size()); contents[edit.species_index]=mass;
         if (liquid) {
             const auto& reference=thermodynamics_->reference();
@@ -220,6 +224,7 @@ MacFluidTransferResult MacClosedWorld::with_fluid_transfers(std::span<const MacF
                 }
             }
         }
+        if (edit.observe_passives) packet.passives_after=cell.passive_quantities;
         std::vector<std::pair<std::size_t,MacEnergySum>> heat; MacEnergySum carried_kinetic; MacScaledSum carried_px,carried_py;
         const auto x=edit.cell_index%next.grid.width,y=edit.cell_index/next.grid.width;
         const auto face_inertia=[&](std::size_t axis,std::size_t face) {

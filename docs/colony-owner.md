@@ -374,8 +374,22 @@ This adapter addition changes owner-wrapper bytes, not the physical solver
 image, its profile or transfer arithmetic. Controls cover fractional/multiple
 passives, zero results, token gaps/reuse, partial acknowledgements, old-version
 framing and byte-identical queued injection/extraction continuation. Germ
-representation remainders in binary64 world cells still need observed
-before/after metadata and a named managed account before exact port acceptance.
+representation remainders in binary64 world cells are exposed through optional
+per-edit observations. Full managed accounting and port acceptance remain
+pending.
+
+`ma_oni_colony_precise_receipt_version()` reports capability 2; a pipe client
+requires it before submitting any job. Durable jobs use **MARECP02**, the
+MARECP01 layout plus, after each parcel's passive list, a uint32 observation
+count and sorted triples of uint64 identity, binary64 before and binary64 after.
+These are the actual source/destination cell counts immediately around that
+individual transfer, including zero transfers and multiple jobs touching one
+cell. The default-off `MacFluidTransfer.observe_passives` flag records this
+metadata without changing arithmetic, batching, state or checkpoint bytes.
+Ordinary clients keep MARECP01 and empty observation fields. Native controls
+verify identical physical/default parcel results and exact observation of
+tiny/huge/fractional same-identity remainders. Rebuild C++ clients after the
+trailing public metadata fields change; the game C ABI structs are unchanged.
 
 ## Import
 

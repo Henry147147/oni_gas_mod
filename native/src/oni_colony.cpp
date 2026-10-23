@@ -1630,6 +1630,9 @@ void run_frame(std::uint64_t ticket, double seconds, const char* refusal, std::u
                 plans.push_back({first, edits.size() - first, &t});
             }
         }
+        for (const auto& p : plans)
+            if (job_tokens.contains(static_cast<std::size_t>(p.source-transfers.data())))
+                for (std::size_t e=p.first;e<p.first+p.count;++e) edits[e].observe_passives=true;
         std::vector<MacFluidParcel> parcels; parcels.reserve(edits.size());
         for (std::size_t first = 0; first < edits.size(); first += 4096) {
             const std::span<const MacFluidTransfer> batch(edits.data() + first, std::min<std::size_t>(4096, edits.size() - first));
@@ -1649,6 +1652,7 @@ void run_frame(std::uint64_t ticket, double seconds, const char* refusal, std::u
                     } catch (const std::exception& single) { failure = single.what(); }
                     if (e.mass_kg <= 1e-9 * world.state().cells[e.cell_index].mixture.mass()) {
                         MacFluidParcel zero{}; zero.cell_index = e.cell_index; zero.species_index = e.species_index; zero.injected = e.inject;
+                        if (e.observe_passives) zero.passives_before=zero.passives_after=world.state().cells[e.cell_index].passive_quantities;
                         parcels.push_back(zero); continue;
                     }
                     const auto& m = world.state().cells[e.cell_index].mixture; const auto W = world.state().grid.width;
@@ -1676,7 +1680,7 @@ void run_frame(std::uint64_t ticket, double seconds, const char* refusal, std::u
                     std::size_t count = 0;
                     for (std::size_t e = p.first; e < p.first + p.count; ++e)
                         if (!only_species || parcels[e].species_index == *only_species) ++count;
-                    detail::PreciseReceiptWriter wire; wire.header(r.sequence, r.completed_frame, count);
+                    detail::PreciseReceiptWriter wire; wire.header(r.sequence, r.completed_frame, count,job!=job_tokens.end());
                     for (std::size_t e = p.first; e < p.first + p.count; ++e) {
                         const auto& parcel = parcels[e];
                         if (only_species && parcel.species_index != *only_species) continue;

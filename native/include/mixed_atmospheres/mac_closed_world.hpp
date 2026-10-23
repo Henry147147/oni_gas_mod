@@ -254,6 +254,8 @@ struct MacFluidTransfer {
     bool inject;
     double mass_kg, temperature_k;
     PassiveQuantities passives{};
+    // Optional adapter accounting metadata; never changes physical arithmetic.
+    bool observe_passives = false;
 };
 struct MacFluidParcel {
     std::size_t cell_index, species_index;
@@ -262,6 +264,7 @@ struct MacFluidParcel {
     MacEnergy resolved_kinetic_energy, potential_energy;
     MacScaled momentum_x, momentum_y;
     PassiveQuantities passives{};
+    PassiveQuantities passives_before{}, passives_after{};
 };
 using MacGasTransfer = MacFluidTransfer;
 using MacGasParcel = MacFluidParcel;

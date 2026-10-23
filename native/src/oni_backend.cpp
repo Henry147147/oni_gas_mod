@@ -830,6 +830,7 @@ MAOniResult ma_oni_colony_enable_precise_receipts(std::uint32_t enabled) {
         catch (const std::invalid_argument& error) { throw Failure(MA_ONI_INVALID_ARGUMENT,error.what()); }
     });
 }
+std::uint32_t ma_oni_colony_precise_receipt_version() { return 2; }
 MAOniResult ma_oni_colony_copy_precise_receipt(std::uint64_t sequence,std::uint8_t* buffer,std::uint32_t capacity,std::uint32_t* bytes) {
     return boundary([&] {
         if (!bytes || (capacity && !buffer)) throw Failure(MA_ONI_INVALID_ARGUMENT,"Invalid precise receipt buffer");
