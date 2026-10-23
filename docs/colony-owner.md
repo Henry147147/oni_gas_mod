@@ -334,6 +334,37 @@ Native controls also cover unchanged-buffer guards, live exchanges, new frames,
 restored sessions and byte-exact checkpoint continuation. No physical arithmetic,
 saved profile or checkpoint bytes change.
 
+An instrument-free WHOLE-lock fast Terra60 pair uses the same immutable
+native/managed bundle and profile 18, changing only
+`MA_COLONY_UNCACHED_VIEWS`. Each run completes 60 frames, with all 60 owner
+samples and 59 observed intervals. The observed maxima include startup.
+
+| Fluid views | Owner mean / p95 / max ms | Observed mean / p95 / max ms | Maximum relative mass / energy error | Trace sink kg / J |
+| --- | ---: | ---: | --- | --- |
+| Complete copy every publication | 173.76 / 303.13 / 346.83 | 261.61 / 372.06 / 2954.43 | 2.42e-16 / 2.78e-17 | 5.264e-8 / 0.018796 |
+| Reuse unchanged publication | 173.16 / 321.91 / 426.67 | 266.34 / 448.78 / 3030.38 | 2.36e-16 / 5.17e-17 | 5.414e-8 / 0.019185 |
+
+Both runs have zero faults or skipped relaxations. A separate fallback counter
+is unavailable; regional flow prohibits reference fallback. The cached run
+makes 61 copies and reuses 694 publications, versus 700 complete copies in the
+uncached run. Frames 10–60 give owner/observed means 174.08/211.90 versus
+172.44/217.92 ms. This single pair establishes no whole-game speed improvement;
+it does not meet the 2× target. Native timing and trajectory vary with the
+game's live input history even though the copy operation is exact.
+
+The legacy 48-byte receipt output also stays pinned during its synchronous
+native copy, avoiding per-element marshalling of the 4096-entry destination.
+Receipt selection, ordering, callbacks, precise sidecars and acknowledgement
+remain unchanged. An optional control compares the returned prefix with the
+previous binding before acknowledgement; newly appended outcomes may increase
+the second count without invalidating the first prefix. In a 139-frame
+profile-18 evaporation, freeze/melt and door run, 128 nonempty comparisons
+covered 4277 receipt entries, plus 64 empty-queue comparisons, with no growth
+or byte mismatches. All ten gameplay checks passed, with no faults or skipped
+relaxations, maximum mass/energy errors 4.28e-16 / 4.69e-17 and trace sink
+1.166e-7 kg / 0.038514 J. This LOW-lock control establishes equivalence;
+frame-time measurements use the same package with the control disabled.
+
 Submission/completion timing uses independent queued frame identities. ONI can
 submit the next tick before publishing the previous completion, so pairing a
 completion with the latest submission gives invalid latencies. A focused
@@ -638,6 +669,12 @@ Environment variables of the game process (the harness passes them through):
   byte for byte on matching native session/frame pairs (up to 512 comparisons).
   `colony-owner.json` records copy, hit, comparison and changed-frame counts.
   This adds copying and is excluded from speed measurements.
+- `MA_COLONY_MARSHALLED_RECEIPTS=1`: benchmark the previous receipt-array
+  binding with the same package and saved physical profile.
+- `MA_COLONY_RECEIPT_COPY_CONTROL=1`: compare pinned receipt prefixes against
+  the previous binding before acknowledgement (up to 128 nonempty and 64 empty
+  queues). The owner report records comparison, entry and growth counts. This
+  adds copying and is excluded from speed measurements.
 - `MA_COLONY_DUPE_LOG=1`: every 150 owner frames, each duplicant's breath,
   health, calories and stress with the air at its cell and the cell above
   (mass, composition, breathability), and the prepared base's machines.

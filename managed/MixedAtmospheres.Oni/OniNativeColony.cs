@@ -84,7 +84,7 @@ namespace MixedAtmospheres.Oni
             if (Marshal.SizeOf<Material>() != 168 || Marshal.SizeOf<Config>() != 56 || Marshal.SizeOf<Cell>() != 24 || Marshal.SizeOf<Status>() != 600 ||
                 Marshal.SizeOf<CellView>() != 32 || Marshal.SizeOf<Transfer>() != 48 || Marshal.SizeOf<Receipt>() != 48 || Marshal.SizeOf<Heat>() != 24 ||
                 Marshal.SizeOf<Species>() != 40 || Marshal.SizeOf<Reading>() != 64 || Marshal.SizeOf<Constituent>() != 24 ||
-                sizeof(CellView) != 32 || sizeof(Reading) != 64 || sizeof(Constituent) != 24)
+                sizeof(CellView) != 32 || sizeof(Reading) != 64 || sizeof(Constituent) != 24 || sizeof(Receipt) != 48)
                 throw new InvalidOperationException("Colony owner ABI layouts differ from the native library.");
             if (Version() != AbiVersion) throw new InvalidOperationException("Colony owner ABI version differs from the native library.");
         }
@@ -124,7 +124,17 @@ namespace MixedAtmospheres.Oni
         [DllImport(Library, EntryPoint = "ma_oni_colony_queue_terrain", CallingConvention = CallingConvention.Cdecl)]
         internal static extern int QueueTerrain([In] Terrain[] terrain, uint count);
         [DllImport(Library, EntryPoint = "ma_oni_colony_copy_receipts", CallingConvention = CallingConvention.Cdecl)]
-        internal static extern int CopyReceipts([Out] Receipt[] receipts, uint capacity, out uint count);
+        private static unsafe extern int CopyReceiptsPinned(Receipt* receipts, uint capacity, out uint count);
+        internal static unsafe int CopyReceipts(Receipt[] receipts, uint capacity, out uint count)
+        {
+            if (capacity > receipts.Length) throw new ArgumentOutOfRangeException(nameof(capacity));
+            if (ColonyCopyValidation.UseMarshalledReceipts)
+                return ColonyCopyValidation.ReceiptsMarshalled(receipts, capacity, out count);
+            int result;
+            fixed (Receipt* pointer = receipts) result = CopyReceiptsPinned(pointer, capacity, out count);
+            if (result == 0 && ColonyCopyValidation.ReceiptEnabled) ColonyCopyValidation.Receipts(receipts, capacity, count);
+            return result;
+        }
         // Additive precision sidecar; legacy receipt48 remains unchanged.
         [DllImport(Library, EntryPoint = "ma_oni_colony_enable_precise_receipts", CallingConvention = CallingConvention.Cdecl)]
         internal static extern int EnablePreciseReceipts(uint enabled);
