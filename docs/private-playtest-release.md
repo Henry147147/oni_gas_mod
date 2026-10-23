@@ -19,7 +19,7 @@ physics gates, frozen arenas, bounds or the user's decisions.
 | Heat and germs | Correct pipe body capacity uses registered thermal mass, not construction mass. Corrected thermal equilibrium agrees, but the approximately 1.21 J energy residual exceeds the fixed endpoint bound and remains unresolved. Every germ identity must grow/die by medium; minority retention alone is insufficient, in pipes and world cells. | Pipe worker / gameplay owner |
 | Conserved gameplay transactions | Existing life-support, plant, critter, source and machine scenarios pass on the packet path. Verify recipe-only consumption, blocked input/output and power/heat accounting on the final mixed path, including storage, bottles, suits and rocket tanks/cargo. A generic converter preflight is not a per-recipe atomicity proof. | Gameplay owner / pipe worker |
 | Exact saves with mixed activity | Historical owner saves/load/overwrite and missing-mod rejection pass. Mixed saves are explicitly refused. Finish the pre-header quiescence barrier, durable ports/retries/component scheduling, in-flight manual/autosaves, cold/menu reload, interrupted-save checks and byte-exact continuation. Old saves retain their recorded profile. | Pipe worker / gameplay owner |
-| Whole-asteroid reliability | Every base-game asteroid imports; older Oceania/Volcanea checks faulted. Repeat their bounded checks on the selected saved profile. The prepared profile-18 late colony stalls after frame 4,383; pass that region before resuming ten cycles. One legacy transfer fault at frame 456 did not recur in a 601-frame retry and is not claimed fixed. | Solver / gameplay owners |
+| Whole-asteroid reliability | Every base-game asteroid imports; older Oceania/Volcanea checks faulted. Oceania and Volcanea now pass 30 frames on profile 18; longer reliability remains open. The prepared profile-18 late colony stalls after frame 4,383; pass that region before resuming ten cycles. One legacy transfer fault at frame 456 did not recur in a 601-frame retry and is not claimed fixed. | Solver / gameplay owners |
 | Numerical acceptance for the selected profile | F1 static split currently fails the vanilla comparison. F2 requires accepted external-heat/kinetic correction; F3/F5 dynamic references and compression/phase corrections remain open; F4 lacks a completed aligned solid/fluid measurement. Finish affected evaporation, steam and freeze/melt checks. New kernel integration is diagnostic until accepted. | Solver / gameplay owners |
 | Ordinary player build and presentation | Select only an accepted profile for new colonies; no development fixture required. Verify normal startup, full world/pipe/storage/spill inspection and sensors, responsive pause/menu, clean shutdown, clear faults and missing/incompatible-mod saves. | Gameplay owner |
 | Ten-cycle colony acceptance and package | After the shorter failure-region check passes, run the prepared colony ten cycles with every duplicant alive, no owner fault/fallback and closed ledgers, including autosaves. Validate one immutable final bundle, then provide private Linux install/run/known-behaviour instructions and hashes. | Gameplay owner |
@@ -34,3 +34,18 @@ private-playtest scope does not make real-time speed a feature-cutting gate.
 
 Windows, DLC, Workshop publication and the broader public-release matrix follow
 this private Linux base-game playtest. No public release is authorized here.
+
+## Current-bundle reliability checks
+
+Immutable `package-private-readiness-v1` uses the unchanged `79e0545` native
+pair and `cda2aa1` managed code. New colonies explicitly select profile18
+(flags3), with fast phase off and diagnostic instrumentation off. LOW-lock
+measurements may overlap HIGH work and establish behavior, not performance.
+
+| Asteroid | Completed owner / observed intervals | Owner mean / p95 / max, ms | Observed mean / p95 / max, ms | Maximum relative mass / energy error | Trace sink kg / J | Result |
+| --- | --- | --- | --- | --- | --- | --- |
+| Oceania | 30 / 29, no missed samples | 972.360 / 2831.906 / 5904.672 | 1044.371 / 2376.298 / 2866.135 | 6.462e-16 / 5.499e-17 | 8.811e-7 / 0.275235 | No fault/skipped relaxation; process cleanup verified. The earlier frame-8 startup failure is absent in this bound. |
+| Volcanea | 30 / 29, no missed samples | 417.899 / 583.470 / 694.893 | 479.716 / 682.616 / 699.427 | 1.008e-16 / 4.124e-17 | 2.060e-8 / 0.008868 | No fault/skipped relaxation; process cleanup verified. The earlier frame-12 startup failure is absent in this bound. |
+
+No separate fallback counter is exposed. The 30-frame result establishes no
+ten-cycle or speed acceptance, and does not erase earlier failing profiles.
