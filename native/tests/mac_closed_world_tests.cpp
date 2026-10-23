@@ -1,4 +1,5 @@
 #include "mac_fixture.hpp"
+#include "../src/mac_kernel_detail.hpp"
 #include "mixed_atmospheres/mac_kernel.hpp"
 #include <map>
 #include <algorithm>
@@ -14,6 +15,37 @@ namespace {
 using namespace ma;
 using namespace ma::experimental;
 void check(bool ok, const char* why) { if (!ok) throw std::runtime_error(why); }
+void empty_dual_face_retry() {
+    using namespace ma::experimental::mac_kernel;
+    for (const unsigned threads : {1u, 12u}) for (const bool x : {false, true})
+        for (const double residual : {0., 0x1p-80, -0x1p-80}) {
+        MacGrid source{32, 100, 1, 1, false, false, std::vector<std::uint8_t>(3200)};
+        Grid grid(source); Model model; model.registry_size = 1;
+        Species gas; gas.gas = true; gas.molar_mass = .032; gas.cv = 700;
+        model.species.push_back(gas); model.gases.push_back(0);
+        model.phase_of.push_back(ma::experimental::mac_kernel::none);
+        MacClosedSettings settings; settings.vacuum = MacVacuumRepresentation::void_phase;
+        MacKernelOptions options; options.threads = threads;
+        Pool pool(threads); Workspace ws;
+        Context context{ws, source, model, grid, settings, options, Exec{grid, pool}, {}, {}};
+        Fields candidate; candidate.m.assign(grid.N, 0); candidate.U.assign(grid.N, 0);
+        candidate.jx.assign(grid.NX, 0); candidate.jy.assign(grid.NY, 0); candidate.Vo.assign(grid.N, 0);
+        auto& momentum = x ? candidate.jx : candidate.jy;
+        const auto face = x ? grid.xface(3, 50) : grid.yface(3, 50); momentum[face] = residual;
+        // An intermediate pressure/remap candidate, not an admitted owner:
+        // an empty face with residual J must request retry, never erase J or
+        // throw an argument error outside the substep's rejection handler.
+        ws.eos.resize(grid.N); evaluate_cells(context, candidate, ws.eos);
+        ws.qx.assign(grid.NX, 0); ws.qy.assign(grid.NY, 0);
+        ws.Vmat.assign(grid.N, 0); ws.Vswept.assign(grid.N, 1); ws.body_work_y.assign(grid.NY, 0);
+        Accounts accounts; accounts.resize(context.quantities()); bool retried = false;
+        try { transport_after_pressure(context, candidate, .01, accounts); }
+        catch (const std::domain_error&) { retried = true; }
+        check(retried == (residual != 0) && momentum[face] == residual,
+            "Empty dual-face candidate did not reject without deleting momentum");
+    }
+    std::cout << "PASS empty dual-face candidate retry, retained momentum, both axes and worker counts\n";
+}
 void near(double a, double b, double scale, double relative = 2e-11) {
     check(std::isfinite(a) && std::abs(a - b) <= relative * scale, "MAC closed independent comparison failed");
 }
@@ -444,6 +476,9 @@ int main(int argc, char** argv) {
             inventory_value_control(); std::cout << "PASS inventory value semantics: held references, assignment and signed-zero checkpoint bits\n";
         snapshot_branches(); std::cout << "PASS copied world branches, lifetime, rollback and cold continuation\n"; return 0;
         }
+        if (argc == 2 && std::string_view(argv[1]) == "--empty-dual-only") {
+            empty_dual_face_retry(); return 0;
+        }
         if (argc == 2 && std::string_view(argv[1]) == "--substep-trace-only") {
             substep_trace_receipt(); std::cout << "PASS substep trace sink: internal booking, ledgers, workers, cold continuation and rollback\n"; return 0;
         }
@@ -458,6 +493,7 @@ int main(int argc, char** argv) {
         heat_batch_control(); std::cout << "PASS independent heat batches, ordered repeats/audits, cold/workers and first-error rollback\n";
         trace_sink_receipt(); std::cout << "PASS booked trace sink, mass/energy/momentum/passives, rollback and exact cold/thread continuation\n";
         substep_trace_receipt(); std::cout << "PASS substep trace sink: internal booking, ledgers, workers, cold continuation and rollback\n";
+        empty_dual_face_retry();
         gas_pressure(); std::cout << "PASS pressure-driven retained gas momentum and trace transport\n";
         wet_corner(); std::cout << "PASS elastic gas-liquid pressure transport at a solid corner\n";
         constant_contact(); std::cout << "PASS constant-p/T variable-density mixture contact\n";

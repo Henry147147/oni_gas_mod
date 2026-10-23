@@ -862,6 +862,10 @@ void transport_after_pressure(Context& c, Fields& f, double dt, Accounts& acc) {
         auto gathered = c.exec.partials<GatherOut>([&](std::size_t y0, std::size_t y1, std::size_t blk) {
             GatherOut o;
             const auto momentum_share = [&](std::size_t donor, double part) {
+                // A cancelled remap may leave J on an evacuated face. Reject
+                // the candidate before its zero/zero share escapes as an
+                // argument error; the caller retries the whole substep.
+                if (J[donor] != 0 && !(m0[donor] > 0)) { o.failed = 4; return 0.; }
                 const double velocity = v0[donor];
                 if (J[donor] != 0 && !std::isnormal(velocity))
                     return projected_transfer(MacEnergy::from_double(J[donor]).shared(part, m0[donor]), o.momentum);
@@ -903,6 +907,7 @@ void transport_after_pressure(Context& c, Fields& f, double dt, Accounts& acc) {
                 keep[fidx] = kf;
                 const double js = momentum_share(fidx, kf) + jin;
                 jsum[fidx] = js;
+                if (js != 0 && !(m1[fidx] > 0)) o.failed = 4;
                 ktr[fidx] = kinetic_share(fidx, kf) + kin;
                 const double vp = m1[fidx] > 0 ? js / m1[fidx] : 0;
                 double heat = variance(kf, v0[fidx] - vp);
@@ -938,6 +943,7 @@ void transport_after_pressure(Context& c, Fields& f, double dt, Accounts& acc) {
             if (o.failed == 2) reject("Production dual outgoing mass CFL exceeded");
             if (o.failed == 1) reject("Production dual flux has no occupied donor");
             if (o.failed == 3) reject("Production fixed face retains momentum without inertia");
+            if (o.failed == 4) reject("Production dual face retains momentum without inertia");
             (xc ? wall_x : wall_y) += o.wall;
             acc.transfers[xc ? c.q_jx() : c.q_jy()].merge(o.momentum);
             acc.transfers[c.q_energy()].merge(o.energy);

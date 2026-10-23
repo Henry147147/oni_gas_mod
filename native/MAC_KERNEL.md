@@ -205,12 +205,8 @@ substep trace option. Root tolerances, iteration caps, phase frequency and
 fixed-U conversion are unchanged. The reference and all gate defaults retain
 strict trials; restoring a version-18 or older save never selects this option.
 
-The following timing trials overlapped an abandoned F4 game process outside
-the CPU locks. They are provisional; matched repeats after cleanup are needed.
-The numerical comparisons and ledger checks remain valid.
-
 On the regenerated profile-18 Terra50 state, a high-lock twelve-worker pair
-measures strict/fast phase work at 24.11/7.43 ms. Stored endpoint bytes are
+measures strict/fast phase work at 22.19/7.60 ms. Stored endpoint bytes are
 identical after accounting for the saved flag/version; that is a control for
 this state, not a claim of universal identical trajectories. An instrumented
 trial comparison finds maximum temperature/relative-pressure differences
@@ -219,18 +215,28 @@ mass, strict endpoint entropy, worker independence and exact save continuation.
 Clean comparisons keep all 99 legacy MAC outputs and exits, apart from timings
 and three new PASS lines.
 
-Whole-lock, GPU-rendered Terra60 at fast speed measures profile-18/19 mean
-owner time 175.8/168.9 ms and observed spacing 268.9/264.6 ms. Profile 19 has
-owner p95/max 371.3/491.4 ms and observed p95/max 444.8/2720.4 ms (including
-the harness UI pause). All 60 frames pass without faults or skipped relaxation;
-maximum relative mass/energy errors are 2.74e-16/2.78e-17 and the trace sink
-books 5.289e-8 kg / 0.01954 J. The speed target and complete floor comparison
-remain open; the option is not selected for older saves or gate settings.
-At normal speed, the same whole-lock comparison measures mean owner time
-186.3/146.4 ms and observed spacing 281.5/262.8 ms (59 sampled owner frames
-in the new 60-frame run). New-profile owner p95/max are 201.1/330.1 ms and
-observed p95/max 423.4/2719.9 ms. All 60 frames pass, with mass/energy errors
-2.50e-16/2.79e-17, sink 5.251e-8 kg / 0.01845 J and no skipped relaxation.
+Matched whole-lock, GPU-rendered Terra60 runs use one native bundle and pinned
+managed DLLs, with fast trial EOS disabled/enabled to select profiles 18/19.
+These replace the earlier trials contaminated by an abandoned F4 game process.
+Each run samples all 60 frames and passes without faults or skipped relaxation.
+Times are milliseconds; observed maxima include the harness UI pause.
+
+| Profile / speed | Owner mean / p95 / max | Observed mean / p95 / max | Maximum relative mass / energy error | Trace sink kg / J |
+| --- | --- | --- | --- | --- |
+| 18 / fast | 162.1 / 212.5 / 354.8 | 256.0 / 383.0 / 2871.6 | 3.23e-16 / 4.89e-17 | 5.375e-08 / 0.01939 |
+| 19 / fast | 169.0 / 375.2 / 462.4 | 259.6 / 457.6 / 2794.9 | 2.63e-16 / 4.92e-17 | 5.373e-08 / 0.01995 |
+| 18 / normal | 160.2 / 228.6 / 321.2 | 257.2 / 386.3 / 2817.2 | 2.55e-16 / 4.59e-17 | 5.556e-08 / 0.01931 |
+| 19 / normal | 150.7 / 221.2 / 397.0 | 260.0 / 420.8 / 2888.2 | 3.56e-16 / 4.10e-17 | 5.379e-08 / 0.01920 |
+
+The cheaper phase stage does not produce a reliable whole-frame gain: fast
+runs have 333/507 rejected attempts for profiles 18/19, normal runs 158/311.
+Profile 18 remains the performance baseline; 19 is an optional experiment,
+not a production selection. The speed target and full floor comparison remain
+open; older saves and gate settings retain strict trials.
+In-game profile-19 evaporation/vapour, freeze/melt, heater and generator
+exhaust controls pass 201 frames without faults or skipped relaxation.
+Maximum relative mass/energy errors are 7.00e-16/4.31e-17; the trace sink books
+1.624e-7 kg / 0.051353 J. These controls do not establish the F1–F5 floor.
 
 Two floor-profile failure paths retain their existing equations and audit
 bounds. An isolated positive pressure scalar with exactly zero RHS returns
@@ -244,6 +250,25 @@ identical one/twelve-worker endpoints and a total trace sink of 1.8314e-10 kg /
 0.0003705 J. The full arena run remains unverified. The ten-cycle capture gets
 past its zero-RHS preconditioner error but a subsequent range failure is still
 under investigation; ten-cycle acceptance is open.
+
+Dual transport also rejects an intermediate candidate with nonzero canonical J
+on a zero-inertia face, before a zero/zero share can escape as an argument
+error. A newly emptied face retaining J rejects in that same substep. The
+whole candidate and its accounts are discarded under the original retry
+budget; momentum is never cleared to make it pass. Successful arithmetic and
+checkpoint formats are unchanged. A synthetic control covers zero/positive/
+negative residual J, both axes and one/twelve workers.
+The captured frame-4387 fault and its later slow-onset capture each pass three
+cold-restored flow frames, with identical one/twelve-worker checkpoints.
+They take 7,865/7,258 substeps and 286/242 rejected attempts; maximum relative
+mass/energy errors are 9.59e-17/1.08e-17. Trace receipts total 4.656e-8 kg /
+0.27643 J and 4.130e-8 kg / 0.23766 J, respectively. This clears the captured
+fault without removing the expensive substep/retry structure.
+The whole-lock fast Terra60 smoke passes without faults or skipped relaxation:
+mean owner/observed time 168.6/257.7 ms, owner p95/max 226.1/401.7 ms and
+observed p95/max 403.3/2826.4 ms. Mass/energy errors are 6.11e-16/4.72e-17;
+the sink books 5.355e-8 kg / 0.01942 J. This is a reliability fix, with no
+whole-frame speed gain claimed over the 162.1/256.0 ms profile-18 control.
 
 The colony owner also repairs a failed flow interval whose rarefaction reaches
 the EOS temperature floor before the following phase relaxation. It bisects
