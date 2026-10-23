@@ -252,7 +252,9 @@ open marks the wall as opening, so nothing opens or is taken twice);
 the normal momentum on its faces becomes heat of the neighbour that carried it.
 A cell inside a block closing at once sends its contents to the nearest
 open cell through the block (within 16); only a sealed cell's contents go to
-the reservoir. Replacing a cell with a fluid element (ONI's `ReplaceElement`)
+the reservoir, as do those of a closing cell whose displacement the reference
+EOS refuses (the cell is solid in ONI already; the contents seep back from the
+reservoir rather than the close waiting every frame). Replacing a cell with a fluid element (ONI's `ReplaceElement`)
 replaces it: the owner removes the cell's fluid, booked as extracted, then
 books the placed fluid; replace-and-displace adds the placed fluid instead. Moved material keeps its
 U+K+G: each receiving cell gets it at the temperature whose internal energy
@@ -473,6 +475,8 @@ Environment variables of the game process (the harness passes them through):
   an owned cell (its cell, element, mass, temperatures, booked joules), and
   each native item chunk in contact with one (its temperature and heat
   capacity); for small arenas, since it writes lines every frame.
+- `MA_COLONY_TERRAIN_LOG=1`: every queued terrain edit, its cell and source
+  (managed, shadow close/open, or waiting with the refusal).
 - `MA_COLONY_GAME_FLOOR=1`: new colonies run the game-floor profile (test runs
   only until the profile is selected).
 

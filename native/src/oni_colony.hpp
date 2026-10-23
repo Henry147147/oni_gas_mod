@@ -32,6 +32,8 @@ double trace_reading_temperature(std::uint32_t public_cell, std::uint32_t native
 void refuse_reading(std::int64_t public_cell);
 // Control hook: a terrain edit at this cell throws (-1 clears).
 void refuse_terrain(std::int64_t public_cell);
+// Control hook: closing this public cell displaces into a cell the EOS refuses (-1 clears).
+void refuse_displacement(std::int64_t public_cell);
 // Control hook: heat edits at this cell are refused (-1 clears).
 void refuse_heat(std::int64_t public_cell);
 // Control hook: the phase relaxation throws while set.

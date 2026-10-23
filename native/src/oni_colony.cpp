@@ -540,9 +540,12 @@ MacClosedWorld expel_blocked_liquid(Session& s, MacClosedWorld world) {
 }
 // Terrain edits at the start of a frame (docs/colony-owner.md#terrain).
 std::atomic<std::uint32_t> refused_terrain{UINT32_MAX}; // control hook: a public cell whose terrain edit throws
+std::atomic<std::uint32_t> refused_displacement{UINT32_MAX}; // control hook: a closing public cell whose displacement throws
 std::atomic<std::size_t> refused_heat{SIZE_MAX};       // control hook: a rect cell whose heat edit is refused
 std::atomic<bool> refused_relaxation{false};           // control hook: phase relaxation throws
-MacClosedWorld apply_terrain(Session& s, MacClosedWorld world, std::span<const MAOniColonyTerrain> edits) {
+// `to_reservoir`: a closing cell's contents go to the reservoir instead of
+// its neighbours (for a close whose displacement the reference EOS refuses).
+MacClosedWorld apply_terrain(Session& s, MacClosedWorld world, std::span<const MAOniColonyTerrain> edits, bool to_reservoir = false) {
     for (const auto& e : edits) if (e.public_cell == refused_terrain.load(std::memory_order_relaxed)) throw std::runtime_error("Terrain edit refused (control)");
     const auto& st0 = world.state(); const auto w = st0.grid.width, h = st0.grid.height;
     std::vector<std::size_t> opening, closing;
@@ -586,9 +589,11 @@ MacClosedWorld apply_terrain(Session& s, MacClosedWorld world, std::span<const M
         for (const auto i : closing) closes[i] = 1;
         for (const auto i : closing) {
             const auto& m = world.state().cells[i].mixture; if (!(m.mass() > 0)) continue;
+            if (!to_reservoir && refused_displacement.load(std::memory_order_relaxed) != UINT32_MAX &&
+                rect_index(s.config, refused_displacement.load(std::memory_order_relaxed)) == i) throw std::runtime_error("Displacement refused (control)");
             std::vector<std::size_t> open;
-            for (const auto n : neighbours(i)) if (!world.state().grid.walls[n] && !closes[n] && !s.space[n]) open.push_back(n);
-            if (open.empty()) {
+            if (!to_reservoir) for (const auto n : neighbours(i)) if (!world.state().grid.walls[n] && !closes[n] && !s.space[n]) open.push_back(n);
+            if (open.empty() && !to_reservoir) {
                 // Inside a block closing at once, the contents go to the nearest
                 // open cell reached through the block (within 16 steps).
                 std::vector<std::size_t> frontier{i}, seen{i}; std::size_t found = SIZE_MAX;
@@ -926,6 +931,7 @@ void refuse_heat(std::int64_t public_cell) {
     refused_heat.store(public_cell < 0 ? SIZE_MAX : rect_index(geometry, static_cast<std::uint32_t>(public_cell)), std::memory_order_relaxed);
 }
 void refuse_terrain(std::int64_t public_cell) { refused_terrain.store(public_cell < 0 ? UINT32_MAX : static_cast<std::uint32_t>(public_cell), std::memory_order_relaxed); }
+void refuse_displacement(std::int64_t public_cell) { refused_displacement.store(public_cell < 0 ? UINT32_MAX : static_cast<std::uint32_t>(public_cell), std::memory_order_relaxed); }
 void refuse_reading(std::int64_t public_cell) {
     refused_reading.store(public_cell < 0 ? SIZE_MAX : rect_index(geometry, static_cast<std::uint32_t>(public_cell)), std::memory_order_relaxed);
 }
@@ -976,6 +982,14 @@ void queue_heat(std::span<const MAOniColonyHeat> edits) {
     require(pending_heat.size() + edits.size() <= 1u << 20, "Too many queued colony heat edits");
     pending_heat.insert(pending_heat.end(), edits.begin(), edits.end());
 }
+// MA_COLONY_TERRAIN_LOG=1: every queued terrain edit with its source (stderr).
+void log_terrain(const char* source, std::span<const MAOniColonyTerrain> edits) noexcept {
+    static const bool on = std::getenv("MA_COLONY_TERRAIN_LOG") != nullptr;
+    if (!on) return;
+    for (const auto& e : edits)
+        std::fprintf(stderr, "[Mixed Atmospheres] terrain %s: kind %u at %u,%u\n", source, e.kind,
+            e.public_cell % geometry.grid_width, e.public_cell / geometry.grid_width);
+}
 void queue_terrain(std::span<const MAOniColonyTerrain> edits) {
     require(active(), "No colony owner is active");
     for (const auto& e : edits) {
@@ -993,6 +1007,7 @@ void queue_terrain(std::span<const MAOniColonyTerrain> edits) {
         if (e.kind == MA_ONI_COLONY_OPEN) { std::uint8_t closed = 0; state.compare_exchange_strong(closed, 3, std::memory_order_relaxed); }
     }
     pending_terrain.insert(pending_terrain.end(), edits.begin(), edits.end());
+    log_terrain("managed", edits);
 }
 std::uint32_t copy_receipts(MAOniColonyReceipt* out, std::uint32_t capacity) {
     std::lock_guard lock(inputs);
@@ -1060,6 +1075,7 @@ void write_shadow(const NativeCells& n) noexcept {
     if (!closes.empty()) {
         std::lock_guard q(inputs);
         try { pending_terrain.insert(pending_terrain.end(), closes.begin(), closes.end()); } catch (...) {}
+        log_terrain("shadow close", closes);
     }
 }
 
@@ -1175,6 +1191,7 @@ void capture_shadow(const NativeCells& n) noexcept {
         pending_germs.insert(pending_germs.end(), germs.begin(), germs.end());
         pending_heat.insert(pending_heat.end(), heat.begin(), heat.end());
         pending_terrain.insert(pending_terrain.end(), opened.begin(), opened.end());
+        log_terrain("shadow open", opened);
         pending_transfers.insert(pending_transfers.end(), moves.begin(), moves.end());
         pending_freezes.insert(pending_freezes.end(), froze.begin(), froze.end());
         exchanged.heat_j += sum.heat_j; exchanged.mass_in_kg += sum.mass_in_kg; exchanged.mass_out_kg += sum.mass_out_kg; exchanged.changes += sum.changes;
@@ -1316,18 +1333,28 @@ void run_frame(std::uint64_t ticket, double seconds, const char* refusal, std::u
         if (!terrain.empty()) {
             const auto before_terrain = world; const Session before_session = s;
             try { world = apply_terrain(s, std::move(world), terrain); }
-            catch (const std::exception&) {
+            catch (const std::exception& refused) {
                 // One edit at a time: an edit the reference EOS refuses (a
-                // displacement into a cell it cannot evaluate) waits, unbooked,
-                // for the next frame; the others apply.
+                // displacement into a cell it cannot evaluate) is tried again,
+                // a close then sending its cell's contents to the reservoir
+                // (the cell is solid in ONI either way); one still refused
+                // waits, unbooked, for the next frame. The others apply.
                 world = before_terrain; s = before_session;
                 std::vector<MAOniColonyTerrain> waiting;
                 for (const auto& e : terrain) {
-                    const auto world_before = world; const Session session_before = s;
-                    try { world = apply_terrain(s, std::move(world), std::span(&e, 1)); }
-                    catch (const std::exception&) { world = world_before; s = session_before; waiting.push_back(e); }
+                    bool applied = false;
+                    for (const bool to_reservoir : {false, true}) {
+                        if (applied || (!to_reservoir && terrain.size() == 1) || (to_reservoir && e.kind != MA_ONI_COLONY_CLOSE)) continue;
+                        const auto world_before = world; const Session session_before = s;
+                        try { world = apply_terrain(s, std::move(world), std::span(&e, 1), to_reservoir); applied = true; }
+                        catch (const std::exception&) { world = world_before; s = session_before; }
+                    }
+                    if (!applied) waiting.push_back(e);
                 }
-                if (!waiting.empty()) { std::lock_guard q(inputs); pending_terrain.insert(pending_terrain.end(), waiting.begin(), waiting.end()); }
+                if (!waiting.empty()) {
+                    std::lock_guard q(inputs); pending_terrain.insert(pending_terrain.end(), waiting.begin(), waiting.end());
+                    log_terrain((std::string("waiting (") + refused.what() + ")").c_str(), waiting);
+                }
             }
         }
         step("blocked faces");

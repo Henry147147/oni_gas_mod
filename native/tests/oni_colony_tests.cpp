@@ -508,6 +508,20 @@ int main(int argc, char** argv) {
             std::cout << "refused terrain: closed " << refused.closed_cells - start.closed_cells << " then " << later.closed_cells - start.closed_cells << ", state " << later.state << " " << later.error << "\n";
             require(refused.state == 1 && refused.closed_cells == start.closed_cells + 1 && later.state == 1 && later.closed_cells == start.closed_cells + 2 &&
                 later.maximum_relative_mass_error < 1e-12, "a refused terrain edit waits a frame, the rest of its batch applies");
+            // A close whose displacement is refused sends the cell's contents
+            // to the reservoir instead of waiting forever.
+            const MAOniColonyTerrain tile{public_cell(10, 6), MA_ONI_COLONY_CLOSE};
+            ma::oni::colony::refuse_displacement(public_cell(10, 6));
+            ma::oni::colony::queue_terrain(std::span(&tile, 1));
+            ma::oni::colony::advance(7, .2, 2); ma::oni::colony::wait();
+            ma::oni::colony::refuse_displacement(-1);
+            const auto drained = ma::oni::colony::status();
+            // (Gas leaves the reservoir again at once, into the open cells near it.)
+            std::cout << "refused displacement: closed " << drained.closed_cells - later.closed_cells << ", through the reservoir "
+                      << drained.released_kg - later.released_kg + drained.reservoir_kg - later.reservoir_kg << " kg\n";
+            require(drained.state == 1 && drained.closed_cells == later.closed_cells + 1 &&
+                drained.released_kg - later.released_kg + drained.reservoir_kg - later.reservoir_kg > .5 &&
+                drained.maximum_relative_mass_error < 1e-12 && drained.maximum_relative_energy_error < 1e-9, "a close whose displacement is refused drains to the reservoir");
             ma::oni::colony::stop();
         }
         // A cell that refuses its heat passes it to an open neighbour: the
