@@ -49,6 +49,7 @@ def main() -> None:
     env["MA_TEST_NATIVE_LIBRARY"] = str(directory / ("mixed_atmospheres.dll" if os.name == "nt" else "libmixed_atmospheres.so"))
     run(["dotnet", "run", "--project", "managed/MixedAtmospheres.Tests", "-c", "Release"], env)
     run(["dotnet", "run", "--project", "managed/MixedAtmospheres.Presentation.Tests", "-c", "Release"], env)
+    run(["dotnet", "run", "--project", "tools/ColonyConduitTests", "-c", "Release"], env)
     run(["dotnet", "run", "--project", "tools/OwnedReservoirCheckpointTests", "-c", "Release"], env)
     run(["dotnet", "run", "--project", "tools/OwnedReservoirSavedInspectionTests", "-c", "Release"], env)
     run(["dotnet", "run", "--project", "tools/OwnedReservoirInflationTests", "-c", "Release"], env)

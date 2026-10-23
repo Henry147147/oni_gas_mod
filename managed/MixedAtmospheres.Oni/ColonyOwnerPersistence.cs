@@ -17,7 +17,6 @@ namespace MixedAtmospheres.Oni
     internal static unsafe class ColonyOwnerPersistence
     {
         private const int OniBuild = 744825, MaterialModel = 3, NativeLoad = -672538170;
-        private static readonly byte[] PayloadMagic = { (byte)'M', (byte)'A', (byte)'C', (byte)'O', (byte)'L', (byte)'P', (byte)'0', (byte)'1' };
         [DllImport("SimDLL", EntryPoint = "SIM_BeginSave")] private static extern byte* BeginSave(int* size, int width, int height);
         [DllImport("SimDLL", EntryPoint = "SIM_EndSave")] private static extern void EndSave();
         private static (OniNativeColony.Config config, byte[] image)? pending;
@@ -46,9 +45,9 @@ namespace MixedAtmospheres.Oni
             try { native = new ReadOnlySpan<byte>(data, size).ToArray(); } finally { EndSave(); }
             var image = ColonyOwner.Checkpoint();
             var config = ConfigBytes(ColonyOwner.Config);
-            var payload = new byte[8 + 4 + config.Length + image.Length];
-            PayloadMagic.CopyTo(payload, 0); BinaryPrimitives.WriteInt32LittleEndian(payload.AsSpan(8), config.Length);
-            config.CopyTo(payload, 12); image.CopyTo(payload, 12 + config.Length);
+            // Pipe ownership is not enabled until its full runtime is ready.
+            // A null pipe image writes the exact historical MACOLP01 bytes.
+            var payload = ColonyPipePayload.Encode(config, image, null);
             var envelope = ColonySaveEnvelope.Create(OniBuild, MaterialModel, ColonyOwner.Status.CompletedFrames,
                 CatalogueHash(ColonyOwner.Materials), native, payload);
             envelope.WriteLengthPrefixed(writer); ++Saves;
@@ -65,12 +64,12 @@ namespace MixedAtmospheres.Oni
             var materials = ColonyOwner.BuildCatalogue();
             var envelope = ColonySaveEnvelope.Parse(data.AsSpan(position + 4, length), OniBuild, MaterialModel, CatalogueHash(materials));
             var payload = envelope.CustomData;
-            if (payload.Length < 12 || !payload.Slice(0, 8).SequenceEqual(PayloadMagic)) return false;
-            var configLength = BinaryPrimitives.ReadInt32LittleEndian(payload.Slice(8));
-            if (configLength != 56 || payload.Length <= 12 + configLength) throw new InvalidDataException("Malformed colony save payload.");
+            if (!ColonyPipePayload.Recognizes(payload)) return false;
+            var sections = ColonyPipePayload.Decode(payload);
+            if (sections.Pipes != null) throw new NotSupportedException("This build does not yet activate mixed pipe ownership.");
             OniNativeColony.Config config;
-            fixed (byte* source = payload.Slice(12, configLength)) config = Marshal.PtrToStructure<OniNativeColony.Config>((IntPtr)source);
-            var image = payload.Slice(12 + configLength).ToArray();
+            fixed (byte* source = sections.Config) config = Marshal.PtrToStructure<OniNativeColony.Config>((IntPtr)source);
+            var image = sections.Owner;
             if (reader.ReadInt32() != length) throw new InvalidDataException("Colony save section changed while loading.");
             _ = reader.ReadBytes(length);
             var native = envelope.NativeData.ToArray(); IntPtr loaded;
