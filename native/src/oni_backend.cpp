@@ -1,3 +1,4 @@
+#include "mixed_atmospheres/oni_conduit_contact.h"
 #include "mixed_atmospheres/oni_backend.h"
 #include "oni_sha256.hpp"
 #include "oni_domain.hpp"
@@ -911,6 +912,67 @@ MAOniResult ma_oni_colony_copy_moving_outcome(std::uint64_t sequence,std::uint8_
         if(!bytes || (capacity && !buffer))throw Failure(MA_ONI_INVALID_ARGUMENT,"Invalid moving outcome buffer");
         *bytes=ma::oni::colony::copy_moving_outcome(sequence,buffer,capacity);
         if(buffer && capacity<*bytes)throw Failure(MA_ONI_BUFFER_TOO_SMALL,"Moving outcome buffer is too small");
+    });
+}
+std::uint32_t ma_oni_conduit_contact_version() {
+#if defined(__linux__)
+    return 1;
+#else
+    return 0;
+#endif
+}
+MAOniResult ma_oni_conduit_contact_replay(const MAOniConduitContactInput* contacts,std::uint32_t count,
+    MAOniConduitContactResult* output,std::uint32_t capacity) {
+    return boundary([&] {
+        static_assert(sizeof(MAOniConduitContactInput)==44 && sizeof(MAOniConduitContactResult)==20);
+        if(!contacts || !output || !count || count>4096)throw Failure(MA_ONI_INVALID_ARGUMENT,"Invalid conduit contact arrays");
+        if(capacity<count)throw Failure(MA_ONI_BUFFER_TOO_SMALL,"Conduit contact output is too small");
+        for(const auto& value : std::span(contacts,count)) {
+            if(value.struct_size!=44 || value.abi_version!=1 || (value.flags&~1u) || value.reserved ||
+                !std::isfinite(value.seconds) || value.seconds<0 || value.seconds>10 ||
+                !std::isfinite(value.fluid_temperature_k) || value.fluid_temperature_k<=0 ||
+                !std::isfinite(value.body_temperature_k) || value.body_temperature_k<=0 ||
+                !std::isfinite(value.fluid_heat_capacity_kj_k) || value.fluid_heat_capacity_kj_k<=0 ||
+                !std::isfinite(value.body_heat_capacity_kj_k) || value.body_heat_capacity_kj_k<=0 ||
+                !std::isfinite(value.fluid_conductivity) || value.fluid_conductivity<0 ||
+                !std::isfinite(value.conduit_conductivity) || value.conduit_conductivity<0)
+                throw Failure(MA_ONI_INVALID_ARGUMENT,"Invalid conduit contact record");
+        }
+#if defined(__linux__)
+        if(!installed || !game_module)throw Failure(MA_ONI_BUSY,"The inspected native image is not bound");
+        using Flow=float(*)(void*,bool,float,float,float,float,float);
+        using Clamp=float(*)(void*,float,float,float,float,float,float);
+        using Temperature=float(*)(void*,float,float,float,float,float);
+        const auto flow=reinterpret_cast<Flow>(dlsym(game_module,"_ZN25ConduitTemperatureManager19CalculateEnergyFlowEbfffff"));
+        const auto clamp=reinterpret_cast<Clamp>(dlsym(game_module,"_ZN25ConduitTemperatureManager19ClampEnergyTransferEffffff"));
+        const auto temperature=reinterpret_cast<Temperature>(dlsym(game_module,"_ZN25ConduitTemperatureManager17ModifyTemperatureEfffff"));
+        if(!flow || !clamp || !temperature)throw Failure(MA_ONI_INCOMPATIBLE,"Conduit contact helpers are unavailable");
+        // This parameter is fixed by the inspected native Update callsite,
+        // independent of material, timestep, execution load and saved profile.
+        constexpr float exchange_coefficient=50;
+        struct PreserveMath {
+            std::fenv_t environment{};unsigned csr=_mm_getcsr();int error=errno;
+            PreserveMath() {if(std::fegetenv(&environment))throw Failure(MA_ONI_INTERNAL_ERROR,"Cannot observe contact math environment");}
+            ~PreserveMath() {(void)std::fesetenv(&environment);_mm_setcsr(csr);errno=error;}
+        } preserve;
+        std::vector<MAOniConduitContactResult> results;results.reserve(count);
+        for(const auto& value : std::span(contacts,count)) {
+            const auto power=flow(nullptr,(value.flags&1)!=0,value.fluid_temperature_k,value.fluid_conductivity,
+                value.body_temperature_k,value.conduit_conductivity,exchange_coefficient);
+            const auto heat=clamp(nullptr,value.seconds,value.fluid_temperature_k,value.fluid_heat_capacity_kj_k,
+                value.body_temperature_k,value.body_heat_capacity_kj_k,power);
+            const auto fluid=temperature(nullptr,value.fluid_temperature_k,value.fluid_heat_capacity_kj_k,
+                value.body_temperature_k,value.body_heat_capacity_kj_k,-heat);
+            const float body_delta=heat/value.body_heat_capacity_kj_k;
+            const float body=value.body_temperature_k+body_delta;
+            if(!std::isfinite(heat) || !std::isfinite(fluid) || fluid<=0 || !std::isfinite(body) || body<=0)
+                throw Failure(MA_ONI_INVALID_ARGUMENT,"Conduit contact replay is outside native thermal range");
+            results.push_back({20,1,heat,fluid,body});
+        }
+        std::copy(results.begin(),results.end(),output);
+#else
+        throw Failure(MA_ONI_INCOMPATIBLE,"Conduit contact replay is Linux-only");
+#endif
     });
 }
 MAOniResult ma_oni_colony_pipe_job_state(std::uint64_t token,std::uint32_t* state,std::uint64_t* last) {

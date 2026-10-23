@@ -1,3 +1,4 @@
+#include "mixed_atmospheres/oni_conduit_contact.h"
 #include "mixed_atmospheres/oni_backend.h"
 #include "mixed_atmospheres/oni_domain.h"
 #include "mixed_atmospheres/oni_publication.h"
@@ -66,6 +67,21 @@ int main() {
         require(ma_oni_colony_copy_moving_outcome(1,nullptr,1,&receipt_bytes)==MA_ONI_INVALID_ARGUMENT && receipt_bytes==99 &&
             ma_oni_colony_copy_moving_outcome(1,nullptr,0,nullptr)==MA_ONI_INVALID_ARGUMENT,"invalid moving buffer changed output");
         require(ma_oni_colony_copy_moving_outcome(1,nullptr,0,&receipt_bytes)==MA_ONI_OK && receipt_bytes==0,"absent moving outcome copy failed");
+        static_assert(sizeof(MAOniConduitContactInput)==44 && sizeof(MAOniConduitContactResult)==20);
+        MAOniConduitContactInput contact{44,1,0,0,.2f,300,1.005f,.024f,400,1.94f,8};
+        MAOniConduitContactResult contact_result{20,1,147,148,149};const auto unchanged_contact=contact_result;
+        require(ma_oni_conduit_contact_replay(nullptr,1,&contact_result,1)==MA_ONI_INVALID_ARGUMENT &&
+            ma_oni_conduit_contact_replay(&contact,1,nullptr,1)==MA_ONI_INVALID_ARGUMENT &&
+            ma_oni_conduit_contact_replay(&contact,1,&contact_result,0)==MA_ONI_BUFFER_TOO_SMALL &&
+            std::memcmp(&contact_result,&unchanged_contact,sizeof(contact_result))==0,"invalid thermal replay modified outputs");
+        contact.flags=2;require(ma_oni_conduit_contact_replay(&contact,1,&contact_result,1)==MA_ONI_INVALID_ARGUMENT,"unknown thermal replay flags accepted");
+        contact.flags=0;
+#if defined(__linux__)
+        require(ma_oni_conduit_contact_version()==1 && ma_oni_conduit_contact_replay(&contact,1,&contact_result,1)==MA_ONI_BUSY &&
+            std::memcmp(&contact_result,&unchanged_contact,sizeof(contact_result))==0,"unbound contact replay changed outputs");
+#else
+        require(ma_oni_conduit_contact_version()==0,"unsupported conduit replay capability");
+#endif
         static_assert(sizeof(MAOniDomainPublicationInfo)==64);
         require(ma_oni_domain_publication_abi_version()==1,"native publication ABI version");
         MAOniDomainPublicationInfo publication{};publication.struct_size=sizeof(publication);publication.abi_version=1;publication.token=99;
