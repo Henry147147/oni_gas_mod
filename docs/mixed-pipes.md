@@ -381,6 +381,43 @@ body-plus-fluid residual, above the original two-endpoint-ulp bound. No energy
 bound is loosened, and thermal acceptance remains unresolved. Capture-run world
 mass/energy errors 1.772e-15/5.731e-17, trace sink zero, cleanup verified.
 
+Opt-in `MA_COLONY_PIPE_THERMAL_LOG=<fresh private path>` now records each
+exchange around native `ConduitTemperatureManager.Sim200ms`, before owned
+reprojection: native pipe mass/T, shadow T/carrier Cv, registered body thermal
+mass and native-float Cv, actual structure-record/callback/backing temperatures,
+pending kJ, exact owned U change and inferred carrier work. It allocates/writes
+only when selected, refuses an existing file, and is disabled in final timings.
+Its `.work` log observes exact arguments to managed
+`SimMessages.ModifyBuildingEnergy` and `StructureTemperatureComponents.ProduceEnergy`,
+with body/source/thread/context; channels must not be double-counted. `.meta`
+records whether both observer prefixes are installed. Whole-body snapshot
+changes remain explicitly unattributed outside the proven isolated fixture.
+
+`pipes-thermal-probe-34f-v1` reaches 601 frames and passes 4/5 checks with the
+declared 5 kg thermal mass. Body/mixture 353.26016235351563/353.25942167434033 K
+agree with analytic 353.26012361340253 K; original energy bound still fails:
+body -90675.28770865465 J, fluid/booked +90674.16781319116 J, residual
+-1.1198954635 J versus 0.2458838300 J. All 587 exchange rows have exact owned
+delta-U equal to inferred rounded-carrier work (maximum residual zero), but
+every synchronous structure-temperature delta is zero: body work publishes
+later. The backing InternalTemperature stays at 400 K and is not the runtime
+temperature. World mass/energy errors 1.746e-15/5.618e-17, trace sink zero,
+no native fault/captures, cleanup verified. Diagnostic LOW owner mean/p95/max
+180.430/199.774/430.519 ms, observed 231.271/315.350/3002.908 ms
+(601/600 contiguous samples, no gaps); no performance claim.
+
+The requested-work preflight `pipes-thermal-work-v2-run` intended 40 frames but
+overshot to 151: named scenarios control their own completion and ignore that
+frame setting; its external stop came late. This missed bound is recorded,
+not called a completed acceptance. Game-group cleanup is verified; interruption
+wrote no canonical final result. Both prefixes are installed, yet their work
+file contains zero calls for the observed body, including out-of-context calls.
+Its 136 hot exchanges book/infer exactly 90484.47283728456 J. The existing native
+thermal result exposes temperatures/freeze/melt handles, no shared-energy
+array. Exact requested body work or its native queue is the concrete missing
+access; no invented representation account or relaxed bound is introduced.
+Further probing stops pending that handoff; other pipe integration continues.
+
 ### Biological update still to implement
 
 Current native reconciliation evolves only the projected germ identity;

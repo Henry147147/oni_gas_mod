@@ -126,6 +126,7 @@ namespace MixedAtmospheres.Oni
         }
         internal static void Reset()
         {
+            ColonyPipeThermalProbe.Reset();
             Active=false;Flows.Clear();Materials.Clear();NativeElements.Clear();NativeIndices.Clear();DiseaseExchange.Clear();initial=supplied=removed=PipeInventory.Empty;heat=default;projecting=0;controlSeeding=false;transferScope=null;
             ColonyPipePorts.Reset();MixtureInspection.SetPipeReader(null);
         }
@@ -313,6 +314,14 @@ namespace MixedAtmospheres.Oni
                     if(flow.Value.Cells[i] is Cell cell&&cell.Inventory.Count>0&&flow.Key.HasConduit(i))SyncNative(flow.Key,i);
             ColonyPipeTeardown.Tick(ColonyOwner.Status.CompletedFrames);
         }
+        internal static IEnumerable<(ConduitFlow Flow,int Cell,PipeInventory Inventory,ConduitFlow.ConduitContents Native,ConduitFlow.ConduitContents Shadow)> ThermalProbeSamples()
+        {
+            foreach(var flow in Flows)
+                for(var i=0;i<flow.Value.Cells.Length;++i)
+                    if(flow.Value.Cells[i] is Cell cell&&cell.Inventory.Count>0&&flow.Key.HasConduit(i))
+                        yield return(flow.Key,i,cell.Inventory,ReadRaw(flow.Key,i),cell.Shadow);
+        }
+        internal static ConduitFlow.ConduitContents ThermalProbeNative(ConduitFlow flow,int cell)=>ReadRaw(flow,cell);
         internal static bool Compatible(bool native,ConduitFlow flow,int source,int target)
         {
             var ownsSource=Owns(flow,source);var ownsTarget=Owns(flow,target);
@@ -429,7 +438,13 @@ namespace MixedAtmospheres.Oni
     internal static class ColonyMixedPipeThermalPatch
     {
         private static MethodBase TargetMethod()=>AccessTools.Method(AccessTools.TypeByName("ConduitTemperatureManager"),"Sim200ms");
-        private static void Postfix()=>ColonyConduits.ThermalBoundary();
+        private static void Prefix(float __0,ref ColonyPipeThermalProbe.Scope? __state)=>__state=ColonyPipeThermalProbe.Begin(__0);
+        private static void Postfix(ColonyPipeThermalProbe.Scope? __state)
+        {
+            ColonyPipeThermalProbe.AfterNative(__state);ColonyConduits.ThermalBoundary();ColonyPipeThermalProbe.AfterBook(__state);
+        }
+        private static Exception? Finalizer(Exception? __exception,ColonyPipeThermalProbe.Scope? __state)
+        {ColonyPipeThermalProbe.EndScope(__state);return __exception;}
     }
     [HarmonyPatch(typeof(ConduitFlow),"UpdateConduit")]
     internal static class ColonyMixedPipeFlowPatch
