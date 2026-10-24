@@ -163,7 +163,8 @@ namespace MixedAtmospheres.Oni
                 {
                     var flow=item.Phase==1?gas:liquid;
                     foreach(var part in item.Inventory.Parts)if(!Materials.ContainsKey(part.Id))throw new System.IO.InvalidDataException("Saved pipe constituent is not in the catalogue.");
-                    if(!flow.HasConduit(item.Cell))throw new System.IO.InvalidDataException($"Saved pipe cell {item.Cell} has no restored conduit.");
+                    // Conduit networks may rebuild after this point; the
+                    // contents ONI deserialized are already in its grid.
                     var native=ReadRaw(flow,item.Cell);var cell=new Cell(item.Inventory,default);var expected=Project(cell,native,true);
                     if(!SameContents(native,expected))
                         throw new System.IO.InvalidDataException($"Restored conduit {item.Cell} differs from its saved mixture: native {native.element}/{native.mass:R}/{native.temperature:R}/{native.diseaseIdx}/{native.diseaseCount}, saved {expected.element}/{expected.mass:R}/{expected.temperature:R}/{expected.diseaseIdx}/{expected.diseaseCount}.");
@@ -175,9 +176,8 @@ namespace MixedAtmospheres.Oni
                         for(var x=config.OffsetX;x<config.OffsetX+config.Width;++x)
                         {
                             var index=checked((int)(y*config.GridWidth+x));
-                            if(!flow.HasConduit(index)||saved.Contains((flow,index)))continue;
+                            if(saved.Contains((flow,index)))continue;
                             if(ReadRaw(flow,index).mass>0)throw new System.IO.InvalidDataException($"Restored conduit {index} holds material the saved pipes do not.");
-                            Flows[flow].Cells[index]=new Cell(PipeInventory.Empty,ReadRaw(flow,index));
                         }
                 initial=image.Initial;supplied=image.Supplied;removed=image.Removed;heat=image.ExternalHeat;
                 foreach(var item in image.DiseaseExchange)DiseaseExchange[item.Id]=item.Amount;

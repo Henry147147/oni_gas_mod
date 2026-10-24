@@ -55,6 +55,8 @@ namespace MixedAtmospheres.Oni
                 var live=new HashSet<(ConduitFlow,int)>();foreach(var update in updates)live.Add((update.Flow,update.Cell));
                 var retired=new List<(ConduitFlow,int)>();foreach(var key in States.Keys)if(!live.Contains(key))retired.Add(key);
                 foreach(var key in retired)States.Remove(key);
+                foreach(var key in new List<(ConduitFlow,int)>(Restored.Keys))
+                    if(!ColonyConduits.TryRead(key.Item1,key.Item2,out var held)||held.Count==0)Restored.Remove(key);
                 foreach(var update in updates)
                 {
                     States[(update.Flow,update.Cell)]=update.After;
@@ -89,6 +91,11 @@ namespace MixedAtmospheres.Oni
                     // native projected update and its reconciliation instead.
                     if(!byHandle.TryGetValue(data.temperatureHandle,out var row)||row<0){++Skipped;continue;}
                     var pipe=sample.Flow.soaInfo.GetConduitGO(sample.Flow.GetConduit(sample.Cell).idx);
+                    if(Restored.TryGetValue((sample.Flow,sample.Cell),out var saved))
+                    {
+                        var bound=new CellState(data.temperatureHandle,pipe);foreach(var culture in saved)bound.Cultures.Add(culture.Key,culture.Value);
+                        States[(sample.Flow,sample.Cell)]=bound;Restored.Remove((sample.Flow,sample.Cell));
+                    }
                     if(!States.TryGetValue((sample.Flow,sample.Cell),out var state)||!state.TemperatureHandle.Equals(data.temperatureHandle)||!ReferenceEquals(state.PipeIdentity,pipe))state=new CellState(data.temperatureHandle,pipe);
                     var after=new CellState(data.temperatureHandle,pipe);var inventory=sample.Inventory;var changes=new List<PipePart>();var supported=true;
                     ColonyPipeBiologyOracle.Advance(manager,sample.Flow,sample.Cell,data,seconds);
@@ -137,6 +144,7 @@ namespace MixedAtmospheres.Oni
         private static readonly FieldInfo Temperature=AccessTools.Field(typeof(ConduitDiseaseManager),"temperatureManager");
         private static readonly MethodInfo GetTemperature=AccessTools.Method(AccessTools.TypeByName("ConduitTemperatureManager"),"GetTemperature");
         private static readonly Dictionary<(ConduitFlow,int),CellState> States=new Dictionary<(ConduitFlow,int),CellState>();
+        private static readonly Dictionary<(ConduitFlow,int),Dictionary<int,Culture>> Restored=new Dictionary<(ConduitFlow,int),Dictionary<int,Culture>>();
         private static readonly SortedDictionary<int,PipeAmount> Births=new SortedDictionary<int,PipeAmount>(),Deaths=new SortedDictionary<int,PipeAmount>();
         private static readonly bool TimingEnabled=Environment.GetEnvironmentVariable("MA_COLONY_PIPE_BIOLOGY_TIMING")=="1";
         private static long captureTicks,finishTicks,captureCalls,finishCalls;
@@ -171,15 +179,19 @@ namespace MixedAtmospheres.Oni
                 }
             using var hash=SHA256.Create();return BitConverter.ToString(hash.ComputeHash(bytes.ToArray())).Replace("-","");
         }
-        internal static void Reset(){Enabled=false;States.Clear();Births.Clear();Deaths.Clear();Ticks=UpdatedCells=UpdatedIdentities=ExpectedIdentities=Skipped=captureTicks=finishTicks=captureCalls=finishCalls=0;ColonyPipeBiologyOracle.Reset();}
+        internal static void Reset(){Enabled=false;States.Clear();Restored.Clear();Births.Clear();Deaths.Clear();Ticks=UpdatedCells=UpdatedIdentities=ExpectedIdentities=Skipped=captureTicks=finishTicks=captureCalls=finishCalls=0;ColonyPipeBiologyOracle.Reset();}
         internal static void Capture(PipeRuntimeImage image)
         {
             foreach(var item in States)
             {
-                if(item.Value.Cultures.Count==0)continue;
+                if(item.Value.Cultures.Count==0||Restored.ContainsKey(item.Key))continue;
                 image.Cultures.Add(new PipeRuntimeImage.CultureRecord{Phase=item.Key.Item1.conduitType==ConduitType.Gas?(byte)1:(byte)2,Cell=item.Key.Item2,
                     Cultures=item.Value.Cultures.Select(c=>(c.Key,c.Value.Clock)).ToArray()});
             }
+            foreach(var item in Restored)
+                if(item.Value.Count>0)
+                    image.Cultures.Add(new PipeRuntimeImage.CultureRecord{Phase=item.Key.Item1.conduitType==ConduitType.Gas?(byte)1:(byte)2,Cell=item.Key.Item2,
+                        Cultures=item.Value.Select(c=>(c.Key,c.Value.Clock)).ToArray()});
             foreach(var item in Births)image.Births.Add(item.Key,item.Value);foreach(var item in Deaths)image.Deaths.Add(item.Key,item.Value);
             image.BiologyTicks=Ticks;image.BiologyCells=UpdatedCells;image.BiologyIdentities=UpdatedIdentities;image.BiologyExpected=ExpectedIdentities;image.BiologySkipped=Skipped;
         }
@@ -187,14 +199,13 @@ namespace MixedAtmospheres.Oni
         // handle and body, which a load re-creates.
         internal static void Restore(PipeRuntimeImage image)
         {
+            // Conduit networks may not exist yet: clocks bind to the native
+            // temperature handle and body at the cell's first biology tick.
             foreach(var record in image.Cultures)
             {
                 var flow=record.Phase==1?Game.Instance.gasConduitFlow:Game.Instance.liquidConduitFlow;
-                if(!flow.HasConduit(record.Cell))throw new InvalidDataException("A saved pipe culture has no restored conduit.");
-                var idx=flow.GetConduit(record.Cell).idx;var data=flow.soaInfo.GetDiseaseData(idx);
-                var state=new CellState(data.temperatureHandle,flow.soaInfo.GetConduitGO(idx));
-                foreach(var culture in record.Cultures)state.Cultures.Add(culture.Id,new Culture(culture.Clock));
-                States.Add((flow,record.Cell),state);
+                var cultures=new Dictionary<int,Culture>();foreach(var culture in record.Cultures)cultures.Add(culture.Id,new Culture(culture.Clock));
+                Restored.Add((flow,record.Cell),cultures);
             }
             foreach(var item in image.Births)Births.Add(item.Key,item.Value);foreach(var item in image.Deaths)Deaths.Add(item.Key,item.Value);
             Ticks=image.BiologyTicks;UpdatedCells=image.BiologyCells;UpdatedIdentities=image.BiologyIdentities;ExpectedIdentities=image.BiologyExpected;Skipped=image.BiologySkipped;

@@ -29,7 +29,7 @@ namespace MixedAtmospheres.Oni
         {
             internal readonly ConduitFlow Flow;internal readonly int Cell;internal readonly PipeInventory Inventory;
             internal readonly ConduitFlow.ConduitContents Before,Shadow;internal readonly Input Input;
-            internal Output Result;internal bool Consumed;
+            internal Output Result;internal bool Consumed;internal int Handle;
             internal Row(ConduitFlow flow,int cell,PipeInventory inventory,ConduitFlow.ConduitContents before,ConduitFlow.ConduitContents shadow,Input input)
             {Flow=flow;Cell=cell;Inventory=inventory;Before=before;Shadow=shadow;Input=input;}
         }
@@ -68,7 +68,7 @@ namespace MixedAtmospheres.Oni
                         FluidConductivity=carrier.thermalConductivity,BodyTemperature=record.temperature,
                         BodyCapacity=definition.MassForTemperatureModification*body.Element.specificHeatCapacity,
                         ConduitConductivity=body.Element.thermalConductivity*definition.ThermalConductivity};
-                    var row=new Row(sample.Flow,sample.Cell,sample.Inventory,sample.Native,sample.Shadow,input);rows.Add(row);byCell.Add((sample.Flow,sample.Cell),row);bodies.Add(handle,row);
+                    var row=new Row(sample.Flow,sample.Cell,sample.Inventory,sample.Native,sample.Shadow,input){Handle=handle};rows.Add(row);byCell.Add((sample.Flow,sample.Cell),row);bodies.Add(handle,row);
                 }
                 // Replay is pure; batching changes no native contact ordering or
                 // state. Shared bodies were excluded before making any call. A
@@ -125,6 +125,8 @@ namespace MixedAtmospheres.Oni
             {
                 if(epoch!=Epoch)return;
                 foreach(var row in rows)if(!row.Consumed&&!invalid.Contains(row))++Unsettled;
+                lastContacts.Clear();
+                foreach(var row in rows)if(row.Consumed)lastContacts.Add((row.Handle,row.Input.BodyTemperature,row.Result.BodyTemperature));
             }
         }
         private static Scope? active;
@@ -143,12 +145,31 @@ namespace MixedAtmospheres.Oni
             if(Marshal.SizeOf<Input>()!=44||Marshal.SizeOf<Output>()!=20||Version()!=1)throw new NotSupportedException("Native contact replay version/layout is unsupported.");
             Enabled=true;
         }
-        internal static void Reset(){Enabled=false;active=null;++Epoch;Contacts=Excluded=Mismatches=Unsettled=0;ContactHeat=LaggedHeat=PipeAmount.Zero;}
+        internal static void Reset(){lastContacts.Clear();Enabled=false;active=null;++Epoch;Contacts=Excluded=Mismatches=Unsettled=0;ContactHeat=LaggedHeat=PipeAmount.Zero;}
         internal static void Capture(PipeRuntimeImage image)
         {image.Contacts=Contacts;image.Excluded=Excluded;image.Mismatches=Mismatches;image.Unsettled=Unsettled;image.ContactHeat=ContactHeat;image.LaggedHeat=LaggedHeat;}
         internal static void Restore(PipeRuntimeImage image)
         {Contacts=image.Contacts;Excluded=image.Excluded;Mismatches=image.Mismatches;Unsettled=image.Unsettled;ContactHeat=image.ContactHeat;LaggedHeat=image.LaggedHeat;}
         internal static bool Open=>active!=null;
+        private static readonly List<(int Handle,float Before,float After)> lastContacts=new List<(int,float,float)>();
+        // Validation for a save point: a body whose latest settled contact
+        // changed it is still published at its pre-contact temperature, i.e.
+        // the native has not yet applied work the mixture already received.
+        internal static string? BodyHeatMismatch()
+        {
+            if(Game.Instance==null||Game.Instance.simData==null||Game.Instance.simData.buildingTemperatures==null)return null;
+            var temperatures=Game.Instance.simData.buildingTemperatures;
+            var pending=0;var first="";
+            foreach(var contact in lastContacts)
+            {
+                if(BitConverter.SingleToInt32Bits(contact.Before)==BitConverter.SingleToInt32Bits(contact.After))continue;
+                var record=temperatures[Sim.GetHandleIndex(contact.Handle)];
+                if(record.handle!=contact.Handle)continue; // body gone
+                if(BitConverter.SingleToInt32Bits(record.temperature)==BitConverter.SingleToInt32Bits(contact.Before))
+                {if(pending++==0)first=$"handle {contact.Handle} still {contact.Before:R} K, contact expects {contact.After:R} K";}
+            }
+            return pending==0?null:$"{pending} pipe bodies have unapplied contact work ({first})";
+        }
         internal static Scope? Begin(float seconds)
         {
             if(!Enabled)return null;if(active!=null)throw new InvalidOperationException("Nested native conduit contacts are unsupported.");
