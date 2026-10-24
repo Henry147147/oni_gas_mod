@@ -51,6 +51,20 @@ the world through the vent, one frozen-pipe event (HP 10 -> 9), boundary
 ledger 0 kg/0 J/0.93 germs, every pipe account exact. M/E 4.7e-16/4.7e-17,
 no fault; LOW owner mean 375 ms (diagnostic).
 
+Destroying a pump or vent spills its owned storage at its cell (vanilla
+`DropAll` dumps it); late intakes follow when their job completes. A trace
+of the other phase that arrives with a pump extraction returns to the intake
+cell instead of blocking the pump's buffer.
+
+### Readers
+
+Element, germ and thermo sensors read the owned mixture (element true at or
+above the 0.1% trace fraction). The pipe's status line on hover and in
+details lists every non-trace species with its share, the mixture
+temperature and, in the germ overlay, the germs; the details panel lists
+the complete composition. The overlay colours a cell by its dominant
+species.
+
 ### Vents
 
 Gas and liquid vents bind their storage to owned buffers and dispatch the
