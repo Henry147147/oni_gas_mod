@@ -107,6 +107,7 @@ namespace MixedAtmospheres.Oni
                     case "mixed-pipe-save-guard": MixedPipeSaveGuard(frame); break;
                     case "mixed-pipe-pumps": MixedPipePumps(frame); break;
                     case "mixed-pipe-thermal": MixedPipeThermal(frame); break;
+                    case "mixed-pipe-cold": MixedPipeCold(frame); break;
                     case "mixed-pipe-catalogue": MixedPipeCatalogue(frame); break;
                     case "pacu": Pacu(frame); break;
                     case "liquid-pump": LiquidPump(frame); break;

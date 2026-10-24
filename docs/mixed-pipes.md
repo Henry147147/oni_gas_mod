@@ -907,6 +907,27 @@ shared GPU load make this correctness evidence, not a speed comparison.
 Optional live biology capture/commit means are 4.532583/0.471893 ms over 70
 calls, including the independent fixture oracle and cold work.
 
+### Frozen cold-body thermal control
+
+`mixed-pipe-cold` is a separate fixture fixed before its first measurement
+(2026-10-24). The original hot-body fixture is unchanged. An 8 × 6 sealed
+vacuum arena starts at 300 K. At frame 5 it builds one radiant gas pipe at
+local (3,3); topology must be ready by frame 30. Relative to readiness at
+frame 8, the finite registered body is set to 300 K at frame 8 and the pipe
+receives 0.06 kg hydrogen plus 0.01 kg each oxygen, polluted oxygen, carbon
+dioxide and chlorine, all at 600 K, at frame 14. Contact coupling is explicitly
+enabled. There are no supplied germs or other fluid contacts.
+
+The endpoint is frame 600 plus the recorded topology delay. Both temperatures
+must stay within 300–600 K (0.0001 K readout allowance) and finish within 0.1 K
+of the analytic finite-capacity equilibrium. Each exact constituent mass must
+remain unchanged. Body work plus fluid heat must close within the original
+hot-fixture endpoint rule: twice the registered body capacity times the sum
+of the initial/final binary32 temperature ulps, plus 1e-7 of the fluid heat
+magnitude (at least 1 J). All exact pipe accounts must close independently.
+This tests a cold body and a smaller, five-material fluid heat capacity; it
+does not accept phase changes, shared bodies or the runtime save boundary.
+
 ## Precise owner receipts
 
 The optional native adapter exports `ma_oni_colony_enable_precise_receipts`,
