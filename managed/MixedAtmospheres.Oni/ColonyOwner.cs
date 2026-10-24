@@ -263,7 +263,7 @@ namespace MixedAtmospheres.Oni
             if (message != PrepareGameData || pointer == IntPtr.Zero || !Available) return pointer;
             var source = (Sim.GameDataUpdate*)pointer;
             ColonyActors.Observe(source);
-            if (!Active && ClusterManager.Instance != null && ColonyOwnerPersistence.TakePending() is var (saved, image)) Restore(saved, image);
+            if (!Active && ClusterManager.Instance != null && ColonyOwnerPersistence.TakePending() is var (saved, image)) { Restore(saved, image); ColonyOwnerPersistence.Restored(image); }
             if (!Active) { TryStart(source); if (!Active) return pointer; }
             var started = System.Diagnostics.Stopwatch.GetTimestamp();
             var lapStarted = started;

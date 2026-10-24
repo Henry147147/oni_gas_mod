@@ -165,13 +165,18 @@ internal static unsafe class Program
         });
         Test("owner menu reload retires sessions and preserves source, profile and colony identity", () =>
         {
-            var flow=new ColonyMenuReload();flow.Begin(7,5,"colony","hash");
+            var profile=new ColonyPhysicalProfile(8,21,1,400,800);
+            var missing=false;try{new ColonyMenuReload().Begin(7,5,"colony","hash",null,"image");}catch(InvalidDataException){missing=true;}Check(missing);
+            var flow=new ColonyMenuReload();flow.Begin(7,5,"colony","hash",profile,"image");
             var refused=false;try{flow.MainMenu(false);}catch(InvalidDataException){refused=true;}Check(refused);
             flow.Shutdown();refused=false;try{flow.MainMenu(true);}catch(InvalidDataException){refused=true;}Check(refused);
             flow.MainMenu(false);
-            foreach(var value in new[]{(7UL,5U,"colony","hash",2),(8UL,3U,"colony","hash",2),(8UL,5U,"other","hash",2),(8UL,5U,"colony","changed",2),(8UL,5U,"colony","hash",1)})
-            {refused=false;try{flow.Complete(value.Item1,value.Item2,value.Item3,value.Item4,value.Item5);}catch(InvalidDataException){refused=true;}Check(refused&&!flow.Verified);}
-            flow.Complete(8,5,"colony","hash",2);Check(flow.Verified&&flow.ShutdownObserved&&flow.MainMenuObserved);
+            foreach(var value in new[]{(7UL,5U,"colony","hash",2,profile,"image"),(8UL,3U,"colony","hash",2,profile,"image"),(8UL,5U,"other","hash",2,profile,"image"),
+                (8UL,5U,"colony","changed",2,profile,"image"),(8UL,5U,"colony","hash",1,profile,"image"),(8UL,5U,"colony","hash",2,new ColonyPhysicalProfile(8,21,1,400,200),"image"),
+                (8UL,5U,"colony","hash",2,new ColonyPhysicalProfile(8,20,0,200,200),"image"),(8UL,5U,"colony","hash",2,profile,"other")})
+            {refused=false;try{flow.Complete(value.Item1,value.Item2,value.Item3,value.Item4,value.Item5,value.Item6,value.Item7);}catch(InvalidDataException){refused=true;}Check(refused&&!flow.Verified);}
+            refused=false;try{flow.Complete(8,5,"colony","hash",2,null,"image");}catch(InvalidDataException){refused=true;}Check(refused&&!flow.Verified);
+            flow.Complete(8,5,"colony","hash",2,profile,"image");Check(flow.Verified&&flow.ShutdownObserved&&flow.MainMenuObserved);
         });
         Test("save frame metadata follows durable image across reservoir and trace framing", () =>
         {
@@ -193,6 +198,54 @@ internal static unsafe class Program
                 var corrupt=(byte[])image.Clone();BinaryPrimitives.WriteUInt32LittleEndian(corrupt.AsSpan(68,4),uint.MaxValue);
                 var refused=false;try{ColonyCheckpointMetadata.CompletedFrames(corrupt);}catch(InvalidDataException){refused=true;}Check(refused);
             }
+        });
+        Test("restored physical profile reads the saved law and caps through every owner section", () =>
+        {
+            byte[] Owner(uint version,uint physicalVersion,uint law,uint pressure,uint heat,bool jobs)
+            {
+                using var stream=new MemoryStream();using var writer=new BinaryWriter(stream);
+                writer.Write(System.Text.Encoding.ASCII.GetBytes("MACOLN01"));writer.Write(version);writer.Write(new byte[56]);
+                writer.Write(2u);writer.Write(new byte[2*168]);writer.Write(9u);writer.Write(new byte[9]);
+                writer.Write(9u);writer.Write(new byte[9]);writer.Write(3u);writer.Write(new byte[3*32]);
+                writer.Write(new byte[(version>=7?6*2+8:5*2+5)*16]);if(version>=7)writer.Write(new byte[16]);
+                writer.Write(77UL);writer.Write(new byte[6*8+7*8]);
+                writer.Write(2u);writer.Write(new byte[2*48]);writer.Write(1u);writer.Write(new byte[24]);
+                writer.Write(3u);writer.Write(new byte[3*8]);writer.Write(1u);writer.Write(new byte[16]);
+                if(version>=8)
+                {
+                    writer.Write(9UL);writer.Write(jobs?2u:0u);
+                    if(jobs) for(var k=0;k<2;++k){writer.Write((uint)k);writer.Write(1UL+(ulong)k);writer.Write(2u);writer.Write(new byte[32]);if(version>=9){writer.Write(5u);writer.Write(new byte[5]);}}
+                }
+                using var physical=new MemoryStream();using(var p=new BinaryWriter(physical,System.Text.Encoding.UTF8,true))
+                {
+                    p.Write(System.Text.Encoding.ASCII.GetBytes("MACCLS01"));p.Write(physicalVersion);
+                    if(physicalVersion>=20)
+                    {
+                        p.Write(3u);p.Write(new byte[3]);p.Write(new byte[8+8+4+4+8+8+8+8+1+8+8+4+8+8+1+8+8]);
+                        if(physicalVersion==21){p.Write(law);p.Write(pressure);p.Write(heat);}
+                    }
+                    p.Write(new byte[40]);
+                }
+                writer.Write((ulong)physical.Length);writer.Write(physical.ToArray());writer.Write(new byte[64]);
+                return stream.ToArray();
+            }
+            foreach(var version in new uint[]{6,7,8,9})
+                foreach(var jobs in new[]{false,true})
+                {
+                    var core21=Owner(version,21,1,400,800,jobs);
+                    Check(ColonyCheckpointMetadata.Profile(core21).Equals(new ColonyPhysicalProfile(version,21,1,400,800)));
+                    Check(ColonyCheckpointMetadata.CompletedFrames(core21)==77);
+                    Check(ColonyCheckpointMetadata.Profile(Owner(version,21,1,65536,7,jobs)).Equals(new ColonyPhysicalProfile(version,21,1,65536,7)));
+                    Check(ColonyCheckpointMetadata.Profile(Owner(version,20,9,9,9,jobs)).Equals(new ColonyPhysicalProfile(version,20,0,200,200)));
+                    Check(ColonyCheckpointMetadata.Profile(Owner(version,19,9,9,9,jobs)).Equals(new ColonyPhysicalProfile(version,19,0,0,0)));
+                    foreach(var cut in new[]{1,64,65,core21.Length/2})
+                    {
+                        var rejected=false;try{ColonyCheckpointMetadata.Profile(core21.AsSpan(0,core21.Length-cut));}catch(InvalidDataException){rejected=true;}
+                        Check(rejected);
+                    }
+                    var longer=new byte[core21.Length+1];core21.CopyTo(longer,0);
+                    var refused=false;try{ColonyCheckpointMetadata.Profile(longer);}catch(InvalidDataException){refused=true;}Check(refused);
+                }
         });
         Test("report readers see complete replacements and failed writes preserve the last report", () =>
         {

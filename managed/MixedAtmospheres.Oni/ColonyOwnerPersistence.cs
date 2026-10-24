@@ -23,6 +23,13 @@ namespace MixedAtmospheres.Oni
         internal static int Saves { get; private set; }
         internal static ulong LastSavedFrame { get; private set; }
         internal static int Loads { get; private set; }
+        // What the last restore actually runs (decoded from the owner image,
+        // not from config flags) and, under validation, whether an immediate
+        // re-checkpoint reproduced the saved owner image byte for byte.
+        internal static ColonyPhysicalProfile? RestoredProfile { get; private set; }
+        internal static string RestoredImageSha256 { get; private set; } = "";
+        internal static bool? RestoredImageReencoded { get; private set; }
+        internal static double RestoredReencodeMilliseconds { get; private set; }
 
         private static byte[] CatalogueHash(OniNativeColony.Material[] materials)
         {
@@ -88,7 +95,24 @@ namespace MixedAtmospheres.Oni
         {
             var value = pending; pending = null; return value;
         }
-        internal static void Reset() { pending = null; }
+        internal static void Reset() { pending = null; RestoredProfile = null; RestoredImageSha256 = ""; RestoredImageReencoded = null; RestoredReencodeMilliseconds = 0; }
+
+        internal static object? RestoredReport() => RestoredProfile is not ColonyPhysicalProfile p ? null : new {
+            p.OwnerVersion, p.PhysicalVersion, p.LiquidLaw, p.PressureIterationCap, p.HeatIterationCap,
+            ImageSha256 = RestoredImageSha256, Reencoded = RestoredImageReencoded, ReencodeMilliseconds = RestoredReencodeMilliseconds };
+
+        // Called right after the native restore, before any input or advance.
+        internal static void Restored(byte[] image)
+        {
+            RestoredProfile = ColonyCheckpointMetadata.Profile(image);
+            using (var hash = SHA256.Create()) RestoredImageSha256 = BitConverter.ToString(hash.ComputeHash(image)).Replace("-", "").ToLowerInvariant();
+            if (ColonyRuntimeValidation.Settings == null) return;
+            var started = System.Diagnostics.Stopwatch.GetTimestamp();
+            var again = ColonyOwner.Checkpoint();
+            RestoredReencodeMilliseconds = (System.Diagnostics.Stopwatch.GetTimestamp() - started) * 1000.0 / System.Diagnostics.Stopwatch.Frequency;
+            RestoredImageReencoded = again.AsSpan().SequenceEqual(image);
+            if (RestoredImageReencoded != true) throw new InvalidDataException("The restored colony owner does not reproduce its saved image.");
+        }
     }
 
     [HarmonyPatch(typeof(Sim), nameof(Sim.Save))]

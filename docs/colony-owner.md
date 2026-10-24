@@ -613,6 +613,17 @@ owner at the first completed frame; a different catalogue or geometry rejects
 the save. A game without the mod passes the envelope to its native loader,
 which refuses it.
 
+A restore reports the physical profile it actually runs, read from the owner
+image (`ColonyCheckpointMetadata.Profile`: `MACCLS01` version and, for core
+20/21, the saved liquid law and pressure/heat caps), never from config flags.
+Under validation the restored owner is re-checkpointed immediately and must
+reproduce the saved image byte for byte; a same-process menu reload must
+restore the same profile and image hash. The fresh core21 base save
+(`base-core21-d964`, frame 32) passes a cold load and a menu reload in one
+process: both sessions restore core21, law 1, caps 400/800, identical image
+hashes and re-encodings, and continue 30 frames each; the source hash is
+unchanged.
+
 The optional durable pipe-job API accepts contiguous tokens from 1, with
 full sorted passive lists for injections. Repeating a token never queues
 another transfer. State queries distinguish future, queued, committed and

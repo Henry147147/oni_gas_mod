@@ -4,15 +4,75 @@ using System.IO;
 
 namespace MixedAtmospheres.Oni
 {
+    // The physical profile a restored owner actually runs: its MACCLS01
+    // version and, for game kernels (20/21), the saved liquid law and solver
+    // caps. Read from the owner image itself, never from generic config flags.
+    internal readonly struct ColonyPhysicalProfile : IEquatable<ColonyPhysicalProfile>
+    {
+        internal readonly uint OwnerVersion, PhysicalVersion, LiquidLaw, PressureIterationCap, HeatIterationCap;
+        internal ColonyPhysicalProfile(uint owner, uint physical, uint law, uint pressure, uint heat)
+        { OwnerVersion=owner;PhysicalVersion=physical;LiquidLaw=law;PressureIterationCap=pressure;HeatIterationCap=heat; }
+        public bool Equals(ColonyPhysicalProfile other) => OwnerVersion==other.OwnerVersion && PhysicalVersion==other.PhysicalVersion &&
+            LiquidLaw==other.LiquidLaw && PressureIterationCap==other.PressureIterationCap && HeatIterationCap==other.HeatIterationCap;
+        public override bool Equals(object? other) => other is ColonyPhysicalProfile value && Equals(value);
+        public override int GetHashCode() => HashCode.Combine(OwnerVersion,PhysicalVersion,LiquidLaw,PressureIterationCap,HeatIterationCap);
+    }
+
     // Read the durable counter, never a potentially older publication status.
-    // This is the existing owner framing; it does not interpret physical bytes.
+    // This is the existing owner framing (MACOLN01, native/src/oni_colony.cpp).
     internal static class ColonyCheckpointMetadata
     {
+        private static readonly byte[] OwnerMagic={77,65,67,79,76,78,48,49}, PhysicalMagic={77,65,67,67,76,83,48,49};
+        private const int TransferBytes=48, HeatBytes=24, TerrainBytes=8, FreezeBytes=16, DigestBytes=64;
         internal static ulong CompletedFrames(ReadOnlySpan<byte> image)
         {
-            if (image.Length < 12 || !image.Slice(0,8).SequenceEqual(new byte[]{77,65,67,79,76,78,48,49}))
+            var at=CountersOffset(image,out _);
+            Skip(image,ref at,8);
+            return BinaryPrimitives.ReadUInt64LittleEndian(image.Slice(at-8,8));
+        }
+
+        // Walks the complete owner framing to its physical image. Versions 20
+        // (linear law 0, caps 200/200) and 21 (saved law and caps) report the
+        // game kernel; older physical versions report zero law/caps.
+        internal static ColonyPhysicalProfile Profile(ReadOnlySpan<byte> image)
+        {
+            var at=CountersOffset(image,out var version);
+            Skip(image,ref at,7*8+7*8);
+            foreach(var size in new[]{TransferBytes,HeatBytes,TerrainBytes,FreezeBytes})
+            {var count=U32(image,ref at);Skip(image,ref at,(long)count*size);}
+            if(version>=8)
+            {
+                Skip(image,ref at,8);
+                var jobs=U32(image,ref at);
+                for(var k=0U;k<jobs;++k)
+                {
+                    Skip(image,ref at,12);var passives=U32(image,ref at);Skip(image,ref at,(long)passives*16);
+                    if(version>=9){var wire=U32(image,ref at);Skip(image,ref at,wire);}
+                }
+            }
+            var lengthAt=at;Skip(image,ref at,8);
+            var physical=BinaryPrimitives.ReadUInt64LittleEndian(image.Slice(lengthAt,8));
+            if(physical<20 || physical!=(ulong)(image.Length-at-DigestBytes))
+                throw new InvalidDataException("Colony checkpoint physical image length differs.");
+            var body=image.Slice(at,(int)physical);
+            if(!body.Slice(0,8).SequenceEqual(PhysicalMagic)) throw new InvalidDataException("Missing physical checkpoint signature.");
+            var p=8;var physicalVersion=U32(body,ref p);
+            if(physicalVersion!=20 && physicalVersion!=21) return new ColonyPhysicalProfile(version,physicalVersion,0,0,0);
+            var model=U32(body,ref p);Skip(body,ref p,model);
+            // time, revision, width/height, spacing/depth, timestep, gravity,
+            // conduction, trace threshold, stiffness, flow parts, tolerance,
+            // heat mixing, sharpening, interface detail, phase relaxation.
+            Skip(body,ref p,8+8+4+4+8+8+8+8+1+8+8+4+8+8+1+8+8);
+            if(physicalVersion==20) return new ColonyPhysicalProfile(version,20,0,200,200);
+            var law=U32(body,ref p);var pressure=U32(body,ref p);var heat=U32(body,ref p);
+            return new ColonyPhysicalProfile(version,21,law,pressure,heat);
+        }
+
+        private static int CountersOffset(ReadOnlySpan<byte> image,out uint version)
+        {
+            if (image.Length < 12 || !image.Slice(0,8).SequenceEqual(OwnerMagic))
                 throw new InvalidDataException("Missing colony checkpoint framing.");
-            var version=BinaryPrimitives.ReadUInt32LittleEndian(image.Slice(8,4));
+            version=BinaryPrimitives.ReadUInt32LittleEndian(image.Slice(8,4));
             if(version<6 || version>9) throw new InvalidDataException("Unsupported colony checkpoint metadata version.");
             var at=12;
             Skip(image,ref at,56); // MAOniColonyConfig
@@ -24,8 +84,7 @@ namespace MixedAtmospheres.Oni
             // Native long-double accounts are encoded as two binary64 terms.
             Skip(image,ref at,(version>=7?6L*materials+8:5L*materials+5)*16);
             if(version>=7) Skip(image,ref at,16); // trace counters
-            var offset=at;Skip(image,ref at,8);
-            return BinaryPrimitives.ReadUInt64LittleEndian(image.Slice(offset,8));
+            return at;
         }
         private static uint U32(ReadOnlySpan<byte> image,ref int at)
         {var offset=at;Skip(image,ref at,4);return BinaryPrimitives.ReadUInt32LittleEndian(image.Slice(offset,4));}

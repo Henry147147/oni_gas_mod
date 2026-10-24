@@ -15,7 +15,8 @@ namespace MixedAtmospheres.Oni
             Requested=true,ownerReload.Stage,ownerReload.Verified,ownerReload.FirstSession,
             CurrentSession=ColonyOwner.Status.Session,ownerReload.SavedFlags,CurrentFlags=ColonyOwner.Config.Flags,
             ownerReload.ShutdownObserved,ownerReload.MainMenuObserved,Loads=ColonyOwnerPersistence.Loads,
-            Scope="owner teardown, source identity and profile reload; not an input-transcript or in-flight proof"
+            FirstRestoredImageSha256=ownerReload.RestoredImageSha256,CurrentRestoredImageSha256=ColonyOwnerPersistence.RestoredImageSha256,
+            Scope="owner teardown, source identity, restored physical profile and byte-identical restored owner image; not an input-transcript or in-flight proof"
         };
         private static bool ContinueOwnerMenuReload()
         {
@@ -23,7 +24,7 @@ namespace MixedAtmospheres.Oni
             var guid=SaveLoader.Instance.GameInfo.colonyGuid.ToString("N");var hash=OwnerReloadInputHash();
             if(ownerReload.Stage==0)
             {
-                ownerReload.Begin(ColonyOwner.Status.Session,ColonyOwner.Config.Flags,guid,hash);
+                ownerReload.Begin(ColonyOwner.Status.Session,ColonyOwner.Config.Flags,guid,hash,ColonyOwnerPersistence.RestoredProfile,ColonyOwnerPersistence.RestoredImageSha256);
                 RefreshOwnerCompletionReport();
                 ReportJson.WriteAtomic(Path.Combine(OutputDirectory,"first-load-colony-validation.json"),Report);
                 File.Copy(Path.Combine(OutputDirectory,"colony-owner.json"),Path.Combine(OutputDirectory,"first-load-colony-owner.json"),false);
@@ -32,7 +33,7 @@ namespace MixedAtmospheres.Oni
                 if(driver==null)throw new InvalidOperationException("Owner reload has no lifecycle driver.");
                 driver.StartCoroutine(ReturnToMenuAfterScreenshot("first-load-colony.png"));return true;
             }
-            ownerReload.Complete(ColonyOwner.Status.Session,ColonyOwner.Config.Flags,guid,hash,ColonyOwnerPersistence.Loads);
+            ownerReload.Complete(ColonyOwner.Status.Session,ColonyOwner.Config.Flags,guid,hash,ColonyOwnerPersistence.Loads,ColonyOwnerPersistence.RestoredProfile,ColonyOwnerPersistence.RestoredImageSha256);
             RefreshOwnerCompletionReport();
             return false;
         }
@@ -45,6 +46,8 @@ namespace MixedAtmospheres.Oni
             final["Saves"]=ColonyOwnerPersistence.Saves;
             final["Loads"]=ColonyOwnerPersistence.Loads;
             final["LastSavedFrame"]=ColonyOwnerPersistence.LastSavedFrame;
+            var restored=ColonyOwnerPersistence.RestoredReport();
+            final["RestoredOwner"]=restored==null ? Newtonsoft.Json.Linq.JValue.CreateNull() : Newtonsoft.Json.Linq.JToken.Parse(ReportJson.Serialize(restored));
             var reload=OwnerReloadReport();
             final["OwnerMenuReload"]=reload==null ? Newtonsoft.Json.Linq.JValue.CreateNull() : Newtonsoft.Json.Linq.JToken.Parse(ReportJson.Serialize(reload));
             final["CompletionStatus"]=Newtonsoft.Json.Linq.JToken.Parse(ReportJson.Serialize(new {
