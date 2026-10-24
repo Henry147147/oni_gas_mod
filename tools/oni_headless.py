@@ -588,7 +588,18 @@ def unsupported_mode(mode: str, platform: str | None = None) -> str | None:
     return None
 
 
-def sandbox_command(home: Path, state: Path, output: Path, game: Path, thin: Path, keep_open: bool) -> list[str]:
+def parse_resolution(text: str) -> tuple[int, int]:
+    try:
+        width, height = (int(part) for part in text.lower().split("x"))
+    except ValueError:
+        raise argparse.ArgumentTypeError("expected WxH, e.g. 1280x720") from None
+    if not (320 <= width <= 7680 and 240 <= height <= 4320):
+        raise argparse.ArgumentTypeError("resolution must be within 320x240..7680x4320")
+    return width, height
+
+
+def sandbox_command(home: Path, state: Path, output: Path, game: Path, thin: Path, keep_open: bool,
+                    resolution: tuple[int, int] = (1280, 720)) -> list[str]:
     """Return the bwrap command for one game run.
 
     The root and the private tool/Steam tree are read-only; a fresh home, XDG
@@ -610,7 +621,7 @@ def sandbox_command(home: Path, state: Path, output: Path, game: Path, thin: Pat
                  "--setenv", "XDG_RUNTIME_DIR", str(output / "runtime"),
                  "--unsetenv", "DBUS_SESSION_BUS_ADDRESS",
                  str(thin / "OxygenNotIncluded"), "-force-glcore", "-screen-fullscreen", "0",
-                 "-screen-width", "1280", "-screen-height", "720", "-logFile", str(output / "Player.log")]
+                 "-screen-width", str(resolution[0]), "-screen-height", str(resolution[1]), "-logFile", str(output / "Player.log")]
     if not keep_open:
         arguments[1:1] = ["--die-with-parent"]
     return arguments
@@ -928,7 +939,9 @@ def playtest(args, state: Path, session: dict) -> int:
         env.update(SteamAppId="457140", SteamGameId="457140")
         # ONI's Linux root is Unity persistentDataPath. Bind a fresh home and set
         # all XDG roots; the actual user's saves and mods are never writable.
-        arguments = sandbox_command(home, state, output, game, thin, args.keep_open)
+        resolution = getattr(args, "resolution", None)
+        arguments = sandbox_command(home, state, output, game, thin, args.keep_open,
+                                    resolution if isinstance(resolution, tuple) else (1280, 720))
         (output / "runtime").mkdir(mode=0o700)
         record = spawn(arguments, output / "console.log", env)
         retain = False
@@ -1142,6 +1155,8 @@ def main() -> int:
                       help=f"Native frames per development telemetry line (default {TELEMETRY_INTERVAL_DEFAULT}); requires --long-run")
     play.add_argument("--output", type=Path)
     play.add_argument("--keep-open", action="store_true")
+    play.add_argument("--resolution", type=parse_resolution, default=(1280, 720), metavar="WxH",
+                      help="Game window size (default 1280x720); e.g. 3840x2160 for captures on a 4K --gpu-display")
     play.add_argument("--inspection-seconds", type=int, choices=range(0,301), default=0, metavar="0..300",
                       help="Keep a completed colony visible for bounded mouse/visual inspection, then clean up normally")
     play.add_argument("--private-display", action="store_true", help="Keep the game on a separate disposable display, leaving Steam available for login")

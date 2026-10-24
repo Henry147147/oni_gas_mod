@@ -1632,6 +1632,17 @@ class SandboxTests(unittest.TestCase):
         self.assertNotIn("--die-with-parent", runner.sandbox_command(
             root / "h", root, root / "o", Path("/g"), root / "t", keep_open=True))
 
+    def test_window_resolution_defaults_to_720p_and_accepts_capture_sizes(self):
+        root = Path("/srv/state")
+        default = runner.sandbox_command(root / "h", root, root / "o", Path("/g"), root / "t", keep_open=False)
+        self.assertIn(("-screen-width", "1280", "-screen-height", "720"), list(zip(*(default[i:] for i in range(4)))))
+        capture = runner.sandbox_command(root / "h", root, root / "o", Path("/g"), root / "t", keep_open=False,
+                                         resolution=runner.parse_resolution("3840x2160"))
+        self.assertIn(("-screen-width", "3840", "-screen-height", "2160"), list(zip(*(capture[i:] for i in range(4)))))
+        for bad in ("4k", "100x100", "9000x9000"):
+            with self.assertRaises(argparse.ArgumentTypeError):
+                runner.parse_resolution(bad)
+
     def test_load_rejection_is_rejected_on_linux(self):
         self.assertIn("Windows", runner.unsupported_mode("load-rejection", "linux"))
         self.assertIsNone(runner.unsupported_mode("menu", "linux"))
