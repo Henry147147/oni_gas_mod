@@ -196,6 +196,14 @@ and atomic failures. Managed controls cover layout, canonical rows and corrupt
 epochs/counts. This adds observation, without enabling biological evolution,
 changing the saved profile or establishing actual-game all-germ acceptance.
 
+`MA_COLONY_WORLD_PASSIVE_CONTROL=1` enables a separate live observation control.
+Once per completed publication it selects an owned cell (preferring a germ
+carrier), reads its full inventory and checks the legacy maximum/count without
+choosing a new winner for equal-count ties. Non-disease identities do not compete
+for that projection. An advanced publication is retried, rather than compared
+against an older view. Reports expose `WorldPassiveComparisons`,
+`WorldPassiveRows` and `WorldPassiveBusy`; the control is off during timing runs.
+
 ## Machines
 
 A converter's output into the world (`ElementConverter`, not stored) is a

@@ -90,6 +90,24 @@ internal static unsafe class Program
                 var refused=false;try{ColonyWorldPassives.Read(Read,7,42,new uint[]{35},out _);}catch(InvalidDataException){refused=true;}Check(refused);
             }
         });
+        Test("legacy world germ checks allow stored-order ties and ignore non-disease passives", () =>
+        {
+            WorldPassiveSnapshot Snapshot(params WorldPassiveRow[] rows)=>new WorldPassiveSnapshot(
+                new WorldPassiveStamp{Size=32,Version=1,Session=1},new uint[]{35},rows);
+            var tied=Snapshot(new WorldPassiveRow{PublicCell=35,Identity=1,Quantity=3.9},
+                new WorldPassiveRow{PublicCell=35,Identity=2,Quantity=3.9},
+                new WorldPassiveRow{PublicCell=35,Identity=0x100000000,Quantity=1e30});
+            ColonyWorldPassives.ValidateLegacyProjection(tied,35,1,3);
+            ColonyWorldPassives.ValidateLegacyProjection(tied,35,2,3);
+            ColonyWorldPassives.ValidateLegacyProjection(Snapshot(new WorldPassiveRow{PublicCell=35,Identity=1,Quantity=.49}),35,0,0);
+            ColonyWorldPassives.ValidateLegacyProjection(Snapshot(new WorldPassiveRow{PublicCell=35,Identity=1,Quantity=.5}),35,1,0);
+            ColonyWorldPassives.ValidateLegacyProjection(Snapshot(new WorldPassiveRow{PublicCell=35,Identity=1,Quantity=1e30}),35,1,int.MaxValue);
+            foreach(var invalid in new[]{(0u,0),(1u,4),(3u,3)})
+            {
+                var refused=false;try{ColonyWorldPassives.ValidateLegacyProjection(tied,35,invalid.Item1,invalid.Item2);}
+                catch(InvalidDataException){refused=true;}Check(refused);
+            }
+        });
         Test("publication geometry maps offset rectangles and same-count shape changes", () =>
         {
             Check(ColonyPublicationMap.Create(6,5,2,1,3,2).SequenceEqual(new[]{8,9,10,14,15,16}));

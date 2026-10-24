@@ -74,6 +74,11 @@ namespace MixedAtmospheres.Oni
         private static readonly bool uncachedCellMap=Environment.GetEnvironmentVariable("MA_COLONY_UNCACHED_CELL_MAP")=="1";
         private static readonly bool cellMapControl=Environment.GetEnvironmentVariable("MA_COLONY_CELL_MAP_CONTROL")=="1";
         internal static long CellMapComparisons { get; private set; }
+        private static readonly bool worldPassiveControl=Environment.GetEnvironmentVariable("MA_COLONY_WORLD_PASSIVE_CONTROL")=="1";
+        private static ulong passiveSession,passiveFrame=ulong.MaxValue;
+        internal static long WorldPassiveComparisons { get; private set; }
+        internal static long WorldPassiveRows { get; private set; }
+        internal static long WorldPassiveBusy { get; private set; }
         private static OniNativeColony.Config config;
         private static OniNativeColony.Material[] materials = Array.Empty<OniNativeColony.Material>();
         private static OniNativeColony.CellView[] views = Array.Empty<OniNativeColony.CellView>();
@@ -101,6 +106,7 @@ namespace MixedAtmospheres.Oni
             if (Active) { var s = OniNativeColony.Status.Empty; _ = OniNativeColony.Stop(ref s); }
             ColonyPacing.Reset(); ColonyOwnerPersistence.Reset();
             publicationCells=Array.Empty<int>();CellMapComparisons=0;
+            passiveSession=0;passiveFrame=ulong.MaxValue;WorldPassiveComparisons=WorldPassiveRows=WorldPassiveBusy=0;
             Active = false; considered = false; StartFailure = ""; loggedFault = ""; Publications = 0; PublicationMilliseconds = MaximumPublicationMilliseconds = 0; Census.Clear(); molarMass = Array.Empty<double>();
             completionObservedAt = 0; completionObservedFrame = ulong.MaxValue; frameTiming.Reset();
         }
@@ -278,6 +284,7 @@ namespace MixedAtmospheres.Oni
             ColonyViewCache.Copy(ref output, views);
             Lap("views");
             status = output;
+            if(worldPassiveControl)ObserveWorldPassives();
             if (publicationLog && status.CompletedFrames != completionObservedFrame)
             {
                 var now = System.Diagnostics.Stopwatch.GetTimestamp();
@@ -347,6 +354,25 @@ namespace MixedAtmospheres.Oni
             catch { copy.Dispose(); throw; }
         }
 
+        private static void ObserveWorldPassives()
+        {
+            if(status.Session==passiveSession && status.CompletedFrames==passiveFrame)return;
+            var selected=-1;
+            for(var i=0;i<views.Length;++i)
+                if((views[i].Flags&OniNativeColony.ViewOwned)!=0)
+                {
+                    if(selected<0)selected=i;
+                    if(views[i].Disease!=0){selected=i;break;}
+                }
+            if(selected<0)return;
+            var cell=(uint)publicationCells[selected];
+            var result=ColonyWorldPassives.Read(OniNativeColony.ReadPassives,status.Session,status.CompletedFrames,new[]{cell},out var observation);
+            if(result==ColonyWorldPassives.Busy){++WorldPassiveBusy;return;}
+            OniNativeColony.Check(result);
+            ColonyWorldPassives.ValidateLegacyProjection(observation!,cell,views[selected].Disease,views[selected].DiseaseCount);
+            ++WorldPassiveComparisons;WorldPassiveRows+=observation!.Rows.Count;
+            passiveSession=status.Session;passiveFrame=status.CompletedFrames;
+        }
         // A conversion's solid byproduct (salt from boiling salt water) becomes debris.
         private static void SpawnByproduct(in OniNativeColony.Receipt r)
         {

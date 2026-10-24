@@ -76,5 +76,19 @@ namespace MixedAtmospheres.Oni
                 session!=0 && (source.Session!=session || source.CompletedFrame!=frame))
                 throw new InvalidDataException("Invalid passive publication label.");
         }
+        internal static void ValidateLegacyProjection(WorldPassiveSnapshot snapshot,uint cell,uint disease,int count)
+        {
+            double maximum=0,selected=0;
+            foreach(var row in snapshot.Rows)
+                if(row.PublicCell==cell && row.Identity<=256)
+                {
+                    maximum=Math.Max(maximum,row.Quantity);
+                    if(row.Identity==disease)selected=row.Quantity;
+                }
+            // Native preserves stored-order ties; the observation sorts IDs.
+            // Either tied maximum is a valid legacy projection.
+            if(maximum<.5 ? disease!=0 || count!=0 : disease==0 || selected!=maximum || count!=(int)Math.Min(maximum,int.MaxValue))
+                throw new InvalidDataException("World passive inventory disagrees with its legacy germ projection.");
+        }
     }
 }
