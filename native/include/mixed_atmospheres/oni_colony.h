@@ -234,6 +234,26 @@ MA_ONI_API MAOniResult ma_oni_colony_queue_moving_parcel(uint64_t session,uint64
 MA_ONI_API MAOniResult ma_oni_colony_copy_moving_outcome(uint64_t sequence,uint8_t* buffer,uint32_t capacity,uint32_t* bytes);
 /* Zero for a non-pipe or acknowledged receipt. */
 MA_ONI_API MAOniResult ma_oni_colony_receipt_job(uint64_t sequence, uint64_t* token);
+/* Full passive observation, separate from the dominant-germ legacy view.
+ * Selected cells must be sorted/unique (1..4096). Rows sort by public cell/ID.
+ * expected_session=0 selects the latest immutable publication; otherwise both
+ * expected session/frame must match. A stale publication returns BUSY.
+ * Null rows/capacity0 queries the count and stamp. Any failure preserves ALL
+ * caller outputs. This is read-only and does not enable world germ evolution. */
+typedef struct MAOniColonyPassiveStamp {
+    uint32_t struct_size,abi_version;
+    uint64_t session,completed_frame;
+    double time_seconds;
+} MAOniColonyPassiveStamp;
+typedef struct MAOniColonyPassiveRow {
+    uint32_t public_cell,reserved;
+    uint64_t identity;
+    double quantity;
+} MAOniColonyPassiveRow;
+MA_ONI_API uint32_t ma_oni_colony_passive_snapshot_version(void);
+MA_ONI_API MAOniResult ma_oni_colony_read_passives(uint64_t expected_session,uint64_t expected_frame,
+    const uint32_t* cells,uint32_t cell_count,MAOniColonyPassiveStamp*,
+    MAOniColonyPassiveRow* rows,uint32_t capacity,uint32_t* count);
 /* Size query with a null buffer; the image describes the latest completed frame. */
 MA_ONI_API MAOniResult ma_oni_colony_checkpoint(uint8_t* buffer, uint32_t capacity, uint32_t* bytes);
 MA_ONI_API MAOniResult ma_oni_colony_stop(MAOniColonyStatus*);

@@ -32,6 +32,7 @@
     <Compile Include="../../managed/MixedAtmospheres.Oni/ColonyFrameWindow.cs" Link="ColonyFrameWindow.cs" />
     <Compile Include="../../managed/MixedAtmospheres.Oni/ColonyQuitCleanup.cs" Link="ColonyQuitCleanup.cs" />
     <Compile Include="../../managed/MixedAtmospheres.Oni/ColonyParcelContext.cs" Link="ColonyParcelContext.cs" />
+    <Compile Include="../../managed/MixedAtmospheres.Oni/ColonyWorldPassives.cs" Link="ColonyWorldPassives.cs" />
     <Compile Include="../../managed/MixedAtmospheres.Oni/ColonyPublicationMap.cs" Link="ColonyPublicationMap.cs" />
     <Compile Include="../../managed/MixedAtmospheres.Oni/ColonyCheckpointMetadata.cs" Link="ColonyCheckpointMetadata.cs" />
     <Compile Include="../../managed/MixedAtmospheres.Oni/ColonySaveEnvelope.cs" Link="ColonySaveEnvelope.cs" />

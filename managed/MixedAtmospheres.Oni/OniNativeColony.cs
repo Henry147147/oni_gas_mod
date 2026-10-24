@@ -8,6 +8,12 @@ namespace MixedAtmospheres.Oni
     internal static class OniNativeColony
     {
         private const string Library = "mixed_atmospheres_oni";
+        [DllImport(Library,CallingConvention=CallingConvention.Cdecl,EntryPoint="ma_oni_colony_passive_snapshot_version")]
+        internal static extern uint PassiveSnapshotVersion();
+        [DllImport(Library,CallingConvention=CallingConvention.Cdecl,EntryPoint="ma_oni_colony_read_passives")]
+        internal static extern int ReadPassives(ulong session,ulong frame,[In] uint[] cells,uint cellCount,ref WorldPassiveStamp stamp,
+            [Out] WorldPassiveRow[]? rows,uint capacity,out uint count);
+
         internal const uint AbiVersion = 1, PhysicsConduction = 1, GameFloor = 2, GameKernel = 4;
         internal const uint Solid = 0, Fluid = 1, Space = 2;
         internal const uint Inject = 1, Extract = 2, ExtractGas = 3, ExtractLiquid = 4, Byproduct = 5, ConsumerFlag = 0x100;

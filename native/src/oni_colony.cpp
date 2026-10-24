@@ -1051,6 +1051,29 @@ std::uint64_t readings(std::vector<MAOniColonyReading>& out, std::vector<MAOniCo
     out = p->readings; parts = p->parts;
     return p->status.completed_frames;
 }
+bool read_passives(std::uint64_t expected_session,std::uint64_t expected_frame,std::span<const std::uint32_t> cells,
+    MAOniColonyPassiveStamp& stamp,std::vector<MAOniColonyPassiveRow>& rows) {
+    require(!cells.empty() && cells.size()<=4096,"Passive observation requires 1..4096 cells");
+    for(std::size_t i=1;i<cells.size();++i)require(cells[i]>cells[i-1],"Passive observation cells must be sorted and unique");
+    std::shared_ptr<const Published> p;{std::lock_guard lock(publication);p=latest;}
+    require(p && p->world,"No colony owner is active");
+    if(expected_session && (expected_session!=p->status.session || expected_frame!=p->status.completed_frames))return false;
+    const auto& state=p->world->state();std::size_t count=0;
+    for(const auto cell : cells) {
+        const auto i=rect_index(p->config,cell);const auto size=state.cells[i].passive_quantities.size();
+        require(size<=(1u<<20)-count,"Passive observation exceeds the row limit");count+=size;
+    }
+    std::vector<MAOniColonyPassiveRow> next;next.reserve(count);
+    for(const auto cell : cells) {
+        const auto i=rect_index(p->config,cell);
+        for(const auto& value : state.cells[i].passive_quantities)next.push_back({cell,0,value.identity,value.quantity});
+    }
+    std::sort(next.begin(),next.end(),[](const auto& a,const auto& b) {
+        return a.public_cell<b.public_cell || (a.public_cell==b.public_cell && a.identity<b.identity);
+    });
+    const MAOniColonyPassiveStamp source{sizeof(MAOniColonyPassiveStamp),1,p->status.session,p->status.completed_frames,p->world->time_s()};
+    rows=std::move(next);stamp=source;return true;
+}
 void sample_history(std::uint32_t frames) {
     require(frames<=64,"Arena history requires 0..64 retained frames");
     std::lock_guard lock(publication);

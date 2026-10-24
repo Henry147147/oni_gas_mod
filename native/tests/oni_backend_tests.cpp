@@ -67,6 +67,16 @@ int main() {
         require(ma_oni_colony_copy_moving_outcome(1,nullptr,1,&receipt_bytes)==MA_ONI_INVALID_ARGUMENT && receipt_bytes==99 &&
             ma_oni_colony_copy_moving_outcome(1,nullptr,0,nullptr)==MA_ONI_INVALID_ARGUMENT,"invalid moving buffer changed output");
         require(ma_oni_colony_copy_moving_outcome(1,nullptr,0,&receipt_bytes)==MA_ONI_OK && receipt_bytes==0,"absent moving outcome copy failed");
+        static_assert(sizeof(MAOniColonyPassiveStamp)==32 && sizeof(MAOniColonyPassiveRow)==24);
+        MAOniColonyPassiveStamp passive_stamp{32,1,147,148,149};const auto passive_stamp_before=passive_stamp;
+        MAOniColonyPassiveRow passive_row{1,0,2,3};const auto passive_row_before=passive_row;
+        const std::uint32_t passive_cell=4;std::uint32_t passive_count=147;
+        require(ma_oni_colony_passive_snapshot_version()==1 &&
+            ma_oni_colony_read_passives(0,0,nullptr,1,&passive_stamp,&passive_row,1,&passive_count)==MA_ONI_INVALID_ARGUMENT &&
+            ma_oni_colony_read_passives(0,0,&passive_cell,1,&passive_stamp,nullptr,1,&passive_count)==MA_ONI_INVALID_ARGUMENT &&
+            ma_oni_colony_read_passives(0,0,&passive_cell,1,&passive_stamp,&passive_row,1,&passive_count)==MA_ONI_INVALID_ARGUMENT &&
+            passive_count==147 && std::memcmp(&passive_stamp,&passive_stamp_before,sizeof(passive_stamp))==0 &&
+            std::memcmp(&passive_row,&passive_row_before,sizeof(passive_row))==0,"invalid/inactive passive observation changed outputs");
         static_assert(sizeof(MAOniConduitContactInput)==44 && sizeof(MAOniConduitContactResult)==20);
         MAOniConduitContactInput contact{44,1,0,0,.2f,300,1.005f,.024f,400,1.94f,8};
         MAOniConduitContactResult contact_result{20,1,147,148,149};const auto unchanged_contact=contact_result;

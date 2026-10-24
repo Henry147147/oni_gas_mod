@@ -30,6 +30,66 @@ internal static unsafe class Program
     [MethodImpl(MethodImplOptions.NoInlining)]
     private static int Run(bool benchmark)
     {
+        Test("world passive observations retain all IDs, tiny values and exact publication labels", () =>
+        {
+            Check(Marshal.SizeOf<WorldPassiveStamp>()==32 && Marshal.SizeOf<WorldPassiveRow>()==24 &&
+                Marshal.OffsetOf<WorldPassiveStamp>(nameof(WorldPassiveStamp.Session)).ToInt32()==8 &&
+                Marshal.OffsetOf<WorldPassiveRow>(nameof(WorldPassiveRow.Quantity)).ToInt32()==16);
+            var original=new uint[]{26,35,44};var calls=0;
+            var values=new[]{new WorldPassiveRow{PublicCell=35,Identity=1,Quantity=double.Epsilon},
+                new WorldPassiveRow{PublicCell=35,Identity=2,Quantity=1e-240},new WorldPassiveRow{PublicCell=35,Identity=4,Quantity=1e30},
+                new WorldPassiveRow{PublicCell=35,Identity=0x100000000,Quantity=.5}};
+            int Read(ulong session,ulong frame,uint[] cells,uint n,ref WorldPassiveStamp stamp,WorldPassiveRow[]? rows,uint capacity,out uint count)
+            {
+                ++calls;Check(n==3 && cells.SequenceEqual(new uint[]{26,35,44}));
+                if(rows!=null){Check(session==7 && frame==42 && capacity==4);values.CopyTo(rows,0);}
+                else Check(session==0);
+                stamp=new WorldPassiveStamp{Size=32,Version=1,Session=7,CompletedFrame=42,TimeSeconds=8.4};count=4;return 0;
+            }
+            Check(ColonyWorldPassives.Read(Read,0,0,original,out var snapshot)==0 && calls==2 && snapshot!=null);
+            Check(snapshot!.Rows.Count==4 && snapshot.Source.Session==7 && snapshot.Source.CompletedFrame==42 &&
+                BitConverter.DoubleToInt64Bits(snapshot.Rows[0].Quantity)==1 && snapshot.Rows[1].Quantity==1e-240 && snapshot.Rows[2].Quantity==1e30);
+            original[0]=0;Check(snapshot.Cells[0]==26);
+        });
+        Test("advancing world passive publications never expose a partial snapshot", () =>
+        {
+            foreach(var error in new[]{1,2,3,5,6})
+            {
+                int Read(ulong session,ulong frame,uint[] cells,uint n,ref WorldPassiveStamp stamp,WorldPassiveRow[]? rows,uint capacity,out uint count)
+                {count=0;if(rows==null){stamp=new WorldPassiveStamp{Size=32,Version=1,Session=7,CompletedFrame=42,TimeSeconds=8.4};count=1;return 0;}return error;}
+                Check(ColonyWorldPassives.Read(Read,0,0,new uint[]{35},out var snapshot)==error && snapshot==null);
+            }
+            int Empty(ulong session,ulong frame,uint[] cells,uint n,ref WorldPassiveStamp stamp,WorldPassiveRow[]? rows,uint capacity,out uint count)
+            {Check(rows==null);stamp=new WorldPassiveStamp{Size=32,Version=1,Session=7,CompletedFrame=0,TimeSeconds=0};count=0;return 0;}
+            Check(ColonyWorldPassives.Read(Empty,7,0,new uint[]{35},out var empty)==0 && empty!=null && empty.Rows.Count==0);
+        });
+        Test("world passive readers reject corrupt rows and mismatched epochs before publication", () =>
+        {
+            foreach(var bad in new[]{new WorldPassiveRow{PublicCell=35,Identity=1,Quantity=0},new WorldPassiveRow{PublicCell=35,Identity=1,Quantity=-1},
+                new WorldPassiveRow{PublicCell=35,Identity=1,Quantity=double.NaN},new WorldPassiveRow{PublicCell=35,Identity=1,Quantity=double.PositiveInfinity},
+                new WorldPassiveRow{PublicCell=35,Identity=0,Quantity=1},new WorldPassiveRow{PublicCell=36,Identity=1,Quantity=1},
+                new WorldPassiveRow{PublicCell=35,Reserved=1,Identity=1,Quantity=1}})
+            {
+                int Read(ulong session,ulong frame,uint[] cells,uint n,ref WorldPassiveStamp stamp,WorldPassiveRow[]? rows,uint capacity,out uint count)
+                {stamp=new WorldPassiveStamp{Size=32,Version=1,Session=7,CompletedFrame=42,TimeSeconds=8.4};count=1;if(rows!=null)rows[0]=bad;return 0;}
+                var refused=false;try{ColonyWorldPassives.Read(Read,0,0,new uint[]{35},out _);}catch(InvalidDataException){refused=true;}Check(refused);
+            }
+            foreach(var changed in new[]{"session","frame","time","count","order"})
+            {
+                int Read(ulong session,ulong frame,uint[] cells,uint n,ref WorldPassiveStamp stamp,WorldPassiveRow[]? rows,uint capacity,out uint count)
+                {
+                    stamp=new WorldPassiveStamp{Size=32,Version=1,Session=7,CompletedFrame=42,TimeSeconds=8.4};count=2;
+                    if(rows!=null)
+                    {
+                        rows[0]=new WorldPassiveRow{PublicCell=35,Identity=1,Quantity=1};rows[1]=new WorldPassiveRow{PublicCell=35,Identity=2,Quantity=1};
+                        if(changed=="session")stamp.Session=8;if(changed=="frame")stamp.CompletedFrame=43;
+                        if(changed=="time")stamp.TimeSeconds=8.5;if(changed=="count")count=1;if(changed=="order")rows[1].Identity=1;
+                    }
+                    return 0;
+                }
+                var refused=false;try{ColonyWorldPassives.Read(Read,7,42,new uint[]{35},out _);}catch(InvalidDataException){refused=true;}Check(refused);
+            }
+        });
         Test("publication geometry maps offset rectangles and same-count shape changes", () =>
         {
             Check(ColonyPublicationMap.Create(6,5,2,1,3,2).SequenceEqual(new[]{8,9,10,14,15,16}));

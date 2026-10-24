@@ -175,7 +175,26 @@ it removes and its receipt returns the most numerous one, so a breath or a
 pump gets the germs of what it took. Each published frame shows a cell's most
 numerous germ to the game. Growth and death by medium, disease emitters and
 consumers and cell edits stay ONI's: they act on the native shadow, and the
-change is booked to the owner at the next step.
+change is booked to the owner at the next step. This evolves the projected
+identity only: complete minority growth/death in world cells is still open.
+
+The read-only `ma_oni_colony_read_passives` ABI reports every passive in selected
+cells, including non-disease identities, without reducing them to that legacy
+projection. Select 1–4096 sorted, unique public cells. A null-row count query
+returns a session/frame/time stamp; use that session/frame for the subsequent
+copy. If the publication advances, `BUSY` requires a fresh query. Rows are sorted
+by public cell and identity; quantities retain their binary64 bits. Version 1
+uses a 32-byte stamp and 24-byte rows, capped at 1,048,576 rows. Invalid input,
+stale labels and insufficient output capacity preserve every caller output.
+The managed `ColonyWorldPassives` reader validates both calls and returns only
+one complete publication. Empty selections are invalid; an empty result for
+selected cells is valid.
+
+Owner controls cover offset geometry, minority/tiny/wide quantities, a
+non-disease identity, unchanged checkpoint bytes, cold restore, stale labels
+and atomic failures. Managed controls cover layout, canonical rows and corrupt
+epochs/counts. This adds observation, without enabling biological evolution,
+changing the saved profile or establishing actual-game all-germ acceptance.
 
 ## Machines
 

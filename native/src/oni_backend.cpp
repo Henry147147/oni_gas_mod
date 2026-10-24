@@ -1011,6 +1011,23 @@ MAOniResult ma_oni_colony_receipt_job(std::uint64_t sequence,std::uint64_t* toke
         *token=ma::oni::colony::receipt_job(sequence);
     });
 }
+std::uint32_t ma_oni_colony_passive_snapshot_version() { return 1; }
+MAOniResult ma_oni_colony_read_passives(std::uint64_t session,std::uint64_t frame,const std::uint32_t* cells,std::uint32_t cell_count,
+    MAOniColonyPassiveStamp* stamp,MAOniColonyPassiveRow* rows,std::uint32_t capacity,std::uint32_t* count) {
+    return boundary([&] {
+        static_assert(sizeof(MAOniColonyPassiveStamp)==32 && sizeof(MAOniColonyPassiveRow)==24);
+        if(!cells || !cell_count || cell_count>4096 || !stamp || stamp->struct_size!=32 || stamp->abi_version!=1 || !count || (capacity && !rows))
+            throw Failure(MA_ONI_INVALID_ARGUMENT,"Invalid passive observation input/output");
+        MAOniColonyPassiveStamp source{};std::vector<MAOniColonyPassiveRow> values;
+        try {
+            if(!ma::oni::colony::read_passives(session,frame,std::span(cells,cell_count),source,values))
+                throw Failure(MA_ONI_BUSY,"The requested passive publication has advanced");
+        } catch(const std::invalid_argument& error) {throw Failure(MA_ONI_INVALID_ARGUMENT,error.what());}
+        if(rows && capacity<values.size())throw Failure(MA_ONI_BUFFER_TOO_SMALL,"Passive observation output is too small");
+        if(rows)std::copy(values.begin(),values.end(),rows);
+        *stamp=source;*count=static_cast<std::uint32_t>(values.size());
+    });
+}
 MAOniResult ma_oni_colony_checkpoint(std::uint8_t* buffer,std::uint32_t capacity,std::uint32_t* bytes) {
     return boundary([&] {
         if (!bytes) throw Failure(MA_ONI_INVALID_ARGUMENT,"Invalid colony checkpoint size output");

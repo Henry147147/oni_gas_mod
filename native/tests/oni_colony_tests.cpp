@@ -348,6 +348,44 @@ void parcel_context_control() {
         "parcel context did not follow restored session/coordinates");
     stop();std::cout<<"PARCEL CONTEXT PASS\n";
 }
+void passive_observation_control() {
+    using namespace ma::oni::colony;
+    std::vector<MAOniColonyMaterial> mats{material("Oxygen",11,oxygen,true,.032,1000)};
+    MAOniColonyConfig cfg{};cfg.struct_size=sizeof(cfg);cfg.abi_version=MA_ONI_COLONY_ABI_VERSION;
+    cfg.vacuum_index=vacuum;cfg.grid_width=8;cfg.grid_height=9;cfg.offset_x=2;cfg.offset_y=3;cfg.width=cfg.height=3;cfg.maximum_timestep_s=.1;
+    std::vector<MAOniColonyCell> cells(9,MAOniColonyCell{0,MA_ONI_COLONY_SOLID,0,0,0,0});cells[4]={oxygen,MA_ONI_COLONY_FLUID,1,300,3,103};
+    start(cfg,mats,cells,1);enable_precise_receipts(true);
+    const std::uint32_t centre=35;const MAOniColonyTransfer injection{centre,oxygen,MA_ONI_COLONY_INJECT,0,-1,0,.125,300,0};
+    const std::array<MAOniColonyPassive,4> passives{{{1,.25},{2,1e-240},{4,1e30},{ma::radiation_passive_identity,.5}}};
+    (void)queue_pipe_job(1,injection,passives);advance(1,.2,2);wait();require(status().state==1,"passive observation source fault");
+    MAOniColonyReceipt receipt{};require(copy_receipts(&receipt,1)==1,"passive source receipt missing");ack_receipts(receipt.sequence);
+    const auto image=checkpoint();const auto original_session=status().session;
+    const std::array<std::uint32_t,3> selected{26,centre,44};
+    MAOniColonyPassiveStamp stamp{};std::vector<MAOniColonyPassiveRow> rows;
+    require(read_passives(0,0,selected,stamp,rows) && rows.size()==5 && stamp.struct_size==32 && stamp.abi_version==1 &&
+        stamp.session==original_session && stamp.completed_frame==1 && stamp.time_seconds==status().time_seconds,"passive snapshot labels/counts differ");
+    const std::array<std::uint64_t,5> ids{1,2,3,4,ma::radiation_passive_identity};const std::array<double,5> quantities{.25,1e-240,103,1e30,.5};
+    for(std::size_t i=0;i<rows.size();++i)require(rows[i].public_cell==centre && rows[i].reserved==0 && rows[i].identity==ids[i] &&
+        rows[i].quantity==quantities[i],"passive reader lost minority, wide count, reserved metadata or order");
+    const auto snapshot=rows;
+    const auto unchanged=[&] {
+        require(rows.size()==snapshot.size() && std::memcmp(rows.data(),snapshot.data(),rows.size()*sizeof(rows[0]))==0 &&
+            stamp.session==original_session && stamp.completed_frame==1,"failed passive read changed caller outputs");
+    };
+    require(!read_passives(original_session+1,1,selected,stamp,rows),"wrong passive session admitted");unchanged();
+    require(!read_passives(original_session,2,selected,stamp,rows),"wrong passive frame admitted");unchanged();
+    for(const auto& request : {std::vector<std::uint32_t>{centre,26},std::vector<std::uint32_t>{centre,centre},std::vector<std::uint32_t>{UINT32_MAX},std::vector<std::uint32_t>{}}) {
+        bool refused=false;try{(void)read_passives(0,0,request,stamp,rows);}catch(const std::invalid_argument&){refused=true;}
+        require(refused,"invalid passive selection admitted");unchanged();
+    }
+    require(checkpoint()==image,"passive observation changed checkpoint bytes");
+    stop();restore(cfg,mats,image,1);
+    require(!read_passives(original_session,1,selected,stamp,rows),"cold equal-frame passive session did not invalidate");unchanged();
+    require(read_passives(0,0,selected,stamp,rows) && stamp.session!=original_session && rows.size()==snapshot.size() &&
+        std::memcmp(rows.data(),snapshot.data(),rows.size()*sizeof(rows[0]))==0 && checkpoint()==image,"cold passive snapshot changed inventories or image");
+    const std::array<std::uint32_t,1> empty_cell{26};require(read_passives(stamp.session,1,empty_cell,stamp,rows) && rows.empty(),"empty passive selection did not retire old rows");
+    stop();std::cout<<"WORLD PASSIVE OBSERVATION PASS\n";
+}
 void quiet_game_cell_control() {
     using namespace ma::oni::colony;
     std::vector<MAOniColonyMaterial> mats{material("Oxygen",11,oxygen,true,.032,1000),material("CarbonDioxide",12,carbon,true,.044,850)};
@@ -887,6 +925,7 @@ void trace_sink_control() {
 
 int main(int argc, char** argv) {
     try {
+        if (argc == 2 && std::strcmp(argv[1], "--passives-only") == 0) {passive_observation_control();return 0;}
         if (argc == 2 && std::strcmp(argv[1], "--quiet-game-cell-only") == 0) {quiet_game_cell_control();return 0;}
         if (argc == 2 && std::strcmp(argv[1], "--timestep-only") == 0) { timestep_control(); return 0; }
         if (argc == 2 && std::strcmp(argv[1], "--projection-only") == 0) { projection_control(); return 0; }
@@ -908,6 +947,7 @@ int main(int argc, char** argv) {
         parcel_wire_control();
         parcel_outcome_control();
         parcel_context_control();
+        passive_observation_control();
         quiet_game_cell_control();
         moving_job_control();
         pipe_job_control();
