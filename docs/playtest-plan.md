@@ -231,6 +231,13 @@ buildable and the asteroid loadable.
 
 ## What plays differently from vanilla
 
+- The opt-in profile3/core21 uses a positive-volume liquid law. Below half
+  the saved bulk stiffness it retains the earlier linear law; higher pressures
+  progressively stiffen compression, with continuous volume and elastic energy.
+  High-pressure readings and boiling therefore differ from profile2/core20.
+  It passes short Terra/Oceania/Volcanea startup checks; its reference error,
+  affected accuracy-floor metrics and long-run acceptance remain open. New
+  colonies must select it explicitly; old saves continue with their saved law.
 - The opt-in diagnostic kernel3 profile dampens very rapid pressure waves and
   makes liquids more compressible (saved stiffness K/25). Two backward-Euler
   0.1 s halves cover a tick; donor-cell gas transport spreads composition

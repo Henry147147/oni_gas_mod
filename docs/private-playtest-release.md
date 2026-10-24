@@ -16,18 +16,20 @@ physics gates, frozen arenas, bounds or the user's decisions.
 | Completion item | Current evidence and remaining work | Owner |
 | --- | --- | --- |
 | Full mixed gas/liquid pipes and ports | Explicit pump/storage 27/27, atomic world output 10/10, real teardown 10/10, valve/shutoff 23/23 and gas vent 13/13 pass. Normal mixed ownership remains off. Finish liquid outlets, recipe-specific consumers/storage/reservoirs, phase damage/returns, all readers and activation. | Pipe worker |
-| Heat and germs | Correct pipe body capacity uses registered thermal mass, not construction mass. The original carrier-temperature account fails its fixed endpoint bound. Explicit represented-body-work coupling now passes 5/5 at 601 frames with zero heat residual; full phase/range and ordinary activation still need acceptance. The shared native integer germ helper passes 247 bit-exact native comparisons (32 births, 534,021 deaths, one extinction). Every identity still needs integrated evolution and durable clocks, in pipes and world cells. | Pipe worker / gameplay owner |
+| Heat and germs | Correct pipe body capacity uses registered thermal mass, not construction mass. The original carrier-temperature account fails its fixed endpoint bound. Explicit represented-body-work coupling now passes 5/5 at 601 frames with zero heat residual; full phase/range and ordinary activation still need acceptance. Explicit four-ID gas/liquid pipe biology passes9/9 twice, including70 native single-culture comparisons and fractional/wide/tiny counts. Complete world minority evolution and durable runtime scheduling remain open. | Pipe worker / gameplay owner |
 | Conserved gameplay transactions | Existing life-support, plant, critter, source and machine scenarios pass on the packet path. Verify recipe-only consumption, blocked input/output and power/heat accounting on the final mixed path, including storage, bottles, suits and rocket tanks/cargo. A generic converter preflight is not a per-recipe atomicity proof. | Gameplay owner / pipe worker |
 | Exact saves with mixed activity | Historical owner saves/load/overwrite and missing-mod rejection pass. Mixed saves are explicitly refused; the early public-ingress guard passes 7/7 actual game checks with existing destination/writer bytes preserved. Finish the pre-header quiescence barrier, durable ports/retries/component scheduling, in-flight manual/autosaves, cold/menu reload, interrupted-save checks and byte-exact continuation. Old saves retain their recorded profile. | Pipe worker / gameplay owner |
-| Whole-asteroid reliability | Every base-game asteroid imports; older Oceania/Volcanea checks faulted. Oceania and Volcanea now pass 30 frames on profile 18; longer reliability remains open. Opt-in kernel3 fails Oceania after two frames (liquid strain admission) and Volcanea before its first completed frame (pressure convergence); neither is accepted. The prepared profile-18 late colony stalls after frame 4,383; pass that region before resuming ten cycles. One legacy transfer fault at frame 456 did not recur in a 601-frame retry and is not claimed fixed. | Solver / gameplay owners |
+| Whole-asteroid reliability | Every base-game asteroid imports. Oceania/Volcanea pass30 frames on profile18. New opt-in profile3/core21 passes60 frames on Oceania, Volcanea and Terra, beyond core20's failures after2/0 frames. These are startup checks; selected-profile phase, save and long-run acceptance remain open. The prepared profile18 late colony stalls after frame4,383; pass that region on an explicitly agreed fresh base before resuming ten cycles. No old-save migration. One legacy transfer fault at frame456 did not recur in a601-frame retry and is not claimed fixed. | Solver / gameplay owners |
 | Numerical acceptance for the selected profile | F1 static split currently fails the vanilla comparison. F2 requires accepted external-heat/kinetic correction; F3/F5 dynamic references and compression/phase corrections remain open; F4 lacks a completed aligned solid/fluid measurement. Finish affected evaporation, steam and freeze/melt checks. New kernel integration is diagnostic until accepted. | Solver / gameplay owners |
 | Ordinary player build and presentation | Select only an accepted profile for new colonies; no development fixture required. Verify normal startup, full world/pipe/storage/spill inspection and sensors, responsive pause/menu, clean shutdown, clear faults and missing/incompatible-mod saves. | Gameplay owner |
 | Ten-cycle colony acceptance and package | After the shorter failure-region check passes, run the prepared colony ten cycles with every duplicant alive, no owner fault/fallback and closed ledgers, including autosaves. Validate one immutable final bundle, then provide private Linux install/run/known-behaviour instructions and hashes. | Gameplay owner |
 
-The separate Terra 2× target remains open. Latest clean whole-game measurements
-are approximately 169 ms owner advance / 258 ms observed frame spacing; the
-private approximately 83 ms kernel prototype excludes owner/publication work
-and has no game-speed acceptance. Report mean/p95/max, completed frames,
+The separate Terra 2× target remains open. The latest same-bundle WHOLE-lock
+Terra60 profile2/core20 versus profile3/core21 pair at requested2× measures
+199.543/250.684 versus199.880/252.286 ms owner/observed means: no clear speed
+change. The GPU is shared with the user's workload, so these are diagnostic
+timings. Offline kernel timings exclude owner/publication work and establish
+no game-speed acceptance. Report mean/p95/max, completed frames,
 faults/fallback availability, mass/energy errors and trace totals for final
 runs, with instrumentation off and explicit CPU/game windows. The accepted
 private-playtest scope does not make real-time speed a feature-cutting gate.
@@ -51,6 +53,17 @@ No separate fallback counter is exposed. The 30-frame result establishes no
 ten-cycle or speed acceptance, and does not erase earlier failing profiles.
 
 ## Diagnostic game-kernel checks
+
+The new opt-in positive-volume profile3/core21 (`d0b79bb`) completes60 frames
+each on Terra, Oceania and Volcanea with zero faults/rejections/skipped phase
+relaxations. It fixes the earlier core20 startup failures on the latter two
+worlds. The [game-kernel report](../native/MAC_GAME_KERNEL.md#positive-volume-profile)
+records mean/p95/max, mass/energy errors, trace totals and same-bundle normal1×
+and requested2× comparisons. Fallback count remains unavailable. The normal
+profile20→21 owner means are199.855→201.837 ms and observed means
+249.029→244.796 ms; neither speed pair establishes an isolated improvement.
+Old saves retain their law, and the production default is unchanged. Its phase,
+floor/reference and long-run checks remain separate acceptance work.
 
 The opt-in kernel3/core20 corrected bundle runs in the actual game, with no
 default or old-save migration. Its whole-lock Terra60 result is
