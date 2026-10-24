@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
 
@@ -119,6 +120,34 @@ namespace MixedAtmospheres.Oni
             {
                 var co2 = ArenaSpecies(SimHashes.CarbonDioxide) - recorded["co2"]; var burned = recorded["coal"] - Stored(machine, SimHashes.Carbon);
                 Record("the generator's exhaust reached the owner", co2 > 1e-3 && burned > 0, $"carbon dioxide +{co2:G4} kg, coal burned {burned:G4} kg; {MachineState(machine)}");
+                Finish();
+            }
+        }
+
+        // A pitcher pump over a mixed pool offers each of its liquids.
+        private static void PitcherPump(int frame)
+        {
+            if (Once(0, "pool")) Arena((x, y) => y <= 1 ? (SimHashes.Water, 900f, 300f) : (SimHashes.Oxygen, 1.2f, 300f));
+            if (Once(3, "mix"))
+                for (var x = 0; x < Width; ++x) for (var y = 0; y <= 1; ++y)
+                    SimMessages.AddRemoveSubstance(Cell(x, y), SimHashes.DirtyWater, CellEventLogger.Instance.OxygenModifierSimUpdate, 60, 300, byte.MaxValue, 0);
+            if (Once(8, "build")) machine = Build(LiquidPumpingStationConfig.ID, Cell(3, 2));
+            if (Once(14, "check"))
+            {
+                var station = machine!.GetComponent<LiquidPumpingStation>();
+                var infos = (System.Array)HarmonyLib.AccessTools.Field(typeof(LiquidPumpingStation), "infos").GetValue(station);
+                var count = HarmonyLib.AccessTools.Field(typeof(LiquidPumpingStation), "infoCount");
+                count.SetValue(station, 0);
+                ColonyPitcherPump.Sample(station, Cell(3, 1)); ColonyPitcherPump.Sample(station, Cell(3, 0));
+                var type = HarmonyLib.AccessTools.Inner(typeof(LiquidPumpingStation), "LiquidInfo");
+                var offered = new List<string>();
+                for (var i = 0; i < (int)count.GetValue(station); ++i)
+                {
+                    var info = infos.GetValue(i);
+                    offered.Add(((Element)HarmonyLib.AccessTools.Field(type, "element").GetValue(info)).id + " " + ((float)HarmonyLib.AccessTools.Field(type, "amount").GetValue(info)).ToString("G4") + " kg");
+                }
+                Record("the pump offers every liquid of a mixed pool", ColonyPitcherPump.Ready && offered.Exists(o => o.StartsWith("Water ")) && offered.Exists(o => o.StartsWith("DirtyWater ")),
+                    string.Join(", ", offered) + $"; shown {Grid.Element[Cell(3, 1)].id} {Grid.Mass[Cell(3, 1)]:G4} kg");
                 Finish();
             }
         }

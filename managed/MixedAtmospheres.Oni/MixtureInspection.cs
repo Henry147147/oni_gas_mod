@@ -758,6 +758,7 @@ namespace MixedAtmospheres.Oni
     {
         private static readonly FieldInfo Labels = AccessTools.Field(typeof(CodeInstruction), "labels");
         internal static void Add(CodeInstruction instruction, object label) => ((IList)Labels.GetValue(instruction)!).Add(label);
+        internal static bool Any(CodeInstruction instruction) => ((IList)Labels.GetValue(instruction)!).Count > 0;
         internal static void Move(CodeInstruction source, CodeInstruction destination)
         {
             var from = (IList)Labels.GetValue(source)!; var to = (IList)Labels.GetValue(destination)!;
