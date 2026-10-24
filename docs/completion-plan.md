@@ -8,6 +8,12 @@ still require separate authorization.
 
 Amendments:
 
+- **Playtest default profile, 2026-10-24 (user decision):** for the private
+  Linux playtest, the game profile becomes the default for new colonies once
+  it passes the base-game floor (F1–F5 no worse than vanilla) and the
+  ten-cycle run. Terra at 2× fast speed is measured and reported, and speed
+  work continues, but it does not block the playtest default. The release
+  targets are unchanged.
 - **Game kernel, 2026-10-23 (user decision):** the saved game profile gets a
   third numerical kernel, specified and decided in
   [game-kernel-spec.md](game-kernel-spec.md): semi-implicit all-speed
