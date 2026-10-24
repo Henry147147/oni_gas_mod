@@ -24,6 +24,11 @@ and [remaining work](#remaining-work).
 
 ## Selection
 
+- Explicit diagnostic kernel3 profiles and their saved tradeoffs are described
+  in [MAC_GAME_KERNEL.md](MAC_GAME_KERNEL.md#positive-volume-profile). Profile3
+  adds a positive-volume liquid law and larger linear work caps; its floor,
+  resolved-reference and in-game acceptance remain open. Core20 and the
+  ordinary production path retain their settings and continuation.
 - `MacClosedSettings::numerical_kernel = MacNumericalKernel::production`:
   persisted selection 2, checkpoint version 6. It includes the exact-equilibrium
   certificate and the production kernel for each flow interval. The owner's

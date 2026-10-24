@@ -58,9 +58,13 @@ enum class MacPhaseChange { none = 0, saturation = 1 };
 enum class MacStepControl { doubling = 0, predictive = 1, regional_predictive = 2 };
 // Saved game-profile family. Legacy retains every pre-profile trajectory;
 // scientific gates never select the base-game accuracy-floor profile.
-enum class MacGameProfile { legacy = 0, base_game_floor = 1, game_kernel = 2 };
+enum class MacGameProfile { legacy = 0, base_game_floor = 1, game_kernel = 2,
+    game_kernel_positive_liquid = 3 };
+enum class MacGameLiquidLaw { linear = 0, positive_segments = 1 };
 // Saved settings of the opt-in diagnostic game kernel; never selected by gates.
 struct MacGameSettings {
+    MacGameLiquidLaw liquid_law = MacGameLiquidLaw::linear;
+    unsigned pressure_maximum_iterations = 200, heat_maximum_iterations = 200;
     double liquid_stiffness_ratio = .04;
     unsigned flow_parts = 2;
     double pressure_relative_tolerance = 1e-8;

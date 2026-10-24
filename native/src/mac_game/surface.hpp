@@ -152,8 +152,7 @@ sharpen(const ma::experimental::MacGrid &source,
         forward_energy +=
             moved * (s.offset + s.cv * eos[donor].temperature +
                      (s.gas ? 0
-                            : .5 * eos[donor].pressure * eos[donor].pressure /
-                                  (s.rho0 * s.stiffness)));
+                            : liquid_specific_elastic(s,eos[donor].pressure)));
       }
     for (const auto &[key, value] : cells[target])
       if (phase_group(species, key) != chosen) {
@@ -164,8 +163,7 @@ sharpen(const ma::experimental::MacGrid &source,
         back_energy +=
             moved * (s.offset + s.cv * eos[target].temperature +
                      (s.gas ? 0
-                            : .5 * eos[target].pressure * eos[target].pressure /
-                                  (s.rho0 * s.stiffness)));
+                            : liquid_specific_elastic(s,eos[target].pressure)));
       }
     // Anti-diffusion may not reinforce an inverted full-liquid layer.
     // Buoyant exchange remains responsible for its density ordering.

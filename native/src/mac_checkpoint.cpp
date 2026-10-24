@@ -119,12 +119,15 @@ std::vector<std::uint8_t> MacClosedWorld::checkpoint() const {
     require_mac_energy_environment(); Writer out;
     for (auto value : magic) out.byte(static_cast<std::uint8_t>(value));
     if(settings_.numerical_kernel==MacNumericalKernel::game) {
-        settings_.validate();out.u32(20);const auto model=identity(registry_,*thermodynamics_);out.count(model.size());for(auto b:model)out.byte(b);
+        settings_.validate();
+        const bool positive=settings_.game_profile==MacGameProfile::game_kernel_positive_liquid;
+        out.u32(positive?21:20);const auto model=identity(registry_,*thermodynamics_);out.count(model.size());for(auto b:model)out.byte(b);
         out.number(time_s_);out.u64(revision_);const auto& st=state();const auto& g=st.grid;
         out.count(g.width);out.count(g.height);out.number(g.spacing_m);out.number(g.depth_m);
         out.number(settings_.maximum_timestep_s);out.number(settings_.gravity_m_per_s2);out.byte(settings_.thermal_conduction?1:0);out.number(settings_.trace_sink_threshold_kg);
         const auto& cfg=settings_.game;out.number(cfg.liquid_stiffness_ratio);out.u32(cfg.flow_parts);out.number(cfg.pressure_relative_tolerance);
         out.number(cfg.gas_heat_mixing);out.byte(cfg.sharpen_liquid_interfaces?1:0);out.number(cfg.interface_detail_fraction);out.number(cfg.phase_relaxation_time_s);
+        if(positive){out.u32(static_cast<std::uint32_t>(cfg.liquid_law));out.u32(cfg.pressure_maximum_iterations);out.u32(cfg.heat_maximum_iterations);}
         out.count(cfg.saturation_pairs.size());for(const auto& p:cfg.saturation_pairs){out.count(p.liquid);out.count(p.vapour);out.number(p.critical_temperature_k);}
         out.count(st.cells.size());for(auto wall:g.walls)out.byte(wall);
         for(const auto& mask:{g.closed_x,g.closed_y}){out.count(mask.size());for(auto value:mask)out.byte(value);}
@@ -222,13 +225,14 @@ MacClosedWorld MacClosedWorld::from_checkpoint(SpeciesRegistry registry,std::sha
     Reader in{bytes.first(bytes.size()-8)};
     for (auto value : magic) check(in.byte()==static_cast<std::uint8_t>(value),"Unrecognized MAC checkpoint signature");
     const auto version=in.u32();
-    if(version==20) {
+    if(version==20 || version==21) {
         const auto model=identity(registry,*eos);check(in.u32()==model.size()&&model.size()<=in.remaining(),"Saved game model size differs");for(auto value:model)check(in.byte()==value,"Saved game registry/EOS identity differs");
         const double time=in.number();const auto revision=in.u64();check(time>=0&&revision>0,"Invalid saved game clock");
         MacTransportState st;st.grid.width=in.u32();st.grid.height=in.u32();st.grid.spacing_m=in.number();st.grid.depth_m=in.number();
         MacClosedSettings cfg;cfg.numerical_kernel=MacNumericalKernel::game;cfg.game_profile=MacGameProfile::game_kernel;cfg.vacuum=MacVacuumRepresentation::void_phase;cfg.thermal_conduction=true;
         cfg.maximum_timestep_s=in.number();cfg.gravity_m_per_s2=in.number();cfg.thermal_conduction=in.flag();cfg.trace_sink_threshold_kg=in.number();
         cfg.game.liquid_stiffness_ratio=in.number();cfg.game.flow_parts=in.u32();cfg.game.pressure_relative_tolerance=in.number();cfg.game.gas_heat_mixing=in.number();cfg.game.sharpen_liquid_interfaces=in.flag();cfg.game.interface_detail_fraction=in.number();cfg.game.phase_relaxation_time_s=in.number();
+        if(version==21){cfg.game_profile=MacGameProfile::game_kernel_positive_liquid;cfg.game.liquid_law=static_cast<MacGameLiquidLaw>(in.u32());cfg.game.pressure_maximum_iterations=in.u32();cfg.game.heat_maximum_iterations=in.u32();}
         const auto pairs=in.u32();check(pairs<=65536&&pairs<=in.remaining()/16,"Invalid saved game pairs");for(std::size_t n=0;n<pairs;++n){MacSaturationPair pair;pair.liquid=in.u32();pair.vapour=in.u32();pair.critical_temperature_k=in.number();cfg.game.saturation_pairs.push_back(pair);}cfg.validate();
         const auto cells=in.u32();check(st.grid.width>0&&st.grid.height>0&&static_cast<std::uint64_t>(st.grid.width)*st.grid.height==cells&&cells<=in.remaining()/17,"Invalid saved game geometry");
         st.grid.walls.reserve(cells);for(std::size_t i=0;i<cells;++i)st.grid.walls.push_back(in.flag()?1:0);

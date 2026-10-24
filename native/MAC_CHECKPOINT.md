@@ -114,13 +114,19 @@ current binary has.
 
 ### Version assignment
 
-Version **21 is reserved for the positive-volume game profile** (2026-10-23),
-claimed immediately after fetching `2569eab`. It will save the liquid
-constitutive-law selector and linear iteration caps alongside the existing
-kernel3 settings. Core20 retains the linear law and200-iteration policy,
-unchanged bytes and continuation. No21 writer or new-colony selection is
-active at this reservation. Old dumps remain valid for their saved profile;
-new-profile dumps must be generated after integration.
+Version **21 is the positive-volume game profile** (2026-10-23), claimed
+immediately after fetching `2569eab`. It retains core20's layout, inserting
+three u32 fields after phase-relaxation time and before saturation pairs:
+liquid-law selector, pressure iteration cap and heat iteration cap. Version21
+implies profile family3 and requires positive-segment law1; caps are1..65536.
+Core20 implies family2, linear law0 and both caps200, retaining its exact bytes
+and continuation. Unknown/noncanonical selectors or caps reject.
+
+New colonies select21 only with both the existing kernel3 selector and
+`MA_COLONY_KERNEL3_POSITIVE=1`. Restore uses the saved profile independently
+of that creation selector. Default colonies and physics gates are unchanged.
+Old dumps remain valid under their own profiles; new-profile captures must be
+generated separately. See [game kernel](MAC_GAME_KERNEL.md).
 
 
 Version **20 is the diagnostic game kernel** (2026-10-23),

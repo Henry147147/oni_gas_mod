@@ -1,14 +1,43 @@
 #include "../src/oni_colony.hpp"
+#include <algorithm>
 #include <cmath>
+#include <cstdlib>
 #include <cstring>
 #include <iostream>
 #include <stdexcept>
+#include <string>
 #include <vector>
 
 namespace {
 void require(bool yes, const char *text) {
   if (!yes)
     throw std::runtime_error(text);
+}
+struct PositiveSelection {
+  std::string previous;
+  bool present = false;
+  PositiveSelection() {
+    if (const char *value = std::getenv("MA_COLONY_KERNEL3_POSITIVE")) {
+      previous = value;
+      present = true;
+    }
+    set("0");
+  }
+  static void set(const char *value) {
+#ifdef _WIN32
+    _putenv_s("MA_COLONY_KERNEL3_POSITIVE", value ? value : "");
+#else
+    if (value) setenv("MA_COLONY_KERNEL3_POSITIVE", value, 1);
+    else unsetenv("MA_COLONY_KERNEL3_POSITIVE");
+#endif
+  }
+  ~PositiveSelection() { set(present ? previous.c_str() : nullptr); }
+};
+unsigned core_version(const std::vector<std::uint8_t> &image) {
+  const std::string magic="MACCLS01";
+  const auto at=std::search(image.begin(),image.end(),magic.begin(),magic.end());
+  require(at!=image.end() && image.end()-at>=12,"Owner image omits physical core");
+  return unsigned(at[8]) | unsigned(at[9])<<8 | unsigned(at[10])<<16 | unsigned(at[11])<<24;
 }
 MAOniColonyMaterial oxygen() {
   MAOniColonyMaterial m{};
@@ -27,6 +56,7 @@ MAOniColonyMaterial oxygen() {
 } // namespace
 int main() {
   try {
+    PositiveSelection selection;
     namespace c = ma::oni::colony;
     constexpr std::size_t W = 8, H = 6;
     MAOniColonyConfig config{};
@@ -89,16 +119,31 @@ int main() {
     require(!readings.empty() && !parts.empty(),
             "Game owner did not publish ownEOS readings");
     const auto image = c::checkpoint();
+    require(core_version(image)==20,"Original kernel selector changed profile");
     c::advance(6, .2, 2);
     c::wait();
     const auto expected = c::checkpoint();
     c::stop();
+    PositiveSelection::set("1");
     c::restore(config, materials, image, 1);
     c::advance(6, .2, 2);
     c::wait();
     require(c::checkpoint() == expected,
             "Game owner cold continuation differs");
     c::stop();
+    c::start(config,materials,cells,1);
+    require(core_version(c::checkpoint())==21,"Positive selector did not create core21");
+    c::advance(1,.2,2);c::wait();
+    require(c::status().state==1,"Positive game owner faulted");
+    const auto positive=c::checkpoint();
+    c::advance(2,.2,2);c::wait();const auto positive_expected=c::checkpoint();c::stop();
+    PositiveSelection::set("0");
+    c::restore(config,materials,positive,1);
+    require(c::checkpoint()==positive,"Core21 idle restore changed saved profile");
+    c::advance(2,.2,2);c::wait();
+    require(c::checkpoint()==positive_expected,"Core21 owner cold continuation differs");
+    c::stop();
+    std::cout<<"PASS explicit core21 creation, core20 restore under new selector and core21 restore without it\n";
     std::cout << "PASS diagnostic kernel3 owner flag5, ownEOS publication, "
                  "native heat, opened door, zero retry/phase skips, ledgers "
                  "and exact owner cold continuation\n";

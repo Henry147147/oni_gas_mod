@@ -1,5 +1,6 @@
 #pragma once
 #include <algorithm>
+#include "liquid.hpp"
 #include <cmath>
 #include <cstdint>
 #include <span>
@@ -9,12 +10,20 @@
 namespace ma::experimental::game_kernel {
 constexpr double R = 8.31446261815324;
 struct Species {
-  bool gas = true;
+  bool gas = true, positive_liquid = false;
   std::uint32_t liquid_group = 0;
   double molar_mass = .03, cv = 700, offset = 0, rho0 = 1000, stiffness = 1e8,
          conductivity = 0, entropy_offset = 0;
   double minimum_temperature = 1, maximum_temperature = 1e6;
 };
+inline double liquid_volume_fraction(const Species &s, double p) {
+  return s.positive_liquid ? positive_liquid::volume_fraction(p, s.stiffness)
+                           : 1 - p / s.stiffness;
+}
+inline double liquid_specific_elastic(const Species &s, double p) {
+  return s.positive_liquid ? positive_liquid::specific_elastic(p, s.stiffness, s.rho0)
+                           : .5 * p * p / (s.rho0 * s.stiffness);
+}
 struct Eos {
   bool fixed_pressure = false;
   double mass = 0, capacity = 0, offset = 0, nR = 0;
@@ -83,12 +92,24 @@ inline Eos evaluate_selected(std::span<const Species> species,
     result.pressure =
         (result.liquid_nominal_volume - volume) / result.liquid_compliance;
   }
-  result.elastic_energy =
-      .5 * result.liquid_compliance * result.pressure * result.pressure;
+  bool extended = false;
+  for (std::size_t j=0;j<count;++j) if(mass(j)>0&&!species[key(j)].gas&&species[key(j)].positive_liquid)
+    extended = extended || result.pressure >= .5*species[key(j)].stiffness;
+  if (extended) {
+    const auto each=[&](auto emit){for(std::size_t j=0;j<count;++j)if(mass(j)>0&&!species[key(j)].gas&&species[key(j)].positive_liquid)emit(mass(j)/species[key(j)].rho0,species[key(j)].stiffness);};
+    const auto root=positive_liquid::pressure(volume,result.nR/result.capacity,thermal_elastic,0,false,result.pressure,each);
+    result.pressure=root.pressure;
+    result.liquid_compliance=root.coefficients.c;
+    result.liquid_volume=root.coefficients.b-root.coefficients.c*result.pressure;
+    result.elastic_energy=.5*root.coefficients.c*result.pressure*result.pressure+root.coefficients.d;
+  } else {
+    result.elastic_energy=.5*result.liquid_compliance*result.pressure*result.pressure;
+    result.liquid_volume=result.liquid_nominal_volume-result.liquid_compliance*result.pressure;
+  }
+
   result.temperature =
       (thermal_elastic - result.elastic_energy) / result.capacity;
-  result.liquid_volume =
-      result.liquid_nominal_volume - result.liquid_compliance * result.pressure;
+
   if (result.nR > 0)
     result.gas_volume = result.nR * result.temperature / result.pressure;
   if (!(result.temperature >= minimum && result.temperature <= maximum) ||
@@ -97,7 +118,7 @@ inline Eos evaluate_selected(std::span<const Species> species,
         "Prototype EOS outside its thermal/pressure domain");
   for (std::size_t a = 0; a < count; ++a)
     if (mass(a) > 0 && !species[key(a)].gas &&
-        !(result.pressure < species[key(a)].stiffness))
+        !(species[key(a)].positive_liquid ? liquid_volume_fraction(species[key(a)],result.pressure)>0 : result.pressure < species[key(a)].stiffness))
       throw std::runtime_error("Prototype linear liquid strain is too large");
   if (result.nR > 0)
     result.relative_closure =

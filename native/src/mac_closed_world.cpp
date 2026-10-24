@@ -186,7 +186,12 @@ std::optional<StaticEquilibrium> exact_static_equilibrium(const SpeciesRegistry&
 void MacClosedSettings::validate() const {
     if (numerical_kernel==MacNumericalKernel::game) {
         game.validate();
-        require(game_profile==MacGameProfile::game_kernel && vacuum==MacVacuumRepresentation::void_phase &&
+        const bool original = game_profile==MacGameProfile::game_kernel &&
+            game.liquid_law==MacGameLiquidLaw::linear &&
+            game.pressure_maximum_iterations==200 && game.heat_maximum_iterations==200;
+        const bool positive = game_profile==MacGameProfile::game_kernel_positive_liquid &&
+            game.liquid_law==MacGameLiquidLaw::positive_segments;
+        require((original || positive) && vacuum==MacVacuumRepresentation::void_phase &&
             step_control==MacStepControl::doubling && subcell_void==MacSubcellVoidPolicy::exact_geometry &&
             !compatible_void_pressure_work && !recover_mixed_eos_endpoint && !trace_sink_per_substep && !fast_phase_trial_eos &&
             diffusion.mode==MacDiffusionMode::disabled && phase_change==MacPhaseChange::none &&
@@ -201,7 +206,8 @@ void MacClosedSettings::validate() const {
             "Invalid diagnostic game-kernel settings");
         return;
     }
-    require(game_profile!=MacGameProfile::game_kernel,"Game profile requires numerical kernel3");
+    require(game_profile!=MacGameProfile::game_kernel &&
+        game_profile!=MacGameProfile::game_kernel_positive_liquid,"Game profile requires numerical kernel3");
     viscosity.validate();
     diffusion.validate();
     require(game_profile == MacGameProfile::base_game_floor ||

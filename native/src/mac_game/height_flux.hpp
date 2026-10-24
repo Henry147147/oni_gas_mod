@@ -47,13 +47,13 @@ inline Geometry geometry(const std::vector<Species> &species,
         s.gas ? (eos.nR > 0 && eos.pressure > 0
                      ? mass * R / s.molar_mass * eos.temperature / eos.pressure
                      : 0)
-              : mass / s.rho0 * (1 - eos.pressure / s.stiffness);
+              : mass / s.rho0 * liquid_volume_fraction(s,eos.pressure);
     phase.volume += partial_volume;
     phase.energy +=
         mass *
         (s.offset + s.cv * eos.temperature +
          (s.gas ? 0
-                : .5 * eos.pressure * eos.pressure / (s.rho0 * s.stiffness)));
+                : liquid_specific_elastic(s,eos.pressure)));
   }
   for (const auto &[key, phase] : phases)
     result.phases.push_back(phase);

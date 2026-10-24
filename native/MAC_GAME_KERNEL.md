@@ -6,10 +6,17 @@ the managed selector requires capability1. Old saves retain their own profile;
 there is no implicit conversion. Physics gates and the reference keep their
 existing implementations and settings.
 
+An additional explicit creation selector, `MA_COLONY_KERNEL3_POSITIVE=1`,
+selects profile3/core21 while kernel3 is enabled. The original selector alone
+continues to create profile2/core20. Saves restore their recorded law and work
+caps independently of either creation selector. Neither profile is the
+ordinary colony default or a physics-gate setting.
+
 The backend runs the accepted semi-implicit design's sparse pressure/transport,
 fluid heat, latent phase relaxation, density layering and bounded liquid
 interface correction. Every derived reading and edit uses its own EOS: ideal
-gas plus constant-density linear-elastic liquid with saved stiffness. It never
+gas plus a saved liquid law and stiffness (linear in profile2, positive-volume
+in profile3). It never
 uses the reference evolution solver as a fallback. Once-per-tick connected
 region audits check species, passives, U+K+G and canonical momentum with wall
 and body impulses, at the accepted relative1e-12 operand bound. Traces enter
@@ -75,7 +82,8 @@ a liquid strain. Completed-frame mass/energy errors are1.52e-16/3.16e-17 and
 1.95e-16/2.17e-17; trace sinks are8.85e-10kg/0.001013J and
 9.02e-10kg/0.001019J. Volcanea completes0/60: a pressure component exhausts
 the200-iteration cap. All runs exit and the game process is verified gone.
-These failures block whole-asteroid and private-release acceptance.
+These failures block whole-asteroid acceptance for profile2. The profile3
+checks below clear these particular failures; private-release acceptance stays open.
 
 Exact captured inputs reproduce both failures offline. A private400-iteration
 cap clears60 Volcanea ticks with global/region audits and sink1.06714e-7kg /
@@ -106,3 +114,70 @@ fixed floor/reference comparisons remain open. The measured gravity/flow
 entropy loss is still unresolved. These are tracked against the accepted
 [design](../docs/game-kernel-spec.md) and
 [private readiness checklist](../docs/private-playtest-release.md).
+
+## Positive-volume profile
+
+Profile3 preserves the linear liquid volume and elastic energy below half of
+the saved stiffness. Above that pressure it uses continuous dyadic affine
+volume segments, always positive, with elastic U integrated from `-p dV`.
+Each mixed closure stays quadratic within a constitutive interval; selection
+walks finite intervals, without Newton/bisection or a reference fallback.
+Own readings, injection/extraction, conductivity, layering, interface energy
+and pressure-dependent phase equilibrium all use that same law.
+
+| Saved change | Effect and cost | Floor/reference acceptance |
+| --- | --- | --- |
+| Positive-segment liquid law | Progressively stiffens large compressions; pressure/elastic U and high-pressure boiling differ from the original linear model. No mass clipping or feature removal. Low-pressure branch is unchanged. | Resolved-reference error and affected floor metrics remain open. |
+| Pressure/heat caps400/800 | Permits more work on difficult components; original tolerances and converged early exits remain. | Conservation/worker controls and three new-colony60-frame smokes pass; floor and long-run acceptance remain open. |
+
+Synthetic controls cover2000 mixture closures, volume/U
+continuity and elastic pressure work. Fresh-world offline60-tick replays at
+requested1/12 workers give identical physical images on Oceania, Volcanea and
+Terra, with global/region audits. Sinks are4.04869e-7kg/0.149010J,
+1.05911e-7kg/0.135045J and1.04212e-7kg/0.117171J respectively. The original
+1e-11kg threshold is retained; no experimental post-transport sink is used.
+These initialize each own-EOS world at the original masses/J/temperatures,
+recomputing its initial U. They are neither old-save continuation nor in-game
+acceptance.
+
+An immutable integrated bundle completes actual Oceania60 and Volcanea60,
+requested fast2 under the LOW lock, with120flow halves and zero faults,
+rejections or skipped relaxations. Frame1 images verify core21, profile3,
+positive law and saved pressure/heat caps400/800.
+
+| World | Owner mean/p95/max ms | Observed mean/p95/max ms | Relative mass/energy error | Trace sink kg/J |
+| --- | --- | --- | --- | --- |
+| Oceania |220.239/275.398/290.227|278.288/485.876/826.944|5.53e-16/6.75e-16|1.69768e-7/0.113583|
+| Volcanea |269.067/319.556/335.748|318.367/528.619/914.984|2.36e-16/3.90e-16|1.10156e-7/0.141078|
+
+Clean WHOLE-lock Terra60, same native/managed bundle, changes only the new
+colony profile selector. At requested fast2:
+
+| Metric | Profile2/core20 | Profile3/core21 |
+| --- | --- | --- |
+| Owner mean/p95/max ms |199.543/226.389/258.600|199.880/247.134/278.272|
+| Observed mean/p95/max ms |250.684/323.738/746.792|252.286/343.988/806.033|
+| Relative mass/energy error |3.75e-16/6.95e-16|3.17e-16/6.15e-16|
+| Trace sink kg/J |1.19185e-7/0.128080|1.23840e-7/0.128921|
+
+Both complete60frames,120flow halves, zero faults/rejections/skipped phase.
+Owner/observed means change+0.17%/+0.64%: no clear runtime gain or cost.
+The shared GPU workload remains active, so timings are diagnostic. Actual
+spacing does not hold2x. All99 legacy diagnostic outputs/exits stay unchanged
+apart from timings; the game control adds one PASS line. Clean Release86CTest
+passes. Existing parcel control output and actual core20 twelve-tick bytes
+stay identical. New core21 offline60-tick images match across1/12 workers and
+cold restore halfway through each of the three asteroid inputs.
+
+The same clean comparison at requested normal1x gives:
+
+| Metric | Profile2/core20 | Profile3/core21 |
+| --- | --- | --- |
+| Owner mean/p95/max ms |199.855/224.859/263.114|201.837/231.071/264.022|
+| Observed mean/p95/max ms |249.029/323.714/806.375|244.796/344.003/787.773|
+| Relative mass/energy error |5.67e-16/7.05e-16|3.66e-16/7.01e-16|
+| Trace sink kg/J |1.19134e-7/0.128261|1.22207e-7/0.128524|
+
+Both again complete60frames,120flow halves and zero faults/rejections/skipped
+phase. These contended normal/fast pairs establish execution and conservation;
+they do not establish isolated timing differences or sustained2x readiness.

@@ -1,4 +1,5 @@
 #include "mac_fixture.hpp"
+#include "mac_game_liquid_control.hpp"
 #include "mixed_atmospheres/mac_kernel.hpp"
 #include <array>
 
@@ -173,6 +174,7 @@ int main() {
             "Passive-free isolated export changed physics or continuation");
     set_mac_kernel_default_options(options);
     std::cout << "PASS passive-free isolated game export after refusal, workers1/12 and cold continuation\n";
+    ma::testing::positive_game::run();
     std::cout
         << "PASS diagnostic game kernel own-EOS import/readings, sparse "
            "checkpoint20, workers1/12 and cold continuation, heat/parcel/wall "

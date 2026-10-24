@@ -17,8 +17,8 @@ inline double saturation_pressure(const Species &liquid, const Species &vapour,
   const double r = R / vapour.molar_mass;
   const double gl =
       liquid.offset + liquid.cv * temperature +
-      .5 * pressure * pressure / (liquid.rho0 * liquid.stiffness) +
-      pressure / liquid.rho0 * (1 - pressure / liquid.stiffness) -
+      liquid_specific_elastic(liquid,pressure) +
+      pressure / liquid.rho0 * liquid_volume_fraction(liquid,pressure) -
       temperature *
           (liquid.cv * std::log(temperature / Tref) + liquid.entropy_offset);
   const double gv = vapour.offset + vapour.cv * temperature + r * temperature -

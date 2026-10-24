@@ -62,12 +62,12 @@ class Flow {
 public:
   Flow(const ma::experimental::MacGrid &grid, std::vector<Species> table,
        unsigned threads, bool auditing = true, double pressure_tolerance = 1e-8,
-       unsigned gravity_source = 0)
+       unsigned gravity_source = 0, unsigned pressure_iterations = 200)
       : source(grid), g(source), topology(g), species(std::move(table)),
         eos_pool(
             static_cast<unsigned>(std::min<std::size_t>(threads, g.blocks))),
         pressure(grid, threads, ma::PressurePreconditioner::incomplete_cholesky,
-                 pressure_tolerance, gravity_source, &eos_pool),
+                 pressure_tolerance, gravity_source, &eos_pool, pressure_iterations),
         gravity_rule(gravity_source), audit_mode(auditing),
         patch(grid, &eos_pool, &topology) {}
   ma::experimental::mac_kernel::Pool &worker_pool() const { return eos_pool; }

@@ -13,12 +13,14 @@ void require(bool yes, const char *message) {
     throw std::invalid_argument(message);
 }
 std::vector<k::Species> table(const SpeciesRegistry &registry,
-                              const FluidThermodynamics &eos, double ratio) {
+                              const FluidThermodynamics &eos, double ratio,
+                              MacGameLiquidLaw law = MacGameLiquidLaw::linear) {
   std::vector<k::Species> result(registry.size());
   for (const auto &m : eos.reference().materials()) {
     const auto key = registry.index(m.id);
     auto &s = result[key];
     s.gas = m.phase == ReferencePhase::ideal_gas;
+    s.positive_liquid = !s.gas && law == MacGameLiquidLaw::positive_segments;
     s.liquid_group = registry[key].liquid_phase_group;
     s.molar_mass = m.molar_mass_kg_per_mol;
     s.cv = m.cv_j_per_kg_k;
@@ -162,7 +164,10 @@ bool same_grid(const MacGrid &a, const MacGrid &b) {
          a.closed_y == b.closed_y;
 }
 bool same_settings(const MacGameSettings &a, const MacGameSettings &b) {
-  if (a.liquid_stiffness_ratio != b.liquid_stiffness_ratio ||
+  if (a.liquid_law != b.liquid_law ||
+      a.pressure_maximum_iterations != b.pressure_maximum_iterations ||
+      a.heat_maximum_iterations != b.heat_maximum_iterations ||
+      a.liquid_stiffness_ratio != b.liquid_stiffness_ratio ||
       a.flow_parts != b.flow_parts ||
       a.pressure_relative_tolerance != b.pressure_relative_tolerance ||
       a.gas_heat_mixing != b.gas_heat_mixing ||
@@ -182,7 +187,11 @@ bool same_settings(const MacGameSettings &a, const MacGameSettings &b) {
 }
 } // namespace
 void MacGameSettings::validate() const {
-  require(std::isfinite(liquid_stiffness_ratio) && liquid_stiffness_ratio > 0 &&
+  require((liquid_law == MacGameLiquidLaw::linear ||
+               liquid_law == MacGameLiquidLaw::positive_segments) &&
+              pressure_maximum_iterations > 0 && pressure_maximum_iterations <= 65536 &&
+              heat_maximum_iterations > 0 && heat_maximum_iterations <= 65536 &&
+              std::isfinite(liquid_stiffness_ratio) && liquid_stiffness_ratio > 0 &&
               liquid_stiffness_ratio <= 1 && flow_parts > 0 &&
               flow_parts <= 16 && std::isfinite(pressure_relative_tolerance) &&
               pressure_relative_tolerance > 0 &&
@@ -207,6 +216,7 @@ MacGameKernelAccess::reading(const MacClosedWorld &world,
   struct Cache {
     std::shared_ptr<const FluidThermodynamics> eos;
     double ratio = 0;
+    MacGameLiquidLaw law = MacGameLiquidLaw::linear;
     std::vector<k::Species> species;
     std::vector<std::size_t> profile_keys;
   };
@@ -217,10 +227,12 @@ MacGameKernelAccess::reading(const MacClosedWorld &world,
       groups = groups && cache.species[key].liquid_group ==
                              world.registry_[key].liquid_phase_group;
   if (cache.eos != world.thermodynamics_ ||
-      cache.ratio != world.settings_.game.liquid_stiffness_ratio || !groups) {
+      cache.ratio != world.settings_.game.liquid_stiffness_ratio ||
+      cache.law != world.settings_.game.liquid_law || !groups) {
     cache.eos = world.thermodynamics_;
     cache.ratio = world.settings_.game.liquid_stiffness_ratio;
-    cache.species = table(world.registry_, *cache.eos, cache.ratio);
+    cache.law = world.settings_.game.liquid_law;
+    cache.species = table(world.registry_, *cache.eos, cache.ratio, cache.law);
     cache.profile_keys.clear();
     for (const auto &m : cache.eos->reference().materials())
       cache.profile_keys.push_back(world.registry_.index(m.id));
@@ -253,10 +265,10 @@ MacGameKernelAccess::reading(const MacClosedWorld &world,
     out.partial_volumes_m3[profile] =
         mass == 0 ? 0
         : s.gas   ? mass * k::R / s.molar_mass * e.temperature / e.pressure
-                  : mass / s.rho0 * (1 - e.pressure / s.stiffness);
+                  : mass / s.rho0 * k::liquid_volume_fraction(s,e.pressure);
     out.specific_internal_energies_j_per_kg[profile] =
         s.offset + s.cv * e.temperature +
-        (s.gas ? 0 : .5 * e.pressure * e.pressure / (s.rho0 * s.stiffness));
+        (s.gas ? 0 : k::liquid_specific_elastic(s,e.pressure));
     ++profile;
   }
   out.entropy_j_per_k = k::entropy(species, cell.mixture.masses, e);
@@ -276,7 +288,7 @@ void MacGameKernelAccess::initialize(const SpeciesRegistry &registry,
   require(temperatures.size() == state.cells.size(),
           "Game import temperature shape differs");
   const auto species =
-      table(registry, eos, settings.game.liquid_stiffness_ratio);
+      table(registry, eos, settings.game.liquid_stiffness_ratio, settings.game.liquid_law);
   state.occupied_volumes_m3.assign(state.cells.size(), 0);
   for (std::size_t i = 0; i < state.cells.size(); ++i) {
     auto &cell = state.cells[i];
@@ -316,8 +328,15 @@ void MacGameKernelAccess::initialize(const SpeciesRegistry &registry,
       }
     } else if (volume > state.grid.volume_m3())
       pressure = (volume - state.grid.volume_m3()) / compliance;
-    cell.mixture.energy =
-        offset + capacity * T + .5 * compliance * pressure * pressure;
+    double elastic=.5*compliance*pressure*pressure;
+    bool extended=false;
+    for(std::size_t key=0;key<species.size();++key)if(cell.mixture.masses[key]>0&&!species[key].gas&&species[key].positive_liquid)extended=extended||pressure>=.5*species[key].stiffness;
+    if(extended){
+      const auto each=[&](auto emit){for(std::size_t key=0;key<species.size();++key)if(cell.mixture.masses[key]>0&&!species[key].gas)emit(cell.mixture.masses[key]/species[key].rho0,species[key].stiffness);};
+      const auto root=k::positive_liquid::pressure(state.grid.volume_m3(),0,0,nR*T,true,pressure,each);
+      pressure=root.pressure;elastic=.5*root.coefficients.c*pressure*pressure+root.coefficients.d;
+    }
+    cell.mixture.energy=offset+capacity*T+elastic;
     cell.energy_remainder_j = {};
     const auto e = k::evaluate(species, cell.mixture.masses,
                                cell.mixture.energy, state.grid.volume_m3());
@@ -371,7 +390,7 @@ void MacGameKernelAccess::validate(const MacClosedWorld &world,
   require(!state.grid.periodic_x && !state.grid.periodic_y,
           "Game kernel requires impermeable nonperiodic boundaries");
   const auto species = table(world.registry_, *world.thermodynamics_,
-                             world.settings_.game.liquid_stiffness_ratio);
+                             world.settings_.game.liquid_stiffness_ratio, world.settings_.game.liquid_law);
   for (const auto &pair : world.settings_.game.saturation_pairs)
     require(pair.liquid < species.size() && pair.vapour < species.size() &&
                 !species[pair.liquid].gas && species[pair.vapour].gas,
@@ -417,7 +436,7 @@ MacClosedAdvance MacGameKernelAccess::advance(const MacClosedWorld &source,
       !same_grid(cache.grid, source.state().grid) ||
       !same_settings(cache.settings, cfg)) {
     const auto species = table(source.registry_, *source.thermodynamics_,
-                               cfg.liquid_stiffness_ratio);
+                               cfg.liquid_stiffness_ratio, cfg.liquid_law);
     std::vector<k::PhasePair> pairs;
     for (const auto &p : cfg.saturation_pairs)
       pairs.push_back({p.liquid, p.vapour, p.critical_temperature_k});
@@ -426,7 +445,8 @@ MacClosedAdvance MacGameKernelAccess::advance(const MacClosedWorld &source,
         cfg.gas_heat_mixing, cfg.sharpen_liquid_interfaces,
         cfg.interface_detail_fraction, cfg.pressure_relative_tolerance, 0,
         false, 0, 2, cfg.phase_relaxation_time_s,
-        source.settings_.thermal_conduction);
+        source.settings_.thermal_conduction, cfg.pressure_maximum_iterations,
+        cfg.heat_maximum_iterations);
     cache.eos = source.thermodynamics_;
     cache.grid = source.state().grid;
     cache.settings = cfg;
@@ -504,7 +524,7 @@ MacTraceSink MacGameKernelAccess::trace(const MacClosedWorld &world) {
   if (!found)
     return out;
   const auto species = table(world.registry_, *world.thermodynamics_,
-                             world.settings_.game.liquid_stiffness_ratio);
+                             world.settings_.game.liquid_stiffness_ratio, world.settings_.game.liquid_law);
   const auto state = sparse(world.state());
   auto sunk = k::trace_sink(world.state().grid, species, state, threshold,
                             world.settings_.gravity_m_per_s2);
@@ -624,7 +644,7 @@ MacGameKernelAccess::transfers(const MacClosedWorld &source,
   parcels.reserve(edits.size());
   std::vector<std::size_t> touched;
   const auto species = table(source.registry_, *source.thermodynamics_,
-                             source.settings_.game.liquid_stiffness_ratio);
+                             source.settings_.game.liquid_stiffness_ratio, source.settings_.game.liquid_law);
   for (const auto &edit : edits) {
     touched.clear();
     require(edit.cell_index < next.cells.size() &&
@@ -688,9 +708,7 @@ MacGameKernelAccess::transfers(const MacClosedWorld &source,
     const double specific =
         material.offset + material.cv * p.temperature_k +
         (material.gas ? 0
-                      : .5 * before.mechanical_pressure_pa *
-                            before.mechanical_pressure_pa /
-                            (material.rho0 * material.stiffness));
+                      : k::liquid_specific_elastic(material,before.mechanical_pressure_pa));
     cell.mixture.energy =
         cell.mixture.mass() == 0
             ? 0

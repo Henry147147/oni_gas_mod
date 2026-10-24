@@ -21,11 +21,13 @@ class HeatSolver {
   CachedComponents component_cache;
   std::vector<Species> species;
   double mixing = 0;
+  unsigned maximum_iterations = 200;
 
 public:
   HeatSolver(const ma::experimental::MacGrid &grid, std::vector<Species> table,
              unsigned threads, double coefficient = 0,
-             ma::experimental::mac_kernel::Pool *executor = nullptr)
+             ma::experimental::mac_kernel::Pool *executor = nullptr,
+             unsigned maximum = 200)
       : source(grid), g(source),
         owned_pool(executor
                        ? nullptr
@@ -42,7 +44,9 @@ public:
                 ma::experimental::mac_kernel::Exec{g, pool},
                 {},
                 {}},
-        species(std::move(table)), mixing(coefficient) {
+        species(std::move(table)), mixing(coefficient), maximum_iterations(maximum) {
+    if (maximum == 0 || maximum > 65536)
+      throw std::runtime_error("Invalid saved heat iteration cap");
     settings.preconditioner = ma::PressurePreconditioner::incomplete_cholesky;
     options.threads = threads;
   }
@@ -68,7 +72,7 @@ public:
         const double m = state.masses.mass[a];
         const double volume =
             s.gas ? m * R / s.molar_mass * eos[i].temperature / eos[i].pressure
-                  : m / s.rho0 * (1 - eos[i].pressure / s.stiffness);
+                  : m / s.rho0 * liquid_volume_fraction(s,eos[i].pressure);
         conductivity[i] += s.conductivity * volume;
         occupied += volume;
       }
@@ -110,7 +114,7 @@ public:
     for (double value : rhs)
       norm.add(value * value);
     const auto solved = component_cache.solve(context, system, rhs, increment,
-                                              1e-9, 1e-12, 200);
+                                              1e-9, 1e-12, maximum_iterations);
     if (!solved.converged)
       throw std::runtime_error("Private heat linear solve failed");
     HeatResult result;

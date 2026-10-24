@@ -92,7 +92,7 @@ layer(const ma::experimental::MacGrid &source,
         parcel.mass += moved;
         const double specific =
             s.offset + s.cv * state.temperature +
-            .5 * state.pressure * state.pressure / (s.rho0 * s.stiffness);
+            liquid_specific_elastic(s,state.pressure);
         parcel.energy += moved * specific;
       }
       outgoing[from].push_back(parcels.size());

@@ -26,7 +26,7 @@ class PressureSolver {
   std::unique_ptr<kernel::Pool> owned_pool;
   kernel::Pool &pool;
   double relative_tolerance = 1e-8;
-  unsigned gravity_rule = 0;
+  unsigned gravity_rule = 0, maximum_iterations = 200;
   kernel::Context context;
 
 public:
@@ -34,14 +34,14 @@ public:
                  ma::PressurePreconditioner preconditioner =
                      ma::PressurePreconditioner::automatic,
                  double tolerance = 1e-8, unsigned gravity_source = 0,
-                 kernel::Pool *executor = nullptr)
+                 kernel::Pool *executor = nullptr, unsigned maximum = 200)
       : source(g), grid(source),
         owned_pool(executor
                        ? nullptr
                        : std::make_unique<kernel::Pool>(static_cast<unsigned>(
                              std::min<std::size_t>(threads, grid.blocks)))),
         pool(executor ? *executor : *owned_pool), relative_tolerance(tolerance),
-        gravity_rule(gravity_source), context{workspace,
+        gravity_rule(gravity_source), maximum_iterations(maximum), context{workspace,
                                               source,
                                               model,
                                               grid,
@@ -51,7 +51,7 @@ public:
                                               {},
                                               {}} {
     if (threads == 0 || !std::isfinite(relative_tolerance) ||
-        relative_tolerance <= 0 || gravity_rule > 1)
+        relative_tolerance <= 0 || gravity_rule > 1 || maximum == 0 || maximum > 65536)
       throw std::runtime_error("Invalid pressure worker count/tolerance");
     options.threads = threads;
     settings.preconditioner = preconditioner;
@@ -145,7 +145,7 @@ public:
     const double tolerance =
         std::max(1e-14, relative_tolerance * std::sqrt(rhs_norm.value()));
     const auto solved = kernel::solve_linear(context, system, increment_rhs,
-                                             result.p, 0, tolerance, 200);
+                                             result.p, 0, tolerance, maximum_iterations);
     for (std::size_t i = 0; i < N; ++i)
       if (system.active[i])
         result.p[i] += states[i].pressure;
