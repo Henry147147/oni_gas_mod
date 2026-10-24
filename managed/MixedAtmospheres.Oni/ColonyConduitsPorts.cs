@@ -135,6 +135,12 @@ namespace MixedAtmospheres.Oni
             var inventory=ColonyConduits.TakeForPort(flow,cell,null,mass);if(inventory.Count==0)return 0;
             var id=nextLocal++;Buffers.Add(id,new Buffer(flow.conduitType==ConduitType.Gas?(byte)1:(byte)2,cell,inventory));return id;
         }
+        internal static ulong HoldInventory(byte phase,int cell,PipeInventory inventory)
+        {
+            Require();if(actorBatch!=null)throw new InvalidOperationException("A new port buffer cannot cross an open actor transaction.");
+            if(inventory.Count==0)return 0;
+            var id=nextLocal++;Buffers.Add(id,new Buffer(phase,cell,inventory));return id;
+        }
         internal static ulong[] DispatchBuffer(ulong localId,uint worldCell,uint radius=0)
         {
             Require();if(!Buffers.TryGetValue(localId,out var buffer)||buffer.Inventory.Count==0)return Array.Empty<ulong>();
@@ -307,6 +313,50 @@ namespace MixedAtmospheres.Oni
             var state=new PipeBoundaryState(HeatRemainder,kinetic,potential,momentumX,momentumY,nextLocal,nextNative,Jobs.Values.Select(p=>p.Job),
                 passiveRemainders.Select(p=>new PipePassiveBalance(p.Key,p.Value)));
             PipePortSaveBoundary.Validate(state,ReadState);return state;
+        }
+        // Save point: no open transaction, no partially received token group,
+        // no unacknowledged receipt; the native pending suffix must validate.
+        internal static void RequireQuiescent()
+        {
+            Require();if(actorBatch!=null)throw new InvalidOperationException("An actor transaction is open at the pipe save point.");
+            foreach(var pending in Jobs.Values)
+                if(pending.Receipts.Count!=0||pending.Legacy!=null&&pending.Legacy.Count!=0)throw new InvalidOperationException("A pipe job has unsettled receipts at the save point.");
+            if(Seen.Count!=0)throw new InvalidOperationException("Pipe receipts are not acknowledged at the save point.");
+            _=ValidateSealedBoundary();
+        }
+        internal static void Capture(PipeRuntimeImage image)
+        {
+            image.FromWorld=FromWorld;image.ToWorld=ToWorld;image.PassiveExchange=new SortedDictionary<ulong,PipeAmount>(passiveExchange);
+            foreach(var buffer in Buffers)image.Buffers.Add(new PipeRuntimeImage.BufferRecord{Id=buffer.Key,Phase=buffer.Value.Phase,Cell=buffer.Value.Cell,Inventory=buffer.Value.Inventory});
+        }
+        // Loading: re-enable precise receipts before any restored job can
+        // complete, then reinstall jobs/buffers/accounts and check the native
+        // token history against the saved pending suffix.
+        internal static void Restore(PipeBoundaryState boundary,PipeRuntimeImage image)
+        {
+            if(Enabled)throw new InvalidOperationException("Pipe ports are already active.");
+            if(!ColonyConduits.Active||OniNativeColony.PreciseReceiptVersion()<2)throw new NotSupportedException("Precise mixed-pipe boundary control is unavailable.");
+            OniNativeColony.Check(OniNativeColony.EnablePreciseReceipts(1));
+            Enabled=true;
+            try
+            {
+                HeatRemainder=boundary.UnreleasedHeat;kinetic=boundary.Kinetic;potential=boundary.Potential;momentumX=boundary.MomentumX;momentumY=boundary.MomentumY;
+                nextLocal=boundary.NextLocalId;nextNative=boundary.NextNativeToken;
+                foreach(var passive in boundary.PassiveRemainders)passiveRemainders[passive.Identity]=passive.Quantity;
+                foreach(var job in boundary.Jobs)
+                {
+                    if(job.NativeToken==0)throw new System.IO.InvalidDataException("A saved pipe job was never queued.");
+                    Jobs.Add(job.NativeToken,new Pending(job));
+                }
+                FromWorld=image.FromWorld;ToWorld=image.ToWorld;passiveExchange=new SortedDictionary<ulong,PipeAmount>(image.PassiveExchange);
+                foreach(var buffer in image.Buffers)
+                {
+                    if(buffer.Id>=nextLocal||Jobs.Values.Any(j=>j.Job.LocalId==buffer.Id))throw new System.IO.InvalidDataException("Saved pipe buffer identity collides with the job sequence.");
+                    Buffers.Add(buffer.Id,new Buffer(buffer.Phase,buffer.Cell,buffer.Inventory));
+                }
+                _=ValidateSealedBoundary();
+            }
+            catch{Reset();throw;}
         }
         private static PipeNativeJobState ReadState(ulong token)
         {OniNativeColony.Check(OniNativeColony.PipeJobState(token,out var state,out var last));return new PipeNativeJobState(state,last);}

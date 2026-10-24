@@ -7,8 +7,9 @@ using HarmonyLib;
 
 namespace MixedAtmospheres.Oni
 {
-    // Fresh explicit-control gas vents only. Liquid falling particles and the
-    // durable component image must pass before production activation.
+    // Gas and liquid vents on owned pipes. A liquid vent deposits its exact
+    // mixture at rest in its own cell; the solver's gravity moves it (no
+    // FallingWater particle, docs/mixed-pipes.md#vents).
     internal static class ColonyPipeVents
     {
         internal sealed class State
@@ -49,10 +50,33 @@ namespace MixedAtmospheres.Oni
             Enabled=true;
         }
         internal static void BeginExchangeControl()=>exchangeControl=true;
+        internal static void Capture(PipeRuntimeImage image)
+        {
+            foreach(var state in States.Values)
+                image.Vents.Add(new PipeRuntimeImage.VentRecord{Prefab=state.Storage.GetComponent<KPrefabID>().InstanceID,Phase=state.Flow.conduitType==ConduitType.Gas?(byte)1:(byte)2,
+                    Cell=state.Cell,Buffers=state.Buffers.ToArray(),Pending=state.Pending.ToArray(),Competition=new SortedDictionary<int,PipeAmount>(state.BodyCompetition),
+                    External=new SortedDictionary<int,PipeAmount>(state.BodyExternal),BodyDisease=(byte)state.LastBody.Id,BodyCount=state.LastBody.Count,Exchanges=state.Exchanges});
+        }
+        internal static void Restore(PipeRuntimeImage image)
+        {
+            foreach(var record in image.Vents)
+            {
+                var prefab=KPrefabIDTracker.Get().GetInstance(record.Prefab);
+                var consumer=prefab==null?null:prefab.GetComponent<ConduitConsumer>();var exhaust=prefab==null?null:prefab.GetComponent<Exhaust>();
+                if(consumer==null||exhaust==null||consumer.storage==null||consumer.storage.items.Count!=0)throw new System.IO.InvalidDataException($"Saved mixed vent {record.Prefab} is missing or holds native packets.");
+                var flow=record.Phase==1?Game.Instance.gasConduitFlow:Game.Instance.liquidConduitFlow;
+                var state=new State(consumer,exhaust,flow,record.Cell){LastBody=new PipeBodyGerms(record.BodyDisease,record.BodyCount),Exchanges=record.Exchanges};
+                state.Buffers.AddRange(record.Buffers);foreach(var id in record.Pending){state.Pending.Add(id);Requests.Add(id,state);}
+                foreach(var item in record.Competition)state.BodyCompetition.Add(item.Key,item.Value);foreach(var item in record.External)state.BodyExternal.Add(item.Key,item.Value);
+                States.Add(state.Storage,state);MixtureInspection.SetConduitStorageReader(InspectStorage);
+            }
+        }
         internal static void Reset(){Enabled=false;exchangeControl=false;States.Clear();Requests.Clear();consuming=null;}
+        internal static bool Handles(ConduitConsumer consumer,ConduitFlow flow)=>Enabled&&(flow.conduitType==ConduitType.Gas||flow.conduitType==ConduitType.Liquid)&&consumer.storage!=null&&
+            consumer.GetComponent<Exhaust>()!=null&&consumer.GetComponent<Vent>()!=null;
         internal static Scope? BeginConsume(ConduitConsumer consumer,ConduitFlow flow)
         {
-            if(!Enabled||flow.conduitType!=ConduitType.Gas)return null;
+            if(!Enabled||flow.conduitType!=ConduitType.Gas&&flow.conduitType!=ConduitType.Liquid)return null;
             var exhaust=consumer.GetComponent<Exhaust>();if(exhaust==null||consumer.GetComponent<Vent>()==null||consumer.storage==null)return null;
             var cell=(int)Input.GetValue(consumer);if(!ColonyConduits.Owns(flow,cell))return null;
             if(!States.TryGetValue(consumer.storage,out var state))
@@ -107,7 +131,8 @@ namespace MixedAtmospheres.Oni
             var world=Grid.PosToCell(exhaust);if(state.Consumer.ConsumptionRate==0||Grid.Solid[world])return true;
             Consolidate(state);var id=state.Buffers.FirstOrDefault(local=>!state.Pending.Contains(local)&&ColonyPipePorts.BufferInventory(local).Count>0);
             if(id==0)return true;var original=ColonyPipePorts.BufferInventory(id);
-            foreach(var part in original.Parts)if(!ElementLoader.FindElementByHash(ColonyConduits.ElementHash(part.Id)).IsGas)return true;
+            // Every species returns to the world at the vent, including a
+            // foreign-phase trace; the solver decides its phase there.
             var before=ReadBody(state.Body);Add(state.BodyExternal,PipeSurfaceGermPlan.ObservedChange(state.LastBody,before));state.LastBody=before;
             var plan=PipeSurfaceGermPlan.Prepare(original,before,Supports);
             ColonyPipePorts.ReplaceBufferGerms(id,plan.Fluid);

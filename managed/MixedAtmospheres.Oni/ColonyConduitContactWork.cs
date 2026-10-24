@@ -12,6 +12,13 @@ namespace MixedAtmospheres.Oni
             var product=(double)capacity*temperature;
             return new PipeAmount(product*1024).Minus(new PipeAmount(product*16)).Minus(new PipeAmount(product*8));
         }
+        // A native binary32 kilojoule quantity in exact joules.
+        internal static PipeAmount Kilojoules(float kilojoules)
+        {
+            if(float.IsNaN(kilojoules)||float.IsInfinity(kilojoules))throw new ArgumentOutOfRangeException(nameof(kilojoules));
+            var value=(double)kilojoules;
+            return new PipeAmount(value*1024).Minus(new PipeAmount(value*16)).Minus(new PipeAmount(value*8));
+        }
         internal static PipeAmount IntoFluid(float bodyCapacityKilojoules,float bodyBefore,float bodyAfter)
         {
             if(!(bodyCapacityKilojoules>0)||float.IsInfinity(bodyCapacityKilojoules)||

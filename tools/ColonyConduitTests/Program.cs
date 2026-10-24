@@ -248,6 +248,43 @@ static class Program
         Reject(()=>new ColonyConduitCheckpoint(geometry,hash,Array.Empty<PipeCellImage>(),mixture,mixture,mixture,default,
             boundary:new PipeBoundaryState(default,mechanical,mechanical,mechanical,mechanical,2,1,new[]{outside})));
         Console.WriteLine("PASS pipe schema2: exact sparse mechanical/heat accounts, prepared/native-queued reservations and watermarks, schema1 preservation and invalid jobs");
+        // Schema 3 runtime extension: every module record survives a byte-exact
+        // round trip; schema 1/2 bytes are unchanged; noncanonical or
+        // inconsistent records are refused.
+        PipeRuntimeImage Runtime()
+        {
+            var r=new PipeRuntimeImage{FromWorld=mixture,ToWorld=PipeInventory.Single(B,2,310,1,1e-240),PumpNotifications=7,PumpQueued=9,SpillAttempts=3,
+                ToStorage=PipeInventory.Single(A,.5,300),FromStorage=PipeInventory.Single(B,.25,290,0,3),Dumped=PipeInventory.Single(A,.125,300),
+                BoundaryEnergy=new PipeAmount(-1e-9),Consumed=4,Dispensed=5,Dumps=1,DamageEvents=1,Contacts=11,ContactHeat=new PipeAmount(1e-200),LaggedHeat=new PipeAmount(-3),
+                BiologyTicks=2,BiologyCells=3,BiologyIdentities=4,BiologyExpected=1,BiologySkipped=0,PhaseEvents=1};
+            r.PassiveExchange.Add(0x100000000UL,new PipeAmount(-2.5));
+            r.Buffers.Add(new PipeRuntimeImage.BufferRecord{Id=5,Phase=1,Cell=35,Inventory=PipeInventory.Single(A,.25,300,0,1e-240)});
+            r.Buffers.Add(new PipeRuntimeImage.BufferRecord{Id=4,Phase=2,Cell=36,Inventory=PipeInventory.Single(B,1,300)});
+            r.Pumps.Add(new PipeRuntimeImage.PumpRecord{Prefab=77,Phase=2,Cell=36,Buffers=new ulong[]{4,2},Pending=new[]{(2UL,new PipeAmount(5))}});
+            r.Vents.Add(new PipeRuntimeImage.VentRecord{Prefab=-3,Phase=1,Cell=35,Buffers=new ulong[]{5},BodyDisease=255,BodyCount=0,Exchanges=2});
+            r.Vents[0].Competition.Add(1,new PipeAmount(-7));
+            r.Spills.Add(new PipeRuntimeImage.SpillRecord{Key=9,Cell=36,NextFrame=12,Ids=new ulong[]{1}});
+            r.BoundaryMass.Add(2,new PipeAmount(1e-12));r.BoundaryGerms.Add(0,new PipeAmount(.5));r.DumpedByCell.Add(36,PipeInventory.Single(A,.125,300));
+            r.Cultures.Add(new PipeRuntimeImage.CultureRecord{Phase=2,Cell=36,Cultures=new[]{(1,new GermPopulationClock(false,.25f)),(0,new GermPopulationClock(true,0))}});
+            r.Births.Add(0,new PipeAmount(3));r.Deaths.Add(1,new PipeAmount(1e-240));
+            return r;
+        }
+        var pipeV3=new ColonyConduitCheckpoint(geometry,hash,new[]{new PipeCellImage(1,35,PipeInventory.Single(A,1,300)),new PipeCellImage(2,36,PipeInventory.Single(B,1,300))},
+            mixture,PipeInventory.Empty,PipeInventory.Empty,default,boundary:boundaryState,runtime:Runtime()).Encode();
+        var replayV3=ColonyConduitCheckpoint.Decode(pipeV3,geometry,hash,id=>id==1?(byte)1:(byte)2);
+        Check(replayV3.SchemaVersion==3&&replayV3.Encode().SequenceEqual(pipeV3)&&replayV3.Runtime!.Pumps.Single().Pending.Single().Mass.Minus(new PipeAmount(5)).Sign==0&&
+            replayV3.Runtime.Cultures.Single().Cultures.Length==2&&replayV3.Runtime.ToWorld.Germs[0].Amount.Minus(new PipeAmount(1e-240)).Sign==0&&
+            replayV3.Runtime.Vents.Single().Prefab==-3&&replayV3.Runtime.Deaths[1].Minus(new PipeAmount(1e-240)).Sign==0,"runtime pipe image continuation differs");
+        Check(ColonyConduitCheckpoint.Decode(pipeV2,geometry,hash).Encode().SequenceEqual(pipeV2),"schema2 bytes changed by schema3");
+        Reject(()=>new ColonyConduitCheckpoint(geometry,hash,Array.Empty<PipeCellImage>(),mixture,mixture,mixture,default,runtime:Runtime()));
+        var duplicate=Runtime();duplicate.Buffers.Add(new PipeRuntimeImage.BufferRecord{Id=5,Phase=1,Cell=35,Inventory=PipeInventory.Single(A,.25,300)});
+        Reject(()=>new ColonyConduitCheckpoint(geometry,hash,Array.Empty<PipeCellImage>(),mixture,mixture,mixture,default,boundary:boundaryState,runtime:duplicate));
+        var outsideSpill=Runtime();outsideSpill.Spills[0].Cell=int.MaxValue;
+        Reject(()=>ColonyConduitCheckpoint.Decode(new ColonyConduitCheckpoint(geometry,hash,Array.Empty<PipeCellImage>(),mixture,mixture,mixture,default,boundary:boundaryState,runtime:outsideSpill).Encode(),geometry,hash));
+        for(var cut=8;cut<pipeV3.Length;cut+=Math.Max(1,pipeV3.Length/97))
+        {var truncated=pipeV3.Take(cut).ToArray();Reject(()=>ColonyConduitCheckpoint.Decode(truncated,geometry,hash));}
+        var flipped=(byte[])pipeV3.Clone();flipped[pipeV3.Length/2]^=1;Reject(()=>ColonyConduitCheckpoint.Decode(flipped,geometry,hash));
+        Console.WriteLine("PASS pipe schema3: runtime buffers/pumps/vents/spills/machine ledgers/contact/cultures round-trip byte-exact; schema2 unchanged; invalid records refused");
         byte[] ReceiptImage(bool observed=false)
         {
             using var stream=new MemoryStream();using var writer=new BinaryWriter(stream);

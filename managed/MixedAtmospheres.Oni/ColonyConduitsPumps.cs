@@ -13,7 +13,7 @@ namespace MixedAtmospheres.Oni
         {
             internal readonly ElementConsumer Consumer;internal readonly ConduitDispenser Dispenser;internal readonly Storage Storage;
             internal readonly List<ulong> Buffers=new List<ulong>();internal readonly SortedDictionary<ulong,PipeAmount> Pending=new SortedDictionary<ulong,PipeAmount>();
-            internal readonly int Handle,Cell;internal readonly byte Phase;internal readonly ConduitFlow Flow;
+            internal int Handle;internal readonly int Cell;internal readonly byte Phase;internal readonly ConduitFlow Flow;
             internal State(ElementConsumer consumer,ConduitDispenser dispenser,int handle,int cell,byte phase,ConduitFlow flow)
             {Consumer=consumer;Dispenser=dispenser;Storage=consumer.storage;Handle=handle;Cell=cell;Phase=phase;Flow=flow;}
             internal PipeAmount ActualMass
@@ -52,6 +52,31 @@ namespace MixedAtmospheres.Oni
         internal static long Queued { get; private set; }
         internal static void Reset(){Enabled=false;States.Clear();Requests.Clear();ByOutlet.Clear();delivering=null;writes=0;Notifications=0;Queued=0;MixtureInspection.SetConduitStorageReader(null);}
         internal static bool IsPumpJob(ulong localId)=>Requests.ContainsKey(localId);
+        internal static void Capture(PipeRuntimeImage image)
+        {
+            foreach(var state in States.Values)
+            {
+                var prefab=state.Storage.GetComponent<KPrefabID>();
+                image.Pumps.Add(new PipeRuntimeImage.PumpRecord{Prefab=prefab.InstanceID,Phase=state.Phase,Cell=state.Cell,Buffers=state.Buffers.ToArray(),
+                    Pending=state.Pending.Select(p=>(p.Key,p.Value)).ToArray()});
+            }
+            image.PumpNotifications=Notifications;image.PumpQueued=Queued;
+        }
+        internal static void Restore(PipeRuntimeImage image)
+        {
+            Notifications=image.PumpNotifications;Queued=image.PumpQueued;
+            foreach(var record in image.Pumps)
+            {
+                var prefab=KPrefabIDTracker.Get().GetInstance(record.Prefab);
+                var consumer=prefab==null?null:prefab.GetComponent<ElementConsumer>();var dispenser=prefab==null?null:prefab.GetComponent<ConduitDispenser>();
+                if(consumer==null||dispenser==null||consumer.storage==null)throw new System.IO.InvalidDataException($"Saved mixed pump {record.Prefab} is missing.");
+                if(consumer.storage.items.Count!=0)throw new System.IO.InvalidDataException("A restored mixed pump has native storage packets.");
+                var flow=record.Phase==1?Game.Instance.gasConduitFlow:Game.Instance.liquidConduitFlow;
+                var state=new State(consumer,dispenser,-1,record.Cell,record.Phase,flow);
+                state.Buffers.AddRange(record.Buffers);foreach(var item in record.Pending){state.Pending.Add(item.Id,item.Mass);Requests.Add(item.Id,state);}
+                States.Add(consumer.storage,state);ByOutlet.Add((flow,record.Cell),state);MixtureInspection.SetConduitStorageReader(ColonyPipeVents.InspectStorage);
+            }
+        }
 
         // The actor retains its registration, saved rate and operational logic.
         // A claim covers the complete request: either queued with capacity held,
@@ -70,6 +95,7 @@ namespace MixedAtmospheres.Oni
                 if(consumer.storage.items.Count!=0)throw new NotSupportedException("A mixed pump cannot silently adopt existing native storage packets.");
                 state=new State(consumer,dispenser,handle,cell,phase,flow);States.Add(consumer.storage,state);ByOutlet.Add((flow,cell),state);MixtureInspection.SetConduitStorageReader(ColonyPipeVents.InspectStorage);
             }
+            if(state.Handle==-1&&ReferenceEquals(state.Consumer,consumer))state.Handle=handle; // restored pumps adopt their new native handle
             if(!ReferenceEquals(state.Consumer,consumer)||state.Handle!=handle||state.Cell!=cell||state.Phase!=phase)
                 throw new InvalidOperationException("Mixed pump component or native handle identity changed.");
             var capacity=state.Storage.capacityKg;
@@ -92,6 +118,9 @@ namespace MixedAtmospheres.Oni
             Consolidate(state);
             if(state.Consumer!=null)
             {
+                if(state.Handle==-1)
+                    foreach(var entry in (Dictionary<int,ElementConsumer>)Instances.GetValue(null))
+                        if(ReferenceEquals(entry.Value,state.Consumer)){state.Handle=entry.Key;break;}
                 foreach(var receipt in receipts??Array.Empty<OniNativeColony.Receipt>())
                 {
                     var info=ColonyActors.Event(in receipt);info.simHandle=state.Handle;
@@ -205,5 +234,5 @@ namespace MixedAtmospheres.Oni
     {private static void Postfix(ConduitDispenser __instance)=>ColonyPipePumps.ProjectStatus(__instance);}
     [HarmonyPatch(typeof(ConduitDispenser),"Dispense")]
     internal static class ColonyMixedPumpDispensePatch
-    {private static bool Prefix(ConduitDispenser __instance)=>!ColonyPipePumps.Dispense(__instance);}
+    {private static bool Prefix(ConduitDispenser __instance)=>!ColonyPipePumps.Dispense(__instance)&&!ColonyMachinePorts.Dispense(__instance);}
 }

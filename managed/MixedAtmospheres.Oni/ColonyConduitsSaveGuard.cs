@@ -30,6 +30,6 @@ namespace MixedAtmospheres.Oni
         }
         [HarmonyPriority(Priority.First)]
         internal static void Prefix()
-        {if(ColonyConduits.Active)throw new NotSupportedException(Reason);}
+        {if(ColonyConduits.Active&&!ColonyPipeRuntime.Persistable)throw new NotSupportedException(Reason);}
     }
 }

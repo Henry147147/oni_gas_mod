@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Reflection;
 using System.Security.Cryptography;
 using HarmonyLib;
@@ -84,15 +85,17 @@ namespace MixedAtmospheres.Oni
                 foreach(var sample in ColonyConduits.BiologicalCells())
                 {
                     var data=sample.Flow.soaInfo.GetDiseaseData(sample.Flow.GetConduit(sample.Cell).idx);
-                    if(!byHandle.TryGetValue(data.temperatureHandle,out var row)||row<0)throw new InvalidOperationException("Owned pipe culture has no unique native temperature identity.");
+                    // A cell the exact rule cannot take this tick keeps the
+                    // native projected update and its reconciliation instead.
+                    if(!byHandle.TryGetValue(data.temperatureHandle,out var row)||row<0){++Skipped;continue;}
                     var pipe=sample.Flow.soaInfo.GetConduitGO(sample.Flow.GetConduit(sample.Cell).idx);
                     if(!States.TryGetValue((sample.Flow,sample.Cell),out var state)||!state.TemperatureHandle.Equals(data.temperatureHandle)||!ReferenceEquals(state.PipeIdentity,pipe))state=new CellState(data.temperatureHandle,pipe);
-                    var after=new CellState(data.temperatureHandle,pipe);var inventory=sample.Inventory;var changes=new List<PipePart>();
+                    var after=new CellState(data.temperatureHandle,pipe);var inventory=sample.Inventory;var changes=new List<PipePart>();var supported=true;
                     ColonyPipeBiologyOracle.Advance(manager,sample.Flow,sample.Cell,data,seconds);
                     var temperature=(float)GetTemperature.Invoke(Temperature.GetValue(manager),new object[]{data.temperatureHandle});
                     foreach(var germ in sample.Inventory.Germs)
                     {
-                        if(germ.Id<0||germ.Id>=byte.MaxValue)throw new NotSupportedException("A pipe culture has no native disease definition.");
+                        if(germ.Id<0||germ.Id>=byte.MaxValue||germ.Id>=Db.Get().Diseases.Count){supported=false;break;}
                         var definition=Db.Get().Diseases[(byte)germ.Id];
                         var clock=state.Cultures.TryGetValue(germ.Id,out var existing)?existing.Clock:
                             new GermPopulationClock(false,data.diseaseIdx==germ.Id?data.accumulatedError:0);
@@ -117,11 +120,11 @@ namespace MixedAtmospheres.Oni
                             return flux;
                         }
                         var factor=Klei.AI.Disease.HalfLifeToGrowthRate(definition.CalculateTemperatureHalfLife(temperature),seconds);
-                        if(!ColonyGermPopulation.TryStep(germ.Amount,clock,Material,Expected,factor,out var step))
-                            throw new NotSupportedException("Exact pipe biological change exceeds its represented domain; population retained.");
+                        if(!ColonyGermPopulation.TryStep(germ.Amount,clock,Material,Expected,factor,out var step)){supported=false;break;}
                         if(step.Population.Sign>0)after.Cultures.Add(germ.Id,new Culture(step.Clock));
                         if(step.Change.Sign!=0){inventory=inventory.WithDiseaseDelta(germ.Id,step.Change);changes.Add(new PipePart(germ.Id,step.Change));}
                     }
+                    if(!supported){++Skipped;continue;}
                     updates.Add(new Update(sample.Flow,sample.Cell,row,data,state,after,inventory,changes.ToArray()));
                 }
                 // Only mask rows after all changes have been prepared without
@@ -142,9 +145,10 @@ namespace MixedAtmospheres.Oni
         internal static long UpdatedCells { get; private set; }
         internal static long UpdatedIdentities { get; private set; }
         internal static long ExpectedIdentities { get; private set; }
+        internal static long Skipped { get; private set; }
         internal static PipeAmount Born(int id)=>Births.TryGetValue(id,out var count)?count:PipeAmount.Zero;
         internal static PipeAmount Died(int id)=>Deaths.TryGetValue(id,out var count)?count:PipeAmount.Zero;
-        internal static string Report=>$"{Ticks} native cadence ticks, {UpdatedCells} cells/{UpdatedIdentities} identities ({ExpectedIdentities} expected-population); {Births.Count}/{Deaths.Count} birth/death IDs"+
+        internal static string Report=>$"{Ticks} native cadence ticks, {UpdatedCells} cells/{UpdatedIdentities} identities ({ExpectedIdentities} expected-population), {Skipped} skipped; {Births.Count}/{Deaths.Count} birth/death IDs"+
             (TimingEnabled?$"; capture {captureCalls} calls/{Milliseconds(captureTicks,captureCalls):F6} ms mean; commit {finishCalls} calls/{Milliseconds(finishTicks,finishCalls):F6} ms mean (includes fixture oracle)":"");
         private static double Milliseconds(long ticks,long calls)=>calls==0?0:1000.0*ticks/Stopwatch.Frequency/calls;
         internal static void StartControl()
@@ -167,7 +171,34 @@ namespace MixedAtmospheres.Oni
                 }
             using var hash=SHA256.Create();return BitConverter.ToString(hash.ComputeHash(bytes.ToArray())).Replace("-","");
         }
-        internal static void Reset(){Enabled=false;States.Clear();Births.Clear();Deaths.Clear();Ticks=UpdatedCells=UpdatedIdentities=ExpectedIdentities=captureTicks=finishTicks=captureCalls=finishCalls=0;ColonyPipeBiologyOracle.Reset();}
+        internal static void Reset(){Enabled=false;States.Clear();Births.Clear();Deaths.Clear();Ticks=UpdatedCells=UpdatedIdentities=ExpectedIdentities=Skipped=captureTicks=finishTicks=captureCalls=finishCalls=0;ColonyPipeBiologyOracle.Reset();}
+        internal static void Capture(PipeRuntimeImage image)
+        {
+            foreach(var item in States)
+            {
+                if(item.Value.Cultures.Count==0)continue;
+                image.Cultures.Add(new PipeRuntimeImage.CultureRecord{Phase=item.Key.Item1.conduitType==ConduitType.Gas?(byte)1:(byte)2,Cell=item.Key.Item2,
+                    Cultures=item.Value.Cultures.Select(c=>(c.Key,c.Value.Clock)).ToArray()});
+            }
+            foreach(var item in Births)image.Births.Add(item.Key,item.Value);foreach(var item in Deaths)image.Deaths.Add(item.Key,item.Value);
+            image.BiologyTicks=Ticks;image.BiologyCells=UpdatedCells;image.BiologyIdentities=UpdatedIdentities;image.BiologyExpected=ExpectedIdentities;image.BiologySkipped=Skipped;
+        }
+        // Restored clocks bind to the conduit's current native temperature
+        // handle and body, which a load re-creates.
+        internal static void Restore(PipeRuntimeImage image)
+        {
+            foreach(var record in image.Cultures)
+            {
+                var flow=record.Phase==1?Game.Instance.gasConduitFlow:Game.Instance.liquidConduitFlow;
+                if(!flow.HasConduit(record.Cell))throw new InvalidDataException("A saved pipe culture has no restored conduit.");
+                var idx=flow.GetConduit(record.Cell).idx;var data=flow.soaInfo.GetDiseaseData(idx);
+                var state=new CellState(data.temperatureHandle,flow.soaInfo.GetConduitGO(idx));
+                foreach(var culture in record.Cultures)state.Cultures.Add(culture.Id,new Culture(culture.Clock));
+                States.Add((flow,record.Cell),state);
+            }
+            foreach(var item in image.Births)Births.Add(item.Key,item.Value);foreach(var item in image.Deaths)Deaths.Add(item.Key,item.Value);
+            Ticks=image.BiologyTicks;UpdatedCells=image.BiologyCells;UpdatedIdentities=image.BiologyIdentities;ExpectedIdentities=image.BiologyExpected;Skipped=image.BiologySkipped;
+        }
         internal static Scope? Begin(ConduitDiseaseManager manager,float seconds)
         {
             if(!Enabled||!ReferenceEquals(manager,Game.Instance.conduitDiseaseManager))return null;

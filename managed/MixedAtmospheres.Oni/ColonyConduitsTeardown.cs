@@ -42,6 +42,29 @@ namespace MixedAtmospheres.Oni
             // performs normal conduit cleanup after our complete reservation.
             return false;
         }
+        // Any other owned parcel that must leave into the world (wrong-element
+        // dumps, phase releases) uses the same retained, retried spill.
+        internal static void HoldSpill(ulong id,int worldCell)
+        {
+            if(!Enabled)throw new InvalidOperationException("Conservative spills are not active.");
+            if(id==0)return;
+            var spill=new Spill(worldCell,id,ColonyOwner.Status.CompletedFrames);Spills.Add(id,spill);
+            TryDispatch(spill,ColonyOwner.Status.CompletedFrames);
+        }
+        internal static void Capture(PipeRuntimeImage image)
+        {
+            foreach(var spill in Spills)image.Spills.Add(new PipeRuntimeImage.SpillRecord{Key=spill.Key,Cell=spill.Value.Cell,NextFrame=spill.Value.NextFrame,Ids=spill.Value.Ids.ToArray()});
+            image.SpillAttempts=Attempts;
+        }
+        internal static void Restore(PipeRuntimeImage image)
+        {
+            Attempts=image.SpillAttempts;
+            foreach(var record in image.Spills)
+            {
+                if(record.Ids.Length==0)throw new System.IO.InvalidDataException("A saved spill holds nothing.");
+                var spill=new Spill(record.Cell,record.Ids[0],record.NextFrame);foreach(var id in record.Ids)spill.Ids.Add(id);Spills.Add(record.Key,spill);
+            }
+        }
         internal static void Tick(ulong frame)
         {
             if(!Enabled||ColonyOwner.Status.State!=1)return;

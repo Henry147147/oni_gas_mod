@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Reflection;
 using System.Reflection.Emit;
 using HarmonyLib;
@@ -95,6 +96,101 @@ namespace MixedAtmospheres.Oni
         internal static void StartControl()
         {
             if (Active) return;
+            Initialize();
+            var config=ColonyOwner.Config;
+            // Take initial inventory at a deterministic activation boundary,
+            // never when an overlay happens to read a previously unseen pipe.
+            foreach(var flow in Flows.Keys)
+                for(var y=config.OffsetY;y<config.OffsetY+config.Height;++y)
+                    for(var x=config.OffsetX;x<config.OffsetX+config.Width;++x)
+                    {
+                        var cell=checked((int)(y*config.GridWidth+x));
+                        if(flow.HasConduit(cell))_=Ensure(flow,cell);
+                    }
+            Active=true;MixtureInspection.SetPipeReader(ColonyPipeInspection.Read);
+        }
+        internal static PipeGeometry Geometry=>geometry;
+        // Restore needs the live catalogue/geometry before decoding the image.
+        internal static void StartRestoring(){if(Active)throw new InvalidOperationException("Mixed pipes are already active.");Reset();Initialize();restoring=true;}
+        private static bool restoring;
+        internal static void RequireQuiescent()
+        {
+            if(transferScope!=null||controlSeeding||projecting!=0)throw new InvalidOperationException("A pipe transfer is open at the save point.");
+        }
+        // Saved identity of the pipe catalogue: ordinal, element hash, Cv and
+        // energy offset of every owned material, in ordinal order.
+        internal static byte[] CatalogueIdentity()
+        {
+            using var bytes=new System.IO.MemoryStream();using(var writer=new System.IO.BinaryWriter(bytes,System.Text.Encoding.UTF8,true))
+            {
+                var ordinals=new List<int>(Materials.Keys);ordinals.Sort();
+                foreach(var ordinal in ordinals){var m=Materials[ordinal];writer.Write(ordinal);writer.Write((int)NativeElements[ordinal]);writer.Write(m.HeatCapacity);writer.Write(m.EnergyOffset);}
+            }
+            using var hash=System.Security.Cryptography.SHA256.Create();return hash.ComputeHash(bytes.ToArray());
+        }
+        internal static byte MaterialPhase(int ordinal)
+        {var element=ElementLoader.FindElementByHash(NativeElements[ordinal]);return element.IsGas?(byte)1:element.IsLiquid?(byte)2:(byte)0;}
+        // Saving: reconcile every owned cell with its native scalar first so
+        // ONI serializes exactly the projection of the saved inventory.
+        internal static (PipeCellImage[] Cells,PipeInventory Initial,PipeInventory Supplied,PipeInventory Removed,PipeAmount Heat,PipePart[] Diseases) Capture()
+        {
+            if(!Active)throw new InvalidOperationException("No mixed pipes to capture.");
+            var cells=new List<PipeCellImage>();
+            foreach(var flow in Flows)
+                for(var i=0;i<flow.Value.Cells.Length;++i)
+                    if(flow.Value.Cells[i] is Cell cell&&flow.Key.HasConduit(i))
+                    {
+                        SyncNative(flow.Key,i);Publish(flow.Key,i);
+                        if(cell.Inventory.Count>0)cells.Add(new PipeCellImage(flow.Key.conduitType==ConduitType.Gas?(byte)1:(byte)2,i,cell.Inventory));
+                    }
+                    else if(flow.Value.Cells[i] is Cell orphan&&orphan.Inventory.Count>0)
+                        throw new InvalidOperationException("An owned pipe inventory has no native conduit at a save point.");
+            var diseases=new List<PipePart>();foreach(var item in DiseaseExchange)if(item.Value.Sign!=0)diseases.Add(new PipePart(item.Key,item.Value));
+            return(cells.ToArray(),initial,supplied,removed,heat,diseases.ToArray());
+        }
+        // Loading: install the saved cells and require each native contents
+        // ONI restored to equal the saved inventory's projection bit for bit.
+        internal static void Restore(ColonyConduitCheckpoint image)
+        {
+            if(Active||!restoring)throw new InvalidOperationException("Pipe restore was not prepared.");
+            restoring=false;
+            try
+            {
+                if(!image.Geometry.Equals(geometry))throw new System.IO.InvalidDataException("Saved pipe geometry differs from the restored colony.");
+                if(!((ReadOnlySpan<byte>)image.CatalogueHash).SequenceEqual(CatalogueIdentity()))throw new System.IO.InvalidDataException("Saved pipe catalogue differs from the installed game.");
+                var gas=Game.Instance.gasConduitFlow;var liquid=Game.Instance.liquidConduitFlow;var saved=new HashSet<(ConduitFlow,int)>();
+                foreach(var item in image.Cells)
+                {
+                    var flow=item.Phase==1?gas:liquid;
+                    foreach(var part in item.Inventory.Parts)if(!Materials.ContainsKey(part.Id))throw new System.IO.InvalidDataException("Saved pipe constituent is not in the catalogue.");
+                    if(!flow.HasConduit(item.Cell))throw new System.IO.InvalidDataException($"Saved pipe cell {item.Cell} has no restored conduit.");
+                    var native=ReadRaw(flow,item.Cell);var cell=new Cell(item.Inventory,default);var expected=Project(cell,native,true);
+                    if(!SameContents(native,expected))
+                        throw new System.IO.InvalidDataException($"Restored conduit {item.Cell} differs from its saved mixture: native {native.element}/{native.mass:R}/{native.temperature:R}/{native.diseaseIdx}/{native.diseaseCount}, saved {expected.element}/{expected.mass:R}/{expected.temperature:R}/{expected.diseaseIdx}/{expected.diseaseCount}.");
+                    cell.Shadow=native;Flows[flow].Cells[item.Cell]=cell;saved.Add((flow,item.Cell));
+                }
+                var config=ColonyOwner.Config;
+                foreach(var flow in Flows.Keys)
+                    for(var y=config.OffsetY;y<config.OffsetY+config.Height;++y)
+                        for(var x=config.OffsetX;x<config.OffsetX+config.Width;++x)
+                        {
+                            var index=checked((int)(y*config.GridWidth+x));
+                            if(!flow.HasConduit(index)||saved.Contains((flow,index)))continue;
+                            if(ReadRaw(flow,index).mass>0)throw new System.IO.InvalidDataException($"Restored conduit {index} holds material the saved pipes do not.");
+                            Flows[flow].Cells[index]=new Cell(PipeInventory.Empty,ReadRaw(flow,index));
+                        }
+                initial=image.Initial;supplied=image.Supplied;removed=image.Removed;heat=image.ExternalHeat;
+                foreach(var item in image.DiseaseExchange)DiseaseExchange[item.Id]=item.Amount;
+                Active=true;MixtureInspection.SetPipeReader(ColonyPipeInspection.Read);
+            }
+            catch{Reset();throw;}
+        }
+        private static bool SameContents(ConduitFlow.ConduitContents a,ConduitFlow.ConduitContents b)=>a.element==b.element&&
+            BitConverter.SingleToInt32Bits(a.mass)==BitConverter.SingleToInt32Bits(b.mass)&&BitConverter.SingleToInt32Bits(a.temperature)==BitConverter.SingleToInt32Bits(b.temperature)&&
+            a.diseaseIdx==b.diseaseIdx&&a.diseaseCount==b.diseaseCount&&BitConverter.SingleToInt32Bits(Movable(a))==BitConverter.SingleToInt32Bits(Movable(b));
+        internal static long RestoredCells=>Flows.Values.Sum(f=>f.Cells.Count(c=>c!=null&&c.Inventory.Count>0));
+        private static void Initialize()
+        {
             if (!ColonyOwner.Active) throw new InvalidOperationException("Mixed pipes require an active colony owner.");
             uint precision;
             try{precision=OniNativeColony.PreciseReceiptVersion();}
@@ -113,16 +209,6 @@ namespace MixedAtmospheres.Oni
             }
             var cells=checked((int)(config.GridWidth*config.GridHeight));
             Flows.Add(Game.Instance.gasConduitFlow,new Flow(cells,Game.Instance.gasConduitFlow));Flows.Add(Game.Instance.liquidConduitFlow,new Flow(cells,Game.Instance.liquidConduitFlow));
-            // Take initial inventory at a deterministic activation boundary,
-            // never when an overlay happens to read a previously unseen pipe.
-            foreach(var flow in Flows.Keys)
-                for(var y=config.OffsetY;y<config.OffsetY+config.Height;++y)
-                    for(var x=config.OffsetX;x<config.OffsetX+config.Width;++x)
-                    {
-                        var cell=checked((int)(y*config.GridWidth+x));
-                        if(flow.HasConduit(cell))_=Ensure(flow,cell);
-                    }
-            Active=true;MixtureInspection.SetPipeReader(ColonyPipeInspection.Read);
         }
         internal static void Reset()
         {
@@ -131,8 +217,8 @@ namespace MixedAtmospheres.Oni
             ColonyPipeBiology.Reset();
             ColonyPipeContactHeat.Reset();
             ColonyValveControl.Reset();
-            Active=false;Flows.Clear();Materials.Clear();NativeElements.Clear();NativeIndices.Clear();DiseaseExchange.Clear();initial=supplied=removed=PipeInventory.Empty;heat=default;projecting=0;controlSeeding=false;transferScope=null;
-            ColonyPipePorts.Reset();MixtureInspection.SetPipeReader(null);
+            PhaseEvents=0;Active=false;Flows.Clear();Materials.Clear();NativeElements.Clear();NativeIndices.Clear();DiseaseExchange.Clear();initial=supplied=removed=PipeInventory.Empty;heat=default;projecting=0;controlSeeding=false;transferScope=null;
+            ColonyMachinePorts.Reset();ColonyPipeSpecialEdges.Reset();ColonyPipePorts.Reset();MixtureInspection.SetPipeReader(null);
         }
         internal static PipeMaterial Material(int id) => Materials.TryGetValue(id,out var value)?value:throw new InvalidOperationException("Unknown mixed pipe material: "+id);
         internal static PipeMaterial MaterialOf(SimHashes element)=>Material(NativeIndices[element]);
@@ -172,6 +258,52 @@ namespace MixedAtmospheres.Oni
             var moved=PipeInventory.Transfer(buffer,target.Inventory,double.MaxValue,Flows[flow].Capacity,Material);
             target.Inventory=moved.Target;if(moved.Parcel.Count>0)Publish(flow,cell,MassPublication.Added);return moved.Source;
         }
+        // Machine ports: the synced authoritative cell, the float mass a
+        // native scalar source may add, and exact receipt of that addition.
+        internal static PipeInventory ReadSynced(ConduitFlow flow,int cell)
+        {
+            if(!Owns(flow,cell)||!flow.HasConduit(cell))return PipeInventory.Empty;
+            SyncNative(flow,cell);return Ensure(flow,cell).Inventory;
+        }
+        internal static float Acceptable(ConduitFlow flow,int cell,float mass,SimHashes element)
+        {
+            if(!Owns(flow,cell)||!flow.HasConduit(cell)||!(mass>0)||!NativeIndices.ContainsKey(element))return 0;
+            SyncNative(flow,cell);
+            var room=new PipeAmount(Flows[flow].Capacity).Minus(Ensure(flow,cell).Inventory.Total);
+            if(room.Sign<=0)return 0;
+            var accepted=(float)Math.Min(mass,room.Value);
+            while(accepted>0&&new PipeAmount(accepted).Minus(room).Sign>0)accepted=BitConverter.Int32BitsToSingle(BitConverter.SingleToInt32Bits(accepted)-1);
+            return accepted;
+        }
+        internal static void ReceiveExact(ConduitFlow flow,int cell,PipeInventory incoming)
+        {
+            if(!Owns(flow,cell)||!flow.HasConduit(cell))throw new InvalidOperationException("A machine port wrote outside an owned pipe.");
+            SyncNative(flow,cell);var target=Ensure(flow,cell);var joined=target.Inventory.Joined(incoming);
+            if(joined.Total.Minus(new PipeAmount(Flows[flow].Capacity)).Sign>0)throw new InvalidOperationException("A machine port exceeded its pipe capacity.");
+            // Like native AddElement, the new mass is not movable this tick.
+            target.Inventory=joined;Publish(flow,cell);
+        }
+        internal static void AdjustGerms(ConduitFlow flow,int cell,int disease,double delta,bool exchange=false)
+        {
+            if(delta==0)return;var target=Ensure(flow,cell);target.Inventory=target.Inventory.WithDiseaseDelta(disease,delta);
+            if(exchange)lock(Accounts)BookGermExchange(new[]{new PipePart(disease,new PipeAmount(delta))});
+            Publish(flow,cell);
+        }
+        // Heat a building exchanges directly with an owned cell's mixture.
+        internal static void AddHeat(ConduitFlow flow,int cell,PipeAmount joules)
+        {
+            if(joules.Sign==0)return;var target=Ensure(flow,cell);target.Inventory=target.Inventory.WithHeat(joules);lock(Accounts)heat=heat.Plus(joules);Publish(flow,cell);
+        }
+        internal static PipeInventory TransferAll(ConduitFlow flow,int source,int target,double maximum)
+        {
+            if(!Owns(flow,source)||!Owns(flow,target)||source==target||!flow.HasConduit(source)||!flow.HasConduit(target))return PipeInventory.Empty;
+            SyncNative(flow,source);SyncNative(flow,target);
+            var from=Ensure(flow,source);var to=Ensure(flow,target);
+            var moved=PipeInventory.Transfer(from.Inventory,to.Inventory,Math.Min(maximum,(double)Flows[flow].Capacity),Flows[flow].Capacity,Material);
+            from.Inventory=moved.Source;to.Inventory=moved.Target;
+            if(moved.Parcel.Count>0){Publish(flow,source,MassPublication.Removed);Publish(flow,target);}
+            return moved.Parcel;
+        }
         internal static bool Owns(ConduitFlow flow,int cell) => Active && geometry.Contains(cell) && Flows.ContainsKey(flow);
         internal static bool TryRead(ConduitFlow flow,int cell,out PipeInventory inventory)
         {
@@ -188,7 +320,8 @@ namespace MixedAtmospheres.Oni
                         held=held.Joined(cell.Inventory);if(cell.Inventory.Count>0)++cells;
                     }
             held=held.Joined(ColonyPipePorts.Held);
-            var left=initial.Joined(supplied).Joined(ColonyPipePorts.FromWorld);var right=held.Joined(removed).Joined(ColonyPipePorts.ToWorld);var okay=true;
+            var left=initial.Joined(supplied).Joined(ColonyPipePorts.FromWorld).Joined(ColonyMachinePorts.FromStorage);
+            var right=held.Joined(removed).Joined(ColonyPipePorts.ToWorld).Joined(ColonyMachinePorts.ToStorage);var okay=true;
             foreach(var material in Materials.Keys)
             {
                 PipeAmount Amount(PipeInventory inventory)
@@ -210,6 +343,7 @@ namespace MixedAtmospheres.Oni
             var diseases=new List<int>(DiseaseExchange.Keys);diseases.Sort();
             foreach(var disease in diseases)detail+=$"; germ {disease} exchange {DiseaseExchange[disease].Value:R}";
             if(ColonyPipePorts.Enabled)detail+="; "+ColonyPipePorts.Report;
+            if(ColonyMachinePorts.Enabled)detail+="; "+ColonyMachinePorts.Report;
             return okay;
         }
         private static Cell Ensure(ConduitFlow flow,int cell)
@@ -338,6 +472,49 @@ namespace MixedAtmospheres.Oni
                     if(flow.Value.Cells[i] is Cell cell&&cell.Inventory.Count>0&&flow.Key.HasConduit(i))SyncNative(flow.Key,i);
             ColonyPipeTeardown.Tick(ColonyOwner.Status.CompletedFrames);
         }
+        // Phase change in owned pipes (docs/mixed-pipes.md#phase-change). The
+        // native check sees only the projected dominant element, so it is
+        // skipped for owned cells. Any constituent above 10% of capacity
+        // (vanilla's packet rule) that is past its own transition at the
+        // mixture temperature raises vanilla's frozen/boiling conduit event:
+        // the pipe takes damage and dumps its whole mixture into the world.
+        private const int ConduitFrozen=-700727624,ConduitBoiling=-1152799878;
+        internal static long PhaseEvents { get; set; }
+        internal static void PhaseBoundary()
+        {
+            if(!Active||!ColonyPipeTeardown.Enabled)return;
+            List<(ConduitFlow Flow,int Cell,int Event)>? events=null;
+            foreach(var flow in Flows)
+            {
+                var threshold=.1*flow.Value.Capacity;
+                for(var i=0;i<flow.Value.Cells.Length;++i)
+                {
+                    if(!(flow.Value.Cells[i] is Cell cell)||cell.Inventory.Count==0||!flow.Key.HasConduit(i))continue;
+                    var kind=PhaseEvent(cell.Inventory,threshold);
+                    if(kind!=0)(events??=new List<(ConduitFlow,int,int)>()).Add((flow.Key,i,kind));
+                }
+            }
+            if(events==null)return;
+            foreach(var item in events)
+            {
+                var go=item.Flow.soaInfo.GetConduitGO(item.Flow.GetConduit(item.Cell).idx);
+                if(go==null)continue;
+                ++PhaseEvents;go.Trigger(item.Event,null);
+            }
+        }
+        internal static int PhaseEvent(PipeInventory inventory,double threshold)
+        {
+            var temperature=inventory.Temperature(Material);
+            foreach(var part in inventory.Parts)
+            {
+                if(!(part.Mass>threshold))continue;
+                var element=ElementLoader.FindElementByHash(NativeElements[part.Id]);
+                if(temperature<element.lowTemp)return ConduitFrozen;
+                if(temperature>element.highTemp)return ConduitBoiling;
+            }
+            return 0;
+        }
+        internal static bool SkipNativePhase(ConduitFlow flow,int conduit)=>Active&&Owns(flow,flow.soaInfo.GetCell(conduit));
         internal static IEnumerable<(ConduitFlow Flow,int Cell,PipeInventory Inventory,ConduitFlow.ConduitContents Native,ConduitFlow.ConduitContents Shadow)> ThermalProbeSamples()
         {
             foreach(var flow in Flows)
@@ -409,7 +586,13 @@ namespace MixedAtmospheres.Oni
                 if(result>0){scope.Target=cell;scope.Amount=result;}
                 return true;
             }
-            if(!controlSeeding){result=0;return true;} // external ports remain gated until precise durable jobs are ready
+            if(!controlSeeding)
+            {
+                // Adapted scalar sources (conditioners) credit exactly what
+                // they debit; any other external writer stays refused.
+                if(ColonyMachinePorts.ExternalAdd(flow,cell,element,mass,temperature,disease,germs,ref result))return true;
+                result=0;return true;
+            }
             SyncNative(flow,cell);
             var current=Ensure(flow,cell);
             var incoming=PipeInventory.Single(MaterialOf(element),mass,temperature,disease,germs);
@@ -479,6 +662,7 @@ namespace MixedAtmospheres.Oni
         {
             ColonyPipeThermalProbe.AfterNative(__state?.Probe);__state?.Contact?.Validate();
             ColonyConduits.ThermalBoundary();__state?.Contact?.Complete();ColonyPipeThermalProbe.AfterBook(__state?.Probe);
+            ColonyConduits.PhaseBoundary();
         }
         private static Exception? Finalizer(Exception? __exception,Scope? __state)
         {
@@ -486,6 +670,13 @@ namespace MixedAtmospheres.Oni
             finally{ColonyPipeContactHeat.End(__state?.Contact);}
             return __exception;
         }
+    }
+    [HarmonyPatch]
+    internal static class ColonyMixedPipeNativePhasePatch
+    {
+        private static IEnumerable<MethodBase> TargetMethods()
+        {yield return AccessTools.Method(typeof(ConduitFlow),"FreezeConduitContents");yield return AccessTools.Method(typeof(ConduitFlow),"MeltConduitContents");}
+        private static bool Prefix(ConduitFlow __instance,int __0)=>!ColonyConduits.SkipNativePhase(__instance,__0);
     }
     [HarmonyPatch(typeof(ConduitFlow),"UpdateConduit")]
     internal static class ColonyMixedPipeFlowPatch

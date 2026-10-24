@@ -3,13 +3,84 @@
 The playtest requires an actual composition in each gas/liquid conduit cell,
 selective filtering, recipe-specific consumption, conserved heat and germs,
 and exact save continuation. Ordinary colonies still send mixture
-constituents as separate native packets. Explicit harness controls validate
-internal mixing/filtering/readers, precise world receipts, mixed pump
-storage/output, manual valves/powered shutoffs and native-controlled gas vents.
-Explicit controls also validate finite-body hot-pipe heat exchange and all-ID
-pipe biology. Full production ports and the mixed save writer remain off;
-cold/phase thermal cases, remaining component ports, liquid particles and
-complete teardown/save acceptance are still open.
+constituents as separate native packets unless `MA_COLONY_MIXED_PIPES=1`
+starts the production runtime for a new colony ([runtime](#runtime)).
+Harness controls validate internal mixing/filtering/readers, precise world
+receipts, pumps, valves/shutoffs, gas and liquid vents, machine ports,
+teardown, phase damage, hot/cold body heat and all-ID pipe biology. The
+mixed save writer (MACPIP01 schema 3 inside the saves worker's MACOLP03)
+and default-on activation remain open.
+
+## Runtime
+
+`ColonyPipeRuntime.Start` starts every pipe module together: owned cells,
+precise world ports, pumps, vents, conservative spills, machine ports, body
+contact heat and all-identity biology. Contact heat and biology need pinned
+native layouts; without them the carrier/projected paths remain and the
+start notes say so. In production a contact that cannot be replayed exactly
+(shared or missing body, changed inventory, carrier mismatch) is excluded
+and counted rather than faulting; a biology cell outside the exact rule keeps
+the native projected update. A loaded colony keeps the pipe mode its save
+recorded: a save with a pipe section restores it, one without stays on packets.
+
+## Machine ports
+
+Every `ConduitConsumer`/`ConduitDispenser` on an owned cell keeps its native
+gates, rates and storage (`ColonyConduitsMachinePorts.cs`). An input takes
+rate*dt of the cell's whole mixture in proportion, capped so the accepted
+part fits the consumer's space. Species with the consumer's capacity tag
+(or any, or all with `Store`) enter storage as native items, one per species;
+the rest is dumped exactly as an owned spill at the building cell (vanilla
+`Dump`/`Destroy`), never deleted. A wrong part above the 0.1% trace fraction
+triggers vanilla's wrong-element damage. Germs follow mass and merge per item
+by vanilla's `SimUtil` rule. Outputs keep native item selection; the moved
+germ count is applied to both sides from one value. Conditioners
+(aquatuner/thermo regulator) credit the pipe with exactly what their item
+lost; a duplicant emptying a pipe makes one chunk per species. The
+conduction panel bridge gives the mixture exactly the negated body energy;
+the morb rover maker's absorbed germs are a booked pipe germ exchange.
+`ToStorage`/`FromStorage` are exact pipe-side accounts; `StorageBoundary`
+books pipe-side minus observed native storage change per species, joule and
+germ identity (float items, ONI merges, germ competition, conditioner heat).
+
+Fixed `mixed-pipe-machines` control (electrolyzer, liquid reservoir, liquid
+vent, a 265 K pipe and a hand-emptied pipe) passes **8/8 at 101 frames** on
+`pipes-machines-v1`: 11 kg water and 4 kg polluted water stored exactly,
+the electrolyzer's 1 kg polluted water dumped, 9 kg reservoir output reaching
+the world through the vent, one frozen-pipe event (HP 10 -> 9), boundary
+ledger 0 kg/0 J/0.93 germs, every pipe account exact. M/E 4.7e-16/4.7e-17,
+no fault; LOW owner mean 375 ms (diagnostic).
+
+### Vents
+
+Gas and liquid vents bind their storage to owned buffers and dispatch the
+exact mixture as one atomic job. A liquid vent deposits its mixture at rest
+in its own cell and the solver's gravity moves it (main's decision
+2026-10-24); vanilla's FallingWater drip animation is absent. Single-element
+native particles from other sources are unchanged.
+
+### Phase change
+
+The native freeze/melt check sees only the projected dominant element, so it
+is skipped for owned cells. After each conduit thermal update any constituent
+above 10% of capacity (vanilla's packet rule) past its own `lowTemp`/`highTemp`
+at the mixture temperature raises vanilla's frozen/boiling conduit event:
+1 HP damage and the whole mixture leaves as an owned spill into the world,
+where the solver handles its phase.
+
+## Saved runtime
+
+MACPIP01 schema 3 (assigned by main 2026-10-24) = schema 2 cells, accounts
+and pending jobs, plus port buffers/world accounts, pump and vent states
+(by KPrefabID), spills, machine-port ledgers, contact counters and
+biology clocks. `ColonyPipeRuntime.Capture` requires quiescence (no open
+transaction, no unsettled receipt group, validated native pending suffix),
+reconciles every owned cell and returns the canonical image.
+`Restore` runs after the owner restore and prefab spawn, before any owner
+frame publishes a receipt; each owned cell's consolidated projection must
+equal ONI's restored conduit contents bit for bit, otherwise loading fails.
+ONI's conduit staging, flow clock and network order are not persisted, as in
+vanilla (main/saves decision 2026-10-24).
 
 ## Conserved inventory
 

@@ -44,6 +44,7 @@ namespace MixedAtmospheres.Oni
     internal sealed class PipePortReceiptGroup
     {
         private readonly SortedDictionary<ulong,PipeReceipt> receipts=new SortedDictionary<ulong,PipeReceipt>();
+        internal int Count=>receipts.Count;
         internal void Add(PipeReceipt receipt)
         {
             if(receipt.Sequence==0||receipts.ContainsKey(receipt.Sequence))throw new InvalidDataException("Duplicate pipe job receipt.");
