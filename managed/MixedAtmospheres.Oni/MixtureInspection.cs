@@ -309,6 +309,7 @@ namespace MixedAtmospheres.Oni
             Line(drawer, card, FormatState(reading));
             var composition = FormatCompactComposition(reading);
             foreach (var line in composition) Line(drawer, card, line);
+            if (ColonyWorldGerms.Describe(cell) is string germs) Line(drawer, card, germs);
             if (reading.Warnings.Count == 0 && reading.IsBreathable) Line(drawer, card, "Breathing checks passed");
             foreach (var warning in reading.Warnings) Line(drawer, card, warning, true);
             drawer.EndShadowBar();

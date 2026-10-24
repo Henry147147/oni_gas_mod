@@ -81,6 +81,18 @@ namespace MixedAtmospheres.Oni
                     case "bottle-emptier": BottleEmptier(frame); break;
                     case "gas-generator": GasGenerator(frame); break;
                     case "germs": Germs(frame); break;
+                    case "world-germs": WorldGerms(frame); break;
+                    case "germ-oracle": GermOracle(frame); break;
+                    case "skimmer": Skimmer(frame); break;
+                    case "terrarium": Terrarium(frame); break;
+                    case "deodorizer": Deodorizer(frame); break;
+                    case "rust-deoxidizer": RustDeoxidizer(frame); break;
+                    case "coal-generator": CoalGenerator(frame); break;
+                    case "oil-refinery": OilRefinery(frame); break;
+                    case "electrolyzer-blocked": ElectrolyzerBlocked(frame); break;
+                    case "hazards": Hazards(frame); break;
+                    case "germ-exposure": GermExposure(frame); break;
+                    case "suit": Suit(frame); break;
                     case "puft": Puft(frame); break;
                     case "plant": Plant(frame); break;
                     case "wheezewort": Wheezewort(frame); break;

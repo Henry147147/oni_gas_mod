@@ -15,6 +15,16 @@ play.
   (solids are walls; vacuum in the Space zone is open sky) and calls
   `ma_oni_colony_start` (`native/include/mixed_atmospheres/oni_colony.h`). A
   fluid cell holding an element outside the catalogue keeps native physics.
+  A package carrying the native backend attaches it by default; no development
+  file or environment variable is needed (`native-backend-observation.json`
+  may disable it or, when present, adds the development report). In an
+  ordinary game only the owner routes native messages; the colony-owner
+  scenes use the same routing plus their report counters.
+- **Notices.** The player is told when the owner does not take a new colony
+  (Spaced Out!, more than one asteroid, a failed start), when a loaded colony
+  was saved without the mod (it keeps ONI's fluids) and when the owner faults
+  (fluids freeze, saving is refused): one dialog per problem
+  (`ColonyNotices.cs`); validation scenes only log.
 - **Frames.** Each positive native frame hands its timestep to the owner's
   solver thread after `UpdateData` and returns; the step's result publishes at
   the first data request after it completes. Native pressure, liquid,
@@ -173,10 +183,44 @@ injection brings the germs of its message (emitters, exhaled gas, dumped
 pipe contents); an extraction takes the cell's germs in proportion to the mass
 it removes and its receipt returns the most numerous one, so a breath or a
 pump gets the germs of what it took. Each published frame shows a cell's most
-numerous germ to the game. Growth and death by medium, disease emitters and
-consumers and cell edits stay ONI's: they act on the native shadow, and the
-change is booked to the owner at the next step. This evolves the projected
-identity only: complete minority growth/death in world cells is still open.
+numerous germ to the game; a germ sensor counts all of them.
+
+**World evolution** (`oni_world_biology.cpp`, owner mode 1, every new colony
+whose game supplied its disease table through `ma_oni_colony_set_diseases`).
+Once per native 0.2 s frame the owner applies the game's world rules to every
+disease identity of every owned cell, each identity on its own (a cell holds
+several; there is no competition between them):
+
+- *Diffusion* first, from the frame's starting counts: between two
+  neighbouring cells of the same shown phase an identity moves an eighth of
+  the difference in count, scaled by the richer cell's element and truncated
+  to whole germs; the richer cell must hold its element's minimum count and
+  have held the identity its minimum number of frames.
+- *Growth and death* then: the temperature half-life of the disease and the
+  element's rule inside, below (an absolute death rate) or above its density
+  window. A mixed cell weights each constituent's rule by its mass, like pipe
+  biology. A whole-germ culture keeps the game's binary32 count with its
+  fractional residue; a culture whose count is not whole (flow splits counts
+  by mass) follows the expected population in binary64 until it dies out.
+  A culture left below one germ dies, as the game keeps whole germs.
+
+Births, deaths, culled sub-germ cultures, diffused germs and game edits are
+booked per identity (`ma_oni_colony_biology`); each stage checks that the
+world holds what the accounts expect. Native code sees no germs on owned cells,
+so its own world update no longer runs there; disease emitters still act on
+the shadow and their germs are booked in, and the game's cell germ edits
+(`ModifyDiseaseOnCell`) of owned cells go to the owner
+(`ma_oni_colony_queue_germs`). Clocks (mode, residue, frames held), queued edits
+and accounts are saved (owner version 10). Saves from before keep the legacy
+mode: native code evolves the shown identity on the shadow and the change is
+booked to the owner.
+
+The world rules are written from the game's measured behaviour. The explicit
+oracle control (`MA_COLONY_GERM_ORACLE=1`, scenario `germ-oracle`) keeps a new
+colony in the legacy mode and predicts every native step of a sealed
+single-cell culture from the same inputs: in game 778 of 778 steps agree
+exactly (growth inside the density window, over-density decay, heat death,
+extinction below the minimum count).
 
 The read-only `ma_oni_colony_read_passives` ABI reports every passive in selected
 cells, including non-disease identities, without reducing them to that legacy
@@ -215,9 +259,21 @@ reserved transaction (`ColonyMachines.cs`): when no owned cell within two of
 the output can take it the converter does not run, so it takes neither its
 inputs nor, through its building's idle state, its power. A gas always fits an
 open cell, after which ONI's own overpressure limits apply; a liquid needs a
-cell within two that is under 98% liquid. A wrong element arriving at a pipe
-input is stored or dumped as ONI configures it, and dumped into the
-building's cell where ONI would destroy it, so nothing is deleted.
+cell within two that is under 98% liquid. A generator's gas exhaust (coal,
+natural gas, petroleum, wood) is gated the same way. A wrong element arriving
+at a pipe input is stored or dumped as ONI configures it, and dumped into the
+building's cell where ONI would destroy it, so nothing is deleted. An addition
+nobody is told about (a machine output or dumped item, callback −1) that finds
+no open cell within two waits in the reservoir at its cell and seeps back when
+there is room, instead of being lost; its germs are not kept.
+
+**Balance ledgers** (`ColonyBalance.cs`). Machines keep ONI's rates. Each
+`ElementConverter` conversion and each generator tick books, per building kind,
+the energy of what left its storage, what arrived there or went to the owner,
+and the electricity drawn (or generated); the difference is that machine's
+balance ledger (`BalanceLedgers` in the report). Energies use the catalogue's
+caloric model (c·T plus formation offset; c·T for solids). The owner books the
+fluids it receives exactly in its own ledgers either way.
 
 ## Sensors
 
@@ -225,7 +281,9 @@ An element sensor (`LogicElementSensor`) on the owned asteroid is true when its
 element is present above the trace threshold, 0.1% of the mass of its phase in
 the cell (`ColonySensors.cs`, a transpiler on its sampler). Pipe element sensors
 read the pipe's packets, which carry one element each as in vanilla. Pressure
-sensors read the owner's pressure through `Grid.Pressure`.
+sensors read the owner's pressure through `Grid.Pressure`. A germ sensor
+(`LogicDiseaseSensor`) counts every disease identity of an owned cell, not only
+the one the grid shows.
 
 ## Phase change
 
@@ -551,6 +609,11 @@ accuracy floor; profile 19 remains an opt-in experiment.
 
 ## Saves
 
+**Assigned 2026-10-24 by main after a fetch at `3eaccfa`:** owner wrapper
+`MACOLN01` version **10** holds world germ evolution ([germs](#germs)): after the
+version 9 job list, u32 mode, u64 biology frames, the culture clocks, the queued
+germ edits and the per-identity germ accounts. Legacy-mode owners keep writing 8/9.
+
 **Reserved 2026-10-23, immediately after fetching `7e3db57`:** owner wrapper
 `MACOLN01` version **9** is assigned to durable explicit-energy/momentum
 moving-parcel jobs and their full passive inventories. The parent gameplay
@@ -829,6 +892,13 @@ setting their powered flag (harness only).
 | `filter` | A pump sends oxygen and carbon dioxide through a carbon dioxide filter: its filtered port carries only carbon dioxide, its output only oxygen. |
 | `pacu` | A pacu in an owned pool stays in its water. |
 | `liquid-pump` | A liquid pump in a pool sends its water through a pipe into a reservoir; pump, pipe and reservoir hold what the owner lost. |
+| `world-germs` | Slimelung and food poisoning in one polluted-oxygen cell each follow their own rule and spread; slimelung beyond a wall in oxygen follows its rule; the germ accounts close (owner mode). |
+| `germ-oracle` | With `MA_COLONY_GERM_ORACLE=1`: native code evolves six sealed single-cell cultures on the shadow (growth, over-density decay, heat death, extinction) and the owner predicts every step exactly. |
+| `skimmer`, `terrarium`, `deodorizer` | A carbon skimmer, algae terrarium or deodorizer in a two-gas mixture takes only its element; outputs reach the owner or its storage. |
+| `rust-deoxidizer`, `coal-generator`, `oil-refinery` | Oxygen and chlorine, exhaust carbon dioxide, or natural gas reach the owner; the mixture's other gases are kept; petroleum stays stored. |
+| `electrolyzer-blocked` | An electrolyzer in a mixture above its overpressure limit takes no water and draws no power. |
+| `hazards` | Duplicants in hot air, dense air and water are scalded, get popped eardrums and hold their breath. |
+| `germ-exposure` | A duplicant breathing air carrying slimelung is exposed. |
 
 ### Floor arenas
 

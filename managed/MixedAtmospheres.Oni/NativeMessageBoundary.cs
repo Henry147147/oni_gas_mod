@@ -67,10 +67,28 @@ namespace MixedAtmospheres.Oni
 
     internal static unsafe class NativeMessageBoundary
     {
+        // An ordinary game, and the colony-owner scenes that check it (no
+        // development domain, floor arena or telemetry): only the colony owner
+        // routes messages. Scenes add only their report counters.
+        private static bool Ordinary => !NativeSealedDomainValidation.IsMode && !DevelopmentTelemetry.Active && FloorArenas.Id.Length == 0 &&
+            (ColonyRuntimeValidation.Settings == null || ColonyRuntimeValidation.Settings.Mode.StartsWith("colony-owner", StringComparison.Ordinal));
         internal static IntPtr Handle(int message, int length, byte* payload)
         {
             if (NativeContractCapture.IsActive) return NativeContractCapture.Accept(message, length, (IntPtr)payload);
             var world = ProbeScope.World;
+            if (world == null && Ordinary)
+            {
+                var scene = ColonyRuntimeValidation.Settings != null;
+                if (scene) ColonyOwner.Count(message, 1);
+                if (ColonyOwner.TryHandle(message, length, 1, payload)) return IntPtr.Zero;
+                var timed = scene && ColonyOwner.Active && (message == -775326397 || message == 1078620451);
+                var started = timed ? System.Diagnostics.Stopwatch.GetTimestamp() : 0;
+                var result = Sim.SIM_HandleMessage(message, length, payload);
+                if (timed) ColonyOwner.RecordBlocked(message, System.Diagnostics.Stopwatch.GetTimestamp() - started);
+                NativeBackendObservation.AfterNativeMessage(message);
+                result = ColonyOwner.AfterNativeMessage(message, result);
+                return scene ? ColonyRuntimeValidation.AfterNativeMessage(message, result) : result;
+            }
             if (world == null)
             {
                 NativeSealedDomainValidation.BeforeRestoredNativeFrame(message,length,payload);
@@ -137,6 +155,11 @@ namespace MixedAtmospheres.Oni
         internal static IntPtr HandleBatch(int message, int length, int count, byte* payload)
         {
             if (NativeContractCapture.IsActive) throw new NotSupportedException("Batch calls are forbidden during capture-only export.");
+            if (ProbeScope.World == null && Ordinary)
+            {
+                if (ColonyRuntimeValidation.Settings != null) ColonyOwner.Count(message, count);
+                return ColonyOwner.TryHandle(message, length, count, payload) ? IntPtr.Zero : Sim.SIM_HandleMessages(message, length, count, payload);
+            }
             if (ProbeScope.World == null)
             {
                 if (NativeSealedDomainValidation.TryHandleHeat(message, length, count, payload)) return IntPtr.Zero;

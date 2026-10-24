@@ -68,7 +68,7 @@ namespace MixedAtmospheres.Oni
         private static ulong completionObservedFrame = ulong.MaxValue;
         private static readonly ColonyFrameTiming frameTiming = new ColonyFrameTiming();
         private static OniNativeColony.Status status = OniNativeColony.Status.Empty;
-        private static bool considered;
+        private static bool considered, restoreAttempted;
         private static int x0, y0, width, height;
         private static int[] publicationCells=Array.Empty<int>();
         private static readonly bool uncachedCellMap=Environment.GetEnvironmentVariable("MA_COLONY_UNCACHED_CELL_MAP")=="1";
@@ -101,13 +101,13 @@ namespace MixedAtmospheres.Oni
 
         internal static void ResetForNewSession()
         {
-            ColonyPresentation.Reset(); ColonyActors.Reset(); ColonyViewCache.Reset(); ColonyConduits.Reset();
+            ColonyPresentation.Reset(); ColonyActors.Reset(); ColonyViewCache.Reset(); ColonyConduits.Reset(); ColonyWorldGerms.Reset(); ColonyNotices.Reset(); ColonyBalance.Reset();
             current?.Dispose(); current = null;
             if (Active) { var s = OniNativeColony.Status.Empty; _ = OniNativeColony.Stop(ref s); }
             ColonyPacing.Reset(); ColonyOwnerPersistence.Reset();
             publicationCells=Array.Empty<int>();CellMapComparisons=0;
             passiveSession=0;passiveFrame=ulong.MaxValue;WorldPassiveComparisons=WorldPassiveRows=WorldPassiveBusy=0;
-            Active = false; considered = false; StartFailure = ""; loggedFault = ""; Publications = 0; PublicationMilliseconds = MaximumPublicationMilliseconds = 0; Census.Clear(); molarMass = Array.Empty<double>();
+            Active = false; considered = false; restoreAttempted = false; StartFailure = ""; loggedFault = ""; Publications = 0; PublicationMilliseconds = MaximumPublicationMilliseconds = 0; Census.Clear(); molarMass = Array.Empty<double>();
             completionObservedAt = 0; completionObservedFrame = ulong.MaxValue; frameTiming.Reset();
         }
 
@@ -151,10 +151,25 @@ namespace MixedAtmospheres.Oni
             considered = true;
             try
             {
-                if (SaveLoader.Instance.loadedFromSave) { StartFailure = "Loaded saves keep their saved owner"; return; }
-                if (DlcManager.IsExpansion1Active()) { StartFailure = "Spaced Out! is not supported yet"; return; }
+                if (SaveLoader.Instance.loadedFromSave)
+                {
+                    StartFailure = "Loaded saves keep their saved owner";
+                    if (!restoreAttempted)
+                        ColonyNotices.Show("Mixed Atmospheres", "This colony was saved without Mixed Atmospheres. It keeps ONI's own gases and liquids.");
+                    return;
+                }
+                if (DlcManager.IsExpansion1Active())
+                {
+                    StartFailure = "Spaced Out! is not supported yet";
+                    ColonyNotices.Show("Mixed Atmospheres inactive", "Spaced Out! colonies are not supported yet. This colony keeps ONI's own gases and liquids.");
+                    return;
+                }
                 if (ClusterManager.Instance == null || ClusterManager.Instance.WorldContainers.Count != 1)
-                { StartFailure = "The colony owner needs exactly one asteroid"; return; }
+                {
+                    StartFailure = "The colony owner needs exactly one asteroid";
+                    ColonyNotices.Show("Mixed Atmospheres inactive", "Mixed Atmospheres needs a colony on exactly one asteroid. This colony keeps ONI's own gases and liquids.");
+                    return;
+                }
                 OniNativeColony.CheckLayouts();
                 (config, materials) = Describe();
                 x0 = (int)config.OffsetX; y0 = (int)config.OffsetY; width = (int)config.Width; height = (int)config.Height;
@@ -185,6 +200,7 @@ namespace MixedAtmospheres.Oni
                         throw new NotSupportedException("Fluid element " + element.id + " has no catalogue entry.");
                 }
                 var started = System.Diagnostics.Stopwatch.StartNew();
+                ColonyWorldGerms.Configure();
                 var output = OniNativeColony.Status.Empty;
                 OniNativeColony.Check(OniNativeColony.Start(ref config, materials, (uint)materials.Length, cells, (uint)cells.Length, ref output));
                 status = output; views = new OniNativeColony.CellView[cells.Length]; Active = true; ColonyPacingDriver.Ensure(); ConfigurePresentation();
@@ -194,12 +210,14 @@ namespace MixedAtmospheres.Oni
                 var backwalls = 0;
                 for (var i = 0; i < cells.Length; ++i) if (BackwallManager.HasBackwall((x0 + i % width) + (y0 + i / width) * Grid.WidthInCells)) ++backwalls;
                 Debug.Log($"[Mixed Atmospheres] Colony owner started: {width}x{height} cells, {OwnedCells} owned, {materials.Length} materials, " +
-                    $"reservoir {status.ReservoirKg:G6} kg, {backwalls} backwall cells, {started.ElapsedMilliseconds} ms.");
+                    $"reservoir {status.ReservoirKg:G6} kg, {backwalls} backwall cells, {started.ElapsedMilliseconds} ms; world germs: " + (ColonyWorldGerms.Supported ? "owner" : "legacy (" + ColonyWorldGerms.ConfigureFailure + ")") + ".");
             }
             catch (Exception error)
             {
                 StartFailure = error.Message;
                 Debug.LogWarning("[Mixed Atmospheres] Colony owner did not start; native physics remains: " + error.Message);
+                ColonyNotices.Show("Mixed Atmospheres inactive", "Mixed Atmospheres could not take over this colony's gases and liquids (" + error.Message +
+                    "). The colony keeps ONI's own fluid simulation.");
             }
         }
 
@@ -249,6 +267,7 @@ namespace MixedAtmospheres.Oni
             config = saved; materials = catalogue;
             x0 = (int)config.OffsetX; y0 = (int)config.OffsetY; width = (int)config.Width; height = (int)config.Height;
             publicationCells=ColonyPublicationMap.Create(Grid.WidthInCells,Grid.HeightInCells,x0,y0,width,height);
+            ColonyWorldGerms.Configure();
             var output = OniNativeColony.Status.Empty;
             OniNativeColony.Check(OniNativeColony.Restore(ref config, materials, (uint)materials.Length, image, (uint)image.Length, ref output));
             status = output; views = new OniNativeColony.CellView[width * height]; considered = true; Active = true; ColonyPacingDriver.Ensure(); ConfigurePresentation();
@@ -264,7 +283,7 @@ namespace MixedAtmospheres.Oni
             if (message != PrepareGameData || pointer == IntPtr.Zero || !Available) return pointer;
             var source = (Sim.GameDataUpdate*)pointer;
             ColonyActors.Observe(source);
-            if (!Active && ClusterManager.Instance != null && ColonyOwnerPersistence.TakePending() is var (saved, image)) ColonyOwnerPersistence.RestoreOwner(saved, image);
+            if (!Active && ClusterManager.Instance != null && ColonyOwnerPersistence.TakePending() is var (saved, image)) { restoreAttempted = true; ColonyOwnerPersistence.RestoreOwner(saved, image); }
             if (!Active) { TryStart(source); if (!Active) return pointer; }
             var started = System.Diagnostics.Stopwatch.GetTimestamp();
             var lapStarted = started;
@@ -298,6 +317,8 @@ namespace MixedAtmospheres.Oni
             {
                 loggedFault = status.Error;
                 Debug.LogError("[Mixed Atmospheres] Colony owner faulted; fluids are frozen: " + status.Error);
+                ColonyNotices.Show("Mixed Atmospheres stopped", "The gas and liquid simulation stopped: " + status.Error +
+                    "\n\nGases and liquids are frozen and this colony cannot be saved. Load your last save to continue.");
             }
             var copy = OwnedGameDataSnapshot.Capture(source, Grid.WidthInCells, Grid.HeightInCells);
             Lap("snapshot");
@@ -470,6 +491,9 @@ namespace MixedAtmospheres.Oni
                         Kind = OniNativeColony.Extract, Radius = Math.Max((uint)data[14], (uint)data[15]), Callback = BinaryPrimitives.ReadInt32LittleEndian(data.Slice(4)),
                         MassKg = BitConverter.Int32BitsToSingle(BinaryPrimitives.ReadInt32LittleEndian(data.Slice(8))) });
                 }, rectAnywhere: true);
+                case ColonyWorldGerms.CellDiseaseModification:
+                    ColonyWorldGerms.Route(length, count, payload, OwnsFluid);
+                    return false;
                 case CellProperties when length == 12:
                 {
                     // An airflow tile (liquid-impermeable, not solid) passes gas
@@ -549,6 +573,7 @@ namespace MixedAtmospheres.Oni
                             continue;
                         }
                         if (!(mass > 0)) continue;
+                        ColonyBalance.WorldOutput(added.idx, mass, BitConverter.Int32BitsToSingle(BinaryPrimitives.ReadInt32LittleEndian(d.Slice(8))));
                         list.Add(WithGerms(new OniNativeColony.Transfer { PublicCell = (uint)BinaryPrimitives.ReadInt32LittleEndian(d),
                             NativeIndex = BinaryPrimitives.ReadUInt16LittleEndian(d.Slice(20)), Kind = OniNativeColony.Inject, Callback = -1, MassKg = mass,
                             TemperatureK = BitConverter.Int32BitsToSingle(BinaryPrimitives.ReadInt32LittleEndian(d.Slice(8))) }, d));

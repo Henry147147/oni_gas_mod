@@ -714,7 +714,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `gas-generator` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `gas-generator`, `coal-generator` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "callsite/08d9059f5b5d1735f8b9",
@@ -903,9 +903,11 @@
       "implementation": [
         "managed/MixedAtmospheres.Oni/ColonyOwner.cs",
         "native/src/oni_colony.cpp",
-        "native/src/oni_backend.cpp"
+        "native/src/oni_backend.cpp",
+        "native/src/oni_world_biology.cpp",
+        "managed/MixedAtmospheres.Oni/ColonyWorldGerms.cs"
       ],
-      "playtest_check": "in-game scenarios `germs` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `germs`, `germ-oracle`, `germ-exposure` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "callsite/139e2f396229f03ead6b",
@@ -1012,7 +1014,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `deoxidizer`, `life-support` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `deoxidizer`, `life-support`, `skimmer`, `terrarium`, `deodorizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "callsite/1be4f940a90391608a7f",
@@ -1032,9 +1034,11 @@
       "implementation": [
         "managed/MixedAtmospheres.Oni/ColonyOwner.cs",
         "native/src/oni_colony.cpp",
-        "native/src/oni_backend.cpp"
+        "native/src/oni_backend.cpp",
+        "native/src/oni_world_biology.cpp",
+        "managed/MixedAtmospheres.Oni/ColonyWorldGerms.cs"
       ],
-      "playtest_check": "in-game scenarios `germs` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `germs`, `germ-oracle`, `germ-exposure` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "callsite/1ccb0deffa4f37a205ef",
@@ -1139,7 +1143,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `deoxidizer`, `life-support` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `deoxidizer`, `life-support`, `skimmer`, `terrarium`, `deodorizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "callsite/238b50e1e389b21f5077",
@@ -1382,7 +1386,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `polymer-press` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `polymer-press`, `rust-deoxidizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "callsite/30fff1b11b6eb07c97e5",
@@ -1630,7 +1634,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `deoxidizer`, `life-support` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `deoxidizer`, `life-support`, `skimmer`, `terrarium`, `deodorizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "callsite/3cebadcb01098546c606",
@@ -1714,7 +1718,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `deoxidizer`, `life-support` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `deoxidizer`, `life-support`, `skimmer`, `terrarium`, `deodorizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "callsite/3ff08d87001ea0cc7bf3",
@@ -2023,9 +2027,11 @@
       "implementation": [
         "managed/MixedAtmospheres.Oni/ColonyOwner.cs",
         "native/src/oni_colony.cpp",
-        "native/src/oni_backend.cpp"
+        "native/src/oni_backend.cpp",
+        "native/src/oni_world_biology.cpp",
+        "managed/MixedAtmospheres.Oni/ColonyWorldGerms.cs"
       ],
-      "playtest_check": "in-game scenarios `germs` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `germs`, `germ-oracle`, `germ-exposure` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "callsite/4defcf405bae5153b990",
@@ -2553,7 +2559,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `deoxidizer`, `life-support` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `deoxidizer`, `life-support`, `skimmer`, `terrarium`, `deodorizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "callsite/7441cf0a556aba07e125",
@@ -2659,7 +2665,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `deoxidizer`, `life-support` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `deoxidizer`, `life-support`, `skimmer`, `terrarium`, `deodorizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "callsite/76851bef0c468790e373",
@@ -2808,7 +2814,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `deoxidizer`, `life-support` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `deoxidizer`, `life-support`, `skimmer`, `terrarium`, `deodorizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "callsite/814826ad98d679afcb68",
@@ -3052,7 +3058,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `deoxidizer`, `life-support` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `deoxidizer`, `life-support`, `skimmer`, `terrarium`, `deodorizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "callsite/8991c2406b4f1d3b8a7e",
@@ -3072,9 +3078,11 @@
       "implementation": [
         "managed/MixedAtmospheres.Oni/ColonyOwner.cs",
         "native/src/oni_colony.cpp",
-        "native/src/oni_backend.cpp"
+        "native/src/oni_backend.cpp",
+        "native/src/oni_world_biology.cpp",
+        "managed/MixedAtmospheres.Oni/ColonyWorldGerms.cs"
       ],
-      "playtest_check": "in-game scenarios `germs` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `germs`, `germ-oracle`, `germ-exposure` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "callsite/89abd6a97c817c1fdfca",
@@ -3355,7 +3363,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `gas-generator` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `gas-generator`, `coal-generator` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "callsite/94ac6f198a9debf7e749",
@@ -3502,9 +3510,11 @@
       "implementation": [
         "managed/MixedAtmospheres.Oni/ColonyOwner.cs",
         "native/src/oni_colony.cpp",
-        "native/src/oni_backend.cpp"
+        "native/src/oni_backend.cpp",
+        "native/src/oni_world_biology.cpp",
+        "managed/MixedAtmospheres.Oni/ColonyWorldGerms.cs"
       ],
-      "playtest_check": "in-game scenarios `germs` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `germs`, `germ-oracle`, `germ-exposure` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "callsite/9d0ee5e8541215ee43bf",
@@ -3568,7 +3578,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `gas-generator` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `gas-generator`, `coal-generator` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "callsite/9fd83982d4f66bfbf2e7",
@@ -3611,7 +3621,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `deoxidizer`, `life-support` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `deoxidizer`, `life-support`, `skimmer`, `terrarium`, `deodorizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "callsite/a445aef4d78a784df4be",
@@ -3633,7 +3643,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `gas-generator` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `gas-generator`, `coal-generator` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "callsite/a6b703e5af17dea0adfd",
@@ -3801,7 +3811,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `breathing` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `breathing`, `hazards`, `germ-exposure` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "callsite/acea2cdd9abf5edf4a35",
@@ -3823,7 +3833,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `deoxidizer`, `life-support` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `deoxidizer`, `life-support`, `skimmer`, `terrarium`, `deodorizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "callsite/acfd66f3cfbd39b9558a",
@@ -3962,7 +3972,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `breathing` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `breathing`, `hazards`, `germ-exposure` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "callsite/b2d9b0cc7fbcbff47197",
@@ -4088,9 +4098,11 @@
       "implementation": [
         "managed/MixedAtmospheres.Oni/ColonyOwner.cs",
         "native/src/oni_colony.cpp",
-        "native/src/oni_backend.cpp"
+        "native/src/oni_backend.cpp",
+        "native/src/oni_world_biology.cpp",
+        "managed/MixedAtmospheres.Oni/ColonyWorldGerms.cs"
       ],
-      "playtest_check": "in-game scenarios `germs` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `germs`, `germ-oracle`, `germ-exposure` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "callsite/b817082c91baf2d90aef",
@@ -4237,7 +4249,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `breathing` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `breathing`, `hazards`, `germ-exposure` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "callsite/bfeb5a8a4796e4d3950a",
@@ -4281,7 +4293,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `deoxidizer`, `life-support` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `deoxidizer`, `life-support`, `skimmer`, `terrarium`, `deodorizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "callsite/c27d61af412fdc0ede2b",
@@ -4301,9 +4313,11 @@
       "implementation": [
         "managed/MixedAtmospheres.Oni/ColonyOwner.cs",
         "native/src/oni_colony.cpp",
-        "native/src/oni_backend.cpp"
+        "native/src/oni_backend.cpp",
+        "native/src/oni_world_biology.cpp",
+        "managed/MixedAtmospheres.Oni/ColonyWorldGerms.cs"
       ],
-      "playtest_check": "in-game scenarios `germs` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `germs`, `germ-oracle`, `germ-exposure` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "callsite/c2fd34d4b97b3c5b57cf",
@@ -4429,9 +4443,11 @@
       "implementation": [
         "managed/MixedAtmospheres.Oni/ColonyOwner.cs",
         "native/src/oni_colony.cpp",
-        "native/src/oni_backend.cpp"
+        "native/src/oni_backend.cpp",
+        "native/src/oni_world_biology.cpp",
+        "managed/MixedAtmospheres.Oni/ColonyWorldGerms.cs"
       ],
-      "playtest_check": "in-game scenarios `germs` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `germs`, `germ-oracle`, `germ-exposure` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "callsite/cb0b33f48154a07dc999",
@@ -4452,7 +4468,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `breathing` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `breathing`, `hazards`, `germ-exposure` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "callsite/cc6081b6872f256804ca",
@@ -4537,7 +4553,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `breathing` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `breathing`, `hazards`, `germ-exposure` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "callsite/cf97df7443eb91b7abb2",
@@ -4558,7 +4574,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `breathing` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `breathing`, `hazards`, `germ-exposure` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "callsite/d3559abcdf01f6c06e55",
@@ -4600,7 +4616,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `breathing` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `breathing`, `hazards`, `germ-exposure` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "callsite/d5f9dec7a4048a1ac6d3",
@@ -4984,7 +5000,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `breathing` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `breathing`, `hazards`, `germ-exposure` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "callsite/f5e7e8fb01c0718f06e9",
@@ -5025,9 +5041,11 @@
       "implementation": [
         "managed/MixedAtmospheres.Oni/ColonyOwner.cs",
         "native/src/oni_colony.cpp",
-        "native/src/oni_backend.cpp"
+        "native/src/oni_backend.cpp",
+        "native/src/oni_world_biology.cpp",
+        "managed/MixedAtmospheres.Oni/ColonyWorldGerms.cs"
       ],
-      "playtest_check": "in-game scenarios `germs` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `germs`, `germ-oracle`, `germ-exposure` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "callsite/f7d6226098a0012ad545",
@@ -5084,7 +5102,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `breathing` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `breathing`, `hazards`, `germ-exposure` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "converter/AdvancedResearchCenter/0/22",
@@ -5103,7 +5121,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `deoxidizer`, `life-support` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `deoxidizer`, `life-support`, `skimmer`, `terrarium`, `deodorizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "converter/AirFilter/0/22",
@@ -5122,7 +5140,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `deoxidizer`, `life-support` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `deoxidizer`, `life-support`, `skimmer`, `terrarium`, `deodorizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "converter/AlgaeDistillery/0/23",
@@ -5141,7 +5159,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `deoxidizer`, `life-support` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `deoxidizer`, `life-support`, `skimmer`, `terrarium`, `deodorizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "converter/AlgaeHabitat/0/25",
@@ -5160,7 +5178,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `deoxidizer`, `life-support` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `deoxidizer`, `life-support`, `skimmer`, `terrarium`, `deodorizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "converter/AlgaeHabitat/0/26",
@@ -5179,7 +5197,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `deoxidizer`, `life-support` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `deoxidizer`, `life-support`, `skimmer`, `terrarium`, `deodorizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "converter/AtomicGarden/0/24",
@@ -5198,7 +5216,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `deoxidizer`, `life-support` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `deoxidizer`, `life-support`, `skimmer`, `terrarium`, `deodorizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "converter/CO2Scrubber/0/22",
@@ -5217,7 +5235,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `deoxidizer`, `life-support` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `deoxidizer`, `life-support`, `skimmer`, `terrarium`, `deodorizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "converter/Compost/0/22",
@@ -5236,7 +5254,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `deoxidizer`, `life-support` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `deoxidizer`, `life-support`, `skimmer`, `terrarium`, `deodorizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "converter/CosmicResearchCenter/0/22",
@@ -5255,7 +5273,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `deoxidizer`, `life-support` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `deoxidizer`, `life-support`, `skimmer`, `terrarium`, `deodorizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "converter/DLC1CosmicResearchCenter/0/22",
@@ -5287,7 +5305,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `deoxidizer`, `life-support` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `deoxidizer`, `life-support`, `skimmer`, `terrarium`, `deodorizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "converter/Desalinator/0/22",
@@ -5306,7 +5324,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `deoxidizer`, `life-support` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `deoxidizer`, `life-support`, `skimmer`, `terrarium`, `deodorizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "converter/Desalinator/0/23",
@@ -5325,7 +5343,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `deoxidizer`, `life-support` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `deoxidizer`, `life-support`, `skimmer`, `terrarium`, `deodorizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "converter/Electrolyzer/0/22",
@@ -5344,7 +5362,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `deoxidizer`, `life-support` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `deoxidizer`, `life-support`, `skimmer`, `terrarium`, `deodorizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "converter/EthanolDistillery/0/22",
@@ -5363,7 +5381,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `deoxidizer`, `life-support` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `deoxidizer`, `life-support`, `skimmer`, `terrarium`, `deodorizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "converter/FertilizerMaker/0/24",
@@ -5382,7 +5400,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `deoxidizer`, `life-support` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `deoxidizer`, `life-support`, `skimmer`, `terrarium`, `deodorizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "converter/FoodDehydrator/0/27",
@@ -5401,7 +5419,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `deoxidizer`, `life-support` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `deoxidizer`, `life-support`, `skimmer`, `terrarium`, `deodorizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "converter/GourmetCookingStation/0/28",
@@ -5420,7 +5438,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `deoxidizer`, `life-support` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `deoxidizer`, `life-support`, `skimmer`, `terrarium`, `deodorizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "converter/MassiveHeatSink/0/35",
@@ -5439,7 +5457,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `deoxidizer`, `life-support` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `deoxidizer`, `life-support`, `skimmer`, `terrarium`, `deodorizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "converter/MegaBrainTank/0/38",
@@ -5458,7 +5476,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `deoxidizer`, `life-support` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `deoxidizer`, `life-support`, `skimmer`, `terrarium`, `deodorizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "converter/MilkFatSeparator/0/21",
@@ -5477,7 +5495,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `deoxidizer`, `life-support` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `deoxidizer`, `life-support`, `skimmer`, `terrarium`, `deodorizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "converter/MilkFatSeparator/0/22",
@@ -5496,7 +5514,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `deoxidizer`, `life-support` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `deoxidizer`, `life-support`, `skimmer`, `terrarium`, `deodorizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "converter/MineralDeoxidizer/0/21",
@@ -5515,7 +5533,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `deoxidizer`, `life-support` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `deoxidizer`, `life-support`, `skimmer`, `terrarium`, `deodorizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "converter/OilRefinery/0/23",
@@ -5534,7 +5552,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `deoxidizer`, `life-support` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `deoxidizer`, `life-support`, `skimmer`, `terrarium`, `deodorizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "converter/OilWellCap/0/21",
@@ -5553,7 +5571,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `deoxidizer`, `life-support` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `deoxidizer`, `life-support`, `skimmer`, `terrarium`, `deodorizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "converter/Oxyfern/0/31",
@@ -5572,7 +5590,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `deoxidizer`, `life-support` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `deoxidizer`, `life-support`, `skimmer`, `terrarium`, `deodorizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "converter/Oxyfern/0/32",
@@ -5604,7 +5622,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `deoxidizer`, `life-support` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `deoxidizer`, `life-support`, `skimmer`, `terrarium`, `deodorizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "converter/PacuCleaner/0/39",
@@ -5623,7 +5641,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `deoxidizer`, `life-support` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `deoxidizer`, `life-support`, `skimmer`, `terrarium`, `deodorizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "converter/Polymerizer/0/22",
@@ -5642,7 +5660,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `deoxidizer`, `life-support` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `deoxidizer`, `life-support`, `skimmer`, `terrarium`, `deodorizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "converter/RadiationLight/0/22",
@@ -5674,7 +5692,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `deoxidizer`, `life-support` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `deoxidizer`, `life-support`, `skimmer`, `terrarium`, `deodorizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "converter/RustDeoxidizer/0/23",
@@ -5693,7 +5711,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `deoxidizer`, `life-support` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `deoxidizer`, `life-support`, `skimmer`, `terrarium`, `deodorizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "converter/Shower/0/22",
@@ -5712,7 +5730,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `deoxidizer`, `life-support` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `deoxidizer`, `life-support`, `skimmer`, `terrarium`, `deodorizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "converter/SublimationStation/0/21",
@@ -5744,7 +5762,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `deoxidizer`, `life-support` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `deoxidizer`, `life-support`, `skimmer`, `terrarium`, `deodorizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "import/ConduitTemperatureManager.ConduitTemperatureManager_Add",
@@ -10258,9 +10276,11 @@
       "implementation": [
         "managed/MixedAtmospheres.Oni/ColonyOwner.cs",
         "native/src/oni_colony.cpp",
-        "native/src/oni_backend.cpp"
+        "native/src/oni_backend.cpp",
+        "native/src/oni_world_biology.cpp",
+        "managed/MixedAtmospheres.Oni/ColonyWorldGerms.cs"
       ],
-      "playtest_check": "in-game scenarios `germs` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `germs`, `germ-oracle`, `germ-exposure` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "message/AddDiseaseEmitter",
@@ -10278,9 +10298,11 @@
       "implementation": [
         "managed/MixedAtmospheres.Oni/ColonyOwner.cs",
         "native/src/oni_colony.cpp",
-        "native/src/oni_backend.cpp"
+        "native/src/oni_backend.cpp",
+        "native/src/oni_world_biology.cpp",
+        "managed/MixedAtmospheres.Oni/ColonyWorldGerms.cs"
       ],
-      "playtest_check": "in-game scenarios `germs` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `germs`, `germ-oracle`, `germ-exposure` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "message/AddElementChunk",
@@ -10407,9 +10429,11 @@
       "implementation": [
         "managed/MixedAtmospheres.Oni/ColonyOwner.cs",
         "native/src/oni_colony.cpp",
-        "native/src/oni_backend.cpp"
+        "native/src/oni_backend.cpp",
+        "native/src/oni_world_biology.cpp",
+        "managed/MixedAtmospheres.Oni/ColonyWorldGerms.cs"
       ],
-      "playtest_check": "in-game scenarios `germs` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `germs`, `germ-oracle`, `germ-exposure` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "message/CellRadiationModification",
@@ -10479,9 +10503,11 @@
       "implementation": [
         "managed/MixedAtmospheres.Oni/ColonyOwner.cs",
         "native/src/oni_colony.cpp",
-        "native/src/oni_backend.cpp"
+        "native/src/oni_backend.cpp",
+        "native/src/oni_world_biology.cpp",
+        "managed/MixedAtmospheres.Oni/ColonyWorldGerms.cs"
       ],
-      "playtest_check": "in-game scenarios `germs` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `germs`, `germ-oracle`, `germ-exposure` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "message/DefineWorldOffsets",
@@ -10537,9 +10563,11 @@
       "implementation": [
         "managed/MixedAtmospheres.Oni/ColonyOwner.cs",
         "native/src/oni_colony.cpp",
-        "native/src/oni_backend.cpp"
+        "native/src/oni_backend.cpp",
+        "native/src/oni_world_biology.cpp",
+        "managed/MixedAtmospheres.Oni/ColonyWorldGerms.cs"
       ],
-      "playtest_check": "in-game scenarios `germs` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `germs`, `germ-oracle`, `germ-exposure` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "message/Elements_CreateInteractions",
@@ -10784,9 +10812,11 @@
       "implementation": [
         "managed/MixedAtmospheres.Oni/ColonyOwner.cs",
         "native/src/oni_colony.cpp",
-        "native/src/oni_backend.cpp"
+        "native/src/oni_backend.cpp",
+        "native/src/oni_world_biology.cpp",
+        "managed/MixedAtmospheres.Oni/ColonyWorldGerms.cs"
       ],
-      "playtest_check": "in-game scenarios `germs` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `germs`, `germ-oracle`, `germ-exposure` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "message/ModifyDiseaseEmitter",
@@ -10804,9 +10834,11 @@
       "implementation": [
         "managed/MixedAtmospheres.Oni/ColonyOwner.cs",
         "native/src/oni_colony.cpp",
-        "native/src/oni_backend.cpp"
+        "native/src/oni_backend.cpp",
+        "native/src/oni_world_biology.cpp",
+        "managed/MixedAtmospheres.Oni/ColonyWorldGerms.cs"
       ],
-      "playtest_check": "in-game scenarios `germs` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `germs`, `germ-oracle`, `germ-exposure` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "message/ModifyElementChunkEnergy",
@@ -10999,9 +11031,11 @@
       "implementation": [
         "managed/MixedAtmospheres.Oni/ColonyOwner.cs",
         "native/src/oni_colony.cpp",
-        "native/src/oni_backend.cpp"
+        "native/src/oni_backend.cpp",
+        "native/src/oni_world_biology.cpp",
+        "managed/MixedAtmospheres.Oni/ColonyWorldGerms.cs"
       ],
-      "playtest_check": "in-game scenarios `germs` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `germs`, `germ-oracle`, `germ-exposure` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "message/RemoveDiseaseEmitter",
@@ -11019,9 +11053,11 @@
       "implementation": [
         "managed/MixedAtmospheres.Oni/ColonyOwner.cs",
         "native/src/oni_colony.cpp",
-        "native/src/oni_backend.cpp"
+        "native/src/oni_backend.cpp",
+        "native/src/oni_world_biology.cpp",
+        "managed/MixedAtmospheres.Oni/ColonyWorldGerms.cs"
       ],
-      "playtest_check": "in-game scenarios `germs` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `germs`, `germ-oracle`, `germ-exposure` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "message/RemoveElementChunk",
@@ -12767,7 +12803,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `deoxidizer`, `life-support` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `deoxidizer`, `life-support`, `skimmer`, `terrarium`, `deodorizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "prefab/AdvancedResearchCenterPreview/0",
@@ -13144,7 +13180,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `deoxidizer`, `life-support` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `deoxidizer`, `life-support`, `skimmer`, `terrarium`, `deodorizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "prefab/AlgaeHabitatPreview/0",
@@ -13717,7 +13753,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `mask-station` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `mask-station`, `suit` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "prefab/AtomicGarden/0",
@@ -16862,7 +16898,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `deoxidizer`, `life-support` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `deoxidizer`, `life-support`, `skimmer`, `terrarium`, `deodorizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "prefab/CompostBasicFabricMaterialPlantSeed/0",
@@ -18421,7 +18457,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `deoxidizer`, `life-support` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `deoxidizer`, `life-support`, `skimmer`, `terrarium`, `deodorizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "prefab/CosmicResearchCenterPreview/0",
@@ -20029,7 +20065,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `deoxidizer`, `life-support` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `deoxidizer`, `life-support`, `skimmer`, `terrarium`, `deodorizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "prefab/DevLifeSupportPreview/0",
@@ -21139,7 +21175,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `electrolysis` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `electrolysis`, `electrolyzer-blocked` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "prefab/ElectrolyzerPreview/0",
@@ -24778,7 +24814,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `gas-generator` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `gas-generator`, `coal-generator` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "prefab/GeneratorPreview/0",
@@ -28497,7 +28533,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `mask-station` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `mask-station`, `suit` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "prefab/JetSuitMarkerPreview/0",
@@ -28551,7 +28587,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `mask-station` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `mask-station`, `suit` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "prefab/Juicer/0",
@@ -30405,7 +30441,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `deoxidizer`, `life-support` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `deoxidizer`, `life-support`, `skimmer`, `terrarium`, `deodorizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "prefab/LiquidCooledFanPreview/0",
@@ -33467,7 +33503,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `gas-generator` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `gas-generator`, `coal-generator` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "prefab/ManualGeneratorPreview/0",
@@ -34650,7 +34686,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `electrolysis` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `electrolysis`, `electrolyzer-blocked` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "prefab/MineralDeoxidizerPreview/0",
@@ -34722,7 +34758,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `breathing` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `breathing`, `hazards`, `germ-exposure` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "prefab/MinionAssignablesProxy/0",
@@ -34758,7 +34794,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `breathing` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `breathing`, `hazards`, `germ-exposure` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "prefab/MinionUIPortrait/0",
@@ -37684,7 +37720,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `mask-station` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `mask-station`, `suit` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "prefab/OxygenMaskMarkerPreview/0",
@@ -37739,7 +37775,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `deoxidizer`, `life-support` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `deoxidizer`, `life-support`, `skimmer`, `terrarium`, `deodorizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "prefab/OxygenMaskStationPreview/0",
@@ -37793,7 +37829,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `mask-station` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `mask-station`, `suit` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "prefab/OxyliteComet/0",
@@ -41193,7 +41229,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `deoxidizer`, `life-support` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `deoxidizer`, `life-support`, `skimmer`, `terrarium`, `deodorizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "prefab/ResearchCenterPreview/0",
@@ -42203,7 +42239,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `deoxidizer`, `life-support` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `deoxidizer`, `life-support`, `skimmer`, `terrarium`, `deodorizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "prefab/RustDeoxidizerPreview/0",
@@ -45358,7 +45394,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `gas-generator` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `gas-generator`, `coal-generator` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "prefab/SteamTurbine2/0",
@@ -45924,7 +45960,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `mask-station` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `mask-station`, `suit` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "prefab/SuitMarkerPreview/0",
@@ -47571,7 +47607,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `deoxidizer`, `life-support` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `deoxidizer`, `life-support`, `skimmer`, `terrarium`, `deodorizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "prefab/VerticalWindTunnelPreview/0",
@@ -48674,7 +48710,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `gas-generator` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `gas-generator`, `coal-generator` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "prefab/WoodGasGeneratorPreview/0",
@@ -50027,7 +50063,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `polymer-press` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `polymer-press`, `rust-deoxidizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "recipe/0441fe5c2787f820a06a4b04/1",
@@ -50046,7 +50082,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `polymer-press` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `polymer-press`, `rust-deoxidizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "recipe/066219323bdd6688c2f5e6d5/0",
@@ -50191,7 +50227,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `polymer-press` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `polymer-press`, `rust-deoxidizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "recipe/0cf78622aa2769093a50a24c/0",
@@ -50210,7 +50246,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `polymer-press` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `polymer-press`, `rust-deoxidizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "recipe/0d00fc134b48a7d34f548963/0",
@@ -50229,7 +50265,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `polymer-press` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `polymer-press`, `rust-deoxidizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "recipe/0d00fc134b48a7d34f548963/1",
@@ -50248,7 +50284,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `polymer-press` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `polymer-press`, `rust-deoxidizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "recipe/0d5f9b49b335b97260d04492/0",
@@ -50285,7 +50321,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `polymer-press` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `polymer-press`, `rust-deoxidizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "recipe/0ec81de57a8594e3fbea1140/0",
@@ -50304,7 +50340,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `polymer-press` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `polymer-press`, `rust-deoxidizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "recipe/0ecdcb1104fec9cccd403a15/0",
@@ -50341,7 +50377,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `polymer-press` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `polymer-press`, `rust-deoxidizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "recipe/1019960f6e7716b1cbc02ae6/0",
@@ -50373,7 +50409,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `polymer-press` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `polymer-press`, `rust-deoxidizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "recipe/1093c0b6fcb2b1530f32a162/1",
@@ -50392,7 +50428,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `polymer-press` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `polymer-press`, `rust-deoxidizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "recipe/113bfff24fbbe5278701a46c/0",
@@ -50411,7 +50447,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `polymer-press` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `polymer-press`, `rust-deoxidizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "recipe/116173bcdf3ef69bc9022962/0",
@@ -50502,7 +50538,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `polymer-press` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `polymer-press`, `rust-deoxidizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "recipe/18906b88b5a9e6bbf025d017/0",
@@ -50557,7 +50593,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `polymer-press` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `polymer-press`, `rust-deoxidizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "recipe/1aa355a3a4630970743f165c/0",
@@ -50648,7 +50684,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `polymer-press` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `polymer-press`, `rust-deoxidizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "recipe/1eb4e43e25e48dd06e097655/1",
@@ -50667,7 +50703,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `polymer-press` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `polymer-press`, `rust-deoxidizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "recipe/1f2ae90705508f27505afc84/0",
@@ -50704,7 +50740,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `polymer-press` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `polymer-press`, `rust-deoxidizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "recipe/1f78c5fb8a16f32b89c2e3bf/1",
@@ -50723,7 +50759,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `polymer-press` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `polymer-press`, `rust-deoxidizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "recipe/1fd129b929a5bf77b0d6436b/0",
@@ -50791,7 +50827,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `polymer-press` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `polymer-press`, `rust-deoxidizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "recipe/2216f8f271523bd31d898616/1",
@@ -50810,7 +50846,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `polymer-press` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `polymer-press`, `rust-deoxidizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "recipe/22a7875ceb2467a81877425f/0",
@@ -50896,7 +50932,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `polymer-press` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `polymer-press`, `rust-deoxidizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "recipe/29a3d8346b94d22a1f3efaf0/0",
@@ -50915,7 +50951,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `polymer-press` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `polymer-press`, `rust-deoxidizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "recipe/2a666cf3cba0de178aa37849/0",
@@ -50952,7 +50988,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `polymer-press` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `polymer-press`, `rust-deoxidizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "recipe/2b1487e0efa2f7138c4ace83/1",
@@ -50971,7 +51007,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `polymer-press` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `polymer-press`, `rust-deoxidizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "recipe/2b1dc256faf855ba929d4a96/0",
@@ -51008,7 +51044,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `polymer-press` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `polymer-press`, `rust-deoxidizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "recipe/2ddb0de89b39b8dbc32eafd6/0",
@@ -51076,7 +51112,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `polymer-press` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `polymer-press`, `rust-deoxidizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "recipe/36b1f69fe091b6522873f0db/0",
@@ -51095,7 +51131,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `polymer-press` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `polymer-press`, `rust-deoxidizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "recipe/3870979ce24eae751dcbf5f9/0",
@@ -51132,7 +51168,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `polymer-press` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `polymer-press`, `rust-deoxidizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "recipe/3c1059b6b320f1271720cf26/0",
@@ -51169,7 +51205,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `polymer-press` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `polymer-press`, `rust-deoxidizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "recipe/3ea9d1bef4e2b71f5ac5575c/0",
@@ -51255,7 +51291,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `polymer-press` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `polymer-press`, `rust-deoxidizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "recipe/41e0a25ff4950163338c185e/0",
@@ -51377,7 +51413,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `polymer-press` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `polymer-press`, `rust-deoxidizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "recipe/45777182d7d0d274592fc999/0",
@@ -51450,7 +51486,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `polymer-press` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `polymer-press`, `rust-deoxidizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "recipe/46ed3d38358879a3157322a2/1",
@@ -51469,7 +51505,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `polymer-press` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `polymer-press`, `rust-deoxidizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "recipe/47ca7fc850b6e00ce98fffc7/0",
@@ -51488,7 +51524,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `polymer-press` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `polymer-press`, `rust-deoxidizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "recipe/47ca7fc850b6e00ce98fffc7/1",
@@ -51507,7 +51543,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `polymer-press` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `polymer-press`, `rust-deoxidizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "recipe/47ea0fcb1ff3774aea86c86d/0",
@@ -51526,7 +51562,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `polymer-press` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `polymer-press`, `rust-deoxidizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "recipe/47ea0fcb1ff3774aea86c86d/1",
@@ -51545,7 +51581,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `polymer-press` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `polymer-press`, `rust-deoxidizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "recipe/483a6186672aebca06b837e2/0",
@@ -51631,7 +51667,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `polymer-press` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `polymer-press`, `rust-deoxidizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "recipe/4b3cb6e15a074df7a1358c33/1",
@@ -51650,7 +51686,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `polymer-press` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `polymer-press`, `rust-deoxidizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "recipe/4b95e3e6e7530e5fe1eb7367/0",
@@ -51723,7 +51759,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `polymer-press` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `polymer-press`, `rust-deoxidizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "recipe/5289cfd10327e874a8c08873/0",
@@ -51760,7 +51796,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `polymer-press` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `polymer-press`, `rust-deoxidizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "recipe/57bc8d3b07db28332cb6d5c7/0",
@@ -51815,7 +51851,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `polymer-press` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `polymer-press`, `rust-deoxidizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "recipe/5b5566f06fb8f219a8761fe6/0",
@@ -51870,7 +51906,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `polymer-press` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `polymer-press`, `rust-deoxidizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "recipe/5d05379f4ad43d717f2841de/0",
@@ -51925,7 +51961,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `polymer-press` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `polymer-press`, `rust-deoxidizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "recipe/5f9eb6dae22d8f46db688313/0",
@@ -51944,7 +51980,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `polymer-press` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `polymer-press`, `rust-deoxidizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "recipe/5ff095f726dfdc7a142b750d/0",
@@ -51963,7 +51999,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `polymer-press` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `polymer-press`, `rust-deoxidizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "recipe/5ff5dfaa8e3da9546afa2f66/0",
@@ -52018,7 +52054,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `polymer-press` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `polymer-press`, `rust-deoxidizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "recipe/671bd1cfec450d64838533d7/0",
@@ -52037,7 +52073,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `polymer-press` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `polymer-press`, `rust-deoxidizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "recipe/68a9b40fe564a0b5078a4a92/0",
@@ -52056,7 +52092,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `polymer-press` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `polymer-press`, `rust-deoxidizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "recipe/68a9b40fe564a0b5078a4a92/1",
@@ -52075,7 +52111,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `polymer-press` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `polymer-press`, `rust-deoxidizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "recipe/68b051ae1318dcd85314876c/0",
@@ -52148,7 +52184,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `polymer-press` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `polymer-press`, `rust-deoxidizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "recipe/6be7f172b314d77453911144/0",
@@ -52252,7 +52288,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `polymer-press` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `polymer-press`, `rust-deoxidizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "recipe/6ddc5be3f55c42c6ff470d04/1",
@@ -52271,7 +52307,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `polymer-press` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `polymer-press`, `rust-deoxidizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "recipe/6fca3e79e4db624c85b4708d/0",
@@ -52290,7 +52326,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `polymer-press` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `polymer-press`, `rust-deoxidizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "recipe/728ca8d19aa2085a7959acfd/0",
@@ -52309,7 +52345,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `polymer-press` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `polymer-press`, `rust-deoxidizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "recipe/728ca8d19aa2085a7959acfd/1",
@@ -52328,7 +52364,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `polymer-press` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `polymer-press`, `rust-deoxidizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "recipe/73859b5cbc6bfd24bf98eba0/0",
@@ -52396,7 +52432,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `polymer-press` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `polymer-press`, `rust-deoxidizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "recipe/764e1ffcf37d43c7ad4205dc/0",
@@ -52415,7 +52451,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `polymer-press` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `polymer-press`, `rust-deoxidizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "recipe/77dd75f8dd9cea7459395d29/0",
@@ -52434,7 +52470,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `polymer-press` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `polymer-press`, `rust-deoxidizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "recipe/782fa0c349f3e9abbd96f786/0",
@@ -52543,7 +52579,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `polymer-press` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `polymer-press`, `rust-deoxidizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "recipe/7efe29d7150bbdcd86d3d182/1",
@@ -52562,7 +52598,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `polymer-press` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `polymer-press`, `rust-deoxidizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "recipe/7f97e1eb4b6453b6560cf0f0/0",
@@ -52617,7 +52653,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `polymer-press` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `polymer-press`, `rust-deoxidizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "recipe/86412f65494ec9c4065d6952/0",
@@ -52654,7 +52690,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `polymer-press` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `polymer-press`, `rust-deoxidizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "recipe/87ef732ba8feb269bf189922/0",
@@ -52691,7 +52727,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `polymer-press` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `polymer-press`, `rust-deoxidizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "recipe/8a73b20b76f019ba0cdb1398/0",
@@ -52710,7 +52746,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `polymer-press` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `polymer-press`, `rust-deoxidizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "recipe/8b7345593679c25993518863/0",
@@ -53059,7 +53095,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `polymer-press` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `polymer-press`, `rust-deoxidizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "recipe/a316f2e462c069ece9a46594/0",
@@ -53078,7 +53114,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `polymer-press` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `polymer-press`, `rust-deoxidizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "recipe/a316f2e462c069ece9a46594/1",
@@ -53097,7 +53133,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `polymer-press` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `polymer-press`, `rust-deoxidizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "recipe/a3220043a6736004ed2703e4/0",
@@ -53116,7 +53152,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `polymer-press` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `polymer-press`, `rust-deoxidizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "recipe/a3220043a6736004ed2703e4/1",
@@ -53135,7 +53171,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `polymer-press` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `polymer-press`, `rust-deoxidizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "recipe/a3f5cffa6bec59caffc56b27/0",
@@ -53226,7 +53262,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `polymer-press` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `polymer-press`, `rust-deoxidizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "recipe/a8d37ee2ec2957e8acf605c2/1",
@@ -53245,7 +53281,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `polymer-press` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `polymer-press`, `rust-deoxidizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "recipe/a991524872c6f4823be119c1/0",
@@ -53264,7 +53300,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `polymer-press` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `polymer-press`, `rust-deoxidizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "recipe/a991524872c6f4823be119c1/1",
@@ -53283,7 +53319,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `polymer-press` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `polymer-press`, `rust-deoxidizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "recipe/aa97cee3455eb66338bf8325/0",
@@ -53302,7 +53338,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `polymer-press` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `polymer-press`, `rust-deoxidizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "recipe/ab6f5cceca932ef514f0b65d/0",
@@ -53321,7 +53357,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `polymer-press` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `polymer-press`, `rust-deoxidizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "recipe/acf82928e61fbcc5e0dcd805/0",
@@ -53358,7 +53394,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `polymer-press` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `polymer-press`, `rust-deoxidizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "recipe/ae6557ca5572278af5456df2/0",
@@ -53395,7 +53431,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `polymer-press` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `polymer-press`, `rust-deoxidizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "recipe/b0fb23b33a8904b57d9eef54/0",
@@ -53414,7 +53450,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `polymer-press` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `polymer-press`, `rust-deoxidizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "recipe/b1e8a253a9d15a14ff05203e/0",
@@ -53451,7 +53487,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `polymer-press` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `polymer-press`, `rust-deoxidizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "recipe/b33abf6955da2f9472b85e6c/0",
@@ -53470,7 +53506,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `polymer-press` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `polymer-press`, `rust-deoxidizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "recipe/b4c535f41c79f92ec74742eb/0",
@@ -53525,7 +53561,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `polymer-press` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `polymer-press`, `rust-deoxidizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "recipe/b7b8c95e4c36070452a9bbd8/0",
@@ -53593,7 +53629,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `polymer-press` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `polymer-press`, `rust-deoxidizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "recipe/b92f1fba015261ce9ed2d9b8/1",
@@ -53612,7 +53648,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `polymer-press` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `polymer-press`, `rust-deoxidizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "recipe/b9ed545302c6049e14bdd113/0",
@@ -53667,7 +53703,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `polymer-press` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `polymer-press`, `rust-deoxidizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "recipe/bca511134055c6bb425f5f36/0",
@@ -53776,7 +53812,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `polymer-press` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `polymer-press`, `rust-deoxidizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "recipe/c11e05628900a7b22c268bdc/0",
@@ -53795,7 +53831,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `polymer-press` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `polymer-press`, `rust-deoxidizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "recipe/c1693aa1d797ddec90771f98/0",
@@ -53814,7 +53850,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `polymer-press` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `polymer-press`, `rust-deoxidizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "recipe/c2246bdcc437e0801229b5d7/0",
@@ -53833,7 +53869,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `polymer-press` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `polymer-press`, `rust-deoxidizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "recipe/c261f9691111bcf691b3c878/0",
@@ -53888,7 +53924,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `polymer-press` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `polymer-press`, `rust-deoxidizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "recipe/c484e37a08c89b451f113486/0",
@@ -53907,7 +53943,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `polymer-press` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `polymer-press`, `rust-deoxidizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "recipe/c5c358d56557da89dba2fb74/0",
@@ -53980,7 +54016,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `polymer-press` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `polymer-press`, `rust-deoxidizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "recipe/c851bcf6f2026f7c102c2582/0",
@@ -54107,7 +54143,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `polymer-press` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `polymer-press`, `rust-deoxidizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "recipe/d08d2f51e800a11bbee9a2f3/0",
@@ -54188,7 +54224,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `polymer-press` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `polymer-press`, `rust-deoxidizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "recipe/d3274935570cfe3673d88e6c/0",
@@ -54225,7 +54261,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `polymer-press` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `polymer-press`, `rust-deoxidizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "recipe/d33ab064bec1712b234e1410/1",
@@ -54244,7 +54280,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `polymer-press` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `polymer-press`, `rust-deoxidizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "recipe/d57ef1ff052349b119f6f4cb/0",
@@ -54402,7 +54438,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `polymer-press` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `polymer-press`, `rust-deoxidizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "recipe/e19b4faa8fb8a367f8e473be/0",
@@ -54560,7 +54596,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `polymer-press` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `polymer-press`, `rust-deoxidizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "recipe/eb83c7439f8d8050113f44dc/1",
@@ -54579,7 +54615,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `polymer-press` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `polymer-press`, `rust-deoxidizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "recipe/ec6c11cf82984dbdf10d97ea/0",
@@ -54616,7 +54652,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `polymer-press` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `polymer-press`, `rust-deoxidizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "recipe/ed21db71cc879d81253df279/0",
@@ -54635,7 +54671,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `polymer-press` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `polymer-press`, `rust-deoxidizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "recipe/ed21db71cc879d81253df279/1",
@@ -54654,7 +54690,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `polymer-press` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `polymer-press`, `rust-deoxidizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "recipe/ef2812489cc67a5aefb793bc/0",
@@ -54722,7 +54758,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `polymer-press` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `polymer-press`, `rust-deoxidizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "recipe/f58c53b71e7dca7ade7fa9e6/0",
@@ -54759,7 +54795,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `polymer-press` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `polymer-press`, `rust-deoxidizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "recipe/f5cff450ed9d312e6c774241/1",
@@ -54778,7 +54814,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `polymer-press` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `polymer-press`, `rust-deoxidizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "recipe/f5d9da900005c9f0f2dea158/0",
@@ -54797,7 +54833,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `polymer-press` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `polymer-press`, `rust-deoxidizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "recipe/f642f504f3d5e76fd2b3230a/0",
@@ -54834,7 +54870,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `polymer-press` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `polymer-press`, `rust-deoxidizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "recipe/f831577dce7561a49bf8e849/0",
@@ -54884,7 +54920,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `polymer-press` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `polymer-press`, `rust-deoxidizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "recipe/ffed8a6084c21e9b5b153c04/0",
@@ -54903,7 +54939,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `polymer-press` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `polymer-press`, `rust-deoxidizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "snapshot/accumulatedFlow",
@@ -56035,9 +56071,11 @@
       "implementation": [
         "managed/MixedAtmospheres.Oni/ColonyOwner.cs",
         "native/src/oni_colony.cpp",
-        "native/src/oni_backend.cpp"
+        "native/src/oni_backend.cpp",
+        "native/src/oni_world_biology.cpp",
+        "managed/MixedAtmospheres.Oni/ColonyWorldGerms.cs"
       ],
-      "playtest_check": "in-game scenarios `germs` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `germs`, `germ-oracle`, `germ-exposure` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "system/duplicants",
@@ -56055,7 +56093,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `breathing` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `breathing`, `hazards`, `germ-exposure` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "system/electrolysis",
@@ -56074,7 +56112,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `electrolysis` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `electrolysis`, `electrolyzer-blocked` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "system/element-converters",
@@ -56093,7 +56131,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `deoxidizer`, `life-support` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `deoxidizer`, `life-support`, `skimmer`, `terrarium`, `deodorizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "system/element-interactions",
@@ -56203,7 +56241,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `gas-generator` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `gas-generator`, `coal-generator` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "system/geysers",
@@ -56411,7 +56449,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `polymer-press` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `polymer-press`, `rust-deoxidizer` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "system/rockets",
@@ -56518,7 +56556,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `mask-station` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `mask-station`, `suit` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "system/terrain-construction",

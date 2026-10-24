@@ -14,6 +14,10 @@ namespace MixedAtmospheres.Oni
         private static IntPtr coupledReferenceModule;
         private static IntPtr observerModule;
         internal static bool ObserverLoaded => observerModule != IntPtr.Zero;
+        // The package carries the native backend for this platform.
+        internal static bool ObserverAvailable(string modDirectory) =>
+            IntPtr.Size == 8 && (RuntimeInformation.IsOSPlatform(OSPlatform.Linux) ? File.Exists(Path.Combine(modDirectory, "native", "linux-x64", "libmixed_atmospheres_oni.so")) :
+            RuntimeInformation.IsOSPlatform(OSPlatform.Windows) && File.Exists(Path.Combine(modDirectory, "native", "win-x64", "mixed_atmospheres_oni.dll")));
         internal static void LoadObserver(string modDirectory)
         {
             if (observerModule != IntPtr.Zero) return;

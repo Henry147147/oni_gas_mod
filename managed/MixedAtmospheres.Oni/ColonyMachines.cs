@@ -31,6 +31,26 @@ namespace MixedAtmospheres.Oni
             return true;
         }
 
+        // A generator's gas exhaust (coal, natural gas, petroleum, wood) is the
+        // same reservation: with no owned cell near its exhaust it does not
+        // burn, so it takes no fuel and makes no power. Liquid outputs fall as
+        // particles and find their own cell.
+        internal static bool OutputRoom(EnergyGenerator generator)
+        {
+            if (!ColonyOwner.Active || generator.formula.outputs == null) return true;
+            var origin = Grid.PosToCell(generator.transform.GetPosition());
+            foreach (var output in generator.formula.outputs)
+            {
+                if (output.store) continue;
+                var element = ElementLoader.FindElementByHash(output.element);
+                if (element == null || !element.IsGas) continue;
+                var cell = Grid.OffsetCell(origin, output.emitOffset);
+                if (!ColonyOwner.OwnsFluidCell(cell) && Grid.IsValidCell(cell) && !Grid.Solid[cell]) continue; // not the owner's
+                if (!Room(cell, false)) return false;
+            }
+            return true;
+        }
+
         private static bool Room(int origin, bool liquid)
         {
             Grid.CellToXY(origin, out var x0, out var y0);
@@ -61,6 +81,12 @@ namespace MixedAtmospheres.Oni
     internal static class ColonyConverterConvertPatch
     {
         private static bool Prefix(ElementConverter __instance) => ColonyMachines.OutputRoom(__instance);
+    }
+
+    [HarmonyPatch(typeof(EnergyGenerator), "IsConvertible")]
+    internal static class ColonyGeneratorConvertiblePatch
+    {
+        private static void Postfix(EnergyGenerator __instance, ref bool __result) { if (__result) __result = ColonyMachines.OutputRoom(__instance); }
     }
 
     // A wrong element arriving at a machine's input is dumped where ONI would
