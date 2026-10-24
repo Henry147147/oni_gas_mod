@@ -22,6 +22,18 @@ start notes say so. In production a contact that cannot be replayed exactly
 and counted rather than faulting; a biology cell outside the exact rule keeps
 the native projected update. A loaded colony keeps the pipe mode its save
 recorded: a save with a pipe section restores it, one without stays on packets.
+A requested start that fails (a native/managed package mismatch) is logged as
+an error, shown as a failure in the status panel, which always states the
+pipe mode, and fails harness runs; the owner keeps running on packets.
+
+Fixed `mixed-pipe-colony` control (new colony on profile 4 with
+`MA_COLONY_MIXED_PIPES=1`, the prepared base's piped reservoirs and CO2
+scrubbers, 400 frames) passes **10/10 at 401 frames** on `pipes-heat-cd5-v1`:
+164 kg dispensed into owned pipes, 11 kg stored by the scrubbers, 5125
+validated body contacts with none excluded, 402 biology ticks, no stuck
+spill/job, every pipe account exact, owner M/E 8.5e-16/3.3e-15. ONI's
+initial save was refused by the early save guard (no pipe save writer in
+that run). LOW owner mean 236 ms, diagnostic.
 
 ## Machine ports
 

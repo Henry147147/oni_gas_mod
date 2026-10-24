@@ -52,7 +52,8 @@ namespace MixedAtmospheres.Oni
         internal static int BoundPumps=>States.Count;
         internal static long Notifications { get; private set; }
         internal static long Queued { get; private set; }
-        internal static void Reset(){Enabled=false;States.Clear();Requests.Clear();ByOutlet.Clear();delivering=null;writes=0;Notifications=0;Queued=0;MixtureInspection.SetConduitStorageReader(null);}
+        internal static long SkippedNotifications { get; private set; }
+        internal static void Reset(){Enabled=false;States.Clear();Requests.Clear();ByOutlet.Clear();delivering=null;writes=0;Notifications=0;Queued=0;SkippedNotifications=0;MixtureInspection.SetConduitStorageReader(null);}
         internal static bool IsPumpJob(ulong localId)=>Requests.ContainsKey(localId);
         // A destroyed pump's owned storage dumps into the world at its cell,
         // like vanilla DropAll; pending intakes follow when they complete.
@@ -141,6 +142,10 @@ namespace MixedAtmospheres.Oni
                 if(state.Handle==-1)
                     foreach(var entry in (Dictionary<int,ElementConsumer>)Instances.GetValue(null))
                         if(ReferenceEquals(entry.Value,state.Consumer)){state.Handle=entry.Key;break;}
+                // A restored pump whose native registration has not returned
+                // yet keeps the material; only the native statistics event
+                // (accumulator/consumed notice) is skipped and counted.
+                if(state.Handle==-1){SkippedNotifications+=receipts?.Count??0;receipts=null;}
                 foreach(var receipt in receipts??Array.Empty<OniNativeColony.Receipt>())
                 {
                     var info=ColonyActors.Event(in receipt);info.simHandle=state.Handle;
