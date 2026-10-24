@@ -175,6 +175,13 @@ alongside durable port buffers and physical scheduling state.
 
 ## Saved framing
 
+**MACPIP01 schema4** is reserved (2026-10-24), immediately after a fresh fetch
+of `c57532a`, for complete native pipe biology context: captured allocation
+mass/element, cached growth rule, projected culture and residue, including
+empty conduits. Schema3's codec bytes remain readable; missing context cannot
+be reconstructed as exact runtime continuation. Native flow scheduling and
+full cold/menu continuation remain separate requirements before activation.
+
 Format IDs **MACOLP02** and **MACPIP01** were claimed immediately after a
 fresh fetch/rebase of `b36ed23` on 2026-10-23. These are managed payloads;
 they do not change a native MAC checkpoint version or its bytes.

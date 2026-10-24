@@ -114,6 +114,12 @@ current binary has.
 
 ### Version assignment
 
+Version **23 is reserved for game profile5** (2026-10-24), confirmed after
+a fresh fetch of `c57532a`. It retains version22's layout and identifies an
+additional booked trace prune before conduction, with refreshed EOS data after
+removal. Versions20–22 keep their saved arithmetic and bytes. Implementation,
+failed-world replay and clean legacy comparisons precede adoption.
+
 Version **22 is the free-surface game profile** (2026-10-24), allocated
 after fetching `946b6de`. Its bytes follow version21 exactly
 (positive-segment law1 and the two caps at the same offsets); the version
