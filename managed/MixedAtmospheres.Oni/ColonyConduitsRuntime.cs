@@ -32,6 +32,7 @@ namespace MixedAtmospheres.Oni
                 // status panel, and scenarios expecting mixed pipes fail.
                 ColonyConduits.Reset();Failure="Mixed pipes did not start; pipes carry single-element packets: "+error.Message;
                 Debug.LogError("[Mixed Atmospheres] "+Failure);
+                ColonyNotices.Show("Mixed pipes unavailable",Failure+" Reinstall a matching Mixed Atmospheres package.");
             }
         }
         internal static void Start()
