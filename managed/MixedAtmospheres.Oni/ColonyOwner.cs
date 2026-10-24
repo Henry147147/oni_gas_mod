@@ -95,7 +95,7 @@ namespace MixedAtmospheres.Oni
         // Presentation is a reader: its failure leaves the vanilla projection.
         private static void ConfigurePresentation()
         {
-            try { ColonyPresentation.Configure(); }
+            try { ColonyPresentation.Configure(); ColonyBreathingStatus.Install(); }
             catch (Exception error) { Debug.LogWarning("[Mixed Atmospheres] Colony presentation unavailable: " + error.Message); }
         }
 

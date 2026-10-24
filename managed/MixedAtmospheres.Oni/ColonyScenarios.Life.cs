@@ -103,6 +103,8 @@ namespace MixedAtmospheres.Oni
                 var cell = Grid.PosToCell(bare);
                 Record("carbon dioxide is not breathable", breathBare < 95 && !(ColonyOwner.TryReadBreathingCell(cell, out var offered, out var element) && element != SimHashes.Vacuum),
                     $"breath {breathBare:F1}; cell {Grid.Element[cell].id} {Grid.Mass[cell]:G4} kg");
+                var why = ColonyBreathingStatus.Explain("", bare.gameObject);
+                Record("the duplicant is told why the air fails", why.Length > 0, why.Trim());
                 if (suit != null && suited != null) suited.GetEquipment().Unequip(suit.GetComponent<Equippable>());
                 SendVisitorsHome();
                 Finish();

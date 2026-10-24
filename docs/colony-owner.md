@@ -102,7 +102,9 @@ a frame but never holds the game thread. The gas
 renderer, hover, overlays and status display then show the real mixture; each
 species uses the game's element id, name and substance colour, and breathing
 follows the easy-mode rule. A cell whose reading fails validation keeps the
-vanilla projection and is counted.
+vanilla projection and is counted. The cell hover lists every germ identity,
+and a duplicant holding its breath or suffocating is told why the air at its
+head fails (the hover's breathing warnings, `ColonyBreathingStatus.cs`).
 
 ## Native bodies
 
