@@ -199,9 +199,43 @@ internal static unsafe class Program
                 var refused=false;try{ColonyCheckpointMetadata.CompletedFrames(corrupt);}catch(InvalidDataException){refused=true;}Check(refused);
             }
         });
+        Test("sectioned colony payload keeps legacy bytes without sections and refuses malformed sections", () =>
+        {
+            var config=Enumerable.Range(0,56).Select(i=>(byte)i).ToArray();var owner=new byte[]{9,8,7,6,5};
+            var legacy=ColonySavePayload.Encode(config,owner);
+            var expected=System.Text.Encoding.ASCII.GetBytes("MACOLP01").Concat(BitConverter.GetBytes(56)).Concat(config).Concat(owner).ToArray();
+            Check(legacy.SequenceEqual(expected) && ColonySavePayload.Encode(config,owner,new KeyValuePair<uint,byte[]>[0]).SequenceEqual(expected));
+            var old=ColonySavePayload.Decode(legacy);Check(old.Config.SequenceEqual(config) && old.Owner.SequenceEqual(owner) && old.Sections.Count==0);
+            var pipes=new byte[]{1,2,3};var particles=new byte[]{4};
+            var sectioned=ColonySavePayload.Encode(config,owner,new[]{new KeyValuePair<uint,byte[]>(2,particles),new KeyValuePair<uint,byte[]>(1,pipes)});
+            Check(sectioned.AsSpan(0,8).SequenceEqual(System.Text.Encoding.ASCII.GetBytes("MACOLP03")));
+            var parsed=ColonySavePayload.Decode(sectioned);
+            Check(parsed.Owner.SequenceEqual(owner) && parsed.Config.SequenceEqual(config) && parsed.Section(1)!.SequenceEqual(pipes) && parsed.Section(2)!.SequenceEqual(particles));
+            Check(ColonySavePayload.Encode(parsed.Config,parsed.Owner,parsed.Sections).SequenceEqual(sectioned));
+            var single=ColonySavePayload.Encode(config,owner,new[]{new KeyValuePair<uint,byte[]>(2,particles)});
+            Check(ColonySavePayload.Decode(single).Section(1)==null && ColonySavePayload.Decode(single).Section(2)!.SequenceEqual(particles));
+            void Refuse(System.Action action){var refused=false;try{action();}catch(InvalidDataException){refused=true;}catch(NotSupportedException){refused=true;}Check(refused);}
+            Refuse(()=>ColonySavePayload.Encode(config,owner,new[]{new KeyValuePair<uint,byte[]>(3,pipes)}));
+            Refuse(()=>ColonySavePayload.Encode(config,owner,new[]{new KeyValuePair<uint,byte[]>(1,Array.Empty<byte>())}));
+            Refuse(()=>ColonySavePayload.Encode(config,owner,new[]{new KeyValuePair<uint,byte[]>(1,pipes),new KeyValuePair<uint,byte[]>(1,pipes)}));
+            Refuse(()=>ColonySavePayload.Encode(new byte[55],owner));
+            Refuse(()=>ColonySavePayload.Encode(config,Array.Empty<byte>()));
+            var dormant=(byte[])legacy.Clone();dormant[7]=(byte)'2';Refuse(()=>ColonySavePayload.Decode(dormant));
+            Refuse(()=>ColonySavePayload.Decode(sectioned.Concat(new byte[]{0}).ToArray()));
+            for(var cut=1;cut<sectioned.Length-64;cut+=7) Refuse(()=>ColonySavePayload.Decode(sectioned.AsSpan(0,sectioned.Length-cut)));
+            var at=8+4+56+4+owner.Length;
+            byte[] Mutate(int offset,int value){var copy=(byte[])sectioned.Clone();BinaryPrimitives.WriteInt32LittleEndian(copy.AsSpan(offset),value);return copy;}
+            Refuse(()=>ColonySavePayload.Decode(Mutate(at,0)));                     // no sections
+            Refuse(()=>ColonySavePayload.Decode(Mutate(at,3)));                     // too many sections
+            Refuse(()=>ColonySavePayload.Decode(Mutate(at+4,2)));                   // out of order (2 then 2)
+            Refuse(()=>ColonySavePayload.Decode(Mutate(at+4,5)));                   // unknown tag
+            Refuse(()=>ColonySavePayload.Decode(Mutate(at+8,0)));                   // empty section
+            Refuse(()=>ColonySavePayload.Decode(Mutate(8+4+56,int.MaxValue)));      // owner length
+            Refuse(()=>ColonySavePayload.Decode(Mutate(8,55)));                     // config length
+        });
         Test("restored physical profile reads the saved law and caps through every owner section", () =>
         {
-            byte[] Owner(uint version,uint physicalVersion,uint law,uint pressure,uint heat,bool jobs)
+            byte[] Owner(uint version,uint physicalVersion,uint law,uint pressure,uint heat,bool jobs,double mixing=.5)
             {
                 using var stream=new MemoryStream();using var writer=new BinaryWriter(stream);
                 writer.Write(System.Text.Encoding.ASCII.GetBytes("MACOLN01"));writer.Write(version);writer.Write(new byte[56]);
@@ -221,8 +255,8 @@ internal static unsafe class Program
                     p.Write(System.Text.Encoding.ASCII.GetBytes("MACCLS01"));p.Write(physicalVersion);
                     if(physicalVersion>=20)
                     {
-                        p.Write(3u);p.Write(new byte[3]);p.Write(new byte[8+8+4+4+8+8+8+8+1+8+8+4+8+8+1+8+8]);
-                        if(physicalVersion==21){p.Write(law);p.Write(pressure);p.Write(heat);}
+                        p.Write(3u);p.Write(new byte[3]);p.Write(new byte[8+8+4+4+8+8+8+8+1+8+8+4+8]);p.Write(mixing);p.Write(new byte[1+8+8]);
+                        if(physicalVersion>=21){p.Write(law);p.Write(pressure);p.Write(heat);}
                     }
                     p.Write(new byte[40]);
                 }
@@ -233,10 +267,16 @@ internal static unsafe class Program
                 foreach(var jobs in new[]{false,true})
                 {
                     var core21=Owner(version,21,1,400,800,jobs);
-                    Check(ColonyCheckpointMetadata.Profile(core21).Equals(new ColonyPhysicalProfile(version,21,1,400,800)));
-                    Check(ColonyCheckpointMetadata.CompletedFrames(core21)==77);
-                    Check(ColonyCheckpointMetadata.Profile(Owner(version,21,1,65536,7,jobs)).Equals(new ColonyPhysicalProfile(version,21,1,65536,7)));
-                    Check(ColonyCheckpointMetadata.Profile(Owner(version,20,9,9,9,jobs)).Equals(new ColonyPhysicalProfile(version,20,0,200,200)));
+                    Check(ColonyCheckpointMetadata.Profile(core21).Equals(new ColonyPhysicalProfile(version,21,1,400,800,.5)));
+                    Check(ColonyCheckpointMetadata.Profile(Owner(version,22,1,400,800,jobs,8)).Equals(new ColonyPhysicalProfile(version,22,1,400,800,8)));
+                    Check(!ColonyCheckpointMetadata.Profile(Owner(version,22,1,400,800,jobs,8)).Equals(new ColonyPhysicalProfile(version,22,1,400,800,.5)));
+                    Check(ColonyCheckpointMetadata.Profile(Owner(version,23,1,400,800,jobs,8)).Equals(new ColonyPhysicalProfile(version,23,0,0,0)));
+                    Check(ColonyCheckpointMetadata.CompletedFrames(core21)==77 && ColonyCheckpointMetadata.OwnerVersion(core21)==version);
+                    var physical=ColonyCheckpointMetadata.PhysicalImage(core21);
+                    Check(physical.Slice(0,8).SequenceEqual(System.Text.Encoding.ASCII.GetBytes("MACCLS01")) &&
+                        core21.AsSpan(core21.Length-64-physical.Length,physical.Length).SequenceEqual(physical));
+                    Check(ColonyCheckpointMetadata.Profile(Owner(version,21,1,65536,7,jobs)).Equals(new ColonyPhysicalProfile(version,21,1,65536,7,.5)));
+                    Check(ColonyCheckpointMetadata.Profile(Owner(version,20,9,9,9,jobs)).Equals(new ColonyPhysicalProfile(version,20,0,200,200,.5)));
                     Check(ColonyCheckpointMetadata.Profile(Owner(version,19,9,9,9,jobs)).Equals(new ColonyPhysicalProfile(version,19,0,0,0)));
                     foreach(var cut in new[]{1,64,65,core21.Length/2})
                     {
@@ -623,6 +663,21 @@ internal static unsafe class Program
             var method=typeof(GameClock).GetMethod("DoAutoSave",BindingFlags.Instance|BindingFlags.NonPublic);
             Check(method!=null && method.ReturnType==typeof(void) && method.GetMethodBody()!=null &&
                 method.GetParameters().Length==1 && method.GetParameters()[0].ParameterType==typeof(int));
+        });
+        Test("owner save barrier, particle and control targets are the inspected game methods", () => {
+            const BindingFlags any=BindingFlags.Instance|BindingFlags.Static|BindingFlags.Public|BindingFlags.NonPublic;
+            MethodInfo Find(Type type,string name,params Type[] args)
+            {var method=type.GetMethod(name,any,null,args,null);Check(method!=null && method.GetMethodBody()!=null);return method!;}
+            Check(Find(typeof(SaveLoader),"Save",typeof(string),typeof(bool),typeof(bool)).ReturnType==typeof(string));
+            Check(Find(typeof(Game),"StepTheSim",typeof(float)).ReturnType.IsPointer);
+            Check(Find(typeof(Game),"UnsafeSim200ms",typeof(float)).ReturnType==typeof(void));
+            Check(Find(typeof(Game),"SimEveryTick",typeof(float)).ReturnType==typeof(void));
+            var delayed=Find(typeof(Game),"StartDelayedSave",typeof(string),typeof(bool),typeof(bool));Check(delayed.IsPublic && !delayed.IsStatic);
+            Check(Find(typeof(CO2Manager),"Sim33ms",typeof(float)).IsPublic);
+            var spawn=Find(typeof(CO2Manager),"SpawnCO2",typeof(UnityEngine.Vector3),typeof(float),typeof(float),typeof(bool),typeof(float));
+            Check(spawn.IsPublic && spawn.ReturnType==typeof(CO2));
+            Check(typeof(CO2Manager).GetField("co2Items",any)?.FieldType==typeof(List<CO2>));
+            foreach(var field in new[]{"velocity","mass","temperature","lifetimeRemaining"}) Check(typeof(CO2).GetField(field,any)!=null);
         });
         if (benchmark) FluidFrameCoordinatorTests.Benchmark();
         Console.WriteLine($"{passed}/{passed} snapshot, persistence and message boundary scenarios passed against actual ONI declarations.");

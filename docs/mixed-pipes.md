@@ -830,7 +830,10 @@ before opening or truncating its destination. Writer entrypoints protect only
 their own subsequent writes: an external caller may have opened its stream
 already. Inactive ordinary owner saves pass these guards unchanged. There is
 no callback dispatch, native save barrier or new payload in this temporary
-guard; it does not establish mixed save/load support.
+guard; it does not establish mixed save/load support. The owner save writer
+now captures the pipe runtime (MACOLP03 section 1); until its in-game controls
+pass, only `MA_COLONY_PIPE_SAVES=1` sets `ColonyPipeRuntime.Persistable` and
+lifts this guard.
 
 The actual-game `mixed-pipe-save-guard` control passes **7/7 at 11 frames**:
 all six patched methods refuse while an existing destination's sentinel bytes

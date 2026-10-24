@@ -46,6 +46,12 @@ namespace MixedAtmospheres.Oni
             final["Saves"]=ColonyOwnerPersistence.Saves;
             final["Loads"]=ColonyOwnerPersistence.Loads;
             final["LastSavedFrame"]=ColonyOwnerPersistence.LastSavedFrame;
+            final["SaveBarrier"]=Newtonsoft.Json.Linq.JToken.Parse(ReportJson.Serialize(ColonySaveBarrier.Report()));
+            final["SavedParticles"]=Newtonsoft.Json.Linq.JToken.Parse(ReportJson.Serialize(ColonySavedParticles.Report()));
+            var continuation=ColonyContinuationProbe.Report();
+            final["Continuation"]=continuation==null ? Newtonsoft.Json.Linq.JValue.CreateNull() : Newtonsoft.Json.Linq.JToken.Parse(ReportJson.Serialize(continuation));
+            var control=ColonySaveControls.Report();
+            final["SaveControl"]=control==null ? Newtonsoft.Json.Linq.JValue.CreateNull() : Newtonsoft.Json.Linq.JToken.Parse(ReportJson.Serialize(control));
             var restored=ColonyOwnerPersistence.RestoredReport();
             final["RestoredOwner"]=restored==null ? Newtonsoft.Json.Linq.JValue.CreateNull() : Newtonsoft.Json.Linq.JToken.Parse(ReportJson.Serialize(restored));
             var reload=OwnerReloadReport();

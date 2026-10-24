@@ -402,6 +402,7 @@ namespace MixedAtmospheres.Oni
             if (ClusterManager.Instance != null) Report.WorldCount = ClusterManager.Instance.WorldContainers.Count;
             if (!ColonyOwner.Active)
             {
+                if (ColonyLoadRefusal.Refused) return; // recorded by the refusal itself
                 if (ColonyOwner.StartFailure.Length != 0) throw new InvalidOperationException("Colony owner did not start: " + ColonyOwner.StartFailure);
                 return;
             }
@@ -443,7 +444,7 @@ namespace MixedAtmospheres.Oni
                 BlockedMilliseconds = ColonyOwner.BlockedMilliseconds.ToDictionary(item => item.Key.ToString(), item => item.Value),
                 LongestBlockMilliseconds = ColonyOwner.LongestBlockMilliseconds.ToDictionary(item => item.Key.ToString(), item => item.Value),
                 Census = ColonyOwner.Census.OrderByDescending(item => item.Value).ToDictionary(item => item.Key.ToString(), item => item.Value),
-                Scenario = ColonyScenarios.Current, Scenarios = ColonyScenarios.Results, OwnerMenuReload = OwnerReloadReport(), RestoredOwner = ColonyOwnerPersistence.RestoredReport(),
+                Scenario = ColonyScenarios.Current, Scenarios = ColonyScenarios.Results, OwnerMenuReload = OwnerReloadReport(), RestoredOwner = ColonyOwnerPersistence.RestoredReport(), SaveBarrier = ColonySaveBarrier.Report(), SavedParticles = ColonySavedParticles.Report(), PipeSave = ColonyPipeSave.Report(), SaveControl = ColonySaveControls.Report(), Continuation = ColonyContinuationProbe.Report(),
                 Consumers = ColonyActors.Consumers, Emitters = ColonyActors.Emitters, NativeActors = ColonyActors.Native, ActorTransfers = ColonyActors.Queued, ConsumerEvents = ColonyActors.Delivered,
                 Error = status.Error
             };
@@ -451,6 +452,7 @@ namespace MixedAtmospheres.Oni
             if (faulted) throw new InvalidOperationException("Colony owner faulted: " + status.Error);
             var loading = configuration.Mode == "colony-owner-load";
             if (loading && ColonyOwnerPersistence.Loads != (OwnerReloadRequested && ownerReload.Stage>=2 ? 2 : 1)) throw new InvalidOperationException("The loaded colony did not restore its owner.");
+            if (loading && ColonyOwnerPersistence.RestoredImageReencoded != true) throw new InvalidOperationException("The restored owner did not reproduce its saved image.");
             colonyWindow.Start(loading ? status.CompletedFrames : 0);
             if(loading) Report.RestoredFrame=colonyWindow.Baseline;
             // ONI pauses a colony when it loads it and after a save; an
@@ -463,13 +465,18 @@ namespace MixedAtmospheres.Oni
             }
             else if (configuration.Scenario.Length != 0)
             {
+                // A save control during a scenario runs at MA_COLONY_SAVE_FRAME owner frames.
+                if (ColonySaveControls.ScenarioFrame is ulong at && colonyWindow.HasReached(status.CompletedFrames, at)) ColonySaveControls.Step(OutputDirectory);
                 if (!scenarioDone) { if (Time.frameCount % 60 == 0) WriteReport(); return; }
+                if (!ColonySaveControls.Done) throw new InvalidOperationException("The scenario finished before its save controls ran.");
                 if (!ColonyScenarios.AllPassed)
                     throw new InvalidOperationException("Colony scenarios failed: " + string.Join("; ", ColonyScenarios.Results.Where(r => !r.Passed)
                         .Select(r => r.Name + ": " + string.Join(", ", r.Checks.Where(check => !check.Passed).Select(check => check.Name + " (" + check.Detail + ")")))));
             }
-            else if (!colonyWindow.HasReached(status.CompletedFrames, (ulong)configuration.CompletedFrames))
+            else if (!colonyWindow.HasReached(status.CompletedFrames, (ulong)configuration.CompletedFrames) || !ColonySaveControls.Done || !ColonyContinuationProbe.Done)
             {
+                ColonyContinuationProbe.Step();
+                if (colonyWindow.HasReached(status.CompletedFrames, (ulong)configuration.CompletedFrames / 2)) ColonySaveControls.Step(OutputDirectory);
                 // Overwriting a save: the first save at half the frames, the
                 // second to the same path at the end.
                 if (configuration.OverwriteSave && Report.FirstColonySaveFrame == 0 &&
@@ -609,6 +616,17 @@ namespace MixedAtmospheres.Oni
                 .Select(screen => screen.GetType().FullName + ":" + screen.IsActive()).Distinct().OrderBy(name => name).ToArray();
             WriteReport();
             CaptureScreenshot("waiting.png");
+        }
+        // A colony save the mod refused to continue (ColonyLoadRefusal). Passes
+        // only when the run expects it (MA_COLONY_EXPECT_LOAD_REFUSAL=1).
+        internal static void RecordLoadRefusal(string reason)
+        {
+            if (done) return;
+            var expected = System.Environment.GetEnvironmentVariable("MA_COLONY_EXPECT_LOAD_REFUSAL") == "1";
+            Report.Status = expected && !ColonyOwner.Active ? "passed" : "failed"; Report.Stage = "load-refused";
+            Report.Error = expected ? "" : "Colony load refused: " + reason; Report.CustomStateImportError = reason;
+            Report.FinishedUtc = System.DateTime.UtcNow.ToString("O");
+            done = true; WriteReport();
         }
         internal static void RecordVanillaLoad(int result)
         {

@@ -30,6 +30,7 @@ namespace MixedAtmospheres.Oni
         internal static string RestoredImageSha256 { get; private set; } = "";
         internal static bool? RestoredImageReencoded { get; private set; }
         internal static double RestoredReencodeMilliseconds { get; private set; }
+        internal static string RestoredReencodeScope { get; private set; } = "";
 
         private static byte[] CatalogueHash(OniNativeColony.Material[] materials)
         {
@@ -48,16 +49,25 @@ namespace MixedAtmospheres.Oni
         internal static bool TryWriteSave(BinaryWriter writer, int offsetX, int offsetY)
         {
             if (!ColonyOwner.Active) return false;
-            if (ColonyConduits.Active) throw new NotSupportedException("The mixed-pipe control cannot save until its durable port jobs and save barrier are validated.");
             if (ColonyOwner.Status.State != 1) throw new InvalidOperationException("A faulted colony owner cannot be saved: " + ColonyOwner.Status.Error);
+            // Normally settled at SaveLoader.Save(string) entry; any other
+            // path settles here, before the native section is captured.
+            var settledFrame = ColonySaveBarrier.ForCapture();
             int size; byte* data = BeginSave(&size, offsetX, offsetY); byte[] native;
             try { native = new ReadOnlySpan<byte>(data, size).ToArray(); } finally { EndSave(); }
             var image = ColonyOwner.Checkpoint();
             var completedFrame = ColonyCheckpointMetadata.CompletedFrames(image);
+            if (completedFrame != settledFrame)
+                throw new InvalidOperationException("The colony owner advanced between its save barrier and its capture.");
             var config = ConfigBytes(ColonyOwner.Config);
-            // Pipe ownership is not enabled until its full runtime is ready.
-            // A null pipe image writes the exact historical MACOLP01 bytes.
-            var payload = ColonyPipePayload.Encode(config, image, null);
+            // Sections hold what is in flight outside the owner image; with
+            // none the payload keeps the exact historical MACOLP01 bytes.
+            var sections = new List<KeyValuePair<uint, byte[]>>();
+            if (ColonyPipeSave.Capture() is byte[] pipes)
+                sections.Add(new KeyValuePair<uint, byte[]>(ColonySavePayload.PipeRuntime, pipes));
+            if (ColonySavedParticles.Capture(ColonyOwner.Config) is byte[] particles)
+                sections.Add(new KeyValuePair<uint, byte[]>(ColonySavePayload.CarbonParticles, particles));
+            var payload = ColonySavePayload.Encode(config, image, sections);
             var envelope = ColonySaveEnvelope.Create(OniBuild, MaterialModel, completedFrame,
                 CatalogueHash(ColonyOwner.Materials), native, payload);
             envelope.WriteLengthPrefixed(writer); ++Saves; LastSavedFrame=completedFrame;
@@ -74,12 +84,13 @@ namespace MixedAtmospheres.Oni
             var materials = ColonyOwner.BuildCatalogue();
             var envelope = ColonySaveEnvelope.Parse(data.AsSpan(position + 4, length), OniBuild, MaterialModel, CatalogueHash(materials));
             var payload = envelope.CustomData;
-            if (!ColonyPipePayload.Recognizes(payload)) return false;
-            var sections = ColonyPipePayload.Decode(payload);
-            if (sections.Pipes != null) throw new NotSupportedException("This build does not yet activate mixed pipe ownership.");
+            if (!ColonySavePayload.Recognizes(payload)) return false;
+            var sections = ColonySavePayload.Decode(payload);
             OniNativeColony.Config config;
             fixed (byte* source = sections.Config) config = Marshal.PtrToStructure<OniNativeColony.Config>((IntPtr)source);
             var image = sections.Owner;
+            if (sections.Section(ColonySavePayload.CarbonParticles) is byte[] particles) ColonySavedParticles.Load(particles, config);
+            if (sections.Section(ColonySavePayload.PipeRuntime) is byte[] pipeImage) ColonyPipeSave.Load(pipeImage);
             if (reader.ReadInt32() != length) throw new InvalidDataException("Colony save section changed while loading.");
             _ = reader.ReadBytes(length);
             var native = envelope.NativeData.ToArray(); IntPtr loaded;
@@ -93,24 +104,42 @@ namespace MixedAtmospheres.Oni
         // cluster exists (ColonyOwner.AfterNativeMessage).
         internal static (OniNativeColony.Config config, byte[] image)? TakePending()
         {
+            // Every session passes here before its owner starts or restores.
+            ColonyPipeRuntime.Persistable = ColonyPipeSave.WriterEnabled;
             var value = pending; pending = null; return value;
         }
-        internal static void Reset() { pending = null; RestoredProfile = null; RestoredImageSha256 = ""; RestoredImageReencoded = null; RestoredReencodeMilliseconds = 0; }
+        internal static void Reset() { ColonySaveBarrier.Reset(); ColonySavedParticles.Reset(); ColonySaveControls.Reset(); ColonyContinuationProbe.Reset(); ColonyLoadRefusal.Reset(); ColonyPipeSave.Reset(); pending = null; RestoredProfile = null; RestoredImageSha256 = ""; RestoredImageReencoded = null; RestoredReencodeMilliseconds = 0; RestoredReencodeScope = ""; }
 
         internal static object? RestoredReport() => RestoredProfile is not ColonyPhysicalProfile p ? null : new {
-            p.OwnerVersion, p.PhysicalVersion, p.LiquidLaw, p.PressureIterationCap, p.HeatIterationCap,
-            ImageSha256 = RestoredImageSha256, Reencoded = RestoredImageReencoded, ReencodeMilliseconds = RestoredReencodeMilliseconds };
+            p.OwnerVersion, p.PhysicalVersion, p.LiquidLaw, p.PressureIterationCap, p.HeatIterationCap, p.GasHeatMixing,
+            ImageSha256 = RestoredImageSha256, Reencoded = RestoredImageReencoded, ReencodeScope = RestoredReencodeScope, ReencodeMilliseconds = RestoredReencodeMilliseconds };
+
+        // A restore that fails refuses the colony (ColonyLoadRefusal) instead
+        // of leaving it to ONI's own fluid simulation.
+        internal static void RestoreOwner(OniNativeColony.Config saved, byte[] image)
+        {
+            if (ColonyLoadRefusal.Refused) return;
+            try { ColonyOwner.Restore(saved, image); Restored(image); ColonyPipeSave.TryRestore(); }
+            catch (Exception error) { ColonyLoadRefusal.Refuse(error); }
+        }
 
         // Called right after the native restore, before any input or advance.
         internal static void Restored(byte[] image)
         {
             RestoredProfile = ColonyCheckpointMetadata.Profile(image);
+            ColonyContinuationProbe.Restored(ColonyCheckpointMetadata.CompletedFrames(image));
             using (var hash = SHA256.Create()) RestoredImageSha256 = BitConverter.ToString(hash.ComputeHash(image)).Replace("-", "").ToLowerInvariant();
             if (ColonyRuntimeValidation.Settings == null) return;
             var started = System.Diagnostics.Stopwatch.GetTimestamp();
             var again = ColonyOwner.Checkpoint();
             RestoredReencodeMilliseconds = (System.Diagnostics.Stopwatch.GetTimestamp() - started) * 1000.0 / System.Diagnostics.Stopwatch.Frequency;
-            RestoredImageReencoded = again.AsSpan().SequenceEqual(image);
+            // An older owner wrapper re-encodes in the current wrapper version:
+            // then its physical image and durable frame must be identical.
+            var savedVersion = ColonyCheckpointMetadata.OwnerVersion(image); var currentVersion = ColonyCheckpointMetadata.OwnerVersion(again);
+            RestoredReencodeScope = savedVersion == currentVersion ? "owner image" : $"physical image (owner wrapper {savedVersion} -> {currentVersion})";
+            RestoredImageReencoded = savedVersion == currentVersion ? again.AsSpan().SequenceEqual(image) :
+                savedVersion < currentVersion && ColonyCheckpointMetadata.PhysicalImage(again).SequenceEqual(ColonyCheckpointMetadata.PhysicalImage(image)) &&
+                ColonyCheckpointMetadata.CompletedFrames(again) == ColonyCheckpointMetadata.CompletedFrames(image);
             if (RestoredImageReencoded != true) throw new InvalidDataException("The restored colony owner does not reproduce its saved image.");
         }
     }

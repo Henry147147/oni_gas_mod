@@ -5,17 +5,20 @@ using System.IO;
 namespace MixedAtmospheres.Oni
 {
     // The physical profile a restored owner actually runs: its MACCLS01
-    // version and, for game kernels (20/21), the saved liquid law and solver
-    // caps. Read from the owner image itself, never from generic config flags.
+    // version and, for game kernels (20-22), the saved gas heat mixing, liquid
+    // law and solver caps. Read from the owner image itself, never from
+    // generic config flags.
     internal readonly struct ColonyPhysicalProfile : IEquatable<ColonyPhysicalProfile>
     {
         internal readonly uint OwnerVersion, PhysicalVersion, LiquidLaw, PressureIterationCap, HeatIterationCap;
-        internal ColonyPhysicalProfile(uint owner, uint physical, uint law, uint pressure, uint heat)
-        { OwnerVersion=owner;PhysicalVersion=physical;LiquidLaw=law;PressureIterationCap=pressure;HeatIterationCap=heat; }
+        internal readonly double GasHeatMixing;
+        internal ColonyPhysicalProfile(uint owner, uint physical, uint law, uint pressure, uint heat, double mixing = 0)
+        { OwnerVersion=owner;PhysicalVersion=physical;LiquidLaw=law;PressureIterationCap=pressure;HeatIterationCap=heat;GasHeatMixing=mixing; }
         public bool Equals(ColonyPhysicalProfile other) => OwnerVersion==other.OwnerVersion && PhysicalVersion==other.PhysicalVersion &&
-            LiquidLaw==other.LiquidLaw && PressureIterationCap==other.PressureIterationCap && HeatIterationCap==other.HeatIterationCap;
+            LiquidLaw==other.LiquidLaw && PressureIterationCap==other.PressureIterationCap && HeatIterationCap==other.HeatIterationCap &&
+            BitConverter.DoubleToInt64Bits(GasHeatMixing)==BitConverter.DoubleToInt64Bits(other.GasHeatMixing);
         public override bool Equals(object? other) => other is ColonyPhysicalProfile value && Equals(value);
-        public override int GetHashCode() => HashCode.Combine(OwnerVersion,PhysicalVersion,LiquidLaw,PressureIterationCap,HeatIterationCap);
+        public override int GetHashCode() => HashCode.Combine(OwnerVersion,PhysicalVersion,LiquidLaw,PressureIterationCap,HeatIterationCap,GasHeatMixing);
     }
 
     // Read the durable counter, never a potentially older publication status.
@@ -32,11 +35,35 @@ namespace MixedAtmospheres.Oni
         }
 
         // Walks the complete owner framing to its physical image. Versions 20
-        // (linear law 0, caps 200/200) and 21 (saved law and caps) report the
-        // game kernel; older physical versions report zero law/caps.
+        // (linear law 0, caps 200/200), 21 and 22 (saved law and caps at the
+        // same offsets; 22 implies profile family 4) report the game kernel;
+        // older physical versions report zero law/caps.
+        internal static uint OwnerVersion(ReadOnlySpan<byte> image) { CountersOffset(image,out var version); return version; }
+        // The embedded MACCLS01 physical image.
+        internal static ReadOnlySpan<byte> PhysicalImage(ReadOnlySpan<byte> image) => image.Slice(PhysicalOffset(image,out _,out var length),length);
+
         internal static ColonyPhysicalProfile Profile(ReadOnlySpan<byte> image)
         {
-            var at=CountersOffset(image,out var version);
+            var at=PhysicalOffset(image,out var version,out var length);
+            var body=image.Slice(at,length);
+            var p=8;var physicalVersion=U32(body,ref p);
+            if(physicalVersion<20 || physicalVersion>22) return new ColonyPhysicalProfile(version,physicalVersion,0,0,0);
+            var model=U32(body,ref p);Skip(body,ref p,model);
+            // time, revision, width/height, spacing/depth, timestep, gravity,
+            // conduction, trace threshold, stiffness, flow parts, tolerance;
+            // then heat mixing; then sharpening, interface detail, phase relaxation.
+            Skip(body,ref p,8+8+4+4+8+8+8+8+1+8+8+4+8);
+            var mixingAt=p;Skip(body,ref p,8);
+            var mixing=BitConverter.Int64BitsToDouble(BinaryPrimitives.ReadInt64LittleEndian(body.Slice(mixingAt,8)));
+            Skip(body,ref p,1+8+8);
+            if(physicalVersion==20) return new ColonyPhysicalProfile(version,20,0,200,200,mixing);
+            var law=U32(body,ref p);var pressure=U32(body,ref p);var heat=U32(body,ref p);
+            return new ColonyPhysicalProfile(version,physicalVersion,law,pressure,heat,mixing);
+        }
+
+        private static int PhysicalOffset(ReadOnlySpan<byte> image,out uint version,out int length)
+        {
+            var at=CountersOffset(image,out version);
             Skip(image,ref at,7*8+7*8);
             foreach(var size in new[]{TransferBytes,HeatBytes,TerrainBytes,FreezeBytes})
             {var count=U32(image,ref at);Skip(image,ref at,(long)count*size);}
@@ -54,18 +81,9 @@ namespace MixedAtmospheres.Oni
             var physical=BinaryPrimitives.ReadUInt64LittleEndian(image.Slice(lengthAt,8));
             if(physical<20 || physical!=(ulong)(image.Length-at-DigestBytes))
                 throw new InvalidDataException("Colony checkpoint physical image length differs.");
-            var body=image.Slice(at,(int)physical);
-            if(!body.Slice(0,8).SequenceEqual(PhysicalMagic)) throw new InvalidDataException("Missing physical checkpoint signature.");
-            var p=8;var physicalVersion=U32(body,ref p);
-            if(physicalVersion!=20 && physicalVersion!=21) return new ColonyPhysicalProfile(version,physicalVersion,0,0,0);
-            var model=U32(body,ref p);Skip(body,ref p,model);
-            // time, revision, width/height, spacing/depth, timestep, gravity,
-            // conduction, trace threshold, stiffness, flow parts, tolerance,
-            // heat mixing, sharpening, interface detail, phase relaxation.
-            Skip(body,ref p,8+8+4+4+8+8+8+8+1+8+8+4+8+8+1+8+8);
-            if(physicalVersion==20) return new ColonyPhysicalProfile(version,20,0,200,200);
-            var law=U32(body,ref p);var pressure=U32(body,ref p);var heat=U32(body,ref p);
-            return new ColonyPhysicalProfile(version,21,law,pressure,heat);
+            length=(int)physical;
+            if(!image.Slice(at,8).SequenceEqual(PhysicalMagic)) throw new InvalidDataException("Missing physical checkpoint signature.");
+            return at;
         }
 
         private static int CountersOffset(ReadOnlySpan<byte> image,out uint version)

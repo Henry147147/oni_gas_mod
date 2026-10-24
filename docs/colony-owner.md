@@ -608,14 +608,46 @@ counters, the inputs queued for the next step, the `MACCLS01` physical image
 and a SHA-256). Inputs in flight at the save keep their mass but not their
 callbacks, which do not survive a load: an injection (exhaled gas, an emitter's
 output) and native-side changes are kept; an extraction answering a callback (a
-breath, a consumer) is dropped and asked again after the load. Loading hands the native bytes to ONI's loader and restores the
+breath, a consumer) is dropped and asked again after the load.
+
+The owner steps one frame ahead of what the game has seen, so at a save its
+last completed frame still has receipts the game has not received.
+`ColonySaveBarrier` runs at `SaveLoader.Save(string, bool, bool)` entry, before
+ONI touches any file: it posts ONI's own zero-time sim step (`UnsafeSim200ms(0)`,
+as every paused frame does) and waits until ONI's sim thread has ended that
+native frame and every earlier one (observer next-frame/end-frame counters), so
+no positive frame is still being handed to the owner. It then waits for the
+solver thread and publishes through `StepTheSim(0)` until no receipt is pending,
+so every callback, consumer mass and byproduct is dispatched by the game's
+normal code before the native section is captured. Zero time submits no owner
+frame; the capture must find the same frame.
+A save requested inside an unfinished `Game.StepTheSim` is deferred through
+`Game.StartDelayedSave`. The payload is MACOLP03 when something is in flight
+outside the owner image (docs/mixed-pipes.md#saved-framing), otherwise exact
+MACOLP01. ONI does not save `CO2Manager` particles, whose mass is in no ledger
+until they deposit; the save keeps every active one as a MACO2P01 image and a
+load recreates them through the original factory before the manager's first
+update or spawn, requiring a byte-identical re-encoding.
+
+A mixed-pipe colony adds MACOLP03 section 1, the pipe runtime's own
+MACPIP01 schema-3 image (docs/mixed-pipes.md#saved-framing), captured after the
+owner checkpoint and before ONI serializes conduit contents. A loaded image is
+restored right after the owner, once the game has started, and always before
+positive time or any conduit update. If the owner or pipe restore fails
+(different catalogue or geometry, unknown version, a pipe projection that
+differs from ONI's conduit contents), `ColonyLoadRefusal` holds simulation time,
+shows "Colony not loaded" with the reason and returns to the main menu; the
+colony never continues on ONI's own fluid simulation and the file is unchanged.
+
+Loading hands the native bytes to ONI's loader and restores the
 owner at the first completed frame; a different catalogue or geometry rejects
 the save. A game without the mod passes the envelope to its native loader,
 which refuses it.
 
 A restore reports the physical profile it actually runs, read from the owner
-image (`ColonyCheckpointMetadata.Profile`: `MACCLS01` version and, for core
-20/21, the saved liquid law and pressure/heat caps), never from config flags.
+image (`ColonyCheckpointMetadata.Profile`: `MACCLS01` version and, for cores
+20-22, the saved gas heat mixing, liquid law and pressure/heat caps), never
+from config flags.
 Under validation the restored owner is re-checkpointed immediately and must
 reproduce the saved image byte for byte; a same-process menu reload must
 restore the same profile and image hash. The fresh core21 base save
@@ -838,6 +870,16 @@ unchanged. Earlier per-cell owner samples remain provisional until rerun.
   colony-owner --frames N` starts a normal new colony and passes after N owner
   frames without a fault; `--save-colony` also saves through ONI's ordinary save,
   and `--mode colony-owner-load --load-save <file>` loads it in a fresh process.
+- Save controls (environment, colony-owner modes): `MA_COLONY_SAVE_CONTROL`
+  runs, from half the frames (with a scenario: at `MA_COLONY_SAVE_FRAME`) and
+  in order, `save` (an ordinary paused save of whatever is in flight),
+  `particle` (a known CO2 parcel in flight at an ordinary paused save,
+  `particle.sav`), `autosave` (the game's own `GameClock.DoAutoSave` path while
+  the colony runs) and `io-failure` (a save whose destination is a directory:
+  the write fails, nothing is left there and the owner keeps running).
+  `MA_COLONY_CONTINUATION_FRAMES=N` holds the sim tick after each of the first
+  N positive frames following a restore and records the owner image hash at
+  exactly restored + k, per session of a menu reload.
 
 ## Diagnostics
 
