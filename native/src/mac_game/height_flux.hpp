@@ -25,13 +25,14 @@ struct Geometry {
 template <class Inventory>
 inline Geometry geometry(const std::vector<Species> &species,
                          const Inventory &inventory, double energy,
-                         double volume, double gravity) {
+                         double volume, double gravity, const Eos *known = nullptr) {
   Geometry result;
   for (const auto &[key, mass] : inventory)
     result.liquid = result.liquid || !species[key].gas;
   if (!result.liquid)
     return result;
-  const auto eos = evaluate_selected(
+  // Interface correction already has the EOS for this exact inventory/U.
+  const auto eos = known ? *known : evaluate_selected(
       species, inventory.size(),
       [&](std::size_t a) { return inventory[a].first; },
       [&](std::size_t a) { return inventory[a].second; }, energy, volume);

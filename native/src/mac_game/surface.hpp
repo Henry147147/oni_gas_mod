@@ -49,7 +49,7 @@ sharpen(const ma::experimental::MacGrid &source,
         passives[i].emplace_back(initial.passives.species[a],
                                  initial.passives.mass[a]);
     if (!g.wall[i])
-      geom[i] = geometry(species, cells[i], energy[i], g.V, gravity);
+      geom[i] = geometry(species, cells[i], energy[i], g.V, gravity, &eos[i]);
   }
   const auto normal_geometry =
       geom; // Freeze height normals for the complete correction pass.
@@ -321,7 +321,7 @@ sharpen(const ma::experimental::MacGrid &source,
       energy[row.i] = row.energy;
       eos[row.i] = row.eos;
       geom[row.i] =
-          geometry(species, cells[row.i], energy[row.i], g.V, gravity);
+          geometry(species, cells[row.i], energy[row.i], g.V, gravity, &row.eos);
     }
     ++counts.faces;
   };

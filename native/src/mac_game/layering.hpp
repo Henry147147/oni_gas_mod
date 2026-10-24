@@ -36,8 +36,11 @@ layer(const ma::experimental::MacGrid &source,
     return species[key].liquid_group ? std::uint64_t(species[key].liquid_group)
                                      : (std::uint64_t(1) << 32) + key;
   };
+  // Keep map key/accumulation order while reusing one small phase buffer.
+  std::vector<Pick> phases;
+  phases.reserve(species.size());
   for (std::size_t i = 0; i < g.N; ++i) {
-    std::map<std::uint64_t, Pick> phases;
+    phases.clear();
     for (std::size_t a = initial.masses.offsets[i];
          a < initial.masses.offsets[i + 1]; ++a) {
       const auto key = initial.masses.species[a];
@@ -45,13 +48,18 @@ layer(const ma::experimental::MacGrid &source,
       old_mass[i] += m;
       if (species[key].gas)
         continue;
-      auto &p = phases[phase(key)];
+      const auto identity = phase(key);
+      auto at = std::lower_bound(phases.begin(), phases.end(), identity,
+          [](const Pick &p, std::uint64_t id) { return p.phase < id; });
+      if (at == phases.end() || at->phase != identity)
+        at = phases.insert(at, Pick{identity});
+      auto &p = *at;
       p.phase = phase(key);
       p.mass += m;
       p.volume += m / species[key].rho0;
       p.valid = true;
     }
-    for (const auto &[identity, p] : phases) {
+    for (const auto &p : phases) {
       if (!light[i].valid || p.density() < light[i].density())
         light[i] = p;
       if (!heavy[i].valid || p.density() > heavy[i].density())

@@ -99,10 +99,10 @@ The focused control advances a quiet cell, repeats after a refused parcel,
 and compares requested1/12-worker cold continuation. Existing successful
 solver arithmetic and checkpoint bytes are unchanged.
 
-An unadopted exact liquid-stage prototype reuses existing EOS values and an
+An initial exact liquid-stage prototype reused existing EOS values and an
 ordered phase buffer. Six whole-lock offline AB/BA runs on the captured Terra
-world measure105.587 to103.057ms per tick (2.40%); all30-tick images match.
-It still needs the in-game comparison before adoption.
+world measured105.587 to103.057ms per tick (2.40%); all six30-tick terminal
+images matched. Refreshed profile3 and in-game evidence is recorded below.
 
 ## Open acceptance work
 
@@ -181,3 +181,60 @@ The same clean comparison at requested normal1x gives:
 Both again complete60frames,120flow halves and zero faults/rejections/skipped
 phase. These contended normal/fast pairs establish execution and conservation;
 they do not establish isolated timing differences or sustained2x readiness.
+
+
+## Exact liquid stage reuse
+
+Interface geometry reuses its already evaluated EOS for the same inventory/U.
+Density layering reuses an ordered small phase vector instead of allocating a
+map per cell, preserving key and accumulation order. Solver arithmetic, saved
+settings and checkpoint bytes are unchanged. Clean parent/candidate Release
+builds retain all99legacy diagnostic outputs/exits apart from timings, plus
+unchanged game/parcel control outputs;86CTest passes. Requested1/12-worker controls and
+three captured core21 worlds at60ticks with cold restore at30 match the parent
+images exactly. Six alternating WHOLE/pin0..11 offline30-tick runs measure
+102.438748 to99.745524ms per tick (2.63%); their six terminal images are equal.
+
+Clean WHOLE-lock Terra60 at requested fast2, identical managed assemblies:
+
+| Metric | Parent | Exact reuse |
+| --- | --- | --- |
+| Owner mean/p95/max ms |199.255/241.673/248.785|199.674/225.409/270.772|
+| Observed mean/p95/max ms |250.165/344.152/745.163|245.186/343.360/787.634|
+| Relative mass/energy error |2.79e-16/5.46e-16|2.44e-16/6.90e-16|
+| Trace sink kg/J |1.22260e-7/0.127232|1.17472e-7/0.127668|
+
+Both complete60frames/120halves with zero faults/rejections/skipped phase and
+verified process exit. Owner mean changes+0.21%, observed mean-1.99%; no clear
+whole-owner gain is established under shared GPU load. The user will arrange
+a quiet GPU window later. No2x or floor acceptance follows.
+
+A separate allocator-only diagnostic increases glibc tcache_count7 to65535:
+101.330 to99.916ms offline, but peak RSS rises142275 to176149KiB. Its six
+terminal images match; this host setting remains unselected and has no game
+performance evidence.
+
+## Further profile3 reliability controls
+
+The immutable original core21 bundle passes all10 existing evaporation, door
+and freeze/melt checks over139frames, with zero faults,
+rejections or skipped phase. Maximum mass/energy errors3.600e-16/1.292e-15,
+trace sink2.48880e-7kg/0.263928J. LOW-lock diagnostic owner mean/p95/max is
+222.231/270.107/306.018ms, observed269.025/349.752/839.975ms. All139samples
+and138intervals are present, package hashes are unchanged and cleanup verified.
+This establishes phase/terrain smoke coverage, not the frozen accuracy floor.
+
+Fresh own-EOS initializations from three older failure shapes each complete
+60offline ticks, warm1worker and12workers with cold restore at30; each pair's
+full checkpoint bytes match and global/region audits close:
+
+| Captured shape | Trace sink kg/J | Maximum absolute energy residual J |
+| --- | --- | --- |
+| Frame4387 energy-share fault |8.20727e-8/0.110901|0.000241|
+| Frame3319 preconditioner fault |7.61204e-8/0.107834|0.000216|
+| Frame1071 fault |7.53416e-8/0.102525|0.000250|
+
+These retain original masses/T/J and explicitly recompute initial U using the
+new law. They do not migrate or continue an old save, establish actual late-game
+reliability, or replace the required fresh-profile colony run. Core21's frozen
+F1–F5 comparison remains unmeasured; the recorded F1 failure belongs to profile18.
