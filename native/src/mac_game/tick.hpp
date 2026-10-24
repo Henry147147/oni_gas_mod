@@ -61,9 +61,10 @@ public:
        bool entropy_stages = false, double speed_limit = 0,
        unsigned viscosity_sweeps = 2, double phase_relaxation_time = 1,
        bool enable_heat = true, unsigned pressure_iterations = 200,
-       unsigned heat_iterations = 200)
+       unsigned heat_iterations = 200, bool surface_closure = false)
       : grid(source), species(table),
-        flow(source, table, threads, false, pressure_tolerance, gravity_source, pressure_iterations),
+        flow(source, table, threads, false, pressure_tolerance, gravity_source, pressure_iterations,
+             surface_closure),
         heat(source, table, threads, heat_mixing, &flow.worker_pool(), heat_iterations),
         phase(source, std::move(table), std::move(pairs), threads,
               &flow.worker_pool()),

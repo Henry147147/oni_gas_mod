@@ -62,12 +62,14 @@ class Flow {
 public:
   Flow(const ma::experimental::MacGrid &grid, std::vector<Species> table,
        unsigned threads, bool auditing = true, double pressure_tolerance = 1e-8,
-       unsigned gravity_source = 0, unsigned pressure_iterations = 200)
+       unsigned gravity_source = 0, unsigned pressure_iterations = 200,
+       bool surface_closure = false)
       : source(grid), g(source), topology(g), species(std::move(table)),
         eos_pool(
             static_cast<unsigned>(std::min<std::size_t>(threads, g.blocks))),
         pressure(grid, threads, ma::PressurePreconditioner::incomplete_cholesky,
-                 pressure_tolerance, gravity_source, &eos_pool, pressure_iterations),
+                 pressure_tolerance, gravity_source, &eos_pool, pressure_iterations,
+                 surface_closure),
         gravity_rule(gravity_source), audit_mode(auditing),
         patch(grid, &eos_pool, &topology) {}
   ma::experimental::mac_kernel::Pool &worker_pool() const { return eos_pool; }
@@ -213,13 +215,17 @@ public:
     result.wall_ops_y += projected.wall_operands_y;
     if (regions) {
       const auto book = [&](bool x, const auto &left, const auto &right) {
+        const auto &blocked = x ? projected.blocked_x : projected.blocked_y;
+        const auto &old = x ? initial.jx : initial.jy;
         for (std::size_t f = 0; f < left.size(); ++f) {
           const auto l = left[f], r = right[f];
-          if (l == k::none || r == k::none || g.closed(!x, f)) {
+          if (l == k::none || r == k::none || g.closed(!x, f) || blocked[f]) {
             if (l != k::none)
               regions->momentum(l, x, -dt * g.A * projected.p[l]);
             if (r != k::none)
               regions->momentum(r, x, dt * g.A * projected.p[r]);
+            if (blocked[f] && old[f] != 0)
+              regions->momentum(l, x, -old[f]);
           } else if (!x)
             regions->momentum(l, false,
                               gravity_rule == 0

@@ -189,7 +189,8 @@ void MacClosedSettings::validate() const {
         const bool original = game_profile==MacGameProfile::game_kernel &&
             game.liquid_law==MacGameLiquidLaw::linear &&
             game.pressure_maximum_iterations==200 && game.heat_maximum_iterations==200;
-        const bool positive = game_profile==MacGameProfile::game_kernel_positive_liquid &&
+        const bool positive = (game_profile==MacGameProfile::game_kernel_positive_liquid ||
+            game_profile==MacGameProfile::game_kernel_free_surface) &&
             game.liquid_law==MacGameLiquidLaw::positive_segments;
         require((original || positive) && vacuum==MacVacuumRepresentation::void_phase &&
             step_control==MacStepControl::doubling && subcell_void==MacSubcellVoidPolicy::exact_geometry &&
@@ -207,7 +208,8 @@ void MacClosedSettings::validate() const {
         return;
     }
     require(game_profile!=MacGameProfile::game_kernel &&
-        game_profile!=MacGameProfile::game_kernel_positive_liquid,"Game profile requires numerical kernel3");
+        game_profile!=MacGameProfile::game_kernel_positive_liquid &&
+        game_profile!=MacGameProfile::game_kernel_free_surface,"Game profile requires numerical kernel3");
     viscosity.validate();
     diffusion.validate();
     require(game_profile == MacGameProfile::base_game_floor ||

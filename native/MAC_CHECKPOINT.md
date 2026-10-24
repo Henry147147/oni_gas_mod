@@ -114,6 +114,14 @@ current binary has.
 
 ### Version assignment
 
+Version **22 is the free-surface game profile** (2026-10-24), allocated
+after fetching `946b6de`. Its bytes follow version21 exactly
+(positive-segment law1 and the two caps at the same offsets); the version
+implies profile family4, whose kernel never carries material out of an empty
+cell. New colonies select22 with `MA_COLONY_KERNEL3=1` and
+`MA_COLONY_KERNEL3_SURFACE=1` and save gas heat mixing8 in the existing field.
+Versions20 and21 keep their bytes, profiles and continuation.
+
 Version **21 is the positive-volume game profile** (2026-10-23), claimed
 immediately after fetching `2569eab`. It retains core20's layout, inserting
 three u32 fields after phase-relaxation time and before saturation pairs:

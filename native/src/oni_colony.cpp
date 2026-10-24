@@ -254,12 +254,16 @@ MacClosedSettings settings_of(const MAOniColonyConfig& c) {
         MacClosedSettings game;game.numerical_kernel=MacNumericalKernel::game;game.game_profile=MacGameProfile::game_kernel;
         game.vacuum=MacVacuumRepresentation::void_phase;game.thermal_conduction=(c.flags&MA_ONI_COLONY_PHYSICS_CONDUCTION)!=0;game.gravity_m_per_s2=c.gravity_m_per_s2;
         game.maximum_timestep_s=static_cast<double>(.2f);game.trace_sink_threshold_kg=game_floor_trace_kg;
-        if (const char* value=std::getenv("MA_COLONY_KERNEL3_POSITIVE"); value && std::strcmp(value,"1")==0) {
-            game.game_profile=MacGameProfile::game_kernel_positive_liquid;
+        const auto selected=[](const char* name){const char* value=std::getenv(name);return value && std::strcmp(value,"1")==0;};
+        const bool surface=selected("MA_COLONY_KERNEL3_SURFACE");
+        if (surface || selected("MA_COLONY_KERNEL3_POSITIVE")) {
+            game.game_profile=surface?MacGameProfile::game_kernel_free_surface:MacGameProfile::game_kernel_positive_liquid;
             game.game.liquid_law=MacGameLiquidLaw::positive_segments;
             game.game.pressure_maximum_iterations=400;
             game.game.heat_maximum_iterations=800;
         }
+        // Profile 4 saves the adopted gas heat mixing (docs/base-game-floor.md, F1 split).
+        if (surface) game.game.gas_heat_mixing=8;
         return game;
     }
     MacClosedSettings s; s.maximum_timestep_s = c.maximum_timestep_s; s.numerical_kernel = MacNumericalKernel::production;

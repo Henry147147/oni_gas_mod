@@ -13,31 +13,40 @@ void require(bool yes, const char *text) {
   if (!yes)
     throw std::runtime_error(text);
 }
-struct PositiveSelection {
+struct Selection {
+  const char *name;
   std::string previous;
   bool present = false;
-  PositiveSelection() {
-    if (const char *value = std::getenv("MA_COLONY_KERNEL3_POSITIVE")) {
+  explicit Selection(const char *variable) : name(variable) {
+    if (const char *value = std::getenv(name)) {
       previous = value;
       present = true;
     }
     set("0");
   }
-  static void set(const char *value) {
+  void set(const char *value) const {
 #ifdef _WIN32
-    _putenv_s("MA_COLONY_KERNEL3_POSITIVE", value ? value : "");
+    _putenv_s(name, value ? value : "");
 #else
-    if (value) setenv("MA_COLONY_KERNEL3_POSITIVE", value, 1);
-    else unsetenv("MA_COLONY_KERNEL3_POSITIVE");
+    if (value) setenv(name, value, 1);
+    else unsetenv(name);
 #endif
   }
-  ~PositiveSelection() { set(present ? previous.c_str() : nullptr); }
+  ~Selection() { set(present ? previous.c_str() : nullptr); }
 };
 unsigned core_version(const std::vector<std::uint8_t> &image) {
   const std::string magic="MACCLS01";
   const auto at=std::search(image.begin(),image.end(),magic.begin(),magic.end());
   require(at!=image.end() && image.end()-at>=12,"Owner image omits physical core");
   return unsigned(at[8]) | unsigned(at[9])<<8 | unsigned(at[10])<<16 | unsigned(at[11])<<24;
+}
+// The saved gas heat mixing of a game-kernel physical image (MAC_CHECKPOINT.md).
+double heat_mixing(const std::vector<std::uint8_t> &image) {
+  const std::string magic="MACCLS01";
+  auto at=std::search(image.begin(),image.end(),magic.begin(),magic.end())-image.begin()+12;
+  std::uint32_t model=0;std::memcpy(&model,image.data()+at,4);
+  at+=4+model+8+8+4+4+8+8+8+8+1+8+8+4+8;
+  double value=0;std::memcpy(&value,image.data()+at,8);return value;
 }
 MAOniColonyMaterial oxygen() {
   MAOniColonyMaterial m{};
@@ -56,7 +65,7 @@ MAOniColonyMaterial oxygen() {
 } // namespace
 int main() {
   try {
-    PositiveSelection selection;
+    Selection selection("MA_COLONY_KERNEL3_POSITIVE"), surface("MA_COLONY_KERNEL3_SURFACE");
     namespace c = ma::oni::colony;
     constexpr std::size_t W = 8, H = 6;
     MAOniColonyConfig config{};
@@ -124,7 +133,7 @@ int main() {
     c::wait();
     const auto expected = c::checkpoint();
     c::stop();
-    PositiveSelection::set("1");
+    selection.set("1");
     c::restore(config, materials, image, 1);
     c::advance(6, .2, 2);
     c::wait();
@@ -137,13 +146,28 @@ int main() {
     require(c::status().state==1,"Positive game owner faulted");
     const auto positive=c::checkpoint();
     c::advance(2,.2,2);c::wait();const auto positive_expected=c::checkpoint();c::stop();
-    PositiveSelection::set("0");
+    selection.set("0");
     c::restore(config,materials,positive,1);
     require(c::checkpoint()==positive,"Core21 idle restore changed saved profile");
     c::advance(2,.2,2);c::wait();
     require(c::checkpoint()==positive_expected,"Core21 owner cold continuation differs");
     c::stop();
     std::cout<<"PASS explicit core21 creation, core20 restore under new selector and core21 restore without it\n";
+    surface.set("1");
+    c::start(config,materials,cells,1);
+    const auto created=c::checkpoint();
+    require(core_version(created)==22 && heat_mixing(created)==8,"Surface selector did not create core22 with heat mixing 8");
+    c::advance(1,.2,2);c::wait();
+    require(c::status().state==1,"Profile4 game owner faulted");
+    const auto surface_image=c::checkpoint();
+    c::advance(2,.2,2);c::wait();const auto surface_expected=c::checkpoint();c::stop();
+    surface.set("0");
+    c::restore(config,materials,surface_image,1);
+    require(c::checkpoint()==surface_image,"Core22 idle restore changed saved profile");
+    c::advance(2,.2,2);c::wait();
+    require(c::checkpoint()==surface_expected,"Core22 owner cold continuation differs");
+    c::stop();
+    std::cout<<"PASS explicit core22 creation with saved heat mixing 8 and core22 restore without its selector\n";
     std::cout << "PASS diagnostic kernel3 owner flag5, ownEOS publication, "
                  "native heat, opened door, zero retry/phase skips, ledgers "
                  "and exact owner cold continuation\n";

@@ -71,6 +71,19 @@ censored, that metric remains unresolved. Do not silently substitute a game
 profile as truth. Include the same solid/door heat exchange model in F4's
 offline reference; absence of that model leaves its dynamic truth unresolved.
 
+**Amendment 2026-10-24** (user decisions, [completion plan](completion-plan.md)):
+the strict reference cannot advance these setups at practical cost (an 8× F1
+run refuses after 2.5 ms; F3/F5 at the first interval). A timing metric passes
+when the game profile's error is no larger than vanilla's for every truth in a
+documented, physically justified range; where the range does not decide it, an
+independent second-order Godunov Euler solver (gas) or incompressible VOF
+solver (liquid) at 8× and 16× is that metric's truth. F3/F5 depth truth is the
+nominal depth minus the saturated water vapour in the vacuum headspace, from
+the catalogue at the final temperature of the closed caloric balance: F3
+1.999779687 m (4.406 kg vapour, 293.095 K), F5 water 3.999867527 m (1.060 kg);
+crude oil has no vapour, so its truth stays 2 m. Setups, metrics and other
+bounds are unchanged.
+
 The optional game release capture is taken after terrain edits, before flow.
 In F1 the owner's opening helper has already moved 6.25% of the gas into the
 divider; F3/F5 captures likewise include pre-release evolution. These are

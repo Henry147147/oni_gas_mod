@@ -7,6 +7,9 @@ namespace ma::experimental::game_kernel {
 namespace kernel = ma::experimental::mac_kernel;
 struct Pressure {
   std::vector<double> p, jx, jy, qx, qy, damping_x, damping_y, body_impulses_y;
+  // Faces closed for this interval: one side empty and the predicted
+  // momentum would carry material out of that empty cell.
+  std::vector<std::uint8_t> blocked_x, blocked_y;
   std::size_t iterations = 0, corrections = 0;
   double residual = 0;
   bool converged = false;
@@ -27,6 +30,7 @@ class PressureSolver {
   kernel::Pool &pool;
   double relative_tolerance = 1e-8;
   unsigned gravity_rule = 0, maximum_iterations = 200;
+  bool close_empty_inflow = false;
   kernel::Context context;
 
 public:
@@ -34,14 +38,16 @@ public:
                  ma::PressurePreconditioner preconditioner =
                      ma::PressurePreconditioner::automatic,
                  double tolerance = 1e-8, unsigned gravity_source = 0,
-                 kernel::Pool *executor = nullptr, unsigned maximum = 200)
+                 kernel::Pool *executor = nullptr, unsigned maximum = 200,
+                 bool surface_closure = false)
       : source(g), grid(source),
         owned_pool(executor
                        ? nullptr
                        : std::make_unique<kernel::Pool>(static_cast<unsigned>(
                              std::min<std::size_t>(threads, grid.blocks)))),
         pool(executor ? *executor : *owned_pool), relative_tolerance(tolerance),
-        gravity_rule(gravity_source), maximum_iterations(maximum), context{workspace,
+        gravity_rule(gravity_source), maximum_iterations(maximum),
+        close_empty_inflow(surface_closure), context{workspace,
                                               source,
                                               model,
                                               grid,
@@ -93,14 +99,43 @@ public:
     const auto mass = [&](kernel::Index i) {
       return i == kernel::none ? 0 : states[i].mass;
     };
+    // Nothing crosses a face out of an empty cell. Where the momentum
+    // predicted from the current pressures would do so, the face is a closed
+    // free surface for this interval: no body or pressure impulse acts on
+    // material that is not there, and any momentum left on it is returned
+    // to the boundary as local heat (booked below).
+    std::vector<std::uint8_t> blocked_x(g.NX), blocked_y(g.NY);
+    if (close_empty_inflow) {
+      const auto predict = [&](bool x, const auto &left, const auto &right,
+                               const auto &old, auto &blocked) {
+        for (std::size_t f = 0; f < old.size(); ++f) {
+          const auto l = left[f], r = right[f];
+          if (l == kernel::none || r == kernel::none || g.closed(!x, f))
+            continue;
+          const double ml = mass(l), mr = mass(r);
+          if ((ml == 0) == (mr == 0))
+            continue;
+          const double I = .5 * (ml + mr);
+          const double pl = system.active[l] ? states[l].pressure : 0,
+                       pr = system.active[r] ? states[r].pressure : 0;
+          const double predicted = old[f] + (x ? 0 : -gravity * dt * I) +
+                                   dt * g.A * (pl - pr);
+          if ((ml == 0 && predicted > 0) || (mr == 0 && predicted < 0))
+            blocked[f] = 1;
+        }
+      };
+      predict(true, g.xl, g.xr, old_x, blocked_x);
+      predict(false, g.yl, g.yr, old_y, blocked_y);
+    }
     const auto faces = [&](bool x, const auto &left, const auto &right,
                            const auto &old, auto &inertia, auto &base,
                            auto &weights) {
+      const auto &blocked = x ? blocked_x : blocked_y;
       for (std::size_t f = 0; f < old.size(); ++f) {
         const auto l = left[f], r = right[f];
         inertia[f] = .5 * (mass(l) + mass(r));
         if (l == kernel::none || r == kernel::none || g.closed(!x, f) ||
-            inertia[f] == 0)
+            inertia[f] == 0 || blocked[f])
           continue;
         double body = x ? 0 : -gravity * dt * inertia[f];
         if (!x && gravity_rule == 1) {
@@ -162,11 +197,12 @@ public:
     const auto publish = [&](bool x, const auto &left, const auto &right,
                              const auto &old, const auto &inertia, auto &next,
                              auto &swept) {
+      const auto &blocked = x ? blocked_x : blocked_y;
       for (std::size_t f = 0; f < old.size(); ++f) {
         const auto l = left[f], r = right[f];
         if (l == kernel::none || r == kernel::none || g.closed(!x, f) ||
-            inertia[f] == 0) {
-          if (old[f] != 0)
+            inertia[f] == 0 || blocked[f]) {
+          if (old[f] != 0 && !blocked[f])
             throw std::runtime_error(
                 "Prototype fixed/empty face has incoming momentum");
           const double pl = l == kernel::none ? 0 : result.p[l],
@@ -174,6 +210,14 @@ public:
           (x ? wall_x : wall_y).add(dt * g.A * (pr - pl));
           (x ? wall_scale_x : wall_scale_y)
               .add(dt * g.A * (std::abs(pr) + std::abs(pl)));
+          if (blocked[f] && old[f] != 0) {
+            // The boundary takes the stranded momentum; its kinetic energy
+            // becomes heat in the occupied neighbour.
+            (x ? wall_x : wall_y).add(-old[f]);
+            (x ? wall_scale_x : wall_scale_y).add(std::abs(old[f]));
+            (x ? result.damping_x : result.damping_y)[f] =
+                .5 * old[f] * (old[f] / inertia[f]);
+          }
           continue;
         }
         const double body = x ? 0 : body_y_face[f];
@@ -191,6 +235,8 @@ public:
     result.wall_impulse_x = wall_x.value();
     result.wall_impulse_y = wall_y.value();
     result.body_impulses_y = std::move(body_y_face);
+    result.blocked_x = std::move(blocked_x);
+    result.blocked_y = std::move(blocked_y);
     result.body_impulse_y = body_y.value();
     result.body_work = body_work.value();
     result.wall_operands_x = wall_scale_x.value();

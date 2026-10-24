@@ -8,8 +8,9 @@ existing implementations and settings.
 
 An additional explicit creation selector, `MA_COLONY_KERNEL3_POSITIVE=1`,
 selects profile3/core21 while kernel3 is enabled. The original selector alone
-continues to create profile2/core20. Saves restore their recorded law and work
-caps independently of either creation selector. Neither profile is the
+continues to create profile2/core20. `MA_COLONY_KERNEL3_SURFACE=1` creates
+profile4/core22 ([below](#free-surface-profile-profile4core22)). Saves restore
+their recorded law and work caps independently of any creation selector. Neither profile is the
 ordinary colony default or a physics-gate setting.
 
 The backend runs the accepted semi-implicit design's sparse pressure/transport,
@@ -238,3 +239,32 @@ These retain original masses/T/J and explicitly recompute initial U using the
 new law. They do not migrate or continue an old save, establish actual late-game
 reliability, or replace the required fresh-profile colony run. Core21's frozen
 F1–F5 comparison remains unmeasured; the recorded F1 failure belongs to profile18.
+
+## Free-surface profile (profile4/core22)
+
+A gas-free liquid cell that is only partly full sits at vacuum pressure. The
+face above it, to an empty cell, received the gravity impulse of half the
+cell's mass every tick with nothing to oppose it, so its momentum fell freely
+while no material could cross; the body work drained the liquid's U into this
+phantom kinetic energy. When the dropped oil of floor F5 landed on such
+momentum, the liquids churned for about 70 s with cells at up to 3.4 times
+their nominal mass. Captured Oceania showed 349 such faces at up to 281 m/s.
+
+Profile family4 closes, for one interval, every face whose momentum predicted
+from the current pressures would carry material out of an empty cell: no body
+or pressure impulse acts on material that is not there. Momentum stranded on
+such a face (its donor emptied during the previous transport) goes to the
+boundary impulse and its kinetic energy becomes heat in the occupied
+neighbour, so U+K+G, momentum and region audits close as before. New colonies
+select it with `MA_COLONY_KERNEL3=1 MA_COLONY_KERNEL3_SURFACE=1`; it also saves
+the adopted gas heat mixing8 (user decision 2026-10-24, floor F1 split).
+Profiles2 and3 are unchanged.
+
+A focused control keeps a resting gas-free surface at rest (profile3 control
+still shows the free fall), turns stranded momentum into heat with closed
+U+K+G, and checks checkpoint22 cold round trip and 1/12-worker continuation;
+the owner control creates core22 with saved mixing8 and restores it without the
+selector. All99 legacy outputs/exits, the parcel output and three captured
+worlds' core21 sixty-tick images (cold restore at30) match the clean parent;
+core22 images match at 1 and 12 workers. Floor results are in
+[base-game-floor.md](../docs/base-game-floor.md).
