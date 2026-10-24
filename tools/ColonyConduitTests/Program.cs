@@ -287,6 +287,7 @@ static class Program
         SurfaceGermTests.Run();
         GermEvolutionTests.Run();
         ContactWorkTests.Run();
+        ScalarProductTests.Run();
         if(args.Contains("--biology-continuation"))BiologyContinuation.Run();
         if (args.Contains("--benchmark"))
         {

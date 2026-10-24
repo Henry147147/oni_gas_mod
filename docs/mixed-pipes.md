@@ -6,9 +6,10 @@ and exact save continuation. Ordinary colonies still send mixture
 constituents as separate native packets. Explicit harness controls validate
 internal mixing/filtering/readers, precise world receipts, mixed pump
 storage/output, manual valves/powered shutoffs and native-controlled gas vents.
-Full production ports and the mixed save writer remain off;
-thermal, all-germ biology, remaining component ports and teardown/save
-acceptance are still open.
+Explicit controls also validate finite-body hot-pipe heat exchange and all-ID
+pipe biology. Full production ports and the mixed save writer remain off;
+cold/phase thermal cases, remaining component ports, liquid particles and
+complete teardown/save acceptance are still open.
 
 ## Conserved inventory
 
@@ -884,6 +885,27 @@ biological journals, not the full pending runtime checkpoint. Allocation in
 fractional/mixed products is a scale concern even though precision growth is
 bounded in these cases. No precision, biology rule or production arithmetic
 was changed for this measurement.
+
+The subsequent exact scalar-product optimization accumulates the same rounded
+atom products with `RawPlus`, then canonicalizes their sum once. It keeps
+factor-zero/unit behavior and the saved representation. An independent integer
+oracle checks 9,000 products; a private 300,105-operation full-range comparison
+(including 111,279 exceptions) and all seven 30,000-tick continuation images
+match the previous implementation byte for byte. On the same HIGH pure control,
+mixed-material late cost falls from 56.185 to 21.989 µs/tick and allocation from
+313,131 to 116,138 B/tick; fractional cost falls from 28.734 to 14.974 µs/tick
+and allocation from 155,491 to 77,080 B/tick. These exclude database lookup,
+conduit scans and native work; they establish no whole-game speed gain.
+The optimized immutable bundle also passes the existing all-ID live control:
+9/9 checks at frame 81, 70 native integer bit-matches, all exact pipe accounts,
+zero sink and no fault. LOW owner mean/p95/max is
+214.439/318.519/338.450 ms; observed is 310.850/428.321/3751.577 ms
+(81/80 samples, no gaps). Maximum mass/energy errors are
+2.54e-16/4.87e-17; rejected solver attempts 597, skipped relaxations zero;
+fallback count is not exposed. Cleanup is verified. Concurrent HIGH work and
+shared GPU load make this correctness evidence, not a speed comparison.
+Optional live biology capture/commit means are 4.532583/0.471893 ms over 70
+calls, including the independent fixture oracle and cold work.
 
 ## Precise owner receipts
 

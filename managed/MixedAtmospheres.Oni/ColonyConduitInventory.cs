@@ -101,8 +101,10 @@ namespace MixedAtmospheres.Oni
             if (factor == 0 || atoms == null) return Zero;
             if (factor == 1) return this;
             var result = Zero;
-            foreach (var atom in atoms) result = result.Plus(new PipeAmount(atom * factor));
-            return result;
+            // Each rounded product still defines exactly the same shared
+            // flux. Sum them exactly first; normalize its representation once.
+            foreach (var atom in atoms) result = result.RawPlus(new PipeAmount(atom * factor));
+            return result.Canonical();
         }
         internal void Write(BinaryWriter writer)
         {
