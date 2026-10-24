@@ -203,6 +203,10 @@ choosing a new winner for equal-count ties. Non-disease identities do not compet
 for that projection. An advanced publication is retried, rather than compared
 against an older view. Reports expose `WorldPassiveComparisons`,
 `WorldPassiveRows` and `WorldPassiveBusy`; the control is off during timing runs.
+An actual fresh profile3/core21 base run passes32 observations/32 rows with
+zero stale reads, alongside the existing four base checks and an ordinary save.
+This verifies live ABI/projection agreement, without accepting full world
+minority biology.
 
 ## Machines
 

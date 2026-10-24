@@ -76,6 +76,25 @@ unavailable. Package hashes are unchanged and process cleanup is verified.
 This is focused phase/terrain coverage, with shared GPU load; it establishes
 neither full mixed-pipe behavior, floor acceptance nor sustained speed.
 
+A separate immutable diagnostic bundle from `d9645ea` creates a fresh
+profile3/core21 base, passes all four base checks with three duplicants and
+writes an ordinary save at durable frame32. Its frame1 pre-flow image verifies
+physical checkpoint21. The read-only all-passive control passes32 observations
+with32 rows and zero stale reads. The sampled physical window is31 frames/30
+adjacent intervals, with no gaps; maximum mass/energy errors are
+3.944e-16/4.294e-16 and trace totals6.30185e-8 kg/0.0589007 J. There are zero
+faults/rejections/skipped relaxations, unchanged package hashes and verified
+cleanup. Instrumented LOW-lock owner mean/p95/max is392.584/460.855/461.664 ms;
+observed spacing547.699/945.063/1300.416 ms. These are diagnostic timings.
+Cold/menu restore and saved-law readback remain pending at the user's stop.
+
+That run pairs258 native view calls with258 managed publications. At frame10
+onward (152 publications), native mutex wait mean/max is0.0000654/0.000830 ms;
+native work mean/max0.095795/0.881882 ms; the managed view lap mean/max is
+0.148526/0.906 ms. No collection-count changes are observed. The earlier153 ms
+view outlier is absent, so its cause remains unresolved. Logging and passive
+controls are enabled here; these numbers establish no final timing acceptance.
+
 The opt-in kernel3/core20 corrected bundle runs in the actual game, with no
 default or old-save migration. Its whole-lock Terra60 result is
 210.27/226.40/275.22 ms owner mean/p95/max and
