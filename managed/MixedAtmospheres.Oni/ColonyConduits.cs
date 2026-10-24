@@ -658,11 +658,13 @@ namespace MixedAtmospheres.Oni
             var probe=ColonyPipeThermalProbe.Begin(__0);
             if(probe!=null){__state??=new Scope();__state.Probe=probe;}
         }
-        private static void Postfix(Scope? __state)
+        private static void Postfix(float __0,Scope? __state)
         {
             ColonyPipeThermalProbe.AfterNative(__state?.Probe);__state?.Contact?.Validate();
             ColonyConduits.ThermalBoundary();__state?.Contact?.Complete();ColonyPipeThermalProbe.AfterBook(__state?.Probe);
-            ColonyConduits.PhaseBoundary();
+            // Network rebuilds call the thermal update with dt 0; phase
+            // damage is a timed thermal event and waits for a real tick.
+            if(__0>0)ColonyConduits.PhaseBoundary();
         }
         private static Exception? Finalizer(Exception? __exception,Scope? __state)
         {

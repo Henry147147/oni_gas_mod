@@ -14,6 +14,7 @@ namespace MixedAtmospheres.Oni
             internal readonly ElementConsumer Consumer;internal readonly ConduitDispenser Dispenser;internal readonly Storage Storage;
             internal readonly List<ulong> Buffers=new List<ulong>();internal readonly SortedDictionary<ulong,PipeAmount> Pending=new SortedDictionary<ulong,PipeAmount>();
             internal int Handle;internal readonly int Cell;internal readonly byte Phase;internal readonly ConduitFlow Flow;
+            internal int RetiredAt=-1; // world cell once the building is destroyed
             internal State(ElementConsumer consumer,ConduitDispenser dispenser,int handle,int cell,byte phase,ConduitFlow flow)
             {Consumer=consumer;Dispenser=dispenser;Storage=consumer.storage;Handle=handle;Cell=cell;Phase=phase;Flow=flow;}
             internal PipeAmount ActualMass
@@ -52,6 +53,15 @@ namespace MixedAtmospheres.Oni
         internal static long Queued { get; private set; }
         internal static void Reset(){Enabled=false;States.Clear();Requests.Clear();ByOutlet.Clear();delivering=null;writes=0;Notifications=0;Queued=0;MixtureInspection.SetConduitStorageReader(null);}
         internal static bool IsPumpJob(ulong localId)=>Requests.ContainsKey(localId);
+        // A destroyed pump's owned storage dumps into the world at its cell,
+        // like vanilla DropAll; pending intakes follow when they complete.
+        internal static void Retire(Storage storage)
+        {
+            if(!States.TryGetValue(storage,out var state))return;
+            States.Remove(storage);ByOutlet.Remove((state.Flow,state.Cell));state.RetiredAt=Grid.PosToCell(storage);
+            foreach(var id in state.Buffers.ToArray())
+                if(!state.Pending.ContainsKey(id)){state.Buffers.Remove(id);if(ColonyPipePorts.BufferInventory(id).Count>0)ColonyPipeTeardown.HoldSpill(id,state.RetiredAt);}
+        }
         internal static void Capture(PipeRuntimeImage image)
         {
             foreach(var state in States.Values)
@@ -115,6 +125,14 @@ namespace MixedAtmospheres.Oni
         {
             if(!Requests.TryGetValue(localId,out var state))return;
             state.Pending.Remove(localId);Requests.Remove(localId);
+            if(state.RetiredAt>=0)
+            {
+                // The pump is gone: what its last intake brought leaves as
+                // a spill where it stood, without a native notification.
+                state.Buffers.Remove(localId);
+                if(ColonyPipePorts.BufferInventory(localId).Count>0)ColonyPipeTeardown.HoldSpill(localId,state.RetiredAt);
+                return;
+            }
             Consolidate(state);
             if(state.Consumer!=null)
             {

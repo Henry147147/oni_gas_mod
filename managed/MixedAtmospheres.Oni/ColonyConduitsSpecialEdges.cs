@@ -21,8 +21,9 @@ namespace MixedAtmospheres.Oni
         private static readonly MethodInfo CanPump=AccessTools.PropertyGetter(typeof(MorbRoverMaker.Instance),"CanPumpGerms"),
             Remaining=AccessTools.PropertyGetter(typeof(MorbRoverMaker.Instance),"MorbDevelopment_RemainingGerms"),AddGerms=AccessTools.Method(typeof(MorbRoverMaker.Instance),"AddGerms");
         internal static long Panels { get; private set; }
+        internal static PipeAmount PanelHeat { get; private set; }
         internal static long MorbGerms { get; private set; }
-        internal static void Reset(){Panels=MorbGerms=0;captured=capture=false;}
+        internal static void Reset(){Panels=MorbGerms=0;PanelHeat=PipeAmount.Zero;captured=capture=false;}
 
         internal static bool Conductive(ContactConductivePipeBridge.Instance bridge,float dt)
         {
@@ -41,7 +42,7 @@ namespace MixedAtmospheres.Oni
             capturing=bridge.structureHandle;capture=true;captured=false;capturedKilojoules=0;
             try{Exchange.Invoke(bridge,new object[]{ColonyConduits.Compatibility(parcel),(float)parcel.Mass,dt});}
             finally{capture=false;}
-            if(captured)ColonyConduits.AddHeat(flow,bridge.outputCell,PipeContactWork.Kilojoules(capturedKilojoules).Negated());
+            if(captured){var joules=PipeContactWork.Kilojoules(capturedKilojoules).Negated();ColonyConduits.AddHeat(flow,bridge.outputCell,joules);PanelHeat=PanelHeat.Plus(joules);}
             ++Panels;return true;
         }
         internal static void ObserveBodyEnergy(HandleVector<int>.Handle handle,float kilojoules)

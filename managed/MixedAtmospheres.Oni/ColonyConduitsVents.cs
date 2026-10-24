@@ -19,7 +19,7 @@ namespace MixedAtmospheres.Oni
             internal readonly List<ulong> Buffers=new List<ulong>();internal readonly HashSet<ulong> Pending=new HashSet<ulong>();
             internal readonly SortedDictionary<int,PipeAmount> BodyCompetition=new SortedDictionary<int,PipeAmount>(),BodyExternal=new SortedDictionary<int,PipeAmount>();
             internal PipeBodyGerms LastBody;
-            internal int Exchanges;internal string LastExchange="no surface exchange";
+            internal int Exchanges;internal string LastExchange="no surface exchange";internal int RetiredAt=-1;
             internal State(ConduitConsumer consumer,Exhaust exhaust,ConduitFlow flow,int cell)
             {Consumer=consumer;Storage=consumer.storage;Exhaust=exhaust;Body=exhaust.GetComponent<PrimaryElement>();Flow=flow;Cell=cell;LastBody=ReadBody(Body);}
             internal PipeInventory Inventory
@@ -50,6 +50,13 @@ namespace MixedAtmospheres.Oni
             Enabled=true;
         }
         internal static void BeginExchangeControl()=>exchangeControl=true;
+        internal static void Retire(Storage storage)
+        {
+            if(!States.TryGetValue(storage,out var state))return;
+            States.Remove(storage);state.RetiredAt=Grid.PosToCell(storage);
+            foreach(var id in state.Buffers.ToArray())
+                if(!state.Pending.Contains(id)){state.Buffers.Remove(id);if(ColonyPipePorts.BufferInventory(id).Count>0)ColonyPipeTeardown.HoldSpill(id,state.RetiredAt);}
+        }
         internal static void Capture(PipeRuntimeImage image)
         {
             foreach(var state in States.Values)
@@ -154,6 +161,8 @@ namespace MixedAtmospheres.Oni
         internal static void Completed(ulong localId,PipePortSettlement settled)
         {
             if(!Requests.TryGetValue(localId,out var state))return;Requests.Remove(localId);state.Pending.Remove(localId);
+            if(state.RetiredAt>=0)
+            {state.Buffers.Remove(localId);if(ColonyPipePorts.BufferInventory(localId).Count>0)ColonyPipeTeardown.HoldSpill(localId,state.RetiredAt);return;}
             var vent=state.Exhaust==null?null:state.Exhaust.GetComponent<Vent>();
             if(vent!=null)foreach(var part in settled.WorldInventory.Parts)vent.UpdateVentedMass(ColonyConduits.ElementHash(part.Id),(float)part.Mass);
             state.Buffers.RemoveAll(id=>!state.Pending.Contains(id)&&ColonyPipePorts.BufferInventory(id).Count==0);Consolidate(state);Changed(state);
@@ -186,5 +195,14 @@ namespace MixedAtmospheres.Oni
     {
         private static bool Prefix(ConduitConsumer __instance,ref float __result)
         {if(__instance.storage==null||!ColonyPipeVents.ReadMass(__instance.storage,out var mass))return true;__result=mass;return false;}
+    }
+    [HarmonyPatch(typeof(Storage),"OnQueueDestroyObject")]
+    internal static class ColonyMixedStorageRetirePatch
+    {
+        private static void Prefix(Storage __instance)
+        {
+            if(!ColonyPipePorts.Enabled||!ColonyPipeTeardown.Enabled)return;
+            ColonyPipePumps.Retire(__instance);ColonyPipeVents.Retire(__instance);
+        }
     }
 }
