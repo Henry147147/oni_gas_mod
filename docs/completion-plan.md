@@ -8,6 +8,21 @@ still require separate authorization.
 
 Amendments:
 
+- **Floor truth and heat mixing, 2026-10-24 (user decisions):** for the
+  [base-game floor](base-game-floor.md):
+  1. *Timing truth.* The strict resolved reference cannot advance F1–F5 at
+     practical cost. A timing metric passes when the game profile's error is
+     no larger than vanilla's for every truth in a documented, physically
+     justified range. Where that range does not decide the comparison, an
+     independent standard resolved solver (second-order Godunov Euler for
+     gas, incompressible VOF for liquids, 8× and 16×) is that metric's truth.
+  2. *Depth truth.* F3/F5 depths are judged against the nominal depth minus
+     the saturated vapour mass in the vacuum headspace, from the catalogue
+     at the final temperature. Evaporation into vacuum stays.
+  3. *Heat mixing.* The new game profile saves gas heat mixing 8: moving gas
+     mixes its temperature faster, conserving energy.
+  Setups, metrics and all other bounds are unchanged; old saves keep their
+  profile.
 - **Playtest default profile, 2026-10-24 (user decision):** for the private
   Linux playtest, the game profile becomes the default for new colonies once
   it passes the base-game floor (F1–F5 no worse than vanilla) and the
