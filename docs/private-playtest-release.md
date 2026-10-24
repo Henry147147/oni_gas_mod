@@ -65,6 +65,17 @@ profile20→21 owner means are199.855→201.837 ms and observed means
 Old saves retain their law, and the production default is unchanged. Its phase,
 floor/reference and long-run checks remain separate acceptance work.
 
+The same immutable core21 bundle subsequently passes all ten unchanged
+evaporation/vapour, door and freeze/melt checks in139 frames. All139 owner
+samples and138 adjacent intervals are retained, with no gaps. LOW-lock
+owner mean/p95/max is222.231/270.107/306.018 ms; observed spacing is
+269.025/349.752/839.975 ms. Maximum relative mass/energy errors are
+3.600e-16/1.292e-15 and the trace sink is2.48880e-7 kg/0.263928 J.
+There are zero faults/rejections/skipped relaxations; fallback count remains
+unavailable. Package hashes are unchanged and process cleanup is verified.
+This is focused phase/terrain coverage, with shared GPU load; it establishes
+neither full mixed-pipe behavior, floor acceptance nor sustained speed.
+
 The opt-in kernel3/core20 corrected bundle runs in the actual game, with no
 default or old-save migration. Its whole-lock Terra60 result is
 210.27/226.40/275.22 ms owner mean/p95/max and
