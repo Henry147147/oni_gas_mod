@@ -188,7 +188,7 @@ namespace MixedAtmospheres.Oni
                 var output = OniNativeColony.Status.Empty;
                 OniNativeColony.Check(OniNativeColony.Start(ref config, materials, (uint)materials.Length, cells, (uint)cells.Length, ref output));
                 status = output; views = new OniNativeColony.CellView[cells.Length]; Active = true; ColonyPacingDriver.Ensure(); ConfigurePresentation();
-                if (ColonyPipeRuntime.NewColoniesUseMixedPipes) ColonyPipeRuntime.Start(); // docs/mixed-pipes.md#runtime
+                if (ColonyPipeRuntime.NewColoniesUseMixedPipes) ColonyPipeRuntime.StartForNewColony(); // docs/mixed-pipes.md#runtime
                 OwnedCells = cells.Count(c => c.Kind != OniNativeColony.Solid);
                 // Backwall cells are a native layer behind the cells; their transitions emit through AddRemoveSubstance.
                 var backwalls = 0;

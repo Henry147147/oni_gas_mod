@@ -227,6 +227,19 @@ internal static class Program
         materialRecord.GetField("NativeIndex")!.SetValue(record,176u);materialRecord.GetField("ElementHash")!.SetValue(record,(int)SimHashes.CarbonDioxide);catalogue.SetValue(record,0);
         Check(!hash.SequenceEqual((byte[])hashMethod.Invoke(null,new object[]{catalogue})!),"Catalogue identity omitted element hash mapping.");
         Console.WriteLine("PASS pipe identity: negative hashes project from ordinals; saved catalogue hash covers both ordinal and element hash");
+        // Production port/phase/status hooks bind the installed declarations.
+        var statusTarget=AccessTools.Method(typeof(Database.BuildingStatusItems).GetNestedType("<>c",BindingFlags.NonPublic|BindingFlags.Public),"<CreateStatusItems>b__337_35");
+        var statusBody=statusTarget?.GetMethodBody()?.GetILAsByteArray();
+        var getContents=AccessTools.Method(typeof(ConduitFlow),nameof(ConduitFlow.GetContents));
+        Check(statusTarget!=null&&statusTarget.ReturnType==typeof(string)&&statusBody!=null&&
+            Enumerable.Range(0,statusBody.Length-4).Any(i=>(statusBody[i]==0x6F||statusBody[i]==0x28)&&BitConverter.ToInt32(statusBody,i+1)==getContents.MetadataToken),
+            $"Pipe contents status closure no longer reads ConduitFlow.GetContents ({statusTarget?.Name}, {statusBody?.Length}, token {getContents.MetadataToken:X}).");
+        foreach(var (type,name) in new[]{(typeof(ConduitConsumer),"Consume"),(typeof(ConduitDispenser),"Dispense"),(typeof(ConduitDispenser),"FindSuitableElement"),
+            (typeof(AirConditioner),"UpdateState"),(typeof(EmptyConduitWorkable),"EmptyContents"),(typeof(ConduitFlow),"FreezeConduitContents"),(typeof(ConduitFlow),"MeltConduitContents"),
+            (typeof(ContactConductivePipeBridge.Instance),"Flow"),(typeof(ContactConductivePipeBridge.Instance),"ExchangeStorageTemperatureWithBuilding"),
+            (typeof(MorbRoverMaker.Instance),"Flow"),(typeof(Storage),"OnQueueDestroyObject")})
+            Check(AccessTools.Method(type,name)?.GetMethodBody()!=null,$"Pipe port hook target {type.Name}.{name} is missing.");
+        Console.WriteLine("PASS pipe port hooks: consumer/dispenser/conditioner/emptying/phase/panel/morb/storage-retire targets and the pipe status closure bind installed declarations");
         return 0;
     }
 }

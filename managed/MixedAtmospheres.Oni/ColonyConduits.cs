@@ -490,7 +490,9 @@ namespace MixedAtmospheres.Oni
                 for(var i=0;i<flow.Value.Cells.Length;++i)
                 {
                     if(!(flow.Value.Cells[i] is Cell cell)||cell.Inventory.Count==0||!flow.Key.HasConduit(i))continue;
-                    var kind=PhaseEvent(cell.Inventory,threshold);
+                    int kind;
+                    try{kind=PhaseEvent(cell.Inventory,threshold);}
+                    catch(InvalidOperationException){continue;} // a trace without a representable temperature has no phase event
                     if(kind!=0)(events??=new List<(ConduitFlow,int,int)>()).Add((flow.Key,i,kind));
                 }
             }

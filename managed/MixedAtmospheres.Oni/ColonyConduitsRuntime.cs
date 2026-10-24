@@ -16,6 +16,17 @@ namespace MixedAtmospheres.Oni
         // A loaded colony keeps the mode its save recorded.
         internal static bool NewColoniesUseMixedPipes=>Environment.GetEnvironmentVariable("MA_COLONY_MIXED_PIPES")=="1";
         internal static string StartNotes { get; private set; }="";
+        // A new colony that cannot start mixed pipes keeps the packet path
+        // (its saves then record no pipe section) instead of losing the owner.
+        internal static void StartForNewColony()
+        {
+            try{Start();}
+            catch(Exception error)when(error is NotSupportedException||error is InvalidOperationException)
+            {
+                ColonyConduits.Reset();StartNotes="mixed pipes unavailable: "+error.Message;
+                Debug.LogWarning("[Mixed Atmospheres] Mixed pipes did not start; pipes carry packets: "+error.Message);
+            }
+        }
         internal static void Start()
         {
             if(ColonyConduits.Active&&ColonyMachinePorts.Enabled)return;

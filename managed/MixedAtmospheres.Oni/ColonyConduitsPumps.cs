@@ -15,6 +15,7 @@ namespace MixedAtmospheres.Oni
             internal readonly List<ulong> Buffers=new List<ulong>();internal readonly SortedDictionary<ulong,PipeAmount> Pending=new SortedDictionary<ulong,PipeAmount>();
             internal int Handle;internal readonly int Cell;internal readonly byte Phase;internal readonly ConduitFlow Flow;
             internal int RetiredAt=-1; // world cell once the building is destroyed
+            internal int IntakeCell=-1; // world cell of the latest extraction
             internal State(ElementConsumer consumer,ConduitDispenser dispenser,int handle,int cell,byte phase,ConduitFlow flow)
             {Consumer=consumer;Dispenser=dispenser;Storage=consumer.storage;Handle=handle;Cell=cell;Phase=phase;Flow=flow;}
             internal PipeAmount ActualMass
@@ -112,6 +113,7 @@ namespace MixedAtmospheres.Oni
             var room=new PipeAmount(capacity).Minus(state.ReservedMass);var amount=room.Sign>0?Math.Min(requested,room.Value):0;
             while(amount>0&&new PipeAmount(amount).Minus(room).Sign>0)amount=BitConverter.Int64BitsToDouble(BitConverter.DoubleToInt64Bits(amount)-1);
             if(!(amount>0))return true;
+            state.IntakeCell=worldCell;
             var id=batch.Extract(ordered,cell,phase,(uint)worldCell,amount,radius);
             state.Pending.Add(id,new PipeAmount(amount));state.Buffers.Add(id);Requests.Add(id,state);return true;
         }
@@ -184,7 +186,16 @@ namespace MixedAtmospheres.Oni
             dispenser.blocked=before.Sign>0&&!ColonyConduits.HasRoom(Manager(dispenser),state.Cell);
             var operational=(Operational)Operation.GetValue(dispenser);
             if(!dispenser.alwaysDispense&&(operational==null||!operational.IsOperational))return true;
-            foreach(var id in state.Buffers.ToArray())if(!state.Pending.ContainsKey(id))ColonyPipePorts.PlaceBuffer(id);
+            foreach(var id in state.Buffers.ToArray())
+            {
+                if(state.Pending.ContainsKey(id))continue;
+                // A trace of the other phase that came with an extraction
+                // cannot enter this pipe; it returns to the intake cell
+                // instead of blocking the whole pump buffer.
+                var foreign=ColonyPipePorts.SplitBuffer(id,species=>ColonyConduits.MaterialPhase(species)!=state.Phase);
+                if(foreign!=0)ColonyPipeTeardown.HoldSpill(foreign,state.IntakeCell>=0?state.IntakeCell:Grid.PosToCell(state.Consumer));
+                ColonyPipePorts.PlaceBuffer(id);
+            }
             var after=state.ActualMass;dispenser.empty=after.Sign==0&&before.Sign==0;
             if(before.Sign>0&&before.Minus(after).Sign==0)dispenser.blocked=true;
             if(before.Minus(after).Sign!=0)

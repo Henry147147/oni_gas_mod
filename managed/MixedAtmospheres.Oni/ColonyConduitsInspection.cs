@@ -68,7 +68,7 @@ namespace MixedAtmospheres.Oni
     {
         private static MethodBase? Target()
         {
-            var method=AccessTools.Method(AccessTools.TypeByName("BuildingStatusItems+<>c"),"<CreateStatusItems>b__337_35");
+            var method=AccessTools.Method(typeof(Database.BuildingStatusItems).GetNestedType("<>c",BindingFlags.NonPublic|BindingFlags.Public),"<CreateStatusItems>b__337_35");
             return method!=null&&method.ReturnType==typeof(string)&&method.GetParameters().Length==2?method:null;
         }
         private static bool Prepare()=>Target()!=null;
@@ -76,8 +76,12 @@ namespace MixedAtmospheres.Oni
         private static void Postfix(string __0,object __1,ref string __result)
         {
             if(!ColonyConduits.Active||!(__1 is Conduit conduit))return;
-            var line=ColonyPipeInspection.ContentsLine(conduit.GetFlowManager(),Grid.PosToCell(conduit));
-            if(line!=null)__result=__0.Replace("{Contents}",line);
+            try
+            {
+                var line=ColonyPipeInspection.ContentsLine(conduit.GetFlowManager(),Grid.PosToCell(conduit));
+                if(line!=null)__result=__0.Replace("{Contents}",line);
+            }
+            catch(InvalidOperationException){} // keep the native line for an unrepresentable trace
         }
     }
 }

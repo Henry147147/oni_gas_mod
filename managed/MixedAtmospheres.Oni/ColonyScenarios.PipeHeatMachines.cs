@@ -22,6 +22,8 @@ namespace MixedAtmospheres.Oni
         // body exactly the heat the mixture lost, the boiling and condensing
         // pipes each took one phase event and emptied, every account closes.
         private static readonly List<GameObject> heatBuildings=new List<GameObject>();
+        // A conditioner writes its output with AddElement, not a dispenser.
+        private static int ConditionerOutput(GameObject building)=>(int)AccessTools.Field(typeof(AirConditioner),"cooledAirOutputCell").GetValue(building.GetComponent<AirConditioner>());
         private static bool HeatAt(int at,string label)=>Once(at+(recorded.TryGetValue("heat setup delay",out var delay)?(int)delay:0),label);
         private static void MixedPipeHeatMachines(int frame)
         {
@@ -32,14 +34,14 @@ namespace MixedAtmospheres.Oni
             if(Once(7,"pipe heat machines"))
             {
                 var panel=heatBuildings[1].GetSMI<ContactConductivePipeBridge.Instance>();
-                Pipe(Game.Instance.liquidConduitSystem,LiquidConduitConfig.ID,new List<int>{InputCell(heatBuildings[0])},Route(OutputCell(heatBuildings[0]),Cell(0,4)),
+                Pipe(Game.Instance.liquidConduitSystem,LiquidConduitConfig.ID,new List<int>{InputCell(heatBuildings[0])},Route(ConditionerOutput(heatBuildings[0]),Cell(0,4)),
                     new List<int>{panel.inputCell},new List<int>{panel.outputCell},new List<int>{Cell(7,5)});
                 Pipe(Game.Instance.gasConduitSystem,GasConduitConfig.ID,new List<int>{Cell(3,5)});
             }
             if(frame>=8&&step<=8)
             {
                 var panel=heatBuildings[1].GetSMI<ContactConductivePipeBridge.Instance>();
-                if(!new[]{InputCell(heatBuildings[0]),OutputCell(heatBuildings[0]),Cell(0,4),panel.inputCell,panel.outputCell,Cell(7,5)}.All(liquid.HasConduit)||!gas.HasConduit(Cell(3,5)))
+                if(!new[]{InputCell(heatBuildings[0]),ConditionerOutput(heatBuildings[0]),Cell(0,4),panel.inputCell,panel.outputCell,Cell(7,5)}.All(liquid.HasConduit)||!gas.HasConduit(Cell(3,5)))
                 {
                     Current.Stage="waiting for heat-machine pipe topology";
                     if(frame>=30){Record("heat-machine pipe topology became ready",false,"readiness expired");Finish();}
@@ -63,7 +65,7 @@ namespace MixedAtmospheres.Oni
             if(HeatAt(60,"conditioner, panel and pipe phase changes"))
             {
                 var water=ColonyConduits.MaterialOf(SimHashes.Water).Id;var dirty=ColonyConduits.MaterialOf(SimHashes.DirtyWater).Id;
-                var output=PipeInventory.Empty;foreach(var cell in Route(OutputCell(heatBuildings[0]),Cell(0,4))){ColonyConduits.TryRead(liquid,cell,out var held);output=output.Joined(held);}
+                var output=PipeInventory.Empty;foreach(var cell in Route(ConditionerOutput(heatBuildings[0]),Cell(0,4))){ColonyConduits.TryRead(liquid,cell,out var held);output=output.Joined(held);}
                 var pumped=ColonyMachinePorts.StorageBoundary.Energy.Value-recorded["heat boundary"];
                 Record("the conditioner moves the whole mixture 14 K colder",Math.Abs(output.Mass-8)<1e-5&&output.SpeciesMass(water)>5.99&&output.SpeciesMass(dirty)>1.99&&
                     Math.Abs(pumped-recorded["conditioner heat"])<=.05*recorded["conditioner heat"],
