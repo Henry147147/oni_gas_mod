@@ -16,6 +16,11 @@ namespace MixedAtmospheres.Oni
         // A loaded colony keeps the mode its save recorded.
         internal static bool NewColoniesUseMixedPipes=>Environment.GetEnvironmentVariable("MA_COLONY_MIXED_PIPES")=="1";
         internal static string StartNotes { get; private set; }="";
+        internal static string Failure { get; private set; }="";
+        // One status-panel line: the colony's pipe mode and any fallback.
+        internal static string StatusLine=>Failure.Length>0?"Pipes: single-element packets (mixed pipes failed)":
+            Active?"Pipes: mixed contents"+(StartNotes.Length>0?" · "+StartNotes.TrimEnd(' ',';'):""):"Pipes: single-element packets";
+        internal static void ResetStatus(){Failure="";StartNotes="";}
         // A new colony that cannot start mixed pipes keeps the packet path
         // (its saves then record no pipe section) instead of losing the owner.
         internal static void StartForNewColony()
@@ -23,8 +28,10 @@ namespace MixedAtmospheres.Oni
             try{Start();}
             catch(Exception error)when(error is NotSupportedException||error is InvalidOperationException)
             {
-                ColonyConduits.Reset();StartNotes="mixed pipes unavailable: "+error.Message;
-                Debug.LogWarning("[Mixed Atmospheres] Mixed pipes did not start; pipes carry packets: "+error.Message);
+                // Never silent: logged as an error, shown as a failure in the
+                // status panel, and scenarios expecting mixed pipes fail.
+                ColonyConduits.Reset();Failure="Mixed pipes did not start; pipes carry single-element packets: "+error.Message;
+                Debug.LogError("[Mixed Atmospheres] "+Failure);
             }
         }
         internal static void Start()

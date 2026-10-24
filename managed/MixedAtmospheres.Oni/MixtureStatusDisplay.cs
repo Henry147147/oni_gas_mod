@@ -95,7 +95,9 @@ namespace MixedAtmospheres.Oni
                     (frame?.SuppliedCells.Count ?? 0).ToString(CultureInfo.InvariantCulture) + " cells with readings\n" +
                     "Solver pace " + ColonyPacing.OwnerRate.ToString("0.00", CultureInfo.InvariantCulture) + "× real time · game clock " +
                     Time.timeScale.ToString("0.00", CultureInfo.InvariantCulture) + "×\nRenderer: " + (MixtureWorldRendering.LastError.Length != 0 ? "error" :
-                    MixtureWorldRendering.Installed && MixtureWorldRendering.SchedulingActive ? "ready" : "waiting for textures");
+                    MixtureWorldRendering.Installed && MixtureWorldRendering.SchedulingActive ? "ready" : "waiting for textures") +
+                    "\n" + ColonyPipeRuntime.StatusLine;
+                if (ColonyPipeRuntime.Failure.Length != 0 && failure.Length == 0) failure = ColonyPipeRuntime.Failure;
                 if (frame == null || frame.SuppliedCells.Count == 0) return;
             }
             else if (frame == null || !frame.HasWorld)

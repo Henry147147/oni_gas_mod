@@ -212,6 +212,8 @@ namespace MixedAtmospheres.Oni
         }
         internal static void Reset()
         {
+            if(!restoring)ColonyPipeRuntime.ResetStatus();
+            restoring=false;
             ColonyPipeThermalProbe.Reset();
             ColonyGermEvolutionProbe.Reset();
             ColonyPipeBiology.Reset();
