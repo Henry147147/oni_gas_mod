@@ -262,12 +262,16 @@ namespace MixedAtmospheres.Oni
             var started = System.Diagnostics.Stopwatch.GetTimestamp();
             var lapStarted = started;
             var laps = publicationLog ? new System.Text.StringBuilder() : null;
+            var previousCollections=publicationLog?GC.CollectionCount(0):0;
             void Lap(string name)
             {
                 if (laps == null) return;
                 var now = System.Diagnostics.Stopwatch.GetTimestamp();
                 laps.AppendFormat(System.Globalization.CultureInfo.InvariantCulture, " {0} {1:F3}", name,
                     (now - lapStarted) * 1000.0 / System.Diagnostics.Stopwatch.Frequency);
+                var collections=GC.CollectionCount(0);
+                if(collections!=previousCollections)laps.AppendFormat(" [{0}_gc={1}]",name,unchecked(collections-previousCollections));
+                previousCollections=collections;
                 lapStarted = now;
             }
             var output = OniNativeColony.Status.Empty;

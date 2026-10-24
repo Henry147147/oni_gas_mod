@@ -1,6 +1,6 @@
 # Private Linux playtest completion
 
-Status reviewed 2026-10-23 against the accepted [base-game plan](playtest-plan.md)
+Status reviewed 2026-10-24 against the accepted [base-game plan](playtest-plan.md)
 and its overriding [user amendments](completion-plan.md#amendments).
 The mod is **not ready for a full private colony playtest**. Catalogue support
 exists for the loaded 29 gases and 49 liquids; that does not establish every
@@ -16,7 +16,7 @@ physics gates, frozen arenas, bounds or the user's decisions.
 | Completion item | Current evidence and remaining work | Owner |
 | --- | --- | --- |
 | Full mixed gas/liquid pipes and ports | Explicit pump/storage 27/27, atomic world output 10/10, real teardown 10/10, valve/shutoff 23/23 and gas vent 13/13 pass. Normal mixed ownership remains off. Finish liquid outlets, recipe-specific consumers/storage/reservoirs, phase damage/returns, all readers and activation. | Pipe worker |
-| Heat and germs | Correct pipe body capacity uses registered thermal mass, not construction mass. Corrected thermal equilibrium agrees, but the approximately 1.06 J measured energy residual exceeds the fixed endpoint bound and remains unresolved. The shared native integer germ helper passes 247 bit-exact native comparisons (32 births, 534,021 deaths, one extinction). Every identity still needs integrated evolution and durable clocks, in pipes and world cells. | Pipe worker / gameplay owner |
+| Heat and germs | Correct pipe body capacity uses registered thermal mass, not construction mass. The original carrier-temperature account fails its fixed endpoint bound. Explicit represented-body-work coupling now passes 5/5 at 601 frames with zero heat residual; full phase/range and ordinary activation still need acceptance. The shared native integer germ helper passes 247 bit-exact native comparisons (32 births, 534,021 deaths, one extinction). Every identity still needs integrated evolution and durable clocks, in pipes and world cells. | Pipe worker / gameplay owner |
 | Conserved gameplay transactions | Existing life-support, plant, critter, source and machine scenarios pass on the packet path. Verify recipe-only consumption, blocked input/output and power/heat accounting on the final mixed path, including storage, bottles, suits and rocket tanks/cargo. A generic converter preflight is not a per-recipe atomicity proof. | Gameplay owner / pipe worker |
 | Exact saves with mixed activity | Historical owner saves/load/overwrite and missing-mod rejection pass. Mixed saves are explicitly refused; the early public-ingress guard passes 7/7 actual game checks with existing destination/writer bytes preserved. Finish the pre-header quiescence barrier, durable ports/retries/component scheduling, in-flight manual/autosaves, cold/menu reload, interrupted-save checks and byte-exact continuation. Old saves retain their recorded profile. | Pipe worker / gameplay owner |
 | Whole-asteroid reliability | Every base-game asteroid imports; older Oceania/Volcanea checks faulted. Oceania and Volcanea now pass 30 frames on profile 18; longer reliability remains open. Opt-in kernel3 fails Oceania after two frames (liquid strain admission) and Volcanea before its first completed frame (pressure convergence); neither is accepted. The prepared profile-18 late colony stalls after frame 4,383; pass that region before resuming ten cycles. One legacy transfer fault at frame 456 did not recur in a 601-frame retry and is not claimed fixed. | Solver / gameplay owners |
@@ -183,3 +183,18 @@ relaxation and 11,065 legacy rejected attempts. Owner maximum relative
 mass/energy errors are 1.771e-15/5.865e-17; the trace sink is zero. Process
 cleanup is verified. The owner world audit does not include the independent
 pipe/body contact account and cannot erase that failed thermal check.
+
+The explicit represented-body-work adapter subsequently passes the unchanged
+601-frame thermal check **5/5**. Across 586 contacts, the body loses
+90,674.695667622 J and the mixture/booked account gains exactly that amount:
+residual 0 J against the original 0.245883883 J bound. Body/mixture temperatures
+353.26046753/353.25973172 K agree with analytic 353.26012361 K; the full 1 kg,
+two-species inventory and exact U account pass. Actual carrier validation
+succeeds throughout; no private native detours are used for this acceptance.
+Maximum owner mass/energy errors are 2.964e-15/5.533e-17, with no fault or trace
+sink, 13,704 legacy rejected attempts and zero skipped relaxations. All
+601 samples/600 intervals are present. Diagnostic LOW-lock owner
+mean/p95/max is 359.812/454.501/718.199 ms and observed spacing is
+456.684/630.994/4540.225 ms; cleanup is verified. The new behavior is explicitly
+selected for the control; full mixed saves and production activation remain
+gated. Gas/liquid phase and capacity-range checks remain open.

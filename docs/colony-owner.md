@@ -429,6 +429,16 @@ for98,304cells with identical destinations. The live pair is potentially GPU
 contended by vLLM and includes managed instrumentation; its whole-frame means
 are diagnostic observations, not an isolated gain or2× acceptance.
 
+For the unexplained long view-copy laps,
+`MA_COLONY_VIEW_TIMING_LOG=1` separately records backend mutex wait and native
+copy/status work, with the call/session/frame and copy outcome. It preserves
+the post-call floating-point environment and errno. Existing managed
+publication laps annotate increases in the process collection count between
+stage boundaries; that is a correlation, not a measured GC duration. Native
+printing is outside the native elapsed interval but inside the caller's lap.
+Both diagnostic flags must be off in final timing runs. Release and backend
+controls pass with timing off/on; active-game stall attribution is pending.
+
 The legacy 48-byte receipt output also stays pinned during its synchronous
 native copy, avoiding per-element marshalling of the 4096-entry destination.
 Receipt selection, ordering, callbacks, precise sidecars and acknowledgement

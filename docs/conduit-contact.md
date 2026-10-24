@@ -1,6 +1,6 @@
 # Conserved conduit/body contact boundary
 
-The existing full-mixture pipe thermal check is still failing. Its independent
+The original full-mixture pipe thermal check failed. Its independent
 body-plus-mixture account includes heat that the owner world's audit does not.
 Do not substitute the owner's passing audit or relax the fixed endpoint bound.
 
@@ -42,6 +42,9 @@ its held inventory, and verify the actual post-call carrier result before
 settling exact `Cbody * (Tbody_before - Tbody_after)` into that mixture. Preserve
 any separately observed earlier heat; do not also credit the rounded carrier
 change for the same contact. Other body contacts and deferred heat cannot be
-inferred from a whole-body snapshot delta. The managed coupling and unchanged
-601-frame thermal acceptance remain pending; this API alone enables neither
-production mixed ownership nor a new numerical profile.
+inferred from a whole-body snapshot delta. Explicit managed coupling now passes the unchanged 601-frame thermal check
+5/5: represented body loss and mixture gain are both 90,674.695667622 J,
+with zero residual against the original 0.245883883 J bound. Every actual
+carrier result validates. This controlled result enables neither production
+mixed ownership nor a new numerical profile; phase/range, full saved activity
+and ordinary activation still need their own checks.

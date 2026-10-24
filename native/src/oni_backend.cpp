@@ -15,6 +15,8 @@
 #include <cfenv>
 #include <cerrno>
 #include <cmath>
+#include <chrono>
+#include <cstdlib>
 #include <xmmintrin.h>
 #include <cstring>
 #include <memory>
@@ -811,12 +813,32 @@ MAOniResult ma_oni_colony_composition(std::uint32_t cell,std::uint32_t* indices,
 }
 MAOniResult ma_oni_colony_copy_changed(std::uint64_t session,std::uint64_t frame,MAOniColonyStatus* output,
     MAOniColonyCellView* views,std::uint32_t capacity,std::uint32_t* copied) {
-    return boundary([&] {
+    static const bool timing=[] {const auto* value=std::getenv("MA_COLONY_VIEW_TIMING_LOG");return value && std::strcmp(value,"1")==0;}();
+    using Clock=std::chrono::steady_clock;
+    const auto begun=timing?Clock::now():Clock::time_point{};
+    auto entered=begun;
+    const auto result=boundary([&] {
+        if(timing)entered=Clock::now();
         if (!output || !copied || output->struct_size!=sizeof(*output) || output->abi_version!=MA_ONI_COLONY_ABI_VERSION || (!views && capacity))
             throw Failure(MA_ONI_INVALID_ARGUMENT,"Invalid cached colony view request");
         try { *copied=ma::oni::colony::copy_changed(session,frame,*output,views,capacity)?1u:0u; }
         catch (const std::invalid_argument& error) { throw Failure(MA_ONI_INVALID_ARGUMENT,error.what()); }
     });
+    if(timing) {
+        const auto finished=Clock::now();
+        const auto saved_error=errno;const auto csr=_mm_getcsr();std::fenv_t environment{};
+        if(std::fegetenv(&environment)==0) {
+            static std::atomic<std::uint64_t> sequence{0};const auto call=sequence.fetch_add(1,std::memory_order_relaxed)+1;
+            std::fprintf(stderr,"[Mixed Atmospheres] native view call %llu session %llu frame %llu result %u copied %u wait_ms %.6f work_ms %.6f total_ms %.6f\n",
+                static_cast<unsigned long long>(call),static_cast<unsigned long long>(result==MA_ONI_OK?output->session:0),
+                static_cast<unsigned long long>(result==MA_ONI_OK?output->completed_frames:0),static_cast<unsigned>(result),
+                result==MA_ONI_OK?*copied:0,std::chrono::duration<double,std::milli>(entered-begun).count(),
+                std::chrono::duration<double,std::milli>(finished-entered).count(),std::chrono::duration<double,std::milli>(finished-begun).count());
+            std::fflush(stderr);(void)std::fesetenv(&environment);_mm_setcsr(csr);
+        }
+        errno=saved_error;
+    }
+    return result;
 }
 MAOniResult ma_oni_colony_queue_transfers(const MAOniColonyTransfer* edits,std::uint32_t count) {
     return boundary([&] {
