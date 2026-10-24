@@ -857,6 +857,34 @@ M/E4.100e-16/4.828e-17, sink zero, no fault and verified cleanup. Release,
 nine pure groups, eleven installed-declaration/direct groups,216snapshot and
 326Python checks (four skips) pass before rebase.
 
+The optional pure control `--biology-continuation` runs 30,000 fixed 0.2 s
+updates per case (6,000 game seconds). It preserves the current step rules and
+uses explicit proportional, absolute-death and mixed-material flux callbacks
+with binary32 temperature factors. It excludes database lookup, conduit scans
+and the independent native oracle. After 200 throwaway warm-up steps, early
+and late windows each cover 1,000 updates including the actual birth/death
+journal. The .NET 10/HIGH diagnostic run disables tiered compilation. These
+are product costs, not whole-game timings.
+
+| Culture | Early / late µs per tick | Late allocation B/tick | Maximum population atoms | Maximum model image B |
+|---|---:|---:|---:|---:|
+| Native integer | 0.076 / 0.074 | 192 | 1 | 33 |
+| Fractional | 29.542 / 30.893 | 155491 | 20 | 337 |
+| Wide + tiny | 22.231 / 21.244 | 119731 | 22 | 369 |
+| Tiny decay | 2.016 / 1.906 | 8223 | 6 | 113 |
+| Tiny growth | 1.582 / 1.568 | 6948 | 6 | 113 |
+| Fractional absolute death | 0.068 / 0.066 | 160 | 1 | 33 |
+| Mixed material | 57.159 / 59.060 | 313131 | 20 | 337 |
+
+Every case completes all 30,000 ticks; exact audits and 30 cold continuation
+checks per case pass, including byte-identical next population/clock/journal
+images. Component counts and image sizes stabilize by the first 1,000-tick
+sample. The image contains only exact population, mode/residue and two
+biological journals, not the full pending runtime checkpoint. Allocation in
+fractional/mixed products is a scale concern even though precision growth is
+bounded in these cases. No precision, biology rule or production arithmetic
+was changed for this measurement.
+
 ## Precise owner receipts
 
 The optional native adapter exports `ma_oni_colony_enable_precise_receipts`,
