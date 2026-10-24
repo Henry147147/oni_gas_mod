@@ -406,6 +406,8 @@ namespace MixedAtmospheres.Oni
                 return;
             }
             var status = ColonyOwner.Status;
+            // A colony that asked for mixed pipes and fell back to packets fails the run.
+            if (ColonyPipeRuntime.Failure.Length != 0) throw new InvalidOperationException(ColonyPipeRuntime.Failure);
             if (colonyOwnerWallStart == default) colonyOwnerWallStart = System.DateTime.UtcNow;
             Report.PhysicsOwner = "colony owner (MacClosedWorld); native ONI for solids";
             var faulted = status.State == 2;
