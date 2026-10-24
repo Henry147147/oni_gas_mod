@@ -435,6 +435,7 @@ namespace MixedAtmospheres.Oni
                 ColonyOwner.WorldPassiveComparisons,ColonyOwner.WorldPassiveRows,ColonyOwner.WorldPassiveBusy,
                 WorldGerms = ColonyWorldGerms.Report(),
                 BalanceLedgers = ColonyBalance.Report(),
+                EmitterSources = ColonyActors.SourceKg,
                 OwnerConfigFlags = ColonyOwner.Config.Flags, OwnerMaximumTimestepSeconds = ColonyOwner.Config.MaximumTimestepSeconds,
                 ViewCacheComparisons = ColonyViewCache.Comparisons, ViewCacheChangedDuringComparison = ColonyViewCache.ChangedDuringComparison,
                 ReceiptCopyComparisons = ColonyCopyValidation.ReceiptComparisons, ReceiptCopyEmptyComparisons = ColonyCopyValidation.ReceiptEmptyComparisons,

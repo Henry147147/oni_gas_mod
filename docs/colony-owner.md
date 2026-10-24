@@ -170,6 +170,10 @@ emission interval), unless the cell's dominant phase already holds the
 emitter's maximum (kg), and answers its blocked and unblocked callbacks on
 each change.
 
+Each emitter's added mass is booked per element to an external source
+ledger named after what stands at its cell (a geyser, a building;
+`EmitterSources` in the report).
+
 Left native, a consumer ate the projection's one element. The shadow's other
 mass changes ([above](#native-bodies)) are chiefly ONI deleting gas exposed to
 space; booked as takes of the projected element, they left the other gases of

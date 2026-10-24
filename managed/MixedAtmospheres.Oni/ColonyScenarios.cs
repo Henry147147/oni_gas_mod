@@ -827,6 +827,8 @@ namespace MixedAtmospheres.Oni
             {
                 var added = ArenaSpecies(SimHashes.Steam) + ArenaSpecies(SimHashes.Water) - recorded["water"];
                 Record("the geyser's steam reached the owner", added > .01, $"+{added:G4} kg steam and water");
+                var sources = string.Join("; ", ColonyActors.SourceKg.Select(s => s.Key + " " + string.Join(",", s.Value.Select(e => e.Key + " " + e.Value.ToString("G4")))));
+                Record("the geyser is named in the source ledger", ColonyActors.SourceKg.Keys.Any(k => k.StartsWith(GeyserGenericConfig.ID, StringComparison.Ordinal)), sources);
                 Finish();
             }
         }

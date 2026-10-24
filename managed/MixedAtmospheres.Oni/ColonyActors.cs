@@ -41,6 +41,15 @@ namespace MixedAtmospheres.Oni
             public uint Kind, NativeIndex, Radius; public float Rate; // consumer
             public float Interval, Mass, Temperature, MaximumKg; public uint Disease; public int Germs; // emitter
             public int OnBlocked = -1, OnUnblocked = -1; public bool Blocked;
+            public string? Source; // what stands at the emitter's cell (a geyser, a building)
+        }
+        // External source ledger (docs/colony-owner.md#element-consumers-and-emitters):
+        // mass every emitter source kind added to the owner, per element.
+        internal static readonly SortedDictionary<string, SortedDictionary<string, double>> SourceKg = new SortedDictionary<string, SortedDictionary<string, double>>();
+        private static string SourceOf(int cell)
+        {
+            var building = Grid.IsValidCell(cell) ? Grid.Objects[cell, (int)ObjectLayer.Building] : null;
+            return building != null ? building.PrefabID().Name : "unattributed";
         }
         private static readonly Dictionary<int, Actor> registering = new Dictionary<int, Actor>(); // sent native, by callback
         private static readonly Dictionary<int, Actor> native = new Dictionary<int, Actor>();      // native handle, not yet taken
@@ -57,7 +66,7 @@ namespace MixedAtmospheres.Oni
         internal static void Reset()
         {
             registering.Clear(); native.Clear(); owned.Clear(); replies.Clear(); callbacks.Clear();
-            issued = 0; Consumers = Emitters = 0; Queued = Delivered = 0; DeliveredKg = 0;
+            issued = 0; Consumers = Emitters = 0; Queued = Delivered = 0; DeliveredKg = 0; SourceKg.Clear();
         }
 
         // The message layouts, from the game's own message structs.
@@ -136,7 +145,7 @@ namespace MixedAtmospheres.Oni
                     var handle = Int(payload, consumer ? setHandle : modifyHandle);
                     var mine = owned.TryGetValue(handle, out var actor);
                     if (!mine && !native.TryGetValue(handle, out actor)) return false;
-                    actor.Cell = Int(payload, consumer ? setCell : modifyCell);
+                    actor.Cell = Int(payload, consumer ? setCell : modifyCell); actor.Source = null;
                     if (consumer) actor.Rate = Float(payload, setRate);
                     else
                     {
@@ -228,6 +237,9 @@ namespace MixedAtmospheres.Oni
                 }
                 if (blocked) continue;
                 var germs = a.Disease != 0 && a.Interval > 0 ? a.Germs * seconds / a.Interval : 0;
+                a.Source ??= SourceOf(a.Cell);
+                if (!SourceKg.TryGetValue(a.Source, out var byElement)) SourceKg[a.Source] = byElement = new SortedDictionary<string, double>();
+                byElement[element.id.ToString()] = (byElement.TryGetValue(element.id.ToString(), out var kg) ? kg : 0) + a.Mass * seconds;
                 list.Add(new OniNativeColony.Transfer { PublicCell = (uint)a.Cell, NativeIndex = a.NativeIndex, Kind = OniNativeColony.Inject, Callback = -1,
                     MassKg = a.Mass * seconds, TemperatureK = a.Temperature, Disease = germs > 0 ? a.Disease : 0, DiseaseCount = germs });
             }
