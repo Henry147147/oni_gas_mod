@@ -141,6 +141,11 @@ namespace MixedAtmospheres.Oni
             if(inventory.Count==0)return 0;
             var id=nextLocal++;Buffers.Add(id,new Buffer(phase,cell,inventory));return id;
         }
+        internal static PipeInventory TakeBuffer(ulong localId)
+        {
+            Require();if(!Buffers.TryGetValue(localId,out var buffer)||IsPending(localId))return PipeInventory.Empty;
+            Buffers.Remove(localId);return buffer.Inventory;
+        }
         // Moves the selected species of a completed buffer into a new one.
         internal static ulong SplitBuffer(ulong localId,Func<int,bool> select)
         {

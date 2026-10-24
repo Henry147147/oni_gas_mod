@@ -55,7 +55,7 @@ namespace MixedAtmospheres.Oni
             if(!States.TryGetValue(storage,out var state))return;
             States.Remove(storage);state.RetiredAt=Grid.PosToCell(storage);
             foreach(var id in state.Buffers.ToArray())
-                if(!state.Pending.Contains(id)){state.Buffers.Remove(id);if(ColonyPipePorts.BufferInventory(id).Count>0)ColonyPipeTeardown.HoldSpill(id,state.RetiredAt);}
+                if(!state.Pending.Contains(id)){state.Buffers.Remove(id);ColonyMachinePorts.Release(id,state.RetiredAt);}
         }
         internal static void Capture(PipeRuntimeImage image)
         {
@@ -162,7 +162,7 @@ namespace MixedAtmospheres.Oni
         {
             if(!Requests.TryGetValue(localId,out var state))return;Requests.Remove(localId);state.Pending.Remove(localId);
             if(state.RetiredAt>=0)
-            {state.Buffers.Remove(localId);if(ColonyPipePorts.BufferInventory(localId).Count>0)ColonyPipeTeardown.HoldSpill(localId,state.RetiredAt);return;}
+            {state.Buffers.Remove(localId);ColonyMachinePorts.Release(localId,state.RetiredAt);return;}
             var vent=state.Exhaust==null?null:state.Exhaust.GetComponent<Vent>();
             if(vent!=null)foreach(var part in settled.WorldInventory.Parts)vent.UpdateVentedMass(ColonyConduits.ElementHash(part.Id),(float)part.Mass);
             state.Buffers.RemoveAll(id=>!state.Pending.Contains(id)&&ColonyPipePorts.BufferInventory(id).Count==0);Consolidate(state);Changed(state);

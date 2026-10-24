@@ -63,8 +63,10 @@ the world through the vent, one frozen-pipe event (HP 10 -> 9), boundary
 ledger 0 kg/0 J/0.93 germs, every pipe account exact. M/E 4.7e-16/4.7e-17,
 no fault; LOW owner mean 375 ms (diagnostic).
 
-Destroying a pump or vent spills its owned storage at its cell (vanilla
-`DropAll` dumps it); late intakes follow when their job completes. A trace
+Destroying a pump or vent releases its owned storage like vanilla
+`DropAll`: gases enter the world as an owned spill at its cell, liquids
+become one chunk per species there; late intakes follow when their job
+completes. A trace
 of the other phase that arrives with a pump extraction returns to the intake
 cell instead of blocking the pump's buffer.
 

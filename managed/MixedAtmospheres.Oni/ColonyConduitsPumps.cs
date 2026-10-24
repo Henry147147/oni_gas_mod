@@ -62,7 +62,7 @@ namespace MixedAtmospheres.Oni
             if(!States.TryGetValue(storage,out var state))return;
             States.Remove(storage);ByOutlet.Remove((state.Flow,state.Cell));state.RetiredAt=Grid.PosToCell(storage);
             foreach(var id in state.Buffers.ToArray())
-                if(!state.Pending.ContainsKey(id)){state.Buffers.Remove(id);if(ColonyPipePorts.BufferInventory(id).Count>0)ColonyPipeTeardown.HoldSpill(id,state.RetiredAt);}
+                if(!state.Pending.ContainsKey(id)){state.Buffers.Remove(id);ColonyMachinePorts.Release(id,state.RetiredAt);}
         }
         internal static void Capture(PipeRuntimeImage image)
         {
@@ -133,7 +133,7 @@ namespace MixedAtmospheres.Oni
                 // The pump is gone: what its last intake brought leaves as
                 // a spill where it stood, without a native notification.
                 state.Buffers.Remove(localId);
-                if(ColonyPipePorts.BufferInventory(localId).Count>0)ColonyPipeTeardown.HoldSpill(localId,state.RetiredAt);
+                ColonyMachinePorts.Release(localId,state.RetiredAt);
                 return;
             }
             Consolidate(state);

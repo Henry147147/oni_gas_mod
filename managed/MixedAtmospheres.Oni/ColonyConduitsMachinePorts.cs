@@ -345,6 +345,14 @@ namespace MixedAtmospheres.Oni
             if(flow==null||!ColonyConduits.Owns(flow,cell))return false;
             var parcel=ColonyConduits.TakeForPort(flow,cell,null,double.MaxValue);elapsed=0;
             if(!((float)parcel.Mass>0)&&parcel.Count==0)return true;
+            var created=Chunks(parcel,cell);
+            if(created>0&&workable.worker!=null)workable.worker.Trigger(EmptiedConduit,null);
+            return true;
+        }
+        // An exact owned parcel becomes one native chunk per species at a cell
+        // (pipe emptying; liquid storage of a destroyed pump or vent).
+        internal static int Chunks(PipeInventory parcel,int cell)
+        {
             var observedEnergy=PipeAmount.Zero;var observedGerms=new SortedDictionary<int,PipeAmount>();var created=0;
             var position=Grid.CellToPosCCC(cell,Grid.SceneLayer.Ore);
             foreach(var item in NativeItems(parcel))
@@ -363,8 +371,17 @@ namespace MixedAtmospheres.Oni
             }
             StorageBoundary.Energy=StorageBoundary.Energy.Plus(parcel.Energy).Minus(observedEnergy);BookGerms(parcel,observedGerms,1);
             ToStorage=ToStorage.Joined(parcel);
-            if(created>0&&workable.worker!=null)workable.worker.Trigger(EmptiedConduit,null);
-            return true;
+            return created;
+        }
+        // Vanilla Storage.DropAll on destruction vents gases and drops liquids
+        // as items: an owned buffer follows the same split.
+        internal static void Release(ulong bufferId,int cell)
+        {
+            var inventory=ColonyPipePorts.BufferInventory(bufferId);if(inventory.Count==0)return;
+            var gas=ColonyPipePorts.SplitBuffer(bufferId,species=>ColonyConduits.MaterialPhase(species)!=2);
+            if(gas!=0)ColonyPipeTeardown.HoldSpill(gas,cell);
+            var liquid=ColonyPipePorts.TakeBuffer(bufferId);
+            if(liquid.Count>0)Chunks(liquid,cell);
         }
     }
 
