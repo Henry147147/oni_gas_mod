@@ -181,7 +181,7 @@ internal static unsafe class Program
         Test("save frame metadata follows durable image across reservoir and trace framing", () =>
         {
             const ulong durable=0x100000002;
-            foreach(var version in new uint[]{6,7,8,9})
+            foreach(var version in new uint[]{6,7,8,9,10})
             {
                 using var stream=new MemoryStream();using var writer=new BinaryWriter(stream);
                 writer.Write(System.Text.Encoding.ASCII.GetBytes("MACOLN01"));writer.Write(version);writer.Write(new byte[56]);
@@ -250,6 +250,12 @@ internal static unsafe class Program
                     writer.Write(9UL);writer.Write(jobs?2u:0u);
                     if(jobs) for(var k=0;k<2;++k){writer.Write((uint)k);writer.Write(1UL+(ulong)k);writer.Write(2u);writer.Write(new byte[32]);if(version>=9){writer.Write(5u);writer.Write(new byte[5]);}}
                 }
+                if(version>=10)
+                {
+                    // World germs: mode, frames, 3 clocks, 2 queued edits, 1 account, audit error.
+                    writer.Write(1u);writer.Write(40UL);writer.Write(3u);writer.Write(new byte[3*18]);
+                    writer.Write(2u);writer.Write(new byte[2*16]);writer.Write(1u);writer.Write(new byte[8+6*16]);writer.Write(0.0);
+                }
                 using var physical=new MemoryStream();using(var p=new BinaryWriter(physical,System.Text.Encoding.UTF8,true))
                 {
                     p.Write(System.Text.Encoding.ASCII.GetBytes("MACCLS01"));p.Write(physicalVersion);
@@ -263,7 +269,7 @@ internal static unsafe class Program
                 writer.Write((ulong)physical.Length);writer.Write(physical.ToArray());writer.Write(new byte[64]);
                 return stream.ToArray();
             }
-            foreach(var version in new uint[]{6,7,8,9})
+            foreach(var version in new uint[]{6,7,8,9,10})
                 foreach(var jobs in new[]{false,true})
                 {
                     var core21=Owner(version,21,1,400,800,jobs);

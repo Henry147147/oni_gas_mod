@@ -1,6 +1,9 @@
 // Colony owner control (docs/colony-owner.md). Made-up materials and
 // inventories, not game data.
 #include "../src/oni_colony.hpp"
+#include "../src/oni_world_biology.hpp"
+#include <functional>
+#include <limits>
 #include "../src/oni_precise_receipt.hpp"
 #include "../src/oni_release_capture.hpp"
 #include "../src/oni_transfer_capture.hpp"
@@ -923,9 +926,151 @@ void trace_sink_control() {
 }
 }
 
+// A machine's output with no open cell within two (callback -1) waits in the
+// reservoir instead of being lost; a callback-bearing emission is refused.
+void unplaced_output_control() {
+    using namespace ma::oni::colony;
+    std::vector<MAOniColonyMaterial> mats{material("Oxygen", 11, oxygen, true, .032, 1000)};
+    MAOniColonyConfig cfg{}; cfg.struct_size = sizeof(cfg); cfg.abi_version = MA_ONI_COLONY_ABI_VERSION; cfg.vacuum_index = vacuum;
+    cfg.grid_width = cfg.width = 9; cfg.grid_height = cfg.height = 3; cfg.maximum_timestep_s = .1;
+    std::vector<MAOniColonyCell> cells(27, MAOniColonyCell{0, MA_ONI_COLONY_SOLID, 0, 0, 0, 0});
+    cells[1 + 9] = {oxygen, MA_ONI_COLONY_FLUID, 1.2f, 300, 0, 0};
+    start(cfg, mats, cells, 1);
+    const std::array<MAOniColonyTransfer, 2> outputs{{{7 + 9, oxygen, MA_ONI_COLONY_INJECT, 0, -1, 0, .25, 310, 0}, {7 + 9, oxygen, MA_ONI_COLONY_INJECT, 0, 42, 0, .5, 310, 0}}};
+    queue_transfers(outputs); advance(1, .2, 2); wait();
+    const auto st = status();
+    MAOniColonyReceipt receipts[4]{}; const auto n = copy_receipts(receipts, 4);
+    require(st.state == 1 && st.reservoir_kg == .25 && n == 1 && receipts[0].mass_kg == 0 && receipts[0].callback == 42,
+        "an unplaced output was lost or a refused emission reported mass");
+    ack_receipts(receipts[n - 1].sequence);
+    const auto image = checkpoint(); stop(); restore(cfg, mats, image, 1);
+    require(status().reservoir_kg == .25, "unplaced output did not survive a save");
+    stop(); std::cout << "UNPLACED OUTPUT PASS\n";
+}
+// World germ evolution (docs/colony-owner.md#germs), made-up disease rules.
+void world_biology_control() {
+    using namespace ma::oni::colony;
+    namespace bio = ma::oni::colony::biology;
+    constexpr float inf = std::numeric_limits<float>::infinity();
+    constexpr std::uint32_t elements = 10;
+    // Disease 0 grows in oxygen (negative half-life) inside its density window
+    // and dies at 0.5 germs/s below it; disease 1 decays in oxygen; neither
+    // changes in carbon dioxide; water halves disease 0 every 20 s.
+    std::array<MAOniColonyDisease, 2> diseases{};
+    for (auto& d : diseases) {
+        d.struct_size = sizeof(d); d.abi_version = 1; d.strength = 1;
+        const float range[4]{250, 270, 330, 350}, lives[4]{10, 20, inf, 15};
+        std::copy(range, range + 4, d.temperature_range); std::copy(lives, lives + 4, d.temperature_half_lives);
+    }
+    diseases[1].strength = 2;
+    std::vector<MAOniColonyDiseaseGrowth> growth(2 * elements, MAOniColonyDiseaseGrowth{0, inf, inf, 0, 0, inf, 0, 0});
+    growth[oxygen] = {.5f, -100, 50, .5f, 1, 1e6f, 10, 2};
+    growth[water] = {0, 20, 20, .25f, 0, inf, 1, 0};
+    growth[elements + oxygen] = {0, 30, 30, .5f, 0, inf, 1, 0};
+    set_diseases(diseases, growth, elements);
+    bio::Table table; table.elements = elements;
+    for (const auto& d : diseases) { bio::Disease r; r.strength = d.strength; std::copy(d.temperature_range, d.temperature_range + 4, r.range.begin());
+        std::copy(d.temperature_half_lives, d.temperature_half_lives + 4, r.half_lives.begin()); table.diseases.push_back(r); }
+    for (const auto& g : growth) table.growth.push_back({g.under_population_death_rate, g.population_half_life, g.over_population_half_life, g.diffusion_scale,
+        g.minimum_count_per_kg, g.maximum_count_per_kg, g.minimum_diffusion_count, static_cast<std::uint8_t>(g.minimum_diffusion_ticks)});
+    bio::validate(table);
+    // Temperature rules: bound values outside, linear between, none in the growth window.
+    const auto& d0 = table.diseases[0];
+    require(bio::temperature_half_life(d0, 240) == 10 && bio::temperature_half_life(d0, 260) == 15 && std::isinf(bio::temperature_half_life(d0, 300)) &&
+        std::isinf(bio::temperature_half_life(d0, 340)) && bio::temperature_half_life(d0, 360) == 15, "temperature half-life rules");
+    require(bio::frame_rate(inf) == 1 && bio::frame_rate(0) == 0 && bio::frame_rate(.2f) == .5f && bio::frame_rate(-.2f) == 2, "frame rate");
+    bio::Medium air; air.open = true; air.state = 1; air.element = oxygen; air.temperature_k = 300; air.mass_kg = 1; air.parts = {{oxygen, 1}};
+    // Whole-germ growth keeps the integer count and a binary32 residue; over
+    // 500 frames (100 s) it follows the exponential to within a germ.
+    double count = 1000; bio::Clock clock{};
+    for (int f = 0; f < 500; ++f) {
+        const auto step = bio::grow(table, 0, air, count, clock);
+        require(step.clock.mode == bio::native_mode && step.population == std::floor(step.population) && std::abs(step.clock.residue) < 1 &&
+            step.population == count + step.change, "whole-germ step");
+        count = step.population; clock = step.clock;
+    }
+    const double exact = 1000 * std::exp2(1.0);
+    std::cout << "whole-germ growth: 1000 -> " << count << " (continuous " << exact << ")\n";
+    require(std::abs(count - exact) <= 1.5, "whole-germ growth departs from its half-life");
+    // Below the density window (1 per kg of 10 kg): absolute death 0.1/frame, extinct after 30 frames.
+    bio::Medium big = air; big.mass_kg = 10; big.parts = {{oxygen, 10}};
+    count = 3; clock = {}; int frames = 0;
+    while (count > 0 && frames < 100) { const auto step = bio::grow(table, 0, big, count, clock); count = step.population; clock = step.clock; ++frames; }
+    require(count == 0 && frames >= 29 && frames <= 31, "under-population death");
+    // Expected (non-integer) cultures follow the same rule in binary64; a
+    // half-oxygen, half-carbon-dioxide medium changes at half the rate.
+    bio::Medium mixed = air; mixed.parts = {{oxygen, .5}, {carbon, .5}};
+    const auto full = bio::grow(table, 0, air, 1000.5, {}), half = bio::grow(table, 0, mixed, 1000.5, {});
+    require(full.clock.mode == bio::expected_mode && full.change > 0 && std::abs(half.change - .5 * full.change) <= 1e-12 * full.change, "expected and blended growth");
+    // Diffusion: an eighth of the difference, truncated, times the source scale.
+    require(bio::diffused(100, 0, 1) == -12 && bio::diffused(0, 100, .5f) == 6 && bio::diffused(0, 10.75, 1) == 1, "diffusion amount");
+    require(bio::diffusion_scale(table, 0, oxygen, 9, 5) == 0 && bio::diffusion_scale(table, 0, oxygen, 10, 1) == 0 &&
+        bio::diffusion_scale(table, 0, oxygen, 10, 2) == .5f, "diffusion thresholds");
+    // A 3 x 1 strip: the culture waits two frames, then spreads; germs are
+    // conserved apart from booked births and deaths.
+    {
+        bio::Cells cultures{{0, {{1, 1000}}}}; bio::Clocks clocks; bio::Accounts accounts; std::vector<bio::Edit> edits;
+        std::array<bio::Medium, 3> strip{air, air, air};
+        const std::function<const bio::Medium&(std::size_t)> medium = [&](std::size_t i) -> const bio::Medium& { return strip[i]; };
+        for (int f = 0; f < 3; ++f) bio::frame(table, 3, 1, medium, cultures, clocks, accounts, edits);
+        require(cultures.count(1) == 1 && cultures.count(2) == 0, "diffusion waits for its minimum ticks");
+        long double total = 0; for (const auto& [cell, list] : cultures) for (const auto& c : list) total += c.quantity;
+        const auto& a = accounts[1];
+        require(std::abs(total - (1000 + a.born - a.died - a.culled)) < 1e-9 && a.moved > 0, "strip germ account");
+        // Sub-germ cultures die out.
+        cultures = {{0, {{2, .75}}}}; clocks.clear(); accounts.clear(); edits.clear();
+        bio::frame(table, 3, 1, medium, cultures, clocks, accounts, edits);
+        require(cultures.empty() && accounts[2].culled > .7 && !edits.empty(), "sub-germ culture retained");
+    }
+    // Owner: a sealed 4 x 3 room of oxygen with both diseases in one cell.
+    std::vector<MAOniColonyMaterial> mats{material("Oxygen", 11, oxygen, true, .032, 1000), material("CarbonDioxide", 12, carbon, true, .044, 850)};
+    MAOniColonyConfig cfg{}; cfg.struct_size = sizeof(cfg); cfg.abi_version = MA_ONI_COLONY_ABI_VERSION; cfg.vacuum_index = vacuum;
+    cfg.grid_width = cfg.width = 6; cfg.grid_height = cfg.height = 5; cfg.maximum_timestep_s = .1;
+    std::vector<MAOniColonyCell> cells(30, MAOniColonyCell{0, MA_ONI_COLONY_SOLID, 0, 0, 0, 0});
+    for (std::uint32_t y = 1; y <= 3; ++y) for (std::uint32_t x = 1; x <= 4; ++x) cells[x + 6 * y] = {oxygen, MA_ONI_COLONY_FLUID, 1.2f, 300, 0, 0};
+    cells[1 + 6] = {oxygen, MA_ONI_COLONY_FLUID, 1.2f, 300, 1, 5000};
+    start(cfg, mats, cells, 1);
+    const MAOniColonyGermEdit second{7, 2, 4000};
+    queue_germs(std::span(&second, 1));
+    MAOniColonyBiology summary{}; std::vector<MAOniColonyBiologyAccount> accounts;
+    std::uint64_t ticket = 0;
+    const auto run = [&](int n) { for (int k = 0; k < n; ++k) { advance(++ticket, .2, 2); wait(); } require(status().state == 1, "biology owner faulted"); };
+    run(20);
+    germ_accounts(summary, accounts);
+    require(summary.mode == 1 && summary.frames == 20 && accounts.size() == 2 && summary.audit_error < 1e-12, "owner germ accounts");
+    const auto& grown = accounts[0]; const auto& decayed = accounts[1];
+    std::cout << "owner germs: disease 1 held " << grown.held << " (born " << grown.born << ", moved " << grown.moved << "), disease 2 held "
+              << decayed.held << " (died " << decayed.died << "), cells " << summary.germ_cells << "\n";
+    require(grown.identity == 1 && grown.born > 0 && grown.moved > 0 && decayed.identity == 2 && decayed.died > 0 && decayed.edited_in == 4000 &&
+        summary.germ_cells > 1, "both identities evolve in one cell and spread");
+    // Version 10 save with clocks and a queued edit; cold continuation is byte exact.
+    const MAOniColonyGermEdit late{8, 1, 25};
+    queue_germs(std::span(&late, 1));
+    const auto image = checkpoint();
+    std::uint32_t version = 0; std::memcpy(&version, image.data() + 8, 4);
+    require(version == 10, "world germ owner did not save version 10");
+    run(15); const auto continued = checkpoint(); const auto first_session = status().session;
+    stop(); restore(cfg, mats, image, 1);
+    require(status().session != first_session, "restored owner reused its session");
+    ticket = 0; run(15);
+    require(checkpoint() == continued, "restored world germs did not continue byte for byte");
+    stop();
+    // Without a disease table, new colonies keep the legacy mode and version 8.
+    set_diseases({}, {}, 0);
+    start(cfg, mats, cells, 1); run(2);
+    const auto legacy = checkpoint(); std::memcpy(&version, legacy.data() + 8, 4);
+    germ_accounts(summary, accounts);
+    require(version == 8 && summary.mode == 0, "legacy owner changed its saved version");
+    stop();
+    bool refused = false;
+    try { set_diseases(diseases, std::span(growth.data(), growth.size() - 1), elements); } catch (const std::invalid_argument&) { refused = true; }
+    require(refused, "inconsistent disease table admitted");
+    std::cout << "WORLD BIOLOGY PASS\n";
+}
 int main(int argc, char** argv) {
     try {
         if (argc == 2 && std::strcmp(argv[1], "--passives-only") == 0) {passive_observation_control();return 0;}
+        if (argc == 2 && std::strcmp(argv[1], "--biology-only") == 0) {world_biology_control();unplaced_output_control();return 0;}
         if (argc == 2 && std::strcmp(argv[1], "--quiet-game-cell-only") == 0) {quiet_game_cell_control();return 0;}
         if (argc == 2 && std::strcmp(argv[1], "--timestep-only") == 0) { timestep_control(); return 0; }
         if (argc == 2 && std::strcmp(argv[1], "--projection-only") == 0) { projection_control(); return 0; }
@@ -948,6 +1093,8 @@ int main(int argc, char** argv) {
         parcel_outcome_control();
         parcel_context_control();
         passive_observation_control();
+        world_biology_control();
+        unplaced_output_control();
         quiet_game_cell_control();
         moving_job_control();
         pipe_job_control();

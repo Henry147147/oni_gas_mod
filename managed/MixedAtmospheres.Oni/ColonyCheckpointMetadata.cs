@@ -27,6 +27,7 @@ namespace MixedAtmospheres.Oni
     {
         private static readonly byte[] OwnerMagic={77,65,67,79,76,78,48,49}, PhysicalMagic={77,65,67,67,76,83,48,49};
         private const int TransferBytes=48, HeatBytes=24, TerrainBytes=8, FreezeBytes=16, DigestBytes=64;
+        private const int GermClockBytes=18, GermEditBytes=16, GermAccountBytes=8+6*16;
         internal static ulong CompletedFrames(ReadOnlySpan<byte> image)
         {
             var at=CountersOffset(image,out _);
@@ -77,6 +78,15 @@ namespace MixedAtmospheres.Oni
                     if(version>=9){var wire=U32(image,ref at);Skip(image,ref at,wire);}
                 }
             }
+            if(version>=10)
+            {
+                // World germs: mode, frames, clocks, queued edits, accounts, audit error.
+                Skip(image,ref at,4+8);
+                var clocks=U32(image,ref at);Skip(image,ref at,(long)clocks*GermClockBytes);
+                var edits=U32(image,ref at);Skip(image,ref at,(long)edits*GermEditBytes);
+                var accounts=U32(image,ref at);Skip(image,ref at,(long)accounts*GermAccountBytes);
+                Skip(image,ref at,8);
+            }
             var lengthAt=at;Skip(image,ref at,8);
             var physical=BinaryPrimitives.ReadUInt64LittleEndian(image.Slice(lengthAt,8));
             if(physical<20 || physical!=(ulong)(image.Length-at-DigestBytes))
@@ -91,7 +101,7 @@ namespace MixedAtmospheres.Oni
             if (image.Length < 12 || !image.Slice(0,8).SequenceEqual(OwnerMagic))
                 throw new InvalidDataException("Missing colony checkpoint framing.");
             version=BinaryPrimitives.ReadUInt32LittleEndian(image.Slice(8,4));
-            if(version<6 || version>9) throw new InvalidDataException("Unsupported colony checkpoint metadata version.");
+            if(version<6 || version>10) throw new InvalidDataException("Unsupported colony checkpoint metadata version.");
             var at=12;
             Skip(image,ref at,56); // MAOniColonyConfig
             var materials=U32(image,ref at);

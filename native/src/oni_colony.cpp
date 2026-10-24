@@ -8,6 +8,7 @@
 #include "oni_parcel_admission.hpp"
 #include "oni_release_capture.hpp"
 #include "oni_transfer_capture.hpp"
+#include "oni_world_biology.hpp"
 #include "oni_sha256.hpp"
 #include "mixed_atmospheres/mac_closed_world.hpp"
 #include "mixed_atmospheres/mac_kernel.hpp"
@@ -33,6 +34,7 @@
 #include <stdexcept>
 #include <string>
 #include <thread>
+#include <unordered_map>
 #include <xmmintrin.h>
 
 static_assert(sizeof(MAOniColonySpecies) == 40 && sizeof(MAOniColonyReading) == 64 && sizeof(MAOniColonyConstituent) == 24);
@@ -93,6 +95,9 @@ struct Published {
     std::vector<MAOniColonyConstituent> parts;
     std::shared_ptr<const MacClosedWorld> world;
     std::shared_ptr<const Catalogue> catalogue;
+    // World germ accounts at this frame (docs/colony-owner.md#germs).
+    MAOniColonyBiology biology{};
+    std::vector<MAOniColonyBiologyAccount> germ_accounts;
 };
 // Conserved-quantity ledger: initial inventory plus every booked flow.
 struct Ledger {
@@ -119,6 +124,16 @@ struct Session {
     std::shared_ptr<const MacClosedWorld> world;
     Ledger ledger;
     MAOniColonyStatus status{};
+    // World germ evolution (docs/colony-owner.md#germs), saved from owner
+    // version 10: 0 legacy (native code evolves the projected germ on the
+    // shadow), 1 the owner evolves every identity.
+    std::uint32_t germ_mode = 0;
+    biology::Clocks clocks;
+    biology::Accounts accounts;
+    std::uint64_t biology_frames = 0;
+    std::map<std::uint64_t, double> germs_held; // per identity after the last biology stage
+    std::uint64_t germ_cells = 0;
+    double biology_error = 0;
     detail::ReleaseCapture release_capture; // diagnostics only, never serialized
 };
 
@@ -161,6 +176,25 @@ struct ShadowCell { std::uint16_t element = 0, before = 0; bool written = false;
 // emitters and consumers, cell edits), applied at the start of the next step.
 struct GermEdit { std::uint32_t public_cell, germ; double change; };
 std::vector<GermEdit> pending_germs; // under inputs
+// World germ evolution (docs/colony-owner.md#germs): the game's disease table
+// (lifecycle lock), and the running session's mode for the native worker.
+biology::Table disease_table;
+std::atomic<std::uint32_t> biology_mode{0};
+// Explicit control (MA_COLONY_GERM_ORACLE=1): a new colony keeps the legacy
+// mode, and every sealed single-cell culture native code evolves on the shadow
+// is compared with the owner's prediction from the same inputs.
+bool germ_oracle_requested() noexcept {
+    static const bool on = [] { const char* v = std::getenv("MA_COLONY_GERM_ORACLE"); return v && std::strcmp(v, "1") == 0; }();
+    return on;
+}
+struct OracleCell { bool known = false; std::uint32_t germ = 0; float residue = 0; };
+struct Oracle {
+    std::mutex m;
+    std::map<std::uint32_t, OracleCell> cells; // native worker
+    std::uint64_t comparisons = 0, mismatches = 0, extinctions = 0;
+    double born = 0, died = 0;
+    std::string last;
+} oracle;
 // A cell native froze: its liquid leaves the owner and the cell closes.
 struct Freeze { std::uint32_t public_cell, native_index; double mass_kg; };
 std::vector<Freeze> pending_freezes; // under inputs
@@ -173,13 +207,14 @@ NativeExchange exchanged; // under inputs
 // timestep here and returns. Frames that arrive while a step runs add their
 // time to the next step (at most 10 s waits), so the owner never drops game
 // time; pacing in the mod normally holds the game clock instead.
-void run_frame(std::uint64_t ticket, double seconds, const char* refusal, std::uint64_t thread) noexcept;
+void run_frame(std::uint64_t ticket, double seconds, std::uint64_t frames, const char* refusal, std::uint64_t thread) noexcept;
 struct Solver {
     std::mutex m; std::condition_variable wake, idle;
     std::thread thread;
     bool quit = false, running = false;
     const char* refusal = nullptr; // a frame the owner must refuse
     std::uint64_t ticket = 0; double seconds = 0; // waiting work
+    std::uint64_t frames = 0; // native frames in the waiting work (germs evolve once per frame)
     std::atomic<bool> busy{};
     void loop() {
         const auto id = static_cast<std::uint64_t>(std::hash<std::thread::id>{}(std::this_thread::get_id()));
@@ -187,9 +222,9 @@ struct Solver {
         for (;;) {
             wake.wait(l, [&] { return quit || seconds > 0 || refusal; });
             if (quit) return;
-            const auto t = ticket; const double dt = seconds; const auto r = refusal;
-            seconds = 0; refusal = nullptr; running = true;
-            l.unlock(); run_frame(t, dt, r, id); l.lock();
+            const auto t = ticket; const double dt = seconds; const auto r = refusal; const auto f = frames;
+            seconds = 0; frames = 0; refusal = nullptr; running = true;
+            l.unlock(); run_frame(t, dt, f, r, id); l.lock();
             running = false;
             if (seconds == 0) busy.store(false, std::memory_order_release);
             idle.notify_all();
@@ -198,7 +233,7 @@ struct Solver {
     // Waits until no step runs or waits; `discard` drops waiting work first.
     void settle(bool discard) {
         std::unique_lock l(m);
-        if (discard) { seconds = 0; refusal = nullptr; }
+        if (discard) { seconds = 0; frames = 0; refusal = nullptr; }
         idle.wait(l, [&] { return !running && seconds == 0 && !refusal; });
         busy.store(false, std::memory_order_release);
     }
@@ -440,6 +475,17 @@ void publish(const Session& s, Projection projection) {
     auto p = std::make_shared<Published>();
     p->config=s.config; p->status = s.status; p->views = std::move(projection.views); p->readings = std::move(projection.readings); p->parts = std::move(projection.parts);
     p->world = s.world; p->catalogue = s.catalogue;
+    auto& b = p->biology; b.struct_size = sizeof(b); b.abi_version = 1; b.mode = s.germ_mode;
+    b.frames = s.biology_frames; b.cultures = s.clocks.size(); b.germ_cells = s.germ_cells; b.audit_error = s.biology_error;
+    for (const auto& [key, clock] : s.clocks) if (clock.mode == biology::expected_mode) ++b.expected_cultures;
+    for (const auto& [identity, a] : s.accounts) {
+        const auto held = s.germs_held.find(identity);
+        p->germ_accounts.push_back({identity, static_cast<double>(a.born), static_cast<double>(a.died), static_cast<double>(a.culled),
+            static_cast<double>(a.moved), static_cast<double>(a.edited_in), static_cast<double>(a.edited_out), held == s.germs_held.end() ? 0 : held->second});
+        b.born += static_cast<double>(a.born); b.died += static_cast<double>(a.died); b.culled += static_cast<double>(a.culled);
+        b.moved += static_cast<double>(a.moved); b.edited_in += static_cast<double>(a.edited_in); b.edited_out += static_cast<double>(a.edited_out);
+    }
+    b.identities = static_cast<std::uint32_t>(p->germ_accounts.size());
     long double booked=0; const auto& L=s.ledger;
     for (std::size_t k=0;k<L.initial.size();++k)
         booked+=L.initial[k]+L.injected[k]-L.extracted[k]-L.sunk[k]-L.trace[k]+L.converted[k];
@@ -456,7 +502,8 @@ void publish(const Session& s) { publish(s, project(s, *s.world)); }
 void fault(Session& s, const char* why) noexcept {
     s.status.state = 2; write_error(s.status, why);
     try { auto p = std::make_shared<Published>(); p->config=s.config; p->status = s.status;
-        { std::lock_guard lock(publication); if (latest) { p->views = latest->views; p->readings = latest->readings; p->parts = latest->parts; p->world = latest->world; p->catalogue = latest->catalogue; p->booked_mass_kg=latest->booked_mass_kg; p->booked_heat_j=latest->booked_heat_j; } latest = std::move(p); } }
+        { std::lock_guard lock(publication); if (latest) { p->views = latest->views; p->readings = latest->readings; p->parts = latest->parts; p->world = latest->world; p->catalogue = latest->catalogue; p->booked_mass_kg=latest->booked_mass_kg; p->booked_heat_j=latest->booked_heat_j;
+            p->biology = latest->biology; p->germ_accounts = latest->germ_accounts; } latest = std::move(p); } }
     catch (...) {}
 }
 // The CPUs this process may run on (its affinity, as when the game is pinned).
@@ -485,10 +532,12 @@ void activate(std::unique_ptr<Session> next, std::uint64_t thread) {
     owned = std::make_unique<std::atomic<std::uint8_t>[]>(owned_count);
     for (std::size_t i = 0; i < owned_count; ++i) owned[i].store(next->world->state().grid.walls[i] ? 0 : 1, std::memory_order_relaxed);
     for (auto& v : suppressed) v.store(0, std::memory_order_relaxed);
-    { std::lock_guard lock(inputs); pending_transfers.clear(); pending_heat.clear(); pending_terrain.clear(); pending_freezes.clear(); receipts.clear();
+    { std::lock_guard lock(inputs); pending_transfers.clear(); pending_heat.clear(); pending_terrain.clear(); pending_freezes.clear(); pending_germs.clear(); receipts.clear();
       precise_receipts.clear(); precise_receipts_enabled = false;
       pipe_jobs.clear(); pending_job_tokens.clear(); receipt_jobs.clear(); accepted_job_token=0;
       receipt_sequence = acknowledged = 0; exchanged = {}; moving_protocol_used=false; moving_outcomes.clear(); }
+    { std::lock_guard o(oracle.m); oracle.cells.clear(); oracle.comparisons = oracle.mismatches = oracle.extinctions = 0; oracle.born = oracle.died = 0; oracle.last.clear(); }
+    biology_mode.store(next->germ_mode, std::memory_order_relaxed);
     publish(*next);
     session = std::move(next);
     live_parcel_session.store(session->status.session,std::memory_order_release);
@@ -947,11 +996,15 @@ void start(const MAOniColonyConfig& config, std::span<const MAOniColonyMaterial>
     for (auto* v : {&next->ledger.injected, &next->ledger.extracted, &next->ledger.sunk, &next->ledger.converted, &next->ledger.converted_gross,
                     &next->ledger.trace}) v->assign(cat.registry.size(), 0);
     next->pairs = with_critical(cat, mac_saturation_pairs(cat.registry, *cat.eos));
+    // New colonies evolve world germs in the owner when the game supplied its
+    // disease table; the explicit oracle control keeps the legacy mode.
+    next->germ_mode = !disease_table.empty() && !germ_oracle_requested() ? 1 : 0;
     activate(std::move(next), thread);
 }
 
 void stop() noexcept {
     enabled.store(false, std::memory_order_release);
+    biology_mode.store(0, std::memory_order_relaxed);
     solver.settle(true);
     std::lock_guard lock(lifecycle);
     session.reset();
@@ -1269,6 +1322,44 @@ std::pair<std::uint32_t,std::uint64_t> pipe_job_state(std::uint64_t token) {
 std::uint64_t receipt_job(std::uint64_t sequence) {
     std::lock_guard lock(inputs); const auto found=receipt_jobs.find(sequence); return found==receipt_jobs.end()?0:found->second;
 }
+void set_diseases(std::span<const MAOniColonyDisease> diseases, std::span<const MAOniColonyDiseaseGrowth> growth, std::uint32_t elements) {
+    std::lock_guard lock(lifecycle);
+    require(!enabled.load(std::memory_order_acquire), "Set the disease table before the colony owner starts");
+    require(growth.size() == diseases.size() * elements, "World disease growth table size differs");
+    biology::Table table; table.elements = elements;
+    for (const auto& d : diseases) {
+        require(d.struct_size == sizeof(d) && d.abi_version == 1 && d.reserved == 0, "Invalid disease record");
+        biology::Disease rules; rules.strength = d.strength;
+        for (int k = 0; k < 4; ++k) { rules.range[k] = d.temperature_range[k]; rules.half_lives[k] = d.temperature_half_lives[k]; }
+        table.diseases.push_back(rules);
+    }
+    for (const auto& g : growth) {
+        require(g.minimum_diffusion_ticks <= 255, "Invalid disease diffusion ticks");
+        table.growth.push_back({g.under_population_death_rate, g.population_half_life, g.over_population_half_life, g.diffusion_scale,
+            g.minimum_count_per_kg, g.maximum_count_per_kg, g.minimum_diffusion_count, static_cast<std::uint8_t>(g.minimum_diffusion_ticks)});
+    }
+    if (!table.diseases.empty()) biology::validate(table);
+    disease_table = std::move(table);
+}
+void queue_germs(std::span<const MAOniColonyGermEdit> edits) {
+    require(active(), "No colony owner is active");
+    for (const auto& e : edits) {
+        require(biology::disease_identity(e.disease) && std::isfinite(e.change), "Invalid colony germ edit");
+        (void)rect_index(geometry, e.public_cell);
+    }
+    std::lock_guard lock(inputs);
+    require(pending_germs.size() + edits.size() <= 1u << 20, "Too many queued colony germ edits");
+    for (const auto& e : edits) if (e.change != 0) pending_germs.push_back({e.public_cell, e.disease, e.change});
+}
+void germ_accounts(MAOniColonyBiology& out, std::vector<MAOniColonyBiologyAccount>& accounts) {
+    std::shared_ptr<const Published> p; { std::lock_guard lock(publication); p = latest; }
+    require(p != nullptr, "No colony owner is active");
+    out = p->biology; out.struct_size = sizeof(out); out.abi_version = 1; accounts = p->germ_accounts;
+    std::lock_guard o(oracle.m);
+    out.oracle_comparisons = oracle.comparisons; out.oracle_mismatches = oracle.mismatches; out.oracle_extinctions = oracle.extinctions;
+    out.oracle_born = oracle.born; out.oracle_died = oracle.died;
+    std::snprintf(out.oracle_last, sizeof out.oracle_last, "%s", oracle.last.c_str());
+}
 void queue_heat(std::span<const MAOniColonyHeat> edits) {
     require(active(), "No colony owner is active");
     for (const auto& e : edits) {
@@ -1397,7 +1488,9 @@ void write_shadow(const NativeCells& n) noexcept {
         sh.mass = empty ? 0.f : v.mass_kg; sh.temperature = empty ? 0.f : v.temperature_k;
         for (int b = 0; b < 2; ++b) { n.element[b][c] = sh.element; n.mass[b][c] = sh.mass; n.temperature[b][c] = sh.temperature; }
         if (n.disease[0] && n.disease[1] && n.disease_count[0] && n.disease_count[1]) {
-            sh.germ = empty ? 0 : v.disease; sh.germs = sh.germ ? v.disease_count : 0;
+            // The owner evolves world germs itself (mode 1): native code sees
+            // none, so only its emitters add germs to the shadow.
+            sh.germ = empty || biology_mode.load(std::memory_order_relaxed) == 1 ? 0 : v.disease; sh.germs = sh.germ ? v.disease_count : 0;
             const auto idx = static_cast<std::uint8_t>(sh.germ ? sh.germ - 1 : 255);
             for (int b = 0; b < 2; ++b) { n.disease[b][c] = idx; n.disease_count[b][c] = sh.germs; }
         }
@@ -1409,6 +1502,39 @@ void write_shadow(const NativeCells& n) noexcept {
     }
 }
 
+namespace {
+// The germ oracle control (MA_COLONY_GERM_ORACLE=1, legacy mode): native code
+// has just evolved a sealed single cell's projected culture on the shadow;
+// predict that step from the same inputs (count, element, mass, temperature,
+// and the residue native keeps, zero after the cell was last empty) and count
+// agreement. A cell is followed only while nothing else can change it.
+void observe_oracle(const Catalogue& cat, std::uint32_t cell, const ShadowCell& sh, std::uint16_t e, float m, float t,
+    std::uint32_t germ, std::int32_t count, bool sealed) {
+    std::lock_guard lock(oracle.m);
+    auto& o = oracle.cells[cell];
+    if (sh.germ == 0) { o = {true, 0, 0}; return; }
+    if (!o.known) return;
+    if (!sealed || e != sh.element || !(m > 0) || !cat.has_native(e) || sh.germs < 1 || sh.germ > disease_table.diseases.size() ||
+        e >= disease_table.elements) { o.known = false; return; }
+    biology::Medium medium; medium.open = true; medium.state = cat.materials[cat.species_of_native(e)].game.gas ? 1 : 2;
+    medium.element = e; medium.temperature_k = t; medium.mass_kg = m; medium.parts = {{e, static_cast<double>(m)}};
+    const auto step = biology::grow(disease_table, sh.germ - 1, medium, sh.germs, biology::Clock{biology::native_mode, 0, o.residue});
+    const bool extinct = !(step.population > 0);
+    const bool match = extinct ? germ == 0 : germ == sh.germ && static_cast<double>(count) == step.population;
+    ++oracle.comparisons;
+    if (extinct) ++oracle.extinctions;
+    if (step.change > 0) oracle.born += step.change; else oracle.died -= step.change;
+    if (!match) {
+        ++oracle.mismatches; o.known = false;
+        char text[160];
+        std::snprintf(text, sizeof text, "cell %u germ %u: native %u/%d, predicted %.0f from %d at %.3f K, %.6g kg element %u",
+            cell, sh.germ, germ, count, step.population, sh.germs, static_cast<double>(t), static_cast<double>(m), static_cast<unsigned>(e));
+        oracle.last = text;
+        return;
+    }
+    o.residue = extinct ? 0.f : step.clock.residue;
+}
+}
 void capture_shadow(const NativeCells& n) noexcept {
     if (!enabled.load(std::memory_order_acquire) || shadow.size() != owned_count || n.pitch != geometry.grid_width + 2) return;
     std::shared_ptr<const Published> p; { std::lock_guard lock(publication); p = latest; }
@@ -1419,6 +1545,7 @@ void capture_shadow(const NativeCells& n) noexcept {
         std::vector<MAOniColonyHeat> heat; std::vector<MAOniColonyTransfer> moves; std::vector<MAOniColonyTerrain> opened;
         std::vector<Freeze> froze; std::vector<GermEdit> germs; NativeExchange sum; std::vector<std::pair<std::size_t, std::uint32_t>> undone;
         const auto fluid = [&](std::uint16_t e) { return e == vacuum || cat.has_native(e); };
+        const bool oracle_on = germ_oracle_requested() && biology_mode.load(std::memory_order_relaxed) == 0 && !disease_table.empty();
         for (std::size_t i = 0; i < owned_count; ++i) {
             const auto& sh = shadow[i];
             const std::size_t c = (geometry.offset_x + i % geometry.width + 1) + (geometry.offset_y + i / geometry.width + 1) * static_cast<std::size_t>(n.pitch);
@@ -1449,6 +1576,11 @@ void capture_shadow(const NativeCells& n) noexcept {
             if (n.disease[1] && n.disease_count[1] && fluid(e)) {
                 const std::uint8_t idx = n.disease[1][c]; const std::int32_t count = n.disease_count[1][c];
                 const std::uint32_t germ = idx == 255 || count <= 0 ? 0 : idx + 1u;
+                if (oracle_on) {
+                    bool sealed = true;
+                    for (const auto k : {c - 1, c + 1, c - n.pitch, c + n.pitch}) sealed = sealed && !fluid(n.element[0][k]);
+                    observe_oracle(cat, cell, sh, e, m, t, germ, count, sealed);
+                }
                 if (germ == sh.germ && count != sh.germs && germ != 0) germs.push_back({cell, germ, static_cast<double>(count) - sh.germs});
                 else if (germ != sh.germ) {
                     if (sh.germ != 0) germs.push_back({cell, sh.germ, -static_cast<double>(sh.germs)});
@@ -1567,7 +1699,7 @@ void advance(std::uint64_t ticket, double seconds, std::uint64_t thread) noexcep
         if (why) { solver.refusal = why; seconds = 0; }
         solver.idle.wait(l, [&] { return solver.quit || solver.seconds + seconds <= 10; });
         if (solver.quit) return;
-        solver.ticket = ticket; solver.seconds += seconds;
+        solver.ticket = ticket; solver.seconds += seconds; if (seconds > 0) ++solver.frames;
         solver.busy.store(true, std::memory_order_release);
         if (!solver.thread.joinable()) solver.thread = std::thread([] { solver.loop(); });
         solver.wake.notify_one();
@@ -1599,7 +1731,83 @@ MacClosedWorld sink_traces(Session& s, MacClosedWorld world) {
     book_trace(s, sunk.report);
     return std::move(sunk.world);
 }
-void run_frame(std::uint64_t ticket, double seconds, const char* refusal, std::uint64_t thread) noexcept {
+// World germ evolution (docs/colony-owner.md#germs): the queued germ edits
+// (native emitters acting on the shadow, the game's own cell edits), then one
+// frame of the game's world rules per native frame, all applied as one ordered
+// passive edit. Media come from the publication this world produced.
+MacClosedWorld evolve_germs(Session& s, MacClosedWorld world, std::span<const GermEdit> queued, std::uint64_t frames) {
+    const auto& st = world.state(); const auto& cat = *s.catalogue;
+    biology::Cells cells; std::map<std::uint64_t, long double> before;
+    for (std::size_t i = 0; i < st.cells.size(); ++i) {
+        if (st.grid.walls[i]) continue;
+        for (const auto& q : st.cells[i].passive_quantities)
+            if (biology::disease_identity(q.identity)) { cells[i].push_back({q.identity, q.quantity}); before[q.identity] += q.quantity; }
+    }
+    const auto previous = s.accounts;
+    const auto held_in = [&](std::size_t i, std::uint64_t identity) {
+        const auto found = cells.find(i); if (found == cells.end()) return 0.0;
+        for (const auto& c : found->second) if (c.identity == identity) return c.quantity;
+        return 0.0; };
+    std::vector<biology::Edit> edits;
+    for (const auto& g : queued) {
+        const auto i = rect_index(s.config, g.public_cell);
+        if (st.grid.walls[i] || !biology::disease_identity(g.germ)) continue;
+        const double held = held_in(i, g.germ);
+        const biology::Edit e{i, g.germ, g.change};
+        if (!biology::apply(cells, e, st.cells[i].mixture.mass() > 0)) continue;
+        edits.push_back(e);
+        const double change = held_in(i, g.germ) > 0 ? g.change : -held;
+        auto& a = s.accounts[g.germ]; if (change > 0) a.edited_in += change; else a.edited_out -= change;
+    }
+    std::shared_ptr<const Published> p; { std::lock_guard lock(publication); p = latest; }
+    if (frames > 0 && !disease_table.empty() && p && p->views.size() == st.cells.size()) {
+        std::unordered_map<std::size_t, biology::Medium> media;
+        const std::function<const biology::Medium&(std::size_t)> medium = [&](std::size_t i) -> const biology::Medium& {
+            auto [it, inserted] = media.try_emplace(i);
+            auto& m = it->second;
+            if (!inserted || st.grid.walls[i]) return m;
+            const auto& mixture = st.cells[i].mixture; const auto& v = p->views[i];
+            m.open = true; m.mass_kg = mixture.mass(); m.temperature_k = v.temperature_k; m.element = v.element_index;
+            for (std::size_t k = 0; k < mixture.masses.size(); ++k)
+                if (mixture.masses[k] > 0) m.parts.push_back({cat.materials[k].game.native_index, mixture.masses[k]});
+            if (m.mass_kg > 0 && cat.has_native(v.element_index)) m.state = cat.materials[cat.species_of_native(v.element_index)].game.gas ? 1 : 2;
+            return m;
+        };
+        for (std::uint64_t f = 0; f < frames; ++f)
+            biology::frame(disease_table, st.grid.width, st.grid.height, medium, cells, s.clocks, s.accounts, edits);
+        s.biology_frames += frames;
+    }
+    if (!edits.empty()) {
+        std::vector<MacPassiveEdit> passive; passive.reserve(edits.size());
+        for (const auto& e : edits) passive.push_back({e.cell, e.identity, e.change});
+        world = world.with_passive_edits(passive);
+    }
+    // Audit: per identity, the world holds what it held plus the stage's
+    // booked edits, births, deaths and culled germs (diffusion only moves).
+    std::map<std::uint64_t, long double> after; std::uint64_t germ_cells = 0;
+    const auto& now = world.state();
+    for (std::size_t i = 0; i < now.cells.size(); ++i) {
+        if (now.grid.walls[i]) continue;
+        bool any = false;
+        for (const auto& q : now.cells[i].passive_quantities)
+            if (biology::disease_identity(q.identity)) { after[q.identity] += q.quantity; any = true; }
+        germ_cells += any ? 1 : 0;
+    }
+    std::map<std::uint64_t, double> held;
+    for (const auto& [identity, a] : s.accounts) {
+        const auto old = previous.find(identity);
+        const biology::Account o = old == previous.end() ? biology::Account{} : old->second;
+        const long double expected = before[identity] + (a.edited_in - o.edited_in) - (a.edited_out - o.edited_out) +
+            (a.born - o.born) - (a.died - o.died) - (a.culled - o.culled);
+        const long double actual = after[identity];
+        const long double scale = std::max({1.0L, std::abs(actual), std::abs(before[identity])});
+        s.biology_error = std::max(s.biology_error, static_cast<double>(std::abs(actual - expected) / scale));
+        held[identity] = static_cast<double>(actual);
+    }
+    s.germs_held = std::move(held); s.germ_cells = germ_cells;
+    return world;
+}
+void run_frame(std::uint64_t ticket, double seconds, std::uint64_t frames, const char* refusal, std::uint64_t thread) noexcept {
     std::lock_guard lock(lifecycle);
     if (!session || session->status.state != 1) return;
     auto& s = *session;
@@ -1638,6 +1846,8 @@ void run_frame(std::uint64_t ticket, double seconds, const char* refusal, std::u
         auto& L = s.ledger;
         auto mark = std::chrono::steady_clock::now(); double stage[6]{};
         const auto lap = [&](int k) { const auto now = std::chrono::steady_clock::now(); stage[k] = std::chrono::duration<double, std::milli>(now - mark).count(); mark = now; };
+        step("biology");
+        if (s.germ_mode == 1) world = evolve_germs(s, std::move(world), germ_edits, frames);
         // Frozen cells: the liquid native turned solid leaves, then the cell closes.
         step("freezing");
         if (!freezes.empty()) {
@@ -1699,11 +1909,14 @@ void run_frame(std::uint64_t ticket, double seconds, const char* refusal, std::u
         step("blocked faces");
         world = close_blocked_faces(s, std::move(world));
         step("germs");
-        if (!germ_edits.empty()) {
+        if (s.germ_mode == 0 && !germ_edits.empty()) {
+            // Legacy mode: native code's changes to the projected germ.
             std::vector<MacPassiveEdit> edits;
             for (const auto& g : germ_edits) {
                 const auto i = rect_index(s.config, g.public_cell);
-                if (!world.state().grid.walls[i]) edits.push_back({i, g.germ, g.change});
+                if (world.state().grid.walls[i]) continue;
+                edits.push_back({i, g.germ, g.change});
+                auto& a = s.accounts[g.germ]; if (g.change > 0) a.edited_in += g.change; else a.edited_out -= g.change;
             }
             world = world.with_passive_edits(edits);
         }
@@ -1843,6 +2056,15 @@ void run_frame(std::uint64_t ticket, double seconds, const char* refusal, std::u
             const auto k = cat.species_of_native(t.native_index);
             if (kind == MA_ONI_COLONY_INJECT) {
                 const auto order = nearby(st, centre, 2);
+                if (order.empty() && t.callback == -1 && !job_tokens.contains(static_cast<std::size_t>(&t-transfers.data())) &&
+                    t.mass_kg > 0 && std::isfinite(t.mass_kg) && t.temperature_k > 0 && std::isfinite(t.temperature_k)) {
+                    // Nothing open within two of an addition no one is told
+                    // about (a machine's output, a dumped item): it waits in
+                    // the reservoir at the cell and seeps back when there is
+                    // room, rather than being lost.
+                    s.reservoir.push_back({centre, k, t.mass_kg, t.temperature_k}); s.status.reservoir_kg += t.mass_kg;
+                    plans.push_back({edits.size(), 0, &t}); continue;
+                }
                 if (order.empty() || !(t.mass_kg > 0) || !(t.temperature_k > 0)) { plans.push_back({edits.size(), 0, &t}); continue; }
                 plans.push_back({edits.size(), 1, &t}); edits.push_back({order.front(), k, true, t.mass_kg, t.temperature_k});
                 const auto input=job_passives.find(static_cast<std::size_t>(&t-transfers.data()));
@@ -2199,27 +2421,38 @@ namespace {
 struct Writer {
     std::vector<std::uint8_t> bytes;
     void raw(const void* p, std::size_t n) { if (n == 0) return; const auto* b = static_cast<const std::uint8_t*>(p); bytes.insert(bytes.end(), b, b + n); }
+    void u8(std::uint8_t v) { raw(&v, 1); }
     void u32(std::uint32_t v) { raw(&v, 4); }
     void u64(std::uint64_t v) { raw(&v, 8); }
+    void f32(float v) { raw(&v, 4); }
     void f64(double v) { raw(&v, 8); }
     void ld(long double v) { f64(static_cast<double>(v)); f64(static_cast<double>(v - static_cast<long double>(static_cast<double>(v)))); }
 };
 struct Reader {
     std::span<const std::uint8_t> bytes; std::size_t at = 0;
     void raw(void* p, std::size_t n) { require(n <= bytes.size() - at, "Truncated colony checkpoint"); if (n != 0) std::memcpy(p, bytes.data() + at, n); at += n; }
+    std::uint8_t u8() { std::uint8_t v; raw(&v, 1); return v; }
     std::uint32_t u32() { std::uint32_t v; raw(&v, 4); return v; }
     std::uint64_t u64() { std::uint64_t v; raw(&v, 8); return v; }
+    float f32() { float v; raw(&v, 4); return v; }
     double f64() { double v; raw(&v, 8); return v; }
     long double ld() { const double hi = f64(), lo = f64(); return static_cast<long double>(hi) + lo; }
 };
 constexpr char magic[8] = {'M', 'A', 'C', 'O', 'L', 'N', '0', '1'};
+// Version 10 adds world germ evolution (owner mode 1): after the version 9 job
+// list, u32 mode, u64 biology frames, the culture clocks (u32 count; u32 cell
+// index, u64 identity, u8 mode, u8 ticks, f32 residue each), the queued germ
+// edits (u32 count; u32 public cell, u32 identity, f64 change each), the germ
+// accounts (u32 count; u64 identity and six long-double pairs each: born,
+// died, culled, moved, edited in, edited out) and f64 audit error. Legacy-mode
+// owners keep writing version 8/9.
 // Version 9 adds canonical moving payloads per durable job, only after explicit
 // moving admission. Unused facilities retain exact version8 output.
 // Version 8 adds durable pending pipe jobs and their full passives/token watermark.
 // Version 7 adds the trace-sink ledger; version 6 the liquid-blocking cells; version 5 the inputs queued at the save; version 4 the phase-change
 // conversion ledger; version 3 stored the continuing counters explicitly
 // (version 2 the raw status struct).
-constexpr std::uint32_t checkpoint_version = 9;
+constexpr std::uint32_t checkpoint_version = 10;
 }
 std::vector<std::uint8_t> checkpoint() {
     solver.settle(false);
@@ -2230,7 +2463,7 @@ std::vector<std::uint8_t> checkpoint() {
     const auto& s = *session; Writer w;
     // Keep the queue and selected wrapper framing one coherent save snapshot.
     std::unique_lock input_snapshot(inputs);
-    const std::uint32_t saved_version=moving_protocol_used?9:8;
+    const std::uint32_t saved_version=s.germ_mode==1?10:moving_protocol_used?9:8;
     w.raw(magic, 8); w.u32(saved_version); w.raw(&s.config, sizeof(s.config));
     w.u32(static_cast<std::uint32_t>(s.materials.size())); w.raw(s.materials.data(), s.materials.size() * sizeof(MAOniColonyMaterial));
     w.u32(static_cast<std::uint32_t>(s.space.size())); w.raw(s.space.data(), s.space.size());
@@ -2283,6 +2516,21 @@ std::vector<std::uint8_t> checkpoint() {
             if(job.moving_wire)w.raw(job.moving_wire->data(),job.moving_wire->size());
         }
     }
+    if (saved_version >= 10) {
+        w.u32(s.germ_mode); w.u64(s.biology_frames);
+        w.u32(static_cast<std::uint32_t>(s.clocks.size()));
+        for (const auto& [key, clock] : s.clocks) {
+            w.u32(static_cast<std::uint32_t>(key.first)); w.u64(key.second); w.u8(clock.mode); w.u8(clock.ticks); w.f32(clock.residue);
+        }
+        w.u32(static_cast<std::uint32_t>(pending_germs.size()));
+        for (const auto& g : pending_germs) { w.u32(g.public_cell); w.u32(g.germ); w.f64(g.change); }
+        w.u32(static_cast<std::uint32_t>(s.accounts.size()));
+        for (const auto& [identity, a] : s.accounts) {
+            w.u64(identity);
+            for (const auto x : {a.born, a.died, a.culled, a.moved, a.edited_in, a.edited_out}) w.ld(x);
+        }
+        w.f64(s.biology_error);
+    }
     const auto image = s.world->checkpoint();
     w.u64(image.size()); w.raw(image.data(), image.size());
     const auto digest = hash_memory(w.bytes.data(), w.bytes.size());
@@ -2298,7 +2546,7 @@ void restore(const MAOniColonyConfig& config, std::span<const MAOniColonyMateria
     require(std::memcmp(digest.data(), image.data() + image.size() - 64, 64) == 0, "Colony checkpoint checksum differs");
     Reader r{image.first(image.size() - 64)};
     char head[8]; r.raw(head, 8); require(std::memcmp(head, magic, 8) == 0, "Unsupported colony checkpoint");
-    const auto version = r.u32(); require(version == 6 || version == 7 || version == 8 || version == checkpoint_version, "Unsupported colony checkpoint");
+    const auto version = r.u32(); require(version >= 6 && version <= checkpoint_version, "Unsupported colony checkpoint");
     MAOniColonyConfig saved{}; r.raw(&saved, sizeof(saved));
     require(std::memcmp(&saved, &config, sizeof(config)) == 0, "Colony checkpoint geometry or physics differs from the loaded game");
     const auto count = r.u32(); require(count == materials.size(), "Colony checkpoint catalogue differs from the running game");
@@ -2372,6 +2620,40 @@ void restore(const MAOniColonyConfig& config, std::span<const MAOniColonyMateria
             restored_tokens.emplace(index,token); restored_jobs.emplace(token,std::move(job));
         }
     }
+    std::vector<GermEdit> restored_germs;
+    if (version >= 10) {
+        next->germ_mode = r.u32(); require(next->germ_mode == 1, "Unsupported saved world germ mode");
+        require(!disease_table.empty(), "This save evolves world germs and needs the game's disease table");
+        next->biology_frames = r.u64();
+        const auto clocks = r.u32(); require(clocks <= (r.bytes.size() - r.at) / 18, "Invalid saved germ clock count");
+        std::pair<std::size_t, std::uint64_t> previous_key{0, 0};
+        for (std::uint32_t k = 0; k < clocks; ++k) {
+            const std::size_t cell = r.u32(); const auto identity = r.u64();
+            biology::Clock clock; clock.mode = r.u8(); clock.ticks = r.u8(); clock.residue = r.f32();
+            const std::pair key{cell, identity};
+            require(cell < cells && biology::disease_identity(identity) && (k == 0 || key > previous_key) && clock.mode <= biology::expected_mode &&
+                clock.ticks <= biology::maximum_ticks && std::isfinite(clock.residue) && std::abs(clock.residue) < 1 &&
+                (clock.mode == biology::native_mode || clock.residue == 0), "Invalid saved germ clock");
+            next->clocks.emplace(key, clock); previous_key = key;
+        }
+        const auto germs = r.u32(); require(germs <= 1u << 20 && germs <= (r.bytes.size() - r.at) / 16, "Invalid saved germ edit count");
+        for (std::uint32_t k = 0; k < germs; ++k) {
+            GermEdit g; g.public_cell = r.u32(); g.germ = r.u32(); g.change = r.f64();
+            (void)rect_index(config, g.public_cell);
+            require(biology::disease_identity(g.germ) && std::isfinite(g.change) && g.change != 0, "Invalid saved germ edit");
+            restored_germs.push_back(g);
+        }
+        const auto identities = r.u32(); require(identities <= 256, "Invalid saved germ account count");
+        std::uint64_t previous_identity = 0;
+        for (std::uint32_t k = 0; k < identities; ++k) {
+            const auto identity = r.u64();
+            require(biology::disease_identity(identity) && identity > previous_identity, "Invalid saved germ account identity");
+            biology::Account a;
+            for (auto* x : {&a.born, &a.died, &a.culled, &a.moved, &a.edited_in, &a.edited_out}) { *x = r.ld(); require(std::isfinite(static_cast<double>(*x)), "Invalid saved germ account"); }
+            next->accounts.emplace(identity, a); previous_identity = identity;
+        }
+        next->biology_error = r.f64(); require(std::isfinite(next->biology_error) && next->biology_error >= 0, "Invalid saved germ audit");
+    }
     const auto physical = r.u64(); require(physical == r.bytes.size() - r.at, "Colony checkpoint physical image length differs");
     next->world = std::make_shared<const MacClosedWorld>(MacClosedWorld::from_checkpoint(next->catalogue->registry, next->catalogue->eos,
         r.bytes.subspan(r.at, static_cast<std::size_t>(physical))));
@@ -2389,6 +2671,7 @@ void restore(const MAOniColonyConfig& config, std::span<const MAOniColonyMateria
     {
         std::lock_guard q(inputs);
         pending_transfers = std::move(transfers); pending_heat = std::move(heat); pending_terrain = std::move(terrain); pending_freezes = std::move(freezes);
+        pending_germs = std::move(restored_germs);
         pending_job_tokens=std::move(restored_tokens); pipe_jobs=std::move(restored_jobs); accepted_job_token=restored_watermark;
         // Pending durable jobs must publish full outcomes even before the
         // managed client has finished rebuilding its port objects.

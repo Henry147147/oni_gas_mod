@@ -31,6 +31,11 @@ std::pair<std::uint32_t,std::uint64_t> queue_moving_parcel(std::uint64_t session
 std::uint32_t copy_moving_outcome(std::uint64_t,std::uint8_t*,std::uint32_t);
 std::pair<std::uint32_t,std::uint64_t> pipe_job_state(std::uint64_t);
 std::uint64_t receipt_job(std::uint64_t);
+// World germ evolution (docs/colony-owner.md#germs): the game's disease table
+// (before start/restore), its own cell germ edits, and the germ accounts.
+void set_diseases(std::span<const MAOniColonyDisease>, std::span<const MAOniColonyDiseaseGrowth>, std::uint32_t elements);
+void queue_germs(std::span<const MAOniColonyGermEdit>);
+void germ_accounts(MAOniColonyBiology&, std::vector<MAOniColonyBiologyAccount>&);
 [[nodiscard]] std::vector<std::uint8_t> checkpoint();
 std::uint32_t species(MAOniColonySpecies* out, std::uint32_t capacity);
 // Readings and constituents of the latest completed frame; returns the frame.

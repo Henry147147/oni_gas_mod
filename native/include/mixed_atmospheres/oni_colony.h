@@ -254,6 +254,54 @@ MA_ONI_API uint32_t ma_oni_colony_passive_snapshot_version(void);
 MA_ONI_API MAOniResult ma_oni_colony_read_passives(uint64_t expected_session,uint64_t expected_frame,
     const uint32_t* cells,uint32_t cell_count,MAOniColonyPassiveStamp*,
     MAOniColonyPassiveRow* rows,uint32_t capacity,uint32_t* count);
+/* World germ evolution (docs/colony-owner.md#germs). The game's disease
+ * table: one record per disease index and, for each disease, one growth record
+ * per element index (disease-major). Set it before start/restore; a new colony
+ * then evolves every disease identity in every owned cell itself (saved owner
+ * version 10), and the native simulation no longer evolves germs there. A
+ * restored colony keeps its saved evolution mode. Diffusion scales above 2,
+ * negative rates or NaN bounds are refused. Version 1. */
+typedef struct MAOniColonyDisease {
+    uint32_t struct_size, abi_version;
+    float strength;
+    float temperature_range[4];      /* minimum viable, minimum growth, maximum growth, maximum viable (K) */
+    float temperature_half_lives[4]; /* half-life at each bound (s); infinity: no change */
+    uint32_t reserved;
+} MAOniColonyDisease;
+typedef struct MAOniColonyDiseaseGrowth {
+    float under_population_death_rate, population_half_life, over_population_half_life, diffusion_scale;
+    float minimum_count_per_kg, maximum_count_per_kg;
+    int32_t minimum_diffusion_count;
+    uint32_t minimum_diffusion_ticks;
+} MAOniColonyDiseaseGrowth;
+MA_ONI_API uint32_t ma_oni_colony_world_biology_version(void);
+MA_ONI_API MAOniResult ma_oni_colony_set_diseases(const MAOniColonyDisease*, uint32_t disease_count,
+    const MAOniColonyDiseaseGrowth*, uint32_t element_count);
+/* The game's own germ edits of owned cells (ModifyDiseaseOnCell): disease is
+ * the disease index + 1, change a germ count (negative removes, at most what
+ * the cell holds). They commit at the start of the next frame. */
+typedef struct MAOniColonyGermEdit { uint32_t public_cell, disease; double change; } MAOniColonyGermEdit;
+MA_ONI_API MAOniResult ma_oni_colony_queue_germs(const MAOniColonyGermEdit*, uint32_t count);
+/* Germ accounts of the latest completed frame: cumulative births, deaths
+ * (incl. cultures that fell below one germ), germs moved by diffusion, and
+ * edits in/out (native emitters and game edits), all identities and per
+ * identity. held is the identity's world total after the last biology stage;
+ * audit_error the largest relative difference between the world and the
+ * accounts' expectation. The oracle fields belong to the explicit native
+ * comparison control (MA_COLONY_GERM_ORACLE=1, legacy mode only). */
+typedef struct MAOniColonyBiology {
+    uint32_t struct_size, abi_version, mode, identities;
+    uint64_t frames, cultures, germ_cells, expected_cultures;
+    double born, died, culled, moved, edited_in, edited_out, audit_error;
+    uint64_t oracle_comparisons, oracle_mismatches, oracle_extinctions, oracle_reserved;
+    double oracle_born, oracle_died;
+    char oracle_last[160];
+} MAOniColonyBiology;
+typedef struct MAOniColonyBiologyAccount {
+    uint64_t identity;
+    double born, died, culled, moved, edited_in, edited_out, held;
+} MAOniColonyBiologyAccount;
+MA_ONI_API MAOniResult ma_oni_colony_biology(MAOniColonyBiology*, MAOniColonyBiologyAccount* accounts, uint32_t capacity, uint32_t* count);
 /* Size query with a null buffer; the image describes the latest completed frame. */
 MA_ONI_API MAOniResult ma_oni_colony_checkpoint(uint8_t* buffer, uint32_t capacity, uint32_t* bytes);
 MA_ONI_API MAOniResult ma_oni_colony_stop(MAOniColonyStatus*);

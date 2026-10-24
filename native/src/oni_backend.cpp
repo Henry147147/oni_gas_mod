@@ -1028,6 +1028,40 @@ MAOniResult ma_oni_colony_read_passives(std::uint64_t session,std::uint64_t fram
         *stamp=source;*count=static_cast<std::uint32_t>(values.size());
     });
 }
+std::uint32_t ma_oni_colony_world_biology_version() { return 1; }
+MAOniResult ma_oni_colony_set_diseases(const MAOniColonyDisease* diseases,std::uint32_t disease_count,
+    const MAOniColonyDiseaseGrowth* growth,std::uint32_t element_count) {
+    return boundary([&] {
+        static_assert(sizeof(MAOniColonyDisease)==48 && sizeof(MAOniColonyDiseaseGrowth)==32);
+        if((disease_count && !diseases) || (disease_count && element_count && !growth) || disease_count>256 || element_count>65536)
+            throw Failure(MA_ONI_INVALID_ARGUMENT,"Invalid world disease table buffers");
+        try {
+            ma::oni::colony::set_diseases(std::span(diseases,disease_count),
+                std::span(growth,static_cast<std::size_t>(disease_count)*element_count),element_count);
+        } catch(const std::invalid_argument& error) {throw Failure(MA_ONI_INVALID_ARGUMENT,error.what());}
+    });
+}
+MAOniResult ma_oni_colony_queue_germs(const MAOniColonyGermEdit* edits,std::uint32_t count) {
+    return boundary([&] {
+        static_assert(sizeof(MAOniColonyGermEdit)==16);
+        if(!edits || !count)throw Failure(MA_ONI_INVALID_ARGUMENT,"Invalid germ edit buffer");
+        try {ma::oni::colony::queue_germs(std::span(edits,count));}
+        catch(const std::invalid_argument& error) {throw Failure(MA_ONI_INVALID_ARGUMENT,error.what());}
+    });
+}
+MAOniResult ma_oni_colony_biology(MAOniColonyBiology* output,MAOniColonyBiologyAccount* accounts,std::uint32_t capacity,std::uint32_t* count) {
+    return boundary([&] {
+        static_assert(sizeof(MAOniColonyBiology)==312 && sizeof(MAOniColonyBiologyAccount)==64);
+        if(!output || output->struct_size!=sizeof(*output) || output->abi_version!=1 || !count || (capacity && !accounts))
+            throw Failure(MA_ONI_INVALID_ARGUMENT,"Invalid germ account output");
+        MAOniColonyBiology summary{};std::vector<MAOniColonyBiologyAccount> values;
+        try {ma::oni::colony::germ_accounts(summary,values);}
+        catch(const std::invalid_argument& error) {throw Failure(MA_ONI_INVALID_ARGUMENT,error.what());}
+        if(accounts && capacity<values.size())throw Failure(MA_ONI_BUFFER_TOO_SMALL,"Germ account output is too small");
+        if(accounts)std::copy(values.begin(),values.end(),accounts);
+        *output=summary;*count=static_cast<std::uint32_t>(values.size());
+    });
+}
 MAOniResult ma_oni_colony_checkpoint(std::uint8_t* buffer,std::uint32_t capacity,std::uint32_t* bytes) {
     return boundary([&] {
         if (!bytes) throw Failure(MA_ONI_INVALID_ARGUMENT,"Invalid colony checkpoint size output");

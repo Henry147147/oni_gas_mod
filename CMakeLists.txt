@@ -792,7 +792,7 @@ endif()
 
 # Catalogue-driven colony owner (docs/material-catalogue.md). Standalone; the
 # game backend links it, and its controls need no game files.
-add_library(ma_oni_colony STATIC EXCLUDE_FROM_ALL native/src/oni_catalogue.cpp native/src/oni_colony_import.cpp native/src/oni_colony.cpp)
+add_library(ma_oni_colony STATIC EXCLUDE_FROM_ALL native/src/oni_catalogue.cpp native/src/oni_colony_import.cpp native/src/oni_colony.cpp native/src/oni_world_biology.cpp)
 target_link_libraries(ma_oni_colony PUBLIC ma_mac_closed_world)
 set_target_properties(ma_oni_colony PROPERTIES POSITION_INDEPENDENT_CODE ON)
 if(MSVC)
