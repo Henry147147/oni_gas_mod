@@ -928,6 +928,14 @@ magnitude (at least 1 J). All exact pipe accounts must close independently.
 This tests a cold body and a smaller, five-material fluid heat capacity; it
 does not accept phase changes, shared bodies or the runtime save boundary.
 
+Immutable `pipes-cold-9b-v1` passes **6/6 at 601 frames** (legacy Flags=1).
+Body Cv 1940.000057 J/K, fluid Cv 177.410006 J/K; body +48763.518894338631 J,
+fluid/booked -48763.518894338631 J, residual 0 J (bound 0.2417 J). Body/mixture
+325.135834/325.136591 K against analytic 325.135897 K; 587 validated contacts;
+all five masses and every pipe account exact. World M/E 2.77e-15/5.54e-17,
+sink zero, no fault, cleanup verified; LOW owner mean/p95/max 180.5/211.3/318.8 ms
+(601 samples, no gaps), diagnostic only.
+
 ## Precise owner receipts
 
 The optional native adapter exports `ma_oni_colony_enable_precise_receipts`,
