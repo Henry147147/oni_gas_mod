@@ -35,6 +35,16 @@ spill/job, every pipe account exact, owner M/E 8.5e-16/3.3e-15. ONI's
 initial save was refused by the early save guard (no pipe save writer in
 that run). LOW owner mean 236 ms, diagnostic.
 
+### Activation status
+
+Default-on for new colonies waits for the pipe save round trip (saves
+worker: MACOLP03 section 1, cold and menu reload) and the gameplay
+worker's pipe scenarios on mixed pipes. Passing in game on profile 4:
+`mixed-pipe-machines`, `mixed-pipe-heat-machines`, `mixed-pipe-colony`;
+earlier explicit controls cover pumps, valves, vents, filters, readers,
+teardown, biology and body heat. `mixed-pipe-retire` and
+`mixed-pipe-readers` are queued.
+
 ## Machine ports
 
 Every `ConduitConsumer`/`ConduitDispenser` on an owned cell keeps its native
