@@ -67,6 +67,7 @@ namespace MixedAtmospheres.Oni
         internal static void Configure()
         {
             Supported = false; ConfigureFailure = "";
+            MixtureInspection.SetCellGermReader(Describe);
             try { if (Version() != 1) { ConfigureFailure = "native world germ capability differs"; return; } }
             catch (EntryPointNotFoundException) { ConfigureFailure = "native library has no world germ evolution"; return; }
             if (Marshal.SizeOf<Disease>() != 48 || Marshal.SizeOf<Growth>() != 32 || Marshal.SizeOf<GermEdit>() != 16 ||

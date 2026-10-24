@@ -62,6 +62,9 @@ namespace MixedAtmospheres.Oni
         private static Func<Storage,MixturePipeReading?>? conduitStorageReader;
         private static Func<int,MixturePipeReading?>? cellSpillReader;
         internal static void SetCellSpillReader(Func<int,MixturePipeReading?>? reader){cellSpillReader=reader;++generation;}
+        // Every germ identity of a cell (the colony owner's world germs).
+        private static Func<int,string?>? cellGermReader;
+        internal static void SetCellGermReader(Func<int,string?>? reader){cellGermReader=reader;++generation;}
         internal static MixturePipeReading? ReadCellSpill(int cell)=>cellSpillReader?.Invoke(cell);
         internal static void SetConduitStorageReader(Func<Storage,MixturePipeReading?>? reader){conduitStorageReader=reader;++generation;}
         internal static void SetPipeReader(Func<ConduitFlow,int,string,MixturePipeReading?>? reader){pipeReader=reader;++generation;}
@@ -309,7 +312,7 @@ namespace MixedAtmospheres.Oni
             Line(drawer, card, FormatState(reading));
             var composition = FormatCompactComposition(reading);
             foreach (var line in composition) Line(drawer, card, line);
-            if (ColonyWorldGerms.Describe(cell) is string germs) Line(drawer, card, germs);
+            if (cellGermReader?.Invoke(cell) is string germs) Line(drawer, card, germs);
             if (reading.Warnings.Count == 0 && reading.IsBreathable) Line(drawer, card, "Breathing checks passed");
             foreach (var warning in reading.Warnings) Line(drawer, card, warning, true);
             drawer.EndShadowBar();
@@ -348,6 +351,8 @@ namespace MixedAtmospheres.Oni
                 // other selected objects retain their ordinary description.
                 panel.SetLabel("Description", FormatHeader(cell), "Read-only completed-frame mixture inventory.");
                 AddReadingDetails(panel, "MixedAtmospheres.Cell", cell);
+                if (cellGermReader?.Invoke(selection.SelectedCell) is string germs)
+                    panel.SetLabel("MixedAtmospheres.Cell.Germs", germs, "Every disease the cell's fluid carries (the grid shows the most numerous).");
                 Interlocked.Increment(ref detailsDraws);
                 return;
             }
