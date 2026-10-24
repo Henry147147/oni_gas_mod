@@ -70,6 +70,18 @@ completes. A trace
 of the other phase that arrives with a pump extraction returns to the intake
 cell instead of blocking the pump's buffer.
 
+Fixed `mixed-pipe-heat-machines` control (liquid conditioner, conduction
+panel bridge, a 380 K liquid pipe and a 360 K steam/oxygen gas pipe) passes
+**4/4 at 61 frames** on `pipes-heat-v4` (profile 4, pipe saves on): the
+conditioner moves all 8 kg 14 K colder and the storage boundary books
+exactly the mixture's 14 K heat (468047.99 J); the panel passes 5 kg and the
+mixture loses exactly the body's 135721.9 J; boiling and condensing each take
+one phase event (HP 10 -> 9) and empty; 106 validated contacts, none
+excluded; every account exact; M/E 2.8e-16/5.9e-16, no fault. Two earlier
+runs stopped on fixture setup errors (read a dispenser the conditioner lacks;
+an output route that shared the input pipe made the conditioner recirculate
+until the water froze); the criteria did not change.
+
 ### Readers
 
 Element, germ and thermo sensors read the owned mixture (element true at or
