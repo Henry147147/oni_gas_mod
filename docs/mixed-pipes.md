@@ -58,6 +58,15 @@ Format IDs **MACOLP02** and **MACPIP01** were claimed immediately after a
 fresh fetch/rebase of `b36ed23` on 2026-10-23. These are managed payloads;
 they do not change a native MAC checkpoint version or its bytes.
 
+Pipe saves keep every species, joule and germ and all owned scheduler, buffer,
+culture, port and job state exactly; ONI's own conduit staging, flow
+directions, 1 s conduit clock and network order are not saved, so pipe timing
+resumes as after a vanilla load. A restore refuses unless each owned cell's
+consolidated projection equals ONI's restored `ConduitContents` bit for bit.
+
+**MACOLP03** was assigned by main after a fetch at `f8eb87a` (2026-10-24): config, owner image, then tagged sections in increasing tag order (1 = pipe runtime, MACPIP01 schema 3; 2 = MACO2P01 in-flight CO2 particles).
+Unknown, duplicate or empty sections refuse; a save without sections still writes exact MACOLP01 bytes; MACOLP02 stays refused.
+
 - **MACOLP01:** unchanged magic, int32 configuration length, 56-byte
   configuration, then the existing owner image. An absent pipe image keeps
   exactly these bytes and the existing packet behavior.
