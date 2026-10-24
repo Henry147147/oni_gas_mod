@@ -56,6 +56,8 @@ namespace MixedAtmospheres.Oni
             States.Remove(storage);state.RetiredAt=Grid.PosToCell(storage);
             foreach(var id in state.Buffers.ToArray())
                 if(!state.Pending.Contains(id)){state.Buffers.Remove(id);ColonyMachinePorts.Release(id,state.RetiredAt);}
+            foreach(var id in state.Pending.ToArray()){Requests.Remove(id);state.Buffers.Remove(id);ColonyPipeTeardown.HoldSpill(id,state.RetiredAt);}
+            state.Pending.Clear();
         }
         internal static void Capture(PipeRuntimeImage image)
         {

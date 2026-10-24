@@ -63,6 +63,10 @@ namespace MixedAtmospheres.Oni
             States.Remove(storage);ByOutlet.Remove((state.Flow,state.Cell));state.RetiredAt=Grid.PosToCell(storage);
             foreach(var id in state.Buffers.ToArray())
                 if(!state.Pending.ContainsKey(id)){state.Buffers.Remove(id);ColonyMachinePorts.Release(id,state.RetiredAt);}
+            // An intake still in flight becomes a spill at once, so it has a
+            // saved owner and leaves when its job completes.
+            foreach(var id in state.Pending.Keys.ToArray()){Requests.Remove(id);state.Buffers.Remove(id);ColonyPipeTeardown.HoldSpill(id,state.RetiredAt);}
+            state.Pending.Clear();
         }
         internal static void Capture(PipeRuntimeImage image)
         {
