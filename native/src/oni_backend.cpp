@@ -327,7 +327,10 @@ void on_update_data(void* self,void* data) {
 }
 float on_pressure(void* data,void* events,const void* source,void* target,int cell,std::uint16_t element,std::int8_t direction,float scale,int index) {
     Call call(MA_ONI_PRESSURE);
-    if (owned_cell(MA_ONI_PRESSURE,cell) || ma::oni::colony::beside_owned(cell)) return 0;
+    // The final argument is the second cell, including the diagonal selected
+    // by UpdateData. A cardinal-neighbour test cannot cover it. Retain the
+    // existing conservative colony boundary policy as well.
+    if (owned_cell(MA_ONI_PRESSURE,cell) || owned_cell(MA_ONI_PRESSURE,index) || ma::oni::colony::beside_owned(cell)) return 0;
     using Function=float (*)(void*,void*,const void*,void*,int,std::uint16_t,std::int8_t,float,int);
     return original<Function>(MA_ONI_PRESSURE)(data,events,source,target,cell,element,direction,scale,index);
 }
