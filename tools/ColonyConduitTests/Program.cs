@@ -371,6 +371,7 @@ static class Program
         StorageWeightTests.Run();
         ContactWorkTests.Run();
         ScalarProductTests.Run();
+        MassStageTests.Run();
         if(args.Contains("--biology-continuation"))BiologyContinuation.Run();
         if (args.Contains("--benchmark"))
         {

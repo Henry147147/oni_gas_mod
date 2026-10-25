@@ -5,6 +5,29 @@ using System.Linq;
 
 namespace MixedAtmospheres.Oni
 {
+    // A projected pipe mass split into ONI's movable (initial) and deferred
+    // (added) stages. The two parts sum to the mass exactly, in binary32 and in
+    // any wider evaluation: the part of at least half the mass has an exact
+    // complement (Sterbenz), so when the movable budget is the smaller part
+    // the deferred rest is rounded first and the budget is its exact
+    // complement, never above the native budget.
+    internal static class PipeMassStages
+    {
+        internal static bool Split(float mass, float movable, out float budget, out float deferred)
+        {
+            budget = deferred = 0;
+            if (!(mass > 0) || float.IsInfinity(mass) || float.IsNaN(movable)) return false;
+            var limit = Math.Min(mass, Math.Max(0, movable)); budget = limit;
+            if (budget >= mass / 2) deferred = (float)(mass - budget);
+            else
+            {
+                deferred = (float)(mass - budget); budget = (float)(mass - deferred);
+                while (budget > limit) { deferred = BitConverter.Int32BitsToSingle(BitConverter.SingleToInt32Bits(deferred) + 1); budget = (float)(mass - deferred); }
+            }
+            return budget >= 0 && deferred >= 0 && budget <= limit && (double)budget + deferred == mass;
+        }
+    }
+
     // Exact sums of binary64 fluxes. Small components remain primary state;
     // an addition to a much larger inventory never erases its low part.
     internal readonly struct PipeAmount

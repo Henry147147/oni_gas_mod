@@ -372,10 +372,8 @@ namespace MixedAtmospheres.Oni
             {
                 // Correct the scalar mass without making newly received mass
                 // movable earlier than native scheduling allows.
-                var budget=Math.Min(mass,Math.Max(0,Movable(contents)));var deferred=mass-budget;
-                for(var attempt=0;budget+deferred!=mass&&attempt<2;++attempt)
-                {budget=BitConverter.Int32BitsToSingle(BitConverter.SingleToInt32Bits(budget)-1);deferred=mass-budget;}
-                if(budget<0||budget+deferred!=mass)throw new InvalidOperationException("Cannot project pipe mass without changing its movement budget.");
+                if(!PipeMassStages.Split(mass,Movable(contents),out var budget,out var deferred))
+                    throw new InvalidOperationException("Cannot project pipe mass without changing its movement budget.");
                 SetStages(ref contents,budget,deferred);
             }
             contents.element=element;contents.temperature=(float)cell.Inventory.Temperature(Material);
