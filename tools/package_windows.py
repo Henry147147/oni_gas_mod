@@ -43,11 +43,15 @@ def main():
         "2. In the extracted folder run:\n"
         "   powershell -NoProfile -ExecutionPolicy Bypass -File .\\install_windows.ps1\n"
         "3. Start ONI, enable Mixed Atmospheres in Mods, and restart when asked.\n"
-        "4. In the main menu, turn OFF the Spaced Out! DLC (ONI restarts),\n"
-        "   then start a new base-game colony. No environment variables are needed.\n\n"
+        "4. In the main menu, turn OFF the Spaced Out! DLC (ONI restarts).\n"
+        "5. Optional: Mods -> Mixed Atmospheres -> Settings. Default is recommended.\n"
+        "   You can create, save and load your own presets; reinstalls retain them.\n"
+        "6. Start a NEW base-game colony. No environment variables are needed.\n\n"
         "The installer preserves user configuration and saves, and backs up old mod copies.\n"
         "A custom user-data folder can be selected with -OniUserRoot.\n"
         "Mixture saves need this mod to load; existing vanilla saves keep their saved simulation.\n"
+        "After playing, send Player.log from:\n"
+        "%USERPROFILE%\\AppData\\LocalLow\\Klei\\Oxygen Not Included\\Player.log\n"
     ).encode("utf-8")
     args.output.parent.mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(args.output, "x", zipfile.ZIP_DEFLATED) as archive:
