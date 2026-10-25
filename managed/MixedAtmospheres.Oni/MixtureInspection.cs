@@ -60,6 +60,7 @@ namespace MixedAtmospheres.Oni
         private static int generation, sessionBindingCount;
         private static Func<ConduitFlow,int,string,MixturePipeReading?>? pipeReader;
         private static Func<Storage,MixturePipeReading?>? conduitStorageReader;
+        private static Func<Storage,MixturePipeReading?>? ownedStorageReader;
         private static Func<int,MixturePipeReading?>? cellSpillReader;
         internal static void SetCellSpillReader(Func<int,MixturePipeReading?>? reader){cellSpillReader=reader;++generation;}
         // Every germ identity of a cell (the colony owner's world germs).
@@ -67,6 +68,7 @@ namespace MixedAtmospheres.Oni
         internal static void SetCellGermReader(Func<int,string?>? reader){cellGermReader=reader;++generation;}
         internal static MixturePipeReading? ReadCellSpill(int cell)=>cellSpillReader?.Invoke(cell);
         internal static void SetConduitStorageReader(Func<Storage,MixturePipeReading?>? reader){conduitStorageReader=reader;++generation;}
+        internal static void SetOwnedStorageReader(Func<Storage,MixturePipeReading?>? reader){ownedStorageReader=reader;++generation;}
         internal static void SetPipeReader(Func<ConduitFlow,int,string,MixturePipeReading?>? reader){pipeReader=reader;++generation;}
         private static long hoverDraws, detailsDraws, ownedContainerDraws, nativeContainerDraws;
         // Private in-game evidence only. Ordinary hover has no observer and
@@ -549,6 +551,18 @@ namespace MixedAtmospheres.Oni
             {
                 if (suppressed.Contains(storageRoots[storage])) continue;
                 if (storage is Component component && suppressed.Contains(component.gameObject)) continue;
+                if(ownedStorageReader!=null&&storage is Storage exactStorage)
+                {
+                    // Native items are compatibility projections. Inspect the
+                    // immutable held inventory, including unprojectable traces
+                    // and every fractional germ identity, without reconciling.
+                    try
+                    {
+                        var reading=ownedStorageReader(exactStorage);
+                        if(reading!=null){result.Pipes.Add(reading);continue;}
+                    }
+                    catch(Exception error){result.Errors.Add("Stored mixture unavailable: "+error.Message);continue;}
+                }
                 if(conduitStorageReader!=null&&storage is Storage nativeStorage)
                 {
                     try

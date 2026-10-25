@@ -66,10 +66,19 @@ growth/death audits and stale/inconsistent-operation refusal. Schema5 requires
 both this storage section and the native scheduling section, preserving older
 codec bytes.
 
+Cumulative storage admission, withdrawal, heat and birth/death journals use
+exact integer binary64 units, separate from the physical inventories. A finite
+1e308-germ parcel can enter and leave repeatedly even when its cumulative
+history exceeds binary64. The focused controls retain ten such cycles and
+wide birth/death histories through exact cold reencoding; malformed integer
+encodings refuse. This changes only the gated schema5 storage section, not
+physical `PipeAmount` arithmetic or schemas1–4.
+
 The first `ColonyOwnedStorage` adapter is an explicitly started reservoir
 prototype. Native items serve UI and the existing registered thermal service;
 represented work uses the registered binary32 capacity and published body
-temperature, without credit on repeated getters or own projection resets.
+temperature. Pure readers do not credit heat; projection publication and
+queued native temperature resets still require the coupled control below.
 Unsupported native item/storage mutations refuse. It has no default/runtime
 activation, and live saves explicitly refuse until storage biology and native
 projection cold rebinding are complete. The `mixed-pipe-owned-storage` actual
@@ -85,6 +94,21 @@ measures thermal service, not coupled world/store heat closure. Package
 `codex-resume-owned-storage-control-v1` are private focused evidence. Broad
 machine recipes, loose bottles and teardown
 still require exact adapters.
+
+The closed `mixed-storage-heat` fixture includes the sealed world region's
+U+K+G, exact stored U and every construction body's actual native registered
+capacity and temperature. Actor cleanup occurs before the source endpoint;
+both endpoints retain the strict actor census, zero-energy capacity probes,
+native completion/publication checks and the original 128-epsilon operand
+bound. The first two runs refused an unaccounted live Hatch before measuring
+closure. Clean run `codex-resume-storage-heat-control-v3` passes the mass,
+body-identity and heat-service checks but gains 5488.7846115393422 J against
+a 4.9810592011375575e-6 J bound. The diagnostic repeat v4 gains
+5947.8139015770321 J against the same bound formula. Its default-off managed
+trace records exact credits and absolute native projection resets; actual
+native chunk temperature/capacity before those writes remains the next causal
+check. Thermal acceptance, biology and live storage continuation stay open;
+no residual account, reduced thermal service or default activation is accepted.
 
 Every `ConduitConsumer`/`ConduitDispenser` on an owned cell keeps its native
 gates, rates and storage (`ColonyConduitsMachinePorts.cs`). An input takes

@@ -367,6 +367,7 @@ static class Program
         GermEvolutionTests.Run();
         BiologyStateTests.Run();
         OwnedStorageTests.Run();
+        StorageJournalTests.Run();
         StorageWeightTests.Run();
         ContactWorkTests.Run();
         ScalarProductTests.Run();

@@ -37,15 +37,15 @@ namespace MixedAtmospheres.Oni
         internal static int Count=>Hosts.Count;
         internal static long HeatPublications {get;private set;}
         internal static PipeInventory Inventory(Storage storage)=>Hosts.TryGetValue(storage,out var host)?host.Store.Inventory:PipeInventory.Empty;
-        internal static PipeAmount Heat(Storage storage)=>Hosts.TryGetValue(storage,out var host)?host.Store.Heat:PipeAmount.Zero;
+        internal static StorageJournalAmount Heat(Storage storage)=>Hosts.TryGetValue(storage,out var host)?host.Store.Heat:default;
         internal static int RegisteredProjections(Storage storage)=>Hosts.TryGetValue(storage,out var host)?host.Projections.Values.Count(view=>view.Handle>=0):0;
         internal static bool Audit(Storage storage)=>Hosts.TryGetValue(storage,out var host)&&host.Store.Audit();
         internal static void StartControl()
         {
             if(!ColonyPipeRuntime.Active||!ColonyMachinePorts.Enabled)throw new InvalidOperationException("Exact component storage requires the mixed-pipe runtime.");
-            Enabled=true;
+            Enabled=true;MixtureInspection.SetOwnedStorageReader(storage=>Owns(storage)?ColonyPipeInspection.Describe(Inventory(storage),"Stored mixture"):null);
         }
-        internal static void Reset(){Enabled=false;Hosts.Clear();editing=registering=0;HeatPublications=0;}
+        internal static void Reset(){Enabled=false;Hosts.Clear();editing=registering=0;HeatPublications=0;MixtureInspection.SetOwnedStorageReader(null);}
         internal static bool Owns(Storage storage)=>Enabled&&Hosts.ContainsKey(storage);
         private static byte ReservoirPhase(Storage storage)
         {
@@ -121,7 +121,12 @@ namespace MixedAtmospheres.Oni
                             host.Storage.AddGasChunk(view.Element.id,view.Mass,view.Temperature,view.Disease,view.Count,true,false);
                         projection=new Projection(item,view.Mass,view.Temperature);host.Projections.Add(view.Part.Id,projection);
                     }
-                    else projection.Item.SetMassTemperature(view.Mass,view.Temperature);
+                    else
+                    {
+                        TraceHeat("project-before",host,projection,view.Temperature);
+                        projection.Item.SetMassTemperature(view.Mass,view.Temperature);
+                        TraceHeat("project-after",host,projection,view.Temperature);
+                    }
                     // Native disease is a view. The exact per-ID populations
                     // remain in Store.Inventory even when the view is empty.
                     var primary=projection.Item;
@@ -152,12 +157,14 @@ namespace MixedAtmospheres.Oni
         private static void Credit(Host host,Projection view,float published)
         {
             if(!(published>0)||float.IsInfinity(published))throw new InvalidOperationException("An owned storage thermal projection published an invalid temperature.");
+            TraceHeat("credit-before",host,view,published);
             if(view.Capacity>0&&published!=view.Temperature)
             {
                 var work=PipeContactWork.IntoFluid(view.Capacity,view.Temperature,published).Negated();
                 host.Store.AddHeat(work,ColonyConduits.Material);
             }
             view.Temperature=published;
+            TraceHeat("credit-after",host,view,published);
         }
         internal static void Published()
         {
@@ -198,7 +205,9 @@ namespace MixedAtmospheres.Oni
                     if(editing==0&&registering==0)throw new InvalidOperationException("An unsupported native writer tried to replace an exact storage thermal projection.");
                     if(capacity<0||float.IsNaN(capacity)||float.IsInfinity(capacity)||!(temperature>0)||float.IsInfinity(temperature))
                         throw new InvalidOperationException("Invalid exact storage thermal projection data.");
-                    view.Capacity=capacity;view.Temperature=temperature;return;
+                    TraceHeat("sent-before",host,view,temperature,capacity);
+                    view.Capacity=capacity;view.Temperature=temperature;
+                    TraceHeat("sent-after",host,view,temperature,capacity);return;
                 }
         }
         internal static void Reject(Storage storage,string operation)

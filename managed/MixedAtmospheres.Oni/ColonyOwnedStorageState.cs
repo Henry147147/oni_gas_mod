@@ -29,13 +29,13 @@ namespace MixedAtmospheres.Oni
         internal readonly byte Phase;
         internal PipeInventory Inventory {get;private set;}
         internal PipeInventory Initial {get;private set;}
-        internal PipeInventory Admitted {get;private set;}=PipeInventory.Empty;
-        internal PipeInventory Withdrawn {get;private set;}=PipeInventory.Empty;
-        internal PipeAmount Heat {get;private set;}
+        internal StorageJournalInventory Admitted {get;private set;}=StorageJournalInventory.Empty;
+        internal StorageJournalInventory Withdrawn {get;private set;}=StorageJournalInventory.Empty;
+        internal StorageJournalAmount Heat {get;private set;}
         internal ulong Revision {get;private set;}
         internal readonly SortedDictionary<int,GermPopulationClock> Clocks=new SortedDictionary<int,GermPopulationClock>();
         internal readonly SortedDictionary<int,StoredGermContext> CultureContexts=new SortedDictionary<int,StoredGermContext>();
-        internal readonly SortedDictionary<int,PipeAmount> Births=new SortedDictionary<int,PipeAmount>(),Deaths=new SortedDictionary<int,PipeAmount>();
+        internal readonly SortedDictionary<int,StorageJournalAmount> Births=new SortedDictionary<int,StorageJournalAmount>(),Deaths=new SortedDictionary<int,StorageJournalAmount>();
         internal OwnedFluidStore(StoredFluidAddress address,byte phase,PipeInventory initial)
         {
             if(phase!=1&&phase!=2)throw new InvalidDataException("Invalid owned storage phase.");
@@ -46,7 +46,7 @@ namespace MixedAtmospheres.Oni
             internal readonly OwnedFluidStore Owner;
             internal readonly ulong Revision;
             internal readonly PipeInventory Before,After,Parcel,Outside;
-            internal readonly PipeInventory Journal;
+            internal readonly StorageJournalInventory Journal;
             internal readonly ulong NextRevision;
             internal readonly int[] Retired;
             internal readonly bool Intake;
@@ -103,13 +103,16 @@ namespace MixedAtmospheres.Oni
         }
         internal bool Audit()
         {
-            foreach(var id in Initial.Parts.ToArray().Concat(Admitted.Parts.ToArray()).Concat(Withdrawn.Parts.ToArray()).Concat(Inventory.Parts.ToArray()).Select(p=>p.Id).Distinct())
-                if(Mass(Initial,id).Plus(Mass(Admitted,id)).Minus(Mass(Withdrawn,id)).Minus(Mass(Inventory,id)).Sign!=0)return false;
-            if(Initial.Energy.Plus(Admitted.Energy).Plus(Heat).Minus(Withdrawn.Energy).Minus(Inventory.Energy).Sign!=0)return false;
-            foreach(var id in Initial.Germs.ToArray().Concat(Admitted.Germs.ToArray()).Concat(Withdrawn.Germs.ToArray()).Concat(Inventory.Germs.ToArray()).Select(p=>p.Id).Concat(Births.Keys).Concat(Deaths.Keys).Distinct())
+            foreach(var id in Initial.Parts.ToArray().Select(p=>p.Id).Concat(Admitted.Masses.Keys).Concat(Withdrawn.Masses.Keys).Concat(Inventory.Parts.ToArray().Select(p=>p.Id)).Distinct())
             {
-                Births.TryGetValue(id,out var born);Deaths.TryGetValue(id,out var died);
-                if(Germs(Initial,id).Plus(Germs(Admitted,id)).Plus(born).Minus(died).Minus(Germs(Withdrawn,id)).Minus(Germs(Inventory,id)).Sign!=0)return false;
+                Admitted.Masses.TryGetValue(id,out var admitted);Withdrawn.Masses.TryGetValue(id,out var withdrawn);
+                if(StorageJournalAmount.From(Mass(Initial,id)).Plus(admitted).Minus(withdrawn).Minus(StorageJournalAmount.From(Mass(Inventory,id))).Sign!=0)return false;
+            }
+            if(StorageJournalAmount.From(Initial.Energy).Plus(Admitted.Energy).Plus(Heat).Minus(Withdrawn.Energy).Minus(StorageJournalAmount.From(Inventory.Energy)).Sign!=0)return false;
+            foreach(var id in Initial.Germs.ToArray().Select(p=>p.Id).Concat(Admitted.Germs.Keys).Concat(Withdrawn.Germs.Keys).Concat(Inventory.Germs.ToArray().Select(p=>p.Id)).Concat(Births.Keys).Concat(Deaths.Keys).Distinct())
+            {
+                Admitted.Germs.TryGetValue(id,out var admitted);Withdrawn.Germs.TryGetValue(id,out var withdrawn);Births.TryGetValue(id,out var born);Deaths.TryGetValue(id,out var died);
+                if(StorageJournalAmount.From(Germs(Initial,id)).Plus(admitted).Plus(born).Minus(died).Minus(withdrawn).Minus(StorageJournalAmount.From(Germs(Inventory,id))).Sign!=0)return false;
             }
             return true;
         }
@@ -128,7 +131,7 @@ namespace MixedAtmospheres.Oni
         internal static OwnedFluidStore Read(BinaryReader reader)
         {
             var address=StoredFluidAddress.Read(reader);var phase=reader.ReadByte();var revision=reader.ReadUInt64();
-            var inventory=PipeInventory.Read(reader);var initial=PipeInventory.Read(reader);var admitted=PipeInventory.Read(reader);var withdrawn=PipeInventory.Read(reader);var heat=PipeAmount.Read(reader);
+            var inventory=PipeInventory.Read(reader);var initial=PipeInventory.Read(reader);var admitted=StorageJournalInventory.Read(reader);var withdrawn=StorageJournalInventory.Read(reader);var heat=StorageJournalAmount.Read(reader);
             var store=new OwnedFluidStore(address,phase,initial){Inventory=inventory,Admitted=admitted,Withdrawn=withdrawn,Heat=heat,Revision=revision};
             var previous=-1;
             for(int k=0,n=Count(reader);k<n;++k)
@@ -142,13 +145,13 @@ namespace MixedAtmospheres.Oni
         }
         private static int Count(BinaryReader reader)
         {var count=reader.ReadInt32();if(count<0||count>255)throw new InvalidDataException("Invalid owned storage disease count.");return count;}
-        private static void WriteJournal(BinaryWriter writer,SortedDictionary<int,PipeAmount> journal)
+        private static void WriteJournal(BinaryWriter writer,SortedDictionary<int,StorageJournalAmount> journal)
         {writer.Write(journal.Count);foreach(var entry in journal){writer.Write(entry.Key);entry.Value.Write(writer);}}
-        private static void ReadJournal(BinaryReader reader,SortedDictionary<int,PipeAmount> journal)
+        private static void ReadJournal(BinaryReader reader,SortedDictionary<int,StorageJournalAmount> journal)
         {
             var previous=-1;
             for(int k=0,n=Count(reader);k<n;++k)
-            {var id=reader.ReadInt32();var value=PipeAmount.Read(reader);if(id<=previous||id>=255||value.Sign<=0)throw new InvalidDataException("Invalid owned storage biology journal.");journal.Add(id,value);previous=id;}
+            {var id=reader.ReadInt32();var value=StorageJournalAmount.Read(reader);if(id<=previous||id>=255||value.Sign<=0)throw new InvalidDataException("Invalid owned storage biology journal.");journal.Add(id,value);previous=id;}
         }
     }
 

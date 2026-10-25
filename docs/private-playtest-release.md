@@ -16,12 +16,12 @@ physics gates, frozen arenas, bounds or the user's decisions.
 | Completion item | Current evidence and remaining work | Owner |
 | --- | --- | --- |
 | Full mixed gas/liquid pipes and ports | Machine ports/liquid vents/phase damage pass8/8, heat machines4/4 and a piped base10/10 on the opt-in runtime. Corrected selected-profile readers4/4 and destroyed-pump retirement3/3 pass. A reservoir prototype now physically draws the same75/25 mixture twice, retaining unprojectable traces and all germ identities; complete component adapters, durable storage and default activation remain open. | Pipe worker |
-| Heat and germs | Represented-body-work hot/cold controls pass5/5 and6/6 at601 frames with zero residual. All-ID pipe biology passes9/9; world biology has778/778 native single-cell predictions. Schema4 restores native allocation mass/material and growth caches before positive time. An isolated reproduction of the heated-save refusal identifies stale GameData publication; the unchanged control passes5/5 after post-completion publication, with exact0 J body/liquid residual. Longer heated saves and whole-storage heat/biology remain open. | Pipe worker / gameplay owner |
+| Heat and germs | Represented-body-work hot/cold controls pass5/5 and6/6 at601 frames with zero residual. All-ID pipe biology passes9/9; world biology has778/778 native single-cell predictions. Schema4 restores native allocation mass/material and growth caches before positive time. The save-publication fix passes the unchanged5/5 control and an actual1200-frame Oceania repeat with two ordinary saves. A clean whole-storage fixture fails energy closure by5488.78 J; the repeat fails by5947.81 J. Storage thermal work and biology remain release blockers. | Pipe worker / gameplay owner |
 | Conserved gameplay transactions | Existing life-support, plant, critter, source and machine scenarios pass on the packet path. Verify recipe-only consumption, blocked input/output and power/heat accounting on the final mixed path, including storage, bottles, suits and rocket tanks/cargo. A generic converter preflight is not a per-recipe atomicity proof. | Gameplay owner / pipe worker |
-| Exact saves with mixed activity | Ordinary load-menu admission rejects an incompatible mixture save before colony creation. Core23/schema4 cold/menu tests restore exact source owner/pipe images and native biology context; the native checkpoint-copy query/copy race is fixed. The barrier now republishes native body/chunk callbacks after completion even with no owner receipts. Schema5's exact storage/scheduling writer remains gated; longer heated saves, natural autosaves and byte-exact active continuation remain open. Old saves retain their recorded profile. | Pipe worker / gameplay owner |
-| Whole-asteroid reliability | Every base-game asteroid imports. New opt-in profile5/core23 moves the existing trace prune before conduction and refreshes its EOS, preserving old laws. An actual Oceania base advances1200 new frames with three duplicants alive, no owner fault/rejection/skipped relaxation and closed ledgers; a separate saving run fails at its first heated save. Selected-profile asteroid coverage and the prepared Terra failure-region/ten-cycle runs remain open. No old-save migration. | Solver / gameplay owners |
-| Numerical acceptance for the selected profile | Profile5/core23 retains heat mixing8 and corrected empty-cell face momentum. F1 split and F3/F5 depth results improve on vanilla; full floor acceptance is open. Same-publication arena energy now supports a fixed F2 equilibrium truth including release kinetic and accepted solid heat; held-reservoir inventory observations are corrected. F3 needs a validated independent VOF reference, and F4 needs aligned owner/solid measurements. See the floor document. | Solver / gameplay owners |
-| Ordinary player build and presentation | Select only an accepted profile for new colonies; no development fixture required. Verify normal startup, full world/pipe/storage/spill inspection and sensors, responsive pause/menu, clean shutdown, clear faults and missing/incompatible-mod saves. | Gameplay owner |
+| Exact saves with mixed activity | Ordinary load-menu admission rejects an incompatible mixture save before colony creation. Core23/schema4 cold/menu tests restore exact source owner/pipe images and native biology context; the native checkpoint-copy query/copy race is fixed. The barrier now republishes native body/chunk callbacks after completion even with no owner receipts, and the1200-frame Oceania repeat passes both ordinary writes. Schema5's exact storage/scheduling writer remains gated; natural autosaves and byte-exact active continuation remain open. Old saves retain their recorded profile. | Pipe worker / gameplay owner |
+| Whole-asteroid reliability | Every base-game asteroid imports. New opt-in profile5/core23 moves the existing trace prune before conduction and refreshes its EOS, preserving old laws. An actual Oceania base advances1200 new frames with three duplicants alive, no owner fault/rejection/skipped relaxation and closed ledgers, including two ordinary saves after the publication fix. Selected-profile asteroid coverage and the prepared Terra failure-region/ten-cycle runs remain open. No old-save migration. | Solver / gameplay owners |
+| Numerical acceptance for the selected profile | Profile5/core23 retains heat mixing8 and corrected empty-cell face momentum. F1 split and F3/F5 depth results improve on vanilla; full floor acceptance is open. Same-publication arena energy now supports a fixed F2 equilibrium truth including release kinetic and accepted solid heat; held-reservoir inventory observations are corrected. F3 needs a validated independent VOF reference. F4 now proves its exact initial source and clock, but the full20000 s comparison and dynamic truth remain open. See the floor document. | Solver / gameplay owners |
+| Ordinary player build and presentation | Exact reservoir inspection passes5/5: all held species including a1e-240 kg trace, every fractional germ identity,100 unchanged reads and explicit empty storage after withdrawal. Select only an accepted profile for new colonies; verify normal startup, full world/pipe/storage/spill inspection and sensors, responsive pause/menu, clean shutdown, clear faults and missing/incompatible-mod saves. | Gameplay owner |
 | Ten-cycle colony acceptance and package | After the shorter failure-region check passes, run the prepared colony ten cycles with every duplicant alive, no owner fault/fallback and closed ledgers, including autosaves. Validate one immutable final bundle, then provide private Linux install/run/known-behaviour instructions and hashes. | Gameplay owner |
 
 The separate Terra 2× target remains open. The latest same-bundle WHOLE-lock
@@ -68,7 +68,31 @@ that refusal with applied native body work and stale GameData. Republishing afte
 native completion passes the unchanged control5/5:20 validated contacts transfer
 67.993164993822575 J from the body to1 kg of liquid with exact0 J residual and a
 later, unchanged zero-energy probe confirming actual capacity and publication.
-The longer Oceania saving run still needs its repeat with this fix.
+The longer Oceania saving repeat with this fix now passes, as recorded below.
+
+`codex-resume-oceania-publish1200-v1` uses an immutable package with the actual
+save-publication fix and diagnostic instrumentation disabled. The unchanged
+frame32 source advances1200 sampled frames to1232 with three duplicants alive,
+zero faults/rejections/skipped relaxations and no sample gaps. Both ordinary
+saves pass; the barrier records two native publications and two body-heat
+checks. The final durable owner image is frame1233 because the worker is one
+frame ahead of the sampled endpoint. Maximum relative mass/energy errors are
+1.3060620601475641e-15/1.0762250083960142e-14, with trace sinks
+2.214235923029314e-6 kg/1.5520861572407771 J. LOW-lock owner mean/p95/max is
+214.570684/229.777469/315.412347 ms; observed spacing is
+257.097545/354.961260/1084.145968 ms (1200 samples/1199 adjacent intervals).
+Source/package hashes and process cleanup pass. This covers schema4's existing
+native-item storage path; it does not establish exact owned-storage schema5,
+whole-storage heat closure, natural autosaves or ten-cycle acceptance.
+
+The exact-storage thermal fixture has a complete sealed-region and body census
+at both zero-time endpoints. With hidden loose actors removed before the source
+is established, `codex-resume-storage-heat-control-v3` has unchanged world mass
+but gains5488.7846115393422 J against the fixed4.9810592011375575e-6 J bound.
+The unchanged-input v4 repeat gains5947.813901577032 J. Its managed trace shows
+paired old/new absolute projection-temperature messages and delayed publication
+oscillations. Native before/after measurements are required to establish the
+cause; no compensating ledger, changed physical input or relaxed bound is used.
 
 The opt-in `pipe-schedule` diagnostic passes6/6 on core23. It captures two gas
 cells/two networks/three callbacks and five liquid cells/five networks/four
