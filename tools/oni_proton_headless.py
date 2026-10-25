@@ -316,6 +316,7 @@ def playtest(args, state: Path, session: dict) -> int:
         if getattr(args,"settings_open",None):
             env["MA_SETTINGS_OPEN"]=args.settings_open
             result["settings_window_control"]=args.settings_open
+            if args.mode in OWNER_MODES:result["owner_environment_overrides"]=True
         result["compatibility_environment"] = compatibility_settings(env)
         result["display"] = display
         prefix_started = True
