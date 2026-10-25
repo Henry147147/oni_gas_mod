@@ -34,13 +34,14 @@ namespace MixedAtmospheres.Oni
                     {
                         var liquid=phase==1;var insulated=i>=3;
                         var cell=Cell(1+2*(i%3),1+2*(i/3));
-                        var id=(liquid?"Liquid":"Gas")+"Conduit"+(insulated?"Insulated":"Radiant");
+                        var id=liquid?(insulated?InsulatedLiquidConduitConfig.ID:LiquidConduitRadiantConfig.ID):
+                            (insulated?InsulatedGasConduitConfig.ID:GasConduitRadiantConfig.ID);
                         Pipe(liquid?Game.Instance.liquidConduitSystem:Game.Instance.gasConduitSystem,id,new List<int>{cell});
                         contactCases.Add(new ContactCase {Cell=cell,Liquid=liquid,Insulated=insulated,
                             Flow=liquid?Game.Instance.liquidConduitFlow:Game.Instance.gasConduitFlow,
                             Body=Grid.Objects[cell,(int)(liquid?ObjectLayer.LiquidConduit:ObjectLayer.GasConduit)].GetComponent<PrimaryElement>(),
                             Mass=(i%3==0?1e-7:i%3==1?.001:liquid?9.0:.9),
-                            BodyTemperature=i%2==0?600:300,FluidTemperature=i%2==0?300:600});
+                            BodyTemperature=i%2==0?350:300,FluidTemperature=i%2==0?300:350});
                     }
             }
             if(frame>=8&&step<=8)
