@@ -157,13 +157,18 @@ lifecycle blocker; no forced exit was added to the harness. Physical report
 success is not a clean-process-exit claim. Wine is also distinct from actual
 Windows OS/MSVC or Unity acceptance; no Unity game is launched here.
 
-## Remaining boundary
+## Falling solids
 
-`MA_COLONY_TRANSITION_FALLING_CONTROL=1` places the solid CO2 **above** the
-owned mixed cell instead. It falls as native solid work and then melts at the
-owned destination; the control still fails (O2/1.2 kg replaced by liquid
-CO2/4 kg). The fluid-only guard intentionally preserves native solid branches
-and does not repair this separate falling-solid/capture coupling path. This
-is a retained failing diagnostic, not a claim of complete colony acceptance.
-Active germ transport and all other native gameplay writers also require the
-broader Windows worker's validation.
+`MA_COLONY_TRANSITION_FALLING_CONTROL=1` places solid CO2 above the owned
+mixed cell. Native solid work can transition first and swap later within
+`UpdateData`, beyond one `PostProcessCell` call. The owner observes solid
+sources at transition/postprocess entry and resolves the displaced projections
+after the full native update. It keeps their exact mixtures and admits only
+new melt; heat and germs following a displaced copy return to its real owner.
+Ambiguous matches fault visibly instead of guessing an inventory.
+
+The Linux control retains 1 kg O2 and 4.2 kg total CO2, with exactly 4 kg native
+input and no native output or heat. Native controls also cover same-element
+melt, heat/germs on the moved copy, and ambiguous endpoints. This does not claim
+complete colony acceptance; other native gameplay writers still require the
+broader Windows validation.

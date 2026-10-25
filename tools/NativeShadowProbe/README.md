@@ -147,8 +147,9 @@ unexpected native bookings, with remote native flow/heat controls. The
 owned cell, checks exact native compatibility tuples and verifies conserved
 O2/CO2 inventories after adoption. All require `--observer` and `--game`.
 `MA_COLONY_HOOK_REPLAY_CONTROL=1` checks deterministic owner-free replay.
-`MA_COLONY_TRANSITION_FALLING_CONTROL=1` exposes the separate, unresolved
-falling-solid-then-melting capture limitation and is expected to fail today.
+`MA_COLONY_TRANSITION_FALLING_CONTROL=1` instead lets the solid fall into the
+owned mixture and melt. It checks the displaced native projection and exact
+owned O2/CO2 inventory after capture, with only the four kg melt booked as input.
 See [Windows gas ownership](../../docs/windows-gas-ownership.md) for boundaries,
 results and limitations. Existing domain scenes and acceptance bounds remain
 unchanged.

@@ -88,6 +88,9 @@ struct NativeCells {
 // owner heat or transfers.
 void write_shadow(const NativeCells&) noexcept;
 void capture_shadow(const NativeCells&,std::uint64_t native_ticket=0) noexcept;
+// Observe a native solid before its transition/postprocess work. Capture
+// resolves any displaced projection at the end of the containing update.
+void observe_native_solid(const NativeCells&, int source) noexcept;
 [[nodiscard]] bool owns(int native_cell) noexcept;
 // A native cell next to an owned one (a dug cell before the owner opens it):
 // native gas flow there would move owned gas outside the owner's books.

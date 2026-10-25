@@ -187,7 +187,7 @@ std::map<std::uint64_t,std::vector<std::uint8_t>> moving_outcomes;
 std::uint64_t receipt_sequence = 0, acknowledged = 0, sessions = 0;
 std::atomic<std::uint64_t> start_thread{};
 // Native shadow: per owned cell, what write_shadow put there this frame.
-struct ShadowCell { std::uint16_t element = 0, before = 0; bool written = false; float mass = 0, temperature = 0; std::uint32_t germ = 0; std::int32_t germs = 0; };
+struct ShadowCell { std::uint16_t element = 0, before = 0; bool written = false, solid_landed = false; std::size_t displaced_from = SIZE_MAX; float mass = 0, temperature = 0; std::uint32_t germ = 0; std::int32_t germs = 0; };
 // Germ changes native code made on owned cells (growth and death, disease
 // emitters and consumers, cell edits), applied at the start of the next step.
 struct GermEdit { std::uint32_t public_cell, germ; double change; };
@@ -214,7 +214,13 @@ struct Oracle {
 // A cell native froze: its liquid leaves the owner and the cell closes.
 struct Freeze { std::uint32_t public_cell, native_index; double mass_kg; };
 std::vector<Freeze> pending_freezes; // under inputs
-std::vector<ShadowCell> shadow; // native worker only
+std::vector<ShadowCell> shadow;
+struct SolidDisplacement {
+    struct Cell { int native_cell = -1; std::uint16_t element = 0; float mass = 0; };
+    int source = -1; float solid_mass = 0; std::array<Cell, 8> neighbours{};
+};
+std::vector<SolidDisplacement> solid_displacements; // this native frame only
+ // native worker only
 struct NativeExchange { double heat_j = 0, mass_in_kg = 0, mass_out_kg = 0; std::uint64_t changes = 0; };
 NativeExchange exchanged; // under inputs
 
@@ -1713,7 +1719,7 @@ void write_shadow(const NativeCells& n) noexcept {
     std::shared_ptr<const Published> p; { std::lock_guard lock(publication); p = latest; }
     if (!p || !p->catalogue || p->views.size() != owned_count || p->status.state != 1 || n.pitch != geometry.grid_width + 2) return;
     const auto& cat = *p->catalogue; const auto vacuum = geometry.vacuum_index;
-    try { shadow.assign(owned_count, ShadowCell{}); } catch (...) { return; }
+    try { shadow.assign(owned_count, ShadowCell{}); solid_displacements.clear(); } catch (...) { return; }
     std::vector<MAOniColonyTerrain> closes;
     for (std::size_t i = 0; i < owned_count; ++i) {
         const std::size_t c = (geometry.offset_x + i % geometry.width + 1) + (geometry.offset_y + i / geometry.width + 1) * static_cast<std::size_t>(n.pitch);
@@ -1751,7 +1757,54 @@ void write_shadow(const NativeCells& n) noexcept {
     }
 }
 
+void observe_native_solid(const NativeCells& n, int source) noexcept {
+    SolidDisplacement out;
+    if (!enabled.load(std::memory_order_acquire) || n.pitch != geometry.grid_width + 2 || source < 0 ||
+        static_cast<std::size_t>(source) >= static_cast<std::size_t>(n.pitch) * n.rows) return;
+    if (n.element[1][source] == geometry.vacuum_index || is_fluid_element(n.element[1][source])) return;
+    out.source = source; out.solid_mass = n.mass[1][source];
+    std::size_t q = 0;
+    for (int dy = -1; dy <= 1; ++dy) for (int dx = -1; dx <= 1; ++dx) {
+        if (!dx && !dy) continue;
+        const int c = source + dy * static_cast<int>(n.pitch) + dx;
+        if (owns(c)) out.neighbours[q] = {c, n.element[1][c], n.mass[1][c]};
+        ++q;
+    }
+    try { solid_displacements.push_back(out); } catch (...) {}
+}
 namespace {
+bool resolve_solid_displacement(const NativeCells& n, const SolidDisplacement& before) noexcept {
+    const auto index = [&](int c) -> std::size_t {
+        const auto x = static_cast<std::uint32_t>(c) % n.pitch - 1;
+        const auto y = static_cast<std::uint32_t>(c) / n.pitch - 1;
+        return x >= geometry.offset_x && x - geometry.offset_x < geometry.width &&
+            y >= geometry.offset_y && y - geometry.offset_y < geometry.height ?
+            x - geometry.offset_x + static_cast<std::size_t>(y - geometry.offset_y) * geometry.width : SIZE_MAX;
+    };
+    const auto source = index(before.source);
+    if (source == SIZE_MAX) return true; // outside this owned domain
+    std::size_t matched = SIZE_MAX;
+    for (const auto& old : before.neighbours) {
+        const int c = old.native_cell;
+        if (c < 0 || n.element[1][before.source] != old.element || n.mass[1][before.source] != old.mass ||
+            n.mass[1][c] != before.solid_mass ||
+            (n.element[1][c] == old.element && n.mass[1][c] == old.mass)) continue;
+        const auto destination = index(c);
+        if (destination == SIZE_MAX || !shadow[destination].written) continue;
+        if (matched != SIZE_MAX && matched != destination) return false;
+        matched = destination;
+    }
+    if (matched == SIZE_MAX) return true;
+    const auto previous = shadow[source].displaced_from;
+    if ((previous != SIZE_MAX && previous != matched) || (shadow[matched].solid_landed && previous != matched)) return false;
+    // Native moved the owner's scalar copy into the solid's old cell.
+    // Keep the real mixture in MacClosedWorld; its terrain/flow operators
+    // move it. Capture admits only the actual solid melt, not the copy.
+    shadow[source].displaced_from = matched;
+    shadow[matched].solid_landed = true;
+    return true;
+}
+
 // The germ oracle control (MA_COLONY_GERM_ORACLE=1, legacy mode): native code
 // has just evolved a sealed single cell's projected culture on the shadow;
 // predict that step from the same inputs (count, element, mass, temperature,
@@ -1789,6 +1842,13 @@ void capture_shadow(const NativeCells& n,std::uint64_t native_ticket) noexcept {
     std::shared_ptr<const Published> p; { std::lock_guard lock(publication); p = latest; }
     if (!p || !p->catalogue) return;
     try {
+        // Native solid work can melt first and swap later in the containing
+        // update. Resolve its observed endpoints only after all of UpdateData.
+        for (const auto& displacement : solid_displacements) if (!resolve_solid_displacement(n, displacement)) {
+            std::lock_guard lock(lifecycle);
+            if (session) fault(*session, "Native solid displacement has ambiguous owned endpoints");
+            return;
+        }
         const auto& cat = *p->catalogue; const auto vacuum = geometry.vacuum_index;
         const auto heat_capacity = [&](std::uint16_t e) { return cat.materials[cat.species_of_native(e)].game.specific_heat_j_per_kg_k; };
         std::vector<MAOniColonyHeat> heat; std::vector<MAOniColonyTransfer> moves; std::vector<MAOniColonyTerrain> opened;
@@ -1800,6 +1860,26 @@ void capture_shadow(const NativeCells& n,std::uint64_t native_ticket) noexcept {
             const std::size_t c = (geometry.offset_x + i % geometry.width + 1) + (geometry.offset_y + i / geometry.width + 1) * static_cast<std::size_t>(n.pitch);
             const auto e = n.element[1][c]; const float m = n.mass[1][c], t = n.temperature[1][c];
             const auto cell = static_cast<std::uint32_t>((geometry.offset_x + i % geometry.width) + (geometry.offset_y + i / geometry.width) * geometry.grid_width);
+            if (sh.displaced_from != SIZE_MAX) {
+                // Native heat/biology followed the moved scalar copy. Book
+                // those changes at its real owner, whose mixture is retained.
+                const auto& original = shadow[sh.displaced_from];
+                const auto origin = static_cast<std::uint32_t>((geometry.offset_x + sh.displaced_from % geometry.width) +
+                    (geometry.offset_y + sh.displaced_from / geometry.width) * geometry.grid_width);
+                if (e == original.element && m == original.mass && e != vacuum && m > 0) {
+                    const double joules = static_cast<double>(m) * heat_capacity(e) * (static_cast<double>(t) - original.temperature);
+                    if (joules != 0) { heat.push_back({origin, 0, joules, 0}); sum.heat_j += joules; }
+                    if (n.disease[1] && n.disease_count[1]) {
+                        const auto idx = n.disease[1][c]; const auto count = n.disease_count[1][c];
+                        const std::uint32_t germ = idx == 255 || count <= 0 ? 0 : idx + 1u;
+                        if (germ == original.germ && germ != 0) germs.push_back({origin, germ, static_cast<double>(count) - original.germs});
+                        else if (germ != original.germ) {
+                            if (original.germ != 0) germs.push_back({origin, original.germ, -static_cast<double>(original.germs)});
+                            if (germ != 0) germs.push_back({origin, germ, static_cast<double>(count)});
+                        }
+                    }
+                }
+            }
             if (!sh.written) {
                 if (!fluid(e)) continue;
                 const auto state = owned[i].load(std::memory_order_relaxed);
@@ -1819,7 +1899,19 @@ void capture_shadow(const NativeCells& n,std::uint64_t native_ticket) noexcept {
                 // the owner opens the cell and takes its fluid, once.
                 std::uint8_t closed = 0; owned[i].compare_exchange_strong(closed, 3, std::memory_order_relaxed);
                 opened.push_back({cell, MA_ONI_COLONY_OPEN});
-                if (e != vacuum && m > 0 && t > 0) { moves.push_back({cell, e, MA_ONI_COLONY_INJECT, 0, -1, 0, m, t, 0}); sum.mass_in_kg += m; }
+                if (sh.displaced_from == SIZE_MAX && e != vacuum && m > 0 && t > 0) { moves.push_back({cell, e, MA_ONI_COLONY_INJECT, 0, -1, 0, m, t, 0}); sum.mass_in_kg += m; }
+                ++sum.changes; continue;
+            }
+            if (sh.solid_landed) {
+                // A solid moved into this cell during native postprocessing.
+                // If it melted immediately, its fluid is additional material,
+                // not a replacement of the owner's hidden constituents.
+                if (!fluid(e)) {
+                    owned[i].store(2, std::memory_order_relaxed);
+                    opened.push_back({cell, MA_ONI_COLONY_CLOSE});
+                } else if (e != vacuum && std::isfinite(m) && m > 0 && std::isfinite(t) && t > 0) {
+                    moves.push_back({cell, e, MA_ONI_COLONY_INJECT, 0, -1, 0, m, t, 0}); sum.mass_in_kg += m;
+                }
                 ++sum.changes; continue;
             }
             if (n.disease[1] && n.disease_count[1] && fluid(e)) {

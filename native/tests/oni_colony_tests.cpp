@@ -42,6 +42,72 @@ MAOniColonyMaterial material(const char* id, std::int32_t hash, std::uint32_t in
 constexpr std::uint32_t oxygen = 3, carbon = 4, water = 5, steam = 6, brine = 7, vacuum = 9, W = 16, H = 12, GW = 20, GH = 15, X0 = 2, Y0 = 1;
 std::uint32_t public_cell(std::uint32_t x, std::uint32_t y) { return (X0 + x) + (Y0 + y) * GW; }
 int native_cell(std::uint32_t x, std::uint32_t y) { return static_cast<int>((X0 + x + 1) + (Y0 + y + 1) * (GW + 2)); }
+void falling_solid_control() {
+    using namespace ma::oni::colony;
+    // Real mixed gas, with a binary32 projection that cannot retain its
+    // minority constituent. Model one observed native solid swap, then melt.
+    for (const auto melt : {oxygen, carbon}) for (const bool heat_copy : {false, true}) for (const bool ambiguous : {false, true}) {
+        MAOniColonyConfig cfg{}; cfg.struct_size=sizeof(cfg); cfg.abi_version=1;
+        cfg.flags=12; cfg.vacuum_index=vacuum; cfg.grid_width=cfg.width=3;
+        cfg.grid_height=cfg.height=3; cfg.maximum_timestep_s=.1;
+        std::vector<MAOniColonyMaterial> mats{material("Oxygen",11,oxygen,true,.032,1005),
+            material("CarbonDioxide",12,carbon,true,.044,850)};
+        std::vector<MAOniColonyCell> cells(9); cells[4]={oxygen,MA_ONI_COLONY_FLUID,1,300,1,2000};
+        if (ambiguous) cells[5]={oxygen,MA_ONI_COLONY_FLUID,1.2f,300,0,0};
+        start(cfg,mats,cells,1);
+        const MAOniColonyTransfer add{4,carbon,MA_ONI_COLONY_INJECT,0,-1,0,.2,300,0};
+        queue_transfers(std::span(&add,1)); advance(1,.2,2); wait();
+        std::array<std::vector<std::uint16_t>,2> element;
+        std::array<std::vector<float>,2> mass,temperature;
+        std::array<std::vector<std::uint8_t>,2> disease;
+        std::array<std::vector<std::int32_t>,2> population;
+        NativeCells native{}; native.pitch=native.rows=5;
+        for(int b=0;b<2;++b) {
+            element[b].assign(25,1); mass[b].assign(25,1000); temperature[b].assign(25,300);
+            element[b][12]=vacuum; if (ambiguous) element[b][13]=vacuum; mass[b][17]=4;
+            disease[b].assign(25,255); population[b].assign(25,0);
+            native.element[b]=element[b].data(); native.mass[b]=mass[b].data(); native.temperature[b]=temperature[b].data();
+            native.disease[b]=disease[b].data(); native.disease_count[b]=population[b].data();
+        }
+        write_shadow(native);
+        if (ambiguous) {element[1][13]=element[1][12]; mass[1][13]=mass[1][12]; temperature[1][13]=temperature[1][12];}
+        observe_native_solid(native,17);
+        std::swap(element[1][12],element[1][17]); std::swap(mass[1][12],mass[1][17]);
+        std::swap(temperature[1][12],temperature[1][17]);
+        std::swap(disease[1][12],disease[1][17]); std::swap(population[1][12],population[1][17]);
+        element[1][12]=static_cast<std::uint16_t>(melt);
+        if (ambiguous) {element[1][13]=static_cast<std::uint16_t>(melt); mass[1][13]=4;}
+
+        const double expected_heat = heat_copy ? static_cast<double>(mass[1][17])*1005*2 : 0;
+        if (heat_copy) { temperature[1][17] += 2; population[1][17] += 7; } // native heat/biology followed the copy
+        capture_shadow(native);
+        if (ambiguous) {
+            require(status().state==2 && std::strstr(status().error,"ambiguous")!=nullptr,"ambiguous solid displacement must fault before scalar adoption");
+            stop(); continue;
+        }
+        advance(2,.2,2); wait();
+        std::array<double,2> held{};
+        for(unsigned c=0;c<9;++c) {
+            std::uint32_t indices[4]{}; double masses[4]{};
+            const auto count=composition(c,indices,masses,4);
+            for(unsigned k=0;k<count;++k) held[indices[k]==oxygen?0:1]+=masses[k];
+        }
+        const std::array<std::uint32_t,9> all{0,1,2,3,4,5,6,7,8};
+        MAOniColonyPassiveStamp stamp{}; std::vector<MAOniColonyPassiveRow> passives;
+        require(read_passives(0,0,all,stamp,passives),"falling solid passive snapshot unavailable");
+        double germs=0; for(const auto& row:passives) {require(row.identity==1,"falling solid changed passive identity"); germs+=row.quantity;}
+        require(std::abs(germs-(heat_copy?2007.:2000.))<1e-9,"falling solid lost native or owned germs");
+        const auto result=status();
+        require(result.state==1 && std::abs(held[0]-(melt==oxygen?5.:1.))<1e-12 &&
+            std::abs(held[1]-(melt==carbon?4.2:.2))<1e-12,"falling solid melt must preserve every owned constituent");
+        require(result.native_mass_in_kg==4 && result.native_mass_out_kg==0 && result.native_heat_j==expected_heat,
+            "falling solid books only real melt, never a displaced projection");
+        require(result.maximum_relative_mass_error<1e-12 && result.maximum_relative_energy_error<1e-12,
+            "falling solid mass and energy ledgers close");
+        stop();
+    }
+    std::cout<<"PASS falling solid melt: constituents, heat, germs, ledgers, ambiguous endpoints refused\n";
+}
 void release_capture_control() {
     const auto path=(std::filesystem::temp_directory_path()/("ma-release-control-"+
         std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()))).string();
@@ -1317,6 +1383,7 @@ int main(int argc, char** argv) {
         if (argc == 2 && std::strcmp(argv[1], "--release-capture-only") == 0) { release_capture_control();exact_release_control(); return 0; }
         if (argc == 2 && std::strcmp(argv[1], "--pipe-jobs-only") == 0) { moving_job_control(); pipe_job_control(); return 0; }
         if (argc == 2 && std::strcmp(argv[1], "--parcel-wire-only") == 0) { parcel_wire_control(); parcel_outcome_control(); return 0; }
+        if (argc == 2 && std::strcmp(argv[1], "--falling-solid-only") == 0) { falling_solid_control(); return 0; }
         if (argc == 2 && std::strcmp(argv[1], "--sample-only") == 0) { sample_control(); return 0; }
         if (argc == 2 && std::strcmp(argv[1], "--view-cache-only") == 0) { view_cache_control(); return 0; }
         if (argc == 2 && std::strcmp(argv[1], "--actor-batch-only") == 0) { actor_batch_control(); return 0; }
@@ -1325,6 +1392,7 @@ int main(int argc, char** argv) {
         precise_receipt_control();
         transfer_capture_control();
         floor_capture_control();
+        falling_solid_control();
         release_capture_control();exact_release_control();
         parcel_wire_control();
         parcel_outcome_control();

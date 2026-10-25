@@ -37,17 +37,23 @@ internal static unsafe partial class Program
             sim.Send(-775326397, Frame(.2f)); sim.PrepareAfterFrame(contract); ColonyHooks.Check(ColonyHooks.Wait());
             var before = new ColonyHooks.View[9]; ColonyHooks.Check(ColonyHooks.Copy(ref status, before, 9));
             var ownedTemperatureBefore = before[4].Temperature;
-            // Retain the separately identified native falling-solid limitation as
-            // an explicit diagnostic; ordinary coverage uses a supported solid.
+            // Exercise native falling-solid displacement as well as a supported melt.
             var falling = Environment.GetEnvironmentVariable("MA_COLONY_TRANSITION_FALLING_CONTROL") == "1";
             var solidCell = falling ? DomainX + 1 + (DomainY + 2) * Width : DomainX + (DomainY + 1) * Width;
             Replace(solidCell, contract.SolidCarbonDioxide, 4, 300);
             sim.Send(-775326397, Frame(.2f)); var snapshot = sim.PrepareAfterFrame(contract);
             var owned = snapshot.CellData[DomainCell(4)];
-            Require((owned.Properties & 3) == 0 && owned.Element == before[4].Index && owned.Mass == before[4].Mass && owned.Temperature == before[4].Temperature &&
-                owned.Disease == 255 && owned.DiseaseCount == 0,
+            Require(falling || ((owned.Properties & 3) == 0 && owned.Element == before[4].Index && owned.Mass == before[4].Mass && owned.Temperature == before[4].Temperature &&
+                owned.Disease == 255 && owned.DiseaseCount == 0),
                 $"Native transition/postprocess changed an owned mass/identity: {before[4].Index}/{before[4].Mass:R} -> {owned}.");
-            var produced = snapshot.CellData[solidCell];
+            var produced = snapshot.CellData[falling ? DomainCell(4) : solidCell];
+            if (falling)
+            {
+                var displaced = snapshot.CellData[solidCell];
+                Require(displaced.Element == before[4].Index && displaced.Mass == before[4].Mass &&
+                    displaced.Temperature == before[4].Temperature,
+                    "Native falling solid did not return the displaced owner projection to its source.");
+            }
             Require((produced.Element == contract.CarbonDioxide || produced.Element == contract.LiquidCarbonDioxide) && produced.Mass == 4,
                 "Native solid-to-fluid transition did not produce the expected four kg of CO2.");
             ColonyHooks.Check(ColonyHooks.Wait()); ColonyHooks.Check(ColonyHooks.Copy(ref status, before, 9));
@@ -68,7 +74,7 @@ internal static unsafe partial class Program
                 $"Native transition corrupted owned composition: O2={oxygen:R}, CO2={carbon:R}, state={status.State}, nativeIn={status.NativeMassIn:R}, nativeOut={status.NativeMassOut:R}.");
             report["colonyTransitionOwnership"] = new { oxygen, carbon, expectedOxygen = 1, expectedCarbon = 4.2,
                 status.NativeMassIn, status.NativeMassOut, status.NativeHeat, status.State,
-                exactOwnedProjections = 1, nativeFluidElement = produced.Element, ownedTemperatureBefore, ownedTemperatureAfter = owned.Temperature, permeabilityMask = 0, nativeSolidToFluid = true, ownerAdoptedNativeFluid = true };
+                fallingSolid = falling, exactOwnedProjections = falling ? 0 : 1, exactDisplacedProjections = falling ? 1 : 0, nativeFluidElement = produced.Element, ownedTemperatureBefore, ownedTemperatureAfter = owned.Temperature, permeabilityMask = 0, nativeSolidToFluid = true, ownerAdoptedNativeFluid = true };
         }
         finally { ColonyHooks.Check(ColonyHooks.Stop(ref status)); }
     }
