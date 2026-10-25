@@ -183,6 +183,7 @@ void floor_capture_control() {
     detail::FloorCapture again;again.configure(path.c_str());bool refused=false;
     try{(void)again.observe(source,11,.2);}catch(const std::runtime_error&){refused=true;}
     require(refused,"floor capture clobbered prior evidence");
+    file.close(); // Windows cannot remove the captured path while a reader holds it.
     std::filesystem::remove(path);
     detail::FloorCapture contact;contact.configure(path.c_str());
     require(contact.observe(source,12,.2,1,12,13),"pre-contact floor capture missed the exact fill");

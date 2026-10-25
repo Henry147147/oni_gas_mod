@@ -77,6 +77,18 @@ class ProtonIsolationTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Completed inspection"):
             runner.validate_arguments(SimpleNamespace(inspection_seconds=1, mode="menu"))
 
+    def test_preset_control_requires_an_existing_file_and_a_new_colony(self):
+        args=SimpleNamespace(mode="colony-owner",frames=32,load_save=None,save_colony=True,
+            scenario="base",cluster=None,resave_before_resume=False,reload_in_process=False,
+            verify_save_io_recovery=False,settings_preset=self.root/"preset.json")
+        with self.assertRaisesRegex(ValueError,"--settings-preset"):
+            runner.validate_arguments(args)
+        args.settings_preset.write_text('{}')
+        runner.validate_arguments(args)
+        args.mode="menu";args.scenario=None;args.save_colony=False
+        with self.assertRaisesRegex(ValueError,"--settings-preset"):
+            runner.validate_arguments(args)
+
     def test_unsupported_graphics_selection_rejects_before_lifecycle_arguments_are_used(self):
         for graphics in ('vulkan', '', None, 1):
             with self.subTest(graphics=graphics), self.assertRaisesRegex(ValueError,'Graphics API'):

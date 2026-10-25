@@ -224,6 +224,9 @@ def validate_arguments(args) -> None:
         raise ValueError("--scenario and --cluster require colony-owner")
     if getattr(args,"quit_from_menu",False) and (args.mode not in OWNER_MODES or inspection):
         raise ValueError("--quit-from-menu requires an owner mode without inspection")
+    settings_preset=getattr(args,"settings_preset",None)
+    if settings_preset and (args.mode!="colony-owner" or not settings_preset.is_file()):
+        raise ValueError("--settings-preset requires colony-owner and an existing preset file")
 
 
 def cleanup_run(record, xvfb, prefix_started: bool, proton: Path, output: Path) -> None:
@@ -300,6 +303,19 @@ def playtest(args, state: Path, session: dict) -> int:
             # Defaults and saved settings must stand on their own in this route.
             env = {key: value for key, value in env.items() if not key.startswith("MA_")}
             result["owner_environment_overrides"] = False
+        settings_preset=getattr(args,"settings_preset",None)
+        if settings_preset:
+            preset_hash=common.digest(settings_preset)
+            preset_fixture=output/"input-settings.json"
+            shutil.copy2(settings_preset,preset_fixture)
+            if common.digest(preset_fixture)!=preset_hash or common.digest(settings_preset)!=preset_hash:
+                raise ValueError("Source settings preset changed during staging")
+            env["MA_COLONY_SETTINGS_PRESET"]=windows_path(preset_fixture)
+            result["settings_preset_fixture"]={"source":str(settings_preset.resolve()),"sha256":preset_hash}
+            result["owner_environment_overrides"]=True
+        if getattr(args,"settings_open",None):
+            env["MA_SETTINGS_OPEN"]=args.settings_open
+            result["settings_window_control"]=args.settings_open
         result["compatibility_environment"] = compatibility_settings(env)
         result["display"] = display
         prefix_started = True
@@ -492,6 +508,8 @@ def main() -> int:
         help="Keep a completed colony visible for bounded input/visual inspection before normal cleanup")
     parser.add_argument("--save-colony", action="store_true")
     parser.add_argument("--quit-from-menu",action="store_true",help="After the owner control, return to the main menu and quit normally")
+    parser.add_argument("--settings-preset",type=Path,help="Explicit non-default colony settings control; staged preset JSON file")
+    parser.add_argument("--settings-open",choices=("mods","0","1","2","3"),help="Open the actual settings UI through its existing validation hook")
     parser.add_argument("--load-save", type=Path)
     parser.add_argument("--resave-before-resume", action="store_true")
     parser.add_argument("--reload-in-process", action="store_true")
