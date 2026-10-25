@@ -98,6 +98,33 @@ probe advances native frame906→1064, retains the exact capacity/area and leave
 the body temperature unchanged; its native temperature equals the published
 endpoint. All20 contacts validate,1 kg remains, and the registered body loss
 and actual liquid gain both equal67.993164993822575 J, with exact residual0 J.
+
+## Native storage-projection observation
+
+The exact reservoir prototype's clean sealed-region control currently fails
+whole-system energy closure. Its native item projections receive absolute
+temperature/capacity updates, while the owned inventory credits completed
+published contact work. The managed trace alone cannot prove what thermal work
+an update replaces while a native publication is in flight.
+
+`MA_ONI_CHUNK_HEAT_TRACE` selects a fresh private TSV path inside the existing
+validated `ProcessFrame` hook. Each row retains the message's vector index,
+handle and exact requested binary32 temperature/capacity, plus the actual
+registered chunk temperature, capacity and cell at frame entry and exit.
+Before/after validity flags are1/2. Rows for repeated messages to the same
+handle share those frame endpoints; they are not separate measured native
+contact intervals. Group them by frame/handle and retain their full message
+order when investigating an absolute reset.
+
+The observation also records frame registrations and per-handle move, energy,
+adjuster and removal counts. Registration or other work must be considered
+before attributing an aggregate delta to the temperature messages. The trace
+does not insert a hook immediately before each native assignment and does not
+claim a per-message measured endpoint. Registry bounds, stale/retired handles,
+ordered repeated requests, intervening-energy flags and all rounding/exception
+modes have focused controls. The observer preserves errno and floating-point
+state, adds no detour, changes no physics or checkpoint bytes, and remains
+disabled for ordinary play and performance measurements.
 The original failure is retained. The longer Oceania save repeat and complete
 storage/cold-continuation acceptance remain separate requirements.
 

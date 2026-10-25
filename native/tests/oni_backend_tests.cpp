@@ -6,6 +6,7 @@
 #include "../src/oni_sha256.hpp"
 #include "../src/oni_funchook_storage.hpp"
 #include "../src/oni_body_heat_trace.hpp"
+#include "../src/oni_chunk_heat_trace.hpp"
 #include <array>
 #include <chrono>
 #include <cstring>
@@ -66,9 +67,62 @@ static void body_heat_trace_controls() {
     std::cout<<"PASS native body heat observation: actual registered area/capacity, stale/retired rejection, readonly source and preserved math/errno\n";
 #endif
 }
+static void chunk_heat_trace_controls() {
+#if defined(__linux__)
+    using ma::oni::chunk_heat_trace::chunk;
+    std::array<std::byte,0x500> frame{};std::array<std::byte,0x600> sim{};std::array<std::byte,44> record{};
+    std::array<std::int32_t,1> mapping{0};std::array<std::uint8_t,1> generations{1};
+    const auto put=[](auto& target,std::size_t offset,const auto& value){std::memcpy(target.data()+offset,&value,sizeof(value));};
+    put(sim,0x398,record.data());put(sim,0x3a0,record.data()+record.size());
+    put(sim,0x3e0,mapping.data());put(sim,0x3e8,mapping.data()+mapping.size());
+    put(sim,0x3f8,generations.data());put(sim,0x400,generations.data()+generations.size());
+    put(record,0,std::int32_t{123});put(record,4,std::bit_cast<std::uint32_t>(300.f));put(record,8,std::bit_cast<std::uint32_t>(18.f));
+    const auto held_sim=sim;const auto held_frame=frame;const auto held_record=record;
+    const auto sample=chunk(sim.data(),0x01000000);
+    require(sample.valid && sample.cell==123 && sample.temperature_bits==std::bit_cast<std::uint32_t>(300.f) &&
+        sample.capacity_bits==std::bit_cast<std::uint32_t>(18.f),"native registered chunk temperature/capacity view");
+    require(!chunk(nullptr,0).valid && !chunk(sim.data(),0x02000000).valid && !chunk(sim.data(),0x01000001).valid &&
+        !chunk(sim.data(),0x01100000).valid,"native chunk stale generation or missing mapping accepted");
+    mapping[0]=-1;require(!chunk(sim.data(),0x01000000).valid,"retired native chunk accepted");
+    mapping[0]=1;require(!chunk(sim.data(),0x01000000).valid,"out-of-bounds native chunk accepted");mapping[0]=0;
+    require(sim==held_sim && frame==held_frame && record==held_record && mapping[0]==0 && generations[0]==1,
+        "native chunk observation modified its source");
+    std::array<std::uint32_t,6> messages{0x01000000,std::bit_cast<std::uint32_t>(301.f),std::bit_cast<std::uint32_t>(18.f),
+        0x01000000,std::bit_cast<std::uint32_t>(302.f),std::bit_cast<std::uint32_t>(18.f)};
+    std::array<std::uint32_t,2> energy{0x01000000,0};
+    put(frame,0x248,messages.data());put(frame,0x250,messages.data()+messages.size());
+    put(frame,0x290,energy.data());put(frame,0x298,energy.data()+energy.size());
+    char path[]="/tmp/ma-chunk-heat-trace-test-XXXXXX";const int descriptor=mkstemp(path);
+    require(descriptor>=0,"native chunk trace fixture path");(void)close(descriptor);(void)unlink(path);
+    require(setenv("MA_ONI_CHUNK_HEAT_TRACE",path,1)==0 && ma::oni::chunk_heat_trace::Frame::enabled(),"native chunk trace opt-in");
+    std::fenv_t initial{};require(std::fegetenv(&initial)==0,"native chunk trace initial environment");const int initial_errno=errno;
+    for(const auto rounding:{FE_TONEAREST,FE_DOWNWARD,FE_UPWARD,FE_TOWARDZERO}) {
+        require(std::fesetround(rounding)==0,"native chunk trace rounding control");
+        (void)std::feclearexcept(FE_ALL_EXCEPT);(void)std::feraiseexcept(FE_DIVBYZERO);errno=111;
+        record=held_record;
+        {
+            ma::oni::chunk_heat_trace::Frame observation(9,frame.data(),sim.data());
+            require(errno==111 && std::fegetround()==rounding && std::fetestexcept(FE_ALL_EXCEPT)==FE_DIVBYZERO,
+                "native chunk trace capture changed caller math or errno");
+            put(record,4,std::bit_cast<std::uint32_t>(302.f));errno=222;(void)std::feraiseexcept(FE_INVALID);
+        }
+        require(errno==222 && std::fegetround()==rounding && std::fetestexcept(FE_ALL_EXCEPT)==(FE_DIVBYZERO|FE_INVALID),
+            "native chunk trace emission changed return math or errno");
+    }
+    (void)std::fesetenv(&initial);errno=initial_errno;
+    auto* output=std::fopen(path,"r");require(output!=nullptr,"native chunk trace output absent");
+    std::array<char,4096> text{};const auto bytes=std::fread(text.data(),1,text.size()-1,output);(void)std::fclose(output);(void)unlink(path);
+    require(bytes>0 && std::strstr(text.data(),"requested_capacity_kj_k_bits") &&
+        std::strstr(text.data(),"9\t0\t16777216\t43968000\t41900000\t43960000\t41900000\t43970000\t41900000\t123\t123\t3\t0\t0\t1\t0\t0") &&
+        std::strstr(text.data(),"9\t1\t16777216\t43970000"),
+        "native chunk trace lost ordered requests, paired registered values or intervening-energy warning");
+    std::cout<<"PASS native chunk observation: actual T/C, ordered absolute updates, intervening-work flags, stale/retired rejection and preserved math/errno\n";
+#endif
+}
 int main() {
     try {
         body_heat_trace_controls();
+        chunk_heat_trace_controls();
         require(ma_oni_colony_precise_receipt_version()==2,"precise receipt observation capability");
         static_assert(sizeof(MAOniColonyParcelContext)==72);
         MAOniColonyParcelContext parcel_context{};parcel_context.struct_size=sizeof(parcel_context);parcel_context.abi_version=1;
