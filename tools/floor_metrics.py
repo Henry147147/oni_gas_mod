@@ -142,15 +142,29 @@ def f2(arena: Arena):
     if energies is not None:
         active = [(row, audit, energy) for row, audit, energy in
                   zip(arena.rows, arena.record["owner_sample_audits"], energies) if row[0] >= t["release"]]
-        for _, audit, _ in active:
-            if audit["reservoir_kg"] != 0 or audit["space_sink_kg"] != 0:
-                raise ValueError("F2 energy truth requires its sealed, reservoir-free arena")
-            for key in ("injected_kg", "extracted_kg"):
+        release_energy = active[0][2]
+        closure = []
+        for _, audit, energy in active:
+            for key in ("reservoir_kg", "space_sink_kg", "injected_kg", "extracted_kg"):
                 if audit[key] != active[0][1][key]:
                     raise ValueError("F2 post-release mass exchange needs a separate energy account")
+            if abs(energy["fluid_mass_kg"] - release_energy["fluid_mass_kg"]) > 32 * math.fsum(
+                    math.ulp(e["fluid_mass_kg"]) for e in (energy, release_energy)):
+                raise ValueError("F2 final pressure truth requires a constant sealed fluid mass")
+            terms = (energy["internal_energy_j"], energy["kinetic_energy_j"], energy["potential_energy_j"],
+                     -release_energy["internal_energy_j"], -release_energy["kinetic_energy_j"],
+                     -release_energy["potential_energy_j"], -energy["accepted_external_heat_j"],
+                     release_energy["accepted_external_heat_j"], energy["trace_sink_energy_j"],
+                     -release_energy["trace_sink_energy_j"])
+            residual = abs(math.fsum(terms))
+            # A constant isolated reservoir is outside the fluid energy budget.
+            # Require closure up to the binary64 observations' roundoff, rather
+            # than silently importing an unmeasured reservoir energy exchange.
+            if residual > 32 * math.fsum(math.ulp(value) for value in terms):
+                raise ValueError("F2 fluid energy does not close with accepted heat and trace accounts")
+            closure.append(residual)
         if any(e["id"] != "Oxygen" and m > 0 for _, cells in series for e, m, _ in constituents(cells, open_cells)):
             raise ValueError("F2 energy truth requires the prescribed oxygen-only fields")
-        release_energy = active[0][2]
         tail = [energy for _, _, energy in active[-FINAL:]]
         average = lambda key: math.fsum(e[key] for e in tail) / len(tail)
         # One FINAL target, using all booked heat through the final window.
@@ -176,7 +190,9 @@ def f2(arena: Arena):
         out["pressure_truth"] = {"source": "final energy ledger with equilibrium gravity bounds",
                                  "temperature_range_k": temperatures,
                                  "accepted_heat_after_release_j": average("accepted_external_heat_j") - release_energy["accepted_external_heat_j"],
-                                 "release_kinetic_energy_j": release_energy["kinetic_energy_j"]}
+                                 "release_kinetic_energy_j": release_energy["kinetic_energy_j"],
+                                 "isolated_reservoir_kg": active[0][1]["reservoir_kg"],
+                                 "maximum_fluid_energy_residual_j": max(closure)}
         out["equalised"] = pressure_event_range(series, left, right, targets)
     else:
         out["pressure_truth"] = {"source": "release-sample estimate; same-frame U/K/G unavailable", "unresolved": True}
@@ -332,7 +348,7 @@ def initial(arena: Arena) -> dict:
     return result
 
 
-def sampling(arena: Arena) -> dict | None:
+def sampling(arena: Arena, legacy_fluid_only_booking=False) -> dict | None:
     """Audit the sampler without changing any frozen scenario metric."""
     audits = arena.record.get("owner_sample_audits")
     if audits is None or arena.record.get("simulation") != "colony owner":
@@ -340,6 +356,13 @@ def sampling(arena: Arena) -> dict | None:
     if len(audits) != len(arena.rows) or not audits:
         raise ValueError("Owner sample audits do not match the exported rows")
     sample_energies(arena)
+    scope = arena.record.get("booked_inventory_scope", "fluid+reservoir")
+    if legacy_fluid_only_booking:
+        if "booked_inventory_scope" in arena.record:
+            raise ValueError("Legacy booking override requires a record without an explicit inventory scope")
+        scope = "fluid"
+    if scope not in ("fluid", "fluid+reservoir"):
+        raise ValueError("Unknown booked inventory scope")
     frames, inventories, refused, residuals = [], [], [], []
     for row, audit in zip(arena.rows, audits):
         if row[0] != audit["tick"]:
@@ -350,7 +373,8 @@ def sampling(arena: Arena) -> dict | None:
         inventories.append(math.fsum((total, -audit["injected_kg"], audit["extracted_kg"],
                                       audit["reservoir_kg"], audit["trace_sink_kg"], audit["space_sink_kg"])))
         if "expected_fluid_and_reservoir_kg" in audit:
-            residuals.append(math.fsum((total, audit["reservoir_kg"], -audit["expected_fluid_and_reservoir_kg"])))
+            held = audit["reservoir_kg"] if scope == "fluid+reservoir" else 0
+            residuals.append(math.fsum((total, held, -audit["expected_fluid_and_reservoir_kg"])))
         refused.append(audit["projection_refused_cells"])
     deltas = [b - a for a, b in zip(frames, frames[1:])]
     if any(d < 0 for d in deltas):
@@ -371,6 +395,9 @@ def sampling(arena: Arena) -> dict | None:
         if len(residuals) != len(audits):
             raise ValueError("Some samples lack their full booked inventory")
         result["maximum_booked_inventory_residual_kg"] = max(map(abs, residuals))
+        result["booked_inventory_scope"] = scope
+        if legacy_fluid_only_booking:
+            result["legacy_booking_override"] = "explicit: original export mislabeled fluid-only ledger as fluid+reservoir"
     if any("accepted_external_heat_j" in a for a in audits):
         if not all("accepted_external_heat_j" in a for a in audits):
             raise ValueError("Some samples lack accepted external heat")
@@ -402,11 +429,11 @@ def sample_energies(arena: Arena):
     return result
 
 
-def metrics(path: Path) -> dict:
+def metrics(path: Path, legacy_fluid_only_booking=False) -> dict:
     arena = load(path)
     result = {"arena": arena.record["arena"], "simulation": arena.record["simulation"], "initial": initial(arena),
               "owner": arena.record.get("owner", "none"), **METRICS[arena.record["arena"]](arena)}
-    audit = sampling(arena)
+    audit = sampling(arena, legacy_fluid_only_booking)
     if audit is not None:
         result["sampling"] = audit
     return result
@@ -415,7 +442,10 @@ def metrics(path: Path) -> dict:
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("record", type=Path, help="floor-<id>.json (its samples beside it as floor-<id>.txt)")
-    print(json.dumps(metrics(parser.parse_args().record), indent=2))
+    parser.add_argument("--legacy-fluid-only-booking", action="store_true",
+                        help="explicitly interpret old mislabeled booked inventories as fluid-only; leaves the source record unchanged")
+    args = parser.parse_args()
+    print(json.dumps(metrics(args.record, args.legacy_fluid_only_booking), indent=2))
 
 
 if __name__ == "__main__":

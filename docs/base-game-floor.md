@@ -295,8 +295,8 @@ heat accepted after release and kinetic energy released into heat. It bounds
 equilibrium G by the fixed arena heights and reports event brackets valid for
 every final pressure in that range; ambiguity stays unresolved. The target is
 constant through the event search. Older records lack this energy observation
-and retain their explicit unresolved release-sample estimate. A new live F2
-measurement is still needed.
+and retain their explicit unresolved release-sample estimate. The profile5
+measurement below supplies the first live capture with this energy account.
 
 The retained F1 release-stamp control also records **605 consecutive frames**,
 zero repeats/skips/refusals and residual **7.105e-15 kg**. Initial mass/heat,
@@ -346,6 +346,44 @@ range crosses the point where owner and vanilla have equal error; choosing
 only its16× endpoint would manufacture a pass. They remain exploratory
 reference evidence. Source, numerical methods and independent controls still
 need a reproducible review before reference acceptance.
+
+### Profile 5 F2 energy measurement, 2026-10-25
+
+The immutable `codex-resume-floor-energy-f631-v1` package ran the frozen F2
+arena to120 s after release. Its creation dump selects core23, liquid law1,
+caps400/800 and gas heat mixing8; all18 package file hashes stayed unchanged.
+The669 retained observations have no repeats, skips or refused projections.
+Closed leakage is zero and command-to-open delay is3.0 s. Maximum owner
+mass/energy errors are9.006e-17/4.034e-16, with zero trace sink, fault or skipped
+relaxation. The player exited0 and the game-slot wrapper verified cleanup.
+
+The fixed FINAL pressure truth is **[124848.6998,124877.7670] Pa**, including
+**146243.590 J** release kinetic energy and **39104.430 J** heat accepted
+after release through the final averaging window. The geometry bound on
+equilibrium gravitational energy gives final temperature
+**[293.4814613,293.5497896] K**. Both room pressures satisfy the fixed5% test
+at **[0.2,0.4] s** for every pressure in that range. Their final means are
+124860.0828/124866.2520 Pa. A physically justified timing range or resolved
+independent door oracle and the corresponding vanilla truth calculation are
+still needed; this measured event does not establish the F2 timing floor.
+
+This capture exposed a read-only inventory export bug: the field labeled
+`expected_fluid_and_reservoir_kg` actually returned the fluid-only ledger.
+The original record remains unchanged. Analysis explicitly uses
+`--legacy-fluid-only-booking`, reports that interpretation, and obtains a
+maximum inventory residual4.263e-14 kg. The native reader now adds the
+reservoir from the same immutable publication; new records explicitly name
+their `fluid+reservoir` scope. A held-reservoir regression also checks that
+the observation leaves checkpoint bytes unchanged. Solver arithmetic and
+checkpoint formats are unchanged.
+
+The **0.6498948433 kg** held reservoir stays isolated throughout the
+post-release interval: fluid mass106.4182758331 kg, reservoir, sink and mass
+input/output counters are constant. Every frame's whole-fluid U+K+G closes
+against accepted heat/trace accounts within **2.201e-8 J**, at the binary64
+observations' roundoff. This explicit closure permits the fixed held reservoir
+outside the fluid energy budget; constant reservoir mass alone would not
+establish an energy account.
 
 `tools/floor_timing.py` compares event sample brackets over an explicitly
 documented truth range, preserving both sampling and truth uncertainty. It

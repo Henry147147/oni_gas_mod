@@ -49,6 +49,19 @@ class FloorMetricsTests(unittest.TestCase):
             self.assertEqual((result["owner_frame_repeats"], result["owner_frame_skips"]), (1, 1))
             self.assertEqual((result["projection_refused_samples"], result["projection_refused_cell_samples"], result["projection_refused_unique_cells"]), (2, 3, 2))
             self.assertEqual(result["maximum_booked_inventory_residual_kg"], 0)
+            for audit in arena.record["owner_sample_audits"]:
+                audit["reservoir_kg"] = .25
+            self.assertEqual(floor_metrics.sampling(arena)["maximum_booked_inventory_residual_kg"], .25)
+            legacy = floor_metrics.sampling(arena, legacy_fluid_only_booking=True)
+            self.assertEqual(legacy["maximum_booked_inventory_residual_kg"], 0)
+            self.assertEqual(legacy["booked_inventory_scope"], "fluid")
+            self.assertIn("explicit", legacy["legacy_booking_override"])
+            arena.record["booked_inventory_scope"] = "fluid+reservoir"
+            with self.assertRaisesRegex(ValueError, "explicit inventory scope"):
+                floor_metrics.sampling(arena, legacy_fluid_only_booking=True)
+            for audit in arena.record["owner_sample_audits"]:
+                audit["expected_fluid_and_reservoir_kg"] += .25
+            self.assertEqual(floor_metrics.sampling(arena)["maximum_booked_inventory_residual_kg"], 0)
             arena.record["owner_sample_audits"][1]["tick"] = 99
             with self.assertRaisesRegex(ValueError, "tick"):
                 floor_metrics.sampling(arena)
@@ -155,6 +168,30 @@ class FloorMetricsTests(unittest.TestCase):
             self.assertAlmostEqual(sum(truth) / 2, expected)
             self.assertEqual(out["pressure_truth"]["release_kinetic_energy_j"], 10 * capacity)
             self.assertAlmostEqual(out["pressure_truth"]["accepted_heat_after_release_j"], 30 * capacity)
+            # A fixed held reservoir is outside the sealed fluid energy sum.
+            for audit in record["owner_sample_audits"]:
+                audit["reservoir_kg"] = .75
+                audit["expected_fluid_and_reservoir_kg"] += .75
+            path.write_text(json.dumps(record))
+            held = floor_metrics.metrics(path)
+            self.assertEqual(held["analytic_final_pressure_range_pa"], truth)
+            self.assertEqual(held["pressure_truth"]["isolated_reservoir_kg"], .75)
+            self.assertEqual(held["pressure_truth"]["maximum_fluid_energy_residual_j"], 0)
+            record["owner_sample_audits"][3]["energy"]["internal_energy_j"] += 1
+            path.write_text(json.dumps(record))
+            with self.assertRaisesRegex(ValueError, "fluid energy does not close"):
+                floor_metrics.metrics(path)
+            record["owner_sample_audits"][3]["energy"]["internal_energy_j"] -= 1
+            record["owner_sample_audits"][3]["reservoir_kg"] += .01
+            path.write_text(json.dumps(record))
+            with self.assertRaisesRegex(ValueError, "mass exchange"):
+                floor_metrics.metrics(path)
+            record["owner_sample_audits"][3]["reservoir_kg"] -= .01
+            record["owner_sample_audits"][3]["energy"]["fluid_mass_kg"] += .01
+            path.write_text(json.dumps(record))
+            with self.assertRaisesRegex(ValueError, "constant sealed fluid mass"):
+                floor_metrics.metrics(path)
+            record["owner_sample_audits"][3]["energy"]["fluid_mass_kg"] -= .01
             record["owner_sample_audits"][3]["energy"]["frame"] += 1
             path.write_text(json.dumps(record))
             with self.assertRaisesRegex(ValueError, "session/frame/time"):

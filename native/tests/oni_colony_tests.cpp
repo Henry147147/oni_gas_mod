@@ -942,6 +942,18 @@ void flooded_pocket_control() {
     const auto st = ma::oni::colony::status();
     std::cout << "flooded pocket: reservoir " << st.reservoir_kg << " kg\n";
     require(st.state == 1 && st.reservoir_kg > 499, "a flooded pocket starts, its overflow and gas in the reservoir");
+    const auto before=ma::oni::colony::checkpoint();
+    ma::oni::colony::sample_history(1);
+    const std::array<std::uint32_t,2> requested{4,7};
+    MAOniColonyStatus source{};std::vector<MAOniColonySampleCell> rows;
+    std::vector<MAOniColonySamplePart> parts;double booked=-1;
+    ma::oni::colony::sample_frame(0,requested,source,rows,parts,&booked,nullptr);
+    double fluid=0;for(const auto& part : parts)fluid+=part.mass_kg;
+    require(source.completed_frames==0 && source.reservoir_kg==st.reservoir_kg &&
+        std::abs(fluid+source.reservoir_kg-booked)<1e-9 &&
+        std::abs(booked-(2500+static_cast<double>(1e-6f)))<1e-9,
+        "arena booked inventory omitted its same-frame held reservoir");
+    require(ma::oni::colony::checkpoint()==before,"reservoir inventory observation changed checkpoint");
     ma::oni::colony::stop();
 }
 // The game-floor profile's trace sink: a sealed cell holding only a trace

@@ -508,6 +508,7 @@ namespace MixedAtmospheres.Oni
                 ["owner_sample_history"] = historyStarted, ["owner_tick_offset"] = ownerTickOffset,
                 ["owner_sample_frames"] = ownerSampleFrames,
                 ["owner_sample_audits"] = ownerSampleAudits,
+                ["booked_inventory_scope"] = "fluid+reservoir",
                 ["simulation"] = ColonyOwner.Active ? "colony owner" : "ONI native",
                 ["cells"] = "interior, rows y=1..height-2, x=1..width-2; per cell: constituent count, (element index, kg) each, temperature K",
                 ["elements"] = seen.ToDictionary(e => e.Key.ToString(CultureInfo.InvariantCulture), e => (object)e.Value),

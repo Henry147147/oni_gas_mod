@@ -1175,7 +1175,9 @@ void sample_frame(std::uint64_t frame,std::span<const std::uint32_t> cells,MAOni
         sampled.push_back(row);
     }
     source=p->status; rows=std::move(sampled); parts=std::move(compositions);
-    if (booked_mass) *booked_mass=p->booked_mass_kg;
+    // The fluid ledger books transfers to the held reservoir as extraction.
+    // This diagnostic's documented inventory includes that same-frame hold.
+    if (booked_mass) *booked_mass=p->booked_mass_kg+p->status.reservoir_kg;
     if (booked_heat) *booked_heat=p->booked_heat_j;
 }
 void sample(std::span<const std::uint32_t> cells,MAOniColonyStatus& source,
