@@ -106,6 +106,15 @@ namespace MixedAtmospheres.Oni
             foreach (var atom in atoms) result = result.RawPlus(new PipeAmount(atom * factor));
             return result.Canonical();
         }
+        internal PipeAmount WeightedPopulation(double mass,double total)
+        {
+            if(mass<0||double.IsNaN(mass)||double.IsInfinity(mass)||!(total>0)||double.IsInfinity(total))
+                throw new ArgumentOutOfRangeException("Invalid stored-population mixture weights.");
+            if(atoms==null)return Zero;
+            var result=Zero;
+            foreach(var atom in atoms)result=result.RawPlus(new PipeAmount(StoragePopulationWeight.Product(atom,mass,total)));
+            return result.Canonical();
+        }
         internal void Write(BinaryWriter writer)
         {
             writer.Write(atoms?.Length ?? 0);

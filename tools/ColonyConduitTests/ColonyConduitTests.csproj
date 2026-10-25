@@ -11,6 +11,7 @@
     <Compile Include="../../managed/MixedAtmospheres.Oni/ColonyConduitBiologyState.cs" Link="ColonyConduitBiologyState.cs" />
     <Compile Include="../../managed/MixedAtmospheres.Oni/ColonyOwnedStorageState.cs" Link="ColonyOwnedStorageState.cs" />
     <Compile Include="../../managed/MixedAtmospheres.Oni/ColonyStorageGermState.cs" Link="ColonyStorageGermState.cs" />
+    <Compile Include="../../managed/MixedAtmospheres.Oni/ColonyStoragePopulationWeight.cs" Link="ColonyStoragePopulationWeight.cs" />
     <Compile Include="../../managed/MixedAtmospheres.Oni/ColonyConduitScheduleState.cs" Link="ColonyConduitScheduleState.cs" />
     <Compile Include="../../managed/MixedAtmospheres.Oni/ColonyConduitReceipts.cs" Link="ColonyConduitReceipts.cs" />
     <Compile Include="../../managed/MixedAtmospheres.Oni/ColonyConduitSettlement.cs" Link="ColonyConduitSettlement.cs" />
