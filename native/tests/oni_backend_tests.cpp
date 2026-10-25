@@ -10,6 +10,8 @@
 #include <array>
 #include <chrono>
 #include <cstring>
+#include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <stdexcept>
 #include <string>
@@ -19,6 +21,21 @@
 
 static void require(bool condition,const char* message) {
     if (!condition) throw std::runtime_error(message);
+}
+static void capture_file_controls() {
+    const auto directory=std::filesystem::temp_directory_path()/
+        ("ma-capture-file-"+std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    require(std::filesystem::create_directory(directory),"fresh capture fixture directory");
+    for(const auto binary:{false,true}) {
+        const auto path=(directory/(binary?"binary":"text")).string();
+        auto* file=ma::oni::capture_file(path.c_str(),binary);
+        require(file!=nullptr,"first exclusive capture open failed");
+        require(std::fputs("kept",file)>=0 && std::fclose(file)==0,"capture fixture write failed");
+        require(ma::oni::capture_file(path.c_str(),binary)==nullptr,"existing capture was reopened for overwrite");
+        std::ifstream source(path,std::ios::binary);std::string contents;
+        source>>contents;require(contents=="kept","exclusive capture changed existing bytes");
+    }
+    std::filesystem::remove_all(directory);
 }
 static void body_heat_trace_controls() {
 #if defined(__linux__)
@@ -121,6 +138,7 @@ static void chunk_heat_trace_controls() {
 }
 int main() {
     try {
+        capture_file_controls();
         body_heat_trace_controls();
         chunk_heat_trace_controls();
         require(ma_oni_colony_precise_receipt_version()==2,"precise receipt observation capability");

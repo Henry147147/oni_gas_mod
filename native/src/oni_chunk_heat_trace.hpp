@@ -68,7 +68,7 @@ class Frame {
     }
     static std::FILE* file() noexcept {
         static std::FILE* output=[] {
-            auto* opened=std::fopen(path(),"wx");
+            auto* opened=ma::oni::capture_file(path(),false);
             if(opened)std::fputs("native_frame\tmessage_index\tchunk_handle\trequested_k_bits\trequested_capacity_kj_k_bits\tbefore_k_bits\tbefore_capacity_kj_k_bits\tafter_k_bits\tafter_capacity_kj_k_bits\tbefore_cell\tafter_cell\tvalid\tframe_registrations\tmoves\tenergy_messages\tadjuster_messages\tremovals\n",opened);
             return opened;
         }();

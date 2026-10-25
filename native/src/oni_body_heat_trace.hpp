@@ -1,4 +1,5 @@
 #pragma once
+#include "oni_capture_file.hpp"
 
 // Optional observation of the pinned Linux744825 frame-message boundary.
 // Observe the actual native capacity, rather than reconstructing it from a
@@ -90,7 +91,7 @@ class Frame {
     }
     static std::FILE* file() noexcept {
         static std::FILE* output=[] {
-            auto* opened=std::fopen(path(),"wx");
+            auto* opened=ma::oni::capture_file(path(),false);
             if(opened)std::fputs("native_frame\tbody_handle\tdelta_kj_bits\tminimum_k_bits\tmaximum_k_bits\tbefore_k_bits\tafter_k_bits\tcapacity_per_cell_kj_k_bits\tarea\tvalid\n",opened);
             return opened;
         }();

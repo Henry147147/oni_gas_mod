@@ -2,6 +2,7 @@
 // Private diagnostic only: admit an exact requested fill before native heat.
 #include "oni_colony.hpp"
 #include "oni_precise_receipt.hpp"
+#include "oni_capture_file.hpp"
 #include <array>
 #include <bit>
 #include <cmath>
@@ -90,7 +91,7 @@ public:
             for(unsigned b=0;b<2;++b) { wire.u32(source.element[b][native]);
                 wire.u32(std::bit_cast<std::uint32_t>(source.mass[b][native]));wire.u32(std::bit_cast<std::uint32_t>(source.temperature[b][native])); }
         }
-        auto* output=std::fopen(path.c_str(),"wbx");if(!output)throw std::runtime_error("Floor admission capture needs a fresh writable path");
+        auto* output=ma::oni::capture_file(path.c_str());if(!output)throw std::runtime_error("Floor admission capture needs a fresh writable path");
         const auto written=std::fwrite(wire.bytes.data(),1,wire.bytes.size(),output);const auto closed=std::fclose(output);
         if(written!=wire.bytes.size() || closed!=0)throw std::runtime_error("Incomplete floor admission capture");
         finished=true;return true;
