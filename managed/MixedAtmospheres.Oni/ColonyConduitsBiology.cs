@@ -168,10 +168,15 @@ namespace MixedAtmospheres.Oni
         internal static void StartControl()
         {
             if(!ColonyConduits.Active)throw new InvalidOperationException("All-ID biology needs owned pipe inventories.");
-            if(SchedulingSignature()!=ExpectedSchedulingSignature)throw new NotSupportedException("All-ID pipe biology requires the validated synchronous native conduit scheduling boundary.");
+            if(!IsSupportedSchedulingSignature(SchedulingSignature()))throw new NotSupportedException("All-ID pipe biology requires the validated synchronous native conduit scheduling boundary.");
             Enabled=true;
         }
         internal const string ExpectedSchedulingSignature="1CD6F26E9E76A9FB3F5CD1EF5BA0A5AA3D007EEDDF615AE593EC1A321BCD1B49";
+        // ONI 744825 Windows has different metadata tokens. Resolved instructions,
+        // locals, branches and exception regions match the inspected Linux bodies.
+        internal const string ExpectedWindowsSchedulingSignature="75DCE186C3ABD9CA04D77941BC9B33EF1A7CF2A7870326266B9D9E79171E262B";
+        internal static bool IsSupportedSchedulingSignature(string signature)=>
+            signature==ExpectedSchedulingSignature||signature==ExpectedWindowsSchedulingSignature;
         internal static string SchedulingSignature()
         {
             using var bytes=new MemoryStream();using(var writer=new BinaryWriter(bytes,System.Text.Encoding.UTF8,true))

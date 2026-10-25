@@ -31,8 +31,16 @@ internal static class Program
         Console.WriteLine("PASS native germ oracle binding: declared allocator uses original temperature handle and by-ref contents, excluding inherited overloads");
         var biology=assembly.GetType("MixedAtmospheres.Oni.ColonyPipeBiology")!;
         var scheduling=(string)biology.GetMethod("SchedulingSignature",BindingFlags.Static|BindingFlags.NonPublic)!.Invoke(null,null)!;
-        Check(scheduling==(string)biology.GetField("ExpectedSchedulingSignature",BindingFlags.Static|BindingFlags.NonPublic)!.GetRawConstantValue()!,
+        var supportsScheduling=biology.GetMethod("IsSupportedSchedulingSignature",BindingFlags.Static|BindingFlags.NonPublic)!;
+        Check((bool)supportsScheduling.Invoke(null,new object[]{scheduling})!,
             "Pipe worker scheduling changed: the supported game must join prior conduit jobs and run disease updates before the next gas/liquid flows.");
+        foreach(var name in new[]{"ExpectedSchedulingSignature","ExpectedWindowsSchedulingSignature"})
+        {
+            var signature=(string)biology.GetField(name,BindingFlags.Static|BindingFlags.NonPublic)!.GetRawConstantValue()!;
+            Check((bool)supportsScheduling.Invoke(null,new object[]{signature})!,"An inspected worker boundary was refused.");
+            var changed=(signature[0]=='0'?"1":"0")+signature.Substring(1);
+            Check(!(bool)supportsScheduling.Invoke(null,new object[]{changed})!,"An uninspected worker boundary enabled pipe biology.");
+        }
         Console.WriteLine("PASS native biology scheduling: inspected synchronous StepTheSim/flow/job/disease bodies match the supported worker-join boundary");
         var contact=assembly.GetType("MixedAtmospheres.Oni.ColonyPipeContactHeat")!;
         Check(System.Runtime.InteropServices.Marshal.SizeOf(contact.GetNestedType("Input",BindingFlags.NonPublic)!)==44&&

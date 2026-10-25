@@ -1145,6 +1145,13 @@ M/E4.100e-16/4.828e-17, sink zero, no fault and verified cleanup. Release,
 nine pure groups, eleven installed-declaration/direct groups,216snapshot and
 326Python checks (four skips) pass before rebase.
 
+ONI 744825's Windows managed assemblies use different metadata tokens in those
+five bodies. Their resolved instructions, locals, branches and exception regions
+match Linux exactly. The activation guard pins both inspected raw signatures;
+unknown signatures still refuse. This removes a Windows-only admission refusal,
+without changing the scheduling or biology arithmetic. Actual WindowsPlayer
+all-ID scenario acceptance is required separately.
+
 The optional pure control `--biology-continuation` runs 30,000 fixed 0.2 s
 updates per case (6,000 game seconds). It preserves the current step rules and
 uses explicit proportional, absolute-death and mixed-material flux callbacks
