@@ -138,6 +138,21 @@ continue after a declined scalar save.
 
 ## Status and limits
 
+The explicit `colony-gas-hooks`, `colony-water-hooks`,
+`colony-gas-boundary-hooks`, `colony-gas-density-hooks` and
+`colony-gas-lateral-hooks` modes run the actual colony owner without native
+permeability flags. They check 60 frames of exact owned projections and zero
+unexpected native bookings, with remote native flow/heat controls. The
+`colony-gas-transition-hooks` mode melts supported solid CO2 beside a mixed
+owned cell, checks exact native compatibility tuples and verifies conserved
+O2/CO2 inventories after adoption. All require `--observer` and `--game`.
+`MA_COLONY_HOOK_REPLAY_CONTROL=1` checks deterministic owner-free replay.
+`MA_COLONY_TRANSITION_FALLING_CONTROL=1` exposes the separate, unresolved
+falling-solid-then-melting capture limitation and is expected to fail today.
+See [Windows gas ownership](../../docs/windows-gas-ownership.md) for boundaries,
+results and limitations. Existing domain scenes and acceptance bounds remain
+unchanged.
+
 With `MA_VERIFY_SOLID_HEAT=1`, the plain sealed gas/water controls exercise
 native solid boundary heat. Add `MA_VERIFY_SOLID_HEAT_STARTUP=1` to prepare the
 solid before owner creation and register it in the atomic startup call. The

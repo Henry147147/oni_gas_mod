@@ -3,13 +3,13 @@ param(
     [Parameter(Mandatory=$true)][string]$NativeDll,
     [Parameter(Mandatory=$true)][string]$ContractDirectory,
     [Parameter(Mandatory=$true)][string]$OutputDirectory,
-    [ValidateSet('baseline','multi-region','fluid-actors','sanitize','rebuild-shadow','load-shadow','transition','filtered-transition','reject-custom-envelope','sealed-gas','sealed-water-small-heat','sealed-water-heat','sealed-water-transfer','sealed-water','sealed-heat','sealed-conduction','sealed-gravity','sealed-water-gravity','sealed-checkpoint','sealed-pair','sealed-restore','sealed-restore-water','sealed-restore-gravity','sealed-restore-water-gravity','zero-time-frame','native-disease-retention')][string]$Mode = 'baseline',
+    [ValidateSet('baseline','multi-region','fluid-actors','sanitize','rebuild-shadow','load-shadow','transition','filtered-transition','reject-custom-envelope','sealed-gas','sealed-water-small-heat','sealed-water-heat','sealed-water-transfer','sealed-water','sealed-heat','sealed-conduction','sealed-gravity','sealed-water-gravity','sealed-checkpoint','sealed-pair','sealed-restore','sealed-restore-water','sealed-restore-gravity','sealed-restore-water-gravity','zero-time-frame','native-disease-retention','colony-gas-hooks','colony-water-hooks','colony-gas-boundary-hooks','colony-gas-density-hooks','colony-gas-lateral-hooks','colony-gas-transition-hooks')][string]$Mode = 'baseline',
     [string]$Observer,
     [string]$GameDirectory,
     [string]$Dotnet = 'dotnet.exe'
 )
 $ErrorActionPreference = 'Stop'
-if ([bool]$Observer -ne [bool]$GameDirectory -or (($Mode.StartsWith('sealed-') -or $Mode -eq 'zero-time-frame') -and !$Observer)) { throw 'Sealed domains and zero-time controls require both -Observer and -GameDirectory.' }
+if ([bool]$Observer -ne [bool]$GameDirectory -or (($Mode.StartsWith('sealed-') -or $Mode.StartsWith('colony-') -or $Mode -eq 'zero-time-frame') -and !$Observer)) { throw 'Sealed domains, colony hooks and zero-time controls require both -Observer and -GameDirectory.' }
 New-Item -ItemType Directory -Force -Path $OutputDirectory | Out-Null
 $report = Join-Path $OutputDirectory "$Mode.json"
 $stdout = Join-Path $OutputDirectory "$Mode.stdout.log"

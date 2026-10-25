@@ -20,7 +20,7 @@ internal static unsafe partial class Program
 
     private static int Main(string[] args)
     {
-        if (args.Length is not (4 or 6) || args[2] is not ("baseline" or "multi-region" or "fluid-actors" or "sealed-gas" or "sealed-water-small-heat" or "sealed-water-heat" or "sealed-water-transfer" or "sealed-water" or "sealed-heat" or "sealed-conduction" or "sealed-gravity" or "sealed-water-gravity" or "sealed-checkpoint" or "sealed-pair" or "sealed-restore" or "sealed-restore-water" or "sealed-restore-gravity" or "sealed-restore-water-gravity" or "zero-time-frame" or "native-disease-retention" or "sanitize" or "rebuild-shadow" or "load-shadow" or "transition" or "filtered-transition" or "reject-custom-envelope" or "floor-f4"))
+        if (args.Length is not (4 or 6) || args[2] is not ("baseline" or "multi-region" or "fluid-actors" or "sealed-gas" or "sealed-water-small-heat" or "sealed-water-heat" or "sealed-water-transfer" or "sealed-water" or "sealed-heat" or "sealed-conduction" or "sealed-gravity" or "sealed-water-gravity" or "sealed-checkpoint" or "sealed-pair" or "sealed-restore" or "sealed-restore-water" or "sealed-restore-gravity" or "sealed-restore-water-gravity" or "zero-time-frame" or "native-disease-retention" or "sanitize" or "rebuild-shadow" or "load-shadow" or "transition" or "filtered-transition" or "reject-custom-envelope" or "floor-f4" or "colony-gas-hooks" or "colony-water-hooks" or "colony-gas-boundary-hooks" or "colony-gas-density-hooks" or "colony-gas-lateral-hooks" or "colony-gas-transition-hooks"))
         {
             Console.Error.WriteLine("Usage: dotnet NativeShadowProbe.dll <SimDLL.dll|libSimDLL.so> <game-contract-local> <mode> <report.json> [<observer library> <game root>]");
             return 2;
@@ -68,7 +68,7 @@ internal static unsafe partial class Program
                 sim.Send(1108437482, table);
                 sim.Send(825301935, contract.Diseases);
                 Stage("initialize-cells");
-                sim.Send(2062421945, CreateWorld(contract, args[2]));
+                sim.Send(2062421945, CreateWorld(contract, args[2] is "colony-gas-hooks" or "colony-gas-boundary-hooks" or "colony-gas-density-hooks" or "colony-gas-lateral-hooks" or "colony-gas-transition-hooks" ? "sealed-gas" : args[2] == "colony-water-hooks" ? "sealed-water" : args[2]));
                 Stage("start");
                 var initial = Snapshot.Read(sim.Send(-931446686, []), contract);
                 sim.VerifyBatchSnapshots(contract, initial);
@@ -82,7 +82,13 @@ internal static unsafe partial class Program
                         "Native fluid initialization differs from input.");
                     Require(initial.FluidCells == 2, "Unexpected initial native fluids.");
                 }
-                if (args[2] == "native-disease-retention") VerifyNativeDiseaseRetention(sim,contract,initial,report);
+                if (args[2] is "colony-gas-hooks" or "colony-water-hooks" or "colony-gas-boundary-hooks" or "colony-gas-density-hooks" or "colony-gas-lateral-hooks" or "colony-gas-transition-hooks")
+                {
+                    Require(observer != null, "Colony ownership controls require the native backend.");
+                    if (args[2] == "colony-gas-transition-hooks") VerifyColonyTransitionHooks(sim, contract, report);
+                    else VerifyColonyHooks(sim, contract, report, args[2]);
+                }
+                else if (args[2] == "native-disease-retention") VerifyNativeDiseaseRetention(sim,contract,initial,report);
                 else if (args[2] == "reject-custom-envelope") VerifyCustomEnvelopeRejection(sim, contract, initial, report);
                 else if (args[2] == "fluid-actors") VerifyFluidActors(sim, contract, initial, report);
                 else if (args[2] is "sealed-gas" or "sealed-water-small-heat" or "sealed-water-heat" or "sealed-water-transfer" or "sealed-water" or "sealed-heat" or "sealed-conduction" or "sealed-gravity" or "sealed-water-gravity" or "sealed-checkpoint" or "sealed-pair" or "sealed-restore" or "sealed-restore-water" or "sealed-restore-gravity" or "sealed-restore-water-gravity")
@@ -439,7 +445,7 @@ internal static unsafe partial class Program
         public required byte[] Diseases { get; init; }
         public required int[] Phases { get; init; }
         public int Count => Phases.Length;
-        public int Vacuum, Oxygen, Water, Granite, Unobtanium, Ice;
+        public int Vacuum, Oxygen, Water, Granite, Unobtanium, Ice, CarbonDioxide, SolidCarbonDioxide, LiquidCarbonDioxide;
         public static Contract Read(string directory)
         {
             using var json = JsonDocument.Parse(File.ReadAllBytes(Path.Combine(directory, "contract.json")));
@@ -463,9 +469,12 @@ internal static unsafe partial class Program
                 Vacuum = root.GetProperty("VacuumIndex").GetInt32(), Oxygen = root.GetProperty("OxygenIndex").GetInt32(),
                 Water = root.GetProperty("WaterIndex").GetInt32(), Granite = root.GetProperty("GraniteIndex").GetInt32(),
                 Unobtanium = root.GetProperty("UnobtaniumIndex").GetInt32(),
+                LiquidCarbonDioxide = root.GetProperty("Elements").EnumerateArray().Single(item => item.GetProperty("Name").GetString() == "LiquidCarbonDioxide").GetProperty("Index").GetInt32(),
+                SolidCarbonDioxide = root.GetProperty("Elements").EnumerateArray().Single(item => item.GetProperty("Name").GetString() == "SolidCarbonDioxide").GetProperty("Index").GetInt32(),
+                CarbonDioxide = root.GetProperty("Elements").EnumerateArray().Single(item => item.GetProperty("Name").GetString() == "CarbonDioxide").GetProperty("Index").GetInt32(),
                 Ice = root.GetProperty("Elements").EnumerateArray().Single(item => item.GetProperty("Name").GetString() == "Ice").GetProperty("Index").GetInt32()
             };
-            foreach (var i in new[] { result.Vacuum, result.Oxygen, result.Water, result.Granite, result.Unobtanium, result.Ice })
+            foreach (var i in new[] { result.Vacuum, result.Oxygen, result.Water, result.Granite, result.Unobtanium, result.Ice, result.CarbonDioxide, result.SolidCarbonDioxide, result.LiquidCarbonDioxide })
                 Require(i >= 0 && i < count, "Required material absent.");
             return result;
         }

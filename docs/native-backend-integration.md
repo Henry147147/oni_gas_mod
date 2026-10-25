@@ -311,8 +311,11 @@ claim. The trace holds 4,096 events and full Unity traces fill it during world
 generation, so a trace prefix is not complete phase coverage. Emitter
 blocked/unblocked callbacks, multiple handles and every inlined or virtual
 dispatch path still need dedicated forwarding controls. The two Linux
-gas-interaction hooks have never been exercised; exported symbols and
-successful installation do not prove coverage of inlined fluid work.
+gas-interaction hooks have never been exercised. Inspection of the pinned
+images finds no simulation caller of those exports and no Windows procedure
+or inline site for their names; see [Windows gas ownership](windows-gas-ownership.md)
+for the actual pressure/displacement/postprocess boundaries. Exported symbols
+and successful installation do not prove writer coverage.
 
 Sealed-domain Unity evidence (mixed air, compressed water, heat commands, point
 sources, registered actors, conduction, gravity, paired capture, checkpoint

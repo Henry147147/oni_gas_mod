@@ -44,7 +44,8 @@ SPECS = (
     ("emitter", "?Update@ElementEmitter@@UEAAXMAEAVSimData@@AEBURegion@@@Z", "_ZN14ElementEmitter6UpdateEfR7SimDataRK6Region", "void(this*,float,data*,const-region*)"),
     ("building-heat", "?Update@BuildingHeatExchange@@UEAAXMAEAVSimData@@AEBURegion@@@Z", "_ZN20BuildingHeatExchange6UpdateEfR7SimDataRK6Region", "void(this*,float,data*,const-region*)"),
     # The matching PDB's LF_PROCEDURE records confirm bool returns for both
-    # overloads (types 0xD8F7 and 0xC495). Windows inlines them; no RVA is invented.
+    # overloads (types 0xD8F7 and 0xC495). Windows has no procedure or inline
+    # site for either; see docs/windows-gas-ownership.md. No RVA is invented.
     ("gas-interaction", None, "_Z16DoGasInteractionR7SimDataR9SimEventsi", "bool(data*,events*,int)"),
     ("gas-interaction-pair", None, "_Z16DoGasInteractionR7SimDataR9SimEventsii", "bool(data*,events*,int,int)"),
     # The three indices are cell, ncell and nncell (matching PDB module 32).

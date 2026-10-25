@@ -19,7 +19,7 @@ from native_probe_process import add_runtime_arguments, ProbeRuntime
 
 MODES = ("baseline", "multi-region", "fluid-actors", "rebuild-shadow", "load-shadow", "transition", "filtered-transition", "sanitize", "reject-custom-envelope")
 DOMAIN_MODES = ("sealed-gas", "sealed-water-small-heat", "sealed-water-heat", "sealed-water-transfer", "sealed-water", "sealed-heat", "sealed-conduction", "sealed-gravity", "sealed-water-gravity", "sealed-checkpoint", "sealed-pair", "sealed-restore", "sealed-restore-water", "sealed-restore-gravity", "sealed-restore-water-gravity")
-EXPERIMENT_MODES = ("zero-time-frame","native-disease-retention","floor-f4")
+EXPERIMENT_MODES = ("zero-time-frame","native-disease-retention","floor-f4","colony-gas-hooks","colony-water-hooks","colony-gas-boundary-hooks","colony-gas-density-hooks","colony-gas-lateral-hooks","colony-gas-transition-hooks")
 
 
 def no_core_dump() -> None:
@@ -45,8 +45,8 @@ def main() -> int:
         parser.error("floor-f4 requires --floor-request and must run without an observer/game owner")
     if args.floor_request and args.mode != "floor-f4":
         parser.error("--floor-request is only valid for floor-f4")
-    if bool(args.observer) != bool(args.game) or (args.mode in (*DOMAIN_MODES, "zero-time-frame", "domains") and not args.observer):
-        parser.error("Sealed domains and zero-time controls require both --observer and --game")
+    if bool(args.observer) != bool(args.game) or (args.mode in (*DOMAIN_MODES, "zero-time-frame", "colony-gas-hooks", "colony-water-hooks", "colony-gas-boundary-hooks","colony-gas-density-hooks","colony-gas-lateral-hooks","colony-gas-transition-hooks", "domains") and not args.observer):
+        parser.error("Sealed domains, colony hooks and zero-time controls require both --observer and --game")
     if args.observer and not args.observer.is_file(): parser.error("Native observer library is missing")
     for path in (args.native, args.probe, *(args.contract / name for name in ("contract.json", "elements.bin", "diseases.bin"))):
         if not path.is_file():
