@@ -31,4 +31,18 @@ namespace MixedAtmospheres.Oni
     {
         private static void Postfix()=>ColonyWindowsLifecycle.Stop();
     }
+    [HarmonyPatch(typeof(Game),"StopBE")]
+    internal static class ColonyWindowsStopTrace
+    {
+        private static bool Prepare()=>RuntimeInformation.IsOSPlatform(OSPlatform.Windows);
+        private static void Prefix()=>UnityEngine.Debug.Log("[Mixed Atmospheres] Windows Game.StopBE entered.");
+        private static void Postfix()=>UnityEngine.Debug.Log("[Mixed Atmospheres] Windows Game.StopBE completed.");
+    }
+    [HarmonyPatch(typeof(Sim),nameof(Sim.Shutdown))]
+    internal static class ColonyWindowsSimShutdownTrace
+    {
+        private static bool Prepare()=>RuntimeInformation.IsOSPlatform(OSPlatform.Windows);
+        private static void Prefix()=>UnityEngine.Debug.Log("[Mixed Atmospheres] Windows Sim.Shutdown entered.");
+        private static void Postfix()=>UnityEngine.Debug.Log("[Mixed Atmospheres] Windows Sim.Shutdown completed.");
+    }
 }

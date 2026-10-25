@@ -160,9 +160,18 @@ using GameCallback = int (*)(int,void*);
 FORWARD(on_initialize, MA_ONI_INITIALIZE, void, (GameCallback callback), (callback))
 void on_shutdown() {
     Call call(MA_ONI_SHUTDOWN);
+#if defined(_WIN32)
+    std::fprintf(stderr,"[Mixed Atmospheres] Windows native shutdown entered.\n");
+#endif
     original<void (*)()>(MA_ONI_SHUTDOWN)();
+#if defined(_WIN32)
+    std::fprintf(stderr,"[Mixed Atmospheres] Windows original native shutdown completed.\n");
+#endif
     ma::oni::shutdown_domain();
     ma::oni::colony::stop();
+#if defined(_WIN32)
+    std::fprintf(stderr,"[Mixed Atmospheres] Windows native owners retired.\n");
+#endif
     if (pair_pending.load(std::memory_order_acquire)) {
         std::lock_guard lock(pair_mutex);
         if (captured_pair && captured_pair->status.state==1) {
