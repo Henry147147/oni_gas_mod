@@ -613,6 +613,17 @@ maximum mass/energy errors 7.00e-16 / 4.31e-17 and trace sink
 1.624e-7 kg / 0.051353 J. This checks those gameplay windows, not the full
 accuracy floor; profile 19 remains an opt-in experiment.
 
+### Performance log
+
+Every owned colony writes a compact summary to Player.log (Windows:
+`%USERPROFILE%\AppData\LocalLow\Klei\Oxygen Not Included\Player.log`): one
+`perf header` line with the OS, CPU and memory, then one `perf frames` line per
+150 owner frames (30 s of game time) with the owner step's mean/p95/max, its
+mean stage times (edits, heat, transfers, flow, space sink, ledger and
+projection), the real time between completed steps, game seconds per real
+second, the clock scale, Unity's frame rate and its slowest frame.
+`MA_PERFORMANCE_LOG=0` turns it off.
+
 ## Saves
 
 **Assigned 2026-10-24 by main after a fetch at `3eaccfa`:** owner wrapper

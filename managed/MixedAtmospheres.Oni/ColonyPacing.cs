@@ -80,12 +80,14 @@ namespace MixedAtmospheres.Oni
                 scaled = false; return;
             }
             ++UnityFrames;
+            ColonyPerformanceLog.UnityFrame(Time.unscaledDeltaTime);
             var status = ColonyOwner.Status;
             if (status.CompletedFrames != seenFrames && status.LastAdvanceMilliseconds > 0)
             {
                 seenFrames = status.CompletedFrames;
                 var measured = status.LastFrameSeconds / (status.LastAdvanceMilliseconds / 1000);
                 OwnerRate = OwnerRate == 0 ? measured : .7 * OwnerRate + .3 * measured;
+                ColonyPerformanceLog.OwnerFrame(status, OwnerRate, HeldTicks);
             }
             var speed = SpeedControlScreen.Instance;
             if (speed == null || speed.IsPaused || OwnerRate == 0) return;
