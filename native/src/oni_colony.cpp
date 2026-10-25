@@ -8,6 +8,7 @@
 #include "oni_radial_consumption.hpp"
 #include "oni_precise_receipt.hpp"
 #include "oni_parcel_admission.hpp"
+#include "oni_precision_inventory.hpp"
 #include "oni_release_capture.hpp"
 #include "oni_transfer_capture.hpp"
 #include "oni_world_biology.hpp"
@@ -103,6 +104,7 @@ struct NativeArenaFrame {
     std::vector<MAOniColonyNativeSampleCell> cells;
 };
 struct Published {
+    std::vector<detail::PrecisionParcel> precision;
     MAOniColonyConfig config{};
     double booked_mass_kg=0, booked_heat_j=0;
     MAOniColonyStatus status{};
@@ -139,6 +141,8 @@ struct Session {
     std::vector<std::uint8_t> space; // per owned cell
     std::vector<std::uint8_t> blocking; // per owned cell: passes gas, not liquid (airflow tile)
     std::vector<ReservoirEntry> reservoir;
+    std::vector<detail::PrecisionParcel> precision;
+    bool precision_used=false;
     std::vector<MacSaturationPair> pairs; // liquid/vapour pairs that boil and condense
     std::shared_ptr<const MacClosedWorld> world;
     Ledger ledger;
@@ -555,7 +559,7 @@ Projection project(const Session& s, const MacClosedWorld& w) {
 void publish(const Session& s, Projection projection) {
     auto p = std::make_shared<Published>();
     p->config=s.config; p->status = s.status; p->views = std::move(projection.views); p->readings = std::move(projection.readings); p->parts = std::move(projection.parts);
-    p->world = s.world; p->catalogue = s.catalogue;
+    p->world = s.world; p->catalogue = s.catalogue; p->precision=s.precision;
     p->native_arena=s.native_arena;p->native_arena_owner_frames=s.native_arena_owner_frames;
     auto& b = p->biology; b.struct_size = sizeof(b); b.abi_version = 1; b.mode = s.germ_mode;
     b.frames = s.biology_frames; b.cultures = s.clocks.size(); b.germ_cells = s.germ_cells; b.audit_error = s.biology_error;
@@ -584,7 +588,7 @@ void publish(const Session& s) { publish(s, project(s, *s.world)); }
 void fault(Session& s, const char* why) noexcept {
     s.status.state = 2; write_error(s.status, why);
     try { auto p = std::make_shared<Published>(); p->config=s.config; p->status = s.status;
-        { std::lock_guard lock(publication); if (latest) { p->views = latest->views; p->readings = latest->readings; p->parts = latest->parts; p->world = latest->world; p->catalogue = latest->catalogue; p->booked_mass_kg=latest->booked_mass_kg; p->booked_heat_j=latest->booked_heat_j;
+        { std::lock_guard lock(publication); if (latest) { p->views = latest->views; p->readings = latest->readings; p->parts = latest->parts; p->world = latest->world; p->catalogue = latest->catalogue; p->booked_mass_kg=latest->booked_mass_kg; p->booked_heat_j=latest->booked_heat_j; p->precision=latest->precision;
             p->biology = latest->biology; p->germ_accounts = latest->germ_accounts; } latest = std::move(p); } }
     catch (...) {}
 }
@@ -1167,6 +1171,11 @@ std::uint32_t composition(std::uint32_t public_cell, std::uint32_t* indices, dou
         ++count;
     }
     return count;
+}
+std::vector<std::uint8_t> precision_inventory() {
+    std::shared_ptr<const Published> p; { std::lock_guard lock(publication); p=latest; }
+    require(p!=nullptr,"No colony owner is active");
+    return detail::encode_precision_inventory(p->precision);
 }
 std::uint32_t species(MAOniColonySpecies* out, std::uint32_t capacity) {
     std::shared_ptr<const Published> p; { std::lock_guard lock(publication); p = latest; }
@@ -2516,16 +2525,50 @@ void run_frame(std::uint64_t ticket, double seconds, std::uint64_t frames, const
                             return p.first <= index && index - p.first < p.count;
                         });
                         require(plan != plans.end(), "Injection has no source plan");
-                        bool placed = false;
+                        bool placed = false, all_mass_refusals=true;
                         for (const auto cell : nearby(world.state(), rect_index(s.config, plan->source->public_cell), 2)) {
                             if (cell == e.cell_index) continue;
                             auto candidate = e; candidate.cell_index = cell;
                             try {
                                 auto one = world.with_fluid_transfers(std::span(&candidate, 1), MacFluidTransferTopology::occupied_mixture);
                                 world = std::move(one.world); parcels.push_back(one.parcels.front()); placed = true; break;
-                            } catch (const std::exception&) { /* Failed candidates leave the world unchanged. */ }
+                            } catch (const std::exception& error) { all_mass_refusals=all_mass_refusals && std::string_view(error.what())=="Game transfer mass is unrepresentable"; }
                         }
                         if (placed) continue;
+                        const bool durable=job_tokens.contains(static_cast<std::size_t>(plan->source-transfers.data()));
+                        if(all_mass_refusals && durable && precise_receipts_enabled && e.passives.empty() && cat.materials[e.species_index].game.gas &&
+                            s.precision.size()<detail::maximum_parcel_entries) {
+                            // Ownership moves to durable native precision inventory,
+                            // not to a fictitious grid write. No germs enter here.
+                            const auto& material=cat.eos->reference().materials()[e.species_index];
+                            MacFluidParcel held{};held.cell_index=e.cell_index;held.species_index=e.species_index;held.injected=true;
+                            held.mass_kg=e.mass_kg;held.temperature_k=e.temperature_k;
+                            held.internal_energy_j=e.mass_kg*(material.energy_offset_j_per_kg+material.cv_j_per_kg_k*e.temperature_k);
+                            held.potential_energy=detail::precision_potential(world,e.cell_index,e.mass_kg);
+                            held.passives_before=held.passives_after=world.state().cells[e.cell_index].passive_quantities;
+                            if(std::isfinite(held.internal_energy_j)) {
+                                const auto anchor=static_cast<std::uint32_t>((s.config.offset_x+e.cell_index%s.config.width)+
+                                    (s.config.offset_y+e.cell_index/s.config.width)*s.config.grid_width);
+                                detail::PrecisionParcel entry{plan->source->public_cell,anchor,2,cat.materials[e.species_index].game.native_index,e.mass_kg,e.temperature_k,{}};
+                                entry.energy_j.add(held.internal_energy_j);entry.energy_j.add(held.potential_energy);
+                                // Bound durable allocation before claiming a receipt.
+                                auto candidate=s.precision;bool merged=false;
+                                for(auto& prior:candidate) {
+                                    if(prior.source!=entry.source || prior.anchor!=entry.anchor || prior.radius!=entry.radius ||
+                                        prior.native_index!=entry.native_index || prior.temperature_k!=entry.temperature_k)continue;
+                                    const double mass=prior.mass_kg+entry.mass_kg;if(!std::isfinite(mass))continue;
+                                    MacEnergySum check;check.add(prior.mass_kg);check.add(entry.mass_kg);check.add(-mass);
+                                    if(check.sign()!=0)continue; // Never round a coalesced mass.
+                                    prior.mass_kg=mass;detail::add_precision_sum(prior.energy_j,entry.energy_j);merged=true;break;
+                                }
+                                if(!merged)candidate.push_back(entry);
+                                try { (void)detail::encode_precision_inventory(candidate); }
+                                catch(const std::invalid_argument&) { candidate.clear(); }
+                                if(!candidate.empty()) {
+                                    s.precision=std::move(candidate);s.precision_used=true;parcels.push_back(held);continue;
+                                }
+                            }
+                        }
                     }
                     if (e.mass_kg <= 1e-9 * world.state().cells[e.cell_index].mixture.mass()) {
                         MacFluidParcel zero{}; zero.cell_index = e.cell_index; zero.species_index = e.species_index; zero.injected = e.inject;
@@ -2609,6 +2652,18 @@ void run_frame(std::uint64_t ticket, double seconds, std::uint64_t frames, const
                 else for (const auto& [k, entry] : by_species) receipt(*p.source, cat.materials[k].game.native_index, entry.first, entry.second, germs_of[k], p, k);
             }
         }
+        // Retry held precision inventory after external edits have made their
+        // recipients available, before flow. This does not create new input.
+        for(auto& held:s.precision) {
+            const auto destinations=nearby(world.state(),rect_index(s.config,held.source),held.radius);
+            const auto before_world=world;const auto before_held=held;
+            if(detail::release_precision_parcel(world,held,cat.species_of_native(held.native_index),
+                rect_index(s.config,held.anchor),destinations)) {
+                try { (void)detail::encode_precision_inventory(s.precision); }
+                catch(const std::invalid_argument&) { world=before_world;held=before_held; }
+            }
+        }
+        std::erase_if(s.precision,[](const auto& held){return held.mass_kg==0 && held.energy_j.sign()==0;});
         const auto moving_started=std::chrono::steady_clock::now();
         std::size_t moving_items=0,moving_accepted=0,moving_refused=0;
         if(!moving_jobs.empty())step("moving parcels");
@@ -2788,7 +2843,9 @@ void run_frame(std::uint64_t ticket, double seconds, std::uint64_t frames, const
         }
         lap(4); step("ledger");
         // Ledgers close: every species and U+K+G against the booked flows.
-        const auto now = totals(world);
+        auto now = totals(world);
+        long double precision_energy=0;
+        for(const auto& held:s.precision) { now[cat.species_of_native(held.native_index)]+=held.mass_kg;precision_energy+=detail::precision_value(held.energy_j); }
         double mass_error = 0; std::size_t worst = 0;
         for (std::size_t k = 0; k < now.size(); ++k) {
             const long double expected = L.initial[k] + L.injected[k] - L.extracted[k] - L.sunk[k] - L.trace[k] + L.converted[k];
@@ -2808,7 +2865,7 @@ void run_frame(std::uint64_t ticket, double seconds, std::uint64_t frames, const
         const long double expected_energy = L.initial_energy + L.heat + L.energy_in - L.energy_out - L.energy_sunk - L.energy_trace;
         const long double energy_scale = std::abs(L.initial_energy) + std::abs(L.heat) + std::abs(L.energy_in) + std::abs(L.energy_out) +
             std::abs(L.energy_sunk) + std::abs(L.energy_trace);
-        const double energy_error = static_cast<double>(std::abs(energy_of(world) - expected_energy) / energy_scale);
+        const double energy_error = static_cast<double>(std::abs(energy_of(world) + precision_energy - expected_energy) / energy_scale);
         s.status.maximum_relative_mass_error = std::max(s.status.maximum_relative_mass_error, mass_error);
         s.status.maximum_relative_energy_error = std::max(s.status.maximum_relative_energy_error, energy_error);
         if (mass_error > 1e-8 || energy_error > 1e-6) throw std::runtime_error("The colony exceeded its mass/energy ledger bound");
@@ -2877,7 +2934,7 @@ constexpr char magic[8] = {'M', 'A', 'C', 'O', 'L', 'N', '0', '1'};
 // Version 7 adds the trace-sink ledger; version 6 the liquid-blocking cells; version 5 the inputs queued at the save; version 4 the phase-change
 // conversion ledger; version 3 stored the continuing counters explicitly
 // (version 2 the raw status struct).
-constexpr std::uint32_t checkpoint_version = 10;
+constexpr std::uint32_t checkpoint_version = 11;
 }
 std::vector<std::uint8_t> checkpoint() {
     solver.settle(false);
@@ -2888,7 +2945,7 @@ std::vector<std::uint8_t> checkpoint() {
     const auto& s = *session; Writer w;
     // Keep the queue and selected wrapper framing one coherent save snapshot.
     std::unique_lock input_snapshot(inputs);
-    const std::uint32_t saved_version=s.germ_mode==1?10:moving_protocol_used?9:8;
+    const std::uint32_t saved_version=s.precision_used?11:s.germ_mode==1?10:moving_protocol_used?9:8;
     w.raw(magic, 8); w.u32(saved_version); w.raw(&s.config, sizeof(s.config));
     w.u32(static_cast<std::uint32_t>(s.materials.size())); w.raw(s.materials.data(), s.materials.size() * sizeof(MAOniColonyMaterial));
     w.u32(static_cast<std::uint32_t>(s.space.size())); w.raw(s.space.data(), s.space.size());
@@ -2955,6 +3012,9 @@ std::vector<std::uint8_t> checkpoint() {
             for (const auto x : {a.born, a.died, a.culled, a.moved, a.edited_in, a.edited_out}) w.ld(x);
         }
         w.f64(s.biology_error);
+    }
+    if(saved_version>=11) {
+        const auto held=detail::encode_precision_inventory(s.precision);w.u32(static_cast<std::uint32_t>(held.size()));w.raw(held.data(),held.size());
     }
     const auto image = s.world->checkpoint();
     w.u64(image.size()); w.raw(image.data(), image.size());
@@ -3050,8 +3110,8 @@ void restore(const MAOniColonyConfig& config, std::span<const MAOniColonyMateria
     }
     std::vector<GermEdit> restored_germs;
     if (version >= 10) {
-        next->germ_mode = r.u32(); require(next->germ_mode == 1, "Unsupported saved world germ mode");
-        require(!disease_table.empty(), "This save evolves world germs and needs the game's disease table");
+        next->germ_mode = r.u32(); require((next->germ_mode == 1 || (version>=11 && next->germ_mode==0)), "Unsupported saved world germ mode");
+        require(next->germ_mode==0 || !disease_table.empty(), "This save evolves world germs and needs the game's disease table");
         next->biology_frames = r.u64();
         const auto clocks = r.u32(); require(clocks <= (r.bytes.size() - r.at) / 18, "Invalid saved germ clock count");
         std::pair<std::size_t, std::uint64_t> previous_key{0, 0};
@@ -3081,6 +3141,18 @@ void restore(const MAOniColonyConfig& config, std::span<const MAOniColonyMateria
             next->accounts.emplace(identity, a); previous_identity = identity;
         }
         next->biology_error = r.f64(); require(std::isfinite(next->biology_error) && next->biology_error >= 0, "Invalid saved germ audit");
+    }
+    if(version>=11) {
+        const auto length=r.u32();require(length<=r.bytes.size()-r.at,"Truncated precision inventory");
+        next->precision=detail::decode_precision_inventory(r.bytes.subspan(r.at,length));r.at+=length;next->precision_used=true;
+        for(const auto& held:next->precision) {
+            const auto source=rect_index(config,held.source),anchor=rect_index(config,held.anchor);
+            const auto distance=std::abs(static_cast<long long>(source%config.width)-static_cast<long long>(anchor%config.width))+
+                std::abs(static_cast<long long>(source/config.width)-static_cast<long long>(anchor/config.width));
+            require(distance<=held.radius && next->catalogue->has_native(held.native_index) &&
+                next->catalogue->materials[next->catalogue->species_of_native(held.native_index)].game.gas &&
+                (config.flags&MA_ONI_COLONY_GAME_KERNEL),"Invalid precision inventory provenance");
+        }
     }
     const auto physical = r.u64(); require(physical == r.bytes.size() - r.at, "Colony checkpoint physical image length differs");
     next->world = std::make_shared<const MacClosedWorld>(MacClosedWorld::from_checkpoint(next->catalogue->registry, next->catalogue->eos,

@@ -10,6 +10,8 @@
 #include "../src/oni_floor_capture.hpp"
 #include "../src/oni_parcel_wire.hpp"
 #include "../src/oni_parcel_outcome.hpp"
+#include "../src/oni_precision_inventory.hpp"
+#include <fstream>
 #include <cstdlib>
 #include "../src/oni_sha256.hpp"
 #include "mixed_atmospheres/mac_kernel.hpp"
@@ -716,6 +718,126 @@ void tiny_injection_neighbour_control() {
         require(outcome()==expected && checkpoint()==settled,"tiny injection queued cold continuation differs");stop();
     }
     std::cout<<"PASS tiny native injection: exact neighbour admission, unchanged first destination, source radius, refusal, passives and cold continuation\n";
+}
+void precision_inventory_control() {
+    using namespace ma::oni::colony;using namespace ma::oni::colony::detail;using namespace ma::experimental;
+    const std::array mats{material("MadeUpGas",111,oxygen,true,.032,1005)};
+    MAOniColonyConfig cfg{};cfg.struct_size=sizeof(cfg);cfg.abi_version=1;
+    cfg.flags=MA_ONI_COLONY_GAME_KERNEL|MA_ONI_COLONY_GAME_SURFACE;cfg.vacuum_index=vacuum;
+    cfg.grid_width=cfg.width=5;cfg.grid_height=cfg.height=5;cfg.maximum_timestep_s=.1;
+    std::array<MAOniColonyCell,25> cells{};for(auto& cell:cells)cell={oxygen,MA_ONI_COLONY_FLUID,.6f,300,0,0};
+    cells[12]={0,MA_ONI_COLONY_SOLID,0,0,0,0};
+    start(cfg,mats,cells,1);enable_precise_receipts(true);
+    const auto unused=checkpoint();require(unused[8]==8,"unused precision feature changed legacy framing");
+    const MAOniColonyTransfer injection{12,oxygen,MA_ONI_COLONY_INJECT,2,-1,0,0x1p-54,300,0};
+    (void)queue_pipe_job(1,injection,{});const auto queued=checkpoint();
+    const auto accept=[&] {
+        advance(1,.2,2);wait();require(status().state==1,"precision ownership acceptance faulted");
+        MAOniColonyReceipt receipt{};require(copy_receipts(&receipt,1)==1 && receipt_job(receipt.sequence)==1,"precision ownership lost receipt");
+        std::vector<std::uint8_t> bytes(copy_precise_receipt(receipt.sequence,nullptr,0));
+        copy_precise_receipt(receipt.sequence,bytes.data(),static_cast<std::uint32_t>(bytes.size()));
+        ReceiptReader r{bytes};require(r.header(receipt.sequence,1)==1,"precision receipt parcel count");
+        require(r.integer(4)==oxygen && r.integer(4)==11 && r.integer(4)==1,"precision receipt provenance");
+        require(r.f64()==injection.mass_kg && r.f64()==300,"precision receipt mass/temperature");
+        MacEnergySum received;received.add(r.f64());received.add(r.scaled());received.add(r.scaled());
+        require(r.scaled().is_zero() && r.scaled().is_zero() && r.integer(4)==0 && r.integer(4)==0 && r.at==bytes.size(),"precision receipt carries unsupported momentum/passives");
+        const auto held=decode_precision_inventory(precision_inventory());
+        require(held.size()==1 && held[0].mass_kg==injection.mass_kg && held[0].source==12 && held[0].anchor==11 && held[0].radius==2 && held[0].temperature_k==300,"precision inventory is not physical ownership");
+        add_precision_sum(received,held[0].energy_j,-1);require(received.sign()==0,"held energy differs from exact receipt credit");
+        require(status().injected_kg==injection.mass_kg && status().trace_sink_kg==0,"precision acceptance lost or double-booked input");
+        ack_receipts(receipt.sequence);require(pipe_job_state(1).first==3,"accepted source job did not retire");
+        return bytes;
+    };
+    const auto receipt=accept(),held_wire=precision_inventory(),accepted=checkpoint();
+    require(accepted[8]==11,"precision inventory did not select reserved wrapper11");
+    if(const char* path=std::getenv("MA_PRECISION_TEST_IMAGE")) {std::ofstream f(path,std::ios::binary);f.write(reinterpret_cast<const char*>(accepted.data()),static_cast<std::streamsize>(accepted.size()));require(bool(f),"cannot write native controlled image");}
+    stop();restore(cfg,mats,queued,1);enable_precise_receipts(true);
+    require(accept()==receipt && checkpoint()==accepted,"queued precision acceptance cold replay differs");
+    for(std::uint64_t frame=2;frame<=4;++frame){advance(frame,.2,2);wait();require(status().state==1 && precision_inventory()==held_wire && status().trace_sink_kg==0,"unrepresentable held inventory vanished or changed");}
+    const auto cold=checkpoint();stop();restore(cfg,mats,cold,1);
+    require(checkpoint()==cold && precision_inventory()==held_wire,"held inventory cold resave differs");
+    // An available cell outside the ORIGINAL source radius must not release it.
+    const auto stage=[&](unsigned cell) {
+        const std::array<MAOniColonyTransfer,2> inputs{{{cell,oxygen,MA_ONI_COLONY_EXTRACT,0,-1,0,1,0,0},
+            {cell,oxygen,MA_ONI_COLONY_INJECT,0,-1,0,.25,300,0}}};queue_transfers(inputs);
+    };
+    stage(5);advance(5,.000001,2);wait();
+    require(status().state==1 && decode_precision_inventory(precision_inventory()).front().mass_kg==injection.mass_kg,"precision release widened source radius");
+    stage(7);const auto before_release=checkpoint();
+    const auto release=[&] {
+        advance(6,.000001,2);wait();require(status().state==1,"precision late release faulted");
+        const auto held=decode_precision_inventory(precision_inventory());
+        require(std::all_of(held.begin(),held.end(),[](const auto& p){return p.mass_kg==0;}),"legal representable recipient did not release held mass");
+        require(copy_receipts(nullptr,0)==0 && status().trace_sink_kg==0 && status().maximum_relative_mass_error<1e-12 && status().maximum_relative_energy_error<1e-12,"internal release rebooked an input or lost conservation");
+        return checkpoint();
+    };
+    const auto released=release(),tail=precision_inventory();stop();restore(cfg,mats,before_release,1);
+    require(release()==released && precision_inventory()==tail,"late precision release cold continuation differs");stop();restore(cfg,mats,released,1);
+    require(checkpoint()==released && precision_inventory()==tail,"zero-mass signed compensation failed cold resave");stop();
+    // Exact coalescing can make a previously unsupported ULP representable.
+    restore(cfg,mats,accepted,1);enable_precise_receipts(true);
+    (void)queue_pipe_job(2,injection,{});advance(2,.2,2);wait();
+    require(status().state==1,"coalesced precision source faulted");
+    const auto coalesced=decode_precision_inventory(precision_inventory());
+    require(coalesced.size()<=1 && std::all_of(coalesced.begin(),coalesced.end(),[](const auto& p){return p.mass_kg==0;}) &&
+        status().injected_kg==0x1p-53,"exact coalescing failed to release one supported ULP");
+    MAOniColonyReceipt second{};require(copy_receipts(&second,1)==1 && receipt_job(second.sequence)==2,"coalesced source lost its own receipt");
+    ack_receipts(second.sequence);stop();
+    // Liquids retain the original conservative refusal. Passive-carrying gas
+    // refusal is also covered by tiny_injection_neighbour_control's all-.6 case.
+    const std::array liquid{material("MadeUpLiquid",112,water,false,.018,4200,1000)};
+    for(auto& cell:cells)cell={0,MA_ONI_COLONY_SOLID,0,0,0,0};
+    cells[12]={water,MA_ONI_COLONY_FLUID,1000,300,0,0};
+    start(cfg,liquid,cells,1);enable_precise_receipts(true);auto liquid_request=injection;liquid_request.native_index=water;
+    (void)queue_pipe_job(1,liquid_request,{});advance(1,.000001,2);wait();
+    require(status().state==1 && status().injected_kg==0 && decode_precision_inventory(precision_inventory()).empty(),"unsupported liquid entered precision inventory");
+    require(copy_receipts(&second,1)==1 && second.mass_kg==0,"unsupported liquid did not retain zero receipt");
+    ack_receipts(second.sequence);require(checkpoint()[8]==8,"unsupported request changed legacy wrapper");stop();
+    // Independent exact before/after operands, not the implementation's
+    // reported credit or the owner's millionth-scale audit. Both rounding
+    // signs and a partial mass with a much larger energy correction.
+    for(const double temperature:{300.,400.}) for(const bool partial:{false,true}) {
+        ma::SpeciesRegistry registry;ma::SpeciesDefinition gas;gas.id="precision-control";gas.name=gas.id;
+        gas.phase=ma::Phase::gas;gas.atoms={{"O",2}};gas.explicit_molar_mass=true;gas.molar_mass=.032;gas.cp=1000+ma::gas_constant/.032;
+        gas.formation_enthalpy=gas.cp*ma::reference_temperature*gas.molar_mass;registry.add(gas);
+        ma::experimental::ReferenceMaterial m;m.id=gas.id;m.phase=ReferencePhase::ideal_gas;
+        m.molar_mass_kg_per_mol=.032;m.cv_j_per_kg_k=gas.cv();m.energy_offset_j_per_kg=gas.internal_energy(0);
+        m.minimum_temperature_k=1;m.maximum_temperature_k=1e6;m.provenance="Explicit precision inventory control";
+        auto eos=std::make_shared<const ma::FluidThermodynamics>(registry,"precision-control-v1",std::vector{m});
+        MacTransportState state;state.grid={1,1,1,1,false,false,{0}};state.cells.resize(1,MacMaterialCell{ma::MixtureInventory(1),{}});
+        state.cells[0].mixture.masses[0]=.25;state.momentum_x.resize(2);state.momentum_y.resize(2);
+        MacClosedSettings settings;settings.numerical_kernel=MacNumericalKernel::game;settings.game_profile=MacGameProfile::game_kernel;
+        settings.vacuum=MacVacuumRepresentation::void_phase;
+        auto world=MacClosedWorld::game_colony(registry,eos,std::move(state),std::span(&temperature,1),settings);
+        const auto original=world;PrecisionParcel parcel{0,0,2,0,partial?0x1.00000001p-54:0x1p-54,temperature,{}};
+        parcel.energy_j.add(parcel.mass_kg*(m.energy_offset_j_per_kg+m.cv_j_per_kg_k*temperature));const auto original_parcel=parcel;
+        const std::array<std::size_t,1> destination{0};
+        require(release_precision_parcel(world,parcel,0,0,destination),"controlled representable precision release refused");
+        MacEnergySum mass;mass.add(original.state().cells[0].mixture.masses[0]);mass.add(original_parcel.mass_kg);
+        mass.add(-world.state().cells[0].mixture.masses[0]);mass.add(-parcel.mass_kg);
+        MacEnergySum energy=original_parcel.energy_j;energy.add(original.state().cells[0].mixture.energy);
+        energy.add(-world.state().cells[0].mixture.energy);add_precision_sum(energy,parcel.energy_j,-1);
+        require(mass.sign()==0 && energy.sign()==0,"independent exact held+grid mass/energy closure failed");
+        require(parcel.energy_j.sign()==(temperature==300?1:-1),"controlled primary rounding sign was not exercised");
+        const auto encoded=encode_precision_inventory(std::span(&parcel,1));
+        require(encode_precision_inventory(decode_precision_inventory(encoded))==encoded,"signed precision correction codec changed operands");
+        if(partial) {
+            require(parcel.mass_kg>0 && parcel.mass_kg<original_parcel.mass_kg*0x1p-24,"controlled partial mass not exercised");
+            const MacFluidTransfer empty{0,0,false,1,0};world=world.with_fluid_transfers(std::span(&empty,1),MacFluidTransferTopology::occupied_mixture).world;
+            require(release_precision_parcel(world,parcel,0,0,destination) && parcel.mass_kg==0 &&
+                std::abs(world.cell_reading(0).temperature_k-temperature)<1e-10,"signed correction corrupted residual material temperature");
+        } else {
+            require(parcel.mass_kg==0,"full precision release retained mass");
+            // Make a finer U recipient without consuming the held correction.
+            const MacFluidTransfer empty{0,0,false,1,0};world=world.with_fluid_transfers(std::span(&empty,1),MacFluidTransferTopology::occupied_mixture).world;
+            const MacFluidTransfer fill{0,0,true,0x1p-20,temperature};world=world.with_fluid_transfers(std::span(&fill,1),MacFluidTransferTopology::occupied_mixture).world;
+            const auto before=world.state().cells[0].mixture.energy;const auto correction=parcel.energy_j;
+            require(release_precision_parcel(world,parcel,0,0,destination),"representable signed energy correction never releases");
+            MacEnergySum balance=correction;balance.add(before);balance.add(-world.state().cells[0].mixture.energy);add_precision_sum(balance,parcel.energy_j,-1);
+            require(balance.sign()==0,"heat-only correction created or discarded actual grid energy");
+        }
+    }
+    std::cout<<"PASS precision inventory: actual native sub-ULP ownership, exact receipt energy, wrapper11 cold continuation, original radius and internal late release\n";
 }
 void pipe_job_control() {
     using namespace ma::oni::colony;
@@ -1454,6 +1576,7 @@ int main(int argc, char** argv) {
         if (argc == 2 && std::strcmp(argv[1], "--transfer-capture-only") == 0) { transfer_capture_control(); return 0; }
         if (argc == 2 && std::strcmp(argv[1], "--release-capture-only") == 0) { release_capture_control();exact_release_control(); return 0; }
         if (argc == 2 && std::strcmp(argv[1], "--pipe-jobs-only") == 0) { moving_job_control(); pipe_job_control(); return 0; }
+        if (argc == 2 && std::strcmp(argv[1], "--precision-inventory-only") == 0) { precision_inventory_control(); return 0; }
         if (argc == 2 && std::strcmp(argv[1], "--tiny-injection-only") == 0) { tiny_injection_neighbour_control(); return 0; }
         if (argc == 2 && std::strcmp(argv[1], "--parcel-wire-only") == 0) { parcel_wire_control(); parcel_outcome_control(); return 0; }
         if (argc == 2 && std::strcmp(argv[1], "--falling-solid-only") == 0) { falling_solid_control(); return 0; }
@@ -1476,6 +1599,7 @@ int main(int argc, char** argv) {
         quiet_game_cell_control();
         moving_job_control();
         tiny_injection_neighbour_control();
+        precision_inventory_control();
         pipe_job_control();
         sample_control();
         view_cache_control();

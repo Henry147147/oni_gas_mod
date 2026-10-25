@@ -45,6 +45,8 @@ bool copy_options(MAOniColonyOptions&);
 void queue_germs(std::span<const MAOniColonyGermEdit>);
 void germ_accounts(MAOniColonyBiology&, std::vector<MAOniColonyBiologyAccount>&);
 [[nodiscard]] std::vector<std::uint8_t> checkpoint();
+// Latest published owner-held precision inventory (MAPREC01), separate from grid readings.
+[[nodiscard]] std::vector<std::uint8_t> precision_inventory();
 std::uint32_t species(MAOniColonySpecies* out, std::uint32_t capacity);
 // Readings and constituents of the latest completed frame; returns the frame.
 std::uint64_t readings(std::vector<MAOniColonyReading>&, std::vector<MAOniColonyConstituent>&);

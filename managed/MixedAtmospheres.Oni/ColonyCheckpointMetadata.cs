@@ -87,6 +87,12 @@ namespace MixedAtmospheres.Oni
                 var accounts=U32(image,ref at);Skip(image,ref at,(long)accounts*GermAccountBytes);
                 Skip(image,ref at,8);
             }
+            if(version>=11)
+            {
+                var held=U32(image,ref at);var heldAt=at;Skip(image,ref at,held);
+                if(held<12 || held>16*1024*1024 || !image.Slice(heldAt,8).SequenceEqual(new byte[]{77,65,80,82,69,67,48,49}))
+                    throw new InvalidDataException("Invalid owner precision inventory framing.");
+            }
             var lengthAt=at;Skip(image,ref at,8);
             var physical=BinaryPrimitives.ReadUInt64LittleEndian(image.Slice(lengthAt,8));
             if(physical<20 || physical!=(ulong)(image.Length-at-DigestBytes))
@@ -101,7 +107,7 @@ namespace MixedAtmospheres.Oni
             if (image.Length < 12 || !image.Slice(0,8).SequenceEqual(OwnerMagic))
                 throw new InvalidDataException("Missing colony checkpoint framing.");
             version=BinaryPrimitives.ReadUInt32LittleEndian(image.Slice(8,4));
-            if(version<6 || version>10) throw new InvalidDataException("Unsupported colony checkpoint metadata version.");
+            if(version<6 || version>11) throw new InvalidDataException("Unsupported colony checkpoint metadata version.");
             var at=12;
             Skip(image,ref at,56); // MAOniColonyConfig
             materials=U32(image,ref at);materialTable=at;

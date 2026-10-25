@@ -646,7 +646,43 @@ source/radius, mass and signed energy corrections, including energy remaining
 after mass release. Native-held inventory and actual grid credits must close
 together through refusal, release and cold continuation. Legacy reservoir
 behaviour and core23/profile5 arithmetic stay unchanged; an unused facility
-retains existing wrapper bytes. Implementation and in-game acceptance are pending.
+retains existing wrapper bytes. In-game acceptance is pending.
+
+The implemented owner block follows the version-10 germ section (mode zero is
+also valid in wrapper11) and precedes the core image length. It is a u32 byte
+length followed by `MAPREC01`, u32 record count, then each record's u32 original
+public source, public anchor, radius (2), native species index, binary64 mass,
+binary64 nominal source temperature, and canonical `MacEnergySum` total U+K+G.
+Each sum uses the existing parcel-wire count and mantissa/exponent components.
+The block is bounded to 16 MiB and 65,536 records. Wrapper11 is sticky after
+first use, including after the inventory empties; owners that never use it
+retain their existing 8/9/10 writer and bytes. The core remains version23.
+
+Only durable precise, stationary, passive-free gas injections can enter this
+inventory, after every legal original-radius destination refuses its mass as
+unrepresentable. Admission transfers actual mass and represented energy to
+native ownership and books the external ledger once. `MARECP02` describes
+transfer to the native owner (grid plus this durable inventory), not necessarily
+a changed grid cell. Its passive observation stays unchanged for held admission.
+`MAPOUT01` continues to describe actual grid credits only. The existing source
+job acknowledgement and committed-outcome save barrier apply unchanged.
+Grid readings remain grid
+readings; the separate published inventory and checkpoint expose held state.
+The owner mass and energy audit includes both. Identical source/anchor/species/
+temperature records coalesce only when their binary64 mass sum is exactly
+representable; energy additions retain every expansion term.
+
+Every owner frame retries the original source's current open-cell radius-two
+BFS through the existing moving-parcel law. Actual grid mass and U+K+G credits
+debit held inventory without a second external receipt or ledger input. The
+stationary law must credit zero momentum apart from its existing wall impulse.
+The nominal temperature remains separate from the signed energy balance, so
+partial mass release cannot turn a primary-write correction into an extreme
+material temperature. Zero-mass signed energy remains durable and retries the
+ordinary heat law, accepting only an exact reduction in its magnitude. There
+is no epsilon pruning, wider search, invented trace sink or permanent-release
+shortcut. Unsupported passives and liquids retain their prior refusal: this
+change adds neither a held-culture clock nor a new entropy or heat model.
 
 **Assigned 2026-10-24 by main after a fetch at `3eaccfa`:** owner wrapper
 `MACOLN01` version **10** holds world germ evolution ([germs](#germs)): after the

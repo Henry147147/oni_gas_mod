@@ -210,7 +210,7 @@ internal static unsafe class Program
         Test("save frame metadata follows durable image across reservoir and trace framing", () =>
         {
             const ulong durable=0x100000002;
-            foreach(var version in new uint[]{6,7,8,9,10})
+            foreach(var version in new uint[]{6,7,8,9,10,11})
             {
                 using var stream=new MemoryStream();using var writer=new BinaryWriter(stream);
                 writer.Write(System.Text.Encoding.ASCII.GetBytes("MACOLN01"));writer.Write(version);writer.Write(new byte[56]);
@@ -230,7 +230,7 @@ internal static unsafe class Program
         });
         Test("material admission metadata preserves canonical terms and native catalogue order", () =>
         {
-            foreach(var version in new uint[]{6,7,8,9,10})
+            foreach(var version in new uint[]{6,7,8,9,10,11})
             {
                 using var stream=new MemoryStream();using var writer=new BinaryWriter(stream);
                 writer.Write(System.Text.Encoding.ASCII.GetBytes("MACOLN01"));writer.Write(version);writer.Write(new byte[56]);writer.Write(2u);
@@ -300,6 +300,15 @@ internal static unsafe class Program
             Refuse(()=>ColonySavePayload.Decode(Mutate(8+4+56,int.MaxValue)));      // owner length
             Refuse(()=>ColonySavePayload.Decode(Mutate(8,55)));                     // config length
         });
+        if(Environment.GetEnvironmentVariable("MA_PRECISION_TEST_IMAGE") is string precisionImagePath)
+            Test("actual native precision-holder checkpoint metadata", () =>
+            {
+                var image=File.ReadAllBytes(precisionImagePath);
+                var profile=ColonyCheckpointMetadata.Profile(image);
+                Check(profile.OwnerVersion==11 && profile.PhysicalVersion==23 && ColonyCheckpointMetadata.CompletedFrames(image)==1);
+                Check(ColonyCheckpointMetadata.InjectedMass(image,111)==(Math.ScaleB(1,-54),0));
+                Check(ColonyCheckpointMetadata.PhysicalImage(image).Slice(0,8).SequenceEqual(System.Text.Encoding.ASCII.GetBytes("MACCLS01")));
+            });
         Test("restored physical profile reads the saved law and caps through every owner section", () =>
         {
             byte[] Owner(uint version,uint physicalVersion,uint law,uint pressure,uint heat,bool jobs,double mixing=.5)
@@ -323,6 +332,7 @@ internal static unsafe class Program
                     writer.Write(1u);writer.Write(40UL);writer.Write(3u);writer.Write(new byte[3*18]);
                     writer.Write(2u);writer.Write(new byte[2*16]);writer.Write(1u);writer.Write(new byte[8+6*16]);writer.Write(0.0);
                 }
+                if(version>=11) { writer.Write(12u);writer.Write(System.Text.Encoding.ASCII.GetBytes("MAPREC01"));writer.Write(0u); }
                 using var physical=new MemoryStream();using(var p=new BinaryWriter(physical,System.Text.Encoding.UTF8,true))
                 {
                     p.Write(System.Text.Encoding.ASCII.GetBytes("MACCLS01"));p.Write(physicalVersion);
@@ -336,7 +346,7 @@ internal static unsafe class Program
                 writer.Write((ulong)physical.Length);writer.Write(physical.ToArray());writer.Write(new byte[64]);
                 return stream.ToArray();
             }
-            foreach(var version in new uint[]{6,7,8,9,10})
+            foreach(var version in new uint[]{6,7,8,9,10,11})
                 foreach(var jobs in new[]{false,true})
                 {
                     var core21=Owner(version,21,1,400,800,jobs);
