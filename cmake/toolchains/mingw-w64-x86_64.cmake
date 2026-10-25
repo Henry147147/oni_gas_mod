@@ -19,6 +19,12 @@ endif()
 if(NOT MA_WINE AND DEFINED ENV{MA_WINE})
     set(MA_WINE "$ENV{MA_WINE}")
 endif()
+# CMake projects with pre-CMP0137 policies do not forward custom cache entries
+# to project-style IPO checks. Preserve the chosen prefix in this configure
+# process's child environment too (never changes the invoking shell).
+if(MA_MINGW_ROOT)
+    set(ENV{MA_MINGW_ROOT} "${MA_MINGW_ROOT}")
+endif()
 set(ma_mingw_hints)
 if(MA_MINGW_ROOT)
     list(APPEND ma_mingw_hints "${MA_MINGW_ROOT}/bin")

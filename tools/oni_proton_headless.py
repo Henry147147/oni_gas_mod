@@ -36,6 +36,14 @@ GAME_FILES = {
     "OxygenNotIncluded_Data/Plugins/x86_64/SimDLL.dll":
         "031960f120ac1d59fd8e43f6e1a7369111c629b90c24d52186b691dfe2d8a727",
 }
+BASE_GAME_DISABLED_DLC = ("EXPANSION1_ID", "DLC2_ID", "DLC3_ID", "DLC4_ID", "DLC5_ID")
+
+
+def base_game_preferences(profile: Path) -> None:
+    # The normal main-menu DLC toggle persists <id>.ENABLED in KPlayerPrefs.
+    # This is a fresh disposable profile; no entitlement or game code changes.
+    (profile / "kplayerprefs.yaml").write_text("strings: {}\nints:\n" +
+        "".join(f"  {identity}.ENABLED: 0\n" for identity in BASE_GAME_DISABLED_DLC) + "floats: {}\n")
 
 
 def windows_path(path: Path) -> str:
@@ -210,7 +218,7 @@ def validate_arguments(args) -> None:
         raise ValueError("--reload-in-process requires colony-owner-load or native-load-domain --resave-before-resume")
     if args.verify_save_io_recovery and (args.mode != "native-save-domain" or args.frames < 16):
         raise ValueError("Save I/O recovery requires native-save-domain and at least sixteen frames")
-    if args.save_colony and args.mode in ("native-load-domain", "menu"):
+    if args.save_colony and args.mode in ("native-load-domain", *FORWARD_MODES):
         raise ValueError("--save-colony requires an initial domain scene")
     if (getattr(args, "scenario", None) or getattr(args, "cluster", None)) and args.mode != "colony-owner":
         raise ValueError("--scenario and --cluster require colony-owner")
@@ -299,6 +307,9 @@ def playtest(args, state: Path, session: dict) -> int:
             raise ValueError("Proton profile escaped this run")
         mod = profile / "mods/Dev" / MOD_ID
         common.stage_package(package, mod, manifest, "win-x64")
+        if args.mode in OWNER_MODES:
+            base_game_preferences(profile)
+            result["disabled_dlc_preferences"] = list(BASE_GAME_DISABLED_DLC)
         common.write_json(profile / "mods/mods.json", {"version": 1, "mods": [{
             "label": {"distribution_platform": "Dev", "id": MOD_ID, "title": "Mixed Atmospheres - Integration Probe",
                       "version": common.mono_label_version(MOD_ID)}, "status": 1, "enabled": True,
@@ -396,6 +407,12 @@ def playtest(args, state: Path, session: dict) -> int:
         owner_ok = args.mode in OWNER_MODES and colony_owner_passed(owner)
         if code == 0 and args.mode in OWNER_MODES and not owner_ok:
             status, code = "failed-colony-owner-evidence", 2
+        if args.mode == "colony-owner":
+            pipes = (owner or {}).get("PipeSave") or {}
+            defaults_ok = (owner or {}).get("OwnerConfigFlags") == 13 and pipes.get("Active") is True and pipes.get("AuditClosed") is True
+            result["new_colony_defaults_passed"] = defaults_ok
+            if code == 0 and not defaults_ok:
+                status, code = "failed-new-colony-defaults", 2
         checkpoint = (domain or {}).get("ColonyCheckpoint") or {}
         # Authenticate the file and export a host path without altering raw
         # Windows game reports. Linux loaders must never guess at C: paths.

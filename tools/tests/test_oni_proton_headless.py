@@ -22,6 +22,14 @@ common = runner.common
 
 
 class ProtonIsolationTests(unittest.TestCase):
+    def test_base_game_profile_uses_the_normal_persisted_dlc_preferences(self):
+        with tempfile.TemporaryDirectory() as directory:
+            profile = Path(directory)
+            runner.base_game_preferences(profile)
+            text = (profile / "kplayerprefs.yaml").read_text()
+            self.assertIn("EXPANSION1_ID.ENABLED: 0", text)
+            self.assertNotIn("MA_", text)
+
     def test_owner_timing_excludes_missing_frames_and_session_changes(self):
         samples = [dict(session=1, frame=1, wall=1, owner_ms=10),
                    dict(session=1, frame=2, wall=1.2, owner_ms=20),

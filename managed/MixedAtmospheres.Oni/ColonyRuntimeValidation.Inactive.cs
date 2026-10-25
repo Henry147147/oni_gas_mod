@@ -30,7 +30,7 @@ namespace MixedAtmospheres.Oni
             if(Report.ObserverTimestepReturns<(ulong)configuration!.CompletedFrames||Report.ObserverPhysicalUpdates<(ulong)configuration.CompletedFrames)
             {WriteProgressReport();return;}
             Report.ActiveDlcIds=SaveLoader.Instance.GameInfo.dlcIds.ToArray();
-            Report.Status="passed";Report.Stage="completed";Report.FinishedUtc=DateTime.UtcNow.ToString("O");
+            Report.Status="passed";Report.Stage="completed";Report.FinishedUtc=System.DateTime.UtcNow.ToString("O");
             done=true;WriteReport();CaptureScreenshot("colony.png");
         }
     }
