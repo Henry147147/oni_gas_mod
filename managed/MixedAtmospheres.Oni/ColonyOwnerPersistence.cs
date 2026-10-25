@@ -83,9 +83,9 @@ namespace MixedAtmospheres.Oni
             if (length < 8 || length > data.Length - position - 4 || !ColonySaveEnvelope.HasMagic(data.AsSpan(position + 4, length))) return false;
             var materials = ColonyOwner.BuildCatalogue();
             var envelope = ColonySaveEnvelope.Parse(data.AsSpan(position + 4, length), OniBuild, MaterialModel, CatalogueHash(materials));
-            var payload = envelope.CustomData;
-            if (!ColonySavePayload.Recognizes(payload)) return false;
-            var sections = ColonySavePayload.Decode(payload);
+            // Once the MACOLONY envelope is recognized, an unknown managed
+            // payload is an incompatible mixture save, not a native save.
+            var sections = ColonySavePayload.Decode(envelope.CustomData);
             OniNativeColony.Config config;
             fixed (byte* source = sections.Config) config = Marshal.PtrToStructure<OniNativeColony.Config>((IntPtr)source);
             var image = sections.Owner;
@@ -98,6 +98,41 @@ namespace MixedAtmospheres.Oni
             if (loaded == IntPtr.Zero) throw new InvalidDataException("ONI's native loader rejected the colony's native section.");
             pending = (config, image); result = 0; ++Loads;
             return true;
+        }
+
+        // Before ONI leaves the menu (LoadScreen.DoLoad): a colony save this
+        // build cannot continue is refused there with its reason. Anything we
+        // cannot read as a Mixed Atmospheres save is left to ONI's own loader.
+        internal static string? LoadRefusal(string filename)
+        {
+            byte[] sim;
+            try
+            {
+                var source = SavedImage.CopyFrom(File.ReadAllBytes(filename));
+                var count = BinaryPrimitives.ReadInt32LittleEndian(source.CopySlice(4, 4));
+                var header = OwnedReservoirLoadHeaderV1.InspectLayoutHeader(source.CopySlice(0, 16 + count), allowUncompressed: true);
+                var directory = SavedDirectoryInspector.InspectPrefix(source, 16 + count, new SavedInspectionLimits());
+                var start = directory.Range.End;
+                var body = header.Compression == 1 ?
+                    SavedZlibInflationInspector.Inspect(source, new SavedByteRange(start, source.Length - start), new SavedInflationLimits()).BodyImage :
+                    SavedImage.CopyFrom(source.CopySlice(start, source.Length - start));
+                var range = SavedBodyPrefixInspector.Inspect(body, directory, new SavedPrefixLimits()).SimPayload;
+                sim = body.CopySlice(range.Offset, range.Length);
+            }
+            catch (Exception) { return null; }
+            if (sim.Length >= 4 && !ColonySaveEnvelope.HasMagic(sim) && ColonySaveEnvelope.HasMagic(sim.AsSpan(4))) sim = sim.AsSpan(4).ToArray();
+            if (!ColonySaveEnvelope.HasMagic(sim)) return null;
+            try
+            {
+                // The material catalogue is compared once elements exist (the in-game load checks it again).
+                var catalogue = ElementLoader.elements != null && ElementLoader.elements.Count != 0 ? CatalogueHash(ColonyOwner.BuildCatalogue()) :
+                    sim.Length >= 60 ? sim.AsSpan(28, ColonySaveEnvelope.CatalogHashBytes).ToArray() : new byte[ColonySaveEnvelope.CatalogHashBytes];
+                var envelope = ColonySaveEnvelope.Parse(sim, OniBuild, MaterialModel, catalogue);
+                var payload = ColonySavePayload.Decode(envelope.CustomData);
+                _ = ColonyCheckpointMetadata.Profile(payload.Owner);
+                return null;
+            }
+            catch (Exception error) { return error.Message; }
         }
 
         // The owner resumes at the first completed frame after the managed
@@ -144,6 +179,26 @@ namespace MixedAtmospheres.Oni
         }
     }
 
+    [HarmonyPatch(typeof(LoadScreen), nameof(LoadScreen.DoLoad), new[] { typeof(string) })]
+    internal static class ColonyLoadPrecheckPatch
+    {
+        private static bool Prefix(string __0)
+        {
+            var reason = ColonyOwnerPersistence.LoadRefusal(__0);
+            if (reason == null) return true;
+            UnityEngine.Debug.LogWarning("[Mixed Atmospheres] Colony save refused before loading: " + reason);
+            if (ColonyRuntimeValidation.Settings != null) { ColonyRuntimeValidation.RecordLoadRefusal(reason); return false; }
+            try
+            {
+                var parent = FrontEndManager.Instance != null ? FrontEndManager.Instance.gameObject : GameScreenManager.Instance.ssOverlayCanvas;
+                Util.KInstantiateUI(ScreenPrefabs.Instance.ConfirmDialogScreen.gameObject, parent, true).GetComponent<ConfirmDialogScreen>().PopupConfirmDialog(
+                    "This colony was saved by a Mixed Atmospheres build that this one cannot continue, so it was not loaded.\n\n" + reason,
+                    null, null, title_text: "COLONY NOT LOADED");
+            }
+            catch (Exception error) { UnityEngine.Debug.LogWarning("[Mixed Atmospheres] The load refusal could not be shown: " + error.Message); }
+            return false;
+        }
+    }
     [HarmonyPatch(typeof(Sim), nameof(Sim.Save))]
     internal static class ColonyOwnerSavePatch
     {

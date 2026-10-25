@@ -1423,6 +1423,22 @@ class EvidenceTests(unittest.TestCase):
                          ("passed-vanilla-load-refused", 0))
         self.assertNotEqual(runner.classify("colony-owner-load", self.log, self.probe, dict(refused, VanillaLoadResult=0), False)[1], 0)
 
+    def test_owner_load_refusal_requires_expected_reason_and_inactive_owner(self):
+        refused = {"Status": "passed", "Stage": "load-refused", "GameStarted": False,
+                   "LoadRefusalExpected": True, "LoadRefusedWithoutOwner": True,
+                   "CustomStateImportError": "Unsupported colony payload section."}
+        self.assertEqual(runner.classify("colony-owner-load", self.log, self.probe, refused, False),
+                         ("passed-owner-load-refused", 0))
+        for changed in ({"LoadRefusalExpected": False}, {"LoadRefusedWithoutOwner": False},
+                        {"CustomStateImportError": ""}, {"CustomStateImportError": None},
+                        {"Status": "failed"}):
+            self.assertNotEqual(runner.classify("colony-owner-load", self.log, self.probe,
+                                               dict(refused, **changed), False)[1], 0)
+        self.assertNotEqual(runner.classify("colony-owner", self.log, self.probe, refused, False)[1], 0)
+        for extra in ({"timed_out": True}, {"player_exit": 139}):
+            self.assertNotEqual(runner.classify("colony-owner-load", self.log, self.probe,
+                                               refused, **dict({"timed_out": False}, **extra))[1], 0)
+
     def test_crashes_timeout_and_late_failures_override_completed_report(self):
         report = {"Status": "passed", "GameStarted": True}
         for timed_out, player_exit, extra in ((True, 0, ""), (False, 139, ""),

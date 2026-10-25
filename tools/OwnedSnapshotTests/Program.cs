@@ -276,7 +276,8 @@ internal static unsafe class Program
                     Check(ColonyCheckpointMetadata.Profile(core21).Equals(new ColonyPhysicalProfile(version,21,1,400,800,.5)));
                     Check(ColonyCheckpointMetadata.Profile(Owner(version,22,1,400,800,jobs,8)).Equals(new ColonyPhysicalProfile(version,22,1,400,800,8)));
                     Check(!ColonyCheckpointMetadata.Profile(Owner(version,22,1,400,800,jobs,8)).Equals(new ColonyPhysicalProfile(version,22,1,400,800,.5)));
-                    Check(ColonyCheckpointMetadata.Profile(Owner(version,23,1,400,800,jobs,8)).Equals(new ColonyPhysicalProfile(version,23,0,0,0)));
+                    Check(ColonyCheckpointMetadata.Profile(Owner(version,23,1,400,800,jobs,8)).Equals(new ColonyPhysicalProfile(version,23,1,400,800,8)));
+                    Check(ColonyCheckpointMetadata.Profile(Owner(version,24,1,400,800,jobs,8)).Equals(new ColonyPhysicalProfile(version,24,0,0,0)));
                     Check(ColonyCheckpointMetadata.CompletedFrames(core21)==77 && ColonyCheckpointMetadata.OwnerVersion(core21)==version);
                     var physical=ColonyCheckpointMetadata.PhysicalImage(core21);
                     Check(physical.Slice(0,8).SequenceEqual(System.Text.Encoding.ASCII.GetBytes("MACCLS01")) &&
@@ -680,6 +681,8 @@ internal static unsafe class Program
             Check(Find(typeof(Game),"SimEveryTick",typeof(float)).ReturnType==typeof(void));
             var delayed=Find(typeof(Game),"StartDelayedSave",typeof(string),typeof(bool),typeof(bool));Check(delayed.IsPublic && !delayed.IsStatic);
             Check(Find(typeof(CO2Manager),"Sim33ms",typeof(float)).IsPublic);
+            var load=Find(typeof(LoadScreen),"DoLoad",typeof(string));Check(load.IsPublic && load.IsStatic && load.ReturnType==typeof(void));
+            Check(typeof(FrontEndManager).GetField("Instance",any)!=null && typeof(ScreenPrefabs).GetField("ConfirmDialogScreen",any)!=null);
             var spawn=Find(typeof(CO2Manager),"SpawnCO2",typeof(UnityEngine.Vector3),typeof(float),typeof(float),typeof(bool),typeof(float));
             Check(spawn.IsPublic && spawn.ReturnType==typeof(CO2));
             Check(typeof(CO2Manager).GetField("co2Items",any)?.FieldType==typeof(List<CO2>));

@@ -26,6 +26,7 @@ namespace MixedAtmospheres.Oni
             public ulong FirstColonySaveFrame, ColonySaveFrame, RestoredFrame;
             // ONI's own Sim.Load result for a colony save loaded without the mod's loader (-1: refused).
             public int? VanillaLoadResult;
+            public bool LoadRefusalExpected, LoadRefusedWithoutOwner;
             public string OniBuild = "744825";
             public bool AuthoritativeColonySimulationReady = false;
             public string PhysicsOwner = "native ONI";
@@ -625,7 +626,9 @@ namespace MixedAtmospheres.Oni
         {
             if (done) return;
             var expected = System.Environment.GetEnvironmentVariable("MA_COLONY_EXPECT_LOAD_REFUSAL") == "1";
-            Report.Status = expected && !ColonyOwner.Active ? "passed" : "failed"; Report.Stage = "load-refused";
+            Report.LoadRefusalExpected = expected;
+            Report.LoadRefusedWithoutOwner = !ColonyOwner.Active;
+            Report.Status = expected && Report.LoadRefusedWithoutOwner && !string.IsNullOrWhiteSpace(reason) ? "passed" : "failed"; Report.Stage = "load-refused";
             Report.Error = expected ? "" : "Colony load refused: " + reason; Report.CustomStateImportError = reason;
             Report.FinishedUtc = System.DateTime.UtcNow.ToString("O");
             done = true; WriteReport();
@@ -754,8 +757,10 @@ namespace MixedAtmospheres.Oni
                     {
                         if (string.IsNullOrEmpty(config.LoadSavePath) || !File.Exists(config.LoadSavePath)) throw new FileNotFoundException("A completed native colony save is required.");
                         ColonyRuntimeValidation.ValidateSelectedSaveContent(Path.GetFullPath(config.LoadSavePath));
-                        SaveLoader.SetActiveSaveFilePath(Path.GetFullPath(config.LoadSavePath));
-                        LoadingOverlay.Load(SaveLoader.LoadScene);
+                        var selected = Path.GetFullPath(config.LoadSavePath);
+                        // Owner loads go through the load screen's own entry, as a player's do.
+                        if (config.Mode == "colony-owner-load") LoadingOverlay.Load(() => LoadScreen.DoLoad(selected));
+                        else { SaveLoader.SetActiveSaveFilePath(selected); LoadingOverlay.Load(SaveLoader.LoadScene); }
                     }
                     else if (config.ReuseGeneratedWorld)
                     {

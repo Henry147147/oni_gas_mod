@@ -575,6 +575,12 @@ def classify(mode: str, log: str, probe: dict | None, report: dict | None, timed
     # A vanilla-load check passes when ONI's own loader refused the save.
     if mode == "colony-owner-load" and report.get("Stage") == "vanilla-load-refused":
         return "passed-vanilla-load-refused", 0 if report.get("VanillaLoadResult") == -1 else 2
+    if mode == "colony-owner-load" and report.get("Stage") == "load-refused":
+        expected = (report.get("LoadRefusalExpected") is True and
+                    report.get("LoadRefusedWithoutOwner") is True and
+                    isinstance(report.get("CustomStateImportError"), str) and
+                    bool(report["CustomStateImportError"].strip()))
+        return ("passed-owner-load-refused", 0) if expected else ("failed-owner-load-refusal", 2)
     if report.get("GameStarted") is not True:
         return "failed-colony-not-started", 2
     return "passed-" + mode, 0

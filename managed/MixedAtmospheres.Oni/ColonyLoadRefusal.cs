@@ -18,7 +18,7 @@ namespace MixedAtmospheres.Oni
         {
             if (Refused) return;
             Reason = error.Message.Length != 0 ? error.Message : error.GetType().Name;
-            Debug.LogError("[Mixed Atmospheres] This colony cannot be loaded: " + Reason + "\n" + error);
+            Debug.LogWarning("[Mixed Atmospheres] This colony cannot be loaded: " + Reason + "\n" + error);
         }
         // Unity update, outside the simulation step: one dialog, then the menu.
         internal static void Update()

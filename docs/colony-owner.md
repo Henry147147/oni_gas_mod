@@ -703,6 +703,10 @@ positive time or any conduit update. If the owner or pipe restore fails
 differs from ONI's conduit contents), `ColonyLoadRefusal` holds simulation time,
 shows "Colony not loaded" with the reason and returns to the main menu; the
 colony never continues on ONI's own fluid simulation and the file is unchanged.
+The load menu checks a recognized mixture save before leaving the menu and
+reports incompatible ONI/material versions, payload sections and owner formats.
+Unrecognized files continue through ONI's loader. The refusal harness accepts
+only an explicitly expected refusal with a reason and no active owner.
 
 Loading hands the native bytes to ONI's loader and restores the
 owner at the first completed frame; a different catalogue or geometry rejects
