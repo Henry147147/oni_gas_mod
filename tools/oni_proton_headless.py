@@ -91,7 +91,7 @@ def sandbox_command(home: Path, state: Path, output: Path, game: Path,
             "--unsetenv", "DBUS_SESSION_BUS_ADDRESS", str(proton / "proton"), *tail]
 
 
-def game_env(state: Path, output: Path, game: Path, display: str) -> dict:
+def game_env(state: Path, output: Path, game: Path, display: str, *, gpu: bool = False) -> dict:
     env = dict(os.environ)
     # Desktop extraction libraries are for Xvfb/scrot, not Proton's Wine.
     for key in ("WAYLAND_DISPLAY", "LD_LIBRARY_PATH", "WINEPREFIX", "WINESERVER"):
@@ -101,6 +101,8 @@ def game_env(state: Path, output: Path, game: Path, display: str) -> dict:
         STEAM_COMPAT_DATA_PATH=str(output / "compatdata"), STEAM_COMPAT_INSTALL_PATH=str(game),
         STEAM_COMPAT_APP_ID="457140", SteamAppId="457140", SteamGameId="457140",
         PROTON_USE_WINED3D=env.get("PROTON_USE_WINED3D", "1"), WINEDEBUG="-all", PROTON_LOG="1", PROTON_LOG_DIR=str(output))
+    if gpu:
+        for key in ("LIBGL_ALWAYS_SOFTWARE","LP_NUM_THREADS","XAUTHORITY"):env.pop(key,None)
     return env
 
 
@@ -111,7 +113,11 @@ def compatibility_settings(env: dict) -> dict:
     return {key: env[key] for key in keys if key in env}
 
 
-def start_display(state: Path, output: Path) -> tuple[dict, str, dict]:
+def start_display(state: Path, output: Path, gpu_display: str | None = None) -> tuple[dict | None, str, dict]:
+    if gpu_display:
+        desktop=common.desktop_env(state,{"display":gpu_display},gpu=True)
+        subprocess.run(["xdpyinfo"],env=desktop,stdout=subprocess.DEVNULL,stderr=subprocess.PIPE,check=True,timeout=15)
+        return None,gpu_display,desktop
     return common.start_private_display(state, output)
 
 
@@ -288,7 +294,7 @@ def playtest(args, state: Path, session: dict) -> int:
     (output / "runtime").mkdir(mode=0o700)
     result = {"kind": "actual-unity-colony-owner-proton-run" if args.mode in OWNER_MODES else "actual-unity-bounded-native-proton-run", "status": "initializing", "exit_code": 2,
         "mode": args.mode, "output": str(output), "host_platform": "linux", "target_platform": PLATFORM,
-        "actual_windows_os": False, "real_unity_player": False, "software_rendering": True,
+        "actual_windows_os": False, "real_unity_player": False, "software_rendering": not getattr(args,"gpu_display",None),
         "first_playable_colony_passed": False, "whole_colony_fluid_authority": False,
         "authoritative_colony_simulation_ready": False, "full_mod_completion_verified": False,
         "package_manifest": manifest, "game_hashes": game_hashes,
@@ -297,8 +303,8 @@ def playtest(args, state: Path, session: dict) -> int:
     xvfb = record = None
     prefix_started = False
     try:
-        xvfb, display, desktop = start_display(state, output)
-        env = game_env(state, output, game, display)
+        xvfb, display, desktop = start_display(state, output,getattr(args,"gpu_display",None))
+        env = game_env(state, output, game, display,gpu=bool(getattr(args,"gpu_display",None)))
         if args.mode in OWNER_MODES:
             # Defaults and saved settings must stand on their own in this route.
             env = {key: value for key, value in env.items() if not key.startswith("MA_")}
@@ -497,6 +503,7 @@ def playtest(args, state: Path, session: dict) -> int:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--state", type=Path, default=common.DEFAULT_STATE)
+    parser.add_argument("--gpu-display",help="Use an existing hardware X display for graphics; defaults to a private software-rendered display")
     parser.add_argument("--game-dir", type=Path, default="/mnt/data/share/oni/OxygenNotIncluded")
     parser.add_argument("--proton", type=Path, required=True, help="Installed complete Proton tool root")
     parser.add_argument("--package", type=Path, required=True)

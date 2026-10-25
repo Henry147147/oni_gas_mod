@@ -741,7 +741,12 @@ namespace MixedAtmospheres.Oni
                         if(!menuQuitRequested)
                         {
                             menuQuitRequested=true;
-                            LoadingOverlay.Load(PauseScreen.TriggerQuitGame);return;
+                            Debug.Log("[Mixed Atmospheres] Quit control requested return to main menu.");
+                            LoadingOverlay.Load(()=>{
+                                Debug.Log("[Mixed Atmospheres] Quit control callback entered.");
+                                PauseScreen.TriggerQuitGame();
+                                Debug.Log("[Mixed Atmospheres] Quit control callback completed.");
+                            });return;
                         }
                         if(Game.Instance!=null||UnityEngine.Object.FindFirstObjectByType<MainMenu>()==null)return;
                         Debug.Log("[Mixed Atmospheres] Quit control reached the main menu after its colony.");

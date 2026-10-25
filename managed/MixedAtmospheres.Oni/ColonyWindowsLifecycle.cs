@@ -42,7 +42,29 @@ namespace MixedAtmospheres.Oni
     internal static class ColonyWindowsSimShutdownTrace
     {
         private static bool Prepare()=>RuntimeInformation.IsOSPlatform(OSPlatform.Windows);
-        private static void Prefix()=>UnityEngine.Debug.Log("[Mixed Atmospheres] Windows Sim.Shutdown entered.");
+        private static void Prefix()
+        {
+            UnityEngine.Debug.Log("[Mixed Atmospheres] Windows Sim.Shutdown entered.");
+            if(ColonyOwner.Active)
+            {
+                UnityEngine.Debug.Log("[Mixed Atmospheres] Windows owner workers stopping before native shutdown.");
+                ColonyWindowsLifecycle.Stop();
+            }
+        }
         private static void Postfix()=>UnityEngine.Debug.Log("[Mixed Atmospheres] Windows Sim.Shutdown completed.");
+    }
+    [HarmonyPatch(typeof(PauseScreen),"TriggerQuitGame")]
+    internal static class ColonyWindowsTriggerQuitTrace
+    {
+        private static bool Prepare()=>RuntimeInformation.IsOSPlatform(OSPlatform.Windows);
+        private static void Prefix()=>UnityEngine.Debug.Log("[Mixed Atmospheres] Windows PauseScreen.TriggerQuitGame entered.");
+        private static void Postfix()=>UnityEngine.Debug.Log("[Mixed Atmospheres] Windows PauseScreen.TriggerQuitGame completed.");
+    }
+    [HarmonyPatch(typeof(LoadScreen),"ForceStopGame")]
+    internal static class ColonyWindowsForceStopTrace
+    {
+        private static bool Prepare()=>RuntimeInformation.IsOSPlatform(OSPlatform.Windows);
+        private static void Prefix()=>UnityEngine.Debug.Log("[Mixed Atmospheres] Windows LoadScreen.ForceStopGame entered.");
+        private static void Postfix()=>UnityEngine.Debug.Log("[Mixed Atmospheres] Windows LoadScreen.ForceStopGame completed.");
     }
 }

@@ -169,6 +169,19 @@ class ProtonIsolationTests(unittest.TestCase):
             dict(MONOMOD_RunningOnWine='false',MONOMOD_DMDType='methodbuilder',PROTON_USE_WINED3D='1',WINEDEBUG='-all'))
         self.assertEqual(runner.compatibility_settings({}), {})
 
+    def test_explicit_gpu_display_reuses_the_display_without_taking_ownership(self):
+        desktop={"DISPLAY":":99"}
+        with mock.patch.object(common,"desktop_env",return_value=desktop) as environment, mock.patch.object(
+                common,"start_private_display") as private, mock.patch.object(runner.subprocess,"run") as probe:
+            self.assertEqual(runner.start_display(self.root,self.root/"run",":99"),(None,":99",desktop))
+        private.assert_not_called()
+        self.assertTrue(environment.call_args.kwargs["gpu"])
+        self.assertEqual(probe.call_args.args[0],["xdpyinfo"])
+        with mock.patch.dict(os.environ,dict(LIBGL_ALWAYS_SOFTWARE="1",LP_NUM_THREADS="4",XAUTHORITY="/other/cookie")):
+            gpu=runner.game_env(self.root,self.root/"run",self.root/"game",":99",gpu=True)
+        self.assertEqual(gpu["DISPLAY"],":99")
+        for key in ("LIBGL_ALWAYS_SOFTWARE","LP_NUM_THREADS","XAUTHORITY"):self.assertNotIn(key,gpu)
+
     def test_failed_wine_cleanup_still_stops_only_owned_game_and_display(self):
         game, display = {"pid": 111}, {"pid": 222}
         (self.root / "run/compatdata/pfx").mkdir(parents=True)
