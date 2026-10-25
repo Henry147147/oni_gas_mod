@@ -1,5 +1,6 @@
 #include "oni_colony.hpp"
 #include "mac_kernel_detail.hpp"
+#include "mac_kernel_lifecycle.hpp"
 #include "mac_phase_flow.hpp"
 #include "mac_game_bridge.hpp"
 #include "oni_catalogue.hpp"
@@ -252,9 +253,25 @@ struct Solver {
         idle.wait(l, [&] { return !running && seconds == 0 && !refusal; });
         busy.store(false, std::memory_order_release);
     }
+#if defined(_WIN32)
+    std::mutex retirement;
+    void retire() {
+        std::lock_guard retiring(retirement);
+        { std::lock_guard l(m); quit=true; }
+        wake.notify_all();idle.notify_all();
+        if(thread.joinable())thread.join();
+        { std::lock_guard l(m); quit=false; busy.store(false,std::memory_order_release); }
+    }
+#endif
     ~Solver() { { std::lock_guard l(m); quit = true; } wake.notify_all(); if (thread.joinable()) thread.join(); }
 };
+#if defined(_WIN32)
+// A stopped native module remains mapped for its callers. Never join threads
+// from a Windows static destructor, which runs under the loader lock.
+Solver& solver=*new Solver;
+#else
 Solver solver; // declared after the session state, so destroyed before it
+#endif
 
 MAOniColonyStatus empty_status() { MAOniColonyStatus s{}; s.struct_size = sizeof(s); s.abi_version = MA_ONI_COLONY_ABI_VERSION; return s; }
 void write_error(MAOniColonyStatus& s, const char* text) { std::snprintf(s.error, sizeof(s.error), "%s", text); }
@@ -1057,6 +1074,10 @@ void stop() noexcept {
     capture_native_arena.store(false,std::memory_order_release);
     biology_mode.store(0, std::memory_order_relaxed);
     solver.settle(true);
+#if defined(_WIN32)
+    solver.retire();
+    ma::experimental::mac_kernel::retire_pools();
+#endif
     std::lock_guard lock(lifecycle);
     session.reset();
     std::scoped_lock p(publication,inputs);latest.reset();sample_frames.clear();retained_sample_frames=0;
@@ -1931,11 +1952,19 @@ void advance(std::uint64_t ticket, double seconds, std::uint64_t thread) noexcep
     if (!enabled.load(std::memory_order_acquire)) return;
     try {
         std::unique_lock l(solver.m);
+#if defined(_WIN32)
+        if(!enabled.load(std::memory_order_acquire))return;
+#endif
         const char* why = !(seconds > 0 && seconds <= 1) ? "Native frame timestep is invalid" :
             thread == start_thread.load(std::memory_order_relaxed) ? "A colony frame came from the game thread instead of a native worker" : nullptr;
         if (why) { solver.refusal = why; seconds = 0; }
+#if defined(_WIN32)
+        solver.idle.wait(l, [&] { return !enabled.load(std::memory_order_acquire) || solver.quit || solver.seconds + seconds <= 10; });
+        if (!enabled.load(std::memory_order_acquire) || solver.quit) return;
+#else
         solver.idle.wait(l, [&] { return solver.quit || solver.seconds + seconds <= 10; });
         if (solver.quit) return;
+#endif
         solver.ticket = ticket; solver.seconds += seconds; if (seconds > 0) ++solver.frames;
         solver.busy.store(true, std::memory_order_release);
         if (!solver.thread.joinable()) solver.thread = std::thread([] { solver.loop(); });

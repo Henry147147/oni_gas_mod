@@ -3,6 +3,7 @@
 // the grid shape, each block is processed by exactly one thread, and
 // reductions combine per-block partials in block order (MAC_KERNEL.md, "Determinism").
 #include "mac_kernel_detail.hpp"
+#include "mac_kernel_lifecycle.hpp"
 #include <chrono>
 #include <map>
 #include <memory>
@@ -141,13 +142,36 @@ void Pool::run(std::size_t blocks, const std::function<void(std::size_t)>& job) 
     }
     for (auto& error : errors_) if (error) std::rethrow_exception(error);
 }
+#if defined(_WIN32)
+namespace {
+struct PoolRegistry { std::mutex mutex; std::map<unsigned,std::unique_ptr<Pool>> pools; };
+PoolRegistry& pool_registry() {
+    // DLL_PROCESS_DETACH holds the Windows loader lock: worker termination
+    // needs that lock too. Explicit colony shutdown retires workers instead.
+    static auto* registry = new PoolRegistry;
+    return *registry;
+}
+}
+#endif
 Pool& pool_for(unsigned threads) {
+#if defined(_WIN32)
+    auto& registry=pool_registry();std::lock_guard lock(registry.mutex);
+    auto& entry=registry.pools[std::max(1U,threads)];
+#else
     static std::mutex mutex;
     static std::map<unsigned, std::unique_ptr<Pool>> pools;
     std::lock_guard lock(mutex);
     auto& entry = pools[std::max(1U, threads)];
+#endif
     if (!entry) entry = std::make_unique<Pool>(std::max(1U, threads));
     return *entry;
+}
+void retire_pools() noexcept {
+#if defined(_WIN32)
+    std::map<unsigned,std::unique_ptr<Pool>> retired;
+    auto& registry=pool_registry();
+    { std::lock_guard lock(registry.mutex); retired.swap(registry.pools); }
+#endif
 }
 }
 

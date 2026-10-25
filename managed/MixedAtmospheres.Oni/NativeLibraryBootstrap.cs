@@ -37,6 +37,7 @@ namespace MixedAtmospheres.Oni
                 if (observerModule == IntPtr.Zero) throw new DllNotFoundException("Cannot load native observer: " + Marshal.PtrToStringAnsi(Dlerror()));
             }
             else throw new PlatformNotSupportedException("Native observation targets Windows and Linux x64.");
+            ColonyWindowsLifecycle.Install();
         }
         internal static void LoadCoupledReference(string modDirectory)
         {
