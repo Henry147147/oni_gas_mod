@@ -64,6 +64,15 @@ inline bool release_precision_parcel(experimental::MacClosedWorld& world,Precisi
     using namespace experimental;
     for(const auto cell:destinations) {
         if(held.mass_kg>0) {
+            // The core makes the same conservative scalar mass admission.
+            // Avoid copying the entire colony for an immutable candidate that
+            // cannot possibly advance this constituent's primary value.
+            const double old=world.state().cells[cell].mixture.masses[species];
+            double added=old+held.mass_kg;
+            if(!std::isfinite(added) || added<=old)continue;
+            MacEnergySum excess;excess.add(added);excess.add(-old);excess.add(-held.mass_kg);
+            if(excess.sign()>0)added=std::nextafter(added,old);
+            if(added<=old)continue;
             MacMovingParcel request;request.cell_index=cell;request.species_index=species;request.mass_kg=held.mass_kg;
             request.potential_energy_j=precision_potential(world,anchor,held.mass_kg);
             // The signed primary-write correction is NOT a material
@@ -95,6 +104,8 @@ inline bool release_precision_parcel(experimental::MacClosedWorld& world,Precisi
         try {
             const double amount=held.energy_j.value().project().value;
             if(amount==0)continue;
+            const double old=world.state().cells[cell].mixture.energy;
+            if(old+amount==old)continue;
             const MacCellHeat heat{cell,amount,std::numeric_limits<double>::max()};
             auto result=world.with_cell_heat(std::span(&heat,1));
             MacEnergySum delta;delta.add(result.state().cells[cell].mixture.energy);delta.add(-world.state().cells[cell].mixture.energy);
