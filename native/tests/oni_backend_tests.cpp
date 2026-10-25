@@ -5,18 +5,70 @@
 #include "mixed_atmospheres/oni_colony.h"
 #include "../src/oni_sha256.hpp"
 #include "../src/oni_funchook_storage.hpp"
+#include "../src/oni_body_heat_trace.hpp"
 #include <array>
 #include <chrono>
 #include <cstring>
 #include <iostream>
 #include <stdexcept>
 #include <string>
+#if defined(__linux__)
+#include <unistd.h>
+#endif
 
 static void require(bool condition,const char* message) {
     if (!condition) throw std::runtime_error(message);
 }
+static void body_heat_trace_controls() {
+#if defined(__linux__)
+    using ma::oni::body_heat_trace::body;
+    std::array<std::byte,0x500> frame{};std::array<std::byte,0x600> sim{};std::array<std::byte,44> record{};
+    std::array<std::int32_t,1> mapping{0};std::array<std::uint8_t,1> generations{1};
+    const auto put=[](auto& target,std::size_t offset,const auto& value){std::memcpy(target.data()+offset,&value,sizeof(value));};
+    put(sim,0x438,record.data());put(sim,0x440,record.data()+record.size());
+    put(sim,0x480,mapping.data());put(sim,0x488,mapping.data()+mapping.size());
+    put(sim,0x498,generations.data());put(sim,0x4a0,generations.data()+generations.size());
+    put(record,0,std::bit_cast<std::uint32_t>(300.f));put(record,16,std::bit_cast<std::uint32_t>(18.f));
+    put(record,28,std::int32_t{10});put(record,32,std::int32_t{20});put(record,36,std::int32_t{12});put(record,40,std::int32_t{23});
+    const auto original_sim=sim;const auto original_frame=frame;const auto original_record=record;
+    const auto sample=body(sim.data(),0x01000000);
+    require(sample.valid && sample.area==6 && sample.temperature_bits==std::bit_cast<std::uint32_t>(300.f) &&
+        sample.capacity_per_cell_bits==std::bit_cast<std::uint32_t>(18.f),"native registered body capacity/area view");
+    require(!body(nullptr,0).valid && !body(sim.data(),0x02000000).valid && !body(sim.data(),0x01000001).valid,
+        "native body stale generation or missing mapping was observed");
+    mapping[0]=-1;require(!body(sim.data(),0x01000000).valid,"retired native body mapping accepted");mapping[0]=0;
+    put(record,36,std::int32_t{9});require(!body(sim.data(),0x01000000).valid,"negative native registered area accepted");record=original_record;
+    require(sim==original_sim && frame==original_frame && record==original_record && mapping[0]==0 && generations[0]==1,
+        "native body observation modified its source");
+    std::array<std::uint32_t,4> message{0x01000000,std::bit_cast<std::uint32_t>(-1.f),std::bit_cast<std::uint32_t>(280.f),std::bit_cast<std::uint32_t>(320.f)};
+    put(frame,0x1b8,message.data());put(frame,0x1c0,message.data()+message.size());
+    char path[]="/tmp/ma-body-heat-trace-test-XXXXXX";const int descriptor=mkstemp(path);
+    require(descriptor>=0,"native body trace fixture path");(void)close(descriptor);(void)unlink(path);
+    require(setenv("MA_ONI_BODY_HEAT_TRACE",path,1)==0 && ma::oni::body_heat_trace::Frame::enabled(),"native body trace opt-in");
+    std::fenv_t initial{};require(std::fegetenv(&initial)==0,"native body trace initial environment");const int initial_errno=errno;
+    for(const auto rounding:{FE_TONEAREST,FE_DOWNWARD,FE_UPWARD,FE_TOWARDZERO}) {
+        require(std::fesetround(rounding)==0,"native body trace rounding control");
+        (void)std::feclearexcept(FE_ALL_EXCEPT);(void)std::feraiseexcept(FE_DIVBYZERO);errno=111;
+        {
+            ma::oni::body_heat_trace::Frame observation(7,frame.data(),sim.data());
+            require(errno==111 && std::fegetround()==rounding && std::fetestexcept(FE_ALL_EXCEPT)==FE_DIVBYZERO,
+                "native body trace capture changed caller math or errno");
+            put(record,0,std::bit_cast<std::uint32_t>(299.f));errno=222;(void)std::feraiseexcept(FE_INVALID);
+        }
+        require(errno==222 && std::fegetround()==rounding && std::fetestexcept(FE_ALL_EXCEPT)==(FE_DIVBYZERO|FE_INVALID),
+            "native body trace emission changed original return math or errno");
+    }
+    (void)std::fesetenv(&initial);errno=initial_errno;
+    auto* output=std::fopen(path,"r");require(output!=nullptr,"native body trace output absent");
+    std::array<char,1024> text{};const auto bytes=std::fread(text.data(),1,text.size()-1,output);(void)std::fclose(output);(void)unlink(path);
+    require(bytes>0 && std::strstr(text.data(),"capacity_per_cell_kj_k_bits") && std::strstr(text.data(),"41900000\t6\t3"),
+        "native body trace did not retain actual capacity, area and valid paired observations");
+    std::cout<<"PASS native body heat observation: actual registered area/capacity, stale/retired rejection, readonly source and preserved math/errno\n";
+#endif
+}
 int main() {
     try {
+        body_heat_trace_controls();
         require(ma_oni_colony_precise_receipt_version()==2,"precise receipt observation capability");
         static_assert(sizeof(MAOniColonyParcelContext)==72);
         MAOniColonyParcelContext parcel_context{};parcel_context.struct_size=sizeof(parcel_context);parcel_context.abi_version=1;

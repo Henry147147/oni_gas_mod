@@ -48,3 +48,31 @@ with zero residual against the original 0.245883883 J bound. Every actual
 carrier result validates. This controlled result enables neither production
 mixed ownership nor a new numerical profile; phase/range, full saved activity
 and ordinary activation still need their own checks.
+
+## Native body-message observation
+
+A later heated Oceania save refuses one body still at the replay's input
+temperature. Another1200-frame repeat with two saves passes, so this is not
+established as a general queue-settlement fault. Inspection also shows that
+the native message uses represented carrier temperature work, subject to a
+posting threshold, and its actual registered body capacity. Agreement with
+the carrier helpers alone does not establish every body's subsequent work.
+The existing hot/cold results remain focused evidence; the general contact
+account and save refusal remain open until the complete message path is proved.
+
+`MA_ONI_BODY_HEAT_TRACE` selects a fresh private TSV path for a read-only
+observation inside the existing validated native frame-message hook. It records
+each queued body-energy message and the actual registered body's temperature,
+capacity per occupied cell and area before message processing, plus its
+temperature afterward. Float values are emitted as their binary32 hex bits.
+Rows carry the native frame ordinal and validity flags (before1/after2).
+Multiple messages or registration changes in one frame require separate
+analysis; an aggregate body delta must not be attributed to one pipe.
+
+The observer adds no detours, preserves the original floating-point environment
+and errno, changes no inputs or native/owned state, and allocates nothing when
+disabled. Layout, stale/retired handle, immutable-source and all-rounding-mode
+controls pass, as do all86 native CTests. A private preload attempt was rejected
+by the original-entry fingerprint guard before colony creation; the integrated
+observation keeps that guard intact. No private captures or game code belong in
+the repository. Instrumented runs establish no speed acceptance.

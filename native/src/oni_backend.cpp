@@ -4,6 +4,7 @@
 #include "oni_domain.hpp"
 #include "oni_colony.hpp"
 #include "oni_floor_capture.hpp"
+#include "oni_body_heat_trace.hpp"
 #include "oni_funchook_storage.hpp"
 #include "mixed_atmospheres/fluid_thermodynamics.hpp"
 #include <funchook.h>
@@ -178,7 +179,10 @@ void on_process_frame(void* frame,void* data) {
     // in both inspected native builds.
     float seconds{};if(frame) std::memcpy(&seconds,frame,sizeof(seconds));
     native_heat_contact_bits.store(std::bit_cast<std::uint32_t>(seconds),std::memory_order_release);
-    original<void (*)(void*,void*)>(MA_ONI_PROCESS_FRAME)(frame,data);
+    if(ma::oni::body_heat_trace::Frame::enabled()) {
+        ma::oni::body_heat_trace::Frame observation(counters[MA_ONI_PROCESS_FRAME].entries.load(std::memory_order_relaxed),frame,data);
+        original<void (*)(void*,void*)>(MA_ONI_PROCESS_FRAME)(frame,data);
+    }else original<void (*)(void*,void*)>(MA_ONI_PROCESS_FRAME)(frame,data);
 }
 float on_next_frame(void* self,void* data) {
     Call call(MA_ONI_NEXT_FRAME);
