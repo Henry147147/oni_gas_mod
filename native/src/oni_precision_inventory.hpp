@@ -19,17 +19,26 @@ inline void add_precision_sum(experimental::MacEnergySum& to,const experimental:
 inline long double precision_value(const experimental::MacEnergySum& sum) {
     long double value=0;
     for(std::size_t i=0;i<sum.size();++i) {
-        const auto x=sum.component(i).project().value;
+        const auto term=sum.component(i);
+        ParcelWireReader::require(term.exponent()<=1024,"Precision inventory exceeds owner reporting range");
+        const auto x=term.project().value;
         value+=static_cast<long double>(x);
     }
     ParcelWireReader::require(std::isfinite(value),"Precision inventory exceeds owner reporting range");
     return value;
+}
+inline void validate_precision_parcel(const PrecisionParcel& p) {
+    ParcelWireReader::require(p.radius==2 && std::isfinite(p.mass_kg) && p.mass_kg>=0 &&
+        !std::signbit(p.mass_kg) && std::isfinite(p.temperature_k) && p.temperature_k>0 &&
+        (p.mass_kg>0 || p.energy_j.sign()!=0),"Invalid precision parcel");
+    (void)precision_value(p.energy_j);
 }
 inline std::vector<std::uint8_t> encode_precision_inventory(std::span<const PrecisionParcel> entries) {
     ParcelWireWriter w;w.raw("MAPREC01");
     ParcelWireReader::require(entries.size()<=maximum_parcel_entries,"Too many precision parcels");
     w.u32(static_cast<std::uint32_t>(entries.size()));
     for(const auto& p:entries) {
+        validate_precision_parcel(p);
         w.u32(p.source);w.u32(p.anchor);w.u32(p.radius);w.u32(p.native_index);w.f64(p.mass_kg);w.f64(p.temperature_k);w.sum(p.energy_j);
     }
     return std::move(w.bytes);
@@ -43,9 +52,7 @@ inline std::vector<PrecisionParcel> decode_precision_inventory(std::span<const s
     std::vector<PrecisionParcel> result;result.reserve(count);
     for(std::uint32_t i=0;i<count;++i) {
         PrecisionParcel p;p.source=r.u32();p.anchor=r.u32();p.radius=r.u32();p.native_index=r.u32();p.mass_kg=r.f64();p.temperature_k=r.f64();p.energy_j=r.sum();
-        ParcelWireReader::require(p.radius==2 && std::isfinite(p.mass_kg) && p.mass_kg>=0 &&
-            !std::signbit(p.mass_kg) && std::isfinite(p.temperature_k) && p.temperature_k>0 && (p.mass_kg>0 || p.energy_j.sign()!=0),"Invalid precision parcel");
-        (void)precision_value(p.energy_j);result.push_back(std::move(p));
+        validate_precision_parcel(p);result.push_back(std::move(p));
     }
     ParcelWireReader::require(r.at==bytes.size(),"Trailing precision inventory bytes");
     // Reject noncanonical expansions, rather than silently normalizing saves.

@@ -793,6 +793,32 @@ void precision_inventory_control() {
     require(status().state==1 && status().injected_kg==0 && decode_precision_inventory(precision_inventory()).empty(),"unsupported liquid entered precision inventory");
     require(copy_receipts(&second,1)==1 && second.mass_kg==0,"unsupported liquid did not retain zero receipt");
     ack_receipts(second.sequence);require(checkpoint()[8]==8,"unsupported request changed legacy wrapper");stop();
+    for(auto& cell:cells)cell={oxygen,MA_ONI_COLONY_FLUID,.6f,300,0,0};
+    cells[12]={0,MA_ONI_COLONY_SOLID,0,0,0,0};
+    for(const double invalid_temperature:{.5,1e10}) {
+        start(cfg,mats,cells,1);enable_precise_receipts(true);auto request=injection;request.temperature_k=invalid_temperature;
+        (void)queue_pipe_job(1,request,{});advance(1,.000001,2);wait();
+        require(status().state==1 && status().injected_kg==0 && decode_precision_inventory(precision_inventory()).empty(),"out-of-EOS source temperature entered precision inventory");
+        require(copy_receipts(&second,1)==1 && second.mass_kg==0,"invalid-temperature source lost conservative refusal");
+        ack_receipts(second.sequence);require(checkpoint()[8]==8,"invalid-temperature source selected wrapper11");stop();
+    }
+    // The writer and reader share field/reporting validation. Construct raw
+    // malformed records independently rather than asking the writer to emit
+    // records its own admission contract forbids.
+    for(unsigned mode=0;mode<5;++mode) {
+        PrecisionParcel invalid{12,11,2,oxygen,0x1p-54,300,{}};invalid.energy_j.add(1);
+        if(mode==0)invalid.radius=3;
+        if(mode==1)invalid.mass_kg=-1;
+        if(mode==2)invalid.temperature_k=0;
+        if(mode==3){invalid.mass_kg=0;invalid.energy_j={};}
+        if(mode==4){invalid.energy_j={};invalid.energy_j.add(std::numeric_limits<double>::max());invalid.energy_j.add(std::numeric_limits<double>::max());}
+        bool rejected=false;try{(void)encode_precision_inventory(std::span(&invalid,1));}catch(const std::invalid_argument&){rejected=true;}
+        require(rejected,"precision producer accepted a decoder-invalid record");
+        ParcelWireWriter raw;raw.raw("MAPREC01");raw.u32(1);raw.u32(invalid.source);raw.u32(invalid.anchor);raw.u32(invalid.radius);raw.u32(invalid.native_index);
+        raw.f64(invalid.mass_kg);raw.f64(invalid.temperature_k);raw.sum(invalid.energy_j);
+        rejected=false;try{(void)decode_precision_inventory(raw.bytes);}catch(const std::invalid_argument&){rejected=true;}
+        require(rejected,"precision reader accepted an encoder-invalid record");
+    }
     // Independent exact before/after operands, not the implementation's
     // reported credit or the owner's millionth-scale audit. Both rounding
     // signs and a partial mass with a much larger energy correction.

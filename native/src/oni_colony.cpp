@@ -2546,7 +2546,8 @@ void run_frame(std::uint64_t ticket, double seconds, std::uint64_t frames, const
                             held.internal_energy_j=e.mass_kg*(material.energy_offset_j_per_kg+material.cv_j_per_kg_k*e.temperature_k);
                             held.potential_energy=detail::precision_potential(world,e.cell_index,e.mass_kg);
                             held.passives_before=held.passives_after=world.state().cells[e.cell_index].passive_quantities;
-                            if(std::isfinite(held.internal_energy_j)) {
+                            if(std::isfinite(held.internal_energy_j) && e.temperature_k>=material.minimum_temperature_k &&
+                                e.temperature_k<=material.maximum_temperature_k) {
                                 const auto anchor=static_cast<std::uint32_t>((s.config.offset_x+e.cell_index%s.config.width)+
                                     (s.config.offset_y+e.cell_index/s.config.width)*s.config.grid_width);
                                 detail::PrecisionParcel entry{plan->source->public_cell,anchor,2,cat.materials[e.species_index].game.native_index,e.mass_kg,e.temperature_k,{}};
@@ -2659,8 +2660,11 @@ void run_frame(std::uint64_t ticket, double seconds, std::uint64_t frames, const
             const auto before_world=world;const auto before_held=held;
             if(detail::release_precision_parcel(world,held,cat.species_of_native(held.native_index),
                 rect_index(s.config,held.anchor),destinations)) {
-                try { (void)detail::encode_precision_inventory(s.precision); }
-                catch(const std::invalid_argument&) { world=before_world;held=before_held; }
+                try {
+                    auto durable=s.precision;
+                    std::erase_if(durable,[](const auto& p){return p.mass_kg==0 && p.energy_j.sign()==0;});
+                    (void)detail::encode_precision_inventory(durable);
+                } catch(const std::invalid_argument&) { world=before_world;held=before_held; }
             }
         }
         std::erase_if(s.precision,[](const auto& held){return held.mass_kg==0 && held.energy_j.sign()==0;});
@@ -3152,6 +3156,9 @@ void restore(const MAOniColonyConfig& config, std::span<const MAOniColonyMateria
             require(distance<=held.radius && next->catalogue->has_native(held.native_index) &&
                 next->catalogue->materials[next->catalogue->species_of_native(held.native_index)].game.gas &&
                 (config.flags&MA_ONI_COLONY_GAME_KERNEL),"Invalid precision inventory provenance");
+            const auto& material=next->catalogue->eos->reference().materials()[next->catalogue->species_of_native(held.native_index)];
+            require(held.temperature_k>=material.minimum_temperature_k && held.temperature_k<=material.maximum_temperature_k,
+                "Invalid precision material temperature");
         }
     }
     const auto physical = r.u64(); require(physical == r.bytes.size() - r.at, "Colony checkpoint physical image length differs");
