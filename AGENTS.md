@@ -33,11 +33,13 @@ few that your task touches, starting here.
   them. Never "fix" a failure by changing them.
 - Claim a new checkpoint version only right after a fetch, and push it promptly
   ([MAC_CHECKPOINT.md](native/MAC_CHECKPOINT.md#version-assignment)).
-- The licensed game stays private: never commit game files, decompiled code or
-  captures. Never type Steam credentials or bypass Steam's checks; if sign-in is
-  needed, ask the user. No public release or Workshop upload without the user's
-  authorization.
-- Linux only for now; the Windows port comes later. Keep evidence light
+- The licensed game stays private: never commit game files, decompiled code,
+  saves or native/memory captures. Gameplay screenshots and short clips for the
+  README are allowed (user decision 2026-10-25). Never type Steam credentials or
+  bypass Steam's checks; if sign-in is needed, ask the user. No public release or
+  Workshop upload without the user's authorization.
+- Linux and Windows x64 (user decision 2026-10-25: the private playtest runs on
+  the user's Windows PC). Keep evidence light
   ([playtest plan](docs/playtest-plan.md#evidence)).
 - Describe scope and steps, not calendar estimates.
 

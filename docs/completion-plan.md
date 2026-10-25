@@ -8,6 +8,23 @@ still require separate authorization.
 
 Amendments:
 
+- **Windows playtest and settings, 2026-10-25 (user decisions):**
+  1. *Windows now.* The user plays the first private playtest on their own
+     Windows PC, so Windows x64 joins Linux as a supported target now. The
+     Windows build is validated here with WindowsPlayer runs under Proton;
+     Windows OS behaviour is confirmed by the user's playtest.
+  2. *Settings.* An in-game settings screen with built-in profiles and the
+     player's own presets exposes every supported setting, impactful and
+     minor, and works alongside Ony's Mod Manager. Only the current game
+     profile can be selected; older solvers and profiles are never
+     selectable, so they carry no support obligation. Old saves still load
+     with the profile they recorded.
+  3. *Speed.* Performance work continues while the user playtests,
+     preserving gameplay behaviour and the rules above.
+  4. *README.* The README opens with a player-facing introduction that uses
+     real gameplay screenshots and short clips; all existing information is
+     kept below it.
+
 - **First private playtest, 2026-10-25 (user decisions):**
   1. *Default profile.* New colonies use game profile 5 (core23, heat
      mixing 8) now, with mixed pipes and their saves on, without any
