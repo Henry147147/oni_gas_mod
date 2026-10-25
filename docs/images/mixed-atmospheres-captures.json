@@ -1,0 +1,39 @@
+{
+  "captured_utc_date": "2026-10-25",
+  "platform": "WindowsPlayer under official Proton 10.0-4b on Linux",
+  "oni_build": 744825,
+  "renderer": "NVIDIA GeForce RTX 5090, OpenGL Core",
+  "original_game_captures": true,
+  "assets": [
+    {
+      "file": "mixed-atmospheres-gameplay.png",
+      "source_revision": "f5a6dde9dcde020230967383e76f8a666238613a",
+      "scope": "actual owned development colony",
+      "sha256": "33ded0df48f4e5972badf8bc598e52b737921fad218295436fbe82d93d5ae020"
+    },
+    {
+      "file": "mixed-atmospheres-composition.png",
+      "source_revision": "f5a6dde9dcde020230967383e76f8a666238613a",
+      "scope": "actual owned development colony",
+      "sha256": "72d11e8acbb092a97dc5d6bdf44a3d14020fb1fa550d4025f278b270f2b90081"
+    },
+    {
+      "file": "mixed-atmospheres-settings.png",
+      "source_revision": "e6e6b758c71ce197abac6caa7498ffe390210e25",
+      "scope": "main-menu user preset UI",
+      "sha256": "c77bffd60ea7a54ac8c53f9f7fdc50478f90dbef9177034e37b0357ac7c49865"
+    },
+    {
+      "file": "mixed-atmospheres-gameplay.mp4",
+      "source_revision": "f5a6dde9dcde020230967383e76f8a666238613a",
+      "scope": "actual owned development colony",
+      "sha256": "13c1033ace213d9935675205797e0f00d2932e9cb6560d88366e7b4b713fe0ef"
+    },
+    {
+      "file": "mixed-atmospheres-composition.mp4",
+      "source_revision": "f5a6dde9dcde020230967383e76f8a666238613a",
+      "scope": "actual owned development colony",
+      "sha256": "9dad0942e61d97fe54b5ebc889b3993dc8188c2ac3dc65e2119fecb5eafa6a83"
+    }
+  ]
+}

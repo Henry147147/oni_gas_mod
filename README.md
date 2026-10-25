@@ -1,3 +1,42 @@
+# Mixed Atmospheres
+
+Mixed Atmospheres changes how air, gas, and liquid behave across your asteroid in Oxygen Not Included. Gases now share space and stay mixed, so oxygen, carbon dioxide and other gases travel together. Miscible liquids blend together, while immiscible liquids settle into layers you can see and manage.
+
+Pumps and pipes carry full mixtures. Filters remove the constituent you pick and let the rest pass through. Gas pressure, oxygen partial pressure, and pressure-dependent boiling and latent heat all matter, and the gauges show the mixture you are managing. By default, a room counts as breathable when oxygen is at least 15% by moles and at least 15 kPa of partial pressure, and CO2 stays below 0.5% and 500 Pa.
+
+New colonies start with vanilla world conditions, with no starting nitrogen added. If a fluid fault occurs, the gas and liquid simulation stops visibly and saves are refused, so reload your last save to continue. The game clock slows to match the solver's pace; this mod does not promise real-time speed.
+
+Mixed Atmospheres is a private playtest build for Windows x64 and Linux. It applies to new base-game colonies on one asteroid, ONI build 744825, licensed through Steam. Spaced Out and gameplay packs must be disabled. Existing vanilla saves keep their vanilla simulation. The Windows build has been tested under Proton; Windows validation is part of your own playtest. Final release-candidate acceptance is still in progress, so this is preparation for private playtesting, not a public release. There is no Workshop release.
+
+![Mixed Atmospheres gameplay during development](docs/images/mixed-atmospheres-gameplay.png)
+
+*A real development colony in WindowsPlayer under Proton on Linux.*
+
+Settings live behind the Settings button in the Mods row or the status panel. You can choose Default (recommended), Robust (higher iteration caps), or the experimental Fast and Precise profiles, and set breathing to relaxed or strict. You can create, save, rename, load, import, and export presets. Solver and breathing settings are recorded per colony and are read-only during play. Display and key preferences remain adjustable at any time. Only the current solver is selectable. Settings persist in `mods/config/MixedAtmospheres`, outside the mod's installation folder.
+
+![Mixed Atmospheres composition display](docs/images/mixed-atmospheres-composition.png)
+
+*The composition overlay and gas hover in the same development colony.*
+
+Watch [a colony in motion](docs/images/mixed-atmospheres-gameplay.mp4) and [its mixture overlay](docs/images/mixed-atmospheres-composition.mp4).
+
+To install on Windows, extract the private ZIP, close ONI, and run `powershell -NoProfile -ExecutionPolicy Bypass -File .\install_windows.ps1`. Launch ONI through Steam, then disable Spaced Out from the main menu and restart. In Mods, enable Mixed Atmospheres and restart. Optionally open Settings, then start a NEW base-game colony. The detailed guide is in [docs/private-playtest-release.md](docs/private-playtest-release.md).
+
+After playing, please send your Player.log from `%USERPROFILE%\AppData\LocalLow\Klei\Oxygen Not Included\Player.log`.
+
+![Mixed Atmospheres settings panel](docs/images/mixed-atmospheres-settings.png)
+
+*Creating and loading a user preset in the actual settings window.*
+
+---
+
+## Technical and reference information
+
+The earlier Linux development README is preserved verbatim below. The current scope, status and Windows installation steps above take precedence.
+
+<details>
+<summary>Earlier Linux development reference</summary>
+
 # Mixed Atmospheres for Oxygen Not Included
 
 Mixed Atmospheres replaces Oxygen Not Included's gas and liquid simulation with
@@ -172,3 +211,5 @@ binaries, decompiled game implementations, game-derived contract exports, Steam
 credentials or colony saves belong in the source repository or in packages.
 Steam license checks are never bypassed. No Workshop item has been published;
 public release and Workshop upload require separate authorization.
+
+</details>
