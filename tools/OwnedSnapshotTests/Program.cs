@@ -244,7 +244,12 @@ internal static unsafe class Program
             var single=ColonySavePayload.Encode(config,owner,new[]{new KeyValuePair<uint,byte[]>(2,particles)});
             Check(ColonySavePayload.Decode(single).Section(1)==null && ColonySavePayload.Decode(single).Section(2)!.SequenceEqual(particles));
             void Refuse(System.Action action){var refused=false;try{action();}catch(InvalidDataException){refused=true;}catch(NotSupportedException){refused=true;}Check(refused);}
-            Refuse(()=>ColonySavePayload.Encode(config,owner,new[]{new KeyValuePair<uint,byte[]>(3,pipes)}));
+            // Section 3 is the colony settings record (docs/settings.md); 4 is unknown.
+            var settings=new byte[]{7,7};
+            var three=ColonySavePayload.Encode(config,owner,new[]{new KeyValuePair<uint,byte[]>(3,settings),new KeyValuePair<uint,byte[]>(1,pipes),new KeyValuePair<uint,byte[]>(2,particles)});
+            var threeParsed=ColonySavePayload.Decode(three);
+            Check(threeParsed.Sections.Count==3 && threeParsed.Section(3)!.SequenceEqual(settings) && ColonySavePayload.Encode(config,owner,threeParsed.Sections).SequenceEqual(three));
+            Refuse(()=>ColonySavePayload.Encode(config,owner,new[]{new KeyValuePair<uint,byte[]>(4,pipes)}));
             Refuse(()=>ColonySavePayload.Encode(config,owner,new[]{new KeyValuePair<uint,byte[]>(1,Array.Empty<byte>())}));
             Refuse(()=>ColonySavePayload.Encode(config,owner,new[]{new KeyValuePair<uint,byte[]>(1,pipes),new KeyValuePair<uint,byte[]>(1,pipes)}));
             Refuse(()=>ColonySavePayload.Encode(new byte[55],owner));
@@ -255,7 +260,7 @@ internal static unsafe class Program
             var at=8+4+56+4+owner.Length;
             byte[] Mutate(int offset,int value){var copy=(byte[])sectioned.Clone();BinaryPrimitives.WriteInt32LittleEndian(copy.AsSpan(offset),value);return copy;}
             Refuse(()=>ColonySavePayload.Decode(Mutate(at,0)));                     // no sections
-            Refuse(()=>ColonySavePayload.Decode(Mutate(at,3)));                     // too many sections
+            Refuse(()=>ColonySavePayload.Decode(Mutate(at,4)));                     // too many sections
             Refuse(()=>ColonySavePayload.Decode(Mutate(at+4,2)));                   // out of order (2 then 2)
             Refuse(()=>ColonySavePayload.Decode(Mutate(at+4,5)));                   // unknown tag
             Refuse(()=>ColonySavePayload.Decode(Mutate(at+8,0)));                   // empty section

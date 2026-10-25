@@ -84,7 +84,8 @@ play.
 - **Breathing** (easy mode): a cell is breathable with at least 15% oxygen by
   moles and 15 kPa oxygen partial pressure, carbon dioxide below 0.5% and
   500 Pa; polluted oxygen counts as oxygen. A breathable cell offers its oxygen
-  of the more abundant kind.
+  of the more abundant kind. A colony started with other breathing
+  [settings](settings.md) records and keeps them.
 
 A faulted owner keeps publishing its last frame (fluids freeze), logs the error
 and refuses saves.
@@ -707,7 +708,9 @@ outside the owner image (docs/mixed-pipes.md#saved-framing), otherwise exact
 MACOLP01. ONI does not save `CO2Manager` particles, whose mass is in no ledger
 until they deposit; the save keeps every active one as a MACO2P01 image and a
 load recreates them through the original factory before the manager's first
-update or spawn, requiring a byte-identical re-encoding.
+update or spawn, requiring a byte-identical re-encoding. A colony whose
+breathing settings differ from the defaults adds section 3
+([settings](settings.md#save-record)); Default colonies write none.
 
 A mixed-pipe colony adds MACOLP03 section 1, the pipe runtime's own
 MACPIP01 schema-3 image (docs/mixed-pipes.md#saved-framing), captured after the

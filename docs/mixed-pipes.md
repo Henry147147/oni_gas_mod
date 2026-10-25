@@ -338,7 +338,7 @@ network/updater order remain required for exact continued evolution. A restore
 refuses unless each owned cell's consolidated projection equals ONI's
 restored `ConduitContents` bit for bit; this alone is not continuation proof.
 
-**MACOLP03** was assigned by main after a fetch at `f8eb87a` (2026-10-24): config, owner image, then tagged sections in increasing tag order (1 = pipe runtime, currently MACPIP01 schema 4; 2 = MACO2P01 in-flight CO2 particles).
+**MACOLP03** was assigned by main after a fetch at `f8eb87a` (2026-10-24): config, owner image, then tagged sections in increasing tag order (1 = pipe runtime, currently MACPIP01 schema 4; 2 = MACO2P01 in-flight CO2 particles; 3 = colony settings record, [settings](settings.md#save-record)).
 Unknown, duplicate or empty sections refuse; a save without sections still writes exact MACOLP01 bytes; MACOLP02 stays refused.
 
 - **MACOLP01:** unchanged magic, int32 configuration length, 56-byte

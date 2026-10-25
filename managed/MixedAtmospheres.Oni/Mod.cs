@@ -12,6 +12,8 @@ namespace MixedAtmospheres.Oni
     public sealed class Mod : KMod.UserMod2
     {
         internal static string DirectoryPath { get; private set; } = "";
+        // This mod's static ID in ONI's mod list (the Mods screen settings button).
+        internal static string StaticId { get; private set; } = "";
         private static IntegrationReport? probeReport;
         private static string ReportPath => Path.Combine(DirectoryPath, "integration-probe.json");
 
@@ -25,15 +27,15 @@ namespace MixedAtmospheres.Oni
         {
             try
             {
-                DirectoryPath = path;
+                DirectoryPath = path; StaticId = mod?.staticID ?? "";
                 var verifiedAssemblyHash = IntegrationProbe.VerifyContract();
                 NativeLibraryBootstrap.Load(path);
                 NativeBackendObservation.Initialize(path);
-                MixtureAppearanceSettings.Initialize();
                 GasDiffusionOptions.Initialize();
                 MixtureOverlays.InitializeStrings();
                 OniNitrogenElements.InitializeStrings();
                 ColonyRuntimeValidation.Initialize();
+                ModSettingsRuntime.Initialize(); // docs/settings.md; after the validation request is known
                 NitrogenElementTagPatch.WarmNativeCalls();
                 UnityEngine.Debug.Log("[Mixed Atmospheres] Original enum tag helpers passed before patching.");
                 if (ColonyRuntimeValidation.Settings?.Mode == "load-rejection")
@@ -48,6 +50,7 @@ namespace MixedAtmospheres.Oni
                 File.WriteAllText(destination, report.ToJson());
                 probeReport = report;
                 MixtureStatusDisplay.Install();
+                ModSettingsScreen.Install();
                 UnityEngine.Debug.Log("[Mixed Atmospheres] Integration probe completed. " +
                     (NativeSealedDomainValidation.IsMode ? "A sealed native development domain is enabled; whole-colony ownership is not certified. Report: " :
                     ColonyOwner.Available ? "The colony owner takes the gases and liquids of a new base-game colony. Report: " :
@@ -86,6 +89,7 @@ namespace MixedAtmospheres.Oni
             Step("nitrogen tag verification", NitrogenElementTagPatch.ResetAfterFailedLoad);
             Step("mixture renderer", MixtureWorldRendering.ResetAfterFailedLoad);
             Step("mixture status display", MixtureStatusDisplay.Remove);
+            Step("settings window", ModSettingsScreen.Remove);
             Step("reservoir marker", OwnedReservoirOwnerMarker.ResetAfterFailedLoad);
             Step("overlay status registry", MixtureOverlays.UnregisterStatusItemOverlays);
             Step("native observer", NativeBackendObservation.ResetAfterFailedLoad);

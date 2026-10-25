@@ -62,11 +62,12 @@ namespace MixedAtmospheres.Oni
                     styles.Add(new MixtureSpeciesStyle(ids[k], string.IsNullOrWhiteSpace(name) ? ids[k] : name, new MixtureSrgbColor(colour.r, colour.g, colour.b)));
                 }
                 catalog = new FluidMaterialCatalog(Version, materials);
-                // Easy-mode breathing (docs/colony-owner.md): no upper oxygen bound.
-                var breathing = new AtmosphereSettings { HardMode = false, MaximumOxygenFraction = 1 };
+                // The colony's recorded breathing rules (docs/settings.md); by
+                // default easy mode (docs/colony-owner.md): no upper oxygen bound.
+                var breathing = ModSettingsRuntime.Breathing;
                 MixturePresentationRuntime.ResetProviders();
                 MixturePresentationRuntime.Configure(new MixturePresentationModel(catalog, styles, breathing,
-                    SimHashes.Oxygen.ToString(), SimHashes.CarbonDioxide.ToString()));
+                    SimHashes.Oxygen.ToString(), SimHashes.CarbonDioxide.ToString(), options: MixtureAppearanceSettings.Options));
                 publishedFrame = ulong.MaxValue;
             }
         }

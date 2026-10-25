@@ -15,7 +15,8 @@ namespace MixedAtmospheres.Oni
     // MACOLP02 layout is refused.
     internal sealed class ColonySavePayload
     {
-        internal const uint PipeRuntime = 1, CarbonParticles = 2;
+        // 3: the colony settings record (ColonySettingsRecord, docs/settings.md).
+        internal const uint PipeRuntime = 1, CarbonParticles = 2, ColonySettings = 3;
         internal const int ConfigBytes = 56;
         private const int MaximumSectionBytes = 256 * 1024 * 1024;
         private static readonly byte[] Legacy = Encoding.ASCII.GetBytes("MACOLP01"), Dormant = Encoding.ASCII.GetBytes("MACOLP02"),
@@ -58,7 +59,7 @@ namespace MixedAtmospheres.Oni
             var sections = new SortedDictionary<uint, byte[]>();
             if (data.Slice(0, 8).SequenceEqual(Legacy)) return new ColonySavePayload(config, data.Slice(at).ToArray(), sections);
             var owner = Take(data, ref at, Int(data, ref at, 1, int.MaxValue));
-            var count = Int(data, ref at, 1, 2);
+            var count = Int(data, ref at, 1, 3);
             var previous = 0U;
             for (var k = 0; k < count; ++k)
             {
@@ -74,7 +75,7 @@ namespace MixedAtmospheres.Oni
 
         private static void ValidateSection(uint tag, int length)
         {
-            if (tag != PipeRuntime && tag != CarbonParticles) throw new NotSupportedException("Unknown colony payload section " + tag + ".");
+            if (tag != PipeRuntime && tag != CarbonParticles && tag != ColonySettings) throw new NotSupportedException("Unknown colony payload section " + tag + ".");
             if (length <= 0 || length > MaximumSectionBytes) throw new InvalidDataException("Empty or oversized colony payload section.");
         }
         private static int Int(ReadOnlySpan<byte> data, ref int at, int minimum, int maximum)

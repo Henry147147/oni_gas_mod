@@ -92,6 +92,17 @@ it for its full composition.
 | Shift+F5 | Cycle composition, pressure, oxygen partial pressure, breathability and normal view |
 | Shift+F8 | Expand/collapse the status panel |
 
+### Settings
+
+Open **Settings** on Mixed Atmospheres' row in **Mods**, or on the status
+panel. Presets: **Default** (recommended), **Robust** (more solver room,
+same results), **Fast** and **Precise** (experimental), **Relaxed** and
+**Strict breathing**; save, rename, share and import your own. Solver and
+breathing settings apply to colonies you start next and are recorded in each
+colony's save; preferences (reading precision, pattern, panel, shortcut keys)
+apply at once. Files live in `mods/config/MixedAtmospheres` in ONI's user
+folder and survive mod updates. Details: [docs/settings.md](docs/settings.md).
+
 ## Build and test
 
 ```sh

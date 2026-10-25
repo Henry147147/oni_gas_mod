@@ -189,16 +189,21 @@ namespace MixedAtmospheres.Oni
             return text.ToString();
         }
 
+        // Reading precision (docs/settings.md): exact prints every digit and
+        // both units; otherwise the same values print rounded to four
+        // significant figures in kPa, °C and kg. Validation scenes keep exact.
+        internal static bool ExactReadings = true;
+
         public static string FormatState(MixturePresentation reading)
         {
             if (reading == null) throw new ArgumentNullException(nameof(reading));
             var temperature = reading.TotalMassKg > 0
-                ? Number(reading.TemperatureKelvin - 273.15) + " °C (" + Number(reading.TemperatureKelvin) + " K)"
+                ? Number(reading.TemperatureKelvin - 273.15) + " °C" + (ExactReadings ? " (" + Number(reading.TemperatureKelvin) + " K)" : "")
                 : "temperature unavailable in vacuum";
             var kilopascals = reading.TotalPressurePa / 1000;
             var pressure = reading.GasMoles > 0
                 ? "Gas pressure " + (kilopascals == 0 && reading.TotalPressurePa > 0 ? "below numeric range" : Number(kilopascals)) +
-                    " kPa (" + Number(reading.TotalPressurePa) + " Pa)"
+                    " kPa" + (ExactReadings ? " (" + Number(reading.TotalPressurePa) + " Pa)" : "")
                 : "No gas phase";
             var state = pressure + " · " + temperature + " · " + Number(reading.TotalMassKg) + " kg";
             if (reading.LiquidVolumeFraction > 0) state += " · " + FormatFluidPressure(reading);
@@ -217,7 +222,7 @@ namespace MixedAtmospheres.Oni
             if (!reading.MechanicalPressurePa.HasValue) return "Fluid pressure unavailable";
             var pressure = reading.MechanicalPressurePa.Value;
             return "Fluid pressure " + (pressure >= 1e6 ? Number(pressure / 1e6) + " MPa" : Number(pressure / 1000) + " kPa") +
-                " (" + Number(pressure) + " Pa)";
+                (ExactReadings ? " (" + Number(pressure) + " Pa)" : "");
         }
 
         public static IReadOnlyList<string> FormatCompactComposition(MixturePresentation reading)
@@ -230,9 +235,9 @@ namespace MixedAtmospheres.Oni
             // hazardous traces omitted from this contents list.
             foreach (var row in reading.GasConstituents)
                 if (!row.IsTrace)
-                    result.Add(row.DisplayName + " " + row.MolePercentText + " by moles" + (row.IsContaminant ? " — CONTAMINANT" : ""));
+                    result.Add(row.DisplayName + " " + Percent(row) + " by moles" + (row.IsContaminant ? " — CONTAMINANT" : ""));
             if (reading.LiquidVolumeFraction > 0)
-                result.Add("Liquid volume " + Number(100 * reading.LiquidVolumeFraction) + "%");
+                result.Add("Liquid volume " + Number(100 * reading.LiquidVolumeFraction) + "%" + LiquidNames(reading));
             if (reading.GasConstituents.Any(row => row.IsTrace))
                 result.Add("Trace gases omitted from contents · select for complete composition");
             else result.Add("Select for constituent masses and partial pressures");
@@ -242,9 +247,11 @@ namespace MixedAtmospheres.Oni
         public static string FormatConstituent(MixtureConstituentPresentation row)
         {
             if (row == null) throw new ArgumentNullException(nameof(row));
-            var result = row.DisplayName + " · " + row.MassTextKg + " (" + Number(row.MassKg * 1000) + " g) · " + row.MolesText;
+            var result = ExactReadings ? row.DisplayName + " · " + row.MassTextKg + " (" + Number(row.MassKg * 1000) + " g) · " + row.MolesText :
+                row.DisplayName + " · " + Amount(row.MassKg, row, " kg") + " · " + Amount(row.Moles, row, " mol");
             if (row.GasMoleFraction.HasValue)
-                result += " · " + row.MolePercentText + " by moles · partial pressure " + row.PartialPressureText;
+                result += " · " + Percent(row) + " by moles · partial pressure " +
+                    (ExactReadings || !row.PartialPressurePa.HasValue ? row.PartialPressureText : Amount(row.PartialPressurePa.Value, row, " Pa"));
             else result += " · liquid constituent · gas partial pressure not applicable";
             if (row.IsTrace) result += " · trace";
             if (row.IsContaminant) result += " · CONTAMINANT";
@@ -284,11 +291,12 @@ namespace MixedAtmospheres.Oni
             foreach (var row in reading.Constituents)
             {
                 var name = row.DisplayName + (row.IsTrace ? " (trace)" : "") + (row.IsContaminant ? " · CONTAMINANT" : "");
-                var details = row.GasMoleFraction.HasValue ? row.MolePercentText + " by moles" : "Liquid constituent";
-                details += " · " + row.MassTextKg + " · " + row.MolesText;
-                var pressure = row.PartialPressurePa.HasValue ? "Partial pressure " + row.PartialPressureText : "Gas partial pressure not applicable";
+                var details = row.GasMoleFraction.HasValue ? Percent(row) + " by moles" : "Liquid constituent";
+                details += " · " + (ExactReadings ? row.MassTextKg + " · " + row.MolesText : Amount(row.MassKg, row, " kg") + " · " + Amount(row.Moles, row, " mol"));
+                var pressure = row.PartialPressurePa.HasValue ? "Partial pressure " +
+                    (ExactReadings ? row.PartialPressureText : Amount(row.PartialPressurePa.Value, row, " Pa")) : "Gas partial pressure not applicable";
                 rows.Add(new MixtureInspectionDetailRow("Constituent." + row.MaterialId,
-                    name + "\n" + details + "\n" + pressure + " · " + Number(row.MassKg * 1000) + " g", FormatConstituent(row)));
+                    name + "\n" + details + "\n" + pressure + (ExactReadings ? " · " + Number(row.MassKg * 1000) + " g" : ""), FormatConstituent(row)));
             }
             return rows.AsReadOnly();
         }
@@ -664,7 +672,36 @@ namespace MixedAtmospheres.Oni
             if (element == null || (!element.IsGas && !element.IsLiquid) || element.IsVacuum) return;
             output.Add(label + ": " + element.name + " · " + Number(mass) + " kg · " + Number(temperature) + " K");
         }
-        private static string Number(double value) => value.ToString("G10", CultureInfo.InvariantCulture);
+        private static string Number(double value) => ExactReadings ? value.ToString("G10", CultureInfo.InvariantCulture) : Friendly(value);
+        // Four significant figures without an exponent for ordinary magnitudes.
+        internal static string Friendly(double value)
+        {
+            if (double.IsNaN(value) || double.IsInfinity(value)) return value.ToString(CultureInfo.InvariantCulture);
+            var size = Math.Abs(value);
+            if (size == 0) return "0";
+            if (size < 1e-3 || size >= 1e7) return value.ToString("0.###E+0", CultureInfo.InvariantCulture);
+            var decimals = Math.Max(0, 3 - (int)Math.Floor(Math.Log10(size)));
+            var rounded = Math.Round(value, decimals, MidpointRounding.AwayFromZero);
+            return rounded.ToString(decimals == 0 ? "0" : "0." + new string('#', decimals), CultureInfo.InvariantCulture);
+        }
+        // A positive amount too small for binary64 keeps its exact wording.
+        private static string Amount(double value, MixtureConstituentPresentation row, string unit) =>
+            value == 0 && row.MassKg > 0 ? "below numeric range" + unit : Friendly(value) + unit;
+        private static string Percent(MixtureConstituentPresentation row)
+        {
+            if (ExactReadings || !row.GasMoleFraction.HasValue) return row.MolePercentText;
+            var fraction = row.GasMoleFraction.Value;
+            if (fraction == 0 && row.MassKg > 0) return "below numeric range";
+            var text = Friendly(fraction * 100);
+            return (fraction < 1 && text == "100" ? "<100" : fraction > 0 && text == "0" ? "<0.001" : text) + "%";
+        }
+        // The liquids a cell holds, for the hover card's liquid volume line.
+        private static string LiquidNames(MixturePresentation reading)
+        {
+            var names = reading.Constituents.Where(row => row.Phase == NativeMatterPhase.Liquid && row.MassKg > 0)
+                .OrderByDescending(row => row.MassKg).Select(row => row.DisplayName).ToArray();
+            return names.Length == 0 ? "" : " (" + string.Join(", ", names) + ")";
+        }
         private static void Line(HoverTextDrawer drawer, SelectToolHoverTextCard card, string text, bool warning = false)
         { drawer.NewLine(); drawer.DrawText(text, warning ? card.Styles_Warning.Standard : card.Styles_BodyText.Standard); }
     }

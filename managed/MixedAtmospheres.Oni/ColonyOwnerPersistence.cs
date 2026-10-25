@@ -67,6 +67,9 @@ namespace MixedAtmospheres.Oni
                 sections.Add(new KeyValuePair<uint, byte[]>(ColonySavePayload.PipeRuntime, pipes));
             if (ColonySavedParticles.Capture(ColonyOwner.Config) is byte[] particles)
                 sections.Add(new KeyValuePair<uint, byte[]>(ColonySavePayload.CarbonParticles, particles));
+            // Only a colony whose breathing rules differ from the defaults.
+            if (ModSettingsRuntime.CaptureRecord() is byte[] settings)
+                sections.Add(new KeyValuePair<uint, byte[]>(ColonySavePayload.ColonySettings, settings));
             var payload = ColonySavePayload.Encode(config, image, sections);
             var envelope = ColonySaveEnvelope.Create(OniBuild, MaterialModel, completedFrame,
                 CatalogueHash(ColonyOwner.Materials), native, payload);
@@ -89,6 +92,7 @@ namespace MixedAtmospheres.Oni
             OniNativeColony.Config config;
             fixed (byte* source = sections.Config) config = Marshal.PtrToStructure<OniNativeColony.Config>((IntPtr)source);
             var image = sections.Owner;
+            ModSettingsRuntime.LoadRecord(sections.Section(ColonySavePayload.ColonySettings));
             if (sections.Section(ColonySavePayload.CarbonParticles) is byte[] particles) ColonySavedParticles.Load(particles, config);
             if (sections.Section(ColonySavePayload.PipeRuntime) is byte[] pipeImage) ColonyPipeSave.Load(pipeImage);
             if (reader.ReadInt32() != length) throw new InvalidDataException("Colony save section changed while loading.");
@@ -130,6 +134,7 @@ namespace MixedAtmospheres.Oni
                 var envelope = ColonySaveEnvelope.Parse(sim, OniBuild, MaterialModel, catalogue);
                 var payload = ColonySavePayload.Decode(envelope.CustomData);
                 _ = ColonyCheckpointMetadata.Profile(payload.Owner);
+                if (payload.Section(ColonySavePayload.ColonySettings) is byte[] settings) _ = ColonySettingsRecord.Decode(settings, SettingValues.Defaults());
                 return null;
             }
             catch (Exception error) { return error.Message; }

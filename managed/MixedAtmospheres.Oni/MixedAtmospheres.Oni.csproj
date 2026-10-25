@@ -7,6 +7,9 @@
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <OniGameDir Condition="'$(OniGameDir)' == ''">$(ONI_GAME_DIR)</OniGameDir>
     <OniManagedDir>$(OniGameDir)/OxygenNotIncluded_Data/Managed</OniManagedDir>
+    <!-- The DLL version Mod Manager and the file properties show; equal to mod_info.yaml's version. -->
+    <Version>0.1.0</Version>
+    <InformationalVersion>0.1.0-probe</InformationalVersion>
   </PropertyGroup>
   <ItemGroup>
     <!-- Standalone persistence experiment; include only after its separate review/runtime gate. -->
@@ -24,6 +27,7 @@
     <Reference Include="UnityEngine.TextRenderingModule"><HintPath>$(OniManagedDir)/UnityEngine.TextRenderingModule.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="UnityEngine.UIModule"><HintPath>$(OniManagedDir)/UnityEngine.UIModule.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="UnityEngine.UI"><HintPath>$(OniManagedDir)/UnityEngine.UI.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="Unity.TextMeshPro"><HintPath>$(OniManagedDir)/Unity.TextMeshPro.dll</HintPath><Private>false</Private></Reference>
   </ItemGroup>
   <Target Name="RequireGameAssemblies" BeforeTargets="ResolveAssemblyReferences">
     <Error Condition="!Exists('$(OniManagedDir)/Assembly-CSharp.dll')" Text="A licensed ONI installation is required. Set ONI_GAME_DIR or /p:OniGameDir to its root. Run tools/inspect_oni.py first." />

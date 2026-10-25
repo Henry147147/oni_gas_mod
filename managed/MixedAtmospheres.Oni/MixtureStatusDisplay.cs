@@ -27,8 +27,15 @@ namespace MixedAtmospheres.Oni
         private RuntimeMixturePresentationFrame? frame;
         private int sampleCell = -1;
         private string state = "Loaded", scope = "", measurement = "", composition = "", warning = "", failure = "";
-        private GUIStyle? titleStyle, textStyle, hintStyle;
+        private GUIStyle? titleStyle, textStyle, hintStyle, buttonStyle;
         private static readonly Color Accent = new Color(.35f, .91f, .91f);
+        // Shortcut keys (Shift or Ctrl plus the key) and panel defaults are
+        // preferences (docs/settings.md); KeyCode.None disables a shortcut.
+        private KeyCode overlayKey = KeyCode.F5, detailsKey = KeyCode.F8, findKey = KeyCode.F9, boundaryKey = KeyCode.F10, settingsKey = KeyCode.None;
+        private const KeyCode DiffusionKey = KeyCode.F6; // development regions only
+        private Rect settingsButton;
+        private SettingsButtonBlocker? buttonBlocker;
+        private bool buttonBlockerFailed;
 
         internal static void Install()
         {
@@ -36,11 +43,28 @@ namespace MixedAtmospheres.Oni
             var owner = new GameObject("Mixed Atmospheres status");
             DontDestroyOnLoad(owner);
             instance = owner.AddComponent<MixtureStatusDisplay>();
+            instance.ApplyPreferences(true);
+            ModSettingsRuntime.PreferencesChanged += () => { if (instance != null) instance.ApplyPreferences(false); };
         }
+
+        private void ApplyPreferences(bool initial)
+        {
+            var values = ModSettingsRuntime.Current;
+            KeyCode Key(string name) => Enum.TryParse<KeyCode>(values.Choice(name), out var key) ? key : KeyCode.None;
+            overlayKey = Key("keys.cycleOverlay"); detailsKey = Key("keys.toggleDetails"); findKey = Key("keys.findFluid");
+            boundaryKey = Key("keys.toggleBoundary"); settingsKey = Key("keys.openSettings");
+            // The settings window sets the panel's starting state; the shortcuts toggle it until the next change.
+            var panelExpanded = values.Toggle("panel.expanded"); var panelBoundary = values.Toggle("panel.showBoundary");
+            if (initial || panelExpanded != lastExpandedPreference) expanded = panelExpanded;
+            if (initial || panelBoundary != lastBoundaryPreference) showBoundary = panelBoundary;
+            lastExpandedPreference = panelExpanded; lastBoundaryPreference = panelBoundary;
+        }
+        private bool lastExpandedPreference = true, lastBoundaryPreference = true;
+        private static string Key(KeyCode key) => key == KeyCode.None ? "" : "Shift+" + key;
 
         internal static void Remove()
         {
-            if (instance != null) Destroy(instance.gameObject);
+            if (instance != null) { instance.buttonBlocker?.Dispose(); Destroy(instance.gameObject); }
             instance = null;
         }
 
@@ -121,11 +145,23 @@ namespace MixedAtmospheres.Oni
                         MixtureWorldRendering.Installed && MixtureWorldRendering.SchedulingActive ? "ready" : "waiting for textures");
                 if (frame.SuppliedCells.Count == 0) return;
             }
-            sampleCell = frame.SuppliedCells.Keys.Min();
             var camera = CameraController.Instance?.baseCamera;
-            if (camera != null)
+            var hovered = camera != null ? Grid.PosToCell(camera.ScreenToWorldPoint(Input.mousePosition)) : -1;
+            if (ColonyOwner.Active)
             {
-                var hovered = Grid.PosToCell(camera.ScreenToWorldPoint(Input.mousePosition));
+                // The owner's panel describes the cell under the cursor, never another one.
+                if (!Grid.IsValidCell(hovered)) return;
+                if (!frame.TryGetCell(hovered, out var under) || under == null)
+                {
+                    measurement = "Cell " + (hovered % Grid.WidthInCells) + ", " + (hovered / Grid.WidthInCells) + " · " +
+                        (Grid.Solid[hovered] ? "solid tile, no fluid" : "no gas or liquid");
+                    return;
+                }
+                sampleCell = hovered;
+            }
+            else
+            {
+                sampleCell = frame.SuppliedCells.Keys.Min();
                 if (frame.TryGetCell(hovered, out var hoveredReading) && hoveredReading != null) sampleCell = hovered;
             }
             if (!frame.TryGetCell(sampleCell, out var reading) || reading == null) return;
@@ -137,13 +173,17 @@ namespace MixedAtmospheres.Oni
                     Number(reading.MechanicalPressurePa.Value / 1e6) + " MPa" : Number(reading.MechanicalPressurePa.Value / 1000) + " kPa");
             if (reading.LiquidVolumeFraction > 0)
                 measurement += " · liquid " + Number(100 * reading.LiquidVolumeFraction) + "% by volume";
+            var liquids = reading.Constituents.Where(value => value.Phase == MixedAtmospheres.Core.Interop.NativeMatterPhase.Liquid && value.MassKg > 0)
+                .OrderByDescending(value => value.MassKg).Select(value => value.DisplayName).ToArray();
+            if (liquids.Length != 0) measurement += " (" + string.Join(", ", liquids) + ")";
             composition = string.Join(" · ", reading.GasConstituents.Where(value => !value.IsTrace)
-                .Select(value => value.DisplayName + " " + value.MolePercentText));
+                .Select(value => value.DisplayName + " " + (MixtureInspection.ExactReadings || !value.GasMoleFraction.HasValue ? value.MolePercentText :
+                    MixtureInspection.Friendly(100 * value.GasMoleFraction.Value) + "%")));
             if (composition.Length == 0 && reading.TotalMassKg > 0) composition = reading.DisplayName;
             warning = reading.Warnings.Count == 0 ? "" : reading.Warnings[0];
         }
 
-        private static string Number(double value) => value.ToString(
+        private static string Number(double value) => !MixtureInspection.ExactReadings ? MixtureInspection.Friendly(value) : value.ToString(
             value != 0 && (Math.Abs(value) < .001 || Math.Abs(value) >= 1e7) ? "G5" : "0.###", CultureInfo.InvariantCulture);
 
         private void FocusReadings()
@@ -195,7 +235,7 @@ namespace MixedAtmospheres.Oni
                 CycleOverlay(overlayObserved ? observedOverlay : OverlayScreen.Instance.GetMode());
                 RecordValidationStatus();
             }
-            if ((!Input.GetKeyDown(KeyCode.F5) && !Input.GetKeyDown(KeyCode.F6)) || !overlayObserved)
+            if ((!(overlayKey != KeyCode.None && Input.GetKeyDown(overlayKey)) && !Input.GetKeyDown(DiffusionKey)) || !overlayObserved)
             {
                 observedOverlay = OverlayScreen.Instance.GetMode();
                 overlayObserved = true;
@@ -207,21 +247,21 @@ namespace MixedAtmospheres.Oni
             // Consume each shortcut's event and modifiers together, including
             // paused inspection, without relying on legacy input poll order.
             var key = Event.current;
-            if (key.type == EventType.KeyDown && (key.keyCode == KeyCode.F5 || key.keyCode == KeyCode.F6 || key.keyCode == KeyCode.F8 ||
-                key.keyCode == KeyCode.F9 || key.keyCode == KeyCode.F10))
+            var code = key.keyCode;
+            var shortcut = code != KeyCode.None && (code == overlayKey || code == DiffusionKey || code == detailsKey || code == findKey || code == boundaryKey || code == settingsKey);
+            if (key.type == EventType.KeyDown && shortcut)
                 lastShortcutEvent = key.keyCode + " · " + key.modifiers;
-            if (key.type == EventType.KeyDown && (key.shift || key.control))
+            // The settings window takes keys while it is open.
+            if (key.type == EventType.KeyDown && (key.shift || key.control) && shortcut && !ModSettingsScreen.IsOpen)
             {
                 var accepted = true;
-                switch (key.keyCode)
-                {
-                    case KeyCode.F5: pendingOverlayCycle = true; break;
-                    case KeyCode.F8: expanded = !expanded; break;
-                    case KeyCode.F9: FocusReadings(); break;
-                    case KeyCode.F10: showBoundary = !showBoundary; break;
-                    case KeyCode.F6: pendingDiffusionOverlayRestore = true; NativeSealedDomainValidation.CycleGasDiffusion(); break;
-                    default: accepted = false; break;
-                }
+                if (code == overlayKey) pendingOverlayCycle = true;
+                else if (code == detailsKey) expanded = !expanded;
+                else if (code == findKey) FocusReadings();
+                else if (code == boundaryKey) showBoundary = !showBoundary;
+                else if (code == settingsKey) ModSettingsScreen.Open(0);
+                else if (code == DiffusionKey) { pendingDiffusionOverlayRestore = true; NativeSealedDomainValidation.CycleGasDiffusion(); }
+                else accepted = false;
                 if (accepted)
                 {
                     lastShortcut = (key.shift ? "Shift+" : "Ctrl+") + key.keyCode; ++shortcutsAccepted;
@@ -235,6 +275,7 @@ namespace MixedAtmospheres.Oni
                 // shipped runtime font so this persistent panel stays legible.
                 var font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
                 titleStyle = new GUIStyle(GUI.skin.label) { font = font, fontSize = 16, fontStyle = FontStyle.Bold, wordWrap = true };
+                buttonStyle = new GUIStyle(GUI.skin.button) { font = font, fontSize = 12 };
                 textStyle = new GUIStyle(GUI.skin.label) { font = font, fontSize = 14, fontStyle = FontStyle.Normal, wordWrap = true };
                 hintStyle = new GUIStyle(GUI.skin.label) { font = font, fontSize = 12, fontStyle = FontStyle.Normal, wordWrap = true };
             }
@@ -250,13 +291,14 @@ namespace MixedAtmospheres.Oni
                 if (measurement.Length != 0) body += "\n\n" + measurement;
                 if (composition.Length != 0) body += "\n" + composition;
                 if (warning.Length != 0) body += "\n" + warning;
+                if (ModSettingsRuntime.Notices.Count != 0) body += "\n\nSettings: " + ModSettingsRuntime.Notices[0];
                 if (failure.Length != 0)
                 {
                     var message = failure.Split('\n')[0];
                     if (message.Length > 180) message = message.Substring(0, 180) + "… (see Player.log)";
                     body += "\n\nAttention: " + message;
                 }
-                var hints = "Shift+F8 details · Shift+F9 find fluid\nShift+F5 overlay · Shift+F10 boundary\nShift+F6 diffusion: physical / accelerated / off\nHover a cell; select it for full composition.";
+                var hints = Hints();
                 var height = 66f + (expanded ? textStyle!.CalcHeight(new GUIContent(body), contentWidth) +
                     hintStyle!.CalcHeight(new GUIContent(hints), contentWidth) + 14 : 0);
                 var top = InColony ? 200 : Screen.height / scale - height - 20;
@@ -265,8 +307,17 @@ namespace MixedAtmospheres.Oni
                 GUI.color = new Color(.08f, .11f, .16f, .97f);
                 GUI.DrawTexture(rect, Texture2D.whiteTexture);
                 GUI.color = failure.Length == 0 ? Accent : new Color(1, .55f, .35f);
-                GUI.Label(new Rect(rect.x + 12, rect.y + 7, contentWidth, 22), "MIXED ATMOSPHERES", titleStyle);
+                GUI.Label(new Rect(rect.x + 12, rect.y + 7, contentWidth - 80, 22), "MIXED ATMOSPHERES", titleStyle);
                 GUI.color = Color.white;
+                // The settings window (docs/settings.md); a uGUI rectangle under
+                // the button keeps its click from reaching the game.
+                settingsButton = new Rect(rect.xMax - 84, rect.y + 6, 74, 22);
+                if (GUI.Button(settingsButton, "Settings", buttonStyle!)) ModSettingsScreen.Open(0);
+                if (Event.current.type == EventType.Repaint)
+                {
+                    if (buttonBlocker == null && !buttonBlockerFailed) { buttonBlocker = SettingsButtonBlocker.Create(); buttonBlockerFailed = buttonBlocker == null; }
+                    buttonBlocker?.Place(new Rect(settingsButton.x * scale, settingsButton.y * scale, settingsButton.width * scale, settingsButton.height * scale));
+                }
                 GUI.Label(new Rect(rect.x + 12, rect.y + 31, contentWidth, 32), failure.Length == 0 ? state : "Attention · " + state, textStyle);
                 if (expanded)
                 {
@@ -277,6 +328,19 @@ namespace MixedAtmospheres.Oni
                 }
             }
             finally { GUI.matrix = previousMatrix; GUI.color = previousColor; }
+        }
+
+        private string Hints()
+        {
+            var lines = new System.Collections.Generic.List<string>();
+            var first = string.Join(" · ", new[] { Key(detailsKey).Length != 0 ? Key(detailsKey) + " details" : "", Key(findKey).Length != 0 ? Key(findKey) + " find fluid" : "" }.Where(t => t.Length != 0));
+            var second = string.Join(" · ", new[] { Key(overlayKey).Length != 0 ? Key(overlayKey) + " overlay" : "", Key(boundaryKey).Length != 0 ? Key(boundaryKey) + " boundary" : "" }.Where(t => t.Length != 0));
+            if (first.Length != 0) lines.Add(first);
+            if (second.Length != 0) lines.Add(second);
+            if (NativeSealedDomainValidation.IsMode) lines.Add("Shift+F6 diffusion: physical / accelerated / off");
+            if (settingsKey != KeyCode.None) lines.Add(Key(settingsKey) + " settings");
+            lines.Add("Hover a cell; select it for full composition.");
+            return string.Join("\n", lines);
         }
 
         private void RecordValidationStatus()
@@ -346,5 +410,40 @@ namespace MixedAtmospheres.Oni
             GUI.DrawTexture(new Rect(rect.xMax, rect.y, 2, rect.height), Texture2D.whiteTexture);
             GUI.Label(new Rect(rect.x, rect.y - 24, 260, 24), view.IsFixture ? "MIXTURE DISPLAY FIXTURE" : "CUSTOM FLUID REGION");
         }
+    }
+
+    // A transparent uGUI rectangle under the status panel's Settings button:
+    // ONI ignores world clicks while the pointer is over uGUI.
+    internal sealed class SettingsButtonBlocker : IDisposable
+    {
+        private readonly GameObject owner;
+        private readonly RectTransform area;
+        private SettingsButtonBlocker(GameObject owner, RectTransform area) { this.owner = owner; this.area = area; }
+        internal static SettingsButtonBlocker? Create()
+        {
+            try
+            {
+                var owner = new GameObject("Mixed Atmospheres status button area");
+                UnityEngine.Object.DontDestroyOnLoad(owner);
+                var canvas = owner.AddComponent<Canvas>(); canvas.renderMode = RenderMode.ScreenSpaceOverlay; canvas.sortingOrder = 29000;
+                owner.AddComponent<UnityEngine.UI.GraphicRaycaster>();
+                var child = new GameObject("area", typeof(RectTransform));
+                child.transform.SetParent(owner.transform, false);
+                var image = child.AddComponent<UnityEngine.UI.Image>(); image.color = new Color(0, 0, 0, 0); image.raycastTarget = true;
+                var area = (RectTransform)child.transform;
+                area.anchorMin = area.anchorMax = new Vector2(0, 1); area.pivot = new Vector2(0, 1);
+                return new SettingsButtonBlocker(owner, area);
+            }
+            catch (Exception error) { Debug.LogWarning("[Mixed Atmospheres] Status button area unavailable: " + error.Message); return null; }
+        }
+        // GUI rectangle in screen pixels, origin top left.
+        internal void Place(Rect rect)
+        {
+            if (area == null) return;
+            var canvasScale = owner.GetComponent<Canvas>().scaleFactor;
+            area.anchoredPosition = new Vector2(rect.x / canvasScale, -rect.y / canvasScale);
+            area.sizeDelta = new Vector2(rect.width / canvasScale, rect.height / canvasScale);
+        }
+        public void Dispose() { if (owner != null) UnityEngine.Object.Destroy(owner); }
     }
 }

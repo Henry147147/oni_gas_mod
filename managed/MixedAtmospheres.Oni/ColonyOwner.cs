@@ -106,7 +106,7 @@ namespace MixedAtmospheres.Oni
             ColonyPresentation.Reset(); ColonyActors.Reset(); ColonyViewCache.Reset(); ColonyConduits.Reset(); ColonyWorldGerms.Reset(); ColonyNotices.Reset(); ColonyBalance.Reset();
             current?.Dispose(); current = null;
             if (Active) { var s = OniNativeColony.Status.Empty; _ = OniNativeColony.Stop(ref s); }
-            ColonyPacing.Reset(); ColonyOwnerPersistence.Reset();
+            ColonyPacing.Reset(); ColonyOwnerPersistence.Reset(); ModSettingsRuntime.Reset();
             publicationCells=Array.Empty<int>();CellMapComparisons=0;
             passiveSession=0;passiveFrame=ulong.MaxValue;WorldPassiveComparisons=WorldPassiveRows=WorldPassiveBusy=0;
             Active = false; considered = false; restoreAttempted = false; StartFailure = ""; loggedFault = ""; Publications = 0; PublicationMilliseconds = MaximumPublicationMilliseconds = 0; Census.Clear(); molarMass = Array.Empty<double>();
@@ -204,7 +204,9 @@ namespace MixedAtmospheres.Oni
                 var started = System.Diagnostics.Stopwatch.StartNew();
                 ColonyWorldGerms.Configure();
                 var output = OniNativeColony.Status.Empty;
+                ModSettingsRuntime.BeforeStart(config.Flags); // the player's colony settings (docs/settings.md)
                 OniNativeColony.Check(OniNativeColony.Start(ref config, materials, (uint)materials.Length, cells, (uint)cells.Length, ref output));
+                ModSettingsRuntime.AfterStart();
                 status = output; views = new OniNativeColony.CellView[cells.Length]; Active = true; ColonyPacingDriver.Ensure(); ConfigurePresentation();
                 if (ColonyPipeRuntime.NewColoniesUseMixedPipes) ColonyPipeRuntime.StartForNewColony(); // docs/mixed-pipes.md#runtime
                 OwnedCells = cells.Count(c => c.Kind != OniNativeColony.Solid);
@@ -265,6 +267,7 @@ namespace MixedAtmospheres.Oni
             ColonyWorldGerms.Configure();
             var output = OniNativeColony.Status.Empty;
             OniNativeColony.Check(OniNativeColony.Restore(ref config, materials, (uint)materials.Length, image, (uint)image.Length, ref output));
+            ModSettingsRuntime.Restored(); // the settings this colony recorded (docs/settings.md)
             status = output; views = new OniNativeColony.CellView[width * height]; considered = true; Active = true; ColonyPacingDriver.Ensure(); ConfigurePresentation();
             OniNativeColony.Check(OniNativeColony.Copy(ref status, views, (uint)views.Length));
             OwnedCells = views.Count(v => (v.Flags & OniNativeColony.ViewOwned) != 0);
