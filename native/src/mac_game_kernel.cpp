@@ -423,17 +423,21 @@ MacClosedAdvance MacGameKernelAccess::advance(const MacClosedWorld &source,
     MacGrid grid;
     MacGameSettings settings;
     unsigned threads = 0;
-    bool conduction = true, closure = false;
+    bool conduction = true, closure = false, trace_heat = false;
     std::unique_ptr<k::Tick> tick;
   };
   thread_local Cache cache;
   const auto &cfg = source.settings_.game;
   const auto options = mac_kernel_default_options();
   const unsigned threads = std::min(12U, options.threads);
+  const bool trace_heat =
+      source.settings_.game_profile == MacGameProfile::game_kernel_trace_heat;
   const bool closure =
+      trace_heat ||
       source.settings_.game_profile == MacGameProfile::game_kernel_free_surface;
   if (!cache.tick || cache.eos != source.thermodynamics_ ||
       cache.threads != threads || cache.closure != closure ||
+      cache.trace_heat != trace_heat ||
       cache.conduction != source.settings_.thermal_conduction ||
       !same_grid(cache.grid, source.state().grid) ||
       !same_settings(cache.settings, cfg)) {
@@ -448,13 +452,14 @@ MacClosedAdvance MacGameKernelAccess::advance(const MacClosedWorld &source,
         cfg.interface_detail_fraction, cfg.pressure_relative_tolerance, 0,
         false, 0, 2, cfg.phase_relaxation_time_s,
         source.settings_.thermal_conduction, cfg.pressure_maximum_iterations,
-        cfg.heat_maximum_iterations, closure);
+        cfg.heat_maximum_iterations, closure, trace_heat);
     cache.eos = source.thermodynamics_;
     cache.grid = source.state().grid;
     cache.settings = cfg;
     cache.threads = threads;
     cache.conduction = source.settings_.thermal_conduction;
     cache.closure = closure;
+    cache.trace_heat = trace_heat;
   }
   MacClosedAdvance result{source, {}};
   auto state = sparse(source.state());

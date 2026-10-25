@@ -9,9 +9,9 @@ existing implementations and settings.
 An additional explicit creation selector, `MA_COLONY_KERNEL3_POSITIVE=1`,
 selects profile3/core21 while kernel3 is enabled. The original selector alone
 continues to create profile2/core20. `MA_COLONY_KERNEL3_SURFACE=1` creates
-profile4/core22 ([below](#free-surface-profile-profile4core22)). Saves restore
-their recorded law and work caps independently of any creation selector. Neither profile is the
-ordinary colony default or a physics-gate setting.
+profile5/core23 ([below](#trace-removal-before-conduction-profile5core23)). Saves
+restore their recorded law and work caps independently of any creation selector.
+These profiles remain opt-in; floor and colony acceptance are open.
 
 The backend runs the accepted semi-implicit design's sparse pressure/transport,
 fluid heat, latent phase relaxation, density layering and bounded liquid
@@ -256,7 +256,8 @@ or pressure impulse acts on material that is not there. Momentum stranded on
 such a face (its donor emptied during the previous transport) goes to the
 boundary impulse and its kinetic energy becomes heat in the occupied
 neighbour, so U+K+G, momentum and region audits close as before. New colonies
-select it with `MA_COLONY_KERNEL3=1 MA_COLONY_KERNEL3_SURFACE=1`; it also saves
+originally selected it with `MA_COLONY_KERNEL3=1 MA_COLONY_KERNEL3_SURFACE=1`;
+it also saves
 the adopted gas heat mixing8 (user decision 2026-10-24, floor F1 split).
 Profiles2 and3 are unchanged.
 
@@ -268,3 +269,23 @@ selector. All99 legacy outputs/exits, the parcel output and three captured
 worlds' core21 sixty-tick images (cold restore at30) match the clean parent;
 core22 images match at 1 and 12 workers. Floor results are in
 [base-game-floor.md](../docs/base-game-floor.md).
+
+## Trace removal before conduction (profile5/core23)
+
+An offline Oceania continuation exposed tiny cells produced by transport whose
+heat capacity was below the conduction solve's residual scale. Their shared
+heat flux could exhaust sensible U before the end-of-tick trace sink ran.
+Family5 books the existing sub-threshold trace sink before conduction as well,
+refreshes the remaining cells' EOS and then solves heat. The saved threshold
+stays1e-11 kg per constituent per cell; all removed mass, U+K+G, J and passives
+remain in the sink. The surface selectors now create23 with saved mixing8.
+Old profiles20–22 retain their policy and checkpoint bytes.
+
+Clean parent/candidate Linux Release builds pass86/86CTest; all99 legacy
+diagnostic outputs/exits match (timings excluded), and the parcel output is
+unchanged. A generated hot-gas front exercises the new ordering with closed
+energy and both passive identities, exact cold continuation, and an unchanged
+no-trace control. The old Oceania failure still reproduces under22; a scratch
+replay explicitly selecting23 completes60 ticks with byte-identical1/12-worker
+and cold30 endpoints. This is diagnostic replay evidence. Fresh selected-profile
+game checks, the floor and long-colony acceptance remain open.

@@ -292,12 +292,13 @@ MacClosedSettings settings_of(const MAOniColonyConfig& c) {
         const auto selected=[](const char* name){const char* value=std::getenv(name);return value && std::strcmp(value,"1")==0;};
         const bool surface=selected("MA_COLONY_KERNEL3_SURFACE");
         if (surface || selected("MA_COLONY_KERNEL3_POSITIVE")) {
-            game.game_profile=surface?MacGameProfile::game_kernel_free_surface:MacGameProfile::game_kernel_positive_liquid;
+            // The surface selector creates the newest candidate, family 5.
+            game.game_profile=surface?MacGameProfile::game_kernel_trace_heat:MacGameProfile::game_kernel_positive_liquid;
             game.game.liquid_law=MacGameLiquidLaw::positive_segments;
             game.game.pressure_maximum_iterations=400;
             game.game.heat_maximum_iterations=800;
         }
-        // Profile 4 saves the adopted gas heat mixing (docs/base-game-floor.md, F1 split).
+        // Profile 5 saves the adopted gas heat mixing (docs/base-game-floor.md, F1 split).
         if (surface) game.game.gas_heat_mixing=8;
         return game;
     }

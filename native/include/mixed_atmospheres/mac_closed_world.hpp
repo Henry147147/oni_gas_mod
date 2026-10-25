@@ -59,9 +59,11 @@ enum class MacStepControl { doubling = 0, predictive = 1, regional_predictive = 
 // Saved game-profile family. Legacy retains every pre-profile trajectory;
 // scientific gates never select the base-game accuracy-floor profile.
 // Family 4 adds the free-surface closure to family 3: no face carries
-// material out of an empty cell (native/MAC_GAME_KERNEL.md).
+// material out of an empty cell. Family 5 also sinks sub-threshold traces
+// before conduction (native/MAC_GAME_KERNEL.md).
 enum class MacGameProfile { legacy = 0, base_game_floor = 1, game_kernel = 2,
-    game_kernel_positive_liquid = 3, game_kernel_free_surface = 4 };
+    game_kernel_positive_liquid = 3, game_kernel_free_surface = 4,
+    game_kernel_trace_heat = 5 };
 enum class MacGameLiquidLaw { linear = 0, positive_segments = 1 };
 // Saved settings of the opt-in diagnostic game kernel; never selected by gates.
 struct MacGameSettings {

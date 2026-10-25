@@ -114,18 +114,21 @@ current binary has.
 
 ### Version assignment
 
-Version **23 is reserved for game profile5** (2026-10-24), confirmed after
+Version **23 is game profile5** (2026-10-24), confirmed after
 a fresh fetch of `c57532a`. It retains version22's layout and identifies an
 additional booked trace prune before conduction, with refreshed EOS data after
-removal. Versions20–22 keep their saved arithmetic and bytes. Implementation,
-failed-world replay and clean legacy comparisons precede adoption.
+removal. Versions20–22 keep their saved arithmetic and bytes. The surface
+creation selectors now choose23 with saved gas heat mixing8; existing22
+saves retain profile4. Positive transported-trace, cold/worker and clean
+legacy controls pass. Floor and full-colony acceptance remain open.
 
 Version **22 is the free-surface game profile** (2026-10-24), allocated
 after fetching `946b6de`. Its bytes follow version21 exactly
 (positive-segment law1 and the two caps at the same offsets); the version
 implies profile family4, whose kernel never carries material out of an empty
-cell. New colonies select22 with `MA_COLONY_KERNEL3=1` and
-`MA_COLONY_KERNEL3_SURFACE=1` and save gas heat mixing8 in the existing field.
+cell. This was selected with `MA_COLONY_KERNEL3=1` and
+`MA_COLONY_KERNEL3_SURFACE=1`, saving gas heat mixing8 in the existing field;
+those creation selectors now choose23. Restoring22 retains its policy.
 Versions20 and21 keep their bytes, profiles and continuation.
 
 Version **21 is the positive-volume game profile** (2026-10-23), claimed

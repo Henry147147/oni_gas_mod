@@ -156,18 +156,18 @@ int main() {
     surface.set("1");
     c::start(config,materials,cells,1);
     const auto created=c::checkpoint();
-    require(core_version(created)==22 && heat_mixing(created)==8,"Surface selector did not create core22 with heat mixing 8");
+    require(core_version(created)==23 && heat_mixing(created)==8,"Surface selector did not create core23 with heat mixing 8");
     c::advance(1,.2,2);c::wait();
-    require(c::status().state==1,"Profile4 game owner faulted");
+    require(c::status().state==1,"Profile5 game owner faulted");
     const auto surface_image=c::checkpoint();
     c::advance(2,.2,2);c::wait();const auto surface_expected=c::checkpoint();c::stop();
     surface.set("0");
     c::restore(config,materials,surface_image,1);
-    require(c::checkpoint()==surface_image,"Core22 idle restore changed saved profile");
+    require(c::checkpoint()==surface_image,"Core23 idle restore changed saved profile");
     c::advance(2,.2,2);c::wait();
-    require(c::checkpoint()==surface_expected,"Core22 owner cold continuation differs");
+    require(c::checkpoint()==surface_expected,"Core23 owner cold continuation differs");
     c::stop();
-    std::cout<<"PASS explicit core22 creation with saved heat mixing 8 and core22 restore without its selector\n";
+    std::cout<<"PASS explicit core23 creation with saved heat mixing 8 and core23 restore without its selector\n";
     std::cout << "PASS diagnostic kernel3 owner flag5, ownEOS publication, "
                  "native heat, opened door, zero retry/phase skips, ledgers "
                  "and exact owner cold continuation\n";

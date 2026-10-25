@@ -47,6 +47,10 @@ class Tick {
   unsigned filter_sweeps = 2;
   double phase_time = 1;
   bool heat_enabled = true;
+  // Profile 5: sink sub-threshold traces before conduction. A trace-only
+  // cell has a negligible heat capacity but a full conduction weight, so the
+  // heat solve's tolerance could otherwise drive its U below its offset.
+  bool prune_before_heat = false;
   static double ms(std::chrono::steady_clock::time_point start) {
     return std::chrono::duration<double, std::milli>(
                std::chrono::steady_clock::now() - start)
@@ -61,7 +65,8 @@ public:
        bool entropy_stages = false, double speed_limit = 0,
        unsigned viscosity_sweeps = 2, double phase_relaxation_time = 1,
        bool enable_heat = true, unsigned pressure_iterations = 200,
-       unsigned heat_iterations = 200, bool surface_closure = false)
+       unsigned heat_iterations = 200, bool surface_closure = false,
+       bool trace_before_heat = false)
       : grid(source), species(table),
         flow(source, table, threads, false, pressure_tolerance, gravity_source, pressure_iterations,
              surface_closure),
@@ -71,7 +76,8 @@ public:
         parts(flow_parts), detailed_entropy(entropy_stages),
         interface_enabled(interfaces), interface_detail(detail),
         filter_speed(speed_limit), filter_sweeps(viscosity_sweeps),
-        phase_time(phase_relaxation_time), heat_enabled(enable_heat) {}
+        phase_time(phase_relaxation_time), heat_enabled(enable_heat),
+        prune_before_heat(trace_before_heat) {}
   std::vector<Eos> evaluate_state(const State &state) const {
     return flow.evaluate_state(state);
   }
@@ -120,7 +126,7 @@ public:
       if (std::none_of(out.state.masses.mass.begin(),
                        out.state.masses.mass.end(),
                        [&](double mass) { return mass < threshold; }))
-        return;
+        return false;
       auto sunk = trace_sink(grid, species, out.state, threshold, gravity,
                              &regions, &flow.kernel_grid());
       out.trace_constituents += sunk.constituents;
@@ -141,6 +147,7 @@ public:
       sink_x.add(sunk.jx);
       sink_y.add(sunk.jy);
       out.state = std::move(sunk.state);
+      return true;
     };
     for (unsigned part = 0; part < parts; ++part) {
       prune();
@@ -205,6 +212,8 @@ public:
       out.interface_ms = ms(stage_start);
       observe_entropy(out.surface_entropy);
     }
+    if (prune_before_heat && prune())
+      out.eos = flow.evaluate_state(out.state);
     stage_start = std::chrono::steady_clock::now();
     if (heat_enabled) {
       auto heated = heat.advance(out.state, out.eos, dt);
