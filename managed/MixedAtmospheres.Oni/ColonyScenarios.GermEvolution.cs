@@ -16,15 +16,35 @@ namespace MixedAtmospheres.Oni
                 Pipe(Game.Instance.gasConduitSystem,GasConduitConfig.ID,new List<int>{Cell(1,3)},new List<int>{Cell(3,3)},new List<int>{Cell(5,3)});
             if(Once(10,"seed original native disease evolution"))
             {
-                var food=Db.Get().Diseases.GetIndex(Db.Get().Diseases.FoodGerms.id);var slime=Db.Get().Diseases.GetIndex(Db.Get().Diseases.SlimeGerms.id);
-                var cold=Game.Instance.gasConduitFlow.AddElement(Cell(1,3),SimHashes.Oxygen,.5f,280,food,16777219);
-                var culture=Game.Instance.gasConduitFlow.AddElement(Cell(3,3),SimHashes.ContaminatedOxygen,.5f,293.15f,slime,1000);
-                var hot=Game.Instance.gasConduitFlow.AddElement(Cell(5,3),SimHashes.Oxygen,.5f,900,slime,1);
-                Record("native oracle packets accept their fixed mass",cold==.5f&&culture==.5f&&hot==.5f,$"{cold:R}/{culture:R}/{hot:R} kg; native IDs {food}/{slime}");
-                ColonyGermEvolutionProbe.StartControl();
-                Record("oracle uses actual native pipe evolution",ColonyGermEvolutionProbe.SeedPacketReference(Game.Instance.gasConduitFlow,
-                    new[]{Cell(1,3),Cell(3,3),Cell(5,3)},out var packetDetail)&&ColonyGermEvolutionProbe.PacketCount==3,packetDetail);
-                Record("isolated positive-mass native equation oracle is seeded",ColonyGermEvolutionProbe.SeedPositiveMassReference(out var detail),detail);
+                try
+                {
+                    var food=Db.Get().Diseases.GetIndex(Db.Get().Diseases.FoodGerms.id);var slime=Db.Get().Diseases.GetIndex(Db.Get().Diseases.SlimeGerms.id);
+                    var flow=Game.Instance.gasConduitFlow;
+                    float Seed(int cell,SimHashes material,float temperature,byte disease,int count)
+                    {
+                        if(!ColonyConduits.Active)return flow.AddElement(cell,material,.5f,temperature,disease,count);
+                        // An owned pipe rejects unreserved scalar writes. Seed the
+                        // identical fixed inventory through the existing harness
+                        // boundary, which also publishes its native culture view.
+                        ColonyConduits.SupplyControlInventory(flow,cell,PipeInventory.Single(ColonyConduits.MaterialOf(material),.5,temperature,disease,count));
+                        return ColonyConduits.TryRead(flow,cell,out var held)?(float)held.Mass:0;
+                    }
+                    var cold=Seed(Cell(1,3),SimHashes.Oxygen,280,food,16777219);
+                    var culture=Seed(Cell(3,3),SimHashes.ContaminatedOxygen,293.15f,slime,1000);
+                    var hot=Seed(Cell(5,3),SimHashes.Oxygen,900,slime,1);
+                    var fixedMass=cold==.5f&&culture==.5f&&hot==.5f;
+                    Record("native oracle packets accept their fixed mass",fixedMass,$"{cold:R}/{culture:R}/{hot:R} kg; native IDs {food}/{slime}");
+                    if(!fixedMass)throw new InvalidOperationException("The fixed native oracle packets were not seeded.");
+                    ColonyGermEvolutionProbe.StartControl();
+                    var packetsReady=ColonyGermEvolutionProbe.SeedPacketReference(flow,
+                        new[]{Cell(1,3),Cell(3,3),Cell(5,3)},out var packetDetail)&&ColonyGermEvolutionProbe.PacketCount==3;
+                    Record("oracle uses actual native pipe evolution",packetsReady,packetDetail);
+                    if(!packetsReady)throw new InvalidOperationException("The isolated native packet manager was not seeded.");
+                    var growthReady=ColonyGermEvolutionProbe.SeedPositiveMassReference(out var detail);
+                    Record("isolated positive-mass native equation oracle is seeded",growthReady,detail);
+                    if(!growthReady)throw new InvalidOperationException("The isolated positive-mass native oracle was not seeded.");
+                }
+                catch{ColonyGermEvolutionProbe.Reset();throw;}
             }
             if(frame>=10&&frame<80&&germReferenceFrame!=frame){germReferenceFrame=frame;ColonyGermEvolutionProbe.TickReference();}
             if(Once(80,"verify native count and binary32 rounding trajectory"))

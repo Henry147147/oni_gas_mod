@@ -30,6 +30,17 @@ internal static class Program
             "Native culture allocation bound an inherited generic overload instead of the actual two-argument allocator.");
         Check(typeof(ConduitDiseaseManager.Data).IsValueType,
             "The isolated native germ oracle requires independent value copies of the game's culture rows.");
+        cultureProbe.GetMethod("StartControl",BindingFlags.Static|BindingFlags.NonPublic)!.Invoke(null,null);
+        try
+        {
+            // No private cultures have been seeded. An unrelated manager has
+            // no initialized table, proving the oracle returns before reading
+            // its rows even if fixture setup failed after StartControl.
+            var unrelated=(ConduitDiseaseManager)RuntimeHelpers.GetUninitializedObject(typeof(ConduitDiseaseManager));
+            Check(cultureProbe.GetMethod("Begin",BindingFlags.Static|BindingFlags.NonPublic)!.Invoke(null,new object[]{unrelated,.2f})==null,
+                "A failed oracle setup exposed the game's live culture table to the diagnostic predictor.");
+        }
+        finally{cultureProbe.GetMethod("Reset",BindingFlags.Static|BindingFlags.NonPublic)!.Invoke(null,null);}
         Console.WriteLine("PASS native germ oracle binding: declared allocator uses original temperature handle and by-ref contents, excluding inherited overloads");
         var biology=assembly.GetType("MixedAtmospheres.Oni.ColonyPipeBiology")!;
         var scheduling=(string)biology.GetMethod("SchedulingSignature",BindingFlags.Static|BindingFlags.NonPublic)!.Invoke(null,null)!;

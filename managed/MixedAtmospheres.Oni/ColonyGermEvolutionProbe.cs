@@ -74,7 +74,9 @@ namespace MixedAtmospheres.Oni
         private static object Field(object row,string name)=>AccessTools.Field(row.GetType(),name).GetValue(row);
         internal static Scope? Begin(ConduitDiseaseManager manager,float dt)
         {
-            if(!Enabled||packets!=null&&!ReferenceEquals(manager,packets)&&!ReferenceEquals(manager,reference))return null;
+            // Setup can fail before either private manager exists. Never
+            // inspect the live manager, including during that failure window.
+            if(!Enabled||!ReferenceEquals(manager,packets)&&!ReferenceEquals(manager,reference))return null;
             var rows=(IList)Rows.GetValue(manager);var scope=new Scope(epoch,rows,ReferenceEquals(manager,reference));
             for(var index=0;index<rows.Count;++index)
             {
