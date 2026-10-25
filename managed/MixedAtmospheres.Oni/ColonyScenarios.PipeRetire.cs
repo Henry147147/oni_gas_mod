@@ -61,18 +61,33 @@ namespace MixedAtmospheres.Oni
                 var gas=ColonyPipePumps.Inventory(retirePumps[0].GetComponent<Storage>());var liquid=ColonyPipePumps.Inventory(retirePumps[1].GetComponent<Storage>());
                 recorded["retire gas"]=gas.Mass;recorded["retire liquid"]=liquid.Mass;
                 recorded["retire world"]=ColonyPipePorts.ToWorld.Mass;recorded["retire storage"]=ColonyMachinePorts.ToStorage.Mass;
+                Debug.Log("[Mixed Atmospheres] Pump retirement storage cells: "+string.Join(", ",retirePumps.Select(pump=>Grid.PosToCell(pump.GetComponent<Storage>()))));
+                TraceRetireSpills("before destruction");
                 Record("both pumps hold owned storage before destruction",gas.Count>0&&liquid.Count>0&&ColonyPipePumps.BoundPumps==2,
                     $"gas {gas.Mass:R} kg ({gas.Count} species), liquid {liquid.Mass:R} kg ({liquid.Count} species); {ColonyPipePumps.BoundPumps} pumps");
                 foreach(var pump in retirePumps)pump.GetComponent<Deconstructable>().ForceDestroyAndGetMaterials();
             }
             if(RetireAt(60,"released pump storage and accounts"))
             {
+                TraceRetireSpills("after retirement");
                 var world=ColonyPipePorts.ToWorld.Mass-recorded["retire world"];var chunks=ColonyMachinePorts.ToStorage.Mass-recorded["retire storage"];
                 Record("a destroyed gas pump vents its storage and a liquid pump drops chunks",world>=recorded["retire gas"]-1e-9&&chunks>=recorded["retire liquid"]-1e-9&&
                     ColonyPipePumps.BoundPumps==0&&ColonyPipeTeardown.ActiveSpills==0&&ColonyPipePorts.PendingCount==0,
                     $"world +{world:R} kg (held gas {recorded["retire gas"]:R}), chunks +{chunks:R} kg (held liquid {recorded["retire liquid"]:R}); {ColonyPipePumps.BoundPumps} pumps, {ColonyPipeTeardown.ActiveSpills} spills, {ColonyPipePorts.PendingCount} pending");
                 Record("pump retirement closes every pipe account",ColonyConduits.Audit(out var detail),detail);Finish();
             }
+        }
+        private static void TraceRetireSpills(string stage)
+        {
+            var image=new PipeRuntimeImage();ColonyPipeTeardown.Capture(image);
+            var details=image.Spills.Select(spill=>$"key {spill.Key}, cell {spill.Cell}, IDs ["+string.Join("; ",spill.Ids.Select(id=>
+            {
+                var inventory=ColonyPipePorts.OwnedInventory(id);
+                return $"{id}: pending {ColonyPipePorts.IsPending(id)}, count {inventory.Count}, mass {inventory.Mass:R}, U {inventory.Energy.Value:R}, species ["+
+                    string.Join(", ",inventory.Parts.ToArray().Select(part=>$"{part.Id}:{part.Mass:R}"))+"], germs ["+
+                    string.Join(", ",inventory.Germs.ToArray().Select(part=>$"{part.Id}:{part.Mass:R}"))+"]";
+            }))+"]");
+            Debug.Log($"[Mixed Atmospheres] Pump retirement spills {stage}: {image.Spills.Count}; "+string.Join(" | ",details));
         }
     }
 }
