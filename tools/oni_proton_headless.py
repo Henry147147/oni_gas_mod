@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 from datetime import datetime, timezone
 import json
+import math
 import os
 from pathlib import Path, PureWindowsPath
 import secrets
@@ -26,7 +27,9 @@ from oni_native_matrix import SCENES
 PLATFORM = "WindowsPlayer"
 MOD_ID = "MixedAtmospheres.IntegrationProbe"
 CONFIGURED_MODES = ("native-configured-domain", "native-configured-water-domain", "native-configured-vacuum-domain")
-MODES = tuple(SCENES.values()) + CONFIGURED_MODES + ("native-load-domain", "menu")
+OWNER_MODES = ("colony-owner", "colony-owner-load")
+FORWARD_MODES = ("menu", "colony-owner-inactive")
+MODES = tuple(SCENES.values()) + CONFIGURED_MODES + OWNER_MODES + FORWARD_MODES + ("native-load-domain",)
 GAME_FILES = {
     "OxygenNotIncluded_Data/Managed/Assembly-CSharp.dll":
         "a58e04d0ffdf89b86fb28b71ad900625b3b539db30d67f8c6269f73a9f5ae599",
@@ -148,6 +151,33 @@ def optional_json(path: Path) -> dict | None:
         return None
 
 
+def colony_owner_passed(owner: dict | None) -> bool:
+    """Require actual owned frames, closed ledgers, and completed scenario checks."""
+    if not isinstance(owner, dict) or owner.get("State") != 1 or owner.get("Faulted") is not False or owner.get("Error") != "":
+        return False
+    if not all(type(owner.get(key)) is int and owner[key] > 0 for key in ("CompletedFrames", "OwnedCells", "Publications")):
+        return False
+    for key in ("MaximumRelativeMassError", "MaximumRelativeEnergyError"):
+        value = owner.get(key)
+        if type(value) not in (float, int) or not math.isfinite(value) or not 0 <= value <= 1e-12:
+            return False
+    if owner.get("PresentationError") or owner.get("RendererError"):
+        return False
+    return all(item.get("Passed") is True for item in owner.get("Scenarios", []))
+
+
+def owner_timing(samples: list[dict]) -> dict:
+    def statistics(values):
+        values = sorted(values)
+        return None if not values else dict(samples=len(values), mean=sum(values)/len(values),
+            p95=values[math.ceil(.95*len(values))-1], maximum=values[-1])
+    adjacent = [(a, b) for a, b in zip(samples, samples[1:])
+                if a["session"] == b["session"] and b["frame"] == a["frame"] + 1]
+    return dict(owner_milliseconds=statistics([s["owner_ms"] for s in samples]),
+        observed_milliseconds=statistics([(b["wall"]-a["wall"])*1000 for a,b in adjacent]),
+        sampled_frames=len(samples), nonadjacent_intervals=max(0,len(samples)-1-len(adjacent)))
+
+
 def validate_arguments(args) -> None:
     inspection = getattr(args, "inspection_seconds", 0)
     if type(inspection) is not int or not 0 <= inspection <= 300 or (inspection and getattr(args, "mode", None) == "menu"):
@@ -170,18 +200,20 @@ def validate_arguments(args) -> None:
         raise ValueError("The CO2 particle and breathing-reader controls require at least 30 frames")
     if args.mode in ("native-actor-domain", "native-liquid-actor-domain") and args.frames < 80:
         raise ValueError("Registered actor scenes require at least 80 frames")
-    if bool(args.load_save) != (args.mode == "native-load-domain"):
-        raise ValueError("native-load-domain requires --load-save; other scenes cannot use it")
+    if bool(args.load_save) != (args.mode in ("native-load-domain", "colony-owner-load")):
+        raise ValueError("A load mode requires --load-save; other scenes cannot use it")
     if args.load_save and not args.load_save.is_file():
         raise ValueError("--load-save must name an existing completed colony save")
     if args.resave_before_resume and args.mode != "native-load-domain":
         raise ValueError("--resave-before-resume requires native-load-domain")
-    if args.reload_in_process and (args.mode != "native-load-domain" or not args.resave_before_resume):
-        raise ValueError("--reload-in-process requires native-load-domain --resave-before-resume")
+    if args.reload_in_process and args.mode != "colony-owner-load" and (args.mode != "native-load-domain" or not args.resave_before_resume):
+        raise ValueError("--reload-in-process requires colony-owner-load or native-load-domain --resave-before-resume")
     if args.verify_save_io_recovery and (args.mode != "native-save-domain" or args.frames < 16):
         raise ValueError("Save I/O recovery requires native-save-domain and at least sixteen frames")
     if args.save_colony and args.mode in ("native-load-domain", "menu"):
         raise ValueError("--save-colony requires an initial domain scene")
+    if (getattr(args, "scenario", None) or getattr(args, "cluster", None)) and args.mode != "colony-owner":
+        raise ValueError("--scenario and --cluster require colony-owner")
 
 
 def cleanup_run(record, xvfb, prefix_started: bool, proton: Path, output: Path) -> None:
@@ -241,7 +273,7 @@ def playtest(args, state: Path, session: dict) -> int:
     home.mkdir(mode=0o700)
     (home / ".steam").symlink_to(state / "steam-home/.steam")
     (output / "runtime").mkdir(mode=0o700)
-    result = {"kind": "actual-unity-bounded-native-proton-run", "status": "initializing", "exit_code": 2,
+    result = {"kind": "actual-unity-colony-owner-proton-run" if args.mode in OWNER_MODES else "actual-unity-bounded-native-proton-run", "status": "initializing", "exit_code": 2,
         "mode": args.mode, "output": str(output), "host_platform": "linux", "target_platform": PLATFORM,
         "actual_windows_os": False, "real_unity_player": False, "software_rendering": True,
         "first_playable_colony_passed": False, "whole_colony_fluid_authority": False,
@@ -254,6 +286,10 @@ def playtest(args, state: Path, session: dict) -> int:
     try:
         xvfb, display, desktop = start_display(state, output)
         env = game_env(state, output, game, display)
+        if args.mode in OWNER_MODES:
+            # Defaults and saved settings must stand on their own in this route.
+            env = {key: value for key, value in env.items() if not key.startswith("MA_")}
+            result["owner_environment_overrides"] = False
         result["compatibility_environment"] = compatibility_settings(env)
         result["display"] = display
         prefix_started = True
@@ -288,7 +324,10 @@ def playtest(args, state: Path, session: dict) -> int:
                 **({"VerifyPersistentActors": True} if getattr(args,"verify_persistent_actors",False) is True else {}),
                 **({"VerifyLiveBreathing": True} if getattr(args,"verify_live_breathing",False) is True else {}),
                 **({"VerifyTransientParticles": True} if getattr(args,"verify_transient_particles",False) is True else {}),
-                **({"SubnormalCarbonParticle": True} if getattr(args,"subnormal_carbon_particle",False) is True else {})})
+                **({"SubnormalCarbonParticle": True} if getattr(args,"subnormal_carbon_particle",False) is True else {}),
+                **({"Scenario": args.scenario} if getattr(args, "scenario", None) else {}),
+                **({"Cluster": "clusters/" + args.cluster} if getattr(args, "cluster", None) else {}),
+                **({"Speed": args.speed} if getattr(args, "speed", None) else {})})
         graphics_api = getattr(args,"graphics_api","glcore")
         command = sandbox_command(home, state, output, game, proton,
             ["run", windows_path(game / "OxygenNotIncluded.exe"), "-force-" + graphics_api, "-screen-fullscreen", "0",
@@ -302,10 +341,18 @@ def playtest(args, state: Path, session: dict) -> int:
         deadline = time.monotonic() + args.timeout + 60 + inspection_seconds
         inspection_started = None
         colony_file = mod / "game-contract-local/colony-validation/colony-validation.json"
+        owner_samples = []
         timed_out = False
         stopped_for_mod_failure = False
         menu_seen = None
         while common.alive(record):
+            if args.mode in OWNER_MODES:
+                current_owner = optional_json(colony_file.parent / "colony-owner.json")
+                if current_owner and current_owner.get("CompletedFrames", 0) > 0:
+                    identity = (current_owner.get("Session"), current_owner["CompletedFrames"])
+                    if not owner_samples or identity != (owner_samples[-1]["session"], owner_samples[-1]["frame"]):
+                        owner_samples.append(dict(session=identity[0], frame=identity[1], wall=time.monotonic(),
+                                                  owner_ms=current_owner["LastAdvanceMilliseconds"]))
             player_log=output/"Player.log"
             log=player_log.read_text(errors="replace") if player_log.exists() else ""
             if common.mod_failure_lines(log,(MOD_ID,)):
@@ -326,32 +373,43 @@ def playtest(args, state: Path, session: dict) -> int:
             if time.monotonic() >= deadline:
                 timed_out = True
                 break
-            time.sleep(1)
+            time.sleep(.05 if args.mode in OWNER_MODES else 1)
         subprocess.run([str(state / "tools/desktop/usr/bin/scrot"), "-o", str(output / "desktop-final.png")],
                        env=desktop, check=True, timeout=20)
         probe = optional_json(mod / "integration-probe.json")
         colony_file = mod / "game-contract-local/colony-validation/colony-validation.json"
         report = optional_json(colony_file)
         domain = optional_json(colony_file.parent / "native-domain.json")
+        owner = optional_json(colony_file.parent / "colony-owner.json")
+        if args.mode in OWNER_MODES:
+            common.write_json(output / "owner-frame-samples.json", owner_samples)
+            result["owner_timing"] = owner_timing(owner_samples)
         observation = optional_json(mod / "native-backend-observation-report.json")
         log = (output / "Player.log").read_text(errors="replace") if (output / "Player.log").exists() else ""
         player_exit = common.CHILDREN[record["pid"]].poll()
         status, code = common.classify(args.mode, log, probe, report, timed_out, player_exit, (MOD_ID,), PLATFORM)
-        domain_ok = args.mode!="menu" and native_domain_passed(domain, observation, args.frames, **domain_options(args))
-        if code == 0 and args.mode!="menu" and not domain_ok:
+        domain_ok = args.mode not in OWNER_MODES + FORWARD_MODES and native_domain_passed(domain, observation, args.frames, **domain_options(args))
+        if code == 0 and args.mode not in OWNER_MODES + FORWARD_MODES and not domain_ok:
             status, code = "failed-native-domain", 2
-        if code==0 and args.mode=="menu" and not common.native_observer_passed(manifest,observation):
+        if code==0 and args.mode in OWNER_MODES + FORWARD_MODES and not common.native_observer_passed(manifest,observation):
             status,code="failed-native-observer",2
+        owner_ok = args.mode in OWNER_MODES and colony_owner_passed(owner)
+        if code == 0 and args.mode in OWNER_MODES and not owner_ok:
+            status, code = "failed-colony-owner-evidence", 2
         checkpoint = (domain or {}).get("ColonyCheckpoint") or {}
         # Authenticate the file and export a host path without altering raw
         # Windows game reports. Linux loaders must never guess at C: paths.
-        saved_file = checkpoint.get("SavedFile") or checkpoint.get("InitialAutosaveFile")
+        saved_file = (report or {}).get("ColonySavePath") if args.mode in OWNER_MODES else checkpoint.get("SavedFile") or checkpoint.get("InitialAutosaveFile")
         if code == 0 and saved_file:
             saved = host_save_path(saved_file, output)
             result["host_saved_file"] = str(saved)
             result["host_saved_file_sha256"] = common.digest(saved)
             if checkpoint.get("SavedFileSha256") and result["host_saved_file_sha256"] != checkpoint["SavedFileSha256"]:
                 status, code = "failed-save-file-hash", 2
+        if args.mode in OWNER_MODES:
+            result["profile_saves"] = [dict(path=str(host_save_path(windows_path(path), output)),
+                sha256=common.digest(path), bytes=path.stat().st_size,
+                autosave="auto_save" in path.parts) for path in sorted(profile.rglob("*.sav"))]
         if load_fixture and (common.digest(args.load_save) != source_hash or common.digest(load_fixture) != source_hash):
             status, code = "failed-input-save-mutated", 2
         if common.verify_package(package, "win-x64") != manifest:
@@ -362,6 +420,7 @@ def playtest(args, state: Path, session: dict) -> int:
             stopped_early_for_mod_failure=stopped_for_mod_failure,
             real_unity_player=bool(probe and probe.get("Platform")==PLATFORM),
             integration_probe=probe, colony_report=report, native_domain=domain,
+            colony_owner=owner, colony_owner_passed=owner_ok,
             native_backend_observation=observation, bounded_native_domain_passed=domain_ok,
             steam_blocked=common.steam_blocked(log), main_menu_reached=common.MAIN_MENU_MARKER in log,
             main_menu_contract_export=common.contract_export(log), mod_failure_lines=common.mod_failure_lines(log, (MOD_ID,))[:50])
@@ -393,6 +452,9 @@ def main() -> int:
     parser.add_argument("--graphics-api",choices=("glcore","d3d11"),default="glcore",
         help="Unity graphics API; OpenGL Core avoids the reproduced software Direct3D11 clock/startup failures")
     parser.add_argument("--frames", type=int, choices=range(1, 10001), default=120, metavar="1..10000")
+    parser.add_argument("--scenario", type=common.scenario_list, help="colony-owner: comma-separated gameplay scenario batch")
+    parser.add_argument("--cluster", choices=common.BASE_CLUSTERS, help="colony-owner: base-game starting asteroid (default Terra)")
+    parser.add_argument("--speed", type=int, choices=(1, 2, 3), help="Normal, fast or ultra game speed")
     parser.add_argument("--timeout", type=int, choices=range(30, 7201), default=1800, metavar="30..7200")
     parser.add_argument("--inspection-seconds", type=int, choices=range(0, 301), default=0, metavar="0..300",
         help="Keep a completed colony visible for bounded input/visual inspection before normal cleanup")

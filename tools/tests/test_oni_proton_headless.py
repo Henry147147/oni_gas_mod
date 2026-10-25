@@ -22,6 +22,46 @@ common = runner.common
 
 
 class ProtonIsolationTests(unittest.TestCase):
+    def test_owner_timing_excludes_missing_frames_and_session_changes(self):
+        samples = [dict(session=1, frame=1, wall=1, owner_ms=10),
+                   dict(session=1, frame=2, wall=1.2, owner_ms=20),
+                   dict(session=1, frame=5, wall=2, owner_ms=30),
+                   dict(session=2, frame=6, wall=10, owner_ms=40)]
+        timing = runner.owner_timing(samples)
+        self.assertEqual(timing["nonadjacent_intervals"], 2)
+        self.assertEqual(timing["owner_milliseconds"]["mean"], 25)
+        self.assertEqual(timing["observed_milliseconds"]["samples"], 1)
+        self.assertAlmostEqual(timing["observed_milliseconds"]["mean"], 200)
+        self.assertIsNone(runner.owner_timing([])["observed_milliseconds"])
+
+    def test_owner_evidence_requires_physical_progress_conservation_and_scenario_success(self):
+        owner = dict(State=1, Faulted=False, Error="", CompletedFrames=32, OwnedCells=100,
+                     Publications=32, MaximumRelativeMassError=1e-15, MaximumRelativeEnergyError=1e-15,
+                     Scenarios=[dict(Passed=True)])
+        self.assertTrue(runner.colony_owner_passed(owner))
+        self.assertFalse(runner.colony_owner_passed(None))
+        for key, value in (("State", 2), ("Faulted", True), ("CompletedFrames", 0), ("OwnedCells", 0),
+                           ("MaximumRelativeMassError", float("nan")), ("MaximumRelativeEnergyError", 1e-8),
+                           ("Error", "fault"), ("Scenarios", [dict(Passed=False)]), ("RendererError", "failed")):
+            with self.subTest(key=key):
+                self.assertFalse(runner.colony_owner_passed(dict(owner, **{key: value})))
+
+    def test_owner_modes_admit_batches_and_fresh_process_loads(self):
+        args = SimpleNamespace(mode="colony-owner", frames=32, load_save=None, save_colony=True,
+                               scenario="base,mixed-pipe", cluster="SandstoneDefault",
+                               resave_before_resume=False, reload_in_process=False, verify_save_io_recovery=False)
+        runner.validate_arguments(args)
+        with tempfile.NamedTemporaryFile(suffix=".sav") as save:
+            args.mode = "colony-owner-load"
+            args.load_save = Path(save.name)
+            args.scenario = args.cluster = None
+            runner.validate_arguments(args)
+            args.reload_in_process = True
+            runner.validate_arguments(args)
+            args.load_save = None
+            with self.assertRaises(ValueError):
+                runner.validate_arguments(args)
+
     def test_inspection_rejects_unbounded_or_menu_holds_before_game_start(self):
         for seconds in (-1, 301, 1.5, True):
             with self.subTest(seconds=seconds), self.assertRaisesRegex(ValueError, "Completed inspection"):
