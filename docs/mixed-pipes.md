@@ -217,6 +217,14 @@ alongside durable port buffers and physical scheduling state.
 
 ## Saved framing
 
+**MACPIP01 schema5** is reserved (2026-10-25), immediately after a fresh fetch
+of `ea052ad`, for authoritative component-storage inventories and biology,
+plus native conduit clocks, mass staging, routing and update order. These are
+physical continuation state, rather than permission to discard storage
+quantities into a boundary ledger or reset scheduling on load. Schema4 and
+earlier codec bytes remain unchanged; the new writer stays gated until its
+storage and continuation controls pass.
+
 **MACPIP01 schema4** was reserved (2026-10-24), immediately after a fresh fetch
 of `c57532a`, for complete native pipe biology context: captured allocation
 mass/element, cached growth rule, projected culture and residue, including
