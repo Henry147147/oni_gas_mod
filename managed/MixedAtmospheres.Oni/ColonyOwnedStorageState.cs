@@ -1,0 +1,187 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+
+namespace MixedAtmospheres.Oni
+{
+    internal readonly struct StoredFluidAddress : IEquatable<StoredFluidAddress>, IComparable<StoredFluidAddress>
+    {
+        internal readonly int Prefab,Ordinal;
+        internal StoredFluidAddress(int prefab,int ordinal)
+        {
+            if(prefab<0||ordinal<0||ordinal>255)throw new InvalidDataException("Invalid owned storage component identity.");
+            Prefab=prefab;Ordinal=ordinal;
+        }
+        public bool Equals(StoredFluidAddress other)=>Prefab==other.Prefab&&Ordinal==other.Ordinal;
+        public override bool Equals(object? other)=>other is StoredFluidAddress value&&Equals(value);
+        public override int GetHashCode()=>HashCode.Combine(Prefab,Ordinal);
+        public int CompareTo(StoredFluidAddress other){var order=Prefab.CompareTo(other.Prefab);return order!=0?order:Ordinal.CompareTo(other.Ordinal);}
+        internal void Write(BinaryWriter writer){writer.Write(Prefab);writer.Write(Ordinal);}
+        internal static StoredFluidAddress Read(BinaryReader reader)=>new StoredFluidAddress(reader.ReadInt32(),reader.ReadInt32());
+    }
+
+    // Native storage items are views. Every actual constituent, joule and
+    // disease identity stays here, including quantities no float item carries.
+    internal sealed class OwnedFluidStore
+    {
+        internal readonly StoredFluidAddress Address;
+        internal readonly byte Phase;
+        internal PipeInventory Inventory {get;private set;}
+        internal PipeInventory Initial {get;private set;}
+        internal PipeInventory Admitted {get;private set;}=PipeInventory.Empty;
+        internal PipeInventory Withdrawn {get;private set;}=PipeInventory.Empty;
+        internal PipeAmount Heat {get;private set;}
+        internal ulong Revision {get;private set;}
+        internal readonly SortedDictionary<int,GermPopulationClock> Clocks=new SortedDictionary<int,GermPopulationClock>();
+        internal readonly SortedDictionary<int,StoredGermContext> CultureContexts=new SortedDictionary<int,StoredGermContext>();
+        internal readonly SortedDictionary<int,PipeAmount> Births=new SortedDictionary<int,PipeAmount>(),Deaths=new SortedDictionary<int,PipeAmount>();
+        internal OwnedFluidStore(StoredFluidAddress address,byte phase,PipeInventory initial)
+        {
+            if(phase!=1&&phase!=2)throw new InvalidDataException("Invalid owned storage phase.");
+            Address=address;Phase=phase;Inventory=Initial=initial??throw new ArgumentNullException(nameof(initial));
+        }
+        internal sealed class Move
+        {
+            internal readonly OwnedFluidStore Owner;
+            internal readonly ulong Revision;
+            internal readonly PipeInventory Before,After,Parcel,Outside;
+            internal readonly PipeInventory Journal;
+            internal readonly ulong NextRevision;
+            internal readonly int[] Retired;
+            internal readonly bool Intake;
+            internal Move(OwnedFluidStore owner,PipeInventory after,PipeInventory parcel,PipeInventory outside,bool intake)
+            {
+                Owner=owner;Revision=owner.Revision;Before=owner.Inventory;After=after;Parcel=parcel;Outside=outside;Intake=intake;
+                Journal=intake?owner.Admitted.Joined(parcel):owner.Withdrawn.Joined(parcel);NextRevision=checked(Revision+1);
+                Retired=owner.Clocks.Keys.Concat(owner.CultureContexts.Keys).Distinct().Where(id=>Germs(after,id).Sign==0).ToArray();
+            }
+        }
+        internal Move PrepareAdmission(PipeInventory incoming,double capacity,Func<int,PipeMaterial> material)
+        {
+            var transfer=PipeInventory.Transfer(incoming,Inventory,double.MaxValue,capacity,material);
+            return new Move(this,transfer.Target,transfer.Parcel,transfer.Source,true);
+        }
+        // Reservoirs leave only=null: every phase constituent travels in the
+        // same proportion. A recipe/filter names its requested reagent.
+        internal Move PrepareWithdrawal(double maximum,Func<int,PipeMaterial> material,int? only=null,bool excluding=false)
+        {
+            var split=Inventory.Split(maximum,material,only,excluding);
+            return new Move(this,split.Remaining,split.Parcel,PipeInventory.Empty,false);
+        }
+        internal Move PrepareWithdrawalTo(PipeInventory destination,double maximum,double capacity,Func<int,PipeMaterial> material)
+        {
+            var transfer=PipeInventory.Transfer(Inventory,destination,maximum,capacity,material);
+            return new Move(this,transfer.Source,transfer.Parcel,transfer.Target,false);
+        }
+        internal void Commit(Move move)
+        {
+            if(!ReferenceEquals(move.Owner,this)||move.Revision!=Revision||!ReferenceEquals(move.Before,Inventory))
+                throw new InvalidOperationException("Owned storage changed after its transfer was prepared.");
+            // Prepare every allocation before changing either authoritative
+            // field; callers commit the paired pipe state on the same thread.
+            Inventory=move.After;if(move.Intake)Admitted=move.Journal;else Withdrawn=move.Journal;Revision=move.NextRevision;
+            foreach(var id in move.Retired){Clocks.Remove(id);CultureContexts.Remove(id);}
+        }
+        internal void AddHeat(PipeAmount representedWork,Func<int,PipeMaterial> material)
+        {
+            var next=Inventory.WithHeat(representedWork);var heat=Heat.Plus(representedWork);var revision=checked(Revision+1);
+            if(next.Count>0)next.Temperature(material);
+            Inventory=next;Heat=heat;Revision=revision;
+        }
+        internal void CommitCulture(int id,GermPopulationStep step,StoredGermContext? context=null)
+        {
+            if(id<0||id>=255||step.Population.Sign<0||Germs(Inventory,id).Plus(step.Change).Minus(step.Population).Sign!=0)
+                throw new InvalidOperationException("Owned storage biology step does not match its actual population.");
+            var next=Inventory.WithDiseaseDelta(id,step.Change);var journal=step.Change.Sign>0?Births:Deaths;
+            journal.TryGetValue(id,out var before);var total=before.Plus(step.Change.Sign>0?step.Change:step.Change.Negated());
+            var revision=checked(Revision+1);
+            Inventory=next;
+            if(step.Population.Sign>0){Clocks[id]=step.Clock;if(context.HasValue)CultureContexts[id]=context.Value;}
+            else{Clocks.Remove(id);CultureContexts.Remove(id);}
+            if(step.Change.Sign!=0)journal[id]=total;Revision=revision;
+        }
+        internal bool Audit()
+        {
+            foreach(var id in Initial.Parts.ToArray().Concat(Admitted.Parts.ToArray()).Concat(Withdrawn.Parts.ToArray()).Concat(Inventory.Parts.ToArray()).Select(p=>p.Id).Distinct())
+                if(Mass(Initial,id).Plus(Mass(Admitted,id)).Minus(Mass(Withdrawn,id)).Minus(Mass(Inventory,id)).Sign!=0)return false;
+            if(Initial.Energy.Plus(Admitted.Energy).Plus(Heat).Minus(Withdrawn.Energy).Minus(Inventory.Energy).Sign!=0)return false;
+            foreach(var id in Initial.Germs.ToArray().Concat(Admitted.Germs.ToArray()).Concat(Withdrawn.Germs.ToArray()).Concat(Inventory.Germs.ToArray()).Select(p=>p.Id).Concat(Births.Keys).Concat(Deaths.Keys).Distinct())
+            {
+                Births.TryGetValue(id,out var born);Deaths.TryGetValue(id,out var died);
+                if(Germs(Initial,id).Plus(Germs(Admitted,id)).Plus(born).Minus(died).Minus(Germs(Withdrawn,id)).Minus(Germs(Inventory,id)).Sign!=0)return false;
+            }
+            return true;
+        }
+        private static PipeAmount Mass(PipeInventory inventory,int id)
+        {foreach(var part in inventory.Parts)if(part.Id==id)return part.Amount;return PipeAmount.Zero;}
+        private static PipeAmount Germs(PipeInventory inventory,int id)
+        {foreach(var part in inventory.Germs)if(part.Id==id)return part.Amount;return PipeAmount.Zero;}
+        internal void Write(BinaryWriter writer)
+        {
+            Address.Write(writer);writer.Write(Phase);writer.Write(Revision);
+            Inventory.Write(writer);Initial.Write(writer);Admitted.Write(writer);Withdrawn.Write(writer);Heat.Write(writer);
+            writer.Write(Clocks.Count);foreach(var clock in Clocks){writer.Write(clock.Key);clock.Value.Write(writer);}
+            writer.Write(CultureContexts.Count);foreach(var context in CultureContexts){writer.Write(context.Key);context.Value.Write(writer);}
+            WriteJournal(writer,Births);WriteJournal(writer,Deaths);
+        }
+        internal static OwnedFluidStore Read(BinaryReader reader)
+        {
+            var address=StoredFluidAddress.Read(reader);var phase=reader.ReadByte();var revision=reader.ReadUInt64();
+            var inventory=PipeInventory.Read(reader);var initial=PipeInventory.Read(reader);var admitted=PipeInventory.Read(reader);var withdrawn=PipeInventory.Read(reader);var heat=PipeAmount.Read(reader);
+            var store=new OwnedFluidStore(address,phase,initial){Inventory=inventory,Admitted=admitted,Withdrawn=withdrawn,Heat=heat,Revision=revision};
+            var previous=-1;
+            for(int k=0,n=Count(reader);k<n;++k)
+            {var id=reader.ReadInt32();if(id<=previous||id>=255||Germs(inventory,id).Sign==0)throw new InvalidDataException("Invalid owned storage germ clock.");store.Clocks.Add(id,GermPopulationClock.Read(reader));previous=id;}
+            previous=-1;
+            for(int k=0,n=Count(reader);k<n;++k)
+            {var id=reader.ReadInt32();if(id<=previous||id>=255||!store.Clocks.ContainsKey(id))throw new InvalidDataException("Invalid owned storage culture context.");store.CultureContexts.Add(id,StoredGermContext.Read(reader));previous=id;}
+            ReadJournal(reader,store.Births);ReadJournal(reader,store.Deaths);
+            if(!store.Audit())throw new InvalidDataException("Owned storage checkpoint fails its physical inventory audit.");
+            return store;
+        }
+        private static int Count(BinaryReader reader)
+        {var count=reader.ReadInt32();if(count<0||count>255)throw new InvalidDataException("Invalid owned storage disease count.");return count;}
+        private static void WriteJournal(BinaryWriter writer,SortedDictionary<int,PipeAmount> journal)
+        {writer.Write(journal.Count);foreach(var entry in journal){writer.Write(entry.Key);entry.Value.Write(writer);}}
+        private static void ReadJournal(BinaryReader reader,SortedDictionary<int,PipeAmount> journal)
+        {
+            var previous=-1;
+            for(int k=0,n=Count(reader);k<n;++k)
+            {var id=reader.ReadInt32();var value=PipeAmount.Read(reader);if(id<=previous||id>=255||value.Sign<=0)throw new InvalidDataException("Invalid owned storage biology journal.");journal.Add(id,value);previous=id;}
+        }
+    }
+
+    // Schema5's component-storage section. A null section means the older
+    // native-item runtime; an empty section means exact storage is active and
+    // currently owns no components. These modes must remain distinguishable.
+    internal sealed class OwnedFluidStorageImage
+    {
+        internal const int MaximumStores=1_000_000;
+        internal readonly OwnedFluidStore[] Stores;
+        internal OwnedFluidStorageImage(IEnumerable<OwnedFluidStore> stores)
+        {
+            Stores=stores.OrderBy(s=>s.Address).ToArray();
+            if(Stores.Length>MaximumStores)throw new InvalidDataException("Too many owned storage components.");
+            for(var i=0;i<Stores.Length;++i)
+                if(i>0&&Stores[i-1].Address.Equals(Stores[i].Address)||!Stores[i].Audit())
+                    throw new InvalidDataException("Invalid or duplicate owned storage component.");
+        }
+        internal void Write(BinaryWriter writer)
+        {writer.Write(Stores.Length);foreach(var store in Stores)store.Write(writer);}
+        internal static OwnedFluidStorageImage Read(BinaryReader reader)
+        {
+            var count=reader.ReadInt32();
+            if(count<0||count>MaximumStores||count>(reader.BaseStream.Length-reader.BaseStream.Position)/10)
+                throw new InvalidDataException("Invalid owned storage component count.");
+            var stores=new OwnedFluidStore[count];
+            for(var i=0;i<count;++i)
+            {
+                stores[i]=OwnedFluidStore.Read(reader);
+                if(i>0&&stores[i-1].Address.CompareTo(stores[i].Address)>=0)
+                    throw new InvalidDataException("Noncanonical owned storage component order.");
+            }
+            return new OwnedFluidStorageImage(stores);
+        }
+    }
+}

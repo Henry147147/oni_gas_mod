@@ -1,6 +1,6 @@
 # Private Linux playtest completion
 
-Status reviewed 2026-10-24 against the accepted [base-game plan](playtest-plan.md)
+Status reviewed 2026-10-25 against the accepted [base-game plan](playtest-plan.md)
 and its overriding [user amendments](completion-plan.md#amendments).
 The mod is **not ready for a full private colony playtest**. Catalogue support
 exists for the loaded 29 gases and 49 liquids; that does not establish every
@@ -15,12 +15,12 @@ physics gates, frozen arenas, bounds or the user's decisions.
 
 | Completion item | Current evidence and remaining work | Owner |
 | --- | --- | --- |
-| Full mixed gas/liquid pipes and ports | Explicit pump/storage 27/27, atomic world output 10/10, real teardown 10/10, valve/shutoff 23/23 and gas vent 13/13 pass. Normal mixed ownership remains off. Finish liquid outlets, recipe-specific consumers/storage/reservoirs, phase damage/returns, all readers and activation. | Pipe worker |
-| Heat and germs | Correct pipe body capacity uses registered thermal mass, not construction mass. The original carrier-temperature account fails its fixed endpoint bound. Explicit represented-body-work coupling now passes 5/5 at 601 frames with zero heat residual; full phase/range and ordinary activation still need acceptance. Explicit four-ID gas/liquid pipe biology passes9/9 twice, including70 native single-culture comparisons and fractional/wide/tiny counts. Complete world minority evolution and durable runtime scheduling remain open. | Pipe worker / gameplay owner |
+| Full mixed gas/liquid pipes and ports | Machine ports/liquid vents/phase damage pass8/8, heat machines4/4 and a piped base10/10 on the opt-in runtime. Corrected selected-profile readers4/4 and destroyed-pump retirement3/3 pass. A reservoir prototype now physically draws the same75/25 mixture twice, retaining unprojectable traces and all germ identities; complete component adapters, durable storage and default activation remain open. | Pipe worker |
+| Heat and germs | Represented-body-work hot/cold controls pass5/5 and6/6 at601 frames with zero residual. All-ID pipe biology passes9/9; world biology has778/778 native single-cell predictions. Schema4 now restores native allocation mass/material and growth caches before positive time; cold/menu controls correct two stale allocation/cache rows and verify final bits. A heated Oceania manual save fails the body-heat settlement guard; whole-storage heat/biology and final save acceptance remain open. | Pipe worker / gameplay owner |
 | Conserved gameplay transactions | Existing life-support, plant, critter, source and machine scenarios pass on the packet path. Verify recipe-only consumption, blocked input/output and power/heat accounting on the final mixed path, including storage, bottles, suits and rocket tanks/cargo. A generic converter preflight is not a per-recipe atomicity proof. | Gameplay owner / pipe worker |
-| Exact saves with mixed activity | Historical owner saves/load/overwrite and missing-mod rejection pass. Mixed saves are explicitly refused; the early public-ingress guard passes 7/7 actual game checks with existing destination/writer bytes preserved. Finish the pre-header quiescence barrier, durable ports/retries/component scheduling, in-flight manual/autosaves, cold/menu reload, interrupted-save checks and byte-exact continuation. Old saves retain their recorded profile. | Pipe worker / gameplay owner |
-| Whole-asteroid reliability | Every base-game asteroid imports. Oceania/Volcanea pass30 frames on profile18. New opt-in profile3/core21 passes60 frames on Oceania, Volcanea and Terra, beyond core20's failures after2/0 frames. These are startup checks; selected-profile phase, save and long-run acceptance remain open. The prepared profile18 late colony stalls after frame4,383; pass that region on an explicitly agreed fresh base before resuming ten cycles. No old-save migration. One legacy transfer fault at frame456 did not recur in a601-frame retry and is not claimed fixed. | Solver / gameplay owners |
-| Numerical acceptance for the selected profile | F1 static split currently fails the vanilla comparison. F2 requires accepted external-heat/kinetic correction; F3/F5 dynamic references and compression/phase corrections remain open; F4 lacks a completed aligned solid/fluid measurement. Finish affected evaporation, steam and freeze/melt checks. New kernel integration is diagnostic until accepted. | Solver / gameplay owners |
+| Exact saves with mixed activity | Ordinary load-menu admission rejects an incompatible mixture save before colony creation. Core23/schema4 cold/menu tests restore exact source owner/pipe images and native biology context; the native checkpoint-copy query/copy race is fixed. Schema5 is reserved for exact component storage plus native flow clocks, staging, routing and callback order; its writer stays gated until complete. Heated manual-save settlement, natural autosaves and byte-exact active continuation remain open. Old saves retain their recorded profile. | Pipe worker / gameplay owner |
+| Whole-asteroid reliability | Every base-game asteroid imports. New opt-in profile5/core23 moves the existing trace prune before conduction and refreshes its EOS, preserving old laws. An actual Oceania base advances1200 new frames with three duplicants alive, no owner fault/rejection/skipped relaxation and closed ledgers; a separate saving run fails at its first heated save. Selected-profile asteroid coverage and the prepared Terra failure-region/ten-cycle runs remain open. No old-save migration. | Solver / gameplay owners |
+| Numerical acceptance for the selected profile | Profile5/core23 retains heat mixing8 and corrected empty-cell face momentum. F1 split and F3/F5 depth results improve on vanilla; full floor acceptance is open. Same-publication arena energy now supports a fixed F2 equilibrium truth including release kinetic and accepted solid heat; held-reservoir inventory observations are corrected. F3 needs a validated independent VOF reference, and F4 needs aligned owner/solid measurements. See the floor document. | Solver / gameplay owners |
 | Ordinary player build and presentation | Select only an accepted profile for new colonies; no development fixture required. Verify normal startup, full world/pipe/storage/spill inspection and sensors, responsive pause/menu, clean shutdown, clear faults and missing/incompatible-mod saves. | Gameplay owner |
 | Ten-cycle colony acceptance and package | After the shorter failure-region check passes, run the prepared colony ten cycles with every duplicant alive, no owner fault/fallback and closed ledgers, including autosaves. Validate one immutable final bundle, then provide private Linux install/run/known-behaviour instructions and hashes. | Gameplay owner |
 
@@ -38,6 +38,42 @@ Windows, DLC, Workshop publication and the broader public-release matrix follow
 this private Linux base-game playtest. No public release is authorized here.
 
 ## Current-bundle reliability checks
+
+Immutable `codex-resume-oceania-profile5-v1` creates an actual Oceania prepared
+base with core23, liquid law1, heat mixing8 and pressure caps400/800. The durable
+frame32 source save is reused without alteration. Its physics-only continuation
+`codex-resume-oceania-physics1200-v1` reaches frame1232 with all three duplicants
+alive, 562.850302 kg of phase conversions, zero owner faults/rejections/skipped
+relaxations and no missed samples (1200 owner frames,1199 adjacent intervals).
+Maximum relative mass/energy errors are1.46020e-15/1.08465e-14; trace sinks are
+2.18949e-6 kg/1.54053 J. LOW-lock owner mean/p95/max is
+217.942/250.658/334.282 ms; observed spacing260.233/366.789/533.142 ms.
+The shared GPU and CPU diagnostic window establishes no speed acceptance.
+Fallback count remains unavailable; package hashes and process cleanup pass.
+
+The separate `codex-resume-oceania-1200-v1` requests ordinary saves and fails
+at frame632, its first save after600 new frames. The owner itself remains
+healthy with three duplicants and357.106 kg of phase conversions. The barrier
+reports a pipe body still at299.99942 K while contact replay expects299.9994 K.
+The physics-only result does not waive this save failure. Investigation must
+establish actual native work settlement without changing the thermal bounds.
+
+The immutable-package diagnostic `codex-resume-oceania-save-thermal-v1`
+repeats the same frame32 source through1200 new frames and both ordinary writes
+successfully, retaining a private contact trace. All1200 samples are present,
+with no fault/skipped relaxation; maximum relative mass/energy errors are
+1.51940e-15/1.10120e-14. This repeat does not establish the cause or resolution
+of the earlier one-ULP body-heat refusal. The raw helper heat and actual native
+message construction need separate verification near float rounding boundaries.
+
+The opt-in `pipe-schedule` diagnostic passes6/6 on core23. It captures two gas
+cells/two networks/three callbacks and five liquid cells/five networks/four
+callbacks, including empty pipes and a state-machine callback. At the same
+physical boundary it changes and restores clocks, native staging, routing,
+network traversal and callback order, reproduces the original1067-byte image,
+then continues positive time with exact physical accounts. This verifies the
+runtime rebind primitive, not complete schema5 cold/menu save continuation;
+the new writer remains gated on complete storage and native context capture.
 
 Immutable `package-private-readiness-v1` uses the unchanged `79e0545` native
 pair and `cda2aa1` managed code. New colonies explicitly select profile18

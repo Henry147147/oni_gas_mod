@@ -48,6 +48,44 @@ at frame71. The saved native scheduling gate remains open.
 
 ## Machine ports
 
+The native-item storage path below has a confirmed gameplay gap: a 75/25
+reservoir can emit pure-species withdrawals because the dispenser selects one
+item. `StorageBoundary` retains numerical differences for accounting but never
+returns them to physical withdrawals; sub-float mass and fractional/minority
+germs can therefore become unavailable. The historical 8/8 control checks total
+output, not each withdrawal's proportions or trace recovery, and does not
+establish complete mixture storage.
+
+`ColonyOwnedStorageState` replaces this with an exact inventory at each stable
+prefab-instance/Storage-component ordinal. Reservoir withdrawals transfer the
+whole eligible-phase mixture proportionally; reagent-specific withdrawals
+remain selective. Prepared moves reserve both endpoint inventories and exact
+journals before mutation. Focused pure controls verify successive 75/25 draws,
+physical 1e-240 kg/fractional/all-ID recovery after cold encoding, culture clocks,
+growth/death audits and stale/inconsistent-operation refusal. Schema5 requires
+both this storage section and the native scheduling section, preserving older
+codec bytes.
+
+The first `ColonyOwnedStorage` adapter is an explicitly started reservoir
+prototype. Native items serve UI and the existing registered thermal service;
+represented work uses the registered binary32 capacity and published body
+temperature, without credit on repeated getters or own projection resets.
+Unsupported native item/storage mutations refuse. It has no default/runtime
+activation, and live saves explicitly refuse until storage biology and native
+projection cold rebinding are complete. The `mixed-pipe-owned-storage` actual
+reservoir control tests individual withdrawals, physical trace/passive return
+and native thermal contact; this is a focused transfer control, not full
+storage/save acceptance. The first actual game control passed 8/8 at sampled
+frame31 on core23: each limited draw returned 1.5 kg water and 0.5 kg polluted
+water; the 1e-240 kg trace and three fractional/tiny germ identities returned
+physically; two native bodies exchanged -6025.932168995496 J with the store.
+Store and pipe audits closed, with no storage-boundary quantities. This
+measures thermal service, not coupled world/store heat closure. Package
+`codex-resume-owned-storage-proto-v1` and artifact
+`codex-resume-owned-storage-control-v1` are private focused evidence. Broad
+machine recipes, loose bottles and teardown
+still require exact adapters.
+
 Every `ConduitConsumer`/`ConduitDispenser` on an owned cell keeps its native
 gates, rates and storage (`ColonyConduitsMachinePorts.cs`). An input takes
 rate*dt of the cell's whole mixture in proportion, capped so the accepted

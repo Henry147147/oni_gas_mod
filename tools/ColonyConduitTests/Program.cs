@@ -46,6 +46,7 @@ static class Program
     }
     static void Main(string[] args)
     {
+        ScheduleStateTests.Run();
         byte[] AmountImage(PipeAmount amount){using var stream=new MemoryStream();using var writer=new BinaryWriter(stream);amount.Write(writer);return stream.ToArray();}
         var operands=new[]{1.0,Math.ScaleB(1,-53),Math.ScaleB(1,-106),-.75,-Math.ScaleB(1,-54),1e200,-1e200,1e-240};
         var expectedAmount=operands.Aggregate(PipeAmount.Zero,(sum,value)=>sum.Plus(new PipeAmount(value)));
@@ -307,6 +308,25 @@ static class Program
         var missingContext=Runtime4();missingContext.NativeCultures!.RemoveAt(0);
         Reject(()=>new ColonyConduitCheckpoint(geometry,hash,cells4,mixture,mixture,mixture,default,boundary:boundaryState,runtime:missingContext));
         Console.WriteLine("PASS pipe schema4: occupied and germ-free native culture allocation/cache/clock state round-trips exactly, schema3 unchanged, duplicate/incomplete contexts refuse");
+        var state5=Runtime4();
+        state5.OwnedStorage=new OwnedFluidStorageImage(new[]{new OwnedFluidStore(new StoredFluidAddress(42,0),2,
+            PipeInventory.Single(B,1e-240,310,1,.25))});
+        Reject(()=>new ColonyConduitCheckpoint(geometry,hash,cells4,mixture,mixture,mixture,default,boundary:boundaryState,runtime:state5));
+        state5.NativeSchedule=new PipeNativeScheduleState();
+        state5.NativeSchedule.Flows.Add(new PipeNativeScheduleState.Flow{Phase=1,Elapsed=.375f});
+        state5.NativeSchedule.Flows.Add(new PipeNativeScheduleState.Flow{Phase=2,Elapsed=.625f});
+        Reject(()=>new ColonyConduitCheckpoint(geometry,hash,cells4,mixture,mixture,mixture,default,boundary:boundaryState,runtime:state5));
+        state5.NativeSchedule.Flows[0].Cells.Add(new PipeNativeScheduleState.Cell{Index=35});
+        state5.NativeSchedule.Flows[0].Cells.Add(new PipeNativeScheduleState.Cell{Index=37});
+        state5.NativeSchedule.Flows[1].Cells.Add(new PipeNativeScheduleState.Cell{Index=36});
+        var pipeV5=new ColonyConduitCheckpoint(geometry,hash,cells4,mixture,PipeInventory.Empty,PipeInventory.Empty,default,boundary:boundaryState,runtime:state5).Encode();
+        var replayV5=ColonyConduitCheckpoint.Decode(pipeV5,geometry,hash,id=>id==1?(byte)1:(byte)2);
+        Check(replayV5.SchemaVersion==5&&replayV5.Encode().SequenceEqual(pipeV5)&&replayV5.Runtime!.OwnedStorage!.Stores[0].Inventory.SpeciesMass(2)==1e-240&&
+            replayV5.Runtime.OwnedStorage.Stores[0].Inventory.Germs[0].Mass==.25&&replayV5.Runtime.NativeSchedule!.Flows[1].Elapsed==.625f,
+            "schema5 lost exact physically held storage or native scheduling state");
+        Reject(()=>ColonyConduitCheckpoint.Decode(pipeV5,geometry,hash,id=>(byte)1));
+        Check(ColonyConduitCheckpoint.Decode(pipeV4,geometry,hash).Encode().SequenceEqual(pipeV4),"schema4 bytes changed by schema5");
+        Console.WriteLine("PASS pipe schema5 codec: exact component inventory plus native schedule survive byte-exact cold encoding; either missing section refuses; schema4 bytes preserved");
         byte[] ReceiptImage(bool observed=false)
         {
             using var stream=new MemoryStream();using var writer=new BinaryWriter(stream);
@@ -346,6 +366,7 @@ static class Program
         SurfaceGermTests.Run();
         GermEvolutionTests.Run();
         BiologyStateTests.Run();
+        OwnedStorageTests.Run();
         ContactWorkTests.Run();
         ScalarProductTests.Run();
         if(args.Contains("--biology-continuation"))BiologyContinuation.Run();

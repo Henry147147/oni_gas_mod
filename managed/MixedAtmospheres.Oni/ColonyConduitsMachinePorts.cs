@@ -88,11 +88,12 @@ namespace MixedAtmospheres.Oni
         }
         internal static void Reset()
         {
+            ColonyOwnedStorage.Reset();
             Enabled=false;conditioner=null;ToStorage=FromStorage=Dumped=PipeInventory.Empty;StorageBoundary=new Account();DumpedByCell.Clear();
             Consumed=Dispensed=Dumps=DamageEvents=0;
         }
 
-        internal static void RequireQuiescent(){if(conditioner!=null)throw new InvalidOperationException("A conditioner output is open at the pipe save point.");}
+        internal static void RequireQuiescent(){if(conditioner!=null)throw new InvalidOperationException("A conditioner output is open at the pipe save point.");ColonyOwnedStorage.RequireQuiescent();}
         internal static void Capture(PipeRuntimeImage image)
         {
             image.ToStorage=ToStorage;image.FromStorage=FromStorage;image.Dumped=Dumped;
@@ -123,10 +124,11 @@ namespace MixedAtmospheres.Oni
             if(moves)ConsumerCell.SetValue(consumer,cell);
             if(!consumer.IsConnected)return true;
             var contents=ColonyConduits.ReadSynced(flow,cell);
-            if(!((float)contents.Mass>0))return true;
+            if(contents.Count==0)return true;
             Satisfied.Invoke(consumer,new object[]{true});
             if(!consumer.alwaysConsume&&!consumer.operational.MeetsRequirements(consumer.OperatingRequirement))return true;
             var request=Mathf.Min(Rate(consumer)*dt,Space(consumer));
+            request=ColonyOwnedStorage.IntakeLimit(consumer.storage,request);
             Discover(contents);
             if(!(request>0))return true;
             var any=consumer.capacityTag==GameTags.Any;var store=consumer.wrongElementResult==ConduitConsumer.WrongElementResult.Store;
@@ -176,6 +178,7 @@ namespace MixedAtmospheres.Oni
         // Exact owned parcel -> native storage items, one per species.
         internal static void Deliver(Storage storage,PipeInventory parcel,bool keepZeroMass)
         {
+            if(ColonyOwnedStorage.Deliver(storage,parcel)){ToStorage=ToStorage.Joined(parcel);return;}
             var observedEnergy=PipeAmount.Zero;var observedGerms=new SortedDictionary<int,PipeAmount>();
             foreach(var item in NativeItems(parcel))
             {
@@ -265,6 +268,8 @@ namespace MixedAtmospheres.Oni
             var operational=(Operational)DispenserOperation.GetValue(dispenser);
             if((operational==null||!operational.IsOperational)&&!dispenser.alwaysDispense)return true;
             if(moves)DispenserCell.SetValue(dispenser,cell);
+            if(ColonyOwnedStorage.Dispense(dispenser,flow,cell,out var exact))
+            {if(exact.Count>0){FromStorage=FromStorage.Joined(exact);++Dispensed;}return true;}
             var item=(PrimaryElement)Suitable.Invoke(dispenser,null);
             if(item==null){dispenser.empty=true;return true;}
             item.KeepZeroMassObject=true;dispenser.empty=false;

@@ -277,6 +277,8 @@ namespace MixedAtmospheres.Oni
             while(accepted>0&&new PipeAmount(accepted).Minus(room).Sign>0)accepted=BitConverter.Int32BitsToSingle(BitConverter.SingleToInt32Bits(accepted)-1);
             return accepted;
         }
+        internal static double PortCapacity(ConduitFlow flow)=>Flows.TryGetValue(flow,out var state)?state.Capacity:
+            throw new InvalidOperationException("An exact machine port has no owned conduit phase.");
         internal static void ReceiveExact(ConduitFlow flow,int cell,PipeInventory incoming)
         {
             if(!Owns(flow,cell)||!flow.HasConduit(cell))throw new InvalidOperationException("A machine port wrote outside an owned pipe.");
@@ -420,6 +422,26 @@ namespace MixedAtmospheres.Oni
             var projection=Project(cell,contents,mode==MassPublication.Added);
             ++projecting;try{SetNative(flow,index,projection);}finally{--projecting;}
             cell.Shadow=projection;ColonyPipePumps.ProjectPipe(flow,index);
+        }
+        // Restore native staging after the topology flush. This writes only
+        // the compatibility projection: no physical move, heat reconciliation,
+        // ledger entry or pump notification may run while scheduling is bound.
+        internal static void ValidateNativeProjection(ConduitFlow flow,int index,ConduitFlow.ConduitContents contents)
+        {
+            if(!Owns(flow,index)||!flow.HasConduit(index))
+                throw new System.IO.InvalidDataException("Saved native staging has no owned live conduit.");
+            // Unallocated empty managed cells are inspected without importing
+            // a native packet or changing initial physical inventory/accounts.
+            var cell=Flows[flow].Cells[index]??new Cell(PipeInventory.Empty,default);
+            if(!SameContents(contents,Project(cell,contents)))
+                throw new System.IO.InvalidDataException("Saved native staging does not project the exact pipe inventory.");
+        }
+        internal static void RestoreNativeProjection(ConduitFlow flow,int index,ConduitFlow.ConduitContents contents)
+        {
+            ValidateNativeProjection(flow,index,contents);
+            var cell=Flows[flow].Cells[index]??new Cell(PipeInventory.Empty,default);
+            ++projecting;try{SetNative(flow,index,contents);}finally{--projecting;}
+            cell.Shadow=contents;Flows[flow].Cells[index]=cell;
         }
         internal static void ReadNative(ConduitFlow flow,int index,ref ConduitFlow.ConduitContents result)
         {

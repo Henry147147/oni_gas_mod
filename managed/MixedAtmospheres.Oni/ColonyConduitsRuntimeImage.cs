@@ -39,11 +39,16 @@ namespace MixedAtmospheres.Oni
         // Null is the legacy schema-3 image, whose native allocation/cache
         // state was not saved. An empty list explicitly records no pipes.
         internal List<PipeNativeCulture>? NativeCultures;
+        // Schema5 is complete only with both sections, including explicitly
+        // empty owned storage. A missing section must never masquerade as a
+        // checkpoint of the exact runtime.
+        internal OwnedFluidStorageImage? OwnedStorage;
+        internal PipeNativeScheduleState? NativeSchedule;
         internal SortedDictionary<int,PipeAmount> Births=new SortedDictionary<int,PipeAmount>(),Deaths=new SortedDictionary<int,PipeAmount>();
         internal long BiologyTicks,BiologyCells,BiologyIdentities,BiologyExpected,BiologySkipped,PhaseEvents;
 
         private const int MaximumRecords=1<<24;
-        internal void Write(BinaryWriter w)
+        internal void Write(BinaryWriter w,PipeGeometry geometry)
         {
             FromWorld.Write(w);ToWorld.Write(w);WriteMap(w,PassiveExchange,(x,k)=>x.Write(k));
             w.Write(Buffers.Count);foreach(var b in Buffers.OrderBy(b=>b.Id)){w.Write(b.Id);w.Write(b.Phase);w.Write(b.Cell);b.Inventory.Write(w);}
@@ -73,6 +78,8 @@ namespace MixedAtmospheres.Oni
             w.Write(BiologyTicks);w.Write(BiologyCells);w.Write(BiologyIdentities);w.Write(BiologyExpected);w.Write(BiologySkipped);w.Write(PhaseEvents);
             if(NativeCultures!=null)
             {w.Write(NativeCultures.Count);foreach(var culture in NativeCultures.OrderBy(c=>c.Phase).ThenBy(c=>c.Cell))culture.Write(w);}
+            if(OwnedStorage!=null)
+            {OwnedStorage.Write(w);NativeSchedule!.Write(w,geometry);}
         }
         internal static PipeRuntimeImage Read(BinaryReader r,PipeGeometry geometry,int schema=3)
         {
@@ -115,6 +122,8 @@ namespace MixedAtmospheres.Oni
                 image.NativeCultures=new List<PipeNativeCulture>(count);
                 for(var i=0;i<count;++i)image.NativeCultures.Add(PipeNativeCulture.Read(r,geometry));
             }
+            if(schema>=5)
+            {image.OwnedStorage=OwnedFluidStorageImage.Read(r);image.NativeSchedule=PipeNativeScheduleState.Read(r,geometry);}
             image.Validate();
             return image;
         }
@@ -122,6 +131,8 @@ namespace MixedAtmospheres.Oni
         // a buffer or a pending job (checked against the boundary by the caller).
         internal void Validate()
         {
+            if((OwnedStorage==null)!=(NativeSchedule==null)||OwnedStorage!=null&&NativeCultures==null)
+                throw new InvalidDataException("Schema5 requires owned storage, native biology context and native conduit scheduling together.");
             Unique(Buffers.Select(b=>b.Id),"buffer");Unique(Pumps.Select(p=>(ulong)(uint)p.Prefab),"pump");Unique(Vents.Select(v=>(ulong)(uint)v.Prefab),"vent");
             Unique(Spills.Select(s=>s.Key),"spill");Unique(Cultures.Select(c=>((ulong)c.Phase<<32)|(uint)c.Cell),"culture cell");
             foreach(var b in Buffers)if(b.Id==0||b.Inventory.Count==0)throw new InvalidDataException("Invalid saved pipe buffer.");
