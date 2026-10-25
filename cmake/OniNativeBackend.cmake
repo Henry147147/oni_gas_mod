@@ -102,6 +102,42 @@ else()
         set_property(TARGET mixed_atmospheres_oni APPEND PROPERTY LINK_DEPENDS "${oni_map}")
     endif()
 endif()
+if(MINGW)
+    # Windows runtime replacements for the owner DLL (MinGW only; Linux keeps
+    # glibc). MinGW's msvcrt heap maps every large buffer afresh, and its
+    # libmingwex exp/log run through x87 long double: together they doubled
+    # the game kernel's frame time. mimalloc serves the DLL's C++ new/delete;
+    # ARM optimized-routines provides exp/log. Neither changes Linux results.
+    FetchContent_Declare(ma_mimalloc
+        URL https://codeload.github.com/microsoft/mimalloc/tar.gz/refs/tags/v2.5.2
+        URL_HASH SHA256=5cf9d2a10fae5551b764e888a623da411c6c6beb0221b847f83492ab1932bdab
+        SOURCE_SUBDIR observer-populate-only)
+    FetchContent_Declare(ma_optimized_routines
+        URL https://codeload.github.com/ARM-software/optimized-routines/tar.gz/refs/tags/v26.07
+        URL_HASH SHA256=0db974d39531e1e922cd1b31da2c3118881c4ce86b3323daf2c13830ef2b229c
+        SOURCE_SUBDIR observer-populate-only)
+    FetchContent_MakeAvailable(ma_mimalloc ma_optimized_routines)
+    file(COPY "${ma_mimalloc_SOURCE_DIR}/LICENSE" DESTINATION "${oni_generated}/licenses/mimalloc")
+    file(COPY "${ma_optimized_routines_SOURCE_DIR}/LICENSE" DESTINATION "${oni_generated}/licenses/optimized-routines")
+    file(APPEND "${oni_generated}/third-party-sources.txt"
+        "mimalloc 2.5.2 (Windows only): https://github.com/microsoft/mimalloc/tree/v2.5.2\n"
+        "ARM optimized-routines v26.07 exp/log (Windows only): https://github.com/ARM-software/optimized-routines/tree/v26.07\n")
+    add_library(ma_windows_mimalloc STATIC "${ma_mimalloc_SOURCE_DIR}/src/static.c")
+    target_include_directories(ma_windows_mimalloc SYSTEM PUBLIC "${ma_mimalloc_SOURCE_DIR}/include")
+    target_link_libraries(ma_windows_mimalloc PUBLIC psapi bcrypt advapi32)
+    set(ma_or_math "${ma_optimized_routines_SOURCE_DIR}/math")
+    add_library(ma_windows_math OBJECT "${ma_or_math}/exp.c" "${ma_or_math}/exp_data.c"
+        "${ma_or_math}/log.c" "${ma_or_math}/log_data.c" "${ma_or_math}/math_err.c")
+    target_include_directories(ma_windows_math PRIVATE "${ma_or_math}" "${ma_or_math}/include")
+    # Plain binary64, no glibc aliases; deterministic on every x86-64 CPU.
+    target_compile_definitions(ma_windows_math PRIVATE USE_GLIBC_ABI=0)
+    target_compile_options(ma_windows_math PRIVATE -fno-builtin)
+    foreach(target ma_windows_mimalloc ma_windows_math)
+        set_target_properties(${target} PROPERTIES C_STANDARD 11 INTERPROCEDURAL_OPTIMIZATION OFF)
+    endforeach()
+    target_sources(mixed_atmospheres_oni PRIVATE native/src/oni_windows_allocator.cpp $<TARGET_OBJECTS:ma_windows_math>)
+    target_link_libraries(mixed_atmospheres_oni PRIVATE ma_windows_mimalloc)
+endif()
 if(MA_BUILD_TESTS)
     add_executable(ma_oni_diffusion_tests native/tests/oni_diffusion_tests.cpp native/src/oni_domain.cpp)
     target_link_libraries(ma_oni_diffusion_tests PRIVATE ma_mac_closed_world)

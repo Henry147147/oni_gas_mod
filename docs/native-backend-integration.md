@@ -271,6 +271,13 @@ failed-load restoration failure requests process exit. `native-observer` mode
 does no custom material import; the stricter `snapshot-copy` staging gate still
 rejects unsupported compressed liquids.
 
+MinGW Windows builds of the observer also link pinned mimalloc (its C++
+allocations) and ARM optimized-routines `exp`/`log` in place of MinGW's heap
+and x87 functions, which doubled the game kernel's frame time; their licenses
+ship in the package. Linux keeps glibc. Each platform is deterministic, but
+their math libraries differ in the last bit, so a save continues with its own
+platform's arithmetic.
+
 ## Current evidence and limits
 
 Observer forwarding, as of 2026-10-17:
