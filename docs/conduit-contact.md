@@ -20,16 +20,31 @@ loses 90,675.287708655 J. For each contact, replaying
 reproduces the complete body loss exactly, with zero difference. This is
 represented contact work, not an endpoint residual correction.
 
-`ma_oni_conduit_contact_version() == 1` exposes a read-only Linux replay for
+`ma_oni_conduit_contact_version() == 1` exposes a read-only contact replay for
 up to 4,096 contacts. It requires the inspected native image to be attached.
 The 44-byte input contains uint32 size/version/flags/reserved followed by seven
 binary32 values: dt, fluid T, fluid capacity in kJ/K, fluid conductivity,
 body T, registered body capacity in kJ/K, registered conduit conductivity.
 Flags bit0 means insulated. The 20-byte output contains uint32 size/version,
 native Q to body in kJ, expected carrier T and represented body T after contact.
-It calls the original pure helpers and changes no pipe, body, owner or clock.
+On Linux it calls the original pure helpers and changes no pipe, body, owner or clock.
 Invalid input, insufficient capacity, missing binding or invalid thermal range
-leaves the entire output array unchanged. Other platforms report capability0.
+leaves the entire output array unchanged.
+
+The pinned Windows build inlines those helpers. Its backend implements the
+same documented contact law with the Windows binary32 operation order,
+including rounded-reciprocal temperature updates and equilibrium weights.
+The managed caller validates every actual carrier result; a Windows mismatch
+stops the owner visibly and refuses saves.
+
+Both pinned native temperature managers skip a contact when either represented
+heat capacity is at most binary32 `1e-4` kJ/K. The pure helpers lack that
+admission check. Managed replay therefore retains those carriers unchanged
+before calling the helpers. WindowsPlayer under Proton verifies 1,032 actual
+carrier results across twelve gas/liquid, radiant/insulated and small/large
+capacity cases, with zero mismatches or unsettled contacts and exact pipe
+energy closure. This includes the skipped tiny-capacity cases; it does not
+establish the still-separate complete body-message energy account below.
 
 The boundary preserves the caller's floating-point environment and errno.
 Private active-image API controls match all 587 original contact outputs,

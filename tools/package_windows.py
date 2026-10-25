@@ -43,7 +43,7 @@ def main():
         "2. In the extracted folder run:\n"
         "   powershell -NoProfile -ExecutionPolicy Bypass -File .\\install_windows.ps1\n"
         "3. Start ONI, enable Mixed Atmospheres in Mods, and restart when asked.\n"
-        "4. In the main menu, turn OFF the Spaced Out! DLC (ONI restarts).\n"
+        "4. In the main menu, turn OFF Spaced Out! and any other gameplay packs (ONI restarts).\n"
         "5. Optional: Mods -> Mixed Atmospheres -> Settings. Default is recommended.\n"
         "   You can create, save and load your own presets; reinstalls retain them.\n"
         "6. Start a NEW base-game colony. No environment variables are needed.\n\n"

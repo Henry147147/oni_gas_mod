@@ -31,8 +31,9 @@ installation use its real `wine` executable and set `WINEDLLPATH` and
 `WINESERVER` to that installation. Both DLL import tables must contain only
 Windows system libraries: no libstdc++, libgcc or winpthread DLLs. The toolchain
 links these runtimes statically and leaves GCC 13's harmless small-pair-copy
-warning visible without treating it as a build error. Solver sources and
-floating-point flags are unchanged.
+warning visible without treating it as a build error. Solver arithmetic and
+floating-point flags are unchanged. The Python Maxwell–Stefan reference check
+uses the same configured emulator as the native test executables.
 
 The Proton runner accepts `--mode colony-owner` (new Terra on defaults),
 `--scenario` with a comma-separated gameplay batch, `--save-colony`, and
@@ -50,17 +51,18 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\install_windows.ps1
 ```
 
 Then start ONI, enable Mixed Atmospheres in Mods and restart when requested.
-**In the main menu, turn OFF the Spaced Out! DLC (ONI restarts), then start a
-new base-game colony.** No environment variables are needed. The script
+**In the main menu, turn OFF Spaced Out! and any other gameplay packs (ONI
+restarts), then start a new base-game colony.** No environment variables are needed. The script
 uses Windows' Documents known folder (including redirected Documents), verifies
 the package hashes, installs one Dev copy, and moves previous Mixed Atmospheres
 copies outside the mod scan into a backup folder. It preserves
 `mods/config/MixedAtmospheres` and all saves. `-OniUserRoot` overrides a custom
 ONI user-data location; `-Package` overrides the extracted package directory.
 
-The Windows target is 64-bit Windows with MSVC-built native libraries and ONI
-744825. Three routes exercise it; only the first establishes Windows OS
-behaviour.
+The current private package targets 64-bit Windows and ONI 744825 with the
+MinGW build above. Older Windows OS evidence below used MSVC and verifies only
+its recorded revisions. Three routes exercise the Windows target; only the
+first establishes Windows OS behaviour.
 
 | Route | Tool | Establishes |
 | --- | --- | --- |
