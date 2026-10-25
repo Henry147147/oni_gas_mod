@@ -285,7 +285,7 @@ void on_update_data(void* self,void* data) {
     native_heat_contact_bits.store(std::bit_cast<std::uint32_t>(pending.seconds),std::memory_order_release);
     original<void (*)(void*,void*)>(MA_ONI_UPDATE_DATA)(self,data);
     native_heat_contact_bits.store(0,std::memory_order_release);
-    if (shadowed && native_cells(data,shadow)) ma::oni::colony::capture_shadow(shadow);
+    if (shadowed && native_cells(data,shadow)) ma::oni::colony::capture_shadow(shadow,pending.ticket);
     if (pending.ticket) {
         ma::oni::advance_domain(pending.ticket,pending.seconds,native_thread());
         ma::oni::colony::advance(pending.ticket,pending.seconds,native_thread());
@@ -1133,6 +1133,28 @@ MAOniResult ma_oni_colony_sample_energy(std::uint64_t session,std::uint64_t fram
         MAOniColonyEnergySample captured{};
         try { captured=ma::oni::colony::sample_energy(session,frame); }
         catch (const std::invalid_argument& error) { throw Failure(MA_ONI_INVALID_ARGUMENT,error.what()); }
+        *out=captured;
+    });
+}
+MAOniResult ma_oni_colony_sample_native_frame(std::uint64_t session,std::uint64_t frame,
+    const std::uint32_t* cells,std::uint32_t count,MAOniColonyStatus* out,MAOniColonyNativeSampleCell* rows) {
+    return boundary([&] {
+        if (!cells || !count || count>4096 || !out || !rows)
+            throw Failure(MA_ONI_INVALID_ARGUMENT,"Invalid native arena sample buffers");
+        MAOniColonyStatus source{};std::vector<MAOniColonyNativeSampleCell> sampled;
+        try {ma::oni::colony::sample_native_frame(session,frame,std::span(cells,count),source,sampled);}
+        catch(const std::invalid_argument& error){throw Failure(MA_ONI_INVALID_ARGUMENT,error.what());}
+        std::copy(sampled.begin(),sampled.end(),rows);*out=source;
+    });
+}
+MAOniResult ma_oni_colony_sample_region_energy(std::uint64_t session,std::uint64_t frame,
+    const std::uint32_t* cells,std::uint32_t count,MAOniColonyRegionEnergySample* out) {
+    return boundary([&] {
+        if (!cells || !count || count>4096 || !out || out->struct_size!=sizeof(*out) || out->abi_version!=1)
+            throw Failure(MA_ONI_INVALID_ARGUMENT,"Invalid region energy record or cells");
+        MAOniColonyRegionEnergySample captured{};
+        try {captured=ma::oni::colony::sample_region_energy(session,frame,std::span(cells,count));}
+        catch(const std::invalid_argument& error){throw Failure(MA_ONI_INVALID_ARGUMENT,error.what());}
         *out=captured;
     });
 }

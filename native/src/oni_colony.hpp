@@ -48,7 +48,12 @@ void sample_history(std::uint32_t retained_frames);
 void sample_frame(std::uint64_t,std::span<const std::uint32_t>,MAOniColonyStatus&,std::vector<MAOniColonySampleCell>&,
     std::vector<MAOniColonySamplePart>&,double* booked_mass,double* booked_heat);
 [[nodiscard]] MAOniColonyEnergySample energy_components(const experimental::MacClosedWorld&);
+[[nodiscard]] MAOniColonyEnergySample region_energy_components(const experimental::MacClosedWorld&,std::span<const std::size_t>);
 [[nodiscard]] MAOniColonyEnergySample sample_energy(std::uint64_t session,std::uint64_t frame);
+void sample_native_frame(std::uint64_t session,std::uint64_t frame,std::span<const std::uint32_t>,
+    MAOniColonyStatus&,std::vector<MAOniColonyNativeSampleCell>&);
+[[nodiscard]] MAOniColonyRegionEnergySample sample_region_energy(std::uint64_t session,std::uint64_t frame,
+    std::span<const std::uint32_t>);
 double liquid_density(std::span<const MAOniColonyMaterial> materials, std::uint32_t native_index, double pressure_pa);
 // Control hook: the temperature read for one cell of the latest frame with
 // one constituent replaced by trace_kg.
@@ -75,7 +80,7 @@ struct NativeCells {
 // arrays; after it, capture() books every change native code made to them as
 // owner heat or transfers.
 void write_shadow(const NativeCells&) noexcept;
-void capture_shadow(const NativeCells&) noexcept;
+void capture_shadow(const NativeCells&,std::uint64_t native_ticket=0) noexcept;
 [[nodiscard]] bool owns(int native_cell) noexcept;
 // A native cell next to an owned one (a dug cell before the owner opens it):
 // native gas flow there would move owned gas outside the owner's books.

@@ -270,8 +270,9 @@ sampler therefore retains up to 64 immutable owner frames for these small
 arenas and drains each frame exactly once on its source clock. Missing history
 or a non-0.2 s interval fails the diagnostic. Gate/door release is stamped from
 the sampled owner geometry. Normal games retain no history; saves and physics
-are unchanged. F4 keeps its existing path because its native solid temperatures
-still need an aligned source; this does not establish a conduction result.
+are unchanged. F4 kept its existing path for those measurements because its
+native solid temperatures lacked an aligned source; they establish no conduction
+result.
 
 The first retained F2 run has **669 consecutive samples**, zero repeats, skips
 or refused projections, and maximum full-ledger inventory residual
@@ -384,6 +385,40 @@ against accepted heat/trace accounts within **2.201e-8 J**, at the binary64
 observations' roundoff. This explicit closure permits the fixed held reservoir
 outside the fluid energy budget; constant reservoir mass alone would not
 establish an energy account.
+
+The new F4 diagnostic retains native cell endpoints together with the heat-input
+batch drained by the owner. A read succeeds only for one native update with the
+publication's exact ticket and one owner interval; missing, failed, coalesced or
+mismatched captures are refused. The history reader supplies both native granite
+and owner fluids from that pairing and records U/K/G and accepted heat. Native
+values remain binary32 observations. History-disabled games capture nothing;
+checkpoint bytes and simulation order are unchanged. Synthetic controls cover
+retained temperature epochs, heat pairing and rejection without output mutation.
+Actual F4 admission/cadence and the full20000 s result remain to be measured.
+The legacy vanilla t=0 row already has a61.25 K room difference after conduction;
+its dynamic timing needs the initial-admission ticket before it can be compared
+with the prescribed70 K input.
+
+The additive88-byte region-energy reader also observes a sealed subset of a
+larger owner at an explicitly requested latest session/frame. It includes
+carried U and canonical internal-face K once, refusing open boundaries and
+nonzero boundary J. It needs no history and leaves checkpoints unchanged.
+Controls include an8192-cell owner with a separate excluded gas pocket and
+opposed formation offsets with carried U remainders. Heat exchanged with native
+bodies and stored-fluid energy remain separate accounts; this reader alone does
+not establish their coupled conservation.
+
+The recovered independent VOF reference fails a small-amplitude gravity-wave
+control: its8×/16× zero crossings are both[3.2,3.4] s against the analytic
+2.294215826 s from `omega^2 = g*k*tanh(k*h)` (20 m box,2 m depth,1 mm cosine;
+see the [Basilisk dispersion control](https://basilisk.fr/src/test/dispersion.c)).
+Using volume fraction minus0.5 as interface distance halves a small subcell
+height perturbation in its pressure boundary condition. Scratch repairs use
+the reconstructed PLIC planes and reflective fraction ghosts at walls. Both
+controls then cross in[2.2,2.4] s; the flat pool retains exact reported depth
+and volume, with K below3.4e-30 J. Original sources and failed results are
+preserved. The repaired F3 full120 s8×/16× trajectories still need to run; the
+old divergent events are not accepted timing truth.
 
 `tools/floor_timing.py` compares event sample brackets over an explicitly
 documented truth range, preserving both sampling and truth uncertainty. It

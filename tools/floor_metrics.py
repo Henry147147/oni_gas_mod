@@ -421,6 +421,10 @@ def sample_energies(arena: Arena):
             raise ValueError("Owner energy observation differs from its composition session/frame/time")
         if energy["accepted_external_heat_j"] != audit["accepted_external_heat_j"]:
             raise ValueError("Owner energy and accepted heat observations differ")
+        if arena.record["arena"] == "f4":
+            if arena.record.get("solid_sampling") != "retained native heat-input ticket paired with the same owner frame" or \
+                    audit.get("native_ticket", 0) <= 0 or audit.get("native_sample_ticket") != audit["native_ticket"]:
+                raise ValueError("F4 native solids differ from the owner's heat-input ticket")
         fields = ("internal_energy_j", "kinetic_energy_j", "potential_energy_j", "thermal_energy_j",
                   "formation_energy_j", "heat_capacity_j_per_k", "fluid_mass_kg", "accepted_external_heat_j", "trace_sink_energy_j")
         if not all(math.isfinite(energy[key]) for key in fields) or any(energy[key] < 0 for key in ("kinetic_energy_j", "heat_capacity_j_per_k", "fluid_mass_kg")):

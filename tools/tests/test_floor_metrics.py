@@ -233,6 +233,26 @@ class FloorMetricsTests(unittest.TestCase):
         self.assertAlmostEqual(out["initial"]["elements"]["Oxygen"]["heat_j"], gas_heat)
         self.assertNotEqual(out["initial_heat_j"], out["release_sample_heat_j"])
 
+    def test_f4_energy_rejects_an_unpaired_native_solid_ticket(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = write(Path(folder), "f4", 3, 3, {"release": 0}, {1: OXYGEN}, [(0, lambda x, y: (1, 1, 300))])
+            arena = floor_metrics.load(path)
+            arena.record.update(simulation="colony owner", solid_sampling="retained native heat-input ticket paired with the same owner frame")
+            energy = dict(session=7, frame=11, time_s=2.2, internal_energy_j=300000, kinetic_energy_j=0,
+                          potential_energy_j=0, thermal_energy_j=300000, formation_energy_j=0,
+                          heat_capacity_j_per_k=1000, fluid_mass_kg=1, accepted_external_heat_j=0, trace_sink_energy_j=0)
+            audit = dict(session=7, frame=11, time_s=2.2, accepted_external_heat_j=0,
+                         native_ticket=509, native_sample_ticket=509, energy=energy)
+            arena.record["owner_sample_audits"] = [audit]
+            self.assertEqual(floor_metrics.sample_energies(arena), [energy])
+            audit["native_sample_ticket"] = 510
+            with self.assertRaisesRegex(ValueError, "native solids"):
+                floor_metrics.sample_energies(arena)
+            audit["native_sample_ticket"] = 509
+            arena.record.pop("solid_sampling")
+            with self.assertRaisesRegex(ValueError, "native solids"):
+                floor_metrics.sample_energies(arena)
+
     def test_f5_counts_each_liquid_of_a_mixed_cell(self):
         water_full, oil_full = 1000.0, 870.0
         oil = {"id": "CrudeOil", "phase": "liquid", "molar_mass_kg_per_mol": .5, "specific_heat_j_per_kg_k": 1690.0}

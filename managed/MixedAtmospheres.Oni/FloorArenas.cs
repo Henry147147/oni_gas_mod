@@ -39,6 +39,8 @@ namespace MixedAtmospheres.Oni
         [StructLayout(LayoutKind.Sequential)]
         private struct SamplePart { internal uint NativeIndex, Reserved; internal double MassKg; }
         [StructLayout(LayoutKind.Sequential)]
+        private struct NativeSampleCell { internal uint PublicCell, NativeIndex; internal double MassKg, TemperatureK; }
+        [StructLayout(LayoutKind.Sequential)]
         private struct EnergySample
         {
             internal uint Size, Version;
@@ -52,9 +54,13 @@ namespace MixedAtmospheres.Oni
             [Out] SampleCell[] rows, [Out] SamplePart[] parts, uint capacity, out uint partCount, out double bookedMassKg, out double bookedHeatJ);
         [DllImport("mixed_atmospheres_oni", EntryPoint = "ma_oni_colony_sample_energy", CallingConvention = CallingConvention.Cdecl)]
         private static extern int SampleEnergy(ulong session, ulong frame, ref EnergySample energy);
+        [DllImport("mixed_atmospheres_oni", EntryPoint = "ma_oni_colony_sample_native_frame", CallingConvention = CallingConvention.Cdecl)]
+        private static extern int SampleNativeFrame(ulong session, ulong frame, [In] uint[] cells, uint count,
+            out OniNativeColony.Status source, [Out] NativeSampleCell[] rows);
         private static uint[] ownerRequested = Array.Empty<uint>();
         private static SampleCell[] ownerRows = Array.Empty<SampleCell>();
         private static SamplePart[] ownerParts = Array.Empty<SamplePart>();
+        private static NativeSampleCell[] ownerNativeRows = Array.Empty<NativeSampleCell>();
         private static readonly Dictionary<int, int> ownerCells = new Dictionary<int, int>();
         private static readonly List<ulong[]> ownerSampleFrames = new List<ulong[]>();
         private static readonly List<Dictionary<string, object>> ownerSampleAudits = new List<Dictionary<string, object>>();
@@ -81,7 +87,7 @@ namespace MixedAtmospheres.Oni
         private static double simulated;
         internal static void OnFrame(float seconds) { if (Id.Length != 0 && seconds > 0) simulated += seconds; }
         // Every native message, after owner publication. Native-only runs use
-        // the submitted tick; fluid-only owner arenas drain retained frames.
+            // the submitted tick; owner arenas drain retained frames.
         internal static void OnNativeMessage(int message, IntPtr data)
         {
             if (Id.Length == 0 || message != PrepareGameData || data == IntPtr.Zero) return;
@@ -92,7 +98,7 @@ namespace MixedAtmospheres.Oni
             // The native submitted clock can be ahead of the owner. Retain
             // and drain every completed fluid frame rather than relabelling
             // whichever world happens to be latest when this message arrives.
-            if (ColonyOwner.Active && Id != "f4")
+            if (ColonyOwner.Active)
             {
                 if (!historyStarted)
                 {
@@ -154,6 +160,15 @@ namespace MixedAtmospheres.Oni
                         // temperature come from the same completed owner frame.
                         temperature = reading.TemperatureK;
                     }
+                    else if (historyStarted && Id == "f4")
+                    {
+                        if (!ownerCells.TryGetValue(cell, out var nativeIndex))
+                            throw new InvalidDataException("F4 solid lacks its paired native observation.");
+                        var native = ownerNativeRows[nativeIndex];
+                        if (native.MassKg > 0 && (ElementLoader.elements[(int)native.NativeIndex].IsGas || ElementLoader.elements[(int)native.NativeIndex].IsLiquid))
+                            throw new InvalidDataException("F4 native fluid has not reached its owner frame.");
+                        line.Append(" 1"); Part((int)native.NativeIndex, native.MassKg); temperature = native.TemperatureK;
+                    }
                     else { line.Append(" 1"); Part(update->elementIdx[cell], update->mass[cell]); }
                     // Widen before formatting: float R's short text round-trips
                     // through float, but the offline reader uses doubles.
@@ -168,7 +183,7 @@ namespace MixedAtmospheres.Oni
             samples!.WriteLine(line.ToString());
             // F4: heat exchange starts with the fill; t = 0 is the first sample
             // holding it (the game applies the fill at its next step).
-            if (Id == "f4" && release < 0 && fluid) release = sampleTick;
+            if (Id == "f4" && release < 0 && fluid) { release = sampleTick; ownerReleaseStamped = historyStarted; }
             // F2: t = 0 is the first sample after the door is fully open.
             if (commanded >= 0 && opened < 0 && !ElementLoader.elements[update->elementIdx[Cell(9, 4)]].IsSolid &&
                 !ElementLoader.elements[update->elementIdx[Cell(9, 5)]].IsSolid &&
@@ -193,7 +208,7 @@ namespace MixedAtmospheres.Oni
             if (frame == ulong.MaxValue) OniNativeColony.Check(OniNativeColony.Wait());
             if (ownerRequested.Length == 0)
             {
-                if (Marshal.SizeOf<SampleCell>() != 24 || Marshal.SizeOf<SamplePart>() != 16)
+                if (Marshal.SizeOf<SampleCell>() != 24 || Marshal.SizeOf<SamplePart>() != 16 || Marshal.SizeOf<NativeSampleCell>() != 24)
                     throw new InvalidDataException("Floor sample ABI layout differs.");
                 // The fixed fixture owns precisely this arena. Bound capacity
                 // by its catalogue; one call then copies one immutable frame.
@@ -204,6 +219,7 @@ namespace MixedAtmospheres.Oni
                 for (var y = 1; y < height - 1; ++y) for (var x = 1; x < width - 1; ++x) requested.Add((uint)Cell(x, y));
                 ownerRequested = requested.ToArray(); ownerRows = new SampleCell[ownerRequested.Length];
                 ownerParts = new SamplePart[checked(ownerRequested.Length * ColonyOwner.Materials.Length)];
+                ownerNativeRows = new NativeSampleCell[ownerRequested.Length];
             }
             OniNativeColony.Check(SampleFrame(frame, ownerRequested, (uint)ownerRequested.Length, out var source,
                 ownerRows, ownerParts, (uint)ownerParts.Length, out _, out var bookedMass, out var bookedHeat));
@@ -218,6 +234,7 @@ namespace MixedAtmospheres.Oni
             ownerSampleFrames.Add(new[] { (ulong)sampleTick, source.CompletedFrames });
             var audit = new Dictionary<string, object> {
                 ["tick"] = sampleTick, ["session"] = source.Session, ["frame"] = source.CompletedFrames, ["time_s"] = source.TimeSeconds,
+                ["native_ticket"] = source.NativeTicket,
                 ["projection_refused_cells"] = refused, ["native_mass_in_kg"] = source.NativeMassInKg,
                 ["native_mass_out_kg"] = source.NativeMassOutKg, ["trace_sink_kg"] = source.TraceSinkKg,
                 ["injected_kg"] = source.InjectedKg, ["extracted_kg"] = source.ExtractedKg, ["reservoir_kg"] = source.ReservoirKg,
@@ -225,7 +242,17 @@ namespace MixedAtmospheres.Oni
                 ["accepted_external_heat_j"] = bookedHeat,
                 ["space_sink_kg"] = source.SpaceSinkKg, ["native_heat_j"] = source.NativeHeatJoules, ["mass_error"] = source.MaximumRelativeMassError,
                 ["energy_error"] = source.MaximumRelativeEnergyError };
-            if (Id != "f4")
+            if (Id == "f4")
+            {
+                OniNativeColony.Check(SampleNativeFrame(source.Session, source.CompletedFrames, ownerRequested,
+                    (uint)ownerRequested.Length, out var native, ownerNativeRows));
+                if (native.Session != source.Session || native.CompletedFrames != source.CompletedFrames ||
+                    native.TimeSeconds != source.TimeSeconds || native.NativeTicket != source.NativeTicket)
+                    throw new InvalidDataException("F4 native solids and owned fluids differ in source frame.");
+                for (var k = 0; k < ownerNativeRows.Length; ++k)
+                    if (ownerNativeRows[k].PublicCell != ownerRequested[k]) throw new InvalidDataException("F4 native row order differs.");
+                audit["native_sample_ticket"] = native.NativeTicket;
+            }
             {
                 if (Marshal.SizeOf<EnergySample>() != 104) throw new InvalidDataException("Floor energy ABI layout differs.");
                 var energy = new EnergySample { Size = 104, Version = 1 };
@@ -505,6 +532,7 @@ namespace MixedAtmospheres.Oni
                 ["origin_x"] = x0, ["origin_y"] = y0, ["grid_width"] = Grid.WidthInCells, ["grid_height"] = Grid.HeightInCells,
                 ["temperature_storage"] = "binary32",
                 ["fluid_sampling"] = historyStarted ? "retained completed owner frames" : ColonyOwner.Active ? "single completed owner frame" : "native published update",
+                ["solid_sampling"] = historyStarted && Id == "f4" ? "retained native heat-input ticket paired with the same owner frame" : "native published update",
                 ["owner_sample_history"] = historyStarted, ["owner_tick_offset"] = ownerTickOffset,
                 ["owner_sample_frames"] = ownerSampleFrames,
                 ["owner_sample_audits"] = ownerSampleAudits,

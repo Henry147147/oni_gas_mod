@@ -369,6 +369,36 @@ typedef struct MAOniColonyEnergySample {
 } MAOniColonyEnergySample;
 MA_ONI_API MAOniResult ma_oni_colony_sample_energy(uint64_t session, uint64_t completed_frame,
     MAOniColonyEnergySample*);
+/* Native cell endpoints paired with ONE retained owner's native heat-input
+ * batch. Captured after that native UpdateData, before the owner advances.
+ * Only a single native update whose ticket matches the completed publication
+ * is admissible; missing/coalesced/mismatched sources fail. Enable arena
+ * history before the measured window. These endpoints measure native solids;
+ * use sample_frame for owned fluids. Max4096 distinct requested cells, one
+ * output per requested cell in request order. Every output stays unchanged
+ * on failure. No checkpoint data or default-game capture work is added. */
+typedef struct MAOniColonyNativeSampleCell {
+    uint32_t public_cell, native_index;
+    double mass_kg, temperature_k;
+} MAOniColonyNativeSampleCell;
+MA_ONI_API MAOniResult ma_oni_colony_sample_native_frame(uint64_t session, uint64_t completed_frame,
+    const uint32_t* cells, uint32_t count, MAOniColonyStatus*, MAOniColonyNativeSampleCell* rows);
+/* Read-only energy of 1..4096 distinct cells in a larger owner. Requires the
+ * exact latest immutable session/frame; history is unnecessary. Every boundary
+ * of the requested fluid region must be a wall, domain edge or closed face,
+ * with zero canonical boundary momentum. Internal face K is included once.
+ * Thermal exchanges with native bodies/through a boundary still require the
+ * caller's separate account; no regional heat/trace ledger is inferred.
+ * Primary-U remainders and canonical J enter before final binary64 observation.
+ * Failure leaves the complete output unchanged. size=88, abi_version=1. */
+typedef struct MAOniColonyRegionEnergySample {
+    uint32_t struct_size, abi_version;
+    uint64_t session, completed_frame;
+    double time_seconds, internal_energy_j, kinetic_energy_j, potential_energy_j;
+    double thermal_energy_j, formation_energy_j, heat_capacity_j_per_k, fluid_mass_kg;
+} MAOniColonyRegionEnergySample;
+MA_ONI_API MAOniResult ma_oni_colony_sample_region_energy(uint64_t session, uint64_t completed_frame,
+    const uint32_t* cells, uint32_t count, MAOniColonyRegionEnergySample*);
 /* A catalogue liquid's reference density (kg/m^3) at a pressure, from the
  * same material records as start: the mass of one full cell. Needs no owner. */
 MA_ONI_API MAOniResult ma_oni_colony_liquid_density(const MAOniColonyMaterial*, uint32_t material_count, uint32_t native_index,

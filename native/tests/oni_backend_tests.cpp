@@ -48,6 +48,21 @@ int main() {
         sample_energy.abi_version=2;const auto bad_energy=sample_energy;
         require(ma_oni_colony_sample_energy(147,0,&sample_energy)==MA_ONI_INVALID_ARGUMENT &&
             std::memcmp(&sample_energy,&bad_energy,sizeof(sample_energy))==0,"invalid energy version modified output");
+        static_assert(sizeof(MAOniColonyNativeSampleCell)==24);
+        MAOniColonyNativeSampleCell native_sample{1,99,42,318};const auto held_native_sample=native_sample;
+        require(ma_oni_colony_sample_native_frame(147,0,&sample_cell,1,&sample_status,&native_sample)==MA_ONI_INVALID_ARGUMENT &&
+            ma_oni_colony_sample_native_frame(147,0,nullptr,1,&sample_status,&native_sample)==MA_ONI_INVALID_ARGUMENT &&
+            ma_oni_colony_sample_native_frame(147,0,&sample_cell,0,&sample_status,&native_sample)==MA_ONI_INVALID_ARGUMENT &&
+            std::memcmp(&native_sample,&held_native_sample,sizeof(native_sample))==0 &&
+            std::memcmp(&sample_status,&held_sample_status,sizeof(sample_status))==0,
+            "invalid/inactive native arena sample modified output");
+        static_assert(sizeof(MAOniColonyRegionEnergySample)==88);
+        MAOniColonyRegionEnergySample region_energy{};region_energy.struct_size=88;region_energy.abi_version=1;
+        region_energy.internal_energy_j=149;const auto held_region=region_energy;
+        require(ma_oni_colony_sample_region_energy(147,0,&sample_cell,1,&region_energy)==MA_ONI_INVALID_ARGUMENT &&
+            ma_oni_colony_sample_region_energy(147,0,nullptr,1,&region_energy)==MA_ONI_INVALID_ARGUMENT &&
+            ma_oni_colony_sample_region_energy(147,0,&sample_cell,1,nullptr)==MA_ONI_INVALID_ARGUMENT &&
+            std::memcmp(&region_energy,&held_region,sizeof(region_energy))==0,"invalid/inactive region energy modified output");
         require(ma_oni_colony_sample(nullptr,1,&sample_status,nullptr,nullptr,0,&sample_parts,&sample_converted)==MA_ONI_INVALID_ARGUMENT &&
             ma_oni_colony_sample(&sample_cell,0,&sample_status,nullptr,nullptr,0,&sample_parts,&sample_converted)==MA_ONI_INVALID_ARGUMENT &&
             ma_oni_colony_sample(&sample_cell,1,&sample_status,nullptr,nullptr,0,&sample_parts,&sample_converted)==MA_ONI_INVALID_ARGUMENT &&

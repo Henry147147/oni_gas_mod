@@ -727,6 +727,21 @@ void sample_history_control() {
         require(observation.kinetic_energy_j==4.5,"arena energy lost canonical momentum");
         require(observation.fluid_mass_kg==2 &&
             observation.heat_capacity_j_per_k==registry[0].cv()+registry[1].cv(),"arena energy changed stored mass/Cv");
+        const std::array<std::size_t,2> selected{1,0};
+        const auto regional=region_energy_components(world,selected);
+        require(std::memcmp(&regional,&observation,sizeof(observation))==0,
+            "regional observation flattened carried U/J or counted an internal face twice");
+        bool rejected=false;const std::size_t first_cell=0;
+        try{(void)region_energy_components(world,std::span(&first_cell,1));}catch(const std::invalid_argument&){rejected=true;}
+        require(rejected,"regional observation accepted an open boundary");
+        auto blocked_state=world.state();blocked_state.grid.closed_x={0,1,0};
+        const MacClosedWorld blocked_with_j(registry,eos,blocked_state);rejected=false;
+        try{(void)region_energy_components(blocked_with_j,std::span(&first_cell,1));}catch(const std::invalid_argument&){rejected=true;}
+        require(rejected,"regional observation accepted boundary canonical momentum");
+        blocked_state.momentum_x[1]=0;blocked_state.full_momentum_x[1]={};
+        const MacClosedWorld blocked(registry,eos,std::move(blocked_state));
+        require(region_energy_components(blocked,std::span(&first_cell,1)).fluid_mass_kg==1,
+            "regional observation rejected an explicitly closed zero-J face");
     }
     std::vector<MAOniColonyMaterial> mats{material("Oxygen",11,oxygen,true,.016,1000)};
     MAOniColonyConfig cfg{}; cfg.struct_size=sizeof(cfg); cfg.abi_version=MA_ONI_COLONY_ABI_VERSION;
@@ -770,6 +785,85 @@ void sample_history_control() {
     sample_history(1);rejected=false;try{(void)sample_energy(first_energy.session,0);}catch(const std::invalid_argument&){rejected=true;}
     require(rejected,"arena energy crossed a session boundary");stop();
     std::cout<<"PASS retained arena samples: exact completed frame, accepted/deferred heat, bounded eviction, readonly checkpoint and session reset\n";
+}
+void native_sample_history_control() {
+    using namespace ma::oni::colony;
+    const std::vector<MAOniColonyMaterial> mats{material("Oxygen",11,oxygen,true,.016,1000)};
+    MAOniColonyConfig cfg{};cfg.struct_size=sizeof(cfg);cfg.abi_version=MA_ONI_COLONY_ABI_VERSION;
+    cfg.vacuum_index=vacuum;cfg.grid_width=cfg.width=cfg.grid_height=cfg.height=3;cfg.maximum_timestep_s=.1;
+    std::vector<MAOniColonyCell> cells(9,MAOniColonyCell{0,MA_ONI_COLONY_SOLID,0,0,0,0});
+    cells[4]={oxygen,MA_ONI_COLONY_FLUID,1.2f,300,0,0};start(cfg,mats,cells,1);sample_history(8);
+    const auto session_id=status().session;
+    std::array<std::uint16_t,25> elements[2];std::array<float,25> masses[2],temperatures[2];
+    NativeCells native;native.pitch=native.rows=5;
+    for(unsigned b=0;b<2;++b) {
+        elements[b].fill(99);masses[b].fill(42);temperatures[b].fill(318.25f);
+        native.element[b]=elements[b].data();native.mass[b]=masses[b].data();native.temperature[b]=temperatures[b].data();
+        elements[b][12]=oxygen;
+    }
+    const std::array<std::uint32_t,2> requested{1,4};
+    MAOniColonyStatus source{};std::vector<MAOniColonyNativeSampleCell> rows;
+    const auto read=[&](std::uint64_t frame){sample_native_frame(session_id,frame,requested,source,rows);};
+    bool refused=false;try{read(0);}catch(const std::invalid_argument&){refused=true;}
+    require(refused,"initial world invented a native boundary source");
+    const auto capture=[&](std::uint64_t ticket,float solid_temperature) {
+        write_shadow(native);temperatures[1][7]=solid_temperature;temperatures[1][12]+=.125f;
+        capture_shadow(native,ticket);
+    };
+    capture(1,319.25f);advance(1,.2,2);wait();require(status().state==1,"native sample fixture faulted");
+    const auto first_checkpoint=checkpoint();read(1);
+    require(source.native_ticket==1 && source.completed_frames==1 && rows.size()==2 &&
+        rows[0].public_cell==1 && rows[0].native_index==99 && rows[0].mass_kg==42 && rows[0].temperature_k==319.25,
+        "native solid endpoint lost its source ticket or values");
+    const auto first=rows;
+    const auto energy=sample_energy(session_id,1);
+    require(energy.accepted_external_heat_j==static_cast<double>(1.2f)*1000*.125 && checkpoint()==first_checkpoint,
+        "native sample epoch differs from accepted heat or observation changed checkpoint");
+    capture(2,320.5f);advance(2,.2,2);wait();read(1);
+    require(std::memcmp(first.data(),rows.data(),rows.size()*sizeof(rows[0]))==0,"native retained solid temperatures followed live arrays");
+    read(2);require(source.native_ticket==2 && rows[0].temperature_k==320.5,"native solid frame did not advance");
+    const auto rejects=[&](std::uint64_t frame) {
+        const auto before=checkpoint();const auto held_source=source;const auto held_rows=rows;
+        bool failed=false;try{read(frame);}catch(const std::invalid_argument&){failed=true;}
+        require(failed && std::memcmp(&source,&held_source,sizeof(source))==0 && rows.size()==held_rows.size() &&
+            std::memcmp(rows.data(),held_rows.data(),rows.size()*sizeof(rows[0]))==0 && checkpoint()==before,
+            "unpaired native sample wrote outputs or changed checkpoint");
+    };
+    capture(300,321);advance(3,.2,2);wait();rejects(3); // source ticket mismatch
+    capture(4,322);capture(4,323);advance(4,.2,2);wait();rejects(4); // two native inputs
+    // A missing diagnostic capture still books its physical heat, but cannot
+    // be presented as the same native interval as the successful later one.
+    const auto true_rows=native.rows;native.rows=0;capture(5,324);native.rows=true_rows;
+    capture(5,325);advance(5,.2,2);wait();rejects(5);
+    sample_history(0);rejects(2);stop();start(cfg,mats,cells,1);sample_history(1);rejects(0);stop();
+    std::cout<<"PASS paired native arena samples: solid/heat ticket, immutable retained values, missing/coalesced rejection and readonly checkpoint\n";
+}
+void region_energy_control() {
+    using namespace ma::oni::colony;
+    const std::vector<MAOniColonyMaterial> mats{material("Oxygen",11,oxygen,true,.016,1000)};
+    MAOniColonyConfig cfg{};cfg.struct_size=sizeof(cfg);cfg.abi_version=MA_ONI_COLONY_ABI_VERSION;
+    cfg.vacuum_index=vacuum;cfg.grid_width=cfg.width=256;cfg.grid_height=cfg.height=32;
+    cfg.maximum_timestep_s=.1;cfg.gravity_m_per_s2=9.81;
+    std::vector<MAOniColonyCell> cells(8192,MAOniColonyCell{0,MA_ONI_COLONY_SOLID,0,0,0,0});
+    cells[257]={oxygen,MA_ONI_COLONY_FLUID,1,300,0,0};cells[258]={oxygen,MA_ONI_COLONY_FLUID,1,300,0,0};
+    cells[510]={oxygen,MA_ONI_COLONY_FLUID,37,350,0,0};start(cfg,mats,cells,1);
+    const auto s=status();const auto before=checkpoint();const std::array<std::uint32_t,2> requested{258,257};
+    const auto e=sample_region_energy(s.session,s.completed_frames,requested);
+    require(e.struct_size==88 && e.abi_version==1 && e.session==s.session && e.completed_frame==0 &&
+        e.fluid_mass_kg==2 && std::abs(e.heat_capacity_j_per_k-2000)<1e-10 && std::abs(e.thermal_energy_j-600000)<1e-8 &&
+        std::abs(e.potential_energy_j-29.43)<1e-12 && checkpoint()==before,
+        "large owner region energy included another component or changed checkpoint");
+    bool rejected=false;try{(void)sample_region_energy(s.session,0,std::span(requested.data(),1));}
+    catch(const std::invalid_argument&){rejected=true;}require(rejected,"large owner region accepted an open cut");
+    const std::array<std::uint32_t,2> duplicate{257,257};rejected=false;
+    try{(void)sample_region_energy(s.session,0,duplicate);}catch(const std::invalid_argument&){rejected=true;}
+    require(rejected,"region energy accepted duplicate cells");
+    for(const auto [session_id,frame]:{std::pair{s.session+1,0ull},std::pair{s.session,1ull}}) {
+        rejected=false;try{(void)sample_region_energy(session_id,frame,requested);}catch(const std::invalid_argument&){rejected=true;}
+        require(rejected,"region energy silently sampled another session/frame");
+    }
+    require(checkpoint()==before,"failed region observations changed checkpoint");stop();
+    std::cout<<"PASS sealed region energy: large owner, component exclusion, canonical U/J, closed boundaries and exact immutable epoch\n";
 }
 void view_cache_control() {
     using namespace ma::oni::colony;
@@ -1143,7 +1237,7 @@ int main(int argc, char** argv) {
         if (argc == 2 && std::strcmp(argv[1], "--sample-only") == 0) { sample_control(); return 0; }
         if (argc == 2 && std::strcmp(argv[1], "--view-cache-only") == 0) { view_cache_control(); return 0; }
         if (argc == 2 && std::strcmp(argv[1], "--actor-batch-only") == 0) { actor_batch_control(); return 0; }
-        if (argc == 2 && std::strcmp(argv[1], "--sample-history-only") == 0) { sample_history_control(); return 0; }
+        if (argc == 2 && std::strcmp(argv[1], "--sample-history-only") == 0) { sample_history_control();native_sample_history_control();region_energy_control();return 0; }
         require(argc == 1, "Usage: ma_oni_colony_tests [--projection-only|--timestep-only|--precise-receipts-only]");
         precise_receipt_control();
         transfer_capture_control();
@@ -1162,6 +1256,8 @@ int main(int argc, char** argv) {
         view_cache_control();
         actor_batch_control();
         sample_history_control();
+        native_sample_history_control();
+        region_energy_control();
         conversion_batch_control();
         timestep_control();
         projection_control();

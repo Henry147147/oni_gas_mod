@@ -44,6 +44,8 @@ static_assert(sizeof(MAOniColonyActorJob)==24 && offsetof(MAOniColonyActorJob,to
 static_assert(sizeof(MAOniColonyParcelContext)==72 && offsetof(MAOniColonyParcelContext,session)==16 &&
     offsetof(MAOniColonyParcelContext,cell_width_m)==48);
 static_assert(sizeof(MAOniColonySampleCell)==24 && sizeof(MAOniColonySamplePart)==16);
+static_assert(sizeof(MAOniColonyNativeSampleCell)==24);
+static_assert(sizeof(MAOniColonyRegionEnergySample)==88);
 static_assert(sizeof(MAOniColonyMaterial) == 168 && sizeof(MAOniColonyConfig) == 56 && sizeof(MAOniColonyCell) == 24 &&
     sizeof(MAOniColonyStatus) == 600 && sizeof(MAOniColonyCellView) == 32 && sizeof(MAOniColonyTransfer) == 48 &&
     sizeof(MAOniColonyReceipt) == 48 && sizeof(MAOniColonyHeat) == 24, "Colony ABI layout changed");
@@ -86,6 +88,10 @@ struct ArithmeticScope {
     ArithmeticScope(const ArithmeticScope&) = delete; ArithmeticScope& operator=(const ArithmeticScope&) = delete;
 };
 
+struct NativeArenaFrame {
+    std::uint64_t ticket=0, captures=1;
+    std::vector<MAOniColonyNativeSampleCell> cells;
+};
 struct Published {
     MAOniColonyConfig config{};
     double booked_mass_kg=0, booked_heat_j=0;
@@ -96,6 +102,8 @@ struct Published {
     std::vector<MAOniColonyConstituent> parts;
     std::shared_ptr<const MacClosedWorld> world;
     std::shared_ptr<const Catalogue> catalogue;
+    std::shared_ptr<const NativeArenaFrame> native_arena;
+    std::uint64_t native_arena_owner_frames=0;
     // World germ accounts at this frame (docs/colony-owner.md#germs).
     MAOniColonyBiology biology{};
     std::vector<MAOniColonyBiologyAccount> germ_accounts;
@@ -136,6 +144,8 @@ struct Session {
     std::uint64_t germ_cells = 0;
     double biology_error = 0;
     detail::ReleaseCapture release_capture; // diagnostics only, never serialized
+    std::shared_ptr<const NativeArenaFrame> native_arena; // diagnostics only
+    std::uint64_t native_arena_owner_frames=0;
 };
 
 std::mutex lifecycle; // start, restore, stop, advance and checkpoint
@@ -146,6 +156,9 @@ std::unique_ptr<Session> session;
 std::shared_ptr<const Published> latest;
 std::uint32_t retained_sample_frames=0;
 std::map<std::uint64_t,std::shared_ptr<const Published>> sample_frames; // publication lock; diagnostics only
+std::atomic<bool> capture_native_arena{false};
+std::shared_ptr<const NativeArenaFrame> pending_native_arena; // input lock; diagnostics only
+std::uint64_t pending_native_arena_captures=0; // counts failed captures too
 // Geometry and ownership are published before enabled and unchanged while it is set.
 MAOniColonyConfig geometry{};
 // Per cell: 0 closed (native), 1 owned, 2 closing (a solid replaced the
@@ -477,6 +490,7 @@ void publish(const Session& s, Projection projection) {
     auto p = std::make_shared<Published>();
     p->config=s.config; p->status = s.status; p->views = std::move(projection.views); p->readings = std::move(projection.readings); p->parts = std::move(projection.parts);
     p->world = s.world; p->catalogue = s.catalogue;
+    p->native_arena=s.native_arena;p->native_arena_owner_frames=s.native_arena_owner_frames;
     auto& b = p->biology; b.struct_size = sizeof(b); b.abi_version = 1; b.mode = s.germ_mode;
     b.frames = s.biology_frames; b.cultures = s.clocks.size(); b.germ_cells = s.germ_cells; b.audit_error = s.biology_error;
     for (const auto& [key, clock] : s.clocks) if (clock.mode == biology::expected_mode) ++b.expected_cultures;
@@ -535,6 +549,7 @@ void activate(std::unique_ptr<Session> next, std::uint64_t thread) {
     for (std::size_t i = 0; i < owned_count; ++i) owned[i].store(next->world->state().grid.walls[i] ? 0 : 1, std::memory_order_relaxed);
     for (auto& v : suppressed) v.store(0, std::memory_order_relaxed);
     { std::lock_guard lock(inputs); pending_transfers.clear(); pending_heat.clear(); pending_terrain.clear(); pending_freezes.clear(); pending_germs.clear(); receipts.clear();
+      pending_native_arena.reset();pending_native_arena_captures=0;
       precise_receipts.clear(); precise_receipts_enabled = false;
       pipe_jobs.clear(); pending_job_tokens.clear(); receipt_jobs.clear(); accepted_job_token=0;
       receipt_sequence = acknowledged = 0; exchanged = {}; moving_protocol_used=false; moving_outcomes.clear(); }
@@ -1006,11 +1021,14 @@ void start(const MAOniColonyConfig& config, std::span<const MAOniColonyMaterial>
 
 void stop() noexcept {
     enabled.store(false, std::memory_order_release);
+    capture_native_arena.store(false,std::memory_order_release);
     biology_mode.store(0, std::memory_order_relaxed);
     solver.settle(true);
     std::lock_guard lock(lifecycle);
     session.reset();
-    std::lock_guard p(publication); latest.reset(); sample_frames.clear(); retained_sample_frames=0;
+    std::scoped_lock p(publication,inputs);latest.reset();sample_frames.clear();retained_sample_frames=0;
+    capture_native_arena.store(false,std::memory_order_release);
+    pending_native_arena.reset();pending_native_arena_captures=0;
 }
 
 MAOniColonyStatus status() {
@@ -1135,12 +1153,13 @@ bool read_passives(std::uint64_t expected_session,std::uint64_t expected_frame,s
 }
 void sample_history(std::uint32_t frames) {
     require(frames<=64,"Arena history requires 0..64 retained frames");
-    std::lock_guard lock(publication);
+    std::scoped_lock lock(publication,inputs);
     require(latest && latest->world && latest->config.width*static_cast<std::uint64_t>(latest->config.height)<=4096,
         "History requires an active small arena owner");
     std::map<std::uint64_t,std::shared_ptr<const Published>> next;
     if (frames) next.emplace(latest->status.completed_frames,latest);
     sample_frames.swap(next); retained_sample_frames=frames;
+    pending_native_arena.reset();pending_native_arena_captures=0;capture_native_arena.store(frames!=0,std::memory_order_release);
 }
 void sample_frame(std::uint64_t frame,std::span<const std::uint32_t> cells,MAOniColonyStatus& source,
     std::vector<MAOniColonySampleCell>& rows,std::vector<MAOniColonySamplePart>& parts,double* booked_mass,double* booked_heat) {
@@ -1185,13 +1204,14 @@ void sample(std::span<const std::uint32_t> cells,MAOniColonyStatus& source,
     sample_frame(UINT64_MAX,cells,source,rows,parts,booked_mass,nullptr);
 }
 
-MAOniColonyEnergySample energy_components(const MacClosedWorld& world) {
+static MAOniColonyEnergySample observe_energy_components(const MacClosedWorld& world,
+    const std::vector<std::uint8_t>* selected_cells=nullptr,const std::vector<std::uint8_t>* selected_x=nullptr,
+    const std::vector<std::uint8_t>* selected_y=nullptr) {
     const ArithmeticScope arithmetic;
     const auto& state=world.state(); const auto& grid=state.grid;
-    require(state.cells.size()<=4096,"Energy samples require a small arena owner");
     MacEnergySum internal,kinetic,potential,thermal,formation,capacity,total_mass;
     for (std::size_t i=0;i<state.cells.size();++i) {
-        if (grid.walls[i]) continue;
+        if (grid.walls[i] || (selected_cells && !(*selected_cells)[i])) continue;
         const auto& cell=state.cells[i];
         account_mac_cell_internal_energy(internal,cell);
         account_mac_cell_internal_energy(thermal,cell);
@@ -1207,13 +1227,20 @@ MAOniColonyEnergySample energy_components(const MacClosedWorld& world) {
     }
     const auto inertia=world.settings().numerical_kernel==MacNumericalKernel::game?
         MacGameKernelAccess::inertias(world.registry(),state):mac_face_inertias(world.registry(),state,world.thermodynamics());
-    const auto faces=[&](const auto& projected,const auto& carried,const auto& inertias) {
+    const auto faces=[&](const auto& projected,const auto& carried,const auto& inertias,const std::vector<std::uint8_t>* selected) {
+        if(selected) {
+            for(std::size_t f=0;f<projected.size();++f)if((*selected)[f]) {
+                const auto momentum=carried.empty()?MacScaled::from_double(projected[f]):carried[f];
+                if(!momentum.is_zero())kinetic.add(MacEnergy::kinetic(inertias[f],momentum));
+            }
+            return;
+        }
         const auto momentum=mac_field_values(projected,carried);
         for (std::size_t f=0;f<momentum.size();++f)
             if (!momentum[f].is_zero()) kinetic.add(MacEnergy::kinetic(inertias[f],momentum[f]));
     };
-    faces(state.momentum_x,state.full_momentum_x,inertia.x);
-    faces(state.momentum_y,state.full_momentum_y,inertia.y);
+    faces(state.momentum_x,state.full_momentum_x,inertia.x,selected_x);
+    faces(state.momentum_y,state.full_momentum_y,inertia.y,selected_y);
     const auto observe=[](const MacEnergySum& sum) {
         const auto value=sum.value().project();
         require(!value.rounded,"Arena energy observation is below binary64 range");
@@ -1225,6 +1252,52 @@ MAOniColonyEnergySample energy_components(const MacClosedWorld& world) {
     out.thermal_energy_j=observe(thermal);out.formation_energy_j=observe(formation);
     out.heat_capacity_j_per_k=observe(capacity);out.fluid_mass_kg=observe(total_mass);
     return out;
+}
+MAOniColonyEnergySample energy_components(const MacClosedWorld& world) {
+    require(world.state().cells.size()<=4096,"Energy samples require a small arena owner");
+    return observe_energy_components(world);
+}
+MAOniColonyEnergySample region_energy_components(const MacClosedWorld& world,std::span<const std::size_t> cells) {
+    require(!cells.empty() && cells.size()<=4096,"Region energy requires 1..4096 cells");
+    const auto& state=world.state();const auto& grid=state.grid;const auto none=std::numeric_limits<std::size_t>::max();
+    std::vector<std::uint8_t> selected(state.cells.size()),selected_x(state.momentum_x.size()),selected_y(state.momentum_y.size());
+    for(const auto i:cells) {
+        require(i<selected.size() && !selected[i],"Duplicate or out-of-range region energy cell");selected[i]=1;
+    }
+    const auto inspect=[&](bool x,const auto& projected,const auto& carried,const auto& closed,auto& admitted) {
+        const auto present=[&](std::size_t i){return i!=none && selected[i] && !grid.walls[i];};
+        for(std::size_t f=0;f<projected.size();++f) {
+            const auto cx=x?f%grid.x_width():f%grid.width,cy=x?f/grid.x_width():f/grid.width;
+            const auto left=x ? (cx?cx-1+cy*grid.width:grid.periodic_x?grid.width-1+cy*grid.width:none)
+                              : (cy?cx+(cy-1)*grid.width:grid.periodic_y?cx+(grid.height-1)*grid.width:none);
+            const auto right=x ? (cx<grid.width?cx+cy*grid.width:none)
+                               : (cy<grid.height?cx+cy*grid.width:none);
+            const bool l=present(left),r=present(right);
+            if(!l && !r)continue;
+            if(l && r){admitted[f]=1;continue;}
+            const auto other=l?right:left;
+            require(other==none || grid.walls[other] || (!closed.empty() && closed[f]),
+                "Region energy boundary has an open fluid face");
+            const auto momentum=carried.empty()?MacScaled::from_double(projected[f]):carried[f];
+            require(momentum.is_zero(),"Region energy boundary retains canonical momentum");
+        }
+    };
+    inspect(true,state.momentum_x,state.full_momentum_x,grid.closed_x,selected_x);
+    inspect(false,state.momentum_y,state.full_momentum_y,grid.closed_y,selected_y);
+    return observe_energy_components(world,&selected,&selected_x,&selected_y);
+}
+MAOniColonyRegionEnergySample sample_region_energy(std::uint64_t expected_session,std::uint64_t frame,
+    std::span<const std::uint32_t> cells) {
+    require(expected_session!=0,"Region energy requires an explicit session");
+    std::shared_ptr<const Published> p;{std::lock_guard lock(publication);p=latest;}
+    require(p && p->world && p->status.session==expected_session && p->status.completed_frames==frame,
+        "Requested region energy session/frame is not the latest publication");
+    std::vector<std::size_t> indices;indices.reserve(cells.size());
+    for(const auto cell:cells)indices.push_back(rect_index(p->config,cell));
+    const auto e=region_energy_components(*p->world,indices);
+    return {sizeof(MAOniColonyRegionEnergySample),1,p->status.session,p->status.completed_frames,e.time_seconds,
+        e.internal_energy_j,e.kinetic_energy_j,e.potential_energy_j,e.thermal_energy_j,e.formation_energy_j,
+        e.heat_capacity_j_per_k,e.fluid_mass_kg};
 }
 MAOniColonyEnergySample sample_energy(std::uint64_t expected_session,std::uint64_t frame) {
     require(expected_session!=0,"Energy samples require an explicit session");
@@ -1239,6 +1312,31 @@ MAOniColonyEnergySample sample_energy(std::uint64_t expected_session,std::uint64
     out.session=p->status.session;out.completed_frame=p->status.completed_frames;
     out.accepted_external_heat_j=p->booked_heat_j;out.trace_sink_energy_j=p->status.trace_sink_j;
     return out;
+}
+void sample_native_frame(std::uint64_t expected_session,std::uint64_t frame,std::span<const std::uint32_t> cells,
+    MAOniColonyStatus& source,std::vector<MAOniColonyNativeSampleCell>& rows) {
+    require(expected_session!=0 && !cells.empty() && cells.size()<=4096,"Native arena samples require a session and 1..4096 cells");
+    std::shared_ptr<const Published> p;
+    {std::lock_guard lock(publication);
+     require(retained_sample_frames!=0,"Native arena samples require enabled history");
+     if(const auto found=sample_frames.find(frame);found!=sample_frames.end())p=found->second;}
+    require(p && p->world && p->status.session==expected_session && p->status.completed_frames==frame,
+        "Requested native arena session/frame is not retained");
+    require(p->native_arena && p->native_arena->ticket!=0 && p->native_arena->ticket==p->status.native_ticket &&
+        p->native_arena->captures==1 && p->native_arena_owner_frames==1,
+        "Native arena input batch is missing, coalesced or differs from the owner ticket");
+    auto ordered=std::vector<std::uint32_t>(cells.begin(),cells.end());std::sort(ordered.begin(),ordered.end());
+    require(std::adjacent_find(ordered.begin(),ordered.end())==ordered.end(),"Duplicate native arena sample cell");
+    std::vector<MAOniColonyNativeSampleCell> sampled;sampled.reserve(cells.size());
+    for(const auto cell:cells) {
+        const auto i=rect_index(p->config,cell);
+        require(i<p->native_arena->cells.size() && p->native_arena->cells[i].public_cell==cell,"Native arena geometry differs");
+        const auto& value=p->native_arena->cells[i];
+        require(std::isfinite(value.mass_kg) && value.mass_kg>=0 && std::isfinite(value.temperature_k) && value.temperature_k>=0,
+            "Native arena endpoint has invalid mass/temperature");
+        sampled.push_back(p->native_arena->cells[i]);
+    }
+    source=p->status;rows=std::move(sampled);
 }
 
 namespace {
@@ -1595,7 +1693,7 @@ void observe_oracle(const Catalogue& cat, std::uint32_t cell, const ShadowCell& 
     o.residue = extinct ? 0.f : step.clock.residue;
 }
 }
-void capture_shadow(const NativeCells& n) noexcept {
+void capture_shadow(const NativeCells& n,std::uint64_t native_ticket) noexcept {
     if (!enabled.load(std::memory_order_acquire) || shadow.size() != owned_count || n.pitch != geometry.grid_width + 2) return;
     std::shared_ptr<const Published> p; { std::lock_guard lock(publication); p = latest; }
     if (!p || !p->catalogue) return;
@@ -1697,6 +1795,19 @@ void capture_shadow(const NativeCells& n) noexcept {
                 if (e != vacuum && m > 0 && t > 0) give(e, m, t);
             }
         }
+        std::shared_ptr<NativeArenaFrame> native_arena;
+        const bool capture_arena=capture_native_arena.load(std::memory_order_acquire);
+        if(capture_arena)try {
+            require(owned_count<=4096 && n.rows==geometry.grid_height+2,"Native arena capture geometry differs");
+            native_arena=std::make_shared<NativeArenaFrame>();native_arena->ticket=native_ticket;
+            native_arena->cells.reserve(owned_count);
+            for(std::size_t i=0;i<owned_count;++i) {
+                const auto x=geometry.offset_x+i%geometry.width,y=geometry.offset_y+i/geometry.width;
+                const auto c=(x+1)+(y+1)*static_cast<std::size_t>(n.pitch);
+                native_arena->cells.push_back({static_cast<std::uint32_t>(x+y*geometry.grid_width),n.element[1][c],
+                    static_cast<double>(n.mass[1][c]),static_cast<double>(n.temperature[1][c])});
+            }
+        }catch(...){native_arena.reset();} // A failed diagnostic cannot discard physical boundary inputs.
         std::lock_guard q(inputs);
         for (const auto& [i, cell] : undone) {
             // Cancel a close not yet taken by the owner; one already taken is
@@ -1716,6 +1827,11 @@ void capture_shadow(const NativeCells& n) noexcept {
         log_terrain("shadow open", opened);
         pending_transfers.insert(pending_transfers.end(), moves.begin(), moves.end());
         pending_freezes.insert(pending_freezes.end(), froze.begin(), froze.end());
+        if(capture_arena) {
+            ++pending_native_arena_captures;
+            if(native_arena)native_arena->captures=pending_native_arena_captures;
+            pending_native_arena=std::move(native_arena);
+        }
         exchanged.heat_j += sum.heat_j; exchanged.mass_in_kg += sum.mass_in_kg; exchanged.mass_out_kg += sum.mass_out_kg; exchanged.changes += sum.changes;
     } catch (...) {}
 }
@@ -1895,6 +2011,7 @@ void run_frame(std::uint64_t ticket, double seconds, std::uint64_t frames, const
         std::map<std::size_t,std::shared_ptr<const std::vector<std::uint8_t>>> moving_jobs;
         std::map<std::uint64_t,std::uint64_t> committed_jobs;
         { std::lock_guard q(inputs); transfers.swap(pending_transfers); heat.swap(pending_heat); terrain.swap(pending_terrain); freezes.swap(pending_freezes);
+          s.native_arena=std::move(pending_native_arena);s.native_arena_owner_frames=frames;pending_native_arena_captures=0;
           germ_edits.swap(pending_germs); job_tokens.swap(pending_job_tokens);
           for (const auto& [index,token] : job_tokens) {
               const auto& job=pipe_jobs.at(token);
