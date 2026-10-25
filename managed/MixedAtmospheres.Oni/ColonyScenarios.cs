@@ -949,13 +949,32 @@ namespace MixedAtmospheres.Oni
             if (Once(100, "check"))
             {
                 var flow = Game.Instance.gasConduitFlow;
-                double co2 = 0, o2InFiltered = 0, o2 = 0, co2InPassed = 0;
-                foreach (var c in filteredPipe) { var x = flow.GetContents(c); if (x.element == SimHashes.CarbonDioxide) co2 += x.mass; else if (x.mass > 0) o2InFiltered += x.mass; }
-                foreach (var c in passedPipe) { var x = flow.GetContents(c); if (x.element == SimHashes.Oxygen) o2 += x.mass; else if (x.mass > 0) co2InPassed += x.mass; }
+                (double selected, double other) PortMass(IEnumerable<int> path, SimHashes expected)
+                {
+                    double selected = 0, other = 0;
+                    foreach (var c in path)
+                        if (ColonyConduits.TryRead(flow, c, out var inventory))
+                        {
+                            // A scalar projection can hide a wrong minority.
+                            // Purity observes every authoritative constituent.
+                            foreach (var part in inventory.Parts)
+                                if (ColonyConduits.ElementHash(part.Id) == expected) selected += part.Mass;
+                                else other += part.Mass;
+                        }
+                        else
+                        {
+                            var packet = flow.GetContents(c);
+                            if (packet.element == expected) selected += packet.mass;
+                            else if (packet.mass > 0) other += packet.mass;
+                        }
+                    return (selected, other);
+                }
+                var (co2, o2InFiltered) = PortMass(filteredPipe, SimHashes.CarbonDioxide);
+                var (o2, co2InPassed) = PortMass(passedPipe, SimHashes.Oxygen);
                 var vented = ArenaSpecies(SimHashes.CarbonDioxide, 5) + ArenaSpecies(SimHashes.Oxygen, 5);
                 Record("the filter separated the pumped mixture", (co2 > 0 || vented > .05) && o2InFiltered == 0 && co2InPassed == 0,
                     $"filtered port: CO2 {co2:G3} kg, other {o2InFiltered:G3} kg; output: O2 {o2:G3} kg, other {co2InPassed:G3} kg; vented {vented:G3} kg; " +
-                    $"input pipe {inputPipe.Sum(c => (double)flow.GetContents(c).mass):G3} kg; pump {MachineState(powered.FirstOrDefault())}; filter {MachineState(filterBuilding)}");
+                    $"input pipe {inputPipe.Sum(c => ColonyConduits.TryRead(flow, c, out var held) ? held.Mass : flow.GetContents(c).mass):G3} kg; pump {MachineState(powered.FirstOrDefault())}; filter {MachineState(filterBuilding)}");
                 Finish();
             }
         }
