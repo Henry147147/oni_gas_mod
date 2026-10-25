@@ -98,9 +98,10 @@ def mixing_time(case, species, pairs, dt):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--executable", type=Path, required=True)
+    parser.add_argument("--emulator",action="append",default=[],help="Optional cross-build executable launcher argument (repeatable)")
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
-    data = json.loads(subprocess.check_output([str(args.executable.resolve()), "--reference"], text=True))
+    data = json.loads(subprocess.check_output([*args.emulator,str(args.executable.resolve()), "--reference"], text=True))
     pairs = {tuple(sorted((i, j))): (a, b, c) for i, j, a, b, c in data["pairs"]}
     cases = []
     for case in data["cases"]:
