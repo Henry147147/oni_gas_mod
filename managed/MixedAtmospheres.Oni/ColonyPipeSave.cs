@@ -4,7 +4,7 @@ using HarmonyLib;
 namespace MixedAtmospheres.Oni
 {
     // Mixed-pipe runtime in owner saves (docs/mixed-pipes.md#saved-framing):
-    // MACOLP03 section 1 holds ColonyPipeRuntime's opaque MACPIP01 schema-3
+    // MACOLP03 section 1 holds ColonyPipeRuntime's opaque MACPIP01 schema-4
     // image. Capture runs inside the settled save; a loaded image is restored
     // once the owner is restored and the game has started, before any positive
     // simulation time, pipe update or save. A failed restore is never replaced
@@ -25,7 +25,8 @@ namespace MixedAtmospheres.Oni
         {
             string audit = ""; bool? closed = null;
             if (ColonyPipeRuntime.Active) { closed = ColonyConduits.Audit(out audit); }
-            return new { Pending, Captured, CapturedSha256, Restored, RestoredSha256, ColonyPipeRuntime.Active, AuditClosed = closed, Audit = audit };
+            return new { Pending, Captured, CapturedSha256, Restored, RestoredSha256, ColonyPipeRuntime.Active, AuditClosed = closed, Audit = audit,
+                BiologyContext = ColonyPipeCultureState.Report() };
         }
         private static string Hash(byte[] bytes)
         { using var sha = System.Security.Cryptography.SHA256.Create(); return BitConverter.ToString(sha.ComputeHash(bytes)).Replace("-", "").ToLowerInvariant(); }
@@ -56,10 +57,13 @@ namespace MixedAtmospheres.Oni
         // Positive time must never run before a loaded pipe image is restored.
         internal static void BeforePositiveTime(float seconds)
         {
-            if (pending == null || !(seconds > 0)) return;
-            TryRestore();
+            if (!(seconds > 0)) return;
+            if(pending!=null)TryRestore();
             if (pending != null && !ColonyLoadRefusal.Refused)
                 ColonyLoadRefusal.Refuse(new InvalidOperationException("Simulation time cannot advance before the saved mixed pipes are restored."));
+            if(!ColonyLoadRefusal.Refused&&ColonyPipeCultureState.NeedsReadyBarrier)
+                try{ColonyPipeCultureState.RequireReady();}
+                catch(Exception error){ColonyLoadRefusal.Refuse(error);}
         }
     }
 

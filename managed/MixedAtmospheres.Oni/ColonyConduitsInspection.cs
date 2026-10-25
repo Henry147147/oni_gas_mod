@@ -73,15 +73,19 @@ namespace MixedAtmospheres.Oni
         }
         private static bool Prepare()=>Target()!=null;
         private static MethodBase TargetMethod()=>Target()!;
-        private static void Postfix(string __0,object __1,ref string __result)
+        private static bool Prefix(string __0,object __1,ref string __result)
         {
-            if(!ColonyConduits.Active||!(__1 is Conduit conduit))return;
+            if(!ColonyConduits.Active||!(__1 is Conduit conduit))return true;
             try
             {
                 var line=ColonyPipeInspection.ContentsLine(conduit.GetFlowManager(),Grid.PosToCell(conduit));
-                if(line!=null)__result=__0.Replace("{Contents}",line);
+                // The native callback rewrites its string argument in place.
+                // Resolve from the incoming template before that replacement
+                // removes the token, rather than examining it in a postfix.
+                if(line!=null){__result=__0.Replace("{Contents}",line);return false;}
             }
             catch(InvalidOperationException){} // keep the native line for an unrepresentable trace
+            return true;
         }
     }
 }

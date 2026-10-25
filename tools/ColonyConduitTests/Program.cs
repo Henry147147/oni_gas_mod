@@ -285,6 +285,28 @@ static class Program
         {var truncated=pipeV3.Take(cut).ToArray();Reject(()=>ColonyConduitCheckpoint.Decode(truncated,geometry,hash));}
         var flipped=(byte[])pipeV3.Clone();flipped[pipeV3.Length/2]^=1;Reject(()=>ColonyConduitCheckpoint.Decode(flipped,geometry,hash));
         Console.WriteLine("PASS pipe schema3: runtime buffers/pumps/vents/spills/machine ledgers/contact/cultures round-trip byte-exact; schema2 unchanged; invalid records refused");
+        PipeRuntimeImage Runtime4()
+        {
+            var state=Runtime();var rule=new PipeGrowthRule(5,-300,float.PositiveInfinity,.125f,10,float.PositiveInfinity,4,3);
+            state.NativeCultures=new System.Collections.Generic.List<PipeNativeCulture>{
+                new PipeNativeCulture(1,35,17,0,byte.MaxValue,0,.375f,rule),
+                new PipeNativeCulture(2,36,23,0,byte.MaxValue,0,0,default),
+                new PipeNativeCulture(1,37,17,.5f,byte.MaxValue,0,0,rule)};
+            return state;
+        }
+        var cells4=new[]{new PipeCellImage(1,35,PipeInventory.Single(A,1,300)),new PipeCellImage(2,36,PipeInventory.Single(B,1,300))};
+        var pipeV4=new ColonyConduitCheckpoint(geometry,hash,cells4,mixture,PipeInventory.Empty,PipeInventory.Empty,default,
+            boundary:boundaryState,runtime:Runtime4()).Encode();
+        var replayV4=ColonyConduitCheckpoint.Decode(pipeV4,geometry,hash,id=>id==1?(byte)1:(byte)2);
+        Check(replayV4.SchemaVersion==4&&replayV4.Encode().SequenceEqual(pipeV4)&&replayV4.Runtime!.NativeCultures!.Count==3&&
+            replayV4.Runtime.NativeCultures[0].CapturedMass==0&&replayV4.Runtime.NativeCultures[0].Residue==.375f&&
+            replayV4.Runtime.NativeCultures[2].CapturedMass==0,"native pipe allocation/cache contexts changed in schema4");
+        Check(ColonyConduitCheckpoint.Decode(pipeV3,geometry,hash).Encode().SequenceEqual(pipeV3),"schema3 bytes changed by schema4");
+        var duplicateContext=Runtime4();duplicateContext.NativeCultures!.Add(duplicateContext.NativeCultures[0]);
+        Reject(()=>new ColonyConduitCheckpoint(geometry,hash,cells4,mixture,mixture,mixture,default,boundary:boundaryState,runtime:duplicateContext));
+        var missingContext=Runtime4();missingContext.NativeCultures!.RemoveAt(0);
+        Reject(()=>new ColonyConduitCheckpoint(geometry,hash,cells4,mixture,mixture,mixture,default,boundary:boundaryState,runtime:missingContext));
+        Console.WriteLine("PASS pipe schema4: occupied and germ-free native culture allocation/cache/clock state round-trips exactly, schema3 unchanged, duplicate/incomplete contexts refuse");
         byte[] ReceiptImage(bool observed=false)
         {
             using var stream=new MemoryStream();using var writer=new BinaryWriter(stream);
@@ -323,6 +345,7 @@ static class Program
         PortSettlementTests.Run();
         SurfaceGermTests.Run();
         GermEvolutionTests.Run();
+        BiologyStateTests.Run();
         ContactWorkTests.Run();
         ScalarProductTests.Run();
         if(args.Contains("--biology-continuation"))BiologyContinuation.Run();

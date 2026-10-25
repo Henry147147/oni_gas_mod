@@ -139,6 +139,37 @@ internal static class Program
             Check(dispenser.empty&&!dispenser.blocked&&ReferenceEquals(AccessTools.Field(cellType,"Inventory").GetValue(owned),inventory),
                 "Owned pump status changed a physical inventory or retained a stale empty state.");
             Console.WriteLine("PASS pump status boundary: inactive/full, reopened outlet and emptied buffer update readers without changing inventories");
+            var biologyStates=(System.Collections.IDictionary)biology.GetField("States",flags)!.GetValue(null)!;
+            var biologyCell=Activator.CreateInstance(biology.GetNestedType("CellState",BindingFlags.NonPublic)!,BindingFlags.NonPublic|BindingFlags.Instance,null,new[]{new object(),new object()},null)!;
+            biologyStates.Add((flow,0),biologyCell);
+            biology.GetMethod("RetireEmptyCultures",flags)!.Invoke(null,null);
+            Check(biologyStates.Contains((flow,0)),"A temporarily skipped biology row retired a still-owned culture and its rounding clock.");
+            AccessTools.Field(cellType,"Inventory").SetValue(owned,empty);
+            biology.GetMethod("RetireEmptyCultures",flags)!.Invoke(null,null);
+            Check(biologyStates.Count==0,"An emptied pipe retained a retired culture.");
+            AccessTools.Field(cellType,"Inventory").SetValue(owned,inventory);
+            Console.WriteLine("PASS biology clock lifetime: a temporarily unavailable row retains owned culture state; an emptied pipe retires it");
+            biology.GetProperty("Enabled",flags)!.SetValue(null,true);
+            Check(biology.GetMethod("Begin",flags)!.Invoke(null,new object?[]{null,0f})==null,
+                "A zero-time save publication entered the owned biological update.");
+            biology.GetProperty("Enabled",flags)!.SetValue(null,false);
+            var cultureState=assembly.GetType("MixedAtmospheres.Oni.ColonyPipeCultureState")!;
+            var nativeCulture=new ConduitDiseaseManager.Data{elemIdx=17,mass=0,diseaseIdx=1,diseaseCount=1000,accumulatedError=.375f,
+                growthInfo=new Klei.AI.DiseaseGrowthRules.ElemGrowthInfo{populationHalfLife=-300,maxCountPerKG=float.PositiveInfinity}};
+            var savedCulture=cultureState.GetMethod("Capture",flags)!.Invoke(null,new object[]{(byte)1,0,nativeCulture})!;
+            var freshCulture=new ConduitDiseaseManager.Data{elemIdx=23,mass=.5f,diseaseIdx=1,diseaseCount=1000,
+                growthInfo=new Klei.AI.DiseaseGrowthRules.ElemGrowthInfo{populationHalfLife=600}};
+            var rebound=(ConduitDiseaseManager.Data)cultureState.GetMethod("Restore",flags)!.Invoke(null,new[]{savedCulture,(object)freshCulture})!;
+            Check(rebound.elemIdx==17&&rebound.mass==0&&rebound.accumulatedError==.375f&&rebound.growthInfo.populationHalfLife==-300&&
+                float.IsPositiveInfinity(rebound.growthInfo.maxCountPerKG)&&rebound.temperatureHandle.Equals(freshCulture.temperatureHandle),
+                "A cold native culture used the loaded packet's allocation mass/cache or replaced its fresh temperature handle.");
+            var recaptured=cultureState.GetMethod("Capture",flags)!.Invoke(null,new object[]{(byte)1,0,rebound})!;
+            Check((bool)savedCulture.GetType().GetMethod("SameBits",BindingFlags.NonPublic|BindingFlags.Instance)!.Invoke(savedCulture,new[]{recaptured})!,
+                "Final native culture verification lost the saved state after rebinding.");
+            freshCulture.diseaseCount=999;
+            try{cultureState.GetMethod("Restore",flags)!.Invoke(null,new[]{savedCulture,(object)freshCulture});throw new Exception("A changed germ projection accepted a saved native culture.");}
+            catch(TargetInvocationException error)when(error.InnerException is InvalidDataException){}
+            Console.WriteLine("PASS native biology restore: original zero allocation mass/cache/residue replace cold packet context, fresh handle retained, changed germ projection refuses");
             portsRuntime.GetProperty("Enabled",flags)!.SetValue(null,true);
             var secondMaterial=Activator.CreateInstance(materialType,BindingFlags.NonPublic|BindingFlags.Instance,null,new object[]{ordinal+1,2000.0,0.0},null)!;
             materials.Add(ordinal+1,secondMaterial);

@@ -58,8 +58,8 @@ namespace MixedAtmospheres.Oni
             if(ColonyPipeContactHeat.Open)throw new InvalidOperationException("A pipe heat contact is open at the save point.");
             ColonyConduits.RequireQuiescent();ColonyPipePorts.RequireQuiescent();ColonyMachinePorts.RequireQuiescent();
         }
-        // MACPIP01 schema 3: cells/accounts (schema 1), boundary jobs
-        // (schema 2) and every module's runtime state.
+        // MACPIP01 schema 4: cells/accounts (schema 1), boundary jobs
+        // (schema 2), module runtime (schema 3) and native biology context.
         internal static byte[] Capture()
         {
             RequireQuiescent();
@@ -81,7 +81,8 @@ namespace MixedAtmospheres.Oni
             {
                 var catalogue=ColonyConduits.CatalogueIdentity();var geometry=ColonyConduits.Geometry;
                 var image=ColonyConduitCheckpoint.Decode(bytes,geometry,catalogue,ColonyConduits.MaterialPhase);
-                if(image.SchemaVersion!=3||image.Boundary==null||image.Runtime==null)throw new System.IO.InvalidDataException("Only a runtime (schema 3) pipe image can be restored.");
+                if(image.SchemaVersion!=4||image.Boundary==null||image.Runtime==null)
+                    throw new System.IO.InvalidDataException("Mixed-pipe runtime restore requires schema 4 with complete native biology context; older runtime images cannot continue exactly.");
                 ColonyConduits.Restore(image);
                 ColonyPipePorts.Restore(image.Boundary,image.Runtime);
                 ColonyPipePumps.StartControl();ColonyPipeVents.StartControl();ColonyPipeTeardown.StartControl();ColonyMachinePorts.StartControl();

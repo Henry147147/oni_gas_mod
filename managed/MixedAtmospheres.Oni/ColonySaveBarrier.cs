@@ -87,6 +87,7 @@ namespace MixedAtmospheres.Oni
             if (stepping > 0) throw new InvalidOperationException("A colony save cannot settle inside an unfinished simulation step.");
             ColonySavedParticles.RestorePending();
             ColonyPipeSave.TryRestore();
+            if (ColonyPipeRuntime.Active) ColonyConduitsSchedule.FlushTopology();
             Quiescent(out var entry);
             if (entry.State != 1) throw new InvalidOperationException("A faulted colony owner cannot be saved: " + entry.Error);
             var before = NativeFrames(); var timer = System.Diagnostics.Stopwatch.StartNew();

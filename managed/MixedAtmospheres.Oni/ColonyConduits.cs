@@ -396,6 +396,17 @@ namespace MixedAtmospheres.Oni
                     if(flow.Value.Cells[index] is Cell cell&&cell.Inventory.Count>0&&flow.Key.HasConduit(index))
                     {SyncNative(flow.Key,index);yield return(flow.Key,index,cell.Inventory);}
         }
+        // Include empty pipes: their culture allocation mass and cached rule
+        // still govern germs that arrive after the next load.
+        internal static IEnumerable<(ConduitFlow Flow,int Cell)> NativeCultureCells()
+        {
+            foreach(var flow in Flows.Keys)
+                for(var index=0;index<flow.soaInfo.NumEntries;++index)
+                {
+                    var conduit=flow.soaInfo.GetConduit(index);var cell=flow.soaInfo.GetCell(conduit.idx);
+                    if(Owns(flow,cell))yield return(flow,cell);
+                }
+        }
         internal static void CommitBiology(ConduitFlow flow,int index,PipeInventory inventory,IEnumerable<PipePart> changes)
         {
             var cell=Ensure(flow,index);cell.Inventory=inventory;

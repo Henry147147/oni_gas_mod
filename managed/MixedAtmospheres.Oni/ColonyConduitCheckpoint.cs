@@ -50,7 +50,7 @@ namespace MixedAtmospheres.Oni
         internal readonly PipePart[] DiseaseExchange;
         internal readonly PipeBoundaryState? Boundary;
         internal readonly PipeRuntimeImage? Runtime;
-        internal int SchemaVersion=>Runtime!=null?3:Boundary==null?1:2;
+        internal int SchemaVersion=>Runtime!=null?(Runtime.NativeCultures==null?3:4):Boundary==null?1:2;
 
         internal ColonyConduitCheckpoint(PipeGeometry geometry, byte[] catalogueHash, IEnumerable<PipeCellImage> cells,
             PipeInventory initial, PipeInventory supplied, PipeInventory removed, PipeAmount heat, IEnumerable<PipePart>? diseaseExchange = null,
@@ -76,6 +76,19 @@ namespace MixedAtmospheres.Oni
             for (var i = 1; i < DiseaseExchange.Length; ++i)
                 if (DiseaseExchange[i-1].Id == DiseaseExchange[i].Id) throw new InvalidDataException("Duplicate pipe disease exchange account.");
             Boundary=boundary;Boundary?.Validate(geometry,null);Runtime=runtime;Runtime?.Validate();
+            if(runtime?.NativeCultures!=null)
+            {
+                var contexts=new HashSet<(byte,int)>();
+                foreach(var context in runtime.NativeCultures)
+                {
+                    if(!geometry.Contains(context.Cell))throw new InvalidDataException("Saved native pipe culture leaves its world.");
+                    contexts.Add((context.Phase,context.Cell));
+                }
+                foreach(var cell in Cells)
+                    if(!contexts.Contains((cell.Phase,cell.Cell)))throw new InvalidDataException("A saved pipe cell has no native culture context.");
+                foreach(var culture in runtime.Cultures)
+                    if(!contexts.Contains((culture.Phase,culture.Cell)))throw new InvalidDataException("A saved pipe clock has no native culture context.");
+            }
         }
         internal byte[] Encode()
         {
@@ -108,7 +121,7 @@ namespace MixedAtmospheres.Oni
                 using var stream = new MemoryStream(image, 0, end, false);
                 using var reader = new BinaryReader(stream);
                 if (!reader.ReadBytes(8).AsSpan().SequenceEqual(Magic)) throw new InvalidDataException("Unsupported pipe checkpoint.");
-                var version=reader.ReadInt32();if(version<1||version>3)throw new InvalidDataException("Unsupported pipe checkpoint schema.");
+                var version=reader.ReadInt32();if(version<1||version>4)throw new InvalidDataException("Unsupported pipe checkpoint schema.");
                 var geometry = PipeGeometry.Read(reader); var catalogue = reader.ReadBytes(32);
                 if (!geometry.Equals(expectedGeometry) || expectedCatalogue.Length != 32 || !catalogue.AsSpan().SequenceEqual(expectedCatalogue))
                     throw new InvalidDataException("Pipe checkpoint catalogue or geometry differs.");
@@ -129,7 +142,7 @@ namespace MixedAtmospheres.Oni
                 var diseases = new PipePart[count];
                 for (var i = 0; i < count; ++i) diseases[i] = new PipePart(reader.ReadInt32(), PipeAmount.Read(reader));
                 var boundary=version>=2?PipeBoundaryState.Read(reader,image.Length):null;boundary?.Validate(geometry,materialPhase);
-                var runtime=version==3?PipeRuntimeImage.Read(reader,geometry):null;
+                var runtime=version>=3?PipeRuntimeImage.Read(reader,geometry,version):null;
                 if (stream.Position != end) throw new InvalidDataException("Trailing pipe checkpoint data.");
                 var result = new ColonyConduitCheckpoint(geometry, catalogue, cells, initial, supplied, removed, heat, diseases,boundary,runtime);
                 if (!result.Encode().AsSpan().SequenceEqual(image)) throw new InvalidDataException("Noncanonical pipe checkpoint.");

@@ -162,7 +162,15 @@ namespace MixedAtmospheres.Oni
     [HarmonyPatch(typeof(Game), "UnsafeSim200ms")]
     internal static class ColonyContinuationSubmitPatch
     {
-        private static void Prefix(float __0) { ColonyPipeSave.BeforePositiveTime(__0); ColonyContinuationProbe.Submitted(__0); }
+        private static bool Prefix(float __0)
+        {
+            ColonyPipeSave.BeforePositiveTime(__0);
+            // Readiness can refuse inside this very call, after the outer
+            // SimEveryTick guard has already passed. Do not submit that tick.
+            if (__0 > 0 && ColonyLoadRefusal.Refused) return false;
+            ColonyContinuationProbe.Submitted(__0);
+            return true;
+        }
     }
     [HarmonyPatch(typeof(Game), "SimEveryTick")]
     internal static class ColonyContinuationHoldPatch

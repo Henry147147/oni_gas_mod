@@ -52,9 +52,7 @@ namespace MixedAtmospheres.Oni
                 closed=true;
                 foreach(var update in updates)rows[update.Row]=update.Native;
                 if(!success)return;
-                var live=new HashSet<(ConduitFlow,int)>();foreach(var update in updates)live.Add((update.Flow,update.Cell));
-                var retired=new List<(ConduitFlow,int)>();foreach(var key in States.Keys)if(!live.Contains(key))retired.Add(key);
-                foreach(var key in retired)States.Remove(key);
+                RetireEmptyCultures();
                 foreach(var key in new List<(ConduitFlow,int)>(Restored.Keys))
                     if(!ColonyConduits.TryRead(key.Item1,key.Item2,out var held)||held.Count==0)Restored.Remove(key);
                 foreach(var update in updates)
@@ -146,6 +144,14 @@ namespace MixedAtmospheres.Oni
         private static readonly Dictionary<(ConduitFlow,int),CellState> States=new Dictionary<(ConduitFlow,int),CellState>();
         private static readonly Dictionary<(ConduitFlow,int),Dictionary<int,Culture>> Restored=new Dictionary<(ConduitFlow,int),Dictionary<int,Culture>>();
         private static readonly SortedDictionary<int,PipeAmount> Births=new SortedDictionary<int,PipeAmount>(),Deaths=new SortedDictionary<int,PipeAmount>();
+        // Missing registration or a refused update is temporary, not an
+        // extinction event. Keep every clock while its exact inventory is
+        // still held; a replacement conduit resets its state when it binds.
+        internal static void RetireEmptyCultures()
+        {
+            foreach(var key in new List<(ConduitFlow,int)>(States.Keys))
+                if(!ColonyConduits.TryRead(key.Item1,key.Item2,out var held)||held.Count==0)States.Remove(key);
+        }
         private static readonly bool TimingEnabled=Environment.GetEnvironmentVariable("MA_COLONY_PIPE_BIOLOGY_TIMING")=="1";
         private static long captureTicks,finishTicks,captureCalls,finishCalls;
         internal static bool Enabled { get; private set; }
@@ -179,9 +185,10 @@ namespace MixedAtmospheres.Oni
                 }
             using var hash=SHA256.Create();return BitConverter.ToString(hash.ComputeHash(bytes.ToArray())).Replace("-","");
         }
-        internal static void Reset(){Enabled=false;States.Clear();Restored.Clear();Births.Clear();Deaths.Clear();Ticks=UpdatedCells=UpdatedIdentities=ExpectedIdentities=Skipped=captureTicks=finishTicks=captureCalls=finishCalls=0;ColonyPipeBiologyOracle.Reset();}
+        internal static void Reset(){Enabled=false;States.Clear();Restored.Clear();Births.Clear();Deaths.Clear();ColonyPipeCultureState.Reset();Ticks=UpdatedCells=UpdatedIdentities=ExpectedIdentities=Skipped=captureTicks=finishTicks=captureCalls=finishCalls=0;ColonyPipeBiologyOracle.Reset();}
         internal static void Capture(PipeRuntimeImage image)
         {
+            image.NativeCultures=ColonyPipeCultureState.CaptureAll();
             foreach(var item in States)
             {
                 if(item.Value.Cultures.Count==0||Restored.ContainsKey(item.Key))continue;
@@ -199,6 +206,8 @@ namespace MixedAtmospheres.Oni
         // handle and body, which a load re-creates.
         internal static void Restore(PipeRuntimeImage image)
         {
+            if(image.NativeCultures==null)throw new InvalidDataException("Saved mixed pipes lack their native biology allocation/cache context.");
+            ColonyPipeCultureState.RestoreAll(image.NativeCultures);
             // Conduit networks may not exist yet: clocks bind to the native
             // temperature handle and body at the cell's first biology tick.
             foreach(var record in image.Cultures)
@@ -212,7 +221,12 @@ namespace MixedAtmospheres.Oni
         }
         internal static Scope? Begin(ConduitDiseaseManager manager,float seconds)
         {
-            if(!Enabled||!ReferenceEquals(manager,Game.Instance.conduitDiseaseManager))return null;
+            // The save barrier publishes native nonphysics work with dt=0.
+            // It is not a biology cadence tick, and expected-population rules
+            // require a positive interval. Do not retire clocks or count a
+            // projected fallback for that publication.
+            if(!Enabled||!(seconds>0)||!ReferenceEquals(manager,Game.Instance.conduitDiseaseManager))return null;
+            ColonyPipeCultureState.RequireReady();
             var started=TimingEnabled?Stopwatch.GetTimestamp():0;
             try{return Scope.Capture(manager,seconds);}
             finally{if(TimingEnabled){captureTicks+=Stopwatch.GetTimestamp()-started;++captureCalls;}}

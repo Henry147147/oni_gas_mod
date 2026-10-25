@@ -36,6 +36,9 @@ namespace MixedAtmospheres.Oni
         internal long Consumed,Dispensed,Dumps,DamageEvents;
         internal long Contacts,Excluded,Mismatches,Unsettled;internal PipeAmount ContactHeat,LaggedHeat;
         internal List<CultureRecord> Cultures=new List<CultureRecord>();
+        // Null is the legacy schema-3 image, whose native allocation/cache
+        // state was not saved. An empty list explicitly records no pipes.
+        internal List<PipeNativeCulture>? NativeCultures;
         internal SortedDictionary<int,PipeAmount> Births=new SortedDictionary<int,PipeAmount>(),Deaths=new SortedDictionary<int,PipeAmount>();
         internal long BiologyTicks,BiologyCells,BiologyIdentities,BiologyExpected,BiologySkipped,PhaseEvents;
 
@@ -68,8 +71,10 @@ namespace MixedAtmospheres.Oni
             {w.Write(c.Phase);w.Write(c.Cell);w.Write(c.Cultures.Length);foreach(var item in c.Cultures.OrderBy(i=>i.Id)){w.Write(item.Id);item.Clock.Write(w);}}
             WriteMap(w,Births,(x,k)=>x.Write(k));WriteMap(w,Deaths,(x,k)=>x.Write(k));
             w.Write(BiologyTicks);w.Write(BiologyCells);w.Write(BiologyIdentities);w.Write(BiologyExpected);w.Write(BiologySkipped);w.Write(PhaseEvents);
+            if(NativeCultures!=null)
+            {w.Write(NativeCultures.Count);foreach(var culture in NativeCultures.OrderBy(c=>c.Phase).ThenBy(c=>c.Cell))culture.Write(w);}
         }
-        internal static PipeRuntimeImage Read(BinaryReader r,PipeGeometry geometry)
+        internal static PipeRuntimeImage Read(BinaryReader r,PipeGeometry geometry,int schema=3)
         {
             var image=new PipeRuntimeImage();
             image.FromWorld=PipeInventory.Read(r);image.ToWorld=PipeInventory.Read(r);image.PassiveExchange=ReadMap(r,x=>x.ReadUInt64());
@@ -102,6 +107,14 @@ namespace MixedAtmospheres.Oni
             image.Births=ReadMap(r,x=>x.ReadInt32());image.Deaths=ReadMap(r,x=>x.ReadInt32());
             image.BiologyTicks=r.ReadInt64();image.BiologyCells=r.ReadInt64();image.BiologyIdentities=r.ReadInt64();image.BiologyExpected=r.ReadInt64();
             image.BiologySkipped=r.ReadInt64();image.PhaseEvents=r.ReadInt64();
+            if(schema>=4)
+            {
+                var count=Count(r);
+                if((ulong)count>2UL*geometry.Width*geometry.Height||(long)count*49>r.BaseStream.Length-r.BaseStream.Position)
+                    throw new InvalidDataException("Invalid saved native pipe culture count.");
+                image.NativeCultures=new List<PipeNativeCulture>(count);
+                for(var i=0;i<count;++i)image.NativeCultures.Add(PipeNativeCulture.Read(r,geometry));
+            }
             image.Validate();
             return image;
         }
@@ -116,6 +129,7 @@ namespace MixedAtmospheres.Oni
             foreach(var v in Vents){Unique(v.Buffers,"vent buffer");Unique(v.Pending,"vent reservation");}
             foreach(var s in Spills)Unique(s.Ids,"spill id");
             foreach(var c in Cultures)Unique(c.Cultures.Select(i=>(ulong)(uint)i.Id),"culture identity");
+            if(NativeCultures!=null)Unique(NativeCultures.Select(c=>((ulong)c.Phase<<32)|(uint)c.Cell),"native culture cell");
         }
         private static void Unique(IEnumerable<ulong> ids,string what)
         {var seen=new HashSet<ulong>();foreach(var id in ids)if(!seen.Add(id))throw new InvalidDataException("Duplicate saved "+what+".");}

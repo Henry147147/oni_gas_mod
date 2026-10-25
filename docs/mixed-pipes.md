@@ -8,8 +8,8 @@ starts the production runtime for a new colony ([runtime](#runtime)).
 Harness controls validate internal mixing/filtering/readers, precise world
 receipts, pumps, valves/shutoffs, gas and liquid vents, machine ports,
 teardown, phase damage, hot/cold body heat and all-ID pipe biology. The
-mixed save writer (MACPIP01 schema 3 inside the saves worker's MACOLP03)
-and default-on activation remain open.
+mixed save writer (MACPIP01 schema 4 inside MACOLP03) is explicitly gated;
+exact native scheduling continuation and default-on activation remain open.
 
 ## Runtime
 
@@ -43,7 +43,8 @@ worker's pipe scenarios on mixed pipes. Passing in game on profile 4:
 `mixed-pipe-machines`, `mixed-pipe-heat-machines`, `mixed-pipe-colony`;
 earlier explicit controls cover pumps, valves, vents, filters, readers,
 teardown, biology and body heat. `mixed-pipe-retire` and
-`mixed-pipe-readers` are queued.
+`mixed-pipe-readers` pass together on core22: **3/3 and 4/4**, respectively,
+at frame71. The saved native scheduling gate remains open.
 
 ## Machine ports
 
@@ -79,6 +80,13 @@ become one chunk per species there; late intakes follow when their job
 completes. A trace
 of the other phase that arrives with a pump extraction returns to the intake
 cell instead of blocking the pump's buffer.
+
+The retirement control stops the dispensers before connecting their outlets,
+so native `RequireOutputs` admits real held storage. At destruction the gas
+pump holds 1 kg and the liquid pump 20 kg: all gas reaches the world, all
+liquid becomes chunks, no pump/spill/job remains and every pipe account
+closes. The shared readers/retirement run has owner mass/energy errors
+3.32e-16/8.57e-16 and an ordinary schema4 save at durable frame72.
 
 Fixed `mixed-pipe-heat-machines` control (liquid conditioner, conduction
 panel bridge, a 380 K liquid pipe and a 360 K steam/oxygen gas pipe) passes
@@ -129,8 +137,42 @@ reconciles every owned cell and returns the canonical image.
 `Restore` runs after the owner restore and prefab spawn, before any owner
 frame publishes a receipt; each owned cell's consolidated projection must
 equal ONI's restored conduit contents bit for bit, otherwise loading fails.
-ONI's conduit staging, flow clock and network order are not persisted, as in
-vanilla (main/saves decision 2026-10-24).
+Schema 4 adds the native culture context of every owned conduit, including
+empty and germ-free pipes: captured allocation mass and element, cached growth
+descriptor (all eight fields), projected disease/count and native residue.
+The native allocator captures mass once; loading its current packet would
+otherwise change the biological rule. Restored contexts bind once to new
+temperature handles before disease updates; subsequent native cache refreshes
+keep their original behavior. Temporarily unavailable biology rows retain
+their owned clocks. Schemas 1–3 still decode with identical bytes, but runtime
+restore refuses them explicitly because they lack this context.
+
+`GameStarted` can precede conduit registration. Loaded contexts stay staged
+until the first positive-time boundary; a synchronous topology flush precedes
+binding, then every native allocation/cache/residue is checked against the
+saved bits. Missing or extra prefab/native-row coverage refuses continuation.
+Zero-time save publications do not advance the owned biology cadence.
+
+The pure schema controls preserve occupied and empty contexts and legacy
+schema bytes, and reject duplicate or incomplete context coverage. These are
+codec controls, not in-game continuation acceptance.
+
+Actual core23/profile5 source `codex-resume-pipe-biology-zero-source-v1`
+saves at frame12 with two prefab-built, occupied pipes whose native allocation
+mass is still zero. Fresh-process and menu reload each advance 15 frames on
+the same immutable bundle: both restore two contexts, correct both cold
+allocation masses/caches, and verify every saved native context bit after
+topology settlement. Both restore the source pipe hash and saved profile;
+the first cold session also writes another schema4 save. Every pipe account
+is exact, owner M/E is 1.81e-16/3.86e-16, no owner fault occurs and the source
+file stays unchanged. The earlier core22 readers/retirement source additionally
+restores all four contexts, including its empty outlets, through cold/menu
+reload. These accept native culture restoration, not full flow continuation.
+
+ONI's conduit staging,
+direction masks, one-second clock, network order and updater order still need
+capture and restore. No user waiver of exact save continuation is recorded;
+the earlier vanilla-load scheduling assumption does not satisfy that gate.
 
 ## Conserved inventory
 
@@ -175,7 +217,7 @@ alongside durable port buffers and physical scheduling state.
 
 ## Saved framing
 
-**MACPIP01 schema4** is reserved (2026-10-24), immediately after a fresh fetch
+**MACPIP01 schema4** was reserved (2026-10-24), immediately after a fresh fetch
 of `c57532a`, for complete native pipe biology context: captured allocation
 mass/element, cached growth rule, projected culture and residue, including
 empty conduits. Schema3's codec bytes remain readable; missing context cannot
@@ -186,13 +228,13 @@ Format IDs **MACOLP02** and **MACPIP01** were claimed immediately after a
 fresh fetch/rebase of `b36ed23` on 2026-10-23. These are managed payloads;
 they do not change a native MAC checkpoint version or its bytes.
 
-Pipe saves keep every species, joule and germ and all owned scheduler, buffer,
-culture, port and job state exactly; ONI's own conduit staging, flow
-directions, 1 s conduit clock and network order are not saved, so pipe timing
-resumes as after a vanilla load. A restore refuses unless each owned cell's
-consolidated projection equals ONI's restored `ConduitContents` bit for bit.
+Pipe images retain every species, joule and germ and owned buffer, culture,
+port and job state. Native conduit staging, directions, the 1 s clock and
+network/updater order remain required for exact continued evolution. A restore
+refuses unless each owned cell's consolidated projection equals ONI's
+restored `ConduitContents` bit for bit; this alone is not continuation proof.
 
-**MACOLP03** was assigned by main after a fetch at `f8eb87a` (2026-10-24): config, owner image, then tagged sections in increasing tag order (1 = pipe runtime, MACPIP01 schema 3; 2 = MACO2P01 in-flight CO2 particles).
+**MACOLP03** was assigned by main after a fetch at `f8eb87a` (2026-10-24): config, owner image, then tagged sections in increasing tag order (1 = pipe runtime, currently MACPIP01 schema 4; 2 = MACO2P01 in-flight CO2 particles).
 Unknown, duplicate or empty sections refuse; a save without sections still writes exact MACOLP01 bytes; MACOLP02 stays refused.
 
 - **MACOLP01:** unchanged magic, int32 configuration length, 56-byte
@@ -210,8 +252,9 @@ Unknown, duplicate or empty sections refuse; a save without sections still write
   atoms. Counts, lengths, phase, geometry, identities and canonical ordering
   are checked before publication; the image is limited to 256 MiB.
 
-The runtime writer continues to emit MACOLP01. Loading MACOLP02 is refused
-explicitly until end-to-end mixed ownership is ready. No old save migrates
+The runtime writer emits MACOLP01 without extension sections, otherwise
+MACOLP03. Mixed-pipe saving requires `MA_COLONY_PIPE_SAVES=1`; MACOLP02 stays
+refused. No old save migrates
 because an environment variable or a new default changes. The codec controls
 check exact legacy bytes, new-image re-encoding/continuation, incompatible
 catalogue/geometry, malformed lengths, duplicate cells, corruption and the

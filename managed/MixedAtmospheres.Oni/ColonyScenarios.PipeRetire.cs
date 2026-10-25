@@ -10,7 +10,8 @@ namespace MixedAtmospheres.Oni
         // Fixed before the first measurement: the pump arena (gas O2/CO2 left
         // of a wall, water/polluted water lower right). Frame 5: gas pump (1,0)
         // and liquid pump (5,0); frame 7: one isolated outlet pipe cell each,
-        // so outlets fill and the pumps keep owned storage. Readiness by frame
+        // with dispensers stopped while outlets stay empty, so native
+        // RequireOutputs admits intakes into owned storage. Readiness by frame
         // 30 shifts later stages. Stage 40: both pumps hold material; destroy
         // them. Stage 60: the gas storage vented into the world, the liquid
         // storage became chunks (vanilla DropAll), no pump state, spill or job
@@ -25,7 +26,13 @@ namespace MixedAtmospheres.Oni
                 Arena((x,y)=>x==4?(SimHashes.Unobtanium,20000f,300f):x<4?((x+y)%2==0?SimHashes.Oxygen:SimHashes.CarbonDioxide,1.2f,300f):
                     (y<=2?((x+y)%2==0?SimHashes.Water:SimHashes.DirtyWater,500f,300f):(SimHashes.Oxygen,1.2f,300f)));
             }
-            if(Once(5,"build gas and liquid pumps")){retirePumps.Add(Build(GasPumpConfig.ID,Cell(1,0)));retirePumps.Add(Build(LiquidPumpConfig.ID,Cell(5,0)));}
+            if(Once(5,"build gas and liquid pumps"))
+            {
+                retirePumps.Add(Build(GasPumpConfig.ID,Cell(1,0)));retirePumps.Add(Build(LiquidPumpConfig.ID,Cell(5,0)));
+                // Stop before connecting an outlet, so the one-second native
+                // phase cannot emit its first packet before the hold starts.
+                foreach(var pump in retirePumps)pump.GetComponent<ConduitDispenser>().SetOnState(false);
+            }
             if(Once(7,"isolated pump outlets"))
             {
                 Pipe(Game.Instance.gasConduitSystem,GasConduitConfig.ID,new List<int>{PumpOutlet(retirePumps[0])});
@@ -41,7 +48,14 @@ namespace MixedAtmospheres.Oni
                 }
                 recorded["retire setup delay"]=frame-8;
             }
-            if(RetireAt(8,"mixed pipes own the pumps"))ColonyPipeRuntime.Start();
+            if(RetireAt(8,"mixed pipes own the pumps"))
+            {
+                ColonyPipeRuntime.Start();
+                // An ordinary full outlet stops the gas pump before it can
+                // retain storage. Hold its dispenser, as in the pump storage
+                // control, without overriding the pump's operation or rate.
+                foreach(var pump in retirePumps)pump.GetComponent<ConduitDispenser>().SetOnState(false);
+            }
             if(RetireAt(40,"destroy pumps holding owned storage"))
             {
                 var gas=ColonyPipePumps.Inventory(retirePumps[0].GetComponent<Storage>());var liquid=ColonyPipePumps.Inventory(retirePumps[1].GetComponent<Storage>());

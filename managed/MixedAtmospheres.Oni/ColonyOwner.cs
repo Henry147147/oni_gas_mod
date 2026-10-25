@@ -223,14 +223,7 @@ namespace MixedAtmospheres.Oni
 
         internal static OniNativeColony.Config Config => config;
         internal static OniNativeColony.Material[] Materials => materials;
-        internal static byte[] Checkpoint()
-        {
-            OniNativeColony.Check(OniNativeColony.Checkpoint(null, 0, out var bytes));
-            var image = new byte[bytes];
-            OniNativeColony.Check(OniNativeColony.Checkpoint(image, bytes, out var written));
-            if (written != bytes) throw new InvalidOperationException("Colony checkpoint size changed while copying.");
-            return image;
-        }
+        internal static byte[] Checkpoint() => ColonyCheckpointCopy.Read(OniNativeColony.Checkpoint, OniNativeColony.Check);
         // The configuration and catalogue the running game would give this asteroid.
         internal static (OniNativeColony.Config config, OniNativeColony.Material[] materials) Describe(uint? savedFlags = null)
         {

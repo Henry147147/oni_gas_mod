@@ -178,6 +178,35 @@ internal static unsafe class Program
             refused=false;try{flow.Complete(8,5,"colony","hash",2,null,"image");}catch(InvalidDataException){refused=true;}Check(refused&&!flow.Verified);
             flow.Complete(8,5,"colony","hash",2,profile,"image");Check(flow.Verified&&flow.ShutdownObserved&&flow.MainMenuObserved);
         });
+        Test("checkpoint copies retain complete images when queued input changes the queried size", () =>
+        {
+            var expected=new byte[]{7,13,29};
+            void NativeCheck(int result){if(result!=0)throw new IOException("native result "+result);}
+            foreach(var queried in new uint[]{1,8})
+            {
+                var copied=0;
+                int Copy(byte[]? buffer,uint capacity,out uint bytes)
+                {
+                    bytes=buffer==null?queried:(uint)expected.Length;
+                    if(buffer==null)return 0;
+                    ++copied;
+                    if(capacity<bytes)return 5;
+                    expected.CopyTo(buffer,0);return 0;
+                }
+                Check(ColonyCheckpointCopy.Read(Copy,NativeCheck).SequenceEqual(expected));
+                Check(copied==(queried<expected.Length?2:1));
+            }
+            var attempts=0;
+            int Growing(byte[]? buffer,uint capacity,out uint bytes){++attempts;bytes=capacity+1;return buffer==null?0:5;}
+            var refused=false;try{ColonyCheckpointCopy.Read(Growing,NativeCheck);}catch(InvalidOperationException){refused=true;}
+            Check(refused&&attempts==9);
+            int Failed(byte[]? buffer,uint capacity,out uint bytes){bytes=3;return buffer==null?0:3;}
+            refused=false;try{ColonyCheckpointCopy.Read(Failed,NativeCheck);}catch(IOException error){refused=error.Message=="native result 3";}
+            Check(refused);
+            int Invalid(byte[]? buffer,uint capacity,out uint bytes){bytes=capacity+1;return 0;}
+            refused=false;try{ColonyCheckpointCopy.Read(Invalid,NativeCheck);}catch(InvalidDataException){refused=true;}
+            Check(refused);
+        });
         Test("save frame metadata follows durable image across reservoir and trace framing", () =>
         {
             const ulong durable=0x100000002;
@@ -683,6 +712,10 @@ internal static unsafe class Program
             Check(Find(typeof(CO2Manager),"Sim33ms",typeof(float)).IsPublic);
             var load=Find(typeof(LoadScreen),"DoLoad",typeof(string));Check(load.IsPublic && load.IsStatic && load.ReturnType==typeof(void));
             Check(typeof(FrontEndManager).GetField("Instance",any)!=null && typeof(ScreenPrefabs).GetField("ConfirmDialogScreen",any)!=null);
+            var manager=typeof(ConduitFlow).Assembly.GetType("UtilityNetworkManager`2");Check(manager!=null);
+            Check(manager!.GetProperty("IsDirty",any)?.PropertyType==typeof(bool));
+            var updateTopology=Find(manager,"Update");Check(updateTopology.IsPublic&&!updateTopology.IsStatic&&updateTopology.ReturnType==typeof(void));
+            Check(typeof(ConduitFlow).GetField("networkMgr",any)?.FieldType==typeof(IUtilityNetworkMgr));
             var spawn=Find(typeof(CO2Manager),"SpawnCO2",typeof(UnityEngine.Vector3),typeof(float),typeof(float),typeof(bool),typeof(float));
             Check(spawn.IsPublic && spawn.ReturnType==typeof(CO2));
             Check(typeof(CO2Manager).GetField("co2Items",any)?.FieldType==typeof(List<CO2>));
