@@ -7,11 +7,92 @@ import hashlib
 import json
 from pathlib import Path
 import shutil
+import struct
 import subprocess
 import tarfile
 from build_linux_compat import glibc_versions_within_limit
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def validate_native_image(data: bytes, suffix: str) -> None:
+    """Reject empty/truncated link outputs before they can acquire a manifest."""
+    def require(condition, reason):
+        if not condition:
+            raise ValueError("Incomplete or invalid native image: " + reason)
+
+    if suffix == ".so":
+        require(len(data) >= 64 and data[:7] == b"\x7fELF\x02\x01\x01", "expected ELF64 little-endian header")
+        kind, machine, version, _, phoff, shoff, _, ehsize, phsize, phnum, shsize, shnum, _ = struct.unpack_from("<HHIQQQIHHHHHH", data, 16)
+        require((kind, machine, version, ehsize) == (3, 62, 1, 64), "expected x86-64 shared object")
+        require(phsize == 56 and phnum > 0 and phoff >= 64 and phoff + phnum * phsize <= len(data), "truncated program headers")
+        load = dynamic = False
+        for i in range(phnum):
+            tag, _, offset, _, _, size, memory, _ = struct.unpack_from("<IIQQQQQQ", data, phoff + i * phsize)
+            require(offset + size <= len(data), "truncated program segment")
+            if tag == 1:
+                require(memory >= size, "load segment is smaller than its file image")
+                load = True
+            if tag == 2:
+                require(size >= 16 and size % 16 == 0, "incomplete dynamic table")
+                require(any(struct.unpack_from("<q", data, at)[0] == 0 for at in range(offset, offset + size, 16)), "unterminated dynamic table")
+                dynamic = True
+        require(load and dynamic, "shared object lacks load/dynamic segments")
+        if shnum:
+            require(shsize == 64 and shoff >= 64 and shoff + shnum * shsize <= len(data), "truncated section headers")
+            for i in range(shnum):
+                _, tag, _, _, offset, size, _, _, _, _ = struct.unpack_from("<IIQQQQIIQQ", data, shoff + i * shsize)
+                require(tag == 8 or offset + size <= len(data), "truncated file-backed section")
+    elif suffix == ".dll":
+        require(len(data) >= 64 and data[:2] == b"MZ", "expected DOS header")
+        pe, = struct.unpack_from("<I", data, 60)
+        require(pe >= 64 and pe + 24 <= len(data) and data[pe:pe + 4] == b"PE\0\0", "truncated PE header")
+        machine, sections, _, _, _, optional_size, flags = struct.unpack_from("<HHIIIHH", data, pe + 4)
+        optional = pe + 24
+        require(machine == 0x8664 and 0 < sections <= 96 and flags & 0x2000, "expected x86-64 DLL")
+        require(optional_size >= 120 and optional + optional_size + 40 * sections <= len(data), "truncated optional/section headers")
+        require(struct.unpack_from("<H", data, optional)[0] == 0x20b, "expected PE32+ optional header")
+        image_size, headers_size = struct.unpack_from("<II", data, optional + 56)
+        require(optional + optional_size + 40 * sections <= headers_size <= len(data), "incomplete image headers")
+        require(struct.unpack_from("<I", data, optional + 108)[0] > 0, "missing export directory")
+        export_rva, export_size = struct.unpack_from("<II", data, optional + 112)
+        require(export_rva > 0 and export_size >= 40, "incomplete export directory")
+        export_offset = None
+        for i in range(sections):
+            at = optional + optional_size + 40 * i
+            virtual_size, address, size, offset = struct.unpack_from("<IIII", data, at + 8)
+            require(offset + size <= len(data) and address + max(virtual_size, size) <= image_size, "truncated section image")
+            if address <= export_rva and export_rva + 40 <= address + size:
+                export_offset = offset + export_rva - address
+        require(export_offset is not None and export_offset + 40 <= len(data), "export directory has no file-backed section")
+        require(struct.unpack_from("<I", data, export_offset + 20)[0] > 0, "DLL has no exported functions")
+    else:
+        raise ValueError("Unknown native image suffix: " + suffix)
+
+
+def copy_native_binary(source: Path, target: Path) -> None:
+    """Copy one validated snapshot and refuse a concurrent link or changed copy."""
+    signature = lambda value: (value.st_dev, value.st_ino, value.st_size, value.st_mtime_ns, value.st_ctime_ns)
+    before = signature(source.stat())
+    data = source.read_bytes()
+    if signature(source.stat()) != before or len(data) != before[2]:
+        raise ValueError("Native input changed while reading: " + str(source))
+    validate_native_image(data, source.suffix)
+    digest = hashlib.sha256(data).digest()
+    created = False
+    try:
+        with target.open("xb") as output:
+            created = True
+            output.write(data)
+        shutil.copystat(source, target)
+        if signature(source.stat()) != before or hashlib.sha256(source.read_bytes()).digest() != digest or signature(source.stat()) != before:
+            raise ValueError("Native input changed during packaging: " + str(source))
+        if hashlib.sha256(target.read_bytes()).digest() != digest:
+            raise ValueError("Native package copy differs from its validated input: " + str(target))
+    except Exception:
+        if created:
+            target.unlink(missing_ok=True)
+        raise
 
 
 def observer_build_root(observer: Path) -> Path:
@@ -118,11 +199,11 @@ def main() -> None:
     rid = "win-x64" if args.native.suffix == ".dll" else "linux-x64"
     native_directory = output / "native" / rid
     native_directory.mkdir(parents=True)
-    shutil.copy2(files[2], native_directory / files[2].name)
+    copy_native_binary(files[2], native_directory / files[2].name)
     if coupled is not None:
-        shutil.copy2(coupled.resolve(), native_directory / coupled.name)
+        copy_native_binary(coupled.resolve(), native_directory / coupled.name)
     if observer is not None:
-        shutil.copy2(observer.resolve(), native_directory / observer.name)
+        copy_native_binary(observer.resolve(), native_directory / observer.name)
         third_party = output / "third-party"
         shutil.copytree(observer_support / "licenses", third_party / "licenses")
         shutil.copy2(observer_support / "third-party-sources.txt", third_party)
