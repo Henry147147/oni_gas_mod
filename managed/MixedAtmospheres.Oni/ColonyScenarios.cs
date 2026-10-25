@@ -1330,11 +1330,30 @@ namespace MixedAtmospheres.Oni
             Record("catalogue routes conserve every account",ColonyConduits.Audit(out var detail),detail);
         }
         private static readonly List<GameObject> mixedValves=new List<GameObject>();
+        private static readonly Dictionary<int,string> valvePartialSetup=new Dictionary<int,string>();
+        private static string valveNegativePhaseProof="",valvePositivePhaseProof="";
         private static int ValveCell(GameObject valve,string name)=>(int)AccessTools.Field(typeof(ValveBase),name).GetValue(valve.GetComponent<ValveBase>());
         private static bool ValveAt(int at,string label)=>Once(at+(recorded.TryGetValue("valve setup delay",out var delay)?(int)delay:0),label);
         private static void MixedPipeValves(int frame)
         {
-            if(Once(0,"mixed valve arena"))Arena((x,y)=>(SimHashes.Oxygen,1f,300f));
+            if(Once(0,"mixed valve arena"))
+            {
+                valvePartialSetup.Clear();valveNegativePhaseProof=valvePositivePhaseProof="";Arena((x,y)=>(SimHashes.Oxygen,1f,300f));
+                var controlled=Environment.GetEnvironmentVariable("MA_COLONY_VALVE_SETUP_DELAY");
+                if(!string.IsNullOrEmpty(controlled))
+                {
+                    if(controlled!="1")throw new InvalidOperationException("Only the diagnostic one-frame closed preparation offset is supported.");
+                    recorded["valve diagnostic setup delay"]=1;
+                    Record("diagnostic controlled closed setup phase",true,"MA_COLONY_VALVE_SETUP_DELAY=1; diagnostic only, not ordinary acceptance; relative stages and bounds unchanged");
+                }
+                var negative=Environment.GetEnvironmentVariable("MA_COLONY_VALVE_SETUP_PHASE");
+                if(!string.IsNullOrEmpty(negative))
+                {
+                    if(negative!="miss-liquid"||!string.IsNullOrEmpty(controlled))throw new InvalidOperationException("Invalid or combined diagnostic valve phase controls.");
+                    recorded["valve diagnostic negative phase"]=1;
+                    Record("diagnostic closed callback phase selection",true,"MA_COLONY_VALVE_SETUP_PHASE=miss-liquid; diagnostic only, not ordinary acceptance; relative stages and bounds unchanged");
+                }
+            }
             if(Once(5,"build closed manual valves and powered shutoffs"))
             {
                 for(var phase=0;phase<2;++phase)
@@ -1347,12 +1366,15 @@ namespace MixedAtmospheres.Oni
                 }
             }
             if(Once(7,"connect initialized native valve ports"))
+            {
                 for(var phase=0;phase<2;++phase)
                 {
                     var network=phase==0?Game.Instance.gasConduitSystem:Game.Instance.liquidConduitSystem;var id=phase==0?GasConduitConfig.ID:LiquidConduitConfig.ID;
                     foreach(var valve in mixedValves.Skip(phase*2).Take(2))Pipe(network,id,new List<int>{ValveCell(valve,"inputCell")},new List<int>{ValveCell(valve,"outputCell")});
                     Pipe(network,id,new List<int>{Cell(7,phase==0?1:4)});
                 }
+                ColonyValveControl.Begin(mixedValves.Select(v=>v.GetComponent<ValveBase>()));
+            }
             if(frame>=10&&step<=10)
             {
                 var ready=true;
@@ -1362,10 +1384,32 @@ namespace MixedAtmospheres.Oni
                     foreach(var valve in mixedValves.Skip(phase*2).Take(2))ready&=flow.HasConduit(ValveCell(valve,"inputCell"))&&flow.HasConduit(ValveCell(valve,"outputCell"));
                 }
                 if(!ready){Current.Stage="waiting for native valve topology";if(frame>=30){Record("valve topology became ready",false,"readiness expired: "+string.Join("; ",mixedValves.Select(v=>$"{v.name} {ValveCell(v,"inputCell")}/{ValveCell(v,"outputCell")}")));Finish();}return;}
+                if(recorded.TryGetValue("valve diagnostic setup delay",out var controlledDelay)&&frame<10+controlledDelay)
+                {Current.Stage="diagnostic closed preparation phase";return;}
+                if(recorded.ContainsKey("valve diagnostic negative phase")&&
+                    !ColonyValveControl.NegativePartialPhase(mixedValves[2].GetComponent<ValveBase>(),ColonyOwner.Status.CompletedFrames,out valveNegativePhaseProof))
+                {
+                    Current.Stage="diagnostic closed callback phase preparation";
+                    if(frame>=30){Record("diagnostic closed phase prepared before expiry",false,valveNegativePhaseProof);Finish();}
+                    return;
+                }
+                if(!recorded.ContainsKey("valve diagnostic negative phase")&&!recorded.ContainsKey("valve diagnostic setup delay")&&
+                    !ColonyValveControl.PositivePartialPhase(new[]{mixedValves[0].GetComponent<ValveBase>(),mixedValves[2].GetComponent<ValveBase>()},ColonyOwner.Status.CompletedFrames,out valvePositivePhaseProof))
+                {
+                    Current.Stage="waiting for native valve callback preparation phase";
+                    if(frame>=30){Record("closed valve callback phase became ready",false,valvePositivePhaseProof);Finish();}
+                    return;
+                }
                 recorded["valve setup delay"]=frame-10;
             }
             if(ValveAt(10,"seed complete valve input mixtures"))
             {
+                if(recorded.TryGetValue("valve diagnostic setup delay",out var controlledDelay))
+                    Record("diagnostic requested setup phase was achieved",recorded["valve setup delay"]==controlledDelay,
+                        $"requested offset {controlledDelay}, actual {recorded["valve setup delay"]}; owner frame {ColonyOwner.Status.CompletedFrames}, clock {GameClock.Instance.GetTime():R}s");
+                if(recorded.ContainsKey("valve diagnostic negative phase"))Record("diagnostic negative callback phase selected",true,valveNegativePhaseProof);
+                if(!recorded.ContainsKey("valve diagnostic negative phase")&&!recorded.ContainsKey("valve diagnostic setup delay"))
+                {recorded["valve positive phase ready"]=1;Record("closed preparation gives both partial-capacity windows a native callback",true,valvePositivePhaseProof);}
                 ColonyConduits.StartControl();
                 for(var phase=0;phase<2;++phase)foreach(var valve in mixedValves.Skip(phase*2).Take(2))SupplyValve(phase,valve);
             }
@@ -1400,7 +1444,7 @@ namespace MixedAtmospheres.Oni
                     recorded[$"valve output {phase}/{device}"]=output.Mass;
                     if(device==0)valve.GetComponent<ValveBase>().CurrentFlow=0;else valve.GetComponent<Operational>().SetFlag(BuildingEnabledButton.EnabledFlag,false);
                 }
-                ColonyValveControl.Reset();
+                // Keep the readonly clock observer through the partial-capacity window.
             }
             if(ValveAt(34,"partial manual output and real room behind disabled shutoff"))
             {
@@ -1416,7 +1460,9 @@ namespace MixedAtmospheres.Oni
                         var energy=mass.Times(material.HeatCapacity*300).Plus(mass.Times(material.EnergyOffset));
                         ColonyConduits.SupplyControlInventory(flow,ValveCell(valve,"outputCell"),PipeInventory.Conserved(new[]{new PipePart(material.Id,mass)},energy,Array.Empty<PipePart>()));
                         ColonyConduits.TryRead(flow,ValveCell(valve,"inputCell"),out var before);recorded[$"valve partial source {phase}"]=before.Mass;
-                        valve.GetComponent<ValveBase>().CurrentFlow=valve.GetComponent<ValveBase>().MaxFlow;
+                        var native=valve.GetComponent<ValveBase>();native.CurrentFlow=native.MaxFlow;
+                        recorded[$"valve partial calls {phase}"]=ColonyValveControl.Calls(native);
+                        valvePartialSetup[phase]=ColonyValveControl.State(native);
                     }
                     else
                     {
@@ -1434,7 +1480,12 @@ namespace MixedAtmospheres.Oni
                     var flow=phase==0?Game.Instance.gasConduitFlow:Game.Instance.liquidConduitFlow;var manual=mixedValves[phase*2];var automatic=mixedValves[phase*2+1];
                     ColonyConduits.TryRead(flow,ValveCell(manual,"outputCell"),out var output);ColonyConduits.TryRead(flow,ValveCell(manual,"inputCell"),out var input);
                     var cap=phase==0?1:10;var taken=recorded[$"valve partial source {phase}"]-input.Mass;
-                    Record($"{phase} manual valve respects exact partial output capacity",output.Total.Minus(new PipeAmount(cap)).Sign<=0&&Math.Abs(output.Mass-cap)<1e-7&&Math.Abs(taken-(phase==0?.01:.1))<1e-7,$"output {output.Mass:R}; taken {taken:R}");
+                    Record($"{phase} manual valve respects exact partial output capacity",output.Total.Minus(new PipeAmount(cap)).Sign<=0&&Math.Abs(output.Mass-cap)<1e-7&&Math.Abs(taken-(phase==0?.01:.1))<1e-7,$"output {output.Mass:R}; taken {taken:R}; setup [{valvePartialSetup[phase]}]; callbacks added {ColonyValveControl.Calls(manual.GetComponent<ValveBase>())-recorded[$"valve partial calls {phase}"]}; {ColonyValveControl.Describe(manual.GetComponent<ValveBase>())}");
+                    if(recorded.ContainsKey("valve positive phase ready"))
+                        Record($"{phase} partial-capacity window received a real native callback",ColonyValveControl.Calls(manual.GetComponent<ValveBase>())>recorded[$"valve partial calls {phase}"],valvePositivePhaseProof);
+                    if(phase==1&&recorded.ContainsKey("valve diagnostic negative phase"))
+                        Record("diagnostic fixed window received no liquid callback",ColonyValveControl.Calls(manual.GetComponent<ValveBase>())==recorded[$"valve partial calls {phase}"],
+                            valveNegativePhaseProof+"; actual partial setup ["+valvePartialSetup[phase]+"]");
                     manual.GetComponent<ValveBase>().CurrentFlow=0;
                     ColonyConduits.TryRead(flow,ValveCell(automatic,"inputCell"),out input);ColonyConduits.TryRead(flow,ValveCell(automatic,"outputCell"),out output);
                     Record($"{phase} disabled powered shutoff holds with real output room",input.Mass==cap&&output.Count==0,$"input {input.Mass:R}; output {output.Mass:R}; {MachineState(automatic)}");
@@ -1448,7 +1499,7 @@ namespace MixedAtmospheres.Oni
                     var flow=phase==0?Game.Instance.gasConduitFlow:Game.Instance.liquidConduitFlow;var valve=mixedValves[phase*2+1];ColonyConduits.TryRead(flow,ValveCell(valve,"outputCell"),out var output);
                     Record($"{phase} powered shutoff reopens with complete mixture",Math.Abs(output.Mass-(phase==0?1:10))<1e-6&&output.Count==2,$"{output.Mass:R} kg; {output.Count} species");
                 }
-                Record("all valve inventories close every account",ColonyConduits.Audit(out var detail),detail);Finish();
+                Record("all valve inventories close every account",ColonyConduits.Audit(out var detail),detail);ColonyValveControl.Reset();Finish();
             }
         }
         private static void SupplyValve(int phase,GameObject valve)

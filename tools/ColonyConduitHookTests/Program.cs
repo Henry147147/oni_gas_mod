@@ -22,6 +22,7 @@ internal static class Program
     static int Run()
     {
         var assembly=typeof(MixtureInspection).Assembly;
+        ValvePreparationTests.Run(assembly);
         StoredBiologyHooks.Run(assembly);
         var cultureProbe=assembly.GetType("MixedAtmospheres.Oni.ColonyGermEvolutionProbe")!;
         var cultureAllocate=(MethodInfo)cultureProbe.GetField("AllocateCulture",BindingFlags.Static|BindingFlags.NonPublic)!.GetValue(null)!;
