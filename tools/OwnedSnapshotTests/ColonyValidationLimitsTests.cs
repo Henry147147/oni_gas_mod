@@ -25,14 +25,15 @@ internal static class ColonyValidationLimitsTests
         test("colony validation requests keep their declared fields and short defaults",()=> {
             var fields=typeof(ColonyValidationConfiguration).GetFields(BindingFlags.Public|BindingFlags.Instance).Select(field=>field.Name).ToArray();
             check(fields.SequenceEqual(new[]{"Mode","LoadSavePath","AutoStartNewColony","ReuseGeneratedWorld","IdleReservoirLeaseOnly",
-                "PrivateFileProtocolAssemblySha256","PrivateOwnedLoadRejection","QuitWhenComplete","SaveOnComplete","OverwriteSave","VanillaLoad","SaveBeforeResume",
+                "PrivateFileProtocolAssemblySha256","PrivateOwnedLoadRejection","QuitWhenComplete","QuitFromMainMenu","SaveOnComplete","OverwriteSave","VanillaLoad","SaveBeforeResume",
                 "VerifySaveIoRecovery","VerifyNaturalAutosave","VerifyPersistentActors","VerifyLiveBreathing","VerifyTransientParticles",
                 "SubnormalCarbonParticle","ReloadInProcess","CompletedFrames","TimeoutSeconds","Seed","Cluster","ColonyName","Floor","Speed","Scenario","LongRun","TelemetryIntervalFrames"}));
             var defaults=Valid(new ColonyValidationConfiguration());
             check(defaults.Mode=="snapshot-copy" && defaults.CompletedFrames==30 && defaults.TimeoutSeconds==600 && defaults.LoadSavePath=="" &&
                 !defaults.LongRun && defaults.TelemetryIntervalFrames==ColonyValidationLimits.DefaultTelemetryIntervalFrames &&
-                defaults.Floor=="" && defaults.Scenario=="" && defaults.Speed==1 && !defaults.OverwriteSave && !defaults.VanillaLoad);
-            check(ColonyValidationLimits.Modes.Length==40 && ColonyValidationLimits.Modes.Distinct().Count()==40 &&
+                defaults.Floor=="" && defaults.Scenario=="" && defaults.Speed==1 && !defaults.OverwriteSave && !defaults.VanillaLoad && !defaults.QuitFromMainMenu);
+            check(ColonyValidationLimits.Modes.Length==41 && ColonyValidationLimits.Modes.Distinct().Count()==41 &&
+                ColonyValidationLimits.Modes.Contains("colony-owner-inactive") &&
                 ColonyValidationLimits.Modes.Contains("native-configured-domain") && ColonyValidationLimits.Modes.Contains("native-configured-water-domain") && ColonyValidationLimits.Modes.Contains("native-configured-vacuum-domain"));
             foreach(var mode in ColonyValidationLimits.Modes)
             {
