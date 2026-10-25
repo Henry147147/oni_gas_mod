@@ -1913,6 +1913,10 @@ void capture_shadow(const NativeCells& n,std::uint64_t native_ticket) noexcept {
                     opened.push_back({cell, MA_ONI_COLONY_CLOSE});
                 } else if (e != vacuum && std::isfinite(m) && m > 0 && std::isfinite(t) && t > 0) {
                     moves.push_back({cell, e, MA_ONI_COLONY_INJECT, 0, -1, 0, m, t, 0}); sum.mass_in_kg += m;
+                    // Germs in the melt came with the native solid; they are
+                    // additional to every identity retained in the real fluid.
+                    if (n.disease[1] && n.disease_count[1] && n.disease[1][c] != 255 && n.disease_count[1][c] > 0)
+                        germs.push_back({cell, n.disease[1][c] + 1u, static_cast<double>(n.disease_count[1][c])});
                 }
                 ++sum.changes; continue;
             }

@@ -75,6 +75,7 @@ void falling_solid_control() {
         if (!ambiguous) require(beside_owned(source,true) && beside_owned(source)==!diagonal,
             "solid observation must include diagonal-only ownership without widening the fluid fence");
         if (ambiguous) {element[1][13]=element[1][12]; mass[1][13]=mass[1][12]; temperature[1][13]=temperature[1][12];}
+        disease[1][static_cast<std::size_t>(source)]=1; population[1][static_cast<std::size_t>(source)]=11;
         observe_native_solid(native,source);
         std::swap(element[1][12],element[1][static_cast<std::size_t>(source)]); std::swap(mass[1][12],mass[1][static_cast<std::size_t>(source)]);
         std::swap(temperature[1][12],temperature[1][static_cast<std::size_t>(source)]);
@@ -99,8 +100,10 @@ void falling_solid_control() {
         const std::array<std::uint32_t,9> all{0,1,2,3,4,5,6,7,8};
         MAOniColonyPassiveStamp stamp{}; std::vector<MAOniColonyPassiveRow> passives;
         require(read_passives(0,0,all,stamp,passives),"falling solid passive snapshot unavailable");
-        double germs=0; for(const auto& row:passives) {require(row.identity==1,"falling solid changed passive identity"); germs+=row.quantity;}
-        require(std::abs(germs-(heat_copy?2007.:2000.))<1e-9,"falling solid lost native or owned germs");
+        std::array<double,2> germs{};
+        for(const auto& row:passives) {require(row.identity==1 || row.identity==2,"falling solid changed passive identity"); germs[row.identity-1]+=row.quantity;}
+        require(std::abs(germs[0]-(heat_copy?2007.:2000.))<1e-9 && std::abs(germs[1]-11)<1e-9,
+            "falling solid lost native melt germs or displaced owned germs");
         const auto result=status();
         require(result.state==1 && std::abs(held[0]-(melt==oxygen?5.:1.))<1e-12 &&
             std::abs(held[1]-(melt==carbon?4.2:.2))<1e-12,"falling solid melt must preserve every owned constituent");
