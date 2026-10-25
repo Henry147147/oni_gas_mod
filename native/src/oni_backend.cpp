@@ -7,6 +7,7 @@
 #include "oni_body_heat_trace.hpp"
 #include "oni_chunk_heat_trace.hpp"
 #include "oni_conduit_contact.hpp"
+#include "oni_windows_lifecycle_trace.hpp"
 #include "oni_funchook_storage.hpp"
 #include "mixed_atmospheres/fluid_thermodynamics.hpp"
 #include <funchook.h>
@@ -160,14 +161,17 @@ using GameCallback = int (*)(int,void*);
 FORWARD(on_initialize, MA_ONI_INITIALIZE, void, (GameCallback callback), (callback))
 void on_shutdown() {
     Call call(MA_ONI_SHUTDOWN);
+    ma::oni::windows_lifecycle_trace("native shutdown entered");
 #if defined(_WIN32)
     std::fprintf(stderr,"[Mixed Atmospheres] Windows native shutdown entered.\n");
 #endif
     original<void (*)()>(MA_ONI_SHUTDOWN)();
+    ma::oni::windows_lifecycle_trace("original native shutdown completed");
 #if defined(_WIN32)
     std::fprintf(stderr,"[Mixed Atmospheres] Windows original native shutdown completed.\n");
 #endif
     ma::oni::shutdown_domain();
+    ma::oni::windows_lifecycle_trace("sealed domain shutdown completed");
 #if defined(_WIN32)
     std::fprintf(stderr,"[Mixed Atmospheres] Windows sealed-domain workers retired.\n");
 #endif
@@ -1184,8 +1188,10 @@ MAOniResult ma_oni_colony_checkpoint(std::uint8_t* buffer,std::uint32_t capacity
 }
 MAOniResult ma_oni_colony_stop(MAOniColonyStatus* output) {
     return boundary([&] {
+        ma::oni::windows_lifecycle_trace("colony stop API entered");
         if (output && (output->struct_size!=sizeof(*output) || output->abi_version!=MA_ONI_COLONY_ABI_VERSION)) throw Failure(MA_ONI_INVALID_ARGUMENT,"Invalid colony status ABI");
         if (output) *output=ma::oni::colony::status();
+        ma::oni::windows_lifecycle_trace("colony stop API status copied");
         ma::oni::colony::stop();
     });
 }

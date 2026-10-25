@@ -323,6 +323,10 @@ def playtest(args, state: Path, session: dict) -> int:
             env["MA_SETTINGS_OPEN"]=args.settings_open
             result["settings_window_control"]=args.settings_open
             if args.mode in OWNER_MODES:result["owner_environment_overrides"]=True
+        if getattr(args,"trace_shutdown",False):
+            env["MA_WINDOWS_SHUTDOWN_TRACE"]=windows_path(output/"windows-shutdown.log")
+            result["shutdown_trace_control"]=True
+            if args.mode in OWNER_MODES:result["owner_environment_overrides"]=True
         result["compatibility_environment"] = compatibility_settings(env)
         result["display"] = display
         prefix_started = True
@@ -520,6 +524,7 @@ def main() -> int:
         help="Keep a completed colony visible for bounded input/visual inspection before normal cleanup")
     parser.add_argument("--save-colony", action="store_true")
     parser.add_argument("--quit-from-menu",action="store_true",help="After the owner control, return to the main menu and quit normally")
+    parser.add_argument("--trace-shutdown",action="store_true",help="Write private Windows native shutdown boundaries to the run output")
     parser.add_argument("--settings-preset",type=Path,help="Explicit non-default colony settings control; staged preset JSON file")
     parser.add_argument("--settings-open",choices=("mods","0","1","2","3"),help="Open the actual settings UI through its existing validation hook")
     parser.add_argument("--load-save", type=Path)

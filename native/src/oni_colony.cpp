@@ -1,4 +1,5 @@
 #include "oni_colony.hpp"
+#include "oni_windows_lifecycle_trace.hpp"
 #include "mac_kernel_detail.hpp"
 #include "mac_kernel_lifecycle.hpp"
 #include "mac_phase_flow.hpp"
@@ -1076,19 +1077,25 @@ void start(const MAOniColonyConfig& config, std::span<const MAOniColonyMaterial>
 }
 
 void stop() noexcept {
+    ma::oni::windows_lifecycle_trace("colony stop entered");
     enabled.store(false, std::memory_order_release);
     capture_native_arena.store(false,std::memory_order_release);
     biology_mode.store(0, std::memory_order_relaxed);
     solver.settle(true);
+    ma::oni::windows_lifecycle_trace("colony solver settled");
 #if defined(_WIN32)
     solver.retire();
+    ma::oni::windows_lifecycle_trace("colony solver retired");
     ma::experimental::mac_kernel::retire_pools();
+    ma::oni::windows_lifecycle_trace("colony pools retired");
 #endif
     std::lock_guard lock(lifecycle);
+    ma::oni::windows_lifecycle_trace("colony lifecycle locked");
     session.reset();
     std::scoped_lock p(publication,inputs);latest.reset();sample_frames.clear();retained_sample_frames=0;
     capture_native_arena.store(false,std::memory_order_release);
     pending_native_arena.reset();pending_native_arena_captures=0;
+    ma::oni::windows_lifecycle_trace("colony stop completed");
 }
 
 // The adapter could not settle a completed frame's outcome (a pipe receipt
