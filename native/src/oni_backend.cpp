@@ -168,6 +168,9 @@ void on_shutdown() {
     std::fprintf(stderr,"[Mixed Atmospheres] Windows original native shutdown completed.\n");
 #endif
     ma::oni::shutdown_domain();
+#if defined(_WIN32)
+    std::fprintf(stderr,"[Mixed Atmospheres] Windows sealed-domain workers retired.\n");
+#endif
     ma::oni::colony::stop();
 #if defined(_WIN32)
     std::fprintf(stderr,"[Mixed Atmospheres] Windows native owners retired.\n");
