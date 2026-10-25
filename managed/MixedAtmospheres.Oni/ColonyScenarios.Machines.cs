@@ -152,21 +152,64 @@ namespace MixedAtmospheres.Oni
             }
         }
 
-        // An oil refinery's natural gas goes into the owner; its petroleum stays stored.
+        // The real refinery needs an output conduit and native operator work.
+        // Invoke its own callbacks with an existing compatible worker; its
+        // converter keeps the game's efficiency, recipe and rate.
+        private static Component? oilWorkable;
+        private static object? oilWorker;
+        private static System.Reflection.MethodInfo? oilStopWork;
+        private static void StopOilWork()
+        {
+            var target=oilWorkable;var worker=oilWorker;var stop=oilStopWork;
+            oilWorkable=null;oilWorker=null;oilStopWork=null;
+            if(target!=null&&worker!=null&&stop!=null)stop.Invoke(target,new[]{worker});
+        }
         private static void OilRefinery(int frame)
         {
-            if (Once(0, "arena")) Arena((x, y) => y == 0 ? (SimHashes.Granite, 1000f, 300f) : (SimHashes.Oxygen, .8f, 300f));
-            if (Once(8, "build"))
+            try
             {
-                recorded["methane"] = ArenaSpecies(SimHashes.Methane);
-                machine = Build(OilRefineryConfig.ID, Cell(2, 1)); Store(machine, SimHashes.CrudeOil, 300);
+                if (Once(0, "arena"))
+                {
+                    StopOilWork();
+                    Arena((x, y) => y == 0 ? (SimHashes.Granite, 1000f, 300f) : (SimHashes.Oxygen, .8f, 300f));
+                }
+                if (Once(6, "build")) machine=Build(OilRefineryConfig.ID,Cell(2,1));
+                if (Once(7, "required output conduit")) ConnectOutput(machine!);
+                if (Once(8, "supply and native work"))
+                {
+                    recorded["methane"]=ArenaSpecies(SimHashes.Methane);
+                    Store(machine!,SimHashes.CrudeOil,300);recorded["crude"]=Stored(machine,SimHashes.CrudeOil);
+                    oilWorkable=HarmonyLib.AccessTools.Field(typeof(global::OilRefinery),"workable").GetValue(machine!.GetComponent<global::OilRefinery>()) as Component;
+                    if(oilWorkable==null)throw new InvalidOperationException("The native refinery workable was not created.");
+                    var start=HarmonyLib.AccessTools.Method(oilWorkable.GetType(),"OnStartWork")??throw new MissingMethodException("Native refinery start callback is absent.");
+                    oilStopWork=HarmonyLib.AccessTools.Method(oilWorkable.GetType(),"OnStopWork")??throw new MissingMethodException("Native refinery stop callback is absent.");
+                    var workerType=start.GetParameters().Single().ParameterType;
+                    oilWorker=Components.LiveMinionIdentities.Items.Select(minion=>minion.GetComponent(workerType)).FirstOrDefault(worker=>worker!=null);
+                    if(oilWorker==null)throw new InvalidOperationException("No compatible real refinery worker exists.");
+                    start.Invoke(oilWorkable,new[]{oilWorker});
+                }
+                if(frame>=8&&machine!=null)
+                {
+                    var op=machine.GetComponent<Operational>();
+                    var outputs=machine.GetComponents<ConduitDispenser>();
+                    if(op.IsOperational&&op.IsActive&&outputs.Length>0&&outputs.All(output=>output.IsConnected))recorded["native refinery ran"]=1;
+                }
+                if (Once(60, "check"))
+                {
+                    try
+                    {
+                        var gas=ArenaSpecies(SimHashes.Methane)-recorded["methane"];var petroleum=Stored(machine,SimHashes.Petroleum);
+                        var crude=recorded["crude"]-Stored(machine,SimHashes.CrudeOil);var outputs=machine!.GetComponents<ConduitDispenser>();var connected=outputs.Length>0&&outputs.All(output=>output.IsConnected);
+                        Record("the refinery used connected native operation",connected&&recorded.ContainsKey("native refinery ran")&&crude>1e-3,
+                            $"output connected {connected}, native operation observed {recorded.ContainsKey("native refinery ran")}, crude consumed {crude:G4} kg; {MachineState(machine)}");
+                        Record("natural gas reached the owner and petroleum stayed stored",gas>1e-3&&petroleum>1e-3,
+                            $"natural gas +{gas:G4} kg, petroleum {petroleum:G4} kg; {MachineState(machine)}");
+                        Finish();
+                    }
+                    finally { StopOilWork(); }
+                }
             }
-            if (Once(60, "check"))
-            {
-                var gas = ArenaSpecies(SimHashes.Methane) - recorded["methane"]; var petroleum = Stored(machine, SimHashes.Petroleum);
-                Record("natural gas reached the owner and petroleum stayed stored", gas > 1e-3 && petroleum > 1e-3, $"natural gas +{gas:G4} kg, petroleum {petroleum:G4} kg; {MachineState(machine)}");
-                Finish();
-            }
+            catch { StopOilWork();throw; }
         }
 
         // An electrolyzer in a mixture above its overpressure limit stays idle:

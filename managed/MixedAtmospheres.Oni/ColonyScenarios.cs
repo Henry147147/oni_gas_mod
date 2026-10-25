@@ -212,15 +212,59 @@ namespace MixedAtmospheres.Oni
         }
 
         // Ice in warm air melts into water; water on a cold block freezes.
+        // Optional existing native admission capture: observes both native
+        // buffers before UpdateData without inserting a tick or a barrier.
+        private static string WarmIceCapturePath=>Environment.GetEnvironmentVariable("MA_COLONY_FLOOR_ADMISSION_DUMP")??"";
+        private static void RequestWarmIceCapture()
+        {
+            var path=WarmIceCapturePath;if(path.Length==0)return;
+            if(System.IO.File.Exists(path)||System.IO.File.Exists(path+".request"))throw new System.IO.IOException("Ice source capture needs a fresh private path.");
+            using(var writer=new System.IO.BinaryWriter(System.IO.File.Open(path+".request.tmp",System.IO.FileMode.CreateNew)))
+            {
+                writer.Write(System.Text.Encoding.ASCII.GetBytes("MAFLRQ01"));
+                foreach(var dimension in new[]{Grid.WidthInCells,Grid.HeightInCells,x0,y0,Width,Height})writer.Write((uint)dimension);
+                writer.Write(1u);writer.Write((uint)Cell(6,2));writer.Write((uint)ElementLoader.FindElementByHash(SimHashes.Ice).idx);
+                writer.Write(400f);writer.Write(290f);
+            }
+            System.IO.File.Move(path+".request.tmp",path+".request");
+        }
+        private static void RecordWarmIceCapture()
+        {
+            var path=WarmIceCapturePath;if(path.Length==0)return;
+            if(!System.IO.File.Exists(path)){Record("the full warm ice reached native physics before dynamics",false,"no native source capture");return;}
+            using(var reader=new System.IO.BinaryReader(System.IO.File.OpenRead(path)))
+            {
+                if(reader.BaseStream.Length!=84||System.Text.Encoding.ASCII.GetString(reader.ReadBytes(8))!="MAFLPR01")throw new System.IO.InvalidDataException("Ice source capture framing differs.");
+                foreach(var dimension in new[]{Grid.WidthInCells,Grid.HeightInCells,x0,y0,Width,Height})
+                    if(reader.ReadUInt32()!=(uint)dimension)throw new System.IO.InvalidDataException("Ice source capture geometry differs.");
+                var ticket=reader.ReadUInt64();var seconds=reader.ReadDouble();var mask=reader.ReadUInt32();var count=reader.ReadUInt32();var cell=reader.ReadUInt32();
+                var okay=ticket>0&&seconds>0&&mask==3&&count==1&&cell==(uint)Cell(6,2);var detail=$"native ticket {ticket}, dt {seconds:R}, mask {mask}";
+                for(var buffer=0;buffer<2;++buffer)
+                {
+                    var element=reader.ReadUInt32();var mass=reader.ReadSingle();var temperature=reader.ReadSingle();
+                    okay&=element==ElementLoader.FindElementByHash(SimHashes.Ice).idx&&mass==400&&temperature==290;
+                    detail+=$"; buffer {buffer} element {element}, {mass:R} kg, {temperature:R} K";
+                }
+                Record("the full warm ice reached native physics before dynamics",okay,detail);
+            }
+        }
         private static void FreezeMelt(int frame, OniNativeColony.Status status)
         {
             if (Once(0, "arena"))
                 Arena((x, y) => x < 4 ? (y == 0 ? (SimHashes.Granite, 4000f, 40f) : y == 1 ? (SimHashes.Water, 20f, 274f) : (SimHashes.Oxygen, 1.2f, 280f))
-                    : (y == 2 && x == 6 ? (SimHashes.Ice, 400f, 290f) : (SimHashes.Oxygen, 1.2f, 300f)));
+                    : (y == 2 && x == 6 ? (SimHashes.Vacuum, 0f, 0f) : (SimHashes.Oxygen, 1.2f, 300f)));
             // Before the fill (frame 2): the warm ice melts within frames of being placed.
             if (Once(1, "start")) { recorded["opened"] = status.OpenedCells; recorded["closed"] = status.ClosedCells; recorded["injected"] = status.InjectedKg; }
+            // Restore the original dynamic source stage after the bulk fill.
+            // It must not melt into cells the initializer will overwrite.
+            if (Once(2, "warm ice source"))
+            {
+                RequestWarmIceCapture();
+                SimMessages.ReplaceElement(Cell(6, 2), SimHashes.Ice, CellEventLogger.Instance.SandBoxTool, 400, 290);
+            }
             if (Once(42, "check"))
             {
+                RecordWarmIceCapture();
                 string Describe(int cell) => $"{Grid.Element[cell].id} {Grid.Mass[cell]:G4} kg {Grid.Temperature[cell]:F1} K{(Grid.Solid[cell] ? " solid" : "")}{(ColonyOwner.OwnsFluidCell(cell) ? " owned" : "")}";
                 // The ice's 400 kg melts into the owner (it may melt before the
                 // owner ever closes its cell, so no opening need be counted).
@@ -789,6 +833,46 @@ namespace MixedAtmospheres.Oni
         // as when it overheats past its melting point) gives its metal to the
         // owner as liquid.
         private static GameObject? ladder;
+        private static int ladderMeltHash;
+        private static PipeAmount ladderInjectionBefore,ladderInjectionByDeadline;
+        private static ulong ladderProofFrame,ladderLastProofPublished;
+        private static bool ladderProofPassed;
+        private static double ladderOwnedLiquidByDeadline;
+        [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+        private struct MeltSampleCell { internal uint Cell,First,Count,Flags;internal double Temperature; }
+        [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+        private struct MeltSamplePart { internal uint NativeIndex,Reserved;internal double Mass; }
+        [System.Runtime.InteropServices.DllImport("mixed_atmospheres_oni",EntryPoint="ma_oni_colony_sample",CallingConvention=System.Runtime.InteropServices.CallingConvention.Cdecl)]
+        private static extern int SampleMelt([System.Runtime.InteropServices.In] uint[] cells,uint count,out OniNativeColony.Status source,
+            [System.Runtime.InteropServices.Out] MeltSampleCell[] rows,[System.Runtime.InteropServices.Out] MeltSamplePart[] parts,uint capacity,out uint countParts,out double bookedMass);
+        private static double OwnedMeltSample(ulong frame)
+        {
+            var cells=new uint[Width*Height];
+            for(var y=0;y<Height;++y)for(var x=0;x<Width;++x)cells[y*Width+x]=(uint)Cell(x,y);
+            var rows=new MeltSampleCell[cells.Length];var parts=new MeltSamplePart[checked(cells.Length*ColonyOwner.Materials.Length)];
+            OniNativeColony.Check(SampleMelt(cells,(uint)cells.Length,out var source,rows,parts,(uint)parts.Length,out var count,out _));
+            if(source.CompletedFrames!=frame)throw new InvalidOperationException($"Melt sample frame {source.CompletedFrames} differs from ledger frame {frame}.");
+            var native=ElementLoader.FindElementByHash((SimHashes)ladderMeltHash).idx;double total=0;
+            for(var k=0U;k<count;++k)if(parts[k].NativeIndex==native)total+=parts[k].Mass;
+            return total;
+        }
+        private static PipeAmount AdmittedMaterial(byte[] image,int hash)
+        {
+            var value=ColonyCheckpointMetadata.InjectedMass(image,hash);
+            return new PipeAmount(value.High).Plus(new PipeAmount(value.Low));
+        }
+        private static double LocalLeadInventory()
+        {
+            var fluid=ArenaSpecies((SimHashes)ladderMeltHash);
+            double solid=0;
+            for(var y=0;y<Height;++y)for(var x=0;x<Width;++x)
+                if(Grid.Solid[Cell(x,y)]&&Grid.Element[Cell(x,y)].id==SimHashes.Lead)solid+=Grid.Mass[Cell(x,y)];
+            var debris=Components.Pickupables.Items.Where(item=>item!=null&&item.GetComponent<PrimaryElement>() is PrimaryElement element&&
+                    (element.ElementID==SimHashes.Lead||(int)element.ElementID==ladderMeltHash))
+                .Where(item=>{Grid.CellToXY(Grid.PosToCell(item),out var x,out var y);return x>=x0&&x<x0+Width&&y>=y0&&y<y0+Height;})
+                .Sum(item=>(double)item.GetComponent<PrimaryElement>().Mass);
+            return fluid+solid+debris;
+        }
         private static void BuildingMelt(int frame, OniNativeColony.Status status)
         {
             if (Once(0, "arena")) Arena((x, y) => y == 0 ? (SimHashes.Granite, 1000f, 300f) : (SimHashes.Oxygen, 1.2f, 300f));
@@ -800,13 +884,37 @@ namespace MixedAtmospheres.Oni
                 if (element == null) { Record("the ladder was built", false, "no ladder"); Finish(); return; }
                 element.Temperature = element.Element.highTemp + 50;
                 recorded["mass"] = element.Mass; recorded["injected"] = status.InjectedKg;
+                ladderMeltHash=(int)element.Element.highTempTransitionTarget;
+                var before=ColonyOwner.Checkpoint();var sourceFrame=ColonyCheckpointMetadata.CompletedFrames(before);
+                if(sourceFrame>started+9)throw new InvalidOperationException("Melt source baseline is past its original setup frame.");
+                ladderInjectionBefore=AdmittedMaterial(before,ladderMeltHash);recorded["local lead"]=LocalLeadInventory();
+                var ownedBefore=OwnedMeltSample(sourceFrame);
+                Record("the ladder is the arena's metal source",recorded["local lead"]==0&&ownedBefore==0,
+                    $"native frame {sourceFrame-started}, local lead {recorded["local lead"]:R} kg, owned liquid {ownedBefore:R} kg");
+                ladderProofFrame=ladderLastProofPublished=0;ladderProofPassed=false;ladderOwnedLiquidByDeadline=0;ladderInjectionByDeadline=PipeAmount.Zero;
                 AccessTools.Method(typeof(StructureTemperatureComponents), "DoMelt").Invoke(null, new object[] { element });
+            }
+            // The owner may be one frame ahead. A coherent source observation
+            // by native14 proves admission without requiring it to remain liquid
+            // after its original deadline. Sample each publication at most once.
+            if(frame>=9&&frame<=13&&!ladderProofPassed&&status.CompletedFrames!=ladderLastProofPublished)
+            {
+                ladderLastProofPublished=status.CompletedFrames;
+                var image=ColonyOwner.Checkpoint();ladderProofFrame=ColonyCheckpointMetadata.CompletedFrames(image);
+                if(ladderProofFrame>started+14)throw new InvalidOperationException("Melt source proof exceeded its original14-frame deadline.");
+                ladderInjectionByDeadline=AdmittedMaterial(image,ladderMeltHash).Minus(ladderInjectionBefore);
+                ladderOwnedLiquidByDeadline=OwnedMeltSample(ladderProofFrame);
+                // A canonical injection credit proves liquid entered the owner
+                // even if it has already frozen in this completed publication.
+                ladderProofPassed=Math.Abs(ladderInjectionByDeadline.Value-recorded["mass"])<.01*recorded["mass"];
             }
             if (Once(14, "check"))
             {
-                var added = status.InjectedKg - recorded["injected"];
-                Record("the melted ladder's metal reached the owner", ladder == null && Math.Abs(added - recorded["mass"]) < .01 * recorded["mass"],
-                    $"ladder {(ladder == null ? "gone" : "still standing")}, {recorded["mass"]:G4} kg melted, {added:G4} kg injected");
+                var added=ladderInjectionByDeadline.Value;
+                var local=LocalLeadInventory()-recorded["local lead"];
+                Record("the melted ladder's metal reached the owner", ladder == null && Math.Abs(added - recorded["mass"]) < .01 * recorded["mass"]&&
+                    Math.Abs(local-recorded["mass"])<.01*recorded["mass"]&&ladderProofPassed&&ladderProofFrame>0&&ladderProofFrame<=started+14,
+                    $"ladder {(ladder == null ? "gone" : "still standing")}, {recorded["mass"]:G4} kg melted, {added:G4} kg admitted metal, {local:G4} kg local liquid/solid/debris; {ladderOwnedLiquidByDeadline:G4} kg owned liquid at native frame {ladderProofFrame-started}; all-fluid injection {status.InjectedKg-recorded["injected"]:G4} kg");
                 Finish();
             }
         }
@@ -1351,6 +1459,24 @@ namespace MixedAtmospheres.Oni
             ColonyConduits.SupplyControlInventory(flow,ValveCell(valve,"inputCell"),inventory);
         }
         private static readonly List<GameObject> mixedTeardownPipes=new List<GameObject>();
+        private static PipeInventory mixedTeardownWorldBefore=PipeInventory.Empty,mixedTeardownHeldBefore=PipeInventory.Empty;
+        private static PipeAmount mixedTeardownPassiveBefore1,mixedTeardownPassiveBefore2;
+        private static PipeAmount ScenarioPart(ReadOnlySpan<PipePart> parts,int id)
+        {foreach(var part in parts)if(part.Id==id)return part.Amount;return PipeAmount.Zero;}
+        private static PipeAmount ScenarioSpeciesDelta(PipeInventory current,PipeInventory before,int id)
+            =>ScenarioPart(current.Parts,id).Minus(ScenarioPart(before.Parts,id));
+        private static int ScenarioChangedSpecies(PipeInventory current,PipeInventory before)
+            =>current.Parts.ToArray().Select(p=>p.Id).Union(before.Parts.ToArray().Select(p=>p.Id))
+                .Count(id=>ScenarioSpeciesDelta(current,before,id).Sign!=0);
+        private static bool SameScenarioInventory(PipeInventory current,PipeInventory before)
+        {
+            if(current.Count!=before.Count||current.Germs.Length!=before.Germs.Length||current.Energy.Minus(before.Energy).Sign!=0)return false;
+            for(var i=0;i<current.Parts.Length;++i)
+                if(current.Parts[i].Id!=before.Parts[i].Id||current.Parts[i].Amount.Minus(before.Parts[i].Amount).Sign!=0)return false;
+            for(var i=0;i<current.Germs.Length;++i)
+                if(current.Germs[i].Id!=before.Germs[i].Id||current.Germs[i].Amount.Minus(before.Germs[i].Amount).Sign!=0)return false;
+            return true;
+        }
         private static void MixedPipeTeardown(int frame)
         {
             if(Once(0,"open and fully sealed spill sites"))Arena((x,y)=>x>=2&&x<=6&&y>=1?(SimHashes.Unobtanium,20000f,300f):(SimHashes.Oxygen,1f,300f));
@@ -1367,6 +1493,10 @@ namespace MixedAtmospheres.Oni
             if(Once(10,"demolish complete mixed pipe cells"))
             {
                 ColonyConduits.StartControl();ColonyPipePorts.StartControl();ColonyPipeTeardown.StartControl();
+                // Earlier scenarios retain their token/account history. This
+                // fixture measures its own fixed additions without resetting it.
+                mixedTeardownWorldBefore=ColonyPipePorts.ToWorld;mixedTeardownHeldBefore=ColonyPipePorts.Held;
+                mixedTeardownPassiveBefore1=ColonyPipePorts.PassiveExchange(1);mixedTeardownPassiveBefore2=ColonyPipePorts.PassiveExchange(2);
                 for(var phase=0;phase<2;++phase)
                     for(var site=0;site<2;++site)
                     {
@@ -1383,8 +1513,11 @@ namespace MixedAtmospheres.Oni
                 var removed=!Game.Instance.gasConduitFlow.HasConduit(Cell(0,0))&&!Game.Instance.liquidConduitFlow.HasConduit(Cell(7,0))&&
                     !Game.Instance.gasConduitFlow.HasConduit(Cell(4,3))&&!Game.Instance.liquidConduitFlow.HasConduit(Cell(4,3));
                 Record("actual deconstruction removes every native conduit",removed,$"removed {removed}");
-                Record("open mixed spills deliver every constituent",ColonyPipePorts.ToWorld.Mass==11&&ColonyPipePorts.ToWorld.Count==4,$"{ColonyPipePorts.ToWorld.Mass:R} kg, {ColonyPipePorts.ToWorld.Count} species");
-                Record("sealed mixed spills retain their complete inventory",ColonyPipePorts.Held.Mass==11&&ColonyPipeTeardown.ActiveSpills==2,$"{ColonyPipePorts.Held.Mass:R} kg, {ColonyPipeTeardown.ActiveSpills} spills; {ColonyPipeTeardown.LastAdmissionError}");
+                var delivered=ColonyPipePorts.ToWorld.Total.Minus(mixedTeardownWorldBefore.Total);
+                var species=ScenarioChangedSpecies(ColonyPipePorts.ToWorld,mixedTeardownWorldBefore);
+                var held=ColonyPipePorts.Held.Total.Minus(mixedTeardownHeldBefore.Total);
+                Record("open mixed spills deliver every constituent",delivered.Minus(new PipeAmount(11)).Sign==0&&species==4,$"{delivered.Value:R} kg added, {species} species");
+                Record("sealed mixed spills retain their complete inventory",held.Minus(new PipeAmount(11)).Sign==0&&ColonyPipeTeardown.ActiveSpills==2,$"{held.Value:R} kg added, {ColonyPipeTeardown.ActiveSpills} spills; {ColonyPipeTeardown.LastAdmissionError}");
                 ColonyPipeTeardown.Tick(ColonyOwner.Status.CompletedFrames);var attempts=ColonyPipeTeardown.Attempts;
                 var inspection=MixtureInspection.ReadCellSpill(Cell(4,3));var text=inspection==null?"":inspection.Title+"\n"+string.Join("\n",inspection.Details);
                 for(var repeat=0;repeat<100;++repeat){_=MixtureInspection.ReadCellSpill(Cell(4,3));ColonyPipeTeardown.Tick(ColonyOwner.Status.CompletedFrames);}
@@ -1395,15 +1528,21 @@ namespace MixedAtmospheres.Oni
             if(Once(20,"open the sealed spill cell"))SimMessages.ReplaceElement(Cell(4,3),SimHashes.Oxygen,CellEventLogger.Instance.SandBoxTool,1,300);
             if(Once(32,"retained spills release after space opens"))
             {
-                Record("every demolished mixture eventually reaches the world",ColonyPipePorts.ToWorld.Mass==22&&ColonyPipePorts.Held.Count==0&&ColonyPipePorts.PendingCount==0&&ColonyPipeTeardown.ActiveSpills==0,
-                    $"world {ColonyPipePorts.ToWorld.Mass:R} kg; held {ColonyPipePorts.Held.Mass:R} kg; pending {ColonyPipePorts.PendingCount}; spills {ColonyPipeTeardown.ActiveSpills}");
+                var delivered=ColonyPipePorts.ToWorld.Total.Minus(mixedTeardownWorldBefore.Total);
+                var heldUnchanged=SameScenarioInventory(ColonyPipePorts.Held,mixedTeardownHeldBefore);
+                Record("every demolished mixture eventually reaches the world",delivered.Minus(new PipeAmount(22)).Sign==0&&heldUnchanged&&ColonyPipePorts.PendingCount==0&&ColonyPipeTeardown.ActiveSpills==0,
+                    $"world +{delivered.Value:R} kg; pre-existing held inventory unchanged {heldUnchanged}; pending {ColonyPipePorts.PendingCount}; spills {ColonyPipeTeardown.ActiveSpills}");
                 Record("released spill inspection disappears",MixtureInspection.ReadCellSpill(Cell(4,3))==null,"read-only cell spill reader");
-                Record("all teardown germ identities remain delivered or booked",ColonyPipePorts.PassiveExchange(1).Negated().Value==1&&ColonyPipePorts.PassiveExchange(2).Sign<0,
-                    $"delivered {ColonyPipePorts.PassiveExchange(1).Negated().Value:R}/{ColonyPipePorts.PassiveExchange(2).Negated().Value:R}; remainders {ColonyPipePorts.PassiveRemainder(1).Value:R}/{ColonyPipePorts.PassiveRemainder(2).Value:R}");
+                var germ1=ColonyPipePorts.PassiveExchange(1).Minus(mixedTeardownPassiveBefore1);var germ2=ColonyPipePorts.PassiveExchange(2).Minus(mixedTeardownPassiveBefore2);
+                Record("all teardown germ identities remain delivered or booked",germ1.Negated().Value==1&&germ2.Sign<0,
+                    $"delivered increments {germ1.Negated().Value:R}/{germ2.Negated().Value:R}; remainders {ColonyPipePorts.PassiveRemainder(1).Value:R}/{ColonyPipePorts.PassiveRemainder(2).Value:R}");
                 Record("completed teardown closes every account",ColonyConduits.Audit(out var detail),detail);Finish();
             }
         }
         private static readonly List<ulong[]> mixedOutputJobs=new List<ulong[]>();
+        private static ulong mixedOutputFirstNative;
+        private static PipeInventory mixedOutputWorldBefore=PipeInventory.Empty;
+        private static PipeAmount mixedOutputPassiveBefore1,mixedOutputPassiveBefore2;
         private static void MixedPipeOutput(int frame)
         {
             if(Once(0,"atomic mixed output arena"))Arena((x,y)=>(SimHashes.Oxygen,1f,300f));
@@ -1415,6 +1554,8 @@ namespace MixedAtmospheres.Oni
             if(Once(10,"reserve and dispatch complete owned mixtures"))
             {
                 ColonyConduits.StartControl();ColonyPipePorts.StartControl();ColonyPipePorts.BeginCompletionControl();
+                mixedOutputFirstNative=ColonyPipePorts.NextNativeToken;mixedOutputWorldBefore=ColonyPipePorts.ToWorld;
+                mixedOutputPassiveBefore1=ColonyPipePorts.PassiveExchange(1);mixedOutputPassiveBefore2=ColonyPipePorts.PassiveExchange(2);
                 for(var phase=0;phase<2;++phase)
                 {
                     var flow=phase==0?Game.Instance.gasConduitFlow:Game.Instance.liquidConduitFlow;var source=phase==0?Cell(1,3):Cell(6,3);
@@ -1425,7 +1566,7 @@ namespace MixedAtmospheres.Oni
                     var before=ColonyPipePorts.BufferInventory(id);var rejected=false;
                     try{ColonyPipePorts.DispatchBuffer(id,uint.MaxValue);}catch(InvalidOperationException){rejected=true;}
                     var next=ColonyPipePorts.NextNativeToken;OniNativeColony.Check(OniNativeColony.PipeJobState(next,out var nativeState,out var last));
-                    Record((phase==0?"gas":"liquid")+" rejected atomic output preserves source and native token",rejected&&ReferenceEquals(before,ColonyPipePorts.BufferInventory(id))&&next==(phase==0?1UL:3UL)&&nativeState==0&&last==0,
+                    Record((phase==0?"gas":"liquid")+" rejected atomic output preserves source and native token",rejected&&ReferenceEquals(before,ColonyPipePorts.BufferInventory(id))&&next==mixedOutputFirstNative+(ulong)(phase*2)&&nativeState==0&&last==0,
                         $"rejected {rejected}; same source {ReferenceEquals(before,ColonyPipePorts.BufferInventory(id))}; next token {next}; native state {nativeState}/{last}");
                     var jobs=ColonyPipePorts.DispatchBuffer(id,(uint)(phase==0?Cell(1,1):Cell(6,1)));mixedOutputJobs.Add(jobs);
                     Record((phase==0?"gas":"liquid")+" complete mixture queued as two durable constituent jobs",jobs.Length==2&&ColonyPipePorts.BufferInventory(id).Count==0,$"{jobs.Length} jobs; source remainder {ColonyPipePorts.BufferInventory(id).Mass:R} kg");
@@ -1440,13 +1581,16 @@ namespace MixedAtmospheres.Oni
                     Record((phase==0?"gas":"liquid")+" output constituents commit in the same physical frame",complete&&frames.Count==2&&frames.Distinct().Count()==1,string.Join(",",frames));
                 }
                 var delivered=ColonyPipePorts.ToWorld;
-                var okay=delivered.SpeciesMass(ColonyConduits.MaterialOf(SimHashes.Oxygen).Id)==.375&&delivered.SpeciesMass(ColonyConduits.MaterialOf(SimHashes.CarbonDioxide).Id)==.625&&
-                    delivered.SpeciesMass(ColonyConduits.MaterialOf(SimHashes.Water).Id)==3&&delivered.SpeciesMass(ColonyConduits.MaterialOf(SimHashes.DirtyWater).Id)==7;
-                Record("all mixed-output species reach the world",okay,$"{delivered.Mass:R} kg; {delivered.Count} constituents");
-                Record("mixed-output preserves simultaneous fractional and tiny germ delivery",ColonyPipePorts.PassiveExchange(1).Sign<0&&ColonyPipePorts.PassiveExchange(2).Sign<0,
-                    $"world changes {ColonyPipePorts.PassiveExchange(1).Negated().Value:R}/{ColonyPipePorts.PassiveExchange(2).Negated().Value:R}; remainders {ColonyPipePorts.PassiveRemainder(1).Value:R}/{ColonyPipePorts.PassiveRemainder(2).Value:R}");
+                var okay=ScenarioSpeciesDelta(delivered,mixedOutputWorldBefore,ColonyConduits.MaterialOf(SimHashes.Oxygen).Id).Value==.375&&
+                    ScenarioSpeciesDelta(delivered,mixedOutputWorldBefore,ColonyConduits.MaterialOf(SimHashes.CarbonDioxide).Id).Value==.625&&
+                    ScenarioSpeciesDelta(delivered,mixedOutputWorldBefore,ColonyConduits.MaterialOf(SimHashes.Water).Id).Value==3&&
+                    ScenarioSpeciesDelta(delivered,mixedOutputWorldBefore,ColonyConduits.MaterialOf(SimHashes.DirtyWater).Id).Value==7;
+                Record("all mixed-output species reach the world",okay,$"{delivered.Total.Minus(mixedOutputWorldBefore.Total).Value:R} kg added; {ScenarioChangedSpecies(delivered,mixedOutputWorldBefore)} constituents");
+                var germ1=ColonyPipePorts.PassiveExchange(1).Minus(mixedOutputPassiveBefore1);var germ2=ColonyPipePorts.PassiveExchange(2).Minus(mixedOutputPassiveBefore2);
+                Record("mixed-output preserves simultaneous fractional and tiny germ delivery",germ1.Sign<0&&germ2.Sign<0,
+                    $"world change increments {germ1.Negated().Value:R}/{germ2.Negated().Value:R}; remainders {ColonyPipePorts.PassiveRemainder(1).Value:R}/{ColonyPipePorts.PassiveRemainder(2).Value:R}");
                 OniNativeColony.Check(OniNativeColony.Wait());
-                var state=ColonyPipePorts.ValidateSealedBoundary();Record("atomic output job suffix retires without token gaps",ColonyPipePorts.PendingCount==0&&state.NextNativeToken==5,$"pending {ColonyPipePorts.PendingCount}; next {state.NextNativeToken}");
+                var state=ColonyPipePorts.ValidateSealedBoundary();Record("atomic output job suffix retires without token gaps",ColonyPipePorts.PendingCount==0&&state.NextNativeToken==mixedOutputFirstNative+4,$"pending {ColonyPipePorts.PendingCount}; next {state.NextNativeToken}; started {mixedOutputFirstNative}");
                 Record("atomic mixed output closes every pipe and world boundary account",ColonyConduits.Audit(out var detail),detail);Finish();
             }
         }

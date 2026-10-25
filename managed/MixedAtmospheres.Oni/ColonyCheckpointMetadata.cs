@@ -96,7 +96,7 @@ namespace MixedAtmospheres.Oni
             return at;
         }
 
-        private static int CountersOffset(ReadOnlySpan<byte> image,out uint version)
+        private static int LedgerOffset(ReadOnlySpan<byte> image,out uint version,out uint materials,out int materialTable)
         {
             if (image.Length < 12 || !image.Slice(0,8).SequenceEqual(OwnerMagic))
                 throw new InvalidDataException("Missing colony checkpoint framing.");
@@ -104,15 +104,39 @@ namespace MixedAtmospheres.Oni
             if(version<6 || version>10) throw new InvalidDataException("Unsupported colony checkpoint metadata version.");
             var at=12;
             Skip(image,ref at,56); // MAOniColonyConfig
-            var materials=U32(image,ref at);
+            materials=U32(image,ref at);materialTable=at;
             Skip(image,ref at,(long)materials*168);
             var cells=U32(image,ref at);Skip(image,ref at,cells);
             var blocking=U32(image,ref at);Skip(image,ref at,blocking);
             var reservoir=U32(image,ref at);Skip(image,ref at,(long)reservoir*32);
+            return at;
+        }
+        private static int CountersOffset(ReadOnlySpan<byte> image,out uint version)
+        {
+            var at=LedgerOffset(image,out version,out var materials,out _);
             // Native long-double accounts are encoded as two binary64 terms.
             Skip(image,ref at,(version>=7?6L*materials+8:5L*materials+5)*16);
             if(version>=7) Skip(image,ref at,16); // trace counters
             return at;
+        }
+        // Actual admitted material, independent of unrelated source emissions.
+        // Both binary64 terms retain the native canonical long-double account.
+        internal static (double High,double Low) InjectedMass(ReadOnlySpan<byte> image,int elementHash)
+        {
+            var ledger=LedgerOffset(image,out _,out var materials,out var table);
+            for(var k=0U;k<materials;++k)
+                if(BinaryPrimitives.ReadInt32LittleEndian(image.Slice(checked(table+(int)k*168+8),4))==elementHash)
+                {
+                    // The runtime catalogue sorts by native index; saved input
+                    // records retain their caller order.
+                    var native=BinaryPrimitives.ReadUInt32LittleEndian(image.Slice(checked(table+(int)k*168+12),4));var ordinal=0U;
+                    for(var j=0U;j<materials;++j)
+                        if(BinaryPrimitives.ReadUInt32LittleEndian(image.Slice(checked(table+(int)j*168+12),4))<native)++ordinal;
+                    var at=ledger;Skip(image,ref at,((long)materials+ordinal)*16);var value=at;Skip(image,ref at,16);
+                    return (BitConverter.Int64BitsToDouble(BinaryPrimitives.ReadInt64LittleEndian(image.Slice(value,8))),
+                        BitConverter.Int64BitsToDouble(BinaryPrimitives.ReadInt64LittleEndian(image.Slice(value+8,8))));
+                }
+            throw new InvalidDataException("The injected material is absent from the colony catalogue.");
         }
         private static uint U32(ReadOnlySpan<byte> image,ref int at)
         {var offset=at;Skip(image,ref at,4);return BinaryPrimitives.ReadUInt32LittleEndian(image.Slice(offset,4));}

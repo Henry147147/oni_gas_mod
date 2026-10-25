@@ -228,6 +228,39 @@ internal static unsafe class Program
                 var refused=false;try{ColonyCheckpointMetadata.CompletedFrames(corrupt);}catch(InvalidDataException){refused=true;}Check(refused);
             }
         });
+        Test("material admission metadata preserves canonical terms and native catalogue order", () =>
+        {
+            foreach(var version in new uint[]{6,7,8,9,10})
+            {
+                using var stream=new MemoryStream();using var writer=new BinaryWriter(stream);
+                writer.Write(System.Text.Encoding.ASCII.GetBytes("MACOLN01"));writer.Write(version);writer.Write(new byte[56]);writer.Write(2u);
+                // Saved caller order differs from the sorted runtime catalogue.
+                foreach(var pair in new[]{(hash:222,index:900u),(hash:111,index:100u)})
+                {
+                    var material=new byte[168];BinaryPrimitives.WriteInt32LittleEndian(material.AsSpan(8,4),pair.hash);
+                    BinaryPrimitives.WriteUInt32LittleEndian(material.AsSpan(12,4),pair.index);writer.Write(material);
+                }
+                writer.Write(9u);writer.Write(new byte[9]);writer.Write(9u);writer.Write(new byte[9]);writer.Write(3u);writer.Write(new byte[3*32]);
+                var ledger=(int)stream.Position;writer.Write(new byte[(version>=7?6*2+8:5*2+5)*16]);if(version>=7)writer.Write(new byte[16]);
+                writer.Write(73UL);var image=stream.ToArray();
+                const double tiny=1.3877787807814457e-17;
+                void Term(int ordinal,double high,double low)
+                {
+                    BinaryPrimitives.WriteInt64LittleEndian(image.AsSpan(ledger+(2+ordinal)*16,8),BitConverter.DoubleToInt64Bits(high));
+                    BinaryPrimitives.WriteInt64LittleEndian(image.AsSpan(ledger+(2+ordinal)*16+8,8),BitConverter.DoubleToInt64Bits(low));
+                }
+                Term(0,3.5,tiny);Term(1,.125,-tiny);var unchanged=(byte[])image.Clone();
+                Check(ColonyCheckpointMetadata.InjectedMass(image,111)==(3.5,tiny));
+                Check(ColonyCheckpointMetadata.InjectedMass(image,222)==(.125,-tiny));
+                Check(ColonyCheckpointMetadata.CompletedFrames(image)==73&&image.SequenceEqual(unchanged));
+                void Refuse(System.Action action){var refused=false;try{action();}catch(InvalidDataException){refused=true;}Check(refused);}
+                Refuse(()=>ColonyCheckpointMetadata.InjectedMass(image,333));
+                foreach(var length in new[]{0,8,12,68,72+168-1,ledger-1,ledger+2*16+15})
+                    Refuse(()=>ColonyCheckpointMetadata.InjectedMass(image.AsSpan(0,length),111));
+                var corrupt=(byte[])image.Clone();BinaryPrimitives.WriteUInt32LittleEndian(corrupt.AsSpan(68,4),uint.MaxValue);
+                Refuse(()=>ColonyCheckpointMetadata.InjectedMass(corrupt,111));
+            }
+        });
         Test("sectioned colony payload keeps legacy bytes without sections and refuses malformed sections", () =>
         {
             var config=Enumerable.Range(0,56).Select(i=>(byte)i).ToArray();var owner=new byte[]{9,8,7,6,5};
