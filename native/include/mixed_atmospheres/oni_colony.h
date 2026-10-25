@@ -280,6 +280,32 @@ typedef struct MAOniColonyDiseaseGrowth {
 MA_ONI_API uint32_t ma_oni_colony_world_biology_version(void);
 MA_ONI_API MAOniResult ma_oni_colony_set_diseases(const MAOniColonyDisease*, uint32_t disease_count,
     const MAOniColonyDiseaseGrowth*, uint32_t element_count);
+/* Saved profile-5 options (docs/settings.md). A new colony created with
+ * GAME_KERNEL|GAME_SURFACE takes the options last set here and saves them in
+ * its physical image (core23); other profiles and restore ignore them, and a
+ * restored colony keeps the values its save holds. Set them while no owner
+ * runs; NULL restores the defaults, which reproduce the colony created without
+ * this call byte for byte. A value outside its range is refused and keeps the
+ * previous options. copy_options reports the running game-kernel colony's
+ * saved values (MA_ONI_INCOMPATIBLE for other profiles). Version 1. */
+typedef struct MAOniColonyOptions {
+    uint32_t struct_size, abi_version;
+    uint32_t pressure_maximum_iterations; /* 400..65536 */
+    uint32_t heat_maximum_iterations;     /* 800..65536 */
+    uint32_t flow_parts;                  /* 1..8 */
+    uint32_t sharpen_liquid_interfaces;   /* 0 or 1 */
+    double maximum_timestep_s;            /* binary32 0.2, 0.1 or 0.05 */
+    double trace_sink_threshold_kg;       /* 1e-11..1e-6 */
+    double liquid_stiffness_ratio;        /* 0.01..1 */
+    double pressure_relative_tolerance;   /* 1e-12..1e-4 */
+    double gas_heat_mixing;               /* 0..32 */
+    double interface_detail_fraction;     /* 0..0.5 */
+    double phase_relaxation_time_s;       /* 0.1..10 */
+} MAOniColonyOptions;
+MA_ONI_API uint32_t ma_oni_colony_options_version(void);
+MA_ONI_API MAOniResult ma_oni_colony_default_options(MAOniColonyOptions*);
+MA_ONI_API MAOniResult ma_oni_colony_set_options(const MAOniColonyOptions*);
+MA_ONI_API MAOniResult ma_oni_colony_copy_options(MAOniColonyOptions*);
 /* The game's own germ edits of owned cells (ModifyDiseaseOnCell): disease is
  * the disease index + 1, change a germ count (negative removes, at most what
  * the cell holds). They commit at the start of the next frame. */

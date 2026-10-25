@@ -180,6 +180,73 @@ int main() {
       require(refused,"Profile5 flag without the game kernel was accepted");
     }
     std::cout<<"PASS default profile5 flag creates core23 without a selector; refused without the game kernel\n";
+    {
+      // Saved profile-5 options (docs/settings.md): the defaults reproduce the
+      // colony created without the setter byte for byte; higher caps give the
+      // same physical results; other values are saved and survive a restore.
+      auto flagged=config;flagged.flags|=MA_ONI_COLONY_GAME_SURFACE;
+      const auto same=[](const MAOniColonyOptions& a,const MAOniColonyOptions& b){return std::memcmp(&a,&b,sizeof a)==0;};
+      const auto run=[&](const MAOniColonyOptions* options,std::uint64_t frames,std::vector<std::uint8_t>* created,
+                         std::vector<MAOniColonyReading>* readings,std::vector<MAOniColonyConstituent>* parts,MAOniColonyOptions* saved){
+        c::set_options(options);
+        c::start(flagged,materials,cells,1);
+        if(created)*created=c::checkpoint();
+        if(saved)require(c::copy_options(*saved),"Profile5 options were not copied back");
+        for(std::uint64_t frame=1;frame<=frames;++frame){c::advance(frame,.2,2);c::wait();}
+        require(c::status().state==1 && c::status().completed_frames==frames,"Profile5 options colony faulted");
+        if(readings){readings->clear();parts->clear();(void)c::readings(*readings,*parts);}
+        const auto image=c::checkpoint();c::stop();return image;
+      };
+      const auto defaults=c::default_options();
+      std::vector<std::uint8_t> plain_created,set_created,reset_created;
+      std::vector<MAOniColonyReading> plain_readings,robust_readings;std::vector<MAOniColonyConstituent> plain_parts,robust_parts;
+      MAOniColonyOptions copied{};
+      c::set_options(nullptr);c::start(flagged,materials,cells,1);plain_created=c::checkpoint();c::stop();
+      const auto plain=run(nullptr,3,&reset_created,&plain_readings,&plain_parts,&copied);
+      require(same(copied,defaults),"Default options differ from the running colony's values");
+      (void)run(&defaults,0,&set_created,nullptr,nullptr,nullptr);
+      require(plain_created==reset_created && plain_created==set_created && core_version(set_created)==23 && heat_mixing(set_created)==8,
+              "Default options changed the new profile5 colony");
+      auto robust=defaults;robust.pressure_maximum_iterations=1600;robust.heat_maximum_iterations=3200;
+      MAOniColonyOptions robust_saved{};
+      const auto robust_image=run(&robust,3,nullptr,&robust_readings,&robust_parts,&robust_saved);
+      require(same(robust_saved,robust) && robust_image!=plain,"Higher caps were not saved");
+      require(robust_readings.size()==plain_readings.size() && robust_parts.size()==plain_parts.size() &&
+              std::memcmp(robust_readings.data(),plain_readings.data(),plain_readings.size()*sizeof(MAOniColonyReading))==0 &&
+              std::memcmp(robust_parts.data(),plain_parts.data(),plain_parts.size()*sizeof(MAOniColonyConstituent))==0,
+              "Higher caps changed converged results");
+      auto precise=defaults;precise.maximum_timestep_s=static_cast<double>(.1f);precise.pressure_relative_tolerance=1e-10;
+      precise.pressure_maximum_iterations=1600;precise.heat_maximum_iterations=3200;precise.gas_heat_mixing=4;
+      MAOniColonyOptions precise_saved{};std::vector<std::uint8_t> precise_created;
+      (void)run(&precise,0,&precise_created,nullptr,nullptr,&precise_saved);
+      require(same(precise_saved,precise) && core_version(precise_created)==23 && heat_mixing(precise_created)==4,"Precise options were not saved");
+      c::set_options(nullptr);
+      c::restore(flagged,materials,precise_created,1);
+      MAOniColonyOptions restored{};require(c::copy_options(restored) && same(restored,precise),"Restore did not keep the saved options");
+      require(c::checkpoint()==precise_created,"Options restore changed the saved image");
+      c::advance(1,.2,2);c::wait();require(c::status().state==1,"Restored options colony faulted");
+      bool busy=false;try{c::set_options(&robust);}catch(const std::invalid_argument&){busy=true;}
+      c::stop();
+      require(busy,"Options were accepted while an owner runs");
+      for(int k=0;k<10;++k){
+        auto bad=defaults;
+        switch(k){case 0:bad.pressure_maximum_iterations=399;break;case 1:bad.heat_maximum_iterations=799;break;case 2:bad.flow_parts=0;break;
+          case 3:bad.maximum_timestep_s=.2;break;case 4:bad.trace_sink_threshold_kg=1e-12;break;case 5:bad.liquid_stiffness_ratio=2;break;
+          case 6:bad.pressure_relative_tolerance=std::nan("");break;case 7:bad.gas_heat_mixing=33;break;case 8:bad.sharpen_liquid_interfaces=2;break;
+          default:bad.struct_size=0;break;}
+        bool refused=false;try{c::set_options(&bad);}catch(const std::invalid_argument&){refused=true;}
+        require(refused,"Out-of-range colony options were accepted");
+      }
+      c::set_options(&robust);
+      auto bad=defaults;bad.phase_relaxation_time_s=0;bool refused=false;try{c::set_options(&bad);}catch(const std::invalid_argument&){refused=true;}
+      MAOniColonyOptions kept{};c::start(flagged,materials,cells,1);
+      require(refused && c::copy_options(kept) && same(kept,robust),"A refused option replaced the previous options");
+      c::stop();c::set_options(nullptr);
+      auto old=config;c::set_options(&precise);c::start(old,materials,cells,1);
+      const auto core20=c::checkpoint();MAOniColonyOptions legacy{};const bool copied20=c::copy_options(legacy);c::stop();c::set_options(nullptr);
+      require(core_version(core20)==20 && copied20 && legacy.pressure_maximum_iterations==200,"Options leaked into an older game profile");
+    }
+    std::cout<<"PASS profile5 options: defaults byte-identical, higher caps identical results, saved/restored values, refusals\n";
     std::cout << "PASS diagnostic kernel3 owner flag5, ownEOS publication, "
                  "native heat, opened door, zero retry/phase skips, ledgers "
                  "and exact owner cold continuation\n";

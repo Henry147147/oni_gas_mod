@@ -40,6 +40,7 @@
 
 static_assert(sizeof(MAOniColonySpecies) == 40 && sizeof(MAOniColonyReading) == 64 && sizeof(MAOniColonyConstituent) == 24);
 static_assert(sizeof(MAOniColonyPassive)==16);
+static_assert(sizeof(MAOniColonyOptions)==80 && offsetof(MAOniColonyOptions,maximum_timestep_s)==24);
 static_assert(sizeof(MAOniColonyActorJob)==24 && offsetof(MAOniColonyActorJob,token)==16);
 static_assert(sizeof(MAOniColonyParcelContext)==72 && offsetof(MAOniColonyParcelContext,session)==16 &&
     offsetof(MAOniColonyParcelContext,cell_width_m)==48);
@@ -298,7 +299,30 @@ std::vector<MacSaturationPair> with_critical(const Catalogue& cat, std::vector<M
 // the user's decision). Smallest tested decade clearing the captured faults,
 // including both liquid-floor starts; new-colony selection stays opt-in.
 constexpr double game_floor_trace_kg = 1e-11;
-MacClosedSettings settings_of(const MAOniColonyConfig& c) {
+// Profile-5 options for the next new colony (docs/settings.md). The defaults
+// are exactly the values profile 5 had before options existed.
+MAOniColonyOptions default_options_value() noexcept {
+    MAOniColonyOptions o{};
+    o.struct_size=sizeof(o);o.abi_version=1;
+    o.pressure_maximum_iterations=400;o.heat_maximum_iterations=800;o.flow_parts=2;o.sharpen_liquid_interfaces=1;
+    o.maximum_timestep_s=static_cast<double>(.2f);o.trace_sink_threshold_kg=game_floor_trace_kg;o.liquid_stiffness_ratio=.04;
+    o.pressure_relative_tolerance=1e-8;o.gas_heat_mixing=8;o.interface_detail_fraction=0;o.phase_relaxation_time_s=1;
+    return o;
+}
+void validate_options(const MAOniColonyOptions& o) {
+    const auto within=[](double v,double lo,double hi){return std::isfinite(v) && v>=lo && v<=hi;};
+    require(o.struct_size==sizeof(o) && o.abi_version==1,"Invalid colony options ABI");
+    require(o.pressure_maximum_iterations>=400 && o.pressure_maximum_iterations<=65536 &&
+        o.heat_maximum_iterations>=800 && o.heat_maximum_iterations<=65536,"Colony solver caps are outside their range");
+    require(o.flow_parts>=1 && o.flow_parts<=8 && o.sharpen_liquid_interfaces<=1,"Colony flow options are outside their range");
+    require(o.maximum_timestep_s==static_cast<double>(.2f) || o.maximum_timestep_s==static_cast<double>(.1f) ||
+        o.maximum_timestep_s==static_cast<double>(.05f),"Colony solver steps must divide the 0.2 s frame into 1, 2 or 4");
+    require(within(o.trace_sink_threshold_kg,1e-11,1e-6) && within(o.liquid_stiffness_ratio,.01,1) &&
+        within(o.pressure_relative_tolerance,1e-12,1e-4) && within(o.gas_heat_mixing,0,32) &&
+        within(o.interface_detail_fraction,0,.5) && within(o.phase_relaxation_time_s,.1,10),"Colony solver options are outside their range");
+}
+MAOniColonyOptions next_options=default_options_value(); // under lifecycle
+MacClosedSettings settings_of(const MAOniColonyConfig& c, const MAOniColonyOptions& o) {
     if(c.flags&MA_ONI_COLONY_GAME_KERNEL) {
         require(!(c.flags&MA_ONI_COLONY_GAME_FLOOR),"Game kernels are exclusive");
         MacClosedSettings game;game.numerical_kernel=MacNumericalKernel::game;game.game_profile=MacGameProfile::game_kernel;
@@ -313,8 +337,16 @@ MacClosedSettings settings_of(const MAOniColonyConfig& c) {
             game.game.pressure_maximum_iterations=400;
             game.game.heat_maximum_iterations=800;
         }
-        // Profile 5 saves the adopted gas heat mixing (docs/base-game-floor.md, F1 split).
-        if (surface) game.game.gas_heat_mixing=8;
+        // Profile 5 saves the adopted gas heat mixing (docs/base-game-floor.md, F1 split)
+        // and the player's options; the defaults keep every value above.
+        if (surface) {
+            game.maximum_timestep_s=o.maximum_timestep_s;game.trace_sink_threshold_kg=o.trace_sink_threshold_kg;
+            game.game.pressure_maximum_iterations=o.pressure_maximum_iterations;game.game.heat_maximum_iterations=o.heat_maximum_iterations;
+            game.game.flow_parts=o.flow_parts;game.game.sharpen_liquid_interfaces=o.sharpen_liquid_interfaces!=0;
+            game.game.liquid_stiffness_ratio=o.liquid_stiffness_ratio;game.game.pressure_relative_tolerance=o.pressure_relative_tolerance;
+            game.game.gas_heat_mixing=o.gas_heat_mixing;game.game.interface_detail_fraction=o.interface_detail_fraction;
+            game.game.phase_relaxation_time_s=o.phase_relaxation_time_s;
+        }
         return game;
     }
     MacClosedSettings s; s.maximum_timestep_s = c.maximum_timestep_s; s.numerical_kernel = MacNumericalKernel::production;
@@ -1001,14 +1033,14 @@ void start(const MAOniColonyConfig& config, std::span<const MAOniColonyMaterial>
     }
     next->reservoir = std::move(settled.reservoir);
     if(config.flags&MA_ONI_COLONY_GAME_KERNEL) {
-        auto cfg=settings_of(config);cfg.game.saturation_pairs=with_critical(cat,mac_saturation_pairs(cat.registry,*cat.eos));
+        auto cfg=settings_of(config,next_options);cfg.game.saturation_pairs=with_critical(cat,mac_saturation_pairs(cat.registry,*cat.eos));
         for(auto& pair:cfg.game.saturation_pairs)if(!std::isfinite(pair.critical_temperature_k))pair.critical_temperature_k=1e300;
         std::vector<double> temperatures(settled.state.cells.size());
         for(std::size_t i=0;i<temperatures.size();++i)if(!settled.state.grid.walls[i]&&settled.state.cells[i].mixture.mass()>0)
             temperatures[i]=cat.eos->evaluate(settled.state.cells[i].mixture,mac_material_volume(settled.state,i)).temperature_k;
         next->world=std::make_shared<const MacClosedWorld>(MacClosedWorld::game_colony(cat.registry,cat.eos,std::move(settled.state),temperatures,cfg));
     } else {
-    next->world = std::make_shared<const MacClosedWorld>(cat.registry, cat.eos, std::move(settled.state), settings_of(config));
+    next->world = std::make_shared<const MacClosedWorld>(cat.registry, cat.eos, std::move(settled.state), settings_of(config,next_options));
     }
     next->ledger.initial = totals(*next->world); next->ledger.initial_energy = energy_of(*next->world);
     for (auto* v : {&next->ledger.injected, &next->ledger.extracted, &next->ledger.sunk, &next->ledger.converted, &next->ledger.converted_gross,
@@ -1499,6 +1531,28 @@ void set_diseases(std::span<const MAOniColonyDisease> diseases, std::span<const 
     }
     if (!table.diseases.empty()) biology::validate(table);
     disease_table = std::move(table);
+}
+MAOniColonyOptions default_options() noexcept { return default_options_value(); }
+void set_options(const MAOniColonyOptions* options) {
+    std::lock_guard lock(lifecycle);
+    require(!enabled.load(std::memory_order_acquire), "Set the colony options before the colony owner starts");
+    const auto value=options ? *options : default_options_value();
+    validate_options(value);
+    next_options=value;
+}
+bool copy_options(MAOniColonyOptions& out) {
+    std::shared_ptr<const Published> p; { std::lock_guard lock(publication); p = latest; }
+    require(p != nullptr && p->world != nullptr, "No colony owner is active");
+    const auto& s=p->world->settings();
+    if (s.numerical_kernel!=MacNumericalKernel::game) return false;
+    MAOniColonyOptions o{};o.struct_size=sizeof(o);o.abi_version=1;
+    o.pressure_maximum_iterations=s.game.pressure_maximum_iterations;o.heat_maximum_iterations=s.game.heat_maximum_iterations;
+    o.flow_parts=s.game.flow_parts;o.sharpen_liquid_interfaces=s.game.sharpen_liquid_interfaces?1:0;
+    o.maximum_timestep_s=s.maximum_timestep_s;o.trace_sink_threshold_kg=s.trace_sink_threshold_kg;
+    o.liquid_stiffness_ratio=s.game.liquid_stiffness_ratio;o.pressure_relative_tolerance=s.game.pressure_relative_tolerance;
+    o.gas_heat_mixing=s.game.gas_heat_mixing;o.interface_detail_fraction=s.game.interface_detail_fraction;
+    o.phase_relaxation_time_s=s.game.phase_relaxation_time_s;
+    out=o;return true;
 }
 void queue_germs(std::span<const MAOniColonyGermEdit> edits) {
     require(active(), "No colony owner is active");

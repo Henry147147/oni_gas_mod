@@ -1082,6 +1082,28 @@ MAOniResult ma_oni_colony_read_passives(std::uint64_t session,std::uint64_t fram
         *stamp=source;*count=static_cast<std::uint32_t>(values.size());
     });
 }
+std::uint32_t ma_oni_colony_options_version() { return 1; }
+MAOniResult ma_oni_colony_default_options(MAOniColonyOptions* output) {
+    return boundary([&] {
+        if(!output) throw Failure(MA_ONI_INVALID_ARGUMENT,"Colony options output is required");
+        *output=ma::oni::colony::default_options();
+    });
+}
+MAOniResult ma_oni_colony_set_options(const MAOniColonyOptions* options) {
+    return boundary([&] {
+        try { ma::oni::colony::set_options(options); }
+        catch(const std::invalid_argument& error) {throw Failure(MA_ONI_INVALID_ARGUMENT,error.what());}
+    });
+}
+MAOniResult ma_oni_colony_copy_options(MAOniColonyOptions* output) {
+    return boundary([&] {
+        if(!output) throw Failure(MA_ONI_INVALID_ARGUMENT,"Colony options output is required");
+        MAOniColonyOptions value{};
+        try { if(!ma::oni::colony::copy_options(value)) throw Failure(MA_ONI_INCOMPATIBLE,"The running colony does not use a game kernel"); }
+        catch(const std::invalid_argument& error) {throw Failure(MA_ONI_INVALID_ARGUMENT,error.what());}
+        *output=value;
+    });
+}
 std::uint32_t ma_oni_colony_world_biology_version() { return 1; }
 MAOniResult ma_oni_colony_set_diseases(const MAOniColonyDisease* diseases,std::uint32_t disease_count,
     const MAOniColonyDiseaseGrowth* growth,std::uint32_t element_count) {

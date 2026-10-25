@@ -35,6 +35,12 @@ std::uint64_t receipt_job(std::uint64_t);
 // World germ evolution (docs/colony-owner.md#germs): the game's disease table
 // (before start/restore), its own cell germ edits, and the germ accounts.
 void set_diseases(std::span<const MAOniColonyDisease>, std::span<const MAOniColonyDiseaseGrowth>, std::uint32_t elements);
+// Profile-5 options for the next new colony (docs/settings.md): defaults,
+// the pre-start setter (null resets) and the running colony's saved values
+// (false for a colony that is not a game kernel).
+[[nodiscard]] MAOniColonyOptions default_options() noexcept;
+void set_options(const MAOniColonyOptions*);
+bool copy_options(MAOniColonyOptions&);
 void queue_germs(std::span<const MAOniColonyGermEdit>);
 void germ_accounts(MAOniColonyBiology&, std::vector<MAOniColonyBiologyAccount>&);
 [[nodiscard]] std::vector<std::uint8_t> checkpoint();
