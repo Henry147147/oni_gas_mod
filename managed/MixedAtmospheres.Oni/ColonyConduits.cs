@@ -17,7 +17,11 @@ namespace MixedAtmospheres.Oni
         {
             internal PipeInventory Inventory;
             internal ConduitFlow.ConduitContents Shadow;
+            // The last native heat exchange booked here (named in a fault).
+            internal double LastHeat;internal float LastShadowMass,LastShadowTemperature,LastNativeMass,LastNativeTemperature;internal bool LastContact;
             internal Cell(PipeInventory inventory, ConduitFlow.ConduitContents shadow) { Inventory=inventory; Shadow=shadow; }
+            internal string Describe()=>$"previous projection {Shadow.mass:R} kg {Shadow.element} at {Shadow.temperature:R} K; last native heat {LastHeat:R} J " +
+                $"({(LastContact?"contact":"temperature change")} {LastShadowTemperature:R} -> {LastNativeTemperature:R} K on {LastShadowMass:R} kg, native {LastNativeMass:R} kg)";
         }
         private sealed class Flow
         {
@@ -376,7 +380,14 @@ namespace MixedAtmospheres.Oni
                     throw new InvalidOperationException("Cannot project pipe mass without changing its movement budget.");
                 SetStages(ref contents,budget,deferred);
             }
-            contents.element=element;contents.temperature=(float)cell.Inventory.Temperature(Material);
+            // ONI's native pipes refuse a temperature outside (0, 10000] K; an
+            // inventory projecting one is a fault, never a native crash.
+            double temperature;
+            try{temperature=cell.Inventory.Temperature(Material);}
+            catch(InvalidOperationException error){throw new InvalidOperationException(error.Message+" "+cell.Describe(),error);}
+            if(!(temperature<=PipeInventory.MaximumTemperature))
+                throw new InvalidOperationException($"Pipe temperature {temperature:R} K exceeds {PipeInventory.MaximumTemperature} K: energy {cell.Inventory.Energy.Value:R} J, mass {cell.Inventory.Mass:R} kg; {cell.Describe()}.");
+            contents.element=element;contents.temperature=(float)temperature;
             contents.diseaseIdx=byte.MaxValue;contents.diseaseCount=0;
             foreach(var germ in cell.Inventory.Germs)
                 if(germ.Mass>=1 && germ.Mass>contents.diseaseCount)
@@ -465,6 +476,8 @@ namespace MixedAtmospheres.Oni
             {
                 var element=ElementLoader.FindElementByHash(cell.Shadow.element);
                 var exchanged=currentContact?contactHeat:new PipeAmount((double)cell.Shadow.mass*element.specificHeatCapacity*1000*((double)result.temperature-cell.Shadow.temperature));
+                cell.LastHeat=exchanged.Value;cell.LastContact=currentContact;cell.LastShadowMass=cell.Shadow.mass;cell.LastShadowTemperature=cell.Shadow.temperature;
+                cell.LastNativeMass=result.mass;cell.LastNativeTemperature=result.temperature;
                 cell.Inventory=cell.Inventory.WithHeat(exchanged);lock(Accounts)heat=heat.Plus(exchanged);
                 changed=true;
             }

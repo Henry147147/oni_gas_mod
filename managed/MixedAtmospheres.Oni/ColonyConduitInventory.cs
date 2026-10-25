@@ -198,6 +198,8 @@ namespace MixedAtmospheres.Oni
     // compatibility projection. All masses and energy survive checkpointing.
     internal sealed class PipeInventory
     {
+        // ONI's SIM_MAX_TEMPERATURE: its native pipes refuse hotter contents.
+        internal const double MaximumTemperature = 10000;
         internal static readonly PipeInventory Empty = new PipeInventory(Array.Empty<PipePart>(), PipeAmount.Zero, Array.Empty<PipePart>());
         private readonly PipePart[] parts, germs;
         internal ReadOnlySpan<PipePart> Parts => parts;
@@ -263,7 +265,9 @@ namespace MixedAtmospheres.Oni
                 offsets = offsets.Plus(part.Amount.Times(entry.EnergyOffset));
             }
             var temperature = Energy.Minus(offsets).Value / capacity.Value;
-            if (!(temperature > 0) || double.IsInfinity(temperature)) throw new InvalidOperationException("Invalid pipe temperature.");
+            if (!(temperature > 0) || double.IsInfinity(temperature))
+                throw new InvalidOperationException($"Invalid pipe temperature {temperature:R} K: energy {Energy.Value:R} J, offsets {offsets.Value:R} J, " +
+                    $"capacity {capacity.Value:R} J/K, parts [{string.Join(", ", parts.Select(p => $"{p.Id}:{p.Amount.Value:R}"))}].");
             return temperature;
         }
         internal PipeInventory WithHeat(double heat)=>WithHeat(new PipeAmount(heat));
@@ -334,20 +338,30 @@ namespace MixedAtmospheres.Oni
                 var amount = germ.Amount.Times(passiveFraction);
                 if (amount.Sign > 0) passive.Add(new PipePart(germ.Id, amount));
             }
+            // The smaller side's energy is its share at the inventory's
+            // temperature and the larger side keeps the exact complement, so
+            // rounding never lands in a trace: a parcel taking all but 1e-39 kg
+            // must not leave that trace the bulk's rounding error as heat.
+            var kept = Join(parts, values, true);
+            var keptMass = PipeAmount.Zero;
+            foreach (var part in kept) keptMass = keptMass.Plus(part.Amount);
             PipeAmount energy;
-            if (!only.HasValue && fraction < 1) energy = Energy.Times(fraction);
-            else
-            {
-                var temperature = Temperature(material); energy = PipeAmount.Zero;
-                foreach (var part in values)
-                {
-                    var item = material(part.Id);
-                    energy = energy.Plus(part.Amount.Times(item.HeatCapacity * temperature)).Plus(part.Amount.Times(item.EnergyOffset));
-                }
-            }
+            if (keptMass.Minus(movedMass).Sign < 0) energy = Energy.Minus(AtTemperature(kept, material));
+            else if (!only.HasValue && fraction < 1) energy = Energy.Times(fraction);
+            else energy = AtTemperature(values, material);
             var parcel = new PipeInventory(values, energy, passive.ToArray());
-            var remainder = new PipeInventory(Join(parts, values, true), Energy.Minus(energy), Join(germs, parcel.germs, true));
+            var remainder = new PipeInventory(kept, Energy.Minus(energy), Join(germs, parcel.germs, true));
             return (remainder, parcel);
+        }
+        private PipeAmount AtTemperature(PipePart[] amounts, Func<int, PipeMaterial> material)
+        {
+            var temperature = Temperature(material); var energy = PipeAmount.Zero;
+            foreach (var part in amounts)
+            {
+                var item = material(part.Id);
+                energy = energy.Plus(part.Amount.Times(item.HeatCapacity * temperature)).Plus(part.Amount.Times(item.EnergyOffset));
+            }
+            return energy;
         }
         internal static (PipeInventory Source, PipeInventory Target, PipeInventory Parcel) Transfer(
             PipeInventory source, PipeInventory target, double requested, double capacity, Func<int, PipeMaterial> material, int? only = null,bool excluding=false)
@@ -386,7 +400,9 @@ namespace MixedAtmospheres.Oni
                 if (remainingMasses.Length == 0 && (remainingEnergy.Sign != 0 || remainingGerms.Length != 0))
                 { amount = PreviousFloat(amount); continue; }
                 var remaining = new PipeInventory(remainingMasses, remainingEnergy, remainingGerms);
-                try { if (remaining.Count > 0) remaining.Temperature(material); }
+                // The retained rest (with the dispatched float temperature's
+                // rounding) must still be a temperature ONI's pipes can show.
+                try { if (remaining.Count > 0 && !(remaining.Temperature(material) <= MaximumTemperature)) { amount = PreviousFloat(amount); continue; } }
                 catch (InvalidOperationException) { amount = PreviousFloat(amount); continue; }
                 return (remaining, parcel);
             }

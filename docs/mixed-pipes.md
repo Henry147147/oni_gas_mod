@@ -1253,6 +1253,12 @@ An injection never gives its cell more than the request: when the game
 kernel's binary64 sum rounds up, the cell keeps the value just below it and
 the port keeps the sub-ulp rest (2026-10-25; before, about half of all vent
 emissions into gas were refused as exceeding their reservation).
+A split gives its smaller side that side's share at the inventory's
+temperature and the larger side the exact complement, so the rounding never
+lands in a trace; native float moves leave ever smaller residues, and one
+at 1.5e-39 kg had reached 6e8 K and crashed ONI's native pipes. A projection
+above ONI's 10000 K pipe limit is refused as an owner fault. The movable and
+deferred float stages of a projected mass now sum to it exactly.
 
 The focused native control covers exponents beyond int64 and binary64 range,
 trace masses, multiple fractional passives, identity/copy/ack lifetime, and

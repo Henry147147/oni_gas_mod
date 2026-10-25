@@ -144,6 +144,21 @@ static class Program
         var capacityTest=PipeInventory.Transfer(lastTrace,almostFull,1,1,Material);
         Check(capacityTest.Target.Total.Minus(new PipeAmount(1)).Sign<=0,"rounded target mass exceeded exact capacity");
         Account(lastTrace.Joined(almostFull),capacityTest.Source,capacityTest.Target);
+        // A trace left by a split keeps its own temperature: the larger side
+        // takes the rounding. Native moves of float masses leave ever smaller
+        // residues (seen in game: 1.5e-39 kg at 6e8 K, crashing ONI's pipes).
+        var messy = mixture.WithHeat(1.0/3).WithHeat(-Math.PI*1e-3);var messyT=messy.Temperature(Material);
+        var residue = messy;
+        for (var step = 0; step < 24 && residue.Count > 0; ++step)
+        {
+            var move = PipeInventory.Transfer(residue, PipeInventory.Empty, step % 2 == 0 ? residue.Mass * (1 - 1e-12) : (float)residue.Mass, 10, Material);
+            Account(residue, move.Source, move.Target); residue = move.Source;
+            if (residue.Count > 0) Check(Math.Abs(residue.Temperature(Material) / messyT - 1) < 1e-9, $"residue {residue.Mass:R} kg at {residue.Temperature(Material):R} K");
+        }
+        var selective = PipeInventory.Single(A, .7, 310).Joined(PipeInventory.Single(B, 1e-20, 310)).WithHeat(Math.E);
+        var takeBulk = PipeInventory.Transfer(selective, PipeInventory.Empty, 1, 10, Material, 1);
+        Account(selective, takeBulk.Source, takeBulk.Target);
+        Check(Math.Abs(takeBulk.Source.Temperature(Material) / selective.Temperature(Material) - 1) < 1e-9, "selective split left its trace another temperature");
         var warmed = mixture.WithHeat(1600); Near(warmed.Temperature(Material), 451);
         var dumped = warmed.Split(2, Material); Check(dumped.Remaining.Count == 0, "destruction did not evacuate all contents");
         Check(Save(dumped.Parcel).SequenceEqual(Save(warmed)), "evacuation changed inventory");
