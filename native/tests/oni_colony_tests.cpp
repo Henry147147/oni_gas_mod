@@ -105,18 +105,23 @@ void floor_capture_control() {
     {std::ofstream file(path+".request",std::ios::binary);file.write(reinterpret_cast<const char*>(marker.bytes.data()),static_cast<std::streamsize>(marker.bytes.size()));}
     require(!capture.observe(source,6,.2) && !std::filesystem::exists(path),"floor capture admitted stale native inputs");
     elements[0][12]=oxygen;masses[0][12]=1.2f;temperatures[0][12]=300;
+    require(!capture.observe(source,7,.2) && !std::filesystem::exists(path),"floor capture accepted only the first native buffer");
+    elements[1][12]=oxygen;masses[1][12]=1.2f;temperatures[1][12]=300;masses[0][12]=1.3f;
+    require(!capture.observe(source,8,.2) && !std::filesystem::exists(path),"floor capture accepted only the second native buffer");
+    masses[0][12]=1.2f;
     const auto before_elements=elements;const auto before_masses=masses;const auto before_temperatures=temperatures;
-    require(capture.observe(source,7,.2),"floor capture missed exact pre-update fill");
+    require(capture.observe(source,9,.2),"floor capture missed exact pre-update fill in both native buffers");
     require(elements==before_elements && masses==before_masses && temperatures==before_temperatures,"floor capture mutated native arrays");
     std::ifstream file(path,std::ios::binary);const std::vector<std::uint8_t> bytes(std::istreambuf_iterator<char>(file),{});
     require(bytes.size()==84 && std::memcmp(bytes.data(),"MAFLPR01",8)==0,"floor capture framing");
     ReceiptReader row{bytes};row.at=32;
-    require(row.integer(8)==7 && row.f64()==.2 && row.integer(4)==1 && row.integer(4)==1 && row.integer(4)==4,"floor capture source identity");
+    require(row.integer(8)==9 && row.f64()==.2 && row.integer(4)==3 && row.integer(4)==1 && row.integer(4)==4,"floor capture source identity");
     require(row.integer(4)==oxygen && row.integer(4)==std::bit_cast<std::uint32_t>(1.2f) && row.integer(4)==std::bit_cast<std::uint32_t>(300.f),"floor capture matching array changed");
-    require(row.integer(4)==0 && row.integer(4)==0 && row.integer(4)==0 && row.at==bytes.size(),"floor capture omitted unmatched source array");
-    require(!capture.observe(source,8,.2),"floor capture repeated after success");
+    require(row.integer(4)==oxygen && row.integer(4)==std::bit_cast<std::uint32_t>(1.2f) && row.integer(4)==std::bit_cast<std::uint32_t>(300.f) && row.at==bytes.size(),
+        "floor capture second native buffer differs");
+    require(!capture.observe(source,10,.2),"floor capture repeated after success");
     detail::FloorCapture again;again.configure(path.c_str());bool refused=false;
-    try{(void)again.observe(source,9,.2);}catch(const std::runtime_error&){refused=true;}
+    try{(void)again.observe(source,11,.2);}catch(const std::runtime_error&){refused=true;}
     require(refused,"floor capture clobbered prior evidence");
     std::cout<<"PASS floor admission capture: exact fill, both native arrays, source ticket, no edits or overwrite\n";
 }

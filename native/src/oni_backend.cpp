@@ -271,6 +271,12 @@ void on_update_data(void* self,void* data) {
     const auto pending=pending_timestep; pending_timestep={};
     static auto floor_capture=[] { ma::oni::colony::detail::FloorCapture capture;
         capture.configure(std::getenv("MA_COLONY_FLOOR_ADMISSION_DUMP"));return capture; }();
+    // Observe the fields native physics will actually consume, after the
+    // owner has installed its shadow. The earlier native fields may be
+    // overwritten here and cannot establish an admission/time origin.
+    ma::oni::colony::NativeCells shadow{};
+    const bool shadowed=pending.ticket && ma::oni::colony::active() && native_cells(data,shadow);
+    if (shadowed) ma::oni::colony::write_shadow(shadow);
     if(pending.ticket && floor_capture.enabled()) {
         try {
             ma::oni::colony::NativeCells cells{};
@@ -283,9 +289,6 @@ void on_update_data(void* self,void* data) {
     }
     // Colony shadow: native bodies and actors meet the owner's cells during
     // UpdateData, and what they change there is booked to the owner.
-    ma::oni::colony::NativeCells shadow{};
-    const bool shadowed=pending.ticket && ma::oni::colony::active() && native_cells(data,shadow);
-    if (shadowed) ma::oni::colony::write_shadow(shadow);
     native_heat_contact_bits.store(std::bit_cast<std::uint32_t>(pending.seconds),std::memory_order_release);
     original<void (*)(void*,void*)>(MA_ONI_UPDATE_DATA)(self,data);
     native_heat_contact_bits.store(0,std::memory_order_release);

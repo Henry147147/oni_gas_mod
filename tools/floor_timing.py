@@ -3,7 +3,8 @@
 
 Both measurements and truth remain intervals. A pass requires every game time
 in its sample bracket to be no worse than every vanilla time in its bracket,
-for every possible truth time. Censored events cannot establish a pass.
+for every possible truth time. A censored candidate stays unresolved. A
+censored vanilla observation supplies only its explicitly derived lower bound.
 """
 import argparse
 import json
@@ -36,9 +37,28 @@ def compare(game, vanilla, truth, basis):
     truth = interval(truth)
     result = {"truth_range_s": list(truth), "truth_basis": basis,
               "game": game, "vanilla": vanilla}
-    if game.get("censored") or vanilla.get("censored") or game.get("unresolved") or vanilla.get("unresolved"):
+    if game.get("censored") or game.get("unresolved") or vanilla.get("unresolved"):
         return {**result, "status": "unresolved", "reason": "censored or unresolved event"}
     game_range = interval(game["bracket_s"])
+    if vanilla.get("censored"):
+        if "event_lower_bound_s" not in vanilla:
+            return {**result, "status": "unresolved", "reason": "censored vanilla lacks an explicit event lower bound"}
+        lower = interval([vanilla["event_lower_bound_s"], vanilla["event_lower_bound_s"]])[0]
+        observed = interval([0, vanilla["observed_s"]])[1]
+        if lower > observed:
+            raise ValueError("Censored event lower bound exceeds its observation window")
+        points = {truth[0], truth[1]}
+        points.update(value for value in (*game_range, game_range[0] + (game_range[1] - game_range[0]) / 2, lower)
+                      if truth[0] <= value <= truth[1])
+        # The unknown vanilla event lies in [lower,+infinity). Its minimum
+        # possible error is max(lower-truth,0); its maximum is unbounded. The
+        # candidate can pass only if its worst error beats that lower error
+        # bound everywhere. No finite vanilla event time is invented.
+        worst = max(distance_bounds(game_range, value)[1] - max(lower - value, 0) for value in points)
+        return {**result, "status": "pass" if worst <= 0 else "unresolved",
+                "vanilla_event_lower_bound_s": lower,
+                "game_minus_vanilla_absolute_error_upper_bound_s": worst,
+                "reason": "comparison uses only the censored vanilla error lower bound"}
     vanilla_range = interval(vanilla["bracket_s"])
     # Distance to an interval changes slope at its endpoints; maximum
     # distance changes slope at its midpoint. Their differences are linear
@@ -63,12 +83,17 @@ def compare(game, vanilla, truth, basis):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--game", nargs=2, type=float, required=True, metavar=("LOW", "HIGH"))
-    parser.add_argument("--vanilla", nargs=2, type=float, required=True, metavar=("LOW", "HIGH"))
+    vanilla = parser.add_mutually_exclusive_group(required=True)
+    vanilla.add_argument("--vanilla", nargs=2, type=float, metavar=("LOW", "HIGH"))
+    vanilla.add_argument("--vanilla-censored", nargs=2, type=float, metavar=("EVENT_LOWER_BOUND", "OBSERVED_TO"),
+                         help="explicit lower bound accounting for an unconfirmed persistence tail, and observation endpoint")
     parser.add_argument("--truth", nargs=2, type=float, required=True, metavar=("LOW", "HIGH"))
     parser.add_argument("--basis", required=True, help="Physical justification or independent reference provenance")
     args = parser.parse_args()
     try:
-        result = compare({"bracket_s": args.game}, {"bracket_s": args.vanilla}, args.truth, args.basis)
+        measurement = {"bracket_s": args.vanilla} if args.vanilla is not None else {
+            "censored": True, "event_lower_bound_s": args.vanilla_censored[0], "observed_s": args.vanilla_censored[1]}
+        result = compare({"bracket_s": args.game}, measurement, args.truth, args.basis)
     except (ValueError, KeyError) as error:
         parser.error(str(error))
     print(json.dumps(result, indent=2))

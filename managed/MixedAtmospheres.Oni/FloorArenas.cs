@@ -34,6 +34,8 @@ namespace MixedAtmospheres.Oni
         private static readonly SortedDictionary<int, Dictionary<string, object>> seen = new SortedDictionary<int, Dictionary<string, object>>();
         private static readonly Dictionary<string, double> placed = new Dictionary<string, double>();
         private static string output = "";
+        private static string prefixDump = "";
+        private static bool prefixHeaderWritten;
         [StructLayout(LayoutKind.Sequential)]
         private struct SampleCell { internal uint PublicCell, FirstConstituent, Constituents, Flags; internal double TemperatureK; }
         [StructLayout(LayoutKind.Sequential)]
@@ -75,6 +77,9 @@ namespace MixedAtmospheres.Oni
         {
             if (Array.IndexOf(Ids, id) < 0) throw new ArgumentException("Unknown floor arena " + id);
             Id = id; output = directory; ticks = 0; cleared = uncovered = built = filled = locked = commanded = opened = release = -1; releasedAt = -1;
+            prefixDump = id == "f4" ? Environment.GetEnvironmentVariable("MA_COLONY_FLOOR_PREFIX_DUMP") ?? "" : "";
+            prefixHeaderWritten = false;
+            if (prefixDump.Length != 0 && File.Exists(prefixDump)) throw new IOException("Floor prefix capture requires a fresh private path.");
             door = null; simulated = 0; seen.Clear(); placed.Clear(); samples?.Dispose(); samples = null;
             ownerRequested = Array.Empty<uint>(); ownerCells.Clear(); ownerSampleFrames.Clear(); ownerSampleAudits.Clear();
             historyStarted = false; nextOwnerFrame = 0; ownerTickOffset = 0; lastOwnerSampleTick = -1; lastOwnerSampleTime = -1;
@@ -189,6 +194,29 @@ namespace MixedAtmospheres.Oni
                 !ElementLoader.elements[update->elementIdx[Cell(9, 5)]].IsSolid &&
                 (!historyStarted || OwnerOpen(9,4) && OwnerOpen(9,5)))
             { opened = release = sampleTick; ownerReleaseStamped = historyStarted; }
+            if (prefixDump.Length != 0 && historyStarted && release >= 0)
+            {
+                // Explicit bounded diagnostic only. Full-run duration and
+                // completion stay unchanged; a prefix never claims the floor.
+                samples!.Flush();
+                if (!prefixHeaderWritten)
+                {
+                    var header = new Dictionary<string, object> {
+                        ["kind"] = "header", ["arena"] = Id, ["simulation"] = "colony owner", ["measurement_complete"] = false,
+                        ["width"] = width, ["height"] = height, ["tick_seconds"] = .2, ["temperature_storage"] = "binary32",
+                        ["owner_tick_offset"] = ownerTickOffset, ["owner_sample_history"] = true,
+                        ["fluid_sampling"] = "retained completed owner frames",
+                        ["solid_sampling"] = "retained native heat-input ticket paired with the same owner frame",
+                        ["booked_inventory_scope"] = "fluid+reservoir",
+                        ["cells"] = "per cell: constituent count, (element index, kg) each, temperature K",
+                        ["elements"] = seen.ToDictionary(e => e.Key.ToString(CultureInfo.InvariantCulture), e => (object)e.Value),
+                        ["placed"] = placed };
+                    File.WriteAllText(prefixDump, ReportJson.SerializeLine(header) + "\n"); prefixHeaderWritten = true;
+                }
+                var sample = new Dictionary<string, object> { ["kind"] = "sample", ["row"] = line.ToString(),
+                    ["audit"] = ownerSampleAudits[ownerSampleAudits.Count - 1], ["release_tick"] = release, ["filled_tick"] = filled };
+                File.AppendAllText(prefixDump, ReportJson.SerializeLine(sample) + "\n");
+            }
         }
         private static bool OwnerOpen(int x,int y) => ownerCells.TryGetValue(Cell(x,y),out var index) && (ownerRows[index].Flags & 1) != 0;
         private static bool ReleaseIsOpen() => Id switch
@@ -492,6 +520,10 @@ namespace MixedAtmospheres.Oni
                     placed["hot_cell_kg"] = Gas(Atmosphere, 353.15); placed["cold_cell_kg"] = Gas(Atmosphere, 283.15);
                     for (var y = 1; y <= 2; ++y)
                     {
+                        // The divider was built before the fill and can have
+                        // exchanged heat with displaced background fluid. Set
+                        // the frozen initial field together with the gas.
+                        Replace(3, y, SimHashes.Granite, placed["granite_tile_kg"], 318.15);
                         for (var x = 1; x <= 2; ++x) Replace(x, y, SimHashes.Oxygen, placed["hot_cell_kg"], 353.15);
                         for (var x = 4; x <= 5; ++x) Replace(x, y, SimHashes.Oxygen, placed["cold_cell_kg"], 283.15);
                     }

@@ -28,10 +28,25 @@ class FloorTimingTests(unittest.TestCase):
         self.assertEqual(self.compare([1, 3], [1, 3], [2, 2])["status"], "unresolved")
         self.assertEqual(self.compare([2, 2], [2, 2], [2, 2])["status"], "pass")
 
-    def test_censored_vanilla_is_unresolved_even_when_game_event_is_reached(self):
+    def test_censored_vanilla_without_a_bound_stays_unresolved(self):
         result = floor_timing.compare({"bracket_s": [0, .2]}, {"censored": True, "observed_s": 120},
                                       [0, 1], "Synthetic truth")
         self.assertEqual(result["status"], "unresolved")
+
+    def test_censored_vanilla_can_only_pass_against_its_lower_error_bound(self):
+        censored = {"censored": True, "observed_s": 120, "event_lower_bound_s": 119}
+        result = floor_timing.compare({"bracket_s": [.2, .4]}, censored, [0, 30], "Independent controlled truth range")
+        self.assertEqual(result["status"], "pass")
+        self.assertLess(result["game_minus_vanilla_absolute_error_upper_bound_s"], 0)
+        self.assertTrue(result["vanilla"]["censored"])
+        result = floor_timing.compare({"bracket_s": [.2, .4]}, censored, [0, 110], "Wider independent range")
+        self.assertEqual(result["status"], "unresolved")
+        result = floor_timing.compare({"bracket_s": [119, 121]}, censored, [120, 120], "Candidate overlaps possible vanilla event")
+        self.assertEqual(result["status"], "unresolved")
+        result = floor_timing.compare(censored, {"bracket_s": [0, .2]}, [0, 1], "Censored candidate")
+        self.assertEqual(result["status"], "unresolved")
+        with self.assertRaisesRegex(ValueError, "observation window"):
+            floor_timing.compare({"bracket_s": [0, 1]}, {**censored, "event_lower_bound_s": 121}, [0, 1], "Invalid bound")
         result = floor_timing.compare({"unresolved": True}, {"bracket_s": [1, 2]}, [0, 1], "Synthetic truth")
         self.assertEqual(result["status"], "unresolved")
 

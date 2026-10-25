@@ -85,7 +85,19 @@ def event(series, holds):
     for i in range(len(ok) - PERSIST):
         if all(ok[i:i + PERSIST + 1]):
             return {"bracket_s": [series[i - 1][0] if i > 0 else series[0][0], series[i][0]]}
-    return {"censored": True, "observed_s": series[-1][0] if series else 0}
+    censored = {"censored": True, "observed_s": series[-1][0] if series else 0}
+    if len(ok) >= PERSIST + 1:
+        tail = 0
+        for value in reversed(ok):
+            if not value:
+                break
+            tail += 1
+        # A true tail still needs future samples to prove persistence. Its
+        # threshold bracket can start at the preceding (false) sample, before
+        # the observation endpoint. Do not call that endpoint a lower bound.
+        censored["event_lower_bound_s"] = series[-tail - 1][0]
+        censored["unconfirmed_true_tail_samples"] = tail
+    return censored
 
 
 def final(series, value):
@@ -217,7 +229,13 @@ def pressure_event_range(series, left, right, targets):
             possible = {"bracket_s": [series[i - 1][0] if i > 0 else series[0][0], series[i][0]]}
             break
     if guaranteed.get("censored"):
-        return guaranteed if possible.get("censored") else {"unresolved": True, "possible": possible, "guaranteed": guaranteed}
+        if possible.get("censored"):
+            # Every fixed target is censored, but its final true tail may be
+            # longer than the all-target predicate's. Keep a universal bound.
+            if len(series) >= PERSIST + 1:
+                possible["event_lower_bound_s"] = series[-PERSIST - 1][0]
+            return possible
+        return {"unresolved": True, "possible": possible, "guaranteed": guaranteed}
     return {"bracket_s": [possible["bracket_s"][0], guaranteed["bracket_s"][1]]}
 
 

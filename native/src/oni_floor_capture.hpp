@@ -67,7 +67,9 @@ public:
             }
             if(same) matched|=1u<<b;
         }
-        if(!matched) return false;
+        // Without relying on a live active-buffer selector, a match in only
+        // the stale counterpart cannot establish the actual physics input.
+        if(matched!=3) return false;
         PreciseReceiptWriter wire;constexpr char magic[]="MAFLPR01";wire.bytes.insert(wire.bytes.end(),magic,magic+8);
         for(auto dimension:geometry)wire.u32(dimension);
         wire.u64(ticket);wire.f64(seconds);wire.u32(matched);wire.u32(static_cast<std::uint32_t>(cells.size()));

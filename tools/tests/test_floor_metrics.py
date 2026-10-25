@@ -35,6 +35,17 @@ def write(folder: Path, arena: str, width: int, height: int, ticks: dict, elemen
 
 
 class FloorMetricsTests(unittest.TestCase):
+    def test_censor_bound_accounts_for_the_unconfirmed_persistence_tail(self):
+        series = [(i * .2, i >= 5) for i in range(10)]
+        result = floor_metrics.event(series, lambda value: value)
+        self.assertTrue(result["censored"])
+        self.assertEqual(result["observed_s"], 1.8)
+        self.assertEqual(result["event_lower_bound_s"], .8)
+        self.assertEqual(result["unconfirmed_true_tail_samples"], 5)
+        result = floor_metrics.event([(t, False) for t, _ in series], lambda value: value)
+        self.assertEqual(result["event_lower_bound_s"], 1.8)
+        self.assertNotIn("event_lower_bound_s", floor_metrics.event(series[:5], lambda value: value))
+
     def test_atomic_sampling_reports_refusals_and_checks_booked_inventory(self):
         with tempfile.TemporaryDirectory() as folder:
             path = write(Path(folder), "f1", 3, 3, {"release": 0}, {1: OXYGEN},
@@ -205,6 +216,17 @@ class FloorMetricsTests(unittest.TestCase):
         self.assertTrue(event["unresolved"])
         self.assertEqual(event["possible"]["bracket_s"], [0, 0])
         self.assertTrue(event["guaranteed"]["censored"])
+
+    def test_pressure_censor_bound_covers_each_targets_unconfirmed_tail(self):
+        def cells(value):
+            kg = value * .032 / (floor_metrics.GAS_CONSTANT * 300)
+            return {(1, 1): ([(OXYGEN, kg)], 300), (2, 1): ([(OXYGEN, kg)], 300)}
+        # Five final samples fit target100 but never all targets90..110.
+        # The conservative bound must precede that tail, not equal t=1.4.
+        series = [(.2 * t, cells(10 if t < 3 else 100)) for t in range(8)]
+        result = floor_metrics.pressure_event_range(series, [(1, 1)], [(2, 1)], [90, 110])
+        self.assertTrue(result["censored"])
+        self.assertEqual(result["event_lower_bound_s"], .4)
 
     def test_f4_caloric_truth_uses_frozen_placements_before_first_exported_heat(self):
         granite = {"id": "Granite", "phase": "solid", "molar_mass_kg_per_mol": .05,

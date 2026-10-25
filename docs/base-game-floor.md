@@ -103,6 +103,15 @@ uncertainty alone does not establish a pass. Gas/miscible-liquid mixing,
 partial pressures and latent heat have no vanilla analogue: retain them and
 report reference error for the user's judgment.
 
+The event reader now derives a lower bound for an unreached vanilla event,
+including any final true samples which still lack their five-sample persistence
+confirmation. The bound can precede the observation endpoint. Given an
+independently justified truth range, comparison may prove that the candidate's
+worst error is no larger than vanilla's minimum possible error throughout that
+range. Vanilla remains censored; no event time is assigned to it. A censored
+candidate, or a legacy censored record without this explicit bound, remains
+unresolved.
+
 The historical arena rows below are **invalid as floor evidence**. The harness
 left plants, seeds and critters inside the arenas, contrary to the specified
 empty setup. Their native heat exchange supplied 37–47 kJ in F1. Both vanilla
@@ -339,7 +348,7 @@ not establish the complete floor.
 | F1 | Equalisation [1.4, 1.6] s; L/R/divider fractions 0.470600362761 / 0.470576115197 / 0.058823522042 | All three analytic split errors improve on the recorded clean vanilla measurements. Independent gas timing probes reach [0.4, 0.6] s at both 8× and16×, but ran only20 s; a justified timing range and provenance remain to be recorded. |
 | F2 | Closed leakage zero; command-to-open3.0 s | Pressure timing still uses the release-sample heat. Accepted external heat and kinetic/gravitational energy must enter its truth before acceptance. |
 | F3 | Levelling [5.8, 6.0] s; depth1.999787384350 m | Depth error7.697e-6 m against the amended1.999779687 m truth improves on vanilla. Independent VOF8×/16× events [48.4, 48.6] / [25.8, 26.0] s disagree enough to leave the timing comparison unresolved. |
-| F5 | Settling [0, 0] s; water below oil; depths3.999909813768 / 2.000000019206 m; overlap zero | Water-depth error4.229e-5 m improves on vanilla against the amended3.999867527 m truth. Oil-depth comparison and dynamic truth remain open. The fixed settling predicate already holds at release; this is not a measured fall duration. |
+| F5 | Settling [0, 0] s; water below oil; depths3.999909813768 / 2.000000019206 m; overlap zero | Both depth errors improve on clean vanilla: water4.229e-5 vs1.320e-4 m, oil1.921e-8 vs2.209e-7 m. The fixed predicate already holds at release; this is not a measured fall duration. The analytic timing comparison below applies to profile4; selected core23 still needs its own run. |
 
 The F3 VOF probes run the full120 s from the released, stationary field and
 report their clipped-volume accounts (5.78e-7 / 7.92e-7 m³). Their broad timing
@@ -419,6 +428,35 @@ controls then cross in[2.2,2.4] s; the flat pool retains exact reported depth
 and volume, with K below3.4e-30 J. Original sources and failed results are
 preserved. The repaired F3 full120 s8×/16× trajectories still need to run; the
 old divergent events are not accepted timing truth.
+
+The repaired8× trajectory subsequently completed120 s/601 records and240103
+steps, with levelling[40.6,40.8] s and maximum volume-plus-clipping residual
+2.361e-10 m³. The16× trajectory stalls beyond its1.8 s sample while its
+reported mechanical energy rises to2.64 MJ from1.57 MJ initially. Its partial
+output is preserved and rejected as reference evidence. Linear-wave success
+does not establish strong-impact accuracy; an established independent VOF
+implementation and bounded failure replay are being investigated.
+
+The bounded F4 owner probe produced293 consecutive paired fluid/solid/energy
+observations through owner frame300, with no gaps, refused projections or
+inventory residual above2.665e-15 kg. It exposed an admission error: granite
+was set at Build, two ticks before Fill, and had already cooled to
+318.145111/318.146820 K when the prescribed gas arrived. The fixture now
+resets it to the existing318.15 K at Fill. Native admission capture runs after
+the owner writes its shadow, before native heat, and waits for both native
+buffers to match the exact prescribed fields. The next bounded proof must
+establish that origin before the full run. Earlier vanilla F4w1 numbers remain
+legacy setup evidence pending a matched admission repeat.
+
+F5's prescribed horizontal layers and reflective walls reduce the inviscid
+sharp-interface truth to one dimension: water stays below oil and total column
+heights agree. The amended1.060 kg water-vapour budget is far below1% of the
+approximately32000 kg water, so it cannot reverse the bulk99%/1% ordering.
+The fixed predicate therefore holds from release through its first1 s
+confirmation: timing truth[0,0] s. Clean vanilla013848 has no final true tail
+and supplies a120 s event lower bound; profile4's[0,0] s error is zero.
+This proves that timing comparison without replacing vanilla's censoring by
+an event. New selected-profile measurements remain necessary for acceptance.
 
 `tools/floor_timing.py` compares event sample brackets over an explicitly
 documented truth range, preserving both sampling and truth uncertainty. It
