@@ -639,6 +639,15 @@ second, the clock scale, Unity's frame rate and its slowest frame.
 
 ## Saves
 
+**Reserved 2026-10-25, immediately after fetching `3391741`:** owner wrapper
+`MACOLN01` version **11** is assigned to durable precision-overflow inventory
+for passive-free precise gas admissions. Each record preserves its original
+source/radius, mass and signed energy corrections, including energy remaining
+after mass release. Native-held inventory and actual grid credits must close
+together through refusal, release and cold continuation. Legacy reservoir
+behaviour and core23/profile5 arithmetic stay unchanged; an unused facility
+retains existing wrapper bytes. Implementation and in-game acceptance are pending.
+
 **Assigned 2026-10-24 by main after a fetch at `3eaccfa`:** owner wrapper
 `MACOLN01` version **10** holds world germ evolution ([germs](#germs)): after the
 version 9 job list, u32 mode, u64 biology frames, the culture clocks, the queued
