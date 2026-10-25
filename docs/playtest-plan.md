@@ -234,20 +234,20 @@ buildable and the asteroid loadable.
 
 ## What plays differently from vanilla
 
-- The opt-in profile3/core21 uses a positive-volume liquid law. Below half
+- The current default profile5/core23 uses a positive-volume liquid law. Below half
   the saved bulk stiffness it retains the earlier linear law; higher pressures
   progressively stiffen compression, with continuous volume and elastic energy.
   High-pressure readings and boiling therefore differ from profile2/core20.
-  It passes short Terra/Oceania/Volcanea startup checks; its reference error,
-  affected accuracy-floor metrics and long-run acceptance remain open. New
-  colonies must select it explicitly; old saves continue with their saved law.
-- The opt-in diagnostic kernel3 profile dampens very rapid pressure waves and
-  makes liquids more compressible (saved stiffness K/25). Two backward-Euler
-  0.1 s halves cover a tick; donor-cell gas transport spreads composition
+  The remaining accuracy-floor proofs continue after the first private
+  playtest under the 2026-10-25 amendment. Old saves continue with their saved law.
+- The current game kernel dampens very rapid pressure waves and
+  makes liquids more compressible (saved stiffness K/25). One 0.2 s solver
+  step with two flow parts covers a default tick; donor-cell gas transport spreads composition
   fronts, internal fluid heat updates once per tick and latent phase relaxation
   once per second. A bounded sharp-interface correction remains for liquids.
   Mixing, inertia, per-cell physical pressure and latent heat remain present.
-  These saved family-2 numerical choices have no default or floor acceptance.
+  Profile5 also saves gas heat mixing8. These numerical choices belong to the
+  game profile; the strict reference and production physics gates are separate.
 - In the mixed-pipe implementation, a deconstruction spill that cannot
   fit stays owned at its source and appears as "Fluid waiting for space". It
   releases when room opens. Mixed pipes and their saves are on by default
