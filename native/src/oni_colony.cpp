@@ -1672,6 +1672,12 @@ bool beside_owned(int native_cell) noexcept {
     return owns(native_cell - 1) || owns(native_cell + 1) || owns(native_cell - pitch) || owns(native_cell + pitch);
 }
 
+bool is_fluid_element(std::uint16_t native_element) noexcept {
+    if (!enabled.load(std::memory_order_acquire)) return false;
+    std::lock_guard lock(publication);
+    return latest && latest->catalogue && latest->catalogue->has_native(native_element);
+}
+
 void write_shadow(const NativeCells& n) noexcept {
     if (!enabled.load(std::memory_order_acquire)) return;
     std::shared_ptr<const Published> p; { std::lock_guard lock(publication); p = latest; }

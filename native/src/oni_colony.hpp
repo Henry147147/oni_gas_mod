@@ -91,6 +91,9 @@ void capture_shadow(const NativeCells&,std::uint64_t native_ticket=0) noexcept;
 // A native cell next to an owned one (a dug cell before the owner opens it):
 // native gas flow there would move owned gas outside the owner's books.
 [[nodiscard]] bool beside_owned(int native_cell) noexcept;
+// The imported catalogue contains fluids only. Use the updated native
+// element at a postprocess source to distinguish transient fluid from solids.
+[[nodiscard]] bool is_fluid_element(std::uint16_t native_element) noexcept;
 // A native state transition of an owned cell runs only when it freezes the
 // cell (a solid target); fluid targets are the owner's phase change.
 [[nodiscard]] bool allow_native_transition(int native_cell, std::uint16_t element, float temperature) noexcept;

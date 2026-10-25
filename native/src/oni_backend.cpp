@@ -431,7 +431,18 @@ bool on_sublimation(void* data,void* events,int cell,const void* definition) {
 }
 void on_post_process(void* data,void* events,int cell) {
     Call call(MA_ONI_POST_PROCESS);
-    if (!owned_cell(MA_ONI_POST_PROCESS,cell)) original<void (*)(void*,void*,int)>(MA_ONI_POST_PROCESS)(data,events,cell);
+    if (owned_cell(MA_ONI_POST_PROCESS,cell)) return;
+    // A newly melted/opening cell can still be unowned this frame. Native
+    // density and lateral swaps would move a scalar gas projection across
+    // this boundary, losing its real mixture. Keep native solid work, but
+    // fence transient fluid postprocessing beside the owner on both builds.
+    if (ma::oni::colony::beside_owned(cell)) {
+        ma::oni::colony::NativeCells cells{};
+        if (native_cells(data,cells) && cell >= 0 &&
+            static_cast<std::uint64_t>(cell) < static_cast<std::uint64_t>(cells.pitch)*cells.rows &&
+            ma::oni::colony::is_fluid_element(cells.element[1][cell])) return;
+    }
+    original<void (*)(void*,void*,int)>(MA_ONI_POST_PROCESS)(data,events,cell);
 }
 bool on_gas(void* data,void* events,int cell) {
     Call call(MA_ONI_GAS);
