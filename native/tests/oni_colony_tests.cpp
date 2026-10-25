@@ -67,6 +67,23 @@ void release_capture_control() {
 }
 void exact_release_control() {
     using namespace ma::oni::colony;
+    {
+        ma::experimental::ReferenceMaterial material;material.phase=ma::experimental::ReferencePhase::ideal_gas;
+        material.cv_j_per_kg_k=1001.3;material.energy_offset_j_per_kg=-300000.;
+        ma::experimental::MacMaterialCell cell{ma::MixtureInventory(2),{}};
+        const float mass=1.25f,temperature=353.15f;cell.mixture.masses[0]=mass;
+        cell.mixture.energy=static_cast<double>(mass)*(material.energy_offset_j_per_kg+material.cv_j_per_kg_k*temperature);
+        const double inverse=(cell.mixture.energy-static_cast<double>(mass)*material.energy_offset_j_per_kg)/
+            (static_cast<double>(mass)*material.cv_j_per_kg_k);
+        require(inverse!=temperature && std::nextafter(inverse,INFINITY)==temperature,"synthetic inverse EOS must differ by one binary64 ULP");
+        require(detail::exact_initial_gas_cell(cell,0,mass,temperature,material),"exact forward caloric state was rejected by inverse rounding");
+        auto heated=cell;heated.mixture.energy=std::nextafter(heated.mixture.energy,INFINITY);
+        require(!detail::exact_initial_gas_cell(heated,0,mass,temperature,material),"one-ULP heat was accepted as the frozen initial state");
+        heated=cell;heated.energy_remainder_j.projected=1e-240;
+        require(!detail::exact_initial_gas_cell(heated,0,mass,temperature,material),"carried hidden heat was accepted as the frozen initial state");
+        heated=cell;heated.mixture.masses[1]=1e-240;
+        require(!detail::exact_initial_gas_cell(heated,0,mass,temperature,material),"a hidden constituent was accepted as the frozen initial state");
+    }
     const auto path=(std::filesystem::temp_directory_path()/("ma-exact-release-"+
         std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()))).string();
     const char* previous=std::getenv("MA_COLONY_RELEASE_DUMP");const bool had_previous=previous;
@@ -79,7 +96,7 @@ void exact_release_control() {
     MAOniColonyConfig cfg{};cfg.struct_size=sizeof(cfg);cfg.abi_version=MA_ONI_COLONY_ABI_VERSION;
     cfg.flags=MA_ONI_COLONY_GAME_KERNEL;cfg.vacuum_index=vacuum;cfg.grid_width=cfg.width=7;cfg.grid_height=cfg.height=4;
     cfg.gravity_m_per_s2=9.81;cfg.maximum_timestep_s=.1;
-    std::vector<MAOniColonyMaterial> mats{material("Oxygen",11,oxygen,true,.016,1000)};
+    std::vector<MAOniColonyMaterial> mats{material("Oxygen",11,oxygen,true,.032,997.125)};
     std::vector<MAOniColonyCell> cells(28,MAOniColonyCell{0,MA_ONI_COLONY_SOLID,0,0,0,0});
     std::vector<MAOniColonyTransfer> edits;
     for(const bool hot:{true,false})for(unsigned y=1;y<=2;++y)for(unsigned x=hot?1:4;x<=(hot?2u:5u);++x) {

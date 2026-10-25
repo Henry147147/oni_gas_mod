@@ -511,6 +511,37 @@ before its first flow. The first completed fluid row now follows the time origin
 by one interval. Actual matched preparation/admission, clock alignment and the
 full unchanged 20000 s measurement still require verification.
 
+The next bounded owner run proved vacuum (native ticket510, eight cells,
+mask3), the quiescent divider/vacuum field (ticket512, all28 cells, mask3),
+and exact pre-contact granite (ticket514). Its288 paired observations have
+zero frame gaps/refusals, fluid-energy residual at most1.823e-9 J and a
+zero PrimaryElement source census. Initial combined caloric-plus-gravity
+residual is1.241e-9 J; subsequent native solid rounding reaches16.957 J.
+This is preparation/alignment evidence, not a complete floor result.
+
+Its exact owner initial image was still missing. The marker now precedes all
+fill messages, so a fast worker cannot advance before seeing the request.
+Separately, a forward-initialized temperature can return one binary64 ULP
+different after inverse EOS division. Readiness therefore checks the exact
+forward gas energy `m*(offset+Cv*T_input)`, including zero carried heat, rather
+than requiring the inverse result to reproduce input bits. Synthetic controls
+accept that exact creation state and reject a one-ULP energy change, hidden
+carried heat and extra constituents. Mass, species and canonical-momentum
+checks remain exact. The shared fixture cleanup/census also includes spawned
+or thermally registered PrimaryElements outside Grid.Objects/Pickupables,
+including inactive actors; a live burrowed Hatch had exposed that omission.
+The corrected bounded run now proves all eight exact initial gas cells and
+zero canonical momentum in core23/profile5 before frame13. Its first completed
+row ends exactly one binary32 0.2 s interval after that preflow image. All three
+native requests match both captured arrays (vacuum ticket510, quiescent
+divider/vacuum512 and pre-contact solids514), with zero source actors. Native
+solid contact starts one interval after owner creation; the clock retains that
+delay. The288 adjacent rows have no gaps/refusals and at most1.823e-9 J fluid
+energy closure error; the persistent35 K event is[1.4,1.6] s in this prefix.
+All18 frozen package files remain unchanged. Initial-source and clock alignment
+are established. Full20000 s, matching new vanilla preparation and the resolved
+dynamic solid/fluid truth remain open.
+
 ## Performance and feature variants
 
 Each numerical step needs same-lock Terra60 before/after, affected floor

@@ -361,6 +361,8 @@ namespace MixedAtmospheres.Oni
                         f4Reset=ticks;return false;
                     }
                     if(!F4CaptureReady(".prepared",width*height,"prepared"))return false;
+                    RequireNoLooseActors(x0,y0,width,height,allowInfrastructure:false);
+                    placed["source_primary_element_census"]=0;
                 }
                 Fill(); filled = ticks;
                 samples = new StreamWriter(Path.Combine(output, "floor-" + Id + ".txt"));
@@ -455,6 +457,36 @@ namespace MixedAtmospheres.Oni
         private static bool Wall(int x, int y) => y >= 1 && y <= 8 && (Id == "f1" || Id == "f2") && x == 9 || Id == "f3" && x == 6 && y <= 8 ||
             Id == "f5" && y == 6 && x <= 8;
         private static bool Solid(int x, int y) => Wall(x, y) || Id == "f4" && x == 3;
+        // Grid.Objects and Pickupables omit some spawned or burrowed
+        // creatures. Enumerate their actual PrimaryElements too, including
+        // inactive objects which still have a native thermal handle.
+        private static IEnumerable<PrimaryElement> FixturePrimaryElements(int left,int bottom,int w,int h)
+        {
+            foreach(var primary in UnityEngine.Object.FindObjectsByType<PrimaryElement>(UnityEngine.FindObjectsInactive.Include,UnityEngine.FindObjectsSortMode.None))
+            {
+                if(primary==null || !primary.isSpawned && (primary.sttOptimizationHook==null || !Sim.IsValidHandle(primary.sttOptimizationHook.SimHandle)))continue;
+                var cell=Grid.PosToCell(primary);if(!Grid.IsValidCell(cell))continue;
+                Grid.CellToXY(cell,out var x,out var y);
+                if(x>=left && x<left+w && y>=bottom && y<bottom+h)yield return primary;
+            }
+        }
+        internal static int ClearLooseActors(int left,int bottom,int w,int h,out int duplicants,string? label=null)
+        {
+            var actors=FixturePrimaryElements(left,bottom,w,h).Where(primary=>primary.GetComponent<Building>()==null && !ColonyOwnedStorage.IsProjection(primary))
+                .Select(primary=>primary.gameObject).Distinct().ToArray();
+            duplicants=actors.Count(actor=>actor.GetComponent<MinionIdentity>()!=null);
+            if(duplicants!=0)throw new InvalidOperationException("A duplicant occupies the closed fixture before admission.");
+            if(label!=null && actors.Length!=0)Debug.Log($"[Mixed Atmospheres] {label}: "+string.Join(", ",actors.Select(actor=>actor.name)));
+            foreach(var actor in actors)Util.KDestroyGameObject(actor);
+            return actors.Length;
+        }
+        internal static void RequireNoLooseActors(int left,int bottom,int w,int h,bool allowInfrastructure=true)
+        {
+            var primary=FixturePrimaryElements(left,bottom,w,h).FirstOrDefault(item=>!allowInfrastructure || item.GetComponent<Building>()==null && !ColonyOwnedStorage.IsProjection(item));
+            if(primary==null)return;
+            var prefab=primary.GetComponent<KPrefabID>();var thermal=primary.sttOptimizationHook;
+            throw new InvalidOperationException($"Unaccounted fixture source before admission: {primary.gameObject.name}, prefab {prefab?.PrefabTag.Name}, cell {Grid.PosToCell(primary)}, mass {primary.Mass:R}kg, spawned {primary.isSpawned}, active {primary.gameObject.activeInHierarchy}, thermal {(thermal==null?-1:thermal.SimHandle)}.");
+        }
         // Removes every building, plant, critter and item in a rectangle
         // (duplicants excepted and counted); returns how many went, naming
         // them in the log under `label` when one is given.
@@ -475,6 +507,7 @@ namespace MixedAtmospheres.Oni
                 Grid.CellToXY(Grid.PosToCell(p), out var px, out var py);
                 if (px >= left && px < left + w && py >= bottom && py < bottom + h) found.Add(p.gameObject);
             }
+            foreach(var primary in FixturePrimaryElements(left,bottom,w,h))found.Add(primary.gameObject);
             duplicants = found.Count(o => o.GetComponent<MinionIdentity>() != null);
             if (label != null && found.Count > 0) Debug.Log($"[Mixed Atmospheres] {label}: " + string.Join(", ", found.Select(o => o.name)));
             foreach (var o in found) if (o.GetComponent<MinionIdentity>() == null) Util.KDestroyGameObject(o);
@@ -587,12 +620,14 @@ namespace MixedAtmospheres.Oni
                     placed["hot_cell_kg"] = Gas(Atmosphere, 353.15); placed["cold_cell_kg"] = Gas(Atmosphere, 283.15);
                     RequestAdmissionCapture();
                     RequestAdmissionCapture(".solids",solidsOnly:true);
+                    // Publish the exact-state predicate before any worker can
+                    // consume a fill message. It rejects vacuum/partial state.
+                    if(ColonyOwner.Active)RequestReleaseCapture(Enumerable.Range(1,2).SelectMany(y=>new[]{(1,y),(2,y),(4,y),(5,y)}).ToArray());
                     for (var y = 1; y <= 2; ++y)
                     {
                         for (var x = 1; x <= 2; ++x) Replace(x, y, SimHashes.Oxygen, placed["hot_cell_kg"], 353.15);
                         for (var x = 4; x <= 5; ++x) Replace(x, y, SimHashes.Oxygen, placed["cold_cell_kg"], 283.15);
                     }
-                    if(ColonyOwner.Active)RequestReleaseCapture(Enumerable.Range(1,2).SelectMany(y=>new[]{(1,y),(2,y),(4,y),(5,y)}).ToArray());
                     break;
                 case "f5":
                     var w = FullCell(SimHashes.Water); var oil = FullCell(SimHashes.CrudeOil);

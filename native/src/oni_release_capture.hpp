@@ -2,6 +2,8 @@
 // Diagnostic-only release request. The managed fixture atomically publishes
 // this marker before queuing gate removal. Physical state is never modified.
 #include "mixed_atmospheres/oni_colony.h"
+#include "mixed_atmospheres/mac_transport.hpp"
+#include "liquid_reference.hpp"
 #include <array>
 #include <bit>
 #include <cmath>
@@ -15,6 +17,19 @@
 #include <vector>
 
 namespace ma::oni::colony::detail {
+// Compare the represented creation state, not an inverse EOS temperature.
+// A valid forward multiplication followed by inverse division can differ by
+// one binary64 ULP even when every requested binary32 input was exact.
+inline bool exact_initial_gas_cell(const experimental::MacMaterialCell& cell,std::size_t species,
+                                   float mass,float temperature,const experimental::ReferenceMaterial& material) noexcept {
+    if(material.phase!=experimental::ReferencePhase::ideal_gas || species>=cell.mixture.masses.size() ||
+        !(mass>0) || !(temperature>0) || !std::isfinite(mass) || !std::isfinite(temperature))return false;
+    for(std::size_t k=0;k<cell.mixture.masses.size();++k)
+        if(cell.mixture.masses[k]!=(k==species?static_cast<double>(mass):0.))return false;
+    const double specific=material.energy_offset_j_per_kg+material.cv_j_per_kg_k*static_cast<double>(temperature);
+    const double expected=static_cast<double>(mass)*specific;
+    return std::isfinite(expected) && cell.mixture.energy==expected && cell.energy_remainder_j.is_zero();
+}
 class ReleaseCapture {
 public:
     std::string path;
