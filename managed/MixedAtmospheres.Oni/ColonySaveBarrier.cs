@@ -24,11 +24,12 @@ namespace MixedAtmospheres.Oni
         internal static int Settled { get; private set; } // barriers that had to publish a pending frame
         internal static int Deferred { get; private set; }
         internal static int BodyHeatChecks { get; private set; }
+        internal static int NativePublications { get; private set; }
         internal static long ReceiptsAtSave { get; private set; }
         internal static ulong LastSettledFrame { get; private set; }
         internal static ulong LastSettledSession { get; private set; }
-        internal static void Reset() { Settled = Deferred = BodyHeatChecks = 0; ReceiptsAtSave = 0; LastSettledFrame = LastSettledSession = 0; }
-        internal static object Report() => new { Settled, Deferred, ReceiptsAtSave, BodyHeatChecks, LastSettledFrame, LastSettledSession, LastSynchronization };
+        internal static void Reset() { Settled = Deferred = BodyHeatChecks = NativePublications = 0; ReceiptsAtSave = 0; LastSettledFrame = LastSettledSession = 0; }
+        internal static object Report() => new { Settled, Deferred, ReceiptsAtSave, BodyHeatChecks, NativePublications, LastSettledFrame, LastSettledSession, LastSynchronization };
 
         internal static void EnterStep() => ++stepping;
         internal static void ExitStep() { if (stepping > 0) --stepping; }
@@ -98,8 +99,13 @@ namespace MixedAtmospheres.Oni
             LastSynchronization = $"native frames started/ended before {before.Started}/{before.Ended}, after zero tick {after.Started}/{after.Ended}, settled {waited.Started}/{waited.Ended} in {timer.Elapsed.TotalMilliseconds:F1} ms";
             UnityEngine.Debug.Log("[Mixed Atmospheres] save barrier: " + LastSynchronization);
             var pending = entry.ReceiptsPending;
+            // UnsafeSim200ms publishes while its newly posted native frame
+            // can still be running. After waiting for completion, publish
+            // again even when the owner has no receipts: native body work and
+            // element chunks have their own GameData/callback publication.
+            Publish.Invoke(Game.Instance, new object[] { 0f }); ++NativePublications;
             for (var round = 0; round < 64 && !Quiescent(out var _); ++round)
-                Publish.Invoke(Game.Instance, new object[] { 0f });
+            { Publish.Invoke(Game.Instance, new object[] { 0f }); ++NativePublications; }
             if (!Quiescent(out var status))
                 throw new InvalidOperationException($"The colony owner did not settle before saving: {status.ReceiptsPending} receipts pending, busy {OniNativeColony.Busy()}.");
             ReceiptsAtSave += (long)pending; ++Settled; settledForSave = true;

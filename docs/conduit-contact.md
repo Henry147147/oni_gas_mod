@@ -76,3 +76,33 @@ controls pass, as do all86 native CTests. A private preload attempt was rejected
 by the original-entry fingerprint guard before colony creation; the integrated
 observation keeps that guard intact. No private captures or game code belong in
 the repository. Instrumented runs establish no speed acceptance.
+
+## Publishing settled body work before saves
+
+The isolated `pipe-body-rounding` control reproduces the heated-save refusal
+with one ordinary liquid pipe in vacuum. A native zero-energy probe verifies
+the registered111.4000015259 kJ/K body capacity and the exact initial temperature.
+The original barrier then refuses at frame38: native messages have applied the
+contact work, while `Game.simData` still exposes an older body temperature.
+
+`UnsafeSim200ms(0)` posts a native frame and calls `StepTheSim(0)` before that
+asynchronous frame necessarily completes. Waiting for completion does not
+itself republish GameData. Previously, the barrier called `StepTheSim(0)` again
+only if owner receipts remained. It now always republishes after the wait,
+including saves with no outstanding owner receipts. The thermal guard and
+physics bounds are unchanged; native body/chunk callbacks must reach the saved
+managed endpoint as well as the native simulator.
+
+The same immutable-input control passes5/5 with that change. A later zero-work
+probe advances native frame906→1064, retains the exact capacity/area and leaves
+the body temperature unchanged; its native temperature equals the published
+endpoint. All20 contacts validate,1 kg remains, and the registered body loss
+and actual liquid gain both equal67.993164993822575 J, with exact residual0 J.
+The original failure is retained. The longer Oceania save repeat and complete
+storage/cold-continuation acceptance remain separate requirements.
+
+An apparent two-contact helper discrepancy in an initial offline comparison
+was caused by subtracting decimal log values before restoring binary32 inputs.
+With the correct input precision, all19,918 observations agree; no contact-law
+change is justified or made. The25 directly paired native messages also agree
+with the existing helper and registered body update.
