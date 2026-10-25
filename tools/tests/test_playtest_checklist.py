@@ -82,6 +82,16 @@ class PrivateReadinessTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 checklist.readiness(self.inventory, candidate)
 
+    def test_linux_acceptance_does_not_pass_unverified_windows_player(self):
+        for row in self.acceptance["requirements"]:
+            row["status"] = "open" if row["id"] == "windows-player-acceptance" else "passed"
+        for entry in self.inventory["entries"]:
+            if entry.get("playtest") == "in":
+                entry["status"] = "implemented"
+        report = checklist.readiness(self.inventory, self.acceptance)
+        self.assertFalse(report["private_playtest_ready"])
+        self.assertEqual(report["open_acceptances"], ["windows-player-acceptance"])
+
 
 if __name__ == "__main__":
     unittest.main()

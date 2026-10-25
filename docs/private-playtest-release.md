@@ -1,10 +1,18 @@
-# Private Linux playtest completion
+# Private Linux and Windows playtest completion
 
 Status reviewed 2026-10-25 against the accepted [base-game plan](playtest-plan.md)
 and its overriding [user amendments](completion-plan.md#amendments).
 The mod is **not ready for a full private colony playtest**. Catalogue support
 exists for the loaded 29 gases and 49 liquids; that does not establish every
 material's gameplay, phase change or machine integration.
+
+The current target includes Windows x64. WindowsPlayer is exercised under
+Proton here; Windows OS behaviour and speed require the user's PC. Configuration
+and WindowsPlayer acceptance are now explicit checklist items. The final default
+gameplay sweep, asteroid sweep, ten-cycle autosave run and immutable Windows
+bundle are still pending. Exact owned-storage heat/biology, byte-exact active
+continuation and the remaining accuracy floor are deferred by the 2026-10-25
+user amendment; they remain public-release work.
 
 `python3 tools/playtest_checklist.py status` lists historical adapter coverage.
 Its 2,584 implemented entries are system-level implementation records, not
@@ -34,8 +42,10 @@ faults/fallback availability, mass/energy errors and trace totals for final
 runs, with instrumentation off and explicit CPU/game windows. The accepted
 private-playtest scope does not make real-time speed a feature-cutting gate.
 
-Windows, DLC, Workshop publication and the broader public-release matrix follow
-this private Linux base-game playtest. No public release is authorized here.
+DLC, Workshop publication and the broader public-release matrix follow this
+private base-game playtest. No public release is authorized here. The detailed
+records below describe earlier bundles; the current checklist and the amendment
+above determine first-playtest readiness.
 
 ## Current-bundle reliability checks
 

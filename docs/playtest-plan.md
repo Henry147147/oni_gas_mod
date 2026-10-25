@@ -9,12 +9,14 @@ plan's release requirements still apply afterwards.
 ## Goal
 
 The user can start a new **base-game** colony on any base-game starting
-asteroid and play the full game on it on Linux: dig, build, breathe, pipe, run
+asteroid and play the full game on it on Linux and Windows x64: dig, build, breathe, pipe, run
 every machine, heat and cool, farm, ranch and launch rockets. `MacClosedWorld`
 owns every gas and liquid on the asteroid. ONI's fluid simulation is never used.
 
-Real-time speed, Spaced Out!, the gameplay packs and Windows are not part of
-this plan; they follow it, with the completion plan's targets unchanged.
+The 2026-10-25 amendment adds Windows x64, validated here with WindowsPlayer
+under Proton and confirmed on Windows by the user's private playtest. Real-time
+speed, Spaced Out! and the gameplay packs follow this plan; the completion
+plan's targets are unchanged.
 
 ## Decisions
 
@@ -39,7 +41,8 @@ this plan; they follow it, with the completion plan's targets unchanged.
   harness use Terra, seed 147147.
 - **Speed** is measured and reported, never a gate here and never a reason to
   cut a feature.
-- **Linux** only; the Windows port comes later.
+- **Platforms:** Linux and Windows x64. Windows OS behaviour and speed need
+  the user's PC; Proton results are labelled separately.
 - **Evidence stays light** ([below](#evidence)).
 
 ## What needs to be done
@@ -245,10 +248,12 @@ buildable and the asteroid loadable.
   once per second. A bounded sharp-interface correction remains for liquids.
   Mixing, inertia, per-cell physical pressure and latent heat remain present.
   These saved family-2 numerical choices have no default or floor acceptance.
-- In the explicit mixed-pipe implementation, a deconstruction spill that cannot
+- In the mixed-pipe implementation, a deconstruction spill that cannot
   fit stays owned at its source and appears as "Fluid waiting for space". It
-  releases when room opens. This behavior passes its focused control; normal
-  activation still awaits complete pipe heat, biology, phase and save checks.
+  releases when room opens. Mixed pipes and their saves are on by default
+  under the 2026-10-25 amendment.
+- A liquid vent over open space puts its mixture into its own cell; the solver
+  carries it down. Vanilla's falling drip animation is not used.
 - Gases mix and stay mixed, and so do miscible liquids. CO2 does not collect in
   pits the way it does in vanilla, so scrubbing serves whole rooms.
 - Pressure is physical. Gas compresses and expands into vacuum. Liquid is nearly
@@ -260,6 +265,5 @@ buildable and the asteroid loadable.
 
 - Real-time speed.
 - Spaced Out! and the gameplay packs.
-- The Windows port.
 - Hard-mode breathing with nitrogen air.
 - The completion plan's remaining release requirements.
