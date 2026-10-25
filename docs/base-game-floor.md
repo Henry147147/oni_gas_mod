@@ -432,10 +432,29 @@ old divergent events are not accepted timing truth.
 The repaired8× trajectory subsequently completed120 s/601 records and240103
 steps, with levelling[40.6,40.8] s and maximum volume-plus-clipping residual
 2.361e-10 m³. The16× trajectory stalls beyond its1.8 s sample while its
-reported mechanical energy rises to2.64 MJ from1.57 MJ initially. Its partial
+reported mechanical energy rises to2.64 MJ from 1.57 MJ initially. Its partial
 output is preserved and rejected as reference evidence. Linear-wave success
 does not establish strong-impact accuracy; an established independent VOF
 implementation and bounded failure replay are being investigated.
+
+The bounded replay identifies a second reference defect: extrapolated face
+velocities beside vacuum are not divergence-free, so flux-form velocity
+advection adds a spurious source. Using advective-form velocity transport
+passes the former collapse and completes 3 s at both resolutions (6,000/12,000
+steps). Flat pools retain exact reported depth/volume; small-wave crossings
+are both [2.2, 2.4] s, with interpolated 2.29408569/2.29412749 s against the
+analytic 2.29421583 s. A private continuation control reproduces both the
+moving-water CSV and complete state byte for byte.
+
+These corrected prefixes are still rejected as timing truth. The 16× run
+retains 0.0048983 m³ of detached water beyond the six-cell velocity-extension
+band at 3 s. Those cells have fraction below 0.5, no pressure unknown and
+zeroed invalid velocities; counting their volume does not make their motion
+physical. The new diagnostic counts this water explicitly, including it in
+every column height. Mechanical-energy excess also remains 446/324 J under
+refinement from 1.57 MJ initially. The original failures and corrected bounded
+records remain distinct; full 120 s corrected trajectories have not run.
+No production solver arithmetic, fixed input or acceptance bound changes.
 
 The bounded F4 owner probe produced293 consecutive paired fluid/solid/energy
 observations through owner frame300, with no gaps, refused projections or

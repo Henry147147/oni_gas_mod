@@ -36,7 +36,7 @@ namespace MixedAtmospheres.Oni
         private static string output = "";
         private static string prefixDump = "";
         private static bool prefixHeaderWritten;
-        private static long f4Cleared = -1, f4Reset = -1;
+        private static long f4Cleared = -1, f4Reset = -1, prefillCleaned = -1;
         private static string admissionPath = "";
         [StructLayout(LayoutKind.Sequential)]
         private struct SampleCell { internal uint PublicCell, FirstConstituent, Constituents, Flags; internal double TemperatureK; }
@@ -80,7 +80,7 @@ namespace MixedAtmospheres.Oni
             if (Array.IndexOf(Ids, id) < 0) throw new ArgumentException("Unknown floor arena " + id);
             Id = id; output = directory; ticks = 0; cleared = uncovered = built = filled = locked = commanded = opened = release = -1; releasedAt = -1;
             prefixDump = id == "f4" ? Environment.GetEnvironmentVariable("MA_COLONY_FLOOR_PREFIX_DUMP") ?? "" : "";
-            prefixHeaderWritten = false; f4Cleared = f4Reset = -1;
+            prefixHeaderWritten = false; f4Cleared = f4Reset = prefillCleaned = -1;
             admissionPath = id == "f4" ? Environment.GetEnvironmentVariable("MA_COLONY_FLOOR_ADMISSION_DUMP") ?? Path.Combine(output,"floor-f4-admission.bin") : "";
             if(id == "f4")
             {
@@ -341,7 +341,19 @@ namespace MixedAtmospheres.Oni
             if (filled < 0)
             {
                 if (ticks < built + 2) return false;
-                if(Id == "f4")
+                if(Id != "f4")
+                {
+                    if(prefillCleaned < 0)
+                    {
+                        // Uncovering plants can leave seeds and live creatures
+                        // outside Grid.Objects. Finish destruction before any
+                        // prescribed fluid is admitted to the arena.
+                        placed["removed_at_fill"] = Clear(x0,y0,width,height,out _,"floor arena prefill cleanup");
+                        prefillCleaned=ticks;placed["prefill_cleanup_tick"]=ticks;return false;
+                    }
+                    if(ticks < prefillCleaned+2)return false;
+                }
+                else
                 {
                     // Closing borders can displace background fluid back into
                     // the arena. Remove it before resetting the divider.
@@ -361,9 +373,9 @@ namespace MixedAtmospheres.Oni
                         f4Reset=ticks;return false;
                     }
                     if(!F4CaptureReady(".prepared",width*height,"prepared"))return false;
-                    RequireNoLooseActors(x0,y0,width,height,allowInfrastructure:false);
-                    placed["source_primary_element_census"]=0;
                 }
+                RequireNoLooseActors(x0,y0,width,height,allowInfrastructure:false);
+                placed["source_primary_element_census"]=0;
                 Fill(); filled = ticks;
                 samples = new StreamWriter(Path.Combine(output, "floor-" + Id + ".txt"));
                 return false;
@@ -593,8 +605,9 @@ namespace MixedAtmospheres.Oni
         // border pushed its fluid into the arena.
         private static void Fill()
         {
-            // What removing the plants dropped (seeds, harvests) goes too.
-            placed["removed_at_fill"] = Clear(x0, y0, width, height, out _, "floor arena cleared at fill");
+            // F4 has already proved quiescent native vacuum and divider.
+            // Other arenas completed their cleanup two ticks before this fill.
+            if(Id=="f4")placed["removed_at_fill"] = Clear(x0,y0,width,height,out _,"floor arena cleared at fill");
             for (var y = 1; y < height - 1; ++y)
                 for (var x = 1; x < width - 1; ++x)
                     if (!Solid(x, y)) Replace(x, y, SimHashes.Vacuum, 0, 0);
