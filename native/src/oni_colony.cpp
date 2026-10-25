@@ -2504,6 +2504,29 @@ void run_frame(std::uint64_t ticket, double seconds, std::uint64_t frames, const
                         auto one = world.with_fluid_transfers(std::span(&e, 1), MacFluidTransferTopology::occupied_mixture);
                         world = std::move(one.world); parcels.push_back(one.parcels.front()); continue;
                     } catch (const std::exception& single) { failure = single.what(); }
+                    if (e.inject && world.settings().numerical_kernel == MacNumericalKernel::game &&
+                        failure == "Game transfer mass is unrepresentable") {
+                        // A precise source keeps a sub-ULP remainder when this
+                        // cell cannot represent it. Another cell in the same
+                        // permitted source neighbourhood may accept it exactly.
+                        // Search from the original source, not the first open
+                        // cell, so a closed source never widens the radius.
+                        const auto index = static_cast<std::size_t>(&e - edits.data());
+                        const auto plan = std::find_if(plans.begin(), plans.end(), [&](const Pending& p) {
+                            return p.first <= index && index - p.first < p.count;
+                        });
+                        require(plan != plans.end(), "Injection has no source plan");
+                        bool placed = false;
+                        for (const auto cell : nearby(world.state(), rect_index(s.config, plan->source->public_cell), 2)) {
+                            if (cell == e.cell_index) continue;
+                            auto candidate = e; candidate.cell_index = cell;
+                            try {
+                                auto one = world.with_fluid_transfers(std::span(&candidate, 1), MacFluidTransferTopology::occupied_mixture);
+                                world = std::move(one.world); parcels.push_back(one.parcels.front()); placed = true; break;
+                            } catch (const std::exception&) { /* Failed candidates leave the world unchanged. */ }
+                        }
+                        if (placed) continue;
+                    }
                     if (e.mass_kg <= 1e-9 * world.state().cells[e.cell_index].mixture.mass()) {
                         MacFluidParcel zero{}; zero.cell_index = e.cell_index; zero.species_index = e.species_index; zero.injected = e.inject;
                         if (e.observe_passives) zero.passives_before=zero.passives_after=world.state().cells[e.cell_index].passive_quantities;

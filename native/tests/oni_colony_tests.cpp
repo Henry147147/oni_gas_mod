@@ -652,6 +652,71 @@ void moving_job_control() {
     }
     std::cout<<"MOVING PARCEL DURABILITY PASS\n";
 }
+void tiny_injection_neighbour_control() {
+    using namespace ma::oni::colony;
+    const std::array mats{material("MadeUpGas",111,oxygen,true,.032,1005)};
+    MAOniColonyConfig cfg{};cfg.struct_size=sizeof(cfg);cfg.abi_version=MA_ONI_COLONY_ABI_VERSION;
+    cfg.flags=MA_ONI_COLONY_GAME_KERNEL|MA_ONI_COLONY_GAME_SURFACE;cfg.vacuum_index=vacuum;
+    cfg.grid_width=cfg.width=5;cfg.grid_height=cfg.height=5;cfg.maximum_timestep_s=.1;
+    // A 2^-54 kg residue cannot change 0.6 kg, but is one ULP at 0.25 kg.
+    // The closed-source controls distinguish the original source radius from
+    // an incorrectly widened search around its first open neighbour.
+    for (int mode=0;mode<5;++mode) {
+        std::array<MAOniColonyCell,25> cells{};
+        for(auto& cell:cells)cell={oxygen,MA_ONI_COLONY_FLUID,.6f,300,0,0};
+        if(mode==2 || mode==3)cells[12]={0,MA_ONI_COLONY_SOLID,0,0,0,0};
+        const unsigned low_cell=mode==0?11u:mode==2?5u:mode==3?7u:mode==4?12u:25u;
+        const bool accepts=mode==0 || mode==3 || mode==4;
+        const unsigned expected_cell=mode==0?11u:mode==3?7u:mode==2?11u:12u;
+        start(cfg,mats,cells,1);enable_precise_receipts(true);
+        // Import equilibrates connected gas. Empty then fill the lower-mass
+        // cell through real inputs before the tiny job, with no intervening
+        // flow, so it holds exactly0.25 rather than an import-rounding value.
+        // Cell5 is outside the closed source's radius two.
+        double bulk_mass=0;
+        if(low_cell<cells.size()) {
+            const std::array<MAOniColonyTransfer,2> staging{{
+                {low_cell,oxygen,MA_ONI_COLONY_EXTRACT,0,-1,0,1,0,0},
+                {low_cell,oxygen,MA_ONI_COLONY_INJECT,0,-1,0,.25,300,0}}};
+            queue_transfers(staging);bulk_mass=.25;
+        }
+        const MAOniColonyTransfer injection{12,oxygen,MA_ONI_COLONY_INJECT,2,-1,0,0x1p-54,300,0};
+        const std::array<MAOniColonyPassive,1> passives{{{17,.125}}};
+        (void)queue_pipe_job(1,injection,passives);const auto pending=checkpoint();
+        const auto outcome=[&] {
+            advance(1,.2,2);wait();const auto state=status();
+            require(state.state==1 && state.completed_frames==1,"tiny native injection faulted");
+            MAOniColonyReceipt receipt{};
+            require(copy_receipts(&receipt,1)==1 && receipt_job(receipt.sequence)==1,"tiny injection lost token receipt");
+            std::vector<std::uint8_t> wire(copy_precise_receipt(receipt.sequence,nullptr,0));
+            copy_precise_receipt(receipt.sequence,wire.data(),static_cast<std::uint32_t>(wire.size()));
+            ReceiptReader r{wire};require(r.header(receipt.sequence,1)==1 && r.observations,"tiny injection lacks precise observation");
+            const auto element=r.integer(4),destination=r.integer(4),direction=r.integer(4);
+            if(element!=oxygen || destination!=expected_cell || direction!=1)
+                std::cerr<<"tiny injection mode "<<mode<<": destination "<<destination<<", expected "<<expected_cell<<", element "<<element<<", direction "<<direction<<'\n';
+            require(element==oxygen && destination==expected_cell && direction==1,"tiny injection escaped source radius or changed destination");
+            const double admitted=r.f64();
+            if(admitted!=(accepts?injection.mass_kg:0))
+                std::cerr<<"tiny injection mode "<<mode<<": admitted "<<std::hexfloat<<admitted<<", requested "<<injection.mass_kg<<std::defaultfloat<<'\n';
+            require(admitted==(accepts?injection.mass_kg:0),"tiny injection did not preserve exact source remainder");
+            require(r.f64()==(accepts?300:0),"tiny injection temperature differs");(void)r.f64();
+            for(int i=0;i<4;++i)(void)r.scaled();
+            require(r.integer(4)==(accepts?1u:0u),"refused tiny injection moved passives");
+            if(accepts)require(r.integer(8)==17 && r.f64()==.125,"tiny injection lost supplied passive");
+            require(r.integer(4)==(accepts?1u:0u),"tiny injection passive observations differ");
+            if(accepts)require(r.integer(8)==17 && r.f64()==0 && r.f64()==.125,"tiny injection observed wrong destination passives");
+            require(r.at==wire.size() && state.injected_kg==bulk_mass+admitted && state.trace_sink_kg==0 &&
+                state.maximum_relative_mass_error<1e-12 && state.maximum_relative_energy_error<1e-12,
+                "tiny injection changed receipts, sinks or conservation bounds");
+            ack_receipts(receipt.sequence);require(pipe_job_state(1).first==3,"tiny injection token did not retire");
+            return wire;
+        };
+        const auto expected=outcome();const auto settled=checkpoint();stop();
+        restore(cfg,mats,pending,1);enable_precise_receipts(true);
+        require(outcome()==expected && checkpoint()==settled,"tiny injection queued cold continuation differs");stop();
+    }
+    std::cout<<"PASS tiny native injection: exact neighbour admission, unchanged first destination, source radius, refusal, passives and cold continuation\n";
+}
 void pipe_job_control() {
     using namespace ma::oni::colony;
     std::vector<MAOniColonyMaterial> mats{material("Oxygen",11,oxygen,true,.016,1000),material("CarbonDioxide",12,carbon,true,.044,850)};
@@ -1389,6 +1454,7 @@ int main(int argc, char** argv) {
         if (argc == 2 && std::strcmp(argv[1], "--transfer-capture-only") == 0) { transfer_capture_control(); return 0; }
         if (argc == 2 && std::strcmp(argv[1], "--release-capture-only") == 0) { release_capture_control();exact_release_control(); return 0; }
         if (argc == 2 && std::strcmp(argv[1], "--pipe-jobs-only") == 0) { moving_job_control(); pipe_job_control(); return 0; }
+        if (argc == 2 && std::strcmp(argv[1], "--tiny-injection-only") == 0) { tiny_injection_neighbour_control(); return 0; }
         if (argc == 2 && std::strcmp(argv[1], "--parcel-wire-only") == 0) { parcel_wire_control(); parcel_outcome_control(); return 0; }
         if (argc == 2 && std::strcmp(argv[1], "--falling-solid-only") == 0) { falling_solid_control(); return 0; }
         if (argc == 2 && std::strcmp(argv[1], "--sample-only") == 0) { sample_control(); return 0; }
@@ -1409,6 +1475,7 @@ int main(int argc, char** argv) {
         unplaced_output_control();
         quiet_game_cell_control();
         moving_job_control();
+        tiny_injection_neighbour_control();
         pipe_job_control();
         sample_control();
         view_cache_control();
