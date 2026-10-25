@@ -31,6 +31,7 @@ namespace MixedAtmospheres.Oni
                 var verifiedAssemblyHash = IntegrationProbe.VerifyContract();
                 NativeLibraryBootstrap.Load(path);
                 NativeBackendObservation.Initialize(path);
+                ColonyWindowsLifecycle.Install();
                 GasDiffusionOptions.Initialize();
                 MixtureOverlays.InitializeStrings();
                 OniNitrogenElements.InitializeStrings();

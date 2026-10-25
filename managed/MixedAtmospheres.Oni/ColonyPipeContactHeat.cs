@@ -74,15 +74,24 @@ namespace MixedAtmospheres.Oni
                 // state. Shared bodies were excluded before making any call. A
                 // refused batch is replayed row by row to exclude only the
                 // inputs outside the native helper's range.
-                for(var first=0;first<rows.Count;first+=4096)
+                var admitted=new List<Row>();
+                foreach(var row in rows)
                 {
-                    var count=Math.Min(4096,rows.Count-first);var inputs=new Input[count];var outputs=new Output[count];
-                    for(var i=0;i<count;++i)inputs[i]=rows[first+i].Input;
+                    // The pinned Update on both platforms skips contacts with
+                    // either capacity <=1e-4 kJ/K; its pure helpers do not.
+                    if(row.Input.FluidCapacity<=1e-4f||row.Input.BodyCapacity<=1e-4f)
+                        row.Result=new Output{Size=20,Version=1,CarrierTemperature=row.Input.FluidTemperature,BodyTemperature=row.Input.BodyTemperature};
+                    else admitted.Add(row);
+                }
+                for(var first=0;first<admitted.Count;first+=4096)
+                {
+                    var count=Math.Min(4096,admitted.Count-first);var inputs=new Input[count];var outputs=new Output[count];
+                    for(var i=0;i<count;++i)inputs[i]=admitted[first+i].Input;
                     int result;
                     fixed(Input* source=inputs)fixed(Output* destination=outputs)result=Replay(source,(uint)count,destination,(uint)count);
                     for(var i=0;i<count;++i)
                     {
-                        var row=rows[first+i];var output=outputs[i];
+                        var row=admitted[first+i];var output=outputs[i];
                         if(result!=0)
                         {
                             var single=row.Input;Output one=default;int status;
@@ -105,7 +114,14 @@ namespace MixedAtmospheres.Oni
                     {invalid.Add(row);++Excluded;continue;}
                     var actual=ColonyConduits.ThermalProbeNative(row.Flow,row.Cell);
                     if(BitConverter.SingleToInt32Bits(actual.temperature)!=BitConverter.SingleToInt32Bits(row.Result.CarrierTemperature))
-                    {invalid.Add(row);Mismatch();continue;}
+                    {
+                        if(RuntimeInformation.IsOSPlatform(OSPlatform.Windows))Debug.Log("[Mixed Atmospheres] Windows conduit contact mismatch: "+
+                            $"cell {row.Cell}, flags {row.Input.Flags}, dt {row.Input.Seconds:R}, fluid T/C/k {row.Input.FluidTemperature:R}/{row.Input.FluidCapacity:R}/{row.Input.FluidConductivity:R}, "+
+                            $"body T/C/k {row.Input.BodyTemperature:R}/{row.Input.BodyCapacity:R}/{row.Input.ConduitConductivity:R}; "+
+                            $"expected {row.Result.CarrierTemperature:R} ({BitConverter.SingleToInt32Bits(row.Result.CarrierTemperature):X8}), "+
+                            $"actual {actual.temperature:R} ({BitConverter.SingleToInt32Bits(actual.temperature):X8}), heat {row.Result.NativeHeatToBody:R}");
+                        invalid.Add(row);Mismatch();continue;
+                    }
                     ValidationObserved?.Invoke(row.Flow,row.Cell,row.Input);
                 }
                 validated=true;
