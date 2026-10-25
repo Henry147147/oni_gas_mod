@@ -6,9 +6,9 @@ namespace MixedAtmospheres.Oni
     internal static partial class ColonyScenarios
     {
         private static int germReferenceFrame=-1;
-        // Oracle mode deliberately leaves mixed pipe ownership off. The game's
-        // actual ConduitDiseaseManager evolves three native single-element
-        // packets; the common helper only predicts and compares each update.
+        // The game's original ConduitDiseaseManager evolves copies of three
+        // fixed single-element packet cultures. The common helper only predicts
+        // and compares each update; normal mixed pipe ownership stays enabled.
         private static void MixedPipeGermEvolution(int frame)
         {
             if(Once(0,"native integer germ oracle arena")){germReferenceFrame=-1;Arena((x,y)=>(SimHashes.Oxygen,1f,300f));}
@@ -16,13 +16,14 @@ namespace MixedAtmospheres.Oni
                 Pipe(Game.Instance.gasConduitSystem,GasConduitConfig.ID,new List<int>{Cell(1,3)},new List<int>{Cell(3,3)},new List<int>{Cell(5,3)});
             if(Once(10,"seed original native disease evolution"))
             {
-                Record("oracle uses actual native pipe evolution",!ColonyConduits.Active,"Mixed pipe ownership must remain off for the oracle.");
                 var food=Db.Get().Diseases.GetIndex(Db.Get().Diseases.FoodGerms.id);var slime=Db.Get().Diseases.GetIndex(Db.Get().Diseases.SlimeGerms.id);
                 var cold=Game.Instance.gasConduitFlow.AddElement(Cell(1,3),SimHashes.Oxygen,.5f,280,food,16777219);
                 var culture=Game.Instance.gasConduitFlow.AddElement(Cell(3,3),SimHashes.ContaminatedOxygen,.5f,293.15f,slime,1000);
                 var hot=Game.Instance.gasConduitFlow.AddElement(Cell(5,3),SimHashes.Oxygen,.5f,900,slime,1);
                 Record("native oracle packets accept their fixed mass",cold==.5f&&culture==.5f&&hot==.5f,$"{cold:R}/{culture:R}/{hot:R} kg; native IDs {food}/{slime}");
                 ColonyGermEvolutionProbe.StartControl();
+                Record("oracle uses actual native pipe evolution",ColonyGermEvolutionProbe.SeedPacketReference(Game.Instance.gasConduitFlow,
+                    new[]{Cell(1,3),Cell(3,3),Cell(5,3)},out var packetDetail)&&ColonyGermEvolutionProbe.PacketCount==3,packetDetail);
                 Record("isolated positive-mass native equation oracle is seeded",ColonyGermEvolutionProbe.SeedPositiveMassReference(out var detail),detail);
             }
             if(frame>=10&&frame<80&&germReferenceFrame!=frame){germReferenceFrame=frame;ColonyGermEvolutionProbe.TickReference();}

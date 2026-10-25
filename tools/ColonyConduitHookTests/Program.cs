@@ -28,6 +28,8 @@ internal static class Program
         Check(cultureAllocate.DeclaringType==typeof(ConduitDiseaseManager)&&cultureAllocate.GetParameters().Length==2&&
             cultureAllocate.GetParameters()[1].ParameterType==typeof(ConduitFlow.ConduitContents).MakeByRefType(),
             "Native culture allocation bound an inherited generic overload instead of the actual two-argument allocator.");
+        Check(typeof(ConduitDiseaseManager.Data).IsValueType,
+            "The isolated native germ oracle requires independent value copies of the game's culture rows.");
         Console.WriteLine("PASS native germ oracle binding: declared allocator uses original temperature handle and by-ref contents, excluding inherited overloads");
         var biology=assembly.GetType("MixedAtmospheres.Oni.ColonyPipeBiology")!;
         var scheduling=(string)biology.GetMethod("SchedulingSignature",BindingFlags.Static|BindingFlags.NonPublic)!.Invoke(null,null)!;

@@ -7,7 +7,8 @@ using HarmonyLib;
 namespace MixedAtmospheres.Oni
 {
     // Read-only, explicitly selected oracle control. Original native-game pipe
-    // disease evolution still runs; compare its count and binary32 residue.
+    // disease evolution runs on copied cultures, using their live temperature
+    // handles; owned pipes and the game's registered culture table stay intact.
     internal static class ColonyGermEvolutionProbe
     {
         internal sealed class Expected
@@ -25,7 +26,7 @@ namespace MixedAtmospheres.Oni
         private static readonly MethodInfo GetTemperature=AccessTools.Method(AccessTools.TypeByName("ConduitTemperatureManager"),"GetTemperature");
         private static readonly MethodInfo AllocateCulture=typeof(ConduitDiseaseManager).GetMethod("Allocate",BindingFlags.Instance|BindingFlags.Public|BindingFlags.NonPublic|BindingFlags.DeclaredOnly)!;
         private static long epoch;
-        private static ConduitDiseaseManager? reference;
+        private static ConduitDiseaseManager? packets,reference;
         private static readonly HashSet<byte> diseases=new HashSet<byte>();
         internal static bool Enabled { get; private set; }
         internal static long Samples { get; private set; }
@@ -37,21 +38,43 @@ namespace MixedAtmospheres.Oni
         internal static long PipeSamples { get; private set; }
         internal static long ReferenceSamples { get; private set; }
         internal static long ReferenceBirths { get; private set; }
+        internal static int PacketCount { get; private set; }
         internal static float MinimumPipeCultureMass { get; private set; }
         internal static float MaximumPipeCultureMass { get; private set; }
         internal static int Diseases=>diseases.Count;
         internal static string Last { get; private set; }="";
         internal static void StartControl()
         {
-            Reset();if(Rows==null||Temperature==null||GetTemperature==null||AllocateCulture==null)throw new NotSupportedException("Native pipe disease oracle layout is unavailable.");Enabled=true;
+            Reset();if(Rows==null||Temperature==null||GetTemperature==null||AllocateCulture==null||!typeof(ConduitDiseaseManager.Data).IsValueType)throw new NotSupportedException("Native pipe disease oracle layout is unavailable.");Enabled=true;
         }
-        internal static void Reset(){Enabled=false;++epoch;reference=null;Samples=Extinctions=Unsupported=Mismatches=Births=Deaths=PipeSamples=ReferenceSamples=ReferenceBirths=0;MinimumPipeCultureMass=float.PositiveInfinity;MaximumPipeCultureMass=0;diseases.Clear();Last="";}
+        internal static void Reset(){Enabled=false;++epoch;packets=reference=null;PacketCount=0;Samples=Extinctions=Unsupported=Mismatches=Births=Deaths=PipeSamples=ReferenceSamples=ReferenceBirths=0;MinimumPipeCultureMass=float.PositiveInfinity;MaximumPipeCultureMass=0;diseases.Clear();Last="";}
         internal static void Stop()=>Enabled=false;
-        internal static string Report=>$"{Samples} comparisons ({PipeSamples} actual pipe/{ReferenceSamples} isolated positive-mass), {Diseases} identities, births/deaths {Births}/{Deaths}, reference births {ReferenceBirths}, pipe culture mass {MinimumPipeCultureMass:R}..{MaximumPipeCultureMass:R}, {Extinctions} extinction resets, {Unsupported} unsupported, {Mismatches} mismatches; {Last}";
+        internal static string Report=>$"{Samples} comparisons ({PipeSamples} fixed native packet/{ReferenceSamples} isolated positive-mass), {PacketCount} copied packets, {Diseases} identities, births/deaths {Births}/{Deaths}, reference births {ReferenceBirths}, pipe culture mass {MinimumPipeCultureMass:R}..{MaximumPipeCultureMass:R}, {Extinctions} extinction resets, {Unsupported} unsupported, {Mismatches} mismatches; {Last}";
+        internal static bool SeedPacketReference(ConduitFlow flow,IReadOnlyList<int> cells,out string detail)
+        {
+            if(!Enabled)throw new InvalidOperationException("Native germ oracle is disabled.");
+            var manager=Game.Instance.conduitDiseaseManager;var live=(IList)Rows.GetValue(manager);var count=live.Count;
+            var copy=(ConduitDiseaseManager)Activator.CreateInstance(typeof(ConduitDiseaseManager),BindingFlags.Instance|BindingFlags.Public|BindingFlags.NonPublic,null,
+                new[]{Temperature.GetValue(manager)},null);
+            var copied=(IList)Rows.GetValue(copy);
+            foreach(var cell in cells)
+            {
+                if(!flow.HasConduit(cell))throw new InvalidOperationException("A native oracle packet has no conduit.");
+                // Data is a value type. Preserve the actual allocation/cache
+                // context, including native mass and accumulated rounding,
+                // without sharing a mutable row with the registered manager.
+                var data=flow.soaInfo.GetDiseaseData(flow.GetConduit(cell).idx);
+                if(data.diseaseIdx==byte.MaxValue||data.diseaseCount<=0)throw new InvalidOperationException("A native oracle packet has no culture.");
+                copied.Add(data);
+            }
+            packets=copy;PacketCount=copied.Count;
+            detail=$"{PacketCount} copied native cultures; registered table unchanged ({count} -> {live.Count} rows); mixed pipes active {ColonyConduits.Active}";
+            return PacketCount==cells.Count&&live.Count==count&&!ReferenceEquals(copied,live);
+        }
         private static object Field(object row,string name)=>AccessTools.Field(row.GetType(),name).GetValue(row);
         internal static Scope? Begin(ConduitDiseaseManager manager,float dt)
         {
-            if(!Enabled)return null;
+            if(!Enabled||packets!=null&&!ReferenceEquals(manager,packets)&&!ReferenceEquals(manager,reference))return null;
             var rows=(IList)Rows.GetValue(manager);var scope=new Scope(epoch,rows,ReferenceEquals(manager,reference));
             for(var index=0;index<rows.Count;++index)
             {
@@ -81,7 +104,7 @@ namespace MixedAtmospheres.Oni
         internal static bool SeedPositiveMassReference(out string detail)
         {
             if(!Enabled)throw new InvalidOperationException("Native germ oracle is disabled.");
-            var manager=Game.Instance.conduitDiseaseManager;var rows=(IList)Rows.GetValue(manager);var temperatures=Temperature.GetValue(manager);
+            var manager=packets??Game.Instance.conduitDiseaseManager;var rows=(IList)Rows.GetValue(manager);var temperatures=Temperature.GetValue(manager);
             var food=Db.Get().Diseases.GetIndex(Db.Get().Diseases.FoodGerms.id);var slime=Db.Get().Diseases.GetIndex(Db.Get().Diseases.SlimeGerms.id);
             var best=float.NegativeInfinity;var bestCase="none";
             foreach(var material in new[]{SimHashes.ContaminatedOxygen,SimHashes.DirtyWater,SimHashes.Water,SimHashes.Oxygen})
@@ -103,7 +126,12 @@ namespace MixedAtmospheres.Oni
             }
             detail="No native current-mass fluid culture reached the fixed birth window; best "+bestCase;return false;
         }
-        internal static void TickReference(){if(Enabled&&reference!=null)reference.Sim200ms(.2f);}
+        internal static void TickReference()
+        {
+            if(!Enabled)return;
+            packets?.Sim200ms(.2f);
+            reference?.Sim200ms(.2f);
+        }
     }
     [HarmonyPatch(typeof(ConduitDiseaseManager),"Sim200ms")]
     internal static class ColonyGermEvolutionOraclePatch
