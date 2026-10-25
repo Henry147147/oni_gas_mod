@@ -37,7 +37,12 @@ that run). LOW owner mean 236 ms, diagnostic.
 
 ### Activation status
 
-Default-on for new colonies waits for the pipe save round trip (saves
+New colonies start mixed pipes and save their pipe runtime by default from
+2026-10-25 (user decision, [completion plan](completion-plan.md)); test runs
+opt out with `MA_COLONY_MIXED_PIPES=0` or `MA_COLONY_PIPE_SAVES=0` (the
+`mixed-pipe-save-guard` control needs the latter). Exact owned storage stays
+explicit. The default `base` colony on profile 5 passes 4/4 and writes its
+ordinary save. Earlier, default-on waited for the pipe save round trip (saves
 worker: MACOLP03 section 1, cold and menu reload) and the gameplay
 worker's pipe scenarios on mixed pipes. Passing in game on profile 4:
 `mixed-pipe-machines`, `mixed-pipe-heat-machines`, `mixed-pipe-colony`;

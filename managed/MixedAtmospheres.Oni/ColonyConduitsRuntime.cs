@@ -11,10 +11,10 @@ namespace MixedAtmospheres.Oni
     internal static class ColonyPipeRuntime
     {
         internal static bool Active=>ColonyConduits.Active;
-        // New colonies own their pipe mixtures once every pipe system has
-        // passed its in-game check; until then a run selects it explicitly.
-        // A loaded colony keeps the mode its save recorded.
-        internal static bool NewColoniesUseMixedPipes=>Environment.GetEnvironmentVariable("MA_COLONY_MIXED_PIPES")=="1";
+        // New colonies own their pipe mixtures by default (the user's playtest
+        // choice); MA_COLONY_MIXED_PIPES=0 keeps single-element packets for a
+        // test run. A loaded colony keeps the mode its save recorded.
+        internal static bool NewColoniesUseMixedPipes=>Environment.GetEnvironmentVariable("MA_COLONY_MIXED_PIPES")!="0";
         internal static string StartNotes { get; private set; }="";
         internal static string Failure { get; private set; }="";
         // One status-panel line: the colony's pipe mode and any fallback.

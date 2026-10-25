@@ -20,19 +20,21 @@ namespace MixedAtmospheres.Oni
         // solve shorten them where needed (docs/colony-owner.md#pacing).
         // Two steps exactly cover the native binary32 0.2 s frame.
         internal const double MaximumTimestepSeconds = .1f;
-        // New colonies run the saved base-game accuracy-floor profile
-        // (docs/base-game-floor.md) once its threshold is selected; until
-        // then only a test run selects it (MA_COLONY_GAME_FLOOR=1). A restored
-        // colony keeps the profile its save holds.
+        // New colonies run game profile 5 (core23), the user's playtest
+        // choice (docs/completion-plan.md#amendments); players cannot select
+        // older solvers. Development floor runs alone still select the
+        // production floor profile (MA_COLONY_GAME_FLOOR=1) or the game kernel
+        // with its native selectors (MA_COLONY_KERNEL3=1). A restored colony
+        // keeps the profile its save holds.
         internal static bool NewColoniesUseGameFloor => Environment.GetEnvironmentVariable("MA_COLONY_GAME_FLOOR") == "1";
         internal static bool NewColoniesUseGameKernel => Environment.GetEnvironmentVariable("MA_COLONY_KERNEL3") == "1";
         private static uint NewColonyFlags()
         {
             if (NewColoniesUseGameFloor && NewColoniesUseGameKernel)
                 throw new InvalidOperationException("Select either MA_COLONY_KERNEL3 or MA_COLONY_GAME_FLOOR for a new colony, not both.");
-            if (NewColoniesUseGameKernel) RequireGameKernel();
-            return OniNativeColony.PhysicsConduction | (NewColoniesUseGameKernel ? OniNativeColony.GameKernel :
-                NewColoniesUseGameFloor ? OniNativeColony.GameFloor : 0);
+            if (NewColoniesUseGameFloor) return OniNativeColony.PhysicsConduction | OniNativeColony.GameFloor;
+            RequireGameKernel();
+            return OniNativeColony.PhysicsConduction | OniNativeColony.GameKernel | (NewColoniesUseGameKernel ? 0 : OniNativeColony.GameSurface);
         }
         private static void RequireGameKernel()
         {

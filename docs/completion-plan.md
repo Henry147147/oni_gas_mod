@@ -8,6 +8,19 @@ still require separate authorization.
 
 Amendments:
 
+- **First private playtest, 2026-10-25 (user decisions):**
+  1. *Default profile.* New colonies use game profile 5 (core23, heat
+     mixing 8) now, with mixed pipes and their saves on, without any
+     environment variable or development file. The F3 levelling-time and F4
+     conduction floor results stay open and continue. Old saves keep the
+     profile and pipe mode they recorded.
+  2. *Playtest gate.* The first private Linux playtest needs those defaults,
+     the gameplay scenario checks passing on them, every base-game starting
+     asteroid loading, the prepared colony's ten-cycle run with autosaves
+     (every duplicant alive, no owner fault, closed ledgers) and an install
+     package with instructions. Exact owned storage (schema 5) with its heat
+     and biology controls, byte-exact continuation after load and the
+     remaining floor proofs continue as open work; they do not block it.
 - **Floor truth and heat mixing, 2026-10-24 (user decisions):** for the
   [base-game floor](base-game-floor.md):
   1. *Timing truth.* The strict resolved reference cannot advance F1–F5 at

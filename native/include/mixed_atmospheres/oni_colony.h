@@ -23,6 +23,9 @@ extern "C" {
 #define MA_ONI_COLONY_GAME_FLOOR 2U
 /* Explicit new-colony diagnostic kernel; exclusive with GAME_FLOOR. */
 #define MA_ONI_COLONY_GAME_KERNEL 4U
+/* With GAME_KERNEL only: create game profile 5 (core23, heat mixing 8), the
+ * default for new colonies (docs/completion-plan.md#amendments). */
+#define MA_ONI_COLONY_GAME_SURFACE 8U
 
 typedef struct MAOniColonyMaterial {
     uint32_t struct_size, abi_version;

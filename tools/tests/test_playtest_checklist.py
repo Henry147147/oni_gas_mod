@@ -15,6 +15,8 @@ class PrivateReadinessTests(unittest.TestCase):
         self.acceptance = json.loads(checklist.PRIVATE_STATUS.read_text())
 
     def test_all_implemented_still_blocks_unaccepted_private_release(self):
+        for row in self.acceptance["requirements"]:
+            row["status"] = "open"
         for entry in self.inventory["entries"]:
             if entry.get("playtest") == "in":
                 entry["status"] = "implemented"
@@ -43,6 +45,27 @@ class PrivateReadinessTests(unittest.TestCase):
         self.assertFalse(checklist.readiness(self.inventory, self.acceptance)["private_playtest_ready"])
         entry["status"] = "implemented"
         entry.pop("playtest")
+        self.assertFalse(checklist.readiness(self.inventory, self.acceptance)["private_playtest_ready"])
+
+    def test_deferred_acceptances_need_a_recorded_decision(self):
+        for row in self.acceptance["requirements"]:
+            row["status"] = "passed"
+            row.pop("decision", None)
+        for entry in self.inventory["entries"]:
+            if entry.get("playtest") == "in":
+                entry["status"] = "implemented"
+        row = self.acceptance["requirements"][0]
+        row["status"] = "deferred"
+        with self.assertRaises(ValueError):
+            checklist.readiness(self.inventory, self.acceptance)
+        row["decision"] = "docs/missing-decision.md"
+        with self.assertRaises(ValueError):
+            checklist.readiness(self.inventory, self.acceptance)
+        row["decision"] = "docs/completion-plan.md"
+        report = checklist.readiness(self.inventory, self.acceptance)
+        self.assertTrue(report["private_playtest_ready"])
+        self.assertEqual(report["deferred_acceptances"], [row["id"]])
+        self.acceptance["requirements"][1]["status"] = "open"
         self.assertFalse(checklist.readiness(self.inventory, self.acceptance)["private_playtest_ready"])
 
     def test_invalid_scope_status_or_evidence_cannot_pass(self):

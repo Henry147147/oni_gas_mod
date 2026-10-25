@@ -260,7 +260,8 @@ void write_error(MAOniColonyStatus& s, const char* text) { std::snprintf(s.error
 
 void validate(const MAOniColonyConfig& c) {
     require(c.struct_size == sizeof(c) && c.abi_version == MA_ONI_COLONY_ABI_VERSION, "Invalid colony configuration ABI");
-    require((c.flags & ~(MA_ONI_COLONY_PHYSICS_CONDUCTION | MA_ONI_COLONY_GAME_FLOOR | MA_ONI_COLONY_GAME_KERNEL)) == 0, "Unknown colony physics flag");
+    require((c.flags & ~(MA_ONI_COLONY_PHYSICS_CONDUCTION | MA_ONI_COLONY_GAME_FLOOR | MA_ONI_COLONY_GAME_KERNEL | MA_ONI_COLONY_GAME_SURFACE)) == 0, "Unknown colony physics flag");
+    require(!(c.flags&MA_ONI_COLONY_GAME_SURFACE) || (c.flags&MA_ONI_COLONY_GAME_KERNEL), "Game profile 5 needs the game kernel");
     require((c.flags&(MA_ONI_COLONY_GAME_FLOOR|MA_ONI_COLONY_GAME_KERNEL))!=(MA_ONI_COLONY_GAME_FLOOR|MA_ONI_COLONY_GAME_KERNEL),"Colony game profiles are exclusive");
     require(c.grid_width >= 3 && c.grid_height >= 3 && c.grid_width <= 65535 && c.grid_height <= 65535, "Invalid colony grid");
     require(c.width >= 2 && c.height >= 2 && c.width <= MA_ONI_COLONY_MAXIMUM_SIDE && c.height <= MA_ONI_COLONY_MAXIMUM_SIDE &&
@@ -304,7 +305,7 @@ MacClosedSettings settings_of(const MAOniColonyConfig& c) {
         game.vacuum=MacVacuumRepresentation::void_phase;game.thermal_conduction=(c.flags&MA_ONI_COLONY_PHYSICS_CONDUCTION)!=0;game.gravity_m_per_s2=c.gravity_m_per_s2;
         game.maximum_timestep_s=static_cast<double>(.2f);game.trace_sink_threshold_kg=game_floor_trace_kg;
         const auto selected=[](const char* name){const char* value=std::getenv(name);return value && std::strcmp(value,"1")==0;};
-        const bool surface=selected("MA_COLONY_KERNEL3_SURFACE");
+        const bool surface=(c.flags&MA_ONI_COLONY_GAME_SURFACE)!=0 || selected("MA_COLONY_KERNEL3_SURFACE");
         if (surface || selected("MA_COLONY_KERNEL3_POSITIVE")) {
             // The surface selector creates the newest candidate, family 5.
             game.game_profile=surface?MacGameProfile::game_kernel_trace_heat:MacGameProfile::game_kernel_positive_liquid;

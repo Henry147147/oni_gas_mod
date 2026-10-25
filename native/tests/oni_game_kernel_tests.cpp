@@ -168,6 +168,18 @@ int main() {
     require(c::checkpoint()==surface_expected,"Core23 owner cold continuation differs");
     c::stop();
     std::cout<<"PASS explicit core23 creation with saved heat mixing 8 and core23 restore without its selector\n";
+    {
+      auto flagged=config;flagged.flags|=MA_ONI_COLONY_GAME_SURFACE;
+      c::start(flagged,materials,cells,1);
+      const auto image=c::checkpoint();c::stop();
+      require(core_version(image)==23 && heat_mixing(image)==8,"Profile5 flag did not create core23 with heat mixing 8");
+      auto lone=flagged;lone.flags=MA_ONI_COLONY_PHYSICS_CONDUCTION|MA_ONI_COLONY_GAME_SURFACE;
+      bool refused=false;
+      try{c::start(lone,materials,cells,1);}catch(const std::exception&){refused=true;}
+      c::stop();
+      require(refused,"Profile5 flag without the game kernel was accepted");
+    }
+    std::cout<<"PASS default profile5 flag creates core23 without a selector; refused without the game kernel\n";
     std::cout << "PASS diagnostic kernel3 owner flag5, ownEOS publication, "
                  "native heat, opened door, zero retry/phase skips, ledgers "
                  "and exact owner cold continuation\n";

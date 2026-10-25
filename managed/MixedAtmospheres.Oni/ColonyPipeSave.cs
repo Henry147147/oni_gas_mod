@@ -12,9 +12,10 @@ namespace MixedAtmospheres.Oni
     internal static class ColonyPipeSave
     {
         private static byte[]? pending;
-        // Until the full mixed save path passes its in-game controls, only an
-        // explicit control (MA_COLONY_PIPE_SAVES=1) lifts the early save guard.
-        internal static bool WriterEnabled => Environment.GetEnvironmentVariable("MA_COLONY_PIPE_SAVES") == "1";
+        // Mixed-pipe colonies save their pipe runtime by default; exact native
+        // scheduling continuation stays open (docs/mixed-pipes.md). Only a
+        // save-guard control (MA_COLONY_PIPE_SAVES=0) keeps the early guard.
+        internal static bool WriterEnabled => Environment.GetEnvironmentVariable("MA_COLONY_PIPE_SAVES") != "0";
         internal static bool Pending => pending != null;
         internal static int Captured { get; private set; }
         internal static int Restored { get; private set; }

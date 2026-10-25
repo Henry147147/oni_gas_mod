@@ -319,15 +319,18 @@ def readiness(inventory: dict, acceptance: dict) -> dict:
     if len(ids) != len(set(ids)) or set(ids) != PRIVATE_REQUIREMENTS:
         raise ValueError("Private-playtest requirements are missing, duplicated or unknown")
     for row in rows:
-        if row.get("status") not in ("open", "passed"):
+        if row.get("status") not in ("open", "passed", "deferred"):
             raise ValueError("Unknown private-playtest acceptance status")
-        evidence = row.get("evidence", "")
-        if not evidence.startswith("docs/") or ".." in Path(evidence).parts or not (ROOT / evidence).is_file():
-            raise ValueError("Private-playtest requirement needs repository evidence")
+        # Only a recorded user decision defers an item past the first playtest.
+        documents = [row.get("evidence", "")] + ([row.get("decision", "")] if row["status"] == "deferred" else [])
+        for document in documents:
+            if not document.startswith("docs/") or ".." in Path(document).parts or not (ROOT / document).is_file():
+                raise ValueError("Private-playtest requirement needs repository evidence")
     report = status(inventory)
-    blockers = [row["id"] for row in rows if row["status"] != "passed"]
+    blockers = [row["id"] for row in rows if row["status"] == "open"]
     report.update(private_playtest_ready=not (blockers or report["open_systems"] or report["unmarked"]),
                   open_acceptances=blockers,
+                  deferred_acceptances=[row["id"] for row in rows if row["status"] == "deferred"],
                   acceptance_record="docs/private-playtest-release.md")
     return report
 
