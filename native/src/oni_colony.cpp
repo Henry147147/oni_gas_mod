@@ -220,7 +220,7 @@ struct SolidDisplacement {
     int source = -1; float solid_mass = 0; std::array<Cell, 8> neighbours{};
 };
 std::vector<SolidDisplacement> solid_displacements; // this native frame only
- // native worker only
+std::mutex solid_displacements_mutex; // callbacks may run on native job threads
 struct NativeExchange { double heat_j = 0, mass_in_kg = 0, mass_out_kg = 0; std::uint64_t changes = 0; };
 NativeExchange exchanged; // under inputs
 
@@ -1702,10 +1702,12 @@ bool owns(int native_cell) noexcept {
     return owned[(x - geometry.offset_x) + static_cast<std::size_t>(y - geometry.offset_y) * geometry.width].load(std::memory_order_relaxed) == 1;
 }
 
-bool beside_owned(int native_cell) noexcept {
+bool beside_owned(int native_cell, bool diagonals) noexcept {
     if (!enabled.load(std::memory_order_acquire) || native_cell < 0) return false;
     const auto pitch = static_cast<int>(geometry.grid_width + 2);
-    return owns(native_cell - 1) || owns(native_cell + 1) || owns(native_cell - pitch) || owns(native_cell + pitch);
+    return owns(native_cell - 1) || owns(native_cell + 1) || owns(native_cell - pitch) || owns(native_cell + pitch) ||
+        (diagonals && (owns(native_cell - pitch - 1) || owns(native_cell - pitch + 1) ||
+            owns(native_cell + pitch - 1) || owns(native_cell + pitch + 1)));
 }
 
 bool is_fluid_element(std::uint16_t native_element) noexcept {
@@ -1770,7 +1772,7 @@ void observe_native_solid(const NativeCells& n, int source) noexcept {
         if (owns(c)) out.neighbours[q] = {c, n.element[1][c], n.mass[1][c]};
         ++q;
     }
-    try { solid_displacements.push_back(out); } catch (...) {}
+    try { std::lock_guard lock(solid_displacements_mutex); solid_displacements.push_back(out); } catch (...) {}
 }
 namespace {
 bool resolve_solid_displacement(const NativeCells& n, const SolidDisplacement& before) noexcept {

@@ -94,7 +94,8 @@ void observe_native_solid(const NativeCells&, int source) noexcept;
 [[nodiscard]] bool owns(int native_cell) noexcept;
 // A native cell next to an owned one (a dug cell before the owner opens it):
 // native gas flow there would move owned gas outside the owner's books.
-[[nodiscard]] bool beside_owned(int native_cell) noexcept;
+// Solid observations also include diagonal candidates; fluid fences do not.
+[[nodiscard]] bool beside_owned(int native_cell, bool diagonals = false) noexcept;
 // The imported catalogue contains fluids only. Use the updated native
 // element at a postprocess source to distinguish transient fluid from solids.
 [[nodiscard]] bool is_fluid_element(std::uint16_t native_element) noexcept;

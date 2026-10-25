@@ -416,7 +416,7 @@ bool on_transition(void* data,void* events,int cell,const void* definition) {
                 !ma::oni::colony::allow_native_transition(cell,cells.element[1][cell],cells.temperature[1][cell]))) {
             (void)ma::oni::colony::suppress(MA_ONI_STATE_TRANSITION,cell); return false;
         }
-        if (ma::oni::colony::beside_owned(cell) && native_cells(data,cells))
+        if (ma::oni::colony::beside_owned(cell,true) && native_cells(data,cells))
             ma::oni::colony::observe_native_solid(cells,cell);
         return original<bool (*)(void*,void*,int,const void*)>(MA_ONI_STATE_TRANSITION)(data,events,cell,definition);
     }
@@ -439,12 +439,13 @@ void on_post_process(void* data,void* events,int cell) {
     // density and lateral swaps would move a scalar gas projection across
     // this boundary, losing its real mixture. Keep native solid work, but
     // fence transient fluid postprocessing beside the owner on both builds.
-    if (ma::oni::colony::beside_owned(cell)) {
+    if (ma::oni::colony::beside_owned(cell,true)) {
         ma::oni::colony::NativeCells cells{};
         if (native_cells(data,cells) && cell >= 0 &&
             static_cast<std::uint64_t>(cell) < static_cast<std::uint64_t>(cells.pitch)*cells.rows) {
-            if (ma::oni::colony::is_fluid_element(cells.element[1][cell])) return;
-            ma::oni::colony::observe_native_solid(cells,cell);
+            if (ma::oni::colony::is_fluid_element(cells.element[1][cell])) {
+                if (ma::oni::colony::beside_owned(cell)) return;
+            } else ma::oni::colony::observe_native_solid(cells,cell);
         }
     }
     original<void (*)(void*,void*,int)>(MA_ONI_POST_PROCESS)(data,events,cell);

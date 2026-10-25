@@ -46,7 +46,7 @@ void falling_solid_control() {
     using namespace ma::oni::colony;
     // Real mixed gas, with a binary32 projection that cannot retain its
     // minority constituent. Model one observed native solid swap, then melt.
-    for (const auto melt : {oxygen, carbon}) for (const bool heat_copy : {false, true}) for (const bool ambiguous : {false, true}) {
+    for (const bool diagonal : {false, true}) for (const auto melt : {oxygen, carbon}) for (const bool heat_copy : {false, true}) for (const bool ambiguous : {false, true}) {
         MAOniColonyConfig cfg{}; cfg.struct_size=sizeof(cfg); cfg.abi_version=1;
         cfg.flags=12; cfg.vacuum_index=vacuum; cfg.grid_width=cfg.width=3;
         cfg.grid_height=cfg.height=3; cfg.maximum_timestep_s=.1;
@@ -64,22 +64,26 @@ void falling_solid_control() {
         NativeCells native{}; native.pitch=native.rows=5;
         for(int b=0;b<2;++b) {
             element[b].assign(25,1); mass[b].assign(25,1000); temperature[b].assign(25,300);
-            element[b][12]=vacuum; if (ambiguous) element[b][13]=vacuum; mass[b][17]=4;
+            element[b][12]=vacuum; if (ambiguous) element[b][13]=vacuum;
             disease[b].assign(25,255); population[b].assign(25,0);
             native.element[b]=element[b].data(); native.mass[b]=mass[b].data(); native.temperature[b]=temperature[b].data();
             native.disease[b]=disease[b].data(); native.disease_count[b]=population[b].data();
         }
+        const int source = diagonal ? 18 : 17;
+        for(int b=0;b<2;++b) mass[b][static_cast<std::size_t>(source)]=4;
         write_shadow(native);
+        if (!ambiguous) require(beside_owned(source,true) && beside_owned(source)==!diagonal,
+            "solid observation must include diagonal-only ownership without widening the fluid fence");
         if (ambiguous) {element[1][13]=element[1][12]; mass[1][13]=mass[1][12]; temperature[1][13]=temperature[1][12];}
-        observe_native_solid(native,17);
-        std::swap(element[1][12],element[1][17]); std::swap(mass[1][12],mass[1][17]);
-        std::swap(temperature[1][12],temperature[1][17]);
-        std::swap(disease[1][12],disease[1][17]); std::swap(population[1][12],population[1][17]);
+        observe_native_solid(native,source);
+        std::swap(element[1][12],element[1][static_cast<std::size_t>(source)]); std::swap(mass[1][12],mass[1][static_cast<std::size_t>(source)]);
+        std::swap(temperature[1][12],temperature[1][static_cast<std::size_t>(source)]);
+        std::swap(disease[1][12],disease[1][static_cast<std::size_t>(source)]); std::swap(population[1][12],population[1][static_cast<std::size_t>(source)]);
         element[1][12]=static_cast<std::uint16_t>(melt);
         if (ambiguous) {element[1][13]=static_cast<std::uint16_t>(melt); mass[1][13]=4;}
 
-        const double expected_heat = heat_copy ? static_cast<double>(mass[1][17])*1005*2 : 0;
-        if (heat_copy) { temperature[1][17] += 2; population[1][17] += 7; } // native heat/biology followed the copy
+        const double expected_heat = heat_copy ? static_cast<double>(mass[1][static_cast<std::size_t>(source)])*1005*2 : 0;
+        if (heat_copy) { temperature[1][static_cast<std::size_t>(source)] += 2; population[1][static_cast<std::size_t>(source)] += 7; } // native heat/biology followed the copy
         capture_shadow(native);
         if (ambiguous) {
             require(status().state==2 && std::strstr(status().error,"ambiguous")!=nullptr,"ambiguous solid displacement must fault before scalar adoption");
