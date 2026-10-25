@@ -1085,6 +1085,15 @@ void stop() noexcept {
     pending_native_arena.reset();pending_native_arena_captures=0;
 }
 
+// The adapter could not settle a completed frame's outcome (a pipe receipt
+// it must refuse): the owner faults like a failed frame and advances no more.
+void fault_from_adapter(const char* reason) {
+    if (!reason || !*reason) throw std::invalid_argument("A colony fault needs a reason");
+    std::lock_guard lock(lifecycle);
+    if (!session) throw std::invalid_argument("No colony owner is active");
+    if (session->status.state == 1) fault(*session, (std::string("Adapter: ") + reason).c_str());
+}
+
 MAOniColonyStatus status() {
     std::lock_guard lock(publication);
     auto s = latest ? latest->status : empty_status();

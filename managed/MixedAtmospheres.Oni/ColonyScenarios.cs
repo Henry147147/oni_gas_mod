@@ -94,6 +94,7 @@ namespace MixedAtmospheres.Oni
                     case "germ-exposure": GermExposure(frame); break;
                     case "suit": Suit(frame); break;
                     case "pitcher-pump": PitcherPump(frame); break;
+                    case "fault-containment": FaultContainment(frame, status); break;
                     case "puft": Puft(frame); break;
                     case "plant": Plant(frame); break;
                     case "wheezewort": Wheezewort(frame); break;

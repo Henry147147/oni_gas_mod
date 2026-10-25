@@ -334,6 +334,10 @@ MA_ONI_API MAOniResult ma_oni_colony_biology(MAOniColonyBiology*, MAOniColonyBio
 /* Size query with a null buffer; the image describes the latest completed frame. */
 MA_ONI_API MAOniResult ma_oni_colony_checkpoint(uint8_t* buffer, uint32_t capacity, uint32_t* bytes);
 MA_ONI_API MAOniResult ma_oni_colony_stop(MAOniColonyStatus*);
+/* The adapter could not settle a completed frame's outcome: the owner faults
+ * with this reason (state 2, fluids frozen, saving refused) and advances no
+ * further. A fault already recorded is kept. */
+MA_ONI_API MAOniResult ma_oni_colony_fault(const char* reason);
 MA_ONI_API uint32_t ma_oni_colony_active(void);
 /* Presentation of the latest completed frame (docs/colony-owner.md#presentation).
  * Species in registry order, and one reading per open owned cell holding

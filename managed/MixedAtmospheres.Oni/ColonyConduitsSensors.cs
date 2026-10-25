@@ -21,7 +21,12 @@ namespace MixedAtmospheres.Oni
         private static readonly FieldInfo Filter=AccessTools.Field(typeof(ConduitElementSensor),"filterable");
         private static bool Prefix(ConduitElementSensor __instance,ref Tag __0,ref bool __1)
         {
-            if(!ColonyPipeSensors.Read(__instance,out var inventory))return true;
+            try{return Read(__instance,ref __0,ref __1);}
+            catch(Exception error){ColonyFault.Raise("pipe sensor",error);return true;}
+        }
+        private static bool Read(ConduitElementSensor __instance,ref Tag __0,ref bool __1)
+        {
+            if(ColonyFault.Faulted||!ColonyPipeSensors.Read(__instance,out var inventory))return true;
             __0=GameTags.Void;__1=inventory.Count>0;
             var wanted=((Filterable)Filter.GetValue(__instance)).SelectedTag;
             foreach(var part in inventory.Parts)
@@ -35,7 +40,12 @@ namespace MixedAtmospheres.Oni
     {
         private static bool Prefix(ConduitDiseaseSensor __instance,ref int __0,ref int __1,ref bool __2)
         {
-            if(!ColonyPipeSensors.Read(__instance,out var inventory))return true;
+            try{return Read(__instance,ref __0,ref __1,ref __2);}
+            catch(Exception error){ColonyFault.Raise("pipe sensor",error);return true;}
+        }
+        private static bool Read(ConduitDiseaseSensor __instance,ref int __0,ref int __1,ref bool __2)
+        {
+            if(ColonyFault.Faulted||!ColonyPipeSensors.Read(__instance,out var inventory))return true;
             var total=PipeAmount.Zero;var largest=0.0;__0=byte.MaxValue;__2=inventory.Count>0;
             foreach(var germ in inventory.Germs)
             {

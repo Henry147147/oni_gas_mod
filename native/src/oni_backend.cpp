@@ -1172,6 +1172,12 @@ MAOniResult ma_oni_colony_stop(MAOniColonyStatus* output) {
         ma::oni::colony::stop();
     });
 }
+MAOniResult ma_oni_colony_fault(const char* reason) {
+    return boundary([&] {
+        try { ma::oni::colony::fault_from_adapter(reason); }
+        catch (const std::invalid_argument& error) { throw Failure(MA_ONI_INVALID_ARGUMENT,error.what()); }
+    });
+}
 std::uint32_t ma_oni_colony_active() { return ma::oni::colony::active() ? 1U : 0U; }
 MAOniResult ma_oni_colony_species(MAOniColonySpecies* out, std::uint32_t capacity, std::uint32_t* count) {
     return boundary([&] {

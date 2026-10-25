@@ -148,7 +148,13 @@ namespace MixedAtmospheres.Oni
     [HarmonyPatch(typeof(Game), "StepTheSim")]
     internal static class ColonySaveStepPatch
     {
-        private static void Prefix() { ColonyPipeSave.TryRestore(); ColonySaveBarrier.EnterStep(); }
-        private static Exception? Finalizer(Exception? __exception) { ColonySaveBarrier.ExitStep(); return __exception; }
+        private static void Prefix() { ColonyPipeSave.TryRestore(); ColonySaveBarrier.EnterStep(); ColonyFault.Inject("sim-step"); }
+        // The last net: any exception escaping the game's sim step while the
+        // owner runs faults it (ColonyFault) instead of stopping every step.
+        private static Exception? Finalizer(Exception? __exception)
+        {
+            ColonySaveBarrier.ExitStep();
+            return __exception != null && ColonyOwner.Active ? ColonyFault.Contain(__exception, "game sim step") : __exception;
+        }
     }
 }

@@ -88,6 +88,7 @@ namespace MixedAtmospheres.Oni
             if(!Enabled||flow.conduitType!=ConduitType.Gas&&flow.conduitType!=ConduitType.Liquid)return null;
             var exhaust=consumer.GetComponent<Exhaust>();if(exhaust==null||consumer.GetComponent<Vent>()==null||consumer.storage==null)return null;
             var cell=(int)Input.GetValue(consumer);if(!ColonyConduits.Owns(flow,cell))return null;
+            ColonyFault.Inject("pipe-machine");
             if(!States.TryGetValue(consumer.storage,out var state))
             {
                 if(consumer.storage.items.Count!=0)throw new NotSupportedException("Mixed vent activation cannot adopt native storage packets.");
@@ -136,6 +137,9 @@ namespace MixedAtmospheres.Oni
         internal static bool Emit(Exhaust exhaust)
         {
             if(!Enabled)return false;var storage=exhaust.GetComponent<Storage>();if(storage==null||!States.TryGetValue(storage,out var state))return false;
+            // After a fault an owned vent emits nothing (its contents freeze).
+            if(ColonyFault.Faulted)return true;
+            ColonyFault.Inject("vent");
             // Sim200ms still evaluates native operational/overpressure flags
             // before reaching this hook. UpdateEmission's own checks remain.
             var world=Grid.PosToCell(exhaust);if(state.Consumer.ConsumptionRate==0||Grid.Solid[world])return true;
@@ -188,11 +192,20 @@ namespace MixedAtmospheres.Oni
     {
         private static void Prefix(ConduitConsumer __instance,ConduitFlow __1,ref ColonyPipeVents.Scope? __state)=>__state=ColonyPipeVents.BeginConsume(__instance,__1);
         private static Exception? Finalizer(Exception? __exception,ColonyPipeVents.Scope? __state)
-        {ColonyPipeVents.EndConsume(__state,__exception);return __exception;}
+        {
+            ColonyPipeVents.EndConsume(__state,__exception);
+            return __exception!=null&&ColonyConduits.Active?ColonyFault.Contain(__exception,"pipe intake"):__exception;
+        }
     }
     [HarmonyPatch(typeof(Exhaust),"UpdateEmission")]
     internal static class ColonyMixedVentEmissionPatch
-    {private static bool Prefix(Exhaust __instance)=>!ColonyPipeVents.Emit(__instance);}
+    {
+        private static bool Prefix(Exhaust __instance)
+        {
+            try{return !ColonyPipeVents.Emit(__instance);}
+            catch(Exception error){ColonyFault.Raise("vent emission",error);return false;}
+        }
+    }
     [HarmonyPatch(typeof(ConduitConsumer),"get_stored_mass")]
     internal static class ColonyMixedVentStoredMassPatch
     {

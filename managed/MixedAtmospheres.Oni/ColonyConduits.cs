@@ -313,6 +313,7 @@ namespace MixedAtmospheres.Oni
             return moved.Parcel;
         }
         internal static bool Owns(ConduitFlow flow,int cell) => Active && geometry.Contains(cell) && Flows.ContainsKey(flow);
+        internal static bool OwnsFlow(ConduitFlow flow) => Active && Flows.ContainsKey(flow);
         internal static bool TryRead(ConduitFlow flow,int cell,out PipeInventory inventory)
         {
             if (!Owns(flow,cell)) { inventory=PipeInventory.Empty;return false; }
@@ -458,9 +459,15 @@ namespace MixedAtmospheres.Oni
             if(transferScope is var scope&&scope!=null&&scope.Flow==flow&&(index==scope.Primary||index==scope.Secondary))scope.Source=index;
             // Readers project completed ownership only. They cannot change
             // heat, germs, accounts, native state or the physical trajectory.
-            var cell=Flows[flow].Cells[index];
-            if(cell!=null)result=Project(cell,result);
-            else if(result.mass>0)throw new InvalidOperationException("A nonempty native pipe was not registered at a physical boundary.");
+            // After a fault, readers see the frozen native projection.
+            if(ColonyFault.Faulted)return;
+            try
+            {
+                var cell=Flows[flow].Cells[index];
+                if(cell!=null){ColonyFault.Inject("pipe-read");result=Project(cell,result);}
+                else if(result.mass>0)throw new InvalidOperationException("A nonempty native pipe was not registered at a physical boundary.");
+            }
+            catch(Exception error){ColonyFault.Raise("pipe reader",error);}
         }
         private static ConduitFlow.ConduitContents ReadRaw(ConduitFlow flow,int index)
         {
@@ -508,10 +515,12 @@ namespace MixedAtmospheres.Oni
         internal static void BeginCell(ConduitFlow flow,int cell)
         {
             if(!Owns(flow,cell))return;
+            ColonyFault.Inject("pipe-flow");
             SyncNative(flow,cell);Publish(flow,cell);
         }
         internal static void ThermalBoundary()
         {
+            ColonyFault.Inject("pipe-heat");
             if(!Active)return;
             foreach(var flow in Flows)
                 for(var i=0;i<flow.Value.Cells.Length;++i)
@@ -699,15 +708,19 @@ namespace MixedAtmospheres.Oni
             internal ColonyPipeContactHeat.Scope? Contact;
         }
         private static MethodBase TargetMethod()=>AccessTools.Method(AccessTools.TypeByName("ConduitTemperatureManager"),"Sim200ms");
-        private static void Prefix(float __0,ref Scope? __state)
+        // After a fault the owned pipes' heat freezes with their contents.
+        private static bool Prefix(float __0,ref Scope? __state)
         {
+            if(ColonyFault.Faulted&&ColonyConduits.Active)return false;
             var contact=ColonyPipeContactHeat.Begin(__0);
             if(contact!=null)__state=new Scope{Contact=contact};
             var probe=ColonyPipeThermalProbe.Begin(__0);
             if(probe!=null){__state??=new Scope();__state.Probe=probe;}
+            return true;
         }
         private static void Postfix(float __0,Scope? __state)
         {
+            if(ColonyFault.Faulted&&ColonyConduits.Active)return;
             ColonyPipeThermalProbe.AfterNative(__state?.Probe);__state?.Contact?.Validate();
             ColonyConduits.ThermalBoundary();__state?.Contact?.Complete();ColonyPipeThermalProbe.AfterBook(__state?.Probe);
             // Network rebuilds call the thermal update with dt 0; phase
@@ -718,7 +731,7 @@ namespace MixedAtmospheres.Oni
         {
             try{ColonyPipeThermalProbe.EndScope(__state?.Probe);}
             finally{ColonyPipeContactHeat.End(__state?.Contact);}
-            return __exception;
+            return __exception!=null&&ColonyConduits.Active?ColonyFault.Contain(__exception,"pipe heat"):__exception;
         }
     }
     [HarmonyPatch]
@@ -787,6 +800,10 @@ namespace MixedAtmospheres.Oni
             if(began!=1||target!=1||compared!=1||limited!=1||moved!=1||finished!=1)
                 throw new InvalidOperationException($"Unsupported conduit move hooks: {began}/{target}/{compared}/{limited}/{moved}/{finished}.");
         }
+        // A worker's failing conduit update faults the owner; ONI's job
+        // manager would only log it again on every later step.
+        private static Exception? Finalizer(Exception? __exception,ConduitFlow __instance)=>
+            __exception!=null&&ColonyConduits.OwnsFlow(__instance)?ColonyFault.Contain(__exception,"pipe flow"):__exception;
         private static int Slot(CodeInstruction instruction,bool store)
         {
             var op=instruction.opcode;

@@ -12,6 +12,7 @@ namespace ma::oni::colony {
 void start(const MAOniColonyConfig&, std::span<const MAOniColonyMaterial>, std::span<const MAOniColonyCell>, std::uint64_t thread);
 void restore(const MAOniColonyConfig&, std::span<const MAOniColonyMaterial>, std::span<const std::uint8_t>, std::uint64_t thread);
 void stop() noexcept;
+void fault_from_adapter(const char* reason);
 [[nodiscard]] bool active() noexcept;
 [[nodiscard]] bool busy() noexcept;
 [[nodiscard]] MAOniColonyStatus status();

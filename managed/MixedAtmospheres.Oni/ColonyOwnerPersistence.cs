@@ -49,7 +49,8 @@ namespace MixedAtmospheres.Oni
         internal static bool TryWriteSave(BinaryWriter writer, int offsetX, int offsetY)
         {
             if (!ColonyOwner.Active) return false;
-            if (ColonyOwner.Status.State != 1) throw new InvalidOperationException("A faulted colony owner cannot be saved: " + ColonyOwner.Status.Error);
+            if (ColonyOwner.Status.State != 1 || ColonyFault.Faulted)
+                throw new InvalidOperationException("A faulted colony owner cannot be saved: " + (ColonyFault.Faulted ? ColonyFault.Reason : ColonyOwner.Status.Error));
             // Normally settled at SaveLoader.Save(string) entry; any other
             // path settles here, before the native section is captured.
             var settledFrame = ColonySaveBarrier.ForCapture();

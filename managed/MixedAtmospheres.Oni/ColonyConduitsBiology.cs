@@ -240,9 +240,17 @@ namespace MixedAtmospheres.Oni
     [HarmonyPatch(typeof(ConduitDiseaseManager),"Sim200ms")]
     internal static class ColonyMixedPipeBiologyPatch
     {
-        private static void Prefix(ConduitDiseaseManager __instance,float __0,ref ColonyPipeBiology.Scope? __state)=>__state=ColonyPipeBiology.Begin(__instance,__0);
+        // After a fault the owned pipes' germs freeze with their contents.
+        private static bool Prefix(ConduitDiseaseManager __instance,float __0,ref ColonyPipeBiology.Scope? __state)
+        {
+            if(ColonyFault.Faulted&&ColonyConduits.Active)return false;
+            __state=ColonyPipeBiology.Begin(__instance,__0);return true;
+        }
         private static void Postfix(ColonyPipeBiology.Scope? __state)=>__state?.Finish(true);
         private static Exception? Finalizer(Exception? __exception,ColonyPipeBiology.Scope? __state)
-        {__state?.Finish(false);return __exception;}
+        {
+            __state?.Finish(false);
+            return __exception!=null&&ColonyConduits.Active?ColonyFault.Contain(__exception,"pipe germs"):__exception;
+        }
     }
 }

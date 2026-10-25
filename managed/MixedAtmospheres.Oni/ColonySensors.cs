@@ -13,10 +13,18 @@ namespace MixedAtmospheres.Oni
     {
         internal const double TraceFraction = 1e-3;
 
+        // A reader that throws faults the owner (ColonyFault) and the sensor
+        // falls back to the grid's shown cell.
         internal static bool Present(int cell, int element)
+        {
+            try { return ReadPresent(cell, element); }
+            catch (System.Exception error) { ColonyFault.Raise("element sensor", error); return Grid.ElementIdx[cell] == element; }
+        }
+        private static bool ReadPresent(int cell, int element)
         {
             if (!ColonyOwner.Active || !ColonyOwner.OwnsFluidCell(cell) || element < 0 || element >= ElementLoader.elements.Count)
                 return Grid.ElementIdx[cell] == element;
+            ColonyFault.Inject("sensor");
             var wanted = ElementLoader.elements[element];
             if (!wanted.IsGas && !wanted.IsLiquid) return Grid.ElementIdx[cell] == element;
             var count = ColonyOwner.Composition(cell, out var indices, out var masses);
@@ -34,6 +42,11 @@ namespace MixedAtmospheres.Oni
         // Gas or liquid mass of a cell for an atmo or hydro sensor.
         internal static float PhaseMass(int cell, Element.State state)
         {
+            try { return ReadPhaseMass(cell, state); }
+            catch (System.Exception error) { ColonyFault.Raise("pressure sensor", error); return Grid.Element[cell].IsState(state) ? Grid.Mass[cell] : 0f; }
+        }
+        private static float ReadPhaseMass(int cell, Element.State state)
+        {
             var gas = state == Element.State.Gas; var liquid = state == Element.State.Liquid;
             if (!ColonyOwner.Active || !ColonyOwner.OwnsFluidCell(cell) || !(gas || liquid))
                 return Grid.Element[cell].IsState(state) ? Grid.Mass[cell] : 0f;
@@ -47,6 +60,11 @@ namespace MixedAtmospheres.Oni
         // the most numerous one the game's grid shows.
         private static readonly uint[] one = new uint[1];
         internal static int Germs(int cell)
+        {
+            try { return ReadGerms(cell); }
+            catch (System.Exception error) { ColonyFault.Raise("germ sensor", error); return Grid.DiseaseCount[cell]; }
+        }
+        private static int ReadGerms(int cell)
         {
             if (!ColonyOwner.Active || !ColonyOwner.OwnsFluidCell(cell)) return Grid.DiseaseCount[cell];
             one[0] = (uint)cell;

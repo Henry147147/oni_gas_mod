@@ -88,7 +88,13 @@ play.
   [settings](settings.md) records and keeps them.
 
 A faulted owner keeps publishing its last frame (fluids freeze), logs the error
-and refuses saves.
+and refuses saves. An exception escaping one of the mod's paths inside the
+game's per-frame update (receipt settlement, the owner's publication and
+messages, owned pipe moves, intakes, heat and germs, vents, sensors and pipe
+readers, and as a last net the game's sim step) faults the owner the same way,
+once (`ma_oni_colony_fault`, `ColonyFault`): owned pipes freeze with the fluids,
+the notice shows, and the exception never reaches the sim step, which would
+otherwise stop every later step without telling the player.
 
 ## Presentation
 
@@ -924,6 +930,7 @@ setting their powered flag (harness only).
 | `electrolyzer-blocked` | An electrolyzer in a mixture above its overpressure limit takes no water and draws no power. |
 | `hazards` | Duplicants in hot air, dense air and water are scalded, get popped eardrums and hold their breath. |
 | `germ-exposure` | A duplicant breathing air carrying slimelung is exposed. |
+| `fault-containment` | A throw injected into each per-frame owner and pipe path is contained without stopping the game's step; a last, real one faults the owner once: it and its pipes freeze, a heater built afterwards still gets power and saving is refused. Run it last in a batch. |
 
 ### Floor arenas
 

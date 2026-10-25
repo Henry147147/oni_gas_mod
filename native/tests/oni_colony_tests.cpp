@@ -470,7 +470,16 @@ void quiet_game_cell_control() {
     cfg.flags=MA_ONI_COLONY_GAME_KERNEL;cfg.vacuum_index=vacuum;cfg.grid_width=cfg.width=3;cfg.grid_height=cfg.height=3;cfg.maximum_timestep_s=.1;
     std::vector<MAOniColonyCell> cells(9,MAOniColonyCell{0,MA_ONI_COLONY_SOLID,0,0,0,0});cells[4]={oxygen,MA_ONI_COLONY_FLUID,1,300,0,0};
     start(cfg,mats,cells,1);advance(1,.2,2);wait();require(status().state==1 && status().completed_frames==1,"quiet single-cell game owner failed");
-    stop();std::cout<<"QUIET GAME CELL PASS\n";
+    // An outcome the adapter cannot settle faults the owner like a failed
+    // frame: it keeps the first reason and advances no further.
+    bool refused=false; try { fault_from_adapter(""); } catch (const std::invalid_argument&) { refused=true; }
+    require(refused && status().state==1,"an empty adapter fault was accepted");
+    fault_from_adapter("pipe outcome refused");fault_from_adapter("second reason");
+    advance(2,.2,2);wait();const auto faulted=status();
+    require(faulted.state==2 && faulted.completed_frames==1 && std::string(faulted.error)=="Adapter: pipe outcome refused","adapter fault did not stop the owner");
+    stop();refused=false; try { fault_from_adapter("after stop"); } catch (const std::invalid_argument&) { refused=true; }
+    require(refused,"an adapter fault without an owner was accepted");
+    std::cout<<"QUIET GAME CELL PASS\n";
 }
 void moving_job_control() {
     using namespace ma::oni::colony;

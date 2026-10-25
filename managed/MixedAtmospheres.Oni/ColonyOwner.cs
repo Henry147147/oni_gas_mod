@@ -88,6 +88,7 @@ namespace MixedAtmospheres.Oni
         private static bool[] catalogued = Array.Empty<bool>();
         private static OwnedGameDataSnapshot? current;
         private static string loggedFault = "";
+        internal static string NoticedFault => loggedFault;
 
         // The owner needs the attached native hooks; development validation
         // scenes keep their own owners, except the colony-owner scene.
@@ -109,7 +110,7 @@ namespace MixedAtmospheres.Oni
             ColonyPacing.Reset(); ColonyOwnerPersistence.Reset(); ModSettingsRuntime.Reset();
             publicationCells=Array.Empty<int>();CellMapComparisons=0;
             passiveSession=0;passiveFrame=ulong.MaxValue;WorldPassiveComparisons=WorldPassiveRows=WorldPassiveBusy=0;
-            Active = false; considered = false; restoreAttempted = false; StartFailure = ""; loggedFault = ""; Publications = 0; PublicationMilliseconds = MaximumPublicationMilliseconds = 0; Census.Clear(); molarMass = Array.Empty<double>();
+            Active = false; considered = false; restoreAttempted = false; StartFailure = ""; loggedFault = ""; ColonyFault.Reset(); Publications = 0; PublicationMilliseconds = MaximumPublicationMilliseconds = 0; Census.Clear(); molarMass = Array.Empty<double>();
             completionObservedAt = 0; completionObservedFrame = ulong.MaxValue; frameTiming.Reset();
         }
 
@@ -276,9 +277,16 @@ namespace MixedAtmospheres.Oni
 
         // After every native message: start at the first completed frame, then
         // publish each completed owner frame into the game's data copy.
+        // A publication that throws faults the owner (ColonyFault) and this
+        // frame's game data is skipped (ONI's step returns early on none).
         internal static IntPtr AfterNativeMessage(int message, IntPtr pointer)
         {
             if (message != PrepareGameData || pointer == IntPtr.Zero || !Available) return pointer;
+            try { ColonyFault.Inject("publication"); return Publish(pointer); }
+            catch (Exception error) { ColonyFault.Raise("owner publication", error); return IntPtr.Zero; }
+        }
+        private static IntPtr Publish(IntPtr pointer)
+        {
             var source = (Sim.GameDataUpdate*)pointer;
             ColonyActors.Observe(source);
             if (!Active && ClusterManager.Instance != null && ColonyOwnerPersistence.TakePending() is var (saved, image)) { restoreAttempted = true; ColonyOwnerPersistence.RestoreOwner(saved, image); }
@@ -314,9 +322,10 @@ namespace MixedAtmospheres.Oni
             if (status.State == 2 && loggedFault != status.Error)
             {
                 loggedFault = status.Error;
-                Debug.LogError("[Mixed Atmospheres] Colony owner faulted; fluids are frozen: " + status.Error);
+                if (ColonyFault.InjectedFault) Debug.LogWarning("[Mixed Atmospheres] Colony owner stopped by its injected control fault: " + status.Error);
+                else Debug.LogError("[Mixed Atmospheres] Colony owner faulted; fluids are frozen: " + status.Error);
                 ColonyNotices.Show("Mixed Atmospheres stopped", "The gas and liquid simulation stopped: " + status.Error +
-                    "\n\nGases and liquids are frozen and this colony cannot be saved. Load your last save to continue.");
+                    "\n\nGases and liquids, in the world and in pipes, are frozen and this colony cannot be saved. Load your last save to continue.");
             }
             var copy = OwnedGameDataSnapshot.Capture(source, Grid.WidthInCells, Grid.HeightInCells);
             Lap("snapshot");
@@ -400,7 +409,16 @@ namespace MixedAtmospheres.Oni
             if (element == null || !(r.MassKg > 0)) return;
             element.substance.SpawnResource(Grid.CellToPosCCC((int)r.PublicCell, Grid.SceneLayer.Ore), r.MassKg, r.TemperatureK, byte.MaxValue, 0);
         }
+        // A receipt the adapter cannot settle (a pipe outcome it must refuse)
+        // faults the owner (ColonyFault); a faulted owner's receipts are not
+        // delivered again (they would refuse again).
         private static void DeliverReceipts(OwnedGameDataSnapshot copy)
+        {
+            if (ColonyFault.Faulted) return;
+            try { ColonyFault.Inject("receipts"); DeliverReceiptsOrThrow(copy); }
+            catch (Exception error) { ColonyFault.Raise("receipt settlement", error); }
+        }
+        private static void DeliverReceiptsOrThrow(OwnedGameDataSnapshot copy)
         {
             var begun=publicationLog ? System.Diagnostics.Stopwatch.GetTimestamp() : 0;
             OniNativeColony.Check(OniNativeColony.CopyReceipts(receipts, (uint)receipts.Length, out var count));
@@ -450,9 +468,25 @@ namespace MixedAtmospheres.Oni
 
         // Mass and heat messages for owned fluid cells go to the owner. Returns
         // true when the whole batch was claimed.
+        // A message the owner cannot handle faults the owner (ColonyFault). A
+        // fluid edit is then dropped (fluids are frozen); frames, digs, cell
+        // properties and germ edits still reach ONI for its solids.
         internal static bool TryHandle(int message, int length, int count, byte* payload)
         {
             if (count <= 0 || payload == null || !Available) return false;
+            try
+            {
+                if (message == MassEmission || message == MassConsumption || message == ModifyCellEnergy) ColonyFault.Inject("messages");
+                return Handle(message, length, count, payload);
+            }
+            catch (Exception error)
+            {
+                ColonyFault.Raise("owner messages", error);
+                return message != NewGameFrame && message != Dig && message != CellProperties && message != ColonyWorldGerms.CellDiseaseModification;
+            }
+        }
+        private static bool Handle(int message, int length, int count, byte* payload)
+        {
             if (ColonyActors.TryHandle(message, length, count, payload, Active)) return true;
             if (!Active) return false;
             if (message == NewGameFrame && length >= 4)

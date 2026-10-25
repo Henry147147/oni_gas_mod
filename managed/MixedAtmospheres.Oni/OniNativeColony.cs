@@ -178,6 +178,9 @@ namespace MixedAtmospheres.Oni
         [DllImport(Library, EntryPoint = "ma_oni_colony_checkpoint", CallingConvention = CallingConvention.Cdecl)]
         internal static extern int Checkpoint([Out] byte[]? buffer, uint capacity, out uint bytes);
         [DllImport(Library, EntryPoint = "ma_oni_colony_stop", CallingConvention = CallingConvention.Cdecl)] internal static extern int Stop(ref Status status);
+        [DllImport(Library, EntryPoint = "ma_oni_colony_fault", CallingConvention = CallingConvention.Cdecl)] private static extern int FaultUtf8(byte[] reason);
+        // The adapter could not settle a completed frame: the owner faults (state 2) with this reason.
+        internal static int Fault(string reason) => FaultUtf8(System.Text.Encoding.UTF8.GetBytes(reason + "\0"));
         [DllImport(Library, EntryPoint = "ma_oni_colony_active", CallingConvention = CallingConvention.Cdecl)] internal static extern uint Active();
         [DllImport(Library, EntryPoint = "ma_oni_colony_species", CallingConvention = CallingConvention.Cdecl)]
         internal static extern int SpeciesList([Out] Species[]? species, uint capacity, out uint count);

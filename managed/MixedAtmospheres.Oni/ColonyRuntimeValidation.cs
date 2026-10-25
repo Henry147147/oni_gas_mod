@@ -418,7 +418,8 @@ namespace MixedAtmospheres.Oni
             if (ColonyPipeRuntime.Failure.Length != 0) throw new InvalidOperationException(ColonyPipeRuntime.Failure);
             if (colonyOwnerWallStart == default) colonyOwnerWallStart = System.DateTime.UtcNow;
             Report.PhysicsOwner = "colony owner (MacClosedWorld); native ONI for solids";
-            var faulted = status.State == 2;
+            // The fault-containment scenario's own injected fault is expected.
+            var faulted = status.State == 2 && !ColonyScenarios.FaultExpected;
             // A system scenario (ColonyScenarios) decides when the run ends;
             // its checks of this frame go into the report below.
             var scenarioDone = configuration!.Scenario.Length != 0 && !faulted && ColonyScenarios.Update(configuration.Scenario, status);

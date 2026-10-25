@@ -63,7 +63,8 @@ namespace MixedAtmospheres.Oni
                 status.MaximumRelativeMassError,status.MaximumRelativeEnergyError,status.TraceSinkKg,status.TraceSinkJoules,status.Error
             }));
             ReportJson.WriteAtomicText(path,final.ToString(Newtonsoft.Json.Formatting.Indented));
-            if(status.State!=1 || status.Error.Length!=0)
+            // The fault-containment scenario's own injected fault is expected.
+            if((status.State!=1 || status.Error.Length!=0) && !ColonyScenarios.FaultExpected)
                 throw new InvalidOperationException("Owner failed during validation completion: "+status.Error);
         }
         private static void ObserveOwnerReloadMainMenu()
