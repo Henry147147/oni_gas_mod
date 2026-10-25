@@ -314,6 +314,42 @@ overlap. Maximum mass/energy errors are **3.299e-16 / 4.897e-18**, trace sink
 process cleanup. Native/owner phase and compression corrections plus resolved
 dynamic truth remain open; the reliable sampler is not a floor acceptance.
 
+### Profile 4 measurements, 2026-10-24
+
+The later immutable `solver-p4-bfd8-v1` bundle selects core22 with saved gas
+heat mixing8. Its `p4a` Linux runs complete the frozen 120 s arenas with no
+sample gaps, refused projections, owner faults or skipped relaxations.
+These supersede profile18's measurements for the candidate profile; they do
+not establish the complete floor.
+
+| Arena | Profile4 measurement | Comparison still needed |
+| --- | --- | --- |
+| F1 | Equalisation [1.4, 1.6] s; L/R/divider fractions 0.470600362761 / 0.470576115197 / 0.058823522042 | All three analytic split errors improve on the recorded clean vanilla measurements. Independent gas timing probes reach [0.4, 0.6] s at both 8× and16×, but ran only20 s; a justified timing range and provenance remain to be recorded. |
+| F2 | Closed leakage zero; command-to-open3.0 s | Pressure timing still uses the release-sample heat. Accepted external heat and kinetic/gravitational energy must enter its truth before acceptance. |
+| F3 | Levelling [5.8, 6.0] s; depth1.999787384350 m | Depth error7.697e-6 m against the amended1.999779687 m truth improves on vanilla. Independent VOF8×/16× events [48.4, 48.6] / [25.8, 26.0] s disagree enough to leave the timing comparison unresolved. |
+| F5 | Settling [0, 0] s; water below oil; depths3.999909813768 / 2.000000019206 m; overlap zero | Water-depth error4.229e-5 m improves on vanilla against the amended3.999867527 m truth. Oil-depth comparison and dynamic truth remain open. The fixed settling predicate already holds at release; this is not a measured fall duration. |
+
+The F3 VOF probes run the full120 s from the released, stationary field and
+report their clipped-volume accounts (5.78e-7 / 7.92e-7 m³). Their broad timing
+range crosses the point where owner and vanilla have equal error; choosing
+only its16× endpoint would manufacture a pass. They remain exploratory
+reference evidence. Source, numerical methods and independent controls still
+need a reproducible review before reference acceptance.
+
+`tools/floor_timing.py` compares event sample brackets over an explicitly
+documented truth range, preserving both sampling and truth uncertainty. It
+reports `unresolved` when admissible times reverse the comparison or either
+event is censored. It does not establish a physical basis for a supplied
+range or certify the full floor. For example, F3's exploratory range above
+leaves its [5.8,6.0] s owner / [68.8,69.0] s vanilla comparison unresolved.
+
+The complete Unity vanilla F4 `w1` measurement also now reaches its fixed
+20000 s endpoint: 35 K crossing [0.8,1.0] s, final fluid temperature
+318.028901253 K and caloric-equilibrium error0.061261183 K. Its release row
+has already exchanged heat, as described in the admission audit below;
+frozen initial truth still requires the admission tuples. No complete
+profile4 F4 or aligned solid/fluid dynamic reference has been established.
+
 ### F4 admission audit
 
 The interrupted vanilla journal starts with an empty-room row, then its first
