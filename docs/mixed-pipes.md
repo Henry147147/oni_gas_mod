@@ -110,6 +110,35 @@ native chunk temperature/capacity before those writes remains the next causal
 check. Thermal acceptance, biology and live storage continuation stay open;
 no residual account, reduced thermal service or default activation is accepted.
 
+The immutable native-observer repeat v5 measures a 4581.4294168977649 J
+surplus. Its actual native chunk endpoints prove that queued absolute
+temperature writes create 4584.554700762965 J across 254 frame/handle groups:
+the native chunks have already cooled beyond the published temperatures used
+to form their replacement values. Capacities and cells stay unchanged, every
+after-state equals the last queued request, and no matching move, energy,
+adjuster or removal message confounds those handles. Global registrations
+are recorded separately. This establishes a projection-publication defect;
+the smaller remaining difference still needs proof and is not an accepted
+rounding allowance. The same bundle's `owned-storage-readers` repeat passes
+5/5: all three species and fractional/tiny germ identities remain visible,
+100 pure reads change no inventory, heat or account, and physical withdrawal
+produces an explicit empty reading. Neither control enables live schema5 saves.
+
+The separately activated `owned-storage-biology` control now passes 15/15 on
+core23 (`codex-resume-storage-biology-control-v4`). Actual reservoirs use native
+item insulation for a fixed 300 K biology comparison, independently of the
+still-failing thermal control. One original native culture and one owned
+1,000,000-germ water culture retain identical counts, float residue and cached
+material/tag/threshold state through 33 real disease-manager callbacks and 457
+comparisons. Logical storage tags match all 24 native tag-rule cases. A second
+store evolves fractional, tiny and 1e300-germ identities with exact per-ID
+growth/death audits; a 1e-240 kg-only store retains an evolved population near
+9.99618e-241. All three evolved inventories withdraw byte for byte, and their
+2674-byte model image reencodes exactly. This is not live game cold-rebind or
+schema5 save acceptance. Earlier fixture runs retain their temperature-drift,
+repeated-source and entombed-reservoir failures. Default storage biology remains
+off until its remaining integration controls pass.
+
 Every `ConduitConsumer`/`ConduitDispenser` on an owned cell keeps its native
 gates, rates and storage (`ColonyConduitsMachinePorts.cs`). An input takes
 rate*dt of the cell's whole mixture in proportion, capped so the accepted

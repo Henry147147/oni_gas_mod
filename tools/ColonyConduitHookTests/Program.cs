@@ -22,6 +22,7 @@ internal static class Program
     static int Run()
     {
         var assembly=typeof(MixtureInspection).Assembly;
+        StoredBiologyHooks.Run(assembly);
         var cultureProbe=assembly.GetType("MixedAtmospheres.Oni.ColonyGermEvolutionProbe")!;
         var cultureAllocate=(MethodInfo)cultureProbe.GetField("AllocateCulture",BindingFlags.Static|BindingFlags.NonPublic)!.GetValue(null)!;
         Check(cultureAllocate.DeclaringType==typeof(ConduitDiseaseManager)&&cultureAllocate.GetParameters().Length==2&&

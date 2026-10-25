@@ -45,7 +45,7 @@ namespace MixedAtmospheres.Oni
             if(!ColonyPipeRuntime.Active||!ColonyMachinePorts.Enabled)throw new InvalidOperationException("Exact component storage requires the mixed-pipe runtime.");
             Enabled=true;MixtureInspection.SetOwnedStorageReader(storage=>Owns(storage)?ColonyPipeInspection.Describe(Inventory(storage),"Stored mixture"):null);
         }
-        internal static void Reset(){Enabled=false;Hosts.Clear();editing=registering=0;HeatPublications=0;MixtureInspection.SetOwnedStorageReader(null);}
+        internal static void Reset(){ResetBiology();Enabled=false;Hosts.Clear();editing=registering=0;HeatPublications=0;MixtureInspection.SetOwnedStorageReader(null);}
         internal static bool Owns(Storage storage)=>Enabled&&Hosts.ContainsKey(storage);
         private static byte ReservoirPhase(Storage storage)
         {
