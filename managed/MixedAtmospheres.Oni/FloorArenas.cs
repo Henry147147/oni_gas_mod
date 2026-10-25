@@ -36,6 +36,8 @@ namespace MixedAtmospheres.Oni
         private static string output = "";
         private static string prefixDump = "";
         private static bool prefixHeaderWritten;
+        private static long f4Cleared = -1, f4Reset = -1;
+        private static string admissionPath = "";
         [StructLayout(LayoutKind.Sequential)]
         private struct SampleCell { internal uint PublicCell, FirstConstituent, Constituents, Flags; internal double TemperatureK; }
         [StructLayout(LayoutKind.Sequential)]
@@ -78,7 +80,14 @@ namespace MixedAtmospheres.Oni
             if (Array.IndexOf(Ids, id) < 0) throw new ArgumentException("Unknown floor arena " + id);
             Id = id; output = directory; ticks = 0; cleared = uncovered = built = filled = locked = commanded = opened = release = -1; releasedAt = -1;
             prefixDump = id == "f4" ? Environment.GetEnvironmentVariable("MA_COLONY_FLOOR_PREFIX_DUMP") ?? "" : "";
-            prefixHeaderWritten = false;
+            prefixHeaderWritten = false; f4Cleared = f4Reset = -1;
+            admissionPath = id == "f4" ? Environment.GetEnvironmentVariable("MA_COLONY_FLOOR_ADMISSION_DUMP") ?? Path.Combine(output,"floor-f4-admission.bin") : "";
+            if(id == "f4")
+            {
+                Environment.SetEnvironmentVariable("MA_COLONY_FLOOR_ADMISSION_DUMP",admissionPath);
+                if(string.IsNullOrEmpty(Environment.GetEnvironmentVariable("MA_COLONY_RELEASE_DUMP")))
+                    Environment.SetEnvironmentVariable("MA_COLONY_RELEASE_DUMP",Path.Combine(output,"floor-f4-initial-world.bin"));
+            }
             if (prefixDump.Length != 0 && File.Exists(prefixDump)) throw new IOException("Floor prefix capture requires a fresh private path.");
             door = null; simulated = 0; seen.Clear(); placed.Clear(); samples?.Dispose(); samples = null;
             ownerRequested = Array.Empty<uint>(); ownerCells.Clear(); ownerSampleFrames.Clear(); ownerSampleAudits.Clear();
@@ -186,9 +195,10 @@ namespace MixedAtmospheres.Oni
                 line.Append(' ').Append(element).Append(' ').Append(kg.ToString("R", CultureInfo.InvariantCulture));
             }
             samples!.WriteLine(line.ToString());
-            // F4: heat exchange starts with the fill; t = 0 is the first sample
-            // holding it (the game applies the fill at its next step).
-            if (Id == "f4" && release < 0 && fluid) { release = sampleTick; ownerReleaseStamped = historyStarted; }
+            // The first fluid row is a completed interval. Its preceding
+            // endpoint is the frozen initial state, proved separately; the
+            // conducted endpoint must never be relabelled as that state.
+            if (Id == "f4" && release < 0 && fluid) { release = sampleTick - 1; ownerReleaseStamped = historyStarted; }
             // F2: t = 0 is the first sample after the door is fully open.
             if (commanded >= 0 && opened < 0 && !ElementLoader.elements[update->elementIdx[Cell(9, 4)]].IsSolid &&
                 !ElementLoader.elements[update->elementIdx[Cell(9, 5)]].IsSolid &&
@@ -331,6 +341,27 @@ namespace MixedAtmospheres.Oni
             if (filled < 0)
             {
                 if (ticks < built + 2) return false;
+                if(Id == "f4")
+                {
+                    // Closing borders can displace background fluid back into
+                    // the arena. Remove it before resetting the divider.
+                    if(f4Cleared < 0)
+                    {
+                        Clear(x0,y0,width,height,out _,"F4 quiescent preparation");
+                        RequestAdmissionCapture(".vacuum",vacuum:true,fluidsOnly:true);
+                        for(var y=1;y<height-1;++y)for(var x=1;x<width-1;++x)
+                            if(!Solid(x,y))Replace(x,y,SimHashes.Vacuum,0,0);
+                        f4Cleared=ticks;return false;
+                    }
+                    if(f4Reset < 0)
+                    {
+                        if(ticks < f4Cleared+2 || !F4CaptureReady(".vacuum",8,"vacuum"))return false;
+                        RequestAdmissionCapture(".prepared",vacuum:true);
+                        for(var y=1;y<=2;++y)Replace(3,y,SimHashes.Granite,placed["granite_tile_kg"],318.15);
+                        f4Reset=ticks;return false;
+                    }
+                    if(!F4CaptureReady(".prepared",width*height,"prepared"))return false;
+                }
                 Fill(); filled = ticks;
                 samples = new StreamWriter(Path.Combine(output, "floor-" + Id + ".txt"));
                 return false;
@@ -369,16 +400,24 @@ namespace MixedAtmospheres.Oni
         private static void RequestReleaseCapture((int x, int y)[] gates)
         {
             var path = Environment.GetEnvironmentVariable("MA_COLONY_RELEASE_DUMP");
-            if (string.IsNullOrEmpty(path) || Id != "f1" && Id != "f3" && Id != "f5") return;
+            if (string.IsNullOrEmpty(path) || Id != "f1" && Id != "f3" && Id != "f4" && Id != "f5") return;
             if (!ColonyOwner.Active) throw new InvalidOperationException("Release world capture requires the colony owner.");
             if (File.Exists(path) || File.Exists(path + ".request")) throw new IOException("Release capture requires a fresh private output path.");
             var c = ColonyOwner.Config;
             using (var file = new BinaryWriter(File.Create(path + ".request.tmp")))
             {
-                file.Write(System.Text.Encoding.ASCII.GetBytes("MAREL001"));
+                file.Write(System.Text.Encoding.ASCII.GetBytes(Id=="f4"?"MAREL002":"MAREL001"));
                 foreach (var dimension in new[] { c.GridWidth, c.GridHeight, c.OffsetX, c.OffsetY, c.Width, c.Height }) file.Write(dimension);
                 file.Write((uint)gates.Length);
-                foreach (var (x, y) in gates) file.Write((uint)Cell(x, y));
+                foreach (var (x, y) in gates)
+                {
+                    file.Write((uint)Cell(x,y));
+                    if(Id=="f4")
+                    {
+                        file.Write((uint)ElementLoader.FindElementByHash(SimHashes.Oxygen).idx);
+                        file.Write((float)placed[x<3?"hot_cell_kg":"cold_cell_kg"]);file.Write((float)(x<3?353.15:283.15));
+                    }
+                }
             }
             // Publishing precedes every gate removal message. A native worker
             // cannot miss the marker while applying the already queued edits.
@@ -464,22 +503,50 @@ namespace MixedAtmospheres.Oni
 
         // Evidence only: the native hook waits for these exact binary32 inputs
         // before its first heat update, and records both native source arrays.
-        private static void RequestAdmissionCapture()
+        private static bool F4CaptureReady(string suffix,int requestedCount,string label)
         {
-            var path=Environment.GetEnvironmentVariable("MA_COLONY_FLOOR_ADMISSION_DUMP");
-            if(string.IsNullOrEmpty(path)) return;
+            var path=admissionPath+suffix;
+            if(!File.Exists(path))return false;
+            byte[] bytes;
+            try {bytes=File.ReadAllBytes(path);}catch(IOException){return false;}
+            if(bytes.Length<56)return false;
+            using(var reader=new BinaryReader(new MemoryStream(bytes)))
+            {
+                var magic=System.Text.Encoding.ASCII.GetString(reader.ReadBytes(8));
+                if(magic!="MAFLPR01" && magic!="MAFLPR02")throw new InvalidDataException("F4 preparation capture framing.");
+                foreach(var dimension in new[]{Grid.WidthInCells,Grid.HeightInCells,x0,y0,width,height})
+                    if(reader.ReadUInt32()!=(uint)dimension)throw new InvalidDataException("F4 preparation geometry differs.");
+                var ticket=reader.ReadUInt64();var seconds=reader.ReadDouble();var mask=reader.ReadUInt32();var count=reader.ReadUInt32();
+                var expected=56+(magic=="MAFLPR02"?12:0)+28*requestedCount;
+                if(bytes.Length<expected)return false;
+                if(bytes.Length!=expected || mask!=3 || count!=requestedCount || ticket==0 || Math.Abs(seconds-.2)>1e-6)
+                    throw new InvalidDataException("F4 preparation lacks its exact quiescent native endpoint.");
+                placed[label+"_native_ticket"]=ticket;placed[label+"_step_seconds"]=seconds;
+                placed[label+"_capture_phase"]=magic=="MAFLPR02"?reader.ReadUInt32():0;
+            }
+            return true;
+        }
+        private static void RequestAdmissionCapture(string suffix="",bool vacuum=false,bool solidsOnly=false,bool fluidsOnly=false)
+        {
+            var path=admissionPath+suffix;
+            if(admissionPath.Length==0)return;
+            if(File.Exists(path) || File.Exists(path+".request"))throw new IOException("Floor admission requires a fresh private output path.");
+            var requested=new List<(int x,int y)>();
+            for(var y=0;y<height;++y)for(var x=0;x<width;++x)
+                if((!solidsOnly || x==3 && y>=1 && y<=2) && (!fluidsOnly || x>=1 && x<=5 && x!=3 && y>=1 && y<=2))requested.Add((x,y));
             using(var stream=new FileStream(path+".request.tmp",FileMode.CreateNew,FileAccess.Write))
             using(var writer=new BinaryWriter(stream))
             {
                 writer.Write(System.Text.Encoding.ASCII.GetBytes("MAFLRQ01"));
                 foreach(var dimension in new[]{Grid.WidthInCells,Grid.HeightInCells,x0,y0,width,height})writer.Write((uint)dimension);
-                writer.Write((uint)(width*height));
-                for(var y=0;y<height;++y)for(var x=0;x<width;++x)
+                writer.Write((uint)requested.Count);
+                foreach(var (x,y) in requested)
                 {
                     var border=x==0 || y==0 || x==width-1 || y==height-1;
-                    var element=border?SimHashes.Unobtanium:x==3?SimHashes.Granite:SimHashes.Oxygen;
-                    var mass=border?20000:x==3?placed["granite_tile_kg"]:placed[x<3?"hot_cell_kg":"cold_cell_kg"];
-                    var temperature=border?Room:x==3?318.15:x<3?353.15:283.15;
+                    var empty=vacuum && !border && x!=3;
+                    var element=border?SimHashes.Unobtanium:x==3?SimHashes.Granite:empty?SimHashes.Vacuum:SimHashes.Oxygen;
+                    var mass=border?20000:x==3?placed["granite_tile_kg"]:empty?0:placed[x<3?"hot_cell_kg":"cold_cell_kg"];
+                    var temperature=border?Room:x==3?318.15:empty?0:x<3?353.15:283.15;
                     writer.Write((uint)Cell(x,y));writer.Write((uint)ElementLoader.FindElementByHash(element).idx);
                     writer.Write((float)mass);writer.Write((float)temperature);
                 }
@@ -518,16 +585,14 @@ namespace MixedAtmospheres.Oni
                     break;
                 case "f4":
                     placed["hot_cell_kg"] = Gas(Atmosphere, 353.15); placed["cold_cell_kg"] = Gas(Atmosphere, 283.15);
+                    RequestAdmissionCapture();
+                    RequestAdmissionCapture(".solids",solidsOnly:true);
                     for (var y = 1; y <= 2; ++y)
                     {
-                        // The divider was built before the fill and can have
-                        // exchanged heat with displaced background fluid. Set
-                        // the frozen initial field together with the gas.
-                        Replace(3, y, SimHashes.Granite, placed["granite_tile_kg"], 318.15);
                         for (var x = 1; x <= 2; ++x) Replace(x, y, SimHashes.Oxygen, placed["hot_cell_kg"], 353.15);
                         for (var x = 4; x <= 5; ++x) Replace(x, y, SimHashes.Oxygen, placed["cold_cell_kg"], 283.15);
                     }
-                    RequestAdmissionCapture();
+                    if(ColonyOwner.Active)RequestReleaseCapture(Enumerable.Range(1,2).SelectMany(y=>new[]{(1,y),(2,y),(4,y),(5,y)}).ToArray());
                     break;
                 case "f5":
                     var w = FullCell(SimHashes.Water); var oil = FullCell(SimHashes.CrudeOil);
@@ -564,6 +629,7 @@ namespace MixedAtmospheres.Oni
                 ["origin_x"] = x0, ["origin_y"] = y0, ["grid_width"] = Grid.WidthInCells, ["grid_height"] = Grid.HeightInCells,
                 ["temperature_storage"] = "binary32",
                 ["fluid_sampling"] = historyStarted ? "retained completed owner frames" : ColonyOwner.Active ? "single completed owner frame" : "native published update",
+                ["initial_time_origin"] = Id=="f4"?"before first completed fluid interval; separate exact admission proofs required":"release sample",
                 ["solid_sampling"] = historyStarted && Id == "f4" ? "retained native heat-input ticket paired with the same owner frame" : "native published update",
                 ["owner_sample_history"] = historyStarted, ["owner_tick_offset"] = ownerTickOffset,
                 ["owner_sample_frames"] = ownerSampleFrames,

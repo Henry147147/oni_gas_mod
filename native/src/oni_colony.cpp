@@ -2448,7 +2448,18 @@ void run_frame(std::uint64_t ticket, double seconds, std::uint64_t frames, const
             }
             return false;
         };
-        if (s.release_capture.ready(s.config,world.state().grid.walls)) {
+        if (s.release_capture.ready(s.config,world.state().grid.walls,[&](std::size_t cell,std::uint32_t native,float mass,float temperature) {
+            // MAREL002 is a diagnostic admission predicate only. A partial
+            // fill that already evolved cannot become its own initial state.
+            if(!cat.has_native(native))return false;
+            const auto species=cat.species_of_native(native);const auto& state=world.state();
+            const auto& mixture=state.cells[cell].mixture;
+            for(std::size_t k=0;k<mixture.masses.size();++k)
+                if(mixture.masses[k]!=(k==species?static_cast<double>(mass):0.))return false;
+            for(const auto& momentum:mac_field_values(state.momentum_x,state.full_momentum_x))if(!momentum.is_zero())return false;
+            for(const auto& momentum:mac_field_values(state.momentum_y,state.full_momentum_y))if(!momentum.is_zero())return false;
+            return world.cell_reading(cell).temperature_k==static_cast<double>(temperature);
+        })) {
             const auto temporary=s.release_capture.path+".tmp";
             require(dump(temporary.c_str()),"Could not write the requested release capture");
             require(std::rename(temporary.c_str(),s.release_capture.path.c_str())==0,"Could not publish the requested release capture");

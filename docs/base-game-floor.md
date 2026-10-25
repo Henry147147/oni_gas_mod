@@ -492,6 +492,25 @@ The bounded diagnostic stops immediately after capture (expected harness exit
 143), with process cleanup verified. This proves the vanilla starting state,
 not the full 20000 s result, the owner's source alignment or dynamic truth.
 
+The selected-profile owner admission retry also failed to establish that origin:
+its 293 consecutive paired observations have no exact combined fill capture.
+The first gas field has already undergone a gravity interval, while its paired
+native granite still predates the reset. These bounded records remain failed
+setup evidence, even though fluid energy and sample cadence close.
+
+The follow-up harness now proves vacuum in both native buffers before resetting
+the granite to the existing 318.15 K, then proves the exact quiescent divider
+and vacuum before issuing the same gas fill. Both owner and vanilla use these
+preparation stages. A separate pre-contact record identifies its existing native
+temperature-hook phase, source ticket and pair; the combined all-cell mask-3
+admission guard stays unchanged. The owner's optional `MAREL002` release marker
+also requires every requested gas mass, species and temperature and zero
+canonical face momentum before capturing the initial world. Standalone controls
+reject partial and already evolved fills and capture an atomic eight-cell fill
+before its first flow. The first completed fluid row now follows the time origin
+by one interval. Actual matched preparation/admission, clock alignment and the
+full unchanged 20000 s measurement still require verification.
+
 ## Performance and feature variants
 
 Each numerical step needs same-lock Terra60 before/after, affected floor

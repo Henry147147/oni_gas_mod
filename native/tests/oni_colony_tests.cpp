@@ -65,6 +65,43 @@ void release_capture_control() {
     require(rejected,"release request geometry mismatch admitted");
     std::cout<<"PASS release capture marker: fresh, geometry-bound, all-gates-open, once only, no physical edits\n";
 }
+void exact_release_control() {
+    using namespace ma::oni::colony;
+    const auto path=(std::filesystem::temp_directory_path()/("ma-exact-release-"+
+        std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()))).string();
+    const char* previous=std::getenv("MA_COLONY_RELEASE_DUMP");const bool had_previous=previous;
+    const std::string saved=previous?previous:"";
+    struct Cleanup {std::string path,saved;bool had;
+        ~Cleanup(){stop();if(had)setenv("MA_COLONY_RELEASE_DUMP",saved.c_str(),1);else unsetenv("MA_COLONY_RELEASE_DUMP");
+            std::error_code ignored;for(const auto suffix:{"",".request",".tmp"})std::filesystem::remove(path+suffix,ignored);}
+    } cleanup{path,saved,had_previous};
+    setenv("MA_COLONY_RELEASE_DUMP",path.c_str(),1);
+    MAOniColonyConfig cfg{};cfg.struct_size=sizeof(cfg);cfg.abi_version=MA_ONI_COLONY_ABI_VERSION;
+    cfg.flags=MA_ONI_COLONY_GAME_KERNEL;cfg.vacuum_index=vacuum;cfg.grid_width=cfg.width=7;cfg.grid_height=cfg.height=4;
+    cfg.gravity_m_per_s2=9.81;cfg.maximum_timestep_s=.1;
+    std::vector<MAOniColonyMaterial> mats{material("Oxygen",11,oxygen,true,.016,1000)};
+    std::vector<MAOniColonyCell> cells(28,MAOniColonyCell{0,MA_ONI_COLONY_SOLID,0,0,0,0});
+    std::vector<MAOniColonyTransfer> edits;
+    for(const bool hot:{true,false})for(unsigned y=1;y<=2;++y)for(unsigned x=hot?1:4;x<=(hot?2u:5u);++x) {
+        const auto i=x+7*y;cells[i]={vacuum,MA_ONI_COLONY_FLUID,0,0,0,0};
+        edits.push_back({i,oxygen,MA_ONI_COLONY_INJECT,0,-1,0,hot?.5521116852760315:.6886040568351746,
+            static_cast<double>(hot?353.15f:283.15f),0});
+    }
+    detail::PreciseReceiptWriter marker;constexpr char magic[]="MAREL002";marker.bytes.insert(marker.bytes.end(),magic,magic+8);
+    for(const auto dimension:{7u,4u,0u,0u,7u,4u})marker.u32(dimension);
+    marker.u32(static_cast<std::uint32_t>(edits.size()));
+    for(const auto& e:edits){marker.u32(e.public_cell);marker.u32(e.native_index);marker.u32(std::bit_cast<std::uint32_t>(static_cast<float>(e.mass_kg)));
+        marker.u32(std::bit_cast<std::uint32_t>(static_cast<float>(e.temperature_k)));}
+    {std::ofstream file(path+".request",std::ios::binary);file.write(reinterpret_cast<const char*>(marker.bytes.data()),static_cast<std::streamsize>(marker.bytes.size()));}
+    start(cfg,mats,cells,1);queue_transfers(std::span(edits).first(4));advance(1,.2,2);wait();
+    require(status().state==1 && !std::filesystem::exists(path),"exact initial capture accepted a partial fill");
+    queue_transfers(std::span(edits).subspan(4));advance(2,.2,2);wait();
+    require(status().state==1 && !std::filesystem::exists(path),"exact initial capture accepted a previously evolved partial fill");
+    stop();start(cfg,mats,cells,1);queue_transfers(edits);advance(1,.2,2);wait();
+    require(status().state==1 && std::filesystem::exists(path),"exact initial capture missed a complete unevolved atomic fill");
+    std::ifstream image(path,std::ios::binary|std::ios::ate);require(image.tellg()>static_cast<std::streamoff>(4+sizeof(MAOniColonyMaterial)+8+64),"exact initial image truncated");
+    stop();std::cout<<"PASS exact initial capture: all eight fluid tuples before first flow; partial and evolved fills refused\n";
+}
 struct ReceiptReader {
     const std::vector<std::uint8_t>& bytes; std::size_t at = 0;
     bool observations=false;
@@ -123,6 +160,14 @@ void floor_capture_control() {
     detail::FloorCapture again;again.configure(path.c_str());bool refused=false;
     try{(void)again.observe(source,11,.2);}catch(const std::runtime_error&){refused=true;}
     require(refused,"floor capture clobbered prior evidence");
+    std::filesystem::remove(path);
+    detail::FloorCapture contact;contact.configure(path.c_str());
+    require(contact.observe(source,12,.2,1,12,13),"pre-contact floor capture missed the exact fill");
+    std::ifstream contact_file(path,std::ios::binary);const std::vector<std::uint8_t> contact_bytes(std::istreambuf_iterator<char>(contact_file),{});
+    require(contact_bytes.size()==96 && std::memcmp(contact_bytes.data(),"MAFLPR02",8)==0,"pre-contact capture framing");
+    ReceiptReader phase{contact_bytes};phase.at=56;
+    require(phase.integer(4)==1 && phase.integer(4)==12 && phase.integer(4)==13,"pre-contact capture phase/contact provenance");
+    require(elements==before_elements && masses==before_masses && temperatures==before_temperatures,"pre-contact capture mutated native inputs");
     std::cout<<"PASS floor admission capture: exact fill, both native arrays, source ticket, no edits or overwrite\n";
 }
 void transfer_capture_control() {
@@ -1236,7 +1281,7 @@ int main(int argc, char** argv) {
         if (argc == 2 && std::strcmp(argv[1], "--precise-receipts-only") == 0) { precise_receipt_control(); return 0; }
         if (argc == 2 && std::strcmp(argv[1], "--floor-capture-only") == 0) { floor_capture_control(); return 0; }
         if (argc == 2 && std::strcmp(argv[1], "--transfer-capture-only") == 0) { transfer_capture_control(); return 0; }
-        if (argc == 2 && std::strcmp(argv[1], "--release-capture-only") == 0) { release_capture_control(); return 0; }
+        if (argc == 2 && std::strcmp(argv[1], "--release-capture-only") == 0) { release_capture_control();exact_release_control(); return 0; }
         if (argc == 2 && std::strcmp(argv[1], "--pipe-jobs-only") == 0) { moving_job_control(); pipe_job_control(); return 0; }
         if (argc == 2 && std::strcmp(argv[1], "--parcel-wire-only") == 0) { parcel_wire_control(); parcel_outcome_control(); return 0; }
         if (argc == 2 && std::strcmp(argv[1], "--sample-only") == 0) { sample_control(); return 0; }
@@ -1247,7 +1292,7 @@ int main(int argc, char** argv) {
         precise_receipt_control();
         transfer_capture_control();
         floor_capture_control();
-        release_capture_control();
+        release_capture_control();exact_release_control();
         parcel_wire_control();
         parcel_outcome_control();
         parcel_context_control();

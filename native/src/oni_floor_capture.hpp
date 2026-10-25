@@ -22,8 +22,18 @@ public:
     void configure(const char* value) { path=value?value:""; cells.clear();loaded=finished=false; }
     bool enabled() const noexcept { return !path.empty() && !finished; }
     void stop() noexcept { finished=true; }
-    bool observe(const NativeCells& source,std::uint64_t ticket,double seconds) {
+    // Constant-time filter for the requested arena, including unsampled cells.
+    bool contains_native(int cell) const noexcept {
+        if(!loaded || cell<0)return false;
+        const auto pitch=geometry[0]+2;
+        const auto nx=static_cast<std::uint32_t>(cell)%pitch,ny=static_cast<std::uint32_t>(cell)/pitch;
+        return nx>geometry[2] && nx-geometry[2]<=geometry[4] &&
+               ny>geometry[3] && ny-geometry[3]<=geometry[5];
+    }
+    bool observe(const NativeCells& source,std::uint64_t ticket,double seconds,
+                 std::uint32_t phase=0,std::uint32_t contact_a=UINT32_MAX,std::uint32_t contact_b=UINT32_MAX) {
         if (!enabled()) return false;
+        if(phase>1 || !ticket || !(seconds>0) || !std::isfinite(seconds))throw std::invalid_argument("Floor admission source epoch");
         if (!loaded) {
             std::ifstream input(path+".request",std::ios::binary|std::ios::ate);
             if (!input) return false;
@@ -70,9 +80,10 @@ public:
         // Without relying on a live active-buffer selector, a match in only
         // the stale counterpart cannot establish the actual physics input.
         if(matched!=3) return false;
-        PreciseReceiptWriter wire;constexpr char magic[]="MAFLPR01";wire.bytes.insert(wire.bytes.end(),magic,magic+8);
+        PreciseReceiptWriter wire;const char* magic=phase?"MAFLPR02":"MAFLPR01";wire.bytes.insert(wire.bytes.end(),magic,magic+8);
         for(auto dimension:geometry)wire.u32(dimension);
         wire.u64(ticket);wire.f64(seconds);wire.u32(matched);wire.u32(static_cast<std::uint32_t>(cells.size()));
+        if(phase) {wire.u32(phase);wire.u32(contact_a);wire.u32(contact_b);}
         for(const auto& cell:cells) {
             wire.u32(cell.index);
             const auto native=(cell.index%geometry[0]+1)+(cell.index/geometry[0]+1)*static_cast<std::size_t>(source.pitch);

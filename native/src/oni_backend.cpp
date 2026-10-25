@@ -99,6 +99,22 @@ thread_local PendingTimestep pending_timestep;
 // fence owns one interval for all of them; thread-local duration misses those
 // contacts even though body components run on the frame's main worker.
 std::atomic<std::uint32_t> native_heat_contact_bits{};
+std::atomic<std::uint64_t> native_floor_contact_ticket{};
+struct FloorDiagnostics {
+    std::mutex mutex;
+    ma::oni::colony::detail::FloorCapture admission,vacuum,prepared,solids;
+    bool enabled=false;
+    void configure() {
+        if(enabled)return;
+        const auto* path=std::getenv("MA_COLONY_FLOOR_ADMISSION_DUMP");
+        if(!path || !*path)return;
+        enabled=true;admission.configure(path);
+        vacuum.configure((std::string(path)+".vacuum").c_str());
+        prepared.configure((std::string(path)+".prepared").c_str());
+        solids.configure((std::string(path)+".solids").c_str());
+    }
+};
+FloorDiagnostics& floor_diagnostics() {static FloorDiagnostics value;return value;}
 // A domain save must exclude native cell processing as well as publication.
 // BeginFrame may wait for the main thread, so acquire only after it returns,
 // at ProcessNextFrame, and release after EndFrame finishes.
@@ -269,28 +285,34 @@ void on_update_data(void* self,void* data) {
     std::unique_lock<std::mutex> frame_lock;
     if (!worker_frame_fence.owns_lock()) frame_lock=std::unique_lock<std::mutex>(ma::oni::domain_frame_mutex());
     const auto pending=pending_timestep; pending_timestep={};
-    static auto floor_capture=[] { ma::oni::colony::detail::FloorCapture capture;
-        capture.configure(std::getenv("MA_COLONY_FLOOR_ADMISSION_DUMP"));return capture; }();
+    auto& floors=floor_diagnostics();floors.configure();
     // Observe the fields native physics will actually consume, after the
     // owner has installed its shadow. The earlier native fields may be
     // overwritten here and cannot establish an admission/time origin.
     ma::oni::colony::NativeCells shadow{};
     const bool shadowed=pending.ticket && ma::oni::colony::active() && native_cells(data,shadow);
     if (shadowed) ma::oni::colony::write_shadow(shadow);
-    if(pending.ticket && floor_capture.enabled()) {
+    if(pending.ticket && floors.enabled) {
+        std::lock_guard diagnostic(floors.mutex);
         try {
             ma::oni::colony::NativeCells cells{};
-            if(native_cells(data,cells) && floor_capture.observe(cells,pending.ticket,pending.seconds))
+            if(native_cells(data,cells)) {
+                (void)floors.vacuum.observe(cells,pending.ticket,pending.seconds);
+                (void)floors.prepared.observe(cells,pending.ticket,pending.seconds);
+                if(floors.admission.observe(cells,pending.ticket,pending.seconds))
                 std::fprintf(stderr,"[Mixed Atmospheres] native floor admission captured before UpdateData ticket %llu\n",
                     static_cast<unsigned long long>(pending.ticket));
+            }
         } catch(const std::exception& error) {
-            floor_capture.stop();std::fprintf(stderr,"[Mixed Atmospheres] native floor admission capture failed: %s\n",error.what());
+            floors.admission.stop();floors.vacuum.stop();floors.prepared.stop();floors.solids.stop();std::fprintf(stderr,"[Mixed Atmospheres] native floor admission capture failed: %s\n",error.what());
         }
     }
     // Colony shadow: native bodies and actors meet the owner's cells during
     // UpdateData, and what they change there is booked to the owner.
     native_heat_contact_bits.store(std::bit_cast<std::uint32_t>(pending.seconds),std::memory_order_release);
+    native_floor_contact_ticket.store(floors.enabled?pending.ticket:0,std::memory_order_release);
     original<void (*)(void*,void*)>(MA_ONI_UPDATE_DATA)(self,data);
+    native_floor_contact_ticket.store(0,std::memory_order_release);
     native_heat_contact_bits.store(0,std::memory_order_release);
     if (shadowed && native_cells(data,shadow)) ma::oni::colony::capture_shadow(shadow,pending.ticket);
     if (pending.ticket) {
@@ -311,6 +333,27 @@ void on_liquid(void* data,void* events,int cell) {
 }
 void on_temperature(void* data,void* events,int a,int b) {
     Call call(MA_ONI_TEMPERATURE);
+    if(const auto ticket=native_floor_contact_ticket.load(std::memory_order_acquire)) {
+        auto& floors=floor_diagnostics();
+        // The prepared marker identifies this tiny private arena. Other native
+        // contacts never inspect files or scan requested cells. Within it the
+        // current request is observed before the existing temperature hook.
+        if(floors.prepared.contains_native(a) || floors.prepared.contains_native(b) || floors.vacuum.contains_native(a) || floors.vacuum.contains_native(b)) {
+            std::lock_guard diagnostic(floors.mutex);
+            try {ma::oni::colony::NativeCells cells{};
+                const auto seconds=std::bit_cast<float>(native_heat_contact_bits.load(std::memory_order_acquire));
+                if(native_cells(data,cells)) {
+                    (void)floors.vacuum.observe(cells,ticket,seconds,1,a,b);
+                    (void)floors.prepared.observe(cells,ticket,seconds,1,a,b);
+                    (void)floors.admission.observe(cells,ticket,seconds,1,a,b);
+                    (void)floors.solids.observe(cells,ticket,seconds,1,a,b);
+                }
+            } catch(const std::exception& error) {
+                floors.admission.stop();floors.vacuum.stop();floors.prepared.stop();floors.solids.stop();
+                std::fprintf(stderr,"[Mixed Atmospheres] floor pre-contact capture failed: %s\n",error.what());
+            }
+        }
+    }
     if (ma::oni::colony::active()) {
         // Conduction between owned cells is the owner's; a pair with a native
         // cell exchanges natively with the shadow and is booked at capture.
