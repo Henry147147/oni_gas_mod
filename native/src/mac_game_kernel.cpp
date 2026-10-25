@@ -3,6 +3,7 @@
 #include "mac_game/tick.hpp"
 #include "mac_game_bridge.hpp"
 #include "mixed_atmospheres/mac_kernel.hpp"
+#include <cmath>
 #include <numeric>
 
 namespace ma::experimental {
@@ -692,8 +693,19 @@ MacGameKernelAccess::transfers(const MacClosedWorld &source,
                  old_mass = cell.mixture.mass();
     const double requested =
         edit.inject ? edit.mass_kg : std::min(edit.mass_kg, old_species);
-    const double new_species =
+    double new_species =
         edit.inject ? old_species + requested : old_species - requested;
+    // An injection never gives the cell more than its source gave: when the
+    // sum rounds up (its exact two-sum error is negative), the cell keeps the
+    // representable value below it and the source keeps the sub-ulp rest (a
+    // pipe port retains it exactly). An extraction's loss is always exact.
+    if (edit.inject && std::isfinite(new_species)) {
+      const double back = new_species - old_species;
+      const double error =
+          (old_species - (new_species - back)) + (requested - back);
+      if (error < 0)
+        new_species = std::nextafter(new_species, old_species);
+    }
     require(std::isfinite(new_species) && new_species >= 0 &&
                 new_species != old_species,
             "Game transfer mass is unrepresentable");

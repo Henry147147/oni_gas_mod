@@ -1249,6 +1249,10 @@ A phase extraction's per-species sidecar includes only that species; other
 transfers include every original parcel associated with that legacy receipt.
 Missing or retired sequences return zero bytes; an undersized buffer receives
 no partial write and reports the required size.
+An injection never gives its cell more than the request: when the game
+kernel's binary64 sum rounds up, the cell keeps the value just below it and
+the port keeps the sub-ulp rest (2026-10-25; before, about half of all vent
+emissions into gas were refused as exceeding their reservation).
 
 The focused native control covers exponents beyond int64 and binary64 range,
 trace masses, multiple fractional passives, identity/copy/ack lifetime, and

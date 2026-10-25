@@ -119,6 +119,32 @@ int main() {
     require(p.mass_kg > 0 && !p.passives_before.empty() &&
                 !p.passives_after.empty(),
             "Game extraction lost actual passive observations");
+    {
+      // An injection never gives the cell more than its request, also when
+      // the binary64 sum rounds up: the cell's gain is the reported parcel.
+      const auto &base = extracted.world;
+      const double held = base.state().cells[0].mixture.masses[oxygen];
+      unsigned rounded_up = 0;
+      for (unsigned n = 0; n < 64; ++n) {
+        const double r = held * (.3 + n * 0x1p-45);
+        const double sum = held + r, back = sum - held;
+        if ((held - (sum - back)) + (r - back) < 0)
+          ++rounded_up;
+        const MacFluidTransfer give{0, oxygen, true, r, 300, {}, false};
+        const auto injected = base.with_fluid_transfers(
+            std::span(&give, 1), MacFluidTransferTopology::occupied_mixture);
+        const auto &q = injected.parcels.front();
+        const double now = injected.world.state().cells[0].mixture.masses[oxygen];
+        require(q.mass_kg > 0 && q.mass_kg <= r && now - held == q.mass_kg,
+                "Game injection gave the cell more than its request");
+        closed_energy(energy(base) + q.internal_energy_j +
+                          mac_energy_long_double(q.potential_energy),
+                      energy(injected.world));
+      }
+      require(rounded_up > 0, "Game injection control never rounded up");
+      std::cout << "PASS game injection never exceeds its request ("
+                << rounded_up << "/64 sums rounded up)\n";
+    }
     std::vector<std::uint8_t> x(extracted.world.state().momentum_x.size()),
         y(extracted.world.state().momentum_y.size());
     x[1] = 1;
