@@ -105,7 +105,8 @@ namespace MixedAtmospheres.Oni
                     {invalid.Add(row);++Excluded;continue;}
                     var actual=ColonyConduits.ThermalProbeNative(row.Flow,row.Cell);
                     if(BitConverter.SingleToInt32Bits(actual.temperature)!=BitConverter.SingleToInt32Bits(row.Result.CarrierTemperature))
-                    {invalid.Add(row);++Mismatches;continue;}
+                    {invalid.Add(row);Mismatch();continue;}
+                    ValidationObserved?.Invoke(row.Flow,row.Cell,row.Input);
                 }
                 validated=true;
             }
@@ -115,7 +116,7 @@ namespace MixedAtmospheres.Oni
                 if(!validated||row.Consumed)return false;
                 if(BitConverter.SingleToInt32Bits(after.temperature)!=BitConverter.SingleToInt32Bits(row.Result.CarrierTemperature)||
                     BitConverter.SingleToInt32Bits(shadow.temperature)!=BitConverter.SingleToInt32Bits(row.Shadow.temperature))
-                {invalid.Add(row);++Mismatches;return false;}
+                {invalid.Add(row);Mismatch();return false;}
                 var carrier=ElementLoader.FindElementByHash(row.Shadow.element);
                 var lagged=new PipeAmount((double)row.Shadow.mass*carrier.specificHeatCapacity*1000*((double)row.Before.temperature-row.Shadow.temperature));
                 var contact=PipeContactWork.IntoFluid(row.Input.BodyCapacity,row.Input.BodyTemperature,row.Result.BodyTemperature);
@@ -137,6 +138,19 @@ namespace MixedAtmospheres.Oni
         internal static PipeAmount LaggedHeat { get; private set; }
         internal static long Excluded { get; private set; }
         internal static long Mismatches { get; private set; }
+        internal static Action<ConduitFlow,int,Input>? ValidationObserved;
+        private static string failure="";
+        private static void Mismatch()
+        {
+            ++Mismatches;
+            if(RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+            {
+                failure="Windows conduit heat disagrees with its verified contact law. This colony cannot be saved; update Mixed Atmospheres and load your last save.";
+                if(SpeedControlScreen.Instance!=null)SpeedControlScreen.Instance.Pause(false);
+                ColonyNotices.Show("Mixed Atmospheres stopped",failure);
+                throw new InvalidOperationException(failure);
+            }
+        }
         internal static long Unsettled { get; private set; }
         internal static string Report=>$"{Contacts} validated represented-body contacts; {ContactHeat.Value:R} J contact and {LaggedHeat.Value:R} J retained earlier heat; {Excluded} excluded, {Mismatches} carrier mismatches, {Unsettled} unsettled";
         internal static void StartControl()
@@ -145,7 +159,7 @@ namespace MixedAtmospheres.Oni
             if(Marshal.SizeOf<Input>()!=44||Marshal.SizeOf<Output>()!=20||Version()!=1)throw new NotSupportedException("Native contact replay version/layout is unsupported.");
             Enabled=true;
         }
-        internal static void Reset(){lastContacts.Clear();Enabled=false;active=null;++Epoch;Contacts=Excluded=Mismatches=Unsettled=0;ContactHeat=LaggedHeat=PipeAmount.Zero;}
+        internal static void Reset(){lastContacts.Clear();Enabled=false;active=null;failure="";ValidationObserved=null;++Epoch;Contacts=Excluded=Mismatches=Unsettled=0;ContactHeat=LaggedHeat=PipeAmount.Zero;}
         internal static void Capture(PipeRuntimeImage image)
         {image.Contacts=Contacts;image.Excluded=Excluded;image.Mismatches=Mismatches;image.Unsettled=Unsettled;image.ContactHeat=ContactHeat;image.LaggedHeat=LaggedHeat;}
         internal static void Restore(PipeRuntimeImage image)
@@ -157,6 +171,7 @@ namespace MixedAtmospheres.Oni
         // the native has not yet applied work the mixture already received.
         internal static string? BodyHeatMismatch()
         {
+            if(failure.Length>0)return failure;
             if(Game.Instance==null||Game.Instance.simData==null||Game.Instance.simData.buildingTemperatures==null)return null;
             var temperatures=Game.Instance.simData.buildingTemperatures;
             var pending=0;var first="";
@@ -172,6 +187,7 @@ namespace MixedAtmospheres.Oni
         }
         internal static Scope? Begin(float seconds)
         {
+            if(failure.Length>0)throw new InvalidOperationException(failure);
             if(!Enabled)return null;if(active!=null)throw new InvalidOperationException("Nested native conduit contacts are unsupported.");
             var scope=new Scope(seconds);active=scope;return scope;
         }

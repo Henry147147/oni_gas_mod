@@ -217,12 +217,8 @@ int main() {
             std::memcmp(&contact_result,&unchanged_contact,sizeof(contact_result))==0,"invalid thermal replay modified outputs");
         contact.flags=2;require(ma_oni_conduit_contact_replay(&contact,1,&contact_result,1)==MA_ONI_INVALID_ARGUMENT,"unknown thermal replay flags accepted");
         contact.flags=0;
-#if defined(__linux__)
         require(ma_oni_conduit_contact_version()==1 && ma_oni_conduit_contact_replay(&contact,1,&contact_result,1)==MA_ONI_BUSY &&
             std::memcmp(&contact_result,&unchanged_contact,sizeof(contact_result))==0,"unbound contact replay changed outputs");
-#else
-        require(ma_oni_conduit_contact_version()==0,"unsupported conduit replay capability");
-#endif
         static_assert(sizeof(MAOniDomainPublicationInfo)==64);
         require(ma_oni_domain_publication_abi_version()==1,"native publication ABI version");
         MAOniDomainPublicationInfo publication{};publication.struct_size=sizeof(publication);publication.abi_version=1;publication.token=99;

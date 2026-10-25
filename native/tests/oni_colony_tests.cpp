@@ -25,6 +25,12 @@
 #include <vector>
 
 namespace {
+#if defined(_WIN32)
+int setenv(const char* name,const char* value,int overwrite) {
+    return !overwrite && std::getenv(name) ? 0 : _putenv_s(name,value);
+}
+int unsetenv(const char* name) { return _putenv_s(name,""); }
+#endif
 void require(bool ok, const char* what) { if (!ok) throw std::runtime_error(what); }
 MAOniColonyMaterial material(const char* id, std::int32_t hash, std::uint32_t index, bool gas, double molar, double c, double density = 0) {
     MAOniColonyMaterial m{}; m.struct_size = sizeof(m); m.abi_version = MA_ONI_COLONY_ABI_VERSION; m.element_hash = hash; m.native_index = index;

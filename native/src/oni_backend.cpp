@@ -6,6 +6,7 @@
 #include "oni_floor_capture.hpp"
 #include "oni_body_heat_trace.hpp"
 #include "oni_chunk_heat_trace.hpp"
+#include "oni_conduit_contact.hpp"
 #include "oni_funchook_storage.hpp"
 #include "mixed_atmospheres/fluid_thermodynamics.hpp"
 #include <funchook.h>
@@ -257,7 +258,8 @@ bool native_cells(void* data,ma::oni::colony::NativeCells& out) noexcept {
     std::memcpy(&arrays[0],sim+32,sizeof(void*));std::memcpy(&arrays[1],sim+40,sizeof(void*));
     if (pitch<=2 || rows<=2 || !arrays[0] || !arrays[1]) return false;
 #if defined(_WIN32)
-    constexpr std::size_t element_offset=8,temperature_offset=40,mass_offset=72;
+    // Pinned PDB CellSOA fields at192/224; MSVC vector data starts at+8.
+    constexpr std::size_t element_offset=8,temperature_offset=40,mass_offset=72,disease_offset=200,disease_count_offset=232;
 #else
     // Each field is a vector (three pointers); germs: disease index bytes
     // (255 none) and int32 counts, found by matching the two arrays at runtime.
@@ -268,10 +270,9 @@ bool native_cells(void* data,ma::oni::colony::NativeCells& out) noexcept {
         std::memcpy(&out.temperature[b],static_cast<std::byte*>(arrays[b])+temperature_offset,sizeof(void*));
         std::memcpy(&out.mass[b],static_cast<std::byte*>(arrays[b])+mass_offset,sizeof(void*));
         if (!out.element[b] || !out.temperature[b] || !out.mass[b]) return false;
-#if !defined(_WIN32)
         std::memcpy(&out.disease[b],static_cast<std::byte*>(arrays[b])+disease_offset,sizeof(void*));
         std::memcpy(&out.disease_count[b],static_cast<std::byte*>(arrays[b])+disease_count_offset,sizeof(void*));
-#endif
+        if (!out.disease[b] || !out.disease_count[b]) return false;
     }
     out.pitch=static_cast<std::uint32_t>(pitch);out.rows=static_cast<std::uint32_t>(rows);
     return true;
@@ -1005,11 +1006,7 @@ MAOniResult ma_oni_colony_copy_moving_outcome(std::uint64_t sequence,std::uint8_
     });
 }
 std::uint32_t ma_oni_conduit_contact_version() {
-#if defined(__linux__)
     return 1;
-#else
-    return 0;
-#endif
 }
 MAOniResult ma_oni_conduit_contact_replay(const MAOniConduitContactInput* contacts,std::uint32_t count,
     MAOniConduitContactResult* output,std::uint32_t capacity) {
@@ -1028,8 +1025,8 @@ MAOniResult ma_oni_conduit_contact_replay(const MAOniConduitContactInput* contac
                 !std::isfinite(value.conduit_conductivity) || value.conduit_conductivity<0)
                 throw Failure(MA_ONI_INVALID_ARGUMENT,"Invalid conduit contact record");
         }
-#if defined(__linux__)
         if(!installed || !game_module)throw Failure(MA_ONI_BUSY,"The inspected native image is not bound");
+#if defined(__linux__)
         using Flow=float(*)(void*,bool,float,float,float,float,float);
         using Clamp=float(*)(void*,float,float,float,float,float,float);
         using Temperature=float(*)(void*,float,float,float,float,float);
@@ -1040,6 +1037,7 @@ MAOniResult ma_oni_conduit_contact_replay(const MAOniConduitContactInput* contac
         // This parameter is fixed by the inspected native Update callsite,
         // independent of material, timestep, execution load and saved profile.
         constexpr float exchange_coefficient=50;
+#endif
         struct PreserveMath {
             std::fenv_t environment{};unsigned csr=_mm_getcsr();int error=errno;
             PreserveMath() {if(std::fegetenv(&environment))throw Failure(MA_ONI_INTERNAL_ERROR,"Cannot observe contact math environment");}
@@ -1047,6 +1045,7 @@ MAOniResult ma_oni_conduit_contact_replay(const MAOniConduitContactInput* contac
         } preserve;
         std::vector<MAOniConduitContactResult> results;results.reserve(count);
         for(const auto& value : std::span(contacts,count)) {
+#if defined(__linux__)
             const auto power=flow(nullptr,(value.flags&1)!=0,value.fluid_temperature_k,value.fluid_conductivity,
                 value.body_temperature_k,value.conduit_conductivity,exchange_coefficient);
             const auto heat=clamp(nullptr,value.seconds,value.fluid_temperature_k,value.fluid_heat_capacity_kj_k,
@@ -1055,14 +1054,15 @@ MAOniResult ma_oni_conduit_contact_replay(const MAOniConduitContactInput* contac
                 value.body_temperature_k,value.body_heat_capacity_kj_k,-heat);
             const float body_delta=heat/value.body_heat_capacity_kj_k;
             const float body=value.body_temperature_k+body_delta;
+#else
+            const auto replayed=ma::oni::conduit_contact::replay(value);
+            const auto heat=replayed.native_heat_to_body_kj,fluid=replayed.carrier_temperature_k,body=replayed.body_temperature_k;
+#endif
             if(!std::isfinite(heat) || !std::isfinite(fluid) || fluid<=0 || !std::isfinite(body) || body<=0)
                 throw Failure(MA_ONI_INVALID_ARGUMENT,"Conduit contact replay is outside native thermal range");
             results.push_back({20,1,heat,fluid,body});
         }
         std::copy(results.begin(),results.end(),output);
-#else
-        throw Failure(MA_ONI_INCOMPATIBLE,"Conduit contact replay is Linux-only");
-#endif
     });
 }
 MAOniResult ma_oni_colony_pipe_job_state(std::uint64_t token,std::uint32_t* state,std::uint64_t* last) {

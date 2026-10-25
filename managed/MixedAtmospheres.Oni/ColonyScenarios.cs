@@ -121,6 +121,7 @@ namespace MixedAtmospheres.Oni
                     case "mixed-pipe-pumps": MixedPipePumps(frame); break;
                     case "mixed-pipe-thermal": MixedPipeThermal(frame); break;
                     case "mixed-pipe-cold": MixedPipeCold(frame); break;
+                    case "windows-contact": WindowsContact(frame); break;
                     case "mixed-pipe-machines": MixedPipeMachines(frame); break;
                     case "mixed-pipe-colony": MixedPipeColony(frame, status); break;
                     case "mixed-pipe-heat-machines": MixedPipeHeatMachines(frame); break;

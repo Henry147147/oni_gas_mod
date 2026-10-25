@@ -304,6 +304,12 @@ namespace MixedAtmospheres.Oni
             {
                 NativeSealedDomainValidation.Tick(); return;
             }
+            if (configuration.Mode == "colony-owner-inactive")
+            {
+                try { ColonyOwnerInactiveScene(); }
+                catch (Exception error) { Fail(error); }
+                return;
+            }
             if (configuration.Mode.StartsWith("colony-owner", StringComparison.Ordinal))
             {
                 try { ColonyOwnerScene(); }
