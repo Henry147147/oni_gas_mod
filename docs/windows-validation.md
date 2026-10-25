@@ -1,5 +1,63 @@
 # Windows validation
 
+## Private playtest build (2026-10-25)
+
+The current cross-build uses MinGW-w64 GCC 13 (POSIX threads), rather than
+MSVC. WindowsPlayer-under-Proton evidence still needs an actual Windows PC
+check. Build from a Linux checkout with CMake, Ninja, .NET and the MinGW tools:
+
+```sh
+export MA_MINGW_ROOT=/path/to/mingw/usr
+export PATH="$MA_MINGW_ROOT/bin:$PATH"
+cmake -S . -B build-windows -G Ninja -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_TOOLCHAIN_FILE=cmake/toolchains/mingw-w64-x86_64.cmake \
+  -DMA_BUILD_ONI_NATIVE_BACKEND=ON -DMA_WINE=/absolute/path/to/wine
+cmake --build build-windows -j 8
+ctest --test-dir build-windows -j 8 --output-on-failure
+MSBUILDDISABLENODEREUSE=1 dotnet build managed/MixedAtmospheres.Oni -c Release \
+  -p:UseSharedCompilation=false -p:OniGameDir=/path/to/windows/OxygenNotIncluded \
+  --artifacts-path "$PWD/build-managed-windows"
+python3 tools/package_probe.py --native build-windows/mixed_atmospheres.dll \
+  --native-observer build-windows/mixed_atmospheres_oni.dll \
+  --managed-dir build-managed-windows/bin/MixedAtmospheres.Oni/release \
+  --output artifacts/windows-playtest/package
+x86_64-w64-mingw32-objdump -p build-windows/mixed_atmospheres.dll
+x86_64-w64-mingw32-objdump -p build-windows/mixed_atmospheres_oni.dll
+```
+
+Use the team's CPU lock wrapper around builds/tests on the shared machine.
+Set `WINEPREFIX` to a private directory before CTest. For an unpacked Wine
+installation use its real `wine` executable and set `WINEDLLPATH` and
+`WINESERVER` to that installation. Both DLL import tables must contain only
+Windows system libraries: no libstdc++, libgcc or winpthread DLLs. The toolchain
+links these runtimes statically and leaves GCC 13's harmless small-pair-copy
+warning visible without treating it as a build error. Solver sources and
+floating-point flags are unchanged.
+
+The Proton runner accepts `--mode colony-owner` (new Terra on defaults),
+`--scenario` with a comma-separated gameplay batch, `--save-colony`, and
+`--mode colony-owner-load --load-save <host path>` for a fresh process.
+These owner modes remove inherited `MA_` overrides. `--frames 3132` continues
+past the first cycle; normal game autosaves remain enabled. Owner reports,
+scenario checks, saved paths/hashes and conservation errors are retained in
+`result.json`. A main-menu pass alone never establishes colony ownership.
+
+The extracted private ZIP contains `install_windows.ps1` and a
+`MixedAtmospheres` directory. With ONI closed, run:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\install_windows.ps1
+```
+
+Then start ONI, enable Mixed Atmospheres in Mods and restart when requested.
+**In the main menu, turn OFF the Spaced Out! DLC (ONI restarts), then start a
+new base-game colony.** No environment variables are needed. The script
+uses Windows' Documents known folder (including redirected Documents), verifies
+the package hashes, installs one Dev copy, and moves previous Mixed Atmospheres
+copies outside the mod scan into a backup folder. It preserves
+`mods/config/MixedAtmospheres` and all saves. `-OniUserRoot` overrides a custom
+ONI user-data location; `-Package` overrides the extracted package directory.
+
 The Windows target is 64-bit Windows with MSVC-built native libraries and ONI
 744825. Three routes exercise it; only the first establishes Windows OS
 behaviour.

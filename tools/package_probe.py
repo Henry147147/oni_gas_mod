@@ -219,14 +219,15 @@ def main() -> None:
         private_directory = output / "private-validation"
         private_directory.mkdir()
         shutil.copy2(validator.resolve(), private_directory / "GameMonoFileProtocolValidation.dll")
+    platform_name = "Windows x64" if rid == "win-x64" else "Linux"
     (output / "mod.yaml").write_text(
         'title: "Mixed Atmospheres"\n'
-        'description: "Private base-game playtest build (Linux). The mod\'s own solver runs every gas and liquid of a new colony; existing saves keep ONI\'s simulation."\n'
+        f'description: "Private base-game playtest build ({platform_name}). The mod\'s own solver runs every gas and liquid of a new colony; existing saves keep ONI\'s simulation."\n'
         'staticID: "MixedAtmospheres.IntegrationProbe"\n', encoding="utf-8")
     (output / "mod_info.yaml").write_text(
         f'minimumSupportedBuild: {args.oni_build}\nversion: "0.1.0-probe"\nAPIVersion: 2\n', encoding="utf-8")
     (output / "README.txt").write_text(
-        "Mixed Atmospheres - private base-game playtest build (Linux)\n\n"
+        f"Mixed Atmospheres - private base-game playtest build ({platform_name})\n\n"
         "Place this complete folder under ONI's mods/Dev folder as MixedAtmospheres, enable\n"
         "Mixed Atmospheres in Mods and restart. A new base-game colony (Spaced Out! off) is\n"
         "then simulated by the mod: every gas and liquid of the asteroid belongs to its solver.\n"
