@@ -7,6 +7,7 @@
 #include <vector>
 #include <utility>
 
+namespace ma::experimental { class MacClosedWorld; }
 namespace ma::oni::colony {
 void start(const MAOniColonyConfig&, std::span<const MAOniColonyMaterial>, std::span<const MAOniColonyCell>, std::uint64_t thread);
 void restore(const MAOniColonyConfig&, std::span<const MAOniColonyMaterial>, std::span<const std::uint8_t>, std::uint64_t thread);
@@ -46,6 +47,8 @@ bool read_passives(std::uint64_t session,std::uint64_t frame,std::span<const std
 void sample_history(std::uint32_t retained_frames);
 void sample_frame(std::uint64_t,std::span<const std::uint32_t>,MAOniColonyStatus&,std::vector<MAOniColonySampleCell>&,
     std::vector<MAOniColonySamplePart>&,double* booked_mass,double* booked_heat);
+[[nodiscard]] MAOniColonyEnergySample energy_components(const experimental::MacClosedWorld&);
+[[nodiscard]] MAOniColonyEnergySample sample_energy(std::uint64_t session,std::uint64_t frame);
 double liquid_density(std::span<const MAOniColonyMaterial> materials, std::uint32_t native_index, double pressure_pa);
 // Control hook: the temperature read for one cell of the latest frame with
 // one constituent replaced by trace_kg.

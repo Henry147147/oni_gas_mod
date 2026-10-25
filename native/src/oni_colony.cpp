@@ -1,6 +1,7 @@
 #include "oni_colony.hpp"
 #include "mac_kernel_detail.hpp"
 #include "mac_phase_flow.hpp"
+#include "mac_game_bridge.hpp"
 #include "oni_catalogue.hpp"
 #include "oni_colony_import.hpp"
 #include "oni_radial_consumption.hpp"
@@ -1180,6 +1181,62 @@ void sample_frame(std::uint64_t frame,std::span<const std::uint32_t> cells,MAOni
 void sample(std::span<const std::uint32_t> cells,MAOniColonyStatus& source,
     std::vector<MAOniColonySampleCell>& rows,std::vector<MAOniColonySamplePart>& parts,double* booked_mass) {
     sample_frame(UINT64_MAX,cells,source,rows,parts,booked_mass,nullptr);
+}
+
+MAOniColonyEnergySample energy_components(const MacClosedWorld& world) {
+    const ArithmeticScope arithmetic;
+    const auto& state=world.state(); const auto& grid=state.grid;
+    require(state.cells.size()<=4096,"Energy samples require a small arena owner");
+    MacEnergySum internal,kinetic,potential,thermal,formation,capacity,total_mass;
+    for (std::size_t i=0;i<state.cells.size();++i) {
+        if (grid.walls[i]) continue;
+        const auto& cell=state.cells[i];
+        account_mac_cell_internal_energy(internal,cell);
+        account_mac_cell_internal_energy(thermal,cell);
+        const double height=(static_cast<double>(i/grid.width)+.5)*grid.spacing_m;
+        for (std::size_t k=0;k<cell.mixture.masses.size();++k) {
+            const auto mass=MacScaled::from_double(cell.mixture.masses[k]);
+            if (mass.is_zero()) continue;
+            const auto offset=mass.multiplied(world.registry()[k].internal_energy(0));
+            formation.add(offset); thermal.add(offset.negated());
+            capacity.add(mass.multiplied(world.registry()[k].cv())); total_mass.add(mass);
+            potential.add(mass.multiplied(world.settings().gravity_m_per_s2).multiplied(height));
+        }
+    }
+    const auto inertia=world.settings().numerical_kernel==MacNumericalKernel::game?
+        MacGameKernelAccess::inertias(world.registry(),state):mac_face_inertias(world.registry(),state,world.thermodynamics());
+    const auto faces=[&](const auto& projected,const auto& carried,const auto& inertias) {
+        const auto momentum=mac_field_values(projected,carried);
+        for (std::size_t f=0;f<momentum.size();++f)
+            if (!momentum[f].is_zero()) kinetic.add(MacEnergy::kinetic(inertias[f],momentum[f]));
+    };
+    faces(state.momentum_x,state.full_momentum_x,inertia.x);
+    faces(state.momentum_y,state.full_momentum_y,inertia.y);
+    const auto observe=[](const MacEnergySum& sum) {
+        const auto value=sum.value().project();
+        require(!value.rounded,"Arena energy observation is below binary64 range");
+        return value.value;
+    };
+    MAOniColonyEnergySample out{}; out.struct_size=sizeof(out);out.abi_version=1;
+    out.time_seconds=world.time_s();out.internal_energy_j=observe(internal);
+    out.kinetic_energy_j=observe(kinetic);out.potential_energy_j=observe(potential);
+    out.thermal_energy_j=observe(thermal);out.formation_energy_j=observe(formation);
+    out.heat_capacity_j_per_k=observe(capacity);out.fluid_mass_kg=observe(total_mass);
+    return out;
+}
+MAOniColonyEnergySample sample_energy(std::uint64_t expected_session,std::uint64_t frame) {
+    require(expected_session!=0,"Energy samples require an explicit session");
+    std::shared_ptr<const Published> p;
+    { std::lock_guard lock(publication);
+      require(retained_sample_frames!=0,"Energy samples require enabled arena history");
+      if (const auto found=sample_frames.find(frame);found!=sample_frames.end()) p=found->second;
+    }
+    require(p && p->world && p->status.session==expected_session && p->status.completed_frames==frame,
+        "Requested arena energy session/frame is not retained");
+    auto out=energy_components(*p->world);
+    out.session=p->status.session;out.completed_frame=p->status.completed_frames;
+    out.accepted_external_heat_j=p->booked_heat_j;out.trace_sink_energy_j=p->status.trace_sink_j;
+    return out;
 }
 
 namespace {

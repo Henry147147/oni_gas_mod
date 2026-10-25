@@ -1126,6 +1126,16 @@ MAOniResult ma_oni_colony_sample_frame(std::uint64_t frame,const std::uint32_t* 
         *status=captured; *booked_mass=mass; *booked_heat=heat;
     });
 }
+MAOniResult ma_oni_colony_sample_energy(std::uint64_t session,std::uint64_t frame,MAOniColonyEnergySample* out) {
+    return boundary([&] {
+        if (!out || out->struct_size!=sizeof(*out) || out->abi_version!=1)
+            throw Failure(MA_ONI_INVALID_ARGUMENT,"Invalid retained arena energy record");
+        MAOniColonyEnergySample captured{};
+        try { captured=ma::oni::colony::sample_energy(session,frame); }
+        catch (const std::invalid_argument& error) { throw Failure(MA_ONI_INVALID_ARGUMENT,error.what()); }
+        *out=captured;
+    });
+}
 MAOniResult ma_oni_colony_sample(const std::uint32_t* cells,std::uint32_t count,MAOniColonyStatus* status,
     MAOniColonySampleCell* rows,MAOniColonySamplePart* parts,std::uint32_t capacity,std::uint32_t* part_count,double* booked_mass) {
     return boundary([&] {

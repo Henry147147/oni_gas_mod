@@ -136,9 +136,73 @@ def f2(arena: Arena):
     leak = (mass(held_to, right, "gas") - mass(held_from, right, "gas")) / initial
     if t["opened"] < 0:
         return {"closed_hold_leak_fraction": leak, "opened": "censored"}
-    out, _ = gas_rooms(arena, t["release"], left, right, left + right + door)
+    open_cells = left + right + door
+    out, series = gas_rooms(arena, t["release"], left, right, open_cells)
+    energies = sample_energies(arena)
+    if energies is not None:
+        active = [(row, audit, energy) for row, audit, energy in
+                  zip(arena.rows, arena.record["owner_sample_audits"], energies) if row[0] >= t["release"]]
+        for _, audit, _ in active:
+            if audit["reservoir_kg"] != 0 or audit["space_sink_kg"] != 0:
+                raise ValueError("F2 energy truth requires its sealed, reservoir-free arena")
+            for key in ("injected_kg", "extracted_kg"):
+                if audit[key] != active[0][1][key]:
+                    raise ValueError("F2 post-release mass exchange needs a separate energy account")
+        if any(e["id"] != "Oxygen" and m > 0 for _, cells in series for e, m, _ in constituents(cells, open_cells)):
+            raise ValueError("F2 energy truth requires the prescribed oxygen-only fields")
+        release_energy = active[0][2]
+        tail = [energy for _, _, energy in active[-FINAL:]]
+        average = lambda key: math.fsum(e[key] for e in tail) / len(tail)
+        # One FINAL target, using all booked heat through the final window.
+        # Thermal U was formed before projection, avoiding U/formation cancellation.
+        available = math.fsum((release_energy["thermal_energy_j"], release_energy["kinetic_energy_j"],
+                              release_energy["potential_energy_j"], average("accepted_external_heat_j"),
+                              -release_energy["accepted_external_heat_j"], -average("trace_sink_energy_j"),
+                              release_energy["trace_sink_energy_j"], release_energy["formation_energy_j"],
+                              -average("formation_energy_j")))
+        capacity, total_mass = average("heat_capacity_j_per_k"), average("fluid_mass_kg")
+        if capacity <= 0 or total_mass <= 0:
+            raise ValueError("F2 final caloric capacity/mass must be positive")
+        # Every admissible equilibrium distribution lies between these exact
+        # geometry bounds on G. No uniform-density/gravity approximation is hidden.
+        potential = [total_mass * 9.81 * (y + .5) for _, y in open_cells]
+        temperatures = [(available - max(potential)) / capacity, (available - min(potential)) / capacity]
+        moles = final(series, lambda cells: gas_totals(cells, open_cells)[0])
+        targets = [moles * GAS_CONSTANT * temperature / len(open_cells) for temperature in temperatures]
+        if targets[0] <= 0 or not all(math.isfinite(p) for p in targets):
+            raise ValueError("F2 final pressure truth has no positive finite range")
+        out.pop("analytic_final_pressure_pa")
+        out["analytic_final_pressure_range_pa"] = targets
+        out["pressure_truth"] = {"source": "final energy ledger with equilibrium gravity bounds",
+                                 "temperature_range_k": temperatures,
+                                 "accepted_heat_after_release_j": average("accepted_external_heat_j") - release_energy["accepted_external_heat_j"],
+                                 "release_kinetic_energy_j": release_energy["kinetic_energy_j"]}
+        out["equalised"] = pressure_event_range(series, left, right, targets)
+    else:
+        out["pressure_truth"] = {"source": "release-sample estimate; same-frame U/K/G unavailable", "unresolved": True}
     out.update(closed_hold_leak_fraction=leak, command_to_open_s=(t["opened"] - t["commanded"]) * arena.dt)
     return out
+
+
+def pressure_event_range(series, left, right, targets):
+    """Enclose event brackets for every fixed FINAL pressure in the range."""
+    low, high = targets
+    guaranteed = event(series, lambda cells: all(.95 * high <= pressure(cells, room) <= 1.05 * low
+                                                for room in (left, right)))
+    possible = {"censored": True, "observed_s": series[-1][0] if series else 0}
+    for i in range(len(series) - PERSIST):
+        allowed_low, allowed_high = low, high
+        for _, cells in series[i:i + PERSIST + 1]:
+            for room in (left, right):
+                value = pressure(cells, room)
+                allowed_low = max(allowed_low, value / 1.05)
+                allowed_high = min(allowed_high, value / .95)
+        if allowed_low <= allowed_high:
+            possible = {"bracket_s": [series[i - 1][0] if i > 0 else series[0][0], series[i][0]]}
+            break
+    if guaranteed.get("censored"):
+        return guaranteed if possible.get("censored") else {"unresolved": True, "possible": possible, "guaranteed": guaranteed}
+    return {"bracket_s": [possible["bracket_s"][0], guaranteed["bracket_s"][1]]}
 
 
 def depths(cells, columns, rows, element_id, full):
@@ -157,11 +221,38 @@ def f3(arena: Arena):
             "initial_water_kg": mass(first, rect(1, 20, 1, 12), element_id="Water")}
 
 
+def f4_placements(arena: Arena):
+    """Frozen F4 fields, reconstructed from the binary32 placement contract.
+
+    The first native export follows a conduction interval. These prescribed
+    inputs supply caloric truth; their reconstruction does not by itself prove
+    that a particular native run admitted them (the admission probe does that).
+    """
+    placed = arena.record.get("placed", {})
+    required = ("hot_cell_kg", "cold_cell_kg", "granite_tile_kg")
+    if not all(key in placed for key in required):
+        return None
+    descriptions = {element["id"]: element for element in arena.elements.values()}
+    stored = lambda value: struct.unpack("<f", struct.pack("<f", value))[0]
+    cells = {}
+    for y in (1, 2):
+        for x in range(1, 6):
+            key, name, temperature = (("hot_cell_kg", "Oxygen", 353.15) if x < 3 else
+                                      ("granite_tile_kg", "Granite", 318.15) if x == 3 else
+                                      ("cold_cell_kg", "Oxygen", 283.15))
+            value = stored(placed[key])
+            if not math.isfinite(value) or value <= 0:
+                raise ValueError("Invalid frozen F4 placement mass")
+            cells[x, y] = ([(descriptions[name], value)], stored(temperature))
+    return cells
+
+
 def f4(arena: Arena):
     hot, cold, divider = rect(1, 2, 1, 2), rect(4, 5, 1, 2), rect(3, 3, 1, 2)
     series = arena.series(arena.ticks["release"])
     room_t = lambda cells, room: sum(m * t for e, m, t in constituents(cells, room) if e["phase"] == "gas") / mass(cells, room, "gas")
-    first = series[0][1]
+    placed = f4_placements(arena)
+    first = placed if placed is not None else series[0][1]
     everything = hot + cold + divider
     capacity = sum(m * e["specific_heat_j_per_kg_k"] for e, m, _ in constituents(first, everything) if m > 0)
     heat = sum(m * e["specific_heat_j_per_kg_k"] * t for e, m, t in constituents(first, everything) if m > 0)
@@ -170,7 +261,9 @@ def f4(arena: Arena):
     final_t = final(series, lambda cells: room_t(cells, gas))
     return {"converged_35k": event(series, lambda cells: room_t(cells, hot) - room_t(cells, cold) <= 35),
             "final_gas_temperature_k": final_t, "common_temperature_k": common, "temperature_error_k": abs(final_t - common),
-            "initial_heat_j": heat, "initial_gas_kg": mass(first, gas, "gas")}
+            "initial_heat_j": heat, "initial_gas_kg": mass(first, gas, "gas"),
+            "initial_source": "frozen binary32 placements" if placed is not None else "release sample; frozen placements unavailable",
+            "release_sample_heat_j": gas_totals(series[0][1], everything)[1]}
 
 
 def f5(arena: Arena):
@@ -223,16 +316,20 @@ def load(path: Path) -> Arena:
 
 
 def initial(arena: Arena) -> dict:
-    """The t = 0 sample (F2: the start of the closed hold): mass and heat (m c T) per element, and each material's properties."""
+    """Initial mass/heat by element; F4 uses prescribed binary32 inputs when available."""
     tick = arena.ticks["locked"] if arena.record["arena"] == "f2" else arena.ticks["release"]
-    first = arena.row_at(tick)
+    placed = f4_placements(arena) if arena.record["arena"] == "f4" else None
+    first = placed if placed is not None else arena.row_at(tick)
     out = {}
     for element, m, t in constituents(first, list(first)):
         if element["phase"] == "vacuum" or m <= 0:
             continue
         entry = out.setdefault(element["id"], {"kg": 0.0, "heat_j": 0.0, "cells": 0, **{k: v for k, v in element.items() if k != "id"}})
         entry["kg"] += m; entry["heat_j"] += m * element["specific_heat_j_per_kg_k"] * t; entry["cells"] += 1
-    return {"tick": tick, "elements": out, "placed": arena.record.get("placed", {})}
+    result = {"tick": tick, "elements": out, "placed": arena.record.get("placed", {})}
+    if placed is not None:
+        result["source"] = "frozen binary32 placements; tick marks the release sample"
+    return result
 
 
 def sampling(arena: Arena) -> dict | None:
@@ -242,6 +339,7 @@ def sampling(arena: Arena) -> dict | None:
         return None
     if len(audits) != len(arena.rows) or not audits:
         raise ValueError("Owner sample audits do not match the exported rows")
+    sample_energies(arena)
     frames, inventories, refused, residuals = [], [], [], []
     for row, audit in zip(arena.rows, audits):
         if row[0] != audit["tick"]:
@@ -278,6 +376,29 @@ def sampling(arena: Arena) -> dict | None:
             raise ValueError("Some samples lack accepted external heat")
         heat = [a["accepted_external_heat_j"] for a in audits]
         result["accepted_external_heat_span_j"] = max(heat) - min(heat)
+    return result
+
+
+def sample_energies(arena: Arena):
+    """Read only energy observations aligned with their composition/heat epoch."""
+    audits = arena.record.get("owner_sample_audits", [])
+    if arena.record.get("simulation") != "colony owner" or not any("energy" in audit for audit in audits):
+        return None
+    if len(audits) != len(arena.rows) or not all("energy" in audit for audit in audits):
+        raise ValueError("Some owner samples lack their energy observation")
+    result = []
+    session = audits[0]["session"]
+    for audit in audits:
+        energy = audit["energy"]
+        if audit["session"] != session or energy["session"] != session or energy["frame"] != audit["frame"] or energy["time_s"] != audit["time_s"]:
+            raise ValueError("Owner energy observation differs from its composition session/frame/time")
+        if energy["accepted_external_heat_j"] != audit["accepted_external_heat_j"]:
+            raise ValueError("Owner energy and accepted heat observations differ")
+        fields = ("internal_energy_j", "kinetic_energy_j", "potential_energy_j", "thermal_energy_j",
+                  "formation_energy_j", "heat_capacity_j_per_k", "fluid_mass_kg", "accepted_external_heat_j", "trace_sink_energy_j")
+        if not all(math.isfinite(energy[key]) for key in fields) or any(energy[key] < 0 for key in ("kinetic_energy_j", "heat_capacity_j_per_k", "fluid_mass_kg")):
+            raise ValueError("Invalid owner energy observation")
+        result.append(energy)
     return result
 
 

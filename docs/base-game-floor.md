@@ -287,6 +287,17 @@ this must enter the door-heat truth calculation. The existing pressure target
 uses the release snapshot, so its post-release heat/kinetic correction remains
 unresolved along with the dynamic oracle. No dynamic floor pass follows.
 
+New retained-frame exports also include U, K, G, formation energy, Cv capacity
+and the accepted heat/trace accounts from the composition's exact session/frame.
+Primary-U remainders and canonical face momentum enter these sums before their
+final binary64 observations. F2 analysis uses one final energy budget, including
+heat accepted after release and kinetic energy released into heat. It bounds
+equilibrium G by the fixed arena heights and reports event brackets valid for
+every final pressure in that range; ambiguity stays unresolved. The target is
+constant through the event search. Older records lack this energy observation
+and retain their explicit unresolved release-sample estimate. A new live F2
+measurement is still needed.
+
 The retained F1 release-stamp control also records **605 consecutive frames**,
 zero repeats/skips/refusals and residual **7.105e-15 kg**. Initial mass/heat,
 the [9.0, 9.2] s bracket and all final fractions match the earlier F1 runs.
@@ -344,11 +355,13 @@ range or certify the full floor. For example, F3's exploratory range above
 leaves its [5.8,6.0] s owner / [68.8,69.0] s vanilla comparison unresolved.
 
 The complete Unity vanilla F4 `w1` measurement also now reaches its fixed
-20000 s endpoint: 35 K crossing [0.8,1.0] s, final fluid temperature
-318.028901253 K and caloric-equilibrium error0.061261183 K. Its release row
-has already exchanged heat, as described in the admission audit below;
-frozen initial truth still requires the admission tuples. No complete
-profile4 F4 or aligned solid/fluid dynamic reference has been established.
+20000 s endpoint: 35 K crossing [0.8,1.0] s and final fluid temperature
+318.028901253 K. Reconstructing its frozen binary32 placements gives initial
+heat102103025.81511156 J, common temperature318.090164571 K and error0.061263319 K.
+The exporter’s release row follows heat exchange; `floor_metrics.py` reports
+its heat separately rather than treating it as the frozen input. Reconstruction
+specifies truth; the admission probe below establishes native starting fields.
+No complete profile4 F4 or aligned solid/fluid dynamic reference is established.
 
 ### F4 admission audit
 

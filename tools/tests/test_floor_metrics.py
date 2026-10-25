@@ -121,6 +121,81 @@ class FloorMetricsTests(unittest.TestCase):
         self.assertTrue(out["levelled"]["censored"])
         self.assertAlmostEqual(out["final_mean_depth_m"], 2.0)
 
+    def test_f2_final_target_includes_booked_heat_and_released_kinetic_energy(self):
+        # The catalogue interprets the game's fixed-cell specific heat as Cv.
+        capacity = 130 * OXYGEN["specific_heat_j_per_kg_k"]
+        potential = 130 * 9.81 * 5
+
+        def frame(tick):
+            return lambda x, y: (2, 0, 0) if x == 9 and y not in (4, 5) else (1, 1, 300 if tick < 2 else 340)
+
+        with tempfile.TemporaryDirectory() as folder:
+            path = write(Path(folder), "f2", 19, 10, {"locked": 0, "commanded": 0, "opened": 0, "release": 0},
+                         {1: OXYGEN, 2: WALL}, [(tick, frame(tick)) for tick in range(8)])
+            record = json.loads(path.read_text())
+            record.update(simulation="colony owner", owner_sample_history=True, owner_tick_offset=-10)
+            audits = []
+            for tick in range(8):
+                heat = 7 + (0 if tick < 2 else 30 * capacity)
+                audit = dict(tick=tick, session=147, frame=10+tick, time_s=.2*tick,
+                    injected_kg=0, extracted_kg=0, reservoir_kg=0, expected_fluid_and_reservoir_kg=130,
+                    trace_sink_kg=0, space_sink_kg=0, projection_refused_cells=[], accepted_external_heat_j=heat)
+                audit["energy"] = dict(session=147, frame=10+tick, time_s=.2*tick,
+                    internal_energy_j=capacity*(300 if tick < 2 else 340), kinetic_energy_j=capacity*(10 if tick < 2 else 0),
+                    potential_energy_j=potential, thermal_energy_j=capacity*(300 if tick < 2 else 340),
+                    formation_energy_j=0, heat_capacity_j_per_k=capacity, fluid_mass_kg=130,
+                    accepted_external_heat_j=heat, trace_sink_energy_j=0)
+                audits.append(audit)
+            record["owner_sample_audits"] = audits; path.write_text(json.dumps(record))
+            out = floor_metrics.metrics(path)
+            self.assertEqual(out["equalised"]["bracket_s"], [.2, .4])
+            truth = out["analytic_final_pressure_range_pa"]
+            expected = floor_metrics.GAS_CONSTANT * 340 / OXYGEN["molar_mass_kg_per_mol"]
+            self.assertLess(truth[0], expected); self.assertGreater(truth[1], expected)
+            self.assertAlmostEqual(sum(truth) / 2, expected)
+            self.assertEqual(out["pressure_truth"]["release_kinetic_energy_j"], 10 * capacity)
+            self.assertAlmostEqual(out["pressure_truth"]["accepted_heat_after_release_j"], 30 * capacity)
+            record["owner_sample_audits"][3]["energy"]["frame"] += 1
+            path.write_text(json.dumps(record))
+            with self.assertRaisesRegex(ValueError, "session/frame/time"):
+                floor_metrics.metrics(path)
+
+    def test_uncertain_final_pressure_is_not_reported_as_a_proven_event(self):
+        temperature = 300
+        kg = 100 * .032 / (floor_metrics.GAS_CONSTANT * temperature)
+        cells = {(1, 1): ([(OXYGEN, kg)], temperature), (2, 1): ([(OXYGEN, kg)], temperature)}
+        event = floor_metrics.pressure_event_range([(.2*t, cells) for t in range(8)], [(1, 1)], [(2, 1)], [90, 110])
+        self.assertTrue(event["unresolved"])
+        self.assertEqual(event["possible"]["bracket_s"], [0, 0])
+        self.assertTrue(event["guaranteed"]["censored"])
+
+    def test_f4_caloric_truth_uses_frozen_placements_before_first_exported_heat(self):
+        granite = {"id": "Granite", "phase": "solid", "molar_mass_kg_per_mol": .05,
+                   "specific_heat_j_per_kg_k": 800.0}
+        placed = {"hot_cell_kg": 2.123456789, "cold_cell_kg": 3.987654321, "granite_tile_kg": 200}
+        stored = lambda value: struct.unpack("<f", struct.pack("<f", value))[0]
+        hot_mass, cold_mass = stored(placed["hot_cell_kg"]), stored(placed["cold_cell_kg"])
+
+        def cell(x, y):
+            # The first sampled row is already at a common 318 K. It cannot
+            # establish the prescribed 353.15/283.15/318.15 K input heat.
+            return (2, 200, 318) if x == 3 else (1, hot_mass if x < 3 else cold_mass, 318)
+
+        with tempfile.TemporaryDirectory() as folder:
+            path = write(Path(folder), "f4", 7, 4, {"release": 0}, {1: OXYGEN, 2: granite},
+                         [(t, cell) for t in range(8)], placed)
+            out = floor_metrics.metrics(path)
+        gas_heat = 4 * 1000 * (hot_mass * stored(353.15) + cold_mass * stored(283.15))
+        heat = gas_heat + 400 * 800 * stored(318.15)
+        capacity = 4 * (hot_mass + cold_mass) * 1000 + 400 * 800
+        self.assertEqual(out["initial_source"], "frozen binary32 placements")
+        self.assertAlmostEqual(out["initial_heat_j"], heat)
+        self.assertAlmostEqual(out["common_temperature_k"], heat / capacity)
+        self.assertAlmostEqual(out["temperature_error_k"], abs(318 - heat / capacity))
+        self.assertAlmostEqual(out["release_sample_heat_j"], capacity * 318)
+        self.assertAlmostEqual(out["initial"]["elements"]["Oxygen"]["heat_j"], gas_heat)
+        self.assertNotEqual(out["initial_heat_j"], out["release_sample_heat_j"])
+
     def test_f5_counts_each_liquid_of_a_mixed_cell(self):
         water_full, oil_full = 1000.0, 870.0
         oil = {"id": "CrudeOil", "phase": "liquid", "molar_mass_kg_per_mol": .5, "specific_heat_j_per_kg_k": 1690.0}

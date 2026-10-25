@@ -32,6 +32,8 @@ class FloorTimingTests(unittest.TestCase):
         result = floor_timing.compare({"bracket_s": [0, .2]}, {"censored": True, "observed_s": 120},
                                       [0, 1], "Synthetic truth")
         self.assertEqual(result["status"], "unresolved")
+        result = floor_timing.compare({"unresolved": True}, {"bracket_s": [1, 2]}, [0, 1], "Synthetic truth")
+        self.assertEqual(result["status"], "unresolved")
 
     def test_invalid_or_undocumented_ranges_are_refused(self):
         for invalid in ([math.nan, 1], [0, math.inf], [1, 0], [-1, 0], [0]):

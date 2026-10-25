@@ -289,3 +289,10 @@ no-trace control. The old Oceania failure still reproduces under22; a scratch
 replay explicitly selecting23 completes60 ticks with byte-identical1/12-worker
 and cold30 endpoints. This is diagnostic replay evidence. Fresh selected-profile
 game checks, the floor and long-colony acceptance remain open.
+
+The subsequent fluid-only Oceania stress probe reaches923 ticks, then SaltWater
+falls below its supported temperature range. It first crosses its low identity
+transition at tick193, but that standalone driver omits the owner's
+SaltWater-to-Brine conversion and solid byproduct. This result establishes a
+limit of that diagnostic, not an integrated-owner failure; an actual game run
+with conversion and freezing remains required.

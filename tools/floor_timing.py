@@ -36,8 +36,8 @@ def compare(game, vanilla, truth, basis):
     truth = interval(truth)
     result = {"truth_range_s": list(truth), "truth_basis": basis,
               "game": game, "vanilla": vanilla}
-    if game.get("censored") or vanilla.get("censored"):
-        return {**result, "status": "unresolved", "reason": "censored event"}
+    if game.get("censored") or vanilla.get("censored") or game.get("unresolved") or vanilla.get("unresolved"):
+        return {**result, "status": "unresolved", "reason": "censored or unresolved event"}
     game_range = interval(game["bracket_s"])
     vanilla_range = interval(vanilla["bracket_s"])
     # Distance to an interval changes slope at its endpoints; maximum

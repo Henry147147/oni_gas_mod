@@ -693,6 +693,41 @@ void actor_batch_control() {
 }
 void sample_history_control() {
     using namespace ma::oni::colony;
+    {
+        using namespace ma; using namespace ma::experimental;
+        // Opposed formation energies cancel. Each cell carries a small U
+        // remainder that disappears if primary U is projected before summing.
+        SpeciesRegistry registry; std::vector<ReferenceMaterial> definitions;
+        for (int sign : {1,-1}) {
+            SpeciesDefinition gas;gas.id=sign>0?"sample-positive":"sample-negative";
+            gas.name=gas.id;gas.phase=Phase::gas;gas.atoms={{"O",2}};gas.explicit_molar_mass=true;
+            gas.molar_mass=.032;gas.cp=1000+gas_constant/gas.molar_mass;
+            gas.formation_enthalpy=(sign*std::ldexp(1.,60)+gas.cp*reference_temperature)*gas.molar_mass;
+            registry.add(gas);ReferenceMaterial m;m.id=gas.id;m.phase=ReferencePhase::ideal_gas;
+            m.molar_mass_kg_per_mol=gas.molar_mass;m.cv_j_per_kg_k=gas.cv();m.energy_offset_j_per_kg=gas.internal_energy(0);
+            m.minimum_temperature_k=1;m.maximum_temperature_k=1e6;m.provenance="Synthetic energy observation control";
+            definitions.push_back(m);
+        }
+        auto eos=std::make_shared<const FluidThermodynamics>(registry,"energy-observation-v1",definitions);
+        MacTransportState state;state.grid={2,1,1,1,false,false,std::vector<std::uint8_t>(2)};
+        state.cells.resize(2,MacMaterialCell{MixtureInventory(2),{}});
+        long double expected=0;
+        for (std::size_t i=0;i<2;++i) {
+            auto& cell=state.cells[i];cell.mixture.masses[i]=1;
+            cell.mixture.energy=definitions[i].energy_offset_j_per_kg+300000;
+            cell.energy_remainder_j.projected=.03125;
+            expected+=static_cast<long double>(cell.mixture.energy);
+        }
+        expected+=.0625L; // Add the two known remainders after the large cancellation.
+        state.momentum_x={0,3,0};state.momentum_y.resize(4);
+        state.full_momentum_x={MacScaled{},MacScaled::from_double(3),MacScaled{}};
+        const MacClosedWorld world(registry,eos,std::move(state));
+        const auto observation=energy_components(world);
+        require(observation.internal_energy_j==static_cast<double>(expected),"arena energy flattened U remainders");
+        require(observation.kinetic_energy_j==4.5,"arena energy lost canonical momentum");
+        require(observation.fluid_mass_kg==2 &&
+            observation.heat_capacity_j_per_k==registry[0].cv()+registry[1].cv(),"arena energy changed stored mass/Cv");
+    }
     std::vector<MAOniColonyMaterial> mats{material("Oxygen",11,oxygen,true,.016,1000)};
     MAOniColonyConfig cfg{}; cfg.struct_size=sizeof(cfg); cfg.abi_version=MA_ONI_COLONY_ABI_VERSION;
     cfg.vacuum_index=vacuum; cfg.grid_width=cfg.width=3; cfg.grid_height=cfg.height=3; cfg.maximum_timestep_s=.1;
@@ -703,24 +738,37 @@ void sample_history_control() {
     std::vector<MAOniColonySampleCell> rows; std::vector<MAOniColonySamplePart> parts; double mass=-1,heat=-1;
     const auto read=[&](std::uint64_t frame) { sample_frame(frame,std::span(&cell,1),source,rows,parts,&mass,&heat); };
     read(0); const auto first=parts; require(source.completed_frames==0 && heat==0,"history initial frame/heat");
+    const auto first_energy=sample_energy(source.session,0);
+    require(first_energy.session==source.session && first_energy.completed_frame==0 &&
+        first_energy.accepted_external_heat_j==0 && first_energy.kinetic_energy_j==0,
+        "initial arena energy epoch/heat");
     const MAOniColonyHeat warm{4,0,25.25,1000}; queue_heat(std::span(&warm,1)); advance(1,.2,2); wait();
     const MAOniColonyHeat cool{4,0,-1,1000}; queue_heat(std::span(&cool,1)); advance(2,.2,2); wait();
     require(status().state==1,"history heat control faulted"); const auto at2=checkpoint();
     read(0); require(heat==0 && source.completed_frames==0 && parts.size()==first.size() &&
         std::memcmp(parts.data(),first.data(),first.size()*sizeof(MAOniColonySamplePart))==0,"old history frame mutated");
     read(1); require(heat==25.25 && source.completed_frames==1,"history lost accepted external heat epoch");
+    const auto warm_energy=sample_energy(source.session,1);
+    require(warm_energy.completed_frame==1 && warm_energy.time_seconds==source.time_seconds &&
+        warm_energy.accepted_external_heat_j==25.25 &&
+        std::abs(warm_energy.internal_energy_j-first_energy.internal_energy_j-25.25)<1e-8,
+        "retained energy/accepted heat came from different frames");
     read(2); require(heat==24.25 && source.completed_frames==2 && checkpoint()==at2,"history heat/read changed physical state");
     advance(3,.2,2); wait();
     const auto before=checkpoint(); bool rejected=false;
     try { read(0); } catch (const std::invalid_argument&) { rejected=true; }
     require(rejected && checkpoint()==before,"evicted history silently returned another world");
+    rejected=false;try{(void)sample_energy(first_energy.session,0);}catch(const std::invalid_argument&){rejected=true;}
+    require(rejected,"evicted arena energy silently returned a later frame");
     read(UINT64_MAX); require(source.completed_frames==3 && heat==24.25,"latest history selector");
     const MAOniColonyHeat overcap{4,0,1e12,301}; queue_heat(std::span(&overcap,1)); advance(4,.2,2); wait();
     read(4); require(heat==24.25 && status().state==1,"queued refused heat was counted as accepted");
     sample_history(0); rejected=false; try { read(4); } catch (const std::invalid_argument&) { rejected=true; }
     require(rejected,"disabled history retained old samples"); stop(); start(cfg,mats,cells,1);
     rejected=false; try { read(1); } catch (const std::invalid_argument&) { rejected=true; }
-    require(rejected,"new session exposed prior history"); stop();
+    require(rejected,"new session exposed prior history");
+    sample_history(1);rejected=false;try{(void)sample_energy(first_energy.session,0);}catch(const std::invalid_argument&){rejected=true;}
+    require(rejected,"arena energy crossed a session boundary");stop();
     std::cout<<"PASS retained arena samples: exact completed frame, accepted/deferred heat, bounded eviction, readonly checkpoint and session reset\n";
 }
 void view_cache_control() {

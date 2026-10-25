@@ -353,6 +353,22 @@ MA_ONI_API MAOniResult ma_oni_colony_sample_history(uint32_t retained_frames);
 MA_ONI_API MAOniResult ma_oni_colony_sample_frame(uint64_t completed_frame,
     const uint32_t* cells, uint32_t count, MAOniColonyStatus*, MAOniColonySampleCell*, MAOniColonySamplePart*,
     uint32_t capacity, uint32_t* part_count, double* booked_mass_kg, double* booked_heat_j);
+/* Read-only whole-arena energy from one retained immutable frame (<=4096
+ * cells). Requires enabled history and an exact nonzero session/frame match.
+ * Components include carried primary-U remainders and canonical face J before
+ * final binary64 observation. thermal_energy is U minus formation offsets,
+ * summed before projection to avoid cancellation between reported scalars.
+ * No simulation work or history is enabled by this call. Failure leaves the
+ * entire output record unchanged. struct_size=sizeof(record), abi_version=1. */
+typedef struct MAOniColonyEnergySample {
+    uint32_t struct_size, abi_version;
+    uint64_t session, completed_frame;
+    double time_seconds, internal_energy_j, kinetic_energy_j, potential_energy_j;
+    double thermal_energy_j, formation_energy_j, heat_capacity_j_per_k, fluid_mass_kg;
+    double accepted_external_heat_j, trace_sink_energy_j;
+} MAOniColonyEnergySample;
+MA_ONI_API MAOniResult ma_oni_colony_sample_energy(uint64_t session, uint64_t completed_frame,
+    MAOniColonyEnergySample*);
 /* A catalogue liquid's reference density (kg/m^3) at a pressure, from the
  * same material records as start: the mass of one full cell. Needs no owner. */
 MA_ONI_API MAOniResult ma_oni_colony_liquid_density(const MAOniColonyMaterial*, uint32_t material_count, uint32_t native_index,

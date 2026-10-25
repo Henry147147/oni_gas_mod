@@ -38,6 +38,16 @@ int main() {
             std::memcmp(&cached_status,&held_cached_status,sizeof(cached_status))==0,"invalid/inactive cached copy changed outputs");
         const std::uint32_t sample_cell=1; std::uint32_t sample_parts=123; MAOniColonyStatus sample_status{}; sample_status.state=99;
         const auto held_sample_status=sample_status; double sample_converted=456;
+        static_assert(sizeof(MAOniColonyEnergySample)==104);
+        MAOniColonyEnergySample sample_energy{};sample_energy.struct_size=sizeof(sample_energy);sample_energy.abi_version=1;
+        sample_energy.session=147;sample_energy.internal_energy_j=149;const auto held_energy=sample_energy;
+        require(ma_oni_colony_sample_energy(147,0,nullptr)==MA_ONI_INVALID_ARGUMENT &&
+            ma_oni_colony_sample_energy(147,0,&sample_energy)==MA_ONI_INVALID_ARGUMENT &&
+            std::memcmp(&sample_energy,&held_energy,sizeof(sample_energy))==0,
+            "invalid/inactive retained energy modified output");
+        sample_energy.abi_version=2;const auto bad_energy=sample_energy;
+        require(ma_oni_colony_sample_energy(147,0,&sample_energy)==MA_ONI_INVALID_ARGUMENT &&
+            std::memcmp(&sample_energy,&bad_energy,sizeof(sample_energy))==0,"invalid energy version modified output");
         require(ma_oni_colony_sample(nullptr,1,&sample_status,nullptr,nullptr,0,&sample_parts,&sample_converted)==MA_ONI_INVALID_ARGUMENT &&
             ma_oni_colony_sample(&sample_cell,0,&sample_status,nullptr,nullptr,0,&sample_parts,&sample_converted)==MA_ONI_INVALID_ARGUMENT &&
             ma_oni_colony_sample(&sample_cell,1,&sample_status,nullptr,nullptr,0,&sample_parts,&sample_converted)==MA_ONI_INVALID_ARGUMENT &&

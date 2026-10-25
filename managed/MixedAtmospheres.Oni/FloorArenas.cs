@@ -38,11 +38,20 @@ namespace MixedAtmospheres.Oni
         private struct SampleCell { internal uint PublicCell, FirstConstituent, Constituents, Flags; internal double TemperatureK; }
         [StructLayout(LayoutKind.Sequential)]
         private struct SamplePart { internal uint NativeIndex, Reserved; internal double MassKg; }
+        [StructLayout(LayoutKind.Sequential)]
+        private struct EnergySample
+        {
+            internal uint Size, Version;
+            internal ulong Session, Frame;
+            internal double TimeSeconds, Internal, Kinetic, Potential, Thermal, Formation, Capacity, Mass, ExternalHeat, TraceEnergy;
+        }
         [DllImport("mixed_atmospheres_oni", EntryPoint = "ma_oni_colony_sample_history", CallingConvention = CallingConvention.Cdecl)]
         private static extern int RetainSamples(uint frames);
         [DllImport("mixed_atmospheres_oni", EntryPoint = "ma_oni_colony_sample_frame", CallingConvention = CallingConvention.Cdecl)]
         private static extern int SampleFrame(ulong frame, [In] uint[] cells, uint count, out OniNativeColony.Status source,
             [Out] SampleCell[] rows, [Out] SamplePart[] parts, uint capacity, out uint partCount, out double bookedMassKg, out double bookedHeatJ);
+        [DllImport("mixed_atmospheres_oni", EntryPoint = "ma_oni_colony_sample_energy", CallingConvention = CallingConvention.Cdecl)]
+        private static extern int SampleEnergy(ulong session, ulong frame, ref EnergySample energy);
         private static uint[] ownerRequested = Array.Empty<uint>();
         private static SampleCell[] ownerRows = Array.Empty<SampleCell>();
         private static SamplePart[] ownerParts = Array.Empty<SamplePart>();
@@ -207,15 +216,32 @@ namespace MixedAtmospheres.Oni
             }
             if (sampleTick < 0) return;
             ownerSampleFrames.Add(new[] { (ulong)sampleTick, source.CompletedFrames });
-            ownerSampleAudits.Add(new Dictionary<string, object> {
-                ["tick"] = sampleTick, ["frame"] = source.CompletedFrames, ["time_s"] = source.TimeSeconds,
+            var audit = new Dictionary<string, object> {
+                ["tick"] = sampleTick, ["session"] = source.Session, ["frame"] = source.CompletedFrames, ["time_s"] = source.TimeSeconds,
                 ["projection_refused_cells"] = refused, ["native_mass_in_kg"] = source.NativeMassInKg,
                 ["native_mass_out_kg"] = source.NativeMassOutKg, ["trace_sink_kg"] = source.TraceSinkKg,
                 ["injected_kg"] = source.InjectedKg, ["extracted_kg"] = source.ExtractedKg, ["reservoir_kg"] = source.ReservoirKg,
                 ["expected_fluid_and_reservoir_kg"] = bookedMass,
                 ["accepted_external_heat_j"] = bookedHeat,
                 ["space_sink_kg"] = source.SpaceSinkKg, ["native_heat_j"] = source.NativeHeatJoules, ["mass_error"] = source.MaximumRelativeMassError,
-                ["energy_error"] = source.MaximumRelativeEnergyError });
+                ["energy_error"] = source.MaximumRelativeEnergyError };
+            if (Id != "f4")
+            {
+                if (Marshal.SizeOf<EnergySample>() != 104) throw new InvalidDataException("Floor energy ABI layout differs.");
+                var energy = new EnergySample { Size = 104, Version = 1 };
+                OniNativeColony.Check(SampleEnergy(source.Session, source.CompletedFrames, ref energy));
+                if (energy.Session != source.Session || energy.Frame != source.CompletedFrames ||
+                    energy.TimeSeconds != source.TimeSeconds || energy.ExternalHeat != bookedHeat)
+                    throw new InvalidDataException("Floor energy and composition came from different frames.");
+                audit["energy"] = new Dictionary<string, object> {
+                    ["session"] = energy.Session, ["frame"] = energy.Frame, ["time_s"] = energy.TimeSeconds,
+                    ["internal_energy_j"] = energy.Internal, ["kinetic_energy_j"] = energy.Kinetic,
+                    ["potential_energy_j"] = energy.Potential, ["thermal_energy_j"] = energy.Thermal,
+                    ["formation_energy_j"] = energy.Formation, ["heat_capacity_j_per_k"] = energy.Capacity,
+                    ["fluid_mass_kg"] = energy.Mass, ["accepted_external_heat_j"] = energy.ExternalHeat,
+                    ["trace_sink_energy_j"] = energy.TraceEnergy };
+            }
+            ownerSampleAudits.Add(audit);
         }
 
         // Every Unity frame: build, fill and release at their ticks. True
