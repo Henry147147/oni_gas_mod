@@ -873,7 +873,8 @@ booked as an injection.
 `tools/oni_headless.py run --mode colony-owner --scenario NAME` checks one
 system in game (`managed/MixedAtmospheres.Oni/ColonyScenarios.cs`). Each
 scenario seals an 8 × 6 arena of Unobtanium nine cells right of the printing pod
-through the game's own cell messages, fills it two frames later, runs some owner
+through the game's own cell messages (its inner walls and floors with the seal),
+fills it two frames later, runs some owner
 frames and records its checks in `colony-owner.json`; the run fails on a failed
 check or an owner fault. Scenario buildings are built instantly and powered by
 setting their powered flag (harness only).

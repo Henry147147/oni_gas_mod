@@ -130,6 +130,7 @@ namespace MixedAtmospheres.Oni
         internal static MixturePipeReading? InspectStorage(Storage storage)=>Enabled&&States.TryGetValue(storage,out var state)?
             ColonyPipeInspection.Describe(state.Inventory,"Vent contents"):ColonyPipePumps.InspectStorage(storage);
         internal static PipeInventory Inventory(Storage storage)=>States.TryGetValue(storage,out var state)?state.Inventory:PipeInventory.Empty;
+        internal static bool Owns(Storage storage)=>Enabled&&States.ContainsKey(storage);
         internal static string ControlDetails(Storage storage)=>States.TryGetValue(storage,out var state)?
             $"{state.Exchanges} exchanges; {state.LastExchange}; held {state.Inventory.Mass:R} kg; {state.Pending.Count} pending":"vent not bound";
         internal static bool Emit(Exhaust exhaust)

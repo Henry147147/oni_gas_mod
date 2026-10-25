@@ -303,7 +303,7 @@ namespace MixedAtmospheres.Oni
                 var oxygen = Enumerable.Range(5, 3).Sum(x => Enumerable.Range(0, Height).Sum(y => SpeciesMass(Cell(x, y), SimHashes.Oxygen)));
                 var carbon = Enumerable.Range(5, 3).Sum(x => Enumerable.Range(0, Height).Sum(y => SpeciesMass(Cell(x, y), SimHashes.CarbonDioxide)));
                 var inPipe = pipeCells.Sum(c => (double)Game.Instance.gasConduitFlow.GetContents(c).mass);
-                var stored = powered.Where(b => b != null).Sum(b => b.GetComponents<Storage>().Sum(st => st.items.Where(i => i != null).Sum(i => (double)(i.GetComponent<PrimaryElement>()?.Mass ?? 0))));
+                var stored = powered.Where(b => b != null).Sum(b => HeldMass(b!));
                 var vent = powered.FirstOrDefault(b => b != null && b.GetComponent<Vent>() != null);
                 var ventState = vent == null ? "no vent" : $"blocked {vent.GetComponent<Vent>().IsBlocked}, cell solid {Grid.Solid[Grid.PosToCell(vent)]}, stored {vent.GetComponents<Storage>().Sum(st => st.MassStored()):G4} kg; {MachineState(vent)}";
                 string Column(int x) => string.Join(" ", Enumerable.Range(-1, Height + 2).Select(y => $"{Grid.Element[Cell(x, y)].id}:{Grid.Mass[Cell(x, y)]:G3}{(Grid.Solid[Cell(x, y)] ? "S" : "")}{(ColonyOwner.OwnsFluidCell(Cell(x, y)) ? "o" : "")}"));
@@ -888,11 +888,17 @@ namespace MixedAtmospheres.Oni
             if (Once(8, "build")) sensor = Build(LogicElementSensorGasConfig.ID, Cell(3, 2)).GetComponent<LogicElementSensor>();
             // Spawning applies the sensor's filter, so the element is chosen a frame later.
             if (Once(9, "select")) sensor!.GetComponent<Filterable>().SelectedTag = ElementLoader.FindElementByHash(SimHashes.CarbonDioxide).tag;
-            if (Once(26, "check"))
+            // The sensor decides once per nine 200 ms samples, and its first
+            // window may hold samples taken before its element was chosen:
+            // the check waits up to two further windows for it to switch.
+            if (frame >= 26 && (sensor != null && sensor.IsSwitchedOn || frame >= 44) && Once(frame, "check"))
             {
                 var on = sensor != null && sensor.IsSwitchedOn;
+                var samples = sensor == null ? "-" : string.Join("", (Traverse.Create(sensor).Field("samples").GetValue() as bool[] ?? new bool[0]).Select(s => s ? "1" : "0"));
+                var desiredIdx = sensor == null ? -1 : Convert.ToInt32(Traverse.Create(sensor).Field("desiredElementIdx").GetValue());
                 Record("the sensor found the minority carbon dioxide", on && Grid.Element[Cell(3, 2)].id == SimHashes.Oxygen,
                     $"switched on {on}, cell shows {Grid.Element[Cell(3, 2)].id}, CO2 {SpeciesMass(Cell(3, 2), SimHashes.CarbonDioxide):G3} kg, " +
+                    $"present {ColonySensors.Present(Cell(3, 2), desiredIdx)}, owned {ColonyOwner.OwnsFluidCell(Cell(3, 2))}, samples {samples} at {(sensor == null ? "-" : Traverse.Create(sensor).Field("sampleIdx").GetValue())}, " +
                     $"sensing {(sensor != null ? ElementLoader.elements[Convert.ToInt32(Traverse.Create(sensor).Field("desiredElementIdx").GetValue())].id.ToString() : "-")}");
                 Finish();
             }
@@ -901,7 +907,7 @@ namespace MixedAtmospheres.Oni
         // A pump sends the left chamber's oxygen and carbon dioxide through a
         // carbon dioxide filter: its filtered port carries only carbon dioxide
         // and its main output only oxygen.
-        private static readonly List<int> filteredPipe = new List<int>(), passedPipe = new List<int>();
+        private static readonly List<int> filteredPipe = new List<int>(), passedPipe = new List<int>(), inputPipe = new List<int>();
         private static GameObject? filterBuilding;
         private static void Filter(int frame)
         {
@@ -913,7 +919,9 @@ namespace MixedAtmospheres.Oni
                 filteredPipe.Clear(); passedPipe.Clear();
                 Build(GasPumpConfig.ID, Cell(1, 0));
                 filterBuilding = Build(GasFilterConfig.ID, Cell(6, 3));
-                Build(GasVentConfig.ID, Cell(7, 0)); Build(GasVentConfig.ID, Cell(5, 0));
+                // Each port's pipe runs straight down to its own vent: a route
+                // crossing the input pipe would join the two networks.
+                Build(GasVentConfig.ID, Cell(7, 0)); Build(GasVentConfig.ID, Cell(6, 0));
             }
             // The filter knows its port cells once it has spawned (a frame later).
             if (Once(7, "pipes"))
@@ -925,10 +933,13 @@ namespace MixedAtmospheres.Oni
                 var filtered = (int)AccessTools.Field(typeof(ElementFilter), "filteredCell").GetValue(filter.GetComponent<ElementFilter>());
                 if (!InArena(into) || !InArena(output) || !InArena(filtered)) throw new InvalidOperationException($"filter ports outside the arena: {into} {output} {filtered}");
                 var pump = powered[0]; var a = powered.Single(b => b != null && b.GetComponent<Vent>() != null && Grid.PosToCell(b) == Cell(7, 0));
-                var b = powered.Single(v => v != null && v.GetComponent<Vent>() != null && Grid.PosToCell(v) == Cell(5, 0));
-                Pipe(Game.Instance.gasConduitSystem, GasConduitConfig.ID, Route(Grid.OffsetCell(Grid.PosToCell(pump), pump.GetComponent<Building>().Def.UtilityOutputOffset), into));
+                var b = powered.Single(v => v != null && v.GetComponent<Vent>() != null && Grid.PosToCell(v) == Cell(6, 0));
+                inputPipe.Clear(); inputPipe.AddRange(Route(Grid.OffsetCell(Grid.PosToCell(pump), pump.GetComponent<Building>().Def.UtilityOutputOffset), into));
+                Pipe(Game.Instance.gasConduitSystem, GasConduitConfig.ID, inputPipe);
                 passedPipe.AddRange(Route(output, Grid.OffsetCell(Grid.PosToCell(a), a.GetComponent<Building>().Def.UtilityInputOffset)));
                 filteredPipe.AddRange(Route(filtered, Grid.OffsetCell(Grid.PosToCell(b), b.GetComponent<Building>().Def.UtilityInputOffset)));
+                if (inputPipe.Intersect(passedPipe).Any() || inputPipe.Intersect(filteredPipe).Any() || passedPipe.Intersect(filteredPipe).Any())
+                    throw new InvalidOperationException("The filter's three pipes share a cell.");
                 Pipe(Game.Instance.gasConduitSystem, GasConduitConfig.ID, passedPipe);
                 Pipe(Game.Instance.gasConduitSystem, GasConduitConfig.ID, filteredPipe);
             }
@@ -941,10 +952,17 @@ namespace MixedAtmospheres.Oni
                 foreach (var c in passedPipe) { var x = flow.GetContents(c); if (x.element == SimHashes.Oxygen) o2 += x.mass; else if (x.mass > 0) co2InPassed += x.mass; }
                 var vented = ArenaSpecies(SimHashes.CarbonDioxide, 5) + ArenaSpecies(SimHashes.Oxygen, 5);
                 Record("the filter separated the pumped mixture", (co2 > 0 || vented > .05) && o2InFiltered == 0 && co2InPassed == 0,
-                    $"filtered port: CO2 {co2:G3} kg, other {o2InFiltered:G3} kg; output: O2 {o2:G3} kg, other {co2InPassed:G3} kg; vented {vented:G3} kg");
+                    $"filtered port: CO2 {co2:G3} kg, other {o2InFiltered:G3} kg; output: O2 {o2:G3} kg, other {co2InPassed:G3} kg; vented {vented:G3} kg; " +
+                    $"input pipe {inputPipe.Sum(c => (double)flow.GetContents(c).mass):G3} kg; pump {MachineState(powered.FirstOrDefault())}; filter {MachineState(filterBuilding)}");
                 Finish();
             }
         }
+        // What a building holds: each storage's native items or, for a pump
+        // or vent storage owned by mixed pipes (whose native storage writes are
+        // suppressed), its owned inventory instead, so nothing counts twice.
+        private static double HeldMass(GameObject building) => building.GetComponents<Storage>().Sum(st =>
+            ColonyPipePumps.Owns(st) ? ColonyPipePumps.Inventory(st).Mass : ColonyPipeVents.Owns(st) ? ColonyPipeVents.Inventory(st).Mass :
+            st.items.Where(i => i != null).Sum(i => (double)(i.GetComponent<PrimaryElement>()?.Mass ?? 0)));
         private static bool InArena(int cell)
         {
             if (!Grid.IsValidCell(cell)) return false;
@@ -998,7 +1016,7 @@ namespace MixedAtmospheres.Oni
             }
             if (Once(30, "check"))
             {
-                var held = powered.Where(b => b != null).Sum(b => b.GetComponents<Storage>().Sum(s => s.items.Where(i => i != null).Sum(i => (double)(i.GetComponent<PrimaryElement>()?.Mass ?? 0))));
+                var held = powered.Where(b => b != null).Sum(b => HeldMass(b!));
                 var inPipe = pipeCells.Sum(c => (double)Game.Instance.liquidConduitFlow.GetContents(c).mass);
                 var drawn = recorded["water"] - ArenaSpecies(SimHashes.Water);
                 Record("the pump drew the pool's water", drawn > 1 && Math.Abs(held + inPipe - drawn) <= .02 * drawn + .01,
@@ -1890,6 +1908,9 @@ namespace MixedAtmospheres.Oni
         // and its inside replaced with vacuum (the owner removes what was
         // there), then filled two frames later, so placed fluid never mixes
         // with what the terrain held and no gas is squeezed out at once.
+        // Solid cells of the inside (walls, floors) go in with the border:
+        // the owner closes a cell the frame after the game places its solid,
+        // so a wall placed with the fill would let fill gas cross it first.
         private static Func<int, int, (SimHashes element, float mass, float temperature)>? filling;
         private static void Arena(Func<int, int, (SimHashes element, float mass, float temperature)> inside)
         {
@@ -1901,7 +1922,9 @@ namespace MixedAtmospheres.Oni
                 for (var x = -1; x <= Width; ++x)
                 {
                     var border = x == -1 || y == -1 || x == Width || y == Height;
-                    if (border) SimMessages.ReplaceElement(Cell(x, y), SimHashes.Unobtanium, tool, 20000, 300);
+                    if (border) { SimMessages.ReplaceElement(Cell(x, y), SimHashes.Unobtanium, tool, 20000, 300); continue; }
+                    var (element, mass, temperature) = inside(x, y);
+                    if (IsSolid(element)) SimMessages.ReplaceElement(Cell(x, y), element, tool, mass, temperature);
                     else SimMessages.ReplaceElement(Cell(x, y), SimHashes.Vacuum, tool, 0, 0);
                 }
             filling = inside;
@@ -1914,10 +1937,11 @@ namespace MixedAtmospheres.Oni
                 for (var x = 0; x < Width; ++x)
                 {
                     var (element, mass, temperature) = filling(x, y);
-                    SimMessages.ReplaceElement(Cell(x, y), element, tool, mass, temperature);
+                    if (!IsSolid(element)) SimMessages.ReplaceElement(Cell(x, y), element, tool, mass, temperature);
                 }
             filling = null;
         }
+        private static bool IsSolid(SimHashes element) => ElementLoader.FindElementByHash(element)?.IsSolid == true;
         private static GameObject Build(string id, int cell)
         {
             var def = Assets.GetBuildingDef(id);
