@@ -21,7 +21,7 @@ namespace MixedAtmospheres.Oni
             {
                 var timer=Stopwatch.StartNew();var status=OniNativeColony.Status.Empty;
                 OniNativeColony.Check(OniNativeColony.Stop(ref status));
-                UnityEngine.Debug.Log($"[Mixed Atmospheres] Windows workers stopped before process exit in {timer.Elapsed.TotalMilliseconds:F3} ms.");
+                UnityEngine.Debug.Log($"[Mixed Atmospheres] Windows owner stopped with resident workers idle in {timer.Elapsed.TotalMilliseconds:F3} ms.");
             }
             catch(Exception error){UnityEngine.Debug.LogError("[Mixed Atmospheres] Windows worker shutdown failed: "+error);}
         }
@@ -47,7 +47,7 @@ namespace MixedAtmospheres.Oni
             UnityEngine.Debug.Log("[Mixed Atmospheres] Windows Sim.Shutdown entered.");
             if(ColonyOwner.Active)
             {
-                UnityEngine.Debug.Log("[Mixed Atmospheres] Windows owner workers stopping before native shutdown.");
+                UnityEngine.Debug.Log("[Mixed Atmospheres] Stopping the Windows colony owner before native shutdown.");
                 ColonyWindowsLifecycle.Stop();
             }
         }

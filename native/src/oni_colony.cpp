@@ -1,7 +1,6 @@
 #include "oni_colony.hpp"
 #include "oni_windows_lifecycle_trace.hpp"
 #include "mac_kernel_detail.hpp"
-#include "mac_kernel_lifecycle.hpp"
 #include "mac_phase_flow.hpp"
 #include "mac_game_bridge.hpp"
 #include "oni_catalogue.hpp"
@@ -23,6 +22,14 @@
 #include <chrono>
 #if defined(__linux__)
 #include <sched.h>
+#elif defined(_WIN32)
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
 #endif
 #include <cmath>
 #include <condition_variable>
@@ -260,22 +267,24 @@ struct Solver {
         idle.wait(l, [&] { return !running && seconds == 0 && !refusal; });
         busy.store(false, std::memory_order_release);
     }
-#if defined(_WIN32)
-    std::mutex retirement;
-    void retire() {
-        std::lock_guard retiring(retirement);
-        { std::lock_guard l(m); quit=true; }
-        wake.notify_all();idle.notify_all();
-        if(thread.joinable())thread.join();
-        { std::lock_guard l(m); quit=false; busy.store(false,std::memory_order_release); }
-    }
-#endif
+    // Keep the process-resident worker asleep between colonies. Joining a
+    // native worker from Unity's managed shutdown can block its DLL cleanup.
     ~Solver() { { std::lock_guard l(m); quit = true; } wake.notify_all(); if (thread.joinable()) thread.join(); }
 };
 #if defined(_WIN32)
 // A stopped native module remains mapped for its callers. Never join threads
 // from a Windows static destructor, which runs under the loader lock.
 Solver& solver=*new Solver;
+void pin_worker_module() {
+    static const char anchor=0;
+    static const bool pinned=[] {
+        HMODULE module{};
+        if(!GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS|GET_MODULE_HANDLE_EX_FLAG_PIN,
+            reinterpret_cast<LPCWSTR>(&anchor),&module))throw std::runtime_error("Cannot pin the Windows colony worker module");
+        return true;
+    }();
+    (void)pinned;
+}
 #else
 Solver solver; // declared after the session state, so destroyed before it
 #endif
@@ -1032,6 +1041,9 @@ void start(const MAOniColonyConfig& config, std::span<const MAOniColonyMaterial>
     std::lock_guard lock(lifecycle);
     const ArithmeticScope arithmetic;
     validate(config);
+#if defined(_WIN32)
+    pin_worker_module();
+#endif
     require(cells.size() == static_cast<std::size_t>(config.width) * config.height, "The colony inventory must cover the rectangle");
     auto next = std::make_unique<Session>();
     next->config = config; next->materials.assign(materials.begin(), materials.end()); next->catalogue = catalogue_of(materials);
@@ -1083,12 +1095,10 @@ void stop() noexcept {
     biology_mode.store(0, std::memory_order_relaxed);
     solver.settle(true);
     ma::oni::windows_lifecycle_trace("colony solver settled");
-#if defined(_WIN32)
-    solver.retire();
-    ma::oni::windows_lifecycle_trace("colony solver retired");
-    ma::experimental::mac_kernel::retire_pools();
-    ma::oni::windows_lifecycle_trace("colony pools retired");
-#endif
+    // The Windows solver and kernel registry are process-resident and pinned.
+    // After settlement their workers sleep and are reused by the next colony;
+    // process exit reclaims them without a join during managed/DLL teardown.
+    ma::oni::windows_lifecycle_trace("colony process-resident workers parked");
     std::lock_guard lock(lifecycle);
     ma::oni::windows_lifecycle_trace("colony lifecycle locked");
     session.reset();
@@ -2933,6 +2943,9 @@ void restore(const MAOniColonyConfig& config, std::span<const MAOniColonyMateria
     std::lock_guard lock(lifecycle);
     const ArithmeticScope arithmetic;
     validate(config);
+#if defined(_WIN32)
+    pin_worker_module();
+#endif
     require(image.size() > 8 + 64, "Colony checkpoint is too small");
     const auto digest = hash_memory(image.data(), image.size() - 64);
     require(std::memcmp(digest.data(), image.data() + image.size() - 64, 64) == 0, "Colony checkpoint checksum differs");
