@@ -25,6 +25,7 @@ namespace MixedAtmospheres.Oni
         public string PrivateFileProtocolAssemblySha256 = "";
         public bool PrivateOwnedLoadRejection = false;
         public bool QuitWhenComplete = false;
+        public bool QuitFromMainMenu = false;
         public bool SaveOnComplete = false;
         // colony-owner with SaveOnComplete: save halfway and again at the end to the same file.
         public bool OverwriteSave = false;

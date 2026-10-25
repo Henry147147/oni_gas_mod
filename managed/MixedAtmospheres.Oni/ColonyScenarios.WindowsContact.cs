@@ -33,7 +33,7 @@ namespace MixedAtmospheres.Oni
                     for(var i=0;i<6;++i)
                     {
                         var liquid=phase==1;var insulated=i>=3;
-                        var cell=Cell(1+2*(i%3),1+2*(i/3));
+                        var cell=Cell(1+2*(i%3),1+2*(i/3)+phase);
                         var id=liquid?(insulated?InsulatedLiquidConduitConfig.ID:LiquidConduitRadiantConfig.ID):
                             (insulated?InsulatedGasConduitConfig.ID:GasConduitRadiantConfig.ID);
                         Pipe(liquid?Game.Instance.liquidConduitSystem:Game.Instance.gasConduitSystem,id,new List<int>{cell});
@@ -60,6 +60,8 @@ namespace MixedAtmospheres.Oni
                 ColonyConduits.StartControl();ColonyPipeContactHeat.StartControl();
                 foreach(var row in contactCases)
                 {
+                    if(!row.Flow.HasConduit(row.Cell))throw new InvalidOperationException(
+                        $"Contact fixture lost its {(row.Liquid?"liquid":"gas")} pipe at {row.Cell}; body {(row.Body==null?"destroyed":row.Body.Element.id+" at "+row.Body.Temperature.ToString("R")+" K")}");
                     var material=ColonyConduits.MaterialOf(row.Liquid?SimHashes.Water:SimHashes.Oxygen);
                     ColonyConduits.SupplyControlInventory(row.Flow,row.Cell,PipeInventory.Single(material,row.Mass,row.FluidTemperature,255,0));
                 }

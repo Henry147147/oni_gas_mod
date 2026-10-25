@@ -715,6 +715,7 @@ namespace MixedAtmospheres.Oni
         private float nextWaitingCapture;
         private MainMenu? menu;
         private int completionWaitFrames;
+        private bool menuQuitRequested;
         private float minionsReadyAt = -1;
         private readonly HashSet<int> visited = new HashSet<int>();
         internal void Initialize(MainMenu mainMenu)
@@ -732,7 +733,20 @@ namespace MixedAtmospheres.Oni
             ColonyRuntimeValidation.TickTelemetry();
             if (!ColonyRuntimeValidation.ObserveMessage)
             {
-                if (config.QuitWhenComplete && ++completionWaitFrames >= 20) Application.Quit();
+                if (config.QuitWhenComplete && ++completionWaitFrames >= 20)
+                {
+                    if(config.QuitFromMainMenu)
+                    {
+                        if(!menuQuitRequested)
+                        {
+                            menuQuitRequested=true;
+                            LoadingOverlay.Load(PauseScreen.TriggerQuitGame);return;
+                        }
+                        if(Game.Instance!=null||UnityEngine.Object.FindFirstObjectByType<MainMenu>()==null)return;
+                        Debug.Log("[Mixed Atmospheres] Quit control reached the main menu after its colony.");
+                    }
+                    Application.Quit();
+                }
                 return;
             }
             if (Time.realtimeSinceStartup - started > config.TimeoutSeconds)

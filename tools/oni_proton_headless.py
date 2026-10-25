@@ -222,6 +222,8 @@ def validate_arguments(args) -> None:
         raise ValueError("--save-colony requires an initial domain scene")
     if (getattr(args, "scenario", None) or getattr(args, "cluster", None)) and args.mode != "colony-owner":
         raise ValueError("--scenario and --cluster require colony-owner")
+    if getattr(args,"quit_from_menu",False) and (args.mode not in OWNER_MODES or inspection):
+        raise ValueError("--quit-from-menu requires an owner mode without inspection")
 
 
 def cleanup_run(record, xvfb, prefix_started: bool, proton: Path, output: Path) -> None:
@@ -339,6 +341,10 @@ def playtest(args, state: Path, session: dict) -> int:
                 **({"Scenario": args.scenario} if getattr(args, "scenario", None) else {}),
                 **({"Cluster": "clusters/" + args.cluster} if getattr(args, "cluster", None) else {}),
                 **({"Speed": args.speed} if getattr(args, "speed", None) else {})})
+            if getattr(args,"quit_from_menu",False):
+                configuration=common.read_json(mod / "colony-validation.json")
+                configuration["QuitFromMainMenu"]=True
+                common.write_json(mod / "colony-validation.json",configuration)
         graphics_api = getattr(args,"graphics_api","glcore")
         command = sandbox_command(home, state, output, game, proton,
             ["run", windows_path(game / "OxygenNotIncluded.exe"), "-force-" + graphics_api, "-screen-fullscreen", "0",
@@ -353,11 +359,15 @@ def playtest(args, state: Path, session: dict) -> int:
         inspection_started = None
         colony_file = mod / "game-contract-local/colony-validation/colony-validation.json"
         owner_samples = []
+        completion_seen = None
         timed_out = False
         stopped_for_mod_failure = False
         menu_seen = None
         while common.alive(record):
             if args.mode in OWNER_MODES:
+                completed_report=optional_json(colony_file)
+                if completion_seen is None and completed_report and completed_report.get("Status")=="passed":
+                    completion_seen=time.monotonic()
                 current_owner = optional_json(colony_file.parent / "colony-owner.json")
                 if current_owner and current_owner.get("CompletedFrames", 0) > 0:
                     identity = (current_owner.get("Session"), current_owner["CompletedFrames"])
@@ -398,7 +408,12 @@ def playtest(args, state: Path, session: dict) -> int:
         observation = optional_json(mod / "native-backend-observation-report.json")
         log = (output / "Player.log").read_text(errors="replace") if (output / "Player.log").exists() else ""
         player_exit = common.CHILDREN[record["pid"]].poll()
+        result["completion_to_player_exit_seconds"] = time.monotonic()-completion_seen if completion_seen is not None and player_exit is not None else None
+        result["quit_from_menu_requested"] = getattr(args,"quit_from_menu",False)
+        result["quit_from_menu_observed"] = "Quit control reached the main menu after its colony." in log
         status, code = common.classify(args.mode, log, probe, report, timed_out, player_exit, (MOD_ID,), PLATFORM)
+        if code==0 and getattr(args,"quit_from_menu",False) and not result["quit_from_menu_observed"]:
+            status,code="failed-menu-quit-control",2
         domain_ok = args.mode not in OWNER_MODES + FORWARD_MODES and native_domain_passed(domain, observation, args.frames, **domain_options(args))
         if code == 0 and args.mode not in OWNER_MODES + FORWARD_MODES and not domain_ok:
             status, code = "failed-native-domain", 2
@@ -476,6 +491,7 @@ def main() -> int:
     parser.add_argument("--inspection-seconds", type=int, choices=range(0, 301), default=0, metavar="0..300",
         help="Keep a completed colony visible for bounded input/visual inspection before normal cleanup")
     parser.add_argument("--save-colony", action="store_true")
+    parser.add_argument("--quit-from-menu",action="store_true",help="After the owner control, return to the main menu and quit normally")
     parser.add_argument("--load-save", type=Path)
     parser.add_argument("--resave-before-resume", action="store_true")
     parser.add_argument("--reload-in-process", action="store_true")
