@@ -256,6 +256,9 @@ buildable and the asteroid loadable.
   carries it down. Vanilla's falling drip animation is not used.
 - Gases mix and stay mixed, and so do miscible liquids. CO2 does not collect in
   pits the way it does in vanilla, so scrubbing serves whole rooms.
+- Open the printing pod's cave and arrange CO2 removal early. A sealed starting
+  cave can exceed the saved CO2 breathing limit while still rich in oxygen;
+  check Breathability and CO2 partial pressure along reachable routes.
 - Pressure is physical. Gas compresses and expands into vacuum. Liquid is nearly
   incompressible, so there are no 1,000+ kg compressed liquid cells. A liquid
   lock holds only the pressure its liquid height supports.

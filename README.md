@@ -6,6 +6,8 @@ Pumps and pipes carry full mixtures. Filters remove the constituent you pick and
 
 New colonies start with vanilla world conditions, with no starting nitrogen added. If a fluid fault occurs, the gas and liquid simulation stops visibly and saves are refused, so reload your last save to continue. The game clock slows to match the solver's pace; this mod does not promise real-time speed.
 
+Pause at the start and plan to open the printing pod's cave and remove CO2 early. In a sealed starting cave, exhaled CO2 can make the air unsafe while plenty of oxygen remains. Use the Breathability overlay and CO2 partial-pressure reading to check the air your duplicants can reach.
+
 Mixed Atmospheres is a private playtest build for Windows x64 and Linux. It applies to new base-game colonies on one asteroid, ONI build 744825, licensed through Steam. Spaced Out and gameplay packs must be disabled. Existing vanilla saves keep their vanilla simulation. The Windows build has been tested under Proton; Windows validation is part of your own playtest. Final release-candidate acceptance is still in progress, so this is preparation for private playtesting, not a public release. There is no Workshop release.
 
 ![Mixed Atmospheres gameplay during development](docs/images/mixed-atmospheres-gameplay.png)
