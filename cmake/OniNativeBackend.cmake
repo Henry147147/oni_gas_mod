@@ -137,6 +137,12 @@ if(MINGW)
     endforeach()
     target_sources(mixed_atmospheres_oni PRIVATE native/src/oni_windows_allocator.cpp $<TARGET_OBJECTS:ma_windows_math>)
     target_link_libraries(mixed_atmospheres_oni PRIVATE ma_windows_mimalloc)
+    # The owner control (start, advance, checkpoint, stop, restore) runs on
+    # the DLL's runtime too.
+    if(TARGET ma_oni_colony_tests)
+        target_sources(ma_oni_colony_tests PRIVATE native/src/oni_windows_allocator.cpp $<TARGET_OBJECTS:ma_windows_math>)
+        target_link_libraries(ma_oni_colony_tests PRIVATE ma_windows_mimalloc)
+    endif()
 endif()
 if(MA_BUILD_TESTS)
     add_executable(ma_oni_diffusion_tests native/tests/oni_diffusion_tests.cpp native/src/oni_domain.cpp)
