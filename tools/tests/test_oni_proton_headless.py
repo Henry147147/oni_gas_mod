@@ -89,6 +89,15 @@ class ProtonIsolationTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,"--settings-preset"):
             runner.validate_arguments(args)
 
+    def test_explicit_settings_ui_control_admits_only_a_bounded_menu_hold(self):
+        args=SimpleNamespace(mode="menu",inspection_seconds=30,settings_open="mods",frames=32,
+            load_save=None,save_colony=False,resave_before_resume=False,reload_in_process=False,
+            verify_save_io_recovery=False)
+        runner.validate_arguments(args)
+        args.inspection_seconds=301
+        with self.assertRaisesRegex(ValueError,"Completed inspection"):
+            runner.validate_arguments(args)
+
     def test_unsupported_graphics_selection_rejects_before_lifecycle_arguments_are_used(self):
         for graphics in ('vulkan', '', None, 1):
             with self.subTest(graphics=graphics), self.assertRaisesRegex(ValueError,'Graphics API'):

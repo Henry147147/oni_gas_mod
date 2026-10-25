@@ -188,7 +188,7 @@ def owner_timing(samples: list[dict]) -> dict:
 
 def validate_arguments(args) -> None:
     inspection = getattr(args, "inspection_seconds", 0)
-    if type(inspection) is not int or not 0 <= inspection <= 300 or (inspection and getattr(args, "mode", None) == "menu"):
+    if type(inspection) is not int or not 0 <= inspection <= 300 or (inspection and getattr(args, "mode", None) == "menu" and not getattr(args,"settings_open",None)):
         raise ValueError("Completed inspection requires 1..300 seconds and a colony mode")
     if getattr(args,"subnormal_carbon_particle",False) is True and args.mode!="native-carbon-particle-domain" and not (getattr(args,"verify_transient_particles",False) is True and args.mode in ("native-domain","native-load-domain") and not getattr(args,"verify_live_breathing",False)):
         raise ValueError("Subnormal carbon input requires the carbon-particle scene or transient-particle save/load without a live producer")
@@ -399,8 +399,12 @@ def playtest(args, state: Path, session: dict) -> int:
             if args.mode=="menu" and common.MAIN_MENU_MARKER in log:
                 menu_seen=time.monotonic() if menu_seen is None else menu_seen
                 if common.contract_export(log) or time.monotonic()-menu_seen>=common.MENU_EXPORT_WAIT_SECONDS:
-                    time.sleep(common.MENU_SETTLE_SECONDS)
-                    break
+                    if inspection_seconds and getattr(args,"settings_open",None):
+                        inspection_started=time.monotonic() if inspection_started is None else inspection_started
+                        if time.monotonic()-inspection_started>=inspection_seconds:break
+                    else:
+                        time.sleep(common.MENU_SETTLE_SECONDS)
+                        break
             if inspection_seconds:
                 current_report = optional_json(colony_file)
                 if current_report:
