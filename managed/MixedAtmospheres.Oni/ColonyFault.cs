@@ -91,7 +91,13 @@ namespace MixedAtmospheres.Oni
     internal static class ColonyFaultPipeFlowPatch
     {
         private static bool Prefix(ConduitFlow __instance) => !ColonyFault.Faulted || !ColonyConduits.OwnsFlow(__instance);
-        private static Exception? Finalizer(Exception? __exception, ConduitFlow __instance) =>
-            __exception != null && ColonyConduits.OwnsFlow(__instance) ? ColonyFault.Contain(__exception, "pipe flow") : __exception;
+        private static Exception? Finalizer(Exception? __exception, ConduitFlow __instance)
+        {
+            // A step stopped before its frame end still publishes its queued
+            // disease containers; the frame end normally leaves none.
+            try { ColonyConduits.PublishVisibility(__instance.soaInfo); }
+            catch (Exception error) { __exception ??= error; }
+            return __exception != null && ColonyConduits.OwnsFlow(__instance) ? ColonyFault.Contain(__exception, "pipe flow") : __exception;
+        }
     }
 }

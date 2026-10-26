@@ -41,6 +41,12 @@ namespace MixedAtmospheres.Oni
         [ThreadStatic] private static int projecting;
         [ThreadStatic] private static bool controlSeeding;
         [ThreadStatic] private static TransferScope? transferScope;
+        // ONI moves pipe packets on job workers but changes a conduit's
+        // disease container, a shared component table, only on the main
+        // thread. A projection published during a network update queues
+        // that change; the frame's end applies the latest one per conduit.
+        [ThreadStatic] private static bool flowing;
+        private static readonly Dictionary<(ConduitFlow.SOAInfo Info,int Conduit),bool> Visibility=new Dictionary<(ConduitFlow.SOAInfo,int),bool>();
         internal sealed class TransferScope
         {
             internal readonly TransferScope? Previous;
@@ -120,6 +126,7 @@ namespace MixedAtmospheres.Oni
         internal static void RequireQuiescent()
         {
             if(transferScope!=null||controlSeeding||projecting!=0)throw new InvalidOperationException("A pipe transfer is open at the save point.");
+            lock(Visibility)if(Visibility.Count>0)throw new InvalidOperationException("A pipe disease container change is queued at the save point.");
         }
         // Saved identity of the pipe catalogue: ordinal, element hash, Cv and
         // energy offset of every owned material, in ordinal order.
@@ -224,6 +231,7 @@ namespace MixedAtmospheres.Oni
             ColonyPipeContactHeat.Reset();
             ColonyValveControl.Reset();
             PhaseEvents=0;Active=false;Flows.Clear();Materials.Clear();NativeElements.Clear();NativeIndices.Clear();DiseaseExchange.Clear();initial=supplied=removed=PipeInventory.Empty;heat=default;projecting=0;controlSeeding=false;transferScope=null;
+            flowing=false;lock(Visibility)Visibility.Clear();
             ColonyMachinePorts.Reset();ColonyPipeSpecialEdges.Reset();ColonyPipePorts.Reset();MixtureInspection.SetPipeReader(null);
         }
         internal static PipeMaterial Material(int id) => Materials.TryGetValue(id,out var value)?value:throw new InvalidOperationException("Unknown mixed pipe material: "+id);
@@ -608,6 +616,28 @@ namespace MixedAtmospheres.Oni
             if(transfer.Parcel.Mass!=amount)throw new InvalidOperationException("Native pipe move exceeded owned inventory/capacity.");
             from.Inventory=transfer.Source;to.Inventory=transfer.Target;
         }
+        internal static void BeginFlow(ConduitFlow flow) { if(OwnsFlow(flow))flowing=true; }
+        internal static void EndFlow() { flowing=false; }
+        internal static bool DeferVisibility(ConduitFlow.SOAInfo info,int conduit,bool visible)
+        {
+            if(!flowing)return false;
+            lock(Visibility)Visibility[(info,conduit)]=visible;
+            return true;
+        }
+        // Conduit order keeps the table independent of worker timing.
+        internal static void PublishVisibility(ConduitFlow.SOAInfo info)
+        {
+            List<(int Conduit,bool Visible)>? changes=null;
+            lock(Visibility)
+            {
+                if(Visibility.Count==0)return;
+                foreach(var item in Visibility)if(ReferenceEquals(item.Key.Info,info))(changes??=new List<(int,bool)>()).Add((item.Key.Conduit,item.Value));
+                if(changes==null)return;
+                foreach(var change in changes)Visibility.Remove((info,change.Conduit));
+            }
+            changes.Sort();
+            foreach(var change in changes)info.ForcePermanentDiseaseContainer(change.Conduit,change.Visible);
+        }
         internal static void FinishCell(ConduitFlow flow,int cell) { if(Owns(flow,cell))Publish(flow,cell); }
         internal static void FinishTarget(ConduitFlow flow,int cell) { if(Owns(flow,cell))Publish(flow,cell); }
         internal static TransferScope? BeginTransfer(ConduitFlow flow,int source,int secondary=-1)
@@ -800,10 +830,14 @@ namespace MixedAtmospheres.Oni
             if(began!=1||target!=1||compared!=1||limited!=1||moved!=1||finished!=1)
                 throw new InvalidOperationException($"Unsupported conduit move hooks: {began}/{target}/{compared}/{limited}/{moved}/{finished}.");
         }
+        private static void Prefix(ConduitFlow __instance)=>ColonyConduits.BeginFlow(__instance);
         // A worker's failing conduit update faults the owner; ONI's job
         // manager would only log it again on every later step.
-        private static Exception? Finalizer(Exception? __exception,ConduitFlow __instance)=>
-            __exception!=null&&ColonyConduits.OwnsFlow(__instance)?ColonyFault.Contain(__exception,"pipe flow"):__exception;
+        private static Exception? Finalizer(Exception? __exception,ConduitFlow __instance)
+        {
+            ColonyConduits.EndFlow();
+            return __exception!=null&&ColonyConduits.OwnsFlow(__instance)?ColonyFault.Contain(__exception,"pipe flow"):__exception;
+        }
         private static int Slot(CodeInstruction instruction,bool store)
         {
             var op=instruction.opcode;
@@ -819,5 +853,18 @@ namespace MixedAtmospheres.Oni
             yield return new CodeInstruction(OpCodes.Ldarg_0);yield return new CodeInstruction(OpCodes.Ldloc_S,(byte)local);
             yield return CodeInstruction.Call(typeof(ColonyConduits),method);
         }
+    }
+    // A projection's disease container change waits for the main thread
+    // (ColonyConduits.DeferVisibility); ConduitFlow.Sim200ms ends its network
+    // jobs before this frame end, whose own publication follows.
+    [HarmonyPatch(typeof(ConduitFlow.SOAInfo),nameof(ConduitFlow.SOAInfo.ForcePermanentDiseaseContainer))]
+    internal static class ColonyPipeDiseaseVisibilityPatch
+    {
+        private static bool Prefix(ConduitFlow.SOAInfo __instance,int __0,bool __1)=>!ColonyConduits.DeferVisibility(__instance,__0,__1);
+    }
+    [HarmonyPatch(typeof(ConduitFlow.SOAInfo),nameof(ConduitFlow.SOAInfo.EndFrame))]
+    internal static class ColonyPipeVisibilityFramePatch
+    {
+        private static void Prefix(ConduitFlow.SOAInfo __instance)=>ColonyConduits.PublishVisibility(__instance);
     }
 }

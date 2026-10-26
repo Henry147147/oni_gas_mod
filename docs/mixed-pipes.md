@@ -26,6 +26,15 @@ A requested start that fails (a native/managed package mismatch) is logged as
 an error, shown as a failure in the status panel, which always states the
 pipe mode, and fails harness runs; the owner keeps running on packets.
 
+ONI moves pipe packets on job workers, and the owned moves publish their
+projections there too. A projection that starts or ends a conduit's germs
+would add or remove the conduit's disease container in a component table that
+ONI changes only on the main thread. During a network update that change
+waits, latest per conduit, and the main thread applies it in conduit order at
+the pipe frame end, after every network job and before ONI's own end-of-frame
+publication. A save refuses a waiting change. The 30,000-frame `8bb6e66` run
+faulted at cycle 8 when two workers changed that table at once.
+
 Fixed `mixed-pipe-colony` control (new colony on profile 4 with
 `MA_COLONY_MIXED_PIPES=1`, the prepared base's piped reservoirs and CO2
 scrubbers, 400 frames) passes **10/10 at 401 frames** on `pipes-heat-cd5-v1`:

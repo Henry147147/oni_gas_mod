@@ -23,6 +23,7 @@ internal static class Program
     {
         var assembly=typeof(MixtureInspection).Assembly;
         ValvePreparationTests.Run(assembly);
+        PipeDiseaseVisibilityTests.Run(assembly);
         MeltCustodyTests.Run(assembly);
         StoredBiologyHooks.Run(assembly);
         var cultureProbe=assembly.GetType("MixedAtmospheres.Oni.ColonyGermEvolutionProbe")!;
