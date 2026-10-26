@@ -113,57 +113,6 @@ void fill_trace(MacTraceSinkReport &out, const std::vector<double> &species,
     if (value != 0)
       out.passives.push_back({id, value});
 }
-void audit_transfers(const MacClosedWorld &world, const MacTransportState &next,
-                     std::span<const MacFluidParcel> parcels) {
-  const auto old =
-      k::totals(world.state().grid, sparse(world.state()),
-                world.registry().size(), world.settings().gravity_m_per_s2);
-  const auto now = k::totals(next.grid, sparse(next), world.registry().size(),
-                             world.settings().gravity_m_per_s2);
-  std::vector<k::Balance> masses(world.registry().size());
-  k::Balance energy, x, y;
-  std::map<std::uint64_t, k::Balance> passives;
-  for (std::size_t key = 0; key < masses.size(); ++key) {
-    k::add(masses[key], old.species[key]);
-    k::add(masses[key], now.species[key], -1);
-  }
-  k::add(energy, old.energy);
-  k::add(energy, now.energy, -1);
-  k::add(x, old.jx);
-  k::add(x, now.jx, -1);
-  k::add(y, old.jy);
-  k::add(y, now.jy, -1);
-  for (const auto &[id, q] : old.passives)
-    k::add(passives[id], q);
-  for (const auto &[id, q] : now.passives)
-    k::add(passives[id], q, -1);
-  for (const auto &parcel : parcels) {
-    const double sign = parcel.injected ? 1 : -1;
-    masses[parcel.species_index].add(sign * parcel.mass_kg);
-    energy.add(sign * parcel.internal_energy_j);
-    energy.add(sign * parcel.potential_energy.project().value);
-    energy.add(sign * parcel.resolved_kinetic_energy.project().value);
-    x.add(sign * parcel.momentum_x.project().value);
-    y.add(sign * parcel.momentum_y.project().value);
-    for (const auto &q : parcel.passives)
-      passives[q.identity].add(sign * q.quantity);
-  }
-  energy.operands = {};
-  energy.operands.add(old.energy_operands.value());
-  energy.operands.add(now.energy_operands.value());
-  x.operands.add(old.jx_operands.value());
-  x.operands.add(now.jx_operands.value());
-  y.operands.add(old.jy_operands.value());
-  y.operands.add(now.jy_operands.value());
-  require(energy.closed() && x.closed() && y.closed(),
-          "Game transfer U+K+G/J audit failed");
-  for (const auto &m : masses)
-    require(m.closed(), "Game transfer species audit failed");
-  for (const auto &[id, q] : passives) {
-    (void)id;
-    require(q.closed(), "Game transfer passive audit failed");
-  }
-}
 bool same_grid(const MacGrid &a, const MacGrid &b) {
   return a.width == b.width && a.height == b.height &&
          a.spacing_m == b.spacing_m && a.depth_m == b.depth_m &&
@@ -485,6 +434,7 @@ MacClosedAdvance MacGameKernelAccess::advance_guarded(
   double elapsed = 0;
   MacEnergySum energy_residual, energy_bound;
   std::vector<k::Eos> last;
+  k::Totals last_totals;
   result.report.game_converted_mass_kg.assign(source.registry_.size(), 0);
   while (elapsed < seconds) {
     require(result.report.attempts < budget,
@@ -497,6 +447,7 @@ MacClosedAdvance MacGameKernelAccess::advance_guarded(
                             liquid_blocked);
     state = std::move(next.state);
     last = std::move(next.eos);
+    last_totals = std::move(next.totals);
     MacTraceSinkReport sink;
     fill_trace(sink, next.sink_species, next.sink_internal, next.sink_kinetic,
                next.sink_potential, next.sink_px, next.sink_py,
@@ -522,6 +473,8 @@ MacClosedAdvance MacGameKernelAccess::advance_guarded(
   }
   result.world = source.derived(
       dense(source.state(), state, source.registry_.size(), last));
+  result.world.game_totals_ =
+      std::make_shared<const k::Totals>(std::move(last_totals));
   result.world.time_s_ = source.time_s_ + seconds;
   require(std::isfinite(result.world.time_s_) &&
               result.world.time_s_ > source.time_s_,
@@ -573,28 +526,6 @@ MacTraceSink MacGameKernelAccess::trace(const MacClosedWorld &world) {
   out.report.constituents = sunk.constituents;
   out.report.cells = sunk.cells;
   return out;
-}
-MacClosedWorld MacGameKernelAccess::heat(const MacClosedWorld &source,
-                                         std::span<const MacCellHeat> edits) {
-  require(!edits.empty() && edits.size() <= 4096, "Invalid game heat batch");
-  auto next = source.state();
-  for (const auto &edit : edits) {
-    require(edit.cell_index < next.cells.size() &&
-                !next.grid.walls[edit.cell_index] &&
-                std::isfinite(edit.joules) &&
-                std::isfinite(edit.maximum_temperature_k) &&
-                edit.maximum_temperature_k > 0,
-            "Invalid game heat edit");
-    auto &cell = next.cells[edit.cell_index];
-    const double old = cell.mixture.energy;
-    cell.mixture.energy += edit.joules;
-    require(edit.joules == 0 || cell.mixture.energy != old,
-            "Game heat change is unrepresentable");
-    const auto e = reading(source, cell);
-    require(edit.joules <= 0 || e.temperature_k <= edit.maximum_temperature_k,
-            "Game heat exceeds reserved temperature limit");
-  }
-  return source.derived(std::move(next));
 }
 namespace {
 std::pair<std::size_t, std::size_t> endpoints(const MacGrid &g, bool x,
@@ -657,7 +588,243 @@ void occupied(const MacClosedWorld &source, MacTransportState &state,
         e.has_gas ? state.grid.volume_m3() : e.liquid_volume_m3;
   }
 }
+// k::totals(sparse(state)) without building either: the same additions in
+// the same order, read from the dense cells and the grid's face endpoints.
+k::Totals dense_totals(const MacTransportState &state, std::size_t count,
+                       double gravity) {
+  const auto &grid = state.grid;
+  constexpr auto none = std::numeric_limits<std::size_t>::max();
+  k::Totals result;
+  result.species.resize(count);
+  std::vector<double> mass(state.cells.size());
+  for (std::size_t i = 0; i < state.cells.size(); ++i) {
+    const auto &cell = state.cells[i];
+    if (!cell.mixture.masses.implicit_zero()) {
+      const std::vector<double> &masses = cell.mixture.masses;
+      for (std::size_t key = 0; key < masses.size(); ++key)
+        if (masses[key] > 0) {
+          mass[i] += masses[key];
+          result.species[key].add(masses[key]);
+        }
+    }
+    const double potential = mass[i] * gravity *
+                             (static_cast<double>(i / grid.width) + .5) *
+                             grid.spacing_m;
+    result.energy.add(cell.mixture.energy);
+    result.energy.add(potential);
+    result.energy_operands.add(std::abs(cell.mixture.energy));
+    result.energy_operands.add(std::abs(potential));
+  }
+  for (const auto &cell : state.cells)
+    for (const auto &q : cell.passive_quantities)
+      result.passives[q.identity].add(q.quantity);
+  for (const bool x : {true, false}) {
+    const auto &j = x ? state.momentum_x : state.momentum_y;
+    for (std::size_t f = 0; f < j.size(); ++f)
+      if (j[f] != 0) {
+        const auto [l, r] = endpoints(grid, x, f);
+        const double inertia =
+            .5 * ((l == none ? 0 : mass[l]) + (r == none ? 0 : mass[r]));
+        if (!(inertia > 0))
+          throw std::runtime_error("Private totals J without inertia");
+        const double kinetic = .5 * j[f] * (j[f] / inertia);
+        result.energy.add(kinetic);
+        result.energy_operands.add(kinetic);
+        (x ? result.jx : result.jy).add(j[f]);
+        (x ? result.jx_operands : result.jy_operands).add(std::abs(j[f]));
+      }
+  }
+  return result;
+}
+// The audit totals of a world: kept by the operation that produced it, or
+// summed now.
+std::shared_ptr<const k::Totals> totals_of(const MacClosedWorld &world,
+                                           const k::Totals *kept) {
+  if (kept)
+    return {std::shared_ptr<const k::Totals>{}, kept};
+  return std::make_shared<const k::Totals>(dense_totals(
+      world.state(), world.registry().size(), world.settings().gravity_m_per_s2));
+}
+// The change of the audit sums from `before` to `after` over the cells and
+// faces an edit touched; every other cell and face is unchanged.
+struct TotalsChange {
+  std::vector<k::DoubleDouble> species;
+  k::DoubleDouble energy, energy_operands, jx, jy, jx_operands, jy_operands;
+  std::map<std::uint64_t, k::DoubleDouble> passives;
+};
+TotalsChange totals_change(const MacTransportState &before,
+                           const MacTransportState &after, std::size_t count,
+                           double gravity, std::vector<std::size_t> cells,
+                           std::vector<std::pair<bool, std::size_t>> faces) {
+  const auto &grid = before.grid;
+  constexpr auto none = std::numeric_limits<std::size_t>::max();
+  std::sort(cells.begin(), cells.end());
+  cells.erase(std::unique(cells.begin(), cells.end()), cells.end());
+  std::sort(faces.begin(), faces.end(), [](const auto &a, const auto &b) {
+    return a.first != b.first ? a.first : a.second < b.second;
+  });
+  faces.erase(std::unique(faces.begin(), faces.end()), faces.end());
+  TotalsChange change;
+  change.species.resize(count);
+  const auto mass_of = [](const MacMaterialCell &cell) {
+    double total = 0;
+    if (!cell.mixture.masses.implicit_zero())
+      for (const double m : static_cast<const std::vector<double> &>(cell.mixture.masses))
+        if (m > 0)
+          total += m;
+    return total;
+  };
+  for (const auto i : cells)
+    for (const auto [state, sign] : {std::pair{&before, -1.}, std::pair{&after, 1.}}) {
+      const auto &cell = state->cells[i];
+      if (!cell.mixture.masses.implicit_zero()) {
+        const std::vector<double> &masses = cell.mixture.masses;
+        for (std::size_t key = 0; key < masses.size(); ++key)
+          if (masses[key] > 0)
+            change.species[key].add(sign * masses[key]);
+      }
+      const double potential = mass_of(cell) * gravity *
+                               (static_cast<double>(i / grid.width) + .5) *
+                               grid.spacing_m;
+      change.energy.add(sign * cell.mixture.energy);
+      change.energy.add(sign * potential);
+      change.energy_operands.add(sign * std::abs(cell.mixture.energy));
+      change.energy_operands.add(sign * std::abs(potential));
+      for (const auto &q : cell.passive_quantities)
+        change.passives[q.identity].add(sign * q.quantity);
+    }
+  for (const auto [x, f] : faces)
+    for (const auto [state, sign] : {std::pair{&before, -1.}, std::pair{&after, 1.}}) {
+      const double j = (x ? state->momentum_x : state->momentum_y)[f];
+      if (j == 0)
+        continue;
+      const auto [l, r] = endpoints(grid, x, f);
+      const double inertia = .5 * ((l == none ? 0 : mass_of(state->cells[l])) +
+                                   (r == none ? 0 : mass_of(state->cells[r])));
+      if (!(inertia > 0))
+        throw std::runtime_error("Private totals J without inertia");
+      const double kinetic = .5 * j * (j / inertia);
+      change.energy.add(sign * kinetic);
+      change.energy_operands.add(sign * kinetic);
+      (x ? change.jx : change.jy).add(sign * j);
+      (x ? change.jx_operands : change.jy_operands).add(sign * std::abs(j));
+    }
+  return change;
+}
+k::DoubleDouble plus(const k::DoubleDouble &a, const k::DoubleDouble &b) {
+  auto sum = a;
+  sum.add(b.hi);
+  sum.add(b.lo);
+  return sum;
+}
+// `before` plus the change: the audit totals of the edited state.
+k::Totals changed_totals(const k::Totals &before, const TotalsChange &change) {
+  k::Totals after;
+  after.species.resize(before.species.size());
+  for (std::size_t key = 0; key < after.species.size(); ++key)
+    after.species[key] = plus(before.species[key], change.species[key]);
+  after.energy = plus(before.energy, change.energy);
+  after.energy_operands = plus(before.energy_operands, change.energy_operands);
+  after.jx = plus(before.jx, change.jx);
+  after.jy = plus(before.jy, change.jy);
+  after.jx_operands = plus(before.jx_operands, change.jx_operands);
+  after.jy_operands = plus(before.jy_operands, change.jy_operands);
+  after.passives = before.passives;
+  for (const auto &[id, value] : change.passives)
+    after.passives[id] = plus(after.passives[id], value);
+  return after;
+}
+// Every species, U+K+G, J and passive changes by exactly the booked parcels.
+// The residual is the touched cells' and faces' change minus the parcels;
+// the bound keeps its whole-world operands, before and after.
+void audit_transfers(const k::Totals &old, const k::Totals &now,
+                     const TotalsChange &change,
+                     std::span<const MacFluidParcel> parcels) {
+  const auto balance = [](const k::DoubleDouble &delta,
+                          const k::DoubleDouble &a, const k::DoubleDouble &b) {
+    k::Balance result;
+    result.residual.add(-delta.hi);
+    result.residual.add(-delta.lo);
+    for (const double v : {a.hi, a.lo, b.hi, b.lo})
+      result.operands.add(std::abs(v));
+    return result;
+  };
+  std::vector<k::Balance> masses(old.species.size());
+  for (std::size_t key = 0; key < masses.size(); ++key)
+    masses[key] = balance(change.species[key], old.species[key], now.species[key]);
+  k::Balance energy, x = balance(change.jx, old.jx, now.jx),
+                     y = balance(change.jy, old.jy, now.jy);
+  energy.residual.add(-change.energy.hi);
+  energy.residual.add(-change.energy.lo);
+  std::map<std::uint64_t, k::Balance> passives;
+  for (const auto &[id, q] : now.passives) {
+    const auto o = old.passives.find(id);
+    const auto d = change.passives.find(id);
+    passives[id] = balance(d == change.passives.end() ? k::DoubleDouble{} : d->second,
+                           o == old.passives.end() ? k::DoubleDouble{} : o->second, q);
+  }
+  for (const auto &parcel : parcels) {
+    const double sign = parcel.injected ? 1 : -1;
+    masses[parcel.species_index].add(sign * parcel.mass_kg);
+    energy.add(sign * parcel.internal_energy_j);
+    energy.add(sign * parcel.potential_energy.project().value);
+    energy.add(sign * parcel.resolved_kinetic_energy.project().value);
+    x.add(sign * parcel.momentum_x.project().value);
+    y.add(sign * parcel.momentum_y.project().value);
+    for (const auto &q : parcel.passives)
+      passives[q.identity].add(sign * q.quantity);
+  }
+  energy.operands = {};
+  energy.operands.add(old.energy_operands.value());
+  energy.operands.add(now.energy_operands.value());
+  x.operands.add(old.jx_operands.value());
+  x.operands.add(now.jx_operands.value());
+  y.operands.add(old.jy_operands.value());
+  y.operands.add(now.jy_operands.value());
+  require(energy.closed() && x.closed() && y.closed(),
+          "Game transfer U+K+G/J audit failed");
+  for (const auto &m : masses)
+    require(m.closed(), "Game transfer species audit failed");
+  for (const auto &[id, q] : passives) {
+    (void)id;
+    require(q.closed(), "Game transfer passive audit failed");
+  }
+}
 } // namespace
+MacClosedWorld MacGameKernelAccess::heat(const MacClosedWorld &source,
+                                         std::span<const MacCellHeat> edits) {
+  require(!edits.empty() && edits.size() <= 4096, "Invalid game heat batch");
+  auto next = source.state();
+  for (const auto &edit : edits) {
+    require(edit.cell_index < next.cells.size() &&
+                !next.grid.walls[edit.cell_index] &&
+                std::isfinite(edit.joules) &&
+                std::isfinite(edit.maximum_temperature_k) &&
+                edit.maximum_temperature_k > 0,
+            "Invalid game heat edit");
+    auto &cell = next.cells[edit.cell_index];
+    const double old = cell.mixture.energy;
+    cell.mixture.energy += edit.joules;
+    require(edit.joules == 0 || cell.mixture.energy != old,
+            "Game heat change is unrepresentable");
+    const auto e = reading(source, cell);
+    require(edit.joules <= 0 || e.temperature_k <= edit.maximum_temperature_k,
+            "Game heat exceeds reserved temperature limit");
+  }
+  std::shared_ptr<const k::Totals> now;
+  if (source.game_totals_) {
+    std::vector<std::size_t> cells;
+    for (const auto &edit : edits)
+      cells.push_back(edit.cell_index);
+    now = std::make_shared<const k::Totals>(changed_totals(
+        *source.game_totals_,
+        totals_change(source.state(), next, source.registry_.size(),
+                      source.settings_.gravity_m_per_s2, std::move(cells), {})));
+  }
+  auto result = source.derived(std::move(next));
+  result.game_totals_ = std::move(now);
+  return result;
+}
 MacFluidTransferResult
 MacGameKernelAccess::transfers(const MacClosedWorld &source,
                                std::span<const MacFluidTransfer> edits,
@@ -670,7 +837,8 @@ MacGameKernelAccess::transfers(const MacClosedWorld &source,
   auto next = source.state();
   std::vector<MacFluidParcel> parcels;
   parcels.reserve(edits.size());
-  std::vector<std::size_t> touched;
+  std::vector<std::size_t> touched, audited_cells;
+  std::vector<std::pair<bool, std::size_t>> audited_faces;
   const auto species = table(source.registry_, *source.thermodynamics_,
                              source.settings_.game.liquid_stiffness_ratio, source.settings_.game.liquid_law);
   for (const auto &edit : edits) {
@@ -832,10 +1000,22 @@ MacGameKernelAccess::transfers(const MacClosedWorld &source,
     if (edit.observe_passives)
       p.passives_after = cell.passive_quantities;
     occupied(source, next, touched);
+    audited_cells.insert(audited_cells.end(), touched.begin(), touched.end());
+    for (bool x : {true, false})
+      for (const auto f : cell_faces(next.grid, edit.cell_index, x))
+        audited_faces.emplace_back(x, f);
     parcels.push_back(std::move(p));
   }
-  audit_transfers(source, next, parcels);
-  return {source.derived(std::move(next)), std::move(parcels), 0, {}};
+  const auto old_totals = totals_of(source, source.game_totals_.get());
+  const auto change =
+      totals_change(source.state(), next, source.registry_.size(),
+                    source.settings_.gravity_m_per_s2, std::move(audited_cells),
+                    std::move(audited_faces));
+  auto now = std::make_shared<const k::Totals>(changed_totals(*old_totals, change));
+  audit_transfers(*old_totals, *now, change, parcels);
+  MacFluidTransferResult result{source.derived(std::move(next)), std::move(parcels), 0, {}};
+  result.world.game_totals_ = std::move(now);
+  return result;
 }
 MacClosedWorld MacGameKernelAccess::terrain(const MacClosedWorld &source,
                                             std::span<const std::size_t> cells,

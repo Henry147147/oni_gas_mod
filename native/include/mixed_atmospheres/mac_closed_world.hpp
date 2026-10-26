@@ -14,6 +14,7 @@
 #include <string>
 
 namespace ma::experimental {
+namespace game_kernel { struct Totals; }
 // Persisted selectors. The original index-space linear path keeps value 1.
 // Value 3 reconstructs a piecewise-linear gas/liquid interface (PLIC) in cells
 // holding both phases, so swept parcels carry each phase only where it is.
@@ -435,6 +436,9 @@ private:
     std::shared_ptr<const FluidThermodynamics> thermodynamics_;
     void replace_state(MacTransportState);
     std::shared_ptr<const MacTransportState> state_snapshot_;
+    // Game kernel: the audit totals of state(), kept when the operation that
+    // produced this world already summed them; null otherwise.
+    std::shared_ptr<const game_kernel::Totals> game_totals_;
     MacClosedSettings settings_;
     std::shared_ptr<const GasTransportProfile> transport_;
     double time_s_ = 0;

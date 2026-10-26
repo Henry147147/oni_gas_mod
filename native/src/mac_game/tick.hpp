@@ -10,6 +10,8 @@ namespace ma::experimental::game_kernel {
 struct TickResult {
   State state;
   std::vector<Eos> eos;
+  // The accounts of `state`, as the closing audit summed them.
+  Totals totals;
   double passive_error = 0, mass_error = 0, energy_error = 0,
          momentum_error = 0, sink_kg = 0, sink_j = 0, flow_ms = 0, heat_ms = 0,
          phase_ms = 0, trace_audit_ms = 0, interface_ms = 0, layering_ms = 0,
@@ -317,7 +319,7 @@ public:
     out.entropy_ms += ms(entropy_start);
     regions.capture(out.state, gravity, -1);
     out.region_error = regions.finish();
-    const auto after =
+    auto after =
         totals(grid, out.state, species.size(), gravity, &flow.kernel_grid());
     Balance energy, mx, my;
     add(energy, before.energy);
@@ -413,6 +415,7 @@ public:
     out.wall_py = wall_y;
     out.body_py = body_y;
     out.sink_j = sink_energy.value();
+    out.totals = std::move(after);
     out.trace_audit_ms = ms(start) - out.flow_ms - out.heat_ms - out.phase_ms -
                          out.layering_ms - out.interface_ms - out.filter_ms;
     return out;
