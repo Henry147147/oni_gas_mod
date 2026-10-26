@@ -639,6 +639,17 @@ second, the clock scale, Unity's frame rate and its slowest frame.
 
 ## Saves
 
+**Reserved 2026-10-26, immediately after fetching `3cce360`:** owner wrapper
+`MACOLN01` version **12** is assigned to the conservative airflow boundary law
+for new game-kernel owners. It retains wrapper11's layout, including an empty
+precision-inventory block when unused. A liquid crossing discovered during a
+trial closes its incident face on the original interval state; the complete
+pressure/work solve repeats before any trial output is committed. Wet marked
+cells are isolated at tick entry, including after condensation in a merged
+interval. Wrappers8–11 retain their existing boundary law and bytes. Core23,
+profile5 and its numerical equations remain unchanged. Implementation and
+in-game acceptance are pending.
+
 **Reserved 2026-10-25, immediately after fetching `3391741`:** owner wrapper
 `MACOLN01` version **11** is assigned to durable precision-overflow inventory
 for passive-free precise gas admissions. Each record preserves its original
