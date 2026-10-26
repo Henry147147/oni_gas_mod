@@ -2863,7 +2863,9 @@ void run_frame(std::uint64_t ticket, double seconds, std::uint64_t frames, const
         }
         lap(4); step("ledger");
         // Ledgers close: every species and U+K+G against the booked flows.
-        auto now = totals(world);
+        // The world's audit totals when its last operation kept them.
+        const auto kept = world.game_audit_totals();
+        auto now = kept ? kept->species_kg : totals(world);
         long double precision_energy=0;
         for(const auto& held:s.precision) { now[cat.species_of_native(held.native_index)]+=held.mass_kg;precision_energy+=detail::precision_value(held.energy_j); }
         double mass_error = 0; std::size_t worst = 0;
@@ -2885,7 +2887,8 @@ void run_frame(std::uint64_t ticket, double seconds, std::uint64_t frames, const
         const long double expected_energy = L.initial_energy + L.heat + L.energy_in - L.energy_out - L.energy_sunk - L.energy_trace;
         const long double energy_scale = std::abs(L.initial_energy) + std::abs(L.heat) + std::abs(L.energy_in) + std::abs(L.energy_out) +
             std::abs(L.energy_sunk) + std::abs(L.energy_trace);
-        const double energy_error = static_cast<double>(std::abs(energy_of(world) + precision_energy - expected_energy) / energy_scale);
+        const long double held_energy = kept ? kept->energy_j : energy_of(world);
+        const double energy_error = static_cast<double>(std::abs(held_energy + precision_energy - expected_energy) / energy_scale);
         s.status.maximum_relative_mass_error = std::max(s.status.maximum_relative_mass_error, mass_error);
         s.status.maximum_relative_energy_error = std::max(s.status.maximum_relative_energy_error, energy_error);
         if (mass_error > 1e-8 || energy_error > 1e-6) throw std::runtime_error("The colony exceeded its mass/energy ledger bound");

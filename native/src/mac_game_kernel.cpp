@@ -495,6 +495,18 @@ MacClosedAdvance MacGameKernelAccess::advance_guarded(
       MacScaled::from_double(result.report.body_impulse_y);
   return result;
 }
+std::optional<MacGameAuditTotals> MacClosedWorld::game_audit_totals() const {
+  if (!game_totals_)
+    return std::nullopt;
+  const auto value = [](const k::DoubleDouble &sum) {
+    return static_cast<long double>(sum.hi) + sum.lo;
+  };
+  MacGameAuditTotals out;
+  for (const auto &sum : game_totals_->species)
+    out.species_kg.push_back(value(sum));
+  out.energy_j = value(game_totals_->energy);
+  return out;
+}
 MacTraceSink MacGameKernelAccess::trace(const MacClosedWorld &world) {
   MacTraceSink out{world, {}};
   const double threshold = world.settings_.trace_sink_threshold_kg;
@@ -502,9 +514,10 @@ MacTraceSink MacGameKernelAccess::trace(const MacClosedWorld &world) {
     return out;
   bool found = false;
   for (const auto &c : world.state().cells)
-    for (double m : c.mixture.masses)
-      if (m > 0 && m < threshold)
-        found = true;
+    if (!c.mixture.masses.implicit_zero())
+      for (double m : c.mixture.masses)
+        if (m > 0 && m < threshold)
+          found = true;
   if (!found)
     return out;
   const auto species = table(world.registry_, *world.thermodynamics_,

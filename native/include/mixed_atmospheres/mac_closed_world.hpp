@@ -15,6 +15,10 @@
 
 namespace ma::experimental {
 namespace game_kernel { struct Totals; }
+struct MacGameAuditTotals {
+    std::vector<long double> species_kg;
+    long double energy_j = 0;
+};
 // Persisted selectors. The original index-space linear path keeps value 1.
 // Value 3 reconstructs a piecewise-linear gas/liquid interface (PLIC) in cells
 // holding both phases, so swept parcels carry each phase only where it is.
@@ -360,6 +364,10 @@ public:
     // sink receipt for mass, U+K+G, canonical J and carried passives. Legacy
     // and unchanged inventories return the original shared owner/revision.
     [[nodiscard]] MacTraceSink with_trace_sink() const;
+    // Game kernel: the species masses (kg) and U+K+G (J) of state() as the
+    // operation that produced this world summed them for its audit (double-
+    // double sums, here rounded to long double); empty when none were kept.
+    [[nodiscard]] std::optional<MacGameAuditTotals> game_audit_totals() const;
     // Immutable external heat exchange. Retains time, geometry, every mass and
     // canonical face momentum; checks the complete batch before returning it.
     [[nodiscard]] MacClosedWorld with_cell_heat(std::span<const MacCellHeat>,MacPrimaryRoundingCounts* accepted_rounding=nullptr) const&;
