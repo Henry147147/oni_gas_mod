@@ -95,11 +95,17 @@ public:
         for (std::size_t a = state.masses.offsets[i];
              a < state.masses.offsets[i + 1]; ++a)
           masses[state.masses.species[a]] = state.masses.mass[a];
-        const auto reading = [&] {
-          return evaluate_selected(
-              species, keys.size(), [&](std::size_t a) { return keys[a]; },
+        const auto try_reading = [&](Eos &out) {
+          return try_evaluate_selected(
+              out, species, keys.size(), [&](std::size_t a) { return keys[a]; },
               [&](std::size_t a) { return masses[keys[a]]; }, state.energy[i],
               grid.volume_m3());
+        };
+        const auto reading = [&] {
+          Eos out;
+          if (const auto error = try_reading(out))
+            throw std::runtime_error(error);
+          return out;
         };
         const auto include = [&](std::size_t key) {
           const auto at = std::lower_bound(keys.begin(), keys.end(), key);
@@ -123,7 +129,10 @@ public:
             masses[pair.vapour] = mv + moved;
             ++receipt.trials;
             try {
-              const auto eos = moved == 0 ? before : reading();
+              Eos trial;
+              if (moved != 0 && try_reading(trial))
+                return std::nullopt;
+              const auto &eos = moved == 0 ? before : trial;
               const double pv = eos.gas_volume > 0
                                     ? masses[pair.vapour] * R /
                                           vapour.molar_mass * eos.temperature /

@@ -36,19 +36,23 @@ struct Eos {
 // Liquid volume is V0*(1-p/K); elastic energy is V0*p^2/(2*K).
 // The shared-temperature mixture closure is quadratic, including elastic U.
 // Thermal expansion is pending catalogue clarification. No state is clipped.
+// Sets `result` and returns null, or returns the message of the domain
+// error evaluate_selected throws for this input. Trial searches use it to
+// reject a state without unwinding.
 template <class Key, class Mass>
-inline Eos evaluate_selected(std::span<const Species> species,
-                             std::size_t count, Key key, Mass mass,
-                             double energy, double volume) {
+inline const char *try_evaluate_selected(Eos &result,
+                                         std::span<const Species> species,
+                                         std::size_t count, Key key, Mass mass,
+                                         double energy, double volume) {
   if (!(volume > 0) || !std::isfinite(energy))
-    throw std::runtime_error("Invalid prototype EOS input");
-  Eos result;
+    return "Invalid prototype EOS input";
+  result = Eos{};
   double minimum = 0, maximum = 1e300;
   for (std::size_t a = 0; a < count; ++a) {
     const auto k = key(a);
     const double m = mass(a);
     if (!(m >= 0) || !std::isfinite(m))
-      throw std::runtime_error("Invalid prototype mass");
+      return "Invalid prototype mass";
     if (m == 0)
       continue;
     const auto &s = species[k];
@@ -65,16 +69,13 @@ inline Eos evaluate_selected(std::span<const Species> species,
       result.liquid_compliance += nominal / s.stiffness;
     }
   }
-  if (result.mass == 0) {
-    if (energy != 0)
-      throw std::runtime_error("Empty prototype cell retains energy");
-    return result;
-  }
+  if (result.mass == 0)
+    return energy != 0 ? "Empty prototype cell retains energy" : nullptr;
   if (!(result.capacity > 0))
-    throw std::runtime_error("Invalid prototype heat capacity");
+    return "Invalid prototype heat capacity";
   const double thermal_elastic = energy - result.offset;
   if (!(thermal_elastic > 0))
-    throw std::runtime_error("Prototype has no positive thermal energy");
+    return "Prototype has no positive thermal energy";
   if (result.nR > 0) {
     const double ratio = result.nR / result.capacity;
     const double a = result.liquid_compliance * (1 + .5 * ratio);
@@ -114,15 +115,24 @@ inline Eos evaluate_selected(std::span<const Species> species,
     result.gas_volume = result.nR * result.temperature / result.pressure;
   if (!(result.temperature >= minimum && result.temperature <= maximum) ||
       !(result.pressure >= 0) || !std::isfinite(result.pressure))
-    throw std::runtime_error(
-        "Prototype EOS outside its thermal/pressure domain");
+    return "Prototype EOS outside its thermal/pressure domain";
   for (std::size_t a = 0; a < count; ++a)
     if (mass(a) > 0 && !species[key(a)].gas &&
         !(species[key(a)].positive_liquid ? liquid_volume_fraction(species[key(a)],result.pressure)>0 : result.pressure < species[key(a)].stiffness))
-      throw std::runtime_error("Prototype linear liquid strain is too large");
+      return "Prototype linear liquid strain is too large";
   if (result.nR > 0)
     result.relative_closure =
         std::abs(result.gas_volume + result.liquid_volume - volume) / volume;
+  return nullptr;
+}
+template <class Key, class Mass>
+inline Eos evaluate_selected(std::span<const Species> species,
+                             std::size_t count, Key key, Mass mass,
+                             double energy, double volume) {
+  Eos result;
+  if (const auto error = try_evaluate_selected(result, species, count, key,
+                                               mass, energy, volume))
+    throw std::runtime_error(error);
   return result;
 }
 inline Eos evaluate(std::span<const Species> species,
