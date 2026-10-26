@@ -12,10 +12,12 @@ struct SurfaceResult {
 // Equal phase/remaining-volume parcels leave J unchanged; actual G and face-K
 // changes are local U work. A bounded local flux limiter admits each correction
 // before application. No timestep or whole-world attempt is retried.
+// `eos` holds the readings of `initial`; the result returns them, updated
+// for every corrected cell.
 inline SurfaceResult
 sharpen(const ma::experimental::MacGrid &source,
         const std::vector<Species> &species, const State &initial,
-        const std::vector<Eos> &initial_eos, double dt, double gravity,
+        std::vector<Eos> eos, double dt, double gravity,
         double detail_fraction = 0,
         ma::experimental::mac_kernel::Pool *executor = nullptr,
         const ma::experimental::mac_kernel::Grid *cached_grid = nullptr) {
@@ -24,8 +26,10 @@ sharpen(const ma::experimental::MacGrid &source,
   bool any = false;
   for (const auto key : initial.masses.species)
     any = any || !species[key].gas;
-  if (!any)
+  if (!any) {
+    out.eos = std::move(eos);
     return out;
+  }
   k::Grid built;
   if (!cached_grid)
     built = k::Grid(source);
@@ -35,7 +39,6 @@ sharpen(const ma::experimental::MacGrid &source,
   std::vector<Inventory> cells(g.N);
   std::vector<Passives> passives(g.N);
   std::vector<double> mass(g.N), energy = initial.energy;
-  std::vector<Eos> eos = initial_eos;
   std::vector<Geometry> geom(g.N);
   for (std::size_t i = 0; i < g.N; ++i) {
     for (std::size_t a = initial.masses.offsets[i];
@@ -401,8 +404,10 @@ sharpen(const ma::experimental::MacGrid &source,
     out.faces += counts[index].faces;
     out.limited += counts[index].limited;
   }
-  if (out.faces == 0)
+  if (out.faces == 0) {
+    out.eos = std::move(eos);
     return out;
+  }
   out.state = initial;
   out.state.energy = std::move(energy);
   out.state.masses = {};

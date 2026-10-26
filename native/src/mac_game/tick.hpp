@@ -131,13 +131,15 @@ public:
                         species.size());
     regions.capture(initial, gravity, 1);
     auto entropy_start = std::chrono::steady_clock::now();
-    const auto initial_entropy =
-        total_entropy(flow.kernel_grid(), species, initial,
-                      flow.evaluate_state(initial), flow.worker_pool());
+    auto readings = flow.evaluate_state(initial);
+    const auto initial_entropy = total_entropy(
+        flow.kernel_grid(), species, initial, readings, flow.worker_pool());
     TickResult out;
     out.entropy_ms = ms(entropy_start);
     out.regions = regions.count();
     out.state = initial;
+    // Until the final reading, out.eos holds the readings of out.state.
+    out.eos = std::move(readings);
     double wall_x = 0, wall_y = 0, body_y = 0, wall_ops_x = 0, wall_ops_y = 0,
            body_ops_y = 0;
     std::vector<DoubleDouble> sink_mass(species.size()),
@@ -191,10 +193,12 @@ public:
       return true;
     };
     for (unsigned part = 0; part < parts; ++part) {
-      prune();
+      if (prune())
+        out.eos = flow.evaluate_state(out.state, std::move(out.eos));
       auto stage_start = std::chrono::steady_clock::now();
       auto advanced = flow.advance(out.state, dt / parts, gravity, &regions,
-                                   liquid_blocked.empty() ? nullptr : &boundary);
+                                   liquid_blocked.empty() ? nullptr : &boundary,
+                                   std::move(out.eos));
       out.flow_ms += ms(stage_start);
       out.pressure_ms += advanced.pressure_ms;
       out.transport_ms += advanced.transport_ms;
@@ -224,7 +228,7 @@ public:
         out.filter_exchanges += filtered.exchanges;
         out.filter_negative_heat += filtered.negative_heat_faces;
         if (filtered.exchanges)
-          out.eos = flow.evaluate_state(out.state);
+          out.eos = flow.evaluate_state(out.state, std::move(out.eos));
         out.filter_ms += ms(filter_start);
         observe_entropy(out.filter_entropy);
       }
@@ -234,19 +238,18 @@ public:
                          &flow.kernel_grid());
     if (layered.faces) {
       out.state = std::move(layered.state);
-      out.eos = flow.evaluate_state(out.state);
+      out.eos = flow.evaluate_state(out.state, std::move(out.eos));
     }
     out.layering_ms = ms(stage_start);
     observe_entropy(out.layer_entropy);
     if (interface_enabled) {
       stage_start = std::chrono::steady_clock::now();
       auto sharpened =
-          sharpen(grid, species, out.state, out.eos, dt, gravity,
+          sharpen(grid, species, out.state, std::move(out.eos), dt, gravity,
                   interface_detail, &flow.worker_pool(), &flow.kernel_grid());
-      if (sharpened.faces) {
+      if (sharpened.faces)
         out.state = std::move(sharpened.state);
-        out.eos = std::move(sharpened.eos);
-      }
+      out.eos = std::move(sharpened.eos);
       out.interface_clusters = sharpened.clusters;
       out.largest_interface_cluster = sharpened.largest_cluster;
       out.interface_faces = sharpened.faces;
@@ -255,7 +258,7 @@ public:
       observe_entropy(out.surface_entropy);
     }
     if (prune_before_heat && prune())
-      out.eos = flow.evaluate_state(out.state);
+      out.eos = flow.evaluate_state(out.state, std::move(out.eos));
     stage_start = std::chrono::steady_clock::now();
     if (heat_enabled) {
       auto heated = heat.advance(out.state, out.eos, dt);
@@ -283,7 +286,7 @@ public:
     out.state.masses = std::move(changed.masses);
     const auto pre_final_sink = sink_entropy;
     prune(false);
-    out.eos = flow.evaluate_state(out.state);
+    out.eos = flow.evaluate_state(out.state, std::move(out.eos));
     entropy_start = std::chrono::steady_clock::now();
     const auto final_entropy = total_entropy(
         flow.kernel_grid(), species, out.state, out.eos, flow.worker_pool());

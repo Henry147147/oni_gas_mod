@@ -75,14 +75,21 @@ public:
   ma::experimental::mac_kernel::Pool &worker_pool() const { return eos_pool; }
   const auto &region_topology() const { return topology; }
   const auto &kernel_grid() const { return g; }
-  std::vector<Eos> evaluate_state(const State &state) const {
-    std::vector<Eos> result(g.N);
+  // `storage` lends the capacity of readings the caller no longer needs.
+  // Every entry is assigned, walls the empty reading, so the result never
+  // depends on its old contents.
+  std::vector<Eos> evaluate_state(const State &state,
+                                  std::vector<Eos> storage = {}) const {
+    auto result = std::move(storage);
+    result.resize(g.N);
     std::vector<std::string> errors(g.blocks);
     eos_pool.run(g.blocks, [&](std::size_t block) {
       for (std::size_t i = g.block_row_begin(block) * g.W;
            i < g.block_row_end(block) * g.W; ++i) {
-        if (g.wall[i])
+        if (g.wall[i]) {
+          result[i] = Eos{};
           continue;
+        }
         const auto begin = state.masses.offsets[i],
                    count = state.masses.offsets[i + 1] - begin;
         try {
@@ -103,13 +110,15 @@ public:
         throw std::runtime_error(error);
     return result;
   }
+  // `readings` are those of `initial` when the caller already holds them.
   FlowReport advance(const State &initial, double dt, double gravity,
                      RegionAudit *regions = nullptr,
-                     const LiquidBoundary *boundary = nullptr) {
+                     const LiquidBoundary *boundary = nullptr,
+                     std::vector<Eos> readings = {}) {
     namespace k = ma::experimental::mac_kernel;
     FlowReport result;
     auto start = std::chrono::steady_clock::now();
-    const auto eos = evaluate_state(initial);
+    auto eos = readings.empty() ? evaluate_state(initial) : std::move(readings);
     result.eos_ms = milliseconds(start);
     start = std::chrono::steady_clock::now();
     const auto projected =
@@ -274,7 +283,7 @@ public:
                        : 0);
     }
     start = std::chrono::steady_clock::now();
-    result.eos = evaluate_state(result.state);
+    result.eos = evaluate_state(result.state, std::move(eos));
     result.eos_ms += milliseconds(start);
     return result;
   }
