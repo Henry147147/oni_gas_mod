@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <utility>
 #include <limits>
 #include <stdexcept>
 
@@ -76,7 +77,12 @@ MacFluidTransferResult MacClosedWorld::with_fluid_transfers(std::span<const MacF
     return with_fluid_transfers(edits,MacFluidTransferTopology::single_phase);
 }
 
-MacFluidTransferResult MacClosedWorld::with_fluid_transfers(std::span<const MacFluidTransfer> edits,MacFluidTransferTopology topology) const {
+MacFluidTransferResult MacClosedWorld::with_fluid_transfers(std::span<const MacFluidTransfer> edits,MacFluidTransferTopology topology) && {
+    if(settings_.numerical_kernel==MacNumericalKernel::game)return MacGameKernelAccess::transfers(std::move(*this),edits,topology);
+    return std::as_const(*this).with_fluid_transfers(edits,topology);
+}
+
+MacFluidTransferResult MacClosedWorld::with_fluid_transfers(std::span<const MacFluidTransfer> edits,MacFluidTransferTopology topology) const& {
     if(settings_.numerical_kernel==MacNumericalKernel::game)return MacGameKernelAccess::transfers(*this,edits,topology);
     require_mac_energy_environment();
     require(topology==MacFluidTransferTopology::single_phase || topology==MacFluidTransferTopology::occupied_mixture,

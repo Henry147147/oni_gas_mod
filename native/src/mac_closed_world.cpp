@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <utility>
 #include <limits>
 #include <map>
 #include <numeric>
@@ -686,8 +687,15 @@ MacClosedWorld::MacClosedWorld(Derived, const MacClosedWorld& from, MacTransport
     if (!partial) state.occupied_volumes_m3.clear();
     replace_state(std::move(state));
 }
+MacClosedWorld::MacClosedWorld(Derived, const MacClosedWorld& from, std::shared_ptr<const MacTransportState> state) :
+    registry_(from.registry_), thermodynamics_(from.thermodynamics_), state_snapshot_(std::move(state)), settings_(from.settings_),
+    transport_(from.transport_), time_s_(from.time_s_), revision_(from.revision_ + 1) {
+    if (from.revision_ == std::numeric_limits<std::uint64_t>::max()) throw std::overflow_error("MAC closed revision overflow");
+}
 void MacClosedWorld::replace_state(MacTransportState next) {
-    state_snapshot_ = std::make_shared<const MacTransportState>(std::move(next));
+    // A mutable object: an expiring owner that alone holds it may edit it in
+    // place (MacGameKernelAccess).
+    state_snapshot_ = std::make_shared<MacTransportState>(std::move(next));
 }
 MacClosedWorld MacClosedWorld::derived(MacTransportState next) const {
     if (revision_ == std::numeric_limits<std::uint64_t>::max()) throw std::overflow_error("MAC closed revision overflow");
@@ -871,7 +879,11 @@ MacPhaseRelaxation MacClosedWorld::with_phase_relaxation_in_cells(std::span<cons
     auto advanced = advance_mac_phase_change_in_cells(registry_, *thermodynamics_, state(), pairs, cells, fraction, settings_.fast_phase_trial_eos);
     return {derived(std::move(advanced.state)), advanced.report};
 }
-MacClosedWorld MacClosedWorld::with_cell_heat(std::span<const MacCellHeat> edits,MacPrimaryRoundingCounts* accepted_rounding) const {
+MacClosedWorld MacClosedWorld::with_cell_heat(std::span<const MacCellHeat> edits,MacPrimaryRoundingCounts* accepted_rounding) && {
+    if(settings_.numerical_kernel!=MacNumericalKernel::game)return std::as_const(*this).with_cell_heat(edits,accepted_rounding);
+    auto next=MacGameKernelAccess::heat(std::move(*this),edits);if(accepted_rounding)*accepted_rounding={};return next;
+}
+MacClosedWorld MacClosedWorld::with_cell_heat(std::span<const MacCellHeat> edits,MacPrimaryRoundingCounts* accepted_rounding) const& {
     if(settings_.numerical_kernel==MacNumericalKernel::game){auto next=MacGameKernelAccess::heat(*this,edits);if(accepted_rounding)*accepted_rounding={};return next;}
     require_mac_energy_environment();
     require(!edits.empty() && edits.size() <= 4096, "MAC heat batch must contain 1..4096 edits");

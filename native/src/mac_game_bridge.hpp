@@ -21,6 +21,12 @@ struct MacGameKernelAccess {
   static MacFluidTransferResult transfers(const MacClosedWorld &,
                                           std::span<const MacFluidTransfer>,
                                           MacFluidTransferTopology);
+  // In place when no other world shares the source's state; the result is
+  // that of the copying forms, and a refused edit leaves the source as it was.
+  static MacClosedWorld heat(MacClosedWorld &&, std::span<const MacCellHeat>);
+  static MacFluidTransferResult transfers(MacClosedWorld &&,
+                                          std::span<const MacFluidTransfer>,
+                                          MacFluidTransferTopology);
   static MacClosedWorld terrain(const MacClosedWorld &,
                                 std::span<const std::size_t>, bool open);
   static MacClosedWorld faces(const MacClosedWorld &, std::vector<std::uint8_t>,

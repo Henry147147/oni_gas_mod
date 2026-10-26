@@ -202,6 +202,63 @@ int main() {
       std::cout << "PASS game injection never exceeds its request ("
                 << rounded_up << "/64 sums rounded up)\n";
     }
+    {
+      // An expiring owner whose state no other world shares is edited in
+      // place: the same world as the copying form, without copying, and a
+      // refused batch leaves it unchanged and usable.
+      const MacCellHeat h1{0, 50, 100000}, h2{1, -20, 100000};
+      const std::array<MacFluidTransfer, 2> moves{
+          MacFluidTransfer{0, oxygen, false, .0005, 0, {}, true},
+          MacFluidTransfer{1, oxygen, true, .0007, 310, {}, false}};
+      const auto heated = many.with_cell_heat(std::span(&h1, 1));
+      const auto copied_heat = heated.with_cell_heat(std::span(&h2, 1));
+      const auto copied = copied_heat.with_fluid_transfers(
+          moves, MacFluidTransferTopology::occupied_mixture);
+      auto owner = many.with_cell_heat(std::span(&h1, 1));
+      const auto *held = &owner.state();
+      owner = std::move(owner).with_cell_heat(std::span(&h2, 1));
+      auto moved = std::move(owner).with_fluid_transfers(
+          moves, MacFluidTransferTopology::occupied_mixture);
+      require(&moved.world.state() == held,
+              "Game expiring owner was copied instead of edited in place");
+      require(moved.world.checkpoint() == copied.world.checkpoint() &&
+                  moved.world.revision() == copied.world.revision() &&
+                  moved.parcels.size() == copied.parcels.size(),
+              "Game in-place edits differ from their copies");
+      for (std::size_t n = 0; n < moved.parcels.size(); ++n)
+        require(moved.parcels[n].mass_kg == copied.parcels[n].mass_kg &&
+                    moved.parcels[n].internal_energy_j ==
+                        copied.parcels[n].internal_energy_j,
+                "Game in-place parcels differ from their copies");
+      auto victim = std::move(moved.world);
+      const auto image = victim.checkpoint();
+      const auto revision = victim.revision();
+      const std::array<MacFluidTransfer, 2> refused_moves{
+          MacFluidTransfer{0, oxygen, false, .0005, 0, {}, false},
+          MacFluidTransfer{1, oxygen, true, 1e-300, 300, {}, false}};
+      const std::array<MacCellHeat, 2> refused_heat{MacCellHeat{0, 10, 100000},
+                                                    MacCellHeat{1, 1e6, 1}};
+      bool transfer_refused = false, heat_refused = false;
+      try {
+        (void)std::move(victim).with_fluid_transfers(
+            refused_moves, MacFluidTransferTopology::occupied_mixture);
+      } catch (const std::invalid_argument &) {
+        transfer_refused = true;
+      }
+      try {
+        (void)std::move(victim).with_cell_heat(refused_heat);
+      } catch (const std::invalid_argument &) {
+        heat_refused = true;
+      }
+      require(transfer_refused && heat_refused && victim.checkpoint() == image &&
+                  victim.revision() == revision,
+              "Game refused in-place edit changed its source");
+      require(victim.advanced(.2).world.checkpoint() ==
+                  copied.world.advanced(.2).world.checkpoint(),
+              "Game refused in-place edit changed continuation");
+      std::cout << "PASS game in-place heat/transfer edits equal their copies; "
+                   "refused batches leave the owner unchanged\n";
+    }
     std::vector<std::uint8_t> x(extracted.world.state().momentum_x.size()),
         y(extracted.world.state().momentum_y.size());
     x[1] = 1;

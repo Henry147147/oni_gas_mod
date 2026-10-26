@@ -665,7 +665,7 @@ MacClosedWorld move_material(MacClosedWorld world, std::span<const Move> moves, 
     for (std::size_t first = 0; first < moves.size(); first += 4096) {
         std::vector<MacFluidTransfer> edits;
         for (std::size_t k = first; k < std::min(moves.size(), first + 4096); ++k) edits.push_back({moves[k].from, moves[k].species, false, moves[k].mass, 0});
-        auto result = world.with_fluid_transfers(edits, MacFluidTransferTopology::occupied_mixture);
+        auto result = std::move(world).with_fluid_transfers(edits, MacFluidTransferTopology::occupied_mixture);
         world = std::move(result.world);
         for (std::size_t k = 0; k < result.parcels.size(); ++k) {
             const auto& p = result.parcels[k]; auto& t = targets[moves[first + k].to];
@@ -694,7 +694,7 @@ MacClosedWorld move_material(MacClosedWorld world, std::span<const Move> moves, 
     }
     for (std::size_t first = 0; first < inject.size(); first += 4096) {
         const std::span<const MacFluidTransfer> batch(inject.data() + first, std::min<std::size_t>(4096, inject.size() - first));
-        auto result = world.with_fluid_transfers(batch, MacFluidTransferTopology::occupied_mixture);
+        auto result = std::move(world).with_fluid_transfers(batch, MacFluidTransferTopology::occupied_mixture);
         world = std::move(result.world);
         for (const auto& p : result.parcels) { L.injected[p.species_index] += p.mass_kg; L.energy_in += parcel_energy(p); }
     }
@@ -776,7 +776,7 @@ MacClosedWorld apply_terrain(Session& s, MacClosedWorld world, std::span<const M
             return a.cell_index != b.cell_index ? a.cell_index < b.cell_index : a.mass_kg < b.mass_kg; });
         for (std::size_t first = 0; first < cleared.size(); first += 4096) {
             const std::span<const MacFluidTransfer> batch(cleared.data() + first, std::min<std::size_t>(4096, cleared.size() - first));
-            auto result = world.with_fluid_transfers(batch, MacFluidTransferTopology::occupied_mixture);
+            auto result = std::move(world).with_fluid_transfers(batch, MacFluidTransferTopology::occupied_mixture);
             world = std::move(result.world);
             for (const auto& p : result.parcels) { s.ledger.extracted[p.species_index] += p.mass_kg; s.ledger.energy_out += parcel_energy(p); s.status.extracted_kg += p.mass_kg; }
         }
@@ -819,7 +819,7 @@ MacClosedWorld apply_terrain(Session& s, MacClosedWorld world, std::span<const M
                 std::vector<MacFluidTransfer> drain;
                 for (std::size_t k = 0; k < m.masses.size(); ++k) if (m.masses[k] > 0) drain.push_back({i, k, false, m.masses[k], 0});
                 std::stable_sort(drain.begin(), drain.end(), [](const MacFluidTransfer& a, const MacFluidTransfer& b) { return a.mass_kg < b.mass_kg; });
-                auto result = world.with_fluid_transfers(drain, MacFluidTransferTopology::occupied_mixture);
+                auto result = std::move(world).with_fluid_transfers(drain, MacFluidTransferTopology::occupied_mixture);
                 world = std::move(result.world);
                 for (const auto& p : result.parcels) {
                     s.ledger.extracted[p.species_index] += p.mass_kg; s.ledger.energy_out += parcel_energy(p);
@@ -846,7 +846,7 @@ MacClosedWorld apply_terrain(Session& s, MacClosedWorld world, std::span<const M
         }
         for (std::size_t first = 0; first < traces.size(); first += 4096) {
             const std::span<const MacFluidTransfer> batch(traces.data() + first, std::min<std::size_t>(4096, traces.size() - first));
-            auto result = world.with_fluid_transfers(batch, MacFluidTransferTopology::occupied_mixture);
+            auto result = std::move(world).with_fluid_transfers(batch, MacFluidTransferTopology::occupied_mixture);
             world = std::move(result.world);
             for (const auto& p : result.parcels) { s.ledger.extracted[p.species_index] += p.mass_kg; s.ledger.energy_out += parcel_energy(p); s.status.extracted_kg += p.mass_kg; }
         }
@@ -993,12 +993,12 @@ MacClosedWorld convert_identities(Session& s, MacClosedWorld world, double secon
     });
     std::size_t joined_gives = 0;
     auto taken = [&] {
-        if (!sterile) return world.with_fluid_transfers(edits, MacFluidTransferTopology::occupied_mixture);
+        if (!sterile) return std::move(world).with_fluid_transfers(edits, MacFluidTransferTopology::occupied_mixture);
         auto combined = edits;
         for (std::size_t q = 0; q < products.size(); ++q) if (products[q].mass > 0)
             combined.push_back({products[q].cell, products[q].species, true, products[q].mass, temperature[q]});
         joined_gives = combined.size() - edits.size();
-        return world.with_fluid_transfers(combined, MacFluidTransferTopology::occupied_mixture);
+        return std::move(world).with_fluid_transfers(combined, MacFluidTransferTopology::occupied_mixture);
     }();
     world = std::move(taken.world);
     std::vector<MacFluidTransfer> given;
@@ -1026,7 +1026,7 @@ MacClosedWorld convert_identities(Session& s, MacClosedWorld world, double secon
             L.injected[parcel.species_index] += parcel.mass_kg; L.energy_in += parcel_energy(parcel);
         }
     } else if (!given.empty()) {
-        auto result = world.with_fluid_transfers(given, MacFluidTransferTopology::occupied_mixture);
+        auto result = std::move(world).with_fluid_transfers(given, MacFluidTransferTopology::occupied_mixture);
         world = std::move(result.world);
         for (const auto& parcel : result.parcels) { L.injected[parcel.species_index] += parcel.mass_kg; L.energy_in += parcel_energy(parcel); }
     }
@@ -2274,7 +2274,7 @@ void run_frame(std::uint64_t ticket, double seconds, std::uint64_t frames, const
                 terrain.insert(terrain.begin(), MAOniColonyTerrain{f.public_cell, MA_ONI_COLONY_CLOSE});
             }
             if (!taken.empty()) {
-                auto result = world.with_fluid_transfers(taken, MacFluidTransferTopology::occupied_mixture);
+                auto result = std::move(world).with_fluid_transfers(taken, MacFluidTransferTopology::occupied_mixture);
                 world = std::move(result.world);
                 for (const auto& parcel : result.parcels) {
                     L.extracted[parcel.species_index] += parcel.mass_kg; L.energy_out += parcel_energy(parcel); s.status.extracted_kg += parcel.mass_kg;
@@ -2345,7 +2345,7 @@ void run_frame(std::uint64_t ticket, double seconds, std::uint64_t frames, const
                 const auto hook = refused_heat.load(std::memory_order_relaxed);
                 const bool control = std::any_of(edits.begin() + static_cast<std::ptrdiff_t>(from), edits.begin() + static_cast<std::ptrdiff_t>(from + count),
                     [&](const MacCellHeat& e) { return e.cell_index == hook; });
-                if (!control) try { world = world.with_cell_heat(std::span(edits.data() + from, count)); return; }
+                if (!control) try { world = std::move(world).with_cell_heat(std::span(edits.data() + from, count)); return; }
                 catch (const std::exception&) {}
                 if (count == 1) { refused.push_back(from); return; }
                 self(self, from, count / 2); self(self, from + count / 2, count - count / 2);
@@ -2356,7 +2356,7 @@ void run_frame(std::uint64_t ticket, double seconds, std::uint64_t frames, const
                 for (const auto n : {i % W > 0 ? i - 1 : SIZE_MAX, i % W + 1 < W ? i + 1 : SIZE_MAX, i >= W ? i - W : SIZE_MAX, i + W < st0.cells.size() ? i + W : SIZE_MAX}) {
                     if (n == SIZE_MAX || world.state().grid.walls[n] || !(world.state().cells[n].mixture.mass() > 0)) continue;
                     MacCellHeat moved = edits[q]; moved.cell_index = n;
-                    try { world = world.with_cell_heat(std::span(&moved, 1)); placed = true; break; } catch (const std::exception&) {}
+                    try { world = std::move(world).with_cell_heat(std::span(&moved, 1)); placed = true; break; } catch (const std::exception&) {}
                 }
                 if (placed) continue;
                 L.heat -= edits[q].joules;
@@ -2397,7 +2397,7 @@ void run_frame(std::uint64_t ticket, double seconds, std::uint64_t frames, const
                 released.push_back({best, entry.species, true, mass, entry.temperature_k}); from.push_back(e);
             }
             if (!released.empty()) {
-                auto result = world.with_fluid_transfers(released, MacFluidTransferTopology::occupied_mixture);
+                auto result = std::move(world).with_fluid_transfers(released, MacFluidTransferTopology::occupied_mixture);
                 world = std::move(result.world);
                 for (std::size_t q = 0; q < result.parcels.size(); ++q) {
                     const auto& parcel = result.parcels[q];
@@ -2503,7 +2503,7 @@ void run_frame(std::uint64_t ticket, double seconds, std::uint64_t frames, const
         for (std::size_t first = 0; first < edits.size(); first += 4096) {
             const std::span<const MacFluidTransfer> batch(edits.data() + first, std::min<std::size_t>(4096, edits.size() - first));
             try {
-                auto result = world.with_fluid_transfers(batch, MacFluidTransferTopology::occupied_mixture);
+                auto result = std::move(world).with_fluid_transfers(batch, MacFluidTransferTopology::occupied_mixture);
                 world = std::move(result.world);
                 parcels.insert(parcels.end(), result.parcels.begin(), result.parcels.end());
             } catch (const std::exception&) {
@@ -2513,7 +2513,7 @@ void run_frame(std::uint64_t ticket, double seconds, std::uint64_t frames, const
                 for (const auto& e : batch) {
                     std::string failure;
                     try {
-                        auto one = world.with_fluid_transfers(std::span(&e, 1), MacFluidTransferTopology::occupied_mixture);
+                        auto one = std::move(world).with_fluid_transfers(std::span(&e, 1), MacFluidTransferTopology::occupied_mixture);
                         world = std::move(one.world); parcels.push_back(one.parcels.front()); continue;
                     } catch (const std::exception& single) { failure = single.what(); }
                     if (e.inject && world.settings().numerical_kernel == MacNumericalKernel::game &&
@@ -2533,7 +2533,7 @@ void run_frame(std::uint64_t ticket, double seconds, std::uint64_t frames, const
                             if (cell == e.cell_index) continue;
                             auto candidate = e; candidate.cell_index = cell;
                             try {
-                                auto one = world.with_fluid_transfers(std::span(&candidate, 1), MacFluidTransferTopology::occupied_mixture);
+                                auto one = std::move(world).with_fluid_transfers(std::span(&candidate, 1), MacFluidTransferTopology::occupied_mixture);
                                 world = std::move(one.world); parcels.push_back(one.parcels.front()); placed = true; break;
                             } catch (const std::exception& error) { all_mass_refusals=all_mass_refusals && std::string_view(error.what())=="Game transfer mass is unrepresentable"; }
                         }
@@ -2857,7 +2857,7 @@ void run_frame(std::uint64_t ticket, double seconds, std::uint64_t frames, const
         }
         for (std::size_t first = 0; first < sink.size(); first += 4096) {
             const std::span<const MacFluidTransfer> batch(sink.data() + first, std::min<std::size_t>(4096, sink.size() - first));
-            auto result = world.with_fluid_transfers(batch, MacFluidTransferTopology::occupied_mixture);
+            auto result = std::move(world).with_fluid_transfers(batch, MacFluidTransferTopology::occupied_mixture);
             world = std::move(result.world);
             for (const auto& parcel : result.parcels) { L.sunk[parcel.species_index] += parcel.mass_kg; L.energy_sunk += parcel_energy(parcel); s.status.space_sink_kg += parcel.mass_kg; }
         }

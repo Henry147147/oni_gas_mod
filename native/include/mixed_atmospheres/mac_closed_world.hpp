@@ -362,7 +362,12 @@ public:
     [[nodiscard]] MacTraceSink with_trace_sink() const;
     // Immutable external heat exchange. Retains time, geometry, every mass and
     // canonical face momentum; checks the complete batch before returning it.
-    [[nodiscard]] MacClosedWorld with_cell_heat(std::span<const MacCellHeat>,MacPrimaryRoundingCounts* accepted_rounding=nullptr) const;
+    [[nodiscard]] MacClosedWorld with_cell_heat(std::span<const MacCellHeat>,MacPrimaryRoundingCounts* accepted_rounding=nullptr) const&;
+    // An expiring owner (std::move(world).with_cell_heat(...)) whose state no
+    // other world shares is edited in place (game kernel): the same result
+    // without copying the state. The source must not be used afterwards,
+    // unless the edit throws, which leaves it unchanged.
+    [[nodiscard]] MacClosedWorld with_cell_heat(std::span<const MacCellHeat>,MacPrimaryRoundingCounts* accepted_rounding=nullptr) &&;
     // One physical mixture is one ordered atomic batch. A normal refusal
     // returns the original world and no consumed receipts; no fallback runs.
     [[nodiscard]] MacParcelDepositResult with_moving_parcels(std::span<const MacMovingParcel>) const;
@@ -380,7 +385,9 @@ public:
     // Explicit opt-in for gas/liquid coexistence. The same parcel/accounting
     // contract applies, and the complete result must remain occupied. This
     // does not supply free-surface dynamics or a device work reservation.
-    [[nodiscard]] MacFluidTransferResult with_fluid_transfers(std::span<const MacFluidTransfer>, MacFluidTransferTopology) const;
+    [[nodiscard]] MacFluidTransferResult with_fluid_transfers(std::span<const MacFluidTransfer>, MacFluidTransferTopology) const&;
+    // In place for an expiring owner, as with_cell_heat.
+    [[nodiscard]] MacFluidTransferResult with_fluid_transfers(std::span<const MacFluidTransfer>, MacFluidTransferTopology) &&;
     // Terrain edits (docs/colony-owner.md#terrain). Opening turns walls into
     // exact vacuum cells (void phase or empty-cell inventory). Closing turns
     // empty cells into walls: the normal momentum on their faces is removed and
@@ -430,6 +437,8 @@ private:
     [[nodiscard]] MacClosedWorld derived(MacTransportState next) const;
     struct Derived {};
     MacClosedWorld(Derived, const MacClosedWorld& from, MacTransportState state);
+    // The next revision holding an already canonical state, without a copy.
+    MacClosedWorld(Derived, const MacClosedWorld& from, std::shared_ptr<const MacTransportState> state);
     friend struct MacGameKernelAccess;
     friend struct MacKernelAccess; // production kernel publication (mac_kernel.cpp)
     SpeciesRegistry registry_;

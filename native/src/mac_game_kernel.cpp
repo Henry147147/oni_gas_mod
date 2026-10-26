@@ -5,6 +5,9 @@
 #include "mixed_atmospheres/mac_kernel.hpp"
 #include <cmath>
 #include <numeric>
+#include <optional>
+#include <unordered_map>
+#include <unordered_set>
 
 namespace ma::experimental {
 namespace {
@@ -645,18 +648,72 @@ std::shared_ptr<const k::Totals> totals_of(const MacClosedWorld &world,
   return std::make_shared<const k::Totals>(dense_totals(
       world.state(), world.registry().size(), world.settings().gravity_m_per_s2));
 }
-// The change of the audit sums from `before` to `after` over the cells and
-// faces an edit touched; every other cell and face is unchanged.
+// A change of the audit sums.
 struct TotalsChange {
   std::vector<k::DoubleDouble> species;
   k::DoubleDouble energy, energy_operands, jx, jy, jx_operands, jy_operands;
   std::map<std::uint64_t, k::DoubleDouble> passives;
 };
-TotalsChange totals_change(const MacTransportState &before,
+// The original cells, face momenta and occupied volumes of an edit, each
+// recorded before its first change: they audit the change and undo an edit
+// made in place.
+class EditJournal {
+  std::vector<std::pair<std::size_t, MacMaterialCell>> cells_;
+  std::unordered_map<std::size_t, std::size_t> cell_index_;
+  std::map<std::pair<bool, std::size_t>, double> faces_;
+  std::vector<std::pair<std::size_t, double>> volumes_;
+  std::unordered_set<std::size_t> volume_seen_;
+  std::optional<bool> volumes_empty_;
+
+public:
+  void cell(const MacTransportState &state, std::size_t i) {
+    if (cell_index_.emplace(i, cells_.size()).second)
+      cells_.emplace_back(i, state.cells[i]);
+  }
+  void face(const MacTransportState &state, bool x, std::size_t f) {
+    faces_.try_emplace({x, f}, (x ? state.momentum_x : state.momentum_y)[f]);
+  }
+  void volumes(const MacTransportState &state,
+               std::span<const std::size_t> touched) {
+    if (!volumes_empty_)
+      volumes_empty_ = state.occupied_volumes_m3.empty();
+    if (*volumes_empty_)
+      return;
+    for (const auto i : touched)
+      if (volume_seen_.insert(i).second)
+        volumes_.emplace_back(i, state.occupied_volumes_m3[i]);
+  }
+  // A value before the edit: recorded, or never changed.
+  const MacMaterialCell &before(const MacTransportState &state,
+                                std::size_t i) const {
+    const auto at = cell_index_.find(i);
+    return at == cell_index_.end() ? state.cells[i] : cells_[at->second].second;
+  }
+  double before(const MacTransportState &state, bool x, std::size_t f) const {
+    const auto at = faces_.find({x, f});
+    return at == faces_.end() ? (x ? state.momentum_x : state.momentum_y)[f]
+                              : at->second;
+  }
+  void undo(MacTransportState &state) const {
+    for (const auto &[i, cell] : cells_)
+      state.cells[i] = cell;
+    for (const auto &[face, j] : faces_)
+      (face.first ? state.momentum_x : state.momentum_y)[face.second] = j;
+    if (volumes_empty_ && *volumes_empty_)
+      state.occupied_volumes_m3.clear();
+    else
+      for (const auto &[i, v] : volumes_)
+        state.occupied_volumes_m3[i] = v;
+  }
+};
+// The change of the audit sums over the cells and faces an edit touched,
+// from the journal's originals to `after`; every other cell and face is
+// unchanged.
+TotalsChange totals_change(const EditJournal &journal,
                            const MacTransportState &after, std::size_t count,
                            double gravity, std::vector<std::size_t> cells,
                            std::vector<std::pair<bool, std::size_t>> faces) {
-  const auto &grid = before.grid;
+  const auto &grid = after.grid;
   constexpr auto none = std::numeric_limits<std::size_t>::max();
   std::sort(cells.begin(), cells.end());
   cells.erase(std::unique(cells.begin(), cells.end()), cells.end());
@@ -674,9 +731,12 @@ TotalsChange totals_change(const MacTransportState &before,
           total += m;
     return total;
   };
+  const auto cell_of = [&](bool original, std::size_t i) -> const MacMaterialCell & {
+    return original ? journal.before(after, i) : after.cells[i];
+  };
   for (const auto i : cells)
-    for (const auto [state, sign] : {std::pair{&before, -1.}, std::pair{&after, 1.}}) {
-      const auto &cell = state->cells[i];
+    for (const auto [original, sign] : {std::pair{true, -1.}, std::pair{false, 1.}}) {
+      const auto &cell = cell_of(original, i);
       if (!cell.mixture.masses.implicit_zero()) {
         const std::vector<double> &masses = cell.mixture.masses;
         for (std::size_t key = 0; key < masses.size(); ++key)
@@ -694,13 +754,14 @@ TotalsChange totals_change(const MacTransportState &before,
         change.passives[q.identity].add(sign * q.quantity);
     }
   for (const auto [x, f] : faces)
-    for (const auto [state, sign] : {std::pair{&before, -1.}, std::pair{&after, 1.}}) {
-      const double j = (x ? state->momentum_x : state->momentum_y)[f];
+    for (const auto [original, sign] : {std::pair{true, -1.}, std::pair{false, 1.}}) {
+      const double j = original ? journal.before(after, x, f)
+                                : (x ? after.momentum_x : after.momentum_y)[f];
       if (j == 0)
         continue;
       const auto [l, r] = endpoints(grid, x, f);
-      const double inertia = .5 * ((l == none ? 0 : mass_of(state->cells[l])) +
-                                   (r == none ? 0 : mass_of(state->cells[r])));
+      const double inertia = .5 * ((l == none ? 0 : mass_of(cell_of(original, l))) +
+                                   (r == none ? 0 : mass_of(cell_of(original, r))));
       if (!(inertia > 0))
         throw std::runtime_error("Private totals J without inertia");
       const double kinetic = .5 * j * (j / inertia);
@@ -791,10 +852,12 @@ void audit_transfers(const k::Totals &old, const k::Totals &now,
   }
 }
 } // namespace
-MacClosedWorld MacGameKernelAccess::heat(const MacClosedWorld &source,
-                                         std::span<const MacCellHeat> edits) {
+namespace {
+// Heat edits on `next`, the state of `source` or its copy, each cell recorded
+// in the journal before it changes.
+void apply_heat(const MacClosedWorld &source, MacTransportState &next,
+                std::span<const MacCellHeat> edits, EditJournal &journal) {
   require(!edits.empty() && edits.size() <= 4096, "Invalid game heat batch");
-  auto next = source.state();
   for (const auto &edit : edits) {
     require(edit.cell_index < next.cells.size() &&
                 !next.grid.walls[edit.cell_index] &&
@@ -802,45 +865,64 @@ MacClosedWorld MacGameKernelAccess::heat(const MacClosedWorld &source,
                 std::isfinite(edit.maximum_temperature_k) &&
                 edit.maximum_temperature_k > 0,
             "Invalid game heat edit");
+    journal.cell(next, edit.cell_index);
     auto &cell = next.cells[edit.cell_index];
     const double old = cell.mixture.energy;
     cell.mixture.energy += edit.joules;
     require(edit.joules == 0 || cell.mixture.energy != old,
             "Game heat change is unrepresentable");
-    const auto e = reading(source, cell);
+    const auto e = MacGameKernelAccess::reading(source, cell);
     require(edit.joules <= 0 || e.temperature_k <= edit.maximum_temperature_k,
             "Game heat exceeds reserved temperature limit");
   }
-  std::shared_ptr<const k::Totals> now;
-  if (source.game_totals_) {
-    std::vector<std::size_t> cells;
-    for (const auto &edit : edits)
-      cells.push_back(edit.cell_index);
-    now = std::make_shared<const k::Totals>(changed_totals(
-        *source.game_totals_,
-        totals_change(source.state(), next, source.registry_.size(),
-                      source.settings_.gravity_m_per_s2, std::move(cells), {})));
-  }
-  auto result = source.derived(std::move(next));
-  result.game_totals_ = std::move(now);
-  return result;
 }
-MacFluidTransferResult
-MacGameKernelAccess::transfers(const MacClosedWorld &source,
-                               std::span<const MacFluidTransfer> edits,
-                               MacFluidTransferTopology topology) {
+// A world's audit totals after a heat edit, when it had them. Only U changes.
+std::shared_ptr<const k::Totals>
+heated_totals(const k::Totals *kept, const EditJournal &journal,
+              const MacTransportState &next, std::span<const MacCellHeat> edits,
+              std::size_t count, double gravity) {
+  if (!kept)
+    return {};
+  std::vector<std::size_t> cells;
+  for (const auto &edit : edits)
+    cells.push_back(edit.cell_index);
+  return std::make_shared<const k::Totals>(changed_totals(
+      *kept, totals_change(journal, next, count, gravity, std::move(cells), {})));
+}
+// The canonical void-phase volumes of a world's state (MacClosedWorld's
+// derived constructor): none unless an occupied cell is partly filled.
+void canonical_volumes(MacTransportState &state) {
+  bool partial = false;
+  for (std::size_t i = 0; i < state.occupied_volumes_m3.size() && !partial; ++i)
+    partial = state.cells[i].mixture.mass() > 0 &&
+              state.occupied_volumes_m3[i] < state.grid.volume_m3();
+  if (!partial)
+    state.occupied_volumes_m3.clear();
+}
+struct TransferWork {
+  std::vector<MacFluidParcel> parcels;
+  std::vector<std::size_t> cells;
+  std::vector<std::pair<bool, std::size_t>> faces;
+};
+// Transfers on `next`, the state of `source` or its copy, each cell, face and
+// occupied volume recorded in the journal before it changes.
+TransferWork apply_transfers(const MacClosedWorld &source,
+                             MacTransportState &next,
+                             std::span<const MacFluidTransfer> edits,
+                             MacFluidTransferTopology topology,
+                             const std::vector<k::Species> &species,
+                             EditJournal &journal) {
   require(!edits.empty() && edits.size() <= 4096,
           "Invalid game transfer batch");
   require(topology == MacFluidTransferTopology::single_phase ||
               topology == MacFluidTransferTopology::occupied_mixture,
           "Invalid game transfer topology");
-  auto next = source.state();
-  std::vector<MacFluidParcel> parcels;
-  parcels.reserve(edits.size());
-  std::vector<std::size_t> touched, audited_cells;
-  std::vector<std::pair<bool, std::size_t>> audited_faces;
-  const auto species = table(source.registry_, *source.thermodynamics_,
-                             source.settings_.game.liquid_stiffness_ratio, source.settings_.game.liquid_law);
+  TransferWork work;
+  work.parcels.reserve(edits.size());
+  std::vector<std::size_t> touched;
+  const auto reading = [&](const MacMaterialCell &cell) {
+    return MacGameKernelAccess::reading(source, cell);
+  };
   for (const auto &edit : edits) {
     touched.clear();
     require(edit.cell_index < next.cells.size() &&
@@ -850,6 +932,7 @@ MacGameKernelAccess::transfers(const MacClosedWorld &source,
                 std::isfinite(edit.temperature_k) &&
                 (!edit.inject || edit.temperature_k > 0),
             "Invalid game transfer request");
+    journal.cell(next, edit.cell_index);
     auto &cell = next.cells[edit.cell_index];
     const auto &material = species[edit.species_index];
     validate_passive_quantities(edit.passives);
@@ -861,7 +944,7 @@ MacGameKernelAccess::transfers(const MacClosedWorld &source,
             cell.mixture.masses[key] == 0 ||
                 (material.gas ? species[key].gas : key == edit.species_index),
             "Game point-transfer phase mismatch");
-    const auto before = reading(source, cell);
+    const auto before = reading(cell);
     MacFluidParcel p{};
     p.cell_index = edit.cell_index;
     p.species_index = edit.species_index;
@@ -873,7 +956,7 @@ MacGameKernelAccess::transfers(const MacClosedWorld &source,
         (!edit.inject && cell.mixture.masses[edit.species_index] == 0)) {
       if (edit.observe_passives)
         p.passives_after = cell.passive_quantities;
-      parcels.push_back(std::move(p));
+      work.parcels.push_back(std::move(p));
       continue;
     }
     const double old_species = cell.mixture.masses[edit.species_index],
@@ -963,6 +1046,7 @@ MacGameKernelAccess::transfers(const MacClosedWorld &source,
     touched.push_back(edit.cell_index);
     for (bool x : {true, false})
       for (const auto f : cell_faces(next.grid, edit.cell_index, x)) {
+        journal.face(next, x, f);
         auto &J = (x ? next.momentum_x : next.momentum_y)[f];
         const double I = inertia(next, x, f);
         double outgoing = 0;
@@ -981,6 +1065,7 @@ MacGameKernelAccess::transfers(const MacClosedWorld &source,
           for (const auto i : {l, r})
             if (i != std::numeric_limits<std::size_t>::max() &&
                 next.cells[i].mixture.mass() > 0) {
+              journal.cell(next, i);
               next.cells[i].mixture.energy +=
                   heat * (next.cells[i].mixture.mass() / sum);
               touched.push_back(i);
@@ -993,29 +1078,113 @@ MacGameKernelAccess::transfers(const MacClosedWorld &source,
     p.momentum_y = MacScaled::from_double(carried_y.value());
     p.potential_energy =
         MacEnergy::from_double(p.mass_kg)
-            .multiplied(source.settings_.gravity_m_per_s2)
+            .multiplied(source.settings().gravity_m_per_s2)
             .multiplied(
                 (static_cast<double>(edit.cell_index / next.grid.width) + .5) *
                 next.grid.spacing_m);
     if (edit.observe_passives)
       p.passives_after = cell.passive_quantities;
+    journal.volumes(next, touched);
     occupied(source, next, touched);
-    audited_cells.insert(audited_cells.end(), touched.begin(), touched.end());
+    work.cells.insert(work.cells.end(), touched.begin(), touched.end());
     for (bool x : {true, false})
       for (const auto f : cell_faces(next.grid, edit.cell_index, x))
-        audited_faces.emplace_back(x, f);
-    parcels.push_back(std::move(p));
+        work.faces.emplace_back(x, f);
+    work.parcels.push_back(std::move(p));
   }
-  const auto old_totals = totals_of(source, source.game_totals_.get());
-  const auto change =
-      totals_change(source.state(), next, source.registry_.size(),
-                    source.settings_.gravity_m_per_s2, std::move(audited_cells),
-                    std::move(audited_faces));
+  return work;
+}
+// The audited result world of a transfer edit.
+std::shared_ptr<const k::Totals>
+transferred_totals(const MacClosedWorld &source, const k::Totals *kept,
+                   const EditJournal &journal, const MacTransportState &next,
+                   TransferWork &work) {
+  const auto old_totals = totals_of(source, kept);
+  const auto change = totals_change(journal, next, source.registry().size(),
+                                    source.settings().gravity_m_per_s2,
+                                    std::move(work.cells), std::move(work.faces));
   auto now = std::make_shared<const k::Totals>(changed_totals(*old_totals, change));
-  audit_transfers(*old_totals, *now, change, parcels);
-  MacFluidTransferResult result{source.derived(std::move(next)), std::move(parcels), 0, {}};
+  audit_transfers(*old_totals, *now, change, work.parcels);
+  return now;
+}
+} // namespace
+MacClosedWorld MacGameKernelAccess::heat(const MacClosedWorld &source,
+                                         std::span<const MacCellHeat> edits) {
+  auto next = source.state();
+  EditJournal journal;
+  apply_heat(source, next, edits, journal);
+  auto now = heated_totals(source.game_totals_.get(), journal, next, edits,
+                           source.registry_.size(),
+                           source.settings_.gravity_m_per_s2);
+  auto result = source.derived(std::move(next));
+  result.game_totals_ = std::move(now);
+  return result;
+}
+MacClosedWorld MacGameKernelAccess::heat(MacClosedWorld &&source,
+                                         std::span<const MacCellHeat> edits) {
+  if (source.state_snapshot_.use_count() != 1)
+    return heat(std::as_const(source), edits);
+  // No other world shares this state: edit it in place, undoing on failure.
+  auto &next = const_cast<MacTransportState &>(*source.state_snapshot_);
+  EditJournal journal;
+  try {
+    apply_heat(source, next, edits, journal);
+    auto now = heated_totals(source.game_totals_.get(), journal, next, edits,
+                             source.registry_.size(),
+                             source.settings_.gravity_m_per_s2);
+    canonical_volumes(next);
+    MacClosedWorld result(MacClosedWorld::Derived{}, source,
+                          source.state_snapshot_);
+    source.state_snapshot_.reset(); // the result now owns the state
+    result.game_totals_ = std::move(now);
+    return result;
+  } catch (...) {
+    journal.undo(next);
+    throw;
+  }
+}
+MacFluidTransferResult
+MacGameKernelAccess::transfers(const MacClosedWorld &source,
+                               std::span<const MacFluidTransfer> edits,
+                               MacFluidTransferTopology topology) {
+  const auto species = table(source.registry_, *source.thermodynamics_,
+                             source.settings_.game.liquid_stiffness_ratio, source.settings_.game.liquid_law);
+  auto next = source.state();
+  EditJournal journal;
+  auto work = apply_transfers(source, next, edits, topology, species, journal);
+  auto now = transferred_totals(source, source.game_totals_.get(), journal,
+                                next, work);
+  MacFluidTransferResult result{source.derived(std::move(next)),
+                                std::move(work.parcels), 0, {}};
   result.world.game_totals_ = std::move(now);
   return result;
+}
+MacFluidTransferResult
+MacGameKernelAccess::transfers(MacClosedWorld &&source,
+                               std::span<const MacFluidTransfer> edits,
+                               MacFluidTransferTopology topology) {
+  if (source.state_snapshot_.use_count() != 1)
+    return transfers(std::as_const(source), edits, topology);
+  // No other world shares this state: edit it in place, undoing on failure.
+  const auto species = table(source.registry_, *source.thermodynamics_,
+                             source.settings_.game.liquid_stiffness_ratio, source.settings_.game.liquid_law);
+  auto &next = const_cast<MacTransportState &>(*source.state_snapshot_);
+  EditJournal journal;
+  try {
+    auto work = apply_transfers(source, next, edits, topology, species, journal);
+    auto now = transferred_totals(source, source.game_totals_.get(), journal,
+                                  next, work);
+    canonical_volumes(next);
+    MacFluidTransferResult result{
+        MacClosedWorld(MacClosedWorld::Derived{}, source, source.state_snapshot_),
+        std::move(work.parcels), 0, {}};
+    source.state_snapshot_.reset(); // the result now owns the state
+    result.world.game_totals_ = std::move(now);
+    return result;
+  } catch (...) {
+    journal.undo(next);
+    throw;
+  }
 }
 MacClosedWorld MacGameKernelAccess::terrain(const MacClosedWorld &source,
                                             std::span<const std::size_t> cells,
