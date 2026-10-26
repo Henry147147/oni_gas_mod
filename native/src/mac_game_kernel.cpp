@@ -46,11 +46,18 @@ k::State sparse(const MacTransportState &state) {
     require(cell.energy_remainder_j.is_zero(),
             "Game kernel requires binary64 primary energy");
     result.energy.push_back(cell.mixture.energy);
-    for (std::size_t key = 0; key < cell.mixture.masses.size(); ++key)
-      if (cell.mixture.masses[key] > 0) {
-        result.masses.species.push_back(static_cast<std::uint32_t>(key));
-        result.masses.mass.push_back(cell.mixture.masses[key]);
+    // Shared zero storage holds no constituent.
+    if (!cell.mixture.masses.implicit_zero()) {
+      const std::vector<double> &masses = cell.mixture.masses;
+      std::uint32_t key = 0;
+      for (const double mass : masses) {
+        if (mass > 0) {
+          result.masses.species.push_back(key);
+          result.masses.mass.push_back(mass);
+        }
+        ++key;
       }
+    }
     result.masses.offsets.push_back(result.masses.mass.size());
     for (const auto &q : cell.passive_quantities) {
       result.passives.species.push_back(q.identity);
