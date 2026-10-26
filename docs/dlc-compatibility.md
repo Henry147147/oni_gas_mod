@@ -65,23 +65,76 @@ before and after each phase. The first rejection stops the matrix and leaves
 later rows unrun, preserving the failure and source receipts in `matrix.json`.
 Saves, runtime reports and captures stay private.
 
+## Local content blocker
+
+The private Linux `dlc-readers-aquatic-r2` run reached the menu and passed
+native attachment, then refused before world generation: requested mask 16,
+observed active IDs empty. Its fresh KPlayerPrefs retained `DLC5_ID.ENABLED: 1`
+and the four disabled flags. Local inspection confirms these are the game's
+ordinary preference keys. The inspected Linux installation contains none of
+`expansion1_bundle`, `dlc2_bundle`, `dlc3_bundle`, `dlc4_bundle` or `dlc5_bundle`;
+the game requires installed content as well as its platform subscription.
+This does not establish the account's ownership status. Installing the licensed
+content through its normal platform is required before those Linux rows can
+run. No platform checks or content files were altered.
+
 ## Remaining exits
 
-Standalone checks pass: 86 Linux Release CTests, 371 Python tests (four
+The first pack reader adapters are in `ColonyDlcFluidReaders`:
+
+- Aquatic habitat checks use the owner's total physical liquid occupancy,
+  including liquid under a gas compatibility projection. The game's existing
+  caller-supplied substantial-liquid threshold remains the threshold. Its
+  swimming and suffocation monitors reach this through
+  `Grid.IsSubstantialLiquidUnsafe`; stored creatures keep their original rule.
+- Bionic refill scoring counts breathable minority oxygen using the same
+  owner breathing rule as the gas provider. It retains the game's sample
+  denominator, binary32 addition order, world boundaries and other safety
+  flags. Native/unowned samples keep their existing element-tag rule.
+
+The `dlc-fluid-readers` game scenario constructs both hidden-phase cases and
+calls the actual refill/habitat methods. With Aquatic selected it also spawns
+the pack's puffer fish and checks its own suffocation monitor. A base-game
+query check cannot establish that Aquatic content check. The private Linux
+`dlc-readers-base-r3` run passes both query checks on core23/profile5: actual
+refill scoring sees the hidden oxygen, and the habitat method sees physical
+liquid below a gas projection while retaining its caller's threshold. The
+Aquatic creature check remains blocked on installed content. These are reader
+adapters: exact bionic tank admission/consumption, all-identity storage, aquatic conversions, rocket
+cargo and inter-asteroid transport remain separate work.
+
+The same reader implementation also passes the existing Linux pacu and hazard
+controls in `base-liquid-readers-r5`: swimming, scalding, dense-air ear damage
+and submerged breath holding. These are base-game regressions, not pack
+gameplay acceptance.
+
+Standalone checks pass: 86 Linux Release CTests, 378 Python tests (four
 skipped), and 227 managed boundary scenarios. The adapter compiles against
 both installed game assemblies; the Windows script passes PowerShell parsing
 and refuses execution on Linux. No new DLC game run has been accepted.
-Spaced Out! still explicitly
-refuses startup. Multi-asteroid ownership, transfers, rocket interiors,
+
+The private receipt/reader packages have no portable Linux provenance. An
+offline Ubuntu 22.04 build passes all 86 CTests, but its ABI check rejects the
+existing solver's `hypot@GLIBC_2.35` import against the declared GLIBC 2.34
+ceiling. The current-host diagnostic package is not a portable release.
+No ABI pass was recorded and no solver arithmetic was changed to hide this
+failure. Native Windows compilation and actual Windows OS runs remain separate
+checks; compiling the managed adapter against Windows assemblies proves neither.
+
+Spaced Out! still explicitly refuses startup. Multi-asteroid ownership,
+transfers, rocket interiors,
 bionic oxygen and aquatic ecosystem adapters remain to be implemented and
 verified before their rows can pass. The matrix is a compatibility check,
 not proof of every pack's gameplay systems.
 
-Exact stored-fluid heat/biology and schema5 cold rebinding remain open in
-[mixed pipes](mixed-pipes.md). In particular, queued absolute thermal proxy
-resets have a measured energy-creation defect; ordinary reader/storage
-controls do not close it. Native pipe schedule capture exists, but live
-schema5 saves remain gated. A restored image's exact reencoding proves
-restoration only; the matrix explicitly leaves byte-exact **active**
+Exact stored-fluid heat/biology and nonempty schema5 cold rebinding remain open
+in [mixed pipes](mixed-pipes.md). Native receipts remove the former multi-kJ
+missing-credit defect across queued thermal proxy resets, but the new coupled
+run still loses 0.703 J and fails its original operand bound. Native scheduling
+capture/restore is wired to a development schema5 control with pristine empty
+stores. Its actual Linux cold/menu controls now pass restoration, but the
+uninterrupted/restored owner and pipe observations differ on the first resumed
+frame; active continuation remains unaccepted. A restored image's
+exact reencoding proves restoration only; the matrix explicitly leaves byte-exact **active**
 continuation unverified. The [F3 levelling and F4 conduction proofs](base-game-floor.md)
 also remain open, with their original grids, metrics and bounds.

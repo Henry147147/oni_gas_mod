@@ -15,29 +15,37 @@ struct Chunk {
     bool valid=false;
 };
 
-inline Chunk chunk(const void* sim,std::int32_t handle) noexcept {
+struct RegistryLayout {std::size_t data,mapping,generations;};
+inline constexpr RegistryLayout linux_registry{0x398,0x3e0,0x3f8};
+// Pinned Windows PDB: SimData.elementChunk+1024; compacted data+8,
+// handles+72, items+32, versions+64; vector pointers start at+8.
+inline constexpr RegistryLayout windows_registry{0x410,0x470,0x490};
+inline Chunk chunk_at(const void* sim,std::int32_t handle,RegistryLayout layout) noexcept {
     Chunk result;
-#if defined(__linux__)
     if(!sim || (static_cast<std::uint32_t>(handle)&0x00f00000U))return result;
     const auto index=static_cast<std::uint32_t>(handle)&0x00ffffffU;
     const auto generation=static_cast<std::uint32_t>(handle)>>24;
-    const auto* generations=detail::read<const std::uint8_t*>(sim,0x3f8);
-    const auto* generation_end=detail::read<const std::uint8_t*>(sim,0x400);
+    const auto* generations=detail::read<const std::uint8_t*>(sim,layout.generations);
+    const auto* generation_end=detail::read<const std::uint8_t*>(sim,layout.generations+8);
     if(index>=detail::count(generations,generation_end,1,1U<<20) || generations[index]!=generation)return result;
-    const auto* mapping=detail::read<const std::int32_t*>(sim,0x3e0);
-    const auto* mapping_end=detail::read<const std::int32_t*>(sim,0x3e8);
+    const auto* mapping=detail::read<const std::int32_t*>(sim,layout.mapping);
+    const auto* mapping_end=detail::read<const std::int32_t*>(sim,layout.mapping+8);
     if(index>=detail::count(mapping,mapping_end,4,1U<<20) || mapping[index]<0)return result;
-    const auto* data=detail::read<const std::byte*>(sim,0x398);
-    const auto* data_end=detail::read<const std::byte*>(sim,0x3a0);
+    const auto* data=detail::read<const std::byte*>(sim,layout.data);
+    const auto* data_end=detail::read<const std::byte*>(sim,layout.data+8);
     if(static_cast<std::size_t>(mapping[index])>=detail::count(data,data_end,44,1U<<20))return result;
     const auto* record=data+static_cast<std::size_t>(mapping[index])*44;
     result.cell=detail::read<std::int32_t>(record,0);
     result.temperature_bits=detail::read<std::uint32_t>(record,4);
     result.capacity_bits=detail::read<std::uint32_t>(record,8);result.valid=true;
-#else
-    (void)sim;(void)handle;
-#endif
     return result;
+}
+inline Chunk chunk(const void* sim,std::int32_t handle) noexcept {
+#if defined(_WIN32)
+    return chunk_at(sim,handle,windows_registry);
+#else
+    return chunk_at(sim,handle,linux_registry);
+#endif
 }
 
 class Frame {

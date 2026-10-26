@@ -7,6 +7,7 @@
 #include "../src/oni_funchook_storage.hpp"
 #include "../src/oni_body_heat_trace.hpp"
 #include "../src/oni_chunk_heat_trace.hpp"
+#include "../src/oni_storage_heat_native.hpp"
 #include <array>
 #include <chrono>
 #include <cstring>
@@ -136,11 +137,117 @@ static void chunk_heat_trace_controls() {
     std::cout<<"PASS native chunk observation: actual T/C, ordered absolute updates, intervening-work flags, stale/retired rejection and preserved math/errno\n";
 #endif
 }
+static void storage_heat_receipt_controls() {
+    using ma::oni::storage_heat::Ledger;
+    using ma::oni::chunk_heat_trace::Chunk;
+    constexpr std::int32_t handle=0x01000000;
+    const auto value=[](float t,float c=18.f){return Chunk{std::bit_cast<std::uint32_t>(t),std::bit_cast<std::uint32_t>(c),123,true};};
+    const auto reject=[](const auto& action){bool refused=false;try{action();}catch(const std::exception&){refused=true;}require(refused,"invalid storage heat transition accepted");};
+    Ledger ledger;ledger.add(handle,300.f,18.f);auto actual=value(299.5f);
+    const auto read=[&](std::int32_t requested){require(requested==handle,"receipt read wrong handle");return actual;};
+    ledger.sample(read,1);ledger.expect(handle,299.5f,18.f);
+    // Published299.5, subsequently cooled299.0, then replaced by the queued
+    // stale299.5. Both cooling segments must survive the reset exactly once.
+    actual=value(299.f);
+    ledger.before(read,[&](std::int32_t,const auto& append){append(std::bit_cast<std::uint32_t>(299.5f),std::bit_cast<std::uint32_t>(18.f));},2);
+    actual=value(299.5f);ledger.after(read,2);actual=value(299.25f);ledger.sample(read,2);ledger.sample(read,2);
+    std::array<MAOniStorageHeatReceipt,8> receipts{};
+    require(ledger.copy(nullptr,0)==3 && ledger.copy(receipts.data(),8)==3,"storage heat lost or duplicated a cooling segment");
+    require(receipts[0].before_k==300 && receipts[0].after_k==299.5f && receipts[1].before_k==299.5f && receipts[1].after_k==299 &&
+        receipts[2].before_k==299.5f && receipts[2].after_k==299.25f,"storage heat receipt counted a projection reset as physical work");
+    for(std::size_t i=0;i<3;++i)require(receipts[i].sequence==i+1 && receipts[i].handle==handle && receipts[i].capacity_kj_k==18 &&
+        receipts[i].struct_size==48 && receipts[i].abi_version==1 && receipts[i].reserved==0 && receipts[i].reserved2==0,"storage heat receipt framing");
+    const auto kept=receipts;reject([&]{ledger.copy(receipts.data(),2);});
+    require(std::memcmp(receipts.data(),kept.data(),sizeof(receipts))==0 && ledger.copy(nullptr,0)==3,"short storage heat read consumed data or changed output");
+    ledger.ack(1);require(ledger.copy(nullptr,0)==2,"storage heat prefix acknowledgement");
+    ledger.ack(1);reject([&]{ledger.ack(0);});reject([&]{ledger.ack(4);});ledger.ack(3);
+    // A capacity change partitions the exact work into distinct operands.
+    ledger.expect(handle,310.f,7.f);actual=value(299.f);
+    ledger.before(read,[&](std::int32_t,const auto& append){append(std::bit_cast<std::uint32_t>(310.f),std::bit_cast<std::uint32_t>(7.f));},3);
+    actual=value(310.f,7.f);ledger.after(read,3);actual=value(309.f,7.f);ledger.sample(read,4);
+    require(ledger.copy(receipts.data(),8)==2 && receipts[0].capacity_kj_k==18 && receipts[1].capacity_kj_k==7 &&
+        receipts[0].after_k==299 && receipts[1].before_k==310,"storage heat used the new capacity for earlier work");
+    reject([&]{ledger.add(handle,300.f,1.f);});reject([&]{ledger.expect(handle+1,300.f,1.f);});
+    reject([&]{Ledger invalid;invalid.add(handle,-1.f,1.f);});reject([&]{Ledger invalid;invalid.add(handle,300.f,-1.f);});
+    reject([&]{Ledger invalid;invalid.add(-1,300.f,1.f);});
+    actual=value(308.f,8.f);reject([&]{ledger.sample(read,5);});
+    Ledger undeclared;undeclared.add(handle,300.f,18.f);actual=value(300.f);
+    reject([&]{undeclared.before(read,[&](std::int32_t,const auto& append){append(std::bit_cast<std::uint32_t>(310.f),std::bit_cast<std::uint32_t>(18.f));},1);});
+    Ledger reordered;reordered.add(handle,300.f,18.f);reordered.expect(handle,310.f,18.f);reordered.expect(handle,320.f,18.f);
+    reject([&]{reordered.before(read,[&](std::int32_t,const auto& append){append(std::bit_cast<std::uint32_t>(320.f),std::bit_cast<std::uint32_t>(18.f));},1);});
+    Ledger exhausted;exhausted.add(handle,300.f,18.f);
+    for(std::uint32_t i=0;i<32768;++i){actual=value(i%2?300.f:301.f);exhausted.sample(read,i);}
+    actual=value(301.f);reject([&]{exhausted.sample(read,32769);});require(exhausted.copy(nullptr,0)==32768,"receipt exhaustion silently discarded heat");
+    std::cout<<"PASS exact storage heat receipts: post-publication cooling, queued resets, capacity changes, immutable prefix reads and explicit ordering/capacity refusal\n";
+}
+static void storage_heat_native_controls() {
+    using namespace ma::oni;
+    // Exercise both platform registry views on either host, independently of
+    // a licensed runtime. Source objects and queued messages stay immutable.
+    for(const auto layout:{chunk_heat_trace::linux_registry,chunk_heat_trace::windows_registry}) {
+        std::array<std::byte,0x600> sim{};std::array<std::byte,44> record{};
+        std::array<std::int32_t,1> mapping{0};std::array<std::uint8_t,1> generations{1};
+        const auto put=[](auto& target,std::size_t offset,const auto& value){std::memcpy(target.data()+offset,&value,sizeof(value));};
+        put(sim,layout.data,record.data());put(sim,layout.data+8,record.data()+record.size());
+        put(sim,layout.mapping,mapping.data());put(sim,layout.mapping+8,mapping.data()+mapping.size());
+        put(sim,layout.generations,generations.data());put(sim,layout.generations+8,generations.data()+generations.size());
+        put(record,0,std::int32_t{123});put(record,4,std::bit_cast<std::uint32_t>(300.f));put(record,8,std::bit_cast<std::uint32_t>(18.f));
+        const auto source=sim;const auto body=record;
+        const auto read=chunk_heat_trace::chunk_at(sim.data(),0x01000000,layout);
+        require(read.valid && read.temperature_bits==std::bit_cast<std::uint32_t>(300.f) && read.capacity_bits==std::bit_cast<std::uint32_t>(18.f),"storage heat registry platform layout");
+        require(!chunk_heat_trace::chunk_at(sim.data(),0x02000000,layout).valid,"storage heat platform view accepted a stale generation");
+        require(source==sim && body==record,"storage heat registry platform view changed source");
+    }
+    std::array<std::byte,0x600> sim{},frame{};std::array<std::byte,44> body{};
+    std::array<std::int32_t,1> mapping{0};std::array<std::uint8_t,1> generations{1};
+    const auto put=[](auto& target,std::size_t offset,const auto& value){std::memcpy(target.data()+offset,&value,sizeof(value));};
+#if defined(_WIN32)
+    constexpr auto layout=chunk_heat_trace::windows_registry;constexpr std::size_t data_offset=0x310,energy_offset=0x370;
+#else
+    constexpr auto layout=chunk_heat_trace::linux_registry;constexpr std::size_t data_offset=0x248,energy_offset=0x290;
+#endif
+    put(sim,layout.data,body.data());put(sim,layout.data+8,body.data()+body.size());
+    put(sim,layout.mapping,mapping.data());put(sim,layout.mapping+8,mapping.data()+mapping.size());
+    put(sim,layout.generations,generations.data());put(sim,layout.generations+8,generations.data()+generations.size());
+    put(body,0,std::int32_t{123});put(body,4,std::bit_cast<std::uint32_t>(299.f));put(body,8,std::bit_cast<std::uint32_t>(18.f));
+    std::array<std::uint32_t,6> data{0x01000000,std::bit_cast<std::uint32_t>(300.f),std::bit_cast<std::uint32_t>(18.f),
+        0x01000000,std::bit_cast<std::uint32_t>(302.f),std::bit_cast<std::uint32_t>(7.f)};
+    put(frame,data_offset,data.data());put(frame,data_offset+8,data.data()+data.size());
+    const auto source=sim;const auto source_frame=frame;const auto source_messages=data;
+    storage_heat::Monitor monitor;monitor.add(0x01000000,300,18);monitor.expect(0x01000000,300,18);monitor.expect(0x01000000,302,7);
+    std::fenv_t initial{};require(std::fegetenv(&initial)==0,"storage heat initial environment");const int initial_errno=errno;
+    require(std::fesetround(FE_DOWNWARD)==0 && std::feclearexcept(FE_ALL_EXCEPT)==0 && std::feraiseexcept(FE_INVALID)==0,"storage heat initial flags");errno=EDOM;
+    auto called=false;
+    monitor.process(frame.data(),sim.data(),1,[&]{
+        require(std::fegetround()==FE_DOWNWARD && std::fetestexcept(FE_ALL_EXCEPT)==FE_INVALID && errno==EDOM,"storage observation changed the original call environment");
+        called=true;put(body,4,std::bit_cast<std::uint32_t>(302.f));put(body,8,std::bit_cast<std::uint32_t>(7.f));
+        require(std::fesetround(FE_TOWARDZERO)==0 && std::feclearexcept(FE_ALL_EXCEPT)==0 && std::feraiseexcept(FE_DIVBYZERO)==0,"storage heat original flags");errno=ERANGE;
+    });
+    require(std::fegetround()==FE_TOWARDZERO && std::fetestexcept(FE_ALL_EXCEPT)==FE_DIVBYZERO && errno==ERANGE,"storage observation changed the original call's returned environment");
+    std::array<MAOniStorageHeatReceipt,4> receipts{};
+    require(called && monitor.copy(receipts.data(),4)==1 && receipts[0].before_k==300 && receipts[0].after_k==299 && receipts[0].capacity_kj_k==18,
+        "storage native boundary lost final cooling before several queued replacements");
+    put(body,4,std::bit_cast<std::uint32_t>(301.f));monitor.sample(sim.data(),2);
+    require(std::fegetround()==FE_TOWARDZERO && std::fetestexcept(FE_ALL_EXCEPT)==FE_DIVBYZERO && errno==ERANGE,"storage sampling changed the native environment");
+    require(monitor.copy(receipts.data(),4)==2 && receipts[1].before_k==302 && receipts[1].after_k==301 && receipts[1].capacity_kj_k==7,
+        "storage native boundary did not resume heat observation at actual applied state");
+    require(source==sim && source_frame==frame && source_messages==data,"storage native boundary mutated registry/messages");
+    monitor.reset();monitor.add(0x01000000,301,7);
+    std::array<std::uint32_t,2> energy{0x01000000,0};put(frame,energy_offset,energy.data());put(frame,energy_offset+8,energy.data()+energy.size());
+    called=false;monitor.process(frame.data(),sim.data(),3,[&]{called=true;});
+    bool refused=false;try{(void)monitor.copy(receipts.data(),4);}catch(const std::logic_error&){refused=true;}
+    require(called && refused,"unsupported native writer did not preserve original execution and refuse exact heat");
+    require(std::fesetenv(&initial)==0,"storage heat environment restoration");errno=initial_errno;
+    monitor.reset();require(monitor.copy(receipts.data(),4)==0,"storage native heat teardown left old receipts");
+    std::cout<<"PASS storage native heat boundary: both registry layouts, ordered multi-reset processing, immutable messages and sticky refusal of foreign heat writers\n";
+}
 int main() {
     try {
         capture_file_controls();
         body_heat_trace_controls();
         chunk_heat_trace_controls();
+        storage_heat_receipt_controls();
+        storage_heat_native_controls();
         require(ma_oni_colony_precise_receipt_version()==2,"precise receipt observation capability");
         static_assert(sizeof(MAOniColonyParcelContext)==72);
         MAOniColonyParcelContext parcel_context{};parcel_context.struct_size=sizeof(parcel_context);parcel_context.abi_version=1;

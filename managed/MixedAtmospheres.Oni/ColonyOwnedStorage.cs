@@ -43,9 +43,10 @@ namespace MixedAtmospheres.Oni
         internal static void StartControl()
         {
             if(!ColonyPipeRuntime.Active||!ColonyMachinePorts.Enabled)throw new InvalidOperationException("Exact component storage requires the mixed-pipe runtime.");
+            RequireStorageHeat();
             Enabled=true;MixtureInspection.SetOwnedStorageReader(storage=>Owns(storage)?ColonyPipeInspection.Describe(Inventory(storage),"Stored mixture"):null);
         }
-        internal static void Reset(){ResetBiology();Enabled=false;Hosts.Clear();editing=registering=0;HeatPublications=0;MixtureInspection.SetOwnedStorageReader(null);}
+        internal static void Reset(){ClearStorageHeat();ResetBiology();Enabled=false;Hosts.Clear();editing=registering=0;HeatPublications=0;MixtureInspection.SetOwnedStorageReader(null);}
         internal static bool Owns(Storage storage)=>Enabled&&Hosts.ContainsKey(storage);
         private static byte ReservoirPhase(Storage storage)
         {
@@ -57,8 +58,9 @@ namespace MixedAtmospheres.Oni
         {
             var prefab=storage.GetComponent<KPrefabID>();var components=storage.GetComponents<Storage>();
             var ordinal=Array.FindIndex(components,item=>ReferenceEquals(item,storage));
-            if(prefab==null||prefab.pendingDestruction||prefab.conflicted||!storage.isSpawned||storage.IsEndOfLife())
-                throw new InvalidOperationException("Exact storage has no live, unique prefab owner.");
+            if(prefab==null||prefab.pendingDestruction||prefab.conflicted||!storage.isSpawned||storage.IsEndOfLife()||
+                !ReferenceEquals(KPrefabIDTracker.Get().GetInstance(prefab.InstanceID),prefab))
+                throw new InvalidOperationException($"Exact storage has no live, unique prefab owner: prefab {prefab?.InstanceID}, spawned {storage.isSpawned}, ending {storage.IsEndOfLife()}, destroying {prefab?.pendingDestruction}, conflicted {prefab?.conflicted}.");
             return new StoredFluidAddress(prefab.InstanceID,ordinal);
         }
         private static Host BindEmpty(Storage storage,byte phase)
@@ -169,6 +171,7 @@ namespace MixedAtmospheres.Oni
         internal static void Published()
         {
             if(!Enabled)return;
+            CreditNativeStorageHeat();
             foreach(var host in Hosts.Values)
             {
                 foreach(var view in host.Projections.Values)
@@ -176,7 +179,6 @@ namespace MixedAtmospheres.Oni
                     var body=view.Item.sttOptimizationHook;
                     if(body==null||!Sim.IsValidHandle(body.SimHandle))continue;
                     if(view.Handle!=body.SimHandle)throw new InvalidOperationException("An owned storage thermal projection changed its native handle without registration.");
-                    Credit(host,view,view.Item.Temperature);
                 }
                 Refresh(host);
             }
@@ -192,6 +194,7 @@ namespace MixedAtmospheres.Oni
             // The registration publication can already include contact work;
             // read it before the native callback overwrites its output view.
             Credit(host,view,ReadTemperature(handle));
+            OniNativeColony.Check(RegisterStorageHeat(handle,view.Temperature,view.Capacity));
         }
         private static unsafe float ReadTemperature(int handle)=>Game.Instance.simData.elementChunks[Sim.GetHandleIndex(handle)].temperature;
         internal static void Registered(SimTemperatureTransfer body)
@@ -200,12 +203,13 @@ namespace MixedAtmospheres.Oni
         {
             if(!Enabled)return;
             foreach(var host in Hosts.Values)foreach(var view in host.Projections.Values)
-                if(view.Item.sttOptimizationHook!=null&&view.Item.sttOptimizationHook.SimHandle==handle)
+                if(view.Handle==handle)
                 {
                     if(editing==0&&registering==0)throw new InvalidOperationException("An unsupported native writer tried to replace an exact storage thermal projection.");
                     if(capacity<0||float.IsNaN(capacity)||float.IsInfinity(capacity)||!(temperature>0)||float.IsInfinity(temperature))
                         throw new InvalidOperationException("Invalid exact storage thermal projection data.");
                     TraceHeat("sent-before",host,view,temperature,capacity);
+                    OniNativeColony.Check(DeclareStorageHeatData(handle,temperature,capacity));
                     view.Capacity=capacity;view.Temperature=temperature;
                     TraceHeat("sent-after",host,view,temperature,capacity);return;
                 }
@@ -226,10 +230,38 @@ namespace MixedAtmospheres.Oni
             }
             return new OwnedFluidStorageImage(Hosts.Values.Select(host=>host.Store));
         }
+        internal static void RestorePristine(OwnedFluidStorageImage image)
+        {
+            if(!Enabled||Hosts.Count!=0||image.Stores.Any(store=>!store.PristineEmpty))
+                throw new NotSupportedException("Exact storage restore currently binds only pristine empty reservoirs.");
+            var prepared=new List<Host>();
+            foreach(var store in image.Stores)
+            {
+                // Resolve the serialized identity, including an inactive
+                // building. A scene-wide search also returns prefab assets
+                // and omits inactive instances during loading.
+                var prefab=KPrefabIDTracker.Get().GetInstance(store.Address.Prefab);
+                if(prefab==null)throw new InvalidOperationException($"Saved exact reservoir {store.Address.Prefab} has no tracked native prefab.");
+                var components=prefab.GetComponents<Storage>();
+                if(store.Address.Ordinal>=components.Length)
+                    throw new InvalidOperationException($"Saved exact reservoir {store.Address.Prefab} has no storage component {store.Address.Ordinal}.");
+                var storage=components[store.Address.Ordinal];
+                if(!Address(storage).Equals(store.Address)||ReservoirPhase(storage)!=store.Phase)
+                    throw new InvalidOperationException($"Saved exact reservoir {store.Address.Prefab}/{store.Address.Ordinal} changed identity or fluid phase.");
+                if(storage.items.Any(item=>item!=null))
+                    throw new InvalidOperationException($"Saved empty exact reservoir {store.Address.Prefab}/{store.Address.Ordinal} contains native items.");
+                prepared.Add(new Host(storage,store){ProjectedRevision=store.Revision});
+            }
+            foreach(var host in prepared)Hosts.Add(host.Storage,host);
+        }
         internal static void RequireQuiescent()
         {
-            if(Enabled&&Hosts.Count>0)
+            if(Enabled&&Hosts.Values.Any(host=>!host.Store.PristineEmpty||host.Projections.Count!=0))
                 throw new NotSupportedException("Exact storage live checkpointing awaits the complete biology and native projection cold-rebind controls.");
+            if(Enabled)
+                foreach(var storage in UnityEngine.Object.FindObjectsByType<Storage>(FindObjectsInactive.Include,FindObjectsSortMode.None))
+                    if(storage.isSpawned&&!storage.IsEndOfLife()&&ReservoirPhase(storage)!=0&&storage.items.Any(item=>item!=null))
+                        throw new NotSupportedException("An exact-storage checkpoint cannot omit a reservoir's native held items.");
         }
     }
 

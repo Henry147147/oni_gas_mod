@@ -138,6 +138,37 @@ rounding allowance. The same bundle's `owned-storage-readers` repeat passes
 100 pure reads change no inventory, heat or account, and physical withdrawal
 produces an explicit empty reading. Neither control enables live schema5 saves.
 
+The 2026-10-26 receipt prototype observes actual chunk temperature/capacity
+segments before `ProcessFrame` applies queued absolute data and after native
+`UpdateData` completes contacts. It validates each declared replacement in
+order and retains the work before a replacement under the **old** capacity.
+Replacements themselves are projection edits, never heat credits. Managed
+publication consumes these operand receipts instead of subtracting a requested
+temperature from a later published temperature. All affected stores prepare
+their exact credits before any commit or receipt acknowledgement. Repeated
+reads do not consume work; foreign energy/adjuster/removal messages, stale
+handles and queue exhaustion refuse explicitly.
+
+The native boundary has pinned Linux and Windows registry/frame views; both
+registry layouts and delayed cooling/multiple replacement/capacity-change
+sequences have standalone controls. This is a repair candidate for the
+measured missing-credit defect, not thermal acceptance. The coupled game
+control must still close its unchanged operand bound, including the smaller
+previously unexplained difference. Native contact arithmetic, solver arithmetic
+and checkpoint formats are unchanged. Transfers concurrent with outstanding
+thermal work, complete storage teardown and native cold rebinding remain open;
+nonempty exact stores still refuse live checkpointing.
+
+The first Linux game repeat with these receipts (`storage-heat-r1`, private
+evidence) retains all fluid mass and the three construction-body identities.
+Two registered stored-fluid bodies deliver 44 native heat receipts; stored
+energy changes by **-10117.699527938385 J** over the measured hold. The closed
+balance is now **-0.70290390179257045 J**, against the unchanged
+**4.9810459202356767e-6 J** operand bound. This removes the former multi-kJ
+missing-credit defect but still fails thermal acceptance. The remaining
+difference has not been attributed or accepted as rounding; no residual
+ledger, tolerance change or thermal-service reduction is introduced.
+
 The separately activated `owned-storage-biology` control now passes 15/15 on
 core23 (`codex-resume-storage-biology-control-v4`). Actual reservoirs use native
 item insulation for a fixed 300 K biology comparison, independently of the
@@ -329,6 +360,65 @@ physical continuation state, rather than permission to discard storage
 quantities into a boundary ledger or reset scheduling on load. Schema4 and
 earlier codec bytes remain unchanged; the new writer stays gated until its
 storage and continuation controls pass.
+
+For a bounded development scheduling check,
+`MA_COLONY_NATIVE_SCHEDULE_CONTROL=1` starts new colonies with the reserved
+schema5 writer. It activates the reservoir storage prototype and all-ID biology,
+captures native clocks, staging, routing, networks and updater order, and binds
+the saved scheduling state after the other pipe modules on restore. Binding
+waits for the first positive-time barrier, after component `OnSpawn` and
+conduit updater registration. `GameStarted` alone is too early: the actual
+cold load exposed a tracked reservoir whose storage had not spawned yet.
+Zero-time conduit updates remain held while those bindings are pending.
+The loaded
+image selects this mode; changing the environment does not migrate a save.
+The restore path accepts only pristine empty exact stores, including their
+persistent host identities. A drained store is not pristine: admission/withdrawal/heat/biology
+history or a native projection still requires full cold binding. Nonempty
+stores still refuse until their native projections and biology can bind
+exactly. A nonempty native reservoir cannot be omitted by calling its exact
+section empty. Ordinary new
+colonies retain schema4 while this control is unaccepted, and schemas1–4 keep
+their previous bytes.
+
+`MA_COLONY_CONTINUATION_FRAMES=N` still records a held completed owner image
+after each positive frame. With `MA_COLONY_CONTINUATION_RUNTIME=1`, it also
+settles native publication and receipts and records pipe/native-scheduling and
+CO2-particle images at each boundary; schema5 scheduling control is required.
+`MA_COLONY_CONTINUATION_SOURCE=1` arms the uninterrupted branch immediately
+after a successful ordinary `MA_COLONY_SAVE_CONTROL=save`, preserving that
+source save's hash and baseline owner/pipe identities. Cold and menu loads
+record the restored branch. Held prefixes now run during system scenarios too.
+
+`tools/colony_continuation.py --source source/result.json --loaded load/result.json`
+compares complete, healthy prefixes from the same save, game binaries, package,
+host and player. It reports the first frame and section that differ, including
+timestep operands. A restored image reencoding, short prefix, wrong baseline,
+inactive pipe runtime, pending native bindings or open audit refuses comparison. A matching prefix is
+bounded observation only: it does not prove identical external inputs or every
+native/managed actor's continuation, and the tool explicitly keeps full colony
+continuation unverified.
+
+The private Linux `continuation-source-r5` / `continuation-load-r5` pair
+passes source execution, cold restore and an in-process menu reload with the
+same frozen package and source save. Both load sessions reencode the exact
+saved owner and pipe images, bind all seven native culture contexts and pass
+closed pipe audits. The ordinary save settles at owner frame 21; all three
+branches complete the eight observed frames through 29 with the same binary32
+0.2 s step operands. Both restored branches first differ from the uninterrupted
+branch at frame 22 in the owner and pipe images. Cold and menu branches first
+differ from each other at frame 23 in the owner image. Particle images stay
+empty. Thus restoration succeeds but byte-exact active continuation fails;
+these observations do not establish identical native/managed inputs or assign
+the mismatch to one particular actor.
+
+The native owner checkpoint also still omits callback-owned pending
+extractions, expecting consumers and breathing requests to ask again after
+load. Durable pipe jobs are saved separately. Preserving native pipe clocks
+does not repair that transient-request policy. Exact active continuation needs
+stable actor/request rebinding and identical future inputs as well as the
+recorded pipe state; flushing future requests early at save would change the
+uninterrupted trajectory.
 
 **MACPIP01 schema4** was reserved (2026-10-24), immediately after a fresh fetch
 of `c57532a`, for complete native pipe biology context: captured allocation

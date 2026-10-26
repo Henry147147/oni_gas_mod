@@ -36,6 +36,11 @@ namespace MixedAtmospheres.Oni
         internal readonly SortedDictionary<int,GermPopulationClock> Clocks=new SortedDictionary<int,GermPopulationClock>();
         internal readonly SortedDictionary<int,StoredGermContext> CultureContexts=new SortedDictionary<int,StoredGermContext>();
         internal readonly SortedDictionary<int,StorageJournalAmount> Births=new SortedDictionary<int,StorageJournalAmount>(),Deaths=new SortedDictionary<int,StorageJournalAmount>();
+        // The first live scheduling control can bind untouched empty hosts.
+        // A drained store is not equivalent: native projections and their
+        // continuation history may still exist even when held mass is zero.
+        internal bool PristineEmpty=>Inventory.Count==0&&Initial.Count==0&&Admitted.Masses.Count==0&&Admitted.Germs.Count==0&&Admitted.Energy.Sign==0&&
+            Withdrawn.Masses.Count==0&&Withdrawn.Germs.Count==0&&Withdrawn.Energy.Sign==0&&Heat.Sign==0&&Clocks.Count==0&&CultureContexts.Count==0&&Births.Count==0&&Deaths.Count==0;
         internal OwnedFluidStore(StoredFluidAddress address,byte phase,PipeInventory initial)
         {
             if(phase!=1&&phase!=2)throw new InvalidDataException("Invalid owned storage phase.");
@@ -83,12 +88,27 @@ namespace MixedAtmospheres.Oni
             Inventory=move.After;if(move.Intake)Admitted=move.Journal;else Withdrawn=move.Journal;Revision=move.NextRevision;
             foreach(var id in move.Retired){Clocks.Remove(id);CultureContexts.Remove(id);}
         }
-        internal void AddHeat(PipeAmount representedWork,Func<int,PipeMaterial> material)
+        internal sealed class HeatChange
         {
-            var next=Inventory.WithHeat(representedWork);var heat=Heat.Plus(representedWork);var revision=checked(Revision+1);
-            if(next.Count>0)next.Temperature(material);
-            Inventory=next;Heat=heat;Revision=revision;
+            internal readonly OwnedFluidStore Owner;
+            internal readonly PipeInventory Before,After;
+            internal readonly StorageJournalAmount Heat;
+            internal readonly ulong Revision,NextRevision;
+            internal HeatChange(OwnedFluidStore owner,PipeAmount work,Func<int,PipeMaterial> material)
+            {
+                Owner=owner;Before=owner.Inventory;Revision=owner.Revision;
+                After=Before.WithHeat(work);Heat=owner.Heat.Plus(work);NextRevision=checked(Revision+1);
+                if(After.Count>0)After.Temperature(material);
+            }
         }
+        internal HeatChange PrepareHeat(PipeAmount work,Func<int,PipeMaterial> material)=>new HeatChange(this,work,material);
+        internal void Commit(HeatChange change)
+        {
+            if(!ReferenceEquals(change.Owner,this)||change.Revision!=Revision||!ReferenceEquals(change.Before,Inventory))
+                throw new InvalidOperationException("Owned storage changed after its heat credit was prepared.");
+            Inventory=change.After;Heat=change.Heat;Revision=change.NextRevision;
+        }
+        internal void AddHeat(PipeAmount representedWork,Func<int,PipeMaterial> material)=>Commit(PrepareHeat(representedWork,material));
         internal void CommitCulture(int id,GermPopulationStep step,StoredGermContext? context=null)
         {
             if(id<0||id>=255||step.Population.Sign<0||Germs(Inventory,id).Plus(step.Change).Minus(step.Population).Sign!=0)

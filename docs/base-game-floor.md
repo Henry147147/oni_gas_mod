@@ -561,6 +561,26 @@ All18 frozen package files remain unchanged. Initial-source and clock alignment
 are established. Full20000 s, matching new vanilla preparation and the resolved
 dynamic solid/fluid truth remain open.
 
+### Selected-profile F3 repeat, 2026-10-26
+
+The private Linux `f3-owner-r3` run completes the unchanged 22×14 arena and
+120 s observation on core23/profile5. Its 605 retained samples have no skipped
+or repeated owner frames, projection refusals, owner faults or skipped
+relaxations. Levelling is [10.4,10.6] s; final mean depth is 1.999787460020046 m,
+an observed 7.773020046e-6 m difference from the amended 1.999779687 m truth.
+Maximum relative mass/energy errors are 4.989e-16/9.469e-16; the trace sink is
+1.942e-9 kg/0.004018 J. Accepted external heat is zero; maximum booked inventory
+residual is 1.455e-11 kg.
+
+This is a completed selected-profile measurement, not an F3 accuracy pass.
+Its release row already contains 0.002790504958408919 kg steam, following the
+fixture's five preparation intervals with water present. Thus it also does
+not establish the frozen stationary initial field. A matched initial-state
+proof and a resolved independent liquid timing reference remain required;
+the earlier inconsistent 8×/16× VOF events cannot certify this trajectory.
+F4's matched vanilla preparation, full 20000 s selected-profile measurement
+and coupled dynamic reference remain open as described above.
+
 ## Performance and feature variants
 
 Each numerical step needs same-lock Terra60 before/after, affected floor

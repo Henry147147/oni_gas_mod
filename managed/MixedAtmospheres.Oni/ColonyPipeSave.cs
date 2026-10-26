@@ -27,6 +27,8 @@ namespace MixedAtmospheres.Oni
             string audit = ""; bool? closed = null;
             if (ColonyPipeRuntime.Active) { closed = ColonyConduits.Audit(out audit); }
             return new { Pending, Captured, CapturedSha256, Restored, RestoredSha256, ColonyPipeRuntime.Active, AuditClosed = closed, Audit = audit,
+                ColonyPipeRuntime.NativeScheduleControl,
+                ColonyPipeRuntime.NativeBindingsPending,
                 BiologyContext = ColonyPipeCultureState.Report() };
         }
         private static string Hash(byte[] bytes)
@@ -62,6 +64,9 @@ namespace MixedAtmospheres.Oni
             if(pending!=null)TryRestore();
             if (pending != null && !ColonyLoadRefusal.Refused)
                 ColonyLoadRefusal.Refuse(new InvalidOperationException("Simulation time cannot advance before the saved mixed pipes are restored."));
+            if(!ColonyLoadRefusal.Refused&&ColonyPipeRuntime.NativeBindingsPending)
+                try{ColonyPipeRuntime.RequireNativeBindings();}
+                catch(Exception error){ColonyLoadRefusal.Refuse(error);}
             if(!ColonyLoadRefusal.Refused&&ColonyPipeCultureState.NeedsReadyBarrier)
                 try{ColonyPipeCultureState.RequireReady();}
                 catch(Exception error){ColonyLoadRefusal.Refuse(error);}
@@ -72,11 +77,12 @@ namespace MixedAtmospheres.Oni
     internal static class ColonyPipeSaveFlowPatch
     {
         [HarmonyPriority(Priority.First)]
-        private static bool Prefix()
+        private static bool Prefix(float __0)
         {
             ColonyPipeSave.TryRestore();
+            ColonyPipeSave.BeforePositiveTime(__0);
             // A refused or unrestored colony's pipes never move.
-            return !ColonyPipeSave.Pending && !ColonyLoadRefusal.Refused;
+            return !ColonyPipeSave.Pending && !ColonyLoadRefusal.Refused && !ColonyPipeRuntime.NativeBindingsPending;
         }
     }
 }

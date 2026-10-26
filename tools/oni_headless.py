@@ -65,7 +65,7 @@ MANIFEST_REVISION = re.compile(r"[0-9a-f]{40}(?:[0-9a-f]{24})?")
 FRAME_LIMIT, LONG_RUN_FRAME_LIMIT, LONG_RUN_DEFAULT_FRAMES = 10000, 100000, 30000
 TIMEOUT_LIMIT, LONG_RUN_TIMEOUT_LIMIT = 7200, 48 * 3600
 TELEMETRY_INTERVAL_DEFAULT, TELEMETRY_INTERVAL_LIMITS = 300, (10, 10000)
-SCENARIOS = ("terrain", "heat", "phase", "freeze-melt", "deoxidizer", "pipes", "door", "sublimation", "falling", "breathing", "airflow",
+SCENARIOS = ("dlc-fluid-readers", "terrain", "heat", "phase", "freeze-melt", "deoxidizer", "pipes", "door", "sublimation", "falling", "breathing", "airflow",
              "electrolysis", "vent-overpressure", "space-heater", "bottle-emptier", "gas-generator", "germs", "puft",
              "plant", "wheezewort", "life-support", "mask-station", "polymer-press", "oxyfern", "debris-heat", "building-melt", "geyser", "rocket-exhaust", "meteor", "sensor", "filter", "mixed-pipes", "mixed-pipe-filter", "mixed-pipe-boundary", "mixed-pipe-output", "mixed-pipe-teardown", "mixed-pipe-valves", "mixed-pipe-gas-vents", "mixed-pipe-biology", "mixed-pipe-all-germs", "mixed-pipe-save-guard", "mixed-pipe-pumps", "mixed-pipe-thermal", "mixed-pipe-cold", "windows-contact", "mixed-pipe-machines", "mixed-pipe-colony", "mixed-pipe-heat-machines", "mixed-pipe-retire", "mixed-pipe-readers", "mixed-pipe-owned-storage", "mixed-storage-heat", "owned-storage-readers", "owned-storage-biology", "pipe-schedule", "pipe-body-rounding", "mixed-pipe-catalogue", "pacu", "liquid-pump", "world-germs", "germ-oracle", "skimmer", "terrarium", "deodorizer", "rust-deoxidizer", "coal-generator", "oil-refinery", "electrolyzer-blocked", "hazards", "germ-exposure", "suit", "pitcher-pump", "fault-containment", "base")
 
@@ -1114,7 +1114,7 @@ def playtest(args, state: Path, session: dict) -> int:
                 "diagnostic_first_observed_owner_frame": limit_report.get("CompletedFrames") if limit_report else None,
                 "diagnostic_final_owner_frame": final_owner_report.get("CompletedFrames") if final_owner_report else None,
                 "diagnostic_owner_frame_overshoot": max(0, final_owner_report.get("CompletedFrames", 0) - owner_limit) if stopped_for_limit else None,
-                "platform": "native Linux", "display": screen["display"], "steam_display": session["display"],
+                "platform": "native Linux", "host_platform": "linux", "display": screen["display"], "steam_display": session["display"],
                 "private_display": private_display, "private_display_process": display_record, "software_rendering": not gpu_display,
                 "renderer": player_renderer(output),
                 "inspection_seconds_requested": inspection_seconds,

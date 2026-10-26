@@ -133,6 +133,7 @@ namespace MixedAtmospheres.Oni
                     case "owned-storage-readers": MixedOwnedStorageReaders(frame); break;
                     case "owned-storage-biology": MixedOwnedStorageBiology(frame); break;
                     case "pipe-schedule": RunPipeSchedule((ulong)frame); break;
+                    case "dlc-fluid-readers": DlcFluidReaders(frame); break;
                     case "pipe-body-rounding": MixedPipeBodyRounding(frame); break;
                     case "mixed-pipe-catalogue": MixedPipeCatalogue(frame); break;
                     case "pacu": Pacu(frame); break;

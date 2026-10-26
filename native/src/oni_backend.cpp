@@ -6,6 +6,7 @@
 #include "oni_floor_capture.hpp"
 #include "oni_body_heat_trace.hpp"
 #include "oni_chunk_heat_trace.hpp"
+#include "oni_storage_heat_native.hpp"
 #include "oni_conduit_contact.hpp"
 #include "oni_windows_lifecycle_trace.hpp"
 #include "oni_funchook_storage.hpp"
@@ -50,6 +51,7 @@ static_assert(sizeof(MAOniDomainSolidCellState) == 64);
 static_assert(sizeof(MAOniDomainPublicationInfo) == 64);
 static_assert(sizeof(MAOniDomainPhysics) == 40);
 static_assert(sizeof(MAOniTraceEvent) == 32);
+static_assert(sizeof(MAOniStorageHeatReceipt) == 48);
 static_assert(MA_ONI_CHUNK_HEAT + 1 == MA_ONI_HOOK_COUNT);
 struct HookProfile { std::uint32_t index; std::uintptr_t rva; const char* hash; };
 #include "oni_profiles.hpp"
@@ -88,6 +90,7 @@ funchook_t* detours{};
 std::uintptr_t image_base{};
 std::uint64_t installed_mask{};
 bool installed{}, recovery_required{};
+ma::oni::storage_heat::Monitor storage_heat;
 // Both modules remain resident. Never free cached P/Invoke targets or native
 // trampolines while any simulator could retain their addresses.
 void* game_module{};
@@ -161,6 +164,7 @@ using GameCallback = int (*)(int,void*);
 FORWARD(on_initialize, MA_ONI_INITIALIZE, void, (GameCallback callback), (callback))
 void on_shutdown() {
     Call call(MA_ONI_SHUTDOWN);
+    storage_heat.reset();
     ma::oni::windows_lifecycle_trace("native shutdown entered");
 #if defined(_WIN32)
     std::fprintf(stderr,"[Mixed Atmospheres] Windows native shutdown entered.\n");
@@ -219,7 +223,7 @@ void on_process_frame(void* frame,void* data) {
     const auto ordinal=counters[MA_ONI_PROCESS_FRAME].entries.load(std::memory_order_relaxed);
     if(ma::oni::body_heat_trace::Frame::enabled())body_observation.emplace(ordinal,frame,data);
     if(ma::oni::chunk_heat_trace::Frame::enabled())chunk_observation.emplace(ordinal,frame,data);
-    original<void (*)(void*,void*)>(MA_ONI_PROCESS_FRAME)(frame,data);
+    storage_heat.process(frame,data,ordinal,[&]{original<void (*)(void*,void*)>(MA_ONI_PROCESS_FRAME)(frame,data);});
 }
 float on_next_frame(void* self,void* data) {
     Call call(MA_ONI_NEXT_FRAME);
@@ -333,6 +337,7 @@ void on_update_data(void* self,void* data) {
     native_heat_contact_bits.store(std::bit_cast<std::uint32_t>(pending.seconds),std::memory_order_release);
     native_floor_contact_ticket.store(floors.enabled?pending.ticket:0,std::memory_order_release);
     original<void (*)(void*,void*)>(MA_ONI_UPDATE_DATA)(self,data);
+    storage_heat.sample(data,counters[MA_ONI_PROCESS_FRAME].entries.load(std::memory_order_relaxed));
     native_floor_contact_ticket.store(0,std::memory_order_release);
     native_heat_contact_bits.store(0,std::memory_order_release);
     if (shadowed && native_cells(data,shadow)) ma::oni::colony::capture_shadow(shadow,pending.ticket);
@@ -1476,6 +1481,26 @@ MAOniResult ma_oni_domain_stop(MAOniDomainStatus* output) {
     });
 }
 std::uint32_t ma_oni_domain_heat_abi_version() { return 1; }
+std::uint32_t ma_oni_storage_heat_version() {return ma::oni::storage_heat::Monitor::supported()?1U:0U;}
+MAOniResult ma_oni_storage_heat_register(std::int32_t handle,float temperature,float capacity) {
+    return boundary([&] {
+        if(!installed || !ma::oni::storage_heat::Monitor::supported() || !ma::oni::colony::active())
+            throw Failure(MA_ONI_INCOMPATIBLE,"Exact storage native heat tracking requires a supported attached colony");
+        storage_heat.add(handle,temperature,capacity);
+    });
+}
+MAOniResult ma_oni_storage_heat_expect_data(std::int32_t handle,float temperature,float capacity) {
+    return boundary([&] {storage_heat.expect(handle,temperature,capacity);});
+}
+MAOniResult ma_oni_storage_heat_copy(MAOniStorageHeatReceipt* output,std::uint32_t capacity,std::uint32_t* count) {
+    return boundary([&] {
+        if(!count || (!output && capacity))throw Failure(MA_ONI_INVALID_ARGUMENT,"Invalid exact storage heat receipt destination");
+        try {*count=storage_heat.copy(output,capacity);}
+        catch(const std::length_error& error){throw Failure(MA_ONI_BUFFER_TOO_SMALL,error.what());}
+    });
+}
+MAOniResult ma_oni_storage_heat_ack(std::uint64_t through) {return boundary([&] {storage_heat.ack(through);});}
+MAOniResult ma_oni_storage_heat_reset() {return boundary([&] {storage_heat.reset();});}
 std::uint32_t ma_oni_domain_chunk_heat_abi_version() { return 1; }
 MAOniResult ma_oni_domain_chunk_heat_status(MAOniDomainChunkHeatStatus* output) {
     return boundary([&] {

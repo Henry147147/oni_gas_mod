@@ -168,7 +168,7 @@ namespace MixedAtmospheres.Oni
                 Record("closed fixture retains all fluid mass and registered body identities",Math.Abs(final.Mass-storedHeatMass)<=128*2.2204460492503131e-16*(Math.Abs(final.Mass)+Math.Abs(storedHeatMass))&&storedHeatBodies.SequenceEqual(final.Bodies)&&
                     ColonyOwnedStorage.Inventory(storage).Mass==8&&ColonyOwnedStorage.Audit(storage),$"world mass {storedHeatMass:R}->{final.Mass:R}kg, bodies {final.Bodies.Length}");
                 Record("actual native contacts transfer nonzero heat into the exact stored-fluid energy",work.Sign<0&&ColonyOwnedStorage.RegisteredProjections(storage)==2,
-                    $"store heat in measured window {work.Value:R}J, thermal bodies {ColonyOwnedStorage.RegisteredProjections(storage)}");
+                    $"store heat in measured window {work.Value:R}J, thermal bodies {ColonyOwnedStorage.RegisteredProjections(storage)}, native heat receipts {ColonyOwnedStorage.NativeHeatReceipts}");
                 Record("world plus exact store plus native construction bodies conserve U+K+G",Math.Abs(residual.Value)<=bound,
                     $"residual {residual.Value:R}J, operand bound {bound:R}J, world U/K/G {final.Region.U:R}/{final.Region.K:R}/{final.Region.G:R}J");
                 Finish();

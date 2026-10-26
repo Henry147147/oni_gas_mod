@@ -428,6 +428,7 @@ namespace MixedAtmospheres.Oni
                 if (ColonyOwner.StartFailure.Length != 0) throw new InvalidOperationException("Colony owner did not start: " + ColonyOwner.StartFailure);
                 return;
             }
+            ColonyContinuationProbe.Step();
             var status = ColonyOwner.Status;
             // A colony that asked for mixed pipes and fell back to packets fails the run.
             if (ColonyPipeRuntime.Failure.Length != 0) throw new InvalidOperationException(ColonyPipeRuntime.Failure);
@@ -446,6 +447,7 @@ namespace MixedAtmospheres.Oni
                 status.MaximumRelativeMassError, status.MaximumRelativeEnergyError, status.ReservoirKg, status.SpaceSinkKg, status.TraceSinkKg, status.TraceSinkJoules,
                 status.InjectedKg, status.ExtractedKg, status.CommittedTransfers, status.CommittedHeat, status.OpenedCells, status.ClosedCells,
                 ColonyOwner.OwnedCells, ColonyOwner.Publications, ColonyOwnerPersistence.Saves, ColonyOwnerPersistence.Loads,
+                DlcFluidReaders=new {ColonyDlcFluidReaders.AquaticReads,ColonyDlcFluidReaders.BionicSamples},
                 ColonyPacing.HeldTicks, ColonyPacing.UnityFrames, ColonyPacing.OwnerRate, ColonyPacing.TimeScale,
                 WallSeconds = (System.DateTime.UtcNow - colonyOwnerWallStart).TotalSeconds,
                 PresentationFrames = ColonyPresentation.Publications, PresentationRejectedCells = ColonyPresentation.RejectedCells, ColonyPresentation.FirstRejection,
@@ -502,7 +504,6 @@ namespace MixedAtmospheres.Oni
             }
             else if (!colonyWindow.HasReached(status.CompletedFrames, (ulong)configuration.CompletedFrames) || !ColonySaveControls.Done || !ColonyContinuationProbe.Done)
             {
-                ColonyContinuationProbe.Step();
                 if (colonyWindow.HasReached(status.CompletedFrames, (ulong)configuration.CompletedFrames / 2)) ColonySaveControls.Step(OutputDirectory);
                 // Overwriting a save: the first save at half the frames, the
                 // second to the same path at the end.
