@@ -37,12 +37,18 @@ inline Geometry geometry(const std::vector<Species> &species,
       [&](std::size_t a) { return inventory[a].first; },
       [&](std::size_t a) { return inventory[a].second; }, energy, volume);
   result.alpha = eos.liquid_volume / volume;
-  std::map<std::uint64_t, GeometricPhase> phases;
+  // Phases in ascending identity, each accumulated in inventory order: the
+  // order of a map keyed by identity, without its node allocations.
+  auto &phases = result.phases;
   for (const auto &[key, mass] : inventory) {
     const auto &s = species[key];
     const auto group = phase_group(species, key);
-    auto &phase = phases[group];
-    phase.identity = group;
+    auto at = std::lower_bound(
+        phases.begin(), phases.end(), group,
+        [](const GeometricPhase &p, std::uint64_t id) { return p.identity < id; });
+    if (at == phases.end() || at->identity != group)
+      at = phases.insert(at, GeometricPhase{group});
+    auto &phase = *at;
     phase.mass += mass;
     const double partial_volume =
         s.gas ? (eos.nR > 0 && eos.pressure > 0
@@ -56,8 +62,6 @@ inline Geometry geometry(const std::vector<Species> &species,
          (s.gas ? 0
                 : liquid_specific_elastic(s,eos.pressure)));
   }
-  for (const auto &[key, phase] : phases)
-    result.phases.push_back(phase);
   std::stable_sort(result.phases.begin(), result.phases.end(),
                    [&](const auto &a, const auto &b) {
                      if (a.identity == gas_group)
