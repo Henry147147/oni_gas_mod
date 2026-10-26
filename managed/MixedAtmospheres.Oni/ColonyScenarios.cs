@@ -129,6 +129,7 @@ namespace MixedAtmospheres.Oni
                     case "mixed-pipe-retire": MixedPipeRetire(frame); break;
                     case "mixed-pipe-readers": MixedPipeReaders(frame); break;
                     case "mixed-pipe-owned-storage": MixedPipeOwnedStorage(frame); break;
+                    case "mixed-storage-transfer-heat": MixedPipeOwnedStorage(frame,true); break;
                     case "mixed-storage-heat": MixedStorageHeat(frame); break;
                     case "owned-storage-readers": MixedOwnedStorageReaders(frame); break;
                     case "owned-storage-biology": MixedOwnedStorageBiology(frame); break;
@@ -260,6 +261,8 @@ namespace MixedAtmospheres.Oni
             // It must not melt into cells the initializer will overwrite.
             if (Once(2, "warm ice source"))
             {
+                recorded["warm ice source frame"] = frame;
+                recorded["warm ice source native ticket"] = status.NativeTicket;
                 RequestWarmIceCapture();
                 SimMessages.ReplaceElement(Cell(6, 2), SimHashes.Ice, CellEventLogger.Instance.SandBoxTool, 400, 290);
             }
@@ -271,7 +274,7 @@ namespace MixedAtmospheres.Oni
                 // owner ever closes its cell, so no opening need be counted).
                 var arenaWater = Enumerable.Range(0, Width).Sum(x => Enumerable.Range(0, Height).Sum(y => SpeciesMass(Cell(x, y), SimHashes.Water)));
                 Record("ice melted into an owned cell", !Grid.Solid[Cell(6, 2)] && ColonyOwner.OwnsFluidCell(Cell(6, 2)) && arenaWater > 380,
-                    $"opened {status.OpenedCells - recorded["opened"]}, closed {status.ClosedCells - recorded["closed"]}; ice cell {Describe(Cell(6, 2))}; owned water in the arena {arenaWater:G4} kg");
+                    $"opened {status.OpenedCells - recorded["opened"]}, closed {status.ClosedCells - recorded["closed"]}; ice cell {Describe(Cell(6, 2))}; owned water in the arena {arenaWater:G4} kg; fill/source/check frames {recorded["arena fill frame"]}/{recorded["warm ice source frame"]}/{frame}, source/check native tickets {recorded["warm ice source native ticket"]}/{status.NativeTicket}");
                 Record("melt water booked", status.InjectedKg > recorded["injected"] + 300, $"{status.InjectedKg - recorded["injected"]:G4} kg");
                 // A small cell of water freezes into ice debris, a larger one into a tile.
                 var frozen = Enumerable.Range(0, 4).Count(x => Grid.Solid[Cell(x, 1)]);
@@ -1967,6 +1970,7 @@ namespace MixedAtmospheres.Oni
         private static readonly List<GameObject> mixedFilters=new List<GameObject>(),mixedSensors=new List<GameObject>();
         private static GameObject? mixedDiseaseSensor;
         private static int MixedPort(GameObject building,string name)=>(int)AccessTools.Field(typeof(ElementFilter),name).GetValue(building.GetComponent<ElementFilter>());
+        private static bool MixedFilterAt(int at,string label)=>Once(at+(recorded.TryGetValue("mixed filter setup delay",out var delay)?(int)delay:0),label);
         private static void MixedPipeFilter(int frame)
         {
             if(Once(0,"arena"))Arena((x,y)=>(SimHashes.Oxygen,1f,300f));
@@ -1991,7 +1995,27 @@ namespace MixedAtmospheres.Oni
                     Pipe(network,id,paths.ToArray());
                 }
             }
-            if(Once(8,"seed actual mixed filter inputs"))
+            if(frame>=8&&step<=8)
+            {
+                var missing=new List<string>();
+                for(var phase=0;phase<2;++phase)
+                {
+                    var flow=phase==0?Game.Instance.gasConduitFlow:Game.Instance.liquidConduitFlow;
+                    foreach(var name in new[]{"inputCell","outputCell","filteredCell"})
+                        if(!flow.HasConduit(MixedPort(mixedFilters[phase],name)))missing.Add($"{flow.conduitType} {name}");
+                    for(var sample=0;sample<3;++sample)
+                        if(!flow.HasConduit(Cell(1+sample,4+phase)))missing.Add($"{flow.conduitType} sensor {sample}");
+                    if(phase==0&&!flow.HasConduit(Cell(0,4)))missing.Add("gas disease sensor");
+                }
+                if(missing.Count>0)
+                {
+                    Current.Stage="waiting for native mixed filter topology: "+string.Join(", ",missing);
+                    if(frame>=30){Record("mixed filter topology became ready",false,string.Join(", ",missing));Finish();}
+                    return;
+                }
+                recorded["mixed filter setup delay"]=frame-8;
+            }
+            if(MixedFilterAt(8,"seed actual mixed filter inputs"))
             {
                 ColonyConduits.StartControl();
                 for(var phase=0;phase<2;++phase)
@@ -2014,7 +2038,7 @@ namespace MixedAtmospheres.Oni
                 ColonyConduits.Seed(Game.Instance.gasConduitFlow,Cell(0,4),SimHashes.Oxygen,.375f,300,0,400000);
                 ColonyConduits.Seed(Game.Instance.gasConduitFlow,Cell(0,4),SimHashes.CarbonDioxide,.625f,300,1,600000);
             }
-            if(Once(16,"check selective filter and composition sensors"))
+            if(MixedFilterAt(16,"check selective filter and composition sensors"))
             {
                 for(var phase=0;phase<2;++phase)
                 {
@@ -2037,7 +2061,7 @@ namespace MixedAtmospheres.Oni
                 var oxygenName=ElementLoader.FindElementByHash(SimHashes.Oxygen).name;var co2Name=ElementLoader.FindElementByHash(SimHashes.CarbonDioxide).name;
                 Record("pipe inspection shows both actual constituents",inspection.Contains(oxygenName)&&inspection.Contains(co2Name)&&!inspection.Contains("Native inventory"),inspection);
             }
-            if(Once(24,"check capacity remainder"))
+            if(MixedFilterAt(24,"check capacity remainder"))
             {
                 for(var phase=0;phase<2;++phase)
                 {
@@ -2046,7 +2070,7 @@ namespace MixedAtmospheres.Oni
                         phase==0?SimHashes.Oxygen:SimHashes.Water,phase==0?.375f:5,300,0,4000);
                 }
             }
-            if(Once(32,"check blocked selected output still passes remainder"))
+            if(MixedFilterAt(32,"check blocked selected output still passes remainder"))
             {
                 CheckMixedFilter(0,1,1,.125,.25,"blocked selected output");CheckMixedFilter(1,10,10,1,4,"blocked selected output");
                 Record("filter and sensor inventories conserve every account",ColonyConduits.Audit(out var detail),detail);Finish();
@@ -2199,6 +2223,7 @@ namespace MixedAtmospheres.Oni
                     if (!IsSolid(element)) SimMessages.ReplaceElement(Cell(x, y), element, tool, mass, temperature);
                 }
             filling = null;
+            recorded["arena fill frame"] = ColonyFrame();
         }
         private static bool IsSolid(SimHashes element) => ElementLoader.FindElementByHash(element)?.IsSolid == true;
         private static GameObject Build(string id, int cell)

@@ -558,6 +558,40 @@ void quiet_game_cell_control() {
     require(refused,"an adapter fault without an owner was accepted");
     std::cout<<"QUIET GAME CELL PASS\n";
 }
+void shadow_handoff_control() {
+    using namespace ma::oni::colony;
+    MAOniColonyConfig cfg{};cfg.struct_size=sizeof(cfg);cfg.abi_version=MA_ONI_COLONY_ABI_VERSION;
+    cfg.flags=MA_ONI_COLONY_GAME_KERNEL;cfg.vacuum_index=vacuum;
+    cfg.grid_width=cfg.width=3;cfg.grid_height=cfg.height=3;cfg.maximum_timestep_s=.1;
+    std::vector<MAOniColonyMaterial> mats{material("Oxygen",11,oxygen,true,.032,1000)};
+    std::vector<MAOniColonyCell> cells(9,MAOniColonyCell{0,MA_ONI_COLONY_SOLID,0,0,0,0});
+    cells[4]={oxygen,MA_ONI_COLONY_FLUID,1,300,0,0};
+    start(cfg,mats,cells,1);
+    std::array<std::vector<std::uint16_t>,2> elements;
+    std::array<std::vector<float>,2> masses,temperatures;
+    NativeCells native{};native.pitch=native.rows=5;
+    for(int b=0;b<2;++b) {
+        elements[b].assign(25,1);elements[b][12]=oxygen;
+        masses[b].assign(25,0);temperatures[b].assign(25,300);
+        native.element[b]=elements[b].data();native.mass[b]=masses[b].data();native.temperature[b]=temperatures[b].data();
+    }
+    const MAOniColonyTransfer injection{4,oxygen,MA_ONI_COLONY_INJECT,0,-1,0,.25,400,0};
+    queue_transfers(std::span(&injection,1));advance(1,1,2);
+    // A native frame may already be queued before managed pacing sees the
+    // owner become busy. Its shadow must use the preceding completed frame,
+    // even when the caller has not waited for that asynchronous advance.
+    write_shadow(native);
+    const auto completed=status();
+    require(completed.state==1 && completed.completed_frames==1,
+        "Native shadow returned before the preceding owner frame completed");
+    std::array<MAOniColonyCellView,9> views{};MAOniColonyStatus view_status{};copy(view_status,views.data(),9);
+    for(int b=0;b<2;++b)
+        require(masses[b][12]==views[4].mass_kg && temperatures[b][12]==views[4].temperature_k && masses[b][12]==1.25f,
+            "Native shadow used stale mass or temperature from a queued owner frame");
+    const auto image=checkpoint();wait();
+    require(checkpoint()==image,"Shadow synchronization advanced an additional physical frame");
+    stop();std::cout<<"PASS native shadow handoff: preceding owner frame completed, both arrays current, no extra physical frame\n";
+}
 void moving_job_control() {
     using namespace ma::oni::colony;
     using namespace ma::oni::colony::detail;
@@ -1597,6 +1631,7 @@ int main(int argc, char** argv) {
         if (argc == 2 && std::strcmp(argv[1], "--passives-only") == 0) {passive_observation_control();return 0;}
         if (argc == 2 && std::strcmp(argv[1], "--biology-only") == 0) {world_biology_control();unplaced_output_control();return 0;}
         if (argc == 2 && std::strcmp(argv[1], "--quiet-game-cell-only") == 0) {quiet_game_cell_control();return 0;}
+        if (argc == 2 && std::strcmp(argv[1], "--shadow-handoff-only") == 0) {shadow_handoff_control();return 0;}
         if (argc == 2 && std::strcmp(argv[1], "--timestep-only") == 0) { timestep_control(); return 0; }
         if (argc == 2 && std::strcmp(argv[1], "--projection-only") == 0) { projection_control(); return 0; }
         if (argc == 2 && std::strcmp(argv[1], "--precise-receipts-only") == 0) { precise_receipt_control(); return 0; }
@@ -1626,6 +1661,7 @@ int main(int argc, char** argv) {
         world_biology_control();
         unplaced_output_control();
         quiet_game_cell_control();
+        shadow_handoff_control();
         moving_job_control();
         tiny_injection_neighbour_control();
         airflow_boundary_control();

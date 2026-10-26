@@ -1,5 +1,13 @@
 # Private Linux and Windows playtest completion
 
+Candidate update, 2026-10-26: `dde2a09` was delivered early at the user's
+request; installer startup was repaired separately in `4e069af`. That
+candidate passed the prepared 30,000-frame/ten-cycle survival run, but failed
+freeze/melt, mixed-filter setup and pump-rate accumulator checks. Full release acceptance remains
+open. Remaining candidate checks continue separately from the
+[new feature-completion repairs](feature-completion-status.md); neither a
+diagnostic repeat nor a later source repair relabels the failed candidate.
+
 Status reviewed 2026-10-25 against the accepted [base-game plan](playtest-plan.md)
 and its overriding [user amendments](completion-plan.md#amendments).
 The mod is **not ready for a full private colony playtest**. Catalogue support

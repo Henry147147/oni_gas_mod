@@ -48,15 +48,15 @@ namespace MixedAtmospheres.Oni
         // Native chunks can cool after a publication but before a queued
         // absolute reset. Read those completed segments, never infer work by
         // subtracting a requested temperature from a later published value.
-        private static void CreditNativeStorageHeat()
+        private static Dictionary<Host,PipeAmount> ReadNativeStorageHeat(out uint count,out ulong sequence)
         {
-            OniNativeColony.Check(CopyStorageHeat(storageHeatReceipts,(uint)storageHeatReceipts.Length,out var count));
-            if(count==0)return;
+            OniNativeColony.Check(CopyStorageHeat(storageHeatReceipts,(uint)storageHeatReceipts.Length,out count));
             var amounts=new Dictionary<Host,PipeAmount>();
+            sequence=storageHeatAcknowledged;
+            if(count==0)return amounts;
             var byHandle=new Dictionary<int,(Host Host,Projection View)>();
             foreach(var host in Hosts.Values)foreach(var view in host.Projections.Values)
                 if(view.Handle>=0)byHandle.Add(view.Handle,(host,view));
-            var sequence=storageHeatAcknowledged;
             for(var i=0;i<count;++i)
             {
                 var receipt=storageHeatReceipts[i];
@@ -67,6 +67,20 @@ namespace MixedAtmospheres.Oni
                 amounts.TryGetValue(found.Host,out var previous);amounts[found.Host]=previous.Plus(work);
                 sequence=receipt.Sequence;
             }
+            return amounts;
+        }
+        // Read-only control observation: inspecting completed native work does
+        // not credit it or consume receipts.
+        internal static PipeAmount PendingNativeHeat(Storage storage)
+        {
+            if(!Enabled||!Hosts.TryGetValue(storage,out var host))return PipeAmount.Zero;
+            var amounts=ReadNativeStorageHeat(out _,out _);
+            return amounts.TryGetValue(host,out var work)?work:PipeAmount.Zero;
+        }
+        private static void CreditNativeStorageHeat()
+        {
+            var amounts=ReadNativeStorageHeat(out var count,out var sequence);
+            if(count==0)return;
             // A malformed/thermodynamically invalid credit cannot consume part
             // of the native receipt prefix or mutate just the first store.
             var changes=new List<OwnedFluidStore.HeatChange>();

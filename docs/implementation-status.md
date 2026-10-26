@@ -2,6 +2,9 @@
 
 ## Base-game playtest ([plan](playtest-plan.md))
 
+Current repairs and the work beyond private playtesting are tracked in
+[feature completion work](feature-completion-status.md).
+
 Current state on 2026-10-25. [Private-playtest acceptance](private-playtest-release.md) remains open. New colonies use profile5/core23 with mixed pipes and pipe saves (flags13). LinuxPlayer and WindowsPlayer under Proton are checked here; Windows OS behaviour needs the user’s PC. One line per system; details in the linked pages.
 
 | System | State |

@@ -231,6 +231,10 @@ float on_next_frame(void* self,void* data) {
     // through native physics that began before the owner existed.
     if (!worker_frame_fence.owns_lock())
         worker_frame_fence=std::unique_lock<std::mutex>(ma::oni::domain_frame_mutex());
+    // Settle the previous owner tick before ProcessNextFrame applies this
+    // frame's messages as well as its native heat/solid work. Waiting only at
+    // shadow publication would let new inputs leak into the preceding tick.
+    if (ma::oni::colony::active()) ma::oni::colony::wait();
     const float dt = original<float (*)(void*,void*)>(MA_ONI_NEXT_FRAME)(self,data);
     native_heat_contact_bits.store(std::bit_cast<std::uint32_t>(dt),std::memory_order_release);
     call.bits = std::bit_cast<std::uint32_t>(dt);

@@ -16,7 +16,7 @@ namespace MixedAtmospheres.Oni
         // Two separate outputs each have exactly 2 kg room. A later same-tick
         // trace/fractional/all-ID transfer tests physical storage, independently
         // of the still-gated live storage-biology and cold-rebind work.
-        private static void MixedPipeOwnedStorage(int frame)
+        private static void MixedPipeOwnedStorage(int frame,bool verifyPendingHeat=false)
         {
             var flow=Game.Instance.liquidConduitFlow;
             if(Once(0,"exact storage arena")){exactReservoir=null;Arena((x,y)=>(SimHashes.Oxygen,1.2f,300f));}
@@ -44,17 +44,51 @@ namespace MixedAtmospheres.Oni
                 Record("actual reservoir intake retains the complete 75/25 mixture",held.SpeciesMass(ColonyConduits.MaterialOf(SimHashes.Water).Id)==6&&
                     held.SpeciesMass(ColonyConduits.MaterialOf(SimHashes.DirtyWater).Id)==2&&ColonyOwnedStorage.Audit(storage),$"held {held.Mass:R}kg, native projections {storage.items.Count}");
             }
-            if(StorageAt(30,"registered native heat and two capacity-limited withdrawals"))
+            var withdrawalDelay=0;
+            if(verifyPendingHeat)
+            {
+                var readyAt=30+(recorded.TryGetValue("exact storage setup delay",out var setupDelay)?(int)setupDelay:0);
+                if(frame>=readyAt&&step<=readyAt)
+                {
+                    // This separate regression needs an actual completed but
+                    // uncredited heat segment. Wait with the outlet closed;
+                    // sampling an already settled frame proves nothing.
+                    if(ColonyOwnedStorage.PendingNativeHeat(exactReservoir!.GetComponent<Storage>()).Sign>=0)
+                    {
+                        Current.Stage="waiting for completed reservoir cooling before withdrawal";
+                        if(frame>=readyAt+20){Record("completed reservoir cooling became observable",false,"no pending cooling within 20 owner frames");Finish();}
+                        return;
+                    }
+                    recorded["exact storage transfer heat delay"]=frame-readyAt;
+                }
+                if(recorded.TryGetValue("exact storage transfer heat delay",out var observedDelay))withdrawalDelay=(int)observedDelay;
+            }
+            if(StorageAt(30+withdrawalDelay,"registered native heat and two capacity-limited withdrawals"))
             {
                 var storage=exactReservoir!.GetComponent<Storage>();var water=ColonyConduits.MaterialOf(SimHashes.Water);var dirty=ColonyConduits.MaterialOf(SimHashes.DirtyWater);
                 Record("owned reservoir keeps its native registered thermal contacts",ColonyOwnedStorage.RegisteredProjections(storage)==2&&ColonyOwnedStorage.HeatPublications>0&&
                     ColonyOwnedStorage.Heat(storage).Sign<0&&ColonyOwnedStorage.Audit(storage),$"bodies {ColonyOwnedStorage.RegisteredProjections(storage)}, heat {ColonyOwnedStorage.Heat(storage).Value:R}J, publications {ColonyOwnedStorage.HeatPublications}");
                 var start=ColonyMachinePorts.FromStorage;
+                var pending=verifyPendingHeat?ColonyOwnedStorage.PendingNativeHeat(storage):PipeAmount.Zero;
+                var beforeHeat=ColonyOwnedStorage.Heat(storage);
+                var beforeInventory=ColonyOwnedStorage.Inventory(storage);
                 for(var withdrawal=1;withdrawal<=2;++withdrawal)
                 {
                     ColonyConduits.SupplyControlInventory(flow,OutputCell(exactReservoir),PipeInventory.Single(water,8,300));
                     ColonyMachinePorts.Dispense(exactReservoir.GetComponent<ConduitDispenser>());
                     var output=ColonyMachinePorts.FromStorage;
+                    if(verifyPendingHeat&&withdrawal==1)
+                    {
+                        var settled=ColonyOwnedStorage.Heat(storage).Minus(beforeHeat);
+                        var returnedEnergy=output.Energy.Minus(start.Energy);
+                        // This first draw takes 2 of the original 8 kg. It
+                        // must carry its quarter of the already observed
+                        // cooling, rather than leaving all that work behind.
+                        var maximumReturnedEnergy=beforeInventory.Energy.Plus(pending).Times(.25);
+                        Record("completed native cooling enters storage before its first withdrawal",pending.Sign<0&&settled.Units<=StorageJournalAmount.From(pending).Units&&
+                            returnedEnergy.Minus(maximumReturnedEnergy).Sign<=0&&ColonyOwnedStorage.Audit(storage),
+                            $"pending {pending.Value:R} J, settled {settled.Value:R} J; returned {returnedEnergy.Value:R} J, maximum with observed cooling {maximumReturnedEnergy.Value:R} J");
+                    }
                     Record($"reservoir withdrawal {withdrawal} independently keeps 75/25",output.SpeciesMass(water.Id)-start.SpeciesMass(water.Id)==1.5*withdrawal&&
                         output.SpeciesMass(dirty.Id)-start.SpeciesMass(dirty.Id)==.5*withdrawal&&ColonyOwnedStorage.Audit(storage),
                         $"cumulative water {output.SpeciesMass(water.Id)-start.SpeciesMass(water.Id):R}, polluted {output.SpeciesMass(dirty.Id)-start.SpeciesMass(dirty.Id):R}kg");

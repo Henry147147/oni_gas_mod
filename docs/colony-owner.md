@@ -117,9 +117,13 @@ head fails (the hover's breathing warnings, `ColonyBreathingStatus.cs`).
 
 ONI's tiles, buildings, items (element chunks), pipes and element
 consumers/emitters exchange heat and mass with cells inside the native frame.
+The next native frame waits for the preceding owner step before applying its
+messages. This also covers a frame queued before managed pacing observes that
+the owner is busy; its inputs cannot enter the preceding step.
 Before each positive frame's `UpdateData` the backend writes the latest
 completed owner cells (element, mass and temperature of the projection) into
-both native cell arrays, a shadow. Native code then runs unchanged against it,
+both native cell arrays, a shadow. This publication also waits for any queued
+owner step. Native code then runs unchanged against it,
 at vanilla rates, except that conduction between two owned cells stays the
 owner's. After `UpdateData` every change native made to an owned cell becomes a
 booked owner input for the next step:
@@ -393,15 +397,17 @@ face masks; the owner wrapper records which boundary law rebuilds them.
 
 ## Pacing
 
-ONI's game thread posts each 200 ms simulation tick and then waits for it, so
-the owner's step runs on its own thread and the game thread never waits for
-it. While a step runs, `Game.SimEveryTick` still runs the 1/60 s sub ticks up
+The owner's step runs on its own thread. While a step runs,
+`Game.SimEveryTick` still runs the 1/60 s sub ticks up
 to the next 200 ms tick and holds there. The game clock (`Time.timeScale`)
 runs at the player's speed or 95% of the owner's measured rate (game seconds
 per second of solving, smoothed), whichever is slower, so play runs in slow
 motion rather than stop-go. Pause, the camera and menus use unscaled time and
-stay responsive. A tick posted while a step runs joins the next step (at most
-10 s of game time waits), so the owner never drops game time. The solver uses
+stay responsive during those pacing holds. A native-frame fence also waits for
+the preceding owner step before applying the next frame's messages and
+contacts, covering frames posted before managed pacing sees the busy flag.
+It preserves the physical frame order without advancing an extra step or
+dropping game time. The solver uses
 predictive step control ([MAC_SOLVER.md](../native/MAC_SOLVER.md)).
 
 The output arrays for cell views and composition readings are blittable and

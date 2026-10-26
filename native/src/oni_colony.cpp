@@ -1751,6 +1751,9 @@ bool is_fluid_element(std::uint16_t native_element) noexcept {
 
 void write_shadow(const NativeCells& n) noexcept {
     if (!enabled.load(std::memory_order_acquire)) return;
+    // A native frame can be queued before managed pacing sees the owner
+    // become busy. Never apply its contacts to the preceding stale image.
+    wait();
     std::shared_ptr<const Published> p; { std::lock_guard lock(publication); p = latest; }
     if (!p || !p->catalogue || p->views.size() != owned_count || p->status.state != 1 || n.pitch != geometry.grid_width + 2) return;
     const auto& cat = *p->catalogue; const auto vacuum = geometry.vacuum_index;
@@ -2909,7 +2912,7 @@ void run_frame(std::uint64_t ticket, double seconds, std::uint64_t frames, const
         step("publication");
         if (stage_log && s.status.completed_frames % 10 == 0) {
             std::string line = "[Mixed Atmospheres] stages frame " + std::to_string(s.status.completed_frames) + ":";
-            char item[96];
+            char item[128];
             for (const auto& [name, ms] : steps) { std::snprintf(item, sizeof item, " %s %.1f", name, ms); line += item; }
             std::snprintf(item, sizeof item, "; heat %zu transfers %zu terrain %zu germs %zu", heat.size(), transfers.size(), terrain.size(), germ_edits.size()); line += item;
             std::fprintf(stderr, "%s\n", line.c_str()); std::fflush(stderr);

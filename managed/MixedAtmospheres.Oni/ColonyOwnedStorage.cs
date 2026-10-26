@@ -76,6 +76,9 @@ namespace MixedAtmospheres.Oni
         {
             if(!Enabled)return false;var phase=ReservoirPhase(storage);if(phase==0)return false;
             foreach(var part in parcel.Parts)if(ColonyConduits.MaterialPhase(part.Id)!=phase)throw new InvalidOperationException("A reservoir received a foreign fluid phase.");
+            // Completed contact work belongs to the inventory held before
+            // this transfer, including the temperature of anything withdrawn.
+            CreditNativeStorageHeat();
             var host=BindEmpty(storage,phase);var move=host.Store.PrepareAdmission(parcel,storage.capacityKg,ColonyConduits.Material);
             if(move.Outside.Count!=0)throw new InvalidOperationException("An exact reservoir intake exceeded its actual capacity.");
             host.Store.Commit(move);Refresh(host);return true;
@@ -95,6 +98,7 @@ namespace MixedAtmospheres.Oni
             if(!dispenser.IsConnected||!flow.HasConduit(cell))return true;
             if(dispenser.elementFilter!=null&&dispenser.elementFilter.Length!=0)
                 throw new InvalidOperationException("A reservoir output unexpectedly acquired a constituent filter.");
+            CreditNativeStorageHeat();
             var host=BindEmpty(dispenser.storage,phase);var held=host.Store.Inventory;
             dispenser.empty=held.Count==0;if(held.Count==0)return true;
             if(phase!=(flow.conduitType==ConduitType.Gas?1:2))throw new InvalidOperationException("An exact reservoir output changed fluid phase.");

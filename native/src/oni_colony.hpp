@@ -88,8 +88,8 @@ struct NativeCells {
     std::uint32_t pitch = 0, rows = 0;
 };
 // Native shadow (docs/colony-owner.md#native-bodies). Before a positive
-// frame's UpdateData, write() puts the latest completed owner cells into both
-// arrays; after it, capture() books every change native code made to them as
+// frame's UpdateData, write() waits for the preceding owner step and puts its
+// completed cells into both arrays; after it, capture() books every native change as
 // owner heat or transfers.
 void write_shadow(const NativeCells&) noexcept;
 void capture_shadow(const NativeCells&,std::uint64_t native_ticket=0) noexcept;
