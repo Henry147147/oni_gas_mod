@@ -642,7 +642,10 @@ Every owned colony writes a compact summary to Player.log (Windows:
 150 owner frames (30 s of game time) with the owner step's mean/p95/max, its
 mean stage times (edits, heat, transfers, flow, space sink, ledger and
 projection), the real time between completed steps, game seconds per real
-second, the clock scale, Unity's frame rate and its slowest frame.
+second, the clock scale, Unity's frame rate and its slowest frame. The status
+reports only the newest step's timing, so when a slow Unity frame sees two steps
+finish the earlier one goes unsampled; each line covers its fixed 150 frame
+numbers and ends with `samples`, how many of them it timed.
 `MA_PERFORMANCE_LOG=0` turns it off.
 
 ## Saves
