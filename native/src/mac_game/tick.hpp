@@ -51,6 +51,7 @@ class Tick {
   // cell has a negligible heat capacity but a full conduction weight, so the
   // heat solve's tolerance could otherwise drive its U below its offset.
   bool prune_before_heat = false;
+  SurfaceScratch surface_scratch;
   static double ms(std::chrono::steady_clock::time_point start) {
     return std::chrono::duration<double, std::milli>(
                std::chrono::steady_clock::now() - start)
@@ -246,7 +247,8 @@ public:
       stage_start = std::chrono::steady_clock::now();
       auto sharpened =
           sharpen(grid, species, out.state, std::move(out.eos), dt, gravity,
-                  interface_detail, &flow.worker_pool(), &flow.kernel_grid());
+                  interface_detail, &flow.worker_pool(), &flow.kernel_grid(),
+                  &surface_scratch);
       if (sharpened.faces)
         out.state = std::move(sharpened.state);
       out.eos = std::move(sharpened.eos);

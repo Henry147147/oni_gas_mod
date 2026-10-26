@@ -22,15 +22,20 @@ struct Geometry {
   double alpha = 0;
   std::vector<GeometricPhase> phases;
 };
+// Writes the geometry of an inventory into `result`, reusing the capacity of
+// its phase list.
 template <class Inventory>
-inline Geometry geometry(const std::vector<Species> &species,
-                         const Inventory &inventory, double energy,
-                         double volume, double gravity, const Eos *known = nullptr) {
-  Geometry result;
+inline void geometry_into(Geometry &result, const std::vector<Species> &species,
+                          const Inventory &inventory, double energy,
+                          double volume, double gravity,
+                          const Eos *known = nullptr) {
+  result.liquid = false;
+  result.alpha = 0;
+  result.phases.clear();
   for (const auto &[key, mass] : inventory)
     result.liquid = result.liquid || !species[key].gas;
   if (!result.liquid)
-    return result;
+    return;
   // Interface correction already has the EOS for this exact inventory/U.
   const auto eos = known ? *known : evaluate_selected(
       species, inventory.size(),
@@ -72,6 +77,13 @@ inline Geometry geometry(const std::vector<Species> &species,
                                 ? a.mass / a.volume > b.mass / b.volume
                                 : a.mass / a.volume < b.mass / b.volume;
                    });
+}
+template <class Inventory>
+inline Geometry geometry(const std::vector<Species> &species,
+                         const Inventory &inventory, double energy,
+                         double volume, double gravity, const Eos *known = nullptr) {
+  Geometry result;
+  geometry_into(result, species, inventory, energy, volume, gravity, known);
   return result;
 }
 // Height differences over three-cell columns choose the dominant interface

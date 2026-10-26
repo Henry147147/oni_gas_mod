@@ -14,13 +14,26 @@ struct SurfaceResult {
 // before application. No timestep or whole-world attempt is retried.
 // `eos` holds the readings of `initial`; the result returns them, updated
 // for every corrected cell.
+// Capacity that sharpen reuses across calls; every entry is rewritten
+// before it is read.
+struct SurfaceScratch {
+  std::vector<std::vector<std::pair<std::uint32_t, double>>> cells;
+  std::vector<std::vector<std::pair<std::uint64_t, double>>> passives;
+  std::vector<Geometry> geom;
+  std::vector<double> mass;
+  // Frozen phase volumes of the height normals: (identity, volume) slices.
+  std::vector<std::size_t> normal_start;
+  std::vector<std::pair<std::uint64_t, double>> normal_phases;
+  std::vector<std::size_t> parent;
+};
 inline SurfaceResult
 sharpen(const ma::experimental::MacGrid &source,
         const std::vector<Species> &species, const State &initial,
         std::vector<Eos> eos, double dt, double gravity,
         double detail_fraction = 0,
         ma::experimental::mac_kernel::Pool *executor = nullptr,
-        const ma::experimental::mac_kernel::Grid *cached_grid = nullptr) {
+        const ma::experimental::mac_kernel::Grid *cached_grid = nullptr,
+        SurfaceScratch *reuse = nullptr) {
   namespace k = ma::experimental::mac_kernel;
   SurfaceResult out;
   bool any = false;
@@ -35,27 +48,79 @@ sharpen(const ma::experimental::MacGrid &source,
     built = k::Grid(source);
   const auto &g = cached_grid ? *cached_grid : built;
   using Inventory = std::vector<std::pair<std::uint32_t, double>>;
-  using Passives = std::vector<std::pair<std::uint64_t, double>>;
-  std::vector<Inventory> cells(g.N);
-  std::vector<Passives> passives(g.N);
-  std::vector<double> mass(g.N), energy = initial.energy;
-  std::vector<Geometry> geom(g.N);
-  for (std::size_t i = 0; i < g.N; ++i) {
-    for (std::size_t a = initial.masses.offsets[i];
-         a < initial.masses.offsets[i + 1]; ++a) {
-      cells[i].emplace_back(initial.masses.species[a], initial.masses.mass[a]);
-      mass[i] += initial.masses.mass[a];
+  SurfaceScratch local_scratch;
+  auto &scratch = reuse ? *reuse : local_scratch;
+  // Fixed row blocks, on the pool when there is one.
+  const auto blocks = [&](const std::function<void(std::size_t)> &job) {
+    if (executor)
+      executor->run(g.blocks, job);
+    else
+      for (std::size_t block = 0; block < g.blocks; ++block)
+        job(block);
+  };
+  const auto block_cells = [&](std::size_t block) {
+    return std::pair{g.block_row_begin(block) * g.W,
+                     g.block_row_end(block) * g.W};
+  };
+  const bool has_passives = !initial.passives.mass.empty();
+  auto &cells = scratch.cells;
+  auto &passives = scratch.passives;
+  auto &geom = scratch.geom;
+  auto &mass = scratch.mass;
+  cells.resize(g.N);
+  passives.resize(g.N);
+  geom.resize(g.N);
+  mass.resize(g.N);
+  std::vector<double> energy = initial.energy;
+  blocks([&](std::size_t block) {
+    for (auto [i, end] = block_cells(block); i < end; ++i) {
+      cells[i].clear();
+      double total = 0;
+      for (std::size_t a = initial.masses.offsets[i];
+           a < initial.masses.offsets[i + 1]; ++a) {
+        cells[i].emplace_back(initial.masses.species[a], initial.masses.mass[a]);
+        total += initial.masses.mass[a];
+      }
+      mass[i] = total;
+      passives[i].clear();
+      if (has_passives)
+        for (std::size_t a = initial.passives.offsets[i];
+             a < initial.passives.offsets[i + 1]; ++a)
+          passives[i].emplace_back(initial.passives.species[a],
+                                   initial.passives.mass[a]);
+      if (!g.wall[i])
+        geometry_into(geom[i], species, cells[i], energy[i], g.V, gravity,
+                      &eos[i]);
+      else {
+        geom[i].liquid = false;
+        geom[i].alpha = 0;
+        geom[i].phases.clear();
+      }
     }
-    if (!initial.passives.mass.empty())
-      for (std::size_t a = initial.passives.offsets[i];
-           a < initial.passives.offsets[i + 1]; ++a)
-        passives[i].emplace_back(initial.passives.species[a],
-                                 initial.passives.mass[a]);
-    if (!g.wall[i])
-      geom[i] = geometry(species, cells[i], energy[i], g.V, gravity, &eos[i]);
-  }
-  const auto normal_geometry =
-      geom; // Freeze height normals for the complete correction pass.
+  });
+  // Freeze height normals for the complete correction pass.
+  auto &normal_start = scratch.normal_start;
+  auto &normal_phases = scratch.normal_phases;
+  normal_start.resize(g.N + 1);
+  std::vector<std::size_t> block_start(g.blocks + 1);
+  blocks([&](std::size_t block) {
+    std::size_t count = 0;
+    for (auto [i, end] = block_cells(block); i < end; ++i)
+      count += geom[i].phases.size();
+    block_start[block + 1] = count;
+  });
+  for (std::size_t block = 0; block < g.blocks; ++block)
+    block_start[block + 1] += block_start[block];
+  normal_phases.resize(block_start.back());
+  blocks([&](std::size_t block) {
+    auto at = block_start[block];
+    for (auto [i, end] = block_cells(block); i < end; ++i) {
+      normal_start[i] = at;
+      for (const auto &phase : geom[i].phases)
+        normal_phases[at++] = {phase.identity, phase.volume};
+    }
+  });
+  normal_start[g.N] = normal_phases.size();
   const auto phase_volume = [&](std::size_t i, std::uint64_t group) {
     for (const auto &p : geom[i].phases)
       if (p.identity == group)
@@ -66,9 +131,9 @@ sharpen(const ma::experimental::MacGrid &source,
                                  bool x_axis) {
     const auto x = static_cast<long>(i % g.W), y = static_cast<long>(i / g.W);
     const auto normal_volume = [&](std::size_t cell) {
-      for (const auto &phase : normal_geometry[cell].phases)
-        if (phase.identity == group)
-          return phase.volume;
+      for (auto a = normal_start[cell]; a < normal_start[cell + 1]; ++a)
+        if (normal_phases[a].first == group)
+          return normal_phases[a].second;
       return 0.;
     };
     const double center = normal_volume(i) / g.V;
@@ -323,8 +388,8 @@ sharpen(const ma::experimental::MacGrid &source,
       mass[row.i] = row.mass;
       energy[row.i] = row.energy;
       eos[row.i] = row.eos;
-      geom[row.i] =
-          geometry(species, cells[row.i], energy[row.i], g.V, gravity, &row.eos);
+      geometry_into(geom[row.i], species, cells[row.i], energy[row.i], g.V,
+                    gravity, &row.eos);
     }
     ++counts.faces;
   };
@@ -336,7 +401,8 @@ sharpen(const ma::experimental::MacGrid &source,
     std::size_t face;
   };
   std::vector<Action> actions;
-  std::vector<std::size_t> parent(g.N);
+  auto &parent = scratch.parent;
+  parent.resize(g.N);
   for (std::size_t i = 0; i < g.N; ++i)
     parent[i] = i;
   const auto root = [&](std::size_t i) {
@@ -346,17 +412,20 @@ sharpen(const ma::experimental::MacGrid &source,
     }
     return i;
   };
+  // A cluster's root is its lowest cell, whatever the union order.
   const auto unite = [&](std::size_t a, std::size_t b) {
     a = root(a);
     b = root(b);
     if (a != b)
       parent[std::max(a, b)] = std::min(a, b);
   };
+  const auto liquid_face = [&](bool x, std::size_t f) {
+    const auto l = (x ? g.xl : g.yl)[f], r = (x ? g.xr : g.yr)[f];
+    return l != k::none && r != k::none && !g.closed(!x, f) &&
+           geom[l].liquid && geom[r].liquid;
+  };
   const auto register_face = [&](bool x, std::size_t f) {
     const auto l = (x ? g.xl : g.yl)[f], r = (x ? g.xr : g.yr)[f];
-    if (l == k::none || r == k::none || g.closed(!x, f) || !geom[l].liquid ||
-        !geom[r].liquid)
-      return;
     actions.push_back({x, f});
     unite(l, r);
     for (const auto i : {l, r})
@@ -370,10 +439,24 @@ sharpen(const ma::experimental::MacGrid &source,
             if (cell != k::none && !g.wall[cell])
               unite(l, cell);
   };
-  for (std::size_t f = 0; f < g.NX; ++f)
-    register_face(true, f);
-  for (std::size_t f = 0; f < g.NY; ++f)
-    register_face(false, f);
+  // Liquid/liquid faces are found in row blocks, then registered in face
+  // order: x faces, then y faces.
+  std::vector<std::vector<std::size_t>> liquid_x(g.blocks), liquid_y(g.blocks);
+  blocks([&](std::size_t block) {
+    const auto y0 = g.block_row_begin(block);
+    for (std::size_t f = y0 * g.XW; f < g.block_row_end(block) * g.XW; ++f)
+      if (liquid_face(true, f))
+        liquid_x[block].push_back(f);
+    for (std::size_t f = y0 * g.W; f < g.block_yrow_end(block) * g.W; ++f)
+      if (liquid_face(false, f))
+        liquid_y[block].push_back(f);
+  });
+  for (const auto &list : liquid_x)
+    for (const auto f : list)
+      register_face(true, f);
+  for (const auto &list : liquid_y)
+    for (const auto f : list)
+      register_face(false, f);
   std::map<std::size_t, std::vector<Action>> grouped;
   for (const auto action : actions)
     grouped[root((action.x ? g.xl : g.yl)[action.face])].push_back(action);
@@ -408,27 +491,39 @@ sharpen(const ma::experimental::MacGrid &source,
     out.eos = std::move(eos);
     return out;
   }
-  out.state = initial;
   out.state.energy = std::move(energy);
-  out.state.masses = {};
-  out.state.masses.offsets.push_back(0);
-  out.state.passives = {};
-  if (!initial.passives.mass.empty())
-    out.state.passives.offsets.push_back(0);
-  for (std::size_t i = 0; i < g.N; ++i) {
-    for (const auto &[key, value] : cells[i]) {
-      out.state.masses.species.push_back(key);
-      out.state.masses.mass.push_back(value);
-    }
-    out.state.masses.offsets.push_back(out.state.masses.mass.size());
-    if (!initial.passives.mass.empty()) {
-      for (const auto &[identity, value] : passives[i]) {
-        out.state.passives.species.push_back(identity);
-        out.state.passives.mass.push_back(value);
+  out.state.jx = initial.jx;
+  out.state.jy = initial.jy;
+  // Corrected inventories back to sparse form, from per-block counts.
+  const auto pack = [&](const auto &rows, auto &into) {
+    std::vector<std::size_t> start(g.blocks + 1);
+    blocks([&](std::size_t block) {
+      std::size_t count = 0;
+      for (auto [i, end] = block_cells(block); i < end; ++i)
+        count += rows[i].size();
+      start[block + 1] = count;
+    });
+    for (std::size_t block = 0; block < g.blocks; ++block)
+      start[block + 1] += start[block];
+    into.offsets.resize(g.N + 1);
+    into.species.resize(start.back());
+    into.mass.resize(start.back());
+    into.offsets[0] = 0;
+    blocks([&](std::size_t block) {
+      auto at = start[block];
+      for (auto [i, end] = block_cells(block); i < end; ++i) {
+        for (const auto &[key, value] : rows[i]) {
+          into.species[at] = key;
+          into.mass[at] = value;
+          ++at;
+        }
+        into.offsets[i + 1] = at;
       }
-      out.state.passives.offsets.push_back(out.state.passives.mass.size());
-    }
-  }
+    });
+  };
+  pack(cells, out.state.masses);
+  if (has_passives)
+    pack(passives, out.state.passives);
   out.eos = std::move(eos);
   return out;
 }
