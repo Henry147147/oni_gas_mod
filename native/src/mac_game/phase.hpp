@@ -80,17 +80,33 @@ public:
     const auto blocks = (N + 127) / 128;
     pool.run(blocks, [&](std::size_t block) {
       std::vector<double> masses(species.size());
+      // The cell's constituents and the species of every pair it has
+      // entered, in ascending order. Every other mass stays zero, which the
+      // EOS skips, so reading these keys repeats the full-table reading.
+      std::vector<std::uint32_t> keys;
       for (std::size_t i = block * 128; i < std::min(N, (block + 1) * 128);
            ++i) {
         if (grid.walls[i] ||
             state.masses.offsets[i] == state.masses.offsets[i + 1])
           continue;
         std::fill(masses.begin(), masses.end(), 0);
+        keys.assign(state.masses.species.begin() + state.masses.offsets[i],
+                    state.masses.species.begin() + state.masses.offsets[i + 1]);
         for (std::size_t a = state.masses.offsets[i];
              a < state.masses.offsets[i + 1]; ++a)
           masses[state.masses.species[a]] = state.masses.mass[a];
-        auto before =
-            evaluate(species, masses, state.energy[i], grid.volume_m3());
+        const auto reading = [&] {
+          return evaluate_selected(
+              species, keys.size(), [&](std::size_t a) { return keys[a]; },
+              [&](std::size_t a) { return masses[keys[a]]; }, state.energy[i],
+              grid.volume_m3());
+        };
+        const auto include = [&](std::size_t key) {
+          const auto at = std::lower_bound(keys.begin(), keys.end(), key);
+          if (at == keys.end() || *at != key)
+            keys.insert(at, static_cast<std::uint32_t>(key));
+        };
+        auto before = reading();
         double initial_entropy = 0;
         auto &receipt = receipts[i];
         for (const auto &pair : pairs) {
@@ -98,6 +114,8 @@ public:
           if ((ml == 0 && mv == 0) ||
               (ml == 0 && before.temperature >= pair.critical))
             continue;
+          include(pair.liquid);
+          include(pair.vapour);
           const auto &liquid = species[pair.liquid];
           const auto &vapour = species[pair.vapour];
           const auto departure = [&](double moved) -> std::optional<double> {
@@ -105,10 +123,7 @@ public:
             masses[pair.vapour] = mv + moved;
             ++receipt.trials;
             try {
-              const auto eos = moved == 0
-                                   ? before
-                                   : evaluate(species, masses, state.energy[i],
-                                              grid.volume_m3());
+              const auto eos = moved == 0 ? before : reading();
               const double pv = eos.gas_volume > 0
                                     ? masses[pair.vapour] * R /
                                           vapour.molar_mass * eos.temperature /
@@ -179,7 +194,7 @@ public:
             (evaporation ? receipt.evaporated : receipt.condensed) +=
                 std::abs(moved);
           }
-          before = evaluate(species, masses, state.energy[i], grid.volume_m3());
+          before = reading();
         }
         if (receipt.changed)
           receipt.entropy = entropy(species, masses, before) - initial_entropy;
