@@ -20,11 +20,12 @@ namespace MixedAtmospheres.Oni
         private static ModSettingsScreen? instance;
         private static readonly Color Accent = new Color(.35f, .91f, .91f), Warn = new Color(1, .62f, .3f), Muted = new Color(.72f, .79f, .86f),
             Panel = new Color(.08f, .11f, .16f, .98f), Row = new Color(.12f, .16f, .22f, 1);
-        private static readonly string[] Tabs = { "Presets", "Solver", "Breathing", "Display & keys" };
+        private static readonly string[] Tabs = { "Presets", "Solver", "Breathing", "Display & keys", "Performance" };
         private bool open;
         private int tab;
         private Vector2 scroll;
         private string newName = "", newDescription = "", renameText = "", feedback = "";
+        private string workerInput = "";
         private bool feedbackBad;
         private string? renaming, deleting;
         private List<ModSettingsStore.PresetEntry> userPresets = new List<ModSettingsStore.PresetEntry>();
@@ -142,6 +143,7 @@ namespace MixedAtmospheres.Oni
                     case 0: PresetsTab(); break;
                     case 1: SettingsTab(SettingCatalog.Solver); break;
                     case 2: SettingsTab(SettingCatalog.Breathing); break;
+                    case 4: SettingsTab(SettingCatalog.Performance); break;
                     default: SettingsTab(SettingCatalog.Display); SettingsTab(SettingCatalog.Panel); SettingsTab(SettingCatalog.Keys); break;
                 }
                 GUILayout.EndScrollView();
@@ -168,7 +170,7 @@ namespace MixedAtmospheres.Oni
                     "Preferences apply at once. Choose settings for new colonies from the main menu.";
             else
                 context = "Colony settings (Solver, Breathing) apply to colonies you start from now on; each colony records them and keeps them when loaded. " +
-                    "Preferences (Display & keys) apply at once. Current choice for new colonies: " + ModSettingsRuntime.PresetName(ModSettingsRuntime.CurrentPresetId, userPresets) + ".";
+                    "Preferences (Performance, Display & keys) apply at once. Current choice for new colonies: " + ModSettingsRuntime.PresetName(ModSettingsRuntime.CurrentPresetId, userPresets) + ".";
             GUILayout.Label(context, small!);
             var experimental = Shown.Experimental(SettingScope.Colony).Select(d => d.Label).ToArray();
             if (experimental.Length != 0)
@@ -336,11 +338,26 @@ namespace MixedAtmospheres.Oni
                 GUILayout.BeginVertical();
                 GUILayout.BeginHorizontal();
                 GUILayout.Label(d.Label, text!, GUILayout.Width(300));
-                if (!locked && GUILayout.Button("<", button!, GUILayout.Width(30), GUILayout.Height(24))) Change(d, Step(d, value, -1));
-                GUILayout.Label(Display(d, value), text!, GUILayout.Width(170));
-                if (!locked && GUILayout.Button(">", button!, GUILayout.Width(30), GUILayout.Height(24))) Change(d, Step(d, value, 1));
+                if (d.Key == "performance.workerThreads")
+                {
+                    GUILayout.Label(Display(d, value), text!, GUILayout.Width(170));
+                    workerInput = GUILayout.TextField(workerInput, 3, field!, GUILayout.Width(55));
+                    if (GUILayout.Button("Set", button!, GUILayout.Width(44), GUILayout.Height(24)))
+                    {
+                        if (int.TryParse(workerInput, NumberStyles.Integer, CultureInfo.InvariantCulture, out var count) && count >= 1 && count <= 256)
+                            Change(d, (double)count);
+                        else Say("Enter a whole worker count from 1 to 256, or choose Auto for physical cores.", true);
+                    }
+                    if (GUILayout.Button("Auto", button!, GUILayout.Width(48), GUILayout.Height(24))) { Change(d, 0.0); workerInput = ""; }
+                }
+                else
+                {
+                    if (!locked && GUILayout.Button("<", button!, GUILayout.Width(30), GUILayout.Height(24))) Change(d, Step(d, value, -1));
+                    GUILayout.Label(Display(d, value), text!, GUILayout.Width(170));
+                    if (!locked && GUILayout.Button(">", button!, GUILayout.Width(30), GUILayout.Height(24))) Change(d, Step(d, value, 1));
+                }
                 if (d.IsExperimental(value)) { GUI.contentColor = Warn; GUILayout.Label("experimental", tagStyle!, GUILayout.ExpandWidth(false)); GUI.contentColor = Color.white; }
-                else if (!Same(value, d.Default)) { GUI.contentColor = Muted; GUILayout.Label("default " + Display(d, d.Default), tagStyle!, GUILayout.ExpandWidth(false)); GUI.contentColor = Color.white; }
+                else if (d.Key != "performance.workerThreads" && !Same(value, d.Default)) { GUI.contentColor = Muted; GUILayout.Label("default " + Display(d, d.Default), tagStyle!, GUILayout.ExpandWidth(false)); GUI.contentColor = Color.white; }
                 GUILayout.FlexibleSpace();
                 GUILayout.EndHorizontal();
                 GUI.contentColor = Muted; GUILayout.Label(d.Description, small!); GUI.contentColor = Color.white;
@@ -388,6 +405,8 @@ namespace MixedAtmospheres.Oni
 
         internal static string Display(SettingDefinition d, object value)
         {
+            if (d.Key == "performance.workerThreads" && (double)value == 0)
+                return ModSettingsRuntime.PhysicalCores == 0 ? "Physical cores" : "Physical cores (" + ModSettingsRuntime.PhysicalCores + ")";
             switch (value)
             {
                 case bool b: return b ? "On" : "Off";

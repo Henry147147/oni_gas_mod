@@ -16,8 +16,9 @@ it. Code: `ModSettings*.cs` (model, files, window, runtime); tests:
   read-only. The solver values are saved in the colony's own physical image
   (checkpoint core23, unchanged format); the breathing rules in the save's
   MACOLP03 section 3 ([below](#save-record)).
-- **Preferences** (Display & keys) change presentation and controls only and
-  apply at once, everywhere.
+- **Preferences** (Performance, Display & keys) control worker count,
+  presentation and controls. They apply at once, everywhere, including in
+  loaded colonies, and do not enter colony saves.
 
 The solver is always the supported one: game profile 5 (core23) with mixed
 pipes. No setting selects the production kernel, the game-floor profile, an
@@ -102,8 +103,25 @@ those of `MAOniColonyOptions` (`oni_colony.h`).
 
 ## Preferences
 
+**Performance → Solver workers** defaults to **Physical cores**: one worker
+per physical CPU core (12 on a 5900X, 16 on a 9950X), without the former
+two-logical-CPU deduction. Enter a count from 1 through 256 and press **Set**
+to use fewer workers or SMT threads; **Auto** restores the physical-core
+default. Small grids still use fewer workers when they
+have fewer blocks. A running colony takes the change between frames, with
+identical physical results and checkpoint bytes. More workers can be slower;
+the [Terra measurement](../native/MAC_GAME_KERNEL.md) records that result.
+
+Automatic detection uses Linux's core sibling topology within the current
+CPU affinity, or Windows' processor-core records (honouring process affinity
+on a single processor group). It counts physical cores directly rather than
+halving the logical CPU count. Without topology information it uses one
+worker. Sources: [Linux CPU topology](https://docs.kernel.org/admin-guide/cputopology.html),
+[Windows processor relationships](https://learn.microsoft.com/en-us/windows/win32/api/sysinfoapi/nf-sysinfoapi-getlogicalprocessorinformationex).
+
 | Key | Name | Default | Range | Effect | Storage |
 | --- | --- | --- | --- | --- | --- |
+| `performance.workerThreads` | Solver workers | Physical cores (`0`) | `0` automatic, or integer 1–256 | Execution only; applies between frames, including after loading a save. | config.json |
 | `display.readingPrecision` | Reading precision | 4 significant figures | `friendly`, `exact` | Hover card and status panel: kPa/°C/kg to 4 figures, or every digit with Pa and K. Values are the same. | config.json |
 | `display.patternContrast` | Mixture pattern contrast | 0.04 | 0–0.15 (0 off) | Map pattern for mixed gases (also set from the overlay legend) | config.json |
 | `display.traceMoleFraction` | Trace gas threshold | 1% | 0–10% | Gases below it are listed as traces | config.json |

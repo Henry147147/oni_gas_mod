@@ -8,10 +8,12 @@ still require separate authorization.
 
 Amendments:
 
-- **CPU concurrency, 2026-10-26 (user decision):** remove the colony solver's
-  twelve-worker cap while reserving two logical CPUs for the game. Measure
-  the Terra snapshot at both worker counts; preserve thread-independent results.
-  The existing supported worker range and grid block limit remain.
+- **CPU concurrency, 2026-10-26 (user decisions, updated):** expose the colony
+  solver's worker count in mod settings, defaulting to the number of physical
+  cores. An explicit count can use SMT threads; the twelve-worker cap stays
+  removed. This supersedes the earlier two-logical-CPU reservation. The Terra
+  measurements remain recorded; preserve thread-independent results, the
+  supported worker range and the grid block limit.
 
 - **Stored-fluid heat residual, 2026-10-26 (user decision):** the measured
   **-0.70290390179257045 J** closed-storage energy residual after the queued

@@ -248,6 +248,11 @@ int main() {
         chunk_heat_trace_controls();
         storage_heat_receipt_controls();
         storage_heat_native_controls();
+        require(ma_oni_colony_physical_core_count() >= 1 && ma_oni_colony_physical_core_count() <= 256 &&
+                    ma_oni_colony_set_worker_count(30) == MA_ONI_OK &&
+                    ma_oni_colony_set_worker_count(257) == MA_ONI_INVALID_ARGUMENT &&
+                    ma_oni_colony_set_worker_count(0) == MA_ONI_OK,
+                "worker preference ABI or physical-core default differs");
         require(ma_oni_colony_precise_receipt_version()==2,"precise receipt observation capability");
         static_assert(sizeof(MAOniColonyParcelContext)==72);
         MAOniColonyParcelContext parcel_context{};parcel_context.struct_size=sizeof(parcel_context);parcel_context.abi_version=1;

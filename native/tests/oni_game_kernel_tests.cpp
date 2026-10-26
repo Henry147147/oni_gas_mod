@@ -7,11 +7,7 @@
 #include <iostream>
 #include <stdexcept>
 #include <string>
-#include <thread>
 #include <vector>
-#if defined(__linux__)
-#include <sched.h>
-#endif
 
 namespace {
 void require(bool yes, const char *text) {
@@ -100,14 +96,21 @@ int main() {
       }
     c::start(config, materials, cells, 1);
     require(c::status().state == 1, "Game owner did not start");
-    auto available = std::max(1U, std::thread::hardware_concurrency());
-#if defined(__linux__)
-    cpu_set_t affinity; CPU_ZERO(&affinity);
-    if (sched_getaffinity(0, sizeof(affinity), &affinity) == 0 && CPU_COUNT(&affinity) > 0)
-      available = static_cast<unsigned>(CPU_COUNT(&affinity));
-#endif
-    require(ma::experimental::mac_kernel_default_options().threads == std::clamp(available, 3U, 258U) - 2,
-            "Game owner did not reserve two CPUs or retained a worker cap");
+    const auto physical = c::physical_core_count();
+    require(physical >= 1 && physical <= 256 &&
+                ma::experimental::mac_kernel_default_options().threads == physical,
+            "Game owner did not default to physical cores");
+    const auto unchanged = c::checkpoint();
+    for (const unsigned requested : {1U, 13U, 30U, 256U, 0U}) {
+      c::set_worker_count(requested);
+      require(ma::experimental::mac_kernel_default_options().threads == (requested ? requested : physical) &&
+                  c::checkpoint() == unchanged,
+              "Live worker preference was capped or changed checkpoint bytes");
+    }
+    bool invalid_workers = false;
+    try { c::set_worker_count(257); } catch (const std::invalid_argument&) { invalid_workers = true; }
+    require(invalid_workers && ma::experimental::mac_kernel_default_options().threads == physical,
+            "Invalid worker preference changed the previous choice");
     const std::vector<MAOniColonyTerrain> opened{
         {4 + 2 * W, MA_ONI_COLONY_OPEN}, {4 + 3 * W, MA_ONI_COLONY_OPEN}};
     c::queue_terrain(opened);
@@ -142,17 +145,22 @@ int main() {
             "Game owner did not publish ownEOS readings");
     const auto image = c::checkpoint();
     require(core_version(image)==20,"Original kernel selector changed profile");
+    c::set_worker_count(30);
     c::advance(6, .2, 2);
     c::wait();
     const auto expected = c::checkpoint();
     c::stop();
+    c::set_worker_count(1);
     selection.set("1");
     c::restore(config, materials, image, 1);
+    require(ma::experimental::mac_kernel_default_options().threads == 1,
+            "Restore ignored the current worker preference");
     c::advance(6, .2, 2);
     c::wait();
     require(c::checkpoint() == expected,
             "Game owner cold continuation differs");
     c::stop();
+    c::set_worker_count(0);
     c::start(config,materials,cells,1);
     require(core_version(c::checkpoint())==21,"Positive selector did not create core21");
     c::advance(1,.2,2);c::wait();

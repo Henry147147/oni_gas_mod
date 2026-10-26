@@ -40,6 +40,9 @@ void set_diseases(std::span<const MAOniColonyDisease>, std::span<const MAOniColo
 // the pre-start setter (null resets) and the running colony's saved values
 // (false for a colony that is not a game kernel).
 [[nodiscard]] MAOniColonyOptions default_options() noexcept;
+// Execution preference, independent of saves. Zero selects physical cores.
+[[nodiscard]] unsigned physical_core_count() noexcept;
+void set_worker_count(unsigned);
 void set_options(const MAOniColonyOptions*);
 bool copy_options(MAOniColonyOptions&);
 void queue_germs(std::span<const MAOniColonyGermEdit>);

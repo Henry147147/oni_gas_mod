@@ -1,4 +1,5 @@
 #include "oni_colony.hpp"
+#include "oni_cpu_topology.hpp"
 #include "oni_windows_lifecycle_trace.hpp"
 #include "mac_kernel_detail.hpp"
 #include "mac_phase_flow.hpp"
@@ -361,6 +362,7 @@ void validate_options(const MAOniColonyOptions& o) {
         within(o.interface_detail_fraction,0,.5) && within(o.phase_relaxation_time_s,.1,10),"Colony solver options are outside their range");
 }
 MAOniColonyOptions next_options=default_options_value(); // under lifecycle
+unsigned requested_workers = 0; // under lifecycle; zero selects physical cores
 MacClosedSettings settings_of(const MAOniColonyConfig& c, const MAOniColonyOptions& o) {
     if(c.flags&MA_ONI_COLONY_GAME_KERNEL) {
         require(!(c.flags&MA_ONI_COLONY_GAME_FLOOR),"Game kernels are exclusive");
@@ -594,22 +596,14 @@ void fault(Session& s, const char* why) noexcept {
             p->biology = latest->biology; p->germ_accounts = latest->germ_accounts; } latest = std::move(p); } }
     catch (...) {}
 }
-// The CPUs this process may run on (its affinity, as when the game is pinned).
-unsigned available_cpus() {
-#if defined(__linux__)
-    cpu_set_t set; CPU_ZERO(&set);
-    if (sched_getaffinity(0, sizeof(set), &set) == 0 && CPU_COUNT(&set) > 0) return static_cast<unsigned>(CPU_COUNT(&set));
-#endif
-    return std::max(1U, std::thread::hardware_concurrency());
-}
 void activate(std::unique_ptr<Session> next, std::uint64_t thread) {
     require(!enabled.load(std::memory_order_acquire), "A colony owner is already active");
     next->release_capture.configure(std::getenv("MA_COLONY_RELEASE_DUMP"));
     // Execution only: the kernel's results never depend on its thread count.
-    // Leave two logical CPUs for the game's own threads, without the former
-    // twelve-worker cap. Small affinities still get at least one worker.
+    // Execution preference only: automatic uses physical cores; an explicit
+    // request may also use SMT threads. Neither is stored in a colony save.
     auto options = mac_kernel_default_options();
-    options.threads = std::clamp(available_cpus(), 3U, 258U) - 2;
+    options.threads = requested_workers ? requested_workers : cpu::physical_core_count();
     options.collect_conduction_entropy = false;
     set_mac_kernel_default_options(options);
     next->status = empty_status(); next->status.state = 1; next->status.session = ++sessions; next->status.start_thread = thread;
@@ -1598,6 +1592,16 @@ void set_diseases(std::span<const MAOniColonyDisease> diseases, std::span<const 
     disease_table = std::move(table);
 }
 MAOniColonyOptions default_options() noexcept { return default_options_value(); }
+unsigned physical_core_count() noexcept { return cpu::physical_core_count(); }
+void set_worker_count(unsigned count) {
+    require(count <= 256, "Colony workers must be 0 (physical cores) or 1..256");
+    // Frames hold lifecycle too: change the pool choice only between frames.
+    std::lock_guard lock(lifecycle);
+    auto options = mac_kernel_default_options();
+    options.threads = count ? count : cpu::physical_core_count();
+    set_mac_kernel_default_options(options);
+    requested_workers = count;
+}
 void set_options(const MAOniColonyOptions* options) {
     std::lock_guard lock(lifecycle);
     require(!enabled.load(std::memory_order_acquire), "Set the colony options before the colony owner starts");

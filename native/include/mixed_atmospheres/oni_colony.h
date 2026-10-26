@@ -306,6 +306,13 @@ MA_ONI_API uint32_t ma_oni_colony_options_version(void);
 MA_ONI_API MAOniResult ma_oni_colony_default_options(MAOniColonyOptions*);
 MA_ONI_API MAOniResult ma_oni_colony_set_options(const MAOniColonyOptions*);
 MA_ONI_API MAOniResult ma_oni_colony_copy_options(MAOniColonyOptions*);
+/* Unsaved execution preference, also changeable in a running colony between
+ * frames. Zero selects the physical core count; 1..256 requests that many
+ * workers (small grids still use fewer). Invalid values keep the old choice.
+ * Physical core detection honours Linux affinity and single-group Windows
+ * process affinity; topology unavailable means one worker. */
+MA_ONI_API uint32_t ma_oni_colony_physical_core_count(void);
+MA_ONI_API MAOniResult ma_oni_colony_set_worker_count(uint32_t workers);
 /* The game's own germ edits of owned cells (ModifyDiseaseOnCell): disease is
  * the disease index + 1, change a germ count (negative removes, at most what
  * the cell holds). They commit at the start of the next frame. */

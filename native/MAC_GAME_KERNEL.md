@@ -31,11 +31,13 @@ cells start empty and expand through physical face flow. Core20 stores sparse
 species/passives, energy, face momentum, geometry/masks, clock/revision,
 numerical settings and calibrated phase pairs; no cache affects continuation.
 
-The colony owner now selects the available logical CPUs (Linux process
-affinity when set) minus two for the game, within the supported 1..256 worker
-range. The game kernel honours that request without a twelve-worker cap;
-small grids still limit the
-pool to their fixed row blocks. `MacClosedAdvanceReport::game_threads_used`
+The colony owner defaults to the number of physical CPU cores. The mod's
+[Performance settings](../docs/settings.md#preferences) can select an explicit
+count in the supported 1..256 worker range, including SMT threads. This
+replaces the earlier logical-CPU-minus-two choice. Worker preferences apply
+between frames and after restore, without entering the colony save. The game
+kernel honours that request without a twelve-worker cap; small grids still
+limit the pool to their fixed row blocks. `MacClosedAdvanceReport::game_threads_used`
 reports the pool size, including the caller, without entering the checkpoint.
 The focused control requests 1/12/13/22/30/256 workers on 31 blocks and checks
 actual pool sizes, exact physical images and cold continuation against one

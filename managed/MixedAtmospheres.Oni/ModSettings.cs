@@ -13,7 +13,7 @@ namespace MixedAtmospheres.Oni
     //
     // Colony settings are impactful: a new colony records them (the solver's
     // in its own physical image, breathing in MACOLP03 section 3) and a
-    // loaded colony keeps its recorded values. Preferences are presentation,
+    // loaded colony keeps its recorded values. Preferences are execution,
     // controls and display; they apply at once. The solver is always game
     // profile 5 with mixed pipes; only profile 5's own saved tunables vary.
     internal enum SettingScope { Colony, Preference }
@@ -90,7 +90,7 @@ namespace MixedAtmospheres.Oni
     // Every supported setting (docs/settings.md lists the same table).
     internal static class SettingCatalog
     {
-        internal const string Solver = "Solver (profile 5)", Breathing = "Breathing", Display = "Display", Panel = "Status panel", Keys = "Keyboard shortcuts";
+        internal const string Solver = "Solver (profile 5)", Breathing = "Breathing", Performance = "Performance", Display = "Display", Panel = "Status panel", Keys = "Keyboard shortcuts";
         private static double[] Decades(int from, int to) { var r = new List<double>(); for (var e = from; e <= to; ++e) r.Add(double.Parse("1e" + e.ToString(CultureInfo.InvariantCulture), CultureInfo.InvariantCulture)); return r.ToArray(); }
         internal static readonly string[] KeyChoices = { "None", "F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9", "F10", "F11", "F12" };
 
@@ -146,6 +146,9 @@ namespace MixedAtmospheres.Oni
                 "Cells with more oxygen than this share fail (1: no upper limit).",
                 1, .3, 1, new double[] { .3, .35, .5, .75, 1 }),
             // Preferences: apply at once, everywhere.
+            SettingDefinition.Number("performance.workerThreads", SettingScope.Preference, Performance, "Solver workers",
+                "Physical cores (default) uses one worker per physical CPU core. Choose a number to use fewer workers or include SMT threads. More workers can be slower. Changes apply to the current colony and are not saved in the colony.",
+                0, 0, 256, Enumerable.Range(0, 257).Select(n => (double)n).ToArray(), "", true),
             SettingDefinition.Choice("display.readingPrecision", SettingScope.Preference, Display, "Reading precision",
                 "How the hover card and status panel print readings. Exact prints every digit and both units; the values are the same.",
                 "friendly", new[] { "friendly", "exact" }, new[] { "4 significant figures", "Exact" }),

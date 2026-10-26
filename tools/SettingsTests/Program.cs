@@ -56,6 +56,13 @@ static class Program
         Check(SettingValues.Defaults().With("solver.sharpenLiquidInterfaces", false).Experimental(SettingScope.Colony).Any(), "sharpening off not experimental");
         Check(SettingValues.Defaults().With("solver.pressureTolerance", 1e-6).Experimental(SettingScope.Colony).Any(), "looser tolerance not experimental");
         Check(!SettingValues.Defaults().With("solver.pressureIterationCap", 6400.0).Experimental(SettingScope.Colony).Any(), "higher cap marked experimental");
+        var workers = SettingCatalog.Get("performance.workerThreads");
+        Check(workers.Scope == SettingScope.Preference && workers.Integer && (double)workers.Default == 0 &&
+              workers.Steps.SequenceEqual(Enumerable.Range(0, 257).Select(n => (double)n)), "worker preference defaults or offered counts");
+        foreach (var invalid in new[] { -1.0, 1.5, 257.0 })
+            Throws<FormatException>(() => SettingValues.Defaults().With(workers.Key, invalid), "invalid worker count");
+        Check(ColonySettingsRecord.Encode(SettingValues.Defaults().With(workers.Key, 30.0)) == null,
+              "worker preference entered the colony save");
         Check(BuiltInPresets.Find("robust")!.Values.ToNative().PressureMaximumIterations == 1600, "robust caps");
         Check(BuiltInPresets.Find("precise")!.Values.ToNative().MaximumTimestepSeconds == (double).1f, "precise steps");
         // Values outside ranges and of the wrong type are refused; lower caps are never offered.
@@ -99,10 +106,14 @@ static class Program
         File.WriteAllText(Path.Combine(root, "appearance.json"), "{\"PatternEnabled\":true,\"PatternContrast\":0.08}");
         Check(store.Load().Values.Number("display.patternContrast") == .08, "appearance contrast migrates");
         // Round trip of every value.
-        var values = BuiltInPresets.Find("strict-breathing")!.Values.With("display.readingPrecision", "exact").With("keys.findFluid", "F7").With("panel.expanded", false);
+        var values = BuiltInPresets.Find("strict-breathing")!.Values.With("display.readingPrecision", "exact").With("keys.findFluid", "F7").With("panel.expanded", false).With("performance.workerThreads", 30.0);
         store.Save(values, "strict-breathing");
         loaded = store.Load();
         Check(loaded.Values.Equals(values) && loaded.PresetId == "strict-breathing" && loaded.Notices.Count == 0, "config round trip");
+        var legacy = File.ReadAllText(store.ConfigPath).Replace("\"performance.workerThreads\": 30,", "");
+        File.WriteAllText(store.ConfigPath, legacy);
+        Check(store.Load().Values.Number("performance.workerThreads") == 0, "old config did not default to physical cores");
+        store.Save(values, "strict-breathing");
         // Unknown keys are reported, not fatal.
         var withUnknown = File.ReadAllText(store.ConfigPath).Replace("\"Colony\": {", "\"Colony\": {\n    \"solver.futureThing\": 3,");
         File.WriteAllText(store.ConfigPath, withUnknown);
@@ -121,7 +132,7 @@ static class Program
         Check(File.Exists(store.ConfigPath + ".invalid") && store.Load().Notices.Count == 0, "invalid config kept aside");
 
         // Presets: save, list, overwrite, rename, delete, import, export.
-        var mine = BuiltInPresets.Find("robust")!.Values.With("breathing.minimumOxygenFraction", .12).With("keys.toggleDetails", "F2");
+        var mine = BuiltInPresets.Find("robust")!.Values.With("breathing.minimumOxygenFraction", .12).With("keys.toggleDetails", "F2").With("performance.workerThreads", 22.0);
         var id = store.SavePreset("My Colony: Robust/Thin air", "caps and thin air", mine, false);
         Check(id == "my-colony-robust-thin-air" && File.Exists(store.PathOf(id)), "preset saved under its slug");
         Throws<ArgumentException>(() => store.SavePreset("My colony robust thin air", "", mine, false), "duplicate refused without overwrite");
@@ -150,11 +161,11 @@ static class Program
         Throws<ArgumentException>(() => store.PathOf("../x"), "path escape refused");
         Check(store.ListPresets().Count == 2, "delete");
         // Applying: a built-in sets colony settings only; a saved preset also its preferences.
-        var current = SettingValues.Defaults().With("display.readingPrecision", "exact").With("solver.flowParts", 4.0);
+        var current = SettingValues.Defaults().With("display.readingPrecision", "exact").With("solver.flowParts", 4.0).With("performance.workerThreads", 30.0);
         var applied = BuiltInPresets.Find("strict-breathing")!.ApplyTo(current);
-        Check(applied.Choice("display.readingPrecision") == "exact" && applied.Number("solver.flowParts") == 2 && applied.Number("breathing.minimumOxygenFraction") == .18, "built-in apply");
+        Check(applied.Choice("display.readingPrecision") == "exact" && applied.Number("solver.flowParts") == 2 && applied.Number("breathing.minimumOxygenFraction") == .18 && applied.Number("performance.workerThreads") == 30, "built-in apply");
         applied = store.FindUserPreset("thin-air")!.ApplyTo(current);
-        Check(applied.Choice("display.readingPrecision") == "friendly" && applied.Choice("keys.toggleDetails") == "F2" && applied.Number("solver.pressureIterationCap") == 1600, "saved preset apply");
+        Check(applied.Choice("display.readingPrecision") == "friendly" && applied.Choice("keys.toggleDetails") == "F2" && applied.Number("solver.pressureIterationCap") == 1600 && applied.Number("performance.workerThreads") == 22, "saved preset apply");
         Check(ModSettingsStore.Slug("Ünïcode / ☃ name") == "n-code-name" && ModSettingsStore.Slug("***") == "preset", "slug");
     }
 

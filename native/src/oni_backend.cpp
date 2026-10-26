@@ -1123,6 +1123,13 @@ MAOniResult ma_oni_colony_read_passives(std::uint64_t session,std::uint64_t fram
     });
 }
 std::uint32_t ma_oni_colony_options_version() { return 1; }
+std::uint32_t ma_oni_colony_physical_core_count() { return ma::oni::colony::physical_core_count(); }
+MAOniResult ma_oni_colony_set_worker_count(std::uint32_t workers) {
+    return boundary([&] {
+        try { ma::oni::colony::set_worker_count(workers); }
+        catch(const std::invalid_argument& error) {throw Failure(MA_ONI_INVALID_ARGUMENT,error.what());}
+    });
+}
 MAOniResult ma_oni_colony_default_options(MAOniColonyOptions* output) {
     return boundary([&] {
         if(!output) throw Failure(MA_ONI_INVALID_ARGUMENT,"Colony options output is required");

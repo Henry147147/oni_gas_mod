@@ -23,6 +23,10 @@ namespace MixedAtmospheres.Oni
         [DllImport(Library, EntryPoint = "ma_oni_colony_set_options", CallingConvention = CallingConvention.Cdecl)] private static extern int ResetOptions(IntPtr none);
         [DllImport(Library, EntryPoint = "ma_oni_colony_copy_options", CallingConvention = CallingConvention.Cdecl)] private static extern int CopyOptions(ref NativeColonyOptions options);
         [DllImport(Library, EntryPoint = "ma_oni_last_error", CallingConvention = CallingConvention.Cdecl)] private static extern IntPtr LastError();
+        [DllImport(Library, EntryPoint = "ma_oni_colony_physical_core_count", CallingConvention = CallingConvention.Cdecl)] private static extern uint PhysicalCoreCount();
+        [DllImport(Library, EntryPoint = "ma_oni_colony_set_worker_count", CallingConvention = CallingConvention.Cdecl)] private static extern int SetWorkerCount(uint workers);
+        internal static uint PhysicalCores { get; private set; }
+        private static uint? appliedWorkerCount;
 
         internal static ModSettingsStore? Store { get; private set; }
         // The player's values (colony settings for the next new colony, and preferences).
@@ -78,6 +82,7 @@ namespace MixedAtmospheres.Oni
                     Notice("Your settings could not be read, so Default applies (" + error.Message + ").");
                 }
             }
+            appliedWorkerCount = null;
             ApplyPreferences();
         }
 
@@ -106,9 +111,24 @@ namespace MixedAtmospheres.Oni
         // Preferences that live elsewhere follow the current values.
         private static void ApplyPreferences()
         {
+            ApplyWorkers();
             MixtureInspection.ExactReadings = Current.Choice("display.readingPrecision") == "exact";
             MixtureAppearanceSettings.Apply(Current.Number("display.patternContrast"), Current.Number("display.traceMoleFraction"));
             PreferencesChanged?.Invoke();
+        }
+        private static void ApplyWorkers()
+        {
+            var requested = (uint)Current.Number("performance.workerThreads");
+            if (appliedWorkerCount == requested) return;
+            try
+            {
+                PhysicalCores = PhysicalCoreCount();
+                var result = SetWorkerCount(requested);
+                if (result != 0) throw new InvalidOperationException(Marshal.PtrToStringAnsi(LastError()) ?? ("error " + result));
+                appliedWorkerCount = requested;
+            }
+            catch (Exception error) when (!(error is OutOfMemoryException))
+            { Notice("The solver worker setting could not be applied (" + error.Message + "). The previous worker count remains in use."); }
         }
         // The pattern contrast changed from the overlay legend.
         internal static void SetPreference(string key, object value, bool persist, bool apply = true)
