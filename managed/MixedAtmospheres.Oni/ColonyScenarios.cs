@@ -1449,6 +1449,7 @@ namespace MixedAtmospheres.Oni
         }
         private static void MixedValveStages(int phase)
         {
+            if(!recorded.ContainsKey($"valve setup delay {phase}"))return;
             var flow=phase==0?Game.Instance.gasConduitFlow:Game.Instance.liquidConduitFlow;var manual=mixedValves[phase*2];var automatic=mixedValves[phase*2+1];var cap=phase==0?1:10;
             if(ValveAt(phase,10,"seed complete valve input mixtures"))
             {
