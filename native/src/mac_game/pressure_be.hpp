@@ -62,14 +62,16 @@ public:
     options.threads = threads;
     settings.preconditioner = preconditioner;
   }
+  // Cells marked in `fixed` are held like readings with fixed_pressure.
   Pressure advance(const std::vector<Eos> &states,
                    const std::vector<double> &old_x,
                    const std::vector<double> &old_y, double dt, double gravity,
-                   bool positive_correction = false) {
+                   bool positive_correction = false,
+                   const std::vector<std::uint8_t> *fixed = nullptr) {
     const auto N = grid.N;
     const auto &g = grid;
     if (states.size() != N || old_x.size() != g.NX || old_y.size() != g.NY ||
-        !(dt > 0))
+        !(dt > 0) || (fixed && fixed->size() != N))
       throw std::runtime_error("Invalid pressure shapes");
     kernel::LinearSystem system;
     system.g = &g;
@@ -80,7 +82,8 @@ public:
     std::vector<double> compliance(N), rhs(N), increment_rhs(N), ix(g.NX),
         iy(g.NY), base_x(g.NX), base_y(g.NY), body_y_face(g.NY);
     for (std::size_t i = 0; i < N; ++i) {
-      if (g.wall[i] || states[i].mass == 0 || states[i].fixed_pressure)
+      if (g.wall[i] || states[i].mass == 0 || states[i].fixed_pressure ||
+          (fixed && (*fixed)[i]))
         continue;
       const auto &s = states[i];
       if (s.nR > 0)
@@ -242,15 +245,16 @@ public:
     result.wall_operands_x = wall_scale_x.value();
     result.wall_operands_y = wall_scale_y.value();
     if (positive_correction) {
-      auto constrained = states;
+      auto constrained = fixed ? *fixed : std::vector<std::uint8_t>(N);
       bool changed = false;
       for (std::size_t i = 0; i < N; ++i)
         if (result.p[i] < 0) {
-          constrained[i].fixed_pressure = true;
+          constrained[i] = 1;
           changed = true;
         }
       if (changed) {
-        auto corrected = advance(constrained, old_x, old_y, dt, gravity, false);
+        auto corrected =
+            advance(states, old_x, old_y, dt, gravity, false, &constrained);
         corrected.iterations += result.iterations;
         corrected.corrections = 1;
         corrected.converged = corrected.converged && result.converged;
