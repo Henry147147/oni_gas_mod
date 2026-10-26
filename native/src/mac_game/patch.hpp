@@ -49,7 +49,7 @@ public:
         own_topology(regions ? Topology{} : Topology(g)),
         topology(regions ? regions : &own_topology) {}
   PatchResult
-  advance(const SparseMass &initial, const std::vector<double> &energy,
+  advance(const SparseMass &initial, std::vector<double> energy,
           const std::vector<double> &jx, const std::vector<double> &jy,
           const std::vector<double> &qx, const std::vector<double> &qy,
           double gravity, bool auditing = true,
@@ -58,7 +58,7 @@ public:
           const LiquidBoundary *boundary = nullptr) {
     namespace k = ma::experimental::mac_kernel;
     PatchResult result;
-    result.energy = energy;
+    result.energy = std::move(energy);
     result.jx = jx;
     result.jy = jy;
     const bool has_passives =

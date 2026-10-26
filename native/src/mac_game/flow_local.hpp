@@ -25,6 +25,14 @@ class Flow {
   PatchTransport patch;
   // Capacity of the previous pressure result, lent to the next solve.
   Pressure pressure_storage;
+  // Scratch capacity; every entry is written before it is read.
+  std::vector<double> cell_mass, body_heat;
+  // Runs f(first row, end row, block) over the grid's fixed row blocks.
+  template <class F> void rows(F &&f) const {
+    eos_pool.run(g.blocks, [&](std::size_t block) {
+      f(g.block_row_begin(block), g.block_row_end(block), block);
+    });
+  }
   static double milliseconds(std::chrono::steady_clock::time_point start) {
     return std::chrono::duration<double, std::milli>(
                std::chrono::steady_clock::now() - start)
@@ -134,79 +142,80 @@ public:
                     [](double p) { return p < 0; }))
       throw std::runtime_error(
           "Private flow correction retains negative pressure");
-    result.state = initial;
-    result.state.jx = projected.jx;
-    result.state.jy = projected.jy;
-    // Same time-centred swept volumes as the pressure impulse. No volume
-    // limiter here.
-    double max_out = 0;
-    for (std::size_t i = 0; i < g.N; ++i)
-      if (!g.wall[i]) {
+    // Post-pressure U, cell by cell in the grid's fixed row blocks: the
+    // pressure work of the time-centred swept volumes (no volume limiter
+    // here), then body-force work from the vertical faces, then the damping
+    // defect. Each cell adds its terms in the original order.
+    const auto &mass = cell_mass;
+    cell_mass.resize(g.N);
+    body_heat.resize(g.NY);
+    rows([&](std::size_t y0, std::size_t y1, std::size_t) {
+      for (std::size_t i = y0 * g.W; i < y1 * g.W; ++i) {
+        double total = 0;
+        for (std::size_t a = initial.masses.offsets[i];
+             a < initial.masses.offsets[i + 1]; ++a)
+          total += initial.masses.mass[a];
+        cell_mass[i] = total;
+      }
+    });
+    // Body-force work is booked locally. Potential-energy changes are
+    // booked from each shared vertical mass flux during remap below.
+    rows([&](std::size_t y0, std::size_t, std::size_t block) {
+      for (std::size_t f = y0 * g.W; f < g.block_yrow_end(block) * g.W; ++f) {
+        const auto l = g.yl[f], r = g.yr[f];
+        if (l == k::none || r == k::none || g.closed(true, f)) {
+          body_heat[f] = 0;
+          continue;
+        }
+        const double I = .5 * (eos[l].mass + eos[r].mass);
+        body_heat[f] = gravity_rule == 0 ? gravity * dt * projected.jy[f]
+                       : I > 0
+                           ? -projected.body_impulses_y[f] * (projected.jy[f] / I)
+                           : 0;
+      }
+    });
+    std::vector<double> work = initial.energy;
+    rows([&](std::size_t y0, std::size_t y1, std::size_t) {
+      for (std::size_t i = y0 * g.W; i < y1 * g.W; ++i) {
+        if (g.wall[i])
+          continue;
         const auto l = g.left_face(i), r = g.right_face(i),
                    b = g.bottom_face(i), t = g.top_face(i);
         const double divergence = projected.qx[r] - projected.qx[l] +
                                   projected.qy[t] - projected.qy[b];
-        result.state.energy[i] -= projected.p[i] * divergence;
-        const double out =
-            std::max(0., -projected.qx[l]) + std::max(0., projected.qx[r]) +
-            std::max(0., -projected.qy[b]) + std::max(0., projected.qy[t]);
-        max_out = std::max(max_out, out / g.V);
-      }
-    // Book body-force work locally. Potential-energy changes are booked
-    // from each shared vertical mass flux during remap below.
-    std::vector<double> body_heat(g.NY);
-    for (std::size_t f = 0; f < g.NY; ++f) {
-      const auto l = g.yl[f], r = g.yr[f];
-      if (l == k::none || r == k::none || g.closed(true, f))
-        continue;
-      const double I = .5 * (eos[l].mass + eos[r].mass);
-      body_heat[f] = gravity_rule == 0 ? gravity * dt * projected.jy[f]
-                     : I > 0
-                         ? -projected.body_impulses_y[f] * (projected.jy[f] / I)
-                         : 0;
-    }
-    const auto deposit_vertical = [&](std::vector<double> &energy,
-                                      const std::vector<double> &face,
-                                      const SparseMass &inventory) {
-      const auto mass = totals(inventory);
-      for (std::size_t i = 0; i < g.N; ++i)
-        if (!g.wall[i]) {
-          const auto share = [&](std::size_t f) {
-            if (face[f] == 0)
-              return 0.;
-            const double sum = (g.yl[f] == k::none ? 0 : mass[g.yl[f]]) +
-                               (g.yr[f] == k::none ? 0 : mass[g.yr[f]]);
-            if (sum == 0)
-              throw std::runtime_error("Private empty vertical face has work");
-            return face[f] * (mass[i] / sum);
-          };
-          energy[i] += share(g.bottom_face(i)) + share(g.top_face(i));
-        }
-    };
-    deposit_vertical(result.state.energy, body_heat, result.state.masses);
-    // Backward-Euler pressure removes unresolved kinetic oscillations.
-    // Its exact nonnegative work defect is returned as local heat.
-    for (std::size_t i = 0; i < g.N; ++i)
-      if (!g.wall[i]) {
-        const auto share = [&](bool x, std::size_t f, double value) {
+        double u = work[i];
+        u -= projected.p[i] * divergence;
+        const auto vertical = [&](std::size_t f) {
+          if (body_heat[f] == 0)
+            return 0.;
+          const double sum = (g.yl[f] == k::none ? 0 : mass[g.yl[f]]) +
+                             (g.yr[f] == k::none ? 0 : mass[g.yr[f]]);
+          if (sum == 0)
+            throw std::runtime_error("Private empty vertical face has work");
+          return body_heat[f] * (mass[i] / sum);
+        };
+        u += vertical(b) + vertical(t);
+        // Backward-Euler pressure removes unresolved kinetic oscillations.
+        // Its exact nonnegative work defect is returned as local heat.
+        const auto damping = [&](bool x, std::size_t f, double value) {
           if (value == 0)
             return 0.;
-          const auto &l = x ? g.xl : g.yl, &r = x ? g.xr : g.yr;
-          const double sum = (l[f] == k::none ? 0 : eos[l[f]].mass) +
-                             (r[f] == k::none ? 0 : eos[r[f]].mass);
+          const auto &left = x ? g.xl : g.yl, &right = x ? g.xr : g.yr;
+          const double sum = (left[f] == k::none ? 0 : eos[left[f]].mass) +
+                             (right[f] == k::none ? 0 : eos[right[f]].mass);
           return value * (eos[i].mass / sum);
         };
-        result.state.energy[i] +=
-            share(true, g.left_face(i), projected.damping_x[g.left_face(i)]) +
-            share(true, g.right_face(i), projected.damping_x[g.right_face(i)]) +
-            share(false, g.bottom_face(i),
-                  projected.damping_y[g.bottom_face(i)]) +
-            share(false, g.top_face(i), projected.damping_y[g.top_face(i)]);
+        u += damping(true, l, projected.damping_x[l]) +
+             damping(true, r, projected.damping_x[r]) +
+             damping(false, b, projected.damping_y[b]) +
+             damping(false, t, projected.damping_y[t]);
+        work[i] = u;
       }
+    });
     start = std::chrono::steady_clock::now();
     auto remap =
-        patch.advance(result.state.masses, result.state.energy, result.state.jx,
-                      result.state.jy, projected.qx, projected.qy, gravity,
+        patch.advance(initial.masses, std::move(work), projected.jx,
+                      projected.jy, projected.qx, projected.qy, gravity,
                       audit_mode, &initial.passives, regions, boundary);
     result.subcycles = remap.microticks;
     result.transport_cells = remap.cell_updates;
