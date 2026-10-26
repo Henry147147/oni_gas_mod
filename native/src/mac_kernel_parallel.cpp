@@ -41,7 +41,7 @@ Grid::Grid(const MacGrid& mg)
     cell_faces.resize(N);
     for (std::size_t row = 0; row < H; ++row) for (std::size_t col = 0; col < W; ++col)
         cell_faces[col + row * W] = {xface(col, row), xface(col + 1 == XW ? 0 : col + 1, row), yface(col, row), yface(col, row + 1 == YH ? 0 : row + 1)};
-    rows_per_block = std::max<std::size_t>(1, (1024 + W / 2) / W);
+    rows_per_block = block_rows(W);
     blocks = (H + rows_per_block - 1) / rows_per_block;
 }
 

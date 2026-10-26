@@ -131,11 +131,12 @@ public:
       }
     }
     const auto start = std::chrono::steady_clock::now();
-    const auto before =
-        totals(grid, initial, species.size(), gravity, &flow.kernel_grid());
+    // One pass books every region's opening accounts and sums the whole
+    // state's totals.
     RegionAudit regions(flow.kernel_grid(), flow.region_topology(),
                         species.size());
-    regions.capture(initial, gravity, 1);
+    Totals before;
+    regions.capture(initial, gravity, 1, &before, &flow.worker_pool());
     auto entropy_start = std::chrono::steady_clock::now();
     auto readings = flow.evaluate_state(initial);
     const auto initial_entropy = total_entropy(
@@ -277,18 +278,8 @@ public:
     out.evaporated = changed.evaporated;
     out.condensed = changed.condensed;
     out.phase_ms = ms(stage_start);
-    for (std::size_t a = 0; a < out.state.masses.mass.size(); ++a)
-      conversion[out.state.masses.species[a]].add(-out.state.masses.mass[a]);
-    for (std::size_t a = 0; a < changed.masses.mass.size(); ++a)
-      conversion[changed.masses.species[a]].add(changed.masses.mass[a]);
-    for (std::size_t i = 0; i < initial.energy.size(); ++i) {
-      for (std::size_t a = out.state.masses.offsets[i];
-           a < out.state.masses.offsets[i + 1]; ++a)
-        regions.mass(i, out.state.masses.species[a], -out.state.masses.mass[a]);
-      for (std::size_t a = changed.masses.offsets[i];
-           a < changed.masses.offsets[i + 1]; ++a)
-        regions.mass(i, changed.masses.species[a], changed.masses.mass[a]);
-    }
+    regions.convert(out.state.masses, changed.masses, conversion,
+                    &flow.worker_pool());
     out.phase_entropy_change = changed.entropy_change;
     out.state.masses = std::move(changed.masses);
     const auto pre_final_sink = sink_entropy;
@@ -320,10 +311,9 @@ public:
     out.entropy_change = entropy_change.value();
     out.trace_entropy = sink_entropy.value();
     out.entropy_ms += ms(entropy_start);
-    regions.capture(out.state, gravity, -1);
+    Totals after;
+    regions.capture(out.state, gravity, -1, &after, &flow.worker_pool());
     out.region_error = regions.finish();
-    auto after =
-        totals(grid, out.state, species.size(), gravity, &flow.kernel_grid());
     Balance energy, mx, my;
     add(energy, before.energy);
     add(energy, after.energy, -1);

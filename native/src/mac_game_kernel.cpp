@@ -661,51 +661,82 @@ void occupied(const MacClosedWorld &source, MacTransportState &state,
         e.has_gas ? state.grid.volume_m3() : e.liquid_volume_m3;
   }
 }
-// k::totals(sparse(state)) without building either: the same additions in
-// the same order, read from the dense cells and the grid's face endpoints.
+// The tick's audit totals of a state (RegionAudit::capture), read from the
+// dense cells: the same additions in the same fixed row blocks, merged in
+// block order, without converting the state or building a kernel grid.
 k::Totals dense_totals(const MacTransportState &state, std::size_t count,
                        double gravity) {
   const auto &grid = state.grid;
   constexpr auto none = std::numeric_limits<std::size_t>::max();
-  k::Totals result;
-  result.species.resize(count);
   std::vector<double> mass(state.cells.size());
   for (std::size_t i = 0; i < state.cells.size(); ++i) {
     const auto &cell = state.cells[i];
-    if (!cell.mixture.masses.implicit_zero()) {
-      const std::vector<double> &masses = cell.mixture.masses;
-      for (std::size_t key = 0; key < masses.size(); ++key)
-        if (masses[key] > 0) {
-          mass[i] += masses[key];
-          result.species[key].add(masses[key]);
-        }
-    }
-    const double potential = mass[i] * gravity *
-                             (static_cast<double>(i / grid.width) + .5) *
-                             grid.spacing_m;
-    result.energy.add(cell.mixture.energy);
-    result.energy.add(potential);
-    result.energy_operands.add(std::abs(cell.mixture.energy));
-    result.energy_operands.add(std::abs(potential));
+    if (!cell.mixture.masses.implicit_zero())
+      for (const double m : static_cast<const std::vector<double> &>(cell.mixture.masses))
+        if (m > 0)
+          mass[i] += m;
   }
-  for (const auto &cell : state.cells)
-    for (const auto &q : cell.passive_quantities)
-      result.passives[q.identity].add(q.quantity);
-  for (const bool x : {true, false}) {
-    const auto &j = x ? state.momentum_x : state.momentum_y;
-    for (std::size_t f = 0; f < j.size(); ++f)
-      if (j[f] != 0) {
-        const auto [l, r] = endpoints(grid, x, f);
-        const double inertia =
-            .5 * ((l == none ? 0 : mass[l]) + (r == none ? 0 : mass[r]));
-        if (!(inertia > 0))
-          throw std::runtime_error("Private totals J without inertia");
-        const double kinetic = .5 * j[f] * (j[f] / inertia);
-        result.energy.add(kinetic);
-        result.energy_operands.add(kinetic);
-        (x ? result.jx : result.jy).add(j[f]);
-        (x ? result.jx_operands : result.jy_operands).add(std::abs(j[f]));
+  const auto rows = mac_kernel::Grid::block_rows(grid.width);
+  const auto merge = [](k::DoubleDouble &into, const k::DoubleDouble &part) {
+    into.add(part.hi);
+    into.add(part.lo);
+  };
+  k::Totals result;
+  result.species.resize(count);
+  for (std::size_t y0 = 0; y0 < grid.height; y0 += rows) {
+    const auto y1 = std::min(grid.height, y0 + rows);
+    k::Totals sum;
+    sum.species.resize(count);
+    for (std::size_t i = y0 * grid.width; i < y1 * grid.width; ++i) {
+      const auto &cell = state.cells[i];
+      if (!cell.mixture.masses.implicit_zero()) {
+        const std::vector<double> &masses = cell.mixture.masses;
+        for (std::size_t key = 0; key < masses.size(); ++key)
+          if (masses[key] > 0)
+            sum.species[key].add(masses[key]);
       }
+      const double potential = mass[i] * gravity *
+                               (static_cast<double>(i / grid.width) + .5) *
+                               grid.spacing_m;
+      sum.energy.add(cell.mixture.energy);
+      sum.energy.add(potential);
+      sum.energy_operands.add(std::abs(cell.mixture.energy));
+      sum.energy_operands.add(std::abs(potential));
+      for (const auto &q : cell.passive_quantities)
+        sum.passives[q.identity].add(q.quantity);
+    }
+    // The block's x faces, then its y faces (the last block also takes the
+    // top boundary row).
+    const auto faces = [&](bool x, std::size_t first, std::size_t end) {
+      const auto &j = x ? state.momentum_x : state.momentum_y;
+      for (std::size_t f = first; f < end; ++f)
+        if (j[f] != 0) {
+          const auto [l, r] = endpoints(grid, x, f);
+          const double inertia =
+              .5 * ((l == none ? 0 : mass[l]) + (r == none ? 0 : mass[r]));
+          if (!(inertia > 0))
+            throw std::runtime_error("Private totals J without inertia");
+          const double kinetic = .5 * j[f] * (j[f] / inertia);
+          sum.energy.add(kinetic);
+          sum.energy_operands.add(kinetic);
+          (x ? sum.jx : sum.jy).add(j[f]);
+          (x ? sum.jx_operands : sum.jy_operands).add(std::abs(j[f]));
+        }
+    };
+    faces(true, y0 * grid.x_width(), y1 * grid.x_width());
+    faces(false, y0 * grid.width,
+          (y1 == grid.height ? grid.y_height() : y1) * grid.width);
+    for (std::size_t key = 0; key < count; ++key)
+      merge(result.species[key], sum.species[key]);
+    for (auto [into, part] :
+         {std::pair{&result.energy, &sum.energy}, std::pair{&result.jx, &sum.jx},
+          std::pair{&result.jy, &sum.jy},
+          std::pair{&result.energy_operands, &sum.energy_operands},
+          std::pair{&result.jx_operands, &sum.jx_operands},
+          std::pair{&result.jy_operands, &sum.jy_operands}})
+      merge(*into, *part);
+    for (const auto &[key, value] : sum.passives)
+      merge(result.passives[key], value);
   }
   return result;
 }

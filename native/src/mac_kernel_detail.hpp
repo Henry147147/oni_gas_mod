@@ -91,6 +91,8 @@ struct Grid {
     // and y-face rows identically (the extra nonperiodic y-face row belongs
     // to the last block).
     std::size_t rows_per_block = 1, blocks = 1;
+    // Rows per block for a grid `width` cells wide: about 1024 cells.
+    [[nodiscard]] static std::size_t block_rows(std::size_t width) { return std::max<std::size_t>(1, (1024 + width / 2) / width); }
     explicit Grid(const MacGrid&);
     Grid() = default;
     [[nodiscard]] Index xface(std::size_t x, std::size_t y) const { return static_cast<Index>(x + y * XW); }

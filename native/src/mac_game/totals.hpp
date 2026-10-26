@@ -1,11 +1,6 @@
 #pragma once
 #include "flow_local.hpp"
 namespace ma::experimental::game_kernel {
-struct Totals {
-  std::vector<DoubleDouble> species;
-  DoubleDouble energy, jx, jy, energy_operands, jx_operands, jy_operands;
-  std::map<std::uint64_t, DoubleDouble> passives;
-};
 inline Totals
 totals(const ma::experimental::MacGrid &source, const State &state,
        std::size_t count, double gravity,

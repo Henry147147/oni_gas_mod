@@ -3,6 +3,8 @@
 #include <cmath>
 #include <cstdint>
 #include <limits>
+#include <map>
+#include <vector>
 namespace ma::experimental::game_kernel {
 struct DoubleDouble {
   double hi = 0, lo = 0;
@@ -34,5 +36,12 @@ struct Balance {
   bool closed() const {
     return std::abs(residual.value()) <= 1e-12 * operands.value();
   }
+};
+// Whole-state audit sums: species masses, U+K+G, face J and passives, with
+// the absolute operands of the energy and momentum sums.
+struct Totals {
+  std::vector<DoubleDouble> species;
+  DoubleDouble energy, jx, jy, energy_operands, jx_operands, jy_operands;
+  std::map<std::uint64_t, DoubleDouble> passives;
 };
 } // namespace ma::experimental::game_kernel
