@@ -14,6 +14,8 @@ namespace MixedAtmospheres.Oni
         private static Dictionary<ValveBase,Sample>? samples;
         internal static void Begin(IEnumerable<ValveBase> valves)
         {samples=new Dictionary<ValveBase,Sample>();foreach(var valve in valves)samples.Add(valve,new Sample());}
+        internal static void Restart(IEnumerable<ValveBase> valves)
+        {if(samples==null)samples=new Dictionary<ValveBase,Sample>();foreach(var valve in valves)samples[valve]=new Sample();}
         internal static void Reset()=>samples=null;
         internal static void Observe(object instance,float dt)
         {
@@ -25,19 +27,14 @@ namespace MixedAtmospheres.Oni
                 try{sample.Before.Add($"call {sample.Calls}, dt {dt:R}: "+State(valve));}
                 catch(Exception error){sample.Before.Add("observation refused: "+error.GetType().Name+": "+error.Message);}
         }
-        internal static bool PositivePartialPhase(IEnumerable<ValveBase> valves,ulong seedFrame,out string detail)
+        internal static bool PositivePhase(ValveBase valve,ulong seedFrame,out string detail)
         {
-            detail=$"seed {seedFrame}, fixed partial window {seedFrame+24}..{seedFrame+28}";var count=0;var ready=true;
-            foreach(var valve in valves)
-            {
-                ++count;
-                if(samples==null||!samples.TryGetValue(valve,out var sample)||sample.Calls<2||!sample.PreviousClosed||!sample.LastClosed)
-                {detail+=$"; {valve.conduitType}: waiting for two actual closed callbacks";ready=false;continue;}
-                var fits=ColonyValvePreparation.TryPartialCallback(seedFrame,sample.PreviousFrame,sample.LastFrame,out var next);
-                detail+=$"; {valve.conduitType}: closed callbacks {sample.PreviousFrame}/{sample.LastFrame}, next partial callback {next}, fits {fits}";
-                ready&=fits;
-            }
-            return count==2&&ready;
+            detail=$"{valve.conduitType} seed {seedFrame}, fixed rate window {seedFrame+10}..{seedFrame+20}, partial window {seedFrame+24}..{seedFrame+28}";
+            if(samples==null||!samples.TryGetValue(valve,out var sample)||sample.Calls<2||!sample.PreviousClosed||!sample.LastClosed)
+            {detail+="; waiting for two actual closed callbacks";return false;}
+            var fits=ColonyValvePreparation.TryCallbackPhase(seedFrame,sample.PreviousFrame,sample.LastFrame,out var next);
+            detail+=$"; closed callbacks {sample.PreviousFrame}/{sample.LastFrame}, rate callbacks {next-15}/{next-10}, next partial callback {next}, fits {fits}";
+            return fits;
         }
         internal static bool NegativePartialPhase(ValveBase valve,ulong seedFrame,out string detail)
         {
