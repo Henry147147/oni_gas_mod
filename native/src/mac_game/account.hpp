@@ -1,5 +1,7 @@
 #pragma once
+#include <bit>
 #include <cmath>
+#include <cstdint>
 #include <limits>
 namespace ma::experimental::game_kernel {
 struct DoubleDouble {
@@ -7,10 +9,11 @@ struct DoubleDouble {
   void add(double x) {
     // Under the kernel's nearest rounding without flush-to-zero, adding a
     // zero to a finite pair whose hi + lo rounds to hi returns both parts bit
-    // for bit, except a -0 part, which the sum below makes +0.
+    // for bit, except a -0 part, which the sum below makes +0. (The earlier
+    // conditions leave no NaN or infinite part, so a -0 test is a bit test.)
     if (x == 0 && hi + lo == hi &&
         std::abs(hi) <= std::numeric_limits<double>::max() &&
-        std::signbit(hi) == (hi < 0) && std::signbit(lo) == (lo < 0))
+        !negative_zero(hi) && !negative_zero(lo))
       return;
     const double sum = hi + x, z = sum - hi, error = (hi - (sum - z)) + (x - z);
     const double tail = lo + error, next = sum + tail;
@@ -18,6 +21,9 @@ struct DoubleDouble {
     hi = next;
   }
   double value() const { return hi + lo; }
+  static bool negative_zero(double v) {
+    return std::bit_cast<std::uint64_t>(v) == std::uint64_t{1} << 63;
+  }
 };
 struct Balance {
   DoubleDouble residual, operands;
