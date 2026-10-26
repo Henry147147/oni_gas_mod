@@ -1,8 +1,12 @@
 #include "mac_fixture.hpp"
 #include "mac_game_liquid_control.hpp"
 #include "mac_game_surface_control.hpp"
+#include "../src/mac_game/account.hpp"
 #include "mixed_atmospheres/mac_kernel.hpp"
 #include <array>
+#include <bit>
+#include <limits>
+#include <random>
 
 namespace {
 using namespace ma;
@@ -29,6 +33,58 @@ long double energy(const MacClosedWorld &world) {
       total += .5L * s.momentum_y[f] * s.momentum_y[f] / I.y[f];
   return total;
 }
+// The account's zero-add shortcut must return what the full two-sum
+// update returns, bit for bit, including signed zeros and non-finite parts.
+void zero_add_matches_two_sum() {
+  struct Reference {
+    double hi = 0, lo = 0;
+    void add(double x) {
+      const double sum = hi + x, z = sum - hi,
+                   error = (hi - (sum - z)) + (x - z);
+      const double tail = lo + error, next = sum + tail;
+      lo = tail - (next - sum);
+      hi = next;
+    }
+  };
+  const auto same = [](const auto &a, const auto &b) {
+    return std::bit_cast<std::uint64_t>(a.hi) ==
+               std::bit_cast<std::uint64_t>(b.hi) &&
+           std::bit_cast<std::uint64_t>(a.lo) ==
+               std::bit_cast<std::uint64_t>(b.lo);
+  };
+  const double inf = std::numeric_limits<double>::infinity();
+  std::vector<double> parts{0.0,  -0.0, 1.0,     -1.0,   0x1p-1074, -0x1p-1074,
+                            0x1p-53, 0x1p-54, 1e300, -1e300, inf,       -inf,
+                            std::numeric_limits<double>::quiet_NaN(),
+                            std::numeric_limits<double>::max()};
+  std::mt19937_64 random(20261026);
+  for (int i = 0; i < 200; ++i)
+    parts.push_back(std::bit_cast<double>(random()));
+  for (const double hi : parts)
+    for (const double lo : parts)
+      for (const double x : {0.0, -0.0}) {
+        Reference reference{hi, lo};
+        game_kernel::DoubleDouble account{hi, lo};
+        reference.add(x);
+        account.add(x);
+        require(same(reference, account),
+                "Account zero add differs from the two-sum update");
+      }
+  for (int run = 0; run < 1000; ++run) {
+    Reference reference;
+    game_kernel::DoubleDouble account;
+    for (int k = 0; k < 64; ++k) {
+      const double x =
+          random() % 3 == 0 ? (random() & 1 ? 0.0 : -0.0)
+                            : std::ldexp(static_cast<double>(random() % 2001) - 1000,
+                                         static_cast<int>(random() % 120) - 60);
+      reference.add(x);
+      account.add(x);
+      require(same(reference, account),
+              "Account accumulation differs from the two-sum update");
+    }
+  }
+}
 void closed_energy(long double before, long double after) {
   require(std::abs(after - before) <=
               1e-12L * (std::abs(before) + std::abs(after)),
@@ -48,6 +104,7 @@ MacClosedSettings config() {
 } // namespace
 int main() {
   try {
+    zero_add_matches_two_sum();
     const auto &f = ma::testing::setup();
     auto state = f.state(8, 4, false, true);
     std::vector<double> temperatures(state.cells.size(), 300);
