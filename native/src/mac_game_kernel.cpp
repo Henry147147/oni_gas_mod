@@ -38,66 +38,123 @@ std::vector<k::Species> table(const SpeciesRegistry &registry,
   }
   return result;
 }
-k::State sparse(const MacTransportState &state) {
+// Fixed chunks of cells for the conversions below, on the pool if any.
+constexpr std::size_t conversion_chunk = 1024;
+void chunks(mac_kernel::Pool *pool, std::size_t cells,
+            const std::function<void(std::size_t, std::size_t, std::size_t)> &job) {
+  const auto count = (cells + conversion_chunk - 1) / conversion_chunk;
+  const auto run = [&](std::size_t chunk) {
+    job(chunk, chunk * conversion_chunk,
+        std::min(cells, (chunk + 1) * conversion_chunk));
+  };
+  if (pool)
+    pool->run(count, run);
+  else
+    for (std::size_t chunk = 0; chunk < count; ++chunk)
+      run(chunk);
+}
+// Dense cells to sparse fields: per-chunk counts, then each chunk fills its
+// own slices.
+k::State sparse(const MacTransportState &state, mac_kernel::Pool *pool = nullptr) {
+  const auto N = state.cells.size();
   k::State result;
-  result.energy.reserve(state.cells.size());
+  result.energy.resize(N);
   result.jx = state.momentum_x;
   result.jy = state.momentum_y;
-  result.masses.offsets.push_back(0);
-  result.passives.offsets.push_back(0);
-  for (const auto &cell : state.cells) {
-    require(cell.energy_remainder_j.is_zero(),
-            "Game kernel requires binary64 primary energy");
-    result.energy.push_back(cell.mixture.energy);
+  const auto count = (N + conversion_chunk - 1) / conversion_chunk;
+  std::vector<std::size_t> mass_start(count + 1), passive_start(count + 1);
+  const auto masses_of = [](const MacMaterialCell &cell) -> const std::vector<double> * {
     // Shared zero storage holds no constituent.
-    if (!cell.mixture.masses.implicit_zero()) {
-      const std::vector<double> &masses = cell.mixture.masses;
-      std::uint32_t key = 0;
-      for (const double mass : masses) {
-        if (mass > 0) {
-          result.masses.species.push_back(key);
-          result.masses.mass.push_back(mass);
-        }
-        ++key;
-      }
+    return cell.mixture.masses.implicit_zero()
+               ? nullptr
+               : &static_cast<const std::vector<double> &>(cell.mixture.masses);
+  };
+  chunks(pool, N, [&](std::size_t chunk, std::size_t first, std::size_t end) {
+    std::size_t masses = 0, passives = 0;
+    for (std::size_t i = first; i < end; ++i) {
+      const auto &cell = state.cells[i];
+      require(cell.energy_remainder_j.is_zero(),
+              "Game kernel requires binary64 primary energy");
+      if (const auto *values = masses_of(cell))
+        for (const double mass : *values)
+          masses += mass > 0;
+      passives += cell.passive_quantities.size();
     }
-    result.masses.offsets.push_back(result.masses.mass.size());
-    for (const auto &q : cell.passive_quantities) {
-      result.passives.species.push_back(q.identity);
-      result.passives.mass.push_back(q.quantity);
-    }
-    result.passives.offsets.push_back(result.passives.mass.size());
-  }
+    mass_start[chunk + 1] = masses;
+    passive_start[chunk + 1] = passives;
+  });
   require(state.full_momentum_x.empty() && state.full_momentum_y.empty(),
           "Game kernel requires binary64 canonical momentum");
+  for (std::size_t chunk = 0; chunk < count; ++chunk) {
+    mass_start[chunk + 1] += mass_start[chunk];
+    passive_start[chunk + 1] += passive_start[chunk];
+  }
+  result.masses.offsets.resize(N + 1);
+  result.masses.species.resize(mass_start.back());
+  result.masses.mass.resize(mass_start.back());
+  result.passives.offsets.resize(N + 1);
+  result.passives.species.resize(passive_start.back());
+  result.passives.mass.resize(passive_start.back());
+  result.masses.offsets[0] = result.passives.offsets[0] = 0;
+  chunks(pool, N, [&](std::size_t chunk, std::size_t first, std::size_t end) {
+    auto mass_at = mass_start[chunk], passive_at = passive_start[chunk];
+    for (std::size_t i = first; i < end; ++i) {
+      const auto &cell = state.cells[i];
+      result.energy[i] = cell.mixture.energy;
+      if (const auto *values = masses_of(cell)) {
+        std::uint32_t key = 0;
+        for (const double mass : *values) {
+          if (mass > 0) {
+            result.masses.species[mass_at] = key;
+            result.masses.mass[mass_at] = mass;
+            ++mass_at;
+          }
+          ++key;
+        }
+      }
+      result.masses.offsets[i + 1] = mass_at;
+      for (const auto &q : cell.passive_quantities) {
+        result.passives.species[passive_at] = q.identity;
+        result.passives.mass[passive_at] = q.quantity;
+        ++passive_at;
+      }
+      result.passives.offsets[i + 1] = passive_at;
+    }
+  });
   return result;
 }
+// Sparse fields back to dense cells. The advance builds them serially: on
+// the pool, the cells' allocations in worker arenas made 12-thread frames
+// about 3% slower.
 MacTransportState dense(const MacTransportState &source, const k::State &state,
                         std::size_t species,
-                        const std::vector<k::Eos> &readings) {
+                        const std::vector<k::Eos> &readings,
+                        mac_kernel::Pool *pool = nullptr) {
   MacTransportState result;
   result.grid = source.grid;
   result.cells.resize(state.energy.size());
   result.momentum_x = state.jx;
   result.momentum_y = state.jy;
   result.occupied_volumes_m3.resize(state.energy.size());
-  for (std::size_t i = 0; i < state.energy.size(); ++i) {
-    auto &cell = result.cells[i];
-    cell.mixture = MixtureInventory(species);
-    cell.mixture.energy = state.energy[i];
-    for (std::size_t a = state.masses.offsets[i];
-         a < state.masses.offsets[i + 1]; ++a)
-      cell.mixture.masses[state.masses.species[a]] = state.masses.mass[a];
-    if (!state.passives.mass.empty())
-      for (std::size_t a = state.passives.offsets[i];
-           a < state.passives.offsets[i + 1]; ++a)
-        cell.passive_quantities.push_back(
-            {state.passives.species[a], state.passives.mass[a]});
-    result.occupied_volumes_m3[i] = readings[i].mass == 0 ? 0
-                                    : readings[i].nR > 0
-                                        ? result.grid.volume_m3()
-                                        : readings[i].liquid_volume;
-  }
+  chunks(pool, state.energy.size(), [&](std::size_t, std::size_t first, std::size_t end) {
+    for (std::size_t i = first; i < end; ++i) {
+      auto &cell = result.cells[i];
+      cell.mixture = MixtureInventory(species);
+      cell.mixture.energy = state.energy[i];
+      for (std::size_t a = state.masses.offsets[i];
+           a < state.masses.offsets[i + 1]; ++a)
+        cell.mixture.masses[state.masses.species[a]] = state.masses.mass[a];
+      if (!state.passives.mass.empty())
+        for (std::size_t a = state.passives.offsets[i];
+             a < state.passives.offsets[i + 1]; ++a)
+          cell.passive_quantities.push_back(
+              {state.passives.species[a], state.passives.mass[a]});
+      result.occupied_volumes_m3[i] = readings[i].mass == 0 ? 0
+                                      : readings[i].nR > 0
+                                          ? result.grid.volume_m3()
+                                          : readings[i].liquid_volume;
+    }
+  });
   return result;
 }
 void fill_trace(MacTraceSinkReport &out, const std::vector<double> &species,
@@ -433,7 +490,7 @@ MacClosedAdvance MacGameKernelAccess::advance_guarded(
     cache.trace_heat = trace_heat;
   }
   MacClosedAdvance result{source, {}};
-  auto state = sparse(source.state());
+  auto state = sparse(source.state(), &cache.tick->worker_pool());
   double elapsed = 0;
   MacEnergySum energy_residual, energy_bound;
   std::vector<k::Eos> last;

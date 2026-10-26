@@ -84,6 +84,9 @@ public:
   std::vector<Eos> evaluate_state(const State &state) const {
     return flow.evaluate_state(state);
   }
+  ma::experimental::mac_kernel::Pool &worker_pool() const {
+    return flow.worker_pool();
+  }
   TickResult advance(const State &initial, double dt, double gravity,
                      double threshold,
                      std::span<const std::uint8_t> liquid_blocked = {}) {
