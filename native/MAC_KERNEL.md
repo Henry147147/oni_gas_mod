@@ -749,6 +749,11 @@ Every executing thread checks the arithmetic environment before it claims a
 block; a thread that fails the check records the fault on the blocks it would
 have run.
 
+The game kernel's tick follows the same rules with the grid's row blocks
+([parallel owner thread](MAC_GAME_KERNEL.md#parallel-owner-thread-and-in-place-owner-edits)):
+physical values keep their serial operation order, and only audit sums are
+associated by block.
+
 ## Validation
 
 `ma_mac_kernel_validation_tests` (CTest `mac_production_kernel_oracle`)

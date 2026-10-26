@@ -23,9 +23,9 @@ region audits check species, passives, U+K+G and canonical momentum with wall
 and body impulses, at the accepted relative1e-12 operand bound. Traces enter
 the named sink. Entropy is reported as a diagnostic, without admission retries.
 
-The initial owner bridge retains dense compatibility state around the sparse
-tick. This deliberately leaves copy and publication costs to measure and then
-remove. Native shadow/body heat remains an external booked exchange; duplicate
+The owner bridge retains dense compatibility state around the sparse tick.
+Its per-edit copies and audit passes are now mostly removed; see
+[parallel owner thread](#parallel-owner-thread-and-in-place-owner-edits). Native shadow/body heat remains an external booked exchange; duplicate
 internal fluid conduction, phase relaxation and settling are skipped. Opened
 cells start empty and expand through physical face flow. Core20 stores sparse
 species/passives, energy, face momentum, geometry/masks, clock/revision,
@@ -110,8 +110,8 @@ images matched. Refreshed profile3 and in-game evidence is recorded below.
 No private-playtest-ready or performance pass is claimed. The coupled material
 transport remains donor-cell plus an interface correction; the limited-linear
 FCT component is not integrated. Saved vacuum-front limiting, region sleep,
-registered native-body contacts, sparse owner transactions/publication and the
-fixed floor/reference comparisons remain open. The measured gravity/flow
+registered native-body contacts, cached physical publication and the fixed
+floor/reference comparisons remain open. The measured gravity/flow
 entropy loss is still unresolved. These are tracked against the accepted
 [design](../docs/game-kernel-spec.md) and
 [private readiness checklist](../docs/private-playtest-release.md).
@@ -296,3 +296,49 @@ transition at tick193, but that standalone driver omits the owner's
 SaltWater-to-Brine conversion and solid byproduct. This result establishes a
 limit of that diagnostic, not an integrated-owner failure; an actual game run
 with conversion and freezing remains required.
+
+## Parallel owner thread and in-place owner edits
+
+The 12-thread owner thread was about 88% serial (2026-10-26, Terra frame-50
+dump): the pressure stage's setup and publication, component layout, region
+and whole-state audits, trace sinks, sharpening and transport setup, layering
+and the dense/sparse conversions each ran one serial pass over the grid. Most
+of these now run in the grid's fixed row blocks
+([determinism](MAC_KERNEL.md#determinism)); the rules below keep every
+physical value bit-identical to the serial passes, for any worker count.
+
+- A cell that sums terms from several faces gathers them in the order of the
+  original face loops (left and right x faces, then bottom and top y faces).
+  Pressure assembly and the post-pressure energy pass work this way.
+- Work whose order spans cells or faces (trace-sink, layering and sharpening
+  bookings, interface-cluster registration, transport face scheduling) finds
+  its cells and faces in row blocks, then books them serially in the original
+  order.
+- Sparse results are packed from per-block counts.
+- Pressure components are slices of flat arrays, numbered by lowest cell.
+
+Audit sums are the one place association changes. The tick's opening and
+closing captures sum each block's cells, then its x and y faces, into the
+global totals and into per-block region partials, merged in block order;
+phase-conversion booking does the same, and the pressure stage's wall and
+body impulse sums are block partials. Only the last bits of audit residuals
+and reported impulses change, identically for every worker count.
+
+Owner edits no longer copy the state for each batch. A game world keeps the
+audit totals its producing operation summed (the tick's closing totals,
+carried through heat and transfer edits). A transfer audit books only the
+touched cells and the edited cells' faces against those whole-world operands.
+An expiring owner (`std::move(world).with_cell_heat(...)`, likewise
+`with_fluid_transfers`) whose state no other world shares is edited in place;
+an edit journal records each cell, face momentum and occupied volume before
+its first change, supplies the audit's original values in both forms and
+undoes a refused batch. The colony owner passes its frame world this way, so
+only the frame's first edit copies the published state, and its ledger closes
+on the kept totals.
+
+Rejected after measurement: persistent transport scratch (1.3% slower at one
+thread), building dense cells on the pool (3% slower at twelve), and frozen
+shared inventories (a state copy is dominated by its cell array, not the
+inventories). Checkpoint formats and bytes, saved settings and physics are
+unchanged; each commit message gives its interleaved A/B measurement.
+
