@@ -3,6 +3,7 @@
 #include "account.hpp"
 #include "region.hpp"
 #include "sparse.hpp"
+#include "liquid_boundary.hpp"
 namespace ma::experimental::game_kernel {
 struct PatchResult {
   SparseMass masses;
@@ -53,7 +54,8 @@ public:
           const std::vector<double> &qx, const std::vector<double> &qy,
           double gravity, bool auditing = true,
           const SparsePassive *initial_passives = nullptr,
-          RegionAudit *regions = nullptr) {
+          RegionAudit *regions = nullptr,
+          const LiquidBoundary *boundary = nullptr) {
     namespace k = ma::experimental::mac_kernel;
     PatchResult result;
     result.energy = energy;
@@ -141,6 +143,21 @@ public:
           active.insert(active.end(), groups[lev].begin(), groups[lev].end());
       if (active.empty())
         continue;
+      if (boundary)
+        for (const auto &face : active) {
+          const auto &left = face.x ? g.xl : g.yl;
+          const auto &right = face.x ? g.xr : g.yr;
+          const auto donor = face.q > 0 ? left[face.index] : right[face.index];
+          const auto target = face.q > 0 ? right[face.index] : left[face.index];
+          if ((boundary->blocked[target] || boundary->blocked[donor]) &&
+              std::any_of(cells[donor].begin(), cells[donor].end(),
+                          [&](const auto &part) {
+                            return part.second > 0 &&
+                                   !boundary->species[part.first].gas;
+                          }))
+            throw LiquidBoundaryConflict(face.x, face.index, donor, target,
+                                         tick);
+        }
       ++stamp;
       ++result.microticks;
       std::vector<std::size_t> affected;

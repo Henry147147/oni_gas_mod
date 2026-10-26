@@ -485,7 +485,15 @@ namespace MixedAtmospheres.Oni
                     (SimHashes.Oxygen, .3f, 300f));
             if (Once(6, "build"))
             {
-                for (var y = 0; y < Height; ++y) Build(GasPermeableMembraneConfig.ID, Cell(4, y));
+                for (var y = 0; y < Height; ++y)
+                {
+                    var tile=Build(GasPermeableMembraneConfig.ID,Cell(4,y));
+                    var occupier=tile.GetComponent<SimCellOccupier>();
+                    if(occupier==null||!occupier.IsInitialized())throw new InvalidOperationException("Airflow tile component was not initialized.");
+                    // The normal routine runs OnSpawn once; Unity's later Start uses the same guard.
+                    occupier.Spawn();
+                    if(!occupier.isSpawned||!occupier.setLiquidImpermeable)throw new InvalidOperationException("Airflow tile did not spawn its liquid barrier.");
+                }
                 for (var y = 0; y < Height; ++y) SimMessages.Dig(Cell(4, y));
             }
             if (Once(8, "start")) recorded["right"] = RightGas();
@@ -861,17 +869,35 @@ namespace MixedAtmospheres.Oni
             var value=ColonyCheckpointMetadata.InjectedMass(image,hash);
             return new PipeAmount(value.High).Plus(new PipeAmount(value.Low));
         }
-        private static double LocalLeadInventory()
+        private static double LocalLeadInventory(out string source)
         {
-            var fluid=ArenaSpecies((SimHashes)ladderMeltHash);
-            double solid=0;
-            for(var y=0;y<Height;++y)for(var x=0;x<Width;++x)
-                if(Grid.Solid[Cell(x,y)]&&Grid.Element[Cell(x,y)].id==SimHashes.Lead)solid+=Grid.Mass[Cell(x,y)];
-            var debris=Components.Pickupables.Items.Where(item=>item!=null&&item.GetComponent<PrimaryElement>() is PrimaryElement element&&
-                    (element.ElementID==SimHashes.Lead||(int)element.ElementID==ladderMeltHash))
-                .Where(item=>{Grid.CellToXY(Grid.PosToCell(item),out var x,out var y);return x>=x0&&x<x0+Width&&y>=y0&&y<y0+Height;})
-                .Sum(item=>(double)item.GetComponent<PrimaryElement>().Mass);
-            return fluid+solid+debris;
+            // Two immediate reads can straddle an already-running worker publication;
+            // neither requests a frame, waits for a worker or changes the source schedule.
+            for(var attempt=0;attempt<2;++attempt)
+            {
+                var published=ColonyOwner.Status.CompletedFrames;
+                var cells=new uint[Width*Height];
+                for(var y=0;y<Height;++y)for(var x=0;x<Width;++x)cells[y*Width+x]=(uint)Cell(x,y);
+                var rows=new MeltSampleCell[cells.Length];var parts=new MeltSamplePart[checked(cells.Length*ColonyOwner.Materials.Length)];
+                OniNativeColony.Check(SampleMelt(cells,(uint)cells.Length,out var before,rows,parts,(uint)parts.Length,out var count,out _));
+                var material=ElementLoader.FindElementByHash((SimHashes)ladderMeltHash).idx;double fluid=0;
+                for(var k=0U;k<count;++k)if(parts[k].NativeIndex==material)fluid+=parts[k].Mass;
+                double solid=0;
+                for(var y=0;y<Height;++y)for(var x=0;x<Width;++x)
+                    if(Grid.Solid[Cell(x,y)]&&Grid.Element[Cell(x,y)].id==SimHashes.Lead)solid+=Grid.Mass[Cell(x,y)];
+                var debris=Components.Pickupables.Items.Where(item=>item!=null&&item.GetComponent<PrimaryElement>() is PrimaryElement element&&
+                        (element.ElementID==SimHashes.Lead||(int)element.ElementID==ladderMeltHash))
+                    .Where(item=>{Grid.CellToXY(Grid.PosToCell(item),out var x,out var y);return x>=x0&&x<x0+Width&&y>=y0&&y<y0+Height;})
+                    .Sum(item=>(double)item.GetComponent<PrimaryElement>().Mass);
+                var receipts=new OniNativeColony.Receipt[4096];OniNativeColony.Check(OniNativeColony.CopyReceipts(receipts,(uint)receipts.Length,out var available));
+                var after=before;OniNativeColony.Check(OniNativeColony.CopyStatus(ref after));var publishedAfter=ColonyOwner.Status.CompletedFrames;
+                if(attempt==0&&(before.CompletedFrames!=after.CompletedFrames||published!=publishedAfter))continue;
+                var census=ColonyMeltCustody.Count(fluid+solid+debris,before.CompletedFrames,after.CompletedFrames,published,publishedAfter,
+                    (Grid.WidthInCells,x0,y0,Width,Height),(int)SimHashes.Lead,receipts,available);
+                source=$"native {before.CompletedFrames-started}, published {published-started}, fluid {fluid:G6}, solid {solid:G6}, debris {debris:G6}, pending byproduct {census.Pending:G6} kg";
+                return census.Total;
+            }
+            throw new InvalidOperationException("Melt custody did not produce a coherent observation.");
         }
         private static void BuildingMelt(int frame, OniNativeColony.Status status)
         {
@@ -887,10 +913,10 @@ namespace MixedAtmospheres.Oni
                 ladderMeltHash=(int)element.Element.highTempTransitionTarget;
                 var before=ColonyOwner.Checkpoint();var sourceFrame=ColonyCheckpointMetadata.CompletedFrames(before);
                 if(sourceFrame>started+9)throw new InvalidOperationException("Melt source baseline is past its original setup frame.");
-                ladderInjectionBefore=AdmittedMaterial(before,ladderMeltHash);recorded["local lead"]=LocalLeadInventory();
+                ladderInjectionBefore=AdmittedMaterial(before,ladderMeltHash);recorded["local lead"]=LocalLeadInventory(out var baselineCustody);
                 var ownedBefore=OwnedMeltSample(sourceFrame);
                 Record("the ladder is the arena's metal source",recorded["local lead"]==0&&ownedBefore==0,
-                    $"native frame {sourceFrame-started}, local lead {recorded["local lead"]:R} kg, owned liquid {ownedBefore:R} kg");
+                    $"native frame {sourceFrame-started}, local lead {recorded["local lead"]:R} kg, owned liquid {ownedBefore:R} kg; {baselineCustody}");
                 ladderProofFrame=ladderLastProofPublished=0;ladderProofPassed=false;ladderOwnedLiquidByDeadline=0;ladderInjectionByDeadline=PipeAmount.Zero;
                 AccessTools.Method(typeof(StructureTemperatureComponents), "DoMelt").Invoke(null, new object[] { element });
             }
@@ -911,10 +937,10 @@ namespace MixedAtmospheres.Oni
             if (Once(14, "check"))
             {
                 var added=ladderInjectionByDeadline.Value;
-                var local=LocalLeadInventory()-recorded["local lead"];
+                var local=LocalLeadInventory(out var custody)-recorded["local lead"];
                 Record("the melted ladder's metal reached the owner", ladder == null && Math.Abs(added - recorded["mass"]) < .01 * recorded["mass"]&&
                     Math.Abs(local-recorded["mass"])<.01*recorded["mass"]&&ladderProofPassed&&ladderProofFrame>0&&ladderProofFrame<=started+14,
-                    $"ladder {(ladder == null ? "gone" : "still standing")}, {recorded["mass"]:G4} kg melted, {added:G4} kg admitted metal, {local:G4} kg local liquid/solid/debris; {ladderOwnedLiquidByDeadline:G4} kg owned liquid at native frame {ladderProofFrame-started}; all-fluid injection {status.InjectedKg-recorded["injected"]:G4} kg");
+                    $"ladder {(ladder == null ? "gone" : "still standing")}, {recorded["mass"]:G4} kg melted, {added:G4} kg admitted metal, {local:G4} kg local liquid/solid/debris/pending; {custody}; {ladderOwnedLiquidByDeadline:G4} kg owned liquid at native frame {ladderProofFrame-started}; all-fluid injection {status.InjectedKg-recorded["injected"]:G4} kg");
                 Finish();
             }
         }

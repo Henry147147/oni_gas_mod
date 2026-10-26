@@ -82,7 +82,48 @@ public:
     return flow.evaluate_state(state);
   }
   TickResult advance(const State &initial, double dt, double gravity,
-                     double threshold) {
+                     double threshold,
+                     std::span<const std::uint8_t> liquid_blocked = {}) {
+    const LiquidBoundary boundary{liquid_blocked, species};
+    // A preceding tick may have condensed liquid inside a marked cell. Keep
+    // such a cell isolated before pressure AND the later layer/sharpen stages;
+    // a transport-only guard cannot see a zero-sweep exchange face.
+    if (!liquid_blocked.empty()) {
+      const auto &g = flow.kernel_grid();
+      std::vector<LiquidBoundaryFace> conflicts;
+      for (std::size_t i = 0; i < liquid_blocked.size(); ++i) {
+        if (!liquid_blocked[i])
+          continue;
+        bool wet = false;
+        for (std::size_t a = initial.masses.offsets[i];
+             a < initial.masses.offsets[i + 1]; ++a)
+          wet = wet || (initial.masses.mass[a] > 0 &&
+                        !species[initial.masses.species[a]].gas);
+        if (!wet)
+          continue;
+        for (const auto &[x, face] :
+             {std::pair{true, g.left_face(i)},
+              std::pair{true, g.right_face(i)},
+              std::pair{false, g.bottom_face(i)},
+              std::pair{false, g.top_face(i)}}) {
+          const auto l = (x ? g.xl : g.yl)[face];
+          const auto r = (x ? g.xr : g.yr)[face];
+          if (l == ma::experimental::mac_kernel::none ||
+              r == ma::experimental::mac_kernel::none || g.closed(!x, face))
+            continue;
+          conflicts.push_back({x, face, i, l == i ? r : l});
+        }
+      }
+      if (!conflicts.empty()) {
+        std::sort(conflicts.begin(), conflicts.end(), [](const auto &a, const auto &b) {
+          return a.x != b.x ? a.x < b.x : a.face < b.face;
+        });
+        conflicts.erase(std::unique(conflicts.begin(), conflicts.end(), [](const auto &a, const auto &b) {
+          return a.x == b.x && a.face == b.face;
+        }), conflicts.end());
+        throw LiquidBoundaryConflict(std::move(conflicts));
+      }
+    }
     const auto start = std::chrono::steady_clock::now();
     const auto before =
         totals(grid, initial, species.size(), gravity, &flow.kernel_grid());
@@ -152,7 +193,8 @@ public:
     for (unsigned part = 0; part < parts; ++part) {
       prune();
       auto stage_start = std::chrono::steady_clock::now();
-      auto advanced = flow.advance(out.state, dt / parts, gravity, &regions);
+      auto advanced = flow.advance(out.state, dt / parts, gravity, &regions,
+                                   liquid_blocked.empty() ? nullptr : &boundary);
       out.flow_ms += ms(stage_start);
       out.pressure_ms += advanced.pressure_ms;
       out.transport_ms += advanced.transport_ms;

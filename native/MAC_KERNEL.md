@@ -470,7 +470,7 @@ implicitly; new-profile ten-cycle acceptance needs a fresh prepared base.
 | Cells | gas, filled liquid (single or several liquids), gas/liquid mixtures, exact empty cells, solids |
 | Vacuum representation | 0 empty cells, 1 [void phase](MAC_VACUUM.md#void-phase) (gas and [liquid surfaces](MAC_VACUUM.md#liquid-surfaces); midpoint pressure) |
 | Unresolved subcell void | 0 exact geometry (default), 1 [audited gas expansion](MAC_VACUUM.md#unresolved-gas-opt-in), persisted in version 12; supported production void-phase selectors only, no reference fallback |
-| Closed faces | `MacGrid::closed_x/closed_y` between two open cells: fixed like a wall face (no flow, pressure and weight go to the wall account, no viscous slip) but still conducting; set by `MacClosedWorld::with_closed_faces`, not persisted, discrete-gradient pressure only, no reference fallback |
+| Closed faces | `MacGrid::closed_x/closed_y` between two open cells: fixed like a wall face (no flow, pressure and weight go to the wall account, no viscous slip) but still conducting; set by `MacClosedWorld::with_closed_faces`, not persisted by this production kernel (game-kernel core20–23 checkpoints do persist them), discrete-gradient pressure only, no reference fallback |
 
 Swept (2) material reconstruction, momentum selectors 2–5, coupled
 compressive pressure (3), and incomplete Cholesky with moment pressure are

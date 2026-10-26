@@ -371,13 +371,21 @@ matches, after the potential at its height.
 ## Airflow tiles
 
 ONI marks an airflow tile's cell liquid-impermeable (`SetCellProperties`); the
-owner keeps that mark per cell (saved with the colony). At the start of each
-step every face of a marked cell with liquid on either side is
-[closed](../native/MAC_KERNEL.md#coverage-and-admission) for that step, so gas
-passes through the tile and liquid cannot enter it. Liquid that still reached a
-marked cell during a step (its faces close only at the next step) moves on to
-the open neighbour holding the most liquid. Mesh tiles change nothing: both
-phases pass.
+owner keeps that mark per cell (saved with the colony). New game-kernel owners
+record boundary law12. Faces touching liquid close before external edits and
+are refreshed before flow. If a moving liquid front would cross a marked
+cell's face, the complete trial interval is discarded and repeated from its
+original state with that face closed, including a new pressure/work solve.
+Condensation inside a marked cell isolates its faces before the next tick's
+flow and interface operations. Only accepted flow, conversions and trace
+removal are booked; closing momentum is reported as wall impulse. Dry paths
+still pass gas.
+
+Wrappers8–11 retain the earlier mask computed once before external edits,
+including its moving-front limitation. Both laws expel direct-source liquid
+and condensate from marked cells into an open neighbour holding the most
+liquid. Mesh tiles pass both phases. The core checkpoint stores game-kernel
+face masks; the owner wrapper records which boundary law rebuilds them.
 
 ## Pacing
 
@@ -647,8 +655,9 @@ trial closes its incident face on the original interval state; the complete
 pressure/work solve repeats before any trial output is committed. Wet marked
 cells are isolated at tick entry, including after condensation in a merged
 interval. Wrappers8–11 retain their existing boundary law and bytes. Core23,
-profile5 and its numerical equations remain unchanged. Implementation and
-in-game acceptance are pending.
+profile5 and its numerical equations remain unchanged. Native controls pass
+water blocking, gas passage, merged condensation, M/E/J and new/old cold
+continuation. In-game acceptance remains pending.
 
 **Reserved 2026-10-25, immediately after fetching `3391741`:** owner wrapper
 `MACOLN01` version **11** is assigned to durable precision-overflow inventory
@@ -657,7 +666,8 @@ source/radius, mass and signed energy corrections, including energy remaining
 after mass release. Native-held inventory and actual grid credits must close
 together through refusal, release and cold continuation. Legacy reservoir
 behaviour and core23/profile5 arithmetic stay unchanged; an unused facility
-retains existing wrapper bytes. In-game acceptance is pending.
+retains existing wrapper bytes under the older boundary law. The original
+WindowsPlayer pump-retirement check and ordinary save/cold continuation pass.
 
 The implemented owner block follows the version-10 germ section (mode zero is
 also valid in wrapper11) and precedes the core image length. It is a u32 byte
@@ -666,8 +676,9 @@ public source, public anchor, radius (2), native species index, binary64 mass,
 binary64 nominal source temperature, and canonical `MacEnergySum` total U+K+G.
 Each sum uses the existing parcel-wire count and mantissa/exponent components.
 The block is bounded to 16 MiB and 65,536 records. Wrapper11 is sticky after
-first use, including after the inventory empties; owners that never use it
-retain their existing 8/9/10 writer and bytes. The core remains version23.
+first use, including after the inventory empties; older-boundary owners that
+never use it retain their existing 8/9/10 writer and bytes. New boundary-law12
+owners include this block even when empty. The core remains version23.
 
 Only durable precise, stationary, passive-free gas injections can enter this
 inventory, after every legal original-radius destination refuses its mass as

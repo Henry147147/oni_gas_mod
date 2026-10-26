@@ -107,7 +107,9 @@ namespace MixedAtmospheres.Oni
             if (image.Length < 12 || !image.Slice(0,8).SequenceEqual(OwnerMagic))
                 throw new InvalidDataException("Missing colony checkpoint framing.");
             version=BinaryPrimitives.ReadUInt32LittleEndian(image.Slice(8,4));
-            if(version<6 || version>11) throw new InvalidDataException("Unsupported colony checkpoint metadata version.");
+            // Wrapper12 selects the conservative owner boundary law and keeps
+            // wrapper11's complete framing, including its precision block.
+            if(version<6 || version>12) throw new InvalidDataException("Unsupported colony checkpoint metadata version.");
             var at=12;
             Skip(image,ref at,56); // MAOniColonyConfig
             materials=U32(image,ref at);materialTable=at;

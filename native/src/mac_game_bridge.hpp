@@ -11,6 +11,10 @@ struct MacGameKernelAccess {
                          MacTransportState &, std::span<const double>,
                          const MacClosedSettings &);
   static MacClosedAdvance advance(const MacClosedWorld &, double, std::size_t);
+  // Call-scoped owner boundary law; ordinary advance remains unguarded.
+  static MacClosedAdvance advance_guarded(const MacClosedWorld &, double,
+                                         std::size_t,
+                                         std::span<const std::uint8_t>);
   static MacTraceSink trace(const MacClosedWorld &);
   static MacClosedWorld heat(const MacClosedWorld &,
                              std::span<const MacCellHeat>);

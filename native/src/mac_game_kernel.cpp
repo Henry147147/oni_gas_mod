@@ -414,8 +414,19 @@ void MacGameKernelAccess::validate(const MacClosedWorld &world,
 MacClosedAdvance MacGameKernelAccess::advance(const MacClosedWorld &source,
                                               double seconds,
                                               std::size_t budget) {
+  return advance_guarded(source, seconds, budget, {});
+}
+MacClosedAdvance MacGameKernelAccess::advance_guarded(
+    const MacClosedWorld &source, double seconds, std::size_t budget,
+    std::span<const std::uint8_t> liquid_blocked) {
   require_mac_energy_environment();
   source.settings_.validate();
+  require(liquid_blocked.empty() ||
+              liquid_blocked.size() == source.state().cells.size(),
+          "Owner liquid boundary shape differs");
+  require(std::all_of(liquid_blocked.begin(), liquid_blocked.end(),
+                      [](std::uint8_t v) { return v <= 1; }),
+          "Invalid owner liquid boundary mark");
   require(std::isfinite(seconds) && seconds > 0 && seconds <= 10 &&
               budget > 0 && budget <= 65536,
           "Invalid game interval/budget");
@@ -475,7 +486,8 @@ MacClosedAdvance MacGameKernelAccess::advance(const MacClosedWorld &source,
         std::min(source.settings_.maximum_timestep_s, seconds - elapsed);
     auto next =
         cache.tick->advance(state, dt, source.settings_.gravity_m_per_s2,
-                            source.settings_.trace_sink_threshold_kg);
+                            source.settings_.trace_sink_threshold_kg,
+                            liquid_blocked);
     state = std::move(next.state);
     last = std::move(next.eos);
     MacTraceSinkReport sink;

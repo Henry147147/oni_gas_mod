@@ -104,7 +104,8 @@ public:
     return result;
   }
   FlowReport advance(const State &initial, double dt, double gravity,
-                     RegionAudit *regions = nullptr) {
+                     RegionAudit *regions = nullptr,
+                     const LiquidBoundary *boundary = nullptr) {
     namespace k = ma::experimental::mac_kernel;
     FlowReport result;
     auto start = std::chrono::steady_clock::now();
@@ -195,7 +196,7 @@ public:
     auto remap =
         patch.advance(result.state.masses, result.state.energy, result.state.jx,
                       result.state.jy, projected.qx, projected.qy, gravity,
-                      audit_mode, &initial.passives, regions);
+                      audit_mode, &initial.passives, regions, boundary);
     result.subcycles = remap.microticks;
     result.transport_cells = remap.cell_updates;
     result.transport_faces = remap.face_updates;

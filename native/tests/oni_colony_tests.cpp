@@ -26,6 +26,8 @@
 #include <thread>
 #include <vector>
 
+void airflow_boundary_control();
+
 namespace {
 #if defined(_WIN32)
 int setenv(const char* name,const char* value,int overwrite) {
@@ -728,7 +730,7 @@ void precision_inventory_control() {
     std::array<MAOniColonyCell,25> cells{};for(auto& cell:cells)cell={oxygen,MA_ONI_COLONY_FLUID,.6f,300,0,0};
     cells[12]={0,MA_ONI_COLONY_SOLID,0,0,0,0};
     start(cfg,mats,cells,1);enable_precise_receipts(true);
-    const auto unused=checkpoint();require(unused[8]==8,"unused precision feature changed legacy framing");
+    const auto unused=checkpoint();require(unused[8]==12,"new game owner did not retain boundary-law framing");
     const MAOniColonyTransfer injection{12,oxygen,MA_ONI_COLONY_INJECT,2,-1,0,0x1p-54,300,0};
     (void)queue_pipe_job(1,injection,{});const auto queued=checkpoint();
     const auto accept=[&] {
@@ -749,7 +751,7 @@ void precision_inventory_control() {
         return bytes;
     };
     const auto receipt=accept(),held_wire=precision_inventory(),accepted=checkpoint();
-    require(accepted[8]==11,"precision inventory did not select reserved wrapper11");
+    require(accepted[8]==12,"precision inventory changed the new owner boundary law");
     if(const char* path=std::getenv("MA_PRECISION_TEST_IMAGE")) {std::ofstream f(path,std::ios::binary);f.write(reinterpret_cast<const char*>(accepted.data()),static_cast<std::streamsize>(accepted.size()));require(bool(f),"cannot write native controlled image");}
     stop();restore(cfg,mats,queued,1);enable_precise_receipts(true);
     require(accept()==receipt && checkpoint()==accepted,"queued precision acceptance cold replay differs");
@@ -792,7 +794,7 @@ void precision_inventory_control() {
     (void)queue_pipe_job(1,liquid_request,{});advance(1,.000001,2);wait();
     require(status().state==1 && status().injected_kg==0 && decode_precision_inventory(precision_inventory()).empty(),"unsupported liquid entered precision inventory");
     require(copy_receipts(&second,1)==1 && second.mass_kg==0,"unsupported liquid did not retain zero receipt");
-    ack_receipts(second.sequence);require(checkpoint()[8]==8,"unsupported request changed legacy wrapper");stop();
+    ack_receipts(second.sequence);require(checkpoint()[8]==12,"unsupported request changed owner framing");stop();
     for(auto& cell:cells)cell={oxygen,MA_ONI_COLONY_FLUID,.6f,300,0,0};
     cells[12]={0,MA_ONI_COLONY_SOLID,0,0,0,0};
     for(const double invalid_temperature:{.5,1e10}) {
@@ -800,7 +802,7 @@ void precision_inventory_control() {
         (void)queue_pipe_job(1,request,{});advance(1,.000001,2);wait();
         require(status().state==1 && status().injected_kg==0 && decode_precision_inventory(precision_inventory()).empty(),"out-of-EOS source temperature entered precision inventory");
         require(copy_receipts(&second,1)==1 && second.mass_kg==0,"invalid-temperature source lost conservative refusal");
-        ack_receipts(second.sequence);require(checkpoint()[8]==8,"invalid-temperature source selected wrapper11");stop();
+        ack_receipts(second.sequence);require(checkpoint()[8]==12,"invalid-temperature source changed owner framing");stop();
     }
     // The writer and reader share field/reporting validation. Construct raw
     // malformed records independently rather than asking the writer to emit
@@ -863,7 +865,7 @@ void precision_inventory_control() {
             require(balance.sign()==0,"heat-only correction created or discarded actual grid energy");
         }
     }
-    std::cout<<"PASS precision inventory: actual native sub-ULP ownership, exact receipt energy, wrapper11 cold continuation, original radius and internal late release\n";
+    std::cout<<"PASS precision inventory: actual native sub-ULP ownership, exact receipt energy, wrapper12 cold continuation, original radius and internal late release\n";
 }
 void pipe_job_control() {
     using namespace ma::oni::colony;
@@ -1603,6 +1605,7 @@ int main(int argc, char** argv) {
         if (argc == 2 && std::strcmp(argv[1], "--release-capture-only") == 0) { release_capture_control();exact_release_control(); return 0; }
         if (argc == 2 && std::strcmp(argv[1], "--pipe-jobs-only") == 0) { moving_job_control(); pipe_job_control(); return 0; }
         if (argc == 2 && std::strcmp(argv[1], "--precision-inventory-only") == 0) { precision_inventory_control(); return 0; }
+        if (argc == 2 && std::strcmp(argv[1], "--airflow-boundary-only") == 0) { airflow_boundary_control(); return 0; }
         if (argc == 2 && std::strcmp(argv[1], "--tiny-injection-only") == 0) { tiny_injection_neighbour_control(); return 0; }
         if (argc == 2 && std::strcmp(argv[1], "--parcel-wire-only") == 0) { parcel_wire_control(); parcel_outcome_control(); return 0; }
         if (argc == 2 && std::strcmp(argv[1], "--falling-solid-only") == 0) { falling_solid_control(); return 0; }
@@ -1625,6 +1628,7 @@ int main(int argc, char** argv) {
         quiet_game_cell_control();
         moving_job_control();
         tiny_injection_neighbour_control();
+        airflow_boundary_control();
         precision_inventory_control();
         pipe_job_control();
         sample_control();

@@ -210,7 +210,7 @@ internal static unsafe class Program
         Test("save frame metadata follows durable image across reservoir and trace framing", () =>
         {
             const ulong durable=0x100000002;
-            foreach(var version in new uint[]{6,7,8,9,10,11})
+            foreach(var version in new uint[]{6,7,8,9,10,11,12})
             {
                 using var stream=new MemoryStream();using var writer=new BinaryWriter(stream);
                 writer.Write(System.Text.Encoding.ASCII.GetBytes("MACOLN01"));writer.Write(version);writer.Write(new byte[56]);
@@ -230,7 +230,7 @@ internal static unsafe class Program
         });
         Test("material admission metadata preserves canonical terms and native catalogue order", () =>
         {
-            foreach(var version in new uint[]{6,7,8,9,10,11})
+            foreach(var version in new uint[]{6,7,8,9,10,11,12})
             {
                 using var stream=new MemoryStream();using var writer=new BinaryWriter(stream);
                 writer.Write(System.Text.Encoding.ASCII.GetBytes("MACOLN01"));writer.Write(version);writer.Write(new byte[56]);writer.Write(2u);
@@ -309,6 +309,13 @@ internal static unsafe class Program
                 Check(ColonyCheckpointMetadata.InjectedMass(image,111)==(Math.ScaleB(1,-54),0));
                 Check(ColonyCheckpointMetadata.PhysicalImage(image).Slice(0,8).SequenceEqual(System.Text.Encoding.ASCII.GetBytes("MACCLS01")));
             });
+        if(Environment.GetEnvironmentVariable("MA_AIRFLOW_TEST_IMAGE") is string airflowImagePath)
+            Test("actual native conservative-airflow checkpoint metadata", () =>
+            {
+                var image=File.ReadAllBytes(airflowImagePath);var unchanged=(byte[])image.Clone();
+                Check(ColonyCheckpointMetadata.Profile(image).Equals(new ColonyPhysicalProfile(12,23,1,400,800,8)));
+                Check(ColonyCheckpointMetadata.CompletedFrames(image)==1 && image.SequenceEqual(unchanged));
+            });
         Test("restored physical profile reads the saved law and caps through every owner section", () =>
         {
             byte[] Owner(uint version,uint physicalVersion,uint law,uint pressure,uint heat,bool jobs,double mixing=.5)
@@ -346,7 +353,7 @@ internal static unsafe class Program
                 writer.Write((ulong)physical.Length);writer.Write(physical.ToArray());writer.Write(new byte[64]);
                 return stream.ToArray();
             }
-            foreach(var version in new uint[]{6,7,8,9,10,11})
+            foreach(var version in new uint[]{6,7,8,9,10,11,12})
                 foreach(var jobs in new[]{false,true})
                 {
                     var core21=Owner(version,21,1,400,800,jobs);
@@ -370,6 +377,9 @@ internal static unsafe class Program
                     var longer=new byte[core21.Length+1];core21.CopyTo(longer,0);
                     var refused=false;try{ColonyCheckpointMetadata.Profile(longer);}catch(InvalidDataException){refused=true;}Check(refused);
                 }
+            var unknownRefused=false;
+            try{ColonyCheckpointMetadata.Profile(Owner(13,23,1,400,800,false,8));}catch(InvalidDataException){unknownRefused=true;}
+            Check(unknownRefused);
         });
         Test("report readers see complete replacements and failed writes preserve the last report", () =>
         {

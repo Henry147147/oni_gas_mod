@@ -9,6 +9,7 @@
 #include "oni_precise_receipt.hpp"
 #include "oni_parcel_admission.hpp"
 #include "oni_precision_inventory.hpp"
+#include "oni_liquid_boundary.hpp"
 #include "oni_release_capture.hpp"
 #include "oni_transfer_capture.hpp"
 #include "oni_world_biology.hpp"
@@ -143,6 +144,7 @@ struct Session {
     std::vector<ReservoirEntry> reservoir;
     std::vector<detail::PrecisionParcel> precision;
     bool precision_used=false;
+    bool conservative_liquid_boundary=false; // saved by owner wrapper 12
     std::vector<MacSaturationPair> pairs; // liquid/vapour pairs that boil and condense
     std::shared_ptr<const MacClosedWorld> world;
     Ledger ledger;
@@ -721,9 +723,9 @@ MacClosedWorld close_blocked_faces(const Session& s, MacClosedWorld world) {
     if (x == grid.closed_x && y == grid.closed_y) return world;
     return world.with_closed_faces(std::move(x), std::move(y));
 }
-// Liquid that reached a blocking cell during a step (its faces close only at
-// the next step) moves on to the open neighbour holding the most liquid, or
-// the one below.
+// Direct inputs and phase changes may place liquid inside a blocking cell.
+// Move that inventory to the open neighbour holding the most liquid, or the
+// one below. Legacy owners also use this for liquid arriving during flow.
 MacClosedWorld expel_blocked_liquid(Session& s, MacClosedWorld world) {
     const auto& grid = world.state().grid; const auto w = grid.width, h = grid.height; std::vector<struct Move> moves;
     for (std::size_t i = 0; i < s.blocking.size(); ++i) {
@@ -1051,6 +1053,7 @@ void start(const MAOniColonyConfig& config, std::span<const MAOniColonyMaterial>
     require(cells.size() == static_cast<std::size_t>(config.width) * config.height, "The colony inventory must cover the rectangle");
     auto next = std::make_unique<Session>();
     next->config = config; next->materials.assign(materials.begin(), materials.end()); next->catalogue = catalogue_of(materials);
+    next->conservative_liquid_boundary=(config.flags&MA_ONI_COLONY_GAME_KERNEL)!=0;
     const auto& cat = *next->catalogue;
     std::vector<ImportCell> imported(cells.size()); next->space.assign(cells.size(), 0); next->blocking.assign(cells.size(), 0);
     for (std::size_t i = 0; i < cells.size(); ++i) {
@@ -2781,7 +2784,20 @@ void run_frame(std::uint64_t ticket, double seconds, std::uint64_t frames, const
             { std::lock_guard held(watch); finished = true; }
             flow_done.notify_all(); if (watchdog.joinable()) watchdog.join();
         };
-        try { flowed.emplace(advance_mac_phase_flow(world, seconds, 65536, s.pairs)); }
+        try {
+            if(s.conservative_liquid_boundary) {
+                auto boundary=detail::advance_liquid_boundary(world,seconds,65536,s.blocking);
+                auto& report=boundary.advance.report;
+                MacPhaseFlow next{std::move(boundary.advance.world),std::move(report.trace_sink),
+                    report.substeps,report.rejected_attempts,{}, {},report.evaporated_kg,report.condensed_kg};
+                next.converted.assign(report.game_converted_mass_kg.begin(),report.game_converted_mass_kg.end());
+                for(auto mass:next.converted)next.converted_gross.push_back(std::abs(mass));
+                flowed.emplace(std::move(next));
+                if(stage_log && boundary.retries)
+                    std::fprintf(stderr,"[Mixed Atmospheres] liquid boundary frame %llu: retries %zu closed faces %zu\n",
+                        static_cast<unsigned long long>(s.status.completed_frames+1),boundary.retries,boundary.added_faces);
+            } else flowed.emplace(advance_mac_phase_flow(world, seconds, 65536, s.pairs));
+        }
         catch (...) { stop_watchdog(); dump(std::getenv("MA_COLONY_FAULT_DUMP")); throw; }
         stop_watchdog();
         auto advanced = std::move(*flowed);
@@ -2938,7 +2954,9 @@ constexpr char magic[8] = {'M', 'A', 'C', 'O', 'L', 'N', '0', '1'};
 // Version 7 adds the trace-sink ledger; version 6 the liquid-blocking cells; version 5 the inputs queued at the save; version 4 the phase-change
 // conversion ledger; version 3 stored the continuing counters explicitly
 // (version 2 the raw status struct).
-constexpr std::uint32_t checkpoint_version = 11;
+// Version 12 uses the version-11 layout and selects conservative liquid
+// boundaries. Versions <=11 retain their original owner boundary law.
+constexpr std::uint32_t checkpoint_version = 12;
 }
 std::vector<std::uint8_t> checkpoint() {
     solver.settle(false);
@@ -2949,7 +2967,7 @@ std::vector<std::uint8_t> checkpoint() {
     const auto& s = *session; Writer w;
     // Keep the queue and selected wrapper framing one coherent save snapshot.
     std::unique_lock input_snapshot(inputs);
-    const std::uint32_t saved_version=s.precision_used?11:s.germ_mode==1?10:moving_protocol_used?9:8;
+    const std::uint32_t saved_version=s.conservative_liquid_boundary?12:s.precision_used?11:s.germ_mode==1?10:moving_protocol_used?9:8;
     w.raw(magic, 8); w.u32(saved_version); w.raw(&s.config, sizeof(s.config));
     w.u32(static_cast<std::uint32_t>(s.materials.size())); w.raw(s.materials.data(), s.materials.size() * sizeof(MAOniColonyMaterial));
     w.u32(static_cast<std::uint32_t>(s.space.size())); w.raw(s.space.data(), s.space.size());
@@ -3046,9 +3064,15 @@ void restore(const MAOniColonyConfig& config, std::span<const MAOniColonyMateria
     require(std::memcmp(stored.data(), materials.data(), count * sizeof(MAOniColonyMaterial)) == 0, "Colony checkpoint catalogue differs from the running game");
     auto next = std::make_unique<Session>();
     next->config = config; next->materials = std::move(stored); next->catalogue = catalogue_of(next->materials);
+    next->conservative_liquid_boundary=version>=12;
+    require(!next->conservative_liquid_boundary || (config.flags&MA_ONI_COLONY_GAME_KERNEL),
+        "Conservative liquid boundaries need a game owner");
     const auto cells = r.u32(); require(cells == static_cast<std::size_t>(config.width) * config.height, "Colony checkpoint space mask differs");
     next->space.resize(cells); r.raw(next->space.data(), cells);
     require(r.u32() == cells, "Colony checkpoint blocking mask differs"); next->blocking.resize(cells); r.raw(next->blocking.data(), cells);
+    require(!next->conservative_liquid_boundary ||
+        std::all_of(next->blocking.begin(),next->blocking.end(),[](auto value){return value<=1;}),
+        "Invalid saved liquid boundary mark");
     const auto entries = r.u32();
     for (std::uint32_t k = 0; k < entries; ++k) {
         ReservoirEntry e; e.region_cell = r.u64(); e.species = r.u64(); e.mass_kg = r.f64(); e.temperature_k = r.f64();
