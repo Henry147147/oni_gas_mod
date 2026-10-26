@@ -14,7 +14,8 @@ inline LayerResult
 layer(const ma::experimental::MacGrid &source,
       const std::vector<Species> &species, const State &initial,
       const std::vector<Eos> &eos, double dt, double gravity,
-      const ma::experimental::mac_kernel::Grid *cached_grid = nullptr) {
+      const ma::experimental::mac_kernel::Grid *cached_grid = nullptr,
+      ma::experimental::mac_kernel::Pool *executor = nullptr) {
   namespace k = ma::experimental::mac_kernel;
   k::Grid built;
   if (!cached_grid)
@@ -23,6 +24,19 @@ layer(const ma::experimental::MacGrid &source,
   LayerResult out;
   if (gravity == 0)
     return out;
+  // Cell passes run in the grid's fixed row blocks; parcels and face work
+  // keep their serial face order.
+  const auto blocks = [&](const std::function<void(std::size_t)> &job) {
+    if (executor)
+      executor->run(g.blocks, job);
+    else
+      for (std::size_t block = 0; block < g.blocks; ++block)
+        job(block);
+  };
+  const auto block_cells = [&](std::size_t block) {
+    return std::pair{g.block_row_begin(block) * g.W,
+                     g.block_row_end(block) * g.W};
+  };
   const double fraction = std::min(.25, -std::expm1(-dt / 2.));
   struct Pick {
     std::uint64_t phase = 0;
@@ -37,9 +51,10 @@ layer(const ma::experimental::MacGrid &source,
                                      : (std::uint64_t(1) << 32) + key;
   };
   // Keep map key/accumulation order while reusing one small phase buffer.
+  blocks([&](std::size_t block) {
   std::vector<Pick> phases;
   phases.reserve(species.size());
-  for (std::size_t i = 0; i < g.N; ++i) {
+  for (auto [i, end] = block_cells(block); i < end; ++i) {
     phases.clear();
     for (std::size_t a = initial.masses.offsets[i];
          a < initial.masses.offsets[i + 1]; ++a) {
@@ -66,13 +81,13 @@ layer(const ma::experimental::MacGrid &source,
         heavy[i] = p;
     }
   }
+  });
   struct Parcel {
     std::size_t from, to;
     std::vector<std::pair<std::uint32_t, double>> species;
     double mass = 0, energy = 0;
   };
   std::vector<Parcel> parcels;
-  std::vector<std::vector<std::size_t>> outgoing(g.N), incoming(g.N);
   for (std::size_t f = 0; f < g.NY; ++f) {
     const auto lower = gravity > 0 ? g.yl[f] : g.yr[f],
                upper = gravity > 0 ? g.yr[f] : g.yl[f];
@@ -103,8 +118,6 @@ layer(const ma::experimental::MacGrid &source,
             liquid_specific_elastic(s,state.pressure);
         parcel.energy += moved * specific;
       }
-      outgoing[from].push_back(parcels.size());
-      incoming[to].push_back(parcels.size());
       parcels.push_back(std::move(parcel));
     };
     add_parcel(lower, upper, l);
@@ -113,85 +126,137 @@ layer(const ma::experimental::MacGrid &source,
   }
   if (parcels.empty())
     return out;
-  out.state = initial;
-  out.state.masses = {};
-  out.state.masses.offsets.push_back(0);
-  const bool has_passives = !initial.passives.mass.empty();
-  if (has_passives) {
-    out.state.passives = {};
-    out.state.passives.offsets.push_back(0);
+  // Each cell's outgoing and then incoming parcels, in parcel order.
+  std::vector<std::size_t> out_start(g.N + 1), in_start(g.N + 1), outgoing,
+      incoming;
+  for (const auto &parcel : parcels) {
+    ++out_start[parcel.from + 1];
+    ++in_start[parcel.to + 1];
   }
   for (std::size_t i = 0; i < g.N; ++i) {
-    if (outgoing[i].empty() && incoming[i].empty()) {
-      new_mass[i] = old_mass[i];
-      out.state.masses.species.insert(
-          out.state.masses.species.end(),
-          initial.masses.species.begin() + initial.masses.offsets[i],
-          initial.masses.species.begin() + initial.masses.offsets[i + 1]);
-      out.state.masses.mass.insert(
-          out.state.masses.mass.end(),
-          initial.masses.mass.begin() + initial.masses.offsets[i],
-          initial.masses.mass.begin() + initial.masses.offsets[i + 1]);
-      out.state.masses.offsets.push_back(out.state.masses.mass.size());
-      if (has_passives) {
-        out.state.passives.species.insert(
-            out.state.passives.species.end(),
-            initial.passives.species.begin() + initial.passives.offsets[i],
-            initial.passives.species.begin() + initial.passives.offsets[i + 1]);
-        out.state.passives.mass.insert(
-            out.state.passives.mass.end(),
-            initial.passives.mass.begin() + initial.passives.offsets[i],
-            initial.passives.mass.begin() + initial.passives.offsets[i + 1]);
-        out.state.passives.offsets.push_back(out.state.passives.mass.size());
-      }
-      continue;
-    }
-    std::map<std::uint32_t, double> mass;
-    std::map<std::uint64_t, double> passive;
-    for (std::size_t a = initial.masses.offsets[i];
-         a < initial.masses.offsets[i + 1]; ++a)
-      mass[initial.masses.species[a]] = initial.masses.mass[a];
-    if (has_passives)
-      for (std::size_t a = initial.passives.offsets[i];
-           a < initial.passives.offsets[i + 1]; ++a)
-        passive[initial.passives.species[a]] = initial.passives.mass[a];
-    const auto apply = [&](const Parcel &parcel, double sign) {
-      for (const auto &[key, value] : parcel.species)
-        mass[key] += sign * value;
-      out.state.energy[i] += sign * parcel.energy;
-      if (has_passives)
-        for (std::size_t a = initial.passives.offsets[parcel.from];
-             a < initial.passives.offsets[parcel.from + 1]; ++a)
-          passive[initial.passives.species[a]] +=
-              sign * initial.passives.mass[a] *
-              (parcel.mass / old_mass[parcel.from]);
-    };
-    for (const auto index : outgoing[i])
-      apply(parcels[index], -1);
-    for (const auto index : incoming[i])
-      apply(parcels[index], 1);
-    for (const auto &[key, value] : mass) {
-      if (value < 0)
-        throw std::runtime_error("Private layering mass budget failed");
-      if (value > 0) {
-        out.state.masses.species.push_back(key);
-        out.state.masses.mass.push_back(value);
-        new_mass[i] += value;
-      }
-    }
-    out.state.masses.offsets.push_back(out.state.masses.mass.size());
-    if (has_passives) {
-      for (const auto &[key, value] : passive) {
-        if (value < 0)
-          throw std::runtime_error("Private layering passive budget failed");
-        if (value > 0) {
-          out.state.passives.species.push_back(key);
-          out.state.passives.mass.push_back(value);
-        }
-      }
-      out.state.passives.offsets.push_back(out.state.passives.mass.size());
+    out_start[i + 1] += out_start[i];
+    in_start[i + 1] += in_start[i];
+  }
+  outgoing.resize(parcels.size());
+  incoming.resize(parcels.size());
+  {
+    auto next_out = out_start, next_in = in_start;
+    for (std::size_t n = 0; n < parcels.size(); ++n) {
+      outgoing[next_out[parcels[n].from]++] = n;
+      incoming[next_in[parcels[n].to]++] = n;
     }
   }
+  const bool has_passives = !initial.passives.mass.empty();
+  out.state.energy = initial.energy;
+  out.state.jx = initial.jx;
+  out.state.jy = initial.jy;
+  if (!has_passives)
+    out.state.passives = initial.passives;
+  // New inventories of each block's cells, packed below in block order.
+  struct Rows {
+    std::vector<std::uint32_t> species;
+    std::vector<double> mass;
+    std::vector<std::uint64_t> passive_species;
+    std::vector<double> passive_mass;
+    std::vector<std::size_t> counts, passive_counts;
+  };
+  std::vector<Rows> rows(g.blocks);
+  blocks([&](std::size_t block) {
+    auto &row = rows[block];
+    std::map<std::uint32_t, double> mass;
+    std::map<std::uint64_t, double> passive;
+    for (auto [i, end] = block_cells(block); i < end; ++i) {
+      const auto species_before = row.species.size(),
+                 passives_before = row.passive_species.size();
+      if (out_start[i] == out_start[i + 1] && in_start[i] == in_start[i + 1]) {
+        new_mass[i] = old_mass[i];
+        row.species.insert(row.species.end(),
+                           initial.masses.species.begin() + initial.masses.offsets[i],
+                           initial.masses.species.begin() + initial.masses.offsets[i + 1]);
+        row.mass.insert(row.mass.end(),
+                        initial.masses.mass.begin() + initial.masses.offsets[i],
+                        initial.masses.mass.begin() + initial.masses.offsets[i + 1]);
+        if (has_passives) {
+          row.passive_species.insert(
+              row.passive_species.end(),
+              initial.passives.species.begin() + initial.passives.offsets[i],
+              initial.passives.species.begin() + initial.passives.offsets[i + 1]);
+          row.passive_mass.insert(
+              row.passive_mass.end(),
+              initial.passives.mass.begin() + initial.passives.offsets[i],
+              initial.passives.mass.begin() + initial.passives.offsets[i + 1]);
+        }
+      } else {
+        mass.clear();
+        passive.clear();
+        for (std::size_t a = initial.masses.offsets[i];
+             a < initial.masses.offsets[i + 1]; ++a)
+          mass[initial.masses.species[a]] = initial.masses.mass[a];
+        if (has_passives)
+          for (std::size_t a = initial.passives.offsets[i];
+               a < initial.passives.offsets[i + 1]; ++a)
+            passive[initial.passives.species[a]] = initial.passives.mass[a];
+        const auto apply = [&](const Parcel &parcel, double sign) {
+          for (const auto &[key, value] : parcel.species)
+            mass[key] += sign * value;
+          out.state.energy[i] += sign * parcel.energy;
+          if (has_passives)
+            for (std::size_t a = initial.passives.offsets[parcel.from];
+                 a < initial.passives.offsets[parcel.from + 1]; ++a)
+              passive[initial.passives.species[a]] +=
+                  sign * initial.passives.mass[a] *
+                  (parcel.mass / old_mass[parcel.from]);
+        };
+        for (auto n = out_start[i]; n < out_start[i + 1]; ++n)
+          apply(parcels[outgoing[n]], -1);
+        for (auto n = in_start[i]; n < in_start[i + 1]; ++n)
+          apply(parcels[incoming[n]], 1);
+        double total = 0;
+        for (const auto &[key, value] : mass) {
+          if (value < 0)
+            throw std::runtime_error("Private layering mass budget failed");
+          if (value > 0) {
+            row.species.push_back(key);
+            row.mass.push_back(value);
+            total += value;
+          }
+        }
+        new_mass[i] = total;
+        if (has_passives)
+          for (const auto &[key, value] : passive) {
+            if (value < 0)
+              throw std::runtime_error("Private layering passive budget failed");
+            if (value > 0) {
+              row.passive_species.push_back(key);
+              row.passive_mass.push_back(value);
+            }
+          }
+      }
+      row.counts.push_back(row.species.size() - species_before);
+      row.passive_counts.push_back(row.passive_species.size() - passives_before);
+    }
+  });
+  const auto pack = [&](auto &into, auto species_of, auto mass_of, auto counts_of) {
+    into.offsets.assign(1, 0);
+    into.species.clear();
+    into.mass.clear();
+    for (const auto &row : rows) {
+      const auto &keys = species_of(row);
+      const auto &values = mass_of(row);
+      into.species.insert(into.species.end(), keys.begin(), keys.end());
+      into.mass.insert(into.mass.end(), values.begin(), values.end());
+      for (const auto count : counts_of(row))
+        into.offsets.push_back(into.offsets.back() + count);
+    }
+  };
+  pack(out.state.masses, [](const Rows &r) -> const auto & { return r.species; },
+       [](const Rows &r) -> const auto & { return r.mass; },
+       [](const Rows &r) -> const auto & { return r.counts; });
+  if (has_passives)
+    pack(out.state.passives,
+         [](const Rows &r) -> const auto & { return r.passive_species; },
+         [](const Rows &r) -> const auto & { return r.passive_mass; },
+         [](const Rows &r) -> const auto & { return r.passive_counts; });
   DoubleDouble released;
   for (const auto &parcel : parcels) {
     const double drop = parcel.mass * gravity * source.spacing_m *
@@ -201,17 +266,33 @@ layer(const ma::experimental::MacGrid &source,
     released.add(drop);
   }
   out.released = released.value();
-  const auto faces = [&](const auto &left, const auto &right, const auto &j) {
-    const auto m = [](const auto &values, k::Index i) {
-      return i == k::none ? 0 : values[i];
-    };
-    for (std::size_t f = 0; f < j.size(); ++f)
-      if (j[f] != 0) {
+  // Face J keeps its value; where an endpoint's mass changed, the K change
+  // goes to U. Such faces are found in row blocks, then booked in face order.
+  const auto m = [](const std::vector<double> &values, k::Index i) {
+    return i == k::none ? 0 : values[i];
+  };
+  const auto inertias = [&](bool x, std::size_t f) {
+    const auto l = (x ? g.xl : g.yl)[f], r = (x ? g.xr : g.yr)[f];
+    return std::pair{.5 * (m(old_mass, l) + m(old_mass, r)),
+                     .5 * (m(new_mass, l) + m(new_mass, r))};
+  };
+  std::vector<std::vector<std::size_t>> moved_x(g.blocks), moved_y(g.blocks);
+  blocks([&](std::size_t block) {
+    const auto y0 = g.block_row_begin(block);
+    for (std::size_t f = y0 * g.XW; f < g.block_row_end(block) * g.XW; ++f)
+      if (initial.jx[f] != 0 && inertias(true, f).first != inertias(true, f).second)
+        moved_x[block].push_back(f);
+    for (std::size_t f = y0 * g.W; f < g.block_yrow_end(block) * g.W; ++f)
+      if (initial.jy[f] != 0 && inertias(false, f).first != inertias(false, f).second)
+        moved_y[block].push_back(f);
+  });
+  const auto faces = [&](bool x, const auto &lists) {
+    const auto &left = x ? g.xl : g.yl, &right = x ? g.xr : g.yr;
+    const auto &j = x ? initial.jx : initial.jy;
+    for (const auto &list : lists)
+      for (const auto f : list) {
         const auto l = left[f], r = right[f];
-        const double I0 = .5 * (m(old_mass, l) + m(old_mass, r)),
-                     I1 = .5 * (m(new_mass, l) + m(new_mass, r));
-        if (I0 == I1)
-          continue;
+        const auto [I0, I1] = inertias(x, f);
         if (!(I1 > 0))
           throw std::runtime_error("Private layering removed face inertia");
         const double heat = .5 * j[f] * (j[f] / I0) - .5 * j[f] * (j[f] / I1),
@@ -222,8 +303,8 @@ layer(const ma::experimental::MacGrid &source,
           out.state.energy[r] += heat * m(new_mass, r) / sum;
       }
   };
-  faces(g.xl, g.xr, initial.jx);
-  faces(g.yl, g.yr, initial.jy);
+  faces(true, moved_x);
+  faces(false, moved_y);
   return out;
 }
 } // namespace ma::experimental::game_kernel

@@ -238,7 +238,7 @@ public:
     }
     auto stage_start = std::chrono::steady_clock::now();
     auto layered = layer(grid, species, out.state, out.eos, dt, gravity,
-                         &flow.kernel_grid());
+                         &flow.kernel_grid(), &flow.worker_pool());
     if (layered.faces) {
       out.state = std::move(layered.state);
       out.eos = flow.evaluate_state(out.state, std::move(out.eos));
