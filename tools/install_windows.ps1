@@ -1,11 +1,22 @@
 # Run from an extracted private Windows package with ONI closed.
 [CmdletBinding()]
 param(
-    [string]$Package = (Join-Path $PSScriptRoot 'MixedAtmospheres'),
-    [string]$OniUserRoot = (Join-Path ([Environment]::GetFolderPath('MyDocuments')) 'Klei\OxygenNotIncluded')
+    [string]$Package,
+    [string]$OniUserRoot
 )
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
+# Resolve defaults after parameter binding, when the script's location is set.
+if ([string]::IsNullOrWhiteSpace($Package)) {
+    $Package = Join-Path $PSScriptRoot 'MixedAtmospheres'
+}
+if ([string]::IsNullOrWhiteSpace($OniUserRoot)) {
+    $documents = [Environment]::GetFolderPath('MyDocuments')
+    if ([string]::IsNullOrWhiteSpace($documents)) {
+        throw 'Windows Documents folder could not be located. Specify -OniUserRoot with your ONI user-data folder.'
+    }
+    $OniUserRoot = Join-Path $documents 'Klei\OxygenNotIncluded'
+}
 if (Get-Process -Name OxygenNotIncluded -ErrorAction SilentlyContinue) {
     throw 'Close Oxygen Not Included before installing.'
 }
