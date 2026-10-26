@@ -40,6 +40,14 @@ class PatchTransport {
   std::vector<Inventory> cells_storage;
   std::vector<PassiveInventory> passive_storage;
   std::vector<CellUpdate> updates_storage;
+  // Runs job(block) over the grid's fixed row blocks, on the pool if any.
+  void blocks(const std::function<void(std::size_t)> &job) {
+    if (executor)
+      executor->run(g.blocks, job);
+    else
+      for (std::size_t block = 0; block < g.blocks; ++block)
+        job(block);
+  }
 
 public:
   PatchTransport(const ma::experimental::MacGrid &grid,
@@ -67,47 +75,55 @@ public:
       initial_passives->validate(g.N);
     passive_storage.resize(has_passives ? g.N : 0);
     auto &passive_cells = passive_storage;
-    for (auto &cell : passive_cells)
-      cell.clear();
     cells_storage.resize(g.N);
     auto &cells = cells_storage;
-    for (auto &cell : cells)
-      cell.clear();
     std::vector<double> mass(g.N), next_mass(g.N), fx(g.NX), fy(g.NY), dx(g.NX),
         dy(g.NY);
     std::vector<unsigned> level(g.N);
-    unsigned maximum = 0;
-    for (std::size_t i = 0; i < g.N; ++i) {
-      for (std::size_t a = initial.offsets[i]; a < initial.offsets[i + 1];
-           ++a) {
-        cells[i].emplace_back(initial.species[a], initial.mass[a]);
-        mass[i] += initial.mass[a];
-      }
-      if (has_passives) {
-        for (std::size_t a = initial_passives->offsets[i];
-             a < initial_passives->offsets[i + 1]; ++a)
-          passive_cells[i].emplace_back(initial_passives->species[a],
-                                        initial_passives->mass[a]);
-        if (!passive_cells[i].empty() && mass[i] == 0)
-          throw std::runtime_error("Private passives in an empty cell");
-      }
-      if (g.wall[i])
-        continue;
-      const double out = std::max(0., -qx[g.left_face(i)]) +
-                         std::max(0., qx[g.right_face(i)]) +
-                         std::max(0., -qy[g.bottom_face(i)]) +
-                         std::max(0., qy[g.top_face(i)]);
-      double cfl = out / g.V / .39;
-      while (cfl > 1) {
-        ++level[i];
-        cfl *= .5;
-      }
-      maximum = std::max(maximum, level[i]);
-    }
-    next_mass = mass;
     if (g.px || g.py)
       throw std::runtime_error(
           "Private local clocks currently require a nonperiodic grid");
+    // Inventories, masses and clock levels by cell, in the grid's fixed row
+    // blocks.
+    std::vector<unsigned> block_maximum(g.blocks);
+    blocks([&](std::size_t block) {
+      const auto y0 = g.block_row_begin(block), y1 = g.block_row_end(block);
+      unsigned highest = 0;
+      for (std::size_t i = y0 * g.W; i < y1 * g.W; ++i) {
+        cells[i].clear();
+        double total = 0;
+        for (std::size_t a = initial.offsets[i]; a < initial.offsets[i + 1];
+             ++a) {
+          cells[i].emplace_back(initial.species[a], initial.mass[a]);
+          total += initial.mass[a];
+        }
+        mass[i] = next_mass[i] = total;
+        if (has_passives) {
+          passive_cells[i].clear();
+          for (std::size_t a = initial_passives->offsets[i];
+               a < initial_passives->offsets[i + 1]; ++a)
+            passive_cells[i].emplace_back(initial_passives->species[a],
+                                          initial_passives->mass[a]);
+          if (!passive_cells[i].empty() && total == 0)
+            throw std::runtime_error("Private passives in an empty cell");
+        }
+        if (g.wall[i])
+          continue;
+        const double out = std::max(0., -qx[g.left_face(i)]) +
+                           std::max(0., qx[g.right_face(i)]) +
+                           std::max(0., -qy[g.bottom_face(i)]) +
+                           std::max(0., qy[g.top_face(i)]);
+        double cfl = out / g.V / .39;
+        while (cfl > 1) {
+          ++level[i];
+          cfl *= .5;
+        }
+        highest = std::max(highest, level[i]);
+      }
+      block_maximum[block] = highest;
+    });
+    const unsigned maximum =
+        *std::max_element(block_maximum.begin(), block_maximum.end());
     if (maximum > 16)
       throw std::runtime_error("Private local clocks exceed diagnostic budget; "
                                "front cap still required");
@@ -507,23 +523,38 @@ public:
       result.cell_updates += affected.size();
       result.face_updates += dual.size();
     }
-    result.masses.offsets.push_back(0);
-    for (const auto &cell : cells) {
-      for (const auto &[key, value] : cell) {
-        result.masses.species.push_back(key);
-        result.masses.mass.push_back(value);
-      }
-      result.masses.offsets.push_back(result.masses.mass.size());
-    }
-    if (has_passives) {
-      result.passives.offsets.push_back(0);
-      for (const auto &cell : passive_cells) {
-        for (const auto &[key, value] : cell) {
-          result.passives.species.push_back(key);
-          result.passives.mass.push_back(value);
+    // Inventories back to sparse form, from per-block counts.
+    const auto pack = [&](const auto &rows, auto &into) {
+      std::vector<std::size_t> start(g.blocks + 1);
+      blocks([&](std::size_t block) {
+        std::size_t count = 0;
+        for (std::size_t i = g.block_row_begin(block) * g.W;
+             i < g.block_row_end(block) * g.W; ++i)
+          count += rows[i].size();
+        start[block + 1] = count;
+      });
+      for (std::size_t block = 0; block < g.blocks; ++block)
+        start[block + 1] += start[block];
+      into.offsets.resize(g.N + 1);
+      into.species.resize(start.back());
+      into.mass.resize(start.back());
+      into.offsets[0] = 0;
+      blocks([&](std::size_t block) {
+        auto at = start[block];
+        for (std::size_t i = g.block_row_begin(block) * g.W;
+             i < g.block_row_end(block) * g.W; ++i) {
+          for (const auto &[key, value] : rows[i]) {
+            into.species[at] = key;
+            into.mass[at] = value;
+            ++at;
+          }
+          into.offsets[i + 1] = at;
         }
-        result.passives.offsets.push_back(result.passives.mass.size());
-      }
+      });
+    };
+    pack(cells, result.masses);
+    if (has_passives) {
+      pack(passive_cells, result.passives);
       result.passives.validate(g.N);
     }
     result.wall_x = wall_x.value();
