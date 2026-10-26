@@ -1821,7 +1821,7 @@ def _mock_playtest_case(failure=None, outcome=("passed-scoped-main-menu", 0)):
         state.mkdir()
         output = root / "evidence"
         args = mock.Mock(package=package, game_dir=game, output=output, mode="menu",
-                         frames=1, timeout=30, keep_open=True, inspection_seconds=0, load_save=None, mod_id=None, save_colony=False, resave_before_resume=False, diagnostic_owner_frame_limit=None)
+                         frames=1, timeout=30, keep_open=True, inspection_seconds=0, load_save=None, mod_id=None, save_colony=False, resave_before_resume=False, diagnostic_owner_frame_limit=None, dlc_mask=None)
         steam = {"unit_role": "steam"}
         xvfb = {"unit_role": "xvfb"}
         session = {"steam": steam, "xvfb": xvfb, "display": ":unit"}

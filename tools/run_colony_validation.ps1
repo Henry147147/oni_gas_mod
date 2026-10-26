@@ -8,6 +8,8 @@ param(
     [switch]$TileHover,
     [switch]$CoupledPresentation,
     [switch]$NativeObserver,
+    [switch]$ColonyOwner,
+    [ValidateRange(-1, 31)][int]$DlcMask = -1,
     [switch]$SaveColony,
     [switch]$VerifyPersistentActors,
     [switch]$VerifyLiveBreathing,
@@ -29,6 +31,9 @@ param(
     [int]$TimeoutSeconds = 600
 )
 $ErrorActionPreference = 'Stop'
+if ($ColonyOwner -and ($NativeDomain -or $NativeObserver -or $Presentation -or $TileHover -or $CoupledPresentation -or $IdleReservoirLease -or $PrivateFileProtocol -or $LoadRejection -or $ReuseGeneratedWorld)) { throw 'ColonyOwner uses a fresh ordinary colony or an explicit owner save.' }
+if ($ColonyOwner -and ![Runtime.InteropServices.RuntimeInformation]::IsOSPlatform([Runtime.InteropServices.OSPlatform]::Windows)) { throw 'This runner records Windows OS evidence; use oni_proton_headless.py for WindowsPlayer on Linux.' }
+if ($ColonyOwner -and $DlcMask -lt 0) { throw 'ColonyOwner requires an explicit DlcMask (0..31).' }
 if ($NativeDomain -and ($NativeObserver -or $Presentation -or $TileHover -or $CoupledPresentation -or $IdleReservoirLease -or $PrivateFileProtocol -or $LoadRejection)) { throw 'A native domain uses its own disposable colony scene.' }
 if ($NativeDomain -in @('actor','water-actor') -and $Frames -lt 80) { throw 'The actor registration/change/removal scene requires at least 80 frames.' }
 if ($VerifyPersistentActors -and ($NativeDomain -notin @('gas','water') -or !($SaveColony -or $VerifyNaturalAutosave) -or $Frames -lt 80)) { throw 'VerifyPersistentActors requires a gas/water source, a source save or natural autosave, and at least eighty frames.' }
@@ -38,16 +43,16 @@ if ($VerifyLiveBreathing -and ($NativeDomain -notin @('gas','load') -or $VerifyP
 if ($VerifyNaturalAutosave -and ($NativeDomain -ne 'gas' -or $Frames -lt 3100 -or $Frames -gt 5000 -or $SaveColony)) { throw 'VerifyNaturalAutosave requires a gas source, 3100..5000 frames and no SaveColony.' }
 if ($NativeDomain -in @('carbon-particle','breathing-read') -and $Frames -lt 30) { throw 'The CO2 particle and breathing-reader controls require at least 30 frames.' }
 $oniDomainModes = @{ mixed='native-mixed-domain'; 'mixed-heat'='native-mixed-heat-domain'; viscous='native-viscous-domain'; import='native-import-domain'; 'water-import'='native-liquid-import-domain'; gas='native-domain'; 'solid-heat'='native-solid-heat-domain'; water='native-liquid-domain'; 'water-transfer'='native-liquid-transfer-domain'; heat='native-heat-domain'; 'water-heat'='native-liquid-heat-domain'; transfer='native-transfer-domain'; radius='native-radius-domain'; rectangular='native-rectangular-domain'; actor='native-actor-domain'; 'water-actor'='native-liquid-actor-domain'; carbon='native-carbon-domain'; 'carbon-particle'='native-carbon-particle-domain'; 'breathing-read'='native-breathing-read-domain'; 'pressure-read'='native-pressure-read-domain'; 'water-pressure-read'='native-liquid-pressure-read-domain'; conduction='native-conduction-domain'; gravity='native-gravity-domain'; 'water-gravity'='native-liquid-gravity-domain'; checkpoint='native-checkpoint-domain'; pair='native-paired-checkpoint-domain'; save='native-save-domain'; load='native-load-domain' }
-if ([bool]$LoadSave -ne ($NativeDomain -eq 'load')) { throw 'NativeDomain load requires -LoadSave; other modes cannot use it.' }
+if (!$ColonyOwner -and [bool]$LoadSave -ne ($NativeDomain -eq 'load')) { throw 'NativeDomain load requires -LoadSave; other modes cannot use it.' }
 if ($LoadSave) {
     $LoadSave = (Resolve-Path -LiteralPath $LoadSave).Path
     if (!(Test-Path -LiteralPath $LoadSave -PathType Leaf)) { throw 'LoadSave must name an existing colony file.' }
 }
 if ($ResaveBeforeResume -and $NativeDomain -ne 'load') { throw 'ResaveBeforeResume requires NativeDomain load.' }
-if ($ReloadInProcess -and ($NativeDomain -ne 'load' -or !$ResaveBeforeResume)) { throw 'ReloadInProcess requires NativeDomain load and ResaveBeforeResume.' }
+if ($ReloadInProcess -and !($ColonyOwner -and $LoadSave) -and ($NativeDomain -ne 'load' -or !$ResaveBeforeResume)) { throw 'ReloadInProcess requires ColonyOwner with LoadSave, or NativeDomain load and ResaveBeforeResume.' }
 if ($VerifySaveIoRecovery -and ($NativeDomain -ne 'save' -or $Frames -lt 16)) { throw 'VerifySaveIoRecovery requires NativeDomain save and at least sixteen frames.' }
-if ($SaveColony -and (!$NativeDomain -or $NativeDomain -eq 'load')) { throw 'SaveColony requires an initial native domain scene.' }
-$oniNeedsNative = [bool]($NativeObserver -or $NativeDomain)
+if ($SaveColony -and !$ColonyOwner -and (!$NativeDomain -or $NativeDomain -eq 'load')) { throw 'SaveColony requires a colony owner or an initial native domain scene.' }
+$oniNeedsNative = [bool]($ColonyOwner -or $NativeObserver -or $NativeDomain)
 if ($NativeObserver -and ($Presentation -or $TileHover -or $CoupledPresentation -or $IdleReservoirLease -or $PrivateFileProtocol -or $LoadRejection)) { throw 'Native observer validation uses its own forwarding-only colony mode.' }
 if ($CoupledPresentation -and ($TileHover -or $Presentation -or $IdleReservoirLease -or $PrivateFileProtocol -or $LoadRejection)) { throw 'Coupled presentation uses its own explicit closed-reference scene.' }
 if ($IdleReservoirLease -and !$Presentation) { throw 'The idle reservoir lease check requires -Presentation.' }
@@ -122,6 +127,12 @@ $oniExitCode = 1
 $oniLoadFixtureManifest = $null
 try {
     Copy-Item -LiteralPath $oniPackagePath -Destination $oniInstalledMod -Recurse
+    if ($DlcMask -ge 0) {
+        $oniPreferences = Join-Path $oniEvidence 'selected-kplayerprefs.yaml'
+        & $Python (Join-Path $PSScriptRoot 'oni_dlc.py') --mask $DlcMask --source (Join-Path $oniRootPath 'kplayerprefs.yaml') --output $oniPreferences
+        if ($LASTEXITCODE -ne 0) { throw 'Could not prepare the requested DLC menu preferences.' }
+        Copy-Item -LiteralPath $oniPreferences -Destination (Join-Path $oniRootPath 'kplayerprefs.yaml')
+    }
     $oniValidationLoadPath = $LoadSave
     if ($LoadSave) {
         $oniLoadSourceHash = (Get-FileHash -LiteralPath $LoadSave -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -143,10 +154,11 @@ try {
         $oniLoadFixtureManifest | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $oniEvidence 'load-source-manifest.json') -Encoding utf8
     }
     $oniValidationConfiguration = @{
-        Mode = $(if ($NativeDomain) { $oniDomainModes[$NativeDomain] } elseif ($NativeObserver) { 'native-observer' } elseif ($LoadRejection) { 'load-rejection' } elseif ($CoupledPresentation) { 'coupled-presentation' } elseif ($TileHover) { 'tile-hover' } elseif ($Presentation) { 'presentation' } else { 'snapshot-copy' }); AutoStartNewColony = $true; ReuseGeneratedWorld = [bool]$ReuseGeneratedWorld; LoadSavePath = $oniValidationLoadPath; SaveOnComplete = [bool]$SaveColony; SaveBeforeResume = [bool]$ResaveBeforeResume
+        Mode = $(if ($ColonyOwner) { if ($LoadSave) { 'colony-owner-load' } else { 'colony-owner' } } elseif ($NativeDomain) { $oniDomainModes[$NativeDomain] } elseif ($NativeObserver) { 'native-observer' } elseif ($LoadRejection) { 'load-rejection' } elseif ($CoupledPresentation) { 'coupled-presentation' } elseif ($TileHover) { 'tile-hover' } elseif ($Presentation) { 'presentation' } else { 'snapshot-copy' }); AutoStartNewColony = $true; ReuseGeneratedWorld = [bool]$ReuseGeneratedWorld; LoadSavePath = $oniValidationLoadPath; SaveOnComplete = [bool]$SaveColony; SaveBeforeResume = [bool]$ResaveBeforeResume
         CompletedFrames = $Frames; TimeoutSeconds = $TimeoutSeconds; QuitWhenComplete = !$KeepOpen; Seed = '147147'
         ColonyName = $oniColonyName
     }
+    if ($DlcMask -ge 0) { $oniValidationConfiguration.DlcMask = $DlcMask }
     if ($VerifySaveIoRecovery) { $oniValidationConfiguration.VerifySaveIoRecovery = $true }
     if ($VerifyPersistentActors) { $oniValidationConfiguration.VerifyPersistentActors = $true }
     if ($VerifyLiveBreathing) { $oniValidationConfiguration.VerifyLiveBreathing = $true }
@@ -162,7 +174,7 @@ try {
     foreach ($oniMod in $oniModSettings.mods) { $oniMod.enabled = $false; $oniMod.enabledForDlc = @() }
     $oniModSettings.mods = @($oniModSettings.mods) + @([pscustomobject]@{
         label = @{ distribution_platform = 4; id = $oniFolderName; title = 'Mixed Atmospheres - Integration Probe'; version = $oniLabelVersion }
-        status = 1; enabled = $true; enabledForDlc = @('EXPANSION1_ID', 'VANILLA_ID', ''); crash_count = 0
+        status = 1; enabled = $true; enabledForDlc = @('EXPANSION1_ID', 'DLC2_ID', 'DLC3_ID', 'DLC4_ID', 'DLC5_ID', ''); crash_count = 0
         reinstall_path = $null; staticID = 'MixedAtmospheres.IntegrationProbe'
     })
     $oniModSettings | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $oniModsPath -Encoding utf8
@@ -236,6 +248,45 @@ try {
                 !$oniObserverReport.Observation.Attached -or $oniObserverReport.Observation.RecoveryRequired) { throw 'Native forwarding progress/equivalence or ownership assertion failed.' }
         }
         $oniExitCode = 0
+    }
+    if ($ColonyOwner) {
+        $oniOwnerPath = Join-Path $oniInstalledMod 'game-contract-local\colony-validation\colony-owner.json'
+        $oniProbePath = Join-Path $oniInstalledMod 'integration-probe.json'
+        $oniOwnerData = if (Test-Path -LiteralPath $oniOwnerPath) { Get-Content -LiteralPath $oniOwnerPath -Raw | ConvertFrom-Json } else { $null }
+        $oniProbeData = if (Test-Path -LiteralPath $oniProbePath) { Get-Content -LiteralPath $oniProbePath -Raw | ConvertFrom-Json } else { $null }
+        $oniPassed = $oniExitCode -eq 0 -and $oniProbeData.Platform -eq 'WindowsPlayer'
+        $oniHostSave = $null; $oniHostSaveHash = $null
+        if ($oniPassed -and $SaveColony) {
+            $oniWrittenSave = [IO.Path]::GetFullPath($oniResultData.ColonySavePath)
+            $oniWrittenParent = [IO.Path]::GetFullPath((Join-Path $oniInstalledMod 'game-contract-local\colony-validation'))
+            if ([IO.Path]::GetDirectoryName($oniWrittenSave) -ne $oniWrittenParent -or !(Test-Path -LiteralPath $oniWrittenSave -PathType Leaf)) { throw 'Owner save escaped its disposable validation directory.' }
+            $oniHostSave = Join-Path $oniEvidence 'colony.sav'
+            $oniHostSaveHash = (Get-FileHash -LiteralPath $oniWrittenSave -Algorithm SHA256).Hash.ToLowerInvariant()
+            Copy-Item -LiteralPath $oniWrittenSave -Destination $oniHostSave
+            if ((Get-FileHash -LiteralPath $oniHostSave -Algorithm SHA256).Hash.ToLowerInvariant() -ne $oniHostSaveHash) { throw 'Owner save changed during evidence export.' }
+        }
+        $oniHostResult = [ordered]@{
+            status = $(if ($oniPassed) { 'passed-' + $oniValidationConfiguration.Mode } else { 'failed-' + $oniValidationConfiguration.Mode })
+            exit_code = $(if ($oniPassed) { 0 } else { 2 }); host_platform = 'windows'; target_platform = 'WindowsPlayer'
+            actual_windows_os = $true; real_unity_player = [bool]($oniProbeData.Platform -eq 'WindowsPlayer')
+            colony_report = $oniResultData; colony_owner = $oniOwnerData; integration_probe = $oniProbeData
+            package_manifest = $oniManifest; host_saved_file = $oniHostSave; host_saved_file_sha256 = $oniHostSaveHash
+        }
+        $oniHostResult | ConvertTo-Json -Depth 50 | Set-Content -LiteralPath (Join-Path $oniEvidence 'result.json') -Encoding utf8
+        # The shared checker also rejects a no-op owner or wrong content set.
+        if ($oniPassed) {
+            $oniCheckOwnerArguments = @((Join-Path $PSScriptRoot 'oni_dlc_matrix.py'), 'check', '--result', (Join-Path $oniEvidence 'result.json'), '--target', 'windows', '--mask', [string]$DlcMask)
+            if ($LoadSave) { $oniCheckOwnerArguments += '--loading' }
+            if ($ReloadInProcess) { $oniCheckOwnerArguments += '--menu' }
+            & $Python @oniCheckOwnerArguments
+            if ($LASTEXITCODE -ne 0) { $oniPassed = $false }
+        }
+        $oniExitCode = if ($oniPassed) { 0 } else { 2 }
+        if (!$oniPassed) {
+            $oniHostResult.status = 'failed-' + $oniValidationConfiguration.Mode
+            $oniHostResult.exit_code = 2
+            $oniHostResult | ConvertTo-Json -Depth 50 | Set-Content -LiteralPath (Join-Path $oniEvidence 'result.json') -Encoding utf8
+        }
     }
 }
 finally {

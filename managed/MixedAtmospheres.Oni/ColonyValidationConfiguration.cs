@@ -12,6 +12,26 @@ namespace MixedAtmospheres.Oni
         internal static readonly string[] All = { "f1", "f2", "f3", "f4", "f5" };
     }
 
+    internal static class ColonyDlcSelection
+    {
+        // Keep this bit order with tools/oni_dlc.py. Empty is ONI's vanilla ID.
+        internal static readonly string[] Ids = { "EXPANSION1_ID", "DLC2_ID", "DLC3_ID", "DLC4_ID", "DLC5_ID" };
+        internal static int Mask(string[] identities)
+        {
+            if (identities == null || identities.Any(id => id == null) || identities.Distinct(StringComparer.Ordinal).Count() != identities.Length)
+                throw new InvalidDataException("Missing or repeated active DLC identities.");
+            var mask = 0;
+            foreach (var id in identities)
+            {
+                if (id.Length == 0) continue;
+                var bit = Array.IndexOf(Ids, id);
+                if (bit < 0) throw new InvalidDataException("Unknown active DLC identity: " + id);
+                mask |= 1 << bit;
+            }
+            return mask;
+        }
+    }
+
     // Explicit private development request read from colony-validation.json.
     // Parsing and the limits that need no live game state stay engine-free so
     // the same rules can be tested without Unity or a native simulator.
@@ -44,6 +64,9 @@ namespace MixedAtmospheres.Oni
         public string Seed = "147147";
         // A starting cluster layout ("clusters/<name>"); empty keeps the game's default (Terra).
         public string Cluster = "";
+        // -1 keeps the existing discovery controls; 0..31 asserts exact content
+        // before world generation/load. It never overrides Steam entitlements.
+        public int DlcMask = -1;
         public string ColonyName = "MA Visual Test";
         // One fixed comparison arena of docs/base-game-floor.md (f1..f5), under
         // the colony owner or, in mode colony-vanilla, ONI's own simulation.
@@ -105,6 +128,8 @@ namespace MixedAtmospheres.Oni
         internal static void Validate(ColonyValidationConfiguration configuration)
         {
             if (configuration == null) throw new ArgumentNullException(nameof(configuration));
+            if (configuration.DlcMask < -1 || configuration.DlcMask > 31)
+                throw new InvalidDataException("DlcMask requires -1 (unspecified) or 0..31.");
             var longRun = configuration.LongRun;
             if (configuration.Mode == null || !Modes.Contains(configuration.Mode, StringComparer.Ordinal) ||
                 configuration.CompletedFrames < MinimumFrames || configuration.CompletedFrames > MaximumLongRunFrames ||

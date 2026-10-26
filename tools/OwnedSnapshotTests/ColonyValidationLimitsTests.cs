@@ -27,7 +27,7 @@ internal static class ColonyValidationLimitsTests
             check(fields.SequenceEqual(new[]{"Mode","LoadSavePath","AutoStartNewColony","ReuseGeneratedWorld","IdleReservoirLeaseOnly",
                 "PrivateFileProtocolAssemblySha256","PrivateOwnedLoadRejection","QuitWhenComplete","QuitFromMainMenu","SaveOnComplete","OverwriteSave","VanillaLoad","SaveBeforeResume",
                 "VerifySaveIoRecovery","VerifyNaturalAutosave","VerifyPersistentActors","VerifyLiveBreathing","VerifyTransientParticles",
-                "SubnormalCarbonParticle","ReloadInProcess","CompletedFrames","TimeoutSeconds","Seed","Cluster","ColonyName","Floor","Speed","Scenario","LongRun","TelemetryIntervalFrames"}));
+                "SubnormalCarbonParticle","ReloadInProcess","CompletedFrames","TimeoutSeconds","Seed","Cluster","DlcMask","ColonyName","Floor","Speed","Scenario","LongRun","TelemetryIntervalFrames"}));
             var defaults=Valid(new ColonyValidationConfiguration());
             check(defaults.Mode=="snapshot-copy" && defaults.CompletedFrames==30 && defaults.TimeoutSeconds==600 && defaults.LoadSavePath=="" &&
                 !defaults.LongRun && defaults.TelemetryIntervalFrames==ColonyValidationLimits.DefaultTelemetryIntervalFrames &&
@@ -41,6 +41,20 @@ internal static class ColonyValidationLimitsTests
                 var widest=Valid(Request(mode,10000,7200));check(widest.CompletedFrames==10000 && widest.TimeoutSeconds==7200);
             }
             check(Valid(new ColonyValidationConfiguration{Mode="native-domain",CompletedFrames=120,TimeoutSeconds=1800,AutoStartNewColony=true,QuitWhenComplete=true,SaveOnComplete=true}).SaveOnComplete);
+        });
+        test("DLC selection covers all 32 combinations and refuses unknown identities",()=> {
+            check(new ColonyValidationConfiguration().DlcMask==-1);
+            for(var mask=0;mask<32;++mask)
+            {
+                var ids=ColonyDlcSelection.Ids.Where((id,bit)=>(mask&(1<<bit))!=0).ToArray();
+                check(ColonyDlcSelection.Mask(ids)==mask);
+                check(ColonyDlcSelection.Mask(new[]{""}.Concat(ids).ToArray())==mask);
+                check(Valid(new ColonyValidationConfiguration{DlcMask=mask}).DlcMask==mask);
+            }
+            foreach(var mask in new[]{-2,32,int.MaxValue})reject(()=>Valid(new ColonyValidationConfiguration{DlcMask=mask}));
+            foreach(var ids in new[]{new[]{"DLC6_ID"},new[]{"VANILLA_ID"},new[]{"DLC2_ID","DLC2_ID"},new[]{"",""},new string[]{null!}})
+                reject(()=>ColonyDlcSelection.Mask(ids));
+            reject(()=>ColonyDlcSelection.Mask(null!));
         });
         test("floor and colony controls require their declared modes and keep fixed identities",()=> {
             foreach(var mode in new[]{"colony-owner","colony-vanilla"})

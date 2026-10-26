@@ -13,7 +13,7 @@ class NativeMatrixTests(unittest.TestCase):
         self.folder=tempfile.TemporaryDirectory();self.addCleanup(self.folder.cleanup)
         self.root=Path(self.folder.name);self.runner=self.root/"frozen";self.package=self.root/"package";self.output=self.root/"evidence"
         (self.runner/"tools").mkdir(parents=True);self.package.mkdir()
-        for file in ("oni_headless.py","oni_native_domain_evidence.py","oni_tile_hover.py","oni_proton_headless.py","oni_native_matrix.py"):
+        for file in ("oni_headless.py","oni_native_domain_evidence.py","oni_tile_hover.py","oni_proton_headless.py","oni_native_matrix.py","oni_dlc.py"):
             (self.runner/"tools"/file).write_text("frozen original")
         (self.package/"probe.dll").write_bytes(b"original native package")
         self.commands=[]

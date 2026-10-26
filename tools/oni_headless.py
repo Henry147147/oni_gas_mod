@@ -26,6 +26,7 @@ import time
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from oni_native_domain_evidence import native_domain_passed
 from oni_tile_hover import tile_hover_passed
+import oni_dlc
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_STATE = Path.home() / ".local/share/oni-headless"
@@ -726,6 +727,7 @@ def colony_configuration(args, name: str, load_fixture: Path | None, inspection_
         **({"VanillaLoad": True} if getattr(args, "vanilla_load", False) is True else {}),
         **({"Speed": args.speed} if isinstance(getattr(args, "speed", None), int) else {}),
         **({"Floor": args.floor} if isinstance(getattr(args, "floor", None), str) else {}),
+        **({"DlcMask": args.dlc_mask} if getattr(args, "dlc_mask", None) is not None else {}),
     }
     if getattr(args, "long_run", False) is True:
         interval = getattr(args, "telemetry_interval_frames", None)
@@ -870,6 +872,11 @@ def completed_inspection(report: dict, seconds: int, started: float | None, now:
 
 
 def playtest(args, state: Path, session: dict) -> int:
+    dlc_mask = getattr(args, "dlc_mask", None)
+    if dlc_mask is not None:
+        oni_dlc.ids_for_mask(dlc_mask)
+        if args.mode == "menu":
+            raise ValueError("--dlc-mask requires a colony mode with runtime content verification")
     private_display = getattr(args, "private_display", False) is True
     inspection_seconds = getattr(args, "inspection_seconds", 0)
     if type(inspection_seconds) is not int or not 0 <= inspection_seconds <= 300 or (inspection_seconds and (args.keep_open or args.mode == "menu")):
@@ -915,10 +922,12 @@ def playtest(args, state: Path, session: dict) -> int:
         raise ValueError("Test mod ID must be one safe local directory name")
     mod = profile / "mods/Dev" / mod_id
     stage_package(package, mod, manifest)
+    if dlc_mask is not None:
+        oni_dlc.write_preferences(profile, dlc_mask)
     write_json(profile / "mods/mods.json", {"version": 1, "mods": [{
         "label": {"distribution_platform": "Dev", "id": mod_id, "title": "Mixed Atmospheres - Integration Probe",
                   "version": mono_label_version(mod_id)}, "status": 1, "enabled": True,
-        "enabledForDlc": ["", "EXPANSION1_ID"], "crash_count": 0, "reinstall_path": None,
+        "enabledForDlc": ["", *oni_dlc.DLC_IDS], "crash_count": 0, "reinstall_path": None,
         "staticID": "MixedAtmospheres.IntegrationProbe"}]})
     load_fixture = None
     load_save = getattr(args, "load_save", None)
@@ -1035,9 +1044,10 @@ def playtest(args, state: Path, session: dict) -> int:
             player_exit = CHILDREN[record["pid"]].poll()
             status, code = classify(args.mode, log, probe, report, timed_out, player_exit, (mod_id,), diagnostic_stopped=stopped_for_limit)
             final_owner_report = limit_report
-            if stopped_for_limit:
+            if stopped_for_limit or args.mode in ("colony-owner", "colony-owner-load"):
                 try: final_owner_report = read_json(colony_file.parent / "colony-owner.json")
                 except (OSError, ValueError): pass
+            if stopped_for_limit:
                 if final_owner_report.get("Error") or final_owner_report.get("State", 1) != 1:
                     status, code = "failed-diagnostic-owner-state", 2
             observer_file = mod / "native-backend-observation-report.json"
@@ -1084,9 +1094,19 @@ def playtest(args, state: Path, session: dict) -> int:
             telemetry_ok = long_run and long_run_telemetry_passed(telemetry, report)
             if code == 0 and long_run and not telemetry_ok and not stopped_for_limit:
                 status, code = "failed-long-run-telemetry", 2
+            dlc_verified = False
+            if dlc_mask is not None:
+                try:
+                    oni_dlc.verify_report(dlc_mask, report, saved=bool(report and report.get("GameStarted")))
+                    dlc_verified = True
+                except ValueError:
+                    if code == 0:
+                        status, code = "failed-dlc-selection", 2
             retain_on_success = args.keep_open and code == 0
             result = {
                 "status": status, "exit_code": code, "mode": args.mode, "output": str(output), "mod_id": mod_id,
+                "requested_dlc": oni_dlc.selection(dlc_mask) if dlc_mask is not None else None,
+                "dlc_selection_verified": dlc_verified,
                 "observed_player_exit_code": player_exit, "timed_out": timed_out,
                 "diagnostic_owner_frame_limit": owner_limit,
                 "diagnostic_owner_frame_limit_hit": stopped_for_limit,
@@ -1107,6 +1127,7 @@ def playtest(args, state: Path, session: dict) -> int:
                 "colony_started": bool(report and report.get("GameStarted")),
                 "authoritative_colony_simulation_ready": False, "full_mod_completion_verified": False,
                 "integration_probe": probe, "colony_report": report, "package_manifest": manifest,
+                "colony_owner": final_owner_report,
                 "native_backend_observation": observer_report,
                 "native_backend_observer_passed": observer_ok,
                 "native_domain": domain_report, "bounded_native_domain_passed": domain_ok,
@@ -1147,6 +1168,8 @@ def main() -> int:
     play = commands.add_parser("run")
     play.add_argument("--game-dir", type=Path, default=os.environ.get("ONI_GAME_DIR", str(DEFAULT_GAME)))
     play.add_argument("--package", type=Path, required=True)
+    play.add_argument("--dlc-mask", type=int, choices=range(32), metavar="0..31",
+                      help="Exact content selection: bits Spaced Out!, Frosty, Bionic, Prehistoric, Aquatic; 0 is base game")
     play.add_argument("--mode", choices=("menu", "presentation", "tile-hover", "snapshot-copy", "native-observer", "colony-owner", "colony-owner-load", "colony-owner-inactive", "native-configured-domain", "native-configured-water-domain", "native-configured-vacuum-domain", "native-domain", "native-solid-heat-domain", "native-mixed-domain", "native-mixed-heat-domain", "native-viscous-domain", "native-import-domain", "native-liquid-import-domain", "native-liquid-domain", "native-liquid-transfer-domain", "native-heat-domain", "native-liquid-heat-domain", "native-transfer-domain", "native-radius-domain", "native-rectangular-domain", "native-actor-domain", "native-liquid-actor-domain", "native-carbon-domain", "native-carbon-particle-domain", "native-breathing-read-domain", "native-pressure-read-domain", "native-liquid-pressure-read-domain", "native-conduction-domain", "native-gravity-domain", "native-liquid-gravity-domain", "native-checkpoint-domain", "native-paired-checkpoint-domain", "native-save-domain", "native-load-domain", "load-rejection", "colony-vanilla"), default="menu")
     play.add_argument("--frames", type=int, metavar="1..10000 (1..100000 with --long-run)",
                       help="Native frames to complete (default 30, or 30000 = ten ONI cycles with --long-run)")

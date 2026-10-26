@@ -36,14 +36,13 @@ GAME_FILES = {
     "OxygenNotIncluded_Data/Plugins/x86_64/SimDLL.dll":
         "031960f120ac1d59fd8e43f6e1a7369111c629b90c24d52186b691dfe2d8a727",
 }
-BASE_GAME_DISABLED_DLC = ("EXPANSION1_ID", "DLC2_ID", "DLC3_ID", "DLC4_ID", "DLC5_ID")
+BASE_GAME_DISABLED_DLC = common.oni_dlc.DLC_IDS
 
 
 def base_game_preferences(profile: Path) -> None:
     # The normal main-menu DLC toggle persists <id>.ENABLED in KPlayerPrefs.
     # This is a fresh disposable profile; no entitlement or game code changes.
-    (profile / "kplayerprefs.yaml").write_text("strings: {}\nints:\n" +
-        "".join(f"  {identity}.ENABLED: 0\n" for identity in BASE_GAME_DISABLED_DLC) + "floats: {}\n")
+    common.oni_dlc.write_preferences(profile, 0)
 
 
 def windows_path(path: Path) -> str:
@@ -266,6 +265,11 @@ def cleanup_run(record, xvfb, prefix_started: bool, proton: Path, output: Path) 
 
 
 def playtest(args, state: Path, session: dict) -> int:
+    dlc_mask = getattr(args, "dlc_mask", None)
+    if dlc_mask is not None:
+        common.oni_dlc.ids_for_mask(dlc_mask)
+        if args.mode == "menu":
+            raise ValueError("--dlc-mask requires a colony mode with runtime content verification")
     validate_arguments(args)
     inspection_seconds = getattr(args, "inspection_seconds", 0)
     package, game, proton = args.package.resolve(), args.game_dir.resolve(), args.proton.resolve()
@@ -336,13 +340,16 @@ def playtest(args, state: Path, session: dict) -> int:
             raise ValueError("Proton profile escaped this run")
         mod = profile / "mods/Dev" / MOD_ID
         common.stage_package(package, mod, manifest, "win-x64")
-        if args.mode in OWNER_MODES:
+        if dlc_mask is not None:
+            common.oni_dlc.write_preferences(profile, dlc_mask)
+            result["requested_dlc"] = common.oni_dlc.selection(dlc_mask)
+        elif args.mode in OWNER_MODES:
             base_game_preferences(profile)
             result["disabled_dlc_preferences"] = list(BASE_GAME_DISABLED_DLC)
         common.write_json(profile / "mods/mods.json", {"version": 1, "mods": [{
             "label": {"distribution_platform": "Dev", "id": MOD_ID, "title": "Mixed Atmospheres - Integration Probe",
                       "version": common.mono_label_version(MOD_ID)}, "status": 1, "enabled": True,
-            "enabledForDlc": ["", "EXPANSION1_ID"], "crash_count": 0, "reinstall_path": None,
+            "enabledForDlc": ["", *common.oni_dlc.DLC_IDS], "crash_count": 0, "reinstall_path": None,
             "staticID": MOD_ID}]})
         load_fixture = None
         if args.load_save:
@@ -368,6 +375,10 @@ def playtest(args, state: Path, session: dict) -> int:
                 **({"Scenario": args.scenario} if getattr(args, "scenario", None) else {}),
                 **({"Cluster": "clusters/" + args.cluster} if getattr(args, "cluster", None) else {}),
                 **({"Speed": args.speed} if getattr(args, "speed", None) else {})})
+            if dlc_mask is not None:
+                configuration=common.read_json(mod / "colony-validation.json")
+                configuration["DlcMask"]=dlc_mask
+                common.write_json(mod / "colony-validation.json",configuration)
             if getattr(args,"quit_from_menu",False):
                 configuration=common.read_json(mod / "colony-validation.json")
                 configuration["QuitFromMainMenu"]=True
@@ -453,6 +464,14 @@ def playtest(args, state: Path, session: dict) -> int:
         owner_ok = args.mode in OWNER_MODES and colony_owner_passed(owner)
         if code == 0 and args.mode in OWNER_MODES and not owner_ok:
             status, code = "failed-colony-owner-evidence", 2
+        result["dlc_selection_verified"] = False
+        if dlc_mask is not None:
+            try:
+                common.oni_dlc.verify_report(dlc_mask, report, saved=bool(report and report.get("GameStarted")))
+                result["dlc_selection_verified"] = True
+            except ValueError:
+                if code == 0:
+                    status, code = "failed-dlc-selection", 2
         if args.mode == "colony-owner":
             pipes = (owner or {}).get("PipeSave") or {}
             defaults_ok = (owner or {}).get("OwnerConfigFlags") == 13 and pipes.get("Active") is True and pipes.get("AuditClosed") is True
@@ -511,6 +530,8 @@ def main() -> int:
     parser.add_argument("--game-dir", type=Path, default="/mnt/data/share/oni/OxygenNotIncluded")
     parser.add_argument("--proton", type=Path, required=True, help="Installed complete Proton tool root")
     parser.add_argument("--package", type=Path, required=True)
+    parser.add_argument("--dlc-mask", type=int, choices=range(32), metavar="0..31",
+                        help="Exact content selection: bits Spaced Out!, Frosty, Bionic, Prehistoric, Aquatic")
     parser.add_argument("--output", type=Path)
     parser.add_argument("--mode", choices=MODES, default="native-domain")
     parser.add_argument("--graphics-api",choices=("glcore","d3d11"),default="glcore",

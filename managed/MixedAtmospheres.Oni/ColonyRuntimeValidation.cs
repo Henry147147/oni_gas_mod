@@ -50,6 +50,8 @@ namespace MixedAtmospheres.Oni
             public string[] RequiredLoadDlcIds = Array.Empty<string>();
             public string[] UnavailableLoadDlcIds = Array.Empty<string>();
             public string[] RuntimeDlcIds = Array.Empty<string>();
+            public int RequestedDlcMask = -1;
+            public bool DlcSelectionChecked, DlcSelectionMatched;
             public string[] ImportedMaterialIds = Array.Empty<string>();
             public string MaterialModel = "explicit local ONI constant-property surrogates; not a thermodynamic catalogue";
             public string MaterialFingerprint = "";
@@ -255,6 +257,19 @@ namespace MixedAtmospheres.Oni
 
         private static NativeMatterPhase Phase(Element element) => element.IsGas ? NativeMatterPhase.Gas :
             element.IsLiquid ? NativeMatterPhase.Liquid : element.IsSolid ? NativeMatterPhase.Solid : NativeMatterPhase.Vacuum;
+
+        internal static void ValidateRequestedDlcSelection()
+        {
+            if (configuration == null || configuration.DlcMask < 0) return;
+            Report.RequestedDlcMask = configuration.DlcMask;
+            Report.RuntimeDlcIds = DlcManager.GetActiveDLCIds().ToArray();
+            Report.DlcSelectionChecked = true;
+            Report.DlcSelectionMatched = ColonyDlcSelection.Mask(Report.RuntimeDlcIds) == configuration.DlcMask;
+            WriteReport();
+            if (!Report.DlcSelectionMatched)
+                throw new InvalidDataException("Requested DLC selection did not activate. Expected mask " + configuration.DlcMask +
+                    "; active content: " + string.Join(", ", Report.RuntimeDlcIds) + ". Check the installed content and its normal menu toggles.");
+        }
 
         internal static void ValidateSelectedSaveContent(string path)
         {
@@ -780,6 +795,7 @@ namespace MixedAtmospheres.Oni
                 if (modEvents != null) { modEvents.OnSelect_OK(); return; }
                 if (menu != null && visited.Add(menu.GetInstanceID()))
                 {
+                    ColonyRuntimeValidation.ValidateRequestedDlcSelection();
                     ColonyRuntimeValidation.SetStage("starting-disposable-colony");
                     if (config.Mode == "native-load-domain" || config.Mode == "colony-owner-load")
                     {

@@ -27,14 +27,14 @@ def digest(path:Path)->str:
     return value.hexdigest()
 
 def fingerprint(runner:Path,package:Path,*,windows:bool=False)->dict:
-    names=("tools/oni_headless.py","tools/oni_native_domain_evidence.py","tools/oni_tile_hover.py","tools/oni_native_matrix.py")
+    names=("tools/oni_headless.py","tools/oni_native_domain_evidence.py","tools/oni_tile_hover.py","tools/oni_native_matrix.py","tools/oni_dlc.py")
     if windows:names+=("tools/oni_proton_headless.py",)
     source={name:digest(runner/name) for name in names}
     files={str(p.relative_to(package)):digest(p) for p in sorted(package.rglob("*")) if p.is_file()}
     if not files:raise ValueError("The package is empty")
     return {"runner_files":source,"package_files":files}
 
-def invoke(command:list[str],log:Path,timeout:int)->int:
+def invoke(command:list[str],log:Path,timeout:int|None)->int:
     with log.open("x",encoding="utf-8") as stream:
         return subprocess.run(command,stdout=stream,stderr=subprocess.STDOUT,timeout=timeout).returncode
 
