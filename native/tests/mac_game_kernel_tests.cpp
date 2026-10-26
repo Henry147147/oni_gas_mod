@@ -310,6 +310,36 @@ int main() {
       std::cout << "PASS game in-place heat/transfer edits equal their copies; "
                    "refused batches leave the owner unchanged\n";
     }
+    {
+      // Cold loads have no kept audit totals. In-place edits must take the
+      // opening totals before changing the state, just like copying edits.
+      for (const bool inject : {false, true}) {
+        auto owner = MacClosedWorld::from_checkpoint(f.registry, f.eos,
+                                                      many.checkpoint());
+        require(!owner.game_audit_totals(), "Cold world already has audit totals");
+        const MacFluidTransfer move{0, oxygen, inject, .0005, 300, {}, true};
+        const auto copied = owner.with_fluid_transfers(
+            std::span(&move, 1), MacFluidTransferTopology::occupied_mixture);
+        const auto *held = &owner.state();
+        auto edited = std::move(owner).with_fluid_transfers(
+            std::span(&move, 1), MacFluidTransferTopology::occupied_mixture);
+        const auto actual = edited.world.game_audit_totals();
+        const auto expected = copied.world.game_audit_totals();
+        require(&edited.world.state() == held && actual && expected &&
+                    actual->species_kg == expected->species_kg &&
+                    actual->energy_j == expected->energy_j &&
+                    edited.world.checkpoint() == copied.world.checkpoint(),
+                "Uncached in-place transfer double-counted its audit change");
+        long double species_mass = 0;
+        for (const auto &cell : edited.world.state().cells)
+          species_mass += cell.mixture.masses[oxygen];
+        require(std::abs(actual->species_kg[oxygen] - species_mass) < 1e-12L &&
+                    std::abs(actual->energy_j - energy(edited.world)) <
+                        1e-12L * std::abs(actual->energy_j),
+                "Uncached transfer audit disagrees with the physical state");
+      }
+      std::cout << "PASS cold uncached in-place transfer totals equal copied and physical totals\n";
+    }
     std::vector<std::uint8_t> x(extracted.world.state().momentum_x.size()),
         y(extracted.world.state().momentum_y.size());
     x[1] = 1;

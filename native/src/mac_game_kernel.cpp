@@ -1198,15 +1198,14 @@ TransferWork apply_transfers(const MacClosedWorld &source,
 }
 // The audited result world of a transfer edit.
 std::shared_ptr<const k::Totals>
-transferred_totals(const MacClosedWorld &source, const k::Totals *kept,
+transferred_totals(const MacClosedWorld &source, const k::Totals &old_totals,
                    const EditJournal &journal, const MacTransportState &next,
                    TransferWork &work) {
-  const auto old_totals = totals_of(source, kept);
   const auto change = totals_change(journal, next, source.registry().size(),
                                     source.settings().gravity_m_per_s2,
                                     std::move(work.cells), std::move(work.faces));
-  auto now = std::make_shared<const k::Totals>(changed_totals(*old_totals, change));
-  audit_transfers(*old_totals, *now, change, work.parcels);
+  auto now = std::make_shared<const k::Totals>(changed_totals(old_totals, change));
+  audit_transfers(old_totals, *now, change, work.parcels);
   return now;
 }
 } // namespace
@@ -1234,9 +1233,9 @@ MacClosedWorld MacGameKernelAccess::heat(MacClosedWorld &&source,
     auto now = heated_totals(source.game_totals_.get(), journal, next, edits,
                              source.registry_.size(),
                              source.settings_.gravity_m_per_s2);
-    canonical_volumes(next);
     MacClosedWorld result(MacClosedWorld::Derived{}, source,
                           source.state_snapshot_);
+    canonical_volumes(next);
     source.state_snapshot_.reset(); // the result now owns the state
     result.game_totals_ = std::move(now);
     return result;
@@ -1251,10 +1250,11 @@ MacGameKernelAccess::transfers(const MacClosedWorld &source,
                                MacFluidTransferTopology topology) {
   const auto species = table(source.registry_, *source.thermodynamics_,
                              source.settings_.game.liquid_stiffness_ratio, source.settings_.game.liquid_law);
+  const auto old_totals = totals_of(source, source.game_totals_.get());
   auto next = source.state();
   EditJournal journal;
   auto work = apply_transfers(source, next, edits, topology, species, journal);
-  auto now = transferred_totals(source, source.game_totals_.get(), journal,
+  auto now = transferred_totals(source, *old_totals, journal,
                                 next, work);
   MacFluidTransferResult result{source.derived(std::move(next)),
                                 std::move(work.parcels), 0, {}};
@@ -1270,16 +1270,19 @@ MacGameKernelAccess::transfers(MacClosedWorld &&source,
   // No other world shares this state: edit it in place, undoing on failure.
   const auto species = table(source.registry_, *source.thermodynamics_,
                              source.settings_.game.liquid_stiffness_ratio, source.settings_.game.liquid_law);
+  // The opening sum must precede mutation when a prior edit or load left
+  // no cache; summing this shared state afterwards would book the delta twice.
+  const auto old_totals = totals_of(source, source.game_totals_.get());
   auto &next = const_cast<MacTransportState &>(*source.state_snapshot_);
   EditJournal journal;
   try {
     auto work = apply_transfers(source, next, edits, topology, species, journal);
-    auto now = transferred_totals(source, source.game_totals_.get(), journal,
+    auto now = transferred_totals(source, *old_totals, journal,
                                   next, work);
-    canonical_volumes(next);
     MacFluidTransferResult result{
         MacClosedWorld(MacClosedWorld::Derived{}, source, source.state_snapshot_),
         std::move(work.parcels), 0, {}};
+    canonical_volumes(next);
     source.state_snapshot_.reset(); // the result now owns the state
     result.world.game_totals_ = std::move(now);
     return result;
