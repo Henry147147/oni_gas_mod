@@ -132,8 +132,9 @@ to form their replacement values. Capacities and cells stay unchanged, every
 after-state equals the last queued request, and no matching move, energy,
 adjuster or removal message confounds those handles. Global registrations
 are recorded separately. This establishes a projection-publication defect;
-the smaller remaining difference still needs proof and is not an accepted
-rounding allowance. The same bundle's `owned-storage-readers` repeat passes
+the smaller remaining difference was then unexplained and unaccepted. The
+later measured 0.703 J residual is classified below by the user's decision.
+The same bundle's `owned-storage-readers` repeat passes
 5/5: all three species and fractional/tiny germ identities remain visible,
 100 pure reads change no inventory, heat or account, and physical withdrawal
 produces an explicit empty reading. Neither control enables live schema5 saves.
@@ -151,10 +152,9 @@ handles and queue exhaustion refuse explicitly.
 
 The native boundary has pinned Linux and Windows registry/frame views; both
 registry layouts and delayed cooling/multiple replacement/capacity-change
-sequences have standalone controls. This is a repair candidate for the
-measured missing-credit defect, not thermal acceptance. The coupled game
-control must still close its unchanged operand bound, including the smaller
-previously unexplained difference. Native contact arithmetic, solver arithmetic
+sequences have standalone controls. The coupled game control retains its
+original strict operand-bound diagnostic; acceptance of the measured residual
+is governed by the user decision below. Native contact arithmetic, solver arithmetic
 and checkpoint formats are unchanged. Transfers concurrent with outstanding
 thermal work, complete storage teardown and native cold rebinding remain open;
 nonempty exact stores still refuse live checkpointing.
@@ -165,14 +165,18 @@ Two registered stored-fluid bodies deliver 44 native heat receipts; stored
 energy changes by **-10117.699527938385 J** over the measured hold. The closed
 balance is now **-0.70290390179257045 J**, against the unchanged
 **4.9810459202356767e-6 J** operand bound. This removes the former multi-kJ
-missing-credit defect but still fails thermal acceptance. The remaining
-difference has not been attributed or accepted as rounding; no residual
-ledger, tolerance change or thermal-service reduction is introduced.
+missing-credit defect. **User decision 2026-10-26: the remaining 0.703 J is
+non-consequential and no longer an acceptance blocker.** The strict numerical
+diagnostic still exceeds its bound, and the cause remains unproved; this is
+explicit acceptance of the observed residual, not evidence of exact closure
+or an identified rounding mechanism. See the [accepted plan amendment](completion-plan.md).
+Transfers with outstanding thermal work, teardown and nonempty cold rebinding
+remain separate open requirements.
 
 The separately activated `owned-storage-biology` control now passes 15/15 on
 core23 (`codex-resume-storage-biology-control-v4`). Actual reservoirs use native
 item insulation for a fixed 300 K biology comparison, independently of the
-still-failing thermal control. One original native culture and one owned
+separate thermal control. One original native culture and one owned
 1,000,000-germ water culture retain identical counts, float residue and cached
 material/tag/threshold state through 33 real disease-manager callbacks and 457
 comparisons. Logical storage tags match all 24 native tag-rule cases. A second

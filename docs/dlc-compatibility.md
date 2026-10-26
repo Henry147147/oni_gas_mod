@@ -129,8 +129,10 @@ not proof of every pack's gameplay systems.
 
 Exact stored-fluid heat/biology and nonempty schema5 cold rebinding remain open
 in [mixed pipes](mixed-pipes.md). Native receipts remove the former multi-kJ
-missing-credit defect across queued thermal proxy resets, but the new coupled
-run still loses 0.703 J and fails its original operand bound. Native scheduling
+missing-credit defect across queued thermal proxy resets. The user classified
+the measured remaining 0.703 J residual as non-consequential on 2026-10-26;
+it no longer blocks acceptance, while its original diagnostic remains recorded.
+Native scheduling
 capture/restore is wired to a development schema5 control with pristine empty
 stores. Its actual Linux cold/menu controls now pass restoration, but the
 uninterrupted/restored owner and pipe observations differ on the first resumed

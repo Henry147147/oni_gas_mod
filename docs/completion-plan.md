@@ -8,6 +8,14 @@ still require separate authorization.
 
 Amendments:
 
+- **Stored-fluid heat residual, 2026-10-26 (user decision):** the measured
+  **-0.70290390179257045 J** closed-storage energy residual after the queued
+  projection-credit repair is **non-consequential** and no longer an acceptance
+  blocker. Retain its measured value and original operand-bound diagnostic;
+  acceptance is by this explicit decision, without claiming a proved cause
+  or exact numerical closure. This does not complete the remaining storage
+  lifecycle, cold-rebind or active-continuation work, or change F4's criteria.
+
 - **Windows playtest and settings, 2026-10-25 (user decisions):**
   1. *Windows now.* The user plays the first private playtest on their own
      Windows PC, so Windows x64 joins Linux as a supported target now. The

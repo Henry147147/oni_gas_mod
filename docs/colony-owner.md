@@ -127,8 +127,9 @@ booked owner input for the next step:
 - same element and mass, new temperature: heat `m c ΔT` using ONI's projected
   cell capacity. This books the observed shadow work; equality with every
   native body's represented endpoint loss still requires a coupled proof.
-  The [closed storage heat control](mixed-pipes.md) currently misses its
-  strict bound by 0.703 J after the queued-projection credit repair;
+  The [closed storage heat control](mixed-pipes.md) misses its strict bound by
+  0.703 J after the queued-projection credit repair; the user classified that
+  measured residual as non-consequential on 2026-10-26, so it is not a blocker;
 - same element, less mass: an extraction at that cell (from a gas cell, of its
   gas mixture by mass; a cell left at no mass gives up all of its gas); more
   mass: an injection at the emitted parcel's temperature;
