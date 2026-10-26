@@ -171,7 +171,7 @@ public:
                        [&](double mass) { return mass < threshold; }))
         return false;
       auto sunk = trace_sink(grid, species, out.state, threshold, gravity,
-                             &regions, &flow.kernel_grid());
+                             &regions, &flow.kernel_grid(), &flow.worker_pool());
       out.trace_constituents += sunk.constituents;
       out.trace_cells += sunk.cells;
       for (std::size_t key = 0; key < species.size(); ++key)
