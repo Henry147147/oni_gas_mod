@@ -210,6 +210,8 @@ struct MacTraceSinkReport {
 struct MacClosedAdvanceReport {
     MacTraceSinkReport trace_sink;
     std::vector<double> game_converted_mass_kg;
+    // Execution diagnostic only; includes the caller and is limited by grid blocks.
+    unsigned game_threads_used = 0;
     MacDiffusionReport diffusion;
     std::size_t interval_kernel_intervals = 0, interval_reference_fallbacks = 0;
     std::size_t interval_audit_exact_fallbacks = 0, interval_audit_retries = 0;

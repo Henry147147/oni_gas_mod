@@ -81,6 +81,9 @@ public:
         filter_speed(speed_limit), filter_sweeps(viscosity_sweeps),
         phase_time(phase_relaxation_time), heat_enabled(enable_heat),
         prune_before_heat(trace_before_heat) {}
+  [[nodiscard]] unsigned threads_used() const noexcept {
+    return flow.worker_pool().size();
+  }
   std::vector<Eos> evaluate_state(const State &state) const {
     return flow.evaluate_state(state);
   }

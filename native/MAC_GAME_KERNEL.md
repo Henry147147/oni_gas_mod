@@ -31,6 +31,28 @@ cells start empty and expand through physical face flow. Core20 stores sparse
 species/passives, energy, face momentum, geometry/masks, clock/revision,
 numerical settings and calibrated phase pairs; no cache affects continuation.
 
+The colony owner now selects the available logical CPUs (Linux process
+affinity when set) minus two for the game, within the supported 1..256 worker
+range. The game kernel honours that request without a twelve-worker cap;
+small grids still limit the
+pool to their fixed row blocks. `MacClosedAdvanceReport::game_threads_used`
+reports the pool size, including the caller, without entering the checkpoint.
+The focused control requests 1/12/13/22/30/256 workers on 31 blocks and checks
+actual pool sizes, exact physical images and cold continuation against one
+worker. This changes scheduling only; it does not establish a throughput gain.
+
+On the Ryzen 9 5900X (24 logical CPUs), eight interleaved 20-frame Terra
+profile5/core23 frame-50 snapshot runs per count under the whole CPU lock give
+warm means of **84.44 ± 2.38 ms at 12 workers** and **90.73 ± 1.51 ms at 22**
+(mean ± sample SD across runs, first frame excluded). The extra workers are
+**7.45% slower**, with all eight pairs slower. Final checkpoint bytes match
+between counts and parent `8c1285e`. This measures offline solver advance;
+30-worker throughput on the user's 9950X remains unmeasured. Linux Release
+passes 86 CTests; all 86 applicable MAC executable outputs and exit statuses
+match the parent except timing fields and the new control's PASS line.
+The changed C++ units also pass MinGW syntax checks; no Windows runtime check
+is claimed.
+
 Focused controls cover own-EOS imports/readings, core20 round trips,
 worker-independent and cold continuation, heat/parcel/wall energy, full passive
 observations and malformed images. A separate native-owner control exercises

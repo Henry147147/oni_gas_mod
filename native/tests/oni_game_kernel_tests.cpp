@@ -1,4 +1,5 @@
 #include "../src/oni_colony.hpp"
+#include "mixed_atmospheres/mac_kernel.hpp"
 #include <algorithm>
 #include <cmath>
 #include <cstdlib>
@@ -6,7 +7,11 @@
 #include <iostream>
 #include <stdexcept>
 #include <string>
+#include <thread>
 #include <vector>
+#if defined(__linux__)
+#include <sched.h>
+#endif
 
 namespace {
 void require(bool yes, const char *text) {
@@ -95,6 +100,14 @@ int main() {
       }
     c::start(config, materials, cells, 1);
     require(c::status().state == 1, "Game owner did not start");
+    auto available = std::max(1U, std::thread::hardware_concurrency());
+#if defined(__linux__)
+    cpu_set_t affinity; CPU_ZERO(&affinity);
+    if (sched_getaffinity(0, sizeof(affinity), &affinity) == 0 && CPU_COUNT(&affinity) > 0)
+      available = static_cast<unsigned>(CPU_COUNT(&affinity));
+#endif
+    require(ma::experimental::mac_kernel_default_options().threads == std::clamp(available, 3U, 258U) - 2,
+            "Game owner did not reserve two CPUs or retained a worker cap");
     const std::vector<MAOniColonyTerrain> opened{
         {4 + 2 * W, MA_ONI_COLONY_OPEN}, {4 + 3 * W, MA_ONI_COLONY_OPEN}};
     c::queue_terrain(opened);

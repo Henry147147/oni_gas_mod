@@ -457,7 +457,7 @@ MacClosedAdvance MacGameKernelAccess::advance_guarded(
   thread_local Cache cache;
   const auto &cfg = source.settings_.game;
   const auto options = mac_kernel_default_options();
-  const unsigned threads = std::min(12U, options.threads);
+  const unsigned threads = options.threads;
   const bool trace_heat =
       source.settings_.game_profile == MacGameProfile::game_kernel_trace_heat;
   const bool closure =
@@ -490,6 +490,7 @@ MacClosedAdvance MacGameKernelAccess::advance_guarded(
     cache.trace_heat = trace_heat;
   }
   MacClosedAdvance result{source, {}};
+  result.report.game_threads_used = cache.tick->threads_used();
   auto state = sparse(source.state(), &cache.tick->worker_pool());
   double elapsed = 0;
   MacEnergySum energy_residual, energy_bound;

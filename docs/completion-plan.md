@@ -8,6 +8,11 @@ still require separate authorization.
 
 Amendments:
 
+- **CPU concurrency, 2026-10-26 (user decision):** remove the colony solver's
+  twelve-worker cap while reserving two logical CPUs for the game. Measure
+  the Terra snapshot at both worker counts; preserve thread-independent results.
+  The existing supported worker range and grid block limit remain.
+
 - **Stored-fluid heat residual, 2026-10-26 (user decision):** the measured
   **-0.70290390179257045 J** closed-storage energy residual after the queued
   projection-credit repair is **non-consequential** and no longer an acceptance

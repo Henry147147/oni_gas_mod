@@ -101,10 +101,61 @@ MacClosedSettings config() {
   s.trace_sink_threshold_kg = 1e-11;
   return s;
 }
+void full_worker_continuation() {
+  const auto &f = ma::testing::setup();
+  // 31 fixed row blocks: enough work to exercise 30 workers and the block
+  // limit, with an odd final block. Temperature gradients drive real flow.
+  constexpr std::size_t W = 64, H = 481, blocks = 31;
+  auto state = f.state(W, H, false);
+  std::vector<double> temperatures(W * H);
+  for (std::size_t i = 0; i < temperatures.size(); ++i)
+    temperatures[i] = 300 + .01 * static_cast<double>(i % 17);
+  auto cfg = config();
+  cfg.game_profile = MacGameProfile::game_kernel_trace_heat;
+  cfg.game.liquid_law = MacGameLiquidLaw::positive_segments;
+  cfg.game.gas_heat_mixing = 8;
+  cfg.maximum_timestep_s = .02;
+  const auto source = MacClosedWorld::game_colony(
+      f.registry, f.eos, std::move(state), temperatures, cfg);
+  const auto saved = mac_kernel_default_options();
+  auto options = saved;
+  options.threads = 1;
+  set_mac_kernel_default_options(options);
+  const auto first = source.advanced(.02);
+  const auto second = first.world.advanced(.02);
+  require(first.report.game_threads_used == 1 &&
+              std::any_of(first.world.state().momentum_y.begin(),
+                          first.world.state().momentum_y.end(),
+                          [](double p) { return p != 0; }),
+          "Single-worker game control did not advance");
+  for (const unsigned requested : {12U, 13U, 22U, 30U, 256U}) {
+    options.threads = requested;
+    set_mac_kernel_default_options(options);
+    const auto many = source.advanced(.02);
+    require(many.report.game_threads_used == std::min<unsigned>(requested, blocks),
+            "Game worker request was capped before the grid block limit");
+    require(many.world.checkpoint() == first.world.checkpoint() &&
+                many.report.energy_residual_j == first.report.energy_residual_j &&
+                many.report.energy_bound_j == first.report.energy_bound_j,
+            "Game workers changed physical bytes or energy audit");
+    const auto cold = MacClosedWorld::from_checkpoint(
+        f.registry, f.eos, many.world.checkpoint()).advanced(.02);
+    require(cold.world.checkpoint() == second.world.checkpoint(),
+            "Game workers changed cold continuation");
+  }
+  // A large request must still avoid creating idle workers on a small grid.
+  const auto small = MacClosedWorld::game_colony(
+      f.registry, f.eos, f.state(8, 4, false), std::vector<double>(32, 300), cfg);
+  require(small.advanced(.02).report.game_threads_used == 1,
+          "Small game grid ignored the block worker limit");
+  set_mac_kernel_default_options(saved);
+  std::cout << "PASS game workers1/12/13/22/30/256, actual pool size, block limit and exact cold continuation\n";
+}
 } // namespace
 int main() {
   try {
     zero_add_matches_two_sum();
+    full_worker_continuation();
     const auto &f = ma::testing::setup();
     auto state = f.state(8, 4, false, true);
     std::vector<double> temperatures(state.cells.size(), 300);
