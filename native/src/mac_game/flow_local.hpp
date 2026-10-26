@@ -23,6 +23,8 @@ class Flow {
   unsigned gravity_rule = 0;
   bool audit_mode = true;
   PatchTransport patch;
+  // Capacity of the previous pressure result, lent to the next solve.
+  Pressure pressure_storage;
   static double milliseconds(std::chrono::steady_clock::time_point start) {
     return std::chrono::duration<double, std::milli>(
                std::chrono::steady_clock::now() - start)
@@ -121,8 +123,8 @@ public:
     auto eos = readings.empty() ? evaluate_state(initial) : std::move(readings);
     result.eos_ms = milliseconds(start);
     start = std::chrono::steady_clock::now();
-    const auto projected =
-        pressure.advance(eos, initial.jx, initial.jy, dt, gravity, true);
+    auto projected = pressure.advance(eos, initial.jx, initial.jy, dt, gravity,
+                                      true, nullptr, std::move(pressure_storage));
     result.pressure_ms = milliseconds(start);
     result.pressure_iterations = projected.iterations;
     result.pressure_corrections = projected.corrections;
@@ -282,6 +284,7 @@ public:
                        ? std::abs(my.residual.value()) / my.operands.value()
                        : 0);
     }
+    pressure_storage = std::move(projected);
     start = std::chrono::steady_clock::now();
     result.eos = evaluate_state(result.state, std::move(eos));
     result.eos_ms += milliseconds(start);
