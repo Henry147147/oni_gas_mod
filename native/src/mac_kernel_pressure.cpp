@@ -11,6 +11,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <numeric>
+#include <utility>
 
 namespace ma::experimental::mac_kernel {
 namespace {
@@ -126,13 +127,14 @@ namespace {
 // its own Krylov stream: a stiff liquid pocket must not make every gas cavern
 // perform its iterations. Components and their row/face orders depend only on
 // the operator; each worker owns one solve and disjoint output cells.
+// Components are numbered in order of their lowest cell. Each lists its cells
+// in index order, then its internal faces and boundary couplings in face
+// order (x faces, then y faces), as slices of flat arrays.
 struct ComponentLayout {
-    struct Part {
-        std::vector<PressureFace> faces;
-        std::vector<std::size_t> cells;
-        std::vector<std::pair<std::size_t, double>> boundary;
-    };
-    std::vector<Part> parts;
+    std::vector<std::size_t> cells, cell_start, face_start, boundary_start;
+    std::vector<PressureFace> faces;
+    std::vector<std::pair<std::size_t, double>> boundary;
+    [[nodiscard]] std::size_t size() const { return cell_start.empty() ? 0 : cell_start.size() - 1; }
 };
 ComponentLayout component_layout(const Context& c, const LinearSystem& sys) {
     const auto& g = c.g; const auto N = g.N;
@@ -161,53 +163,79 @@ ComponentLayout component_layout(const Context& c, const LinearSystem& sys) {
         const auto l = root(edge.left), r = root(edge.right);
         if (l != r) parent[r] = l;
     }
-    ComponentLayout layout; auto& parts = layout.parts;
+    ComponentLayout layout;
+    // which[i]: component of node i; local[i]: its rank there. The start
+    // arrays first hold counts, then (by prefix sums) slice offsets.
     std::vector<std::size_t> labels(M, M), which(M), local(M);
+    auto& cell_start = layout.cell_start;
     for (std::size_t i = 0; i < M; ++i) {
         const auto r = root(i);
-        if (labels[r] == M) { labels[r] = parts.size(); parts.emplace_back(); }
-        which[i] = labels[r]; auto& part = parts[which[i]]; local[i] = part.cells.size();
-        part.cells.push_back(cells[i]);
+        if (labels[r] == M) { labels[r] = cell_start.size(); cell_start.push_back(0); }
+        which[i] = labels[r]; local[i] = cell_start[which[i]]++;
     }
-    for (const auto& edge : faces)
-        parts[which[edge.left]].faces.push_back({local[edge.left], local[edge.right], edge.conductance});
-    for (const auto& [node, weight] : boundary)
-        parts[which[node]].boundary.emplace_back(local[node], weight);
+    const auto parts = cell_start.size();
+    const auto offsets = [&](std::vector<std::size_t>& start) {
+        std::size_t total = 0;
+        for (auto& v : start) total += std::exchange(v, total);
+        start.push_back(total);
+    };
+    offsets(cell_start);
+    layout.cells.resize(M);
+    for (std::size_t i = 0; i < M; ++i) layout.cells[cell_start[which[i]] + local[i]] = cells[i];
+    // Faces and couplings keep their face order inside each component.
+    const auto place = [&](const auto& items, std::vector<std::size_t>& start, auto& out, const auto& node, const auto& entry) {
+        start.assign(parts, 0);
+        for (const auto& item : items) ++start[which[node(item)]];
+        offsets(start);
+        std::vector<std::size_t> next(start.begin(), start.end() - 1);
+        out.resize(items.size());
+        for (const auto& item : items) out[next[which[node(item)]]++] = entry(item);
+    };
+    place(faces, layout.face_start, layout.faces, [](const PressureFace& e) { return e.left; },
+        [&](const PressureFace& e) { return PressureFace{local[e.left], local[e.right], e.conductance}; });
+    place(boundary, layout.boundary_start, layout.boundary, [](const auto& b) { return b.first; },
+        [&](const auto& b) { return std::pair<std::size_t, double>{local[b.first], b.second}; });
     return layout;
 }
 LinearSolveResult solve_component_ic(Context& c, const LinearSystem& sys, const std::vector<double>& b,
     std::vector<double>& x, double rtol, double atol, std::size_t maximum, const ComponentLayout* cached = nullptr) {
     const auto transient = cached ? ComponentLayout{} : component_layout(c, sys);
-    const auto& parts = cached ? cached->parts : transient.parts;
+    const auto& layout = cached ? *cached : transient;
+    const auto parts = layout.size();
     const auto N = c.g.N;
     struct Solved { LinearSolveResult linear; bool ic = false, fallback = false; };
-    std::vector<Solved> results(parts.size()); x.assign(N, 0);
+    std::vector<Solved> results(parts); x.assign(N, 0);
     // Sum of squared component residual limits is at most half the squared
     // original global limit, including when relative and absolute terms mix.
-    const double local_atol = parts.empty() ? atol : .5 * atol / std::sqrt(static_cast<double>(parts.size()));
-    c.exec.pool.run(parts.size(), [&](std::size_t index) {
-        const auto& part = parts[index];
-        std::vector<double> diagonal, rhs; diagonal.reserve(part.cells.size()); rhs.reserve(part.cells.size());
-        for (const auto cell : part.cells) { diagonal.push_back(sys.diag[cell]); rhs.push_back(b[cell]); }
-        for (const auto& [node, weight] : part.boundary) diagonal[node] += weight;
+    const double local_atol = parts == 0 ? atol : .5 * atol / std::sqrt(static_cast<double>(parts));
+    c.exec.pool.run(parts, [&](std::size_t index) {
+        const auto first = layout.cell_start[index], last = layout.cell_start[index + 1];
+        const auto face_first = layout.face_start[index], face_last = layout.face_start[index + 1];
+        std::vector<double> diagonal, rhs; diagonal.reserve(last - first); rhs.reserve(last - first);
+        for (auto j = first; j < last; ++j) { diagonal.push_back(sys.diag[layout.cells[j]]); rhs.push_back(b[layout.cells[j]]); }
+        for (auto j = layout.boundary_start[index]; j < layout.boundary_start[index + 1]; ++j)
+            diagonal[layout.boundary[j].first] += layout.boundary[j].second;
         // A positive isolated scalar with zero RHS has the exact zero root.
         // No reciprocal is needed, including when 1/diagonal overflows.
-        if (c.settings.game_profile==MacGameProfile::base_game_floor && part.faces.empty() &&
+        if (c.settings.game_profile==MacGameProfile::base_game_floor && face_first == face_last &&
             diagonal.size()==1 && std::isfinite(diagonal[0]) && diagonal[0]>0 && rhs[0]==0 &&
             std::isfinite(rtol) && rtol>=0 && std::isfinite(local_atol) && local_atol>=0 &&
             (.5*rtol>0 || local_atol>0) && maximum>0) {
             results[index]={{0,0,true},false,false}; return;
         }
-        PressureSystem matrix(std::move(diagonal), part.faces, PressurePreconditioner::incomplete_cholesky);
+        PressureSystem matrix(std::move(diagonal),
+            std::vector<PressureFace>(layout.faces.begin() + static_cast<std::ptrdiff_t>(face_first),
+                layout.faces.begin() + static_cast<std::ptrdiff_t>(face_last)),
+            PressurePreconditioner::incomplete_cholesky);
         PressureSolveResult solved;
         try { solved = matrix.solve(rhs, std::vector<double>(rhs.size(), 0), .5 * rtol, local_atol, maximum); }
         catch (const std::runtime_error&) { reject("Production component pressure solve did not converge"); }
-        for (std::size_t j = 0; j < part.cells.size(); ++j) x[part.cells[j]] = solved.pressure[j];
+        for (auto j = first; j < last; ++j) x[layout.cells[j]] = solved.pressure[j - first];
         results[index] = {{solved.iterations, solved.residual_norm, true},
             solved.preconditioner_used == PressurePreconditioner::incomplete_cholesky, solved.preconditioner_fallback};
     });
     LinearSolveResult result; result.converged = true; DD squared;
-    c.counters.maximum_linear_components = std::max(c.counters.maximum_linear_components, parts.size());
+    c.counters.maximum_linear_components = std::max(c.counters.maximum_linear_components, parts);
     for (const auto& solved : results) {
         result.iterations += solved.linear.iterations; squared.add(solved.linear.residual * solved.linear.residual);
         c.counters.incomplete_cholesky_solves += solved.ic ? 1 : 0;
