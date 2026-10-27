@@ -104,7 +104,7 @@ namespace MixedAtmospheres.Oni
                 state = "Loaded · waiting for a colony";
                 scope = NativeSealedDomainValidation.IsMode
                     ? "Development scene enabled. Start a disposable new colony to see the custom fluid region."
-                    : ColonyOwner.Available ? "Start a new base-game colony: Mixed Atmospheres takes over its gases and liquids."
+                    : ColonyOwner.Available ? "Start a new base-game or Spaced Out! colony: Mixed Atmospheres takes over its gases and liquids."
                     : "ONI owns colony physics. Enable the visual development scene to see simulated mixtures (README).";
                 return;
             }
