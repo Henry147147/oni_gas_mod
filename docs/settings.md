@@ -140,6 +140,13 @@ The status panel describes only the cell under the cursor: a solid tile reads
 
 ## Save record
 
+**Reserved 2026-10-27 after fetching `f22f7ed`:** section 3 record version **3**
+adds an explicit carbon dioxide limit switch to the five breathing thresholds.
+It replaces the removed nitrogen-air version 2. Version 1 remains readable as
+the original rules with CO2 limits enabled; records requesting nitrogen air
+are refused. New defaults record the disabled CO2 limits explicitly, so an
+older mod build cannot silently interpret them as its former lethal limits.
+
 MACOLP03 section 3 (assigned by main, 2026-10-25), little endian:
 `u32 version`, `u32 count`, then binary64 minimum oxygen share, minimum
 oxygen partial pressure (Pa), maximum carbon dioxide share, maximum carbon

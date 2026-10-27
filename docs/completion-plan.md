@@ -8,6 +8,16 @@ still require separate authorization.
 
 Amendments:
 
+- **Gameplay and settings direction, 2026-10-27 (latest user decisions):**
+  Remove the mod's nitrogen content and nitrogen-air option. Saves using the
+  removed nitrogen catalogue are refused with an explanation; no load-only
+  nitrogen content is retained. Make carbon dioxide breathing limits optional
+  and disabled by default, with a setting the player can change. Oxygen
+  requirements still apply. Put solver presets and technical controls under
+  clearly labelled Advanced settings, and make the ordinary settings page
+  focus on gameplay and presentation. Update player documentation accordingly.
+  This replaces the earlier nitrogen-air and Hard mode directions below.
+
 - **First Steam release scope, 2026-10-27 (user decisions):**
   1. *Packs.* The first public release supports the base game and Spaced
      Out!. Frosty, Bionic, Prehistoric and Aquatic follow in a later update;
