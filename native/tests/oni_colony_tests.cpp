@@ -1726,6 +1726,16 @@ void input_flush_control() {
         "A positive advance stopped working after lifecycle edits");
     require(!needs_shadow_refresh() && !copy_changed(advanced.session,advanced.completed_frames,copied,views.data(),9),"A positive advance did not restore ordinary frame caching");
     require(advanced.maximum_relative_mass_error<1e-12 && advanced.maximum_relative_energy_error<1e-12,"Lifecycle edit ledgers do not close");
+    // Repeat after a real tick has populated cached kernel audit sums. New
+    // topology and a sub-threshold source must be audited as actual cells,
+    // without a flow tick or trace sink refreshing the snapshot for us.
+    const MAOniColonyTerrain late_open{2,MA_ONI_COLONY_OPEN};queue_terrain(std::span(&late_open,1));
+    const std::array<MAOniColonyTransfer,2> late_sources{{{2,oxygen,MA_ONI_COLONY_INJECT,0,-1,0,.125,300,0},
+        {0,carbon,MA_ONI_COLONY_INJECT,0,-1,0,1e-13,300,0}}};
+    const auto prior_zero=mass(0);queue_transfers(late_sources);
+    require(flush_inputs()==0 && status().state==1 && status().completed_frames==advanced.completed_frames && status().time_seconds==advanced.time_seconds &&
+        mass(2)==.125 && mass(0)==prior_zero+1e-13 && status().trace_sink_kg==advanced.trace_sink_kg,
+        "A warmed lifecycle boundary used stale audit totals, lost a trace or advanced time");
     sample_history(0);stop();set_diseases({}, {},0);
     bool refused=false;try{(void)flush_inputs();}catch(const std::invalid_argument&){refused=true;}
     require(refused,"Input flushing admitted an absent owner");

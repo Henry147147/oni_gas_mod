@@ -2896,7 +2896,12 @@ void run_frame(std::uint64_t ticket, double seconds, std::uint64_t frames, const
         lap(4); step("ledger");
         // Ledgers close: every species and U+K+G against the booked flows.
         // The world's audit totals when its last operation kept them.
-        const auto kept = world.game_audit_totals();
+        // A lifecycle boundary has not completed the tick that refreshes the
+        // kernel's audit snapshot. Audit its actual cells instead. This is a
+        // rare boundary, so retain the full scan rather than relying on a
+        // cache whose producer may precede a topology/passive operation.
+        auto kept = world.game_audit_totals();
+        if(flush_only)kept.reset();
         auto now = kept ? kept->species_kg : totals(world);
         long double precision_energy=0;
         for(const auto& held:s.precision) { now[cat.species_of_native(held.native_index)]+=held.mass_kg;precision_energy+=detail::precision_value(held.energy_j); }
@@ -2905,7 +2910,11 @@ void run_frame(std::uint64_t ticket, double seconds, std::uint64_t frames, const
             const long double expected = L.initial[k] + L.injected[k] - L.extracted[k] - L.sunk[k] - L.trace[k] + L.converted[k];
             const long double scale = L.initial[k] + L.injected[k] + L.extracted[k] + L.sunk[k] + L.trace[k] + L.converted_gross[k];
             if (scale > 0) { const auto e = static_cast<double>(std::abs(now[k] - expected) / scale); if (e > mass_error) { mass_error = e; worst = k; } }
-            else if (now[k] != 0) throw std::runtime_error("The colony created an unbooked constituent");
+            else if (now[k] != 0) {
+                char detail[256];std::snprintf(detail,sizeof detail,"The colony created an unbooked constituent: %s %.17Lg kg",
+                    cat.materials[k].game.id.c_str(),now[k]);
+                throw std::runtime_error(detail);
+            }
         }
         // MA_COLONY_LEDGER_LOG=1: report each frame that raises the worst
         // relative mass error above 1e-12, with its species (stderr).

@@ -140,6 +140,16 @@ exact cold reencoding. Its managed caller fences native work and publishes
 callbacks through the normal zero-time game step. Ordinary save semantics are
 unchanged; this boundary alone does not implement rocket evacuation.
 
+The first `c269a9e` in-game boundary control fails after all nine-world probes
+pass. The diagnostic `7f0fb8f` repeat identifies the refusal as the mass ledger's
+unbooked-constituent check; cold/menu phases are not run. Lifecycle auditing
+now scans actual cells and energy rather than taking a cached kernel audit
+snapshot before a positive flow tick has refreshed it. The existing zero-scale
+check and mass/energy bounds remain in force, and refusal text identifies the
+constituent and amount. Standalone coverage repeats topology and trace inputs
+after a positive tick as well as at startup. The replacement game control is
+still required; these failed attempts provide no lifecycle acceptance.
+
 The 2026-10-26 request covers Spaced Out!, Frosty, Bionic, Prehistoric and
 Aquatic: every one of their 32 selections on Linux and Windows x64. This
 extends the [base-game playtest](playtest-plan.md); it does not certify the
