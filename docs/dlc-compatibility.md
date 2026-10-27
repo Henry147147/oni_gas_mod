@@ -422,7 +422,7 @@ Use `--target windows` on Windows with Python and PowerShell 7, or
 route is additional WindowsPlayer evidence; it cannot fill Windows OS rows.
 `--masks 0 20` limits a diagnostic run to those selections and cannot pass
 full target coverage. On Linux, each individual game goes through
-`/home/henry/oni-agents/game-slot.sh high`, releasing the slot between phases.
+`/home/henry/oni-agents/game-slot.sh low`, releasing the slot between phases.
 `--game-slot` can name the same shared wrapper in another home directory;
 a missing wrapper refuses the run. Queue time does not consume the inner
 game's timeout. Run the outer matrix directly: putting the whole matrix under
@@ -435,6 +435,7 @@ and second load. Spaced Out! rows require more than one world. Every phase
 requires a running `MacClosedWorld`, closed mixed-pipe audits, the expected
 content IDs, and successful game-side completion. Loads must reencode the
 restored owner image; menu loads must verify teardown and the menu boundary.
+Development owner overrides cannot establish ordinary DLC compatibility.
 The source save must remain unchanged. Runner/package hashes are checked
 before and after each phase. The first rejection stops the matrix and leaves
 later rows unrun, preserving the failure and source receipts in `matrix.json`.
@@ -502,6 +503,14 @@ mixed ports, including source/cold/menu restoration. Rocket retirement,
 teleporter/cargo and full cluster gameplay acceptance remain open. Bionic
 oxygen and aquatic ecosystem adapters also remain incomplete. The matrix is a
 compatibility check, not proof of every pack's gameplay systems.
+
+The `c942141` cargo repeat fixes the stations' power and placement but still
+fails loading and unloading for both phases: each native intake holds its
+mixture while its cargo bay stays empty. The 131-frame source has healthy
+owner and exact pipe accounts; no save/load phases are accepted from this
+failure. The next diagnostic records the pad's actual distributor state,
+landed rocket, linked stations and every station storage, retaining the same
+source quantities and observation windows. Ordinary activation remains gated.
 
 Exact stored-fluid heat/biology and nonempty schema5 cold rebinding remain open
 in [mixed pipes](mixed-pipes.md). Native receipts remove the former multi-kJ

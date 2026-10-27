@@ -53,6 +53,8 @@ def verify_case(data: dict, target: str, mask: int, loading: bool, menu: bool) -
     mode = "colony-owner-load" if loading else "colony-owner"
     if not isinstance(data, dict) or data.get("status") != "passed-" + mode or data.get("exit_code") != 0:
         raise ValueError("The real game rejected the compatibility case")
+    if data.get("owner_environment_overrides") or data.get("experimental_spaced_out_control"):
+        raise ValueError("Development admission cannot establish ordinary DLC compatibility")
     probe = data.get("integration_probe") or {}
     expected_player = "LinuxPlayer" if target == "linux" else "WindowsPlayer"
     if not isinstance(probe, dict) or probe.get("Platform") != expected_player or any(probe.get(flag) is not True for flag in PROBE_FLAGS):
@@ -156,7 +158,7 @@ def run_matrix(runner: Path, package: Path, output: Path, *, target: str, masks:
                 command += ["--game-dir", str(game_dir.resolve())]
             # Queue each individual Unity process through the shared game/CPU
             # locks, releasing between phases so the release chain can run.
-            command = [str(game_slot), "high", *command]
+            command = [str(game_slot), "low", *command]
         entry = {"phase": name, "status": "running", "command": command}
         row["runs"].append(entry)
         write()

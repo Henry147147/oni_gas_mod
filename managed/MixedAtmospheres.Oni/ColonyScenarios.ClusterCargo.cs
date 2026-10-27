@@ -14,6 +14,23 @@ namespace MixedAtmospheres.Oni
             => storage.items.Where(item => item != null).Select(item => item.GetComponent<PrimaryElement>())
                 .Where(item => item != null && item.ElementID == element).Sum(item => (double)item.Mass);
 
+        private static string ClusterCargoState(GameObject station)
+        {
+            var distributor = clusterLaunchPad!.GetSMI<LaunchPadMaterialDistributor.Instance>();
+            var landed = clusterLaunchPad.GetComponent<LaunchPad>().LandedRocket;
+            var linked = HashSetPool<ChainedBuilding.StatesInstance, ChainedBuilding.StatesInstance>.Allocate();
+            string chain;
+            try
+            {
+                var buildings = clusterLaunchPad.GetSMI<ChainedBuilding.StatesInstance>().GetLinkedBuildings(ref linked);
+                chain = string.Join(", ", buildings.Select(b => b.gameObject.PrefabID().Name + "@" + Grid.PosToCell(b.gameObject)));
+            }
+            finally { linked.Recycle(); }
+            var stores = string.Join(", ", station.GetComponents<Storage>().Select(s => $"{s.MassStored():R}/{s.capacityKg:R}"));
+            return $"pad {MachineState(clusterLaunchPad)}, landed {landed != null}, distributor {distributor?.GetCurrentState()?.name}, " +
+                $"chain [{chain}], station stores [{stores}]; {MachineState(station)}";
+        }
+
         private static void SpacedOutCargo(int frame, OniNativeColony.Status status, bool gas)
         {
             var first = gas ? SimHashes.Oxygen : SimHashes.Water;
@@ -88,7 +105,7 @@ namespace MixedAtmospheres.Oni
                 var cargo = clusterCargoModule!.GetComponent<Storage>();
                 var a = ClusterStoredMass(cargo, first); var b = ClusterStoredMass(cargo, second);
                 Record("actual cargo bay holds both constituents", Math.Abs(a - .75) < 1e-6 && Math.Abs(b - .25) < 1e-6,
-                    $"first {a:R} kg, second {b:R} kg; loader {MachineState(clusterCargoLoader)}");
+                    $"first {a:R} kg, second {b:R} kg; loader {ClusterCargoState(clusterCargoLoader!)}");
                 Record("cargo intake and loader drained", ColonyConduits.ReadSynced(flow, clusterCargoInput).Mass < 1e-6 &&
                     clusterCargoLoader!.GetComponent<Storage>().MassStored() < 1e-6, "input and actual loader storage empty");
                 clusterCargoUnloader!.GetComponent<TreeFilterable>().UpdateFilters(new HashSet<Tag> { first.CreateTag(), second.CreateTag() });
@@ -99,7 +116,7 @@ namespace MixedAtmospheres.Oni
                 var output = ColonyConduits.ReadSynced(flow, clusterCargoOutput);
                 var a = ClusterPipeMass(output, first); var b = ClusterPipeMass(output, second);
                 Record("cargo unloads both constituents", Math.Abs(a - .75) < 1e-6 && Math.Abs(b - .25) < 1e-6,
-                    $"first {a:R} kg, second {b:R} kg; unloader {MachineState(clusterCargoUnloader)}");
+                    $"first {a:R} kg, second {b:R} kg; unloader {ClusterCargoState(clusterCargoUnloader!)}");
                 Record("cargo and unloader leave no duplicate inventory", clusterCargoModule!.GetComponent<Storage>().MassStored() < 1e-6 &&
                     clusterCargoUnloader!.GetComponent<Storage>().MassStored() < 1e-6, "cargo and actual unloader storage empty");
                 Record("cargo keeps closed world ledgers", status.State == 1 && status.MaximumRelativeMassError <= 1e-12 &&

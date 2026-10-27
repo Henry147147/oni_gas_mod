@@ -50,6 +50,7 @@ class CompatibilityEvidenceTests(unittest.TestCase):
     def test_inactive_owner_wrong_content_and_incomplete_load_evidence_cannot_pass(self):
         data = result(31, loading=True, menu=True)
         changes = [("status", "passed-colony-owner-inactive"), ("exit_code", 2),
+                   ("owner_environment_overrides", True), ("experimental_spaced_out_control", True),
                    ("integration_probe.ManagedFrameIntercepted", False),
                    ("integration_probe.Platform", "WindowsPlayer"), ("colony_report.GameStarted", False),
                    ("colony_report.WorldCount", 1), ("colony_report.RuntimeDlcIds", ["EXPANSION1_ID"]),
@@ -128,7 +129,7 @@ class CompatibilityRunnerTests(unittest.TestCase):
         self.assertFalse(report["byte_exact_active_continuation_verified"])
         self.assertFalse(report["actual_windows_os"])
         self.assertEqual(len(self.commands), 6)
-        self.assertTrue(all(command[:2] == [str(self.game_slot), "high"] for command in self.commands))
+        self.assertTrue(all(command[:2] == [str(self.game_slot), "low"] for command in self.commands))
         self.assertTrue(all("--dlc-mask" in command for command in self.commands))
         self.assertIn("--save-colony", self.commands[0])
         self.assertNotIn("--reload-in-process", self.commands[1])
