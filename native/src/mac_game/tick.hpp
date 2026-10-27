@@ -17,6 +17,8 @@ struct TickResult {
          phase_ms = 0, trace_audit_ms = 0, interface_ms = 0, layering_ms = 0,
          pressure_ms = 0, transport_ms = 0, eos_ms = 0;
   std::size_t regions = 0, trace_constituents = 0, trace_cells = 0;
+  // Execution diagnostics: pressure solver iterations and corrections.
+  std::size_t pressure_iterations = 0, pressure_corrections = 0;
   std::vector<double> sink_species, conversion_species;
   std::vector<std::pair<std::uint64_t, double>> sink_passive_quantities;
   double sink_internal = 0, sink_kinetic = 0, sink_potential = 0, sink_px = 0,
@@ -213,6 +215,8 @@ public:
       out.pressure_ms += advanced.pressure_ms;
       out.transport_ms += advanced.transport_ms;
       out.eos_ms += advanced.eos_ms;
+      out.pressure_iterations += advanced.pressure_iterations;
+      out.pressure_corrections += advanced.pressure_corrections;
       out.microevents += advanced.subcycles;
       wall_x += advanced.wall_x;
       wall_y += advanced.wall_y;

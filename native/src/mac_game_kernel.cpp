@@ -491,7 +491,13 @@ MacClosedAdvance MacGameKernelAccess::advance_guarded(
   }
   MacClosedAdvance result{source, {}};
   result.report.game_threads_used = cache.tick->threads_used();
+  auto &stages = result.report.game_stages;
+  const auto since = [](std::chrono::steady_clock::time_point start) {
+    return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
+  };
+  auto stamp = std::chrono::steady_clock::now();
   auto state = sparse(source.state(), &cache.tick->worker_pool());
+  stages.sparse_ms = since(stamp);
   double elapsed = 0;
   MacEnergySum energy_residual, energy_bound;
   std::vector<k::Eos> last;
@@ -502,10 +508,24 @@ MacClosedAdvance MacGameKernelAccess::advance_guarded(
             "Game interval exceeds its tick budget");
     const double dt =
         std::min(source.settings_.maximum_timestep_s, seconds - elapsed);
+    stamp = std::chrono::steady_clock::now();
     auto next =
         cache.tick->advance(state, dt, source.settings_.gravity_m_per_s2,
                             source.settings_.trace_sink_threshold_kg,
                             liquid_blocked);
+    stages.tick_ms += since(stamp);
+    stages.flow_ms += next.flow_ms;
+    stages.eos_ms += next.eos_ms;
+    stages.pressure_ms += next.pressure_ms;
+    stages.transport_ms += next.transport_ms;
+    stages.layering_ms += next.layering_ms;
+    stages.interface_ms += next.interface_ms;
+    stages.heat_ms += next.heat_ms;
+    stages.phase_ms += next.phase_ms;
+    stages.entropy_ms += next.entropy_ms;
+    stages.audit_ms += next.trace_audit_ms;
+    stages.pressure_iterations += next.pressure_iterations;
+    stages.pressure_corrections += next.pressure_corrections;
     state = std::move(next.state);
     last = std::move(next.eos);
     last_totals = std::move(next.totals);
@@ -532,8 +552,10 @@ MacClosedAdvance MacGameKernelAccess::advance_guarded(
     ++result.report.phase_change_stages;
     elapsed += dt;
   }
+  stamp = std::chrono::steady_clock::now();
   result.world = source.derived(
       dense(source.state(), state, source.registry_.size(), last));
+  stages.dense_ms = since(stamp);
   result.world.game_totals_ =
       std::make_shared<const k::Totals>(std::move(last_totals));
   result.world.time_s_ = source.time_s_ + seconds;
