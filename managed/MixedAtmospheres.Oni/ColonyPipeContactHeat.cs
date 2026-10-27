@@ -153,7 +153,12 @@ namespace MixedAtmospheres.Oni
                 if(queuedEnergy!=0)
                     OniNativeColony.Check(ExpectCompletion(row.Handle,queuedEnergy,
                         Math.Min(row.Input.BodyTemperature,row.Input.FluidTemperature),Math.Max(row.Input.BodyTemperature,row.Input.FluidTemperature)));
-                heat=lagged.Plus(contact);row.Consumed=true;ContactHeat=ContactHeat.Plus(contact);LaggedHeat=LaggedHeat.Plus(lagged);++Contacts;return true;
+                heat=lagged.Plus(contact);row.Consumed=true;ContactHeat=ContactHeat.Plus(contact);LaggedHeat=LaggedHeat.Plus(lagged);
+                // Restore/topology/save callbacks can validate at zero time.
+                // Retained work still settles, while the diagnostic counts
+                // timed contacts independently of those lifecycle callbacks.
+                if(row.Input.Seconds>0)++Contacts;
+                return true;
             }
             internal void Complete()
             {
@@ -183,7 +188,7 @@ namespace MixedAtmospheres.Oni
             }
         }
         internal static long Unsettled { get; private set; }
-        internal static string Report=>$"{Contacts} validated represented-body contacts; {ContactHeat.Value:R} J contact and {LaggedHeat.Value:R} J retained earlier heat; {Excluded} excluded, {Mismatches} carrier mismatches, {Unsettled} unsettled";
+        internal static string Report=>$"{Contacts} validated timed body contacts; {ContactHeat.Value:R} J contact and {LaggedHeat.Value:R} J retained earlier heat; {Excluded} excluded, {Mismatches} carrier mismatches, {Unsettled} unsettled";
         internal static void StartControl()
         {
             if(!ColonyConduits.Active)throw new InvalidOperationException("Contact heat requires owned pipe contents.");

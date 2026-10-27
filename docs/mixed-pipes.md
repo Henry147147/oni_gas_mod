@@ -527,6 +527,18 @@ and `compatible-load`). All 24 storage sections match, retaining
 pass. This is a compatibility build plus host game execution; no Ubuntu 22.04
 Unity run or complete release acceptance is claimed.
 
+The next localization found the drained-store pipe mismatch was exactly one
+diagnostic byte: restore's additional zero-time contact callback incremented
+`Contacts`. All other bytes before the checksum matched for eight consecutive
+frames. The counter now counts timed contacts; zero-time callbacks continue
+settling all represented and retained heat with unchanged arithmetic.
+`release-contact-counter-source` / `load` now have byte-identical complete
+pipe images for all eight frames in both cold and menu sessions. The owner
+still first differs at frame40 from the frame39 save; its committed native
+inputs differ there too (3,845 versus 3,853 records, different multisets).
+Particles match. No image section or acceptance comparison is normalized or
+omitted, and complete colony continuation remains unverified.
+
 `MA_COLONY_CONTINUATION_FRAMES=N` still records a held completed owner image
 after each positive frame. With `MA_COLONY_CONTINUATION_RUNTIME=1`, it also
 settles native publication and receipts and records pipe/native-scheduling and

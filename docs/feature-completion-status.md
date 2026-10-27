@@ -74,6 +74,11 @@ playtest deferrals remain recorded until their own controls pass.
   a temperature-equality false positive in pipe-body save validation; a
   read-only native message completion observer now proves the queued work was
   processed. The complete world/pipe prefix still differs after loading.
+- **Pipe continuation counter:** restore's extra zero-time callback changed
+  only the saved contact diagnostic. Counting timed contacts while retaining
+  all zero-time heat settlement yields byte-identical complete pipe images
+  through eight source/cold/menu frames. The world image and native inputs
+  still diverge on the first resumed frame; full colony continuation is open.
 
 ## Remaining implementation and proofs
 
