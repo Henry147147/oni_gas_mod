@@ -100,6 +100,25 @@ platform/module construction commands, with its instant-build setting restored
 immediately, and waits for the actual paired interior door before reading its
 world. No rocket pass or save/load result is taken from that failed run.
 
+The corrected `178aab3` construction control passes: world 9 is registered as
+the tenth cluster world, all 996 non-solid cells become owned, and its cabin
+retains the added 0.25 kg oxygen and 0.125 kg carbon dioxide over the fixed
+eight-frame observation. The source saves at frame 48. Cold and menu loads
+both reach frame 56, exactly reencode the same restored wrapper-12/core-23
+image and retain all ten worlds; the menu path verifies a second owner session.
+The maximum relative mass/energy errors across the runs are 5.09e-16/4.00e-16.
+These are Proton controls with `178aab3` managed code and identical `13e5345`
+native binaries, whose original provenance is retained. They establish rocket
+creation and restoration, not flight, removal or cargo transfer.
+
+`spaced-out-rocket-ports` follows that construction control. It connects the
+actual gas/liquid ports in both directions, requires their native paired
+components to share the same storage, seeds 0.75 kg/0.25 kg of two constituents at each input,
+and waits 16 owner frames for ordinary callbacks. It requires both constituents
+at the opposite world's output, empty source/storage, closed world ledgers and
+the exact pipe/storage boundary audit. It does not call transfer callbacks or
+replace the game's rates. This new port control has no accepted game run yet.
+
 The 2026-10-26 request covers Spaced Out!, Frosty, Bionic, Prehistoric and
 Aquatic: every one of their 32 selections on Linux and Windows x64. This
 extends the [base-game playtest](playtest-plan.md); it does not certify the
