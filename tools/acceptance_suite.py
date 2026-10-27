@@ -915,7 +915,9 @@ class Suite:
         self.packages: dict[str, dict] = {}
         self.summary = {"kind": "private-release-acceptance", "revision": revision, "tier": tier,
                         "platforms": list(platforms), "tag": layout.tag, "tool": str(Path(__file__).resolve()),
-                        "tool_revision": git("rev-parse", "HEAD"), "started": now(), "source": str(layout.source),
+                        "tool_revision": git("rev-parse", "HEAD"),
+                        "tool_changes": git("status", "--porcelain", "--", "tools/acceptance_suite.py").splitlines(),
+                        "started": now(), "source": str(layout.source),
                         "gpu_display": infra.gpu_display,
                         "proton": str(infra.proton), "linux_game": str(infra.linux_game),
                         "windows_game": str(infra.windows_game),
@@ -1261,11 +1263,15 @@ def ordinary_clicks(desktop: Desktop, log, wait) -> None:
     time.sleep(3); shot("duplicants-owner-active")
     desktop.click(903, 624); time.sleep(8)
     desktop.click(637, 449); time.sleep(4); shot("colony-owner-active")
-    # --settings-open reopens the read-only settings window over the colony; it
-    # would swallow the pause-menu clicks (bfb1168 recorded only the embark save).
-    if "colony settings read-only)" in log():
+    # --settings-open reopens the read-only settings window over the colony
+    # shortly after it starts; left open it swallows the pause-menu clicks
+    # (bfb1168 recorded only the embark save). Close it with its own button.
+    try:
+        wait(lambda: "colony settings read-only)" in log(), 30)
+        time.sleep(1)
         desktop.click(934, 128); time.sleep(1.5); shot("settings-closed")
-    desktop.key("Escape"); time.sleep(1)
+    except TimeoutError:
+        desktop.key("Escape"); time.sleep(1)
     desktop.click(1255, 40); time.sleep(1.5); shot("pause")
     desktop.click(641, 263); time.sleep(1.5); shot("save")
     saved = log().count("Saved to")
