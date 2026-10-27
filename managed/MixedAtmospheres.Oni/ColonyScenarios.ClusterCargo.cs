@@ -28,8 +28,12 @@ namespace MixedAtmospheres.Oni
             }
             finally { linked.Recycle(); }
             var stores = string.Join(", ", station.GetComponents<Storage>().Select(s => $"{s.MassStored():R}/{s.capacityKg:R}"));
+            var bay = clusterCargoModule!.GetComponent<CargoBayCluster>();
+            var accepted = string.Join(",", clusterCargoModule.GetComponent<TreeFilterable>().AcceptedTags);
+            var items = string.Join(",", station.GetComponents<Storage>().SelectMany(s => s.items).Where(item => item != null)
+                .Select(item => $"{item.PrefabID().Name}/{item.GetComponent<PrimaryElement>()?.ElementID}"));
             return $"pad {MachineState(pad)}, landed {landed != null}, distributor {distributor?.GetCurrentState()?.name}, " +
-                $"chain [{chain}], station stores [{stores}]; {MachineState(station)}";
+                $"chain [{chain}], bay room {bay.RemainingCapacity:R}, filters [{accepted}], station stores [{stores}], items [{items}]; {MachineState(station)}";
         }
 
         private static void SpacedOutCargo(int frame, OniNativeColony.Status status, bool gas)
@@ -69,7 +73,6 @@ namespace MixedAtmospheres.Oni
             if (Once(4, "real cargo module and stations"))
             {
                 clusterCargoModule = AddRocketModule(clusterEngine!, gas ? GasCargoBaySmallConfig.ID : LiquidCargoBaySmallConfig.ID, false);
-                clusterCargoModule.GetComponent<TreeFilterable>().UpdateFilters(new HashSet<Tag> { first.CreateTag(), second.CreateTag() });
                 var loaderOffset = loaderDef.BuildingComplete.GetComponent<OccupyArea>().OccupiedCellsOffsets.Min(o => o.x);
                 var unloaderOffset = unloaderDef.BuildingComplete.GetComponent<OccupyArea>().OccupiedCellsOffsets.Min(o => o.x);
                 clusterCargoLoader = Build(loaderId, Grid.XYToCell(clusterCargoNextX - loaderOffset, clusterCargoY));
@@ -96,6 +99,11 @@ namespace MixedAtmospheres.Oni
                 if (ColonyConduits.ReadSynced(flow, clusterCargoInput).Mass != 0 ||
                     ColonyConduits.ReadSynced(flow, clusterCargoOutput).Mass != 0 || clusterCargoModule!.GetComponent<Storage>().MassStored() != 0)
                     throw new InvalidOperationException("Cargo route was not empty before its source.");
+                // OnSpawn validates filters against discovered categories.
+                // Apply the player's selections after that lifecycle boundary,
+                // rather than letting construction discard an early selection.
+                clusterCargoModule.GetComponent<TreeFilterable>().UpdateFilters(new HashSet<Tag> { first.CreateTag(), second.CreateTag() });
+                clusterCargoUnloader!.GetComponent<TreeFilterable>().UpdateFilters(new HashSet<Tag>());
                 var a = ColonyConduits.Seed(flow, clusterCargoInput, first, .75f, 300, byte.MaxValue, 0);
                 var b = ColonyConduits.Seed(flow, clusterCargoInput, second, .25f, 300, byte.MaxValue, 0);
                 if (a != .75f || b != .25f) throw new InvalidOperationException("Cargo mixture source was refused.");

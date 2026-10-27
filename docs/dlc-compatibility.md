@@ -512,6 +512,23 @@ failure. The next diagnostic records the pad's actual distributor state,
 landed rocket, linked stations and every station storage, retaining the same
 source quantities and observation windows. Ordinary activation remains gated.
 
+The `c942141` airborne source passes all five scenarios at frame 191. Its
+actual native self-destruct recovers 1 kg oxygen, 83.708335876464844 kg carbon
+dioxide (including fuel), 0.75 kg water and 0.25 kg polluted water, within the
+unchanged 1e-6 kg bounds. No dead-world map exception occurs and the retired
+cells are unowned; maximum relative mass/energy errors are 7.22e-16/1.27e-15.
+The landed source passes at frame 84, recovers its four original quantities
+and reuses world 9's exact grid slot without inheriting former fluids.
+These are source controls; their replacement cold/menu results remain pending.
+
+The `232a7e8` cargo diagnostic confirms a landed rocket, operational pad and
+both physically linked stations, with the mixtures held in loader storage.
+The fixture selected the cargo filters before `TreeFilterable.OnSpawn`, whose
+native validation removes selections absent from discovered categories. The
+replacement applies player selections after that lifecycle boundary, before
+seeding, and retains all source masses and observation windows. A passing
+replacement game control is still required.
+
 Exact stored-fluid heat/biology and nonempty schema5 cold rebinding remain open
 in [mixed pipes](mixed-pipes.md). Native receipts remove the former multi-kJ
 missing-credit defect across queued thermal proxy resets. The user classified
