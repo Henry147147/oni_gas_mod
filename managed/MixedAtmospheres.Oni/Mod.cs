@@ -14,8 +14,15 @@ namespace MixedAtmospheres.Oni
         internal static string DirectoryPath { get; private set; } = "";
         // This mod's static ID in ONI's mod list (the Mods screen settings button).
         internal static string StaticId { get; private set; } = "";
+        // Development packages (tools/package_probe.py writes development.json)
+        // and validation requests (colony-validation.json) keep their reports
+        // and contract exports beside the mod, where the harnesses read them.
+        // Ordinary play writes nothing into the mod's folder; player data lives
+        // in mods/config/MixedAtmospheres.
+        internal static bool Development { get; private set; }
         private static IntegrationReport? probeReport;
         private static string ReportPath => Path.Combine(DirectoryPath, "integration-probe.json");
+        private const string ProcessClaim = "MixedAtmospheres.RunningCopy";
 
         // KMod.DLLLoader creates one Harmony instance whose Id is this mod's
         // static ID, passes it to every UserMod2 in the folder (UserMod2.OnLoad
@@ -25,9 +32,22 @@ namespace MixedAtmospheres.Oni
         // detaches partially installed runtime hooks before it is reported.
         public override void OnLoad(Harmony harmony)
         {
+            // Refusals that come before any patch or native library: the game
+            // runs unchanged and the player is told why at the main menu.
+            var platformRefusal = ModAdmission.CurrentPlatformRefusal();
+            if (platformRefusal != null) { MenuNotices.Post("Mixed Atmospheres is not active", platformRefusal); return; }
+            var platform = mod?.label.distribution_platform.ToString() ?? "unknown";
+            if (!ClaimProcess(path, platform, out var running))
+            {
+                var separator = running.IndexOf('|');
+                MenuNotices.Post("Mixed Atmospheres is installed twice", ModAdmission.DuplicateNotice(
+                    running.Substring(separator + 1), running.Substring(0, separator), path, platform));
+                return;
+            }
             try
             {
                 DirectoryPath = path; StaticId = mod?.staticID ?? "";
+                Development = File.Exists(Path.Combine(path, "development.json")) || File.Exists(Path.Combine(path, "colony-validation.json"));
                 var verifiedAssemblyHash = IntegrationProbe.VerifyContract();
                 NativeLibraryBootstrap.Load(path);
                 NativeBackendObservation.Initialize(path);
@@ -47,8 +67,8 @@ namespace MixedAtmospheres.Oni
                 MixtureWorldRendering.Install(harmony);
                 OwnedReservoirOwnerMarker.Install(harmony);
                 var report = IntegrationProbe.Run(verifiedAssemblyHash);
-                var destination = ReportPath;
-                File.WriteAllText(destination, report.ToJson());
+                var destination = Development ? ReportPath : "Player.log only (ordinary play writes nothing into the mod folder)";
+                if (Development) File.WriteAllText(destination, report.ToJson());
                 probeReport = report;
                 MixtureStatusDisplay.Install();
                 ModSettingsScreen.Install();
@@ -63,6 +83,20 @@ namespace MixedAtmospheres.Oni
                 UnityEngine.Debug.LogError("[Mixed Atmospheres] Integration probe failed: " + error + "\n" + teardown);
                 throw;
             }
+        }
+
+        // One copy per process. ONI loads every enabled copy: a Dev copy left
+        // beside a Workshop subscription would patch the game twice. The claim
+        // is process-wide, so it holds even when the copies are different
+        // assemblies, and it stays held after a failed load.
+        private static bool ClaimProcess(string path, string platform, out string running)
+        {
+            // KMod loads mods one at a time on the main thread.
+            var domain = AppDomain.CurrentDomain;
+            running = domain.GetData(ProcessClaim) as string ?? "";
+            if (running.Length != 0) return false;
+            domain.SetData(ProcessClaim, platform + "|" + path);
+            return true;
         }
 
         private static string TearDownFailedLoad(Harmony harmony, Exception cause)
@@ -106,7 +140,7 @@ namespace MixedAtmospheres.Oni
         internal static void RecordNativeContractCapture(string status, string error)
         {
             var report = probeReport;
-            if (report == null) return;
+            if (report == null || !Development) return;
             report.NativeContractCapture = status;
             report.NativeContractCaptureError = error;
             var destination = ReportPath;

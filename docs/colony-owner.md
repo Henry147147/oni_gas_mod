@@ -16,13 +16,17 @@ play.
   (solids are walls; vacuum in the Space zone is open sky) and calls
   `ma_oni_colony_start` (`native/include/mixed_atmospheres/oni_colony.h`). A
   fluid cell holding an element outside the catalogue keeps native physics.
+  While any gameplay pack other than Spaced Out! is active (Frosty, Bionic,
+  Prehistoric, Aquatic or an unknown one), the owner never starts and the
+  colony keeps ONI's fluids; Mixed Atmospheres saves are refused before
+  loading ([refusals](distribution.md#refusals)).
   A package carrying the native backend attaches it by default; no development
   file or environment variable is needed (`native-backend-observation.json`
   may disable it or, when present, adds the development report). In an
   ordinary game only the owner routes native messages; the colony-owner
   scenes use the same routing plus their report counters.
 - **Notices.** The player is told when the owner does not take a new colony
-  (unsupported geometry or a failed start), when a loaded colony
+  (unsupported geometry or gameplay packs, or a failed start), when a loaded colony
   was saved without the mod (it keeps ONI's fluids) and when the owner faults
   (fluids freeze, saving is refused): one dialog per problem
   (`ColonyNotices.cs`); validation scenes only log.

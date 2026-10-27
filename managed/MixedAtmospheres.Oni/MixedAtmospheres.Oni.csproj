@@ -7,9 +7,11 @@
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <OniGameDir Condition="'$(OniGameDir)' == ''">$(ONI_GAME_DIR)</OniGameDir>
     <OniManagedDir>$(OniGameDir)/OxygenNotIncluded_Data/Managed</OniManagedDir>
-    <!-- The DLL version Mod Manager and the file properties show; equal to mod_info.yaml's version. -->
+    <!-- The one version (tools/mod_identity.py): the DLL carries it and every
+         package's mod_info.yaml is written from it; private probe packages add "-probe". -->
     <Version>0.1.0</Version>
-    <InformationalVersion>0.1.0-probe</InformationalVersion>
+    <InformationalVersion>$(Version)</InformationalVersion>
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
   </PropertyGroup>
   <ItemGroup>
     <!-- Standalone persistence experiment; include only after its separate review/runtime gate. -->

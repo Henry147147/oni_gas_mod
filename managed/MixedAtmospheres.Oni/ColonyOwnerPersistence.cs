@@ -85,6 +85,9 @@ namespace MixedAtmospheres.Oni
             if (position < 0 || position > data.Length - 4) return false;
             var length = BinaryPrimitives.ReadInt32LittleEndian(data.AsSpan(position));
             if (length < 8 || length > data.Length - position - 4 || !ColonySaveEnvelope.HasMagic(data.AsSpan(position + 4, length))) return false;
+            // The menu checks normally refuse this first (LoadRefusal).
+            var packs = GameplayPacks.ActiveUnsupported();
+            if (packs.Length != 0) throw new NotSupportedException(ModAdmission.PacksLoadRefusal(packs));
             var materials = ColonyOwner.BuildCatalogue();
             var envelope = ColonySaveEnvelope.Parse(data.AsSpan(position + 4, length), OniBuild, MaterialModel, CatalogueHash(materials));
             // Once the MACOLONY envelope is recognized, an unknown managed
@@ -105,11 +108,23 @@ namespace MixedAtmospheres.Oni
             return true;
         }
 
-        // Before ONI leaves the menu (LoadScreen.DoLoad): a colony save this
-        // build cannot continue is refused there with its reason. Anything we
+        // Before ONI leaves the menu (LoadScreen.DoLoad, or the main menu's
+        // Resume button): a colony save this build cannot continue is refused
+        // there, with what the player should do in plain words. Anything we
         // cannot read as a Mixed Atmospheres save is left to ONI's own loader.
         internal static string? LoadRefusal(string filename)
         {
+            var reason = EnvelopeRefusal(filename, out var mixture);
+            if (!mixture) return null;
+            var packs = GameplayPacks.ActiveUnsupported();
+            if (packs.Length != 0) return ModAdmission.PacksLoadRefusal(packs);
+            return reason == null ? null : "This colony was saved by a Mixed Atmospheres build that this one cannot continue, so it was not loaded. " +
+                "The save has not been changed.\n\n" + reason;
+        }
+
+        private static string? EnvelopeRefusal(string filename, out bool mixture)
+        {
+            mixture = false;
             byte[] sim;
             try
             {
@@ -127,6 +142,7 @@ namespace MixedAtmospheres.Oni
             catch (Exception) { return null; }
             if (sim.Length >= 4 && !ColonySaveEnvelope.HasMagic(sim) && ColonySaveEnvelope.HasMagic(sim.AsSpan(4))) sim = sim.AsSpan(4).ToArray();
             if (!ColonySaveEnvelope.HasMagic(sim)) return null;
+            mixture = true;
             try
             {
                 // The material catalogue is compared once elements exist (the in-game load checks it again).
@@ -192,16 +208,46 @@ namespace MixedAtmospheres.Oni
         {
             var reason = ColonyOwnerPersistence.LoadRefusal(__0);
             if (reason == null) return true;
+            Refuse(reason);
+            return false;
+        }
+
+        internal static void Refuse(string reason)
+        {
             UnityEngine.Debug.LogWarning("[Mixed Atmospheres] Colony save refused before loading: " + reason);
-            if (ColonyRuntimeValidation.Settings != null) { ColonyRuntimeValidation.RecordLoadRefusal(reason); return false; }
+            if (ColonyRuntimeValidation.Settings != null) { ColonyRuntimeValidation.RecordLoadRefusal(reason); return; }
             try
             {
                 var parent = FrontEndManager.Instance != null ? FrontEndManager.Instance.gameObject : GameScreenManager.Instance.ssOverlayCanvas;
                 Util.KInstantiateUI(ScreenPrefabs.Instance.ConfirmDialogScreen.gameObject, parent, true).GetComponent<ConfirmDialogScreen>().PopupConfirmDialog(
-                    "This colony was saved by a Mixed Atmospheres build that this one cannot continue, so it was not loaded.\n\n" + reason,
-                    null, null, title_text: "COLONY NOT LOADED");
+                    reason, null, null, title_text: "COLONY NOT LOADED");
             }
             catch (Exception error) { UnityEngine.Debug.LogWarning("[Mixed Atmospheres] The load refusal could not be shown: " + error.Message); }
+        }
+    }
+
+    // The main menu's Resume button loads the latest save without
+    // LoadScreen.DoLoad; it gets the same check. The path is chosen as
+    // MainMenu.ResumeGame chooses it, without consuming its preference key.
+    [HarmonyPatch(typeof(MainMenu), "ResumeGame")]
+    internal static class ColonyResumePrecheckPatch
+    {
+        private static bool Prefix()
+        {
+            string? path;
+            try
+            {
+                path = KPlayerPrefs.HasKey("AutoResumeSaveFile") ? KPlayerPrefs.GetString("AutoResumeSaveFile") :
+                    !string.IsNullOrEmpty(Klei.GenericGameSettings.instance.scriptedProfile.saveGame) ? null : SaveLoader.GetLatestSaveForCurrentDLC();
+            }
+            catch (Exception error) { UnityEngine.Debug.LogWarning("[Mixed Atmospheres] Resume check skipped: " + error.Message); return true; }
+            if (string.IsNullOrEmpty(path)) return true;
+            var reason = ColonyOwnerPersistence.LoadRefusal(path!);
+            if (reason == null) return true;
+            // As ResumeGame would, so the refused save does not resume again
+            // by itself every time the menu opens.
+            if (KPlayerPrefs.HasKey("AutoResumeSaveFile")) KPlayerPrefs.DeleteKey("AutoResumeSaveFile");
+            ColonyLoadPrecheckPatch.Refuse(reason);
             return false;
         }
     }

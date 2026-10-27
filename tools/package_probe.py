@@ -11,6 +11,7 @@ import struct
 import subprocess
 import tarfile
 from build_linux_compat import glibc_versions_within_limit
+import mod_identity
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -220,22 +221,26 @@ def main() -> None:
         private_directory.mkdir()
         shutil.copy2(validator.resolve(), private_directory / "GameMonoFileProtocolValidation.dll")
     platform_name = "Windows x64" if rid == "win-x64" else "Linux"
-    (output / "mod.yaml").write_text(
-        'title: "Mixed Atmospheres"\n'
-        f'description: "Private base-game and Spaced Out! playtest build ({platform_name}). The mod\'s own solver runs every gas and liquid of a new colony; existing saves keep ONI\'s simulation."\n'
-        'staticID: "MixedAtmospheres.IntegrationProbe"\n', encoding="utf-8")
-    (output / "mod_info.yaml").write_text(
-        f'minimumSupportedBuild: {args.oni_build}\nversion: "0.1.0-probe"\nAPIVersion: 2\n', encoding="utf-8")
+    (output / "mod.yaml").write_text(mod_identity.mod_yaml(
+        f"Private base-game and Spaced Out! playtest build ({platform_name}). The mod's own solver runs every gas and "
+        "liquid of a new colony; existing saves keep ONI's simulation."), encoding="utf-8")
+    (output / "mod_info.yaml").write_text(mod_identity.mod_info(mod_identity.version() + "-probe"), encoding="utf-8")
+    # Development packages keep the reports and licensed-data exports the
+    # harnesses read beside the mod; release packages never carry this file.
+    (output / "development.json").write_text(json.dumps(
+        {"SchemaVersion": 1, "Purpose": "Private development package: reports and licensed-data exports are written beside the mod."}) + "\n",
+        encoding="utf-8")
     (output / "README.txt").write_text(
         f"Mixed Atmospheres - private base-game and Spaced Out! playtest build ({platform_name})\n\n"
-        "Place this complete folder under ONI's mods/Dev folder as MixedAtmospheres, enable\n"
+        f"Place this complete folder under ONI's mods/Dev folder as {mod_identity.DEV_FOLDER}, enable\n"
         "Mixed Atmospheres in Mods and restart. Start a NEW base-game or Spaced Out! colony;\n"
         "Spaced Out! can remain enabled. Every gas and liquid in its worlds belongs to the mod's solver.\n"
         "Existing colonies and saves made without the mod keep ONI's own simulation; saves\n"
-        "made with it need the mod to load. Keep only one folder with staticID\n"
-        "MixedAtmospheres.IntegrationProbe in mods/Dev. Native libraries must remain under\n"
-        "native/<platform>; the root DLLs are managed. At the main menu the mod exports\n"
-        "game-contract-local for local interface tests: never redistribute those files.\n"
+        "made with it need the mod to load. Keep only one Mixed Atmospheres copy under mods:\n"
+        "a second copy refuses to run and names the folder to remove. Native libraries must remain under\n"
+        "native/<platform>; the root DLLs are managed. This development package writes\n"
+        "integration-probe.json and, at the main menu, game-contract-local beside the mod for\n"
+        "local interface tests: never redistribute those files.\n"
         "Not a release; see the repository README for status and limits.\n",
         encoding="utf-8")
     if build_info is not None:

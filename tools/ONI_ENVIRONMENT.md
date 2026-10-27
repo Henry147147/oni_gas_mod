@@ -122,8 +122,10 @@ found. [`InteropAudit`](InteropAudit/README.md) audits P/Invoke and call sites.
   `OnLoad(Harmony)` runs `PatchAll`.
 - Every root `.dll` loads as managed, so the native library lives in
   `native/win-x64/` and is preloaded by absolute path.
-- Every probe package uses the static ID `MixedAtmospheres.IntegrationProbe`.
-  Keep only one such package under `mods`.
+- Every package uses the static ID `MixedAtmospheres`; the private installer and
+  harnesses keep the Dev folder `MixedAtmospheres.IntegrationProbe`. Keep only
+  one copy under `mods`: a second copy refuses to run and names the folder to
+  remove ([distribution](../docs/distribution.md)).
 - `enabledForDlc` uses the highest active content ID, falling back to `""`.
   `DlcManager.VANILLA_ID` is the empty string, never the text `"VANILLA_ID"`.
   Spaced Out! is `EXPANSION1_ID`.
@@ -134,8 +136,9 @@ The user has accepted ONI's first-launch EULA in the Windows Steam client.
 
 ## Main-menu probe and contract export
 
-The probe package from `tools/package_probe.py` writes `integration-probe.json`
-beside its assembly. It passes all six scoped checks in actual Unity on Windows
+The development package from `tools/package_probe.py` (it carries
+`development.json`) writes `integration-probe.json` beside its assembly. Release
+packages write nothing into the mod folder. It passes all six scoped checks in actual Unity on Windows
 and on Linux: frame, snapshot, direct-message and scoped save interception, the
 native mixture save/restore roundtrip, and settings serialization. It patches 55
 native-message methods. It confirms the layouts `Sim.Cell` (16 bytes), frame
@@ -143,7 +146,7 @@ message (28 bytes) and `Sim.GameDataUpdate` (496 bytes, 77 fields). It always
 reports `AuthoritativeColonySimulationReady=false`, and its
 missing-requirements list remains the release gate.
 
-At the main menu, the probe exports `game-contract-local/` without initializing
+At the main menu, a development package exports `game-contract-local/` without initializing
 the native simulator. The export holds `elements.bin` (212 records of 164
 bytes), `diseases.bin`, `contract.json` and `DO-NOT-REDISTRIBUTE.txt`. The
 private copy the native harnesses use is

@@ -163,6 +163,13 @@ namespace MixedAtmospheres.Oni
                         ColonyNotices.Show("Mixed Atmospheres", "This colony was saved without Mixed Atmospheres. It keeps ONI's own gases and liquids.");
                     return;
                 }
+                var packs = GameplayPacks.ActiveUnsupported();
+                if (packs.Length != 0)
+                {
+                    StartFailure = "Unsupported gameplay packs are active: " + string.Join(", ", packs);
+                    ColonyNotices.Show("Mixed Atmospheres inactive", ModAdmission.PacksColonyNotice(packs));
+                    return;
+                }
                 var layout=CaptureWorldLayout();
                 var cluster=DlcManager.IsExpansion1Active();
                 Debug.Log($"[Mixed Atmospheres] Cluster layout {layout.GridWidth}x{layout.GridHeight}, {layout.ActiveRectangleCells} world cells: "+

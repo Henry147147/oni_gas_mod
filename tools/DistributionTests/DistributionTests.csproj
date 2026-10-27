@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType><TargetFramework>net10.0</TargetFramework><LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable><TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- Engine-free refusal decisions (docs/game-update-resilience.md#refusals). -->
+    <Compile Include="../../managed/MixedAtmospheres.Oni/ModAdmission.cs" Link="ModAdmission.cs" />
+  </ItemGroup>
+</Project>

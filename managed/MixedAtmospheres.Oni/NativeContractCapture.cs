@@ -104,7 +104,10 @@ namespace MixedAtmospheres.Oni
             if (!captureAttempted)
             {
                 captureAttempted = true;
-                CaptureDiagnostics();
+                // Licensed-data exports are for development packages only;
+                // ordinary play writes nothing into the mod's folder.
+                if (Mod.Development) CaptureDiagnostics();
+                GameplayPacks.NoticeAtMainMenu();
             }
             ColonyRuntimeValidation.OnMainMenu(MainMenu.Instance);
         }
