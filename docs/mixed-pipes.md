@@ -357,6 +357,17 @@ alongside durable port buffers and physical scheduling state.
 
 ## Saved framing
 
+**MACPIP01 schema6 reserved, 2026-10-27**, immediately after fetching
+`d252486`: extend schema5's native schedule with the state that native port
+callbacks need after prefab spawn. Each updater gains a fixed control record
+(kind, validated flags, consumer rate and last-consumed element); known
+consumer/dispenser callbacks must carry their matching kind. Runtime
+registration order and identities remain separately validated. This repairs
+port activation being reset by `OnSpawn` before the first restored update.
+The writer remains behind the existing exact-storage/scheduling control until
+cold/menu continuation and storage lifecycle checks pass. No native physical
+checkpoint layout or solver arithmetic changes with this reservation.
+
 **MACPIP01 schema5** is reserved (2026-10-25), immediately after a fresh fetch
 of `ea052ad`, for authoritative component-storage inventories and biology,
 plus native conduit clocks, mass staging, routing and update order. These are
