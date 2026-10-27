@@ -227,6 +227,31 @@ advance throws. A smaller retirement regression also advances a warm physical
 tick before any cold restore and passes. Recovery/reuse and loads remain
 unaccepted while the larger state's failing stage is investigated.
 
+The captured frame-72 failure is now reproduced and fixed offline: a valid
+cell carries about 1e-313 kg of gas before trace removal. The diagnostic's
+`R*T/partial` overflows although its mass-weighted entropy is finite. An
+exceptional logarithmic fallback avoids the ratio; ordinary finite diagnostic
+arithmetic, trace thresholds, physical evolution and checkpoint encoding are
+unchanged. The same private capture advances from 14.200000211596489 to
+14.400000214576721 seconds with the fix. A regression compares the exceptional
+result with a wide evaluation and the ordinary path bit for bit. Actual rocket
+recovery/reuse and cold/menu restoration still require a new game control.
+
+The entropy repair passes the full build (386 Python tests, eight skipped;
+86 native CTests; all managed suites). Clean old/new builds of all 85
+`ma_mac_*` executables retain their physical outputs and exit codes; only the
+validation timing fields differ. The long Riemann gate remains unrun.
+
+### Inter-asteroid teleporter ports
+
+The `spaced-out-warp-ports` control discovers the actual generated sender and
+receiver pairs with the game's normal world-generation tags. It completes
+their activation work, connects each endpoint's own gas and liquid pipes,
+then seeds 0.75/0.25 kg mixtures. Ordinary callbacks must move both identities
+in both directions, empty each input/shared store, and keep the owner and pipe
+accounts closed. No transfer callback is invoked manually. The scenario builds
+against the installed SDK; its actual game/save/load checks remain unrun.
+
 The 2026-10-26 request covers Spaced Out!, Frosty, Bionic, Prehistoric and
 Aquatic: every one of their 32 selections on Linux and Windows x64. This
 extends the [base-game playtest](playtest-plan.md); it does not certify the
@@ -245,16 +270,6 @@ unrun. The mask's fixed bit order is:
 
 Mask 0 selects the base game; 31 selects all five. The empty string is the
 game's vanilla ID. The text `VANILLA_ID` is invalid.
-
-The captured frame-72 failure is now reproduced and fixed offline: a valid
-cell carries about 1e-313 kg of gas before trace removal. The diagnostic's
-`R*T/partial` overflows although its mass-weighted entropy is finite. An
-exceptional logarithmic fallback avoids the ratio; ordinary finite diagnostic
-arithmetic, trace thresholds, physical evolution and checkpoint encoding are
-unchanged. The same private capture advances from 14.200000211596489 to
-14.400000214576721 seconds with the fix. A regression compares the exceptional
-result with a wide evaluation and the ordinary path bit for bit. Actual rocket
-recovery/reuse and cold/menu restoration still require a new game control.
 
 ## Running a selection
 
