@@ -1,17 +1,25 @@
-> Current R&D direction (2026-10-27): nitrogen content has been removed and old
-> R&D saves are unsupported. Start a new colony. The package/evidence below
-> predates this change; rebuild before testing the current settings.
-
 # Spaced Out! private Windows playtest
 
-Candidate **`bfb1168`**, 2026-10-27, supports ordinary new base-game and
+The current engineering ZIP is
+`MixedAtmospheres-windows-storage-retirement-private.zip` (2026-10-27;
+SHA-256 `2af207557860504da4c05bf09d6d7fcf4eac9ab2c2036ad5f72d6339f7097983`).
+It includes nitrogen removal, optional CO₂ limits disabled by default, the
+Gameplay/Advanced settings layout, and the reservoir lifecycle implementation
+committed as `6b52c75`. Its frozen package was built before that commit; the
+manifest records `42fa304` with uncommitted sources. The exact-storage writer
+remains gated for development; ordinary colonies keep their normal defaults.
+WindowsPlayer/Proton passes its bounded reservoir source/cold/menu controls.
+Actual Windows OS feedback is pending. Start new colonies: old R&D saves are
+unsupported.
+
+The older candidate **`bfb1168`**, 2026-10-27, supports ordinary new base-game and
 Spaced Out! colonies. Spaced Out! stays enabled. This is a private candidate;
 the broader release gate remains open and actual Windows OS testing is still
 the user's part of the playtest.
 
 ## Install
 
-1. Close ONI and extract `MixedAtmospheres-private-Windows-SpacedOut-bfb1168.zip`.
+1. Close ONI and extract `MixedAtmospheres-windows-storage-retirement-private.zip`.
 2. Open PowerShell in the extracted folder and run:
 
    ```powershell

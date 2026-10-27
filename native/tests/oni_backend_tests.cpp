@@ -9,6 +9,7 @@
 #include "../src/oni_chunk_heat_trace.hpp"
 #include "../src/oni_storage_heat_native.hpp"
 #include "../src/oni_conduit_heat.hpp"
+#include "../src/oni_runtime_trace.hpp"
 #include <array>
 #include <chrono>
 #include <cstring>
@@ -85,6 +86,19 @@ static void body_heat_trace_controls() {
         "native body trace did not retain actual capacity, area and valid paired observations");
     std::cout<<"PASS native body heat observation: actual registered area/capacity, stale/retired rejection, readonly source and preserved math/errno\n";
 #endif
+}
+static void runtime_context_controls() {
+    std::array<std::byte,168> sim{};
+    const auto put=[&](std::size_t offset,const auto& value){std::memcpy(sim.data()+offset,&value,sizeof(value));};
+    put(0,std::int32_t{256});put(4,std::int32_t{384});put(8,std::int32_t{98304});
+    put(12,std::uint32_t{0xffffffffU});put(16,std::int32_t{-1});put(20,std::int32_t{2});
+    put(144,std::uint16_t{65535});put(160,std::uint16_t{3});const auto original=sim;
+    for(const auto windows:{false,true}) {
+        const auto value=ma::oni::runtime_trace::context(sim.data(),windows);
+        require(value.width==256&&value.height==384&&value.cells==98304&&value.random==0xffffffffU&&
+            value.iterate==-1&&value.displacement==2&&value.tick==(windows?3:65535),"native runtime context layout differs");
+    }
+    require(sim==original&&ma::oni::runtime_trace::context(nullptr,false).cells==0,"native context observer changed source or null contract");
 }
 static void chunk_heat_trace_controls() {
 #if defined(__linux__)
@@ -367,6 +381,7 @@ int main() {
     try {
         capture_file_controls();
         body_heat_trace_controls();
+        runtime_context_controls();
         chunk_heat_trace_controls();
         storage_heat_receipt_controls();
         storage_heat_native_controls();

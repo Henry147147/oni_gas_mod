@@ -85,6 +85,12 @@ playtest deferrals remain recorded until their own controls pass.
   checks each; each platform's 24 source/cold/menu storage sections are
   byte-identical, with no live host.
   Nonempty demolition, containers and recipe mutations remain required.
+- **World continuation context:** read-only source/cold/menu diagnostics show
+  native RNG/tick state resets before resuming, different managed breather
+  bucket phase and partial-step offsets, and five differing projected solid
+  temperatures. Preserve native loop control first; managed scheduling and
+  temperature provenance remain separate open repairs. Zero-time frames do
+  not advance the observed native counters.
 
 ## Remaining implementation and proofs
 

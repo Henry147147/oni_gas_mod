@@ -197,6 +197,7 @@ namespace MixedAtmospheres.Oni
         internal static void Submitted(float seconds)
         {
             if (!armed || !(seconds > 0) || !ColonyOwner.Active) return;
+            if(submitted==0&&DumpImages&&ColonyContinuationContext.Enabled)ColonyContinuationContext.Write(DumpStem(restored));
             ++submitted;secondsBits.Add(BitConverter.SingleToInt32Bits(seconds));
             framesBeforeHeld = ColonySaveBarrier.NativeFrameCounters(); // this call posts the held frame next
         }
@@ -241,11 +242,19 @@ namespace MixedAtmospheres.Oni
         private static void Dump(ulong frame,byte[] owner,byte[]? pipes)
         {
             if(!DumpImages)return;
+            var stem=DumpStem(frame);
+            using(var file=new FileStream(stem+".owner",FileMode.CreateNew))file.Write(owner,0,owner.Length);
+            if(pipes!=null)
+            {
+                using(var file=new FileStream(stem+".pipes",FileMode.CreateNew))file.Write(pipes,0,pipes.Length);
+                ColonyContinuationContext.Write(stem);
+            }
+        }
+        private static string DumpStem(ulong frame)
+        {
             if(dumpNewSession){dumpNewSession=false;++dumpSession;}
             var directory=Path.Combine(ColonyRuntimeValidation.OutputDirectory,"continuation-images");Directory.CreateDirectory(directory);
-            var stem=Path.Combine(directory,$"{origin}-{dumpSession}-{frame}");
-            using(var file=new FileStream(stem+".owner",FileMode.CreateNew))file.Write(owner,0,owner.Length);
-            if(pipes!=null)using(var file=new FileStream(stem+".pipes",FileMode.CreateNew))file.Write(pipes,0,pipes.Length);
+            return Path.Combine(directory,$"{origin}-{dumpSession}-{frame}");
         }
     }
 

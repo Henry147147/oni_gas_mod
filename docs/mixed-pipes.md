@@ -563,6 +563,26 @@ inputs differ there too (3,845 versus 3,853 records, different multisets).
 Particles match. No image section or acceptance comparison is normalized or
 omitted, and complete colony continuation remains unverified.
 
+The opt-in `MA_COLONY_CONTINUATION_CONTEXT=1` adds private managed scheduler
+and projected-grid snapshots beside the held images (with continuation dumps
+enabled). `MA_ONI_RUNTIME_CONTEXT_TRACE=/private/fresh.tsv` observes native
+RNG, direction and tick fields at the existing frame hook, preserving native
+arithmetic state. Both observations are read-only and default off. They are
+diagnostics, never restoration inputs.
+
+`release-runtime-context-source-v4` passes the unchanged seven-check drained
+control; `release-runtime-context-load` passes cold/menu loading. Before the
+first resumed tick, the native counter has reset to zero and RNG state differs.
+The managed 200 ms group phase is 4 versus 2; the three breathers occupy
+different buckets and load with partial-step offsets instead of source zero.
+Five projected solid-cell temperatures differ too; that observation alone
+does not identify where the native temperature changed. Native zero-time
+frames preserve the observed loop counters. The source snapshot contains
+1,033 scheduler entries, including 111 unavailable targets awaiting deferred
+removal; the collector records those explicitly. These differences are open
+continuation work. All 89 Linux and 89 Windows/Wine native tests, 228 snapshot
+checks and conduit-hook controls pass with observation support present.
+
 `owned-storage-retired-save` extends the fixed 8 kg warm-outlet fixture by
 demolishing the drained reservoir after native cleanup, then making an ordinary
 save. `release-retired-storage-source-v2` passes all eight Linux checks and

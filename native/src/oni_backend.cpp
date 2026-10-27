@@ -9,6 +9,7 @@
 #include "oni_chunk_heat_trace.hpp"
 #include "oni_storage_heat_native.hpp"
 #include "oni_conduit_heat.hpp"
+#include "oni_runtime_trace.hpp"
 #include "oni_conduit_contact.hpp"
 #include "oni_windows_lifecycle_trace.hpp"
 #include "oni_funchook_storage.hpp"
@@ -236,7 +237,9 @@ void on_process_frame(void* frame,void* data) {
     native_heat_contact_bits.store(std::bit_cast<std::uint32_t>(seconds),std::memory_order_release);
     std::optional<ma::oni::body_heat_trace::Frame> body_observation;
     std::optional<ma::oni::chunk_heat_trace::Frame> chunk_observation;
+    std::optional<ma::oni::runtime_trace::Frame> runtime_observation;
     const auto ordinal=counters[MA_ONI_PROCESS_FRAME].entries.load(std::memory_order_relaxed);
+    if(ma::oni::runtime_trace::Frame::enabled())runtime_observation.emplace(ordinal,data,seconds);
     if(ma::oni::body_heat_trace::Frame::enabled())body_observation.emplace(ordinal,frame,data);
     if(ma::oni::chunk_heat_trace::Frame::enabled())chunk_observation.emplace(ordinal,frame,data);
     conduit_heat.process(frame,[&]{storage_heat.process(frame,data,ordinal,[&]{original<void (*)(void*,void*)>(MA_ONI_PROCESS_FRAME)(frame,data);});});
