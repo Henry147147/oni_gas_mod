@@ -357,6 +357,19 @@ alongside durable port buffers and physical scheduling state.
 
 ## Saved framing
 
+**MACPIP01 schema7 reserved, 2026-10-27**, immediately after fetching
+`2837106`: retain completed empty-store histories independently of live native
+storage identities. Extend schema6 after its live-store records, before native
+scheduling, with a canonical nonempty list of at most two archives ordered by
+fluid phase. Each archive stores the phase, exact initial/admitted/withdrawn
+mass-energy-culture journals, signed heat and per-identity birth/death journals.
+It holds no inventory, native projections, culture clocks or prefab identity.
+Only fully drained stores with completed native cleanup can join an archive;
+aggregate journals must audit exactly. Pristine empty hosts need no archive.
+Schema6 remains the writer until a meaningful completed history is retired.
+The extension stays behind the exact-storage development control. No native
+physical checkpoint layout or solver arithmetic changes with this reservation.
+
 **MACPIP01 schema6 reserved, 2026-10-27**, immediately after fetching
 `d252486`: extend schema5's native schedule with the state that native port
 callbacks need after prefab spawn. Each updater gains a fixed control record
