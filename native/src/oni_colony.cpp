@@ -1679,6 +1679,17 @@ void queue_terrain(std::span<const MAOniColonyTerrain> edits) {
     pending_terrain.insert(pending_terrain.end(), edits.begin(), edits.end());
     log_terrain("managed", edits);
 }
+void set_space_cells(std::span<const std::uint32_t> cells,bool space) {
+    // A template is prepared by the game thread before it can submit more
+    // world work. Serialize this boundary change with any prior owner step;
+    // do not reset its clock, ledger, fluids, momentum or queued inputs.
+    wait();
+    std::lock_guard lock(lifecycle);
+    require(active() && session && session->status.state==1,"A healthy colony owner is required for cluster boundaries");
+    require(!cells.empty() && cells.size()<=MA_ONI_COLONY_MAXIMUM_CELLS,"Invalid cluster boundary cell count");
+    for(const auto cell:cells)(void)rect_index(session->config,cell);
+    for(const auto cell:cells)session->space[rect_index(session->config,cell)]=space?1:0;
+}
 std::uint32_t copy_receipts(MAOniColonyReceipt* out, std::uint32_t capacity) {
     std::lock_guard lock(inputs);
     std::size_t available=receipts.size();

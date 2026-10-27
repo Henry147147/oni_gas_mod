@@ -65,6 +65,7 @@ namespace MixedAtmospheres.Oni
                 switch (name)
                 {
                     case "spaced-out-worlds": SpacedOutWorlds(frame,status); break;
+                    case "spaced-out-rocket": SpacedOutRocket(frame,status); break;
                     case "terrain": Terrain(frame); break;
                     case "heat": Heat(frame, status); break;
                     case "phase": Phase(frame, status); break;

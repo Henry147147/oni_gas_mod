@@ -135,6 +135,10 @@ namespace MixedAtmospheres.Oni
         internal static extern int QueueHeat([In] Heat[] heat, uint count);
         [DllImport(Library, EntryPoint = "ma_oni_colony_queue_terrain", CallingConvention = CallingConvention.Cdecl)]
         internal static extern int QueueTerrain([In] Terrain[] terrain, uint count);
+        [DllImport(Library, EntryPoint = "ma_oni_colony_cluster_world_version", CallingConvention = CallingConvention.Cdecl)]
+        internal static extern uint ClusterWorldVersion();
+        [DllImport(Library, EntryPoint = "ma_oni_colony_set_space_cells", CallingConvention = CallingConvention.Cdecl)]
+        internal static extern int SetSpaceCells([In] uint[] cells,uint count,uint space);
         [DllImport(Library, EntryPoint = "ma_oni_colony_copy_receipts", CallingConvention = CallingConvention.Cdecl)]
         private static unsafe extern int CopyReceiptsPinned(Receipt* receipts, uint capacity, out uint count);
         internal static unsafe int CopyReceipts(Receipt[] receipts, uint capacity, out uint count)

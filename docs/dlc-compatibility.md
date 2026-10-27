@@ -69,6 +69,29 @@ the unchanged 1 kg oxygen/0.5 kg carbon-dioxide source. Its mass bounds, camera
 checks and final observation frames are unchanged. Cold/menu controls were
 not reached in that failed run.
 
+The `3c697fc` repeat passes the same nine-world control, a source save,
+fresh-process load and return through the menu into a second load. It runs
+23 owner frames in the source and 32 total frames after each load. Both load
+paths exactly reencode the restored owner image (wrapper 12, core 23); the
+menu control verifies teardown and a new owner session. Germ evolution stays
+in owner mode 1. Across these runs the maximum relative mass/energy errors are
+2.19e-16/3.24e-16. This is WindowsPlayer under Proton, not Windows OS evidence.
+The managed fixture is `3c697fc`; native DLLs retain their `c891a53` build
+provenance, with identical native sources and recorded binary hashes. These
+passes do not certify rockets, transport or byte-exact active continuation.
+
+New rocket cells also need the correct open-space sink. A native capability
+now replaces selected space flags atomically after waiting for prior owner
+work; it changes no inventory or clock and uses the existing saved space mask.
+Template preparation clears a reused slot's old mask before sources arrive;
+completed publication classifies its space/interior cells before opening them.
+Synthetic controls cover atomic refusal, space loss, reuse as an interior,
+unchanged time/inventory at the metadata edit and exact cold reencoding.
+The `spaced-out-rocket` control builds an actual platform, engine and capsule
+through the normal building lifecycle, waits for the new interior's ownership,
+and checks added oxygen/carbon dioxide over its sealed cabin. It remains an
+unrun control until its game result is recorded.
+
 The 2026-10-26 request covers Spaced Out!, Frosty, Bionic, Prehistoric and
 Aquatic: every one of their 32 selections on Linux and Windows x64. This
 extends the [base-game playtest](playtest-plan.md); it does not certify the

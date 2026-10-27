@@ -258,6 +258,7 @@ namespace MixedAtmospheres.Oni
         {
             var layout=CaptureWorldLayout();
             var cluster=DlcManager.IsExpansion1Active()&&SpacedOutControl;
+            if(cluster)ColonyClusterWorlds.RequireCapability();
             if (!cluster&&(layout.Worlds.Count != 1 || layout.Worlds[0].RocketInterior))
                 throw new NotSupportedException("The colony owner needs exactly one asteroid.");
             var world = layout.Worlds[0];

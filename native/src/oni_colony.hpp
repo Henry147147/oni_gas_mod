@@ -24,6 +24,7 @@ void queue_transfers(std::span<const MAOniColonyTransfer>);
 void queue_actor_batch(std::span<const MAOniColonyTransfer>,std::span<const MAOniColonyActorJob>,std::span<const MAOniColonyPassive>);
 void queue_heat(std::span<const MAOniColonyHeat>);
 void queue_terrain(std::span<const MAOniColonyTerrain>);
+void set_space_cells(std::span<const std::uint32_t>,bool space);
 std::uint32_t copy_receipts(MAOniColonyReceipt*, std::uint32_t capacity);
 void ack_receipts(std::uint64_t through);
 void enable_precise_receipts(bool enabled);

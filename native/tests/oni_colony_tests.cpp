@@ -1654,10 +1654,54 @@ void world_biology_control() {
     require(refused, "inconsistent disease table admitted");
     std::cout << "WORLD BIOLOGY PASS\n";
 }
+void cluster_boundary_control() {
+    using namespace ma::oni::colony;
+    MAOniColonyConfig cfg{};cfg.struct_size=sizeof(cfg);cfg.abi_version=1;
+    cfg.flags=MA_ONI_COLONY_GAME_KERNEL|MA_ONI_COLONY_GAME_SURFACE;cfg.vacuum_index=vacuum;
+    cfg.grid_width=cfg.width=3;cfg.grid_height=cfg.height=3;cfg.maximum_timestep_s=.1;
+    const std::vector<MAOniColonyMaterial> mats{material("Oxygen",11,oxygen,true,.032,1005)};
+    const std::vector<MAOniColonyCell> cells(9);
+    start(cfg,mats,cells,1);
+    const std::array<std::uint32_t,1> first{0},last{8};
+    set_space_cells(first,true);
+    bool refused=false;
+    try {const std::array<std::uint32_t,2> invalid{8,9};set_space_cells(invalid,true);}
+    catch(const std::invalid_argument&){refused=true;}
+    require(refused,"Cluster boundary admitted an out-of-grid cell");
+    const std::array<MAOniColonyTerrain,2> openings{{{0,MA_ONI_COLONY_OPEN},{8,MA_ONI_COLONY_OPEN}}};
+    queue_terrain(openings);
+    const std::array<MAOniColonyTransfer,2> sources{{{0,oxygen,MA_ONI_COLONY_INJECT,0,-1,0,1,300,0},
+        {8,oxygen,MA_ONI_COLONY_INJECT,0,-1,0,2,300,0}}};
+    queue_transfers(sources);
+    const auto initial=checkpoint();stop();restore(cfg,mats,initial,1);
+    require(checkpoint()==initial,"Cluster boundary flags or queued opening changed on restore");
+    const auto tick=[] {advance(1,.2,2);wait();require(status().state==1,status().error);};
+    const auto mass=[](std::uint32_t cell) {
+        std::array<std::uint32_t,2> ids{};std::array<double,2> held{};
+        const auto count=composition(cell,ids.data(),held.data(),2);double total=0;
+        for(std::uint32_t k=0;k<count;++k)total+=held[k];
+        return total;
+    };
+    tick();
+    require(mass(0)==0 && mass(8)==2 && status().space_sink_kg==1,
+        "A new space cell did not sink, or an invalid batch changed its valid prefix");
+    const auto frame=status().completed_frames;
+    set_space_cells(first,false);set_space_cells(last,true);
+    require(status().completed_frames==frame && mass(8)==2,"Changing cluster boundaries advanced time or deleted inventory immediately");
+    const auto reused=checkpoint();stop();restore(cfg,mats,reused,1);
+    require(checkpoint()==reused,"Reused rocket space/interior flags failed exact restore");
+    queue_transfers(std::span(sources.data(),1));tick();
+    require(mass(0)==1 && mass(8)==0 && status().space_sink_kg==3,
+        "A reused interior retained its old space sink, or a restored space cell stopped sinking");
+    require(status().maximum_relative_mass_error<1e-12 && status().maximum_relative_energy_error<1e-12,
+        "Dynamic cluster boundary mass or energy ledger did not close");
+    stop();std::cout<<"PASS cluster boundaries: atomic validation, new vacuum/space, reused cells, no zero-time deletion, exact cold reencoding\n";
+}
 int main(int argc, char** argv) {
     try {
         if (argc == 2 && std::strcmp(argv[1], "--passives-only") == 0) {passive_observation_control();return 0;}
         if (argc == 2 && std::strcmp(argv[1], "--biology-only") == 0) {world_biology_control();unplaced_output_control();return 0;}
+        if (argc == 2 && std::strcmp(argv[1], "--cluster-boundaries-only") == 0) {cluster_boundary_control();return 0;}
         if (argc == 2 && std::strcmp(argv[1], "--quiet-game-cell-only") == 0) {quiet_game_cell_control();return 0;}
         if (argc == 2 && std::strcmp(argv[1], "--shadow-handoff-only") == 0) {shadow_handoff_control();return 0;}
         if (argc == 2 && std::strcmp(argv[1], "--timestep-only") == 0) { timestep_control(); return 0; }
@@ -1687,6 +1731,7 @@ int main(int argc, char** argv) {
         parcel_context_control();
         passive_observation_control();
         world_biology_control();
+        cluster_boundary_control();
         unplaced_output_control();
         quiet_game_cell_control();
         shadow_handoff_control();

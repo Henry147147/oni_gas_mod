@@ -26,6 +26,28 @@ namespace MixedAtmospheres.Oni
             if(initial!=null)worldIds=initial.CellWorldIds();
         }
         internal static void Changed(){if(layout!=null)dirty=true;}
+        internal static void RequireCapability()
+        {
+            try{if(OniNativeColony.ClusterWorldVersion()==1)return;}
+            catch(EntryPointNotFoundException){}
+            throw new NotSupportedException("Dynamic cluster worlds require a matching native/managed bundle.");
+        }
+        internal static void BeforeTemplate(WorldContainer world)
+        {
+            if(layout==null||layout.Worlds.Any(w=>w.Id==world.id))return;
+            var region=new ColonyWorldRegion(world.id,world.WorldOffset.x,world.WorldOffset.y,
+                world.WorldSize.x,world.WorldSize.y,world.IsModuleInterior);
+            if(!region.RocketInterior)throw new NotSupportedException("Only a rocket interior can be allocated after cluster import.");
+            _=new ColonyWorldLayout(layout.GridWidth,layout.GridHeight,layout.Worlds.Concat(new[]{region}));
+            var cells=new uint[checked(region.Width*region.Height)];var i=0;
+            for(var y=region.Y;y<region.Y+region.Height;++y)
+                for(var x=region.X;x<region.X+region.Width;++x)cells[i++]=(uint)(x+y*layout.GridWidth);
+            // A reused grid slot must not inherit an earlier rocket's space
+            // sink while native template sources are still arriving.
+            OniNativeColony.Check(OniNativeColony.SetSpaceCells(cells,(uint)cells.Length,0));
+        }
+        internal static System.Action? AfterTemplate(System.Action? completed)=>layout==null?completed:
+            ()=>{Changed();completed?.Invoke();};
         internal static bool Contains(int cell)=>layout==null||cell>=0&&cell<worldIds.Length&&
             worldIds[cell]>=0&&Grid.WorldIdx[cell]==worldIds[cell];
         internal static void Synchronize(Sim.GameDataUpdate* source)
@@ -39,14 +61,19 @@ namespace MixedAtmospheres.Oni
             if(change.Added.Any(w=>!w.RocketInterior))
                 throw new NotSupportedException("A new asteroid requires its own complete inventory admission.");
             var openings=new List<OniNativeColony.Terrain>();
+            var space=new List<uint>();var interior=new List<uint>();
             foreach(var world in change.Added)
                 for(var y=world.Y;y<world.Y+world.Height;++y)
                     for(var x=world.X;x<world.X+world.Width;++x)
                     {
                         var cell=x+y*next.GridWidth;
                         if(Grid.WorldIdx[cell]!=world.Id||ElementLoader.elements[source->elementIdx[cell]].IsSolid)continue;
+                        var outside=World.Instance.zoneRenderData?.GetSubWorldZoneType(cell)==ProcGen.SubWorld.ZoneType.Space;
+                        (outside?space:interior).Add((uint)cell);
                         openings.Add(new OniNativeColony.Terrain{PublicCell=(uint)cell,Kind=OniNativeColony.Open});
                     }
+            if(space.Count>0)OniNativeColony.Check(OniNativeColony.SetSpaceCells(space.ToArray(),(uint)space.Count,1));
+            if(interior.Count>0)OniNativeColony.Check(OniNativeColony.SetSpaceCells(interior.ToArray(),(uint)interior.Count,0));
             if(openings.Count>0)
                 OniNativeColony.Check(OniNativeColony.QueueTerrain(openings.ToArray(),(uint)openings.Count));
             // The already registered owner's masses, energy, germs and clock
@@ -62,11 +89,11 @@ namespace MixedAtmospheres.Oni
     [HarmonyPatch(typeof(WorldContainer),"PlaceInteriorTemplate")]
     internal static class ColonyRocketTemplatePatch
     {
-        private static void Prefix(ref System.Action __1)
+        private static bool Prefix(WorldContainer __instance,ref System.Action? __1)
         {
-            if(!ColonyClusterWorlds.Enabled)return;
-            var completed=__1;
-            __1=()=>{ColonyClusterWorlds.Changed();completed?.Invoke();};
+            if(!ColonyClusterWorlds.Enabled)return true;
+            try{ColonyClusterWorlds.BeforeTemplate(__instance);__1=ColonyClusterWorlds.AfterTemplate(__1);return true;}
+            catch(Exception error){ColonyFault.Raise("rocket template",error);return false;}
         }
     }
     [HarmonyPatch(typeof(ClusterManager),"UnregisterWorldContainer")]

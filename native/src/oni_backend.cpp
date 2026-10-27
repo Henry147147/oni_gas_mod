@@ -960,6 +960,14 @@ MAOniResult ma_oni_colony_queue_terrain(const MAOniColonyTerrain* edits,std::uin
         catch (const std::invalid_argument& error) { throw Failure(MA_ONI_INVALID_ARGUMENT,error.what()); }
     });
 }
+std::uint32_t ma_oni_colony_cluster_world_version() {return 1;}
+MAOniResult ma_oni_colony_set_space_cells(const std::uint32_t* cells,std::uint32_t count,std::uint32_t space) {
+    return boundary([&] {
+        if(!cells || !count || space>1)throw Failure(MA_ONI_INVALID_ARGUMENT,"Invalid cluster boundary batch");
+        try {ma::oni::colony::set_space_cells(std::span(cells,count),space!=0);}
+        catch(const std::invalid_argument& error){throw Failure(MA_ONI_INVALID_ARGUMENT,error.what());}
+    });
+}
 MAOniResult ma_oni_colony_copy_receipts(MAOniColonyReceipt* receipts,std::uint32_t capacity,std::uint32_t* count) {
     return boundary([&] {
         if (!count || (capacity && !receipts)) throw Failure(MA_ONI_INVALID_ARGUMENT,"Invalid colony receipt buffer");
