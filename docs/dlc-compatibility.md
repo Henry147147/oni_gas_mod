@@ -31,6 +31,33 @@ is recorded as an environment override and cannot certify ordinary DLC
 acceptance. The first attempt without that runner opt-in stayed inactive;
 it is not an owner-admission result.
 
+The explicit `48f9286` attempt reached the nine-world layout, then failed the
+harness's mod-error check during world-germ configuration. Spaced Out!'s inert
+radiation disease uses the game's exact idempotent temperature sentinel: all
+four bounds and four half-lives are positive infinity. The adapter rejected
+that valid registry entry and disabled owner germ evolution for the table.
+Validation now admits only that complete sentinel; the existing temperature
+calculation already returns an unchanged population. Synthetic controls cover
+whole and fractional populations at finite temperatures and reject partial
+or NaN sentinels. This repair does not establish cluster ownership or save/load
+acceptance; those require a fresh game run.
+
+The development owner also tracks completed rocket-template callbacks. At the
+next completed native publication it queues ownership of the new world's
+non-solid cells, including vacuum, without importing an existing world's
+inventory again. The routing map excludes reserved holes and checks actual
+world IDs. Layout controls distinguish additions and removals and reject a
+moved or reused live identity. Rocket removal still refuses the experimental
+path until complete-mixture evacuation is implemented; no normal DLC activation
+or rocket gameplay acceptance is claimed by this addition.
+
+The new `spaced-out-worlds` development scenario constructs a sealed mixture
+probe in every actual generated asteroid. It checks both constituent masses
+and ownership in each world, excludes a reserved grid cell, changes the active
+camera world and returns while requiring the same advancing owner session and
+closed mass/energy ledgers. Merely reporting several world containers cannot
+pass this control. Rocket and inter-world transport controls remain separate.
+
 The 2026-10-26 request covers Spaced Out!, Frosty, Bionic, Prehistoric and
 Aquatic: every one of their 32 selections on Linux and Windows x64. This
 extends the [base-game playtest](playtest-plan.md); it does not certify the

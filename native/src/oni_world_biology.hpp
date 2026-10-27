@@ -36,8 +36,9 @@ struct Table {
     [[nodiscard]] bool empty() const noexcept { return diseases.empty(); }
     [[nodiscard]] const Growth& at(std::size_t disease, std::size_t element) const;
 };
-// Rejects inconsistent sizes, non-finite or negative rates and diffusion
-// scales above 2 (which would let a cell send more germs than it holds).
+// Rejects inconsistent sizes, invalid rates and diffusion scales above 2
+// (which would let a cell send more germs than it holds). The game's exact
+// all-positive-infinity temperature rule is an explicit no-effect sentinel.
 void validate(const Table&);
 
 inline constexpr float frame_seconds = .2f;

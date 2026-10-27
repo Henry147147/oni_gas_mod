@@ -20,4 +20,17 @@ Refuse(()=>new ColonyWorldLayout(256,1024,new[]{new ColonyWorldRegion(0,int.MaxV
 Refuse(()=>new ColonyWorldLayout(256,1024,new[]{new ColonyWorldRegion(0,0,0,-1,2)}));
 var afterRemoval=new ColonyWorldLayout(256,1024,new[]{asteroid,second});
 Check(!afterRemoval.TryFind(256*512,out _)&&layout.TryFind(256*512,out _),"Removing a rocket mutated a prior layout snapshot.");
+var added=layout.ChangesFrom(afterRemoval);
+Check(added.Added.Length==1&&added.Added[0].SameRegion(rocket)&&added.Removed.Length==0,"A new rocket was not identified by stable world identity.");
+var removed=afterRemoval.ChangesFrom(layout);
+Check(removed.Added.Length==0&&removed.Removed.Length==1&&removed.Removed[0].SameRegion(rocket),"Removed rocket inventory has no explicit lifecycle transition.");
+var unchanged=new ColonyWorldLayout(256,1024,new[]{second,asteroid,rocket}).ChangesFrom(layout);
+Check(unchanged.Added.Length==0&&unchanged.Removed.Length==0,"Reordering worlds created a false admission.");
+static void RefuseTransition(Action action){try{action();}catch(InvalidOperationException){return;}throw new Exception("Unsafe cluster layout transition accepted.");}
+RefuseTransition(()=>new ColonyWorldLayout(256,1024,new[]{asteroid,second,new ColonyWorldRegion(19,32,512,32,32,true)}).ChangesFrom(layout));
+RefuseTransition(()=>new ColonyWorldLayout(256,1024,new[]{asteroid,second,new ColonyWorldRegion(19,0,512,32,32,false)}).ChangesFrom(layout));
+RefuseTransition(()=>new ColonyWorldLayout(512,1024,new[]{asteroid,second,rocket}).ChangesFrom(layout));
+var ids=layout.CellWorldIds();
+Check(ids[127]==7&&ids[128]==2&&ids[256*400]==-1&&ids[256*512]==19,"Public cell world map lost an asteroid, rocket or reserved gap.");
+ids[0]=-99;Check(layout.CellWorldIds()[0]==7,"A caller mutated the cluster ownership map.");
 Console.WriteLine("PASS cluster world layout: stable IDs, immutable snapshots, asteroid/rocket boundaries, unallocated cells, overlap/overflow rejection and removal");

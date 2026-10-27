@@ -27,6 +27,17 @@ classify_original = runner.classify
 import oni_native_domain_evidence as domain_evidence
 
 
+class ScenarioContractTests(unittest.TestCase):
+    def test_runner_and_game_admit_the_same_scenarios(self):
+        configuration = (Path(__file__).parents[2] / "managed" / "MixedAtmospheres.Oni" /
+                         "ColonyValidationConfiguration.cs").read_text()
+        declaration = re.search(r'\bScenarios\s*=\s*\{([^}]+)\}', configuration)
+        self.assertIsNotNone(declaration)
+        managed = re.findall(r'"([a-z0-9-]+)"', declaration[1])
+        self.assertEqual(tuple(managed), runner.SCENARIOS)
+        self.assertEqual(runner.scenario_list("spaced-out-worlds"), "spaced-out-worlds")
+
+
 class CompletedInspectionTests(unittest.TestCase):
     def test_starts_only_after_completion_and_uses_the_first_success_deadline(self):
         self.assertEqual(runner.completed_inspection({'Status':'pending'},120,None,1000),(None,False))

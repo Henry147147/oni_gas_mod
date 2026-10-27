@@ -108,6 +108,7 @@ namespace MixedAtmospheres.Oni
             current?.Dispose(); current = null;
             if (Active) { var s = OniNativeColony.Status.Empty; _ = OniNativeColony.Stop(ref s); }
             ColonyPacing.Reset(); ColonyOwnerPersistence.Reset(); ModSettingsRuntime.Reset();
+            ColonyClusterWorlds.Reset();OwnedCells=0;
             publicationCells=Array.Empty<int>();CellMapComparisons=0;
             passiveSession=0;passiveFrame=ulong.MaxValue;WorldPassiveComparisons=WorldPassiveRows=WorldPassiveBusy=0;
             Active = false; considered = false; restoreAttempted = false; StartFailure = ""; loggedFault = ""; ColonyFault.Reset(); Publications = 0; PublicationMilliseconds = MaximumPublicationMilliseconds = 0; Census.Clear(); molarMass = Array.Empty<double>();
@@ -118,6 +119,7 @@ namespace MixedAtmospheres.Oni
         {
             index = -1;
             if (cell < 0 || cell >= Grid.CellCount) return false;
+            if(!ColonyClusterWorlds.Contains(cell))return false;
             var x = cell % Grid.WidthInCells - x0; var y = cell / Grid.WidthInCells - y0;
             if (x < 0 || y < 0 || x >= width || y >= height) return false;
             index = x + y * width; return true;
@@ -220,6 +222,7 @@ namespace MixedAtmospheres.Oni
                 OniNativeColony.Check(OniNativeColony.Start(ref config, materials, (uint)materials.Length, cells, (uint)cells.Length, ref output));
                 ModSettingsRuntime.AfterStart();
                 status = output; views = new OniNativeColony.CellView[cells.Length]; Active = true; ColonyPacingDriver.Ensure(); ConfigurePresentation();
+                ColonyClusterWorlds.Initialize(DlcManager.IsExpansion1Active()&&SpacedOutControl?layout:null);
                 if (ColonyPipeRuntime.NewColoniesUseMixedPipes) ColonyPipeRuntime.StartForNewColony(); // docs/mixed-pipes.md#runtime
                 OwnedCells = cells.Count(c => c.Kind != OniNativeColony.Solid);
                 // Backwall cells are a native layer behind the cells; their transitions emit through AddRemoveSubstance.
@@ -294,6 +297,7 @@ namespace MixedAtmospheres.Oni
             OniNativeColony.Check(OniNativeColony.Restore(ref config, materials, (uint)materials.Length, image, (uint)image.Length, ref output));
             ModSettingsRuntime.Restored(); // the settings this colony recorded (docs/settings.md)
             status = output; views = new OniNativeColony.CellView[width * height]; considered = true; Active = true; ColonyPacingDriver.Ensure(); ConfigurePresentation();
+            ColonyClusterWorlds.Initialize(DlcManager.IsExpansion1Active()&&SpacedOutControl?CaptureWorldLayout():null);
             OniNativeColony.Check(OniNativeColony.Copy(ref status, views, (uint)views.Length));
             OwnedCells = views.Count(v => (v.Flags & OniNativeColony.ViewOwned) != 0);
             Debug.Log($"[Mixed Atmospheres] Colony owner restored at frame {status.CompletedFrames}: {OwnedCells} owned cells.");
@@ -315,6 +319,7 @@ namespace MixedAtmospheres.Oni
             ColonyActors.Observe(source);
             if (!Active && ClusterManager.Instance != null && ColonyOwnerPersistence.TakePending() is var (saved, image)) { restoreAttempted = true; ColonyOwnerPersistence.RestoreOwner(saved, image); }
             if (!Active) { TryStart(source); if (!Active) return pointer; }
+            ColonyClusterWorlds.Synchronize(source);
             var started = System.Diagnostics.Stopwatch.GetTimestamp();
             var lapStarted = started;
             var laps = publicationLog ? new System.Text.StringBuilder() : null;
@@ -361,9 +366,11 @@ namespace MixedAtmospheres.Oni
                 var diseases = copy.CellBuffer<byte>(nameof(Sim.GameDataUpdate.diseaseIdx));
                 var germs = copy.CellBuffer<int>(nameof(Sim.GameDataUpdate.diseaseCount));
                 var changes = new List<Sim.SubstanceChangeInfo>();
+                var ownedNow=0;
                 for (var i = 0; i < views.Length; ++i)
                 {
                     var view = views[i];
+                    if((view.Flags&OniNativeColony.ViewOwned)!=0)++ownedNow;
                     var global = uncachedCellMap ? (x0+i%width)+(y0+i/width)*Grid.WidthInCells : publicationCells[i];
                     if(cellMapControl)
                     {
@@ -388,6 +395,7 @@ namespace MixedAtmospheres.Oni
                         changes.Add(new Sim.SubstanceChangeInfo { cellIdx = global, newElemIdx = element });
                     elements[global] = element;
                 }
+                OwnedCells=ownedNow;
                 copy.AppendEvents<Sim.SubstanceChangeInfo>(SnapshotEventChannel.SubstanceChangeInfo, changes.ToArray());
                 Lap("overlay");
                 DeliverReceipts(copy);

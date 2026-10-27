@@ -45,6 +45,13 @@ void validate(const Table& t) {
     const auto finite = [](float v) { return !std::isnan(v); };
     for (const auto& d : t.diseases) {
         require(std::isfinite(d.strength), "Invalid disease strength");
+        // The game's idempotent temperature rule uses +infinity for all
+        // eight fields (for example, a disease with no environmental effect).
+        // Its multiplier is exactly one; mixed/noncanonical infinite bounds
+        // still fail the ordinary finite-range validation below.
+        const auto positive_infinity = [](float v) { return v == std::numeric_limits<float>::infinity(); };
+        if (std::all_of(d.range.begin(), d.range.end(), positive_infinity) &&
+            std::all_of(d.half_lives.begin(), d.half_lives.end(), positive_infinity)) continue;
         for (int k = 0; k < 4; ++k) require(std::isfinite(d.range[k]) && finite(d.half_lives[k]) && d.half_lives[k] >= 0, "Invalid disease temperature rules");
     }
     for (const auto& g : t.growth)

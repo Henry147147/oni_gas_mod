@@ -1539,6 +1539,34 @@ void world_biology_control() {
         std::isinf(bio::temperature_half_life(d0, 340)) && bio::temperature_half_life(d0, 360) == 15, "temperature half-life rules");
     require(bio::frame_rate(inf) == 1 && bio::frame_rate(0) == 0 && bio::frame_rate(.2f) == .5f && bio::frame_rate(-.2f) == 2, "frame rate");
     bio::Medium air; air.open = true; air.state = 1; air.element = oxygen; air.temperature_k = 300; air.mass_kg = 1; air.parts = {{oxygen, 1}};
+    // An inert disease can be present in the registry even though its
+    // temperature rule has no effect. Do not disable every other disease
+    // because its exact no-effect sentinel contains infinite bounds.
+    {
+        auto inert = table;
+        inert.diseases[0].range.fill(inf); inert.diseases[0].half_lives.fill(inf);
+        inert.growth.assign(inert.growth.size(), bio::Growth{0,inf,inf,0,0,inf,0,0});
+        bio::validate(inert);
+        for (const float temperature : {1.f,300.f,1e6f}) {
+            auto medium = air; medium.temperature_k = temperature;
+            require(bio::temperature_half_life(inert.diseases[0],temperature)==inf,
+                "Idempotent temperature sentinel changed a finite temperature");
+            for (const double held : {1000.,1000.5}) {
+                const auto unchanged = bio::grow(inert,0,medium,held,{});
+                require(unchanged.population==held && unchanged.change==0,
+                    "Idempotent disease changed whole or expected populations");
+            }
+        }
+        for (const bool half_life : {false,true}) {
+            auto malformed = inert;
+            (half_life?malformed.diseases[0].half_lives:malformed.diseases[0].range)[2]=300;
+            bool refused=false;try {bio::validate(malformed);}catch(const std::invalid_argument&){refused=true;}
+            require(refused,"A partial infinite temperature sentinel was accepted");
+        }
+        auto malformed = inert; malformed.diseases[0].range[0]=std::numeric_limits<float>::quiet_NaN();
+        bool refused=false;try {bio::validate(malformed);}catch(const std::invalid_argument&){refused=true;}
+        require(refused,"A NaN temperature sentinel was accepted");
+    }
     // Whole-germ growth keeps the integer count and a binary32 residue; over
     // 500 frames (100 s) it follows the exponential to within a germ.
     double count = 1000; bio::Clock clock{};

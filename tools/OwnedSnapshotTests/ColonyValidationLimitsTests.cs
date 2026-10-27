@@ -55,6 +55,7 @@ internal static class ColonyValidationLimitsTests
             foreach(var ids in new[]{new[]{"DLC6_ID"},new[]{"VANILLA_ID"},new[]{"DLC2_ID","DLC2_ID"},new[]{"",""},new string[]{null!}})
                 reject(()=>ColonyDlcSelection.Mask(ids));
             reject(()=>ColonyDlcSelection.Mask(null!));
+            check(Valid(new ColonyValidationConfiguration{Mode="colony-owner",DlcMask=1,Scenario="spaced-out-worlds"}).Scenario=="spaced-out-worlds");
         });
         test("floor and colony controls require their declared modes and keep fixed identities",()=> {
             foreach(var mode in new[]{"colony-owner","colony-vanilla"})

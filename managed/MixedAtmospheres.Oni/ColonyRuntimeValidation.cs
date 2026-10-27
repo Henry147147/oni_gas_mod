@@ -448,6 +448,7 @@ namespace MixedAtmospheres.Oni
                 status.InjectedKg, status.ExtractedKg, status.CommittedTransfers, status.CommittedHeat, status.OpenedCells, status.ClosedCells,
                 ColonyOwner.OwnedCells, ColonyOwner.Publications, ColonyOwnerPersistence.Saves, ColonyOwnerPersistence.Loads,
                 DlcFluidReaders=new {ColonyDlcFluidReaders.AquaticReads,ColonyDlcFluidReaders.BionicSamples},
+                ClusterWorlds=ColonyClusterWorlds.Report(),
                 ColonyPacing.HeldTicks, ColonyPacing.UnityFrames, ColonyPacing.OwnerRate, ColonyPacing.TimeScale,
                 WallSeconds = (System.DateTime.UtcNow - colonyOwnerWallStart).TotalSeconds,
                 PresentationFrames = ColonyPresentation.Publications, PresentationRejectedCells = ColonyPresentation.RejectedCells, ColonyPresentation.FirstRejection,
