@@ -368,6 +368,13 @@ The writer remains behind the existing exact-storage/scheduling control until
 cold/menu continuation and storage lifecycle checks pass. No native physical
 checkpoint layout or solver arithmetic changes with this reservation.
 
+The development writer now implements this record as ten bytes per updater:
+one-byte kind, one-byte flags, binary32 consumer rate and signed 32-bit
+last-consumed element. Consumer flags retain on/consuming/consumed-last-tick/
+satisfied state; dispenser flags retain on/blocked/empty state. Unused fields
+must be canonical zero. Both flow schedules are validated before controls are
+restored. Schema5 remains readable and reencodes without adding controls.
+
 **MACPIP01 schema5** is reserved (2026-10-25), immediately after a fresh fetch
 of `ea052ad`, for authoritative component-storage inventories and biology,
 plus native conduit clocks, mass staging, routing and update order. These are
@@ -377,29 +384,58 @@ earlier codec bytes remain unchanged; the new writer stays gated until its
 storage and continuation controls pass.
 
 For a bounded development scheduling check,
-`MA_COLONY_NATIVE_SCHEDULE_CONTROL=1` starts new colonies with the reserved
-schema5 writer. It activates the reservoir storage prototype and all-ID biology,
+`MA_COLONY_NATIVE_SCHEDULE_CONTROL=1` starts new colonies with the gated
+schema6 writer. It activates the reservoir storage prototype and all-ID biology,
 captures native clocks, staging, routing, networks and updater order, and binds
 the saved scheduling state after the other pipe modules on restore. Binding
 waits for the first positive-time barrier, after component `OnSpawn` and
 conduit updater registration. `GameStarted` alone is too early: the actual
 cold load exposed a tracked reservoir whose storage had not spawned yet.
 Zero-time conduit updates remain held while those bindings are pending.
-The loaded
-image selects this mode; changing the environment does not migrate a save.
-The restore path accepts only pristine empty exact stores, including their
-persistent host identities. A drained store is not pristine: admission/withdrawal/heat/biology
-history or a native projection still requires full cold binding. Nonempty
-stores still refuse until their native projections and biology can bind
-exactly. A nonempty native reservoir cannot be omitted by calling its exact
-section empty. Ordinary new
+The loaded image selects this mode; changing the environment does not migrate
+a save. Before binding, zero-time native frames settle prefab chunk-data
+messages and registration callbacks, without changing the owner session or
+completed frame. This prevents a queued startup write from being mistaken for
+a later exact-storage mutation.
+
+The restore path now accepts nonempty and drained exact reservoirs. Persistent
+host identity, prefab, projection ordinal, phase, binary32 mass/temperature and
+native disease projection must all match before any host is installed. The
+saved exact inventory, energy, culture and cumulative accounts remain
+authoritative. A nonempty native reservoir cannot be omitted by calling its
+exact section empty. Ordinary new
 colonies retain schema4 while this control is unaccepted, and schemas1–4 keep
 their previous bytes.
+
+Native storage heat ABI2 adds explicit zero-capacity retirement receipts.
+Withdrawal first credits completed physical work; publication retires exhausted
+native carriers after any same-callback reuse. The observer verifies the
+declared final zero-capacity updates and actual handle removal, retaining all
+preceding heat until acknowledgement. Unknown writes, positive-capacity
+removals and saving with retirements in flight refuse. Native cleanup cannot
+transfer germs into these empty display carriers. The fixed
+`owned-storage-retirement` Linux control passes six checks after complete
+withdrawal of its 8 kg, one-million-germ mixture: physical heat/biology occur,
+all output constituents and cultures remain accounted, and both native bodies
+are removed and acknowledged within the unchanged eight-frame observation.
+
+These changes do not enable general storage mutation, demolition, bottle or
+recipe ownership. The complete exact-storage writer remains development-only.
+
+The same frozen `release-storage-probe-startup-v2` bundle passes the original
+eight-check `mixed-pipe-owned-storage` source and both cold/menu loads of its
+nonempty frame20 save. Its eight-frame complete comparison still fails: owner
+and pipe/storage hashes first differ at frame21; particle hashes match. The
+first committed owner inputs also differ there (3,867 source records versus
+3,870 restored records, different multisets). This does not establish exact
+active continuation or isolate the pipe difference's cause. An earlier
+schema6 prototype matched the pipe prefix, but that observation does not
+certify the later cleanup/startup implementation.
 
 `MA_COLONY_CONTINUATION_FRAMES=N` still records a held completed owner image
 after each positive frame. With `MA_COLONY_CONTINUATION_RUNTIME=1`, it also
 settles native publication and receipts and records pipe/native-scheduling and
-CO2-particle images at each boundary; schema5 scheduling control is required.
+CO2-particle images at each boundary; native scheduling control is required.
 `MA_COLONY_CONTINUATION_SOURCE=1` arms the uninterrupted branch immediately
 after a successful ordinary `MA_COLONY_SAVE_CONTROL=save`, preserving that
 source save's hash and baseline owner/pipe identities. Cold and menu loads

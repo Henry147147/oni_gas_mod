@@ -18,8 +18,8 @@ namespace MixedAtmospheres.Oni
         internal static string StartNotes { get; private set; }="";
         internal static string Failure { get; private set; }="";
         // Development only. Persisted by schema5, never read from the
-        // environment while loading an existing colony. Nonempty exact
-        // stores still refuse capture until native cold rebinding is proved.
+        // environment while loading an existing colony. A load binds each
+        // saved store to ONI's own restored native items as projections.
         internal static bool NativeScheduleControl {get;private set;}
         private static OwnedFluidStorageImage? pendingStorage;
         private static PipeNativeScheduleState? pendingSchedule;
@@ -102,11 +102,9 @@ namespace MixedAtmospheres.Oni
             {
                 var catalogue=ColonyConduits.CatalogueIdentity();var geometry=ColonyConduits.Geometry;
                 var image=ColonyConduitCheckpoint.Decode(bytes,geometry,catalogue,ColonyConduits.MaterialPhase);
-                if(image.SchemaVersion!=4&&image.SchemaVersion!=5||image.Boundary==null||image.Runtime==null)
-                    throw new System.IO.InvalidDataException("Mixed-pipe runtime restore requires schema 4 or 5 with complete native biology context; older runtime images cannot continue exactly.");
-                if(image.SchemaVersion==5&&image.Runtime.OwnedStorage!.Stores.Any(store=>!store.PristineEmpty))
-                    throw new NotSupportedException("Nonempty exact storage awaits verified native thermal and biology cold rebinding.");
-                NativeScheduleControl=image.SchemaVersion==5;
+                if(image.SchemaVersion!=4&&image.SchemaVersion!=5&&image.SchemaVersion!=6||image.Boundary==null||image.Runtime==null)
+                    throw new System.IO.InvalidDataException("Mixed-pipe runtime restore requires schema 4, 5 or 6 with complete native biology context; older runtime images cannot continue exactly.");
+                NativeScheduleControl=image.SchemaVersion>=5;
                 ColonyConduits.Restore(image);
                 ColonyPipePorts.Restore(image.Boundary,image.Runtime);
                 ColonyPipePumps.StartControl();ColonyPipeVents.StartControl();ColonyPipeTeardown.StartControl();ColonyMachinePorts.StartControl();
@@ -135,7 +133,8 @@ namespace MixedAtmospheres.Oni
             var schedule=pendingSchedule;if(schedule==null)return;
             if(!Active||!NativeScheduleControl||pendingStorage==null)
                 throw new InvalidOperationException("Saved native pipe bindings have no active schema5 owner.");
-            ColonyOwnedStorage.StartControl();ColonyOwnedStorage.RestorePristine(pendingStorage);ColonyOwnedStorage.StartBiologyControl();
+            ColonySaveBarrier.SettleNativeStartupMessages();
+            ColonyOwnedStorage.StartControl();ColonyOwnedStorage.Restore(pendingStorage);ColonyOwnedStorage.StartBiologyControl();
             ColonyOwnedStorage.RequireQuiescent();ColonyConduitsSchedule.Restore(schedule);
             pendingStorage=null;pendingSchedule=null;
         }

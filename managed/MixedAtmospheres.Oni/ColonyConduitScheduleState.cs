@@ -42,17 +42,27 @@ namespace MixedAtmospheres.Oni
             // 0 static, 1 Component, 2 StateMachine.Instance; no delegates or
             // live handles are serialized. Ordinal distinguishes components.
             internal byte Kind;
+            // Schema6: transient activation/readback state of native ports.
+            internal byte ControlKind,ControlFlags;
+            internal float ConsumerRate;
+            internal int LastConsumedElement;
             internal int Priority, Prefab, Ordinal;
             internal string TargetType = "", DeclaringType = "", Method = "";
             internal (byte, int, int, int, string, string, string) Key =>
                 (Kind, Priority, Prefab, Ordinal, TargetType, DeclaringType, Method);
-            internal void Validate()
+            internal void Validate(bool requirePortState=false)
             {
                 if (TargetType == null || DeclaringType == null || Method == null)
                     throw new InvalidDataException("Missing saved conduit callback identity.");
                 if (Kind > 2 || Ordinal < 0 || Kind == 0 && (Prefab != 0 || Ordinal != 0 || TargetType.Length != 0) ||
                     Kind != 0 && (Prefab <= 0 || TargetType.Length == 0) || DeclaringType.Length == 0 || Method.Length == 0)
                     throw new InvalidDataException("Invalid saved conduit callback identity.");
+                var expected=Kind==1&&TargetType=="ConduitConsumer"?1:Kind==1&&TargetType=="ConduitDispenser"?2:0;
+                if(ControlKind>2||ControlKind!=0&&ControlKind!=expected||requirePortState&&ControlKind!=expected||
+                    ControlKind==0&&(ControlFlags!=0||BitConverter.SingleToInt32Bits(ConsumerRate)!=0||LastConsumedElement!=0)||
+                    ControlKind==1&&((ControlFlags&~15)!=0||float.IsNaN(ConsumerRate)||ConsumerRate<0)||
+                    ControlKind==2&&((ControlFlags&~7)!=0||BitConverter.SingleToInt32Bits(ConsumerRate)!=0||LastConsumedElement!=0))
+                    throw new InvalidDataException("Invalid or missing saved native port control state.");
                 foreach (var text in new[] { TargetType, DeclaringType, Method })
                     if (Utf8.GetByteCount(text) > MaximumTextBytes)
                         throw new InvalidDataException("Native conduit callback identity is too long.");
@@ -66,7 +76,7 @@ namespace MixedAtmospheres.Oni
             internal List<Cell> Cells = new List<Cell>();
             internal List<int[]> Networks = new List<int[]>();
             internal List<Updater> Updaters = new List<Updater>();
-            internal void Validate(PipeGeometry geometry)
+            internal void Validate(PipeGeometry geometry,bool portState)
             {
                 if (Phase != 1 && Phase != 2 || float.IsNaN(Elapsed) || float.IsInfinity(Elapsed) || Elapsed < 0)
                     throw new InvalidDataException("Invalid saved native conduit clock.");
@@ -89,11 +99,12 @@ namespace MixedAtmospheres.Oni
                     if (network.Any(cell => !seen.Contains(cell)) || membership.Any(cell => !scheduled.Add(cell)))
                         throw new InvalidDataException("Saved native conduit networks overlap or leave their cells.");
                 }
-                foreach (var updater in Updaters) updater.Validate();
+                foreach (var updater in Updaters) updater.Validate(portState);
             }
         }
 
         internal readonly List<Flow> Flows = new List<Flow>();
+        internal bool PreservePortState;
         private const int MaximumRecords = 1 << 20, MaximumTextBytes = 4096;
         private static readonly UTF8Encoding Utf8 = new UTF8Encoding(false, true);
 
@@ -101,7 +112,7 @@ namespace MixedAtmospheres.Oni
         {
             if (Flows.Count != 2 || Flows[0].Phase != 1 || Flows[1].Phase != 2)
                 throw new InvalidDataException("A native schedule requires both gas and liquid clocks.");
-            foreach (var flow in Flows) flow.Validate(geometry);
+            foreach (var flow in Flows) flow.Validate(geometry,PreservePortState);
         }
         internal void Write(BinaryWriter w, PipeGeometry geometry)
         {
@@ -123,12 +134,14 @@ namespace MixedAtmospheres.Oni
                 {
                     w.Write(updater.Kind); w.Write(updater.Priority); w.Write(updater.Prefab); w.Write(updater.Ordinal);
                     Text(w, updater.TargetType); Text(w, updater.DeclaringType); Text(w, updater.Method);
+                    if(PreservePortState)
+                    {w.Write(updater.ControlKind);w.Write(updater.ControlFlags);w.Write(updater.ConsumerRate);w.Write(updater.LastConsumedElement);}
                 }
             }
         }
-        internal static PipeNativeScheduleState Read(BinaryReader r, PipeGeometry geometry)
+        internal static PipeNativeScheduleState Read(BinaryReader r, PipeGeometry geometry,bool portState=false)
         {
-            var result = new PipeNativeScheduleState();
+            var result = new PipeNativeScheduleState {PreservePortState=portState};
             for (var phase = 1; phase <= 2; ++phase)
             {
                 var flow = new Flow { Phase = r.ReadByte(), Elapsed = r.ReadSingle() };
@@ -151,8 +164,13 @@ namespace MixedAtmospheres.Oni
                 }
                 count = Count(r, 25);
                 for (var i = 0; i < count; ++i)
-                    flow.Updaters.Add(new Updater { Kind = r.ReadByte(), Priority = r.ReadInt32(), Prefab = r.ReadInt32(), Ordinal = r.ReadInt32(),
-                        TargetType = Text(r), DeclaringType = Text(r), Method = Text(r) });
+                {
+                    var updater=new Updater { Kind = r.ReadByte(), Priority = r.ReadInt32(), Prefab = r.ReadInt32(), Ordinal = r.ReadInt32(),
+                        TargetType = Text(r), DeclaringType = Text(r), Method = Text(r) };
+                    if(portState)
+                    {updater.ControlKind=r.ReadByte();updater.ControlFlags=r.ReadByte();updater.ConsumerRate=r.ReadSingle();updater.LastConsumedElement=r.ReadInt32();}
+                    flow.Updaters.Add(updater);
+                }
                 result.Flows.Add(flow);
             }
             result.Validate(geometry); return result;

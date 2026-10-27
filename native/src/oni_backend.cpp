@@ -1577,7 +1577,7 @@ MAOniResult ma_oni_domain_stop(MAOniDomainStatus* output) {
     });
 }
 std::uint32_t ma_oni_domain_heat_abi_version() { return 1; }
-std::uint32_t ma_oni_storage_heat_version() {return ma::oni::storage_heat::Monitor::supported()?1U:0U;}
+std::uint32_t ma_oni_storage_heat_version() {return ma::oni::storage_heat::Monitor::supported()?2U:0U;}
 MAOniResult ma_oni_storage_heat_register(std::int32_t handle,float temperature,float capacity) {
     return boundary([&] {
         if(!installed || !ma::oni::storage_heat::Monitor::supported() || !ma::oni::colony::active())
@@ -1587,6 +1587,9 @@ MAOniResult ma_oni_storage_heat_register(std::int32_t handle,float temperature,f
 }
 MAOniResult ma_oni_storage_heat_expect_data(std::int32_t handle,float temperature,float capacity) {
     return boundary([&] {storage_heat.expect(handle,temperature,capacity);});
+}
+MAOniResult ma_oni_storage_heat_expect_removal(std::int32_t handle) {
+    return boundary([&] {storage_heat.expect_removal(handle);});
 }
 MAOniResult ma_oni_storage_heat_copy(MAOniStorageHeatReceipt* output,std::uint32_t capacity,std::uint32_t* count) {
     return boundary([&] {

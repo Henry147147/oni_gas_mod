@@ -46,7 +46,7 @@ def observation(result, origin):
         raise ValueError("Invalid continuation timestep operands")
     pipes = owner.get("PipeSave")
     if not isinstance(pipes, dict) or pipes.get("Active") is not True or pipes.get("AuditClosed") is not True or pipes.get("NativeScheduleControl") is not True or pipes.get("NativeBindingsPending") is not False:
-        raise ValueError("Continuation lacks a closed active schema5 pipe runtime")
+        raise ValueError("Continuation lacks a closed active native-schedule pipe runtime")
     key = "CapturedSha256" if origin == "uninterrupted" else "RestoredSha256"
     # A later source save can have a different hash; the baseline itself was
     # retained immediately after the actual control save. On load it must

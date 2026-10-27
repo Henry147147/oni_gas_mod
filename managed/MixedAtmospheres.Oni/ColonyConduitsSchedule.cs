@@ -41,6 +41,10 @@ namespace MixedAtmospheres.Oni
             throw new NotSupportedException("Missing native conduit schedule value: "+name);
         private static IList List(object instance,string name) => (IList)Value(instance,name);
         private static T Read<T>(object instance,string name) => (T)Value(instance,name);
+        // Keep these native runtime fields explicit in the game contract.
+        private static readonly FieldInfo ConsumerOn=AccessTools.Field(typeof(ConduitConsumer),"isOn"),
+            ConsumerSatisfied=AccessTools.Field(typeof(ConduitConsumer),"satisfied"),
+            ConsumerRate=AccessTools.Field(typeof(ConduitConsumer),"consumptionRate");
 
         private static PipeNativeScheduleState.Contents Pack(ConduitFlow.ConduitContents value) =>
             new PipeNativeScheduleState.Contents { Element=(int)value.element, Temperature=value.temperature,
@@ -75,6 +79,17 @@ namespace MixedAtmospheres.Oni
             var prefab=go.GetComponent<KPrefabID>();
             if(prefab==null)throw new InvalidDataException("A conduit callback has no persistent prefab identity.");
             result.Prefab=prefab.InstanceID;result.TargetType=callback.Target.GetType().FullName??"";
+            if(callback.Target is ConduitConsumer consumer)
+            {
+                result.ControlKind=1;
+                result.ControlFlags=(byte)(((bool)ConsumerOn.GetValue(consumer)?1:0)|(consumer.isConsuming?2:0)|(consumer.consumedLastTick?4:0)|((bool)ConsumerSatisfied.GetValue(consumer)?8:0));
+                result.ConsumerRate=(float)ConsumerRate.GetValue(consumer);result.LastConsumedElement=(int)consumer.lastConsumedElement;
+            }
+            else if(callback.Target is ConduitDispenser dispenser)
+            {
+                result.ControlKind=2;
+                result.ControlFlags=(byte)((dispenser.isOn?1:0)|(dispenser.blocked?2:0)|(dispenser.empty?4:0));
+            }
             result.Validate();return result;
         }
         private static IEnumerable<(int Cell,int Index,object Node)> Rows(ConduitFlow flow)
@@ -111,13 +126,33 @@ namespace MixedAtmospheres.Oni
         internal static PipeNativeScheduleState Capture()
         {
             FlushTopology();
-            var result=new PipeNativeScheduleState();
+            var result=new PipeNativeScheduleState {PreservePortState=true};
             result.Flows.Add(CaptureFlow(Game.Instance.gasConduitFlow,1));
             result.Flows.Add(CaptureFlow(Game.Instance.liquidConduitFlow,2));
             result.Validate(ColonyConduits.Geometry);return result;
         }
         private static string Membership(IEnumerable<int> cells) => string.Join(",",cells.Distinct().OrderBy(c=>c));
-        private static System.Action PrepareRestore(ConduitFlow flow,PipeNativeScheduleState.Flow saved)
+        private static System.Action PreparePortState(object? target,PipeNativeScheduleState.Updater saved)
+        {
+            saved.Validate(true);
+            if(saved.ControlKind==1)
+            {
+                if(!(target is ConduitConsumer consumer))throw new InvalidDataException("Saved consumer control has a different callback target.");
+                return ()=>
+                {
+                    ConsumerOn.SetValue(consumer,(saved.ControlFlags&1)!=0);consumer.isConsuming=(saved.ControlFlags&2)!=0;
+                    consumer.consumedLastTick=(saved.ControlFlags&4)!=0;ConsumerSatisfied.SetValue(consumer,(saved.ControlFlags&8)!=0);
+                    ConsumerRate.SetValue(consumer,saved.ConsumerRate);consumer.lastConsumedElement=(SimHashes)saved.LastConsumedElement;
+                };
+            }
+            if(saved.ControlKind==2)
+            {
+                if(!(target is ConduitDispenser dispenser))throw new InvalidDataException("Saved dispenser control has a different callback target.");
+                return ()=>{dispenser.isOn=(saved.ControlFlags&1)!=0;dispenser.blocked=(saved.ControlFlags&2)!=0;dispenser.empty=(saved.ControlFlags&4)!=0;};
+            }
+            return ()=>{};
+        }
+        private static System.Action PrepareRestore(ConduitFlow flow,PipeNativeScheduleState.Flow saved,bool savedPortState)
         {
             if(((IEnumerable)Value(flow,"replacements")).Cast<object>().Any())
                 throw new InvalidDataException("Native conduit replacements have not settled before scheduling restore.");
@@ -155,11 +190,13 @@ namespace MixedAtmospheres.Oni
                 queue.Enqueue(updater!);
             }
             var orderedUpdaters=new List<object>();
+            var controls=new List<System.Action>();
             foreach(var updater in saved.Updaters)
             {
                 if(!byIdentity.TryGetValue(updater.Key,out var queue)||queue.Count==0)
                     throw new InvalidDataException("Restored native conduit callbacks differ from their saved schedule.");
                 orderedUpdaters.Add(queue.Dequeue());
+                if(savedPortState)controls.Add(PreparePortState(targets[updater.Key],updater));
             }
             if(orderedUpdaters.Count!=updaters.Count)
                 throw new InvalidDataException("Restored native conduit callback count differs from its saved schedule.");
@@ -185,6 +222,7 @@ namespace MixedAtmospheres.Oni
                     var cells=List(network.Network,"cells");cells.Clear();foreach(var cell in network.Cells)cells.Add(cell);
                     networks.Add(network.Network);
                 }
+                foreach(var restore in controls)restore();
                 updaters.Clear();foreach(var updater in orderedUpdaters)updaters.Add(updater);
                 Field(typeof(ConduitFlow),"elapsedTime").SetValue(flow,saved.Elapsed);
                 Field(typeof(ConduitFlow),"dirtyConduitUpdaters").SetValue(flow,saved.UpdatersDirty);
@@ -193,8 +231,8 @@ namespace MixedAtmospheres.Oni
         internal static void Restore(PipeNativeScheduleState saved)
         {
             saved.Validate(ColonyConduits.Geometry);FlushTopology();
-            var gas=PrepareRestore(Game.Instance.gasConduitFlow,saved.Flows[0]);
-            var liquid=PrepareRestore(Game.Instance.liquidConduitFlow,saved.Flows[1]);
+            var gas=PrepareRestore(Game.Instance.gasConduitFlow,saved.Flows[0],saved.PreservePortState);
+            var liquid=PrepareRestore(Game.Instance.liquidConduitFlow,saved.Flows[1],saved.PreservePortState);
             gas();liquid();
         }
     }

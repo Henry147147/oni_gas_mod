@@ -33,7 +33,6 @@ The folder is what the Workshop serves into `mods/Steam/<id>`:
   loads every root DLL as managed code, so nothing else sits there.
 - `game-contract.json`: the managed game contract of exactly these DLLs, for
   both platforms ([game-update resilience](game-update-resilience.md)).
-- `elements/`, the mod-owned element data.
 - `native/win-x64/` and `native/linux-x64/`: the solver and the game backend
   for each platform. The Linux pair comes from the Ubuntu 22.04 compatibility
   build, whose report must show the glibc 2.34 ceiling

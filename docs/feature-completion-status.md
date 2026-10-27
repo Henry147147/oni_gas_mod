@@ -2,9 +2,11 @@
 
 **Current goal, 2026-10-27:** a Steam-ready first release covering the base
 game and Spaced Out! ([amendment](completion-plan.md#amendments)). The private
-`bfb1168` Spaced Out! candidate is with the user. The current user-directed R&D work on `main` removes nitrogen, makes CO₂
-breathing limits optional and reorganizes settings. Release acceptance,
-performance and the accuracy/persistence proofs below remain separate work.
+`bfb1168` Spaced Out! candidate is with the user. Revision `d252486` removes
+nitrogen, makes CO₂ breathing limits optional (off by default) and moves
+technical controls and solver presets under Advanced. Release engineering now
+continues with exact storage and continuation. Performance and the
+accuracy/persistence proofs below remain required.
 
 This tracks work toward the full [completion plan](completion-plan.md), beyond
 the narrower first private base-game playtest. A private candidate is already
@@ -16,8 +18,10 @@ playtest deferrals remain recorded until their own controls pass.
 - **Freeze/melt handoff:** the delivered `dde2a09` failed its unchanged
   arena-water check (337.9 kg; required greater than 380 kg). A diagnostic
   repeat admitted the full 400 kg ice source at 290 K and passed with 387.3 kg
-  water. The original failure remains open. Identify the native/owner timing
-  difference and verify the repair without changing the inputs or bound.
+  water. The immutable `d252486` Linux `linux-b1` repeat now passes the original
+  terrain, heat, phase, freeze/melt and door controls, with unchanged inputs and
+  bounds (`release-resume-v1`). Keep the older failed candidate as history;
+  this focused repeat does not certify the complete acceptance suite.
 - **Native frame handoff:** a focused asynchronous control proves that native
   shadow publication can return before the preceding owner frame finishes.
   Fence the next native frame before its messages are applied, and make shadow
@@ -45,14 +49,23 @@ playtest deferrals remain recorded until their own controls pass.
   76 checks, including boundary transfers, output, demolition and valve rates.
 - **Pump-rate observation:** the old candidate's batch11 moves the expected
   mixtures and passes its mass/account checks, but reads zero for both native
-  pump rate accumulators. Diagnose the accumulator update and sampling epochs;
-  neither a positive rate nor a repair is established yet.
+  pump rate accumulators. Sampling now waits for the native accumulator window.
+  Immutable `d252486` Linux `linux-b11` passes vents, biology, all germs, pumps
+  and thermal controls in `release-resume-v1`.
+- **Nonempty storage and projection cleanup:** the development-only writer
+  restores exact reservoir inventories by checking and rebinding every native
+  projection. Schema6 preserves native consumer/dispenser controls after
+  prefab startup. Native heat ABI2 retains preceding heat receipts until an
+  exhausted body's zero-capacity removal is verified and acknowledged. The
+  new fixed `owned-storage-retirement` control passes all six checks, including
+  native cleanup after complete withdrawal. Cold and menu loading also pass;
+  general storage mutations and full active continuation remain open.
 
 ## Remaining implementation and proofs
 
 | Work | Completion condition |
 | --- | --- |
-| [Exact component storage](mixed-pipes.md) | Transfers with outstanding thermal work, demolition, bottles and machine recipes preserve every constituent, energy and germ identity. Nonempty stores restore native projections and biology after a cold or menu load. Then enable the reserved schema5 writer through the normal player path. |
+| [Exact component storage](mixed-pipes.md) | Transfers with outstanding thermal work, demolition, bottles and machine recipes preserve every constituent, energy and germ identity. Extend the verified reservoir binding/cleanup to the remaining lifecycle controls, then enable the gated schema6 writer through the normal player path. |
 | [Active continuation](mixed-pipes.md) | Preserve callback-owned requests and rebind actors to stable identities; compare identical future inputs and complete owner, pipe/scheduling and particle states after source, cold and menu loads. Current first-resumed-frame differences remain failures. |
 | [Game-profile accuracy](base-game-floor.md) | Establish the frozen initial fields and independent timing truths for F3 and F4, including solid heat exchange. Run the unchanged floor comparisons. The accepted 0.703 J storage residual does not waive F4 or other accuracy bounds. |
 | [Strong-flow accuracy](../native/MAC_STRONG_FLOW.md) | Repair the recorded collision-refinement and separation-velocity failures against their fixed grids and bounds. The separately recorded [gravity, free-surface, multiphase and vacuum gates](../native/MAC_GATES.md) already pass; preserve them. Game-profile floor results do not substitute for the strong-flow gate. |

@@ -6,6 +6,13 @@ Settings open on Gameplay, with solver presets and technical controls under
 Advanced. Current verification is recorded in [settings](settings.md#verification-2026-10-27).
 The dated release evidence below predates this direction.
 
+Release engineering now includes gated schema6 native-port state, exact
+nonempty reservoir rebinding and verified zero-capacity projection retirement
+through native heat ABI2. Focused Linux cleanup and cold/menu controls pass;
+byte-exact full-colony continuation and broader storage lifecycle coverage
+remain required. See [current work](feature-completion-status.md) and
+[saved pipe framing](mixed-pipes.md#saved-framing).
+
 
 Current private Windows candidate: **`bfb1168`**. Ordinary Spaced Out! New Game,
 manual saves and fresh-process loading are verified under Proton; the full
@@ -32,7 +39,7 @@ Current state on 2026-10-25. [Private-playtest acceptance](private-playtest-rele
 | [Import settle](colony-owner.md#import) | Liquid bodies flood their basins to one hydrostatic level, gas regions reach one pressure layered by density (no mixing); liquid that cannot fit goes to a booked reservoir (Terra: 656 t) that seeps back as its pocket gains room; supersaturated vapour condenses, and a liquid beside vacuum starts under its saturated vapour. |
 | [Terrain](colony-owner.md#terrain) | Dig and tile building open and close cells with booked refill and displacement; ONI's replacement replaces a cell's fluid; airlocks close by displacement and open by digging; [airflow tiles](colony-owner.md#airflow-tiles) close their faces to liquid; falling sand lands as a tile; melting and freezing open and close cells (in game: `terrain`, `door`, `airflow`, `falling`, `freeze-melt`, `building-melt`, `meteor`). |
 | [Pacing](colony-owner.md#pacing) | The owner steps on its own thread with predictive step control; the game clock slows to the owner's rate and holds before a tick the owner has not finished. The mixture presentation is built on a worker from readings the projection makes on the solver thread (game-thread publication about 15 ms). Between frames the game waits only for the end-of-frame projection (about 30 ms) and a Unity frame. |
-| [Saves](colony-owner.md#saves) | Mixed-pipe saves are on by default. Ordinary saves and cold/menu restoration pass bounded controls, including saved non-default settings in WindowsPlayer. Natural autosaves and long-run acceptance remain pending. Exact owned-storage schema5 and byte-exact active continuation are deferred by the user; old saves retain their profile. |
+| [Saves](colony-owner.md#saves) | Mixed-pipe saves are on by default. Ordinary saves and cold/menu restoration pass bounded controls, including saved non-default settings in WindowsPlayer. Natural autosaves and long-run acceptance remain pending. Exact owned-storage schema6 and byte-exact active continuation remain public-release requirements; their earlier deferral applied only to the private playtest. Older R&D saves need not be preserved. |
 | Readers | Pressure and easy-mode breathing read the owner; ONI's element cache follows the owner's cells (a cell the owner leaves is announced back); the [mixture renderer, hover, overlays and status panel](colony-owner.md#presentation) show the owner's mixtures; duplicants' breath status explains why the air fails (in game: `suit`). |
 | [Settings](settings.md) | Gameplay (live CO₂ switch, off by default), Display & keys, and Advanced (solver presets, thresholds, technical controls, saved presets). Earlier evidence: WindowsPlayer UI create/save/reset/load and cold restoration of Precise + Strict settings pass. Loaded colony physics settings are read-only; the worker preference applies during play and defaults to physical cores. Settings-file and native worker continuation controls pass with identical checkpoint bytes. |
 | [Liquids](colony-owner.md#liquids) | Liquids of one miscibility group mix in one phase; other liquids keep sharp interfaces and settle by density (standalone controls). |

@@ -83,6 +83,34 @@ namespace MixedAtmospheres.Oni
             return frames;
         }
 
+        // Loaded prefabs can have queued chunk-data messages, and their
+        // registration callbacks can queue another batch during publication.
+        // Process both before exact storage starts observing those bodies.
+        // Every step is zero-time and pipe updates stay held while bindings
+        // are pending. A stable declaration epoch proves no callback left a
+        // further chunk-data batch behind the completed native frame.
+        internal static void SettleNativeStartupMessages()
+        {
+            if(stepping!=0)throw new InvalidOperationException("Native storage startup cannot settle inside an unfinished simulation step.");
+            if(!Quiescent(out var initial)||initial.State!=1)throw new InvalidOperationException("Native storage startup requires a healthy quiescent owner.");
+            for(var round=0;round<64;++round)
+            {
+                var declarations=ColonyOwnedStorage.NativeDataDeclarations;
+                var before=NativeFrames();
+                SimTick.Invoke(Game.Instance,new object[]{0f});
+                _=WaitNativeFrameAfter(before);
+                Publish.Invoke(Game.Instance,new object[]{0f});++NativePublications;
+                if(declarations==ColonyOwnedStorage.NativeDataDeclarations)
+                {
+                    if(!Quiescent(out var status)||status.State!=1||status.Session!=initial.Session||status.CompletedFrames!=initial.CompletedFrames)
+                        throw new InvalidOperationException("Native storage startup changed its owner boundary or did not leave it quiescent.");
+                    UnityEngine.Debug.Log($"[Mixed Atmospheres] Exact storage startup messages settled in {round+1} zero-time native frames at owner frame {status.CompletedFrames}.");
+                    return;
+                }
+            }
+            throw new InvalidOperationException("Native prefab chunk-data messages did not settle before exact storage binding.");
+        }
+
         // Returns the settled owner frame.
         internal static ulong Settle()
         {

@@ -50,7 +50,7 @@ namespace MixedAtmospheres.Oni
         internal readonly PipePart[] DiseaseExchange;
         internal readonly PipeBoundaryState? Boundary;
         internal readonly PipeRuntimeImage? Runtime;
-        internal int SchemaVersion=>Runtime!=null?(Runtime.OwnedStorage!=null?5:Runtime.NativeCultures==null?3:4):Boundary==null?1:2;
+        internal int SchemaVersion=>Runtime!=null?(Runtime.OwnedStorage!=null?(Runtime.NativeSchedule?.PreservePortState==true?6:5):Runtime.NativeCultures==null?3:4):Boundary==null?1:2;
 
         internal ColonyConduitCheckpoint(PipeGeometry geometry, byte[] catalogueHash, IEnumerable<PipeCellImage> cells,
             PipeInventory initial, PipeInventory supplied, PipeInventory removed, PipeAmount heat, IEnumerable<PipePart>? diseaseExchange = null,
@@ -129,7 +129,7 @@ namespace MixedAtmospheres.Oni
                 using var stream = new MemoryStream(image, 0, end, false);
                 using var reader = new BinaryReader(stream);
                 if (!reader.ReadBytes(8).AsSpan().SequenceEqual(Magic)) throw new InvalidDataException("Unsupported pipe checkpoint.");
-                var version=reader.ReadInt32();if(version<1||version>5)throw new InvalidDataException("Unsupported pipe checkpoint schema.");
+                var version=reader.ReadInt32();if(version<1||version>6)throw new InvalidDataException("Unsupported pipe checkpoint schema.");
                 var geometry = PipeGeometry.Read(reader); var catalogue = reader.ReadBytes(32);
                 if (!geometry.Equals(expectedGeometry) || expectedCatalogue.Length != 32 || !catalogue.AsSpan().SequenceEqual(expectedCatalogue))
                     throw new InvalidDataException("Pipe checkpoint catalogue or geometry differs.");

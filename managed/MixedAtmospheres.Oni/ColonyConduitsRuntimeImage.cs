@@ -123,7 +123,7 @@ namespace MixedAtmospheres.Oni
                 for(var i=0;i<count;++i)image.NativeCultures.Add(PipeNativeCulture.Read(r,geometry));
             }
             if(schema>=5)
-            {image.OwnedStorage=OwnedFluidStorageImage.Read(r);image.NativeSchedule=PipeNativeScheduleState.Read(r,geometry);}
+            {image.OwnedStorage=OwnedFluidStorageImage.Read(r);image.NativeSchedule=PipeNativeScheduleState.Read(r,geometry,schema>=6);}
             image.Validate();
             return image;
         }

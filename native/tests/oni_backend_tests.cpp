@@ -156,7 +156,7 @@ static void storage_heat_receipt_controls() {
     require(receipts[0].before_k==300 && receipts[0].after_k==299.5f && receipts[1].before_k==299.5f && receipts[1].after_k==299 &&
         receipts[2].before_k==299.5f && receipts[2].after_k==299.25f,"storage heat receipt counted a projection reset as physical work");
     for(std::size_t i=0;i<3;++i)require(receipts[i].sequence==i+1 && receipts[i].handle==handle && receipts[i].capacity_kj_k==18 &&
-        receipts[i].struct_size==48 && receipts[i].abi_version==1 && receipts[i].reserved==0 && receipts[i].reserved2==0,"storage heat receipt framing");
+        receipts[i].struct_size==48 && receipts[i].abi_version==2 && receipts[i].kind==0 && receipts[i].reserved2==0,"storage heat receipt framing");
     const auto kept=receipts;reject([&]{ledger.copy(receipts.data(),2);});
     require(std::memcmp(receipts.data(),kept.data(),sizeof(receipts))==0 && ledger.copy(nullptr,0)==3,"short storage heat read consumed data or changed output");
     ledger.ack(1);require(ledger.copy(nullptr,0)==2,"storage heat prefix acknowledgement");
@@ -178,7 +178,36 @@ static void storage_heat_receipt_controls() {
     Ledger exhausted;exhausted.add(handle,300.f,18.f);
     for(std::uint32_t i=0;i<32768;++i){actual=value(i%2?300.f:301.f);exhausted.sample(read,i);}
     actual=value(301.f);reject([&]{exhausted.sample(read,32769);});require(exhausted.copy(nullptr,0)==32768,"receipt exhaustion silently discarded heat");
-    std::cout<<"PASS exact storage heat receipts: post-publication cooling, queued resets, capacity changes, immutable prefix reads and explicit ordering/capacity refusal\n";
+    // Cleanup is legal only after its declared zero-capacity projection.
+    // Retain preceding work and the retirement marker until one explicit ack.
+    Ledger retiring;retiring.add(handle,300,18);actual=value(299);
+    reject([&]{retiring.expect_removal(handle);});
+    retiring.expect(handle,300,0);retiring.expect_removal(handle);
+    reject([&]{retiring.expect_removal(handle);});reject([&]{retiring.expect(handle,301,1);});
+    // Storage cleanup can send a final absolute zero-capacity update while
+    // detaching the item's native thermal body. It carries no physical heat.
+    retiring.expect(handle,301,0);
+    retiring.before(read,[&](std::int32_t,const auto& append){append(std::bit_cast<std::uint32_t>(300.f),0);append(std::bit_cast<std::uint32_t>(301.f),0);return true;},6);
+    actual.valid=false;retiring.after(read,6);
+    require(retiring.empty() && retiring.copy(receipts.data(),8)==2 && receipts[0].kind==0 && receipts[0].capacity_kj_k==18 &&
+        receipts[0].before_k==300 && receipts[0].after_k==299 && receipts[1].kind==1 && receipts[1].capacity_kj_k==0 &&
+        receipts[1].before_k==301 && receipts[1].after_k==301,"retirement lost prior heat or its completion receipt");
+    retiring.sample(read,7);require(retiring.copy(nullptr,0)==2,"retirement was repeated or read a stale native handle");
+    retiring.ack(receipts[1].sequence);require(retiring.copy(nullptr,0)==0,"retirement receipt acknowledgement failed");
+    // Generation bits are unsigned even though the ABI handle is int32.
+    constexpr auto high_handle=static_cast<std::int32_t>(0x81000000U);
+    Ledger high;high.add(high_handle,300,0);high.expect_removal(high_handle);
+    high.before([&](std::int32_t h){require(h==high_handle,"retirement changed signed handle generation");return value(300,0);},
+        [](std::int32_t,const auto&){return true;},7);
+    high.after([](std::int32_t){return Chunk{};},7);
+    require(high.copy(receipts.data(),8)==1 && receipts[0].handle==high_handle && receipts[0].kind==1,"negative generation handle could not retire");
+    Ledger premature;premature.add(handle,300,18);premature.expect(handle,300,0);premature.expect_removal(handle);actual=value(300);
+    reject([&]{premature.before(read,[](std::int32_t,const auto&){return true;},7);});
+    Ledger foreign;foreign.add(handle,300,0);actual=value(300,0);
+    reject([&]{foreign.before(read,[](std::int32_t,const auto&){return true;},8);});
+    Ledger not_removed;not_removed.add(handle,300,0);not_removed.expect_removal(handle);
+    not_removed.before(read,[](std::int32_t,const auto&){return true;},8);reject([&]{not_removed.after(read,8);});
+    std::cout<<"PASS exact storage heat receipts: post-publication cooling, queued resets, capacity changes, immutable prefix reads, verified zero-capacity retirement and explicit ordering/capacity refusal\n";
 }
 static void storage_heat_native_controls() {
     using namespace ma::oni;
@@ -232,6 +261,28 @@ static void storage_heat_native_controls() {
     require(monitor.copy(receipts.data(),4)==2 && receipts[1].before_k==302 && receipts[1].after_k==301 && receipts[1].capacity_kj_k==7,
         "storage native boundary did not resume heat observation at actual applied state");
     require(source==sim && source_frame==frame && source_messages==data,"storage native boundary mutated registry/messages");
+    // A declared empty view can be removed in the same native batch as its
+    // final zero-capacity update. No native input is changed by observation.
+    monitor.expect(0x01000000,301,0);monitor.expect_removal(0x01000000);
+#if defined(_WIN32)
+    constexpr std::size_t removal_offset=0x330;
+#else
+    constexpr std::size_t removal_offset=0x260;
+#endif
+    std::array<std::uint32_t,2> removal{0x01000000,0};
+    std::array<std::uint32_t,3> zero_data{0x01000000,std::bit_cast<std::uint32_t>(301.f),0};
+    put(frame,data_offset,zero_data.data());put(frame,data_offset+8,zero_data.data()+zero_data.size());
+    put(frame,removal_offset,removal.data());put(frame,removal_offset+8,removal.data()+removal.size());
+    const auto before_removal_frame=frame;
+    monitor.process(frame.data(),sim.data(),3,[&]{put(body,8,std::uint32_t{0});generations[0]=2;});
+    require(frame==before_removal_frame && monitor.copy(receipts.data(),4)==3 && receipts[2].kind==1 &&
+        receipts[2].capacity_kj_k==0 && receipts[2].before_k==301 && receipts[2].after_k==301,
+        "native removal lost heat history or failed to confirm zero-capacity retirement");
+    monitor.sample(sim.data(),4);monitor.ack(receipts[2].sequence);
+    require(monitor.copy(nullptr,0)==0,"native retirement reread a removed handle or left unacknowledged receipts");
+    put(frame,removal_offset,static_cast<const std::uint32_t*>(nullptr));put(frame,removal_offset+8,static_cast<const std::uint32_t*>(nullptr));
+    generations[0]=1;put(body,8,std::bit_cast<std::uint32_t>(7.f));
+    put(frame,data_offset,static_cast<const std::uint32_t*>(nullptr));put(frame,data_offset+8,static_cast<const std::uint32_t*>(nullptr));
     monitor.reset();monitor.add(0x01000000,301,7);
     std::array<std::uint32_t,2> energy{0x01000000,0};put(frame,energy_offset,energy.data());put(frame,energy_offset+8,energy.data()+energy.size());
     called=false;monitor.process(frame.data(),sim.data(),3,[&]{called=true;});

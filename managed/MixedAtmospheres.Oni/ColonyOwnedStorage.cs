@@ -17,11 +17,13 @@ namespace MixedAtmospheres.Oni
         private sealed class Projection
         {
             internal readonly PrimaryElement Item;
+            internal readonly GameObject Object;
             internal readonly float InitialCapacity,InitialTemperature;
             internal int Handle=-1;
             internal float Capacity,Temperature;
+            internal bool Retiring;
             internal Projection(PrimaryElement item,float mass,float temperature)
-            {Item=item;InitialCapacity=Capacity=mass*item.Element.specificHeatCapacity;InitialTemperature=Temperature=temperature;}
+            {Item=item;Object=item.gameObject;InitialCapacity=Capacity=mass*item.Element.specificHeatCapacity;InitialTemperature=Temperature=temperature;}
         }
         private sealed class Host
         {
@@ -29,6 +31,7 @@ namespace MixedAtmospheres.Oni
             internal readonly OwnedFluidStore Store;
             internal ulong ProjectedRevision=ulong.MaxValue;
             internal readonly Dictionary<int,Projection> Projections=new Dictionary<int,Projection>();
+            internal readonly List<Projection> Retiring=new List<Projection>();
             internal Host(Storage storage,OwnedFluidStore store){Storage=storage;Store=store;}
         }
         private static readonly Dictionary<Storage,Host> Hosts=new Dictionary<Storage,Host>();
@@ -38,7 +41,8 @@ namespace MixedAtmospheres.Oni
         internal static long HeatPublications {get;private set;}
         internal static PipeInventory Inventory(Storage storage)=>Hosts.TryGetValue(storage,out var host)?host.Store.Inventory:PipeInventory.Empty;
         internal static StorageJournalAmount Heat(Storage storage)=>Hosts.TryGetValue(storage,out var host)?host.Store.Heat:default;
-        internal static int RegisteredProjections(Storage storage)=>Hosts.TryGetValue(storage,out var host)?host.Projections.Values.Count(view=>view.Handle>=0):0;
+        internal static int RegisteredProjections(Storage storage)=>Hosts.TryGetValue(storage,out var host)?host.Projections.Values.Count(view=>view.Handle!=-1):0;
+        internal static int RetiringProjections(Storage storage)=>Hosts.TryGetValue(storage,out var host)?host.Retiring.Count:0;
         internal static bool Audit(Storage storage)=>Hosts.TryGetValue(storage,out var host)&&host.Store.Audit();
         internal static void StartControl()
         {
@@ -143,7 +147,11 @@ namespace MixedAtmospheres.Oni
                     }
                 }
                 foreach(var pair in host.Projections)
-                    if(!active.Contains(pair.Key))pair.Value.Item.Mass=0;
+                    if(!active.Contains(pair.Key))
+                    {
+                        var item=pair.Value.Item;item.Mass=0;
+                        if(item.DiseaseCount>0)item.ModifyDiseaseCount(-item.DiseaseCount,"Mixed Atmospheres exhausted storage projection");
+                    }
             }
             finally{--editing;}
             host.ProjectedRevision=host.Store.Revision;
@@ -152,7 +160,7 @@ namespace MixedAtmospheres.Oni
         private static (Host Host,Projection View)? ViewOf(PrimaryElement item)
         {
             if(!Enabled||item==null)return null;
-            foreach(var host in Hosts.Values)foreach(var view in host.Projections.Values)
+            foreach(var host in Hosts.Values)foreach(var view in host.Projections.Values.Concat(host.Retiring))
                 if(ReferenceEquals(view.Item,item))return(host,view);
             return null;
         }
@@ -185,6 +193,7 @@ namespace MixedAtmospheres.Oni
                     if(view.Handle!=body.SimHandle)throw new InvalidOperationException("An owned storage thermal projection changed its native handle without registration.");
                 }
                 Refresh(host);
+                RetireExhaustedProjections(host);
             }
             ++HeatPublications;
         }
@@ -203,13 +212,16 @@ namespace MixedAtmospheres.Oni
         private static unsafe float ReadTemperature(int handle)=>Game.Instance.simData.elementChunks[Sim.GetHandleIndex(handle)].temperature;
         internal static void Registered(SimTemperatureTransfer body)
         {if(ViewOf(body.pe).HasValue&&registering>0)--registering;}
+        private static long nativeDataDeclarations;
+        internal static long NativeDataDeclarations=>System.Threading.Interlocked.Read(ref nativeDataDeclarations);
         internal static void SentData(int handle,float temperature,float capacity)
         {
+            System.Threading.Interlocked.Increment(ref nativeDataDeclarations);
             if(!Enabled)return;
-            foreach(var host in Hosts.Values)foreach(var view in host.Projections.Values)
+            foreach(var host in Hosts.Values)foreach(var view in host.Projections.Values.Concat(host.Retiring))
                 if(view.Handle==handle)
                 {
-                    if(editing==0&&registering==0)throw new InvalidOperationException("An unsupported native writer tried to replace an exact storage thermal projection.");
+                    if(editing==0&&registering==0&&!(view.Retiring&&view.Capacity==0&&capacity==0))throw new InvalidOperationException("An unsupported native writer tried to replace an exact storage thermal projection.");
                     if(capacity<0||float.IsNaN(capacity)||float.IsInfinity(capacity)||!(temperature>0)||float.IsInfinity(temperature))
                         throw new InvalidOperationException("Invalid exact storage thermal projection data.");
                     TraceHeat("sent-before",host,view,temperature,capacity);
@@ -218,8 +230,45 @@ namespace MixedAtmospheres.Oni
                     TraceHeat("sent-after",host,view,temperature,capacity);return;
                 }
         }
+        // Pickupable removes exhausted UI/native carriers during cleanup. The
+        // exact store retains any unrepresented trace; a zero view owns no mass
+        // or thermal capacity. Keep its handle until native removal is proved
+        // and all earlier represented heat is acknowledged.
+        // Defer retirement until publication: a withdrawal followed by a new
+        // admission in the same callback can reuse its carrier before it dies.
+        private static void RetireExhaustedProjections(Host host)
+        {
+            foreach(var pair in host.Projections.Where(pair=>pair.Value.Handle!=-1&&pair.Value.Capacity==0&&pair.Value.Item.Mass==0).ToArray())
+            {
+                RetireProjection(host,pair.Key,pair.Value);
+                Util.KDestroyGameObject(pair.Value.Object);
+            }
+        }
+        private static void RetireProjection(Host host,int id,Projection view)
+        {
+            OniNativeColony.Check(DeclareStorageRemoval(view.Handle));
+            view.Retiring=true;host.Projections.Remove(id);host.Retiring.Add(view);
+        }
+        internal static bool RetireEmptyProjection(Storage storage,GameObject item)
+        {
+            if(editing!=0||item==null||!Hosts.TryGetValue(storage,out var host))return false;
+            var primary=item.GetComponent<PrimaryElement>();
+            var pair=host.Projections.FirstOrDefault(p=>ReferenceEquals(p.Value.Item,primary));
+            var view=pair.Value;
+            if(view==null)return host.Retiring.Any(p=>ReferenceEquals(p.Item,primary));
+            if(primary.Mass!=0||view.Capacity!=0||view.Handle==-1)return false;
+            CreditNativeStorageHeat();
+            RetireProjection(host,pair.Key,view);
+            return true;
+        }
+        internal static bool IsRetiringEmptyProjection(Storage storage,GameObject item) =>
+            item!=null&&Hosts.TryGetValue(storage,out var host)&&host.Retiring.Any(view=>ReferenceEquals(view.Object,item)&&view.Retiring&&view.Capacity==0&&view.Item.Mass==0);
         internal static void Reject(Storage storage,string operation)
-        {if(editing==0&&Owns(storage))throw new InvalidOperationException("Unsupported native mutation of exact storage: "+operation);}
+        {
+            if(editing!=0||!Hosts.TryGetValue(storage,out var host))return;
+            var views=string.Join(", ",host.Projections.Values.Select(view=>$"{view.Item.ElementID} {view.Item.Mass:R}kg, capacity {view.Capacity:R}, handle {view.Handle}"));
+            throw new InvalidOperationException($"Unsupported native mutation of exact storage: {operation}; exact inventory {host.Store.Inventory.Mass:R}kg; projections [{views}]");
+        }
         internal static void Reject(PrimaryElement item,string operation)
         {if(editing==0&&ViewOf(item).HasValue)throw new InvalidOperationException("Unsupported native mutation of an exact storage projection: "+operation);}
         internal static bool Mass(Storage storage,out float mass)
@@ -238,6 +287,18 @@ namespace MixedAtmospheres.Oni
         {
             if(!Enabled||Hosts.Count!=0||image.Stores.Any(store=>!store.PristineEmpty))
                 throw new NotSupportedException("Exact storage restore currently binds only pristine empty reservoirs.");
+            Restore(image);
+        }
+        // Cold or menu load, at the first positive-time barrier: every saved
+        // store binds to its restored reservoir, and ONI's own restored native
+        // items become that store's projections. A projection must be exactly
+        // the binary32 view of the saved inventory (element, mass, temperature
+        // and dominant culture bits); zero-mass views of withdrawn species are
+        // kept bound. Any other native item refuses the load. A registered
+        // thermal body joins the native heat receipt boundary at once.
+        internal static void Restore(OwnedFluidStorageImage image)
+        {
+            if(!Enabled||Hosts.Count!=0)throw new InvalidOperationException("Exact storage restore needs a fresh enabled control.");
             var prepared=new List<Host>();
             foreach(var store in image.Stores)
             {
@@ -252,20 +313,69 @@ namespace MixedAtmospheres.Oni
                 var storage=components[store.Address.Ordinal];
                 if(!Address(storage).Equals(store.Address)||ReservoirPhase(storage)!=store.Phase)
                     throw new InvalidOperationException($"Saved exact reservoir {store.Address.Prefab}/{store.Address.Ordinal} changed identity or fluid phase.");
-                if(storage.items.Any(item=>item!=null))
-                    throw new InvalidOperationException($"Saved empty exact reservoir {store.Address.Prefab}/{store.Address.Ordinal} contains native items.");
-                prepared.Add(new Host(storage,store){ProjectedRevision=store.Revision});
+                var host=new Host(storage,store){ProjectedRevision=store.Revision};
+                BindRestoredProjections(host);
+                prepared.Add(host);
             }
             foreach(var host in prepared)Hosts.Add(host.Storage,host);
+            foreach(var host in prepared)foreach(var view in host.Projections.Values)RegisterRestoredHeat(host,view);
         }
+        private static void BindRestoredProjections(Host host)
+        {
+            var name=$"{host.Store.Address.Prefab}/{host.Store.Address.Ordinal}";
+            var items=host.Storage.items.Where(item=>item!=null).Select(item=>item.GetComponent<PrimaryElement>()).ToList();
+            if(items.Any(item=>item==null))throw new InvalidOperationException($"Saved exact reservoir {name} holds a native item without a primary element.");
+            if(host.Store.PristineEmpty)
+            {
+                if(items.Count!=0)throw new InvalidOperationException($"Saved empty exact reservoir {name} contains native items.");
+                return;
+            }
+            static bool Same(float a,float b)=>BitConverter.SingleToInt32Bits(a)==BitConverter.SingleToInt32Bits(b);
+            foreach(var view in ColonyMachinePorts.NativeItems(host.Store.Inventory))
+            {
+                if(!(view.Mass>0))continue; // carried only by the exact inventory
+                var matches=items.Where(item=>item.ElementID==view.Element.id).ToList();
+                if(matches.Count!=1)throw new InvalidOperationException($"Saved exact reservoir {name} has {matches.Count} native {view.Element.id} items for one projection.");
+                var item=matches[0];
+                if(!Same(item.Mass,view.Mass)||!Same(item.Temperature,view.Temperature)||item.DiseaseCount!=view.Count||(view.Count>0&&item.DiseaseIdx!=view.Disease))
+                    throw new InvalidOperationException($"Saved exact reservoir {name}'s native {view.Element.id} item is not its inventory's projection: "+
+                        $"{item.Mass:R} kg at {item.Temperature:R} K, germs {item.DiseaseIdx}/{item.DiseaseCount}; expected {view.Mass:R} kg at {view.Temperature:R} K, germs {view.Disease}/{view.Count}.");
+                host.Projections.Add(view.Part.Id,new Projection(item,view.Mass,view.Temperature));items.Remove(item);
+            }
+            // A species withdrawn after its projection existed leaves a zero-mass view.
+            foreach(var item in items)
+            {
+                var material=ColonyConduits.MaterialOf(item.ElementID);
+                if(item.Mass!=0||host.Projections.ContainsKey(material.Id))
+                    throw new InvalidOperationException($"Saved exact reservoir {name} holds an unaccounted native {item.ElementID} item ({item.Mass:R} kg).");
+                host.Projections.Add(material.Id,new Projection(item,0,item.Temperature));
+            }
+        }
+        private static void RegisterRestoredHeat(Host host,Projection view)
+        {
+            var body=view.Item.sttOptimizationHook;
+            if(body==null||!Sim.IsValidHandle(body.SimHandle))return; // registers later through OnSimRegistered
+            view.Handle=body.SimHandle;
+            Credit(host,view,ReadTemperature(view.Handle));
+            OniNativeColony.Check(RegisterStorageHeat(view.Handle,view.Temperature,view.Capacity));
+        }
+        // Save point: every reservoir holding native items is an exact store,
+        // and each store's native items are exactly its current projections.
         internal static void RequireQuiescent()
         {
-            if(Enabled&&Hosts.Values.Any(host=>!host.Store.PristineEmpty||host.Projections.Count!=0))
-                throw new NotSupportedException("Exact storage live checkpointing awaits the complete biology and native projection cold-rebind controls.");
-            if(Enabled)
-                foreach(var storage in UnityEngine.Object.FindObjectsByType<Storage>(FindObjectsInactive.Include,FindObjectsSortMode.None))
-                    if(storage.isSpawned&&!storage.IsEndOfLife()&&ReservoirPhase(storage)!=0&&storage.items.Any(item=>item!=null))
-                        throw new NotSupportedException("An exact-storage checkpoint cannot omit a reservoir's native held items.");
+            if(!Enabled)return;
+            CreditNativeStorageHeat();
+            foreach(var host in Hosts.Values)
+            {
+                Refresh(host);
+                if(host.Retiring.Count!=0)throw new InvalidOperationException("Exact storage has native projection retirements still in flight.");
+                var bound=new HashSet<PrimaryElement>(host.Projections.Values.Select(view=>view.Item));
+                if(host.Storage.items.Any(item=>item!=null&&!bound.Contains(item.GetComponent<PrimaryElement>())))
+                    throw new NotSupportedException("An exact store holds a native item that is not its projection.");
+            }
+            foreach(var storage in UnityEngine.Object.FindObjectsByType<Storage>(FindObjectsInactive.Include,FindObjectsSortMode.None))
+                if(storage.isSpawned&&!storage.IsEndOfLife()&&ReservoirPhase(storage)!=0&&!Hosts.ContainsKey(storage)&&storage.items.Any(item=>item!=null))
+                    throw new NotSupportedException("An exact-storage checkpoint cannot omit a reservoir's native held items.");
         }
     }
 
@@ -280,12 +390,23 @@ namespace MixedAtmospheres.Oni
         }
         private static void Prefix(Storage __instance,object[] __args,MethodBase __originalMethod)
         {
+            if(__originalMethod.Name=="Remove"&&__args.Length>0&&__args[0] is GameObject exhausted&&
+                ColonyOwnedStorage.RetireEmptyProjection(__instance,exhausted))return;
             ColonyOwnedStorage.Reject(__instance,__originalMethod.Name);
             foreach(var argument in __args)
                 if(argument is Storage storage)ColonyOwnedStorage.Reject(storage,__originalMethod.Name+" destination");
                 else if(argument is GameObject item&&item!=null)
                 {var pickup=item.GetComponent<Pickupable>();if(pickup!=null&&pickup.storage!=null)ColonyOwnedStorage.Reject(pickup.storage,__originalMethod.Name+" source");}
         }
+    }
+    // Removing an exhausted display carrier must not transfer the building's
+    // disease into it. All fluid cultures already travelled with the exact
+    // withdrawal, independently of the discarded native zero-mass view.
+    [HarmonyPatch(typeof(Storage),"TransferDiseaseWithObject")]
+    internal static class ColonyExactStorageRetiringDiseasePatch
+    {
+        private static bool Prefix(Storage __instance,GameObject __0) =>
+            !ColonyOwnedStorage.IsRetiringEmptyProjection(__instance,__0);
     }
     [HarmonyPatch]
     internal static class ColonyExactStorageItemMutationPatch

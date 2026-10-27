@@ -344,6 +344,31 @@ static class Program
         Reject(()=>ColonyConduitCheckpoint.Decode(pipeV5,geometry,hash,id=>(byte)1));
         Check(ColonyConduitCheckpoint.Decode(pipeV4,geometry,hash).Encode().SequenceEqual(pipeV4),"schema4 bytes changed by schema5");
         Console.WriteLine("PASS pipe schema5 codec: exact component inventory plus native schedule survive byte-exact cold encoding; either missing section refuses; schema4 bytes preserved");
+        // Schema6 keeps the port controls which Unity prefab loading resets.
+        // Rebinding identifies the actor separately; runtime controls do not
+        // change callback identity or list order.
+        state5.NativeSchedule.PreservePortState=true;
+        var consumerControl=new PipeNativeScheduleState.Updater {Kind=1,Prefab=42,TargetType="ConduitConsumer",DeclaringType="ConduitConsumer",Method="ConduitUpdate",
+            ControlKind=1,ControlFlags=14,ConsumerRate=1.25f,LastConsumedElement=12345};
+        var dispenserControl=new PipeNativeScheduleState.Updater {Kind=1,Prefab=43,TargetType="ConduitDispenser",DeclaringType="ConduitDispenser",Method="ConduitUpdate",
+            ControlKind=2,ControlFlags=6};
+        state5.NativeSchedule.Flows[0].Updaters.Add(consumerControl);state5.NativeSchedule.Flows[1].Updaters.Add(dispenserControl);
+        byte[] Encode6()=>new ColonyConduitCheckpoint(geometry,hash,cells4,mixture,PipeInventory.Empty,PipeInventory.Empty,default,boundary:boundaryState,runtime:state5).Encode();
+        var pipeV6=Encode6();var replayV6=ColonyConduitCheckpoint.Decode(pipeV6,geometry,hash,id=>id==1?(byte)1:(byte)2);
+        var loadedConsumer=replayV6.Runtime!.NativeSchedule!.Flows[0].Updaters.Single();
+        var loadedDispenser=replayV6.Runtime.NativeSchedule.Flows[1].Updaters.Single();
+        Check(replayV6.SchemaVersion==6&&replayV6.Encode().SequenceEqual(pipeV6)&&loadedConsumer.ControlKind==1&&loadedConsumer.ControlFlags==14&&
+            loadedConsumer.ConsumerRate==1.25f&&loadedConsumer.LastConsumedElement==12345&&loadedDispenser.ControlKind==2&&loadedDispenser.ControlFlags==6,
+            "schema6 reset native activation, rate, last-element or readback controls");
+        foreach(var bad in new byte[]{0,2,3}){consumerControl.ControlKind=bad;Reject(()=>Encode6());}consumerControl.ControlKind=1;
+        consumerControl.ControlFlags=16;Reject(()=>Encode6());consumerControl.ControlFlags=14;
+        foreach(var bad in new[]{-1f,float.NaN,float.NegativeInfinity}){consumerControl.ConsumerRate=bad;Reject(()=>Encode6());}consumerControl.ConsumerRate=1.25f;
+        dispenserControl.ControlFlags=8;Reject(()=>Encode6());dispenserControl.ControlFlags=6;
+        dispenserControl.ConsumerRate=1;Reject(()=>Encode6());dispenserControl.ConsumerRate=0;
+        dispenserControl.LastConsumedElement=1;Reject(()=>Encode6());dispenserControl.LastConsumedElement=0;
+        consumerControl.TargetType="OtherComponent";Reject(()=>Encode6());consumerControl.TargetType="ConduitConsumer";
+        Check(ColonyConduitCheckpoint.Decode(pipeV5,geometry,hash).Encode().SequenceEqual(pipeV5),"schema5 changed after adding port controls");
+        Console.WriteLine("PASS pipe schema6: port activation/rates/readback persist, missing/foreign/invalid controls refuse and schema5 remains byte-exact");
         byte[] ReceiptImage(bool observed=false)
         {
             using var stream=new MemoryStream();using var writer=new BinaryWriter(stream);

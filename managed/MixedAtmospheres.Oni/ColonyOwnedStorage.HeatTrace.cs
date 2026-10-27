@@ -37,6 +37,14 @@ namespace MixedAtmospheres.Oni
                 Energy=host.Store.Inventory.Energy.Value,ExactEnergy=ExactHeatTraceAmount(host.Store.Inventory.Energy),
                 Heat=host.Store.Heat.Value,ExactHeatUnits=host.Store.Heat.Units.ToString(System.Globalization.CultureInfo.InvariantCulture),Projection=projection})+"\n");
         }
+        private static void TraceNativeHeatReceipt(Host host,NativeStorageHeatReceipt receipt)
+        {
+            var path=Environment.GetEnvironmentVariable("MA_ONI_STORAGE_HEAT_TRACE");if(string.IsNullOrEmpty(path))return;
+            File.AppendAllText(path,ReportJson.SerializeLine(new{Kind="native-receipt",Sequence=++storageHeatTraceSequence,UnityFrame=Time.frameCount,
+                OwnerFrame=ColonyOwner.Status.CompletedFrames,Prefab=host.Store.Address.Prefab,Revision=host.Store.Revision,
+                Mass=host.Store.Inventory.Mass,ReceiptSequence=receipt.Sequence,NativeFrame=receipt.Frame,receipt.Handle,ReceiptKind=receipt.Kind,
+                CapacityBits=BitConverter.SingleToInt32Bits(receipt.Capacity),BeforeBits=BitConverter.SingleToInt32Bits(receipt.Before),AfterBits=BitConverter.SingleToInt32Bits(receipt.After)})+"\n");
+        }
         internal static void TraceHeatEndpoint(Storage storage,string endpoint,ulong session,ulong frame,double worldU,double worldK,double worldG,
             PipeAmount construction,PipeAmount total)
         {

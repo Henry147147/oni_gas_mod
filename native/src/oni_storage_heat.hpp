@@ -7,6 +7,7 @@
 #include <mutex>
 #include <stdexcept>
 #include <string>
+#include <type_traits>
 
 namespace ma::oni::storage_heat {
 // No floating-point operations: the receipt consumer uses exact binary32
@@ -14,7 +15,7 @@ namespace ma::oni::storage_heat {
 inline bool temperature(std::uint32_t bits) noexcept {return bits>0 && bits<0x7f800000U;}
 inline bool capacity(std::uint32_t bits) noexcept {return bits<0x7f800000U;}
 struct Target {std::uint32_t temperature,capacity;};
-struct State {Target baseline;std::deque<Target> expected;std::size_t applying=0;};
+struct State {Target baseline;std::deque<Target> expected;std::size_t applying=0;bool retirement_requested=false,removing=false;};
 class Ledger {
     std::map<std::int32_t,State> states_;
     std::deque<MAOniStorageHeatReceipt> receipts_;
@@ -27,7 +28,7 @@ class Ledger {
         if(value.temperature_bits!=state.baseline.temperature && value.capacity_bits!=0) {
             if(receipts_.size()>=32768 || sequence_==UINT64_MAX)
                 throw std::length_error("Exact storage native heat receipt capacity exhausted");
-            receipts_.push_back({48,1,sequence_+1,frame,handle,0,std::bit_cast<float>(value.capacity_bits),
+            receipts_.push_back({48,2,sequence_+1,frame,handle,0,std::bit_cast<float>(value.capacity_bits),
                 std::bit_cast<float>(state.baseline.temperature),std::bit_cast<float>(value.temperature_bits),0});
             ++sequence_;
         }
@@ -44,24 +45,52 @@ public:
     void expect(std::int32_t handle,float requested,float registered_capacity) {
         const Target target{std::bit_cast<std::uint32_t>(requested),std::bit_cast<std::uint32_t>(registered_capacity)};
         auto found=states_.find(handle);
-        if(found==states_.end() || !temperature(target.temperature) || !capacity(target.capacity))
+        if(found==states_.end() || (found->second.retirement_requested&&target.capacity!=0) || !temperature(target.temperature) || !capacity(target.capacity))
             throw std::invalid_argument("Invalid exact storage native chunk data declaration");
         if(found->second.expected.size()>=4096)throw std::length_error("Exact storage pending native chunk data capacity exhausted");
         found->second.expected.push_back(target);
+    }
+    void expect_removal(std::int32_t handle) {
+        auto found=states_.find(handle);
+        if(found==states_.end() || found->second.retirement_requested)
+            throw std::logic_error("Unknown or already retiring exact storage projection");
+        const auto& state=found->second;
+        const auto terminal=state.expected.empty()?state.baseline:state.expected.back();
+        if(terminal.capacity!=0)throw std::logic_error("A nonzero-capacity exact storage projection cannot retire");
+        found->second.retirement_requested=true;
     }
     bool empty() const noexcept {return states_.empty();}
     template<class Read,class Messages> void before(Read read,Messages messages,std::uint64_t frame) {
         for(auto& [handle,state]:states_) {
             observe(handle,state,read(handle),frame);state.applying=0;
-            messages(handle,[&](std::uint32_t t,std::uint32_t c) {
+            const auto append=[&](std::uint32_t t,std::uint32_t c) {
                 if(state.applying>=state.expected.size() || state.expected[state.applying].temperature!=t || state.expected[state.applying].capacity!=c)
-                    throw std::logic_error("Undeclared or reordered exact storage native chunk data message");
+                    throw std::logic_error("Undeclared or reordered exact storage native chunk data message: handle "+std::to_string(handle)+
+                        ", position "+std::to_string(state.applying)+"/"+std::to_string(state.expected.size())+
+                        ", temperature/capacity bits "+std::to_string(t)+"/"+std::to_string(c));
                 ++state.applying;
-            });
+            };
+            state.removing=false;
+            if constexpr(std::is_void_v<decltype(messages(handle,append))>) messages(handle,append);
+            else state.removing=messages(handle,append);
+            if(state.removing) {
+                if(!state.retirement_requested || state.applying!=state.expected.size())
+                    throw std::logic_error("Undeclared or premature exact storage native removal");
+                const auto terminal=state.applying?state.expected.back():state.baseline;
+                if(terminal.capacity!=0)throw std::logic_error("Exact storage native removal retained heat capacity");
+            }
         }
     }
     template<class Read> void after(Read read,std::uint64_t frame) {
-        for(auto& [handle,state]:states_) {
+        for(auto at=states_.begin();at!=states_.end();) {
+            auto& [handle,state]=*at;
+            if(state.removing) {
+                if(read(handle).valid)throw std::logic_error("Exact storage declared removal did not retire its native handle");
+                if(receipts_.size()>=32768 || sequence_==UINT64_MAX)throw std::length_error("Exact storage native retirement receipt capacity exhausted");
+                const auto terminal=state.applying?state.expected.back():state.baseline;
+                receipts_.push_back({48,2,++sequence_,frame,handle,1,0,std::bit_cast<float>(terminal.temperature),std::bit_cast<float>(terminal.temperature),0});
+                at=states_.erase(at);continue;
+            }
             if(state.applying) {
                 const auto actual=read(handle);const auto target=state.expected[state.applying-1];
                 if(!actual.valid || actual.temperature_bits!=target.temperature || actual.capacity_bits!=target.capacity)
@@ -72,6 +101,7 @@ public:
                 for(std::size_t i=0;i<state.applying;++i)state.expected.pop_front();
                 state.applying=0;
             } else observe(handle,state,read(handle),frame);
+            ++at;
         }
     }
     template<class Read> void sample(Read read,std::uint64_t frame) {
