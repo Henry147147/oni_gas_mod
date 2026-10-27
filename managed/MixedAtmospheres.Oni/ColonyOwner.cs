@@ -443,11 +443,33 @@ namespace MixedAtmospheres.Oni
             ColonyPresentation.InvalidateLifecycleReadings();
         }
         // A conversion's solid byproduct (salt from boiling salt water) becomes debris.
-        private static void SpawnByproduct(in OniNativeColony.Receipt r)
+        internal static void SpawnByproduct(in OniNativeColony.Receipt r)
         {
             var element = ElementLoader.FindElementByHash((SimHashes)r.Callback);
             if (element == null || !(r.MassKg > 0)) return;
-            element.substance.SpawnResource(Grid.CellToPosCCC((int)r.PublicCell, Grid.SceneLayer.Ore), r.MassKg, r.TemperatureK, byte.MaxValue, 0);
+            var cell = (int)r.PublicCell;
+            element.substance.SpawnResource(Grid.CellToPosCCC(cell, Grid.SceneLayer.Ore), r.MassKg, r.TemperatureK, byte.MaxValue, 0,
+                prevent_merge: MergeTargetIsDying(cell, element.tag, r.MassKg));
+        }
+        // Substance.SpawnResource adds the mass to the first same-element item in
+        // the cell's pickupable layer. Debris that landed there this frame may
+        // already have been absorbed by its neighbour and only await destruction
+        // at the end of the frame; a byproduct merged into it would vanish with
+        // it. Spawn a separate item then; ONI's own landing merge still joins it.
+        internal static bool MergeTargetIsDying(int cell, Tag tag, float mass)
+        {
+            if (!Grid.IsValidCell(cell)) return false;
+            var head = Grid.Objects[cell, (int)ObjectLayer.Pickupables];
+            var first = head != null ? head.GetComponent<Pickupable>() : null;
+            for (var item = first != null ? first.objectLayerListItem : null; item != null; item = item.nextItem)
+            {
+                var id = item.gameObject != null ? item.gameObject.GetComponent<KPrefabID>() : null;
+                if (id == null || id.PrefabTag != tag) continue;
+                var element = id.GetComponent<PrimaryElement>();
+                if (element == null || element.Mass + mass > PrimaryElement.MAX_MASS) continue;
+                return id.pendingDestruction || item.pickupable != null && item.pickupable.wasAbsorbed;
+            }
+            return false;
         }
         // A receipt the adapter cannot settle (a pipe outcome it must refuse)
         // faults the owner (ColonyFault); a faulted owner's receipts are not

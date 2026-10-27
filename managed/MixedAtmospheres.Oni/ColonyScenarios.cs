@@ -39,7 +39,7 @@ namespace MixedAtmospheres.Oni
         private static readonly List<GameObject> powered = new List<GameObject>();
 
         internal static void Reset() { Results.Clear(); index = 0; Next(); }
-        private static void Next() { Current = new Result(); started = 0; step = 0; recorded.Clear(); powered.Clear(); filling = null; pipeCells.Clear(); generators.Clear(); mixedFilters.Clear();mixedSensors.Clear();mixedDiseaseSensor=null;mixedBoundaryJobs.Clear();mixedPumps.Clear();mixedPumpHeldOutputs.Clear();mixedPumpDischargeSources.Clear();mixedOutputJobs.Clear();mixedTeardownPipes.Clear();mixedValves.Clear();mixedThermalBody=null; }
+        private static void Next() { Current = new Result(); started = 0; step = 0; recorded.Clear(); powered.Clear(); filling = null; pipeCells.Clear(); generators.Clear(); mixedFilters.Clear();mixedSensors.Clear();mixedDiseaseSensor=null;mixedBoundaryJobs.Clear();mixedPumps.Clear();mergeDebris.Clear();mixedPumpHeldOutputs.Clear();mixedPumpDischargeSources.Clear();mixedOutputJobs.Clear();mixedTeardownPipes.Clear();mixedValves.Clear();mixedThermalBody=null; }
 
         // Called every Unity frame while the owner runs. Returns true when
         // every scenario of the list is done.
@@ -114,6 +114,7 @@ namespace MixedAtmospheres.Oni
                     case "oxyfern": Oxyfern(frame); break;
                     case "debris-heat": DebrisHeat(frame, status); break;
                     case "building-melt": BuildingMelt(frame, status); break;
+                    case "byproduct-merge": ByproductMerge(frame); break;
                     case "geyser": Geyser(frame); break;
                     case "rocket-exhaust": RocketExhaust(frame); break;
                     case "meteor": Meteor(frame, status); break;
@@ -900,7 +901,10 @@ namespace MixedAtmospheres.Oni
                 double solid=0;
                 for(var y=0;y<Height;++y)for(var x=0;x<Width;++x)
                     if(Grid.Solid[Cell(x,y)]&&Grid.Element[Cell(x,y)].id==SimHashes.Lead)solid+=Grid.Mass[Cell(x,y)];
-                var debris=Components.Pickupables.Items.Where(item=>item!=null&&item.GetComponent<PrimaryElement>() is PrimaryElement element&&
+                // An absorbed item stays listed until the end of its frame after its
+                // mass moved to the absorber: count each kilogram once.
+                var debris=Components.Pickupables.Items.Where(item=>item!=null&&!item.wasAbsorbed&&!item.GetComponent<KPrefabID>().pendingDestruction&&
+                        item.GetComponent<PrimaryElement>() is PrimaryElement element&&
                         (element.ElementID==SimHashes.Lead||(int)element.ElementID==ladderMeltHash))
                     .Where(item=>{Grid.CellToXY(Grid.PosToCell(item),out var x,out var y);return x>=x0&&x<x0+Width&&y>=y0&&y<y0+Height;})
                     .Sum(item=>(double)item.GetComponent<PrimaryElement>().Mass);
@@ -956,6 +960,55 @@ namespace MixedAtmospheres.Oni
                 Record("the melted ladder's metal reached the owner", ladder == null && Math.Abs(added - recorded["mass"]) < .01 * recorded["mass"]&&
                     Math.Abs(local-recorded["mass"])<.01*recorded["mass"]&&ladderProofPassed&&ladderProofFrame>0&&ladderProofFrame<=started+14,
                     $"ladder {(ladder == null ? "gone" : "still standing")}, {recorded["mass"]:G4} kg melted, {added:G4} kg admitted metal, {local:G4} kg local liquid/solid/debris/pending; {custody}; {ladderOwnedLiquidByDeadline:G4} kg owned liquid at native frame {ladderProofFrame-started}; all-fluid injection {status.InjectedKg-recorded["injected"]:G4} kg");
+                Finish();
+            }
+        }
+
+        // A byproduct receipt for a cell whose first lead item was absorbed this
+        // frame, and only awaits destruction, keeps its mass. Falling debris
+        // landing on resting debris triggers that absorb (building-melt); here
+        // the same Pickupable.TryAbsorb is called directly to fix the order.
+        // MarkedForMove (which the game's merge rule respects) keeps the two
+        // items apart until then; ONI would otherwise join them on spawn.
+        private static readonly List<GameObject> mergeDebris = new List<GameObject>();
+        private static double ArenaLeadDebris() => Components.Pickupables.Items
+            .Where(item => item != null && !item.wasAbsorbed && !item.GetComponent<KPrefabID>().pendingDestruction &&
+                           item.GetComponent<PrimaryElement>() is PrimaryElement element && element.ElementID == SimHashes.Lead)
+            .Where(item => { Grid.CellToXY(Grid.PosToCell(item), out var x, out var y); return x >= x0 && x < x0 + Width && y >= y0 && y < y0 + Height; })
+            .Sum(item => (double)item.GetComponent<PrimaryElement>().Mass);
+        private static void ByproductMerge(int frame)
+        {
+            if (Once(0, "arena")) Arena((x, y) => y == 0 ? (SimHashes.Granite, 1000f, 300f) : (SimHashes.Oxygen, 1.2f, 300f));
+            if (Once(4, "two resting lead items"))
+            {
+                var lead = ElementLoader.FindElementByHash(SimHashes.Lead).substance;
+                foreach (var mass in new[] { 10f, 5f })
+                {
+                    var item = lead.SpawnResource(Grid.CellToPosCCC(Cell(3, 1), Grid.SceneLayer.Ore), mass, 300, byte.MaxValue, 0, prevent_merge: true);
+                    item.GetComponent<KPrefabID>().AddTag(GameTags.MarkedForMove);
+                    mergeDebris.Add(item);
+                }
+            }
+            if (Once(8, "absorb the cell's first item, then deliver a byproduct"))
+            {
+                var cell = Cell(3, 1);
+                foreach (var item in mergeDebris) if (item != null) item.GetComponent<KPrefabID>().RemoveTag(GameTags.MarkedForMove);
+                recorded["before"] = ArenaLeadDebris();
+                var head = Grid.Objects[cell, (int)ObjectLayer.Pickupables];
+                var first = head != null ? head.GetComponent<Pickupable>() : null;
+                var other = mergeDebris.Where(item => item != null).Select(item => item.GetComponent<Pickupable>()).FirstOrDefault(item => item != null && item != first);
+                var absorbed = first != null && other != null && other.TryAbsorb(first, true);
+                Record("the cell's first lead item was absorbed and awaits destruction",
+                    absorbed && first!.wasAbsorbed && ColonyOwner.MergeTargetIsDying(cell, SimHashes.Lead.CreateTag(), 2),
+                    $"{recorded["before"]:R} kg resting in {mergeDebris.Count(item => item != null)} items; absorbed {absorbed}");
+                ColonyOwner.SpawnByproduct(new OniNativeColony.Receipt { Sequence = 1, CompletedFrame = 1, Callback = (int)SimHashes.Lead,
+                    Kind = OniNativeColony.Byproduct, PublicCell = (uint)cell, MassKg = 2, TemperatureK = 300 });
+            }
+            if (Once(12, "check"))
+            {
+                var after = ArenaLeadDebris();
+                Record("the byproduct's lead survives the absorbed item's destruction", Math.Abs(after - recorded["before"] - 2) < 1e-4,
+                    $"{recorded["before"]:R} kg before, {after:R} kg after a 2 kg byproduct");
                 Finish();
             }
         }
@@ -1767,6 +1820,7 @@ namespace MixedAtmospheres.Oni
         private static readonly List<ulong> mixedPumpHeldOutputs=new List<ulong>();
         private static readonly List<PipeInventory> mixedPumpDischargeSources=new List<PipeInventory>();
         private static int PumpOutlet(GameObject pump)=>(int)AccessTools.Field(typeof(ConduitDispenser),"utilityCell").GetValue(pump.GetComponent<ConduitDispenser>());
+        private const int AccumulatorWindowFrames=15; // ONI Accumulators.TIME_WINDOW 3 s of 0.2 s ticks
         private static bool PumpAt(int at,string label)=>Once(at+(recorded.TryGetValue("pump setup delay",out var delay)?(int)delay:0),label);
         private static void MixedPipePumps(int frame)
         {
@@ -1819,7 +1873,25 @@ namespace MixedAtmospheres.Oni
                     Record((phase==0?"gas":"liquid")+" pump emits a real one-cell mixture",output.Count>=2,$"{output.Count} pipe constituents; {output.Mass:R} kg; {MachineState(pump)}");
                     Record((phase==0?"gas":"liquid")+" pump retains simultaneous germ identities",all.Germs.Length>=2,$"{all.Germs.Length} germ identities");
                     Record((phase==0?"gas":"liquid")+" pump has one authoritative inventory",pump.GetComponent<Storage>().items.Count==0&&ColonyPipePumps.Owns(pump.GetComponent<Storage>()),$"native packets {pump.GetComponent<Storage>().items.Count}; owned buffer {held.Mass:R} kg");
-                    Record((phase==0?"gas":"liquid")+" native pump accumulator receives consumed mass",pump.GetComponent<ElementConsumer>().AverageConsumeRate>0,$"{pump.GetComponent<ElementConsumer>().AverageConsumeRate:R} kg/s");
+                }
+                recorded["pump accumulator read"]=frame;
+            }
+            // ONI publishes ElementConsumer.AverageConsumeRate once per completed
+            // 3 s accumulator window (15 game ticks), at a phase set by the
+            // game clock, not by this fixture. Ten ticks after intake starts the
+            // first window holding consumed mass may still be open, so the
+            // original read is kept and, while either rate is still 0, the
+            // records wait for the next published window: at most one window
+            // plus one frame. Inputs, stages and the >0 bound are unchanged.
+            if(recorded.TryGetValue("pump accumulator read",out var accumulatorRead)&&!recorded.ContainsKey("pump accumulator recorded"))
+            {
+                var rates=mixedPumps.Select(pump=>pump.GetComponent<ElementConsumer>().AverageConsumeRate).ToArray();
+                if(rates.All(rate=>rate>0)||frame>=accumulatorRead+AccumulatorWindowFrames+1)
+                {
+                    recorded["pump accumulator recorded"]=frame;
+                    for(var phase=0;phase<2;++phase)
+                        Record((phase==0?"gas":"liquid")+" native pump accumulator receives consumed mass",rates[phase]>0,
+                            $"{rates[phase]:R} kg/s; read {frame-accumulatorRead:R} frames after the original read");
                 }
             }
             if(PumpAt(20,"hold output while native storage fills"))
