@@ -2967,7 +2967,9 @@ std::uint32_t flush_inputs(std::uint32_t* submitted) {
     const auto count=pending();
     if(submitted)*submitted=count;
     if(count)run_frame(0,0,0,nullptr,0,true);
-    { std::lock_guard lock(lifecycle); require(session && session->status.state==1,"Colony input flush failed"); }
+    { std::lock_guard lock(lifecycle);
+      require(session!=nullptr,"The colony owner stopped during input flushing");
+      if(session->status.state!=1)throw std::invalid_argument(std::string("Colony input flush: ")+session->status.error); }
     return pending();
 }
 
