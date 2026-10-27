@@ -82,4 +82,50 @@ harness and a prepared private save. The managed presentation benchmark is in
 
 ## Current measurements
 
-See below; numbers are recorded with their revision and lock.
+Ryzen 9 5900X, `tools/run_locked.sh high` (12 logical CPUs, cores 12–23,
+twelve workers), 2026-10-27. Other agents' unlocked builds and an in-game run
+on the sibling cores kept the load average between 25 and 115, so these are
+contended timings: they establish order of magnitude and the relative change,
+not acceptance. Frame times are per 0.2 s frame (solver plus native adapter
+and the view copy); halve them for the per-0.1 s targets.
+
+| Case | Active cells | `828fd3a` mean / p95 ms | Parallel pressure mean / p95 ms | Target per frame |
+| --- | ---: | ---: | ---: | ---: |
+| 100k, default settings | 100,209 | owner fault: pressure solve did not converge (cap 400) | same | ≤ 50 |
+| 100k, pressure cap 4000 | 100,209 | 1,955 / 2,754 | 1,598 / 2,361 | ≤ 50 |
+| 100k, no hydrogen rooms | 100,209 | 1,468 / 2,064 | 723 / 974 | ≤ 50 |
+| 250k, no hydrogen rooms | 250,566 | 13,955 / 15,963 | 3,626 / 3,956 | p95 ≤ 125 |
+| Terra frame-50 replay (flow only) | 19,656 | 64.5–71.2 | 65.0–67.4; identical image | — |
+
+The Terra row is three interleaved pairs of 8-frame replays. Every
+synthetic case changes at least 99.999% of the owned views each frame and closes
+its ledgers (relative mass/energy errors ≤ 6.2e-16/1.7e-15), without faults
+apart from the default-settings 100k case. Extra resident memory peaks at
+326–377 MiB at 100k and 808–882 MiB at 250k, within the 2 GiB bound, but
+resident memory still rose by 42–133 MiB over the measured frames; whether it
+levels off is not yet shown. The adapter's complete view copy takes 0.4 ms
+(100k) to 1.5 ms (250k).
+
+The disturbance case (100k layout, no hydrogen rooms) runs all three events
+fault-free with closed ledgers, but no frame reaches the 200 ms budget, so
+none recovers to 1×: frames average 2.8–4.1 s at `828fd3a` and 0.7–1.2 s
+with the parallel pressure solve.
+
+### Where the time goes
+
+In the connected 100k atmosphere the pressure solve was about 80% of the
+flow: one serial IC(0)-PCG over the 100,000-cell component, about 260
+iterations per half-tick without hydrogen and about 440 with it. The iteration
+count follows the acoustic CFL number (sound crosses about 33 cells of oxygen
+or 130 of hydrogen in a 0.1 s half-tick), so the default cap of 400 is
+exceeded by large hydrogen-bearing regions. Terra's frame-50 atmosphere is
+fragmented into pockets under 1,000 cells, which already solve side by side.
+[Large components](../native/MAC_GAME_KERNEL.md#large-pressure-and-heat-components)
+now solve across the pool. The remaining time at 100k is about two-thirds
+pressure and one-third transport, interface sharpening, heat, phase change,
+layering and audits, each of which also exceeds the whole budget on its own.
+
+Offline prototypes on the captured 100k systems (scratch, not adopted):
+smoothed-aggregation multigrid PCG with Jacobi smoothing converges in 26–33
+iterations instead of IC(0)'s 272–441, and a two-level IC(0) with 4 × 4
+aggregates in 61–107. Both keep the equation and its tolerance.

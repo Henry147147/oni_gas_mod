@@ -366,3 +366,34 @@ shared inventories (a state copy is dominated by its cell array, not the
 inventories). Checkpoint formats and bytes, saved settings and physics are
 unchanged; each commit message gives its interleaved A/B measurement.
 
+
+## Large pressure and heat components
+
+Each connected pressure or heat component runs its own IC(0)-PCG. Small
+components run side by side on the pool, but one large connected
+atmosphere ran its whole solve on one thread: in the
+[colony benchmark](../docs/performance-acceptance.md) a 30,826-cell room
+network spent 374 ms of pressure per 0.2 s frame at twelve workers while the
+pool waited. The iteration count depends on the acoustic CFL number (about
+250 per half-tick for oxygen at 0.1 s, more with hydrogen), not on the
+component's size, so the cost grows linearly with connected cells.
+
+Components of at least 4,096 cells now solve one at a time across the pool
+(`PressureParallelPlan`, `component_sweep_plan`). The operator gathers each
+row's faces in face order. The IC(0) forward and backward sweeps run in bands
+of whole grid rows, cut into column chunks and pipelined so that every row
+still reads its finished lower neighbours; the backward sweep gathers the
+serial scatter's updates in descending row order. Every row's arithmetic is
+therefore the serial solve's. Only the dot products differ: they sum fixed
+1,024-row blocks in long double and add the block sums in order. Results are
+deterministic and independent of the worker count, and a component under
+4,096 cells keeps the serial solve bit for bit (`ma_pressure_tests` checks
+one-block plans against the serial solve under several schedules and
+concurrent threads, blocked plans against each other, and refuses a plan that
+breaks an IC dependency). The heat solve keeps its serial component solves:
+the same plan measured only about 10% faster there, since its few
+iterations are not where the heat stage spends its time.
+
+The physical model, tolerances, iteration caps, saved settings and checkpoint
+format are unchanged. Large components' trajectories differ from the serial
+solve's only by the reduction order of their dot products.

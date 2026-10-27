@@ -56,13 +56,14 @@ def load() -> list[float] | None:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('--build', type=Path, default=ROOT / 'build-production', help='Build folder holding ma_colony_benchmark')
+    parser.add_argument('--executable', type=Path, help='A specific ma_colony_benchmark (overrides --build)')
     parser.add_argument('--suite', choices=sorted(SUITES), default='release')
     parser.add_argument('--case', action='append', help='Run only these cases of the suite')
     parser.add_argument('--world-dump', type=Path, action='append', default=[], help='Private captured world (repeatable)')
     parser.add_argument('--workers', type=int, default=0, help='0: physical cores (the game default)')
     parser.add_argument('--output', type=Path, help='Result folder (default artifacts/performance/<revision>-<time>)')
     args = parser.parse_args()
-    executable = (args.build / 'ma_colony_benchmark').resolve(strict=True)
+    executable = (args.executable or args.build / 'ma_colony_benchmark').resolve(strict=True)
     revision = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip()
     dirty = bool(subprocess.check_output(['git', 'status', '--porcelain', '--untracked-files=no'], cwd=ROOT, text=True).strip())
     output = args.output or ROOT / 'artifacts' / 'performance' / f'{revision[:12]}-{time.strftime("%Y%m%d-%H%M%S")}'
