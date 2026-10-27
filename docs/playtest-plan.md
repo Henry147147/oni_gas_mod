@@ -1,5 +1,10 @@
 # Base-game playtest plan
 
+**Priority amendment, 2026-10-27:** the next usable private Windows playtest
+must support Spaced Out! fully. See [DLC work](dlc-compatibility.md) and the
+[accepted amendment](completion-plan.md#amendments). The base-game-only
+candidate does not meet the user's installed DLC requirement.
+
 Accepted 2026-10-20 (user decisions). This is the current work. One worker
 takes it through on `main`. It comes before the milestone order of the
 [completion plan](completion-plan.md) and supersedes the

@@ -1,5 +1,29 @@
 # DLC compatibility controls
 
+**Current priority, 2026-10-27:** the user's private Windows playtest requires
+fully working Spaced Out!, including multiple asteroids, rocket interiors,
+transport and cluster persistence. The existing ZIP is unsuitable for that
+playtest. The startup restriction remains until those paths are implemented
+and verified; removing it alone is not support.
+
+Initial implementation now captures a validated world-ID layout from the live
+cluster, separating asteroid and rocket rectangles, rejecting overlapping or
+out-of-grid regions, and keeping unallocated cells outside world ownership.
+Base-game geometry description uses this same layout. Synthetic controls cover
+adjacent worlds, reserved holes, rocket removal, stable ordering and invalid
+identities/geometry. The ordinary DLC restriction remains in place. An explicit
+development control, `MA_COLONY_SPACED_OUT_CONTROL=1`, admits the complete
+fixed cluster grid to the existing solver, keeping unallocated cells closed
+and refusing any fluid that would be omitted outside registered worlds.
+It is not player-ready: dynamic rocket allocation/removal, inter-world
+transports and complete cluster persistence remain required exits.
+
+The normal DLC-enabled WindowsPlayer diagnostic activated `EXPANSION1_ID`
+through its usual menu preferences and measured **nine worlds on a 736×304
+grid**. The original candidate correctly stayed inactive; that run establishes
+installed content and layout, not mod ownership. The development owner needs
+its separate game run before activation can be reported as passing.
+
 The 2026-10-26 request covers Spaced Out!, Frosty, Bionic, Prehistoric and
 Aquatic: every one of their 32 selections on Linux and Windows x64. This
 extends the [base-game playtest](playtest-plan.md); it does not certify the

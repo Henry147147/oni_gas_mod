@@ -8,6 +8,13 @@ still require separate authorization.
 
 Amendments:
 
+- **Spaced Out! playtest, 2026-10-27 (user decision):** the user's Windows
+  install uses Spaced Out!, so its full support is now required for the next
+  usable private playtest. Prioritize multi-asteroid ownership, rocket
+  interiors and transport, and complete cluster save/load. A base-game-only
+  package or an inactive-DLC control does not meet this requirement. Retain
+  ordinary platform ownership checks and the existing physics bounds.
+
 - **CPU concurrency, 2026-10-26 (user decisions, updated):** expose the colony
   solver's worker count in mod settings, defaulting to the number of physical
   cores. An explicit count can use SMT threads; the twelve-worker cap stays

@@ -161,13 +161,16 @@ namespace MixedAtmospheres.Oni
                         ColonyNotices.Show("Mixed Atmospheres", "This colony was saved without Mixed Atmospheres. It keeps ONI's own gases and liquids.");
                     return;
                 }
-                if (DlcManager.IsExpansion1Active())
+                var layout=CaptureWorldLayout();
+                Debug.Log($"[Mixed Atmospheres] Cluster layout {layout.GridWidth}x{layout.GridHeight}, {layout.ActiveRectangleCells} world cells: "+
+                    string.Join("; ",layout.Worlds.Select(w=>$"world {w.Id} {(w.RocketInterior?"rocket":"asteroid")} {w.X},{w.Y} {w.Width}x{w.Height}")));
+                if (DlcManager.IsExpansion1Active()&&!SpacedOutControl)
                 {
                     StartFailure = "Spaced Out! is not supported yet";
                     ColonyNotices.Show("Mixed Atmospheres inactive", "Spaced Out! colonies are not supported yet. This colony keeps ONI's own gases and liquids.");
                     return;
                 }
-                if (ClusterManager.Instance == null || ClusterManager.Instance.WorldContainers.Count != 1)
+                if (ClusterManager.Instance == null || ClusterManager.Instance.WorldContainers.Count != 1&&!SpacedOutControl)
                 {
                     StartFailure = "The colony owner needs exactly one asteroid";
                     ColonyNotices.Show("Mixed Atmospheres inactive", "Mixed Atmospheres needs a colony on exactly one asteroid. This colony keeps ONI's own gases and liquids.");
@@ -185,13 +188,21 @@ namespace MixedAtmospheres.Oni
                 for (var i = 0; i < cells.Length; ++i)
                 {
                     var global = uncachedCellMap ? (x0+i%width)+(y0+i/width)*Grid.WidthInCells : publicationCells[i];
+                    var element = ElementLoader.elements[source->elementIdx[global]];
+                    // Reserved cluster holes are walls, not empty chambers
+                    // joining otherwise separate asteroids or rocket worlds.
+                    if(SpacedOutControl&&(!layout.TryFind(global,out var region)||Grid.WorldIdx[global]!=region.Id))
+                    {
+                        if(!element.IsSolid&&!element.IsVacuum&&source->mass[global]>0)
+                            throw new InvalidOperationException("Fluid outside a registered cluster world cannot be omitted at import.");
+                        cells[i]=new OniNativeColony.Cell{Kind=OniNativeColony.Solid};continue;
+                    }
                     if(cellMapControl)
                     {
                         if(global!=(x0+i%width)+(y0+i/width)*Grid.WidthInCells)
                             throw new InvalidOperationException("Cached owner publication cell differs from current geometry.");
                         ++CellMapComparisons;
                     }
-                    var element = ElementLoader.elements[source->elementIdx[global]];
                     uint kind = element.IsSolid ? OniNativeColony.Solid :
                         element.IsVacuum && zones != null && zones.GetSubWorldZoneType(global) == ProcGen.SubWorld.ZoneType.Space ? OniNativeColony.Space :
                         OniNativeColony.Fluid;
@@ -229,19 +240,32 @@ namespace MixedAtmospheres.Oni
         internal static OniNativeColony.Config Config => config;
         internal static OniNativeColony.Material[] Materials => materials;
         internal static byte[] Checkpoint() => ColonyCheckpointCopy.Read(OniNativeColony.Checkpoint, OniNativeColony.Check);
+        // Development admission only. Rocket creation/destruction, transport
+        // and cluster persistence must pass before ordinary DLC activation.
+        private static readonly bool SpacedOutControl=Environment.GetEnvironmentVariable("MA_COLONY_SPACED_OUT_CONTROL")=="1";
+        internal static ColonyWorldLayout CaptureWorldLayout()
+        {
+            if(ClusterManager.Instance==null)throw new InvalidOperationException("The cluster has not been constructed.");
+            return new ColonyWorldLayout(Grid.WidthInCells,Grid.HeightInCells,
+                ClusterManager.Instance.WorldContainers.Select(world=>new ColonyWorldRegion(world.id,
+                    world.WorldOffset.x,world.WorldOffset.y,world.WorldSize.x,world.WorldSize.y,world.IsModuleInterior)));
+        }
         // The configuration and catalogue the running game would give this asteroid.
         internal static (OniNativeColony.Config config, OniNativeColony.Material[] materials) Describe(uint? savedFlags = null)
         {
-            if (ClusterManager.Instance == null || ClusterManager.Instance.WorldContainers.Count != 1)
+            var layout=CaptureWorldLayout();
+            var cluster=DlcManager.IsExpansion1Active()&&SpacedOutControl;
+            if (!cluster&&(layout.Worlds.Count != 1 || layout.Worlds[0].RocketInterior))
                 throw new NotSupportedException("The colony owner needs exactly one asteroid.");
-            var world = ClusterManager.Instance.WorldContainers[0];
+            var world = layout.Worlds[0];
             var described = new OniNativeColony.Config
             {
                 Size = 56, Version = OniNativeColony.AbiVersion,
                 Flags = savedFlags ?? NewColonyFlags(),
                 VacuumIndex = ElementLoader.FindElementByHash(SimHashes.Vacuum).idx,
                 GridWidth = (uint)Grid.WidthInCells, GridHeight = (uint)Grid.HeightInCells,
-                OffsetX = (uint)world.WorldOffset.x, OffsetY = (uint)world.WorldOffset.y, Width = (uint)world.WorldSize.x, Height = (uint)world.WorldSize.y,
+                OffsetX = cluster?0u:(uint)world.X, OffsetY = cluster?0u:(uint)world.Y,
+                Width = cluster?(uint)layout.GridWidth:(uint)world.Width, Height = cluster?(uint)layout.GridHeight:(uint)world.Height,
                 GravityMetresPerSecondSquared = 9.81, MaximumTimestepSeconds = MaximumTimestepSeconds
             };
             // A floor measurement under the owner owns only its arena, border
