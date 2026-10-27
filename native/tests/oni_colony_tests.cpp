@@ -1656,6 +1656,23 @@ void world_biology_control() {
 }
 void input_flush_control() {
     using namespace ma::oni::colony;
+    const auto flush_from_native_caller=[] {
+#if defined(__GNUC__) && (defined(__x86_64__) || defined(__i386__))
+        // A Unity/native caller may leave x87 registers occupied. Saving the
+        // rounding/control words alone does not free those registers. The
+        // owner must execute on its own worker and preserve the caller's FP
+        // state; force the occupied-stack case instead of relying on luck.
+        alignas(16) std::array<unsigned char,512> saved{};
+        __asm__ volatile("fxsave %0" : "=m"(saved));
+        __asm__ volatile("fninit; fldz; fldz; fldz; fldz; fldz; fldz; fldz; fldz");
+        try {
+            const auto result=flush_inputs();
+            __asm__ volatile("fxrstor %0" : : "m"(saved));return result;
+        } catch(...) {__asm__ volatile("fxrstor %0" : : "m"(saved));throw;}
+#else
+        return flush_inputs();
+#endif
+    };
     // Adjacent empty cells expose accidental flow; a separate space source
     // exposes an accidental sink. A live growth rule exposes biology ticks.
     const float inf=std::numeric_limits<float>::infinity();
@@ -1685,7 +1702,7 @@ void input_flush_control() {
     const MAOniColonyHeat heat{4,0,5,0};const MAOniColonyGermEdit germ{4,1,3};
     const std::array<MAOniColonyTerrain,2> openings{{{0,MA_ONI_COLONY_OPEN},{5,MA_ONI_COLONY_OPEN}}};
     queue_transfers(sources);queue_heat(std::span(&heat,1));queue_germs(std::span(&germ,1));queue_terrain(openings);
-    require(flush_inputs()==0,"Valid lifecycle inputs remained pending");
+    require(flush_from_native_caller()==0,"Valid lifecycle inputs remained pending");
     const auto settled=status();
     std::cout<<"lifecycle inputs: masses "<<mass(4)<<' '<<mass(5)<<' '<<mass(8)<<", sinks "<<settled.space_sink_kg<<' '<<settled.trace_sink_kg<<", heat "<<settled.committed_heat<<'\n';
     require(settled.state==1 && settled.completed_frames==0 && settled.native_ticket==0 && settled.time_seconds==0 && settled.substeps==0,

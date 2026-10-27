@@ -142,13 +142,20 @@ unchanged; this boundary alone does not implement rocket evacuation.
 
 The first `c269a9e` in-game boundary control fails after all nine-world probes
 pass. The diagnostic `7f0fb8f` repeat identifies the refusal as the mass ledger's
-unbooked-constituent check; cold/menu phases are not run. Lifecycle auditing
-now scans actual cells and energy rather than taking a cached kernel audit
-snapshot before a positive flow tick has refreshed it. The existing zero-scale
-check and mass/energy bounds remain in force, and refusal text identifies the
-constituent and amount. Standalone coverage repeats topology and trace inputs
-after a positive tick as well as at startup. The replacement game control is
-still required; these failed attempts provide no lifecycle acceptance.
+unbooked-constituent check; cold/menu phases are not run. Recomputing the actual
+cells in `aec8dff` does not fix it: the same refusal reports an absent Latex
+constituent as 0 kg. The full scan remains as an independent lifecycle audit,
+with the existing zero-scale check and mass/energy bounds unchanged.
+
+A standalone reproduction deliberately fills the native caller's x87 register
+stack. The original calling-thread execution, and a new worker inheriting that
+state, fail; the control passes after using the solver's own worker with a clean
+x87 register/tag state at thread entry. Saving rounding/control words alone
+does not clear occupied registers. Lifecycle commands now use that same worker,
+without advancing the fluid clock, and return command exceptions to their
+caller. Standalone coverage includes both fresh and warmed topology/trace
+boundaries. A replacement game control is still required; these failed attempts
+provide no lifecycle acceptance.
 
 The 2026-10-26 request covers Spaced Out!, Frosty, Bionic, Prehistoric and
 Aquatic: every one of their 32 selections on Linux and Windows x64. This

@@ -39,6 +39,8 @@
 #include <cstddef>
 #include <cstdio>
 #include <cstring>
+#include <exception>
+#include <functional>
 #include <limits>
 #include <map>
 #include <memory>
@@ -252,21 +254,34 @@ struct Solver {
     std::mutex m; std::condition_variable wake, idle;
     std::thread thread;
     bool quit = false, running = false;
+    std::function<void()> command;
+    std::exception_ptr command_error;
     const char* refusal = nullptr; // a frame the owner must refuse
     std::uint64_t ticket = 0; double seconds = 0; // waiting work
     std::uint64_t frames = 0; // native frames in the waiting work (germs evolve once per frame)
     std::atomic<bool> busy{};
     void loop() {
+        // New OS threads can inherit the creator's x87 register/tag state.
+        // This thread owns its FP state; each operation then installs the
+        // normal ArithmeticScope and restores this clean baseline.
+#if defined(__GNUC__) && (defined(__x86_64__) || defined(__i386__))
+        __asm__ volatile("fninit");
+#endif
+        (void)std::fesetenv(FE_DFL_ENV);
         const auto id = static_cast<std::uint64_t>(std::hash<std::thread::id>{}(std::this_thread::get_id()));
         std::unique_lock l(m);
         for (;;) {
-            wake.wait(l, [&] { return quit || seconds > 0 || refusal; });
+            wake.wait(l, [&] { return quit || seconds > 0 || refusal || command; });
             if (quit) return;
             const auto t = ticket; const double dt = seconds; const auto r = refusal; const auto f = frames;
+            auto operation=std::move(command);std::exception_ptr error;
             seconds = 0; frames = 0; refusal = nullptr; running = true;
-            l.unlock(); run_frame(t, dt, f, r, id); l.lock();
+            l.unlock();
+            if(operation)try{operation();}catch(...){error=std::current_exception();}
+            else run_frame(t,dt,f,r,id);
+            l.lock();command_error=error;
             running = false;
-            if (seconds == 0) busy.store(false, std::memory_order_release);
+            if (seconds == 0 && !command) busy.store(false, std::memory_order_release);
             idle.notify_all();
         }
     }
@@ -274,8 +289,16 @@ struct Solver {
     void settle(bool discard) {
         std::unique_lock l(m);
         if (discard) { seconds = 0; frames = 0; refusal = nullptr; }
-        idle.wait(l, [&] { return !running && seconds == 0 && !refusal; });
+        idle.wait(l, [&] { return !running && seconds == 0 && !refusal && !command; });
         busy.store(false, std::memory_order_release);
+    }
+    void execute(std::function<void()> operation) {
+        std::unique_lock l(m);
+        require(!running && seconds==0 && !refusal && !command,"Fence positive advances before lifecycle commands");
+        if(!thread.joinable())thread=std::thread([this]{loop();});
+        command_error=nullptr;command=std::move(operation);busy.store(true,std::memory_order_release);wake.notify_one();
+        idle.wait(l,[&]{return !running && !command && seconds==0 && !refusal;});
+        if(command_error)std::rethrow_exception(command_error);
     }
     // Keep the process-resident worker asleep between colonies. Joining a
     // native worker from Unity's managed shutdown can block its DLL cleanup.
@@ -2975,7 +2998,9 @@ std::uint32_t flush_inputs(std::uint32_t* submitted) {
     { std::lock_guard lock(lifecycle); require(session && session->status.state==1,"Input flushing requires a healthy colony owner"); }
     const auto count=pending();
     if(submitted)*submitted=count;
-    if(count)run_frame(0,0,0,nullptr,0,true);
+    // Use the same execution thread as physical advances. Unity's calling
+    // thread can carry native FP state beyond its rounding/control words.
+    if(count)solver.execute([]{run_frame(0,0,0,nullptr,0,true);});
     { std::lock_guard lock(lifecycle);
       require(session!=nullptr,"The colony owner stopped during input flushing");
       if(session->status.state!=1)throw std::invalid_argument(std::string("Colony input flush: ")+session->status.error); }
