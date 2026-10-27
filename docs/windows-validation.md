@@ -1,5 +1,13 @@
 # Windows validation
 
+Spaced Out! update, 2026-10-27: native `6c91161` passes all 86 Windows
+cross-build CTests under Wine. The `c942141` managed recovery controls pass
+actual flight/self-destruct and landed retirement/reuse, each followed by a
+fresh-process load. `0b93056` passes gas and liquid cargo loading/unloading.
+These retain their exact revision and native-binary provenance; they are not
+relabeled as current-package or Windows OS acceptance. Ordinary DLC activation
+is implemented and its separate package/UI/load controls are running.
+
 ## Private playtest build (2026-10-25)
 
 The current cross-build uses MinGW-w64 GCC 13 (POSIX threads), rather than

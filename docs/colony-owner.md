@@ -1,7 +1,7 @@
 # Colony owner
 
 The colony owner is the normal-game path: one `MacClosedWorld` owns every gas
-and liquid on the asteroid, with one species per catalogue material
+and liquid in the colony, with one species per catalogue material
 ([material catalogue](material-catalogue.md)). It replaces the bounded
 development rooms of the [configured domain](native-configured-domain.md) for
 play.
@@ -9,8 +9,9 @@ play.
 ## Activation and data flow
 
 - **Activation.** With the native backend attached, the mod starts the owner on
-  a new base-game colony (not a loaded save; no Spaced Out!; exactly one
-  asteroid) at the first completed native frame. It builds the catalogue from
+  a new base-game or Spaced Out! colony at the first completed native frame.
+  Base-game colonies have one asteroid; Spaced Out! owns the validated cluster
+  grid, including rocket interiors, with unallocated holes closed. It builds the catalogue from
   the game's element table, reads every cell of the asteroid from that frame
   (solids are walls; vacuum in the Space zone is open sky) and calls
   `ma_oni_colony_start` (`native/include/mixed_atmospheres/oni_colony.h`). A
@@ -21,7 +22,7 @@ play.
   ordinary game only the owner routes native messages; the colony-owner
   scenes use the same routing plus their report counters.
 - **Notices.** The player is told when the owner does not take a new colony
-  (Spaced Out!, more than one asteroid, a failed start), when a loaded colony
+  (unsupported geometry or a failed start), when a loaded colony
   was saved without the mod (it keeps ONI's fluids) and when the owner faults
   (fluids freeze, saving is refused): one dialog per problem
   (`ColonyNotices.cs`); validation scenes only log.

@@ -54,7 +54,7 @@ namespace MixedAtmospheres.Oni
                 ModSettingsScreen.Install();
                 UnityEngine.Debug.Log("[Mixed Atmospheres] Integration probe completed. " +
                     (NativeSealedDomainValidation.IsMode ? "A sealed native development domain is enabled; whole-colony ownership is not certified. Report: " :
-                    ColonyOwner.Available ? "The colony owner takes the gases and liquids of a new base-game colony. Report: " :
+                    ColonyOwner.Available ? "The colony owner takes the gases and liquids of a new base-game or Spaced Out colony. Report: " :
                     "Full simulation ownership is NOT certified; this package does not change colony physics. Report: ") + destination);
             }
             catch (Exception error)

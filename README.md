@@ -8,7 +8,7 @@ New colonies start with vanilla world conditions, with no starting nitrogen adde
 
 Pause at the start and plan to open the printing pod's cave and remove CO2 early. In a sealed starting cave, exhaled CO2 can make the air unsafe while plenty of oxygen remains. Use the Breathability overlay and CO2 partial-pressure reading to check the air your duplicants can reach.
 
-Mixed Atmospheres is a private playtest build for Windows x64 and Linux. It applies to new base-game colonies on one asteroid, ONI build 744825, licensed through Steam. Spaced Out and gameplay packs must be disabled. Existing vanilla saves keep their vanilla simulation. The Windows build has been tested under Proton; Windows validation is part of your own playtest. Final release-candidate acceptance is still in progress, so this is preparation for private playtesting, not a public release. There is no Workshop release.
+Mixed Atmospheres is a private playtest build for Windows x64 and Linux. It applies to new base-game and Spaced Out! colonies, ONI build 744825, licensed through Steam. Spaced Out! can remain enabled; keep the other gameplay packs disabled for this playtest. Existing vanilla saves keep their vanilla simulation. The Windows build has been tested under Proton; Windows validation is part of your own playtest. Final release-candidate acceptance is still in progress, so this is preparation for private playtesting, not a public release. There is no Workshop release.
 
 ![Mixed Atmospheres gameplay during development](docs/images/mixed-atmospheres-gameplay.png)
 
@@ -22,7 +22,7 @@ Settings live behind the Settings button in the Mods row or the status panel. Yo
 
 Watch [a colony in motion](docs/images/mixed-atmospheres-gameplay.mp4) and [its mixture overlay](docs/images/mixed-atmospheres-composition.mp4).
 
-To install on Windows, extract the private ZIP, close ONI, and run `powershell -NoProfile -ExecutionPolicy Bypass -File .\install_windows.ps1`. Launch ONI through Steam, then disable Spaced Out from the main menu and restart. In Mods, enable Mixed Atmospheres and restart. Optionally open Settings, then start a NEW base-game colony. The detailed guide is in [docs/private-playtest-release.md](docs/private-playtest-release.md).
+To install on Windows, extract the private ZIP, close ONI, and run `powershell -NoProfile -ExecutionPolicy Bypass -File .\install_windows.ps1`. Launch ONI through Steam with Spaced Out! enabled. In Mods, enable Mixed Atmospheres and restart. Optionally open Settings, then start a NEW base-game or Spaced Out! colony. The detailed guide is in [docs/private-playtest-release.md](docs/private-playtest-release.md).
 
 After playing, please send your Player.log from `%USERPROFILE%\AppData\LocalLow\Klei\Oxygen Not Included\Player.log`.
 

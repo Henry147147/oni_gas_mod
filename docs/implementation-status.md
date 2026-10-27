@@ -1,5 +1,12 @@
 # Implementation status
 
+Spaced Out! update, 2026-10-27: ordinary new colonies now use the cluster
+owner without a development opt-in. Targeted controls pass multi-asteroid
+ownership, rocket creation and mixed ports, actual flight, landed and airborne
+retirement, slot reuse, teleporters and gas/liquid cargo. Current-package
+ordinary New Game and save/load acceptance is running; Windows OS still needs
+the user's PC. See [DLC evidence](dlc-compatibility.md).
+
 ## Base-game playtest ([plan](playtest-plan.md))
 
 Current repairs and the work beyond private playtesting are tracked in

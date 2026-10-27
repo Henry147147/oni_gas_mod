@@ -222,15 +222,15 @@ def main() -> None:
     platform_name = "Windows x64" if rid == "win-x64" else "Linux"
     (output / "mod.yaml").write_text(
         'title: "Mixed Atmospheres"\n'
-        f'description: "Private base-game playtest build ({platform_name}). The mod\'s own solver runs every gas and liquid of a new colony; existing saves keep ONI\'s simulation."\n'
+        f'description: "Private base-game and Spaced Out! playtest build ({platform_name}). The mod\'s own solver runs every gas and liquid of a new colony; existing saves keep ONI\'s simulation."\n'
         'staticID: "MixedAtmospheres.IntegrationProbe"\n', encoding="utf-8")
     (output / "mod_info.yaml").write_text(
         f'minimumSupportedBuild: {args.oni_build}\nversion: "0.1.0-probe"\nAPIVersion: 2\n', encoding="utf-8")
     (output / "README.txt").write_text(
-        f"Mixed Atmospheres - private base-game playtest build ({platform_name})\n\n"
+        f"Mixed Atmospheres - private base-game and Spaced Out! playtest build ({platform_name})\n\n"
         "Place this complete folder under ONI's mods/Dev folder as MixedAtmospheres, enable\n"
-        "Mixed Atmospheres in Mods and restart. A new base-game colony (Spaced Out! off) is\n"
-        "then simulated by the mod: every gas and liquid of the asteroid belongs to its solver.\n"
+        "Mixed Atmospheres in Mods and restart. Start a NEW base-game or Spaced Out! colony;\n"
+        "Spaced Out! can remain enabled. Every gas and liquid in its worlds belongs to the mod's solver.\n"
         "Existing colonies and saves made without the mod keep ONI's own simulation; saves\n"
         "made with it need the mod to load. Keep only one folder with staticID\n"
         "MixedAtmospheres.IntegrationProbe in mods/Dev. Native libraries must remain under\n"

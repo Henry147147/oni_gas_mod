@@ -1,5 +1,12 @@
 # Private Linux and Windows playtest completion
 
+Spaced Out! update, 2026-10-27: ordinary DLC activation and the cluster lifecycle
+adapters are implemented after targeted multi-world, rocket, teleporter and
+cargo controls. The replacement Windows package is undergoing ordinary New
+Game and source/cold/menu checks. Keep Spaced Out! enabled for that package;
+the older `dde2a09` ZIP remains base-only. Current evidence is in
+[DLC compatibility](dlc-compatibility.md). Full release acceptance remains open.
+
 Candidate update, 2026-10-26: `dde2a09` was delivered early at the user's
 request; installer startup was repaired separately in `4e069af`. That
 candidate passed the prepared 30,000-frame/ten-cycle survival run, but failed

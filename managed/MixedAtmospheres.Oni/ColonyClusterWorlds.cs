@@ -9,7 +9,7 @@ namespace MixedAtmospheres.Oni
     // The game allocates rocket interiors inside its fixed managed grid.
     // A template can leave vacuum cells behind: native fluid capture alone
     // cannot discover those, so admit them from a completed native snapshot.
-    // This path is still confined to the explicit Spaced Out development run.
+    // Spaced Out colonies own the complete grid and track these lifecycles.
     internal static unsafe class ColonyClusterWorlds
     {
         private static ColonyWorldLayout? layout;
@@ -90,7 +90,7 @@ namespace MixedAtmospheres.Oni
             foreach(var world in change.Added)
                 Debug.Log($"[Mixed Atmospheres] Registered rocket world {world.Id}: {world.X},{world.Y} {world.Width}x{world.Height}; queued cell ownership.");
         }
-        internal static object Report()=>new{Experimental=layout!=null,Worlds=layout?.Worlds.Count??0,RegisteredRocketWorlds,QueuedOpenCells,PendingLayout=dirty};
+        internal static object Report()=>new{Active=layout!=null,Worlds=layout?.Worlds.Count??0,RegisteredRocketWorlds,QueuedOpenCells,PendingLayout=dirty};
     }
     [HarmonyPatch(typeof(WorldContainer),"PlaceInteriorTemplate")]
     internal static class ColonyRocketTemplatePatch

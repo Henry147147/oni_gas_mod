@@ -3,20 +3,23 @@
 **Current priority, 2026-10-27:** the user's private Windows playtest requires
 fully working Spaced Out!, including multiple asteroids, rocket interiors,
 transport and cluster persistence. The existing ZIP is unsuitable for that
-playtest. The startup restriction remains until those paths are implemented
-and verified; removing it alone is not support.
+playtest. Multi-world ownership, mixed rocket ports, actual flight, landed and airborne
+retirement, teleporters and mixed gas/liquid cargo now pass targeted game
+controls. Ordinary Spaced Out! activation is implemented; its new immutable
+package and normal New Game/save/load checks are the current acceptance work.
+No player-ready claim is made before those checks pass.
 
 Initial implementation now captures a validated world-ID layout from the live
 cluster, separating asteroid and rocket rectangles, rejecting overlapping or
 out-of-grid regions, and keeping unallocated cells outside world ownership.
 Base-game geometry description uses this same layout. Synthetic controls cover
 adjacent worlds, reserved holes, rocket removal, stable ordering and invalid
-identities/geometry. The ordinary DLC restriction remains in place. An explicit
+identities/geometry. Earlier admission used an explicit
 development control, `MA_COLONY_SPACED_OUT_CONTROL=1`, admits the complete
 fixed cluster grid to the existing solver, keeping unallocated cells closed
 and refusing any fluid that would be omitted outside registered worlds.
-It is not player-ready: rocket removal/reuse, the remaining inter-world
-transports and complete cluster gameplay acceptance remain required exits.
+The revision-by-revision development record below retains its original limits;
+those historical controls alone do not establish ordinary player readiness.
 
 The normal DLC-enabled WindowsPlayer diagnostic activated `EXPANSION1_ID`
 through its usual menu preferences and measured **nine worlds on a 736×304
@@ -208,7 +211,7 @@ The first `14ec7b4` retirement game control passes worlds, rocket creation and
 all four mixed-port directions, then completes recovery/unregister of world 9.
 It fails at owner frame 71, two frames after the retirement boundary, with
 `flow: Private entropy diagnostic is nonfinite`; constituent recovery/rebuild
-and cold/menu checks are not accepted. This failure blocks DLC activation.
+and cold/menu checks are not accepted. This failure blocked that candidate's DLC activation.
 The Proton runner has an explicit `--capture-owner-fault` diagnostic to write
 the pre-flow owner dump inside that run's private output directory. It marks
 an environment override and cannot be mistaken for ordinary acceptance.
@@ -497,10 +500,10 @@ No ABI pass was recorded and no solver arithmetic was changed to hide this
 failure. Native Windows compilation and actual Windows OS runs remain separate
 checks; compiling the managed adapter against Windows assemblies proves neither.
 
-Ordinary Spaced Out! activation still explicitly refuses startup. Development
-controls above establish multi-asteroid ownership, rocket creation and paired
-mixed ports, including source/cold/menu restoration. Rocket retirement,
-teleporter/cargo and full cluster gameplay acceptance remain open. Bionic
+Ordinary Spaced Out! activation now uses the same cluster layout, capability
+checks and lifecycle adapters as the targeted controls. The new ordinary
+source/cold/menu and UI checks remain required for its current package. Full
+cluster gameplay acceptance remains open. Bionic
 oxygen and aquatic ecosystem adapters also remain incomplete. The matrix is a
 compatibility check, not proof of every pack's gameplay systems.
 
@@ -542,3 +545,12 @@ frame; active continuation remains unaccepted. A restored image's
 exact reencoding proves restoration only; the matrix explicitly leaves byte-exact **active**
 continuation unverified. The [F3 levelling and F4 conduction proofs](base-game-floor.md)
 also remain open, with their original grids, metrics and bounds.
+
+The `0b93056` cargo replacement passes both phases at frame 128. Both bays
+hold and unload exactly 0.75 kg/0.25 kg through actual linked stations, leaving
+empty loaders/bays and exact pipe accounts. Maximum relative mass/energy errors
+are 7.00e-16/8.04e-16. The filter selections survive when applied after spawn.
+Its cold/menu phases continue separately. Native `6c91161` also passes all 86
+Windows cross-build CTests under Wine, in addition to the recorded Linux suite
+and clean all-MAC output comparison. Ordinary activation no longer needs the
+development environment variable; final package controls use no owner override.

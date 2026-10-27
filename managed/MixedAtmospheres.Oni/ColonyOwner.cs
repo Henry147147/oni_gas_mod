@@ -7,8 +7,8 @@ using UnityEngine;
 
 namespace MixedAtmospheres.Oni
 {
-    // Normal-game owner of every gas and liquid on the asteroid
-    // (docs/colony-owner.md). It starts on a new base-game colony at the first
+    // Normal-game owner of every gas and liquid in the colony
+    // (docs/colony-owner.md). It starts on a new colony at the first
     // completed native frame, publishes the owner's completed frame into the
     // game's data copy and routes mass and heat messages for owned cells.
     internal static unsafe class ColonyOwner
@@ -164,15 +164,10 @@ namespace MixedAtmospheres.Oni
                     return;
                 }
                 var layout=CaptureWorldLayout();
+                var cluster=DlcManager.IsExpansion1Active();
                 Debug.Log($"[Mixed Atmospheres] Cluster layout {layout.GridWidth}x{layout.GridHeight}, {layout.ActiveRectangleCells} world cells: "+
                     string.Join("; ",layout.Worlds.Select(w=>$"world {w.Id} {(w.RocketInterior?"rocket":"asteroid")} {w.X},{w.Y} {w.Width}x{w.Height}")));
-                if (DlcManager.IsExpansion1Active()&&!SpacedOutControl)
-                {
-                    StartFailure = "Spaced Out! is not supported yet";
-                    ColonyNotices.Show("Mixed Atmospheres inactive", "Spaced Out! colonies are not supported yet. This colony keeps ONI's own gases and liquids.");
-                    return;
-                }
-                if (ClusterManager.Instance == null || ClusterManager.Instance.WorldContainers.Count != 1&&!SpacedOutControl)
+                if (!cluster && layout.Worlds.Count != 1)
                 {
                     StartFailure = "The colony owner needs exactly one asteroid";
                     ColonyNotices.Show("Mixed Atmospheres inactive", "Mixed Atmospheres needs a colony on exactly one asteroid. This colony keeps ONI's own gases and liquids.");
@@ -193,7 +188,7 @@ namespace MixedAtmospheres.Oni
                     var element = ElementLoader.elements[source->elementIdx[global]];
                     // Reserved cluster holes are walls, not empty chambers
                     // joining otherwise separate asteroids or rocket worlds.
-                    if(SpacedOutControl&&(!layout.TryFind(global,out var region)||Grid.WorldIdx[global]!=region.Id))
+                    if(cluster&&(!layout.TryFind(global,out var region)||Grid.WorldIdx[global]!=region.Id))
                     {
                         if(!element.IsSolid&&!element.IsVacuum&&source->mass[global]>0)
                             throw new InvalidOperationException("Fluid outside a registered cluster world cannot be omitted at import.");
@@ -222,7 +217,7 @@ namespace MixedAtmospheres.Oni
                 OniNativeColony.Check(OniNativeColony.Start(ref config, materials, (uint)materials.Length, cells, (uint)cells.Length, ref output));
                 ModSettingsRuntime.AfterStart();
                 status = output; views = new OniNativeColony.CellView[cells.Length]; Active = true; ColonyPacingDriver.Ensure(); ConfigurePresentation();
-                ColonyClusterWorlds.Initialize(DlcManager.IsExpansion1Active()&&SpacedOutControl?layout:null);
+                ColonyClusterWorlds.Initialize(cluster?layout:null);
                 if (ColonyPipeRuntime.NewColoniesUseMixedPipes) ColonyPipeRuntime.StartForNewColony(); // docs/mixed-pipes.md#runtime
                 OwnedCells = cells.Count(c => c.Kind != OniNativeColony.Solid);
                 // Backwall cells are a native layer behind the cells; their transitions emit through AddRemoveSubstance.
@@ -243,9 +238,6 @@ namespace MixedAtmospheres.Oni
         internal static OniNativeColony.Config Config => config;
         internal static OniNativeColony.Material[] Materials => materials;
         internal static byte[] Checkpoint() => ColonyCheckpointCopy.Read(OniNativeColony.Checkpoint, OniNativeColony.Check);
-        // Development admission only. Rocket creation/destruction, transport
-        // and cluster persistence must pass before ordinary DLC activation.
-        private static readonly bool SpacedOutControl=Environment.GetEnvironmentVariable("MA_COLONY_SPACED_OUT_CONTROL")=="1";
         internal static ColonyWorldLayout CaptureWorldLayout()
         {
             if(ClusterManager.Instance==null)throw new InvalidOperationException("The cluster has not been constructed.");
@@ -257,7 +249,7 @@ namespace MixedAtmospheres.Oni
         internal static (OniNativeColony.Config config, OniNativeColony.Material[] materials) Describe(uint? savedFlags = null)
         {
             var layout=CaptureWorldLayout();
-            var cluster=DlcManager.IsExpansion1Active()&&SpacedOutControl;
+            var cluster=DlcManager.IsExpansion1Active();
             if(cluster)ColonyClusterWorlds.RequireCapability();
             if (!cluster&&(layout.Worlds.Count != 1 || layout.Worlds[0].RocketInterior))
                 throw new NotSupportedException("The colony owner needs exactly one asteroid.");
@@ -298,7 +290,7 @@ namespace MixedAtmospheres.Oni
             OniNativeColony.Check(OniNativeColony.Restore(ref config, materials, (uint)materials.Length, image, (uint)image.Length, ref output));
             ModSettingsRuntime.Restored(); // the settings this colony recorded (docs/settings.md)
             status = output; views = new OniNativeColony.CellView[width * height]; considered = true; Active = true; ColonyPacingDriver.Ensure(); ConfigurePresentation();
-            ColonyClusterWorlds.Initialize(DlcManager.IsExpansion1Active()&&SpacedOutControl?CaptureWorldLayout():null);
+            ColonyClusterWorlds.Initialize(DlcManager.IsExpansion1Active()?CaptureWorldLayout():null);
             OniNativeColony.Check(OniNativeColony.Copy(ref status, views, (uint)views.Length));
             OwnedCells = views.Count(v => (v.Flags & OniNativeColony.ViewOwned) != 0);
             Debug.Log($"[Mixed Atmospheres] Colony owner restored at frame {status.CompletedFrames}: {OwnedCells} owned cells.");
