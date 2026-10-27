@@ -435,6 +435,38 @@ representative GPU performance. Game-scale performance, the DLC matrix and a
 ten-cycle colony remain open; the mod's unfinished gates are in
 [implementation status](../docs/implementation-status.md).
 
+## Release acceptance
+
+`tools/acceptance_suite.py` runs the private release acceptance for one pushed
+revision on `origin/main`. It checks the revision out as a detached worktree
+in `artifacts/acceptance/<short>/source` (with the shared `local` link), builds
+the Linux package (native, CTest, managed, conduit hook tests) and the
+Windows package (MinGW native, Wine CTest, managed, hook tests, DLL import
+check, ZIP) from it, and uses that checkout as the runner for every game.
+Each game goes through `tools/game_slot.sh low` on the GPU display.
+
+```sh
+python3 tools/acceptance_suite.py plan --tier quick          # dry run: steps and commands
+python3 tools/acceptance_suite.py run <revision> --tier quick --keep-going
+python3 tools/acceptance_suite.py run <revision> --tier release --only linux-ten-cycle
+```
+
+| Tier | Steps |
+| --- | --- |
+| `quick` | 15 Linux scenario batches; the nine base-game asteroids at 3,000 frames; a 3,000-frame run on a copy of the frozen `local/saves/base-defaults-p5-v1.sav`; WindowsPlayer under Proton: eight batches, contact, base save, prepared cycle (3,132 frames) and its natural-autosave cold/menu load, Precise + Strict settings save/load, ordinary Spaced Out! source/cold/menu, and an ordinary clicked Spaced Out! New Game with a manual save and its fresh load |
+| `release` | `quick` plus the 30,000-frame ten-cycle run on the same frozen save |
+
+Outputs go to `artifacts/acceptance/<short>/runs/<tag>/` (default tag
+`<tier>-vN`, the next free number) and are never reused; one
+`summary.json` records every step's checks and `tier_passed`. The frozen save
+must match its fixed SHA-256 and is copied before each run; the copy and the
+original are checked again afterwards. A verified package from an earlier tag
+of the same revision is reused only after its manifest hashes pass again.
+`--only` selects steps by name and adds their dependencies; `--keep-going`
+runs every step after a failure. Shared infrastructure defaults to the main
+checkout's ignored build folders (`build-proton-official10`,
+`build-oni-cross-tools`, `build-wine`) and can be given explicitly.
+
 ## Bounded owner diagnostics
 
 Named scenarios finish at their own fixed acceptance endpoint; `--frames`
