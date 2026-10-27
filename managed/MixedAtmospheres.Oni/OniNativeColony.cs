@@ -166,6 +166,18 @@ namespace MixedAtmospheres.Oni
         internal static extern uint InputFlushVersion();
         [DllImport(Library, EntryPoint = "ma_oni_colony_flush_inputs", CallingConvention = CallingConvention.Cdecl)]
         internal static extern int FlushInputs(out uint submitted,out uint deferred);
+        [DllImport(Library, EntryPoint = "ma_oni_colony_retirement_version", CallingConvention = CallingConvention.Cdecl)]
+        internal static extern uint RetirementVersion();
+        [DllImport(Library, EntryPoint = "ma_oni_colony_prepare_retirement", CallingConvention = CallingConvention.Cdecl)]
+        internal static extern int PrepareRetirement(uint origin,uint width,uint height,out ulong token,out uint bytes);
+        [DllImport(Library, EntryPoint = "ma_oni_colony_copy_retirement", CallingConvention = CallingConvention.Cdecl)]
+        internal static extern int CopyRetirement(ulong token,[Out] byte[] bytes,uint capacity,out uint count);
+        [DllImport(Library, EntryPoint = "ma_oni_colony_commit_retirement", CallingConvention = CallingConvention.Cdecl)]
+        internal static extern int CommitRetirement(ulong token);
+        [DllImport(Library, EntryPoint = "ma_oni_colony_cancel_retirement", CallingConvention = CallingConvention.Cdecl)]
+        internal static extern int CancelRetirement(ulong token);
+        [DllImport(Library, EntryPoint = "ma_oni_colony_finish_retirement", CallingConvention = CallingConvention.Cdecl)]
+        internal static extern int FinishRetirement(uint origin,uint width,uint height);
         [StructLayout(LayoutKind.Sequential)]
         internal struct PipePassive { public ulong Identity; public double Quantity; }
         [StructLayout(LayoutKind.Sequential)]

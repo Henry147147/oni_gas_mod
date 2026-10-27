@@ -19,16 +19,22 @@ namespace MixedAtmospheres.Oni
         internal static int RegisteredRocketWorlds {get;private set;}
         internal static int QueuedOpenCells {get;private set;}
         internal static void Reset()
-        {layout=null;worldIds=Array.Empty<int>();dirty=false;RegisteredRocketWorlds=QueuedOpenCells=0;}
+        {layout=null;worldIds=Array.Empty<int>();dirty=false;RegisteredRocketWorlds=QueuedOpenCells=0;ColonyClusterRetirement.Reset();}
         internal static void Initialize(ColonyWorldLayout? initial)
         {
             Reset();layout=initial;
             if(initial!=null)worldIds=initial.CellWorldIds();
         }
         internal static void Changed(){if(layout!=null)dirty=true;}
+        internal static void Removed(ColonyWorldRegion world)
+        {
+            if(layout==null||!layout.Worlds.Any(w=>w.SameRegion(world)))throw new InvalidOperationException("The retiring rocket layout changed.");
+            layout=new ColonyWorldLayout(layout.GridWidth,layout.GridHeight,layout.Worlds.Where(w=>w.Id!=world.Id));
+            worldIds=layout.CellWorldIds();dirty=true;
+        }
         internal static void RequireCapability()
         {
-            try{if(OniNativeColony.ClusterWorldVersion()==1)return;}
+            try{if(OniNativeColony.ClusterWorldVersion()==1&&OniNativeColony.InputFlushVersion()==1&&OniNativeColony.RetirementVersion()==1)return;}
             catch(EntryPointNotFoundException){}
             throw new NotSupportedException("Dynamic cluster worlds require a matching native/managed bundle.");
         }
@@ -98,5 +104,8 @@ namespace MixedAtmospheres.Oni
     }
     [HarmonyPatch(typeof(ClusterManager),"UnregisterWorldContainer")]
     internal static class ColonyRocketUnregisterPatch
-    {private static void Postfix()=>ColonyClusterWorlds.Changed();}
+    {
+        private static bool Prefix(WorldContainer __0)=>!ColonyClusterRetirement.HoldUnregister(__0);
+        private static void Postfix()=>ColonyClusterWorlds.Changed();
+    }
 }

@@ -119,4 +119,9 @@ void wait() noexcept;
 std::uint32_t flush_inputs(std::uint32_t* submitted=nullptr);
 // A zero-time native update must project lifecycle edits into its shadow too.
 [[nodiscard]] bool needs_shadow_refresh() noexcept;
+std::pair<std::uint64_t,std::uint32_t> prepare_retirement(std::uint32_t origin,std::uint32_t width,std::uint32_t height);
+std::uint32_t copy_retirement(std::uint64_t token,std::uint8_t*,std::uint32_t capacity);
+void commit_retirement(std::uint64_t token);
+void cancel_retirement(std::uint64_t token);
+void finish_retirement(std::uint32_t origin,std::uint32_t width,std::uint32_t height);
 }

@@ -46,6 +46,7 @@ static class Program
     }
     static void Main(string[] args)
     {
+        RetirementInventoryTests.Run();
         ScheduleStateTests.Run();
         StorageHeatTests.Run();
         byte[] AmountImage(PipeAmount amount){using var stream=new MemoryStream();using var writer=new BinaryWriter(stream);amount.Write(writer);return stream.ToArray();}

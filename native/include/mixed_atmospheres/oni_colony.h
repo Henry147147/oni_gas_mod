@@ -168,6 +168,19 @@ MA_ONI_API uint32_t ma_oni_colony_game_kernel_version(void);
  * belong to the owner checkpoint. */
 MA_ONI_API uint32_t ma_oni_colony_cluster_world_version(void);
 MA_ONI_API MAOniResult ma_oni_colony_set_space_cells(const uint32_t*, uint32_t count, uint32_t space);
+/* Rocket retirement, native submitter fenced throughout. Prepare validates a
+ * bounded rectangle (1..4096 cells) and builds an EXACT transient MARET001
+ * inventory before changing the owner. Copy/validate/allocate the destination
+ * first, then commit. A changed publication or queued work refuses commit.
+ * Committed cells remain quarantined until the game has freed its native grid
+ * slot and closed the empty owner cells; finish then releases quarantine.
+ * Saves refuse during quarantine. No new persistent checkpoint fields. */
+MA_ONI_API uint32_t ma_oni_colony_retirement_version(void);
+MA_ONI_API MAOniResult ma_oni_colony_prepare_retirement(uint32_t origin,uint32_t width,uint32_t height,uint64_t* token,uint32_t* bytes);
+MA_ONI_API MAOniResult ma_oni_colony_copy_retirement(uint64_t token,uint8_t* buffer,uint32_t capacity,uint32_t* bytes);
+MA_ONI_API MAOniResult ma_oni_colony_commit_retirement(uint64_t token);
+MA_ONI_API MAOniResult ma_oni_colony_cancel_retirement(uint64_t token);
+MA_ONI_API MAOniResult ma_oni_colony_finish_retirement(uint32_t origin,uint32_t width,uint32_t height);
 MA_ONI_API MAOniResult ma_oni_colony_start(const MAOniColonyConfig*, const MAOniColonyMaterial*, uint32_t material_count,
     const MAOniColonyCell*, uint32_t cell_count, MAOniColonyStatus*);
 MA_ONI_API MAOniResult ma_oni_colony_restore(const MAOniColonyConfig*, const MAOniColonyMaterial*, uint32_t material_count,

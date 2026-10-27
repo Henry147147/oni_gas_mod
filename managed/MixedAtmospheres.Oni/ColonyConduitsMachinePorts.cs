@@ -357,9 +357,10 @@ namespace MixedAtmospheres.Oni
         // An exact owned parcel becomes one native chunk per species at a cell
         // (pipe emptying; liquid storage of a destroyed pump or vent).
         internal static int Chunks(PipeInventory parcel,int cell)
+            =>Chunks(parcel,Grid.CellToPosCCC(cell,Grid.SceneLayer.Ore));
+        internal static int Chunks(PipeInventory parcel,Vector3 position)
         {
             var observedEnergy=PipeAmount.Zero;var observedGerms=new SortedDictionary<int,PipeAmount>();var created=0;
-            var position=Grid.CellToPosCCC(cell,Grid.SceneLayer.Ore);
             foreach(var item in NativeItems(parcel))
             {
                 Observed after=default;

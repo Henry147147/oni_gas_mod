@@ -6,6 +6,7 @@
   <ItemGroup>
     <ProjectReference Include="../../managed/MixedAtmospheres.Core/MixedAtmospheres.Core.csproj" />
     <Compile Include="../../managed/MixedAtmospheres.Oni/ColonyConduitInventory.cs" Link="ColonyConduitInventory.cs" />
+    <Compile Include="../../managed/MixedAtmospheres.Oni/ColonyClusterRetirementInventory.cs" Link="ColonyClusterRetirementInventory.cs" />
     <Compile Include="../../managed/MixedAtmospheres.Oni/ColonyConduitCheckpoint.cs" Link="ColonyConduitCheckpoint.cs" />
     <Compile Include="../../managed/MixedAtmospheres.Oni/ColonyConduitsRuntimeImage.cs" Link="ColonyConduitsRuntimeImage.cs" />
     <Compile Include="../../managed/MixedAtmospheres.Oni/ColonyConduitBiologyState.cs" Link="ColonyConduitBiologyState.cs" />

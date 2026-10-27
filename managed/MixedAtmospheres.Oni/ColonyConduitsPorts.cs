@@ -8,7 +8,7 @@ namespace MixedAtmospheres.Oni
     // Explicit boundary-control runtime only. Production pumps/vents and the save
     // writer remain gated until their component state and durable buffers are
     // included in a separately versioned runtime image.
-    internal static class ColonyPipePorts
+    internal static partial class ColonyPipePorts
     {
         internal sealed class AdmissionRejected : InvalidOperationException
         {internal AdmissionRejected(InvalidOperationException error):base(error.Message,error){}}

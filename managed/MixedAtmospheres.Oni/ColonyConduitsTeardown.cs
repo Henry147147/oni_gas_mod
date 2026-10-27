@@ -83,6 +83,16 @@ namespace MixedAtmospheres.Oni
                 if(frame>=spill.NextFrame)TryDispatch(spill,frame);
             }
         }
+        internal static ulong[] DetachWorld(ColonyWorldRegion world)
+        {
+            var selected=Spills.Where(pair=>world.Contains(pair.Value.Cell%Grid.WidthInCells,pair.Value.Cell/Grid.WidthInCells)).ToArray();
+            var ids=selected.SelectMany(pair=>pair.Value.Ids).Distinct().ToArray();
+            if(ids.Any(ColonyPipePorts.IsPending))throw new InvalidOperationException("A retiring world's spill still has an outstanding receipt.");
+            foreach(var pair in selected)Spills.Remove(pair.Key);
+            return ids.Where(id=>ColonyPipePorts.BufferInventory(id).Count>0).ToArray();
+        }
+        internal static bool HasWorldSpill(ColonyWorldRegion world)=>Spills.Values.Any(spill=>world.Contains(spill.Cell%Grid.WidthInCells,spill.Cell/Grid.WidthInCells)&&
+            spill.Ids.Any(id=>ColonyPipePorts.IsPending(id)||ColonyPipePorts.BufferInventory(id).Count>0));
         private static void TryDispatch(Spill spill,ulong frame)
         {
             spill.NextFrame=checked(frame+1);

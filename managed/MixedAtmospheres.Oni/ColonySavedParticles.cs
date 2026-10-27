@@ -39,6 +39,27 @@ namespace MixedAtmospheres.Oni
 
         private static List<CO2> Live() => AccessTools.Field(typeof(CO2Manager), "co2Items").GetValue(CO2Manager.instance) as List<CO2>
             ?? throw new InvalidOperationException("CO2 particle collection is unavailable.");
+        internal static void RelocateWorld(ColonyWorldRegion world,Vector3 destination)
+        {
+            RestorePending();if(CO2Manager.instance==null)return;
+            foreach(var particle in Live().ToArray())
+            {
+                var cell=Grid.PosToCell(particle.transform.GetPosition());
+                if(world.Contains(cell%Grid.WidthInCells,cell/Grid.WidthInCells))particle.transform.SetPosition(destination);
+            }
+        }
+        internal static void RecoverWorld(ColonyWorldRegion world,System.Action<float,float> recover)
+        {
+            RestorePending();if(CO2Manager.instance==null)return;
+            foreach(var particle in Live().ToArray())
+            {
+                var cell=Grid.PosToCell(particle.transform.GetPosition());
+                if(!world.Contains(cell%Grid.WidthInCells,cell/Grid.WidthInCells))continue;
+                if(particle.mass>0)recover(particle.mass,particle.temperature);
+                Live().Remove(particle);inFlight.Remove(particle);
+                AccessTools.Method(typeof(CO2Manager),"OnDestroyCO2").Invoke(CO2Manager.instance,new object[]{particle.gameObject});
+            }
+        }
         private static OniNativeDomain.Configuration Geometry(OniNativeColony.Config config) => new OniNativeDomain.Configuration
         { GridWidth = config.GridWidth, X = config.OffsetX, Y = config.OffsetY, Width = config.Width, Height = config.Height };
 

@@ -10,6 +10,7 @@
 #include "oni_precise_receipt.hpp"
 #include "oni_parcel_admission.hpp"
 #include "oni_precision_inventory.hpp"
+#include "oni_retirement_inventory.hpp"
 #include "oni_liquid_boundary.hpp"
 #include "oni_release_capture.hpp"
 #include "oni_transfer_capture.hpp"
@@ -169,6 +170,15 @@ struct Session {
     std::shared_ptr<const NativeArenaFrame> native_arena; // diagnostics only
     std::uint64_t native_arena_owner_frames=0;
 };
+struct PreparedRetirement {
+    std::uint64_t token=0;
+    std::shared_ptr<const Published> before,after;
+    std::unique_ptr<Session> candidate;
+    std::vector<std::size_t> cells;
+    std::vector<std::uint8_t> wire;
+};
+std::unique_ptr<PreparedRetirement> prepared_retirement; // lifecycle lock; transient
+std::uint64_t retirement_sequence=0;
 
 std::mutex lifecycle; // start, restore, stop, advance and checkpoint
 std::mutex inputs;    // queued transfers and heat, receipts
@@ -188,6 +198,10 @@ MAOniColonyConfig geometry{};
 // native suppression already leave it to ONI), 3 opening (a queued open of a
 // closed cell; ONI keeps it until the owner opens it).
 std::unique_ptr<std::atomic<std::uint8_t>[]> owned;
+// Transient teardown quarantine: 1 original solid, 2 evacuated fluid. No
+// checkpoint is allowed until native FreeGridSpace has completed.
+std::unique_ptr<std::atomic<std::uint8_t>[]> retiring;
+std::atomic<std::size_t> retiring_count=0;
 std::size_t owned_count = 0;
 std::array<std::atomic<std::uint64_t>, MA_ONI_HOOK_COUNT> suppressed{};
 std::vector<MAOniColonyTransfer> pending_transfers;
@@ -586,7 +600,7 @@ Projection project(const Session& s, const MacClosedWorld& w) {
     }
     return out;
 }
-void publish(const Session& s, Projection projection, bool same_frame_edit=false) {
+std::shared_ptr<Published> make_publication(const Session& s, Projection projection, bool same_frame_edit=false) {
     auto p = std::make_shared<Published>();
     p->same_frame_edit=same_frame_edit;
     p->config=s.config; p->status = s.status; p->views = std::move(projection.views); p->readings = std::move(projection.readings); p->parts = std::move(projection.parts);
@@ -608,6 +622,10 @@ void publish(const Session& s, Projection projection, bool same_frame_edit=false
         booked+=L.initial[k]+L.injected[k]-L.extracted[k]-L.sunk[k]-L.trace[k]+L.converted[k];
     p->booked_mass_kg=static_cast<double>(booked);
     p->booked_heat_j=static_cast<double>(L.heat);
+    return p;
+}
+void publish(const Session& s, Projection projection, bool same_frame_edit=false) {
+    auto p=make_publication(s,std::move(projection),same_frame_edit);
     std::lock_guard lock(publication);
     if (retained_sample_frames) {
         sample_frames.insert_or_assign(p->status.completed_frames,p);
@@ -639,6 +657,7 @@ void activate(std::unique_ptr<Session> next, std::uint64_t thread) {
     for (const auto& r : next->reservoir) next->status.reservoir_kg += r.mass_kg;
     geometry = next->config; owned_count = next->world->state().grid.walls.size();
     owned = std::make_unique<std::atomic<std::uint8_t>[]>(owned_count);
+    retiring=std::make_unique<std::atomic<std::uint8_t>[]>(owned_count);retiring_count=0;prepared_retirement.reset();
     for (std::size_t i = 0; i < owned_count; ++i) owned[i].store(next->world->state().grid.walls[i] ? 0 : 1, std::memory_order_relaxed);
     for (auto& v : suppressed) v.store(0, std::memory_order_relaxed);
     { std::lock_guard lock(inputs); pending_transfers.clear(); pending_heat.clear(); pending_terrain.clear(); pending_freezes.clear(); pending_germs.clear(); receipts.clear();
@@ -1065,7 +1084,7 @@ bool busy() noexcept { return solver.busy.load(std::memory_order_acquire); }
 void wait() noexcept { solver.settle(false); }
 bool needs_shadow_refresh() noexcept {
     std::lock_guard lock(publication);
-    return latest && latest->same_frame_edit;
+    return retiring_count.load(std::memory_order_relaxed)!=0 || (latest && latest->same_frame_edit);
 }
 
 void start(const MAOniColonyConfig& config, std::span<const MAOniColonyMaterial> materials, std::span<const MAOniColonyCell> cells, std::uint64_t thread) {
@@ -1133,7 +1152,7 @@ void stop() noexcept {
     ma::oni::windows_lifecycle_trace("colony process-resident workers parked");
     std::lock_guard lock(lifecycle);
     ma::oni::windows_lifecycle_trace("colony lifecycle locked");
-    session.reset();
+    session.reset();prepared_retirement.reset();retiring_count=0;
     std::scoped_lock p(publication,inputs);latest.reset();sample_frames.clear();retained_sample_frames=0;
     capture_native_arena.store(false,std::memory_order_release);
     pending_native_arena.reset();pending_native_arena_captures=0;
@@ -1805,6 +1824,13 @@ void write_shadow(const NativeCells& n) noexcept {
         const std::size_t c = (geometry.offset_x + i % geometry.width + 1) + (geometry.offset_y + i / geometry.width + 1) * static_cast<std::size_t>(n.pitch);
         const auto present = n.element[0][c];
         shadow[i].before = present;
+        if(retiring[i].load(std::memory_order_relaxed)==2) {
+            for(int b=0;b<2;++b) {
+                n.element[b][c]=static_cast<std::uint16_t>(vacuum);n.mass[b][c]=n.temperature[b][c]=0;
+                if(n.disease[b]&&n.disease_count[b]){n.disease[b][c]=255;n.disease_count[b][c]=0;}
+            }
+            continue;
+        }
         if (owned[i].load(std::memory_order_relaxed) != 1) continue;
         // A solid native placed in an owned cell (landing sand, a tile) stays
         // native, and the owner closes the cell at its next step.
@@ -1936,6 +1962,7 @@ void capture_shadow(const NativeCells& n,std::uint64_t native_ticket) noexcept {
         const auto fluid = [&](std::uint16_t e) { return e == vacuum || cat.has_native(e); };
         const bool oracle_on = germ_oracle_requested() && biology_mode.load(std::memory_order_relaxed) == 0 && !disease_table.empty();
         for (std::size_t i = 0; i < owned_count; ++i) {
+            if(retiring[i].load(std::memory_order_relaxed)!=0)continue;
             const auto& sh = shadow[i];
             const std::size_t c = (geometry.offset_x + i % geometry.width + 1) + (geometry.offset_y + i / geometry.width + 1) * static_cast<std::size_t>(n.pitch);
             const auto e = n.element[1][c]; const float m = n.mass[1][c], t = n.temperature[1][c];
@@ -3007,6 +3034,144 @@ std::uint32_t flush_inputs(std::uint32_t* submitted) {
     return pending();
 }
 
+namespace {
+std::vector<std::size_t> retirement_cells(const Session& s,std::uint32_t origin,std::uint32_t width,std::uint32_t height) {
+    require(width && height && static_cast<std::uint64_t>(width)*height<=4096,"A rocket retirement requires 1..4096 cells");
+    const auto first=rect_index(s.config,origin);
+    require(width<=s.config.width-first%s.config.width && height<=s.config.height-first/s.config.width,
+        "Rocket retirement rectangle exceeds the owner grid");
+    std::vector<std::size_t> cells;cells.reserve(static_cast<std::size_t>(width)*height);
+    for(std::size_t y=0;y<height;++y)for(std::size_t x=0;x<width;++x)cells.push_back(first+x+y*s.config.width);
+    return cells;
+}
+bool pending_inputs() { // input lock held
+    return !pending_transfers.empty() || !pending_heat.empty() || !pending_terrain.empty() ||
+        !pending_freezes.empty() || !pending_germs.empty() || !receipts.empty() || !pipe_jobs.empty();
+}
+void audit_retirement(Session& s) {
+    auto mass=totals(*s.world);long double energy=energy_of(*s.world);
+    for(const auto& held:s.precision) {
+        mass[s.catalogue->species_of_native(held.native_index)]+=held.mass_kg;
+        energy+=detail::precision_value(held.energy_j);
+    }
+    const auto& L=s.ledger;double mass_error=0;
+    for(std::size_t k=0;k<mass.size();++k) {
+        const auto expected=L.initial[k]+L.injected[k]-L.extracted[k]-L.sunk[k]-L.trace[k]+L.converted[k];
+        const auto scale=L.initial[k]+L.injected[k]+L.extracted[k]+L.sunk[k]+L.trace[k]+L.converted_gross[k];
+        if(scale>0)mass_error=std::max(mass_error,static_cast<double>(std::abs(mass[k]-expected)/scale));
+        else require(mass[k]==0,"Rocket retirement created an unbooked constituent");
+    }
+    const auto expected=L.initial_energy+L.heat+L.energy_in-L.energy_out-L.energy_sunk-L.energy_trace;
+    const auto scale=std::abs(L.initial_energy)+std::abs(L.heat)+std::abs(L.energy_in)+std::abs(L.energy_out)+std::abs(L.energy_sunk)+std::abs(L.energy_trace);
+    const auto energy_error=scale>0?static_cast<double>(std::abs(energy-expected)/scale):energy==expected?0:1;
+    require(mass_error<=1e-8 && energy_error<=1e-6,"Rocket retirement exceeded the owner conservation bound");
+    s.status.maximum_relative_mass_error=std::max(s.status.maximum_relative_mass_error,mass_error);
+    s.status.maximum_relative_energy_error=std::max(s.status.maximum_relative_energy_error,energy_error);
+}
+}
+std::pair<std::uint64_t,std::uint32_t> prepare_retirement(std::uint32_t origin,std::uint32_t width,std::uint32_t height) {
+    wait();std::pair<std::uint64_t,std::uint32_t> prepared{};
+    solver.execute([&] {
+    std::lock_guard lock(lifecycle);const ArithmeticScope arithmetic;
+    require(session && session->status.state==1,"Rocket retirement requires a healthy owner");
+    {std::lock_guard q(inputs);require(!pending_inputs(),"Drain owner inputs and outcomes before rocket retirement");}
+    auto next=std::make_unique<PreparedRetirement>();next->cells=retirement_cells(*session,origin,width,height);
+    std::vector<std::uint8_t> selected(owned_count);
+    for(const auto i:next->cells) {
+        require(retiring[i].load(std::memory_order_relaxed)==0,"Rocket cells are already retiring");selected[i]=1;
+    }
+    {std::lock_guard p(publication);next->before=latest;}
+    next->candidate=std::make_unique<Session>(*session);auto& s=*next->candidate;
+    auto world=*s.world;const auto& cat=*s.catalogue;std::array<detail::RetirementInventory,2> inventories;
+    std::vector<MacFluidTransfer> edits;
+    for(const auto i:next->cells) {
+        const auto& m=world.state().cells[i].mixture;
+        std::vector<std::size_t> species;
+        for(std::size_t k=0;k<m.masses.size();++k)if(m.masses[k]>0)species.push_back(k);
+        std::stable_sort(species.begin(),species.end(),[&](auto a,auto b){return m.masses[a]<m.masses[b];});
+        for(const auto k:species) {edits.push_back({i,k,false,m.masses[k],0});edits.back().observe_passives=true;}
+    }
+    for(std::size_t first=0;first<edits.size();first+=4096) {
+        auto result=std::move(world).with_fluid_transfers(std::span(edits.data()+first,std::min<std::size_t>(4096,edits.size()-first)),MacFluidTransferTopology::occupied_mixture);
+        world=std::move(result.world);
+        for(const auto& p:result.parcels) {
+            const auto& material=cat.materials[p.species_index];inventories[material.game.gas?0:1].add(p,material.game.native_index);
+            s.ledger.extracted[p.species_index]+=p.mass_kg;s.ledger.energy_out+=parcel_energy(p);s.status.extracted_kg+=p.mass_kg;
+        }
+    }
+    const auto& materials=world.thermodynamics().reference().materials();
+    for(const auto& r:s.reservoir)if(selected[r.region_cell]) {
+        const auto& material=materials[r.species];auto& out=inventories[cat.materials[r.species].game.gas?0:1];
+        out.masses[cat.materials[r.species].game.native_index].add(r.mass_kg);
+        out.internal_energy.add(r.mass_kg*(material.energy_offset_j_per_kg+material.cv_j_per_kg_k*r.temperature_k));
+        s.status.reservoir_kg-=r.mass_kg;
+        // Reservoir contents were already outside the CFD ledger. Exporting
+        // them must not debit that ledger a second time.
+    }
+    std::erase_if(s.reservoir,[&](const auto& r){return selected[r.region_cell]!=0;});
+    s.status.reservoir_kg=0;for(const auto& r:s.reservoir)s.status.reservoir_kg+=r.mass_kg;
+    for(const auto& held:s.precision) {
+        const auto source=rect_index(s.config,held.source),anchor=rect_index(s.config,held.anchor);
+        require(selected[source]==selected[anchor],"A precision parcel crosses the retiring world boundary");
+        if(!selected[anchor])continue;
+        const auto k=cat.species_of_native(held.native_index);const auto& material=materials[k];auto& out=inventories[0];
+        require(cat.materials[k].game.gas,"Precision retirement received a non-gas parcel");
+        const auto thermal=held.mass_kg*(material.energy_offset_j_per_kg+material.cv_j_per_kg_k*held.temperature_k);
+        const auto gravity=detail::precision_potential(world,anchor,held.mass_kg);
+        out.masses[held.native_index].add(held.mass_kg);out.internal_energy.add(thermal);out.potential.add(gravity);
+        detail::add_precision_sum(out.remainder,held.energy_j);out.remainder.add(-thermal);out.remainder.add(gravity.negated());
+        s.ledger.extracted[k]+=held.mass_kg;s.ledger.energy_out+=detail::precision_value(held.energy_j);s.status.extracted_kg+=held.mass_kg;
+    }
+    std::erase_if(s.precision,[&](const auto& p){return selected[rect_index(s.config,p.anchor)]!=0;});
+    std::erase_if(s.clocks,[&](const auto& pair){return selected[pair.first.first]!=0;});
+    if(s.germ_mode==1)world=evolve_germs(s,std::move(world),{},0);
+    s.world=std::make_shared<const MacClosedWorld>(std::move(world));audit_retirement(s);
+    detail::ParcelWireWriter wire;wire.raw("MARET001");wire.u64(s.status.session);wire.u64(s.status.completed_frames);
+    wire.u32(origin);wire.u32(width);wire.u32(height);
+    for(const auto& inventory:inventories)inventory.write(wire);
+    next->wire=std::move(wire.bytes);next->after=make_publication(s,project(s,*s.world),true);
+    require(retirement_sequence<UINT64_MAX,"Rocket retirement token overflow");next->token=++retirement_sequence;
+    prepared={next->token,static_cast<std::uint32_t>(next->wire.size())};prepared_retirement=std::move(next);
+    });
+    return prepared;
+}
+std::uint32_t copy_retirement(std::uint64_t token,std::uint8_t* buffer,std::uint32_t capacity) {
+    std::lock_guard lock(lifecycle);require(prepared_retirement && prepared_retirement->token==token,"Unknown rocket retirement token");
+    const auto& wire=prepared_retirement->wire;
+    if(buffer) {require(capacity>=wire.size(),"Rocket retirement buffer is too small");std::copy(wire.begin(),wire.end(),buffer);}
+    return static_cast<std::uint32_t>(wire.size());
+}
+void commit_retirement(std::uint64_t token) {
+    wait();std::scoped_lock lock(lifecycle,inputs,publication);
+    require(session && session->status.state==1 && prepared_retirement && prepared_retirement->token==token,"Unknown or unhealthy rocket retirement");
+    auto& plan=*prepared_retirement;
+    require(latest==plan.before && !pending_inputs(),"Rocket retirement preparation is stale");
+    // All allocations, encoding and physical validation happened in prepare.
+    // Reserve the optional diagnostic history node before changing ownership.
+    if(retained_sample_frames)sample_frames.insert_or_assign(plan.after->status.completed_frames,plan.after);
+    for(const auto i:plan.cells)retiring[i].store(session->world->state().grid.walls[i]?1:2,std::memory_order_relaxed);
+    retiring_count.fetch_add(plan.cells.size(),std::memory_order_relaxed);
+    session=std::move(plan.candidate);latest=std::move(plan.after);prepared_retirement.reset();
+}
+void cancel_retirement(std::uint64_t token) {
+    std::lock_guard lock(lifecycle);
+    if(prepared_retirement && prepared_retirement->token==token)prepared_retirement.reset();
+}
+void finish_retirement(std::uint32_t origin,std::uint32_t width,std::uint32_t height) {
+    wait();std::lock_guard lock(lifecycle);
+    require(session && session->status.state==1,"Rocket retirement requires a healthy owner");
+    {std::lock_guard q(inputs);require(!pending_inputs(),"Rocket retirement cleanup still has pending work");}
+    const auto cells=retirement_cells(*session,origin,width,height);const auto& world=*session->world;
+    for(const auto i:cells)require(retiring[i].load(std::memory_order_relaxed)!=0 && world.state().grid.walls[i] &&
+        world.state().cells[i].mixture.mass()==0,"Close every evacuated rocket cell before releasing its grid slot");
+    std::vector<std::uint8_t> selected(owned_count);for(const auto i:cells)selected[i]=1;
+    for(const auto& r:session->reservoir)require(!selected[r.region_cell],"A retiring world still anchors a retained reservoir");
+    for(const auto& p:session->precision)require(!selected[rect_index(session->config,p.source)] && !selected[rect_index(session->config,p.anchor)],
+        "A retiring world still anchors a precision parcel");
+    for(const auto i:cells) {retiring[i].store(0,std::memory_order_relaxed);session->space[i]=session->blocking[i]=0;}
+    retiring_count.fetch_sub(cells.size(),std::memory_order_relaxed);
+}
+
 // MACOLN01 checkpoint: header, configuration and material records (exact
 // bytes), reservoir, ledger, the MACCLS01 physical image and a SHA-256.
 namespace {
@@ -3053,6 +3218,7 @@ std::vector<std::uint8_t> checkpoint() {
     std::lock_guard lock(lifecycle);
     require(session != nullptr, "No colony owner is active");
     require(session->status.state == 1, "A faulted colony owner cannot be saved");
+    require(retiring_count.load(std::memory_order_relaxed)==0,"Finish native rocket grid cleanup before saving");
     const ArithmeticScope arithmetic;
     const auto& s = *session; Writer w;
     // Keep the queue and selected wrapper framing one coherent save snapshot.

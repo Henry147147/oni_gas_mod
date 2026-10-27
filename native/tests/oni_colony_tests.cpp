@@ -11,6 +11,7 @@
 #include "../src/oni_parcel_wire.hpp"
 #include "../src/oni_parcel_outcome.hpp"
 #include "../src/oni_precision_inventory.hpp"
+#include "../src/oni_retirement_inventory.hpp"
 #include <fstream>
 #include <cstdlib>
 #include "../src/oni_sha256.hpp"
@@ -1654,6 +1655,81 @@ void world_biology_control() {
     require(refused, "inconsistent disease table admitted");
     std::cout << "WORLD BIOLOGY PASS\n";
 }
+void retirement_control() {
+    using namespace ma::oni::colony;using ma::experimental::MacEnergySum;
+    namespace detail=ma::oni::colony::detail;
+    struct Phase {std::map<std::uint32_t,MacEnergySum> mass,germs;MacEnergySum energy,remainder;};
+    const auto read=[&](std::uint64_t token) {
+        std::vector<std::uint8_t> wire(copy_retirement(token,nullptr,0));
+        require(copy_retirement(token,wire.data(),static_cast<std::uint32_t>(wire.size()))==wire.size(),"Retirement copy size changed");
+        detail::ParcelWireReader r{wire};const auto magic=r.raw(8);
+        require(std::string_view(reinterpret_cast<const char*>(magic.data()),8)=="MARET001","Wrong retirement wire");
+        require(r.u64()==status().session && r.u64()==status().completed_frames,"Retirement source labels changed");
+        (void)r.u32();(void)r.u32();(void)r.u32();
+        const auto amount=[&] {MacEnergySum value;const auto n=r.u32();for(std::uint32_t i=0;i<n;++i)value.add(r.f64());return value;};
+        std::array<Phase,2> result;
+        for(auto& p:result) {
+            const auto n=r.u32();for(std::uint32_t i=0;i<n;++i){const auto id=r.u32();p.mass.emplace(id,amount());}
+            p.energy=amount();const auto germs=r.u32();for(std::uint32_t i=0;i<germs;++i){const auto id=r.u32();p.germs.emplace(id,amount());}
+            for(int i=0;i<4;++i)(void)r.sum();
+            p.remainder=amount();
+        }
+        require(r.at==wire.size(),"Retirement inventory left trailing bytes");return result;
+    };
+    const auto equal=[](MacEnergySum a,const MacEnergySum& b) {detail::add_precision_sum(a,b,-1);return a.sign()==0;};
+    MAOniColonyConfig cfg{};cfg.struct_size=sizeof(cfg);cfg.abi_version=1;
+    cfg.flags=MA_ONI_COLONY_GAME_KERNEL|MA_ONI_COLONY_GAME_SURFACE;cfg.vacuum_index=vacuum;
+    cfg.grid_width=cfg.width=3;cfg.grid_height=cfg.height=3;cfg.maximum_timestep_s=.1;
+    const std::vector<MAOniColonyMaterial> mats{material("Oxygen",11,oxygen,true,.032,1005),material("CarbonDioxide",12,carbon,true,.044,850),
+        material("Water",13,water,false,.018,4180,1000)};
+    std::vector<MAOniColonyCell> cells(9);cells[0]={oxygen,MA_ONI_COLONY_FLUID,1,300,1,1000};cells[4]={oxygen,MA_ONI_COLONY_FLUID,2,300,0,0};
+    start(cfg,mats,cells,1);enable_precise_receipts(true);
+    const std::array<MAOniColonyTransfer,2> additions{{{0,carbon,MA_ONI_COLONY_INJECT,0,-1,0,.25,300,0},{0,water,MA_ONI_COLONY_INJECT,0,-1,0,2,300,0}}};
+    queue_transfers(additions);require(flush_inputs()==0,"Retirement source did not settle");
+    // Include an actual sub-ULP owner-held parcel, not just visible grid mass.
+    const MAOniColonyTransfer tiny{0,oxygen,MA_ONI_COLONY_INJECT,0,-1,0,1e-240,300,0};
+    (void)queue_pipe_job(1,tiny,{});require(flush_inputs()==0,"Retirement precision source did not settle");
+    MAOniColonyReceipt receipt{};require(copy_receipts(&receipt,1)==1,"Retirement precision source lost its receipt");ack_receipts(receipt.sequence);
+    require(!detail::decode_precision_inventory(precision_inventory()).empty(),"Retirement source has no actual precision inventory");
+    const auto initial=checkpoint();bool refused=false;
+    try{(void)prepare_retirement(2,2,1);}catch(const std::invalid_argument&){refused=true;}
+    require(refused && checkpoint()==initial,"Invalid retirement changed the source");
+    auto prepared=prepare_retirement(0,3,1);cancel_retirement(prepared.first);
+    require(checkpoint()==initial,"Preparing/cancelling retirement changed the source");
+    prepared=prepare_retirement(0,3,1);const MAOniColonyHeat heat{0,0,1,0};queue_heat(std::span(&heat,1));
+    refused=false;try{commit_retirement(prepared.first);}catch(const std::invalid_argument&){refused=true;}
+    require(refused,"A stale retirement ignored newly queued work");cancel_retirement(prepared.first);require(flush_inputs()==0,"Late retirement heat did not settle");
+    prepared=prepare_retirement(0,3,1);const auto inventory=read(prepared.first);MacEnergySum expected;expected.add(1);expected.add(1e-240);
+    require(equal(inventory[0].mass.at(oxygen),expected),"Retirement omitted or rounded a precision parcel");
+    expected={};expected.add(.25);require(equal(inventory[0].mass.at(carbon),expected),"Retirement omitted minority gas");
+    expected={};expected.add(2);require(equal(inventory[1].mass.at(water),expected),"Retirement omitted hidden liquid");
+    MacEnergySum germs=inventory[0].germs.at(0);detail::add_precision_sum(germs,inventory[1].germs.at(0));
+    expected={};expected.add(1000);require(equal(germs,expected),"Retirement lost fractional germ shares between phases");
+    const auto before=status();commit_retirement(prepared.first);require(status().completed_frames==before.completed_frames && status().time_seconds==before.time_seconds,
+        "Retirement consumed simulation time");
+    std::array<std::uint32_t,4> ids{};std::array<double,4> masses{};
+    require(composition(0,ids.data(),masses.data(),4)==0 && composition(4,ids.data(),masses.data(),4)==1 && masses[0]==2,
+        "Retirement kept duplicate source mass or changed the other world");
+    require(detail::decode_precision_inventory(precision_inventory()).empty(),"Retirement left an orphan precision anchor");
+    refused=false;try{(void)checkpoint();}catch(const std::invalid_argument&){refused=true;}require(refused,"Saving admitted an unfinished native grid teardown");
+    refused=false;try{finish_retirement(0,3,1);}catch(const std::invalid_argument&){refused=true;}require(refused,"Retirement released still-open cells");
+    const std::array<MAOniColonyTerrain,3> closing{{{0,MA_ONI_COLONY_CLOSE},{1,MA_ONI_COLONY_CLOSE},{2,MA_ONI_COLONY_CLOSE}}};
+    queue_terrain(closing);require(flush_inputs()==0,"Empty retirement cells did not close");finish_retirement(0,3,1);
+    const auto saved=checkpoint();stop();restore(cfg,mats,saved,1);require(checkpoint()==saved,"Finished retirement did not cold-reencode exactly");
+    const MAOniColonyTerrain opening{0,MA_ONI_COLONY_OPEN};queue_terrain(std::span(&opening,1));
+    auto reused=tiny;reused.mass_kg=.5;queue_transfers(std::span(&reused,1));require(flush_inputs()==0,"Reused rocket cell did not open");
+    require(composition(0,ids.data(),masses.data(),4)==1 && ids[0]==oxygen && masses[0]==.5,"A reused rocket cell inherited a former mixture");stop();
+    // A closed world's retained reservoir is already outside the CFD ledger;
+    // recover it once without debiting that ledger again.
+    cfg.grid_width=cfg.width=5;cells.assign(15,{});cells[14]={oxygen,MA_ONI_COLONY_FLUID,1,300,0,0};
+    start(cfg,mats,cells,1);auto reservoir=tiny;reservoir.native_index=water;reservoir.mass_kg=1500;
+    queue_transfers(std::span(&reservoir,1));require(flush_inputs()==0 && status().reservoir_kg==1500,"Closed-world reservoir source was not retained");
+    prepared=prepare_retirement(0,1,1);const auto stored=read(prepared.first);expected={};expected.add(1500);
+    require(equal(stored[1].mass.at(water),expected),"Retirement omitted its retained reservoir");
+    commit_retirement(prepared.first);finish_retirement(0,1,1);require(status().reservoir_kg==0 && status().state==1,"Reservoir retirement double-debited or retained its source");
+    require(status().maximum_relative_mass_error<1e-12 && status().maximum_relative_energy_error<1e-12,"Retirement ledgers do not close");stop();
+    std::cout<<"PASS world retirement: atomic preparation/stale refusal, full mixed phases/germs/precision/reservoir, quarantine/save guard, cold restore and clean slot reuse\n";
+}
 void input_flush_control() {
     using namespace ma::oni::colony;
     const auto flush_from_native_caller=[] {
@@ -1807,6 +1883,7 @@ int main(int argc, char** argv) {
         if (argc == 2 && std::strcmp(argv[1], "--biology-only") == 0) {world_biology_control();unplaced_output_control();return 0;}
         if (argc == 2 && std::strcmp(argv[1], "--cluster-boundaries-only") == 0) {cluster_boundary_control();return 0;}
         if (argc == 2 && std::strcmp(argv[1], "--input-flush-only") == 0) {input_flush_control();return 0;}
+        if (argc == 2 && std::strcmp(argv[1], "--retirement-only") == 0) {retirement_control();return 0;}
         if (argc == 2 && std::strcmp(argv[1], "--quiet-game-cell-only") == 0) {quiet_game_cell_control();return 0;}
         if (argc == 2 && std::strcmp(argv[1], "--shadow-handoff-only") == 0) {shadow_handoff_control();return 0;}
         if (argc == 2 && std::strcmp(argv[1], "--timestep-only") == 0) { timestep_control(); return 0; }
@@ -1838,6 +1915,7 @@ int main(int argc, char** argv) {
         world_biology_control();
         cluster_boundary_control();
         input_flush_control();
+        retirement_control();
         unplaced_output_control();
         quiet_game_cell_control();
         shadow_handoff_control();

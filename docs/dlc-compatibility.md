@@ -157,6 +157,50 @@ caller. Standalone coverage includes both fresh and warmed topology/trace
 boundaries. A replacement game control is still required; these failed attempts
 provide no lifecycle acceptance.
 
+The `31d53b7` replacement passes source/cold/menu on WindowsPlayer under
+Proton. Its zero-time boundary holds owner frame 24, native ticket 4524 and
+4.8000000715255737 s throughout; the precise extraction returns 0.25 kg oxygen
+and 0.125 kg carbon dioxide, and the return leaves 1.125 kg/0.5625 kg in the
+sealed source with an exact pipe account. The actual source saves frame 24;
+the older harness entry snapshot reports frame 23, which is retained as-is.
+Both loads reach frame 32 and exactly reencode the same wrapper-12/core-23
+image; the menu path verifies a new session. Maximum relative mass/energy
+errors across the runs are 2.73e-16/2.86e-16. The scenario reporter now refreshes
+its completed publication after a lifecycle scenario returns. These controls
+remain experimental and do not certify ordinary DLC activation or Windows OS.
+
+### Rocket retirement
+
+The development adapter now prepares a complete retirement inventory on the
+solver worker before changing ownership. Its bounded transient `MARET001`
+handoff carries both phases, actual per-ID germ removals, full-range mechanical
+accounts and precision-energy remainders. Owner-held sub-ULP parcels and
+reservoirs anchored in the interior also leave; reservoir contents already
+outside the CFD ledger are not debited twice. A stale preparation or queued
+input refuses commit without changing the source. This introduces no new
+persistent checkpoint fields or solver arithmetic.
+
+After commit, the empty cells stay quarantined until the game finishes its
+native grid cleanup. Saves defer/refuse during that interval. The adapter
+holds the game's early unregister so another capsule cannot reuse the live
+slot. Landed recovery creates the ordinary per-species chunks; airborne
+recovery uses the game's debris stores and travel lifecycle. Retained pipe
+spills are included. In-flight carbon-dioxide particles move to the landed
+destination, or become native debris items before their old pool entries
+retire. Solids, crew and ordinary pickupable recovery retain the game's path.
+Unexpected late inventory refuses cleanup rather than abandoning its anchor.
+
+Standalone tests cover stale/invalid/cancelled preparation, hidden liquids,
+fractional germs, an actual 1e-240 kg precision parcel, a retained reservoir,
+quarantine/save refusal, exact cold restoration and clean slot reuse. Managed
+wire tests check both phases, trace/germ/energy preservation, full-range
+mechanics, source identity and every byte truncation; installed-game hook tests
+pin both recovery destinations and the allocation fence. The new
+`spaced-out-rocket-retire` game control dismantles the constructed capsule with
+its nonempty mixed ports, checks recovered constituents, rebuilds it in the
+same slot and verifies a fresh mixture. That game result is still required;
+ordinary DLC support remains disabled.
+
 The 2026-10-26 request covers Spaced Out!, Frosty, Bionic, Prehistoric and
 Aquatic: every one of their 32 selections on Linux and Windows x64. This
 extends the [base-game playtest](playtest-plan.md); it does not certify the

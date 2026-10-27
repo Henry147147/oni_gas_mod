@@ -1019,6 +1019,33 @@ MAOniResult ma_oni_colony_wait() {
     return boundary([&] { ma::oni::colony::wait(); });
 }
 std::uint32_t ma_oni_colony_input_flush_version() { return 1; }
+std::uint32_t ma_oni_colony_retirement_version() { return 1; }
+MAOniResult ma_oni_colony_prepare_retirement(std::uint32_t origin,std::uint32_t width,std::uint32_t height,std::uint64_t* token,std::uint32_t* bytes) {
+    return boundary([&] {
+        if(!token || !bytes)throw Failure(MA_ONI_INVALID_ARGUMENT,"Missing rocket retirement output");
+        try {const auto prepared=ma::oni::colony::prepare_retirement(origin,width,height);*token=prepared.first;*bytes=prepared.second;}
+        catch(const std::invalid_argument& error){throw Failure(MA_ONI_INVALID_ARGUMENT,error.what());}
+    });
+}
+MAOniResult ma_oni_colony_copy_retirement(std::uint64_t token,std::uint8_t* buffer,std::uint32_t capacity,std::uint32_t* bytes) {
+    return boundary([&] {
+        if(!bytes || (capacity && !buffer))throw Failure(MA_ONI_INVALID_ARGUMENT,"Invalid rocket retirement buffer");
+        try {
+            *bytes=ma::oni::colony::copy_retirement(token,nullptr,0);
+            if(buffer && capacity<*bytes)throw Failure(MA_ONI_BUFFER_TOO_SMALL,"Rocket retirement buffer is too small");
+            if(buffer)(void)ma::oni::colony::copy_retirement(token,buffer,capacity);
+        }catch(const std::invalid_argument& error){throw Failure(MA_ONI_INVALID_ARGUMENT,error.what());}
+    });
+}
+MAOniResult ma_oni_colony_commit_retirement(std::uint64_t token) {
+    return boundary([&]{ma::oni::colony::commit_retirement(token);});
+}
+MAOniResult ma_oni_colony_cancel_retirement(std::uint64_t token) {
+    return boundary([&]{ma::oni::colony::cancel_retirement(token);});
+}
+MAOniResult ma_oni_colony_finish_retirement(std::uint32_t origin,std::uint32_t width,std::uint32_t height) {
+    return boundary([&]{ma::oni::colony::finish_retirement(origin,width,height);});
+}
 MAOniResult ma_oni_colony_flush_inputs(std::uint32_t* submitted,std::uint32_t* deferred) {
     return boundary([&] {
         if(!submitted || !deferred)throw Failure(MA_ONI_INVALID_ARGUMENT,"Missing input-flush output");

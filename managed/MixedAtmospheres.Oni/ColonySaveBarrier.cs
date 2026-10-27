@@ -38,7 +38,7 @@ namespace MixedAtmospheres.Oni
         internal static bool BeforeFileSave(string filename, bool isAutoSave, bool updateSavePointer)
         {
             if (!ColonyOwner.Active) return true;
-            if (stepping > 0)
+            if (stepping > 0||ColonyClusterRetirement.Pending)
             {
                 ++Deferred;
                 Game.Instance.StartDelayedSave(filename, isAutoSave, updateSavePointer);
@@ -144,6 +144,7 @@ namespace MixedAtmospheres.Oni
         // (nothing has advanced since); any other entry settles here.
         internal static ulong ForCapture()
         {
+            if(ColonyClusterRetirement.Pending)throw new InvalidOperationException("Finish rocket cleanup before capturing this colony.");
             if (!settledForSave) return Settle();
             if (!Quiescent(out var status)) throw new InvalidOperationException("The colony owner advanced after its save barrier.");
             return Record(status);

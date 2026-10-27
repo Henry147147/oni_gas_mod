@@ -439,6 +439,10 @@ namespace MixedAtmospheres.Oni
             // A system scenario (ColonyScenarios) decides when the run ends;
             // its checks of this frame go into the report below.
             var scenarioDone = configuration!.Scenario.Length != 0 && !faulted && ColonyScenarios.Update(configuration.Scenario, status);
+            // A lifecycle scenario can settle the outstanding owner and
+            // publish zero-time edits before returning. Report that completed
+            // publication, rather than its stale entry snapshot.
+            status=ColonyOwner.Status;faulted=status.State==2&&!ColonyScenarios.FaultExpected;
             var owner = new {
                 SchemaVersion = 1, status.State, Faulted = faulted, status.Session, status.CompletedFrames, status.Substeps, status.RejectedAttempts, status.Species,
                 status.TimeSeconds, status.LastAdvanceMilliseconds, status.MaximumAdvanceMilliseconds, status.StageMilliseconds,

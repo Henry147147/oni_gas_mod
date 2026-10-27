@@ -1,0 +1,26 @@
+using System.Reflection;
+
+internal static class ClusterRetirementTests
+{
+    internal static void Run(Assembly assembly)
+    {
+        const BindingFlags all=BindingFlags.Static|BindingFlags.Instance|BindingFlags.Public|BindingFlags.NonPublic;
+        static void Check(bool ok,string reason){if(!ok)throw new Exception(reason);}
+        var destroy=typeof(ClusterManager).GetMethod("DestoryRocketInteriorWorld",all)!;
+        Check(destroy.GetParameters().Select(p=>p.ParameterType).SequenceEqual(new[]{typeof(int),typeof(ClustercraftExteriorDoor)}),"Rocket destruction signature changed.");
+        var delete=typeof(ClusterManager).GetMethod("DeleteWorldObjects",all)!;
+        Check(delete.GetParameters().Single().ParameterType==typeof(WorldContainer),"Rocket native cleanup lost its world parameter.");
+        var resources=typeof(WorldContainer).GetMethod("TransferLiquidsSolidsAndGases",all)!;
+        Check(resources.GetParameters().Length==2&&resources.GetParameters()[1].ParameterType==typeof(HashSet<int>),"Landed recovery signature changed.");
+        var debris=typeof(WorldContainer).GetMethod("TransferLiquidsSolidsAndGasesToDebris",all)!;
+        Check(debris.GetParameters().Select(p=>p.ParameterType).SequenceEqual(new[]{typeof(List<Storage>).MakeByRefType(),typeof(HashSet<int>),typeof(SimHashes)}),
+            "Airborne recovery signature changed.");
+        var retirement=assembly.GetType("MixedAtmospheres.Oni.ColonyClusterRetirement")!;
+        retirement.GetMethod("Reset",all)!.Invoke(null,null);
+        Check(!(bool)retirement.GetProperty("Pending",all)!.GetValue(null)!,"Inactive retirement reports a pending world.");
+        Check((bool)retirement.GetMethod("Begin",all)!.Invoke(null,new object[]{1234})!,"Inactive/base-game destruction acquired a retirement transaction.");
+        var unregister=assembly.GetType("MixedAtmospheres.Oni.ColonyRocketUnregisterPatch")!.GetMethod("Prefix",all)!;
+        Check(unregister.ReturnType==typeof(bool)&&unregister.GetParameters().Single().ParameterType==typeof(WorldContainer),"The allocation fence lost its live world.");
+        Console.WriteLine("PASS rocket retirement bindings: live destruction, both recovery destinations, native grid cleanup, unregister fence; inactive path untouched");
+    }
+}
