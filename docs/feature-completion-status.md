@@ -2,9 +2,9 @@
 
 **Current goal, 2026-10-27:** a Steam-ready first release covering the base
 game and Spaced Out! ([amendment](completion-plan.md#amendments)). The private
-`bfb1168` Spaced Out! candidate is with the user. Work runs in parallel on
-`main`: release acceptance and regressions, performance, Steam distribution,
-and the accuracy/persistence proofs below.
+`bfb1168` Spaced Out! candidate is with the user. The current user-directed R&D work on `main` removes nitrogen, makes CO₂
+breathing limits optional and reorganizes settings. Release acceptance,
+performance and the accuracy/persistence proofs below remain separate work.
 
 This tracks work toward the full [completion plan](completion-plan.md), beyond
 the narrower first private base-game playtest. A private candidate is already
@@ -57,7 +57,7 @@ playtest deferrals remain recorded until their own controls pass.
 | [Game-profile accuracy](base-game-floor.md) | Establish the frozen initial fields and independent timing truths for F3 and F4, including solid heat exchange. Run the unchanged floor comparisons. The accepted 0.703 J storage residual does not waive F4 or other accuracy bounds. |
 | [Strong-flow accuracy](../native/MAC_STRONG_FLOW.md) | Repair the recorded collision-refinement and separation-velocity failures against their fixed grids and bounds. The separately recorded [gravity, free-surface, multiphase and vacuum gates](../native/MAC_GATES.md) already pass; preserve them. Game-profile floor results do not substitute for the strong-flow gate. |
 | [DLC gameplay](dlc-compatibility.md) | First release: base game and Spaced Out!. Multi-asteroid ownership, rocket interiors, ports, flight, retirement, teleporters and cargo pass targeted controls; verify generation, gameplay and persistence for both selections on both operating systems. Colonies with Frosty, Bionic, Prehistoric or Aquatic active must stay on ONI's simulation with a notice. Those packs (bionic oxygen, aquatic systems) follow later; their content is not installed here. |
-| [Starting air and progression](nitrogen.md) | Complete nitrogen thermodynamics and world generation with finite reserves, the hard/easy breathing starts, and the population's life-support bridge. Prove representative starts can reach sustainable life support and endgame without developer intervention; element registration alone does not satisfy this. |
+| [Starting air and progression](starting-air.md) | Nitrogen removed, default CO₂ opt-out, live switch, Advanced controls and finite starting oxylite reserve. Prove representative starts reach sustainable life support and endgame without developer intervention. |
 | [Mixture presentation](mixture-presentation.md) | Finish exact container coverage and the required real-game hover, detail, overlay and contrast checks on both operating systems. Prove the 100,000-cell publication and allocation requirements as well as functional display. |
 | [Performance](completion-plan.md#release-acceptance) | Measure the active-cell/duplicant, memory, disturbance-recovery and presentation targets on the specified hardware. The current smaller-colony measurements do not certify them. Preserve the accepted physical model while optimizing. |
 | [Compatibility and packaging](windows-validation.md) | Complete current-bundle gameplay, natural autosave, cold/menu load and UI checks; resolve portable Linux ABI validation; retain separate evidence for Proton and actual Windows OS. |

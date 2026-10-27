@@ -2,11 +2,11 @@
 
 Mixed Atmospheres changes how air, gas, and liquid behave across your asteroid in Oxygen Not Included. Gases now share space and stay mixed, so oxygen, carbon dioxide and other gases travel together. Miscible liquids blend together, while immiscible liquids settle into layers you can see and manage.
 
-Pumps and pipes carry full mixtures. Filters remove the constituent you pick and let the rest pass through. Gas pressure, oxygen partial pressure, and pressure-dependent boiling and latent heat all matter, and the gauges show the mixture you are managing. By default, a room counts as breathable when oxygen is at least 15% by moles and at least 15 kPa of partial pressure, and CO2 stays below 0.5% and 500 Pa.
+Pumps and pipes carry full mixtures. Filters remove the constituent you pick and let the rest pass through. Gas pressure, oxygen partial pressure, and pressure-dependent boiling and latent heat all matter, and the gauges show the mixture you are managing. By default, a room counts as breathable when oxygen is at least 15% by moles and at least 15 kPa of partial pressure. CO₂ breathing limits are off by default; turn them on in Settings → Gameplay to enforce the optional 0.5% and 500 Pa limits.
 
-New colonies start with vanilla world conditions, with no starting nitrogen added. If a fluid fault occurs, the gas and liquid simulation stops visibly and saves are refused, so reload your last save to continue. The game clock slows to match the solver's pace; this mod does not promise real-time speed.
+New colonies keep vanilla generated oxygen and polluted oxygen. Nitrogen content and the nitrogen-air option have been removed. A ten-cycle oxygen shortfall for your starting duplicants is supplied as oxylite beside the printing pod. If a fluid fault occurs, the gas and liquid simulation stops visibly and saves are refused, so reload your last save to continue. The game clock slows to match the solver's pace; this mod does not promise real-time speed.
 
-Pause at the start and plan to open the printing pod's cave and remove CO2 early. In a sealed starting cave, exhaled CO2 can make the air unsafe while plenty of oxygen remains. Use the Breathability overlay and CO2 partial-pressure reading to check the air your duplicants can reach.
+Plan sustainable oxygen production early. CO₂ still displaces oxygen, so an oxygen-poor room remains unsafe with CO₂ limits off. If you enable the limits, arrange CO₂ removal too. Use the Breathability overlay and partial-pressure readings to check reachable air.
 
 Mixed Atmospheres is a private playtest build for Windows x64 and Linux. It applies to new base-game and Spaced Out! colonies, ONI build 744825, licensed through Steam. Spaced Out! can remain enabled; keep the other gameplay packs disabled for this playtest. Existing vanilla saves keep their vanilla simulation. The Windows build has been tested under Proton; Windows validation is part of your own playtest. Final release-candidate acceptance is still in progress, so this is preparation for private playtesting, not a public release. There is no Workshop release.
 
@@ -14,7 +14,7 @@ Mixed Atmospheres is a private playtest build for Windows x64 and Linux. It appl
 
 *A real development colony in WindowsPlayer under Proton on Linux.*
 
-Settings live behind the Settings button in the Mods row or the status panel. You can choose Default (recommended), Robust (higher iteration caps), or the experimental Fast and Precise profiles, and set breathing to relaxed or strict. You can create, save, rename, load, import, and export presets. Solver and breathing settings are recorded per colony and are read-only during play. Display and key preferences remain adjustable at any time. Only the current solver is selectable. Settings persist in `mods/config/MixedAtmospheres`, outside the mod's installation folder.
+Settings open from the Mods row or the status panel. **Gameplay** contains the CO₂ breathing limits switch (Off by default), which you can change during play. **Display & keys** contains appearance and shortcuts. **Advanced** contains solver presets, solver controls, breathing thresholds, performance, advanced display and saved presets. Solver controls and numeric thresholds are fixed per colony; preferences apply at once. Files persist in `mods/config/MixedAtmospheres`, outside the mod folder. Older R&D saves, including nitrogen saves, are refused; start a new colony.
 
 ![Mixed Atmospheres composition display](docs/images/mixed-atmospheres-composition.png)
 
@@ -28,7 +28,9 @@ After playing, please send your Player.log from `%USERPROFILE%\AppData\LocalLow\
 
 ![Mixed Atmospheres settings panel](docs/images/mixed-atmospheres-settings.png)
 
-*Creating and loading a user preset in the actual settings window.*
+*Gameplay settings in the actual game; technical controls and presets live under Advanced.*
+
+![Advanced settings and solver presets](docs/images/mixed-atmospheres-settings-advanced.png)
 
 ---
 
@@ -102,9 +104,9 @@ Keep a copy of any colony you value.
   the pressure its liquid height supports.
 - Boiling depends on pressure, and phase changes take or release latent heat.
 - Breathing (easy mode): a cell is breathable with at least 15% oxygen by moles
-  and 15 kPa oxygen partial pressure, and carbon dioxide below 0.5% and 500 Pa.
-- Pumps take the mixture at their intake; pipes carry it as a train of ONI's
-  single-element packets; filters pass everything but their element.
+  and 15 kPa oxygen partial pressure. Optional CO₂ limits default off.
+- Pumps and pipes carry full mixtures; filters pass everything except their
+  selected constituent.
 
 ### Limits
 
@@ -136,13 +138,14 @@ it for its full composition.
 ### Settings
 
 Open **Settings** on Mixed Atmospheres' row in **Mods**, or on the status
-panel. Presets: **Default** (recommended), **Robust** (more solver room,
-same results), **Fast** and **Precise** (experimental), **Relaxed** and
-**Strict breathing**; save, rename, share and import your own. Solver and
-breathing settings apply to colonies you start next and are recorded in each
-colony's save; preferences (reading precision, pattern, panel, shortcut keys)
-apply at once. Files live in `mods/config/MixedAtmospheres` in ONI's user
-folder and survive mod updates. Details: [docs/settings.md](docs/settings.md).
+panel. **Gameplay** opens first; CO₂ breathing limits default to Off and can
+be changed in a running colony. **Advanced → Solver** holds Default, Robust,
+Fast and Precise solver presets. **Advanced → Breathing thresholds** holds
+oxygen requirements and optional CO₂ thresholds. Solver settings and numeric
+thresholds apply to new colonies and are saved per colony. Display, shortcuts
+and performance preferences apply immediately. Save and share complete
+presets under **Advanced → Saved presets**. Details:
+[docs/settings.md](docs/settings.md), [starting air](docs/starting-air.md).
 
 ## Build and test
 

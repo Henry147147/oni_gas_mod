@@ -423,6 +423,9 @@ namespace MixedAtmospheres.Core
                     limits.TryGetValue(material.Id, out var maximum) ? maximum : (double?)null, oxygenId, co2Id));
         }
 
+        public MixturePresentationModel WithBreathingSettings(AtmosphereSettings breathingSettings) =>
+            new MixturePresentationModel(catalog, styles.Values, breathingSettings, oxygenId, co2Id, contaminantLimits, options);
+
         public MixturePresentationModel WithVisualOptions(MixtureVisualOptions visualOptions)
         {
             if (visualOptions == null) throw new ArgumentNullException(nameof(visualOptions));
@@ -600,8 +603,8 @@ namespace MixedAtmospheres.Core
             if (Below(oxygen, settings.MinimumOxygenFraction)) result |= BreathingFailure.OxygenFractionLow;
             if (settings.HardMode && Below(settings.MaximumOxygenFraction, oxygen)) result |= BreathingFailure.OxygenFractionHigh;
             if (Below(oxygenPartialPressure, settings.MinimumOxygenPartialPressurePa)) result |= BreathingFailure.OxygenPartialPressureLow;
-            if (ExceedsLimit(settings.MaximumCo2Fraction, co2, hasCo2)) result |= BreathingFailure.CarbonDioxideFractionHigh;
-            if (ExceedsLimit(settings.MaximumCo2PartialPressurePa, co2PartialPressure, hasCo2)) result |= BreathingFailure.CarbonDioxidePartialPressureHigh;
+            if (settings.EnforceCarbonDioxideLimits && ExceedsLimit(settings.MaximumCo2Fraction, co2, hasCo2)) result |= BreathingFailure.CarbonDioxideFractionHigh;
+            if (settings.EnforceCarbonDioxideLimits && ExceedsLimit(settings.MaximumCo2PartialPressurePa, co2PartialPressure, hasCo2)) result |= BreathingFailure.CarbonDioxidePartialPressureHigh;
             if (hasContaminant) result |= BreathingFailure.Contaminant;
             return result;
         }

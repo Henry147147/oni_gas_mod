@@ -85,14 +85,14 @@ namespace MixedAtmospheres.Oni
 
         internal static IntegrationReport Run(string verifiedAssemblyHash)
         {
-            if(!NitrogenElementTagPatch.Verified)throw new InvalidOperationException("Native tag helper runtime checks have not completed.");
+            if(!NativeElementTagChecks.Verified)throw new InvalidOperationException("Native tag helper runtime checks have not completed.");
             var frame = typeof(SimMessages).GetMethod(nameof(SimMessages.NewGameFrame), BindingFlags.Public | BindingFlags.Static);
             if (frame?.GetMethodBody() == null) throw new NotSupportedException("Managed frame interception point changed.");
             var report = new IntegrationReport
             {
                 UnityVersion = UnityEngine.Application.unityVersion,
                 Platform = UnityEngine.Application.platform.ToString(),
-                NativeTagHelpersVerified = NitrogenElementTagPatch.Verified,
+                NativeTagHelpersVerified = NativeElementTagChecks.Verified,
                 AssemblySha256 = verifiedAssemblyHash,
                 PointerBytes = IntPtr.Size,
                 CellBytes = Marshal.SizeOf<Sim.Cell>(),

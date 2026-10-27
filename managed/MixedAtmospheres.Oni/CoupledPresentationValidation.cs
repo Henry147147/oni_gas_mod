@@ -105,16 +105,16 @@ namespace MixedAtmospheres.Oni
             var origin = Grid.CellToXY(target); var catalog = CoupledColonySimulation.ReadMaterialCatalog();
             var definitions = new Dictionary<string, (string name, SimHashes hash)>
             {
-                ["nitrogen"] = ("Nitrogen", OniNitrogenElements.Gas), ["oxygen"] = ("Oxygen", SimHashes.Oxygen),
+                ["nitrogen"] = ("Nitrogen", SimHashes.Vacuum), ["oxygen"] = ("Oxygen", SimHashes.Oxygen),
                 ["carbon_dioxide"] = ("Carbon dioxide", SimHashes.CarbonDioxide), ["steam"] = ("Steam", SimHashes.Steam),
                 ["chlorine"] = ("Chlorine", SimHashes.ChlorineGas), ["helium"] = ("Helium", SimHashes.Helium),
                 ["hydrogen"] = ("Hydrogen", SimHashes.Hydrogen), ["methane"] = ("Methane", SimHashes.Methane),
-                ["water"] = ("Water", SimHashes.Water), ["liquid_nitrogen"] = ("Liquid nitrogen", OniNitrogenElements.Liquid),
+                ["water"] = ("Water", SimHashes.Water), ["liquid_nitrogen"] = ("Liquid nitrogen", SimHashes.Vacuum),
                 ["liquid_oxygen"] = ("Liquid oxygen", SimHashes.LiquidOxygen)
             };
             var styles = catalog.Materials.Keys.Select(id =>
             {
-                var definition = definitions[id]; Color color = ElementLoader.FindElementByHash(definition.hash).substance.colour;
+                var definition = definitions[id]; Color color = definition.hash == SimHashes.Vacuum ? new Color(.65f, .65f, .8f) : (Color)ElementLoader.FindElementByHash(definition.hash).substance.colour;
                 return new MixtureSpeciesStyle(id, definition.name, new MixtureSrgbColor(color.r, color.g, color.b));
             });
             var model = new MixturePresentationModel(catalog, styles, new AtmosphereSettings(), "oxygen", "carbon_dioxide",

@@ -243,6 +243,17 @@ internal static unsafe class Program
                 writer.Write(9u);writer.Write(new byte[9]);writer.Write(9u);writer.Write(new byte[9]);writer.Write(3u);writer.Write(new byte[3*32]);
                 var ledger=(int)stream.Position;writer.Write(new byte[(version>=7?6*2+8:5*2+5)*16]);if(version>=7)writer.Write(new byte[16]);
                 writer.Write(73UL);var image=stream.ToArray();
+                ColonyCheckpointMetadata.RefuseRemovedNitrogen(image);
+                foreach (var hash in new[] { -1109340048, 1078696428, 418600943 })
+                {
+                    var removed = (byte[])image.Clone();
+                    BinaryPrimitives.WriteInt32LittleEndian(removed.AsSpan(12 + 56 + 4 + 168 + 8, 4), hash);
+                    var refused = false;
+                    try { ColonyCheckpointMetadata.RefuseRemovedNitrogen(removed); }
+                    catch (NotSupportedException error) { refused = error.Message.Contains("removed nitrogen"); }
+                    Check(refused);
+                }
+
                 const double tiny=1.3877787807814457e-17;
                 void Term(int ordinal,double high,double low)
                 {

@@ -11,7 +11,7 @@ Amendments:
 - **Gameplay and settings direction, 2026-10-27 (latest user decisions):**
   Remove the mod's nitrogen content and nitrogen-air option. Saves using the
   removed nitrogen catalogue are refused with an explanation; no load-only
-  nitrogen content is retained. Make carbon dioxide breathing limits optional
+  nitrogen content is retained. Older R&D saves need not be preserved. Make carbon dioxide breathing limits optional
   and disabled by default, with a setting the player can change. Oxygen
   requirements still apply. Put solver presets and technical controls under
   clearly labelled Advanced settings, and make the ordinary settings page
@@ -31,7 +31,7 @@ Amendments:
   2. *Licence.* Chosen later by the user; it blocks only publication.
   3. *Work.* Everything continues on `main`; all project work lives in this
      repository folder (older clones and agent folders are in `archive/`).
-  4. *Starting air* ([nitrogen](nitrogen.md#starting-air-and-progression)).
+  4. *Starting air (historical; nitrogen portions superseded by the latest amendment).*
      Nitrogen air is a new-colony option, off by default; the built-in Hard
      mode preset turns it on. It replaces each generated oxygen or polluted
      oxygen cell with air of the same mass and temperature at 25% O2 by
@@ -323,7 +323,7 @@ The first public release targets Windows and Linux, new colonies in the base
 game and Spaced Out!, and all official gameplay packs (Frosty, Bionic,
 Prehistoric, Aquatic), with cosmetic compatibility. It includes bulk pressure,
 buoyancy, viscosity, mixing, immiscible separation, heat transfer, phase changes,
-configurable breathing, nitrogen,
+configurable breathing,
 suitable starting resources, and complete progression through endgame.
 
 Microscopic droplets, capillary effects, detailed solution chemistry,
@@ -548,16 +548,17 @@ Exit: every inventory entry has an implemented adapter and passing in-game test.
 
 ## F. Player-facing systems and progression
 
-Register nitrogen and its phases. Generate breathable starting air and finite
-nitrogen reserves. Calculate a ten-cycle life-support bridge for the selected
-population using new consumption rates. Provide early ventilation, scrubbing
+Keep vanilla generated oxygen and polluted oxygen; no nitrogen content or air
+conversion. Calculate a ten-cycle oxygen reserve for the starting population,
+placing an oxylite shortfall beside the printing pod. Provide early ventilation, scrubbing
 and pressure regulation, mixture overlays, constituent grams, partial
 pressures, liquid fractions and breathing failure
 explanations. Add sensors, research, recipes, descriptions and configuration
 UI. Use actual liquid geometry for swimming, submersion and atmospheric access.
 
-Defaults: hard mode 15–35% O2; easy mode at least 15%; minimum O2 partial
-pressure 15 kPa; CO2 limits 0.5% and 500 Pa.
+Defaults: at least 15% O2 and 15 kPa O2 partial pressure; CO2 limits off. The
+optional CO2 limits are 0.5% and 500 Pa. Gameplay exposes the live switch;
+Advanced holds solver presets, technical controls and numeric thresholds.
 
 Exit: representative starts from every pack reach sustainable life support and
 endgame without developer intervention.

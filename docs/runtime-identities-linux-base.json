@@ -33302,97 +33302,6 @@
       }
     },
     {
-      "id": "prefab/MixedAtmospheresLiquidNitrogen/0",
-      "kind": "prefab",
-      "fact": {
-        "prefab": "MixedAtmospheresLiquidNitrogen",
-        "registration_occurrence": 0,
-        "components": [
-          "UnityEngine.Transform",
-          "KPrefabID",
-          "PrimaryElement",
-          "InfraredPrimaryElement",
-          "Pickupable",
-          "KSelectable",
-          "SaveLoadRoot",
-          "StateMachineController",
-          "Clearable",
-          "Prioritizable",
-          "KBatchedAnimController",
-          "SimTemperatureTransfer",
-          "Klei.AI.Modifiers",
-          "Movable",
-          "OccupyArea",
-          "DecorProvider",
-          "ElementChunk",
-          "KBoxCollider2D",
-          "Dumpable",
-          "SubstanceChunk"
-        ],
-        "missing_components": 0
-      }
-    },
-    {
-      "id": "prefab/MixedAtmospheresNitrogen/0",
-      "kind": "prefab",
-      "fact": {
-        "prefab": "MixedAtmospheresNitrogen",
-        "registration_occurrence": 0,
-        "components": [
-          "UnityEngine.Transform",
-          "KPrefabID",
-          "PrimaryElement",
-          "InfraredPrimaryElement",
-          "Pickupable",
-          "KSelectable",
-          "SaveLoadRoot",
-          "StateMachineController",
-          "Clearable",
-          "Prioritizable",
-          "KBatchedAnimController",
-          "SimTemperatureTransfer",
-          "Klei.AI.Modifiers",
-          "Movable",
-          "OccupyArea",
-          "DecorProvider",
-          "ElementChunk",
-          "KBoxCollider2D",
-          "Dumpable",
-          "SubstanceChunk"
-        ],
-        "missing_components": 0
-      }
-    },
-    {
-      "id": "prefab/MixedAtmospheresSolidNitrogen/0",
-      "kind": "prefab",
-      "fact": {
-        "prefab": "MixedAtmospheresSolidNitrogen",
-        "registration_occurrence": 0,
-        "components": [
-          "UnityEngine.Transform",
-          "KPrefabID",
-          "PrimaryElement",
-          "InfraredPrimaryElement",
-          "Pickupable",
-          "KSelectable",
-          "SaveLoadRoot",
-          "StateMachineController",
-          "Clearable",
-          "Prioritizable",
-          "KBatchedAnimController",
-          "SimTemperatureTransfer",
-          "Klei.AI.Modifiers",
-          "Movable",
-          "OccupyArea",
-          "DecorProvider",
-          "ElementChunk",
-          "KCircleCollider2D"
-        ],
-        "missing_components": 0
-      }
-    },
-    {
       "id": "prefab/Mole/0",
       "kind": "prefab",
       "fact": {
@@ -58967,5 +58876,13 @@
       "name": "ZincOre",
       "phase": "solid"
     }
-  ]
+  ],
+  "excluded_mod_content": {
+    "decision": "2026-10-27 user decision: remove nitrogen from the mod. These historical mod-owned prefabs are excluded from the current inventory; the private capture hash still identifies the original capture. No game interfaces or acceptance bounds changed.",
+    "identities": [
+      "prefab/MixedAtmospheresLiquidNitrogen/0",
+      "prefab/MixedAtmospheresNitrogen/0",
+      "prefab/MixedAtmospheresSolidNitrogen/0"
+    ]
+  }
 }

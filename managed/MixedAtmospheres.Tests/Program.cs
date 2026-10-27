@@ -63,6 +63,19 @@ Test("breathing presets and settings persistence", () =>
     Check(world.AssessAtmosphere(0, 0, easy).IsBreathable); Near(easy.MinimumOxygenFraction, 0.15);
     Reject(() => AtmosphereSettings.FromJson("{}"));
 });
+Test("CO2 limits can be disabled without removing oxygen requirements", () =>
+{
+    using var world = Create();
+    world.InitializeCell(0, 0, new Dictionary<string, double> { ["oxygen"] = 1, ["carbon_dioxide"] = 1 }, 300);
+    var rules = new AtmosphereSettings { HardMode = false };
+    Check(!world.AssessAtmosphere(0, 0, rules).IsBreathable);
+    rules.EnforceCarbonDioxideLimits = false;
+    var saved = AtmosphereSettings.FromJson(rules.ToJson());
+    Check(!saved.EnforceCarbonDioxideLimits && world.AssessAtmosphere(0, 0, saved).IsBreathable);
+    world.InitializeCell(0, 0, new Dictionary<string, double> { ["carbon_dioxide"] = 1 }, 300);
+    Check(!world.AssessAtmosphere(0, 0, saved).IsBreathable);
+    Reject(() => AtmosphereSettings.FromJson(rules.ToJson().Replace("\"EnforceCarbonDioxideLimits\":false", "\"EnforceCarbonDioxideLimits\":0")));
+});
 Test("settings JSON is culture independent and accepts reordered escaped names", () =>
 {
     var previous = CultureInfo.CurrentCulture;

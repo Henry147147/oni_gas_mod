@@ -8,17 +8,30 @@ game and pauses a running colony while it is open; Escape or **Close** closes
 it. Code: `ModSettings*.cs` (model, files, window, runtime); tests:
 `tools/SettingsTests`, `native/tests/oni_game_kernel_tests.cpp`.
 
-## Two kinds of settings
+## Finding the settings
 
-- **Colony settings** (Solver, Breathing) are impactful. A new colony takes the
-  current choice and records it; a loaded colony keeps what it recorded and
-  ignores later changes. In a colony the window shows that colony's values,
-  read-only. The solver values are saved in the colony's own physical image
-  (checkpoint core23, unchanged format); the breathing rules in the save's
-  MACOLP03 section 3 ([below](#save-record)).
-- **Preferences** (Performance, Display & keys) control worker count,
-  presentation and controls. They apply at once, everywhere, including in
-  loaded colonies, and do not enter colony saves.
+- **Gameplay** opens first. **CO₂ breathing limits** defaults to **Off**.
+  Enough oxygen is always required; CO₂ still mixes, moves through pipes and
+  displaces oxygen. Turn the switch on to enforce the saved CO₂ thresholds.
+  During play this switch applies immediately to the current colony and its
+  next save. At the main menu it chooses the default for new colonies.
+- **Display & keys** contains reading precision, mixture appearance, status
+  panel options and shortcuts. Changes apply immediately.
+- **Advanced** contains **Solver** (including solver presets), **Breathing
+  thresholds**, **Performance**, **Display** and **Saved presets**. Each technical section
+  is explicitly labelled Advanced. Solver settings and numeric breathing
+  thresholds are chosen before starting a colony, saved per colony, and shown
+  read-only during play. Performance and display preferences remain editable.
+
+Nitrogen elements, nitrogen starting air and the Hard mode preset have been
+removed. World generation keeps its usual oxygen and polluted oxygen.
+This is R&D: older saves need not be preserved. Saves containing the removed
+nitrogen catalogue, missing the current breathing record or using its older
+versions are refused with a reason before native loading. Start a new colony.
+
+Colony settings are stored in the physical image (solver, core23 unchanged)
+and MACOLP03 section 3 (breathing). Preferences live in the user's config and
+are not stored in colony saves.
 
 The solver is always the supported one: game profile 5 (core23) with mixed
 pipes. No setting selects the production kernel, the game-floor profile, an
@@ -30,17 +43,19 @@ with Default and shows a notice.
 
 ## Presets
 
-Built-in presets set the colony settings and keep the player's preferences.
+Under **Advanced → Solver**, Default, Robust, Fast and Precise apply only
+solver tunables, keeping your gameplay choice. Under **Advanced → Saved
+presets**, complete presets replace all colony rules, including breathing,
+and keep preferences unless a user preset explicitly contains them.
 
 | Preset | Colony settings |
 | --- | --- |
-| Default (recommended) | Exactly what a new colony gets without settings; byte-identical checkpoint (native control). |
+| Default (recommended) | Default solver and oxygen rules; CO₂ limits off. |
 | Robust | Pressure/heat iteration caps 1600/3200. A converged solve stops early, so results are identical wherever Default completes; a difficult solve gets more room before it faults. |
 | Fast (experimental) | Pressure tolerance 1e-6: fewer pressure iterations, pressures settle less exactly. |
 | Precise (experimental) | Two solver steps per game tick, pressure tolerance 1e-10 and the Robust caps; about twice the solver time. |
-| Relaxed breathing | Oxygen ≥ 10% and 10 kPa; carbon dioxide ≤ 1% and 1 kPa. |
-| Strict breathing | Oxygen ≥ 18% and 18 kPa; carbon dioxide ≤ 0.3% and 300 Pa. |
-| Hard mode | Oxygen 15–35% (maximum oxygen share 35%) with nitrogen air for new colonies ([nitrogen](nitrogen.md#starting-air-and-progression)). |
+| Relaxed breathing | Oxygen ≥ 10% and 10 kPa; enables CO₂ limits of 1% and 1 kPa. |
+| Strict breathing | Oxygen ≥ 18% and 18 kPa; enables CO₂ limits of 0.3% and 300 Pa. |
 
 Lower caps are not offered: they are never faster, and reaching a cap stops
 the simulation. Players save the shown settings (colony settings and
@@ -80,7 +95,7 @@ under `/tmp`.
 
 ## Colony settings
 
-All are recorded per colony and read-only in a loaded colony. Native ranges are
+All are recorded per colony. Only the CO₂ switch is editable in a loaded colony. Native ranges are
 those of `MAOniColonyOptions` (`oni_colony.h`).
 
 | Key | Name | Default | Range (window steps) | Effect | Storage |
@@ -96,16 +111,16 @@ those of `MAOniColonyOptions` (`oni_colony.h`).
 | `solver.interfaceDetail` | Thinnest sharpened film | 0 | 0–0.5 of a cell (≠0 experimental) | Thinner films are left unsharpened | core23 |
 | `solver.phaseRelaxationSeconds` | Boiling/condensation time | 1 s | 0.1–10 s (≠1 experimental) | Liquid/vapour relaxation time constant (other conversions keep 1 s) | core23 |
 | `solver.traceThresholdKg` | Trace removal threshold | 1e-11 kg | 1e-11–1e-6 kg (≠1e-11 experimental) | Per-constituent booked trace sink; 1 mg ceiling | core23 |
+| `breathing.co2Limits` | CO₂ breathing limits | off | on/off | Enforce the CO₂ share and partial pressure thresholds; oxygen remains required when off | section 3 v3 |
 | `breathing.minimumOxygenFraction` | Minimum oxygen share | 15% | 5–25% | Breathable with at least this oxygen share by moles (polluted oxygen counts) | section 3 |
 | `breathing.minimumOxygenPressurePa` | Minimum oxygen partial pressure | 15 kPa | 1–50 kPa | …and at least this oxygen partial pressure | section 3 |
-| `breathing.maximumCo2Fraction` | Maximum carbon dioxide share | 0.5% | 0–10% | …and carbon dioxide below this share | section 3 |
-| `breathing.maximumCo2PressurePa` | Maximum carbon dioxide partial pressure | 500 Pa | 0–10 kPa | …and below this partial pressure | section 3 |
-| `breathing.maximumOxygenFraction` | Maximum oxygen share | no limit (1) | 30–100% | Cells richer in oxygen fail (1: easy mode, no limit). Below 100% needs nitrogen air; the window warns otherwise | section 3 |
-| `breathing.nitrogenAir` | Nitrogen air | off | on/off | New colonies only: generated oxygen and polluted oxygen become air of the same mass, 25% oxygen by moles and nitrogen for the rest (user decision 2026-10-27) | section 3 (version 2) |
+| `breathing.maximumCo2Fraction` | Maximum carbon dioxide share | 0.5% | 0–10% | Only when CO₂ limits are on: carbon dioxide below this share | section 3 |
+| `breathing.maximumCo2PressurePa` | Maximum carbon dioxide partial pressure | 500 Pa | 0–10 kPa | Only when CO₂ limits are on: below this partial pressure | section 3 |
+| `breathing.maximumOxygenFraction` | Maximum oxygen share | no limit (1) | 30–100% | Cells richer in oxygen fail. Below 100% can make pure generated oxygen unbreathable; the window warns | section 3 |
 
 ## Preferences
 
-**Performance → Solver workers** defaults to **Physical cores**: one worker
+**Advanced → Performance → Solver workers** defaults to **Physical cores**: one worker
 per physical CPU core (12 on a 5900X, 16 on a 9950X), without the former
 two-logical-CPU deduction. Enter a count from 1 through 256 and press **Set**
 to use fewer workers or SMT threads; **Auto** restores the physical-core
@@ -140,24 +155,41 @@ The status panel describes only the cell under the cursor: a solid tile reads
 
 ## Save record
 
-**Reserved 2026-10-27 after fetching `f22f7ed`:** section 3 record version **3**
-adds an explicit carbon dioxide limit switch to the five breathing thresholds.
-It replaces the removed nitrogen-air version 2. Version 1 remains readable as
-the original rules with CO2 limits enabled; records requesting nitrogen air
-are refused. New defaults record the disabled CO2 limits explicitly, so an
-older mod build cannot silently interpret them as its former lethal limits.
+**Reserved 2026-10-27 immediately after fetching `f22f7ed`:** MACOLP03
+section 3 record version **3** replaces the removed nitrogen-air record.
+Every new save writes it, including defaults. This makes older builds refuse
+rather than silently apply their former CO₂ limits. Old R&D saves are not
+supported.
 
-MACOLP03 section 3 (assigned by main, 2026-10-25), little endian:
-`u32 version`, `u32 count`, then binary64 minimum oxygen share, minimum
-oxygen partial pressure (Pa), maximum carbon dioxide share, maximum carbon
-dioxide partial pressure (Pa), maximum oxygen share. Version 1 has count 5.
-Version 2 (2026-10-27) has count 6 and adds nitrogen air (1.0); it is written
-only for a nitrogen-air colony. Version 1 is written when a breathing rule
-differs from its default and nitrogen air is off, so those colonies keep their
-earlier bytes. Default colonies write no record; an absent record means the
-defaults on generated air, and older saves load unchanged. Another record
-version, count or flag value, or a value outside its range, refuses the save
-before loading, with the reason.
+Little endian, 56 bytes: `u32 version = 3`, `u32 count = 6`, then binary64
+minimum oxygen share, minimum oxygen partial pressure (Pa), maximum CO₂ share,
+maximum CO₂ partial pressure (Pa), maximum oxygen share, and CO₂ limits
+(`0.0` off, `1.0` on). Missing records, other versions/counts, invalid switches
+and out-of-range thresholds refuse before loading. The physical solver
+checkpoint format is unchanged.
+
+## Verification (2026-10-27)
+
+The full Linux `tools/build.py` run passes: 89 Release CTests, 433 Python tests
+(9 platform skips), 92 managed/native checks, 46 presentation tests, 299
+settings checks and the game declaration/hook suites. A rebuilt Windows x64
+native suite passes 89/89 under Wine; this is not a Windows OS playtest.
+
+The Linux in-game `starting-air` scenario passes all 13 checks: vanilla oxygen,
+no registered nitrogen phases, the oxygen reserve, share sensors, CO₂ limits
+Off by default, live opt-in/opt-out and matching display, and pure CO₂ still
+being unbreathable. A saved colony cold-loads with CO₂ limits Off, independent
+of settings changed after its save. An old save with nitrogen is refused before
+native loading, without starting an owner or changing the source file. The
+Gameplay and Advanced pages were inspected and clicked in the actual game;
+README captures show them. Private run records are under ignored
+`artifacts/gameplay-settings-*` and `artifacts/gameplay-nitrogen-refusal`.
+
+MacClosedWorld arithmetic and fixed solver gate inputs/bounds are unchanged.
+Game catalogue identity changes when nitrogen content is removed, and every
+new save carries breathing record v3. The native physical checkpoint format
+is unchanged. These focused checks do not close the separate performance,
+accuracy and full release-acceptance work.
 
 ## Not settings
 

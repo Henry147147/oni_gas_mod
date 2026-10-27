@@ -57,7 +57,7 @@
   ],
   "release_requirements": [
     "coupled-physics-benchmarks", "10000-step-conservation", "trace-preservation",
-    "complete-gameplay", "ten-cycle-development-colony", "all-pack-progression", "nitrogen-and-starting-resources",
+    "complete-gameplay", "ten-cycle-development-colony", "all-pack-progression", "starting-oxygen-resources",
     "breathing-and-configuration-ui", "overlays-research-recipes", "deterministic-restart", "cross-platform-transfer",
     "interrupted-save-corruption-mod-disabled", "25ms-100000-cells", "sustained-speed-memory-backlog",
     "100-cycle-regressions", "1000-cycle-all-content", "cosmetic-compatibility", "reproducible-owned-only-package"

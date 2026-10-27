@@ -14,14 +14,16 @@ namespace MixedAtmospheres.Oni
     // panel's style, opened from the mod's row in ONI's Mods screen, from the
     // status panel or by an optional shortcut. A modal uGUI screen under it
     // keeps clicks, keys and scrolling from reaching the game. In a colony the
-    // colony settings show that colony's recorded values and are read-only.
+    // numeric colony settings show recorded values; the CO2 switch remains editable.
     internal sealed class ModSettingsScreen : MonoBehaviour
     {
         private static ModSettingsScreen? instance;
         private static readonly Color Accent = new Color(.35f, .91f, .91f), Warn = new Color(1, .62f, .3f), Muted = new Color(.72f, .79f, .86f),
             Panel = new Color(.08f, .11f, .16f, .98f), Row = new Color(.12f, .16f, .22f, 1);
-        private static readonly string[] Tabs = { "Presets", "Solver", "Breathing", "Display & keys", "Performance" };
-        private bool open;
+        private static readonly string[] Tabs = { "Gameplay", "Display & keys", "Advanced" };
+        private static readonly string[] AdvancedTabs = { "Solver", "Breathing thresholds", "Performance", "Display", "Saved presets" };
+        private int advancedTab;
+        private bool open, openedInColony;
         private int tab;
         private Vector2 scroll;
         private string newName = "", newDescription = "", renameText = "", feedback = "";
@@ -54,7 +56,7 @@ namespace MixedAtmospheres.Oni
             RefreshPresets();
             if (!open)
             {
-                open = true; feedback = ""; renaming = deleting = null;
+                open = true; openedInColony = InColony; feedback = ""; renaming = deleting = null;
                 blocker = ModSettingsBlocker.Create(this, pause);
             }
             Debug.Log("[Mixed Atmospheres] Settings window opened (" + Tabs[tab] + (ReadOnlyColony ? ", colony settings read-only" : "") + ").");
@@ -82,6 +84,9 @@ namespace MixedAtmospheres.Oni
             // the main menu and once in a running colony, without pausing it;
             // "mods" opens ONI's Mods screen at the menu and clicks the mod's
             // Settings button there.
+            // Menu and colony use different canvases/input stacks. Never keep
+            // a modal from the previous context after a load or menu return.
+            if (open && openedInColony != InColony) Hide();
             if (AutoOpen.Length == 0 || open) return;
             if (modsWait >= 0)
             {
@@ -111,11 +116,11 @@ namespace MixedAtmospheres.Oni
             if (title != null) return;
             var font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
             title = new GUIStyle(GUI.skin.label) { font = font, fontSize = 17, fontStyle = FontStyle.Bold };
-            text = new GUIStyle(GUI.skin.label) { font = font, fontSize = 14, wordWrap = true, richText = false };
-            small = new GUIStyle(GUI.skin.label) { font = font, fontSize = 12, wordWrap = true };
+            text = new GUIStyle(GUI.skin.label) { font = font, fontSize = 14, fontStyle = FontStyle.Normal, wordWrap = true, richText = false };
+            small = new GUIStyle(GUI.skin.label) { font = font, fontSize = 12, fontStyle = FontStyle.Normal, wordWrap = true };
             tagStyle = new GUIStyle(GUI.skin.label) { font = font, fontSize = 12, fontStyle = FontStyle.Bold, wordWrap = false };
-            button = new GUIStyle(GUI.skin.button) { font = font, fontSize = 13 };
-            field = new GUIStyle(GUI.skin.textField) { font = font, fontSize = 14 };
+            button = new GUIStyle(GUI.skin.button) { font = font, fontSize = 13, fontStyle = FontStyle.Normal };
+            field = new GUIStyle(GUI.skin.textField) { font = font, fontSize = 14, fontStyle = FontStyle.Normal };
         }
 
         private void OnGUI()
@@ -140,11 +145,24 @@ namespace MixedAtmospheres.Oni
                 scroll = GUILayout.BeginScrollView(scroll);
                 switch (tab)
                 {
-                    case 0: PresetsTab(); break;
-                    case 1: SettingsTab(SettingCatalog.Solver); break;
-                    case 2: SettingsTab(SettingCatalog.Breathing); break;
-                    case 4: SettingsTab(SettingCatalog.Performance); break;
-                    default: SettingsTab(SettingCatalog.Display); SettingsTab(SettingCatalog.Panel); SettingsTab(SettingCatalog.Keys); break;
+                    case 0:
+                        GUILayout.Label("Duplicants always need enough oxygen. CO₂ continues to mix and displace oxygen when its breathing limits are off.", text!);
+                        SettingsTab(SettingCatalog.Breathing, false);
+                        GUILayout.Label("Oxygen requirements and optional CO₂ thresholds are under Advanced → Breathing thresholds.", small!);
+                        break;
+                    case 1:
+                        SettingsTab(SettingCatalog.Display, false); SettingsTab(SettingCatalog.Panel, false); SettingsTab(SettingCatalog.Keys, false); break;
+                    case 2:
+                        Section("Advanced settings");
+                        GUILayout.Label("Technical controls for tuning and experiments. The default solver is recommended for ordinary play.", small!);
+                        var selectedAdvanced = GUILayout.Toolbar(advancedTab, AdvancedTabs, button!, GUILayout.Height(28));
+                        if (selectedAdvanced != advancedTab) { advancedTab = selectedAdvanced; scroll = Vector2.zero; }
+                        if (advancedTab == 0) { SolverPresets(); SettingsTab(SettingCatalog.Solver, true); }
+                        else if (advancedTab == 1) SettingsTab(SettingCatalog.Breathing, true);
+                        else if (advancedTab == 2) SettingsTab(SettingCatalog.Performance, true);
+                        else if (advancedTab == 3) { SettingsTab(SettingCatalog.Display, true); SettingsTab(SettingCatalog.Panel, true); SettingsTab(SettingCatalog.Keys, true); }
+                        else PresetsTab();
+                        break;
                 }
                 GUILayout.EndScrollView();
                 Footer();
@@ -166,11 +184,9 @@ namespace MixedAtmospheres.Oni
             string context;
             if (ReadOnlyColony)
                 context = ModSettingsRuntime.Colony == null ? "This colony is not simulated by Mixed Atmospheres; it has no colony settings. Preferences apply at once." :
-                    "This colony's settings: " + ModSettingsRuntime.ColonyDescription + " They are read-only here: every colony keeps the settings it was created with. " +
-                    "Preferences apply at once. Choose settings for new colonies from the main menu.";
+                    "Changes to CO₂ breathing limits apply to this colony and are saved with it. Solver settings and breathing thresholds are fixed for this colony. Display and performance changes apply at once.";
             else
-                context = "Colony settings (Solver, Breathing) apply to colonies you start from now on; each colony records them and keeps them when loaded. " +
-                    "Preferences (Performance, Display & keys) apply at once. Current choice for new colonies: " + ModSettingsRuntime.PresetName(ModSettingsRuntime.CurrentPresetId, userPresets) + ".";
+                context = "Choose gameplay settings for new colonies here. Each colony saves its rules. Display and performance changes apply at once.";
             GUILayout.Label(context, small!);
             var experimental = Shown.Experimental(SettingScope.Colony).Select(d => d.Label).ToArray();
             if (experimental.Length != 0)
@@ -191,6 +207,7 @@ namespace MixedAtmospheres.Oni
 
         private void Footer()
         {
+            if (tab != 2) return;
             GUILayout.Space(4);
             GUILayout.BeginHorizontal();
             GUI.contentColor = Muted;
@@ -200,10 +217,27 @@ namespace MixedAtmospheres.Oni
             GUILayout.EndHorizontal();
         }
 
+        private void SolverPresets()
+        {
+            Section("Advanced · Solver presets");
+            GUILayout.Label("Apply solver tunables for new colonies. Breathing settings stay as chosen on Gameplay.", small!);
+            GUILayout.BeginHorizontal();
+            GUI.enabled = !ReadOnlyColony;
+            foreach (var preset in BuiltInPresets.All.Where(p => p.Id == "default" || p.Id == "robust" || p.Id == "fast" || p.Id == "precise"))
+                if (GUILayout.Button(preset.Name + (preset.Experimental ? " (experimental)" : ""), button!, GUILayout.Height(26)))
+                {
+                    ModSettingsRuntime.Set(ModSettingsRuntime.Current.WithGroup(SettingCatalog.Solver, preset.Values), "custom");
+                    Say("Applied " + preset.Name + " solver settings for new colonies.");
+                }
+            GUI.enabled = true;
+            GUILayout.EndHorizontal();
+        }
+
         private void PresetsTab()
         {
             var colonyLocked = ReadOnlyColony;
-            Section("Built-in presets");
+            Section("Advanced · Complete presets");
+            GUILayout.Label("These replace all colony rules, including gameplay choices. Solver-only presets are on Advanced → Solver.", small!);
             foreach (var preset in BuiltInPresets.All)
             {
                 RowStart();
@@ -323,17 +357,22 @@ namespace MixedAtmospheres.Oni
         private static void Follow(string from, string to)
         { if (ModSettingsRuntime.CurrentPresetId == from) ModSettingsRuntime.Set(ModSettingsRuntime.Current, to); }
 
-        private void SettingsTab(string group)
+        private void SettingsTab(string group, bool advanced)
         {
-            Section(group);
+            var definitions = SettingCatalog.All.Where(d => d.Group == group && d.Advanced == advanced).ToArray();
+            if (definitions.Length == 0) return;
+            Section((advanced ? "Advanced · " : "") + group);
             var colony = group == SettingCatalog.Solver || group == SettingCatalog.Breathing;
             var locked = colony && ReadOnlyColony;
             var values = Shown;
+            if (group == SettingCatalog.Breathing && advanced)
+                GUILayout.Label("Oxygen requirements always apply. CO₂ thresholds apply only when CO₂ breathing limits is On in Gameplay.", small!);
             if (group == SettingCatalog.Solver)
                 GUILayout.Label("The solver is always the supported one: game profile 5 with mixed pipes. These are its saved tunables. Values marked experimental were not measured.", small!);
-            foreach (var d in SettingCatalog.All.Where(d => d.Group == group))
+            foreach (var d in definitions)
             {
                 var value = values[d.Key];
+                var rowLocked = locked && d.Key != SettingCatalog.Co2Limits;
                 RowStart();
                 GUILayout.BeginVertical();
                 GUILayout.BeginHorizontal();
@@ -350,11 +389,17 @@ namespace MixedAtmospheres.Oni
                     }
                     if (GUILayout.Button("Auto", button!, GUILayout.Width(48), GUILayout.Height(24))) { Change(d, 0.0); workerInput = ""; }
                 }
+                else if (d.Kind == SettingKind.Toggle)
+                {
+                    GUI.enabled = !rowLocked && (!ReadOnlyColony || !colony || ModSettingsRuntime.Colony != null);
+                    if (GUILayout.Button((bool)value ? "On" : "Off", button!, GUILayout.Width(170), GUILayout.Height(26))) Change(d, !(bool)value);
+                    GUI.enabled = true;
+                }
                 else
                 {
-                    if (!locked && GUILayout.Button("<", button!, GUILayout.Width(30), GUILayout.Height(24))) Change(d, Step(d, value, -1));
+                    if (!rowLocked && GUILayout.Button("<", button!, GUILayout.Width(30), GUILayout.Height(24))) Change(d, Step(d, value, -1));
                     GUILayout.Label(Display(d, value), text!, GUILayout.Width(170));
-                    if (!locked && GUILayout.Button(">", button!, GUILayout.Width(30), GUILayout.Height(24))) Change(d, Step(d, value, 1));
+                    if (!rowLocked && GUILayout.Button(">", button!, GUILayout.Width(30), GUILayout.Height(24))) Change(d, Step(d, value, 1));
                 }
                 if (d.IsExperimental(value)) { GUI.contentColor = Warn; GUILayout.Label("experimental", tagStyle!, GUILayout.ExpandWidth(false)); GUI.contentColor = Color.white; }
                 else if (d.Key != "performance.workerThreads" && !Same(value, d.Default)) { GUI.contentColor = Muted; GUILayout.Label("default " + Display(d, d.Default), tagStyle!, GUILayout.ExpandWidth(false)); GUI.contentColor = Color.white; }
@@ -364,19 +409,25 @@ namespace MixedAtmospheres.Oni
                 GUILayout.EndVertical();
                 RowEnd();
             }
-            if (group == SettingCatalog.Breathing && values.Number("breathing.maximumOxygenFraction") < 1 && !values.Toggle("breathing.nitrogenAir"))
+            if (group == SettingCatalog.Breathing && advanced && values.Number("breathing.maximumOxygenFraction") < 1)
             {
                 GUI.contentColor = Warn;
-                GUILayout.Label("A maximum oxygen share below 100% needs nitrogen air: generated oxygen is pure, so no cell would be breathable. Turn on Nitrogen air or load Hard mode.", small!);
+                GUILayout.Label("An oxygen ceiling below 100% makes pure generated oxygen unbreathable. Starting air is not diluted automatically.", small!);
                 GUI.contentColor = Color.white;
             }
-            if (locked) GUILayout.Label("Read-only: this colony keeps the values above.", small!);
+            if (locked && advanced) GUILayout.Label("Read-only: this colony keeps the values above. Set them from the main menu for new colonies.", small!);
         }
 
         private void Change(SettingDefinition d, object value)
         {
             try
             {
+                if (d.Key == SettingCatalog.Co2Limits)
+                {
+                    ModSettingsRuntime.SetCarbonDioxideLimits((bool)value);
+                    Say("CO₂ breathing limits: " + ((bool)value ? "On" : "Off") + (ReadOnlyColony ? " (this colony)." : " (new colonies)."));
+                    return;
+                }
                 var values = ModSettingsRuntime.Current.With(d.Key, value);
                 var id = d.Scope == SettingScope.Colony ? Matching(values) : ModSettingsRuntime.CurrentPresetId;
                 ModSettingsRuntime.Set(values, id);
@@ -467,6 +518,8 @@ namespace MixedAtmospheres.Oni
                 var rect = (RectTransform)go.transform;
                 rect.anchorMin = Vector2.zero; rect.anchorMax = Vector2.one; rect.offsetMin = rect.offsetMax = Vector2.zero;
                 var canvas = go.AddComponent<Canvas>(); canvas.overrideSorting = true; canvas.sortingOrder = 30000;
+                var shield = go.AddComponent<Image>();
+                shield.color = Color.clear; shield.raycastTarget = true;
                 go.AddComponent<GraphicRaycaster>();
                 var screen = go.AddComponent<ModSettingsBlocker>();
                 screen.owner = owner; screen.pause = pause;

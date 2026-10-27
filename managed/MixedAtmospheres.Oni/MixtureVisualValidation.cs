@@ -46,7 +46,6 @@ namespace MixedAtmospheres.Oni
         private static CellSelectionObject? selection;
         private static MixtureContainerValidationReport? containers;
         private static MixtureContainerVisualValidation? spawnedContainers;
-        private static NitrogenVisualValidation? nitrogenItems;
         private static OwnedReservoirVisualValidation? ownedReservoirs;
         private static readonly Dictionary<string, FluidContainerHandle> OwnedHandles = new Dictionary<string, FluidContainerHandle>(StringComparer.Ordinal);
         private static readonly List<object> ContainerConservation = new List<object>();
@@ -268,11 +267,7 @@ namespace MixedAtmospheres.Oni
                 case 57:
                     foreach (var surface in spawnedContainers!.Surfaces)
                         Require(!MixturePresentationRuntime.TryResolveInventory(surface.InventoryId, out _), "Destroyed container adapter remains published.");
-                    nitrogenItems = new NitrogenVisualValidation(x0 + 4, y0 + 21);
-                    WriteReport(); caption = "Native nitrogen phases · real pure-material items"; break;
-                case 67:
-                    nitrogenItems!.RequireAllPassed();
-                    nitrogenItems.Dispose();
+                    step = 67; // The removed custom-element inspection stages are retired.
                     caption = "Preparing actual isolated reservoir ownership"; WriteReport(); break;
                 case 68:
                     if (ownedReservoirs == null)
@@ -319,14 +314,6 @@ namespace MixedAtmospheres.Oni
                     else --step;
                     break;
                 default:
-                    if (phase >= 58 && phase < 67)
-                    {
-                        var nitrogenIndex = (phase - 58) / 3;
-                        if ((phase - 58) % 3 == 0) nitrogenItems!.Select(nitrogenIndex);
-                        else if ((phase - 58) % 3 == 1) Capture((19 + nitrogenIndex).ToString("00") + "-native-nitrogen-phase-" + nitrogenIndex + ".png");
-                        else nitrogenItems!.ValidateSelected(nitrogenIndex);
-                        break;
-                    }
                     if (phase < 27 || phase >= 45) break;
                     var surfaceIndex = (phase - 27) / 3;
                     var selectedSurface = spawnedContainers!.Surfaces[surfaceIndex];
@@ -379,13 +366,13 @@ namespace MixedAtmospheres.Oni
             {
                 // Substance stores Color32 (byte channels), while the shared
                 // presentation accepts normalized sRGB components.
-                Color color = ElementLoader.FindElementByHash(hash).substance.colour;
+                Color color = hash == SimHashes.Vacuum ? new Color(.65f, .65f, .8f) : (Color)ElementLoader.FindElementByHash(hash).substance.colour;
                 return new MixtureSpeciesStyle(id, name, new MixtureSrgbColor(color.r, color.g, color.b));
             }
             model = new MixturePresentationModel(catalog, new[]
             {
                 Style("oxygen", "Oxygen", SimHashes.Oxygen),
-                Style("nitrogen", "Nitrogen", OniNitrogenElements.Gas),
+                Style("nitrogen", "Nitrogen", SimHashes.Vacuum),
                 Style("carbon_dioxide", "Carbon dioxide", SimHashes.CarbonDioxide),
                 Style("chlorine", "Chlorine", SimHashes.ChlorineGas),
                 Style("water", "Water", SimHashes.Water)

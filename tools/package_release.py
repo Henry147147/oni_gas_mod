@@ -216,9 +216,18 @@ Using it
 2. Start a NEW base-game or Spaced Out! colony. The mod takes over every gas
    and liquid in it from the first moment.
 3. Colonies started without the mod keep ONI's own simulation.
-4. Optional: Mods > Mixed Atmospheres > Settings. Default is recommended.
+4. Optional: Mods > Mixed Atmospheres > Settings. Gameplay opens first.
+   CO2 breathing limits default Off. Oxygen is always required; CO2 still
+   mixes and displaces oxygen. The switch can be changed during play.
+   Advanced holds solver presets, technical controls, breathing thresholds,
+   performance and saved presets. Numeric colony rules are fixed per colony.
+5. Nitrogen content and nitrogen starting air have been removed. An oxygen
+   shortfall for ten starting cycles is supplied as oxylite beside the pod.
+   Build sustainable oxygen production.
 
 Saves
+- Older R&D saves are unsupported, including saves with removed nitrogen.
+  Start a new colony. Incompatible saves are refused before loading.
 - A colony started with Mixed Atmospheres needs the mod to load. It cannot be
   returned to ONI's own simulation.
 - If the mod cannot open a colony (for example after an update that changes
@@ -276,7 +285,6 @@ def assemble(args: argparse.Namespace) -> dict:
         game_contract.generate(args.managed_linux.resolve(), {
             "windows-x64": game_contract.game_root("windows-x64", args.windows_game),
             "linux-x64": game_contract.game_root("linux-x64", args.linux_game)}, output / game_contract.FILE_NAME)
-        shutil.copytree(ROOT / "elements", output / "elements")
         for rid, files in natives.items():
             (output / "native" / rid).mkdir(parents=True)
             for file in files:

@@ -86,25 +86,6 @@ int main() {
             require(relaxed.state.cells[0].mixture.masses[water] == 0 && std::abs(relaxed.state.cells[0].mixture.masses[steam] - 5.05) < 1e-12,
                 "supercritical liquid evaporates");
         }
-        // The mod's nitrogen: the running game names it by its decimal hash
-        // (it is no SimHashes member), and its reference row is found by hash.
-        {
-            auto e = sample();
-            e.push_back(gas("-1109340048", -1109340048, 30, .0280134, 1040, 1078696428, 77.355));
-            e.push_back(liquid("1078696428", 1078696428, 31, .0280134, 2040, 808, 77.355, -1109340048));
-            e.back().low_temperature_k = 63.15;
-            const auto n = build_catalogue(e);
-            const auto ln = n.species_of_hash(1078696428), gn = n.species_of_hash(-1109340048);
-            const CatalogueSaturationPair* pair = nullptr;
-            for (const auto& p : n.pairs) if (p.liquid == ln && p.vapour == gn) pair = &p;
-            require(pair != nullptr && pair->critical_k == 126.2, "nitrogen pair with its critical temperature");
-            const auto& r = n.materials[ln].reference;
-            require(!r.surrogate_latent && !r.surrogate_bulk && r.bulk_modulus_pa == .59e9 && r.viscosity_pa_s == 1.6e-4, "nitrogen row");
-            const double l = mac_latent_heat(*n.eos, ln, gn, 77.355, catalogue_reference_pressure_pa);
-            require(std::abs(l - 199e3) <= 1e-9 * 199e3, "nitrogen latent heat");
-            require(std::abs(mac_saturation_pressure(*n.eos, ln, gn, 77.355, catalogue_reference_pressure_pa) - catalogue_reference_pressure_pa)
-                <= 1e-6 * catalogue_reference_pressure_pa, "nitrogen boils at one atmosphere at the game's point");
-        }
         // Rejections.
         rejects([] { auto e = sample(); e[1].native_index = 7; (void)build_catalogue(e); }, "Duplicate");
         rejects([] { auto e = sample(); e[2].specific_heat_j_per_kg_k = 0; (void)build_catalogue(e); }, "Invalid game properties");

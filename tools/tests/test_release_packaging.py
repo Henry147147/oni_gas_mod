@@ -144,7 +144,7 @@ class ReleaseAssemblyTests(unittest.TestCase):
                              "third-party/third-party-sources.txt", "third-party/funchook-1.1.3-with-distorm.tar.gz",
                              "native-build-provenance.json"):
                 self.assertIn(required, files)
-            self.assertTrue(any(name.startswith("elements/") for name in files))
+            self.assertFalse(any(name.startswith("elements/") for name in files), "removed nitrogen content must not be packaged")
             for forbidden in RELEASE.FORBIDDEN:
                 self.assertNotIn(forbidden, files)
             self.assertFalse(any("coupled" in name or "private-validation" in name for name in files))

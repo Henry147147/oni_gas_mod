@@ -1,5 +1,12 @@
 # Implementation status
 
+**Latest R&D update, 2026-10-27:** nitrogen removed; older saves need not be
+preserved. CO₂ breathing limits default off and can be changed during play.
+Settings open on Gameplay, with solver presets and technical controls under
+Advanced. Current verification is recorded in [settings](settings.md#verification-2026-10-27).
+The dated release evidence below predates this direction.
+
+
 Current private Windows candidate: **`bfb1168`**. Ordinary Spaced Out! New Game,
 manual saves and fresh-process loading are verified under Proton; the full
 release gate remains open. See [install instructions and exact provenance](spaced-out-private-playtest.md).
@@ -27,7 +34,7 @@ Current state on 2026-10-25. [Private-playtest acceptance](private-playtest-rele
 | [Pacing](colony-owner.md#pacing) | The owner steps on its own thread with predictive step control; the game clock slows to the owner's rate and holds before a tick the owner has not finished. The mixture presentation is built on a worker from readings the projection makes on the solver thread (game-thread publication about 15 ms). Between frames the game waits only for the end-of-frame projection (about 30 ms) and a Unity frame. |
 | [Saves](colony-owner.md#saves) | Mixed-pipe saves are on by default. Ordinary saves and cold/menu restoration pass bounded controls, including saved non-default settings in WindowsPlayer. Natural autosaves and long-run acceptance remain pending. Exact owned-storage schema5 and byte-exact active continuation are deferred by the user; old saves retain their profile. |
 | Readers | Pressure and easy-mode breathing read the owner; ONI's element cache follows the owner's cells (a cell the owner leaves is announced back); the [mixture renderer, hover, overlays and status panel](colony-owner.md#presentation) show the owner's mixtures; duplicants' breath status explains why the air fails (in game: `suit`). |
-| [Settings](settings.md) | Mods-row/status-panel settings, built-in profiles and user presets; only the current solver is selectable. WindowsPlayer UI create/save/reset/load and cold restoration of Precise + Strict settings pass. Loaded colony physics settings are read-only; the worker preference applies during play and defaults to physical cores. Settings-file and native worker continuation controls pass with identical checkpoint bytes. |
+| [Settings](settings.md) | Gameplay (live CO₂ switch, off by default), Display & keys, and Advanced (solver presets, thresholds, technical controls, saved presets). Earlier evidence: WindowsPlayer UI create/save/reset/load and cold restoration of Precise + Strict settings pass. Loaded colony physics settings are read-only; the worker preference applies during play and defaults to physical cores. Settings-file and native worker continuation controls pass with identical checkpoint bytes. |
 | [Liquids](colony-owner.md#liquids) | Liquids of one miscibility group mix in one phase; other liquids keep sharp interfaces and settle by density (standalone controls). |
 | [Phase change](colony-owner.md#phase-change) | Liquid/vapour pairs evaporate and condense toward saturation (1 s relaxation) at fixed U, with no liquid above a pair's critical temperature; native freezing and melting open and close cells; [conversions](colony-owner.md#conversions) change identity with booked transfers and debris byproducts (standalone controls). |
 | [Element consumers and emitters](colony-owner.md#element-consumers-and-emitters) | The owner holds every consumer and emitter registration (ONI's native simulation keeps none) and runs them: consumers by element or the whole gas/liquid mixture (a consumer naming an element takes only it), emitters with their blocked callbacks (in game: `wheezewort`, `life-support`, `mask-station`, `oxyfern`, `puft`, `breathing`). |
@@ -239,7 +246,7 @@ atomically with receipts and deliver original game callbacks once.
 | [Native fluid rendering](native-fluid-rendering.md), [GPU readback](native-domain-readers.md#gpu-texture-readback) | ONI's shaders draw owned cells from completed presentation; calibrated GPU byte checks bind colour, opacity and hazard to the physical frame. Linux and Windows scenes pass | Other liquids, free surfaces, sustained performance |
 | [Mixture presentation](mixture-presentation.md), [containers](container-inventories.md) | Read-only model: mole-weighted colours, trace inspection, breathing assessment, owned container bindings. Fixture gates pass in Linux Unity (2026-10-16) and Windows ([2026-10-17](windows-validation.md#windows-game-checks-2026-10-17)) | Binding to production colony state and containers |
 | [Complete tile hover](mixture-presentation.md#tile-hover-acceptance-procedure) | Hover lists every non-trace gas with its mole percentage and keeps hazardous-trace warnings, including the exact cutoff and 125% UI scale; passes as display fixtures on both OSes and bound to completed native frames on Windows | Production four-gas hover in an owned colony |
-| [Nitrogen](nitrogen.md) | Namespaced gas/liquid/solid elements registered from mod YAML; item inspection passes in Windows and Linux Unity fixtures, and native save/resume on Windows. Liquid nitrogen has its own catalogue row (latent heat, bulk modulus, critical temperature). New colonies can start with nitrogen air (25% oxygen, same mass; option, Hard mode preset); every start computes its ten-cycle bridge and gets an oxylite reserve for an oxygen shortfall; a Gas Share Sensor reads a gas's mole share | Spaced Out! starts in game, unattended ten-cycle starts per mode, endgame by human playtest |
+| [Starting air and gameplay settings](starting-air.md) | Vanilla generated oxygen, ten-cycle oxylite shortfall reserve, Gas Share Sensor. Nitrogen content and Hard mode preset removed. CO₂ breathing limits default off, can change during play and save per colony. Solver presets and technical controls are under Advanced | Representative sustained starts and endgame by human playtest |
 
 ## Solver development (milestone B)
 
@@ -493,7 +500,7 @@ criteria):
 4. **All fluid users.** Pumps, filters, vents, pipes, reservoirs, suits, rockets,
    generators, plants, critters, geysers and fluid-related disease, radiation
    and heat; no silent vanilla conversion.
-5. **Playable colony.** Nitrogen and starting supplies, life support, research,
+5. **Playable colony.** Starting oxygen supplies, life support, research,
    presentation bound to authoritative state, Windows/Linux screenshot and
    performance acceptance, and the ten-cycle colony gate.
 6. **Persistence and compatibility.** All mixture state; rejection of

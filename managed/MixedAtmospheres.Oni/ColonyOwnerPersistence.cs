@@ -91,6 +91,20 @@ namespace MixedAtmospheres.Oni
             return true;
         }
 
+        private static ColonySavePayload ValidateCurrentContent(ReadOnlySpan<byte> sim)
+        {
+            // Check framing/checksum with its recorded catalogue first so the
+            // removed content gets a useful refusal even before elements load.
+            var recorded = sim.Length >= 60 ? sim.Slice(28, ColonySaveEnvelope.CatalogHashBytes).ToArray() : new byte[ColonySaveEnvelope.CatalogHashBytes];
+            var envelope = ColonySaveEnvelope.Parse(sim, ColonySaveEnvelope.FirstSupportedBuild, RunningBuild, MaterialModel, recorded);
+            var payload = ColonySavePayload.Decode(envelope.CustomData);
+            ColonyCheckpointMetadata.RefuseRemovedNitrogen(payload.Owner);
+            var settings = payload.Section(ColonySavePayload.ColonySettings) ??
+                throw new NotSupportedException("This R&D save predates the current breathing settings. Start a new colony.");
+            _ = ColonySettingsRecord.Decode(settings, SettingValues.Defaults());
+            return payload;
+        }
+
         internal static bool TryLoad(IReader reader, ref int result)
         {
             var data = reader.RawBytes(); var position = reader.Position;
@@ -100,6 +114,7 @@ namespace MixedAtmospheres.Oni
             // The menu checks normally refuse this first (LoadRefusal).
             var packs = GameplayPacks.ActiveUnsupported();
             if (packs.Length != 0) throw new NotSupportedException(ModAdmission.PacksLoadRefusal(packs));
+            _ = ValidateCurrentContent(data.AsSpan(position + 4, length));
             var materials = ColonyOwner.BuildCatalogue();
             var envelope = ColonySaveEnvelope.Parse(data.AsSpan(position + 4, length), ColonySaveEnvelope.FirstSupportedBuild, RunningBuild, MaterialModel, CatalogueHash(materials));
             // Once the MACOLONY envelope is recognized, an unknown managed
@@ -155,6 +170,7 @@ namespace MixedAtmospheres.Oni
             mixture = true;
             try
             {
+                _ = ValidateCurrentContent(sim);
                 // The material catalogue is compared once elements exist (the in-game load checks it again).
                 var catalogue = ElementLoader.elements != null && ElementLoader.elements.Count != 0 ? CatalogueHash(ColonyOwner.BuildCatalogue()) :
                     sim.Length >= 60 ? sim.AsSpan(28, ColonySaveEnvelope.CatalogHashBytes).ToArray() : new byte[ColonySaveEnvelope.CatalogHashBytes];

@@ -49,7 +49,6 @@
 #include <optional>
 #include <stdexcept>
 #include <string>
-#include <string_view>
 #include <thread>
 #include <unordered_map>
 #include <xmmintrin.h>
@@ -57,7 +56,6 @@
 static_assert(sizeof(MAOniColonySpecies) == 40 && sizeof(MAOniColonyReading) == 64 && sizeof(MAOniColonyConstituent) == 24);
 static_assert(sizeof(MAOniColonyPassive)==16);
 static_assert(sizeof(MAOniColonyOptions)==80 && offsetof(MAOniColonyOptions,maximum_timestep_s)==24);
-static_assert(sizeof(MAOniColonyStartingAir)==48 && offsetof(MAOniColonyStartingAir,oxygen_mole_fraction)==40);
 static_assert(sizeof(MAOniColonyActorJob)==24 && offsetof(MAOniColonyActorJob,token)==16);
 static_assert(sizeof(MAOniColonyParcelContext)==72 && offsetof(MAOniColonyParcelContext,session)==16 &&
     offsetof(MAOniColonyParcelContext,cell_width_m)==48);
@@ -371,8 +369,7 @@ void validate(const MAOniColonyConfig& c) {
     require(std::isfinite(c.gravity_m_per_s2) && c.gravity_m_per_s2 >= 0 && c.gravity_m_per_s2 <= 100, "Invalid colony gravity");
     require(std::isfinite(c.maximum_timestep_s) && c.maximum_timestep_s > 0 && c.maximum_timestep_s <= static_cast<double>(.1f), "Invalid colony maximum timestep");
 }
-std::shared_ptr<const Catalogue> catalogue_of(std::span<const MAOniColonyMaterial> materials,
-    CatalogueReference reference = CatalogueReference::current) {
+std::shared_ptr<const Catalogue> catalogue_of(std::span<const MAOniColonyMaterial> materials) {
     require(!materials.empty() && materials.size() <= 4096, "A colony needs 1..4096 materials");
     std::vector<GameFluidElement> elements;
     for (const auto& m : materials) {
@@ -387,7 +384,7 @@ std::shared_ptr<const Catalogue> catalogue_of(std::span<const MAOniColonyMateria
         e.low_byproduct_fraction = m.low_byproduct_fraction; e.high_byproduct_fraction = m.high_byproduct_fraction;
         elements.push_back(std::move(e));
     }
-    return std::make_shared<const Catalogue>(build_catalogue(std::move(elements), reference));
+    return std::make_shared<const Catalogue>(build_catalogue(std::move(elements)));
 }
 // Each pair's critical temperature from the catalogue (no liquid above it).
 std::vector<MacSaturationPair> with_critical(const Catalogue& cat, std::vector<MacSaturationPair> pairs) {
@@ -422,7 +419,6 @@ void validate_options(const MAOniColonyOptions& o) {
         within(o.interface_detail_fraction,0,.5) && within(o.phase_relaxation_time_s,.1,10),"Colony solver options are outside their range");
 }
 MAOniColonyOptions next_options=default_options_value(); // under lifecycle
-MAOniColonyStartingAir next_air{}; // under lifecycle; enabled = 0 imports the generated gas unchanged
 unsigned requested_workers = 0; // under lifecycle; zero selects physical cores
 MacClosedSettings settings_of(const MAOniColonyConfig& c, const MAOniColonyOptions& o) {
     if(c.flags&MA_ONI_COLONY_GAME_KERNEL) {
@@ -1133,16 +1129,7 @@ void start(const MAOniColonyConfig& config, std::span<const MAOniColonyMaterial>
         require(c.temperature_k > 0, "A fluid cell has no positive temperature");
         imported[i] = {ImportCellKind::fluid, static_cast<std::uint32_t>(cat.species_of_native(c.native_index)), c.mass_kg, c.temperature_k};
     }
-    ImportAir air;
-    if (next_air.enabled) {
-        try {
-            air.nitrogen = static_cast<std::uint32_t>(cat.species_of_hash(next_air.nitrogen_hash));
-            for (std::uint32_t k = 0; k < next_air.source_count; ++k)
-                air.sources.push_back(static_cast<std::uint32_t>(cat.species_of_hash(next_air.source_hashes[k])));
-        } catch (const std::out_of_range&) { throw std::invalid_argument("Starting air names an element outside the colony catalogue"); }
-        air.oxygen_fraction = next_air.oxygen_mole_fraction;
-    }
-    auto settled = settle_import(cat, config.width, config.height, imported, config.gravity_m_per_s2, air);
+    auto settled = settle_import(cat, config.width, config.height, imported, config.gravity_m_per_s2);
     // Germs stay in their cell if it still holds fluid after the settle.
     for (std::size_t i = 0; i < cells.size(); ++i) {
         const auto& c = cells[i]; auto& cell = settled.state.cells[i];
@@ -1692,26 +1679,6 @@ void set_options(const MAOniColonyOptions* options) {
     const auto value=options ? *options : default_options_value();
     validate_options(value);
     next_options=value;
-}
-void set_starting_air(const MAOniColonyStartingAir* air) {
-    std::lock_guard lock(lifecycle);
-    require(!enabled.load(std::memory_order_acquire), "Set the starting air before the colony owner starts");
-    MAOniColonyStartingAir value{};
-    if (air) {
-        require(air->struct_size == sizeof(MAOniColonyStartingAir) && air->abi_version == 1 && air->reserved == 0 && air->enabled <= 1,
-            "Invalid starting air record");
-        if (air->enabled) {
-            require(air->source_count >= 1 && air->source_count <= 4, "Starting air needs one to four source gases");
-            require(std::isfinite(air->oxygen_mole_fraction) && air->oxygen_mole_fraction > 0 && air->oxygen_mole_fraction < 1,
-                "Starting air oxygen share is outside (0, 1)");
-            for (std::uint32_t k = 0; k < air->source_count; ++k) {
-                require(air->source_hashes[k] != air->nitrogen_hash, "Starting air nitrogen cannot be a source gas");
-                for (std::uint32_t j = 0; j < k; ++j) require(air->source_hashes[j] != air->source_hashes[k], "Starting air source gases repeat");
-            }
-            value = *air;
-        }
-    }
-    next_air = value;
 }
 bool copy_options(MAOniColonyOptions& out) {
     std::shared_ptr<const Published> p; { std::lock_guard lock(publication); p = latest; }
@@ -3641,24 +3608,8 @@ void restore(const MAOniColonyConfig& config, std::span<const MAOniColonyMateria
         }
     }
     const auto physical = r.u64(); require(physical == r.bytes.size() - r.at, "Colony checkpoint physical image length differs");
-    const auto physical_image = r.bytes.subspan(r.at, static_cast<std::size_t>(physical));
-    try {
-        next->world = std::make_shared<const MacClosedWorld>(MacClosedWorld::from_checkpoint(
-            next->catalogue->registry, next->catalogue->eos, physical_image));
-    } catch (const std::invalid_argument& error) {
-        // The physical image includes the complete registry/EOS identity,
-        // even for species absent from every cell. The nitrogen reference
-        // row therefore changed every game catalogue's save identity. Admit
-        // the previous law only when its entire identity and checkpoint pass
-        // the ordinary reader, and keep that catalogue for all continuation.
-        const std::string_view reason = error.what();
-        if (reason != "Saved game model size differs" && reason != "Saved game registry/EOS identity differs") throw;
-        auto previous = catalogue_of(next->materials, CatalogueReference::before_nitrogen);
-        next->world = std::make_shared<const MacClosedWorld>(MacClosedWorld::from_checkpoint(
-            previous->registry, previous->eos, physical_image));
-        next->catalogue = std::move(previous);
-    }
-    next->pairs = with_critical(*next->catalogue, mac_saturation_pairs(next->catalogue->registry, *next->catalogue->eos));
+    next->world = std::make_shared<const MacClosedWorld>(MacClosedWorld::from_checkpoint(next->catalogue->registry, next->catalogue->eos,
+        r.bytes.subspan(r.at, static_cast<std::size_t>(physical))));
     require(((config.flags&MA_ONI_COLONY_GAME_KERNEL)!=0)==(next->world->settings().numerical_kernel==MacNumericalKernel::game),"Saved core kernel differs from saved colony flags");
     activate(std::move(next), thread);
     // Ledger bounds and counters continue from the saved session.

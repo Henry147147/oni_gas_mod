@@ -160,10 +160,10 @@ namespace MixedAtmospheres.Oni
         {
             var ids = new[] { "nitrogen", "oxygen", "carbon_dioxide", "steam", "hydrogen", "chlorine" };
             var names = new[] { "Nitrogen", "Oxygen", "Carbon dioxide", "Steam", "Hydrogen", "Chlorine" };
-            var hashes = new[] { OniNitrogenElements.Gas, SimHashes.Oxygen, SimHashes.CarbonDioxide, SimHashes.Steam, SimHashes.Hydrogen, SimHashes.ChlorineGas };
+            var hashes = new[] { SimHashes.Vacuum, SimHashes.Oxygen, SimHashes.CarbonDioxide, SimHashes.Steam, SimHashes.Hydrogen, SimHashes.ChlorineGas };
             var styles = ids.Select((id, i) =>
             {
-                Color color = ElementLoader.FindElementByHash(hashes[i]).substance.colour;
+                Color color = hashes[i] == SimHashes.Vacuum ? new Color(.65f, .65f, .8f) : (Color)ElementLoader.FindElementByHash(hashes[i]).substance.colour;
                 return new MixtureSpeciesStyle(id, names[i], new MixtureSrgbColor(color.r, color.g, color.b));
             });
             return new MixturePresentationModel(catalog!, styles, new AtmosphereSettings(), "oxygen", "carbon_dioxide",

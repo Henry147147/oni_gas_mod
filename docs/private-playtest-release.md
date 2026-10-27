@@ -1,3 +1,8 @@
+> Current R&D direction (2026-10-27): nitrogen removed, CO₂ breathing limits
+> off by default, settings reorganized into Gameplay, Display & keys, Advanced.
+> The older candidate evidence below does not validate this revision; old
+> saves need not be preserved. See [settings](settings.md).
+
 # Private Linux and Windows playtest completion
 
 Spaced Out! update, 2026-10-27: the private Windows candidate **`bfb1168`**

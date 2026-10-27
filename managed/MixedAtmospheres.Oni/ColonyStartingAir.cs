@@ -6,42 +6,18 @@ using UnityEngine;
 
 namespace MixedAtmospheres.Oni
 {
-    // The ten-cycle life-support bridge (docs/nitrogen.md). Before a new
-    // colony's import, the gas connected to the printing pod is counted as the
-    // import will hold it (nitrogen air converted). Once the starting
-    // duplicants exist, their oxygen use and the colony's breathing rules give
-    // the cycles of breathable oxygen and of carbon dioxide headroom, the
-    // gas taken as well mixed. An oxygen shortfall over ten cycles is placed
-    // as oxylite debris beside the pod (user decision 2026-10-27: every start,
-    // generated or nitrogen air); a carbon dioxide shortfall is only told.
-    // Validation scenes report the bridge and place the reserve only with
-    // MA_COLONY_STARTING_RESERVE=1, so other harness arenas keep their worlds.
+    // Ten-cycle oxygen reserve for the gas connected to the printing pod.
+    // See docs/starting-air.md. CO2 headroom is advisory only when its limits
+    // are enabled. Harness arenas place the reserve only on explicit request.
     internal static unsafe class ColonyStartingAir
     {
         internal const double BridgeCycles = 10, CycleSeconds = 600, ChunkKg = 300;
         private const int MaximumWaitFrames = 600;
 
-        // The generated gas as counted; Gas(on) gives it with or without the
-        // import's same-mass nitrogen air (oni_colony_import.cpp), which is
-        // linear in each source gas's mass.
         private sealed class Inventory
         {
             internal int PodCell = -1, World = -1, Cells;
-            internal readonly double[] SourceKg = new double[2], SourceMolar = new double[2];
-            internal double NitrogenMolar, OtherMol, Co2Mol, NitrogenMol, GasVolume, MeanTemperature;
-            internal bool NitrogenAir;
-            internal (double oxygen, double co2, double nitrogen, double gas) Gas(bool air)
-            {
-                double oxygen = 0, nitrogen = NitrogenMol, gas = OtherMol;
-                for (var k = 0; k < SourceKg.Length; ++k)
-                {
-                    if (!(SourceKg[k] > 0)) continue;
-                    var share = air && NitrogenMolar > 0 ? MixedAtmospheres.Oni.NitrogenAir.OxygenShare : 1;
-                    var moles = share < 1 ? StartingAirBridge.AirMoles(SourceKg[k], SourceMolar[k], NitrogenMolar, share) : SourceKg[k] / SourceMolar[k];
-                    oxygen += share * moles; nitrogen += (1 - share) * moles; gas += moles;
-                }
-                return (oxygen, Co2Mol, nitrogen, gas);
-            }
+            internal double OxygenMol, Co2Mol, GasMol, GasVolume, MeanTemperature;
         }
         private static Inventory? pending;
         private static int waited;
@@ -49,21 +25,20 @@ namespace MixedAtmospheres.Oni
         // For the harness scenario: the settled bridge of this session.
         internal static bool Settled { get; private set; }
         internal static int PodCell { get; private set; } = -1;
-        internal static bool NitrogenAirApplied { get; private set; }
         internal static double ShortfallKg { get; private set; }
         internal static double ReserveKg { get; private set; }
         internal static int Duplicants { get; private set; }
 
         internal static void Reset()
         {
-            pending = null; waited = 0; Report = null; Settled = false; PodCell = -1; NitrogenAirApplied = false; ShortfallKg = ReserveKg = 0; Duplicants = 0;
+            pending = null; waited = 0; Report = null; Settled = false; PodCell = -1; ShortfallKg = ReserveKg = 0; Duplicants = 0;
         }
 
         private static bool PlaceInValidation => Environment.GetEnvironmentVariable("MA_COLONY_STARTING_RESERVE") == "1";
 
         // Right before the owner imports a new colony. Uses the native frame's
         // own element, mass and temperature arrays (the import's input).
-        internal static void Capture(Sim.GameDataUpdate* source, bool nitrogenAir, Func<int, bool> space)
+        internal static void Capture(Sim.GameDataUpdate* source, Func<int, bool> space)
         {
             Reset();
             try
@@ -72,13 +47,11 @@ namespace MixedAtmospheres.Oni
                 if (telepad == null) { Report = new { Skipped = "no printing pod" }; return; }
                 var pod = Grid.PosToCell(telepad);
                 if (!Grid.IsValidCell(pod)) { Report = new { Skipped = "printing pod outside the grid" }; return; }
-                var inventory = new Inventory { PodCell = pod, World = Grid.WorldIdx[pod], NitrogenAir = nitrogenAir };
+                var inventory = new Inventory { PodCell = pod, World = Grid.WorldIdx[pod] };
                 var oxygen = ElementLoader.FindElementByHash(SimHashes.Oxygen);
                 var polluted = ElementLoader.FindElementByHash(SimHashes.ContaminatedOxygen);
                 var co2 = ElementLoader.FindElementByHash(SimHashes.CarbonDioxide);
-                var nitrogen = ElementLoader.FindElementByHash(OniNitrogenElements.Gas);
                 double heat = 0, moles = 0;
-                inventory.NitrogenMolar = nitrogen != null ? nitrogen.molarMass / 1000.0 : 0;
                 // The connected open cells of the pod's world, breadth first.
                 var seen = new HashSet<int> { pod };
                 var queue = new Queue<int>(); queue.Enqueue(pod);
@@ -92,14 +65,9 @@ namespace MixedAtmospheres.Oni
                     if (element.IsGas && mass > 0)
                     {
                         var molar = element.molarMass / 1000.0;
-                        var kind = element == oxygen ? 0 : element == polluted ? 1 : -1;
-                        if (kind >= 0) { inventory.SourceKg[kind] += mass; inventory.SourceMolar[kind] = molar; }
-                        else
-                        {
-                            inventory.OtherMol += mass / molar;
-                            if (element == co2) inventory.Co2Mol += mass / molar;
-                            else if (element == nitrogen) inventory.NitrogenMol += mass / molar;
-                        }
+                        inventory.GasMol += mass / molar;
+                        if (element == oxygen || element == polluted) inventory.OxygenMol += mass / molar;
+                        if (element == co2) inventory.Co2Mol += mass / molar;
                         moles += mass / molar; heat += mass / molar * source->temperature[cell];
                         inventory.GasVolume += 1;
                     }
@@ -148,38 +116,34 @@ namespace MixedAtmospheres.Oni
             var k = oxygenMolar * TUNING.DUPLICANTSTATS.STANDARD.BaseStats.OXYGEN_TO_CO2_CONVERSION / co2Molar;
             var rules = ModSettingsRuntime.Breathing;
             var molesPerCycle = rateKg / oxygenMolar * CycleSeconds;
-            // The bridge of the colony's own air, and for comparison of the other air.
-            (double oxygenCycles, double co2Cycles, double shortfallKg, object report) Bridge(bool air)
-            {
-                var (o, c, n, g) = inventory.Gas(air);
-                var (oxygenMol, co2Mol) = StartingAirBridge.BreathableMoles(o, c, g, inventory.GasVolume, inventory.MeanTemperature, k, rules.MinimumOxygenFraction,
-                    rules.MinimumOxygenPartialPressurePa, rules.MaximumOxygenFraction, rules.MaximumCo2Fraction, rules.MaximumCo2PartialPressurePa);
-                var oc = molesPerCycle > 0 ? oxygenMol / molesPerCycle : double.PositiveInfinity;
-                var cc = molesPerCycle > 0 ? co2Mol / molesPerCycle : double.PositiveInfinity;
-                var shortfall = Math.Max(0, BridgeCycles * CycleSeconds * rateKg - oxygenMol * oxygenMolar);
-                return (oc, cc, shortfall, new { NitrogenAir = air, GasMol = g, OxygenMol = o, Co2Mol = c, NitrogenMol = n,
-                    BreathableOxygenMol = oxygenMol, Co2HeadroomOxygenMol = co2Mol, OxygenCycles = Finite(oc), Co2Cycles = Finite(cc), ShortfallKg = shortfall });
-            }
-            var (oxygenCycles, co2Cycles, shortfallKg, own) = Bridge(inventory.NitrogenAir);
-            var other = Bridge(!inventory.NitrogenAir).report;
-            var (o0, c0, n0, g0) = inventory.Gas(inventory.NitrogenAir);
+            var o0 = inventory.OxygenMol; var c0 = inventory.Co2Mol; var g0 = inventory.GasMol;
+            var (oxygenMol, co2Mol) = StartingAirBridge.BreathableMoles(o0, c0, g0, inventory.GasVolume, inventory.MeanTemperature, k,
+                rules.MinimumOxygenFraction, rules.MinimumOxygenPartialPressurePa, rules.MaximumOxygenFraction,
+                rules.MaximumCo2Fraction, rules.MaximumCo2PartialPressurePa, rules.EnforceCarbonDioxideLimits);
+            var oxygenCycles = molesPerCycle > 0 ? oxygenMol / molesPerCycle : double.PositiveInfinity;
+            var co2Cycles = molesPerCycle > 0 ? co2Mol / molesPerCycle : double.PositiveInfinity;
+            var shortfallKg = Math.Max(0, BridgeCycles * CycleSeconds * rateKg - oxygenMol * oxygenMolar);
             var place = shortfallKg > 0 && (ColonyRuntimeValidation.Settings == null || PlaceInValidation);
             var placed = place ? PlaceReserve(inventory, shortfallKg) : new List<(int cell, double kg)>();
             var placedKg = placed.Sum(p => p.kg);
-            Settled = true; PodCell = inventory.PodCell; NitrogenAirApplied = inventory.NitrogenAir; ShortfallKg = shortfallKg; ReserveKg = placedKg; Duplicants = minions.Count;
+            Settled = true; PodCell = inventory.PodCell; ShortfallKg = shortfallKg; ReserveKg = placedKg; Duplicants = minions.Count;
             Report = new
             {
                 Duplicants = minions.Count, OxygenKgPerSecond = rateKg, inventory.Cells, inventory.GasVolume, inventory.MeanTemperature,
-                Colony = own, OtherAir = other, ReserveKg = placedKg, ReserveCells = placed.Select(p => p.cell).Distinct().Count(), ReservePlaced = place
+                Colony = new { GasMol = g0, OxygenMol = o0, Co2Mol = c0, BreathableOxygenMol = oxygenMol,
+                    Co2Limits = rules.EnforceCarbonDioxideLimits, OxygenCycles = Finite(oxygenCycles), Co2Cycles = Finite(co2Cycles), ShortfallKg = shortfallKg },
+                ReserveKg = placedKg, ReserveCells = placed.Select(p => p.cell).Distinct().Count(), ReservePlaced = place
             };
             string Cycles(double c) => double.IsInfinity(c) ? "unlimited" : c.ToString("0.#", CultureInfo.InvariantCulture);
             Debug.Log(FormattableString.Invariant(
-                $"[Mixed Atmospheres] Starting air: {minions.Count} duplicants use {rateKg:G4} kg/s oxygen; {inventory.Cells} connected cells hold {g0:G6} mol gas ({o0:G6} oxygen, {c0:G6} CO2, {n0:G6} nitrogen) at {inventory.MeanTemperature:F1} K; breathable oxygen {Cycles(oxygenCycles)} cycles, CO2 headroom {Cycles(co2Cycles)} cycles; ten-cycle shortfall {shortfallKg:G6} kg; oxylite placed {placedKg:G6} kg."));
+                $"[Mixed Atmospheres] Starting air: {minions.Count} duplicants use {rateKg:G4} kg/s oxygen; {inventory.Cells} connected cells hold {g0:G6} mol gas ({o0:G6} oxygen, {c0:G6} CO2) at {inventory.MeanTemperature:F1} K; breathable oxygen {Cycles(oxygenCycles)} cycles, CO2 headroom {Cycles(co2Cycles)} cycles; ten-cycle shortfall {shortfallKg:G6} kg; oxylite placed {placedKg:G6} kg."));
             if (minions.Count == 0) return;
             var lines = new List<string>
             {
                 "The air connected to the printing pod lets your " + minions.Count + " duplicants breathe for about " + Cycles(oxygenCycles) +
-                " cycles before its oxygen runs short, and about " + Cycles(co2Cycles) + " cycles before exhaled carbon dioxide passes the colony's limit."
+                " cycles before its oxygen runs short." + (rules.EnforceCarbonDioxideLimits ?
+                    " Exhaled carbon dioxide reaches the colony's limit after about " + Cycles(co2Cycles) + " cycles." :
+                    " CO₂ breathing limits are off. You can enable them in Settings → Gameplay.")
             };
             if (placedKg > 0)
                 lines.Add(((int)Math.Ceiling(placedKg)).ToString(CultureInfo.InvariantCulture) + " kg of oxylite has been placed beside the printing pod. It releases oxygen while the air around it is thin, covering ten cycles of breathing.");

@@ -86,21 +86,21 @@ play.
   the owner's edits that follow it. Their mass per species, U+K+G and momentum are
   booked as their own ledger term (`trace_sink_kg`, `trace_sink_j` in the
   status), apart from the space sink. The game does not select the profile yet.
-- **Starting air** (`ColonyStartingAir.cs`, [nitrogen](nitrogen.md)): before the
+- **Starting air** (`ColonyStartingAir.cs`, [starting air](starting-air.md)): before the
   import, the gas connected to the printing pod is counted; once the starting
   duplicants exist, their oxygen use and the colony's breathing rules give the
   cycles of breathable oxygen and carbon dioxide headroom (the
   `StartingAir` report and a log line). An oxygen shortfall over ten cycles
   is placed as oxylite debris beside the pod and named in a start notice.
   Validation scenes place it only with `MA_COLONY_STARTING_RESERVE=1`.
-- **Breathing** (easy mode): a cell is breathable with at least 15% oxygen by
-  moles and 15 kPa oxygen partial pressure, carbon dioxide below 0.5% and
-  500 Pa; polluted oxygen counts as oxygen. A breathable cell offers its oxygen
-  of the more abundant kind. A colony started with other breathing
-  [settings](settings.md) records and keeps them, and its duplicants breathe
-  by them, including hard mode's maximum oxygen share (until 2026-10-27 the
-  breathing reader used the easy-mode defaults and only the presentation
-  followed the settings).
+- **Breathing:** by default, at least 15% oxygen by moles and 15 kPa oxygen
+  partial pressure; polluted oxygen counts as oxygen. CO₂ limits default off.
+  When enabled they apply the saved thresholds (default 0.5% and 500 Pa).
+  A breathable cell offers its oxygen of the more abundant kind. The live
+  Gameplay switch updates both the duplicant reader and presentation, and is
+  saved with the colony. Numeric thresholds and an optional oxygen ceiling are
+  chosen under Advanced before starting a colony.
+
 
 A faulted owner keeps publishing its last frame (fluids freeze), logs the error
 and refuses saves. An exception escaping one of the mod's paths inside the
@@ -1013,15 +1013,10 @@ whole asteroid starts at rest.
 5. Liquid masses depend on the gas pressure above them, so steps 2 and 4 repeat
    three times.
 
-**Nitrogen air** ([nitrogen](nitrogen.md#starting-air-and-progression),
-`ma_oni_colony_set_starting_air`). With the new-colony setting on, every
-imported cell of oxygen or polluted oxygen first becomes air of the same mass
-and temperature, the source gas at 25% of the moles and nitrogen for the rest.
-In step 4 a region's air species then form one mixed layer at their mean
-molar mass, not separate nitrogen and oxygen layers (only where every cell is
-above each member's critical temperature). The converted inventory is the
-owner's initial inventory; no checkpoint field changes, and with the setting
-off the import is unchanged byte for byte.
+**Starting air:** generated oxygen and polluted oxygen are imported without
+nitrogen conversion. The removed nitrogen element registration and starting-air
+ABI are no longer shipped. Saves containing that catalogue are refused before
+native loading; older R&D saves need not be preserved.
 
 The import ignores the small hydrostatic gradient within gas.
 

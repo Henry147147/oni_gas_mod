@@ -59,21 +59,17 @@ Rows are keyed by the game's element id. Sources:
 - NIST Chemistry WebBook and CRC Handbook: critical temperatures of water,
   ethanol, carbon dioxide, oxygen, hydrogen, methane, propane, helium, chlorine,
   sulfur, phosphorus, mercury and nitrogen.
-- The mod's liquid nitrogen ([nitrogen](nitrogen.md)) has its own row: 199 kJ/kg
-  (5.57 kJ/mol at 77.3 K), 0.59 GPa (806 kg/m³, 853 m/s), 0.16 mPa·s and 126.2 K.
-  The running game names it by its decimal hash, so the row is also matched
-  by that hash.
+- Custom nitrogen content and its liquid reference row were removed by the
+  2026-10-27 user decision. The game catalogue uses only built-in elements.
+  Standalone solver reference species and fixed gates remain unchanged.
 
 ### Saved catalogues
 
 The physical checkpoint records the complete registry and EOS identity,
-including materials absent from the colony. Adding the nitrogen reference row
-therefore changes new checkpoints even when nitrogen air is off. Restoring a
-pre-change colony first checks the current catalogue, then the exact previous
-nitrogen surrogate catalogue. The ordinary checkpoint reader must accept every
-identity byte and checksum; an unknown model still refuses. A restored colony
-keeps its saved catalogue, saturation pairs and continuation law, and reencodes
-the same bytes. New colonies use the nitrogen reference row.
+including materials absent from the colony. The removed nitrogen catalogue
+is refused before native loading. There is no fallback to an older nitrogen
+surrogate law: old R&D saves are not supported. New colonies use only the
+current built-in-element catalogue.
 
 ## Surrogates
 

@@ -388,5 +388,6 @@ covers APIVersion and minimumSupportedBuild.
 [Harmony's native-method limitations](https://harmony.pardeike.net/v2/articles/patching-edgecases.html)
 explain why managed callers of native externs are intercepted instead. The
 [744825 release page](https://kleiforums.com/game-updates/oni-alpha/744825-r2776/)
-identifies the inspected build. Mod element loading is covered in
-[native nitrogen](nitrogen.md#game-loader-contract).
+identifies the inspected build. Custom nitrogen element loading and its tag
+alias patch were removed by the 2026-10-27 user decision. The original native
+enum-to-tag helpers are checked without installing aliases.

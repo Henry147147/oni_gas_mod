@@ -8,6 +8,7 @@ namespace MixedAtmospheres.Core
     public sealed class AtmosphereSettings
     {
         public bool HardMode { get; set; } = true;
+        public bool EnforceCarbonDioxideLimits { get; set; } = true;
         public double MinimumOxygenFraction { get; set; } = 0.15;
         public double MaximumOxygenFraction { get; set; } = 0.35;
         public double MinimumOxygenPartialPressurePa { get; set; } = 15000;
@@ -40,8 +41,8 @@ namespace MixedAtmospheres.Core
                 MinimumOxygenFraction = MinimumOxygenFraction,
                 MaximumOxygenFraction = MaximumOxygenFraction,
                 MinimumOxygenPressure = MinimumOxygenPartialPressurePa,
-                MaximumCo2Fraction = MaximumCo2Fraction,
-                MaximumCo2Pressure = MaximumCo2PartialPressurePa
+                MaximumCo2Fraction = EnforceCarbonDioxideLimits ? MaximumCo2Fraction : 1,
+                MaximumCo2Pressure = EnforceCarbonDioxideLimits ? MaximumCo2PartialPressurePa : double.MaxValue
             };
         }
 
@@ -50,6 +51,7 @@ namespace MixedAtmospheres.Core
             Validate();
             string Number(double value) => value.ToString("R", CultureInfo.InvariantCulture);
             return "{\"HardMode\":" + (HardMode ? "true" : "false") +
+                ",\"EnforceCarbonDioxideLimits\":" + (EnforceCarbonDioxideLimits ? "true" : "false") +
                 ",\"MinimumOxygenFraction\":" + Number(MinimumOxygenFraction) +
                 ",\"MaximumOxygenFraction\":" + Number(MaximumOxygenFraction) +
                 ",\"MinimumOxygenPartialPressurePa\":" + Number(MinimumOxygenPartialPressurePa) +
@@ -86,10 +88,11 @@ namespace MixedAtmospheres.Core
                 });
                 if (!names.Add(name)) throw new ArgumentException("Duplicate atmosphere setting: " + name, nameof(json));
                 var value = token.Groups["value"].Value;
-                if (name == nameof(HardMode))
+                if (name == nameof(HardMode) || name == nameof(EnforceCarbonDioxideLimits))
                 {
-                    if (value != "true" && value != "false") throw new ArgumentException("HardMode must be a JSON boolean.", nameof(json));
-                    result.HardMode = value == "true";
+                    if (value != "true" && value != "false") throw new ArgumentException(name + " must be a JSON boolean.", nameof(json));
+                    if (name == nameof(HardMode)) result.HardMode = value == "true";
+                    else result.EnforceCarbonDioxideLimits = value == "true";
                 }
                 else
                 {
@@ -108,8 +111,11 @@ namespace MixedAtmospheres.Core
                 if (token.Groups["end"].Value == "}") break;
             }
             SkipSpace();
-            if (position != json.Length || names.Count != 6)
-                throw new ArgumentException("Expected exactly the six atmosphere settings and no trailing data.", nameof(json));
+            if (position != json.Length || names.Count < 6 || names.Count > 7 ||
+                !names.Contains(nameof(HardMode)) || !names.Contains(nameof(MinimumOxygenFraction)) ||
+                !names.Contains(nameof(MaximumOxygenFraction)) || !names.Contains(nameof(MinimumOxygenPartialPressurePa)) ||
+                !names.Contains(nameof(MaximumCo2Fraction)) || !names.Contains(nameof(MaximumCo2PartialPressurePa)))
+                throw new ArgumentException("Expected all six atmosphere thresholds/flags, an optional CO2 switch and no trailing data.", nameof(json));
             result.Validate();
             return result;
         }

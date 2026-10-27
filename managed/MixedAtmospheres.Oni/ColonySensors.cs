@@ -40,7 +40,7 @@ namespace MixedAtmospheres.Oni
         }
 
         // The mole share (0..1) of one gas among a cell's gases, for the gas
-        // share sensor (docs/nitrogen.md). Off the owned asteroid a cell holds
+        // share sensor (docs/settings.md). Off the owned asteroid a cell holds
         // one element: all of it or none.
         internal static double GasShare(int cell, Element? wanted)
         {

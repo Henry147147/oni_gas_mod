@@ -59,6 +59,9 @@ namespace MixedAtmospheres.Oni
             string[] choices, string[] labels) =>
             new SettingDefinition(key, scope, SettingKind.Choice, group, label, description, value, 0, 0, false, null, choices, labels, "", null);
 
+        internal bool Advanced => Group == SettingCatalog.Solver || Group == SettingCatalog.Performance ||
+            Group == SettingCatalog.Breathing && Key != SettingCatalog.Co2Limits ||
+            Key == "display.traceMoleFraction" || Key == "panel.showBoundary" || Key == "keys.toggleBoundary";
         internal bool IsExperimental(object value) => tested != null && !tested(value);
 
         // A file value converted to this setting's type, or an error.
@@ -91,6 +94,7 @@ namespace MixedAtmospheres.Oni
     internal static class SettingCatalog
     {
         internal const string Solver = "Solver (profile 5)", Breathing = "Breathing", Performance = "Performance", Display = "Display", Panel = "Status panel", Keys = "Keyboard shortcuts";
+        internal const string Co2Limits = "breathing.co2Limits";
         private static double[] Decades(int from, int to) { var r = new List<double>(); for (var e = from; e <= to; ++e) r.Add(double.Parse("1e" + e.ToString(CultureInfo.InvariantCulture), CultureInfo.InvariantCulture)); return r.ToArray(); }
         internal static readonly string[] KeyChoices = { "None", "F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9", "F10", "F11", "F12" };
 
@@ -129,7 +133,9 @@ namespace MixedAtmospheres.Oni
             SettingDefinition.Number("solver.traceThresholdKg", SettingScope.Colony, Solver, "Trace removal threshold",
                 "A constituent below this mass in a cell leaves through the booked trace sink. 1e-11 kg is the smallest tested value; the ceiling is 1 mg.",
                 1e-11, 1e-11, 1e-6, Decades(-11, -6), "kg", false, v => v == 1e-11),
-            // Breathing (easy mode): recorded in the save when not the default.
+            // Gameplay: CO2 toxicity is optional; oxygen requirements always apply.
+            SettingDefinition.Toggle(Co2Limits, SettingScope.Colony, Breathing, "CO₂ breathing limits",
+                "Off (default): carbon dioxide does not block breathing while enough oxygen remains. On: apply the CO₂ thresholds in Advanced. CO₂ still mixes, moves and carries heat.", false),
             SettingDefinition.Number("breathing.minimumOxygenFraction", SettingScope.Colony, Breathing, "Minimum oxygen share",
                 "A duplicant can breathe a cell whose gas is at least this share oxygen by moles (polluted oxygen counts).",
                 .15, .05, .25, new double[] { .05, .08, .1, .12, .15, .18, .2, .25 }),
@@ -137,18 +143,14 @@ namespace MixedAtmospheres.Oni
                 "…and at least this oxygen partial pressure.",
                 15000, 1000, 50000, new double[] { 1000, 5000, 8000, 10000, 12000, 15000, 18000, 21000, 30000, 50000 }, "Pa"),
             SettingDefinition.Number("breathing.maximumCo2Fraction", SettingScope.Colony, Breathing, "Maximum carbon dioxide share",
-                "…with carbon dioxide below this share by moles (0: any carbon dioxide fails).",
+                "Applied only when Gameplay → CO₂ breathing limits is On: maximum share by moles (0: any carbon dioxide fails).",
                 .005, 0, .1, new double[] { 0, .001, .003, .005, .01, .02, .05, .1 }),
             SettingDefinition.Number("breathing.maximumCo2PressurePa", SettingScope.Colony, Breathing, "Maximum carbon dioxide partial pressure",
-                "…and below this carbon dioxide partial pressure.",
+                "Applied only when Gameplay → CO₂ breathing limits is On: maximum carbon dioxide partial pressure.",
                 500, 0, 10000, new double[] { 0, 100, 300, 500, 1000, 2000, 5000, 10000 }, "Pa"),
             SettingDefinition.Number("breathing.maximumOxygenFraction", SettingScope.Colony, Breathing, "Maximum oxygen share",
-                "Cells with more oxygen than this share fail (1: no upper limit). Below 100% (hard mode) needs nitrogen air: generated oxygen is pure.",
+                "Cells above this oxygen share cannot be breathed (100%: no upper limit). Generated oxygen is pure; lowering this can make starting air unbreathable.",
                 1, .3, 1, new double[] { .3, .35, .5, .75, 1 }),
-            SettingDefinition.Toggle("breathing.nitrogenAir", SettingScope.Colony, Breathing, "Nitrogen air",
-                "A new colony's generated oxygen and polluted oxygen become air of the same mass, " + ModSettingsText.Number(NitrogenAir.OxygenShare * 100) +
-                "% oxygen by moles and nitrogen for the rest. World generation is otherwise unchanged. Needed for a maximum oxygen share below 100%.",
-                false),
             // Preferences: apply at once, everywhere.
             SettingDefinition.Number("performance.workerThreads", SettingScope.Preference, Performance, "Solver workers",
                 "Physical cores (default) uses one worker per physical CPU core. Choose a number to use fewer workers or include SMT threads. More workers can be slower. Changes apply to the current colony and are not saved in the colony.",
@@ -201,6 +203,12 @@ namespace MixedAtmospheres.Oni
         {
             var c = Copy();
             foreach (var d in SettingCatalog.All) if (d.Scope == scope) c.values[d.Key] = from.values[d.Key];
+            return c;
+        }
+        internal SettingValues WithGroup(string group, SettingValues from)
+        {
+            var c = Copy();
+            foreach (var d in SettingCatalog.All) if (d.Group == group) c.values[d.Key] = from.values[d.Key];
             return c;
         }
         internal bool ScopeEquals(SettingScope scope, SettingValues other) =>
@@ -282,22 +290,6 @@ namespace MixedAtmospheres.Oni
         }
     }
 
-    // MAOniColonyStartingAir (native/include/mixed_atmospheres/oni_colony.h), 48 bytes.
-    [StructLayout(LayoutKind.Sequential)]
-    internal struct NativeStartingAir
-    {
-        internal const uint Bytes = 48;
-        public uint Size, Version, Enabled, SourceCount;
-        public int NitrogenHash, Source0, Source1, Source2, Source3;
-        public uint Reserved;
-        public double OxygenMoleFraction;
-        internal static void CheckLayout()
-        {
-            if (Marshal.SizeOf<NativeStartingAir>() != Bytes || Marshal.OffsetOf<NativeStartingAir>(nameof(OxygenMoleFraction)).ToInt32() != 40)
-                throw new InvalidOperationException("Starting air layout differs from the native library.");
-        }
-    }
-
     internal sealed class SettingsPreset
     {
         internal string Id { get; }
@@ -329,85 +321,65 @@ namespace MixedAtmospheres.Oni
         }
         internal static readonly IReadOnlyList<SettingsPreset> All = new[]
         {
-            Make(DefaultId, "Default (recommended)", "Exactly what a new colony gets without any settings: the measured profile-5 solver and easy-mode breathing."),
+            Make(DefaultId, "Default (recommended)", "Exactly what a new colony gets without any settings: the measured solver, normal oxygen requirements and CO₂ breathing limits off."),
             Make("robust", "Robust", "Higher pressure and heat iteration caps. Identical results wherever Default completes; a difficult solve that would stop Default gets more room.",
                 ("solver.pressureIterationCap", 1600.0), ("solver.heatIterationCap", 3200.0)),
             Make("fast", "Fast", "A looser pressure tolerance: fewer pressure iterations, pressures settle less exactly.",
                 ("solver.pressureTolerance", 1e-6)),
             Make("precise", "Precise", "Two solver steps per game tick and a tighter pressure tolerance, with the Robust caps. About twice the solver time.",
                 ("solver.stepsPerFrame", 2.0), ("solver.pressureTolerance", 1e-10), ("solver.pressureIterationCap", 1600.0), ("solver.heatIterationCap", 3200.0)),
-            Make("relaxed-breathing", "Relaxed breathing", "Duplicants breathe thinner, staler air: at least 10% and 10 kPa oxygen, up to 1% and 1 kPa carbon dioxide.",
+            Make("relaxed-breathing", "Relaxed breathing", "At least 10% and 10 kPa oxygen. Enables CO₂ breathing limits: up to 1% and 1 kPa carbon dioxide.",
                 ("breathing.minimumOxygenFraction", .1), ("breathing.minimumOxygenPressurePa", 10000.0),
-                ("breathing.maximumCo2Fraction", .01), ("breathing.maximumCo2PressurePa", 1000.0)),
-            Make("strict-breathing", "Strict breathing", "Duplicants need richer, fresher air: at least 18% and 18 kPa oxygen, below 0.3% and 300 Pa carbon dioxide.",
+                (SettingCatalog.Co2Limits, true), ("breathing.maximumCo2Fraction", .01), ("breathing.maximumCo2PressurePa", 1000.0)),
+            Make("strict-breathing", "Strict breathing", "At least 18% and 18 kPa oxygen. Enables CO₂ breathing limits: below 0.3% and 300 Pa carbon dioxide.",
                 ("breathing.minimumOxygenFraction", .18), ("breathing.minimumOxygenPressurePa", 18000.0),
-                ("breathing.maximumCo2Fraction", .003), ("breathing.maximumCo2PressurePa", 300.0)),
-            Make("hard-mode", "Hard mode", "Breathable air holds 15–35% oxygen by moles. New colonies start with nitrogen air (25% oxygen); keep oxygen production matched to breathing.",
-                ("breathing.maximumOxygenFraction", .35), ("breathing.nitrogenAir", true)),
+                (SettingCatalog.Co2Limits, true), ("breathing.maximumCo2Fraction", .003), ("breathing.maximumCo2PressurePa", 300.0)),
         };
         internal static SettingsPreset Default => All[0];
         internal static SettingsPreset? Find(string id) => All.FirstOrDefault(p => string.Equals(p.Id, id, StringComparison.OrdinalIgnoreCase));
         internal static bool IsBuiltInId(string id) => Find(id) != null;
     }
 
-    // Nitrogen air (docs/nitrogen.md): the oxygen share of the air a new
-    // colony's generated oxygen becomes.
-    internal static class NitrogenAir
-    {
-        internal const double OxygenShare = .25;
-    }
-
-    // MACOLP03 section 3: a colony's breathing rules when they differ from
-    // the defaults (absent: easy-mode defaults on generated air). Little
-    // endian: u32 version, u32 count, then count binary64 values in Keys
-    // order. Version 1 holds the five rules; version 2 adds nitrogen air
-    // (1.0 or 0.0) and is written only for a nitrogen-air colony, so other
-    // colonies keep their version-1 bytes.
+    // MACOLP03 section 3, version 3 (docs/settings.md). Always explicit for
+    // new colonies: older builds must refuse the new CO2 behavior rather than
+    // silently applying their former defaults. Older records are refused during R&D.
     internal static class ColonySettingsRecord
     {
-        internal const uint Tag = 3, Version = 2;
+        internal const uint Tag = 3, Version = 3;
         internal static readonly string[] Keys =
         {
             "breathing.minimumOxygenFraction", "breathing.minimumOxygenPressurePa", "breathing.maximumCo2Fraction",
             "breathing.maximumCo2PressurePa", "breathing.maximumOxygenFraction"
         };
-        internal const string NitrogenAirKey = "breathing.nitrogenAir";
-        internal static byte[]? Encode(SettingValues values)
+        internal static byte[] Encode(SettingValues values)
         {
-            var defaults = SettingValues.Defaults();
-            var air = values.Toggle(NitrogenAirKey);
-            if (!air && Keys.All(k => BitConverter.DoubleToInt64Bits(values.Number(k)) == BitConverter.DoubleToInt64Bits(defaults.Number(k)))) return null;
-            var count = Keys.Length + (air ? 1 : 0);
-            var bytes = new byte[8 + 8 * count];
-            BinaryPrimitives.WriteUInt32LittleEndian(bytes, air ? 2U : 1U);
-            BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(4), (uint)count);
+            var bytes = new byte[8 + 8 * (Keys.Length + 1)];
+            BinaryPrimitives.WriteUInt32LittleEndian(bytes, Version);
+            BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(4), (uint)(Keys.Length + 1));
             for (var k = 0; k < Keys.Length; ++k)
                 BinaryPrimitives.WriteInt64LittleEndian(bytes.AsSpan(8 + 8 * k), BitConverter.DoubleToInt64Bits(values.Number(Keys[k])));
-            if (air) BinaryPrimitives.WriteInt64LittleEndian(bytes.AsSpan(8 + 8 * Keys.Length), BitConverter.DoubleToInt64Bits(1.0));
+            BinaryPrimitives.WriteInt64LittleEndian(bytes.AsSpan(8 + 8 * Keys.Length), BitConverter.DoubleToInt64Bits(values.Toggle(SettingCatalog.Co2Limits) ? 1.0 : 0.0));
             return bytes;
         }
-        // The recorded rules over `basis`; refuses unknown versions and values outside the ranges.
         internal static SettingValues Decode(ReadOnlySpan<byte> bytes, SettingValues basis)
         {
             if (bytes.Length < 8) throw new InvalidDataException("Truncated colony settings record.");
             var version = BinaryPrimitives.ReadUInt32LittleEndian(bytes);
-            if (version != 1 && version != Version) throw new NotSupportedException("Colony settings record version " + version + " is not supported by this build.");
-            var count = Keys.Length + (version == 2 ? 1 : 0);
+            if (version != Version)
+                throw new NotSupportedException("Colony settings record version " + version + " is not supported by this R&D build. Start a new colony.");
+            var count = Keys.Length + 1;
             if (BinaryPrimitives.ReadUInt32LittleEndian(bytes.Slice(4)) != count || bytes.Length != 8 + 8 * count)
                 throw new InvalidDataException("Invalid colony settings record.");
-            var result = basis.With(NitrogenAirKey, false);
+            var result = basis;
             for (var k = 0; k < Keys.Length; ++k)
             {
                 var value = BitConverter.Int64BitsToDouble(BinaryPrimitives.ReadInt64LittleEndian(bytes.Slice(8 + 8 * k)));
                 try { result = result.With(Keys[k], value); }
                 catch (FormatException error) { throw new InvalidDataException("Invalid colony settings record: " + error.Message); }
             }
-            if (version == 2)
-            {
-                var air = BitConverter.Int64BitsToDouble(BinaryPrimitives.ReadInt64LittleEndian(bytes.Slice(8 + 8 * Keys.Length)));
-                if (air != 1 && air != 0) throw new InvalidDataException("Invalid colony settings record: nitrogen air must be 1 or 0.");
-                result = result.With(NitrogenAirKey, air == 1);
-            }
+            var flag = BitConverter.Int64BitsToDouble(BinaryPrimitives.ReadInt64LittleEndian(bytes.Slice(8 + 8 * Keys.Length)));
+            if (flag != 1 && flag != 0) throw new InvalidDataException("Invalid colony settings switch.");
+            result = result.With(SettingCatalog.Co2Limits, flag == 1);
             return result;
         }
     }

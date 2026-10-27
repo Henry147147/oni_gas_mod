@@ -208,9 +208,6 @@ def main() -> None:
         except ValueError as error:
             shutil.rmtree(output, ignore_errors=True)
             parser.error(str(error))
-    # Mod-owned YAML is loaded through ONI's virtual streaming-assets layer.
-    # Never copy data into the licensed game installation.
-    shutil.copytree(ROOT / "elements", output / "elements")
     native_directory = output / "native" / rid
     native_directory.mkdir(parents=True)
     copy_native_binary(files[2], native_directory / files[2].name)

@@ -11,6 +11,12 @@ takes it through on `main`. It comes before the milestone order of the
 [readiness work plan](playtesting-readiness.md#work-plan). The completion
 plan's release requirements still apply afterwards.
 
+**Gameplay amendment, 2026-10-27:** nitrogen content and starting-air conversion
+are removed; older R&D saves need not be preserved. CO₂ breathing limits
+default off and can be switched during play. Technical settings and solver
+presets belong under Advanced. See [settings](settings.md) and
+[starting air](starting-air.md).
+
 ## Goal
 
 The user can start a new **base-game** colony on any base-game starting
@@ -31,9 +37,10 @@ plan's targets are unchanged.
   balance (an electrolyzer splitting water on 120 W, a steam turbine condensing
   steam), the difference is booked to a named balance ledger for that source,
   so every audit closes and nothing is hidden. The user tunes balance later.
-- **Breathing.** Easy mode: at least 15% O2 by moles and 15 kPa O2 partial
-  pressure; CO2 below 0.5% and 500 Pa. Polluted oxygen counts as oxygen, as in
-  vanilla. World generation stays vanilla; no nitrogen starting air yet.
+- **Breathing.** At least 15% O2 by moles and 15 kPa O2 partial pressure. CO2
+  limits default off; enabling them applies the saved thresholds (default
+  0.5% and 500 Pa). Polluted oxygen counts as oxygen. World generation stays
+  vanilla; no nitrogen content or nitrogen-air option.
 - **Liquids mix.** A cell's liquid is a mixture, like its gas: ONI's liquid
   elements are its constituents and travel together. Liquids that do not mix
   in reality (oil and water, molten metals) keep separate phases and layer by
@@ -261,8 +268,9 @@ buildable and the asteroid loadable.
   carries it down. Vanilla's falling drip animation is not used.
 - Gases mix and stay mixed, and so do miscible liquids. CO2 does not collect in
   pits the way it does in vanilla, so scrubbing serves whole rooms.
-- Open the printing pod's cave and arrange CO2 removal early. A sealed starting
-  cave can exceed the saved CO2 breathing limit while still rich in oxygen;
+- Plan sustainable oxygen production; the finite starting oxylite reserve
+  covers a ten-cycle oxygen shortfall. With CO2 limits enabled, arrange CO2
+  removal too: a sealed cave can exceed them while still rich in oxygen;
   check Breathability and CO2 partial pressure along reachable routes.
 - Pressure is physical. Gas compresses and expands into vacuum. Liquid is nearly
   incompressible, so there are no 1,000+ kg compressed liquid cells. A liquid
@@ -273,5 +281,5 @@ buildable and the asteroid loadable.
 
 - Real-time speed.
 - Spaced Out! and the gameplay packs.
-- Hard-mode breathing with nitrogen air.
+- Nitrogen content and nitrogen air (removed by the 2026-10-27 amendment).
 - The completion plan's remaining release requirements.

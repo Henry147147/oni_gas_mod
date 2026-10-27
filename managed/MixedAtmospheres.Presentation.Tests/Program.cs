@@ -113,6 +113,19 @@ internal static class Program
             Check(Model().Describe(Air(0.15, 0.005, 100000), 1).IsBreathable);
         });
 
+        Test("live CO2 rule changes invalidate interpretation and keep oxygen requirements", () =>
+        {
+            var original = Model(new AtmosphereSettings { HardMode = false });
+            var mix = Air(.3, .7);
+            Check(!original.Describe(mix, 1).IsBreathable);
+            var disabled = original.WithBreathingSettings(new AtmosphereSettings { HardMode = false, EnforceCarbonDioxideLimits = false });
+            Check(!disabled.IsVisualVariantOf(original));
+            var view = disabled.Describe(mix, 1);
+            Check(view.IsBreathable && view.Co2MoleFraction > .5 && view.Warnings.Count == 0);
+            Check(!disabled.Describe(Air(0, 1), 1).IsBreathable);
+            Check(!disabled.WithBreathingSettings(new AtmosphereSettings { HardMode = false }).Describe(mix, 1).IsBreathable);
+        });
+
         Test("explicit trace contaminants flag risk without color or dominant species inference", () =>
         {
             var mix = FromMoleFractions(new Dictionary<string, double> { ["oxygen"] = 0.21, ["nitrogen"] = 0.789998, ["chlorine"] = 0.000002 });
@@ -377,7 +390,8 @@ internal static class Program
             FromMoleFractions(new Dictionary<string, double> { ["oxygen"] = 0.21, ["nitrogen"] = 0.77, ["hydrogen"] = 0.02 })
         };
         foreach (var settings in new[] { new AtmosphereSettings(), new AtmosphereSettings { HardMode = false }, new AtmosphereSettings { MinimumOxygenFraction = 0.17, MinimumOxygenPartialPressurePa = 16000 },
-            new AtmosphereSettings { MaximumCo2Fraction = 0, MaximumCo2PartialPressurePa = 0 } })
+            new AtmosphereSettings { MaximumCo2Fraction = 0, MaximumCo2PartialPressurePa = 0 },
+            new AtmosphereSettings { HardMode = false, EnforceCarbonDioxideLimits = false } })
             foreach (var inventory in cases)
             {
                 native.InitializeCell(0, 0, inventory.MassesKg, 300);

@@ -72,17 +72,16 @@ namespace MixedAtmospheres.Oni
                 ColonyWindowsLifecycle.Install();
                 GasDiffusionOptions.Initialize();
                 MixtureOverlays.InitializeStrings();
-                OniNitrogenElements.InitializeStrings();
                 GasShareSensorConfig.InitializeStrings();
                 ColonyRuntimeValidation.Initialize();
                 ModSettingsRuntime.Initialize(); // docs/settings.md; after the validation request is known
-                NitrogenElementTagPatch.WarmNativeCalls();
+                NativeElementTagChecks.WarmNativeCalls();
                 UnityEngine.Debug.Log("[Mixed Atmospheres] Original enum tag helpers passed before patching.");
                 if (ColonyRuntimeValidation.Settings?.Mode == "load-rejection")
                     OwnedReservoirLoadVisualValidation.Install(harmony);
                 base.OnLoad(harmony);
-                NitrogenElementTagPatch.VerifyCalls();
-                UnityEngine.Debug.Log("[Mixed Atmospheres] Native enum tag helpers and nitrogen aliases passed.");
+                NativeElementTagChecks.VerifyCalls();
+                UnityEngine.Debug.Log("[Mixed Atmospheres] Native enum tag helpers passed.");
                 MixtureWorldRendering.Install(harmony);
                 OwnedReservoirOwnerMarker.Install(harmony);
                 GameBuildCheck.RequireVerifiedPatches(harmony);
@@ -155,7 +154,7 @@ namespace MixedAtmospheres.Oni
             }
             if (ColonyRuntimeValidation.Settings?.Mode == "load-rejection")
                 Step("load-rejection observers", () => OwnedReservoirLoadVisualValidation.AbandonFailedLoad(cause));
-            Step("nitrogen tag verification", NitrogenElementTagPatch.ResetAfterFailedLoad);
+            Step("native tag verification", NativeElementTagChecks.ResetAfterFailedLoad);
             Step("mixture renderer", MixtureWorldRendering.ResetAfterFailedLoad);
             Step("mixture status display", MixtureStatusDisplay.Remove);
             Step("settings window", ModSettingsScreen.Remove);

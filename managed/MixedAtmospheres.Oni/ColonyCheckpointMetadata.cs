@@ -28,6 +28,18 @@ namespace MixedAtmospheres.Oni
         private static readonly byte[] OwnerMagic={77,65,67,79,76,78,48,49}, PhysicalMagic={77,65,67,67,76,83,48,49};
         private const int TransferBytes=48, HeatBytes=24, TerrainBytes=8, FreezeBytes=16, DigestBytes=64;
         private const int GermClockBytes=18, GermEditBytes=16, GermAccountBytes=8+6*16;
+        // Removed custom game element hashes; these are refusal markers only.
+        internal static void RefuseRemovedNitrogen(ReadOnlySpan<byte> image)
+        {
+            LedgerOffset(image, out _, out var count, out var table);
+            for (var k = 0U; k < count; ++k)
+            {
+                var hash = BinaryPrimitives.ReadInt32LittleEndian(image.Slice(table + (int)k * 168 + 8, 4));
+                if (hash == -1109340048 || hash == 1078696428 || hash == 418600943)
+                    throw new NotSupportedException("This save contains removed nitrogen content. Start a new colony with this R&D build.");
+            }
+        }
+
         internal static ulong CompletedFrames(ReadOnlySpan<byte> image)
         {
             var at=CountersOffset(image,out _);

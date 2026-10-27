@@ -1,3 +1,7 @@
+> Current R&D direction (2026-10-27): nitrogen content has been removed and old
+> R&D saves are unsupported. Start a new colony. The package/evidence below
+> predates this change; rebuild before testing the current settings.
+
 # Spaced Out! private Windows playtest
 
 Candidate **`bfb1168`**, 2026-10-27, supports ordinary new base-game and
@@ -22,8 +26,9 @@ the user's part of the playtest.
    colony solver/breathing settings are saved with the colony. Reinstalling
    preserves configuration and presets outside the mod folder.
 
-Pause early and make ventilation and CO2 removal a priority. Mixtures can become
-unsafe from CO2 even while oxygen remains. Check the Breathability overlay and
+Plan sustainable oxygen production early. CO₂ breathing limits default off;
+CO₂ still displaces oxygen. If you enable the limits in Settings → Gameplay,
+plan CO₂ removal too. Solver presets and numeric thresholds are under Advanced. Check the Breathability overlay and
 partial-pressure readings.
 
 After testing, send `%USERPROFILE%\AppData\LocalLow\Klei\Oxygen Not Included\Player.log`.

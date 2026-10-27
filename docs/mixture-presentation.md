@@ -1,3 +1,10 @@
+> Gameplay update, 2026-10-27: the mod defaults to CO₂ breathing limits Off.
+> The Gameplay switch changes both the duplicant reader and display, and is
+> saved per colony. Oxygen remains required. Numeric thresholds live under
+> Advanced. The synthetic reference fixtures and historical evidence below
+> retain explicit CO₂ limits and nitrogen reference fluids; they add no
+> nitrogen content to the game. See [settings](settings.md).
+
 # Mixture presentation
 
 The presentation model is a read-only view of explicit fluid inventories and

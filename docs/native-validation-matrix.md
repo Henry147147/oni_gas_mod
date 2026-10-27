@@ -96,8 +96,9 @@ source's complete save.
 | [Gas pressure](native-domain-readers.md#physical-pressure) | Six physical pressure samples, five caller patches, 824 game call-site reads; outside behaviour unchanged | Same |
 | Water pressure | Six compressed-water pressure samples; caller patches verified, no call-site read in this scene | Same |
 
-Every cold start passes the nitrogen `Tag.Name` setter identity checks
-([nitrogen startup](nitrogen.md)). Every save passes body/header readback and
+The historical runs below included the former nitrogen tag checks; that
+content is now removed. Current starts check the original native enum-to-tag
+helpers without registering aliases. Every save passes body/header readback and
 the strict [orbital save-root gate](native-domain-persistence.md#orbital-reference-admission).
 Every reload keeps its source image before advancing, checks complete state on
 every frame and passes restored readers, the calibrated GPU check and

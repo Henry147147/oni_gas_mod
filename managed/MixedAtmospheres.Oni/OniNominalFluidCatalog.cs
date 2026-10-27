@@ -29,7 +29,7 @@ namespace MixedAtmospheres.Oni
             foreach (var element in elements)
             {
                 if (element == null) throw new ArgumentException("Null local element definition.", nameof(elements));
-                var id = OniNitrogenElements.Identity(element.id);
+                var id = element.id.ToString();
                 if (!missing.Contains(id)) continue;
                 if (!found.Add(id)) throw new ArgumentException("Duplicate local element definition: " + id, nameof(elements));
                 if (!element.IsGas && !element.IsLiquid) throw new InvalidOperationException("Required material is not a fluid: " + id);

@@ -559,7 +559,7 @@ def proton_arguments(step: Step, load: Path | None = None) -> list[str]:
         return ["--mode", "colony-owner-load", "--load-save", str(load), "--frames", "120", "--reload-in-process",
                 "--quit-from-menu", "--timeout", "1800"]
     if kind == "proton-settings":
-        common = ["--settings-open", "1", "--inspection-seconds", "120", "--timeout", "900"]
+        common = ["--settings-open", "2", "--inspection-seconds", "120", "--timeout", "900"]
         if step.options["stage"] == "source":
             return common + ["--mode", "colony-owner", "--frames", "40", "--save-colony", "--settings-preset", str(load)]
         return common + ["--mode", "colony-owner-load", "--frames", "32", "--load-save", str(load)]
@@ -570,7 +570,7 @@ def proton_arguments(step: Step, load: Path | None = None) -> list[str]:
         menu = ["--reload-in-process"] if step.options["stage"] == "menu" else []
         return ["--mode", "colony-owner-load", *base, "--load-save", str(load), "--quit-from-menu", *menu]
     if kind == "proton-spacedout-ui":
-        return ["--mode", "menu", "--settings-open", "1", "--inspection-seconds", "300", "--timeout", "900"]
+        return ["--mode", "menu", "--settings-open", "2", "--inspection-seconds", "300", "--timeout", "900"]
     if kind == "proton-spacedout-ui-load":
         return ["--mode", "colony-owner-load", "--dlc-mask", "1", "--load-save", str(load), "--frames", "8",
                 "--quit-from-menu", "--timeout", "1800"]
@@ -1228,18 +1228,16 @@ def ui_stage(stage: str, source: Path, output: Path, display: str, arguments: li
 
 
 def settings_clicks(desktop: Desktop, output: Path, log, wait) -> None:
-    wait(lambda: "Settings window opened (Solver)" in log())
+    wait(lambda: "Settings window opened (Advanced)" in log())
     ids = desktop.run(str(desktop.bin / "xdotool"), "search", "--onlyvisible", "--name", "Oxygen Not Included").split()
     desktop.run(str(desktop.bin / "xdotool"), "windowfocus", "--sync", ids[-1])
     desktop.run(str(desktop.bin / "xdotool"), "key", "Escape")
-    wait(lambda: "Settings window opened (Solver, colony settings read-only)" in log())
+    wait(lambda: "Settings window opened (Advanced, colony settings read-only)" in log())
     report = output / PROTON_PROFILE / VALIDATION / "colony-validation.json"
     wait(lambda: read_json(report).get("Status") == "passed")
     time.sleep(1)
-    desktop.shot("solver-readonly")
-    desktop.click(642, 188); desktop.shot("breathing-readonly")
-    desktop.click(904, 188); desktop.shot("performance")
-    desktop.click(934, 128); time.sleep(.5)
+    desktop.shot("advanced-readonly")
+    desktop.key("Escape"); time.sleep(.5)
     desktop.click(1255, 40); time.sleep(.5)
     desktop.click(641, 487); time.sleep(.5)
     desktop.click(641, 406)

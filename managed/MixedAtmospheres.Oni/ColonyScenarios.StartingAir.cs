@@ -1,18 +1,13 @@
 using System;
 using System.Linq;
+using MixedAtmospheres.Core;
 using UnityEngine;
 
 namespace MixedAtmospheres.Oni
 {
     internal static partial class ColonyScenarios
     {
-        // Starting air (docs/nitrogen.md): the bridge settled for the printed
-        // duplicants; with MA_COLONY_STARTING_RESERVE=1 a shortfall lies beside
-        // the pod as oxylite; a nitrogen-air colony holds 25% oxygen air at the
-        // pod. Then a gas share sensor in the arena reads the mixture's oxygen
-        // share: on above 50% while the air is 64% oxygen by moles, off once
-        // more nitrogen brings it to 33%; breathing follows the colony's rules
-        // at both shares (hard mode refuses 64%).
+        // The default CO2 opt-out, live switch, oxygen requirement and share sensor.
         private static GasShareSensor? shareAbove, shareBelow;
         private static void StartingAir(int frame)
         {
@@ -21,12 +16,11 @@ namespace MixedAtmospheres.Oni
                 // The pod's air as imported, before breathing and any reserve change it.
                 var podAir = Components.Telepads.Count > 0 ? Grid.CellAbove(Grid.PosToCell(Components.Telepads[0])) : -1;
                 recorded["pod oxygen share"] = podAir >= 0 ? OxygenShare(podAir) : -1;
-                recorded["pod nitrogen"] = podAir >= 0 ? SpeciesMass(podAir, OniNitrogenElements.Gas) : 0;
                 Arena((x, y) => (SimHashes.Oxygen, 1.2f, 300f));
             }
-            if (Once(4, "nitrogen"))
+            if (Once(4, "carbon dioxide"))
                 for (var y = 0; y < Height; ++y) for (var x = 0; x < Width; ++x)
-                    SimMessages.AddRemoveSubstance(Cell(x, y), OniNitrogenElements.Gas, CellEventLogger.Instance.OxygenModifierSimUpdate, 1.2f, 300, byte.MaxValue, 0);
+                    SimMessages.AddRemoveSubstance(Cell(x, y), SimHashes.CarbonDioxide, CellEventLogger.Instance.OxygenModifierSimUpdate, 1.2f, 300, byte.MaxValue, 0);
             if (Once(8, "sensors"))
             {
                 shareAbove = Build(GasShareSensorConfig.ID, Cell(2, 2)).GetComponent<GasShareSensor>();
@@ -58,40 +52,53 @@ namespace MixedAtmospheres.Oni
                         $"shortfall {ColonyStartingAir.ShortfallKg:G6} kg, placed {ColonyStartingAir.ReserveKg:G6} kg, beside the pod now {oxylite:G6} kg");
                 }
                 var above = pod >= 0 ? Grid.CellAbove(pod) : -1;
-                double o = SpeciesMass(above, SimHashes.Oxygen) + SpeciesMass(above, SimHashes.ContaminatedOxygen), n = SpeciesMass(above, OniNitrogenElements.Gas);
-                var share = OxygenShare(above);
-                var imported = recorded["pod oxygen share"];
-                if (ColonyStartingAir.NitrogenAirApplied)
-                    Record("the pod starts in nitrogen air", recorded["pod nitrogen"] > 0 && Math.Abs(imported - NitrogenAir.OxygenShare) < .005,
-                        $"oxygen share {imported:P2} at import; now oxygen {o:G4} kg, nitrogen {n:G4} kg, oxygen share {share:P2}");
-                else Record("the pod breathes its generated air", n == 0 && o > 0 && imported == 1, $"oxygen share {imported:P2} at import; now oxygen {o:G4} kg, nitrogen {n:G4} kg");
+                double o = SpeciesMass(above, SimHashes.Oxygen) + SpeciesMass(above, SimHashes.ContaminatedOxygen);
+                Record("the pod keeps its generated oxygen", o > 0 && recorded["pod oxygen share"] == 1,
+                    $"oxygen share at import {recorded["pod oxygen share"]:P2}, oxygen now {o:G4} kg");
+                Record("no nitrogen game content is registered", ElementLoader.FindElementByHash((SimHashes)(-1109340048)) == null &&
+                    ElementLoader.FindElementByHash((SimHashes)1078696428) == null && ElementLoader.FindElementByHash((SimHashes)418600943) == null, "all three removed element hashes absent");
             }
             if (Once(24, "above"))
             {
                 Record("the sensors read the oxygen share", shareAbove != null && shareAbove.IsSwitchedOn && shareBelow != null && !shareBelow.IsSwitchedOn,
                     $"share {shareAbove?.CurrentValue:G4}% (cell {OxygenShare(Cell(2, 2)):P2}); above-sensor {shareAbove?.IsSwitchedOn}, below-sensor {shareBelow?.IsSwitchedOn}");
-                BreathesByRules(Cell(4, 3), "64% oxygen");
+                Record("CO2 limits are off by default", !ModSettingsRuntime.Breathing.EnforceCarbonDioxideLimits, "new colony setting");
+                CheckBreathing(true, "CO2-rich air is breathable with limits off");
+                ModSettingsRuntime.SetCarbonDioxideLimits(true);
+                CheckBreathing(false, "enabling CO2 limits immediately blocks the same air");
             }
-            if (Once(25, "more nitrogen"))
+            if (Once(25, "live display"))
+            {
+                CheckCo2Display(true);
+                ModSettingsRuntime.SetCarbonDioxideLimits(false);
+            }
+            if (Once(28, "display reset")) CheckCo2Display(false);
+            if (Once(29, "more carbon dioxide"))
                 for (var y = 0; y < Height; ++y) for (var x = 0; x < Width; ++x)
-                    SimMessages.AddRemoveSubstance(Cell(x, y), OniNitrogenElements.Gas, CellEventLogger.Instance.OxygenModifierSimUpdate, 3f, 300, byte.MaxValue, 0);
+                    SimMessages.AddRemoveSubstance(Cell(x, y), SimHashes.CarbonDioxide, CellEventLogger.Instance.OxygenModifierSimUpdate, 3f, 300, byte.MaxValue, 0);
             if (Once(36, "below"))
             {
-                Record("the sensors switch when nitrogen dilutes the oxygen", shareAbove != null && !shareAbove.IsSwitchedOn && shareBelow != null && shareBelow.IsSwitchedOn,
+                Record("the sensors switch when CO2 dilutes the oxygen", shareAbove != null && !shareAbove.IsSwitchedOn && shareBelow != null && shareBelow.IsSwitchedOn,
                     $"share {shareAbove?.CurrentValue:G4}% (cell {OxygenShare(Cell(2, 2)):P2}); above-sensor {shareAbove?.IsSwitchedOn}, below-sensor {shareBelow?.IsSwitchedOn}");
-                BreathesByRules(Cell(4, 3), "33% oxygen");
+                CheckBreathing(true, "oxygen remains breathable after further CO2 dilution with limits off");
+                Arena((x, y) => (SimHashes.CarbonDioxide, 1.2f, 300f));
+            }
+            if (Once(44, "oxygen still required"))
+            {
+                CheckBreathing(false, "pure CO2 remains unbreathable with limits off");
                 Finish();
             }
         }
-        // Duplicants breathe by the colony's rules: hard mode refuses oxygen
-        // above its maximum share; easy mode has no maximum.
-        private static void BreathesByRules(int cell, string air)
+        private static void CheckBreathing(bool expected, string name)
         {
-            var share = OxygenShare(cell);
-            var maximum = ModSettingsRuntime.Breathing.MaximumOxygenFraction;
-            var breathable = ColonyOwner.TryReadBreathingCell(cell, out var mass, out var offered) && offered != SimHashes.Vacuum && mass > 0;
-            Record("breathing follows the colony's rules in " + air, breathable == (share <= maximum),
-                $"oxygen share {share:P2}, maximum {maximum:P0}, breathable {breathable} ({offered} {mass:G4} kg)");
+            var breathable = ColonyOwner.TryReadBreathingCell(Cell(4, 3), out var mass, out var offered) && offered != SimHashes.Vacuum && mass > 0;
+            Record(name, breathable == expected, $"breathable {breathable}, oxygen share {OxygenShare(Cell(4, 3)):P2}, offered {offered} {mass:G4} kg");
+        }
+        private static void CheckCo2Display(bool expected)
+        {
+            var found = MixturePresentationRuntime.TryGetCell(Cell(4, 3), out var view);
+            var failed = found && (view!.Failures & (BreathingFailure.CarbonDioxideFractionHigh | BreathingFailure.CarbonDioxidePartialPressureHigh)) != 0;
+            Record("display follows the CO2 switch (" + expected + ")", found && failed == expected, $"found {found}, CO2 failure {failed}");
         }
         private static double OxygenShare(int cell) =>
             ColonySensors.GasShare(cell, ElementLoader.FindElementByHash(SimHashes.Oxygen)) + ColonySensors.GasShare(cell, ElementLoader.FindElementByHash(SimHashes.ContaminatedOxygen));

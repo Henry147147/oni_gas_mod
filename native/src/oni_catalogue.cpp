@@ -80,20 +80,10 @@ constexpr Row rows[] = {
     {"Mercury", 295, 28.5, 1.5e-3, MiscibilityGroup::none, LiquidClass::molten_metal, toolbox, 1750},
     {"SuperCoolant", 0, 0, 1e-3, MiscibilityGroup::none, LiquidClass::aqueous, fictional},
     {"ViscoGel", 0, 0, 10, MiscibilityGroup::none, LiquidClass::organic, fictional},
-    // The mod's own liquid nitrogen (docs/nitrogen.md): 5.57 kJ/mol at 77.3 K,
-    // rho c^2 of the saturated liquid (806 kg/m3, 853 m/s), 0.16 mPa s.
-    {"MixedAtmospheresLiquidNitrogen", 199, 0.59, 1.6e-4, MiscibilityGroup::none, LiquidClass::cryogenic, nist, 126.2},
 };
-// The mod's nitrogen is not a SimHashes member, so the running game names it
-// by its decimal hash; its row is found by that hash too.
-constexpr std::int32_t liquid_nitrogen_hash = 1078696428;
 const Row* row_of(std::string_view id) {
     for (const auto& row : rows) if (row.id == id) return &row;
     return nullptr;
-}
-const Row* row_of(const GameFluidElement& element) {
-    if (const auto* row = row_of(element.id)) return row;
-    return element.hash == liquid_nitrogen_hash ? row_of("MixedAtmospheresLiquidNitrogen") : nullptr;
 }
 // Surrogate class for a liquid with no reference row: by name, else organic.
 LiquidClass guess_class(std::string_view id) {
@@ -106,11 +96,10 @@ LiquidClass guess_class(std::string_view id) {
 constexpr double trouton_j_per_mol_k = 88; // Trouton's rule, molar entropy of vaporization
 }
 
-ReferenceProperties reference_properties(const GameFluidElement& element, CatalogueReference reference) {
+ReferenceProperties reference_properties(const GameFluidElement& element) {
     ReferenceProperties r;
     if (element.gas) { r.source = "ideal gas from game values"; return r; }
-    const auto* row = reference == CatalogueReference::before_nitrogen &&
-        (element.hash == liquid_nitrogen_hash || element.id == "MixedAtmospheresLiquidNitrogen") ? nullptr : row_of(element);
+    const auto* row = row_of(element.id);
     const auto type = row ? row->type : guess_class(element.id);
     r.miscibility_group = row ? static_cast<std::uint32_t>(row->group) : 0;
     r.viscosity_pa_s = row ? row->viscosity_pa_s : 1e-3;
@@ -140,7 +129,7 @@ std::size_t Catalogue::species_of_hash(std::int32_t hash) const {
     throw std::out_of_range("Element hash is not a catalogue fluid");
 }
 
-Catalogue build_catalogue(std::vector<GameFluidElement> elements, CatalogueReference reference) {
+Catalogue build_catalogue(std::vector<GameFluidElement> elements) {
     require(!elements.empty() && elements.size() <= 4096, "A catalogue needs 1..4096 fluid elements");
     std::sort(elements.begin(), elements.end(), [](const auto& a, const auto& b) { return a.native_index < b.native_index; });
     std::set<std::string> ids; std::set<std::int32_t> hashes; std::set<std::uint32_t> indices;
@@ -168,7 +157,7 @@ Catalogue build_catalogue(std::vector<GameFluidElement> elements, CatalogueRefer
         if (!positive(liquid.high_temperature_k)) continue;
         vapour_of[l] = it->second; liquid_of[it->second] = l;
     }
-    for (auto& e : elements) c.materials.push_back({e, reference_properties(e, reference)});
+    for (auto& e : elements) c.materials.push_back({e, reference_properties(e)});
     // Registry: atoms label identity only; a pair shares one label and the
     // vapour's molar mass, so the saturation machinery recognizes it.
     const auto label = [&](std::size_t i) {

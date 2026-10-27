@@ -358,24 +358,6 @@ MA_ONI_API uint32_t ma_oni_colony_options_version(void);
 MA_ONI_API MAOniResult ma_oni_colony_default_options(MAOniColonyOptions*);
 MA_ONI_API MAOniResult ma_oni_colony_set_options(const MAOniColonyOptions*);
 MA_ONI_API MAOniResult ma_oni_colony_copy_options(MAOniColonyOptions*);
-/* Nitrogen air for new colonies (docs/nitrogen.md). Each imported fluid cell
- * holding one of the source gases keeps its mass and temperature and becomes
- * that gas and nitrogen, the source at oxygen_mole_fraction of the moles; a
- * gas region lays its air out as one mixed layer. The import is the colony's
- * initial inventory, so no checkpoint field changes. Set while no owner runs;
- * every later start uses the last value. NULL or enabled = 0 imports the
- * generated gas unchanged (the default, byte for byte). Hashes are element
- * hashes; each must be a distinct catalogue gas at start or the start fails.
- * reserved = 0. Version 1. */
-typedef struct MAOniColonyStartingAir {
-    uint32_t struct_size, abi_version;
-    uint32_t enabled, source_count;            /* 1..4 sources when enabled */
-    int32_t nitrogen_hash, source_hashes[4];
-    uint32_t reserved;
-    double oxygen_mole_fraction;               /* (0, 1) */
-} MAOniColonyStartingAir;
-MA_ONI_API uint32_t ma_oni_colony_starting_air_version(void);
-MA_ONI_API MAOniResult ma_oni_colony_set_starting_air(const MAOniColonyStartingAir*);
 /* Unsaved execution preference, also changeable in a running colony between
  * frames. Zero selects the physical core count; 1..256 requests that many
  * workers (small grids still use fewer). Invalid values keep the old choice.

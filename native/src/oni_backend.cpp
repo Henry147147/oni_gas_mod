@@ -1231,13 +1231,6 @@ MAOniResult ma_oni_colony_set_options(const MAOniColonyOptions* options) {
         catch(const std::invalid_argument& error) {throw Failure(MA_ONI_INVALID_ARGUMENT,error.what());}
     });
 }
-std::uint32_t ma_oni_colony_starting_air_version() { return 1; }
-MAOniResult ma_oni_colony_set_starting_air(const MAOniColonyStartingAir* air) {
-    return boundary([&] {
-        try { ma::oni::colony::set_starting_air(air); }
-        catch(const std::invalid_argument& error) {throw Failure(MA_ONI_INVALID_ARGUMENT,error.what());}
-    });
-}
 MAOniResult ma_oni_colony_copy_options(MAOniColonyOptions* output) {
     return boundary([&] {
         if(!output) throw Failure(MA_ONI_INVALID_ARGUMENT,"Colony options output is required");

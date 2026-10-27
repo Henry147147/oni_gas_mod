@@ -448,13 +448,13 @@ namespace MixedAtmospheres.Oni
         {
             var materials = new List<FluidMaterial>(); var styles = new List<MixtureSpeciesStyle>();
             var names = new[] { "Nitrogen", "Oxygen", "Helium", "Water", "Carbon dioxide" };
-            var hashes = new[] { OniNitrogenElements.Gas, SimHashes.Oxygen, SimHashes.Helium, SimHashes.Water, SimHashes.CarbonDioxide };
+            var hashes = new[] { SimHashes.Vacuum, SimHashes.Oxygen, SimHashes.Helium, SimHashes.Water, SimHashes.CarbonDioxide };
             for (uint k = 0; k < Ids.Length; ++k)
             {
                 Check(Definition(k, out var value));
                 materials.Add(new FluidMaterial(Ids[k], k == 3 ? NativeMatterPhase.Liquid : NativeMatterPhase.Gas,
                     value.MolarMass, value.Cv, value.Density, value.Offset, 1, 1e6));
-                Color color = ElementLoader.FindElementByHash(hashes[k]).substance.colour;
+                Color color = hashes[k] == SimHashes.Vacuum ? new Color(.65f, .65f, .8f) : (Color)ElementLoader.FindElementByHash(hashes[k]).substance.colour;
                 styles.Add(new MixtureSpeciesStyle(Ids[k], names[k], new MixtureSrgbColor(color.r, color.g, color.b)));
             }
             catalog = new FluidMaterialCatalog("oni-sealed-domain-v2", materials);
@@ -717,7 +717,7 @@ namespace MixedAtmospheres.Oni
         private static bool OwnsPublicCell(int cell) => cell >= 0 && cell % Grid.WidthInCells >= x && cell % Grid.WidthInCells < x + Width &&
             cell / Grid.WidthInCells >= y && cell / Grid.WidthInCells < y + Height &&
             !IsDomainSolidAt(cell % Grid.WidthInCells - x, cell / Grid.WidthInCells - y);
-        private static SimHashes SpeciesHash(uint species) => species == 0 ? OniNitrogenElements.Gas : species == 1 ? SimHashes.Oxygen :
+        private static SimHashes SpeciesHash(uint species) => species == 0 ? throw new NotSupportedException("The retired sealed-domain fixture requires a removed nitrogen game element. Use the whole-colony harness.") : species == 1 ? SimHashes.Oxygen :
             species == 2 ? SimHashes.Helium : species == 3 ? SimHashes.Water : species == 4 ? SimHashes.CarbonDioxide : throw new ArgumentOutOfRangeException(nameof(species));
         internal static bool TryHandleTransfers(int message, int length, int count, byte* payload)
         {

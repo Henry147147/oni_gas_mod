@@ -7,7 +7,7 @@ using UnityEngine;
 
 namespace MixedAtmospheres.Oni
 {
-    // Gas Share Sensor (docs/nitrogen.md): an automation sensor that compares
+    // Gas Share Sensor (docs/settings.md): an automation sensor that compares
     // one gas's mole share of its cell's gas with a threshold, as the Atmo
     // Sensor does with pressure. Hard mode needs it to hold a room inside its
     // oxygen window. It reuses the gas element sensor's animation and research.
