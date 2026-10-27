@@ -678,6 +678,24 @@ numbers and ends with `samples`, how many of them it timed.
 
 ## Saves
 
+**Native loop record reserved, 2026-10-27**, immediately after fetching
+`f6ed4fe`: MACOLP03 section5 will hold `MACNRC01` schema1, the native game's
+loop context needed by its retained nonfluid services. Its canonical 40-byte
+record is eight magic bytes, uint32 schema1, int32 native padded width/height
+and game-cell count, uint32 RNG state, int32 iteration/displacement directions
+(each -1 or +1), uint16 tick count and uint16 reserved zero. The dimensions
+must match the live native world; game-cell count is the padded interior area.
+No native addresses, handles or process-local ordinals are stored.
+
+The writer stays behind `MA_COLONY_NATIVE_CLOCK_CONTROL=1`, requiring the
+existing exact-storage/native-schedule development control. A saved section
+selects the same control on load. Capture runs at the completed native frame
+barrier. Restore is requested on the main thread and applied on the native
+worker in a zero-time frame, after prefab startup messages settle and before
+positive time. Ordinary payloads and owner wrapper13/core23 bytes stay
+unchanged. This reservation covers loop state only; managed scheduling and
+native thermal state require their own continuation work and proofs.
+
 **Reserved 2026-10-27, immediately after fetching `f3d5390`:** owner wrapper
 `MACOLN01` version **13** and MACOLP03 section **4** (`MACCBR01`) are assigned
 to callback-owned requests in flight at a save ([below](#callback-owned-requests)).
