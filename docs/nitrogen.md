@@ -171,10 +171,96 @@ Current status:
   20 C, -203.2 C and -223.2 C. This used an older adapter revision, and the
   items were disposed before exit.
 
+## Starting air and progression (milestone F design)
+
+Design of 2026-10-27 for the first release (base game and Spaced Out!). Items
+marked **decision** need the user; until then the defaults below keep today's
+playtest behaviour (easy mode on vanilla world generation).
+
+### Facts it rests on (build 744825)
+
+- A duplicant uses 0.1 kg/s of oxygen and exhales 2% of that mass as carbon
+  dioxide (`DUPLICANTSTATS`); the mod keeps these rates. Three duplicants
+  need 1,800 kg of oxygen and exhale 36 kg (818 mol) of carbon dioxide in
+  ten cycles.
+- Generated starting air is pure oxygen, about 1.5–1.7 kg per cell around the
+  printing pod (Spaced Out! teleport-world starts about 0.8 kg). The game's
+  oxygen has molar mass 16 g/mol, so that is about 260 kPa in the owner.
+- ONI's limits are cell masses, and they read the owner's gas mass: the
+  electrolyzer and oxygen diffuser stop at 1.8 kg, gas vents at 2 kg, and
+  oxylite debris sublimates (0.01·m^0.7 kg/s) only while its cell holds less
+  than 1.8 kg.
+- Under easy mode, pure oxygen air can be breathed until its carbon dioxide
+  reaches 0.5% (69% of its oxygen). The carbon dioxide limit binds first:
+  ten cycles of three duplicants need about 164,000 mol of connected gas
+  (about 1,600 vanilla starting-air cells). Rocket interiors start in vacuum.
+
+### Proposal
+
+1. **Nitrogen air** (new-colony setting, off by default; **decision**:
+   option or default). When the owner imports a new colony, each cell's
+   generated oxygen and polluted oxygen becomes air of the same mass and
+   temperature with 21% oxygen by moles and nitrogen for the rest. Polluted
+   oxygen stays polluted and keeps its germs. This applies on every owned
+   asteroid, the whole cluster in Spaced Out!. ONI's world generation (seed,
+   layout, templates, solids, liquids, other gases, geysers, POIs) is
+   unchanged; only the imported gas inventory differs, and that is the
+   colony's initial ledger inventory, with no new checkpoint field. Keeping the
+   mass keeps ONI's mass limits meaningful. Pressure falls to about 63% (about
+   160 kPa near the pod, oxygen partial pressure about 34 kPa); air below about
+   0.75 kg per cell is under 15 kPa of oxygen. The import lays air out as one
+   mixed layer, not as separate nitrogen and oxygen layers. **Decision:** the
+   oxygen share. 21% is Earth's air; 25% or 30% (still inside hard mode) give
+   1.7× or 2.5× the breathable oxygen per cell.
+2. **Finite nitrogen reserves**: the converted air itself, in every biome
+   that generates oxygen or polluted oxygen. Nothing produces nitrogen (no
+   geyser or machine). Liquid and solid nitrogen cannot persist at generated
+   temperatures (it boils at 77 K). Players move nitrogen with pumps, gas
+   filters and reservoirs.
+3. **Ten-cycle bridge.** At a new colony's start the mod counts the printed
+   duplicants and reads each one's oxygen use (the game attribute, so traits
+   count). Over the gas connected to the printing pod it computes the oxygen
+   that can be breathed under the colony's rules and the carbon dioxide
+   headroom, in cycles. Nitrogen-air colonies get oxylite debris beside the
+   pod for the ten-cycle oxygen shortfall: a vanilla item that sublimates only
+   below 1.8 kg, so a room of 21% air at 1.67 kg per cell settles near 30% oxygen,
+   inside hard mode. No vanilla carbon dioxide sink works unattended. When either margin is
+   under ten cycles, the start notice says so and names the remedies (open the
+   cave, algae terrarium, carbon skimmer). Vanilla-air colonies only get this
+   report; **decision:** whether they also get reserves.
+4. **Hard mode** keeps the existing maximum-oxygen setting (35%). A new
+   built-in preset, *Hard mode*, sets it with nitrogen air. The window warns
+   that hard mode without nitrogen air fails everywhere, because vanilla air
+   is 100% oxygen. The colony's breathing record (MACOLP03 section 3) gains
+   version 2, which adds the nitrogen-air flag. Version 1 is still written when
+   nitrogen air is off, so existing saves keep their bytes.
+5. **Gas share sensor** (new building): it picks a gas and compares the gas's
+   mole share in its cell with a threshold, like the Atmo Sensor does with
+   pressure. Players can then switch oxygen production or nitrogen vents to
+   hold a room inside hard mode's window. It reuses the gas element sensor's
+   animation, needs the same research as that sensor, and has its own
+   description and strings.
+6. **Ventilation, scrubbing and regulation** already exist early: the
+   Ventilation research (gas pump, vent, pipe), Pressure Management (valve,
+   airflow tile), Air Systems (carbon skimmer, deodorizer), the algae
+   terrarium, the oxygen diffuser (no research) and Improved Oxygen
+   (electrolyzer). Vents stop at 2 kg. Only the sensor is added.
+7. **Nitrogen thermodynamics**: a catalogue row for liquid nitrogen, with
+   latent heat 199 kJ/kg (NIST), bulk modulus 0.59 GPa (ρc² at 77 K),
+   viscosity 1.6e-4 Pa·s and critical temperature 126.2 K. Gas and liquid then
+   convert through the owner's saturation pair with latent heat, as water does.
+   Without the row, the decimal element id fell back to organic-liquid
+   surrogates. Solid nitrogen uses ONI's freeze/melt path, as other solids do.
+8. **Breathing explanations**: the existing hover and status warnings,
+   checked for hard mode's "too much oxygen".
+9. **Checks**: a native import control; settings and record tests; in game,
+   the start air and bridge on every base-game asteroid and a Spaced Out!
+   cluster, an unattended ten-cycle start per mode on Terra, and a nitrogen
+   filter/storage scenario.
+
 ## Open items
 
 - A Linux native-item rerun with the current adapter, including save, quit and
   resume.
 - Arbitrary future Unity versions, and the cause of the helper-patch fault.
-- Conservative phase-transition energy, starter-world nitrogen resources,
-  mixture storage ownership and progression.
+- The [milestone F work above](#starting-air-and-progression-milestone-f-design).
