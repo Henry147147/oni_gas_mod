@@ -73,7 +73,7 @@ def main():
         '-DMA_BUILD_ONI_NATIVE_BACKEND=ON','-DMA_BUILD_STAGGERED_EXPERIMENTS=OFF','-DMA_SANITIZERS=OFF',
         '-DCMAKE_BUILD_RPATH_USE_ORIGIN=ON'])
     run([*base,'cmake','--build','/build/native','--parallel',str(args.jobs)])
-    run([*base,'ctest','--test-dir','/build/native','--output-on-failure'])
+    run([*base,'ctest','--test-dir','/build/native','--parallel',str(args.jobs),'--output-on-failure'])
     required={}
     for name in ['libmixed_atmospheres.so','libmixed_atmospheres_oni.so']:
         library=output/'native'/name

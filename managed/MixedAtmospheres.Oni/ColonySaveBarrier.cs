@@ -147,10 +147,27 @@ namespace MixedAtmospheres.Oni
             ReceiptsAtSave += (long)pending; ++Settled; settledForSave = true;
             // Validation: pipe contact work the native sim applies to bodies
             // one step later must be published before the capture.
-            if (ColonyRuntimeValidation.Settings != null && ColonyPipeContactHeat.BodyHeatMismatch() is string mismatch)
-                throw new InvalidOperationException("Pipe body heat is still pending at the save barrier: " + mismatch);
+            if(ColonyPipeRuntime.Active)SettlePipeBodyHeat(ref status);
             if (ColonyRuntimeValidation.Settings != null && ColonyPipeRuntime.Active) ++BodyHeatChecks;
             return Record(status);
+        }
+        private static void SettlePipeBodyHeat(ref OniNativeColony.Status status)
+        {
+            var session=status.Session;var frame=status.CompletedFrames;
+            for(var round=0;;++round)
+            {
+                var mismatch=ColonyPipeContactHeat.BodyHeatMismatch();if(mismatch==null)return;
+                if(round==64)throw new InvalidOperationException("Pipe body heat is still pending after 64 zero-time publication frames: "+mismatch);
+                // A contact can be queued behind the native buffer just
+                // published. Flush that work and its following publication,
+                // retaining the original body-heat check and fluid boundary.
+                var before=NativeFrames();SimTick.Invoke(Game.Instance,new object[]{0f});
+                _=WaitNativeFrameAfter(before);Publish.Invoke(Game.Instance,new object[]{0f});++NativePublications;
+                for(var pending=0;pending<64&&!Quiescent(out _);++pending)
+                {Publish.Invoke(Game.Instance,new object[]{0f});++NativePublications;}
+                if(!Quiescent(out status)||status.State!=1||status.Session!=session||status.CompletedFrames!=frame)
+                    throw new InvalidOperationException("Pipe body heat settlement changed its fluid boundary or left the owner nonquiescent.");
+            }
         }
         // A world is about to disappear. Settle native work first, then drain
         // follow-up owner inputs and precise outcomes at the SAME fluid time.

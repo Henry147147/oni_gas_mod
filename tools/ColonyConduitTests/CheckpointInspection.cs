@@ -56,6 +56,12 @@ internal static class CheckpointInspection
             Clocks=store.Clocks.ToDictionary(pair=>pair.Key,pair=>Fingerprint(pair.Value.Write)),
             Contexts=store.CultureContexts.ToDictionary(pair=>pair.Key,pair=>Fingerprint(pair.Value.Write))
         });
-        Console.WriteLine(JsonSerializer.Serialize(new{Schema=schema,Sha256=Convert.ToHexStringLower(SHA256.HashData(bytes)),Sections=sections,Stores=details},new JsonSerializerOptions{WriteIndented=true}));
+        var runtimeInfo=runtime==null?null:new{
+            runtime.Contacts,ContactHeat=runtime.ContactHeat.Value,LaggedHeat=runtime.LaggedHeat.Value,
+            runtime.Excluded,runtime.Mismatches,runtime.Unsettled,runtime.BiologyTicks,runtime.BiologyCells,runtime.BiologyIdentities,
+            runtime.BiologyExpected,runtime.BiologySkipped,runtime.PhaseEvents,
+            NativeFlows=schedule?.Flows.Select(flow=>new{flow.Phase,ElapsedBits=BitConverter.SingleToInt32Bits(flow.Elapsed),Cells=flow.Cells.Count,Updaters=flow.Updaters.Count})
+        };
+        Console.WriteLine(JsonSerializer.Serialize(new{Schema=schema,Sha256=Convert.ToHexStringLower(SHA256.HashData(bytes)),Sections=sections,Stores=details,Runtime=runtimeInfo},new JsonSerializerOptions{WriteIndented=true}));
     }
 }

@@ -23,7 +23,8 @@ python3 tools/package_probe.py \
 
 Build the normal managed adapter first, or supply its directory with
 `--managed-dir`. Docker and host `readelf` are required. Use a fresh output
-directory for every native build. The image can be reused with
+directory for every native build. Build and test parallelism both follow
+`--jobs`. The image can be reused with
 `--skip-image-build` after its first build.
 
 `compatibility-build.json` records every frozen source hash, the source revision
@@ -39,13 +40,18 @@ supplied native binaries against that report and includes it as
 package assembly's current Git revision, and its `actual_game_test: false`
 describes the build command only.
 
-Current status: the production-owner and pressure-storage-ledger snapshot,
-including the sharp-interface geometry repair and authorized gravity entropy
-credit, passes all 55 default CTests in Ubuntu 22.04. Both packaged shared
-libraries require at most glibc 2.34. The shared geometry's scaled square root
-replaces the `std::hypot` call that made the preceding observer require 2.35.
+Current status, 2026-10-27: the production owner, native storage heat ABI2 and
+conduit energy-completion observer pass all 89 default CTests in Ubuntu 22.04
+(`build-release-ubuntu2204-conduit`). Both shared libraries require at most
+glibc 2.34. Earlier 55-test evidence remains historical. The shared geometry's
+scaled square root replaces the `std::hypot` call that made an earlier observer
+require 2.35.
 Earlier reference-owner packages pass actual Linux Unity
 colonies, saves, fresh-process loads, paused autosaves and exact continuation;
-production-owner game validation remains open.
+the current compatible pair also passes the seven-check drained-reservoir
+source and cold/menu loading on the development Linux host
+(`release-conduit-completion-compatible-source` / `compatible-load`). Its 24
+held storage sections preserve one identical history hash. Broader production
+game and complete continuation acceptance remain open.
 No Unity run on an Ubuntu 22.04 host has been made. Real-game ownership,
 persistence and release gates still apply.

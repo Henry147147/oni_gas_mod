@@ -480,6 +480,53 @@ the first draw, whose 430832.35470100481 J exactly equals its quarter of the
 cooled inventory's energy. The earlier unobservable run remains recorded as
 failed/inconclusive, rather than being relabelled as a pass.
 
+The separate `owned-storage-drained-save` path adds a second ordinary save
+after scheduled discharge and complete native retirement, followed by eight
+held frames of empty-store continuation. It checks the retained 6/2 kg
+admission and withdrawal histories, negative heat, culture birth/death history
+and retired culture clocks. Its engine-free negative control substitutes a
+fresh empty host: that object audits, but fails the completed-history oracle.
+
+This path exposed a false pending-work inference in the old pipe-body save
+check. A body cooled during native processing and was warmed back to exactly
+the earlier binary32 temperature by the already processed contact message.
+Sixty-four zero-time publication frames could not change that valid equality.
+The read-only conduit heat completion observer now matches the original
+native messages by handle, energy and temperature bounds, then completes them
+only after `ProcessFrame` returns. Other energy sources on a body remain
+untouched. The queued energy identity uses the validated rounded carrier
+endpoints; the contact helper's intermediate transfer can differ from that
+wire value. Represented contact-work accounting is unchanged. Ordinary saves
+now require this completion proof and flush any genuine pending work without
+advancing the settled owner session/frame.
+
+`release-conduit-completion-source-wire` passes all seven checks. Cold and
+menu reloads in `release-conduit-completion-load-wire` both pass. All 24 held
+storage sections (eight source, eight cold, eight menu) have the same hash,
+retaining -12389.31653945474 J and the complete empty store's history. Complete
+world/pipe continuation still first differs at frame41 from its frame40 save.
+The native observer's Linux and Windows vectors, nonconsuming failure paths,
+request ordering/multiplicity and original arithmetic environment have focused
+controls; all 89 Linux and 89 Windows/Wine native tests pass. This closes the
+bounded drained-reservoir history path, not general machine/bottle/demolition
+ownership or full deterministic colony continuation.
+
+WindowsPlayer under official Proton 10.0-4b also passes all seven source
+checks and cold/menu loading (`release-conduit-completion-windows-source-v3`
+and `windows-load`). Its 24 storage sections likewise have one identical
+history hash, retaining -12388.80640763091 J. The runner's explicit
+`--exact-storage-control` records a development override; this is bounded
+WindowsPlayer evidence on Linux, not ordinary defaults or Windows OS evidence.
+An earlier run correctly stripped inherited control variables and failed to
+enable the gated writer; it remains a failed setup/control attempt.
+
+The fresh Ubuntu 22.04 pair also passes the same source/cold/menu controls on
+the Linux development host (`release-conduit-completion-compatible-source`
+and `compatible-load`). All 24 storage sections match, retaining
+-10120.250187057536 J. Both binaries meet glibc 2.34 and all 89 container CTests
+pass. This is a compatibility build plus host game execution; no Ubuntu 22.04
+Unity run or complete release acceptance is claimed.
+
 `MA_COLONY_CONTINUATION_FRAMES=N` still records a held completed owner image
 after each positive frame. With `MA_COLONY_CONTINUATION_RUNTIME=1`, it also
 settles native publication and receipts and records pipe/native-scheduling and

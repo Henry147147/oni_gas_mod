@@ -4,12 +4,14 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
-/* Read-only replay of the pinned Linux game's pure conduit contact helpers.
+/* Read-only replay of the pinned game's pure conduit contact helpers.
  * No native pipe/body, fluid owner, clock or ledger is edited. Capacities are
  * the actual registered binary32 kJ/K values. Flags bit0 is insulated.
  * Caller must validate the actual post-call carrier result before settlement.
  * Credit represented body work Cbody*(Tbody_before-Tbody_after), retaining
- * exact arithmetic components; Q alone omits body-temperature rounding. */
+ * exact arithmetic components; Q alone omits body-temperature rounding.
+ * The helper transfer precedes carrier rounding. The queued native building
+ * energy is formed from the rounded carrier endpoints and its capacity. */
 typedef struct MAOniConduitContactInput {
     uint32_t struct_size,abi_version,flags,reserved;
     float seconds,fluid_temperature_k,fluid_heat_capacity_kj_k,fluid_conductivity;
@@ -24,6 +26,14 @@ MA_ONI_API uint32_t ma_oni_conduit_contact_version(void);
  * platforms return capability0. Requires the inspected native image bound. */
 MA_ONI_API MAOniResult ma_oni_conduit_contact_replay(const MAOniConduitContactInput*,uint32_t count,
     MAOniConduitContactResult*,uint32_t capacity);
+/* Completion observation of the original queued body-energy messages.
+ * Declare validated nonzero native contact work before its next native frame.
+ * Pending reaches zero only after matching messages have been processed.
+ * These functions never apply energy or replace a body's temperature. */
+MA_ONI_API uint32_t ma_oni_conduit_heat_version(void);
+MA_ONI_API MAOniResult ma_oni_conduit_heat_expect(int32_t handle,float delta_kj,float minimum_k,float maximum_k);
+MA_ONI_API MAOniResult ma_oni_conduit_heat_pending(uint32_t* count);
+MA_ONI_API MAOniResult ma_oni_conduit_heat_reset(void);
 #ifdef __cplusplus
 }
 #endif

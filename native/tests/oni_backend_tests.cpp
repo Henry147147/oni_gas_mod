@@ -8,6 +8,7 @@
 #include "../src/oni_body_heat_trace.hpp"
 #include "../src/oni_chunk_heat_trace.hpp"
 #include "../src/oni_storage_heat_native.hpp"
+#include "../src/oni_conduit_heat.hpp"
 #include <array>
 #include <chrono>
 #include <cstring>
@@ -292,6 +293,76 @@ static void storage_heat_native_controls() {
     monitor.reset();require(monitor.copy(receipts.data(),4)==0,"storage native heat teardown left old receipts");
     std::cout<<"PASS storage native heat boundary: both registry layouts, ordered multi-reset processing, immutable messages and sticky refusal of foreign heat writers\n";
 }
+static void conduit_heat_completion_controls() {
+    using ma::oni::conduit_heat::Monitor;
+    const auto bits=[](float value){return std::bit_cast<std::uint32_t>(value);};
+    const auto reject=[](auto action){bool refused=false;try{action();}catch(const std::exception&){refused=true;}require(refused,"invalid conduit heat completion was accepted");};
+    std::array<std::byte,0x600> frame{};
+    const auto put=[](auto& target,std::size_t offset,const auto& value){std::memcpy(target.data()+offset,&value,sizeof(value));};
+#if defined(_WIN32)
+    constexpr std::size_t offset=0x250;
+#else
+    constexpr std::size_t offset=0x1b8;
+#endif
+    constexpr std::int32_t handle=4;
+    std::array<std::uint32_t,16> rows{
+        99,bits(7),bits(290),bits(350), // unrelated body
+        handle,bits(8),bits(290),bits(350), // another source on this body
+        handle,bits(.15f),bits(300),bits(350),
+        handle,bits(-.25f),bits(280),bits(300)};
+    put(frame,offset,rows.data());put(frame,offset+8,rows.data()+rows.size());
+    Monitor monitor;monitor.expect(handle,.15f,300,350);monitor.expect(handle,-.25f,280,300);
+    require(monitor.pending()==2,"conduit heat declaration was already completed");
+    const auto source=frame;const auto messages=rows;int calls=0;
+    // A body's final temperature can equal its old temperature after separate
+    // cooling and warming. Actual processed messages still complete exactly.
+    float body_temperature=300;
+    reject([&]{monitor.process(frame.data(),[&]{++calls;throw std::runtime_error("injected original failure");});});
+    require(monitor.pending()==2,"conduit heat was acknowledged before its native call completed");
+    monitor.process(frame.data(),[&]{++calls;body_temperature=300;});
+    require(calls==2&&monitor.pending()==0&&body_temperature==300&&frame==source&&rows==messages,
+        "conduit completion inferred temperature or edited/duplicated native work");
+    monitor.process(frame.data(),[&]{++calls;});require(calls==3&&monitor.pending()==0,"empty completion observer did not forward once");
+    monitor.expect(handle,.15f,300,350);
+    auto changed=rows;changed[10]=bits(301);put(frame,offset,changed.data());put(frame,offset+8,changed.data()+changed.size());
+    monitor.process(frame.data(),[]{});require(monitor.pending()==1,"different native clamp bounds completed a declared request");
+    put(frame,offset,rows.data());put(frame,offset+8,rows.data()+rows.size());
+    monitor.process(frame.data(),[]{});require(monitor.pending()==0,"unmatched conduit request was lost");
+    monitor.expect(handle,.15f,300,350);monitor.expect(handle,-.25f,280,300);
+    std::array<std::uint32_t,8> reversed{rows[12],rows[13],rows[14],rows[15],rows[8],rows[9],rows[10],rows[11]};
+    put(frame,offset,reversed.data());put(frame,offset+8,reversed.data()+reversed.size());
+    monitor.process(frame.data(),[]{});require(monitor.pending()==1,"reordered native work erased the missing ordered suffix");
+    monitor.reset();
+    // Reordered/missing requests cannot disappear just because another request
+    // for the same body was seen. Repeated identical messages each count once.
+    monitor.expect(handle,.15f,300,350);monitor.expect(handle,.15f,300,350);
+    put(frame,offset,rows.data()+8);put(frame,offset+8,rows.data()+12);
+    monitor.process(frame.data(),[]{});require(monitor.pending()==1,"one native message completed duplicate declarations");
+    monitor.process(frame.data(),[]{});require(monitor.pending()==0,"duplicate native completion could not resume");
+    constexpr auto high=static_cast<std::int32_t>(0x81000004U);
+    std::array<std::uint32_t,4> negative{static_cast<std::uint32_t>(high),bits(-.25f),bits(280),bits(300)};
+    monitor.expect(high,-.25f,280,300);put(frame,offset,negative.data());put(frame,offset+8,negative.data()+4);
+    monitor.process(frame.data(),[]{});require(monitor.pending()==0,"signed native handle generation failed completion");
+    for(const auto value:{0.f,-0.f,std::numeric_limits<float>::infinity(),std::numeric_limits<float>::quiet_NaN()})
+        reject([&]{monitor.expect(handle,value,300,350);});
+    reject([&]{monitor.expect(-1,1,300,350);});reject([&]{monitor.expect(handle,1,350,300);});
+    for(std::size_t i=0;i<32768;++i)monitor.expect(handle,1,300,350);
+    reject([&]{monitor.expect(handle,1,300,350);});require(monitor.pending()==32768,"conduit completion overflow discarded requests");
+    monitor.reset();monitor.expect(handle,1,300,350);put(frame,offset+8,reinterpret_cast<const std::byte*>(negative.data())+1);
+    monitor.process(frame.data(),[&]{++calls;});reject([&]{(void)monitor.pending();});
+    monitor.reset();require(monitor.pending()==0,"conduit completion reset left a stale failure");
+    // The observer preserves errno and floating-point state around the native
+    // call, including changes the original itself intentionally makes.
+    const auto old_round=std::fegetround();const auto old_error=errno;
+    monitor.expect(high,-.25f,280,300);put(frame,offset,negative.data());put(frame,offset+8,negative.data()+4);
+    std::fesetround(FE_UPWARD);errno=E2BIG;
+    monitor.process(frame.data(),[&]{require(std::fegetround()==FE_UPWARD&&errno==E2BIG,"completion observer changed original environment");std::fesetround(FE_TOWARDZERO);errno=ERANGE;});
+    require(std::fegetround()==FE_TOWARDZERO&&errno==ERANGE&&monitor.pending()==0,"completion observer lost native arithmetic environment");
+    std::fesetround(old_round);errno=old_error;
+    require(ma_oni_conduit_heat_version()==1&&ma_oni_conduit_heat_pending(nullptr)==MA_ONI_INVALID_ARGUMENT&&
+        ma_oni_conduit_heat_expect(handle,1,300,350)==MA_ONI_BUSY&&ma_oni_conduit_heat_reset()==MA_ONI_OK,"conduit completion ABI admission");
+    std::cout<<"PASS conduit native heat completion: applied message proof, equal-temperature negative control, immutable forwarding, ordering/multiplicity, platform vectors and preserved native environment\n";
+}
 int main() {
     try {
         capture_file_controls();
@@ -299,6 +370,7 @@ int main() {
         chunk_heat_trace_controls();
         storage_heat_receipt_controls();
         storage_heat_native_controls();
+        conduit_heat_completion_controls();
         require(ma_oni_colony_physical_core_count() >= 1 && ma_oni_colony_physical_core_count() <= 256 &&
                     ma_oni_colony_set_worker_count(30) == MA_ONI_OK &&
                     ma_oni_colony_set_worker_count(257) == MA_ONI_INVALID_ARGUMENT &&

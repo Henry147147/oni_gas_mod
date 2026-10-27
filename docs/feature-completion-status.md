@@ -68,6 +68,12 @@ playtest deferrals remain recorded until their own controls pass.
   in the same frozen Linux bundle, with 8 kg discharged, two native bodies
   acknowledged and closed accounts. Full continued state still differs on
   the first resumed frame.
+- **Drained-store history:** a second save after native cleanup passes seven
+  source checks and cold/menu loading. All 24 source/cold/menu storage sections
+  retain identical heat, transfer and culture history. The new control exposed
+  a temperature-equality false positive in pipe-body save validation; a
+  read-only native message completion observer now proves the queued work was
+  processed. The complete world/pipe prefix still differs after loading.
 
 ## Remaining implementation and proofs
 

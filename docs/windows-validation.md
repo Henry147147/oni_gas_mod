@@ -175,6 +175,15 @@ native DLLs with `tools/package_probe.py --native ... --native-observer ...`.
 The runner verifies the package hashes and the pinned game assembly/SimDLL
 hashes.
 
+For the gated exact-storage fixtures, the Proton runner accepts the explicit
+`--exact-storage-control` option in `colony-owner` and `colony-owner-load`
+modes. It enables native scheduling/storage and an eight-frame saved
+continuation observation, records `owner_environment_overrides` and
+`exact_storage_control`, and keeps all other inherited `MA_` variables
+stripped. These are development fixture results; ordinary default-settings
+acceptance remains separate. Source fixtures must create their control save,
+as `owned-storage-active-outlet` and `owned-storage-drained-save` do.
+
 ```sh
 python3 tools/oni_proton_headless.py \
   --proton /path/to/proton \

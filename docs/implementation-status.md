@@ -12,6 +12,10 @@ through native heat ABI2. Focused Linux cleanup and cold/menu controls pass;
 byte-exact full-colony continuation and broader storage lifecycle coverage
 remain required. See [current work](feature-completion-status.md) and
 [saved pipe framing](mixed-pipes.md#saved-framing).
+The drained-store control now preserves identical history through eight source,
+eight cold and eight menu frames on Linux and WindowsPlayer/Proton. Native
+conduit message completion replaces the former temperature-equality save
+heuristic; full world/pipe continuation remains open.
 
 
 Current private Windows candidate: **`bfb1168`**. Ordinary Spaced Out! New Game,

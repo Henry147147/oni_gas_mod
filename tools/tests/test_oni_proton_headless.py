@@ -22,6 +22,26 @@ common = runner.common
 
 
 class ProtonIsolationTests(unittest.TestCase):
+    def test_exact_storage_control_is_explicit_and_keeps_other_overrides_out(self):
+        env={"PATH":"fixture","MA_OTHER_CONTROL":"1","MA_COLONY_CONTINUATION_SOURCE":"1"}
+        args=SimpleNamespace(mode="colony-owner",exact_storage_control=False)
+        self.assertEqual(runner.owner_environment(env,args),{"PATH":"fixture"})
+        args.exact_storage_control=True
+        source=runner.owner_environment(env,args)
+        self.assertEqual(source,{"PATH":"fixture","MA_COLONY_NATIVE_SCHEDULE_CONTROL":"1",
+            "MA_COLONY_CONTINUATION_FRAMES":"8","MA_COLONY_CONTINUATION_RUNTIME":"1",
+            "MA_COLONY_CONTINUATION_DUMP":"1","MA_COLONY_CONTINUATION_SOURCE":"1"})
+        args.mode="colony-owner-load"
+        loaded=runner.owner_environment(env,args)
+        self.assertNotIn("MA_COLONY_CONTINUATION_SOURCE",loaded)
+        self.assertEqual(loaded,{k:v for k,v in source.items() if k!="MA_COLONY_CONTINUATION_SOURCE"})
+        self.assertEqual(env["MA_OTHER_CONTROL"],"1")
+
+    def test_exact_storage_control_refuses_nonowner_and_inactive_routes(self):
+        for mode in ("menu","native-domain","colony-owner-inactive"):
+            with self.subTest(mode=mode),self.assertRaises(ValueError):
+                runner.owner_environment({"PATH":"fixture"},SimpleNamespace(mode=mode,exact_storage_control=True))
+
     def test_owner_fault_capture_is_explicit_private_and_not_ordinary_evidence(self):
         env={"PATH":"fixture"};result={"owner_environment_overrides":False}
         args=SimpleNamespace(mode="colony-owner",capture_owner_fault=False)

@@ -74,11 +74,12 @@ namespace MixedAtmospheres.Oni
         private static GameObject? activeOutletReservoir;
         private static int activeOutletPhase,activeOutletReadyAt;
         private static long activeOutletRetirements;
+        private static ulong activeOutletDrainedSave;
         // Separate saved-outlet regression, fixed before measurement: the same
         // 8 kg 75/25 mixture at 350 K, 22 warm frames, enable its real native
         // dispenser and save before the next update, then eight positive frames
         // for natural discharge and native cleanup. No manual dispense occurs.
-        private static void MixedOwnedStorageActiveOutlet(int frame)
+        private static void MixedOwnedStorageActiveOutlet(int frame,bool saveDrained=false)
         {
             var flow=Game.Instance.liquidConduitFlow;
             if(Once(0,"active outlet arena"))
@@ -100,6 +101,7 @@ namespace MixedAtmospheres.Oni
                     return;
                 }
                 if(!ColonyPipeRuntime.NativeScheduleControl)throw new InvalidOperationException("The active outlet save control requires the native schedule writer.");
+                if(saveDrained&&!ColonyPipeContactHeat.Enabled)throw new InvalidOperationException("The drained-store control requires native conduit contact completion observation.");
                 activeOutletReadyAt=frame;activeOutletPhase=1;activeOutletRetirements=ColonyOwnedStorage.NativeRetirements;
                 ColonyConduits.SupplyControlInventory(flow,InputCell(activeOutletReservoir!),Liquid(6,2,350,1000000));
                 ColonyMachinePorts.Consume(activeOutletReservoir!.GetComponent<ConduitConsumer>(),1,flow);
@@ -117,7 +119,8 @@ namespace MixedAtmospheres.Oni
                 Record("ordinary save captures an open outlet and nonempty store",ColonyOwnerPersistence.Saves==saves+1&&System.IO.File.Exists(path)&&
                     activeOutletReservoir.GetComponent<ConduitDispenser>().isOn&&ColonyOwnedStorage.Inventory(storage).Mass==8,
                     $"saved frame {ColonyOwnerPersistence.LastSavedFrame}, held {ColonyOwnedStorage.Inventory(storage).Mass:R} kg");
-                ColonyContinuationProbe.SourceSaved(ColonyOwnerPersistence.LastSavedFrame,path);activeOutletPhase=2;
+                if(!saveDrained)ColonyContinuationProbe.SourceSaved(ColonyOwnerPersistence.LastSavedFrame,path);
+                activeOutletPhase=2;
             }
             if(activeOutletPhase==2&&frame>=activeOutletReadyAt+30)
             {
@@ -129,8 +132,24 @@ namespace MixedAtmospheres.Oni
                     ColonyOwnedStorage.RegisteredProjections(storage)==0&&ColonyOwnedStorage.RetiringProjections(storage)==0&&!storage.items.Any(item=>item!=null),
                     $"retired {ColonyOwnedStorage.NativeRetirements-activeOutletRetirements}, pending {ColonyOwnedStorage.RetiringProjections(storage)}, items {storage.items.Count}");
                 Record("storage and pipe accounts close after scheduled discharge",ColonyOwnedStorage.Audit(storage)&&ColonyConduits.Audit(out _),ColonyMachinePorts.Report);
-                Finish();
+                if(!saveDrained){Finish();return;}
+                var history=ColonyOwnedStorage.Capture().Stores.Single(store=>store.Address.Prefab==storage.GetComponent<KPrefabID>().InstanceID);
+                var water=ColonyConduits.MaterialOf(SimHashes.Water).Id;var dirty=ColonyConduits.MaterialOf(SimHashes.DirtyWater).Id;
+                bool Mass(System.Collections.Generic.IReadOnlyDictionary<int,StorageJournalAmount> amounts,int id,double value)=>
+                    amounts.TryGetValue(id,out var amount)&&amount.Units==StorageJournalAmount.From(new PipeAmount(value)).Units;
+                Record("drained store retains its transfer heat and culture history",!history.PristineEmpty&&history.Inventory.Count==0&&history.Heat.Sign<0&&
+                    Mass(history.Admitted.Masses,water,6)&&Mass(history.Admitted.Masses,dirty,2)&&Mass(history.Withdrawn.Masses,water,6)&&Mass(history.Withdrawn.Masses,dirty,2)&&
+                    history.Admitted.Germs.Count==1&&history.Withdrawn.Germs.Count==1&&history.Births.Count+history.Deaths.Count>0&&history.Clocks.Count==0&&history.CultureContexts.Count==0,
+                    $"heat {history.Heat.Value:R} J, admitted/withdrawn species {history.Admitted.Masses.Count}/{history.Withdrawn.Masses.Count}, birth/death histories {history.Births.Count}/{history.Deaths.Count}");
+                var path=System.IO.Path.Combine(ColonyRuntimeValidation.OutputDirectory,"drained-outlet.sav");
+                var saves=ColonyOwnerPersistence.Saves;SpeedControlScreen.Instance.Pause(false);SaveLoader.Instance.Save(path,false,false);
+                Record("ordinary save captures the drained store after native retirement",ColonyOwnerPersistence.Saves==saves+1&&System.IO.File.Exists(path)&&
+                    !ColonyOwnedStorage.RetirementsPending&&ColonyOwnedStorage.Inventory(storage).Count==0&&ColonyPipeContactHeat.Contacts>0&&
+                    ColonyPipeContactHeat.BodyHeatMismatch()==null,$"saved frame {ColonyOwnerPersistence.LastSavedFrame}");
+                activeOutletDrainedSave=ColonyOwnerPersistence.LastSavedFrame;
+                ColonyContinuationProbe.SourceSaved(activeOutletDrainedSave,path);activeOutletPhase=3;
             }
+            if(activeOutletPhase==3&&ColonyOwner.Status.CompletedFrames>=activeOutletDrainedSave+8)Finish();
         }
     }
 }

@@ -8,6 +8,7 @@
 #include "oni_body_heat_trace.hpp"
 #include "oni_chunk_heat_trace.hpp"
 #include "oni_storage_heat_native.hpp"
+#include "oni_conduit_heat.hpp"
 #include "oni_conduit_contact.hpp"
 #include "oni_windows_lifecycle_trace.hpp"
 #include "oni_funchook_storage.hpp"
@@ -104,6 +105,7 @@ std::uintptr_t image_base{};
 std::uint64_t installed_mask{};
 bool installed{}, recovery_required{};
 ma::oni::storage_heat::Monitor storage_heat;
+ma::oni::conduit_heat::Monitor conduit_heat;
 // Both modules remain resident. Never free cached P/Invoke targets or native
 // trampolines while any simulator could retain their addresses.
 void* game_module{};
@@ -178,6 +180,7 @@ FORWARD(on_initialize, MA_ONI_INITIALIZE, void, (GameCallback callback), (callba
 void on_shutdown() {
     Call call(MA_ONI_SHUTDOWN);
     storage_heat.reset();
+    conduit_heat.reset();
     ma::oni::windows_lifecycle_trace("native shutdown entered");
 #if defined(_WIN32)
     std::fprintf(stderr,"[Mixed Atmospheres] Windows native shutdown entered.\n");
@@ -236,7 +239,7 @@ void on_process_frame(void* frame,void* data) {
     const auto ordinal=counters[MA_ONI_PROCESS_FRAME].entries.load(std::memory_order_relaxed);
     if(ma::oni::body_heat_trace::Frame::enabled())body_observation.emplace(ordinal,frame,data);
     if(ma::oni::chunk_heat_trace::Frame::enabled())chunk_observation.emplace(ordinal,frame,data);
-    storage_heat.process(frame,data,ordinal,[&]{original<void (*)(void*,void*)>(MA_ONI_PROCESS_FRAME)(frame,data);});
+    conduit_heat.process(frame,[&]{storage_heat.process(frame,data,ordinal,[&]{original<void (*)(void*,void*)>(MA_ONI_PROCESS_FRAME)(frame,data);});});
 }
 float on_next_frame(void* self,void* data) {
     Call call(MA_ONI_NEXT_FRAME);
@@ -1577,6 +1580,17 @@ MAOniResult ma_oni_domain_stop(MAOniDomainStatus* output) {
     });
 }
 std::uint32_t ma_oni_domain_heat_abi_version() { return 1; }
+std::uint32_t ma_oni_conduit_heat_version() {return ma::oni::conduit_heat::Monitor::supported()?1U:0U;}
+MAOniResult ma_oni_conduit_heat_expect(std::int32_t handle,float energy,float minimum,float maximum) {
+    return boundary([&] {
+        if(!installed||!ma::oni::conduit_heat::Monitor::supported())throw Failure(MA_ONI_BUSY,"Conduit body-energy completion requires the attached native backend");
+        conduit_heat.expect(handle,energy,minimum,maximum);
+    });
+}
+MAOniResult ma_oni_conduit_heat_pending(std::uint32_t* count) {
+    return boundary([&] {if(!count)throw Failure(MA_ONI_INVALID_ARGUMENT,"Missing conduit body-energy completion count");*count=conduit_heat.pending();});
+}
+MAOniResult ma_oni_conduit_heat_reset() {return boundary([&] {conduit_heat.reset();});}
 std::uint32_t ma_oni_storage_heat_version() {return ma::oni::storage_heat::Monitor::supported()?2U:0U;}
 MAOniResult ma_oni_storage_heat_register(std::int32_t handle,float temperature,float capacity) {
     return boundary([&] {

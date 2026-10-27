@@ -25,6 +25,14 @@ namespace MixedAtmospheres.Oni
         private static extern uint Version();
         [DllImport("mixed_atmospheres_oni",EntryPoint="ma_oni_conduit_contact_replay",CallingConvention=CallingConvention.Cdecl)]
         private static extern int Replay(Input* inputs,uint count,Output* outputs,uint capacity);
+        [DllImport("mixed_atmospheres_oni",EntryPoint="ma_oni_conduit_heat_version",CallingConvention=CallingConvention.Cdecl)]
+        private static extern uint CompletionVersion();
+        [DllImport("mixed_atmospheres_oni",EntryPoint="ma_oni_conduit_heat_expect",CallingConvention=CallingConvention.Cdecl)]
+        private static extern int ExpectCompletion(int handle,float energy,float minimum,float maximum);
+        [DllImport("mixed_atmospheres_oni",EntryPoint="ma_oni_conduit_heat_pending",CallingConvention=CallingConvention.Cdecl)]
+        private static extern int PendingCompletions(out uint count);
+        [DllImport("mixed_atmospheres_oni",EntryPoint="ma_oni_conduit_heat_reset",CallingConvention=CallingConvention.Cdecl)]
+        private static extern int ResetCompletions();
         private sealed class Row
         {
             internal readonly ConduitFlow Flow;internal readonly int Cell;internal readonly PipeInventory Inventory;
@@ -136,14 +144,21 @@ namespace MixedAtmospheres.Oni
                 var carrier=ElementLoader.FindElementByHash(row.Shadow.element);
                 var lagged=new PipeAmount((double)row.Shadow.mass*carrier.specificHeatCapacity*1000*((double)row.Before.temperature-row.Shadow.temperature));
                 var contact=PipeContactWork.IntoFluid(row.Input.BodyCapacity,row.Input.BodyTemperature,row.Result.BodyTemperature);
+                // The native sender forms its queued energy from the rounded
+                // carrier endpoints. Reproduce those two binary32 operations
+                // for message identity; the represented-work credit below
+                // retains its existing body-endpoint arithmetic.
+                var carrierDelta=row.Input.FluidTemperature-row.Result.CarrierTemperature;
+                var queuedEnergy=carrierDelta*row.Input.FluidCapacity;
+                if(queuedEnergy!=0)
+                    OniNativeColony.Check(ExpectCompletion(row.Handle,queuedEnergy,
+                        Math.Min(row.Input.BodyTemperature,row.Input.FluidTemperature),Math.Max(row.Input.BodyTemperature,row.Input.FluidTemperature)));
                 heat=lagged.Plus(contact);row.Consumed=true;ContactHeat=ContactHeat.Plus(contact);LaggedHeat=LaggedHeat.Plus(lagged);++Contacts;return true;
             }
             internal void Complete()
             {
                 if(epoch!=Epoch)return;
                 foreach(var row in rows)if(!row.Consumed&&!invalid.Contains(row))++Unsettled;
-                lastContacts.Clear();
-                foreach(var row in rows)if(row.Consumed)lastContacts.Add((row.Handle,row.Input.BodyTemperature,row.Result.BodyTemperature));
             }
         }
         private static Scope? active;
@@ -173,33 +188,26 @@ namespace MixedAtmospheres.Oni
         {
             if(!ColonyConduits.Active)throw new InvalidOperationException("Contact heat requires owned pipe contents.");
             if(Marshal.SizeOf<Input>()!=44||Marshal.SizeOf<Output>()!=20||Version()!=1)throw new NotSupportedException("Native contact replay version/layout is unsupported.");
+            try{if(CompletionVersion()!=1)throw new NotSupportedException("Native conduit heat completion observation is unsupported.");}
+            catch(EntryPointNotFoundException error){throw new NotSupportedException("Native conduit heat completion observation needs a matching bundle.",error);}
             Enabled=true;
         }
-        internal static void Reset(){lastContacts.Clear();Enabled=false;active=null;failure="";ValidationObserved=null;++Epoch;Contacts=Excluded=Mismatches=Unsettled=0;ContactHeat=LaggedHeat=PipeAmount.Zero;}
+        internal static void Reset(){if(Enabled)OniNativeColony.Check(ResetCompletions());Enabled=false;active=null;failure="";ValidationObserved=null;++Epoch;Contacts=Excluded=Mismatches=Unsettled=0;ContactHeat=LaggedHeat=PipeAmount.Zero;}
         internal static void Capture(PipeRuntimeImage image)
         {image.Contacts=Contacts;image.Excluded=Excluded;image.Mismatches=Mismatches;image.Unsettled=Unsettled;image.ContactHeat=ContactHeat;image.LaggedHeat=LaggedHeat;}
         internal static void Restore(PipeRuntimeImage image)
         {Contacts=image.Contacts;Excluded=image.Excluded;Mismatches=image.Mismatches;Unsettled=image.Unsettled;ContactHeat=image.ContactHeat;LaggedHeat=image.LaggedHeat;}
         internal static bool Open=>active!=null;
-        private static readonly List<(int Handle,float Before,float After)> lastContacts=new List<(int,float,float)>();
-        // Validation for a save point: a body whose latest settled contact
-        // changed it is still published at its pre-contact temperature, i.e.
-        // the native has not yet applied work the mixture already received.
+        // Equality with a former temperature is not a pending-work test: an
+        // intervening native contact can cool the body and its completed pipe
+        // energy can warm it back to precisely that same binary32 value.
+        // Confirm the original energy message was processed instead.
         internal static string? BodyHeatMismatch()
         {
             if(failure.Length>0)return failure;
-            if(Game.Instance==null||Game.Instance.simData==null||Game.Instance.simData.buildingTemperatures==null)return null;
-            var temperatures=Game.Instance.simData.buildingTemperatures;
-            var pending=0;var first="";
-            foreach(var contact in lastContacts)
-            {
-                if(BitConverter.SingleToInt32Bits(contact.Before)==BitConverter.SingleToInt32Bits(contact.After))continue;
-                var record=temperatures[Sim.GetHandleIndex(contact.Handle)];
-                if(record.handle!=contact.Handle)continue; // body gone
-                if(BitConverter.SingleToInt32Bits(record.temperature)==BitConverter.SingleToInt32Bits(contact.Before))
-                {if(pending++==0)first=$"handle {contact.Handle} still {contact.Before:R} K, contact expects {contact.After:R} K";}
-            }
-            return pending==0?null:$"{pending} pipe bodies have unapplied contact work ({first})";
+            if(!Enabled)return null;
+            OniNativeColony.Check(PendingCompletions(out var pending));
+            return pending==0?null:$"{pending} native conduit body-energy messages have not completed";
         }
         internal static Scope? Begin(float seconds)
         {

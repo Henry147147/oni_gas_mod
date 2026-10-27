@@ -46,6 +46,18 @@ internal static class StorageHeatTests
         var trace=new PipeAmount(1e-240);
         second.AddHeat(trace,Material);cold.AddHeat(trace,Material);
         Check(Image(cold).SequenceEqual(Image(second))&&cold.Audit(),"Stored heat continuation discarded a sub-temperature-resolution receipt.");
+        second.Commit(second.PrepareWithdrawal(double.MaxValue,Material));
+        var drainedBytes=Image(second);
+        using var drainedStream=new MemoryStream(drainedBytes);using var drainedReader=new BinaryReader(drainedStream);
+        var drained=OwnedFluidStore.Read(drainedReader);
+        bool CompleteHistory(OwnedFluidStore store)=>store.Inventory.Count==0&&store.Heat.Units==second.Heat.Units&&
+            store.Withdrawn.Masses.Count==1&&store.Withdrawn.Masses[1].Units==StorageJournalAmount.From(new PipeAmount(1)).Units;
+        Check(CompleteHistory(drained)&&!drained.PristineEmpty&&drained.Audit()&&Image(drained).SequenceEqual(drainedBytes),
+            "A drained cold store lost the heat/withdrawal history behind its empty native view.");
+        // Inject the old dangerous substitution: a fresh empty host is valid
+        // and audits, but is not the same completed physical history.
+        var lostHistory=new OwnedFluidStore(second.Address,second.Phase,PipeInventory.Empty);
+        Check(lostHistory.Audit()&&!CompleteHistory(lostHistory),"Drained-history oracle accepted a fresh empty-host substitution.");
         Console.WriteLine("PASS exact storage heat settlement: atomic preparation, stale/foreign refusal, delayed cooling across resets, changed capacities and trace-preserving cold continuation");
     }
 }
