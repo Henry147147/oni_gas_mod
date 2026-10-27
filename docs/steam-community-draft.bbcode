@@ -1,26 +1,39 @@
-[h1]Mixed Atmospheres: a full gas and liquid simulation overhaul[/h1]
+[h1]Mixed Atmospheres: real gas and liquid mixtures[/h1]
 
-[b]Development proposal and progress update — not yet a playable mod.[/b]
-The standalone mixture core and a developer integration probe exist, and the probe has passed inside Windows and Linux ONI. Complete liquid transport and authoritative integration with ONI are still required. The first public release is intended to include both gases and liquids.
+[i]Draft Workshop description. Not published: posting it, and the release itself, wait for the author's authorization.[/i]
 
-[h2]Every fluid tile becomes a mixture[/h2]
-Each tile keeps the grams of every constituent, alongside temperature, pressure, and occupied volume. Oxygen, nitrogen, carbon dioxide, and trace gases can occupy the same tile. Liquid mixtures and separate immiscible phases are part of the target.
+Mixed Atmospheres replaces Oxygen Not Included's gas and liquid simulation with its own solver. ONI still runs solids, buildings, duplicants, critters and plants; every gas and liquid in a new colony belongs to the mod.
 
-[h2]Breathable air takes more than oxygen[/h2]
-Hard mode requires 15–35% O₂ by volume/moles. Easy mode accepts anything from 15% upward. Both also check oxygen partial pressure, carbon dioxide, and harmful contaminants. Nitrogen provides an inert background gas, with guaranteed starting supplies and accessible ways to obtain more. The limits are configurable gameplay rules.
+[h2]What changes[/h2]
+[list]
+[*][b]Gases mix and stay mixed.[/b] A tile holds oxygen, carbon dioxide, hydrogen and every other gas together instead of one element per tile. Carbon dioxide spreads through a room instead of pooling in a single pit, so scrubbers serve whole rooms.
+[*][b]Liquids behave like liquids.[/b] Miscible liquids blend; immiscible liquids settle into layers you can see and manage. Liquid is nearly incompressible: there are no thousand-kilogram compressed liquid tiles.
+[*][b]Pressure is physical.[/b] Gas compresses, and expands into vacuum. Boiling depends on pressure, and phase changes take or release latent heat.
+[*][b]Pumps, pipes and filters carry mixtures.[/b] A pump takes the mixture at its intake, pipes carry it as it is, and a filter removes the constituent you pick and passes the rest.
+[*][b]Breathing follows the mixture.[/b] By default a duplicant can breathe where oxygen is at least 15% by moles and 15 kPa partial pressure, and carbon dioxide stays below 0.5% and 500 Pa. A relaxed or strict breathing rule can be chosen per colony.
+[*][b]You can see it.[/b] Composition and Breathability overlays, mixture hover readings and partial-pressure gauges show what your duplicants are actually breathing.
+[/list]
 
-[h2]Pressure, heat, and buoyancy drive movement[/h2]
-Warm or lighter mixtures rise relative to their surroundings; denser mixtures sink. Gases diffuse rather than stacking into perfectly pure layers. Liquids need realistic volume, pressure, mixing, and separation behavior. Phase changes must account for latent heat and vapor partial pressure.
+[h2]Playing[/h2]
+Enable the mod, restart when ONI asks, and start a [b]new[/b] colony. New colonies start with ONI's usual world conditions; no nitrogen is added. Pause at the start and plan to vent the printing pod's cave early: in a sealed starting cave, exhaled carbon dioxide can make the air unsafe while plenty of oxygen remains.
 
-[h2]Machines must account for their inputs and outputs[/h2]
-Pumps move mixtures. Filters separate constituents. Pipes and tanks retain everything they receive. Fuel generators need oxidizer and produce exhaust. Electrolysis, metabolism, crops, critters, and other material conversions must conserve matter and account for energy. Environmental fires and explosions are outside the scope.
+Settings are in the Mods screen (Settings button) or the in-game status panel: Default (recommended), Robust, and experimental Fast and Precise solver profiles, breathing rules, display options and your own saved presets. Solver and breathing settings are recorded per colony.
 
-[h2]Tools to make the colony playable[/h2]
-Planned additions include mixture and partial-pressure overlays, air-quality sensors, ventilation, accessible CO₂ scrubbing, pressure control, nitrogen reserves, and later air-separation equipment. Starting colonies must have the supplies and research access needed to survive the new rules.
+[h2]Compatibility[/h2]
+[list]
+[*][b]Platforms:[/b] 64-bit Windows and 64-bit Linux. macOS is not supported; the mod stays inactive there and the game runs as normal.
+[*][b]Content:[/b] the base game and Spaced Out!, including multiple asteroids, rocket interiors and fluid cargo. The Frosty, Bionic, Prehistoric and Aquatic packs are not supported yet: while any of them is active, colonies keep ONI's own simulation and the main menu says so.
+[*][b]Saves:[/b] existing colonies are not converted; they keep ONI's own simulation. [b]A colony started with Mixed Atmospheres needs the mod to load and cannot return to ONI's own simulation.[/b] Keep a copy of any colony you value.
+[*][b]Game updates:[/b] each time ONI starts, the mod verifies every part of the game it depends on. After a Klei update that changes any of them, it stays inactive with a message and leaves your colonies untouched until a matching Mixed Atmospheres update is out. Updates that do not touch those parts need no mod update.
+[*][b]Other mods:[/b] mods that change gases, liquids, pipes or the fluid simulation are unlikely to work with it.
+[/list]
 
-[h2]Compatibility and development status[/h2]
-The target is new colonies in the base game and Spaced Out!, on Windows and Linux. Existing saves will not be converted. The inspected ONI build is 744825.
+[h2]Performance[/h2]
+The mixture solver does far more work than ONI's own fluid simulation. On large or busy asteroids the game clock runs slower than vanilla, the way a lower speed setting does; the camera, menus and pause stay responsive. It uses several CPU cores. Performance work continues.
 
-ONI's native simulator handles much more than fluids, so replacing it requires careful work on thermal systems, callbacks, saves, and every fluid-using building. The current reference solver is useful for physics tests but does not yet meet colony-scale performance targets. No release date or Workshop download is available yet.
-
-Private native-engine tests on Windows and Linux have also demonstrated importing a fresh world with its fluids captured separately, while the original engine retains solid heat conduction. This is an integration milestone, not a playable colony or complete fluid replacement.
+[h2]If something goes wrong[/h2]
+If the solver meets a state it cannot continue safely, gases and liquids stop visibly, the game tells you, and saving is refused so a bad state is never written; reload your last save. Please report problems with your [b]Player.log[/b]:
+[list]
+[*]Windows: %USERPROFILE%\AppData\LocalLow\Klei\Oxygen Not Included\Player.log
+[*]Linux: ~/.config/unity3d/Klei/Oxygen Not Included/Player.log
+[/list]
