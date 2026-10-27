@@ -16,18 +16,19 @@ namespace MixedAtmospheres.Oni
 
         private static string ClusterCargoState(GameObject station)
         {
-            var distributor = clusterLaunchPad!.GetSMI<LaunchPadMaterialDistributor.Instance>();
-            var landed = clusterLaunchPad.GetComponent<LaunchPad>().LandedRocket;
+            var pad = clusterLaunchPad ?? throw new InvalidOperationException("No cargo launch pad.");
+            var distributor = pad.GetSMI<LaunchPadMaterialDistributor.Instance>();
+            var landed = pad.GetComponent<LaunchPad>().LandedRocket;
             var linked = HashSetPool<ChainedBuilding.StatesInstance, ChainedBuilding.StatesInstance>.Allocate();
             string chain;
             try
             {
-                var buildings = clusterLaunchPad.GetSMI<ChainedBuilding.StatesInstance>().GetLinkedBuildings(ref linked);
+                var buildings = pad.GetSMI<ChainedBuilding.StatesInstance>().GetLinkedBuildings(ref linked);
                 chain = string.Join(", ", buildings.Select(b => b.gameObject.PrefabID().Name + "@" + Grid.PosToCell(b.gameObject)));
             }
             finally { linked.Recycle(); }
             var stores = string.Join(", ", station.GetComponents<Storage>().Select(s => $"{s.MassStored():R}/{s.capacityKg:R}"));
-            return $"pad {MachineState(clusterLaunchPad)}, landed {landed != null}, distributor {distributor?.GetCurrentState()?.name}, " +
+            return $"pad {MachineState(pad)}, landed {landed != null}, distributor {distributor?.GetCurrentState()?.name}, " +
                 $"chain [{chain}], station stores [{stores}]; {MachineState(station)}";
         }
 
