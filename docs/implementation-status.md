@@ -501,7 +501,8 @@ criteria):
 7. **Release validation.** Long colonies for every supported pack on both OSes,
    measuring CPU, allocations, memory, conservation and stability.
 
-There is no release-packaging option. `tools/package_probe.py` produces only an
-integration probe and writes `release_ready: false` in its manifest. The
-[Steam Community draft](steam-community-draft.bbcode) describes the intended
-project; it is not a release announcement.
+`tools/package_release.py` assembles the Workshop-shaped release folder and its
+deterministic ZIP ([distribution](distribution.md)); nothing has been published.
+`tools/package_probe.py` still produces development packages with
+`release_ready: false`. The [Steam Community draft](steam-community-draft.bbcode)
+is unpublished.
