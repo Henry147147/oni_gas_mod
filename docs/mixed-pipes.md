@@ -2,14 +2,15 @@
 
 The playtest requires an actual composition in each gas/liquid conduit cell,
 selective filtering, recipe-specific consumption, conserved heat and germs,
-and exact save continuation. Ordinary colonies still send mixture
-constituents as separate native packets unless `MA_COLONY_MIXED_PIPES=1`
-starts the production runtime for a new colony ([runtime](#runtime)).
+and exact save continuation. Ordinary new colonies enable mixed pipes and
+pipe saves by default ([runtime](#runtime)). A loaded colony retains its saved
+pipe mode.
 Harness controls validate internal mixing/filtering/readers, precise world
 receipts, pumps, valves/shutoffs, gas and liquid vents, machine ports,
 teardown, phase damage, hot/cold body heat and all-ID pipe biology. The
-mixed save writer (MACPIP01 schema 4 inside MACOLP03) is explicitly gated;
-exact native scheduling continuation and default-on activation remain open.
+ordinary mixed save writer uses MACPIP01 schema4 inside MACOLP03. Exact
+component storage and native scheduling use the separate gated development
+writer described below; complete colony continuation remains open.
 
 ## Runtime
 
@@ -370,6 +371,16 @@ Schema6 remains the writer until a meaningful completed history is retired.
 The extension stays behind the exact-storage development control. No native
 physical checkpoint layout or solver arithmetic changes with this reservation.
 
+The development writer implements schema7 when at least one meaningful
+completed history exists. Reservoir destruction first requires empty exact
+inventory, no native items or projections, completed native retirement, and a
+closed audit. Both the queued-destruction callback (which calls `DropAll`)
+and final cleanup run this check. The history then joins its phase aggregate
+before the live host is detached. A cold load restores these aggregates
+without looking up demolished prefabs. Nonempty reservoir teardown remains
+refused until its exact container adapter exists. Schema5/6 records retain
+their existing bytes when no completed aggregate is present.
+
 **MACPIP01 schema6 reserved, 2026-10-27**, immediately after fetching
 `d252486`: extend schema5's native schedule with the state that native port
 callbacks need after prefab spawn. Each updater gains a fixed control record
@@ -551,6 +562,24 @@ still first differs at frame40 from the frame39 save; its committed native
 inputs differ there too (3,845 versus 3,853 records, different multisets).
 Particles match. No image section or acceptance comparison is normalized or
 omitted, and complete colony continuation remains unverified.
+
+`owned-storage-retired-save` extends the fixed 8 kg warm-outlet fixture by
+demolishing the drained reservoir after native cleanup, then making an ordinary
+save. `release-retired-storage-source-v2` passes all eight Linux checks and
+`release-retired-storage-load` passes cold and menu reloads. Every one of the
+24 held storage sections is byte-identical: schema7, no live store, and one
+audited liquid-history aggregate. Engine-free controls cover initial versus
+admitted inventory, heat and culture history, wide exact aggregation, phase
+ordering, malformed/truncated data and unchanged schema5/6 bytes. An injected
+missing schema7 reader fails the new codec regression. The first game attempt
+failed at queued destruction's earlier `DropAll`; it is retained as failed
+evidence. This closes empty-host retirement only.
+
+WindowsPlayer/Proton passes the same eight checks and cold/menu reloads
+(`release-retired-storage-windows-source` / `windows-load`). Each platform's
+eight complete pipe images also match source/cold/menu byte for byte. The
+Linux whole-owner image still first differs at frame42 from the frame41 save;
+full colony continuation and actual Windows OS acceptance remain open.
 
 `MA_COLONY_CONTINUATION_FRAMES=N` still records a held completed owner image
 after each positive frame. With `MA_COLONY_CONTINUATION_RUNTIME=1`, it also

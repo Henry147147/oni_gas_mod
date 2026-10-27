@@ -16,6 +16,9 @@ The drained-store control now preserves identical history through eight source,
 eight cold and eight menu frames on Linux and WindowsPlayer/Proton. Native
 conduit message completion replaces the former temperature-equality save
 heuristic; full world/pipe continuation remains open.
+Gated schema7 now retains completed histories after empty reservoir demolition;
+Linux and WindowsPlayer/Proton each pass eight checks and retain identical
+source/cold/menu histories without a live host. Nonempty teardown and containers remain open.
 
 
 Current private Windows candidate: **`bfb1168`**. Ordinary Spaced Out! New Game,

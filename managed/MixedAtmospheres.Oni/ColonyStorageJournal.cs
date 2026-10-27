@@ -73,6 +73,13 @@ namespace MixedAtmospheres.Oni
             foreach(var germ in parcel.Germs){germs.TryGetValue(germ.Id,out var before);germs[germ.Id]=before.Plus(germ.Amount);}
             return new StorageJournalInventory(masses,Energy.Plus(parcel.Energy),germs);
         }
+        internal StorageJournalInventory Joined(StorageJournalInventory other)
+        {
+            var masses=new SortedDictionary<int,StorageJournalAmount>(this.masses);var germs=new SortedDictionary<int,StorageJournalAmount>(this.germs);
+            foreach(var pair in other.Masses){masses.TryGetValue(pair.Key,out var before);masses[pair.Key]=before.Plus(pair.Value);}
+            foreach(var pair in other.Germs){germs.TryGetValue(pair.Key,out var before);germs[pair.Key]=before.Plus(pair.Value);}
+            return new StorageJournalInventory(masses,Energy.Plus(other.Energy),germs);
+        }
         internal void Write(BinaryWriter writer){WriteMap(writer,Masses);Energy.Write(writer);WriteMap(writer,Germs);}
         internal static StorageJournalInventory Read(BinaryReader reader)=>new StorageJournalInventory(ReadMap(reader,65536),StorageJournalAmount.Read(reader),ReadMap(reader,255));
         private static void WriteMap(BinaryWriter writer,IReadOnlyDictionary<int,StorageJournalAmount> map){writer.Write(map.Count);foreach(var pair in map){writer.Write(pair.Key);pair.Value.Write(writer);}}

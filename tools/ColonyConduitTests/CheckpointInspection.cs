@@ -62,6 +62,11 @@ internal static class CheckpointInspection
             runtime.BiologyExpected,runtime.BiologySkipped,runtime.PhaseEvents,
             NativeFlows=schedule?.Flows.Select(flow=>new{flow.Phase,ElapsedBits=BitConverter.SingleToInt32Bits(flow.Elapsed),Cells=flow.Cells.Count,Updaters=flow.Updaters.Count})
         };
-        Console.WriteLine(JsonSerializer.Serialize(new{Schema=schema,Sha256=Convert.ToHexStringLower(SHA256.HashData(bytes)),Sections=sections,Stores=details,Runtime=runtimeInfo},new JsonSerializerOptions{WriteIndented=true}));
+        var completed=stores?.Retired.Select(history=>new{history.Phase,Hash=Fingerprint(history.Write),AuditClosed=history.Audit(),
+            ExactHeatUnits=history.Heat.Units.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            Initial=Fingerprint(history.Initial.Write),Admitted=Fingerprint(history.Admitted.Write),Withdrawn=Fingerprint(history.Withdrawn.Write),
+            Births=history.Births.ToDictionary(pair=>pair.Key,pair=>pair.Value.Units.ToString(System.Globalization.CultureInfo.InvariantCulture)),
+            Deaths=history.Deaths.ToDictionary(pair=>pair.Key,pair=>pair.Value.Units.ToString(System.Globalization.CultureInfo.InvariantCulture))});
+        Console.WriteLine(JsonSerializer.Serialize(new{Schema=schema,Sha256=Convert.ToHexStringLower(SHA256.HashData(bytes)),Sections=sections,Stores=details,Completed=completed,Runtime=runtimeInfo},new JsonSerializerOptions{WriteIndented=true}));
     }
 }

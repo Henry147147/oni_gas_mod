@@ -182,17 +182,25 @@ namespace MixedAtmospheres.Oni
     {
         internal const int MaximumStores=1_000_000;
         internal readonly OwnedFluidStore[] Stores;
-        internal OwnedFluidStorageImage(IEnumerable<OwnedFluidStore> stores)
+        internal readonly RetiredFluidStorage[] Retired;
+        internal OwnedFluidStorageImage(IEnumerable<OwnedFluidStore> stores,IEnumerable<RetiredFluidStorage>? retired=null)
         {
             Stores=stores.OrderBy(s=>s.Address).ToArray();
+            Retired=retired?.OrderBy(s=>s.Phase).ToArray()??Array.Empty<RetiredFluidStorage>();
+            if(Retired.Length>2)throw new InvalidDataException("Too many completed storage phases.");
+            for(var i=0;i<Retired.Length;++i)if(!Retired[i].Audit()||i>0&&Retired[i-1].Phase==Retired[i].Phase)
+                throw new InvalidDataException("Invalid or duplicate completed storage phase.");
             if(Stores.Length>MaximumStores)throw new InvalidDataException("Too many owned storage components.");
             for(var i=0;i<Stores.Length;++i)
                 if(i>0&&Stores[i-1].Address.Equals(Stores[i].Address)||!Stores[i].Audit())
                     throw new InvalidDataException("Invalid or duplicate owned storage component.");
         }
         internal void Write(BinaryWriter writer)
-        {writer.Write(Stores.Length);foreach(var store in Stores)store.Write(writer);}
-        internal static OwnedFluidStorageImage Read(BinaryReader reader)
+        {
+            writer.Write(Stores.Length);foreach(var store in Stores)store.Write(writer);
+            if(Retired.Length!=0){writer.Write(Retired.Length);foreach(var history in Retired)history.Write(writer);}
+        }
+        internal static OwnedFluidStorageImage Read(BinaryReader reader,bool retired=false)
         {
             var count=reader.ReadInt32();
             if(count<0||count>MaximumStores||count>(reader.BaseStream.Length-reader.BaseStream.Position)/10)
@@ -204,7 +212,15 @@ namespace MixedAtmospheres.Oni
                 if(i>0&&stores[i-1].Address.CompareTo(stores[i].Address)>=0)
                     throw new InvalidDataException("Noncanonical owned storage component order.");
             }
-            return new OwnedFluidStorageImage(stores);
+            var archives=Array.Empty<RetiredFluidStorage>();
+            if(retired)
+            {
+                var phases=reader.ReadInt32();if(phases<1||phases>2)throw new InvalidDataException("Invalid completed storage phase count.");
+                archives=new RetiredFluidStorage[phases];
+                for(var i=0;i<phases;++i)
+                {archives[i]=RetiredFluidStorage.Read(reader);if(i>0&&archives[i-1].Phase>=archives[i].Phase)throw new InvalidDataException("Noncanonical completed storage phase order.");}
+            }
+            return new OwnedFluidStorageImage(stores,archives);
         }
     }
 }

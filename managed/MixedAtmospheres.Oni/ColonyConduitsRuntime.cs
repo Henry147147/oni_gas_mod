@@ -102,8 +102,8 @@ namespace MixedAtmospheres.Oni
             {
                 var catalogue=ColonyConduits.CatalogueIdentity();var geometry=ColonyConduits.Geometry;
                 var image=ColonyConduitCheckpoint.Decode(bytes,geometry,catalogue,ColonyConduits.MaterialPhase);
-                if(image.SchemaVersion!=4&&image.SchemaVersion!=5&&image.SchemaVersion!=6||image.Boundary==null||image.Runtime==null)
-                    throw new System.IO.InvalidDataException("Mixed-pipe runtime restore requires schema 4, 5 or 6 with complete native biology context; older runtime images cannot continue exactly.");
+                if(image.SchemaVersion<4||image.SchemaVersion>7||image.Boundary==null||image.Runtime==null)
+                    throw new System.IO.InvalidDataException("Mixed-pipe runtime restore requires schema 4 through 7 with complete native biology context; older runtime images cannot continue exactly.");
                 NativeScheduleControl=image.SchemaVersion>=5;
                 ColonyConduits.Restore(image);
                 ColonyPipePorts.Restore(image.Boundary,image.Runtime);

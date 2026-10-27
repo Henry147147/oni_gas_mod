@@ -35,6 +35,7 @@ namespace MixedAtmospheres.Oni
             internal Host(Storage storage,OwnedFluidStore store){Storage=storage;Store=store;}
         }
         private static readonly Dictionary<Storage,Host> Hosts=new Dictionary<Storage,Host>();
+        private static readonly RetiredFluidStorage?[] CompletedHistories=new RetiredFluidStorage?[3];
         [ThreadStatic] private static int editing,registering;
         internal static bool Enabled {get;private set;}
         internal static int Count=>Hosts.Count;
@@ -46,6 +47,8 @@ namespace MixedAtmospheres.Oni
         internal static int RetiringProjections(Storage storage)=>Hosts.TryGetValue(storage,out var host)?host.Retiring.Count:0;
         internal static bool Audit(Storage storage)=>Hosts.TryGetValue(storage,out var host)&&host.Store.Audit();
         internal static object Diagnostics()=>new{Enabled,NativeHeatReceipts,NativeRetirements,
+            Completed=CompletedHistories.Where(history=>history!=null).Select(history=>new{history!.Phase,AuditClosed=history.Audit(),
+                HeatUnits=history.Heat.Units.ToString(),AdmittedSpecies=history.Admitted.Masses.Count,WithdrawnSpecies=history.Withdrawn.Masses.Count}).ToArray(),
             Stores=Hosts.Values.OrderBy(host=>host.Store.Address).Select(host=>new{
                 host.Store.Address.Prefab,host.Store.Address.Ordinal,host.Store.Phase,Mass=host.Store.Inventory.Mass,
                 AuditClosed=host.Store.Audit(),RegisteredProjections=host.Projections.Values.Count(view=>view.Handle!=-1),
@@ -57,7 +60,7 @@ namespace MixedAtmospheres.Oni
             RequireStorageHeat();
             Enabled=true;MixtureInspection.SetOwnedStorageReader(storage=>Owns(storage)?ColonyPipeInspection.Describe(Inventory(storage),"Stored mixture"):null);
         }
-        internal static void Reset(){ClearStorageHeat();ResetBiology();Enabled=false;Hosts.Clear();editing=registering=0;HeatPublications=0;MixtureInspection.SetOwnedStorageReader(null);NativeMessageBoundary.ResetStoragePublication();}
+        internal static void Reset(){ClearStorageHeat();ResetBiology();Enabled=false;Hosts.Clear();Array.Clear(CompletedHistories,0,CompletedHistories.Length);editing=registering=0;HeatPublications=0;MixtureInspection.SetOwnedStorageReader(null);NativeMessageBoundary.ResetStoragePublication();}
         internal static bool Owns(Storage storage)=>Enabled&&Hosts.ContainsKey(storage);
         private static byte ReservoirPhase(Storage storage)
         {
@@ -280,6 +283,19 @@ namespace MixedAtmospheres.Oni
         {if(editing==0&&ViewOf(item).HasValue)throw new InvalidOperationException("Unsupported native mutation of an exact storage projection: "+operation);}
         internal static bool Mass(Storage storage,out float mass)
         {mass=0;if(!Hosts.TryGetValue(storage,out var host))return false;mass=(float)host.Store.Inventory.Mass;return true;}
+        internal static void RetireCompleted(Storage storage)
+        {
+            if(!Enabled||!Hosts.TryGetValue(storage,out var host))return;
+            CreditNativeStorageHeat();
+            if(host.Store.Inventory.Count!=0||host.Projections.Count!=0||host.Retiring.Count!=0||storage.items.Any(item=>item!=null)||!host.Store.Audit())
+                throw new NotSupportedException("Exact reservoir cleanup requires complete discharge and native projection retirement; nonempty teardown needs an exact container adapter.");
+            // Allocate and audit the merged journal before releasing the live
+            // host. No prefab or native body identity survives in this history.
+            var completed=CompletedHistories[host.Store.Phase];
+            if(!host.Store.PristineEmpty)
+            {var history=RetiredFluidStorage.From(host.Store);completed=completed==null?history:completed.Joined(history);}
+            Hosts.Remove(storage);CompletedHistories[host.Store.Phase]=completed;
+        }
         internal static OwnedFluidStorageImage Capture()
         {
             foreach(var host in Hosts.Values)
@@ -288,11 +304,11 @@ namespace MixedAtmospheres.Oni
                 // Biology continuation and projection rebind are separately
                 // required before this prototype may write a live checkpoint.
             }
-            return new OwnedFluidStorageImage(Hosts.Values.Select(host=>host.Store));
+            return new OwnedFluidStorageImage(Hosts.Values.Select(host=>host.Store),CompletedHistories.Where(history=>history!=null).Select(history=>history!));
         }
         internal static void RestorePristine(OwnedFluidStorageImage image)
         {
-            if(!Enabled||Hosts.Count!=0||image.Stores.Any(store=>!store.PristineEmpty))
+            if(!Enabled||Hosts.Count!=0||image.Retired.Length!=0||image.Stores.Any(store=>!store.PristineEmpty))
                 throw new NotSupportedException("Exact storage restore currently binds only pristine empty reservoirs.");
             Restore(image);
         }
@@ -305,7 +321,7 @@ namespace MixedAtmospheres.Oni
         // thermal body joins the native heat receipt boundary at once.
         internal static void Restore(OwnedFluidStorageImage image)
         {
-            if(!Enabled||Hosts.Count!=0)throw new InvalidOperationException("Exact storage restore needs a fresh enabled control.");
+            if(!Enabled||Hosts.Count!=0||CompletedHistories.Any(history=>history!=null))throw new InvalidOperationException("Exact storage restore needs a fresh enabled control.");
             var prepared=new List<Host>();
             foreach(var store in image.Stores)
             {
@@ -325,6 +341,7 @@ namespace MixedAtmospheres.Oni
                 prepared.Add(host);
             }
             foreach(var host in prepared)Hosts.Add(host.Storage,host);
+            foreach(var history in image.Retired)CompletedHistories[history.Phase]=history;
             foreach(var host in prepared)foreach(var view in host.Projections.Values)RegisterRestoredHeat(host,view);
         }
         private static void BindRestoredProjections(Host host)
@@ -384,6 +401,14 @@ namespace MixedAtmospheres.Oni
                 if(storage.isSpawned&&!storage.IsEndOfLife()&&ReservoirPhase(storage)!=0&&!Hosts.ContainsKey(storage)&&storage.items.Any(item=>item!=null))
                     throw new NotSupportedException("An exact-storage checkpoint cannot omit a reservoir's native held items.");
         }
+    }
+
+    [HarmonyPatch]
+    internal static class ColonyExactStorageCleanupPatch
+    {
+        private static IEnumerable<MethodBase> TargetMethods()=>new[]{"OnQueueDestroyObject","OnCleanUp"}.Select(name=>AccessTools.Method(typeof(Storage),name));
+        [HarmonyPriority(Priority.First)]
+        private static void Prefix(Storage __instance)=>ColonyOwnedStorage.RetireCompleted(__instance);
     }
 
     [HarmonyPatch]

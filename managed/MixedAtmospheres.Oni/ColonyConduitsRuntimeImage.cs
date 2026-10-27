@@ -123,7 +123,7 @@ namespace MixedAtmospheres.Oni
                 for(var i=0;i<count;++i)image.NativeCultures.Add(PipeNativeCulture.Read(r,geometry));
             }
             if(schema>=5)
-            {image.OwnedStorage=OwnedFluidStorageImage.Read(r);image.NativeSchedule=PipeNativeScheduleState.Read(r,geometry,schema>=6);}
+            {image.OwnedStorage=OwnedFluidStorageImage.Read(r,schema>=7);image.NativeSchedule=PipeNativeScheduleState.Read(r,geometry,schema>=6);}
             image.Validate();
             return image;
         }
@@ -133,6 +133,8 @@ namespace MixedAtmospheres.Oni
         {
             if((OwnedStorage==null)!=(NativeSchedule==null)||OwnedStorage!=null&&NativeCultures==null)
                 throw new InvalidDataException("Schema5 requires owned storage, native biology context and native conduit scheduling together.");
+            if(OwnedStorage?.Retired.Length>0&&NativeSchedule?.PreservePortState!=true)
+                throw new InvalidDataException("Completed storage history requires the full native port schedule.");
             Unique(Buffers.Select(b=>b.Id),"buffer");Unique(Pumps.Select(p=>(ulong)(uint)p.Prefab),"pump");Unique(Vents.Select(v=>(ulong)(uint)v.Prefab),"vent");
             Unique(Spills.Select(s=>s.Key),"spill");Unique(Cultures.Select(c=>((ulong)c.Phase<<32)|(uint)c.Cell),"culture cell");
             foreach(var b in Buffers)if(b.Id==0||b.Inventory.Count==0)throw new InvalidDataException("Invalid saved pipe buffer.");

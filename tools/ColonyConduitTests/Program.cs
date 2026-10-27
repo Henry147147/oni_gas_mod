@@ -371,6 +371,15 @@ static class Program
         consumerControl.TargetType="OtherComponent";Reject(()=>Encode6());consumerControl.TargetType="ConduitConsumer";
         Check(ColonyConduitCheckpoint.Decode(pipeV5,geometry,hash).Encode().SequenceEqual(pipeV5),"schema5 changed after adding port controls");
         Console.WriteLine("PASS pipe schema6: port activation/rates/readback persist, missing/foreign/invalid controls refuse and schema5 remains byte-exact");
+        state5.OwnedStorage=new OwnedFluidStorageImage(Array.Empty<OwnedFluidStore>(),new[]{RetiredStorageTests.Completed()});
+        var pipeV7=Encode6();var replayV7=ColonyConduitCheckpoint.Decode(pipeV7,geometry,hash,id=>id==1?(byte)1:(byte)2);
+        Check(replayV7.SchemaVersion==7&&replayV7.Encode().SequenceEqual(pipeV7)&&replayV7.Runtime!.OwnedStorage!.Stores.Length==0&&
+            replayV7.Runtime.OwnedStorage.Retired.Single().Heat.Value==-1,"schema7 lost detached completed storage history");
+        Reject(()=>ColonyConduitCheckpoint.Decode(pipeV7,geometry,hash,id=>(byte)1));
+        state5.NativeSchedule.PreservePortState=false;Reject(()=>Encode6());state5.NativeSchedule.PreservePortState=true;
+        Check(ColonyConduitCheckpoint.Decode(pipeV6,geometry,hash).Encode().SequenceEqual(pipeV6)&&
+            ColonyConduitCheckpoint.Decode(pipeV5,geometry,hash).Encode().SequenceEqual(pipeV5),"schema7 changed legacy schema5/6 bytes");
+        Console.WriteLine("PASS pipe schema7: detached histories survive exact cold encoding, wrong-phase/incomplete scheduling refuses, schema5/6 bytes preserved");
         byte[] ReceiptImage(bool observed=false)
         {
             using var stream=new MemoryStream();using var writer=new BinaryWriter(stream);
@@ -411,6 +420,7 @@ static class Program
         GermEvolutionTests.Run();
         BiologyStateTests.Run();
         OwnedStorageTests.Run();
+        RetiredStorageTests.Run();
         StorageJournalTests.Run();
         StorageWeightTests.Run();
         ContactWorkTests.Run();

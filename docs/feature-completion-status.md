@@ -79,12 +79,18 @@ playtest deferrals remain recorded until their own controls pass.
   all zero-time heat settlement yields byte-identical complete pipe images
   through eight source/cold/menu frames. The world image and native inputs
   still diverge on the first resumed frame; full colony continuation is open.
+- **Empty reservoir demolition:** gated schema7 keeps completed histories in
+  at most two exact phase aggregates after their native hosts are removed.
+  The fixed Linux and WindowsPlayer/Proton demolition/save controls pass eight
+  checks each; each platform's 24 source/cold/menu storage sections are
+  byte-identical, with no live host.
+  Nonempty demolition, containers and recipe mutations remain required.
 
 ## Remaining implementation and proofs
 
 | Work | Completion condition |
 | --- | --- |
-| [Exact component storage](mixed-pipes.md) | Transfers with outstanding thermal work, demolition, bottles and machine recipes preserve every constituent, energy and germ identity. Extend the verified reservoir binding/cleanup to the remaining lifecycle controls, then enable the gated schema6 writer through the normal player path. |
+| [Exact component storage](mixed-pipes.md) | Transfers with outstanding thermal work, demolition, bottles and machine recipes preserve every constituent, energy and germ identity. Extend the verified reservoir binding/cleanup and schema7 empty-host retirement to the remaining lifecycle controls, then enable exact storage through the normal player path. |
 | [Active continuation](mixed-pipes.md) | Preserve callback-owned requests and rebind actors to stable identities; compare identical future inputs and complete owner, pipe/scheduling and particle states after source, cold and menu loads. Current first-resumed-frame differences remain failures. |
 | [Game-profile accuracy](base-game-floor.md) | Establish the frozen initial fields and independent timing truths for F3 and F4, including solid heat exchange. Run the unchanged floor comparisons. The accepted 0.703 J storage residual does not waive F4 or other accuracy bounds. |
 | [Strong-flow accuracy](../native/MAC_STRONG_FLOW.md) | Repair the recorded collision-refinement and separation-velocity failures against their fixed grids and bounds. The separately recorded [gravity, free-surface, multiphase and vacuum gates](../native/MAC_GATES.md) already pass; preserve them. Game-profile floor results do not substitute for the strong-flow gate. |

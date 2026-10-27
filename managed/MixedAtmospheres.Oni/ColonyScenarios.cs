@@ -146,6 +146,7 @@ namespace MixedAtmospheres.Oni
                     case "owned-storage-retirement": MixedOwnedStorageRetirement(frame); break;
                     case "owned-storage-active-outlet": MixedOwnedStorageActiveOutlet(frame); break;
                     case "owned-storage-drained-save": MixedOwnedStorageActiveOutlet(frame,true); break;
+                    case "owned-storage-retired-save": MixedOwnedStorageActiveOutlet(frame,true,true); break;
                     case "owned-storage-readers": MixedOwnedStorageReaders(frame); break;
                     case "owned-storage-biology": MixedOwnedStorageBiology(frame); break;
                     case "pipe-schedule": RunPipeSchedule((ulong)frame); break;

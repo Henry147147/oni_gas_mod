@@ -50,7 +50,7 @@ namespace MixedAtmospheres.Oni
         internal readonly PipePart[] DiseaseExchange;
         internal readonly PipeBoundaryState? Boundary;
         internal readonly PipeRuntimeImage? Runtime;
-        internal int SchemaVersion=>Runtime!=null?(Runtime.OwnedStorage!=null?(Runtime.NativeSchedule?.PreservePortState==true?6:5):Runtime.NativeCultures==null?3:4):Boundary==null?1:2;
+        internal int SchemaVersion=>Runtime!=null?(Runtime.OwnedStorage!=null?(Runtime.OwnedStorage.Retired.Length!=0?7:Runtime.NativeSchedule?.PreservePortState==true?6:5):Runtime.NativeCultures==null?3:4):Boundary==null?1:2;
 
         internal ColonyConduitCheckpoint(PipeGeometry geometry, byte[] catalogueHash, IEnumerable<PipeCellImage> cells,
             PipeInventory initial, PipeInventory supplied, PipeInventory removed, PipeAmount heat, IEnumerable<PipePart>? diseaseExchange = null,
@@ -129,7 +129,7 @@ namespace MixedAtmospheres.Oni
                 using var stream = new MemoryStream(image, 0, end, false);
                 using var reader = new BinaryReader(stream);
                 if (!reader.ReadBytes(8).AsSpan().SequenceEqual(Magic)) throw new InvalidDataException("Unsupported pipe checkpoint.");
-                var version=reader.ReadInt32();if(version<1||version>6)throw new InvalidDataException("Unsupported pipe checkpoint schema.");
+                var version=reader.ReadInt32();if(version<1||version>7)throw new InvalidDataException("Unsupported pipe checkpoint schema.");
                 var geometry = PipeGeometry.Read(reader); var catalogue = reader.ReadBytes(32);
                 if (!geometry.Equals(expectedGeometry) || expectedCatalogue.Length != 32 || !catalogue.AsSpan().SequenceEqual(expectedCatalogue))
                     throw new InvalidDataException("Pipe checkpoint catalogue or geometry differs.");
@@ -152,9 +152,15 @@ namespace MixedAtmospheres.Oni
                 var boundary=version>=2?PipeBoundaryState.Read(reader,image.Length):null;boundary?.Validate(geometry,materialPhase);
                 var runtime=version>=3?PipeRuntimeImage.Read(reader,geometry,version):null;
                 if(materialPhase!=null&&runtime?.OwnedStorage!=null)
+                {
                     foreach(var store in runtime.OwnedStorage.Stores)
-                        foreach(var part in store.Inventory.Parts)
-                            if(materialPhase(part.Id)!=store.Phase)throw new InvalidDataException("Stored fluid constituent has the wrong phase.");
+                        foreach(var id in store.Inventory.Parts.ToArray().Select(part=>part.Id).Concat(store.Initial.Parts.ToArray().Select(part=>part.Id))
+                            .Concat(store.Admitted.Masses.Keys).Concat(store.Withdrawn.Masses.Keys).Distinct())
+                            if(materialPhase(id)!=store.Phase)throw new InvalidDataException("Stored fluid constituent has the wrong phase.");
+                    foreach(var history in runtime.OwnedStorage.Retired)
+                        foreach(var id in history.Initial.Masses.Keys.Concat(history.Admitted.Masses.Keys).Concat(history.Withdrawn.Masses.Keys).Distinct())
+                            if(materialPhase(id)!=history.Phase)throw new InvalidDataException("Completed storage constituent has the wrong phase.");
+                }
                 if (stream.Position != end) throw new InvalidDataException("Trailing pipe checkpoint data.");
                 var result = new ColonyConduitCheckpoint(geometry, catalogue, cells, initial, supplied, removed, heat, diseases,boundary,runtime);
                 if (!result.Encode().AsSpan().SequenceEqual(image)) throw new InvalidDataException("Noncanonical pipe checkpoint.");

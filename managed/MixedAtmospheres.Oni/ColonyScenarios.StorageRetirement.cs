@@ -75,15 +75,18 @@ namespace MixedAtmospheres.Oni
         private static int activeOutletPhase,activeOutletReadyAt;
         private static long activeOutletRetirements;
         private static ulong activeOutletDrainedSave;
+        private static byte[]? activeOutletCompletedHistory;
+        private static byte[] CompletedHistoryBytes(RetiredFluidStorage history)
+        {using var stream=new System.IO.MemoryStream();using var writer=new System.IO.BinaryWriter(stream);history.Write(writer);return stream.ToArray();}
         // Separate saved-outlet regression, fixed before measurement: the same
         // 8 kg 75/25 mixture at 350 K, 22 warm frames, enable its real native
         // dispenser and save before the next update, then eight positive frames
         // for natural discharge and native cleanup. No manual dispense occurs.
-        private static void MixedOwnedStorageActiveOutlet(int frame,bool saveDrained=false)
+        private static void MixedOwnedStorageActiveOutlet(int frame,bool saveDrained=false,bool retireBeforeSave=false)
         {
             var flow=Game.Instance.liquidConduitFlow;
             if(Once(0,"active outlet arena"))
-            {activeOutletReservoir=null;activeOutletPhase=0;Arena((x,y)=>(SimHashes.Oxygen,1.2f,300f));}
+            {activeOutletReservoir=null;activeOutletPhase=0;activeOutletCompletedHistory=null;Arena((x,y)=>(SimHashes.Oxygen,1.2f,300f));}
             if(Once(5,"build active outlet reservoir"))
             {
                 activeOutletReservoir=Build(LiquidReservoirConfig.ID,Cell(4,0));
@@ -141,11 +144,30 @@ namespace MixedAtmospheres.Oni
                     Mass(history.Admitted.Masses,water,6)&&Mass(history.Admitted.Masses,dirty,2)&&Mass(history.Withdrawn.Masses,water,6)&&Mass(history.Withdrawn.Masses,dirty,2)&&
                     history.Admitted.Germs.Count==1&&history.Withdrawn.Germs.Count==1&&history.Births.Count+history.Deaths.Count>0&&history.Clocks.Count==0&&history.CultureContexts.Count==0,
                     $"heat {history.Heat.Value:R} J, admitted/withdrawn species {history.Admitted.Masses.Count}/{history.Withdrawn.Masses.Count}, birth/death histories {history.Births.Count}/{history.Deaths.Count}");
+                if(retireBeforeSave)
+                {
+                    activeOutletCompletedHistory=CompletedHistoryBytes(RetiredFluidStorage.From(history));
+                    activeOutletPhase=4;Util.KDestroyGameObject(activeOutletReservoir);return;
+                }
                 var path=System.IO.Path.Combine(ColonyRuntimeValidation.OutputDirectory,"drained-outlet.sav");
                 var saves=ColonyOwnerPersistence.Saves;SpeedControlScreen.Instance.Pause(false);SaveLoader.Instance.Save(path,false,false);
                 Record("ordinary save captures the drained store after native retirement",ColonyOwnerPersistence.Saves==saves+1&&System.IO.File.Exists(path)&&
                     !ColonyOwnedStorage.RetirementsPending&&ColonyOwnedStorage.Inventory(storage).Count==0&&ColonyPipeContactHeat.Contacts>0&&
                     ColonyPipeContactHeat.BodyHeatMismatch()==null,$"saved frame {ColonyOwnerPersistence.LastSavedFrame}");
+                activeOutletDrainedSave=ColonyOwnerPersistence.LastSavedFrame;
+                ColonyContinuationProbe.SourceSaved(activeOutletDrainedSave,path);activeOutletPhase=3;
+            }
+            if(activeOutletPhase==4&&frame>=activeOutletReadyAt+32)
+            {
+                var state=ColonyOwnedStorage.Capture();
+                Record("demolished empty reservoir retains exact completed history without a native host",activeOutletReservoir==null&&state.Stores.Length==0&&
+                    state.Retired.Length==1&&state.Retired[0].Audit()&&CompletedHistoryBytes(state.Retired[0]).SequenceEqual(activeOutletCompletedHistory!),
+                    $"live stores {state.Stores.Length}, completed phases {state.Retired.Length}");
+                var path=System.IO.Path.Combine(ColonyRuntimeValidation.OutputDirectory,"retired-outlet.sav");
+                var saves=ColonyOwnerPersistence.Saves;SpeedControlScreen.Instance.Pause(false);SaveLoader.Instance.Save(path,false,false);
+                Record("ordinary save captures completed history after reservoir demolition",ColonyOwnerPersistence.Saves==saves+1&&System.IO.File.Exists(path)&&
+                    !ColonyOwnedStorage.RetirementsPending&&ColonyPipeContactHeat.Contacts>0&&ColonyPipeContactHeat.BodyHeatMismatch()==null,
+                    $"saved frame {ColonyOwnerPersistence.LastSavedFrame}");
                 activeOutletDrainedSave=ColonyOwnerPersistence.LastSavedFrame;
                 ColonyContinuationProbe.SourceSaved(activeOutletDrainedSave,path);activeOutletPhase=3;
             }
