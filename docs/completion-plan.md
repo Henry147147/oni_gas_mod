@@ -21,6 +21,15 @@ Amendments:
   2. *Licence.* Chosen later by the user; it blocks only publication.
   3. *Work.* Everything continues on `main`; all project work lives in this
      repository folder (older clones and agent folders are in `archive/`).
+  4. *Starting air* ([nitrogen](nitrogen.md#starting-air-and-progression)).
+     Nitrogen air is a new-colony option, off by default; the built-in Hard
+     mode preset turns it on. It replaces each generated oxygen or polluted
+     oxygen cell with air of the same mass and temperature at 25% O2 by
+     moles, the rest nitrogen. When the ten-cycle life-support bridge shows an
+     oxygen shortfall, the mod places an oxylite reserve beside the printing
+     pod on both nitrogen-air and vanilla-air starts and says what it added. A
+     CO2-headroom shortfall is reported in the start notice only. Easy-mode
+     breathing on vanilla air remains the default.
 
 - **Spaced Out! playtest, 2026-10-27 (user decision):** the user's Windows
   install uses Spaced Out!, so its full support is now required for the next
