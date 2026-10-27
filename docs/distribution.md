@@ -31,6 +31,8 @@ The folder is what the Workshop serves into `mods/Steam/<id>`:
 
 - `MixedAtmospheres.Oni.dll` and `MixedAtmospheres.Core.dll` at the root. ONI
   loads every root DLL as managed code, so nothing else sits there.
+- `game-contract.json`: the managed game contract of exactly these DLLs, for
+  both platforms ([game-update resilience](game-update-resilience.md)).
 - `elements/`, the mod-owned element data.
 - `native/win-x64/` and `native/linux-x64/`: the solver and the game backend
   for each platform. The Linux pair comes from the Ubuntu 22.04 compatibility
@@ -60,8 +62,12 @@ holds the folder as `MixedAtmospheres/`, in sorted order, with fixed dates and
 modes, so identical inputs give identical bytes. Tests are in
 `tools/tests/test_release_packaging.py`.
 
-The Windows build links the MinGW-w64 C/C++ runtime statically. Its notices
-are not produced by the CMake build and are not yet in `third-party/`.
+The Windows build links the MinGW-w64 C runtime, winpthreads and GCC's libgcc
+and libstdc++ statically. The packager copies their notices from the
+toolchain's packages (`--mingw-root`, default `MA_MINGW_ROOT` or the team's
+`build-oni-cross-tools/root/usr`) into `third-party/licenses/mingw-w64-runtime`
+and `gcc-runtime`. winpthreads' licence requires its notice to ship with the
+binaries.
 
 ## Identity
 

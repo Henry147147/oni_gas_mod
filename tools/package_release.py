@@ -166,6 +166,36 @@ def third_party(roots: dict[str, Path], destination: Path) -> None:
     (destination / "funchook-1.1.3-with-distorm.tar.gz").write_bytes(archives.pop())
 
 
+# The Windows DLLs link the MinGW-w64 C runtime, winpthreads and GCC's
+# libgcc/libstdc++ statically; their notices come from the toolchain's packages.
+MINGW_NOTICES = {"mingw-w64-runtime/copyright": "share/doc/mingw-w64-x86-64-dev/copyright",
+                 "gcc-runtime/copyright": "share/doc/gcc-mingw-w64-base/copyright"}
+MINGW_SOURCES = ("MinGW-w64 runtime and winpthreads (Windows only, linked statically): https://www.mingw-w64.org/; "
+                 "notices in licenses/mingw-w64-runtime.",
+                 "GCC 13 libgcc and libstdc++ (Windows only, linked statically under the GCC Runtime Library Exception): "
+                 "https://gcc.gnu.org/; notices in licenses/gcc-runtime.")
+
+
+def default_mingw_root() -> Path:
+    """The team's MinGW toolchain, beside the main checkout (docs/windows-validation.md)."""
+    import os
+    import subprocess
+    if os.environ.get("MA_MINGW_ROOT"):
+        return Path(os.environ["MA_MINGW_ROOT"])
+    common = Path(subprocess.check_output(["git", "rev-parse", "--git-common-dir"], cwd=ROOT, text=True).strip())
+    return (common if common.is_absolute() else ROOT / common).resolve().parent / "build-oni-cross-tools/root/usr"
+
+
+def mingw_notices(root: Path, destination: Path) -> None:
+    for target, source in MINGW_NOTICES.items():
+        if not (root / source).is_file():
+            raise ValueError(f"MinGW runtime notice missing: {root / source}")
+        (destination / "licenses" / target).parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(root / source, destination / "licenses" / target)
+    with (destination / "third-party-sources.txt").open("a", encoding="utf-8") as sources:
+        sources.write("\n".join(MINGW_SOURCES) + "\n")
+
+
 def player_readme(version: str) -> str:
     return f"""Mixed Atmospheres {version}
 {"=" * (len("Mixed Atmospheres ") + len(version))}
@@ -252,6 +282,7 @@ def assemble(args: argparse.Namespace) -> dict:
             for file in files:
                 package_probe.copy_native_binary(file, output / "native" / rid / file.name)
         third_party(roots, output / "third-party")
+        mingw_notices((args.mingw_root or default_mingw_root()).resolve(), output / "third-party")
         if build_info is not None:
             (output / "native-build-provenance.json").write_text(json.dumps(build_info, indent=2) + "\n", encoding="utf-8")
         if args.preview is not None:
@@ -319,6 +350,7 @@ def main() -> None:
     parser.add_argument("--windows-native", type=Path, required=True, help="Windows cross-build directory (both DLLs)")
     parser.add_argument("--windows-game", type=Path, help="Windows ONI installation for the game contract (default: the team's copy)")
     parser.add_argument("--linux-game", type=Path, help="Linux ONI installation for the game contract (default: the team's copy)")
+    parser.add_argument("--mingw-root", type=Path, help="MinGW toolchain root (usr) for the static runtime notices (default: MA_MINGW_ROOT or the team's)")
     parser.add_argument("--preview", type=Path, help="Optional preview.png for the Mods list and Workshop page")
     parser.add_argument("--output", type=Path, required=True, help="New Workshop-shaped folder")
     parser.add_argument("--zip", type=Path, help="Fresh deterministic ZIP of the folder")

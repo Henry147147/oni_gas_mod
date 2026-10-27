@@ -115,12 +115,16 @@ class ReleaseAssemblyTests(unittest.TestCase):
             for name in RELEASE.MANAGED:
                 (directory / name).write_bytes(managed_image(stamp=stamp, guid=bytes([stamp]) * 16))
             managed[platform] = directory
+        mingw = root / "mingw"
+        for source in RELEASE.MINGW_NOTICES.values():
+            (mingw / source).parent.mkdir(parents=True, exist_ok=True); (mingw / source).write_text("notice " + source)
+        self.mingw = mingw
         return builds, info, managed
 
     def arguments(self, root, output, builds, info, managed, preview=None):
         return mock.Mock(output=output, linux_native=builds["linux-x64"], windows_native=builds["win-x64"],
                          linux_build_info=info, managed_linux=managed["linux"], managed_windows=managed["windows"],
-                         preview=preview, allow_dirty=False, windows_game=None, linux_game=None)
+                         preview=preview, allow_dirty=False, windows_game=None, linux_game=None, mingw_root=self.mingw)
 
     def build(self, root, name="release", **changes):
         builds, info, managed = self.fixture(root / ("inputs-" + name), **changes)
@@ -149,6 +153,9 @@ class ReleaseAssemblyTests(unittest.TestCase):
             self.assertIn('staticID: "MixedAtmospheres"', (output / "mod.yaml").read_text())
             self.assertEqual((output / "mod_info.yaml").read_text(), mod_identity.mod_info(mod_identity.version()))
             self.assertIn("mimalloc", (output / "third-party/third-party-sources.txt").read_text())
+            self.assertIn("winpthreads", (output / "third-party/third-party-sources.txt").read_text())
+            for notice in RELEASE.MINGW_NOTICES:
+                self.assertIn("third-party/licenses/" + notice, files)
             readme = (output / "README.txt").read_text()
             for text in ("64-bit Windows or 64-bit Linux", "Spaced Out!", "cannot be", "mods/config/MixedAtmospheres", "Player.log"):
                 self.assertIn(text, readme)
