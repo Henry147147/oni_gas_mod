@@ -220,6 +220,13 @@ returned and outside any unfinished sim step. Duplicate nested requests are
 suppressed; saves stay blocked until completion. The original entropy failure
 is not waived or yet proven resolved by this ordering repair.
 
+The `a2f963f` repeat avoids the early-free refusal but still fails the next flow
+after 71 completed owner frames. Its private pre-flow dump reproduces that
+failure offline: every cell passes the initial EOS/entropy scan, then the
+advance throws. A smaller retirement regression also advances a warm physical
+tick before any cold restore and passes. Recovery/reuse and loads remain
+unaccepted while the larger state's failing stage is investigated.
+
 The 2026-10-26 request covers Spaced Out!, Frosty, Bionic, Prehistoric and
 Aquatic: every one of their 32 selections on Linux and Windows x64. This
 extends the [base-game playtest](playtest-plan.md); it does not certify the

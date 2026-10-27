@@ -1715,6 +1715,8 @@ void retirement_control() {
     refused=false;try{finish_retirement(0,3,1);}catch(const std::invalid_argument&){refused=true;}require(refused,"Retirement released still-open cells");
     const std::array<MAOniColonyTerrain,3> closing{{{0,MA_ONI_COLONY_CLOSE},{1,MA_ONI_COLONY_CLOSE},{2,MA_ONI_COLONY_CLOSE}}};
     queue_terrain(closing);require(flush_inputs()==0,"Empty retirement cells did not close");finish_retirement(0,3,1);
+    advance(1,.2,2);wait();require(status().state==1 && status().completed_frames==1,
+        "A warm physical tick failed after retirement and before any cold restore");
     const auto saved=checkpoint();stop();restore(cfg,mats,saved,1);require(checkpoint()==saved,"Finished retirement did not cold-reencode exactly");
     const MAOniColonyTerrain opening{0,MA_ONI_COLONY_OPEN};queue_terrain(std::span(&opening,1));
     auto reused=tiny;reused.mass_kg=.5;queue_transfers(std::span(&reused,1));require(flush_inputs()==0,"Reused rocket cell did not open");
