@@ -132,7 +132,7 @@ namespace MixedAtmospheres.Oni
         {
             var schedule=pendingSchedule;if(schedule==null)return;
             if(!Active||!NativeScheduleControl||pendingStorage==null)
-                throw new InvalidOperationException("Saved native pipe bindings have no active schema5 owner.");
+                throw new InvalidOperationException("Saved native pipe bindings have no active exact-storage owner.");
             ColonySaveBarrier.SettleNativeStartupMessages();
             ColonyOwnedStorage.StartControl();ColonyOwnedStorage.Restore(pendingStorage);ColonyOwnedStorage.StartBiologyControl();
             ColonyOwnedStorage.RequireQuiescent();ColonyConduitsSchedule.Restore(schedule);

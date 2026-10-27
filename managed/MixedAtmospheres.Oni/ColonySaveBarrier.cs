@@ -46,6 +46,13 @@ namespace MixedAtmospheres.Oni
                 return false;
             }
             _ = Settle();
+            if(ColonyOwnedStorage.RetirementsPending)
+            {
+                // Unity runs deferred object destruction at the end of its
+                // frame. A synchronous save cannot manufacture that lifecycle
+                // boundary; let the ordinary delayed-save entry retry it.
+                ++Deferred;Game.Instance.StartDelayedSave(filename,isAutoSave,updateSavePointer);return false;
+            }
             return true;
         }
 

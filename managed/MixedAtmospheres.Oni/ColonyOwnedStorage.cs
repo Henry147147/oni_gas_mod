@@ -38,19 +38,26 @@ namespace MixedAtmospheres.Oni
         [ThreadStatic] private static int editing,registering;
         internal static bool Enabled {get;private set;}
         internal static int Count=>Hosts.Count;
+        internal static bool RetirementsPending=>Enabled&&Hosts.Values.Any(host=>host.Retiring.Count!=0);
         internal static long HeatPublications {get;private set;}
         internal static PipeInventory Inventory(Storage storage)=>Hosts.TryGetValue(storage,out var host)?host.Store.Inventory:PipeInventory.Empty;
         internal static StorageJournalAmount Heat(Storage storage)=>Hosts.TryGetValue(storage,out var host)?host.Store.Heat:default;
         internal static int RegisteredProjections(Storage storage)=>Hosts.TryGetValue(storage,out var host)?host.Projections.Values.Count(view=>view.Handle!=-1):0;
         internal static int RetiringProjections(Storage storage)=>Hosts.TryGetValue(storage,out var host)?host.Retiring.Count:0;
         internal static bool Audit(Storage storage)=>Hosts.TryGetValue(storage,out var host)&&host.Store.Audit();
+        internal static object Diagnostics()=>new{Enabled,NativeHeatReceipts,NativeRetirements,
+            Stores=Hosts.Values.OrderBy(host=>host.Store.Address).Select(host=>new{
+                host.Store.Address.Prefab,host.Store.Address.Ordinal,host.Store.Phase,Mass=host.Store.Inventory.Mass,
+                AuditClosed=host.Store.Audit(),RegisteredProjections=host.Projections.Values.Count(view=>view.Handle!=-1),
+                RetiringProjections=host.Retiring.Count,NativeItems=host.Storage.items.Count(item=>item!=null)
+            }).ToArray()};
         internal static void StartControl()
         {
             if(!ColonyPipeRuntime.Active||!ColonyMachinePorts.Enabled)throw new InvalidOperationException("Exact component storage requires the mixed-pipe runtime.");
             RequireStorageHeat();
             Enabled=true;MixtureInspection.SetOwnedStorageReader(storage=>Owns(storage)?ColonyPipeInspection.Describe(Inventory(storage),"Stored mixture"):null);
         }
-        internal static void Reset(){ClearStorageHeat();ResetBiology();Enabled=false;Hosts.Clear();editing=registering=0;HeatPublications=0;MixtureInspection.SetOwnedStorageReader(null);}
+        internal static void Reset(){ClearStorageHeat();ResetBiology();Enabled=false;Hosts.Clear();editing=registering=0;HeatPublications=0;MixtureInspection.SetOwnedStorageReader(null);NativeMessageBoundary.ResetStoragePublication();}
         internal static bool Owns(Storage storage)=>Enabled&&Hosts.ContainsKey(storage);
         private static byte ReservoirPhase(Storage storage)
         {
@@ -438,7 +445,12 @@ namespace MixedAtmospheres.Oni
     {
         private static MethodBase TargetMethod()=>AccessTools.Method(AccessTools.TypeByName("ConduitTemperatureManager"),"Sim200ms");
         [HarmonyPriority(Priority.First)]
-        private static void Prefix(float __0){if(__0>0)ColonyOwnedStorage.Published();}
+        private static void Prefix(float __0)
+        {
+            if(!(__0>0))return;
+            if(ColonyRuntimeValidation.Settings!=null)ColonyScenarios.BeforeStorageHeatPublication();
+            ColonyOwnedStorage.Published();
+        }
     }
     [HarmonyPatch(typeof(Game),"StepTheSim")]
     internal static class ColonyExactStorageZeroPublicationPatch

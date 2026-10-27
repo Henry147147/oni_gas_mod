@@ -70,5 +70,67 @@ namespace MixedAtmospheres.Oni
                 Finish();
             }
         }
+
+        private static GameObject? activeOutletReservoir;
+        private static int activeOutletPhase,activeOutletReadyAt;
+        private static long activeOutletRetirements;
+        // Separate saved-outlet regression, fixed before measurement: the same
+        // 8 kg 75/25 mixture at 350 K, 22 warm frames, enable its real native
+        // dispenser and save before the next update, then eight positive frames
+        // for natural discharge and native cleanup. No manual dispense occurs.
+        private static void MixedOwnedStorageActiveOutlet(int frame)
+        {
+            var flow=Game.Instance.liquidConduitFlow;
+            if(Once(0,"active outlet arena"))
+            {activeOutletReservoir=null;activeOutletPhase=0;Arena((x,y)=>(SimHashes.Oxygen,1.2f,300f));}
+            if(Once(5,"build active outlet reservoir"))
+            {
+                activeOutletReservoir=Build(LiquidReservoirConfig.ID,Cell(4,0));
+                AccessTools.Field(typeof(ConduitConsumer),"isOn").SetValue(activeOutletReservoir.GetComponent<ConduitConsumer>(),false);
+                activeOutletReservoir.GetComponent<ConduitDispenser>().isOn=false;
+            }
+            if(Once(7,"active outlet ports"))
+                Pipe(Game.Instance.liquidConduitSystem,LiquidConduitConfig.ID,new List<int>{InputCell(activeOutletReservoir!)},new List<int>{OutputCell(activeOutletReservoir!)});
+            if(frame>=8&&activeOutletPhase==0)
+            {
+                if(!flow.HasConduit(InputCell(activeOutletReservoir!))||!flow.HasConduit(OutputCell(activeOutletReservoir!)))
+                {
+                    Current.Stage="waiting for active outlet topology";
+                    if(frame>=30){Record("active outlet topology became ready",false,"no native ports within readiness bound");Finish();}
+                    return;
+                }
+                if(!ColonyPipeRuntime.NativeScheduleControl)throw new InvalidOperationException("The active outlet save control requires the native schedule writer.");
+                activeOutletReadyAt=frame;activeOutletPhase=1;activeOutletRetirements=ColonyOwnedStorage.NativeRetirements;
+                ColonyConduits.SupplyControlInventory(flow,InputCell(activeOutletReservoir!),Liquid(6,2,350,1000000));
+                ColonyMachinePorts.Consume(activeOutletReservoir!.GetComponent<ConduitConsumer>(),1,flow);
+            }
+            if(activeOutletPhase==1&&frame>=activeOutletReadyAt+22)
+            {
+                var storage=activeOutletReservoir!.GetComponent<Storage>();
+                Record("closed outlet held the complete warm mixture",ColonyOwnedStorage.Inventory(storage).Mass==8&&
+                    ColonyOwnedStorage.RegisteredProjections(storage)==2&&ColonyOwnedStorage.Heat(storage).Sign<0&&ColonyOwnedStorage.Audit(storage),
+                    $"held {ColonyOwnedStorage.Inventory(storage).Mass:R} kg, heat {ColonyOwnedStorage.Heat(storage).Value:R} J");
+                activeOutletReservoir.GetComponent<ConduitDispenser>().isOn=true;
+                var path=System.IO.Path.Combine(ColonyRuntimeValidation.OutputDirectory,"active-outlet.sav");
+                SpeedControlScreen.Instance.Pause(false);var saves=ColonyOwnerPersistence.Saves;
+                SaveLoader.Instance.Save(path,false,false);
+                Record("ordinary save captures an open outlet and nonempty store",ColonyOwnerPersistence.Saves==saves+1&&System.IO.File.Exists(path)&&
+                    activeOutletReservoir.GetComponent<ConduitDispenser>().isOn&&ColonyOwnedStorage.Inventory(storage).Mass==8,
+                    $"saved frame {ColonyOwnerPersistence.LastSavedFrame}, held {ColonyOwnedStorage.Inventory(storage).Mass:R} kg");
+                ColonyContinuationProbe.SourceSaved(ColonyOwnerPersistence.LastSavedFrame,path);activeOutletPhase=2;
+            }
+            if(activeOutletPhase==2&&frame>=activeOutletReadyAt+30)
+            {
+                var storage=activeOutletReservoir!.GetComponent<Storage>();var output=ColonyConduits.ReadSynced(flow,OutputCell(activeOutletReservoir));
+                Record("native scheduled outlet discharged every constituent",output.Mass==8&&
+                    output.SpeciesMass(ColonyConduits.MaterialOf(SimHashes.Water).Id)==6&&output.SpeciesMass(ColonyConduits.MaterialOf(SimHashes.DirtyWater).Id)==2&&
+                    output.Germs.Length==1&&ColonyOwnedStorage.Inventory(storage).Count==0,$"output {output.Mass:R} kg, cultures {output.Germs.Length}");
+                Record("scheduled discharge retires both native projections",ColonyOwnedStorage.NativeRetirements>=activeOutletRetirements+2&&
+                    ColonyOwnedStorage.RegisteredProjections(storage)==0&&ColonyOwnedStorage.RetiringProjections(storage)==0&&!storage.items.Any(item=>item!=null),
+                    $"retired {ColonyOwnedStorage.NativeRetirements-activeOutletRetirements}, pending {ColonyOwnedStorage.RetiringProjections(storage)}, items {storage.items.Count}");
+                Record("storage and pipe accounts close after scheduled discharge",ColonyOwnedStorage.Audit(storage)&&ColonyConduits.Audit(out _),ColonyMachinePorts.Report);
+                Finish();
+            }
+        }
     }
 }

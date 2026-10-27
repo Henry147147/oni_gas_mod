@@ -67,6 +67,26 @@ namespace MixedAtmospheres.Oni
 
     internal static unsafe class NativeMessageBoundary
     {
+        [ThreadStatic] private static bool nativeFrameQueued;
+        internal static void ResetStoragePublication()=>nativeFrameQueued=false;
+        // Preparing GameData posts the queued native frame. Finish its actual
+        // thermal work before managed publication and conduit callbacks can
+        // withdraw exact storage. NewGameFrame only queues the frame: waiting
+        // there would prevent PrepareGameData from ever starting it.
+        private static IntPtr ForwardNative(int message,int length,byte* payload)
+        {
+            if(message==DevelopmentTelemetrySampler.NewGameFrameMessage)
+            {
+                var queued=Sim.SIM_HandleMessage(message,length,payload);nativeFrameQueued=true;return queued;
+            }
+            var finish=message==DevelopmentTelemetrySampler.PrepareGameDataMessage&&nativeFrameQueued;
+            if(message==DevelopmentTelemetrySampler.PrepareGameDataMessage)nativeFrameQueued=false;
+            if(!ColonyOwnedStorage.Enabled||!finish)return Sim.SIM_HandleMessage(message,length,payload);
+            var before=ColonySaveBarrier.NativeFrameCounters();
+            var result=Sim.SIM_HandleMessage(message,length,payload);
+            _=ColonySaveBarrier.WaitNativeFrameAfter(before);
+            return result;
+        }
         // An ordinary game, and the colony-owner scenes that check it (no
         // development domain, floor arena or telemetry): only the colony owner
         // routes messages. Scenes add only their report counters.
@@ -83,7 +103,7 @@ namespace MixedAtmospheres.Oni
                 if (ColonyOwner.TryHandle(message, length, 1, payload)) return IntPtr.Zero;
                 var timed = scene && ColonyOwner.Active && (message == -775326397 || message == 1078620451);
                 var started = timed ? System.Diagnostics.Stopwatch.GetTimestamp() : 0;
-                var result = Sim.SIM_HandleMessage(message, length, payload);
+                var result = ForwardNative(message, length, payload);
                 if (timed) ColonyOwner.RecordBlocked(message, System.Diagnostics.Stopwatch.GetTimestamp() - started);
                 NativeBackendObservation.AfterNativeMessage(message);
                 result = ColonyOwner.AfterNativeMessage(message, result);
@@ -107,7 +127,7 @@ namespace MixedAtmospheres.Oni
                 var started = timed ? System.Diagnostics.Stopwatch.GetTimestamp() : 0;
                 var colonyTimed = ColonyOwner.Active && (message == -775326397 || message == 1078620451);
                 var colonyStarted = colonyTimed ? System.Diagnostics.Stopwatch.GetTimestamp() : 0;
-                var native = Sim.SIM_HandleMessage(message, length, payload);
+                var native = ForwardNative(message, length, payload);
                 if (colonyTimed) ColonyOwner.RecordBlocked(message, System.Diagnostics.Stopwatch.GetTimestamp() - colonyStarted);
                 var returned = timed ? System.Diagnostics.Stopwatch.GetTimestamp() : 0;
                 var processed = timed && message == DevelopmentTelemetrySampler.PrepareGameDataMessage && native != IntPtr.Zero

@@ -29,6 +29,7 @@ namespace MixedAtmospheres.Oni
             return new { Pending, Captured, CapturedSha256, Restored, RestoredSha256, ColonyPipeRuntime.Active, AuditClosed = closed, Audit = audit,
                 ColonyPipeRuntime.NativeScheduleControl,
                 ColonyPipeRuntime.NativeBindingsPending,
+                OwnedStorage = ColonyOwnedStorage.Diagnostics(),
                 BiologyContext = ColonyPipeCultureState.Report() };
         }
         private static string Hash(byte[] bytes)

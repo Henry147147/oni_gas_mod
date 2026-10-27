@@ -432,6 +432,54 @@ active continuation or isolate the pipe difference's cause. An earlier
 schema6 prototype matched the pipe prefix, but that observation does not
 certify the later cleanup/startup implementation.
 
+For private diagnosis, `MA_COLONY_CONTINUATION_DUMP=1` records the held
+images. Inspect a saved pipe image without loading ONI:
+
+```sh
+dotnet run --project tools/ColonyConduitTests -c Release -- \
+  --inspect-checkpoint /private/path/frame.pipes
+```
+
+The production codec validates it first. The report fingerprints cells,
+accounts, boundary jobs, the remaining module runtime, exact storage and
+native scheduling separately, with per-store energy, heat and culture state.
+The first resumed frame in `release-storage-source-diff` / `load-diff` differs
+only in the storage section: its energy/heat differ by about 0.255 J. The
+native receipts show different binary32 contact temperatures and different
+handle order after re-registration. This is a candidate ordering cause, not
+yet a demonstrated repair or complete continuation proof.
+
+The separate `owned-storage-active-outlet` regression freezes 8 kg at 75/25,
+350 K and one million germs, 22 warm owner frames, an ordinary save with the
+native dispenser enabled, then eight positive frames for scheduled discharge
+and cleanup. Its initial run faults: concurrent native cooling reaches the
+already emptied store. Exact-storage publication now waits for the native
+frame posted by PrepareGameData before publishing callbacks. A standalone
+zero-time publication with no queued NewGameFrame does not wait for a frame
+that cannot start. Ordinary saves defer while Unity's end-of-frame destruction
+still leaves native projection retirements in flight; the held continuation
+probe likewise waits at the same owner frame before capturing.
+
+Frozen bundle `release-active-outlet-probe-cleanup` passes all five source
+checks and both cold/menu loads of its frame31 save. Each restored branch
+discharges the complete 8 kg, retires and acknowledges both bodies, retains
+no native items and closes the exact store/pipe accounts. The source has no
+storage-boundary mass, energy or germ adjustments. Complete continuation still
+differs at frame32 in both owner and pipe images. This is functional lifecycle
+acceptance for the bounded fixture, not the full deterministic-release gate.
+The same fixture also passes all five checks without held continuation frames
+(`release-active-outlet-unheld-cleanup`).
+
+The first synchronized `mixed-storage-transfer-heat` repeat could not observe
+uncredited work at its former Unity-update sampling point within the fixed
+20-frame readiness window. Its observation now runs at the storage publication
+boundary before automatic credit, retaining the original warm-up, quantities,
+readiness limit and every bound. `release-storage-transfer-regression-sampling`
+passes all nine checks: -453.25212547322735 J is both pending and credited before
+the first draw, whose 430832.35470100481 J exactly equals its quarter of the
+cooled inventory's energy. The earlier unobservable run remains recorded as
+failed/inconclusive, rather than being relabelled as a pass.
+
 `MA_COLONY_CONTINUATION_FRAMES=N` still records a held completed owner image
 after each positive frame. With `MA_COLONY_CONTINUATION_RUNTIME=1`, it also
 settles native publication and receipts and records pipe/native-scheduling and

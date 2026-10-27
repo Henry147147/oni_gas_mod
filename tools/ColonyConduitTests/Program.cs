@@ -46,6 +46,8 @@ static class Program
     }
     static void Main(string[] args)
     {
+        if(args.Length==2&&args[0]=="--inspect-checkpoint")
+        {CheckpointInspection.Print(args[1]);return;}
         RetirementInventoryTests.Run();
         ScheduleStateTests.Run();
         StorageHeatTests.Run();

@@ -209,8 +209,12 @@ namespace MixedAtmospheres.Oni
             if(RuntimeImages)
             {
                 if(!ColonyPipeRuntime.Active||!ColonyPipeRuntime.NativeScheduleControl)
-                    throw new InvalidOperationException("Complete continuation observations require the schema5 native schedule control.");
+                    throw new InvalidOperationException("Complete continuation observations require the native-schedule pipe control.");
                 try{ColonySaveBarrier.Settle();}finally{ColonySaveBarrier.SaveFinished();}
+                // Keep this positive frame held while Unity completes a
+                // deferred projection destroy. The next validation update
+                // settles/acknowledges its native removal at the same time.
+                if(ColonyOwnedStorage.RetirementsPending)return;
             }
             var image = ColonyOwner.Checkpoint();
             var frame = ColonyCheckpointMetadata.CompletedFrames(image);

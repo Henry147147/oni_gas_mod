@@ -9,6 +9,19 @@ namespace MixedAtmospheres.Oni
     internal static partial class ColonyScenarios
     {
         private static GameObject? exactReservoir;
+        // Observe completed but uncredited work at its publication boundary.
+        // A synchronized native frame can otherwise have all of its receipts
+        // credited before the ordinary Unity validation update samples them.
+        // The fixture retains its warm-up, maximum readiness delay, parcels
+        // and acceptance bounds; only its observation epoch follows the work.
+        internal static void BeforeStorageHeatPublication()
+        {
+            if(Current.Name!="mixed-storage-transfer-heat"||Current.Finished||started==0||
+                !recorded.TryGetValue("exact storage setup delay",out var delay))return;
+            var status=ColonyOwner.Status;
+            if(status.CompletedFrames<started+30+(ulong)delay)return;
+            _=RunOne(Current.Name,status);
+        }
         private static bool StorageAt(int at,string label)=>Once(at+(recorded.TryGetValue("exact storage setup delay",out var delay)?(int)delay:0),label);
         // Fixed control: actual reservoir and prefab-built isolated pipe ports.
         // Intake 8 kg at 75/25 and 350 K; keep for 22 owner frames in 300 K oxygen so the

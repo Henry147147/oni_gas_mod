@@ -60,6 +60,14 @@ playtest deferrals remain recorded until their own controls pass.
   new fixed `owned-storage-retirement` control passes all six checks, including
   native cleanup after complete withdrawal. Cold and menu loading also pass;
   general storage mutations and full active continuation remain open.
+- **Scheduled storage discharge:** the new `owned-storage-active-outlet`
+  control exposes native cooling that finishes after an asynchronous managed
+  withdrawal. Waiting at native GameData preparation closes that overlap;
+  saves and the continuation probe also allow deferred Unity destruction to
+  complete before capture. All five source checks and cold/menu reloads pass
+  in the same frozen Linux bundle, with 8 kg discharged, two native bodies
+  acknowledged and closed accounts. Full continued state still differs on
+  the first resumed frame.
 
 ## Remaining implementation and proofs
 
