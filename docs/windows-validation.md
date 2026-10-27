@@ -63,8 +63,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\install_windows.ps1
 ```
 
 Then start ONI, enable Mixed Atmospheres in Mods and restart when requested.
-**In the main menu, turn OFF Spaced Out! and any other gameplay packs (ONI
-restarts), then start a new base-game colony.** No environment variables are needed. The script
+Spaced Out! can stay enabled; keep the other gameplay packs disabled. **Start a
+new base-game or Spaced Out! colony.** No environment variables are needed. The script
 uses Windows' Documents known folder (including redirected Documents), verifies
 the package hashes, installs one Dev copy, and moves previous Mixed Atmospheres
 copies outside the mod scan into a backup folder. It preserves

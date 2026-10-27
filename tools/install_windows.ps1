@@ -77,4 +77,4 @@ try {
 Write-Host "Installed Mixed Atmospheres in $target"
 if ($moved.Count) { Write-Host "Previous copies kept in $backup" }
 Write-Host 'Start ONI, enable Mixed Atmospheres in Mods, and restart when asked.'
-Write-Host 'In the main menu, turn OFF Spaced Out! and any other gameplay packs (ONI restarts), then start a new base-game colony.'
+Write-Host 'Spaced Out! can stay enabled; keep the other gameplay packs disabled. Start a NEW base-game or Spaced Out! colony.'
