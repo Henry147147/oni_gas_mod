@@ -1264,7 +1264,7 @@ void region_energy_control() {
     const std::array<std::uint32_t,2> duplicate{257,257};rejected=false;
     try{(void)sample_region_energy(s.session,0,duplicate);}catch(const std::invalid_argument&){rejected=true;}
     require(rejected,"region energy accepted duplicate cells");
-    for(const auto [session_id,frame]:{std::pair{s.session+1,0ull},std::pair{s.session,1ull}}) {
+    for(const auto&[session_id,frame]:{std::pair{s.session+1,0ull},std::pair{s.session,1ull}}) {
         rejected=false;try{(void)sample_region_energy(session_id,frame,requested);}catch(const std::invalid_argument&){rejected=true;}
         require(rejected,"region energy silently sampled another session/frame");
     }

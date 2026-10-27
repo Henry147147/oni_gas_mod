@@ -859,7 +859,7 @@ TotalsChange totals_change(const EditJournal &journal,
     return original ? journal.before(after, i) : after.cells[i];
   };
   for (const auto i : cells)
-    for (const auto [original, sign] : {std::pair{true, -1.}, std::pair{false, 1.}}) {
+    for (const auto &[original, sign] : {std::pair{true, -1.}, std::pair{false, 1.}}) {
       const auto &cell = cell_of(original, i);
       if (!cell.mixture.masses.implicit_zero()) {
         const std::vector<double> &masses = cell.mixture.masses;
@@ -877,8 +877,8 @@ TotalsChange totals_change(const EditJournal &journal,
       for (const auto &q : cell.passive_quantities)
         change.passives[q.identity].add(sign * q.quantity);
     }
-  for (const auto [x, f] : faces)
-    for (const auto [original, sign] : {std::pair{true, -1.}, std::pair{false, 1.}}) {
+  for (const auto &[x, f] : faces)
+    for (const auto &[original, sign] : {std::pair{true, -1.}, std::pair{false, 1.}}) {
       const double j = original ? journal.before(after, x, f)
                                 : (x ? after.momentum_x : after.momentum_y)[f];
       if (j == 0)

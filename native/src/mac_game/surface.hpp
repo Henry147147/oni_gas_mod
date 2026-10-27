@@ -243,7 +243,7 @@ sharpen(const ma::experimental::MacGrid &source,
     std::vector<std::pair<bool, std::size_t>> faces;
     faces.reserve(8);
     for (const auto i : {donor, target})
-      for (const auto entry :
+      for (const auto &entry :
            {std::pair{true, g.left_face(i)}, std::pair{true, g.right_face(i)},
             std::pair{false, g.bottom_face(i)},
             std::pair{false, g.top_face(i)}})
@@ -252,7 +252,7 @@ sharpen(const ma::experimental::MacGrid &source,
     faces.erase(std::unique(faces.begin(), faces.end()), faces.end());
     std::vector<std::size_t> touched{donor, target};
     touched.reserve(10);
-    for (const auto [x, f] : faces)
+    for (const auto &[x, f] : faces)
       if ((x ? initial.jx : initial.jy)[f] != 0)
         for (const auto i : {(x ? g.xl : g.yl)[f], (x ? g.xr : g.yr)[f]})
           if (i != k::none && !g.wall[i])
@@ -312,7 +312,7 @@ sharpen(const ma::experimental::MacGrid &source,
           return 0.;
         return updated ? find(i).mass : mass[i];
       };
-      for (const auto [x, f] : faces) {
+      for (const auto &[x, f] : faces) {
         const auto a = (x ? g.xl : g.yl)[f], b = (x ? g.xr : g.yr)[f];
         const double j = (x ? initial.jx : initial.jy)[f];
         if (j == 0)
@@ -429,7 +429,7 @@ sharpen(const ma::experimental::MacGrid &source,
     actions.push_back({x, f});
     unite(l, r);
     for (const auto i : {l, r})
-      for (const auto edge :
+      for (const auto &edge :
            {std::pair{true, g.left_face(i)}, std::pair{true, g.right_face(i)},
             std::pair{false, g.bottom_face(i)},
             std::pair{false, g.top_face(i)}})

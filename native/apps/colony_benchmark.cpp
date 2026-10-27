@@ -361,7 +361,7 @@ int replay(const Options& o) {
         world = std::move(advanced.world);
         times.push_back(since(start));
         const auto& g = advanced.report.game_stages;
-        for (auto [out, value] : {std::pair{&sparse, g.sparse_ms}, {&tick, g.tick_ms}, {&eos, g.eos_ms}, {&pressure, g.pressure_ms},
+        for (const auto& [out, value] : {std::pair{&sparse, g.sparse_ms}, {&tick, g.tick_ms}, {&eos, g.eos_ms}, {&pressure, g.pressure_ms},
                                   {&transport, g.transport_ms}, {&layering, g.layering_ms}, {&interface, g.interface_ms},
                                   {&heat, g.heat_ms}, {&phase, g.phase_ms}, {&audit, g.audit_ms}, {&dense, g.dense_ms},
                                   {&iterations, static_cast<double>(g.pressure_iterations)}})

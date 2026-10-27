@@ -77,7 +77,7 @@ inline void run() {
   check(one.state().cells[4].mixture.masses==world.state().cells[4].mixture.masses && one.state().cells[4].mixture.energy==world.state().cells[4].mixture.energy,"Quiet high-pressure continuation changed mass/U");
   const std::size_t policy=16+word(image,12)+110;
   check(word(image,policy)==1 && word(image,policy+4)==400 && word(image,policy+8)==800,"Core21 policy layout differs");
-  for(const auto [offset,value] : {std::pair{policy,2U},std::pair{policy,0U},std::pair{policy+4,0U},std::pair{policy+8,65537U}}) {
+  for(const auto&[offset,value] : {std::pair{policy,2U},std::pair{policy,0U},std::pair{policy+4,0U},std::pair{policy+8,65537U}}) {
     auto bad=image;for(unsigned j=0;j<4;++j)bad[offset+j]=static_cast<std::uint8_t>(value>>(8*j));rewrite_checksum(bad);bool refused=false;
     try{(void)MacClosedWorld::from_checkpoint(f.registry,f.eos,bad);}catch(const std::invalid_argument&){refused=true;}
     check(refused,"Core21 accepted noncanonical liquid law/work cap");

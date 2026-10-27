@@ -26,14 +26,14 @@ void conduction_entropy_control() {
     using ma::experimental::mac_kernel::heat_path_energy;
     using ma::experimental::mac_kernel::mixed_cell_entropy;
     bool endpoints = true;
-    for (const auto [before, after] : {std::pair{-1e18, 1.}, std::pair{1., -1e18},
+    for (const auto &[before, after] : {std::pair{-1e18, 1.}, std::pair{1., -1e18},
                                      std::pair{1e18, 1.}, std::pair{1., 1e18}}) {
         endpoints = endpoints && heat_path_energy(before, after, 0) == before &&
             heat_path_energy(before, after, 1) == after;
     }
     check(endpoints, "conduction diagnostic preserves extreme heat endpoints");
     bool accurate = true;
-    for (const auto [before, after] : {std::pair{1., 1e6}, std::pair{1e6, 1.}}) {
+    for (const auto &[before, after] : {std::pair{1., 1e6}, std::pair{1e6, 1.}}) {
         const auto temperature = [&](double x) { return heat_path_energy(before, after, x); };
         const double measured = mixed_cell_entropy(temperature, after - before, 1e-10L);
         const long double expected = std::log(static_cast<long double>(after) / before);
@@ -259,7 +259,7 @@ void zero_rhs_component_control() {
         check(bad_rejected,"game zero-RHS scalar keeps matrix admission");
         auto scalar=sys; scalar.diag={4,4}; const std::vector<double> zero{0,0};
         bool limits_rejected=true;
-        for (const auto [relative,absolute,maximum] : {std::tuple{0.,0.,std::size_t{1}},
+        for (const auto &[relative,absolute,maximum] : {std::tuple{0.,0.,std::size_t{1}},
              std::tuple{-1.,1e-15,std::size_t{1}},std::tuple{1e-13,1e-15,std::size_t{0}}}) {
             bool rejected=false;
             try { (void)k::solve_linear(context,scalar,zero,x,relative,absolute,maximum); }

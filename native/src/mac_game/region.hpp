@@ -280,7 +280,7 @@ public:
     blocks(pool, [&](std::size_t block) {
       for (std::size_t i = grid.block_row_begin(block) * grid.W;
            i < grid.block_row_end(block) * grid.W; ++i)
-        for (const auto [masses, sign] :
+        for (const auto &[masses, sign] :
              {std::pair{&before, -1.}, std::pair{&after, 1.}})
           for (std::size_t a = masses->offsets[i]; a < masses->offsets[i + 1];
                ++a) {
