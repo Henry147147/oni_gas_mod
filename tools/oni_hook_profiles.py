@@ -78,6 +78,88 @@ PUBLICATION_SPECS = (
      '_Z21PrepareGameDataUpdateRK8GameData', 'pointer(const-game*)'),
 )
 
+def normalized_identity(data: bytes) -> str:
+    """SHA-256 of a native image with only the linker's build stamps zeroed.
+
+    PE: COFF and export/resource directory timestamps, the optional-header
+    checksum, and every debug directory entry's timestamp and data (CodeView
+    GUID, age and PDB path). ELF: the GNU build-id note's descriptor. Every
+    code and data byte is still covered, so an image with this identity has
+    the inspected RVAs, layouts and fingerprints. Mirrored exactly by
+    native/src/oni_image_identity.hpp (docs/game-update-resilience.md).
+    """
+    image = bytearray(data)
+
+    def require(condition: bool, reason: str) -> None:
+        if not condition:
+            raise ValueError("Cannot normalise native image: " + reason)
+
+    def u16(at: int) -> int:
+        require(0 <= at and at + 2 <= len(image), "truncated field"); return struct.unpack_from("<H", image, at)[0]
+
+    def u32(at: int) -> int:
+        require(0 <= at and at + 4 <= len(image), "truncated field"); return struct.unpack_from("<I", image, at)[0]
+
+    def u64(at: int) -> int:
+        require(0 <= at and at + 8 <= len(image), "truncated field"); return struct.unpack_from("<Q", image, at)[0]
+
+    def zero(at: int, count: int) -> None:
+        require(0 <= at and count >= 0 and at + count <= len(image), "range outside the image"); image[at:at + count] = bytes(count)
+
+    if image[:2] == b"MZ":
+        pe = u32(60)
+        require(image[pe:pe + 4] == b"PE\0\0", "missing PE signature")
+        count, optional_size = u16(pe + 6), u16(pe + 20)
+        optional = pe + 24
+        magic = u16(optional)
+        require(magic in (0x10B, 0x20B), "unknown optional header")
+        directories, directory_count = optional + (96 if magic == 0x10B else 112), u32(optional + (92 if magic == 0x10B else 108))
+        sections = []
+        for index in range(count):
+            at = optional + optional_size + 40 * index
+            sections.append((u32(at + 12), max(u32(at + 8), u32(at + 16)), u32(at + 20), u32(at + 16)))
+
+        def offset(rva: int, size: int) -> int:
+            for address, extent, raw, raw_size in sections:
+                if address <= rva and rva + size <= address + min(extent, raw_size):
+                    return raw + rva - address
+            raise ValueError("Cannot normalise native image: directory outside file-backed sections")
+
+        zero(pe + 8, 4)
+        zero(optional + 64, 4)
+        for index in (0, 2):  # export and resource directory timestamps
+            if index < directory_count and u32(directories + 8 * index):
+                zero(offset(u32(directories + 8 * index), 8) + 4, 4)
+        if 6 < directory_count and u32(directories + 48):
+            start, size = offset(u32(directories + 48), u32(directories + 52)), u32(directories + 52)
+            require(size % 28 == 0, "debug directory size")
+            for entry in range(start, start + size, 28):
+                zero(entry + 4, 4)
+                length, raw = u32(entry + 16), u32(entry + 24)
+                if raw:
+                    zero(raw, length)
+    elif image[:6] == b"\x7fELF\x02\x01":
+        header, header_size, header_count = u64(32), u16(54), u16(56)
+        require(header_size == 56, "program header size")
+        for index in range(header_count):
+            at = header + index * header_size
+            if u32(at) != 4:  # PT_NOTE
+                continue
+            note, end = u64(at + 8), u64(at + 8) + u64(at + 32)
+            require(end <= len(image), "note outside the image")
+            while note + 12 <= end:
+                name_size, descriptor_size, kind = u32(note), u32(note + 4), u32(note + 8)
+                name = note + 12
+                descriptor = name + ((name_size + 3) & ~3)
+                require(descriptor + descriptor_size <= end, "truncated note")
+                if kind == 3 and bytes(image[name:name + name_size]) == b"GNU\0":
+                    zero(descriptor, descriptor_size)
+                note = descriptor + ((descriptor_size + 3) & ~3)
+    else:
+        raise ValueError("Cannot normalise native image: neither PE nor ELF64")
+    return sha(bytes(image))
+
+
 def signature_for(signature,platform):
     return signature if isinstance(signature,str) else signature[platform]
 
@@ -235,20 +317,31 @@ def inspect(game: Path, platform: str, utility: str) -> dict:
         # Lifecycle pointers may reside in zero-initialized, non-file-backed BSS.
         globals_.append({"name": name, "rva": rva})
     storage = evidence.pop("trampoline_storage", None)
-    return {"platform": platform, "native_relative_path": relative,
+    return {"platform": platform, "native_relative_path": relative, "native_identity": normalized_identity(data),
             "native_sha256": sha(data), "assembly_sha256": sha((game / "OxygenNotIncluded_Data/Managed/Assembly-CSharp.dll").read_bytes()),
             "native_bytes": len(data), "symbols": evidence, "globals": globals_, "hooks": hooks,
             "publication_bindings": publication_bindings,
             **({"trampoline_storage": storage} if storage else {})}
 
 
+PLATFORMS = ("windows-x64", "linux-x64")
+
+
 def validate(value: dict) -> None:
+    """Profiles accumulate: one or more verified SimDLL images per platform,
+    Windows first, each keyed by its normalised identity."""
     if value.get("schema_version") != 1 or value.get("oni_build") != 744825:
         raise ValueError("Unsupported profile schema/build")
     platforms = value.get("profiles", [])
-    if [p["platform"] for p in platforms] != ["windows-x64", "linux-x64"]:
-        raise ValueError("Both independent platform profiles are required")
+    order = [p.get("platform") for p in platforms]
+    if not platforms or order != sorted(order, key=PLATFORMS.index) or set(order) != set(PLATFORMS):
+        raise ValueError("Both independent platform profiles are required, Windows first")
+    identities = [p.get("native_identity") for p in platforms]
+    if any(not isinstance(i, str) or not re.fullmatch("[0-9a-f]{64}", i) for i in identities) or len(set(identities)) != len(identities):
+        raise ValueError("Every profile needs a distinct normalised native identity")
     for profile in platforms:
+        if type(profile.get("oni_build", value["oni_build"])) is not int or profile.get("oni_build", value["oni_build"]) < value["oni_build"]:
+            raise ValueError("Invalid profile game build")
         publication = profile.get('publication_bindings', [])
         if not isinstance(publication, list):
             raise ValueError('Invalid publication binding list')
@@ -305,30 +398,34 @@ def validate(value: dict) -> None:
 
 
 def header(value: dict) -> str:
+    """Every verified profile of the build's platform; the backend selects
+    the one whose normalised identity matches the game's SimDLL."""
     validate(value)
     lines = ["// Generated from native-hook-profiles.json; contains no game code.", "#pragma once"]
-    for index, profile in enumerate(value["profiles"]):
-        lines += ["#if defined(_WIN32)" if index == 0 else "#else",
-                  f'constexpr char native_relative_path[] = "{profile["native_relative_path"]}";',
-                  f'constexpr char expected_native_hash[] = "{profile["native_sha256"]}";',
-                  f'constexpr char expected_assembly_hash[] = "{profile["assembly_sha256"]}";',
-                  f'constexpr std::uintptr_t sim_rva = {profile["globals"][0]["rva"]}U;',
-                  f'constexpr std::uintptr_t data_rva = {profile["globals"][1]["rva"]}U;']
-        if profile["platform"] == "linux-x64":
-            storage = profile["trampoline_storage"]
-            fields = ("rva", "bytes", "page_bytes", "load_segment_rva", "load_segment_file_offset", "load_segment_memory_bytes")
-            lines += ['constexpr ma::oni::TrampolineStorage trampoline_storage{' +
-                      ', '.join(f'{storage[key]}U' for key in fields) + '};',
-                      f'constexpr char expected_trampoline_hash[] = "{storage["sha256"]}";']
-        lines.append("constexpr HookProfile profile_hooks[] = {")
-        for hook in profile["hooks"]:
-            lines.append(f'    {{{hook["index"]}U, {hook["rva"]}U, "{hook["fingerprint_sha256"]}"}},')
-        lines += ["};"]
-        publication = profile.get('publication_bindings', [])
-        lines.append(f'constexpr std::array<HookProfile, {len(publication)}> profile_publication_bindings{{{{')
-        for hook in publication:
-            lines.append(f'    {{{hook["index"]}U, {hook["rva"]}U, "{hook["fingerprint_sha256"]}"}},')
-        lines.append('}};')
+    for platform in PLATFORMS:
+        profiles = [p for p in value["profiles"] if p["platform"] == platform]
+        lines += ["#if defined(_WIN32)" if platform == "windows-x64" else "#else",
+                  f'constexpr char native_relative_path[] = "{profiles[0]["native_relative_path"]}";']
+        entries = []
+        for number, profile in enumerate(profiles):
+            name = f"profile_{number}"
+            lines.append(f"constexpr HookProfile {name}_hooks[] = {{")
+            for hook in profile["hooks"]:
+                lines.append(f'    {{{hook["index"]}U, {hook["rva"]}U, "{hook["fingerprint_sha256"]}"}},')
+            lines.append("};")
+            publication = profile.get("publication_bindings", [])
+            lines.append(f"constexpr std::array<HookProfile, {len(publication)}> {name}_bindings{{{{")
+            for hook in publication:
+                lines.append(f'    {{{hook["index"]}U, {hook["rva"]}U, "{hook["fingerprint_sha256"]}"}},')
+            lines.append("}};")
+            entry = (f'    {{{profile.get("oni_build", value["oni_build"])}U, "{profile["native_identity"]}", '
+                     f'{profile["globals"][0]["rva"]}U, {profile["globals"][1]["rva"]}U, {name}_hooks, {name}_bindings')
+            if platform == "linux-x64":
+                storage = profile["trampoline_storage"]
+                fields = ("rva", "bytes", "page_bytes", "load_segment_rva", "load_segment_file_offset", "load_segment_memory_bytes")
+                entry += ", ma::oni::TrampolineStorage{" + ", ".join(f"{storage[key]}U" for key in fields) + f'}}, "{storage["sha256"]}"'
+            entries.append(entry + "},")
+        lines += ["constexpr NativeProfile native_profiles[] = {", *entries, "};"]
     return "\n".join(lines + ["#endif", ""])
 
 

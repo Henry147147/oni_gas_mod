@@ -7,6 +7,7 @@
     {
       "platform": "windows-x64",
       "native_relative_path": "OxygenNotIncluded_Data/Plugins/x86_64/SimDLL.dll",
+      "native_identity": "07712e7480bfa2235b6c5000d3446e89aa3607b931b7d7b6349b5c1d427cc87e",
       "native_sha256": "031960f120ac1d59fd8e43f6e1a7369111c629b90c24d52186b691dfe2d8a727",
       "assembly_sha256": "a58e04d0ffdf89b86fb28b71ad900625b3b539db30d67f8c6269f73a9f5ae599",
       "native_bytes": 1176576,
@@ -284,6 +285,7 @@
     {
       "platform": "linux-x64",
       "native_relative_path": "OxygenNotIncluded_Data/Plugins/libSimDLL.so",
+      "native_identity": "ea43224a4c4b64d5e3e83dcce122fa93774a1ff81ccef345670ee332ff86670c",
       "native_sha256": "85111cd0b1fc14c79c785581d6c055280b9d48ba705776f3d14eb0a7b239c12d",
       "assembly_sha256": "6db652990ad1038e86b3493ed43004e12bfd61e62a4be60c787a9a9b9ac52ee1",
       "native_bytes": 783384,

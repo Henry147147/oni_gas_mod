@@ -1,6 +1,7 @@
 #include "mixed_atmospheres/oni_conduit_contact.h"
 #include "mixed_atmospheres/oni_backend.h"
 #include "oni_sha256.hpp"
+#include "oni_image_identity.hpp"
 #include "oni_domain.hpp"
 #include "oni_colony.hpp"
 #include "oni_floor_capture.hpp"
@@ -27,6 +28,7 @@
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <span>
 #include <stdexcept>
 #include <utility>
 #if defined(_WIN32)
@@ -54,7 +56,18 @@ static_assert(sizeof(MAOniTraceEvent) == 32);
 static_assert(sizeof(MAOniStorageHeatReceipt) == 48);
 static_assert(MA_ONI_CHUNK_HEAT + 1 == MA_ONI_HOOK_COUNT);
 struct HookProfile { std::uint32_t index; std::uintptr_t rva; const char* hash; };
+// One verified SimDLL image (docs/native-hook-profiles.json): selected by the
+// normalised identity of the game's file (docs/game-update-resilience.md).
+struct NativeProfile {
+    std::uint32_t oni_build; const char* identity; std::uintptr_t sim_rva, data_rva;
+    std::span<const HookProfile> hooks, bindings;
+#if defined(__linux__)
+    ma::oni::TrampolineStorage trampoline; const char* trampoline_hash;
+#endif
+};
 #include "oni_profiles.hpp"
+// Set by verify_files before any address is used; the first profile until then.
+const NativeProfile* selected=&native_profiles[0];
 
 struct Failure : std::runtime_error {
     MAOniResult result;
@@ -610,11 +623,15 @@ std::filesystem::path verify_files(const MAOniObserverConfig* config) {
         throw Failure(MA_ONI_INVALID_ARGUMENT,"Explicit observer configuration with ABI version 1 is required");
     const auto root = std::filesystem::canonical(std::filesystem::path(
         reinterpret_cast<const char8_t*>(config->game_directory_utf8)));
-    if (ma::oni::hash_file(root / native_relative_path) != expected_native_hash)
-        throw Failure(MA_ONI_INCOMPATIBLE,"Native image differs from the pinned platform build");
-    if (ma::oni::hash_file(root / "OxygenNotIncluded_Data/Managed/Assembly-CSharp.dll") != expected_assembly_hash)
-        throw Failure(MA_ONI_INCOMPATIBLE,"Managed image differs from the pinned platform build");
-    return root;
+    // The managed game contract verifies Assembly-CSharp member by member;
+    // this library depends only on the SimDLL image, which must be one of
+    // the verified profiles (stamps aside, byte for byte).
+    std::string identity;
+    try { identity=ma::oni::normalized_file_identity(root / native_relative_path); }
+    catch (const std::exception& error) { throw Failure(MA_ONI_INCOMPATIBLE,error.what()); }
+    for (const auto& profile : native_profiles)
+        if (identity == profile.identity) { selected=&profile; return root; }
+    throw Failure(MA_ONI_INCOMPATIBLE,("this SimDLL (identity " + identity.substr(0,16) + ") is not a verified image").c_str());
 }
 
 std::uintptr_t load_original(const std::filesystem::path& path) {
@@ -650,7 +667,7 @@ std::uintptr_t load_original(const std::filesystem::path& path) {
     const auto base = reinterpret_cast<std::uintptr_t>(info.dli_fbase);
     const auto init = reinterpret_cast<std::uintptr_t>(initialize);
 #endif
-    if (init != base + profile_hooks[0].rva)
+    if (init != base + selected->hooks[0].rva)
         throw Failure(MA_ONI_INCOMPATIBLE,"Loaded native export differs from its profile location");
     return base;
 }
@@ -658,14 +675,14 @@ void require_quiescent() {
     if (active.load(std::memory_order_acquire)) throw Failure(MA_ONI_BUSY,"Native hooks are executing");
     if (!image_base) return;
     std::uintptr_t sim{}, data{};
-    std::memcpy(&sim,reinterpret_cast<const void*>(image_base+sim_rva),sizeof(sim));
-    std::memcpy(&data,reinterpret_cast<const void*>(image_base+data_rva),sizeof(data));
+    std::memcpy(&sim,reinterpret_cast<const void*>(image_base+selected->sim_rva),sizeof(sim));
+    std::memcpy(&data,reinterpret_cast<const void*>(image_base+selected->data_rva),sizeof(data));
     if (sim || data) throw Failure(MA_ONI_BUSY,"Native simulator is initialized; stop it before changing hooks");
 }
 bool fingerprints_match() {
-    for (const auto& hook : profile_hooks)
+    for (const auto& hook : selected->hooks)
         if (ma::oni::hash_memory(reinterpret_cast<const void*>(image_base+hook.rva),32) != hook.hash) return false;
-    for (const auto& hook : profile_publication_bindings)
+    for (const auto& hook : selected->bindings)
         if (ma::oni::hash_memory(reinterpret_cast<const void*>(image_base+hook.rva),32) != hook.hash) return false;
     return true;
 }
@@ -674,13 +691,13 @@ bool fingerprints_match() {
 bool trampoline_page_is_rx() {
     auto* maps=std::fopen("/proc/self/maps","r");
     if (!maps) return false;
-    const auto first=(image_base+trampoline_storage.rva)&~(trampoline_storage.page_bytes-1);
+    const auto first=(image_base+selected->trampoline.rva)&~(selected->trampoline.page_bytes-1);
     std::array<char,2048> line{};
     bool verified{};
     while (std::fgets(line.data(),static_cast<int>(line.size()),maps)) {
         std::size_t start{},end{}; std::array<char,5> permissions{};
         if (std::sscanf(line.data(),"%zx-%zx %4s",&start,&end,permissions.data())==3 &&
-            start<=first && end>=first+trampoline_storage.page_bytes) {
+            start<=first && end>=first+selected->trampoline.page_bytes) {
             verified=std::strcmp(permissions.data(),"r-xp")==0;
             break;
         }
@@ -689,8 +706,8 @@ bool trampoline_page_is_rx() {
     return verified;
 }
 bool trampoline_padding_matches() {
-    return ma::oni::hash_memory(reinterpret_cast<const void*>(image_base+trampoline_storage.rva),
-                                trampoline_storage.bytes)==expected_trampoline_hash;
+    return ma::oni::hash_memory(reinterpret_cast<const void*>(image_base+selected->trampoline.rva),
+                                selected->trampoline.bytes)==selected->trampoline_hash;
 }
 void register_trampoline_storage() {
     struct Search { std::uintptr_t base; bool verified{}; } search{image_base};
@@ -698,16 +715,16 @@ void register_trampoline_storage() {
         auto& result=*static_cast<Search*>(state);
         if (info->dlpi_addr!=result.base) return 0;
         result.verified=ma::oni::verified_trampoline_segment(
-            {info->dlpi_phdr,info->dlpi_phnum},trampoline_storage);
+            {info->dlpi_phdr,info->dlpi_phnum},selected->trampoline);
         return 1;
     },&search);
-    if (sysconf(_SC_PAGESIZE)!=static_cast<long>(trampoline_storage.page_bytes) || !search.verified ||
+    if (sysconf(_SC_PAGESIZE)!=static_cast<long>(selected->trampoline.page_bytes) || !search.verified ||
         !trampoline_page_is_rx() || !trampoline_padding_matches())
         throw Failure(MA_ONI_INCOMPATIBLE,"Loaded native RX tail padding differs from its verified trampoline profile");
-    if (ma_funchook_register_trampoline_buffer(reinterpret_cast<void*>(image_base+trampoline_storage.rva),
-                                             trampoline_storage.bytes)!=0)
+    if (ma_funchook_register_trampoline_buffer(reinterpret_cast<void*>(image_base+selected->trampoline.rva),
+                                             selected->trampoline.bytes)!=0)
         throw Failure(MA_ONI_HOOK_ERROR,"Cannot reserve verified native trampoline storage");
-    if (ma_funchook_trampoline_capacity()<std::size(profile_hooks)+profile_publication_bindings.size()) {
+    if (ma_funchook_trampoline_capacity()<selected->hooks.size()+selected->bindings.size()) {
         (void)ma_funchook_register_trampoline_buffer(nullptr,0);
         throw Failure(MA_ONI_HOOK_ERROR,"Verified native trampoline storage cannot hold every required hook");
     }
@@ -730,7 +747,7 @@ bool destroy_detours() {
 }
 MAOniObserverStatus capture() noexcept {
     MAOniObserverStatus result{};
-    result.struct_size=sizeof(result); result.abi_version=MA_ONI_ABI_VERSION; result.oni_build=744825;
+    result.struct_size=sizeof(result); result.abi_version=MA_ONI_ABI_VERSION; result.oni_build=selected->oni_build;
     result.attached=installed ? 1U : 0U;
     result.recovery_required=recovery_required ? 1U : 0U;
     result.installed_hook_mask=installed_mask;
@@ -760,7 +777,7 @@ void fulfill_paired_capture() {
             ma::oni::checkpoint_domain_under_fence(current.session,current.completed_frames,configuration,source);
         std::lock_guard save_lock(native_save_mutex);
         if (native_save_open) throw Failure(MA_ONI_BUSY,"A native save buffer is still borrowed at the worker barrier");
-        std::uintptr_t data{}; std::memcpy(&data,reinterpret_cast<const void*>(image_base+data_rva),sizeof(data));
+        std::uintptr_t data{}; std::memcpy(&data,reinterpret_cast<const void*>(image_base+selected->data_rva),sizeof(data));
         if (!data) throw Failure(MA_ONI_BUSY,"Paired capture has no live native world");
         std::array<std::int32_t,2> dimensions{}; std::memcpy(dimensions.data(),reinterpret_cast<const void*>(data),sizeof(dimensions));
         constexpr std::uint64_t maximum_native_bytes=639ULL*1024*1024;
@@ -821,8 +838,8 @@ void start_domain_checked(const MAOniDomainConfig* config,MAOniDomainStatus* out
     if (ma::oni::domain_active()) throw Failure(MA_ONI_BUSY,"Native domain is already active");
     if (ma::oni::colony::active()) throw Failure(MA_ONI_BUSY,"A colony owner is active");
     std::uintptr_t sim{}, data{};
-    std::memcpy(&sim,reinterpret_cast<const void*>(image_base+sim_rva),sizeof(sim));
-    std::memcpy(&data,reinterpret_cast<const void*>(image_base+data_rva),sizeof(data));
+    std::memcpy(&sim,reinterpret_cast<const void*>(image_base+selected->sim_rva),sizeof(sim));
+    std::memcpy(&data,reinterpret_cast<const void*>(image_base+selected->data_rva),sizeof(data));
     if (!sim || !data) throw Failure(MA_ONI_BUSY,"Initialize the actual native simulator before a sealed domain");
     // Both inspected SimData layouts start with padded width and height
     // (Windows PDB field offsets 0/4; Linux disassembly/runtime controls).
@@ -852,8 +869,8 @@ void colony_admitted(const MAOniColonyConfig* config,MAOniColonyStatus* output) 
     if (!installed || recovery_required || !image_base) throw Failure(MA_ONI_BUSY,"The colony owner requires inspected attached hooks");
     if (ma::oni::domain_active() || ma::oni::colony::active()) throw Failure(MA_ONI_BUSY,"A native fluid owner is already active");
     std::uintptr_t sim{}, data{};
-    std::memcpy(&sim,reinterpret_cast<const void*>(image_base+sim_rva),sizeof(sim));
-    std::memcpy(&data,reinterpret_cast<const void*>(image_base+data_rva),sizeof(data));
+    std::memcpy(&sim,reinterpret_cast<const void*>(image_base+selected->sim_rva),sizeof(sim));
+    std::memcpy(&data,reinterpret_cast<const void*>(image_base+selected->data_rva),sizeof(data));
     if (!sim || !data) throw Failure(MA_ONI_BUSY,"Initialize the native simulator before the colony owner");
     std::array<std::int32_t,2> dimensions{};
     std::memcpy(dimensions.data(),reinterpret_cast<const void*>(data),sizeof(dimensions));
@@ -1367,7 +1384,7 @@ MAOniResult ma_oni_probe(const MAOniObserverConfig* config,MAOniObserverStatus* 
     return boundary([&] {
         output_valid(output); (void)verify_files(config);
         MAOniObserverStatus result{};
-        result.struct_size=sizeof(result); result.abi_version=MA_ONI_ABI_VERSION; result.oni_build=744825;
+        result.struct_size=sizeof(result); result.abi_version=MA_ONI_ABI_VERSION; result.oni_build=selected->oni_build;
         *output=result;
     });
 }
@@ -1387,7 +1404,7 @@ MAOniResult ma_oni_attach_observer(const MAOniObserverConfig* config,MAOniObserv
         try {
             detours=funchook_create();
             if (!detours) throw Failure(MA_ONI_HOOK_ERROR,"Cannot allocate native detours");
-            for (const auto& hook : profile_hooks) {
+            for (const auto& hook : selected->hooks) {
                 originals[hook.index]=reinterpret_cast<void*>(image_base+hook.rva);
                 if (funchook_prepare(detours,&originals[hook.index],replacements[hook.index]) != 0) {
                     std::array<char,2048> detail{};
@@ -1395,18 +1412,18 @@ MAOniResult ma_oni_attach_observer(const MAOniObserverConfig* config,MAOniObserv
                     throw Failure(MA_ONI_HOOK_ERROR,detail.data());
                 }
             }
-            for (const auto& hook : profile_publication_bindings) {
+            for (const auto& hook : selected->bindings) {
                 publication_originals[hook.index] = reinterpret_cast<void*>(image_base + hook.rva);
                 if (funchook_prepare(detours, &publication_originals[hook.index], publication_replacements[hook.index]) != 0)
                     throw Failure(MA_ONI_HOOK_ERROR, funchook_error_message(detours));
             }
 #if defined(__linux__)
-            if (ma_funchook_trampoline_used()!=std::size(profile_hooks)+profile_publication_bindings.size())
+            if (ma_funchook_trampoline_used()!=selected->hooks.size()+selected->bindings.size())
                 throw Failure(MA_ONI_HOOK_ERROR,"A required hook did not use the verified native trampoline buffer");
 #endif
             if (funchook_install(detours,0) != 0) throw Failure(MA_ONI_HOOK_ERROR,funchook_error_message(detours));
             installed=true;
-            for (const auto& hook : profile_hooks) installed_mask |= std::uint64_t{1} << hook.index;
+            for (const auto& hook : selected->hooks) installed_mask |= std::uint64_t{1} << hook.index;
             *output=capture();
         } catch (...) {
             // Prepare is non-mutating, but install can fail after partial work.
@@ -1564,7 +1581,7 @@ MAOniResult ma_oni_domain_chunk_heat_status(MAOniDomainChunkHeatStatus* output) 
     });
 }
 std::uint32_t ma_oni_domain_solid_heat_abi_version() { return 1; }
-std::uint32_t ma_oni_domain_publication_abi_version() { return profile_publication_bindings.size() == 2 ? 1U : 0U; }
+std::uint32_t ma_oni_domain_publication_abi_version() { return selected->bindings.size() == 2 ? 1U : 0U; }
 MAOniResult ma_oni_domain_publication_acquire(const void* native_update, MAOniDomainPublicationInfo* output) {
     return boundary([&] {
         if (!output || output->struct_size != sizeof(*output) || output->abi_version != MA_ONI_DOMAIN_PUBLICATION_ABI_VERSION)

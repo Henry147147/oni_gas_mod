@@ -51,8 +51,11 @@ class NativeProfileTests(unittest.TestCase):
     def test_codegen_contains_hashes_without_game_code(self):
         text = profiles.header(self.value)
         for value in self.value["profiles"]:
-            self.assertIn(value["native_sha256"], text)
-            self.assertIn(value["assembly_sha256"], text)
+            # The backend selects a profile by normalised identity; whole-file
+            # and managed-assembly hashes are no longer compiled in.
+            self.assertIn(value["native_identity"], text)
+            self.assertNotIn(value["native_sha256"], text)
+            self.assertNotIn(value["assembly_sha256"], text)
         self.assertNotIn("0x48,", text)
 
     def test_publication_bindings_preserve_observer_abi_and_reject_drift(self):
@@ -68,8 +71,8 @@ class NativeProfileTests(unittest.TestCase):
         legacy=copy.deepcopy(self.value)
         for platform in legacy['profiles']:del platform['publication_bindings']
         profiles.validate(legacy)
-        self.assertIn('std::array<HookProfile, 0> profile_publication_bindings',profiles.header(legacy))
-        self.assertIn('std::array<HookProfile, 2> profile_publication_bindings',profiles.header(self.value))
+        self.assertIn('std::array<HookProfile, 0> profile_0_bindings',profiles.header(legacy))
+        self.assertIn('std::array<HookProfile, 2> profile_0_bindings',profiles.header(self.value))
 
     def test_native_body_layout_and_private_location_drift_rejected(self):
         for platform in range(2):
@@ -125,3 +128,137 @@ class NativeProfileTests(unittest.TestCase):
 
 
 if __name__ == "__main__": unittest.main()
+
+
+def identity_pe(stamp=0x11111111, checksum=0x22222222, guid=b"\x33" * 16, code=None):
+    """Synthetic PE32+ shared by native/tests/oni_image_identity_tests.cpp."""
+    image = bytearray((i * 7 + 3) & 0xFF for i in range(0x400))
+    image[0:2] = b"MZ"; struct.pack_into("<I", image, 60, 0x80); image[0x80:0x84] = b"PE\0\0"
+    struct.pack_into("<HHIIIHH", image, 0x84, 0x8664, 1, stamp, 0, 0, 240, 0x2022)
+    struct.pack_into("<H", image, 0x98, 0x20B); struct.pack_into("<I", image, 0x98 + 64, checksum)
+    struct.pack_into("<I", image, 0x98 + 108, 16)
+    directories = [(0, 0)] * 16; directories[0] = (0x1000, 40); directories[6] = (0x1100, 28)
+    for index, (rva, size) in enumerate(directories):
+        struct.pack_into("<II", image, 0x98 + 112 + 8 * index, rva, size)
+    image[0x188:0x190] = b".text\0\0\0"; struct.pack_into("<IIII", image, 0x188 + 8, 0x200, 0x1000, 0x200, 0x200)
+    struct.pack_into("<I", image, 0x204, stamp)
+    struct.pack_into("<IIHHIIII", image, 0x300, 0, stamp, 0, 0, 2, 24, 0x1180, 0x380)
+    image[0x380:0x398] = b"RSDS" + guid + struct.pack("<I", 7)
+    if code is not None:
+        image[0x3F0] = code
+    return bytes(image)
+
+
+def identity_elf(build_id=b"\x44" * 20, code=None):
+    """Synthetic ELF64 shared by native/tests/oni_image_identity_tests.cpp."""
+    image = bytearray((i * 7 + 3) & 0xFF for i in range(0x200))
+    image[0:7] = b"\x7fELF\x02\x01\x01"
+    struct.pack_into("<HHI", image, 16, 3, 62, 1); struct.pack_into("<Q", image, 32, 64)
+    struct.pack_into("<HHH", image, 52, 64, 56, 1)
+    struct.pack_into("<IIQQQQQQ", image, 64, 4, 4, 0x100, 0x100, 0x100, 36, 36, 4)
+    struct.pack_into("<III", image, 0x100, 4, 20, 3); image[0x10C:0x110] = b"GNU\0"; image[0x110:0x124] = build_id
+    if code is not None:
+        image[0x1F0] = code
+    return bytes(image)
+
+
+# The C++ test asserts these same values.
+PE_IDENTITY = "46826a46eff2245d599daf8a4d07190d561347d63c188e18e265bea5c6838a25"
+ELF_IDENTITY = "78245165da47cdd954305d070ccdf123e9fa4721c9433930335c0147f399f623"
+
+
+class NormalisedIdentityTests(unittest.TestCase):
+    def test_stamps_are_ignored_and_code_is_not(self):
+        pe = profiles.normalized_identity(identity_pe())
+        self.assertEqual(profiles.normalized_identity(identity_pe(stamp=0x5EED, checksum=9, guid=b"\x99" * 16)), pe)
+        self.assertNotEqual(profiles.normalized_identity(identity_pe(code=0)), pe)
+        self.assertNotEqual(pe, profiles.sha(identity_pe()))
+        elf = profiles.normalized_identity(identity_elf())
+        self.assertEqual(profiles.normalized_identity(identity_elf(build_id=b"\x01" * 20)), elf)
+        self.assertNotEqual(profiles.normalized_identity(identity_elf(code=0)), elf)
+        self.assertEqual((pe, elf), (PE_IDENTITY, ELF_IDENTITY))
+
+    def test_malformed_images_are_refused(self):
+        for data in (b"", b"MZ" + bytes(10), identity_pe()[:0x300], b"\x7fELF\x02\x01" + bytes(20), b"plain"):
+            with self.assertRaises(ValueError):
+                profiles.normalized_identity(data)
+
+    def test_committed_profiles_carry_identities(self):
+        value = json.loads(profiles.PROFILE.read_text())
+        profiles.validate(value)
+        changed = json.loads(json.dumps(value)); changed["profiles"][0]["native_identity"] = changed["profiles"][1]["native_identity"]
+        with self.assertRaises(ValueError):
+            profiles.validate(changed)
+        accumulated = json.loads(json.dumps(value)); extra = json.loads(json.dumps(value["profiles"][0]))
+        extra["native_identity"] = "f" * 64; extra["oni_build"] = 744826
+        accumulated["profiles"].insert(1, extra)
+        profiles.validate(accumulated)
+        header = profiles.header(accumulated)
+        self.assertEqual(header.count("744826U"), 1)
+        self.assertIn("profile_1_hooks", header)
+
+
+GAMES = {"windows-x64": Path("/mnt/data/share/oni/OxygenNotIncluded/OxygenNotIncluded_Data/Plugins/x86_64/SimDLL.dll"),
+         "linux-x64": Path("/mnt/data/share/oni/OxygenNotIncluded-linux/OxygenNotIncluded_Data/Plugins/libSimDLL.so")}
+
+
+class InstalledImageControls(unittest.TestCase):
+    """Synthetic changes to the private 744825 images (skipped without them)."""
+
+    def image(self, platform):
+        path = GAMES[platform]
+        if not path.is_file():
+            self.skipTest("licensed " + platform + " SimDLL not available")
+        return bytearray(path.read_bytes())
+
+    def test_identity_ignores_stamps_and_catches_code(self):
+        value = json.loads(profiles.PROFILE.read_text())
+        for profile in value["profiles"]:
+            data = self.image(profile["platform"])
+            self.assertEqual(profiles.normalized_identity(bytes(data)), profile["native_identity"])
+            hook = profile["hooks"][3]
+            if profile["platform"] == "windows-x64":
+                pe = struct.unpack_from("<I", data, 60)[0]
+                restamped = bytearray(data); struct.pack_into("<I", restamped, pe + 8, 0x12345678)
+                self.assertEqual(profiles.normalized_identity(bytes(restamped)), profile["native_identity"])
+                offset = profiles.file_offset(profiles.pe_sections(bytes(data)), hook["rva"], 32)
+            else:
+                segments = profiles.linux_load_segments(bytes(data))
+                offset = profiles.file_offset([(s["rva"], s["file_offset"], s["file_bytes"], 0) for s in segments], hook["rva"], 32)
+            changed = bytearray(data); changed[offset + 5] ^= 0xFF
+            self.assertNotEqual(profiles.normalized_identity(bytes(changed)), profile["native_identity"])
+            elsewhere = bytearray(data); elsewhere[len(data) // 2] ^= 0x01
+            self.assertNotEqual(profiles.normalized_identity(bytes(elsewhere)), profile["native_identity"])
+
+    def test_backend_probe_accepts_only_verified_images(self):
+        import ctypes, os, shutil, tempfile
+        library = os.environ.get("MA_TEST_ONI_BACKEND_LIBRARY")
+        if not library or not Path(library).is_file():
+            self.skipTest("set MA_TEST_ONI_BACKEND_LIBRARY to a built libmixed_atmospheres_oni.so")
+        data = self.image("linux-x64")
+        backend = ctypes.CDLL(library)
+        backend.ma_oni_last_error.restype = ctypes.c_char_p
+
+        class Config(ctypes.Structure):
+            _fields_ = [("size", ctypes.c_uint32), ("version", ctypes.c_uint32), ("flags", ctypes.c_uint32),
+                        ("reserved", ctypes.c_uint32), ("game", ctypes.c_char_p)]
+        status = (ctypes.c_uint8 * 528)()
+        ctypes.cast(status, ctypes.POINTER(ctypes.c_uint32))[0] = 528
+        ctypes.cast(status, ctypes.POINTER(ctypes.c_uint32))[1] = 4
+
+        def probe(image):
+            with tempfile.TemporaryDirectory() as folder:
+                plugins = Path(folder) / "OxygenNotIncluded_Data/Plugins"; plugins.mkdir(parents=True)
+                (plugins / "libSimDLL.so").write_bytes(bytes(image))
+                config = Config(24, 4, 1, 0, folder.encode())
+                return backend.ma_oni_probe(ctypes.byref(config), status), backend.ma_oni_last_error().decode()
+        self.assertEqual(probe(data)[0], 0)
+        stamped = bytearray(data)
+        note = bytes(stamped).find(b"GNU\0", 0, 4096)
+        self.assertGreater(note, 0)
+        stamped[note + 4:note + 24] = bytes(range(20))  # a different build-id only
+        self.assertEqual(probe(stamped)[0], 0)
+        changed = bytearray(data); changed[len(data) // 2] ^= 0x01
+        result, message = probe(changed)
+        self.assertEqual(result, 2)
+        self.assertIn("not a verified image", message)
