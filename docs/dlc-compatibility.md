@@ -92,6 +92,14 @@ through the normal building lifecycle, waits for the new interior's ownership,
 and checks added oxygen/carbon dioxide over its sealed cabin. It remains an
 unrun control until its game result is recorded.
 
+The first `13e5345` rocket run passes the nine-asteroid checks again, but fails
+fixture construction before any interior is created. Direct generic building
+placement omitted the rocket's craft/attachment context; native engine and
+capsule components then threw during spawn. The fixture now uses the game's
+platform/module construction commands, with its instant-build setting restored
+immediately, and waits for the actual paired interior door before reading its
+world. No rocket pass or save/load result is taken from that failed run.
+
 The 2026-10-26 request covers Spaced Out!, Frosty, Bionic, Prehistoric and
 Aquatic: every one of their 32 selections on Linux and Windows x64. This
 extends the [base-game playtest](playtest-plan.md); it does not certify the

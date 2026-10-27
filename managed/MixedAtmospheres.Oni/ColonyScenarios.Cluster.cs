@@ -81,12 +81,19 @@ namespace MixedAtmospheres.Oni
                 Finish();
             }
         }
-        private static double WorldSpecies(WorldContainer world,SimHashes element)
+        private static (double Oxygen,double Carbon,ulong Frame) WorldSpecies(WorldContainer world)
         {
-            double mass=0;var offset=world.WorldOffset;var size=world.WorldSize;
-            for(var y=offset.y;y<offset.y+size.y;++y)for(var x=offset.x;x<offset.x+size.x;++x)
-                mass+=SpeciesMass(Grid.XYToCell(x,y),element);
-            return mass;
+            var offset=world.WorldOffset;var size=world.WorldSize;var cells=new uint[checked(size.x*size.y)];
+            for(var i=0;i<cells.Length;++i)cells[i]=(uint)Grid.XYToCell(offset.x+i%size.x,offset.y+i/size.x);
+            // The shared native sampler retains one immutable publication;
+            // per-cell reads could cross a flow publication while summing.
+            var rows=new MeltSampleCell[cells.Length];var parts=new MeltSamplePart[checked(cells.Length*ColonyOwner.Materials.Length)];
+            OniNativeColony.Check(SampleMelt(cells,(uint)cells.Length,out var source,rows,parts,(uint)parts.Length,out var count,out _));
+            var oxygen=ElementLoader.FindElementByHash(SimHashes.Oxygen).idx;var carbon=ElementLoader.FindElementByHash(SimHashes.CarbonDioxide).idx;
+            double oxygenMass=0,carbonMass=0;
+            for(var i=0U;i<count;++i)
+            {if(parts[i].NativeIndex==oxygen)oxygenMass+=parts[i].Mass;else if(parts[i].NativeIndex==carbon)carbonMass+=parts[i].Mass;}
+            return(oxygenMass,carbonMass,source.CompletedFrames);
         }
         private static void SpacedOutRocket(int frame,OniNativeColony.Status status)
         {
@@ -106,17 +113,17 @@ namespace MixedAtmospheres.Oni
             if(Once(4,"rocket platform"))clusterLaunchPad=Build(LaunchPadConfig.ID,Cell(4,0));
             if(Once(8,"rocket engine"))
             {
-                var pad=clusterLaunchPad!.GetComponent<Building>();
-                clusterEngine=Build(CO2EngineConfig.ID,Grid.OffsetCell(Grid.PosToCell(pad),new CellOffset(0,pad.Def.HeightInCells)));
+                clusterEngine=AddRocketModule(clusterLaunchPad!,CO2EngineConfig.ID,true);
             }
             if(Once(12,"rocket capsule"))
             {
-                var engine=clusterEngine!.GetComponent<Building>();
-                clusterCapsule=Build(HabitatModuleSmallConfig.ID,Grid.OffsetCell(Grid.PosToCell(engine),new CellOffset(0,engine.Def.HeightInCells)));
+                clusterCapsule=AddRocketModule(clusterEngine!,HabitatModuleSmallConfig.ID,false);
             }
             if(frame>=16&&!recorded.ContainsKey("rocket mixture frame"))
             {
-                clusterRocketWorld=clusterCapsule?.GetComponent<ClustercraftExteriorDoor>()?.GetTargetWorld();
+                var exterior=clusterCapsule?.GetComponent<ClustercraftExteriorDoor>();
+                var paired=exterior==null?null:HarmonyLib.AccessTools.Field(typeof(ClustercraftExteriorDoor),"targetDoor").GetValue(exterior);
+                clusterRocketWorld=paired==null?null:exterior!.GetTargetWorld();
                 var open=clusterRocketWorld==null?Array.Empty<int>():Enumerable.Range(0,clusterRocketWorld.WorldSize.x*clusterRocketWorld.WorldSize.y)
                     .Select(i=>Grid.XYToCell(clusterRocketWorld.WorldOffset.x+i%clusterRocketWorld.WorldSize.x,
                         clusterRocketWorld.WorldOffset.y+i/clusterRocketWorld.WorldSize.x))
@@ -129,8 +136,9 @@ namespace MixedAtmospheres.Oni
                 Record("native rocket interior became owned",clusterRocketWorld.IsModuleInterior&&ClusterManager.Instance.WorldContainers.Count==clusterWorldsBeforeRocket+1,
                     $"world {clusterRocketWorld.id}, {open.Length} non-solid cells, owner session {status.Session}");
                 recorded["rocket mixture frame"]=frame;
-                recorded["rocket oxygen"]=WorldSpecies(clusterRocketWorld,SimHashes.Oxygen);
-                recorded["rocket carbon"]=WorldSpecies(clusterRocketWorld,SimHashes.CarbonDioxide);
+                var baseline=WorldSpecies(clusterRocketWorld);
+                recorded["rocket oxygen"]=baseline.Oxygen;recorded["rocket carbon"]=baseline.Carbon;
+                recorded["rocket baseline owner frame"]=baseline.Frame;
                 var door=clusterCapsule!.GetComponent<ClustercraftExteriorDoor>();
                 var cabin=(int)HarmonyLib.AccessTools.Method(typeof(ClustercraftExteriorDoor),"TargetCell").Invoke(door,null);
                 if(!open.Contains(cabin)||World.Instance.zoneRenderData.GetSubWorldZoneType(cabin)==ProcGen.SubWorld.ZoneType.Space)
@@ -140,14 +148,31 @@ namespace MixedAtmospheres.Oni
             }
             if(recorded.TryGetValue("rocket mixture frame",out var seeded)&&frame>=seeded+8&&!Current.Finished)
             {
-                var oxygen=WorldSpecies(clusterRocketWorld!,SimHashes.Oxygen)-recorded["rocket oxygen"];
-                var carbon=WorldSpecies(clusterRocketWorld!,SimHashes.CarbonDioxide)-recorded["rocket carbon"];
+                var proof=WorldSpecies(clusterRocketWorld!);
+                var oxygen=proof.Oxygen-recorded["rocket oxygen"];var carbon=proof.Carbon-recorded["rocket carbon"];
                 Record("rocket retains oxygen and carbon dioxide",Math.Abs(oxygen-.25)<1e-6&&Math.Abs(carbon-.125)<1e-6,
-                    $"added oxygen {oxygen:R} kg, carbon dioxide {carbon:R} kg");
+                    $"added oxygen {oxygen:R} kg, carbon dioxide {carbon:R} kg; snapshot frames {recorded["rocket baseline owner frame"]}/{proof.Frame}");
                 Record("rocket cluster ledgers close",status.State==1&&status.MaximumRelativeMassError<=1e-12&&status.MaximumRelativeEnergyError<=1e-12,
                     $"mass {status.MaximumRelativeMassError:R}, energy {status.MaximumRelativeEnergyError:R}");
                 Finish();
             }
+        }
+        private static GameObject AddRocketModule(GameObject parent,string id,bool first)
+        {
+            var def=Assets.GetBuildingDef(id);var previous=DebugHandler.InstantBuildMode;
+            // Use the actual player construction command: it assigns the
+            // craft interface and attachment context before OnSpawn runs.
+            // The instant-build switch is fixture setup only and restored
+            // before the next game update; no simulation callback is called.
+            DebugHandler.InstantBuildMode=true;
+            try
+            {
+                var module=first?parent.GetComponent<LaunchPad>().AddBaseModule(def,def.DefaultElements()):
+                    parent.GetComponent<ReorderableBuilding>().AddModule(def,def.DefaultElements());
+                if(module==null)throw new InvalidOperationException("The native rocket construction command refused "+id+".");
+                powered.Add(module);return module;
+            }
+            finally{DebugHandler.InstantBuildMode=previous;}
         }
     }
 }
