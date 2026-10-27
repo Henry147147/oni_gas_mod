@@ -17,6 +17,10 @@ namespace MixedAtmospheres.Oni
                 if (!DlcManager.IsExpansion1Active())
                     throw new InvalidOperationException("Warp control requires actual Spaced Out content.");
                 var spawner = SaveGame.Instance.GetComponent<WorldGenSpawner>();
+                var generated = spawner.GetSpawnables().Where(s => s.spawnInfo.id == "WarpConduitSender" ||
+                    s.spawnInfo.id == "WarpConduitReceiver").ToArray();
+                Debug.Log("[Mixed Atmospheres] Generated warp hardware: " + string.Join("; ", generated.Select(s =>
+                    $"{s.spawnInfo.id} cell {s.cell}, world {Grid.WorldIdx[s.cell]}, spawned {s.isSpawned}")));
                 // Reveal the actual generated objects, just as discovering a
                 // linked endpoint does. No synthetic partner or transfer tick.
                 spawner.SpawnTag("WarpConduitSender");
@@ -30,7 +34,11 @@ namespace MixedAtmospheres.Oni
                 if (senders.Length < 2 || senders.Any(s => ClusterField(s, "receiver") == null))
                 {
                     if (frame < 30) return;
-                    Record("generated warp pairs became available", false, $"senders {senders.Length}");
+                    var all = Resources.FindObjectsOfTypeAll<WarpConduitSender>().Where(s => s.gameObject.activeInHierarchy).ToArray();
+                    var receivers = Resources.FindObjectsOfTypeAll<WarpConduitReceiver>().Where(s => s.gameObject.activeInHierarchy).ToArray();
+                    Record("generated warp pairs became available", false, $"spawned senders {senders.Length}; active senders " +
+                        string.Join("; ", all.Select(s => $"cell {Grid.PosToCell(s.gameObject)}, spawned {s.isSpawned}, paired {ClusterField(s, "receiver") != null}")) +
+                        "; active receivers " + string.Join("; ", receivers.Select(s => $"cell {Grid.PosToCell(s.gameObject)}, spawned {s.isSpawned}")));
                     Finish(); return;
                 }
                 var endpoints = senders.Cast<Component>().Concat(senders.Select(s =>

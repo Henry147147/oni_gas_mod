@@ -262,6 +262,13 @@ in both directions, empty each input/shared store, and keep the owner and pipe
 accounts closed. No transfer callback is invoked manually. The scenario builds
 against the installed SDK; its actual game/save/load checks remain unrun.
 
+The `8d49e53` game attempt reaches a healthy owner but fails discovery at
+frame54: only one spawned sender is found, and the game warns of missing
+partners. No fluid transfer or load pass is taken from it. The repeat records
+the actual generated hardware and runs the teleporter scenario independently
+of the destructive central-cell ownership probes, retaining both-direction
+requirements and the declared mixtures/windows/bounds.
+
 ### Rocket flight
 
 `spaced-out-rocket-flight` fuels the constructed CO2 engine and selects a valid
