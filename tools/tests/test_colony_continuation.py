@@ -91,4 +91,50 @@ class ContinuationTests(unittest.TestCase):
             with self.subTest(field=field,value=value),self.assertRaises(ValueError):continuation.compare(source,loaded)
 
 
+
+def journal(start,frames):
+    lines=["session 1 restored_frames %d"%start]
+    for frame,items in frames:
+        lines.append("frame %d flush 0 seconds 0x1.99999ap-3 ticket %d transfers %d heat 0 terrain 0 freezes 0 germs 0 jobs 0"%(frame,1000+frame,len(items)))
+        lines.extend(items)
+    return "\n".join(lines)+"\n"
+
+
+class InputJournalTests(unittest.TestCase):
+    breath="T 4 3 2 1 0 0x1.2p-7 0x1.2cp+8 0x0p+0 job 0 cb %d"
+    def test_identical_inputs_ignore_session_tickets_and_callback_values(self):
+        source=journal(0,[(f,[self.breath%(70+f)]) for f in range(49,54)])
+        loaded=journal(50,[(f,[self.breath%(9+f)]) for f in range(51,54)])
+        self.assertIsNone(continuation.compare_inputs(source,loaded,50,3))
+        result=continuation.compare(*pair(),source,loaded)
+        self.assertEqual(result["status"],"matched");self.assertTrue(result["identical_inputs_verified"])
+
+    def test_answered_and_unanswered_requests_differ(self):
+        source=journal(50,[(51,[self.breath%7]),(52,[self.breath%7]),(53,[])])
+        loaded=journal(50,[(51,[self.breath%7]),(52,[self.breath%-1]),(53,[])])
+        divergence=continuation.compare_inputs(source,loaded,50,3)
+        self.assertEqual(divergence["frame"],52)
+        self.assertEqual(divergence["only_source"],["T 4 3 2 1 0 0x1.2p-7 0x1.2cp+8 0x0p+0 job 0 cb answered"])
+
+    def test_state_difference_before_input_difference_is_a_continuation_failure(self):
+        source,loaded=pair();loaded["colony_owner"]["Continuation"]["Hashes"][0]="9"*64
+        same=journal(50,[(f,[self.breath%1]) for f in range(51,54)])
+        result=continuation.compare(source,loaded,same,same)
+        self.assertEqual(result["status"],"continuation-mismatch");self.assertEqual(result["attributed_to"],"continuation")
+        later=journal(50,[(51,[self.breath%1]),(52,[]),(53,[self.breath%1])])
+        result=continuation.compare(source,loaded,later,same)
+        self.assertEqual(result["status"],"continuation-mismatch")
+        first=journal(50,[(51,[self.breath%1]),(52,[]),(53,[])])
+        result=continuation.compare(source,loaded,first,journal(50,[(51,[]),(52,[]),(53,[])]))
+        self.assertEqual((result["status"],result["attributed_to"]),("mismatch","inputs"))
+        source,loaded=pair();loaded["colony_owner"]["Continuation"]["Hashes"][1]="9"*64
+        result=continuation.compare(source,loaded,journal(50,[(51,[]),(52,[self.breath%1]),(53,[])]),same)
+        self.assertEqual((result["status"],result["attributed_to"]),("mismatch","inputs"))
+
+    def test_journals_must_cover_the_restored_branch(self):
+        good=journal(50,[(f,[]) for f in range(51,54)])
+        for bad in (journal(49,[(f,[]) for f in range(50,54)]),journal(50,[(51,[]),(52,[])]),"frame 1\n","session 1 restored_frames 50\nT 1\n"):
+            with self.subTest(bad=bad[:30]),self.assertRaises(ValueError):continuation.compare_inputs(good,bad,50,3)
+        with self.assertRaises(ValueError):continuation.compare(*pair(),good,None)
+
 if __name__=="__main__":unittest.main()

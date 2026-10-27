@@ -40,6 +40,12 @@ namespace MixedAtmospheres.Oni
         // same offsets; 22/23 imply profile families 4/5) report the game kernel;
         // older physical versions report zero law/caps.
         internal static uint OwnerVersion(ReadOnlySpan<byte> image) { CountersOffset(image,out var version); return version; }
+        internal static uint CallbackRequestCount(ReadOnlySpan<byte> image)
+        {
+            LedgerOffset(image,out _,out _,out _);
+            return BinaryPrimitives.ReadUInt32LittleEndian(image.Slice(8,4))==13 ?
+                BinaryPrimitives.ReadUInt32LittleEndian(image.Slice(16,4)) : 0;
+        }
         // The embedded MACCLS01 physical image.
         internal static ReadOnlySpan<byte> PhysicalImage(ReadOnlySpan<byte> image) => image.Slice(PhysicalOffset(image,out _,out var length),length);
 
@@ -107,10 +113,21 @@ namespace MixedAtmospheres.Oni
             if (image.Length < 12 || !image.Slice(0,8).SequenceEqual(OwnerMagic))
                 throw new InvalidDataException("Missing colony checkpoint framing.");
             version=BinaryPrimitives.ReadUInt32LittleEndian(image.Slice(8,4));
+            var at=12;
+            // Wrapper13 encloses a base wrapper 8..12 whose queue keeps
+            // callback-owned requests: base version, request count, then the
+            // base layout unchanged. Metadata reports the base framing.
+            if(version==13)
+            {
+                if(image.Length<20) throw new InvalidDataException("Truncated colony checkpoint framing.");
+                version=BinaryPrimitives.ReadUInt32LittleEndian(image.Slice(12,4));
+                var requests=BinaryPrimitives.ReadUInt32LittleEndian(image.Slice(16,4));
+                if(version<8 || version>12 || requests==0 || requests>1u<<20) throw new InvalidDataException("Invalid callback-owned request framing.");
+                at=20;
+            }
             // Wrapper12 selects the conservative owner boundary law and keeps
             // wrapper11's complete framing, including its precision block.
-            if(version<6 || version>12) throw new InvalidDataException("Unsupported colony checkpoint metadata version.");
-            var at=12;
+            else if(version<6 || version>12) throw new InvalidDataException("Unsupported colony checkpoint metadata version.");
             Skip(image,ref at,56); // MAOniColonyConfig
             materials=U32(image,ref at);materialTable=at;
             Skip(image,ref at,(long)materials*168);

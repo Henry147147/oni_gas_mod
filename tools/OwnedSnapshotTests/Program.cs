@@ -259,6 +259,21 @@ internal static unsafe class Program
                     Refuse(()=>ColonyCheckpointMetadata.InjectedMass(image.AsSpan(0,length),111));
                 var corrupt=(byte[])image.Clone();BinaryPrimitives.WriteUInt32LittleEndian(corrupt.AsSpan(68,4),uint.MaxValue);
                 Refuse(()=>ColonyCheckpointMetadata.InjectedMass(corrupt,111));
+                if(version<8)continue;
+                // Wrapper13 (callback-owned requests) encloses the same base framing.
+                byte[] Wrapped(uint wrapper,uint basis,uint requests)
+                {
+                    var head=new byte[20];image.AsSpan(0,8).CopyTo(head);BinaryPrimitives.WriteUInt32LittleEndian(head.AsSpan(8),wrapper);
+                    BinaryPrimitives.WriteUInt32LittleEndian(head.AsSpan(12),basis);BinaryPrimitives.WriteUInt32LittleEndian(head.AsSpan(16),requests);
+                    return head.Concat(image.Skip(12)).ToArray();
+                }
+                var wrapped=Wrapped(13,version,2);
+                Check(ColonyCheckpointMetadata.InjectedMass(wrapped,111)==(3.5,tiny)&&ColonyCheckpointMetadata.CompletedFrames(wrapped)==73&&
+                    ColonyCheckpointMetadata.OwnerVersion(wrapped)==version);
+                Refuse(()=>ColonyCheckpointMetadata.CompletedFrames(Wrapped(13,version,0)));
+                Refuse(()=>ColonyCheckpointMetadata.CompletedFrames(Wrapped(13,13,1)));
+                Refuse(()=>ColonyCheckpointMetadata.CompletedFrames(Wrapped(13,7,1)));
+                Refuse(()=>ColonyCheckpointMetadata.CompletedFrames(Wrapped(14,version,1)));
             }
         });
         Test("sectioned colony payload keeps legacy bytes without sections and refuses malformed sections", () =>
@@ -277,12 +292,17 @@ internal static unsafe class Program
             var single=ColonySavePayload.Encode(config,owner,new[]{new KeyValuePair<uint,byte[]>(2,particles)});
             Check(ColonySavePayload.Decode(single).Section(1)==null && ColonySavePayload.Decode(single).Section(2)!.SequenceEqual(particles));
             void Refuse(System.Action action){var refused=false;try{action();}catch(InvalidDataException){refused=true;}catch(NotSupportedException){refused=true;}Check(refused);}
-            // Section 3 is the colony settings record (docs/settings.md); 4 is unknown.
+            // Section 3 is the colony settings record (docs/settings.md); 4 the
+            // callback-owned request actors (MACCBR01); 5 is unknown.
             var settings=new byte[]{7,7};
             var three=ColonySavePayload.Encode(config,owner,new[]{new KeyValuePair<uint,byte[]>(3,settings),new KeyValuePair<uint,byte[]>(1,pipes),new KeyValuePair<uint,byte[]>(2,particles)});
             var threeParsed=ColonySavePayload.Decode(three);
             Check(threeParsed.Sections.Count==3 && threeParsed.Section(3)!.SequenceEqual(settings) && ColonySavePayload.Encode(config,owner,threeParsed.Sections).SequenceEqual(three));
-            Refuse(()=>ColonySavePayload.Encode(config,owner,new[]{new KeyValuePair<uint,byte[]>(4,pipes)}));
+            var four=ColonySavePayload.Encode(config,owner,new[]{new KeyValuePair<uint,byte[]>(4,pipes),new KeyValuePair<uint,byte[]>(3,settings),
+                new KeyValuePair<uint,byte[]>(1,pipes),new KeyValuePair<uint,byte[]>(2,particles)});
+            var fourParsed=ColonySavePayload.Decode(four);
+            Check(fourParsed.Sections.Count==4 && fourParsed.Section(4)!.SequenceEqual(pipes) && ColonySavePayload.Encode(config,owner,fourParsed.Sections).SequenceEqual(four));
+            Refuse(()=>ColonySavePayload.Encode(config,owner,new[]{new KeyValuePair<uint,byte[]>(5,pipes)}));
             Refuse(()=>ColonySavePayload.Encode(config,owner,new[]{new KeyValuePair<uint,byte[]>(1,Array.Empty<byte>())}));
             Refuse(()=>ColonySavePayload.Encode(config,owner,new[]{new KeyValuePair<uint,byte[]>(1,pipes),new KeyValuePair<uint,byte[]>(1,pipes)}));
             Refuse(()=>ColonySavePayload.Encode(new byte[55],owner));
@@ -293,12 +313,39 @@ internal static unsafe class Program
             var at=8+4+56+4+owner.Length;
             byte[] Mutate(int offset,int value){var copy=(byte[])sectioned.Clone();BinaryPrimitives.WriteInt32LittleEndian(copy.AsSpan(offset),value);return copy;}
             Refuse(()=>ColonySavePayload.Decode(Mutate(at,0)));                     // no sections
-            Refuse(()=>ColonySavePayload.Decode(Mutate(at,4)));                     // too many sections
+            Refuse(()=>ColonySavePayload.Decode(Mutate(at,5)));                     // too many sections
             Refuse(()=>ColonySavePayload.Decode(Mutate(at+4,2)));                   // out of order (2 then 2)
             Refuse(()=>ColonySavePayload.Decode(Mutate(at+4,5)));                   // unknown tag
+            Refuse(()=>ColonySavePayload.Decode(Mutate(at,4)));                     // more sections than present
             Refuse(()=>ColonySavePayload.Decode(Mutate(at+8,0)));                   // empty section
             Refuse(()=>ColonySavePayload.Decode(Mutate(8+4+56,int.MaxValue)));      // owner length
             Refuse(()=>ColonySavePayload.Decode(Mutate(8,55)));                     // config length
+        });
+        Test("callback-owned request actors round-trip exactly and refuse malformed images", () =>
+        {
+            var entries=new List<ColonyCallbackEntry>{
+                new ColonyCallbackEntry{Kind=ColonyCallbackRequestImage.Consumed,Target=new ColonyCallbackIdentity{Kind=1,Prefab=104,Ordinal=0,Type="OxygenBreather"},
+                    Delegate=0,DeclaringType="GasBreatherFromWorldProvider",Method="OnSimConsumeCallback",Debug="GasBreatherFromWorldProvider"},
+                new ColonyCallbackEntry{Kind=ColonyCallbackRequestImage.Released},
+                new ColonyCallbackEntry{Kind=ColonyCallbackRequestImage.Actor,Target=new ColonyCallbackIdentity{Kind=1,Prefab=-7,Ordinal=2,Type="ElementConsumer"}},
+                new ColonyCallbackEntry{Kind=ColonyCallbackRequestImage.Emitted,Target=new ColonyCallbackIdentity{Kind=2,Prefab=9,Ordinal=0,Type="GasAndLiquidConsumerMonitor+Instance"},
+                    Delegate=2,DeclaringType="SteamTurbine+<>c",Method="<.cctor>b__62_0",Debug=""}};
+            var image=ColonyCallbackRequestImage.Encode(entries);
+            Check(image.AsSpan(0,8).SequenceEqual(System.Text.Encoding.ASCII.GetBytes("MACCBR01")));
+            var back=ColonyCallbackRequestImage.Decode(image);
+            Check(back.Count==4 && ColonyCallbackRequestImage.Encode(back).SequenceEqual(image));
+            Check(back[0].Target!.CompareTo(entries[0].Target)==0 && back[0].Method=="OnSimConsumeCallback" && back[1].Target==null &&
+                back[2].Target!.Prefab==-7 && back[2].Target!.Ordinal==2 && back[3].Delegate==2 && back[3].Target!.Kind==2);
+            void Refuse(System.Action action){var refused=false;try{action();}catch(InvalidDataException){refused=true;}Check(refused);}
+            Refuse(()=>ColonyCallbackRequestImage.Encode(new List<ColonyCallbackEntry>()));
+            Refuse(()=>ColonyCallbackRequestImage.Encode(new[]{new ColonyCallbackEntry{Kind=ColonyCallbackRequestImage.Actor}}));
+            Refuse(()=>ColonyCallbackRequestImage.Decode(image.Concat(new byte[]{0}).ToArray()));
+            for(var cut=1;cut<image.Length;cut+=5) Refuse(()=>ColonyCallbackRequestImage.Decode(image.AsSpan(0,image.Length-cut).ToArray()));
+            byte[] Set(int offset,byte value){var copy=(byte[])image.Clone();copy[offset]=value;return copy;}
+            Refuse(()=>ColonyCallbackRequestImage.Decode(Set(7,(byte)'2')));      // magic
+            Refuse(()=>ColonyCallbackRequestImage.Decode(Set(8,2)));              // version
+            Refuse(()=>ColonyCallbackRequestImage.Decode(Set(16,9)));             // kind
+            Refuse(()=>ColonyCallbackRequestImage.Decode(Set(17,3)));             // identity kind
         });
         if(Environment.GetEnvironmentVariable("MA_PRECISION_TEST_IMAGE") is string precisionImagePath)
             Test("actual native precision-holder checkpoint metadata", () =>
@@ -377,6 +424,28 @@ internal static unsafe class Program
                     var longer=new byte[core21.Length+1];core21.CopyTo(longer,0);
                     var refused=false;try{ColonyCheckpointMetadata.Profile(longer);}catch(InvalidDataException){refused=true;}Check(refused);
                 }
+            var plain=Owner(12,23,1,400,800,true,8);
+            var wrapped=new byte[plain.Length+8];
+            plain.AsSpan(0,8).CopyTo(wrapped);
+            BinaryPrimitives.WriteUInt32LittleEndian(wrapped.AsSpan(8),13);
+            BinaryPrimitives.WriteUInt32LittleEndian(wrapped.AsSpan(12),12);
+            BinaryPrimitives.WriteUInt32LittleEndian(wrapped.AsSpan(16),2);
+            plain.AsSpan(12).CopyTo(wrapped.AsSpan(20));
+            var actors=ColonyCallbackRequestImage.Encode(new[]{new ColonyCallbackEntry(),new ColonyCallbackEntry()});
+            Check(ColonyCheckpointMetadata.Profile(wrapped).Equals(ColonyCheckpointMetadata.Profile(plain)) &&
+                ColonyCheckpointMetadata.CompletedFrames(wrapped)==77 && ColonyCheckpointMetadata.CallbackRequestCount(wrapped)==2);
+            ColonyCallbackRequestImage.ValidateOwner(wrapped,actors);
+            ColonyCallbackRequestImage.ValidateOwner(plain,null);
+            void RefuseActors(byte[] image,byte[]? section)
+            {
+                var refused=false;try{ColonyCallbackRequestImage.ValidateOwner(image,section);}catch(InvalidDataException){refused=true;}
+                Check(refused);
+            }
+            RefuseActors(wrapped,null);
+            RefuseActors(plain,actors);
+            RefuseActors(wrapped,ColonyCallbackRequestImage.Encode(new[]{new ColonyCallbackEntry()}));
+            BinaryPrimitives.WriteUInt32LittleEndian(wrapped.AsSpan(16),(1u<<20)+1);
+            RefuseActors(wrapped,actors);
             var unknownRefused=false;
             try{ColonyCheckpointMetadata.Profile(Owner(13,23,1,400,800,false,8));}catch(InvalidDataException){unknownRefused=true;}
             Check(unknownRefused);

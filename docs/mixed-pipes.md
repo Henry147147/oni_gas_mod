@@ -416,13 +416,14 @@ empty. Thus restoration succeeds but byte-exact active continuation fails;
 these observations do not establish identical native/managed inputs or assign
 the mismatch to one particular actor.
 
-The native owner checkpoint also still omits callback-owned pending
-extractions, expecting consumers and breathing requests to ask again after
-load. Durable pipe jobs are saved separately. Preserving native pipe clocks
-does not repair that transient-request policy. Exact active continuation needs
-stable actor/request rebinding and identical future inputs as well as the
-recorded pipe state; flushing future requests early at save would change the
-uninterrupted trajectory.
+Owner wrapper13 now preserves callback-owned pending requests and section4
+names their persistent actors for rebinding ([owner saves](colony-owner.md#saves)).
+A missing, extra or differently sized actor section refuses before native load.
+Durable pipe jobs remain saved separately. Exact active continuation still
+needs identical future inputs as well as the recorded pipe state: current
+source/load journals differ in breathing, pump and solid-heat inputs after
+loading. Flushing future requests early at save would change the uninterrupted
+trajectory.
 
 **MACPIP01 schema4** was reserved (2026-10-24), immediately after a fresh fetch
 of `c57532a`, for complete native pipe biology context: captured allocation
@@ -441,7 +442,7 @@ network/updater order remain required for exact continued evolution. A restore
 refuses unless each owned cell's consolidated projection equals ONI's
 restored `ConduitContents` bit for bit; this alone is not continuation proof.
 
-**MACOLP03** was assigned by main after a fetch at `f8eb87a` (2026-10-24): config, owner image, then tagged sections in increasing tag order (1 = pipe runtime, currently MACPIP01 schema 4; 2 = MACO2P01 in-flight CO2 particles; 3 = colony settings record, [settings](settings.md#save-record)).
+**MACOLP03** was assigned by main after a fetch at `f8eb87a` (2026-10-24): config, owner image, then tagged sections in increasing tag order (1 = pipe runtime, currently MACPIP01 schema 4; 2 = MACO2P01 in-flight CO2 particles; 3 = colony settings record, [settings](settings.md#save-record); 4 = MACCBR01 actors of callback-owned requests in flight, [colony owner](colony-owner.md#saves)).
 Unknown, duplicate or empty sections refuse; a save without sections still writes exact MACOLP01 bytes; MACOLP02 stays refused.
 
 - **MACOLP01:** unchanged magic, int32 configuration length, 56-byte

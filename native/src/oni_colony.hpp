@@ -51,6 +51,13 @@ bool copy_options(MAOniColonyOptions&);
 void queue_germs(std::span<const MAOniColonyGermEdit>);
 void germ_accounts(MAOniColonyBiology&, std::vector<MAOniColonyBiologyAccount>&);
 [[nodiscard]] std::vector<std::uint8_t> checkpoint();
+// Callback-owned requests across a save (oni_colony.h, owner wrapper 13).
+[[nodiscard]] std::vector<MAOniColonyCallbackRecord> checkpoint_callbacks();
+std::pair<std::uint32_t,std::uint64_t> callback_rebind_state();
+void rebind_callbacks(std::span<const MAOniColonyCallbackRebind>);
+// Replay only (ma_oni_colony_replay): a native shadow's frozen-cell inputs.
+struct ReplayFreeze { std::uint32_t public_cell, native_index; double mass_kg; };
+void queue_replay_freezes(std::span<const ReplayFreeze>);
 // Latest published owner-held precision inventory (MAPREC01), separate from grid readings.
 [[nodiscard]] std::vector<std::uint8_t> precision_inventory();
 std::uint32_t species(MAOniColonySpecies* out, std::uint32_t capacity);

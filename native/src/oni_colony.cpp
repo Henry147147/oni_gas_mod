@@ -214,6 +214,15 @@ std::map<std::uint64_t, std::vector<std::uint8_t>> precise_receipts;
 struct PipeJob { MAOniColonyTransfer transfer; PassiveQuantities passives; std::uint64_t last_receipt=0; std::shared_ptr<const std::vector<std::uint8_t>> moving_wire{}; };
 std::map<std::uint64_t,PipeJob> pipe_jobs; // queued or committed, until every outcome is acknowledged
 std::map<std::size_t,std::uint64_t> pending_job_tokens; // indices in pending_transfers
+// Callback-owned requests restored from owner wrapper 13
+// (docs/colony-owner.md#saves): their pending_transfers indices in saved
+// ordinal order, until the adapter rebinds each to its actor's callback in
+// this session. Under inputs.
+std::vector<std::size_t> awaiting_rebind;
+std::uint64_t released_rebinds=0; // restored requests resolved without an actor, under inputs
+// The most recent checkpoint's callback-owned requests in ordinal order,
+// with the session callbacks it replaced. Under lifecycle.
+std::vector<MAOniColonyCallbackRecord> checkpoint_callbacks_written;
 std::map<std::uint64_t,std::uint64_t> receipt_jobs; // sequence -> durable job token
 std::uint64_t accepted_job_token=0;
 bool moving_protocol_used=false; // persisted only after explicit admission
@@ -666,6 +675,7 @@ void activate(std::unique_ptr<Session> next, std::uint64_t thread) {
       pending_native_arena.reset();pending_native_arena_captures=0;
       precise_receipts.clear(); precise_receipts_enabled = false;
       pipe_jobs.clear(); pending_job_tokens.clear(); receipt_jobs.clear(); accepted_job_token=0;
+      awaiting_rebind.clear(); released_rebinds=0;
       receipt_sequence = acknowledged = 0; exchanged = {}; moving_protocol_used=false; moving_outcomes.clear(); }
     { std::lock_guard o(oracle.m); oracle.cells.clear(); oracle.comparisons = oracle.mismatches = oracle.extinctions = 0; oracle.born = oracle.died = 0; oracle.last.clear(); }
     biology_mode.store(next->germ_mode, std::memory_order_relaxed);
@@ -1633,8 +1643,10 @@ std::pair<std::uint32_t,std::uint64_t> pipe_job_state(std::uint64_t token) {
 std::uint64_t receipt_job(std::uint64_t sequence) {
     std::lock_guard lock(inputs); const auto found=receipt_jobs.find(sequence); return found==receipt_jobs.end()?0:found->second;
 }
+namespace { void journal_diseases(std::span<const MAOniColonyDisease>,std::span<const MAOniColonyDiseaseGrowth>,std::uint32_t) noexcept; }
 void set_diseases(std::span<const MAOniColonyDisease> diseases, std::span<const MAOniColonyDiseaseGrowth> growth, std::uint32_t elements) {
     std::lock_guard lock(lifecycle);
+    journal_diseases(diseases,growth,elements);
     require(!enabled.load(std::memory_order_acquire), "Set the disease table before the colony owner starts");
     require(growth.size() == diseases.size() * elements, "World disease growth table size differs");
     biology::Table table; table.elements = elements;
@@ -2316,6 +2328,99 @@ MacClosedWorld evolve_germs(Session& s, MacClosedWorld world, std::span<const Ge
     s.germs_held = std::move(held); s.germ_cells = germ_cells;
     return world;
 }
+// Resolve the restored callback-owned requests, under inputs: bind each to
+// its actor's callback in this session, or release it as an older save did
+// (an injection keeps its mass unanswered; an extraction is withdrawn).
+void resolve_rebinds(std::span<const MAOniColonyCallbackRebind> values) {
+    require(values.size()==awaiting_rebind.size(),"Callback rebinds must name every restored request");
+    std::vector<bool> withdrawn(pending_transfers.size());
+    for (std::size_t o=0;o<values.size();++o) {
+        const auto index=awaiting_rebind[o]; require(index<pending_transfers.size(),"Restored request left the queue");
+        auto& t=pending_transfers[index]; const auto& v=values[o];
+        // Receipts answer nonnegative callbacks and actor handles only.
+        require(v.bind<=1 && (v.bind==0 || v.callback>=0),"Invalid callback rebind");
+        if (v.bind) { t.callback=v.callback; continue; }
+        ++released_rebinds;
+        if ((t.kind&~MA_ONI_COLONY_CONSUMER)==MA_ONI_COLONY_INJECT) { t.callback=-1; t.kind&=~MA_ONI_COLONY_CONSUMER; }
+        else withdrawn[index]=true;
+    }
+    awaiting_rebind.clear();
+    if (std::find(withdrawn.begin(),withdrawn.end(),true)==withdrawn.end()) return;
+    // Withdraw in place; durable job indices move with their transfers.
+    std::vector<MAOniColonyTransfer> kept; kept.reserve(pending_transfers.size());
+    std::map<std::size_t,std::uint64_t> tokens;
+    for (std::size_t i=0;i<pending_transfers.size();++i) {
+        if (withdrawn[i]) { require(!pending_job_tokens.contains(i),"A durable pipe job cannot be a callback-owned request"); continue; }
+        if (const auto job=pending_job_tokens.find(i); job!=pending_job_tokens.end()) tokens.emplace(kept.size(),job->second);
+        kept.push_back(pending_transfers[i]);
+    }
+    pending_transfers=std::move(kept); pending_job_tokens=std::move(tokens);
+}
+void release_unbound_rebinds() {
+    if (awaiting_rebind.empty()) return;
+    const std::vector<MAOniColonyCallbackRebind> none(awaiting_rebind.size(),MAOniColonyCallbackRebind{-1,0});
+    resolve_rebinds(none);
+}
+// MA_COLONY_INPUT_JOURNAL_DIR=<existing directory> (diagnostic, private
+// output): every committed input batch in commit order, one text file per
+// session, so two branches from one save can be compared input by input.
+// Floating values are exact hexadecimal. Callback values are session-local
+// handles and are written in their own column. Physics is unaffected.
+const char* journal_directory() noexcept {
+    static const char* const directory=std::getenv("MA_COLONY_INPUT_JOURNAL_DIR");
+    return directory&&*directory?directory:nullptr;
+}
+// The game's disease table, which a replay must install before restoring.
+void journal_diseases(std::span<const MAOniColonyDisease> diseases,std::span<const MAOniColonyDiseaseGrowth> growth,std::uint32_t elements) noexcept {
+    const auto* directory=journal_directory(); if(!directory)return;
+    static int written=0;
+    const auto path=std::string(directory)+"/diseases-"+std::to_string(++written)+".bin";
+    if(auto* file=std::fopen(path.c_str(),"wbx")) {
+        const std::uint32_t counts[3]{static_cast<std::uint32_t>(diseases.size()),static_cast<std::uint32_t>(growth.size()),elements};
+        std::fwrite(counts,sizeof(counts),1,file);
+        if(!diseases.empty())std::fwrite(diseases.data(),sizeof(MAOniColonyDisease),diseases.size(),file);
+        if(!growth.empty())std::fwrite(growth.data(),sizeof(MAOniColonyDiseaseGrowth),growth.size(),file);
+        std::fclose(file);
+    }
+}
+void journal_inputs(const Session& s,std::uint64_t ticket,double seconds,std::uint64_t frames,bool flush_only,const std::vector<MAOniColonyTransfer>& transfers,
+    const std::vector<MAOniColonyHeat>& heat,const std::vector<MAOniColonyTerrain>& terrain,const std::vector<Freeze>& freezes,
+    const std::vector<GermEdit>& germs,const std::map<std::size_t,std::uint64_t>& jobs) noexcept {
+    const auto* directory=journal_directory();
+    if(!directory)return;
+    static std::FILE* file=nullptr; static std::uint64_t file_session=0;
+    if(file_session!=s.status.session) {
+        if(file)std::fclose(file);
+        const auto path=std::string(directory)+"/inputs-"+std::to_string(s.status.session)+".txt";
+        file=std::fopen(path.c_str(),"wx"); file_session=s.status.session;
+        if(file)std::fprintf(file,"session %llu restored_frames %llu\n",static_cast<unsigned long long>(s.status.session),
+            static_cast<unsigned long long>(s.status.completed_frames));
+    }
+    if(!file)return;
+    std::fprintf(file,"frame %llu flush %d seconds %a ticket %llu transfers %zu heat %zu terrain %zu freezes %zu germs %zu jobs %zu frames %llu\n",
+        static_cast<unsigned long long>(s.status.completed_frames+(flush_only?0:1)),flush_only?1:0,seconds,static_cast<unsigned long long>(ticket),
+        transfers.size(),heat.size(),terrain.size(),freezes.size(),germs.size(),jobs.size(),static_cast<unsigned long long>(frames));
+    for(std::size_t i=0;i<transfers.size();++i) {
+        const auto& t=transfers[i]; const auto job=jobs.find(i);
+        std::fprintf(file,"T %u %u %u %u %u %a %a %a job %llu cb %d\n",t.public_cell,t.native_index,t.kind,t.radius,t.disease,t.mass_kg,t.temperature_k,
+            t.disease_count,static_cast<unsigned long long>(job==jobs.end()?0:job->second),t.callback);
+        if(job==jobs.end())continue;
+        // A durable job's passives or moving payload belong to its input.
+        if(const auto held=pipe_jobs.find(job->second);held!=pipe_jobs.end()) {
+            for(const auto& p:held->second.passives)std::fprintf(file,"P %llu %a\n",static_cast<unsigned long long>(p.identity),p.quantity);
+            if(held->second.moving_wire) {
+                std::fprintf(file,"W ");
+                for(const auto byte:*held->second.moving_wire)std::fprintf(file,"%02x",byte);
+                std::fprintf(file,"\n");
+            }
+        }
+    }
+    for(const auto& h:heat)std::fprintf(file,"H %u %a %a\n",h.public_cell,h.joules,h.maximum_temperature_k);
+    for(const auto& t:terrain)std::fprintf(file,"R %u %u\n",t.public_cell,t.kind);
+    for(const auto& f:freezes)std::fprintf(file,"F %u %u %a\n",f.public_cell,f.native_index,f.mass_kg);
+    for(const auto& g:germs)std::fprintf(file,"G %u %u %a\n",g.public_cell,g.germ,g.change);
+    std::fflush(file);
+}
 void run_frame(std::uint64_t ticket, double seconds, std::uint64_t frames, const char* refusal, std::uint64_t thread, bool flush_only) noexcept {
     std::lock_guard lock(lifecycle);
     if (!session || session->status.state != 1) return;
@@ -2345,7 +2450,8 @@ void run_frame(std::uint64_t ticket, double seconds, std::uint64_t frames, const
         std::map<std::size_t,PassiveQuantities> job_passives;
         std::map<std::size_t,std::shared_ptr<const std::vector<std::uint8_t>>> moving_jobs;
         std::map<std::uint64_t,std::uint64_t> committed_jobs;
-        { std::lock_guard q(inputs); transfers.swap(pending_transfers); heat.swap(pending_heat); terrain.swap(pending_terrain); freezes.swap(pending_freezes);
+        { std::lock_guard q(inputs); release_unbound_rebinds();
+          transfers.swap(pending_transfers); heat.swap(pending_heat); terrain.swap(pending_terrain); freezes.swap(pending_freezes);
           if(!flush_only) { s.native_arena=std::move(pending_native_arena);s.native_arena_owner_frames=frames;pending_native_arena_captures=0; }
           germ_edits.swap(pending_germs); job_tokens.swap(pending_job_tokens);
           for (const auto& [index,token] : job_tokens) {
@@ -2353,6 +2459,7 @@ void run_frame(std::uint64_t ticket, double seconds, std::uint64_t frames, const
               if(job.moving_wire)moving_jobs.emplace(index,job.moving_wire);
               else job_passives.emplace(index,job.passives);
           } }
+        journal_inputs(s,ticket,seconds,frames,flush_only,transfers,heat,terrain,freezes,germ_edits,job_tokens);
         auto world = *s.world;
         const auto& cat = *s.catalogue; const auto& registry = cat.registry;
         auto& L = s.ledger;
@@ -3243,6 +3350,10 @@ constexpr char magic[8] = {'M', 'A', 'C', 'O', 'L', 'N', '0', '1'};
 // Version 12 uses the version-11 layout and selects conservative liquid
 // boundaries. Versions <=11 retain their original owner boundary law.
 constexpr std::uint32_t checkpoint_version = 12;
+// Wrapper 13 encloses a base wrapper (8..12) whose queue keeps callback-owned
+// requests under ordinals: magic, 13, base version, request count, then the
+// base layout unchanged.
+constexpr std::uint32_t callback_wrapper_version = 13;
 }
 std::vector<std::uint8_t> checkpoint() {
     solver.settle(false);
@@ -3255,7 +3366,38 @@ std::vector<std::uint8_t> checkpoint() {
     // Keep the queue and selected wrapper framing one coherent save snapshot.
     std::unique_lock input_snapshot(inputs);
     const std::uint32_t saved_version=s.conservative_liquid_boundary?12:s.precision_used?11:s.germ_mode==1?10:moving_protocol_used?9:8;
-    w.raw(magic, 8); w.u32(saved_version); w.raw(&s.config, sizeof(s.config));
+    // Inputs queued for the next step are in flight at the save. A request
+    // answering a game callback (a breath, a consumer, an emitter callback)
+    // keeps its place in the queue; its session callback becomes an ordinal
+    // that the adapter rebinds to the same actor after a load (wrapper 13).
+    // Without such requests the base wrapper and its bytes are unchanged.
+    std::vector<MAOniColonyTransfer> transfers; std::vector<MAOniColonyHeat> heat; std::vector<MAOniColonyTerrain> terrain; std::vector<Freeze> freezes;
+    struct SavedJob { std::uint32_t index; std::uint64_t token; PassiveQuantities passives; std::shared_ptr<const std::vector<std::uint8_t>> moving_wire{}; };
+    std::vector<SavedJob> saved_jobs; std::uint64_t saved_job_token=0;
+    std::vector<MAOniColonyCallbackRecord> answered_requests;
+    {
+        for (const auto& [token,job] : pipe_jobs) { (void)token; require(job.last_receipt==0,"Drain committed pipe outcomes before saving"); }
+        saved_job_token=accepted_job_token;
+        std::vector<bool> awaiting(pending_transfers.size());
+        for (const auto index : awaiting_rebind) awaiting[index]=true;
+        for (std::size_t i=0;i<pending_transfers.size();++i) {
+            auto t=pending_transfers[i];
+            if (const auto job=pending_job_tokens.find(i); job!=pending_job_tokens.end())
+                saved_jobs.push_back({static_cast<std::uint32_t>(transfers.size()),job->second,pipe_jobs.at(job->second).passives,pipe_jobs.at(job->second).moving_wire});
+            if (t.callback >= 0 || (t.kind & MA_ONI_COLONY_CONSUMER) != 0 || awaiting[i]) {
+                require(answered_requests.size()<INT32_MAX,"Too many callback-owned requests");
+                MAOniColonyCallbackRecord record{sizeof(MAOniColonyCallbackRecord),1,t.callback,t.kind,t.public_cell,t.native_index,awaiting[i]?1U:0U,0};
+                t.callback=static_cast<std::int32_t>(answered_requests.size()); answered_requests.push_back(record);
+            }
+            transfers.push_back(t);
+        }
+        require(saved_jobs.size()==pipe_jobs.size(),"Pending pipe jobs are missing from the save queue");
+        heat = pending_heat; terrain = pending_terrain; freezes = pending_freezes;
+    }
+    w.raw(magic, 8);
+    if (!answered_requests.empty()) { w.u32(callback_wrapper_version); w.u32(saved_version); w.u32(static_cast<std::uint32_t>(answered_requests.size())); }
+    else w.u32(saved_version);
+    w.raw(&s.config, sizeof(s.config));
     w.u32(static_cast<std::uint32_t>(s.materials.size())); w.raw(s.materials.data(), s.materials.size() * sizeof(MAOniColonyMaterial));
     w.u32(static_cast<std::uint32_t>(s.space.size())); w.raw(s.space.data(), s.space.size());
     w.u32(static_cast<std::uint32_t>(s.blocking.size())); w.raw(s.blocking.data(), s.blocking.size());
@@ -3272,27 +3414,6 @@ std::vector<std::uint8_t> checkpoint() {
                          s.status.committed_heat, s.status.opened_cells, s.status.closed_cells}) w.u64(v);
     for (const auto v : {s.status.maximum_relative_mass_error, s.status.maximum_relative_energy_error, s.status.space_sink_kg,
                          s.status.injected_kg, s.status.extracted_kg, s.status.evaporated_kg, s.status.condensed_kg}) w.f64(v);
-    // Inputs queued for the next step are in flight at the save. Callbacks do
-    // not survive a load: an extraction answering one (a breath, a consumer)
-    // is dropped and asked again after the load; an injection (exhaled gas, an
-    // emitter's output) and native-side changes without callbacks are kept.
-    std::vector<MAOniColonyTransfer> transfers; std::vector<MAOniColonyHeat> heat; std::vector<MAOniColonyTerrain> terrain; std::vector<Freeze> freezes;
-    struct SavedJob { std::uint32_t index; std::uint64_t token; PassiveQuantities passives; std::shared_ptr<const std::vector<std::uint8_t>> moving_wire{}; };
-    std::vector<SavedJob> saved_jobs; std::uint64_t saved_job_token=0;
-    {
-        for (const auto& [token,job] : pipe_jobs) { (void)token; require(job.last_receipt==0,"Drain committed pipe outcomes before saving"); }
-        saved_job_token=accepted_job_token;
-        for (std::size_t i=0;i<pending_transfers.size();++i) {
-            auto t=pending_transfers[i];
-            const bool answered = t.callback >= 0 || (t.kind & MA_ONI_COLONY_CONSUMER) != 0;
-            if (answered && (t.kind & ~MA_ONI_COLONY_CONSUMER) != MA_ONI_COLONY_INJECT) continue;
-            if (const auto job=pending_job_tokens.find(i); job!=pending_job_tokens.end())
-                saved_jobs.push_back({static_cast<std::uint32_t>(transfers.size()),job->second,pipe_jobs.at(job->second).passives,pipe_jobs.at(job->second).moving_wire});
-            t.callback = -1; t.kind &= ~MA_ONI_COLONY_CONSUMER; transfers.push_back(t);
-        }
-        require(saved_jobs.size()==pipe_jobs.size(),"Pending pipe jobs are missing from the save queue");
-        heat = pending_heat; terrain = pending_terrain; freezes = pending_freezes;
-    }
     w.u32(static_cast<std::uint32_t>(transfers.size())); w.raw(transfers.data(), transfers.size() * sizeof(MAOniColonyTransfer));
     w.u32(static_cast<std::uint32_t>(heat.size())); w.raw(heat.data(), heat.size() * sizeof(MAOniColonyHeat));
     w.u32(static_cast<std::uint32_t>(terrain.size())); w.raw(terrain.data(), terrain.size() * sizeof(MAOniColonyTerrain));
@@ -3329,7 +3450,25 @@ std::vector<std::uint8_t> checkpoint() {
     w.u64(image.size()); w.raw(image.data(), image.size());
     const auto digest = hash_memory(w.bytes.data(), w.bytes.size());
     w.raw(digest.data(), digest.size());
+    checkpoint_callbacks_written=std::move(answered_requests);
     return std::move(w.bytes);
+}
+std::vector<MAOniColonyCallbackRecord> checkpoint_callbacks() {
+    std::lock_guard lock(lifecycle); return checkpoint_callbacks_written;
+}
+void queue_replay_freezes(std::span<const ReplayFreeze> edits) {
+    require(active(), "No colony owner is active");
+    for (const auto& e : edits) { (void)rect_index(geometry, e.public_cell); require(std::isfinite(e.mass_kg) && e.mass_kg >= 0, "Invalid replayed freeze"); }
+    std::lock_guard lock(inputs);
+    for (const auto& e : edits) pending_freezes.push_back({e.public_cell, e.native_index, e.mass_kg});
+}
+std::pair<std::uint32_t,std::uint64_t> callback_rebind_state() {
+    std::lock_guard q(inputs); return {static_cast<std::uint32_t>(awaiting_rebind.size()),released_rebinds};
+}
+void rebind_callbacks(std::span<const MAOniColonyCallbackRebind> values) {
+    { std::lock_guard lock(lifecycle); require(session && session->status.state==1,"Callback rebinding requires a healthy colony owner"); }
+    std::lock_guard q(inputs); require(!awaiting_rebind.empty(),"No restored callback-owned request awaits rebinding");
+    resolve_rebinds(values);
 }
 void restore(const MAOniColonyConfig& config, std::span<const MAOniColonyMaterial> materials, std::span<const std::uint8_t> image, std::uint64_t thread) {
     std::lock_guard lock(lifecycle);
@@ -3343,7 +3482,13 @@ void restore(const MAOniColonyConfig& config, std::span<const MAOniColonyMateria
     require(std::memcmp(digest.data(), image.data() + image.size() - 64, 64) == 0, "Colony checkpoint checksum differs");
     Reader r{image.first(image.size() - 64)};
     char head[8]; r.raw(head, 8); require(std::memcmp(head, magic, 8) == 0, "Unsupported colony checkpoint");
-    const auto version = r.u32(); require(version >= 6 && version <= checkpoint_version, "Unsupported colony checkpoint");
+    const auto wrapper = r.u32();
+    require((wrapper >= 6 && wrapper <= checkpoint_version) || wrapper == callback_wrapper_version, "Unsupported colony checkpoint");
+    // Wrapper 13 encloses a base layout 8..12 and names its callback-owned requests.
+    const auto version = wrapper == callback_wrapper_version ? r.u32() : wrapper;
+    const std::uint32_t saved_requests = wrapper == callback_wrapper_version ? r.u32() : 0;
+    require(wrapper != callback_wrapper_version || (version >= 8 && version <= checkpoint_version && saved_requests > 0 &&
+        saved_requests <= 1u << 20), "Invalid callback-owned request wrapper");
     MAOniColonyConfig saved{}; r.raw(&saved, sizeof(saved));
     require(std::memcmp(&saved, &config, sizeof(config)) == 0, "Colony checkpoint geometry or physics differs from the loaded game");
     const auto count = r.u32(); require(count == materials.size(), "Colony checkpoint catalogue differs from the running game");
@@ -3388,6 +3533,18 @@ void restore(const MAOniColonyConfig& config, std::span<const MAOniColonyMateria
     };
     std::vector<MAOniColonyTransfer> transfers; std::vector<MAOniColonyHeat> heat; std::vector<MAOniColonyTerrain> terrain; std::vector<Freeze> freezes;
     read_array(transfers); read_array(heat); read_array(terrain);
+    // Callback-owned requests carry consecutive ordinals in queue order; any
+    // other queued transfer is unanswered. Older wrappers never save one.
+    std::vector<std::size_t> restored_requests;
+    for (std::size_t i = 0; i < transfers.size(); ++i) {
+        const auto& t = transfers[i];
+        if (t.callback == -1 && (t.kind & MA_ONI_COLONY_CONSUMER) == 0) continue;
+        require(wrapper == callback_wrapper_version && t.callback == static_cast<std::int32_t>(restored_requests.size()) &&
+            ((t.kind & MA_ONI_COLONY_CONSUMER) == 0 || (t.kind & ~MA_ONI_COLONY_CONSUMER) != MA_ONI_COLONY_INJECT),
+            "Invalid saved callback-owned request");
+        restored_requests.push_back(i);
+    }
+    require(restored_requests.size() == saved_requests, "Saved callback-owned request count differs");
     freezes.resize(r.u32()); require(freezes.size() <= 1u << 20, "Colony checkpoint holds too many queued inputs");
     for (auto& f : freezes) { f.public_cell = r.u32(); f.native_index = r.u32(); f.mass_kg = r.f64(); }
     std::map<std::size_t,std::uint64_t> restored_tokens; std::map<std::uint64_t,PipeJob> restored_jobs; std::uint64_t restored_watermark=0;
@@ -3491,6 +3648,7 @@ void restore(const MAOniColonyConfig& config, std::span<const MAOniColonyMateria
         pending_transfers = std::move(transfers); pending_heat = std::move(heat); pending_terrain = std::move(terrain); pending_freezes = std::move(freezes);
         pending_germs = std::move(restored_germs);
         pending_job_tokens=std::move(restored_tokens); pipe_jobs=std::move(restored_jobs); accepted_job_token=restored_watermark;
+        awaiting_rebind=std::move(restored_requests); released_rebinds=0;
         // Pending durable jobs must publish full outcomes even before the
         // managed client has finished rebuilding its port objects.
         precise_receipts_enabled=!pipe_jobs.empty();moving_protocol_used=version>=9;

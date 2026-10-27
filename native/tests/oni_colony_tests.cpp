@@ -1097,6 +1097,108 @@ void actor_batch_control() {
     ack_receipts(concurrent[count-1].sequence); stop();
     std::cout<<"PASS atomic actor batch: exact order, all-or-nothing invalid/replay admission, full passives and owner8 cold continuation\n";
 }
+// Owner wrapper 13 (docs/colony-owner.md#saves): callback-owned requests in
+// flight at a save keep their queue place under ordinals and are rebound to
+// this session's callbacks after a restore. Bound, the restored owner
+// continues byte for byte with the uninterrupted one; unbound requests resolve
+// exactly as an older save did.
+void callback_rebind_control() {
+    using namespace ma::oni::colony;
+    std::vector<MAOniColonyMaterial> mats{material("Oxygen",11,oxygen,true,.016,1000),material("CarbonDioxide",12,carbon,true,.044,850)};
+    MAOniColonyConfig cfg{}; cfg.struct_size=sizeof(cfg); cfg.abi_version=MA_ONI_COLONY_ABI_VERSION;
+    cfg.vacuum_index=vacuum; cfg.grid_width=cfg.width=3; cfg.grid_height=cfg.height=3; cfg.maximum_timestep_s=.1;
+    std::vector<MAOniColonyCell> cells(9,MAOniColonyCell{0,MA_ONI_COLONY_SOLID,0,0,0,0});
+    cells[3]={oxygen,MA_ONI_COLONY_FLUID,1.1f,295,3,103}; cells[4]={oxygen,MA_ONI_COLONY_FLUID,1.2f,300,3,103}; cells[5]={carbon,MA_ONI_COLONY_FLUID,.7f,290,3,103};
+    constexpr std::int32_t handle=0x7e000005, new_handle=0x1a00002b; // a native handle in the restored session
+    std::array<MAOniColonyTransfer,6> edits{};
+    for (auto& e : edits) { e.public_cell=4; e.kind=MA_ONI_COLONY_INJECT; e.native_index=oxygen; e.temperature_k=300; e.mass_kg=.02; e.callback=-1; }
+    edits[0].callback=71;                                                            // answered injection (an emitter callback)
+    edits[1].native_index=carbon;                                                    // unanswered injection (a native change)
+    edits[2].kind=MA_ONI_COLONY_EXTRACT; edits[2].native_index=oxygen; edits[2].callback=72; edits[2].mass_kg=.009; edits[2].radius=1; // a breath
+    edits[3].kind=MA_ONI_COLONY_EXTRACT_GAS|MA_ONI_COLONY_CONSUMER; edits[3].callback=handle; edits[3].mass_kg=.015; edits[3].radius=1; // a consumer
+    edits[4].kind=MA_ONI_COLONY_EXTRACT; edits[4].native_index=carbon; edits[4].mass_kg=.004; edits[4].public_cell=5;   // unanswered extraction
+    edits[5].callback=73; edits[5].public_cell=3;
+    start(cfg,mats,cells,1);
+    {   // No callback-owned request: the base wrapper and its bytes are unchanged.
+        queue_transfers(std::span(edits).subspan(1,1)); const auto plain=checkpoint();
+        std::uint32_t version=0; std::memcpy(&version,plain.data()+8,4);
+        require(version==8 && checkpoint_callbacks().empty(),"unanswered queue changed its owner wrapper");
+        stop(); start(cfg,mats,cells,1);
+    }
+    queue_transfers(edits); const auto pending=checkpoint();
+    std::array<std::uint32_t,3> head{}; std::memcpy(head.data(),pending.data()+8,12);
+    require(head[0]==13 && head[1]==8 && head[2]==4,"callback-owned requests were not framed by owner wrapper 13");
+    const auto written=checkpoint_callbacks();
+    require(written.size()==4 && written[0].callback==71 && written[1].callback==72 && written[2].callback==handle && written[3].callback==73 &&
+        written[2].kind==(MA_ONI_COLONY_EXTRACT_GAS|MA_ONI_COLONY_CONSUMER) && written[1].public_cell==4 && written[3].public_cell==3 &&
+        std::all_of(written.begin(),written.end(),[](const auto& r){return r.awaiting==0 && r.struct_size==32 && r.abi_version==1;}),
+        "checkpoint misreported its callback-owned requests");
+    const auto frame=[&] {
+        advance(1,.2,2); wait(); require(status().state==1,"callback rebind frame faulted");
+        std::vector<MAOniColonyReceipt> receipts(64); receipts.resize(copy_receipts(receipts.data(),64));
+        if (!receipts.empty()) ack_receipts(receipts.back().sequence);
+        for (auto& r : receipts) r.sequence=0; // sequences restart after a restore
+        return receipts;
+    };
+    const auto live=frame(); const auto completed=checkpoint();
+    const auto mapped=[&](std::vector<MAOniColonyReceipt> receipts,const std::map<std::int32_t,std::int32_t>& callbacks) {
+        for (auto& r : receipts) if (const auto c=callbacks.find(r.callback); c!=callbacks.end()) r.callback=c->second;
+        return receipts;
+    };
+    const auto same=[](const std::vector<MAOniColonyReceipt>& a,const std::vector<MAOniColonyReceipt>& b) {
+        return a.size()==b.size() && std::memcmp(a.data(),b.data(),a.size()*sizeof(MAOniColonyReceipt))==0;
+    };
+    // Restored: the queue is unchanged, the requests await their actors.
+    stop(); restore(cfg,mats,pending,1);
+    require(callback_rebind_state()==std::pair<std::uint32_t,std::uint64_t>{4,0},"restored requests do not await rebinding");
+    require(checkpoint()==pending,"saving before rebinding changed the restored queue");
+    const auto awaiting=checkpoint_callbacks();
+    require(awaiting.size()==4 && std::all_of(awaiting.begin(),awaiting.end(),[&](const auto& r){return r.awaiting==1 && r.callback==static_cast<std::int32_t>(&r-awaiting.data());}),
+        "awaiting requests misreported");
+    const auto rejects=[&](std::vector<MAOniColonyCallbackRebind> values) {
+        bool rejected=false; try { rebind_callbacks(values); } catch (const std::invalid_argument&) { rejected=true; }
+        require(rejected && callback_rebind_state().first==4,"invalid rebinding was admitted");
+    };
+    rejects({{171,1},{172,1},{new_handle,1}});
+    rejects({{171,1},{-5,1},{new_handle,1},{173,1}});
+    rejects({{171,2},{172,1},{new_handle,1},{173,1}});
+    rebind_callbacks(std::vector<MAOniColonyCallbackRebind>{{171,1},{172,1},{new_handle,1},{173,1}});
+    require(callback_rebind_state()==std::pair<std::uint32_t,std::uint64_t>{0,0},"bound requests still await");
+    const auto bound=frame();
+    require(same(mapped(live,{{71,171},{72,172},{handle,new_handle},{73,173}}),bound) && checkpoint()==completed,
+        "a rebound restored owner differs from the uninterrupted owner");
+    // Released requests behave exactly as the previous save policy: the
+    // answered injection stays unanswered and the extractions are withdrawn.
+    stop(); start(cfg,mats,cells,1);
+    auto legacy=edits; legacy[0].callback=-1; legacy[5].callback=-1;
+    queue_transfers(std::array{legacy[0],legacy[1],legacy[4],legacy[5]});
+    const auto legacy_receipts=frame(); const auto legacy_completed=checkpoint();
+    stop(); restore(cfg,mats,pending,1);
+    const auto released=frame();
+    require(callback_rebind_state()==std::pair<std::uint32_t,std::uint64_t>{0,4} && same(released,legacy_receipts) && checkpoint()==legacy_completed,
+        "unbound requests differ from the previous save policy");
+    // A partial release withdraws only the released extraction.
+    stop(); restore(cfg,mats,pending,1);
+    rebind_callbacks(std::vector<MAOniColonyCallbackRebind>{{171,1},{0,0},{new_handle,1},{173,1}});
+    require(callback_rebind_state()==std::pair<std::uint32_t,std::uint64_t>{0,1},"partial release miscounted");
+    const auto partial=frame();
+    require(std::none_of(partial.begin(),partial.end(),[](const auto& r){return r.callback==72 || r.callback==0;}) &&
+        std::count_if(partial.begin(),partial.end(),[&](const auto& r){return r.callback==new_handle;})>=1,"partial release kept or misrouted a request");
+    stop();
+    // Corrupted ordinals or counts refuse the save.
+    const auto refuses=[&](std::vector<std::uint8_t> image,const char* why) {
+        const auto body=image.size()-64; const auto digest=ma::oni::hash_memory(image.data(),body); std::copy(digest.begin(),digest.end(),image.begin()+body);
+        bool refused=false; try { restore(cfg,mats,image,1); } catch (const std::invalid_argument&) { refused=true; }
+        if (!refused) stop();
+        require(refused,why);
+    };
+    auto wrong_count=pending; wrong_count[16]=5; refuses(wrong_count,"wrong callback-owned request count restored");
+    // The breath (ordinal 1) is the queue's third transfer: give it ordinal 2.
+    const std::array<std::uint32_t,5> breath{4,oxygen,MA_ONI_COLONY_EXTRACT,1,1}; std::array<std::uint8_t,20> pattern{}; std::memcpy(pattern.data(),breath.data(),20);
+    auto wrong_ordinal=pending; const auto at=std::search(wrong_ordinal.begin(),wrong_ordinal.end(),pattern.begin(),pattern.end());
+    require(at!=wrong_ordinal.end(),"saved breath request not found"); *(at+16)=2; refuses(wrong_ordinal,"out-of-order callback ordinal restored");
+    std::cout<<"PASS callback-owned requests: wrapper13 framing, awaiting saves, exact rebound continuation, release as the previous policy, refusal of corrupt ordinals\n";
+}
 void sample_history_control() {
     using namespace ma::oni::colony;
     {
@@ -1903,6 +2005,7 @@ int main(int argc, char** argv) {
         if (argc == 2 && std::strcmp(argv[1], "--sample-only") == 0) { sample_control(); return 0; }
         if (argc == 2 && std::strcmp(argv[1], "--view-cache-only") == 0) { view_cache_control(); return 0; }
         if (argc == 2 && std::strcmp(argv[1], "--actor-batch-only") == 0) { actor_batch_control(); return 0; }
+        if (argc == 2 && std::strcmp(argv[1], "--callback-rebind-only") == 0) { callback_rebind_control(); return 0; }
         if (argc == 2 && std::strcmp(argv[1], "--sample-history-only") == 0) { sample_history_control();native_sample_history_control();region_energy_control();return 0; }
         require(argc == 1, "Usage: ma_oni_colony_tests [--projection-only|--timestep-only|--precise-receipts-only]");
         precise_receipt_control();
@@ -1929,6 +2032,7 @@ int main(int argc, char** argv) {
         sample_control();
         view_cache_control();
         actor_batch_control();
+        callback_rebind_control();
         sample_history_control();
         native_sample_history_control();
         region_energy_control();

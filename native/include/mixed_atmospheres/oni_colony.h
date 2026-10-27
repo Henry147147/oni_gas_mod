@@ -265,6 +265,30 @@ MA_ONI_API MAOniResult ma_oni_colony_queue_moving_parcel(uint64_t session,uint64
 MA_ONI_API MAOniResult ma_oni_colony_copy_moving_outcome(uint64_t sequence,uint8_t* buffer,uint32_t capacity,uint32_t* bytes);
 /* Zero for a non-pipe or acknowledged receipt. */
 MA_ONI_API MAOniResult ma_oni_colony_receipt_job(uint64_t sequence, uint64_t* token);
+/* Callback-owned requests across a save (docs/colony-owner.md#saves).
+ * A queued request that answers a game callback (callback >= 0, or a
+ * CONSUMER extraction answering an actor handle) is in flight at a save.
+ * Owner wrapper 13 keeps it, in queue order, with its callback replaced by
+ * its ordinal. copy_checkpoint_callbacks reports, in ordinal order, the
+ * requests the most recent successful checkpoint wrote and the session
+ * callback each replaced; awaiting=1 marks one restored in this session and
+ * not yet rebound, whose callback is its restored ordinal. After a restore,
+ * the adapter supplies one rebind per ordinal before positive time:
+ * bind=1 sets the request's callback (or actor handle) in this session;
+ * bind=0 releases it as an older save would have: an injection keeps its
+ * mass unanswered, an extraction is withdrawn. A frame or input flush that
+ * finds requests still awaiting releases them all and counts them. */
+typedef struct MAOniColonyCallbackRecord {
+    uint32_t struct_size, abi_version;
+    int32_t callback; uint32_t kind, public_cell, native_index, awaiting, reserved;
+} MAOniColonyCallbackRecord;
+typedef struct MAOniColonyCallbackRebind { int32_t callback; uint32_t bind; } MAOniColonyCallbackRebind;
+MA_ONI_API uint32_t ma_oni_colony_callback_rebind_version(void);
+MA_ONI_API MAOniResult ma_oni_colony_copy_checkpoint_callbacks(MAOniColonyCallbackRecord*, uint32_t capacity, uint32_t* count);
+/* awaiting: restored requests not yet rebound; released: restored requests
+ * resolved without an actor in this session (rebind bind=0 or unbound). */
+MA_ONI_API MAOniResult ma_oni_colony_callback_rebind_state(uint32_t* awaiting, uint64_t* released);
+MA_ONI_API MAOniResult ma_oni_colony_rebind_callbacks(const MAOniColonyCallbackRebind*, uint32_t count);
 /* Full passive observation, separate from the dominant-germ legacy view.
  * Selected cells must be sorted/unique (1..4096). Rows sort by public cell/ID.
  * expected_session=0 selects the latest immutable publication; otherwise both

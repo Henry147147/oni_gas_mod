@@ -678,6 +678,13 @@ numbers and ends with `samples`, how many of them it timed.
 
 ## Saves
 
+**Reserved 2026-10-27, immediately after fetching `f3d5390`:** owner wrapper
+`MACOLN01` version **13** and MACOLP03 section **4** (`MACCBR01`) are assigned
+to callback-owned requests in flight at a save ([below](#callback-owned-requests)).
+Wrapper 13 encloses an unchanged base wrapper 8–12 and is written only when such
+a request is queued; every other save keeps its base wrapper and bytes. Older
+builds refuse both. No physical `MACCLS01` version changes.
+
 **Reserved 2026-10-26, immediately after fetching `3cce360`:** owner wrapper
 `MACOLN01` version **12** is assigned to the conservative airflow boundary law
 for new game-kernel owners. It retains wrapper11's layout, including an empty
@@ -796,10 +803,58 @@ original native bytes and the colony checkpoint (`MACOLN01` version 8, which
 also reads version 6/7 saves: configuration, material records, space and
 liquid-blocking masks, reservoir, ledgers including the trace sink's, continuing
 counters, the inputs queued for the next step, the `MACCLS01` physical image
-and a SHA-256). Inputs in flight at the save keep their mass but not their
-callbacks, which do not survive a load: an injection (exhaled gas, an emitter's
-output) and native-side changes are kept; an extraction answering a callback (a
-breath, a consumer) is dropped and asked again after the load.
+and a SHA-256). Inputs in flight at the save keep their queue place. A request
+that answers a game callback (a breath, a consumer's draw, an emitter's answered
+output) keeps it too: owner wrapper 13 stores it under an ordinal and MACOLP03
+section 4 names the persistent actor that answers it (below). Older wrappers
+dropped such an extraction and kept such an injection unanswered.
+
+<a id="callback-owned-requests"></a>**Callback-owned requests (wrapper 13, MACCBR01).** A callback index or actor
+handle is session-local, so the save names the actor instead: the component
+(prefab instance, exact type, ordinal among that type's components) or state
+machine instance holding the callback data, plus the callback method
+(`ColonyCallbackRequests.cs`, codec `ColonyCallbackRequestImage.cs`). A breath
+or other one-shot consumed-mass callback is registered again on the restored
+actor; an emitted-mass callback reuses the restored component's own
+persistent handle; a consumer's draw goes to the restored element consumer's
+new handle. Rebinding happens before positive time: until every restored
+request is bound, a positive tick runs as a paused zero-time tick, so actor
+registrations can arrive (after 600 such ticks the rest is released). A request
+whose actor has no persistent identity is released exactly as an older save
+did and counted. Owned element consumers and emitters run in the order of these
+identities, so a loaded colony queues them as the uninterrupted one did
+whatever order they registered in. A save with no callback-owned request keeps
+its base wrapper and bytes. Wrapper 13 is `MACOLN01`, 13, the base wrapper
+version (8–12), the request count, then the base layout unchanged; every queued
+transfer with a callback or consumer flag must carry the next ordinal. The
+native controls (`ma_oni_colony_tests --callback-rebind-only`) prove that a
+rebound restored owner reproduces the uninterrupted receipts and owner bytes,
+that releasing reproduces the older policy, and that corrupt ordinals refuse.
+
+`MA_COLONY_INPUT_JOURNAL_DIR=<directory>` (diagnostic, default off) writes every
+committed owner input batch, in commit order, to `inputs-<session>.txt` with
+exact hexadecimal values. `tools/colony_continuation.py --source-inputs/
+--loaded-inputs` compares two branches' journals, ignoring native tickets and
+callback values, and reports the first frame whose inputs differ; a state may
+differ only from that frame on. The journal also writes the game's disease
+table (`diseases-<n>.bin`), each durable job's passives or moving payload and
+the number of native frames in each owner frame.
+
+`ma_oni_colony_replay SAVED.owner JOURNAL DISEASES REFERENCE_PREFIX FRAMES
+[--menu]` proves owner continuation under identical inputs: it restores an
+actual saved owner image in a fresh process (a cold load) and, with `--menu`,
+again after stopping it in the same process (a menu reload), rebinds the
+restored callback-owned requests, feeds each restored owner exactly the
+uninterrupted branch's journaled inputs, and requires every frame's complete
+owner state (ledgers, counters, germ clocks and accounts, held precision
+inventory and the physical image; not the next frame's queued inputs) to equal
+the uninterrupted branch's `MA_COLONY_CONTINUATION_DUMP` image byte for byte.
+The restored queue must be the start of the first resumed frame's inputs. Its
+`--self-test` (CTest `oni_colony_replay_self`) journals a synthetic owner with
+a breath, a consumer and unanswered and answered injections, saves it with
+those requests in flight, and replays it cold and after a menu restore; the
+negative control, releasing the in-flight requests as the previous policy
+did, must diverge at the first resumed frame.
 
 The owner steps one frame ahead of what the game has seen, so at a save its
 last completed frame still has receipts the game has not received.

@@ -14,6 +14,9 @@ namespace MixedAtmospheres.Oni
     //               flight; with a scenario it runs at MA_COLONY_SAVE_FRAME.
     //   particle    a known CO2 parcel spawned just before an ordinary paused
     //               save (particle.sav), which must hold it in flight.
+    //   breath      one duplicant's world breath queued just before an
+    //               ordinary paused save (breath.sav): its callback-owned
+    //               request must be saved in flight (owner wrapper 13).
     //   io-failure  an ordinary save whose destination is a directory: ONI's
     //               writer fails after serialization; the owner must keep
     //               running, nothing is left at the path, and a later save works.
@@ -88,6 +91,27 @@ namespace MixedAtmospheres.Oni
                     Complete($"saved at owner frame {ColonyOwnerPersistence.LastSavedFrame}");
                     return;
                 }
+                case "breath":
+                {
+                    // An ordinary paused save (breath.sav) with one duplicant's
+                    // world breath queued for the owner's next step, issued
+                    // exactly as GasBreatherFromWorldProvider.ConsumeGas does:
+                    // its callback-owned request is in flight at the save.
+                    SpeedControlScreen.Instance.Pause(false);
+                    var breather = Components.LiveMinionIdentities.Items[0].GetComponent<OxygenBreather>();
+                    var action = (Action<Sim.MassConsumedCallback, object>)AccessTools.Field(typeof(GasBreatherFromWorldProvider), "OnSimConsumeCallbackAction").GetValue(null);
+                    var handle = Game.Instance.massConsumedCallbackManager.Add(action, breather, "GasBreatherFromWorldProvider");
+                    SimMessages.ConsumeMass(Grid.CellAbove(Grid.PosToCell(breather)), SimHashes.Oxygen, .0125f, 3, handle.index);
+                    SavesBefore = ColonyOwnerPersistence.Saves; Stage = 1;
+                    var path = Path.Combine(outputDirectory, "breath.sav");
+                    SaveLoader.Instance.Save(path, false, false);
+                    if (ColonyOwnerPersistence.Saves != SavesBefore + 1 || !File.Exists(path) || ColonyCallbackRequests.SavedRequests < 1)
+                        throw new InvalidOperationException("The breath save did not keep its in-flight request.");
+                    ParticlePath = path;
+                    ColonyContinuationProbe.SourceSaved(ColonyOwnerPersistence.LastSavedFrame,path);
+                    Complete($"saved {ColonyCallbackRequests.SavedRequests} callback-owned requests ({ColonyCallbackRequests.LastDetail}) at owner frame {ColonyOwnerPersistence.LastSavedFrame}");
+                    return;
+                }
                 case "particle":
                 {
                     // One known CO2 parcel in flight at an ordinary paused save.
@@ -153,7 +177,7 @@ namespace MixedAtmospheres.Oni
         {using var source=File.OpenRead(path);using var sha=System.Security.Cryptography.SHA256.Create();return BitConverter.ToString(sha.ComputeHash(source)).Replace("-", "").ToLowerInvariant();}
         internal static void Restored(ulong frame)
         {
-            if(Frames==0)return;Reset();restored=frame;origin="restored";
+            if(Frames==0)return;Reset();restored=frame;origin="restored";dumpNewSession=true;
             var path=ColonyRuntimeValidation.Settings?.LoadSavePath;
             if(!string.IsNullOrEmpty(path))saveHash=HashFile(path!);
             armed=true;
@@ -163,10 +187,11 @@ namespace MixedAtmospheres.Oni
         internal static void SourceSaved(ulong frame,string path)
         {
             if(Frames==0||sourceArmed||SaveLoader.Instance.loadedFromSave||Environment.GetEnvironmentVariable("MA_COLONY_CONTINUATION_SOURCE")!="1")return;
-            Reset();sourceArmed=true;restored=frame;origin="uninterrupted";sourceSave=path;
+            Reset();sourceArmed=true;restored=frame;origin="uninterrupted";sourceSave=path;dumpNewSession=true;
             var image=ColonyOwner.Checkpoint();
             if(ColonyCheckpointMetadata.CompletedFrames(image)!=frame)throw new InvalidOperationException("The continuation source advanced after its save.");
             baselineOwner=Hash(image);baselinePipes=ColonyPipeSave.CapturedSha256;saveHash=HashFile(path);armed=true;
+            Dump(frame,image,null);
         }
         private static (ulong Started, ulong Ended) framesBeforeHeld;
         internal static void Submitted(float seconds)
@@ -192,15 +217,31 @@ namespace MixedAtmospheres.Oni
             var expected = restored + (ulong)hashes.Count + 1;
             if (frame != expected) throw new InvalidOperationException($"Continuation probe held at frame {frame}, expected {expected}.");
             var ownerHash=Hash(image);
-            string? pipes=null,particles=null;
+            string? pipes=null,particles=null;byte[]? pipeImage=null;
             if(RuntimeImages)
             {
-                pipes=Hash(ColonyPipeRuntime.Capture());particles=Hash(ColonySavedParticles.Capture(ColonyOwner.Config)??Array.Empty<byte>());
+                pipeImage=ColonyPipeRuntime.Capture();pipes=Hash(pipeImage);particles=Hash(ColonySavedParticles.Capture(ColonyOwner.Config)??Array.Empty<byte>());
                 if(baselineOwner.Length==0)
                 {baselineOwner=ColonyOwnerPersistence.RestoredImageSha256;baselinePipes=ColonyPipeSave.RestoredSha256;}
             }
             hashes.Add(ownerHash);if(pipes!=null)pipeHashes.Add(pipes);if(particles!=null)particleHashes.Add(particles);Frame=frame;
+            Dump(frame,image,pipeImage);
             if (hashes.Count == Frames) armed = false;
+        }
+        // MA_COLONY_CONTINUATION_DUMP=1 (diagnostic, private output): write
+        // each held owner/pipe image beside the validation report so a
+        // mismatch can be localized. Files never overwrite; a menu reload's
+        // second session takes the next sequence number.
+        private static readonly bool DumpImages=Environment.GetEnvironmentVariable("MA_COLONY_CONTINUATION_DUMP")=="1";
+        private static int dumpSession=-1; private static bool dumpNewSession=true;
+        private static void Dump(ulong frame,byte[] owner,byte[]? pipes)
+        {
+            if(!DumpImages)return;
+            if(dumpNewSession){dumpNewSession=false;++dumpSession;}
+            var directory=Path.Combine(ColonyRuntimeValidation.OutputDirectory,"continuation-images");Directory.CreateDirectory(directory);
+            var stem=Path.Combine(directory,$"{origin}-{dumpSession}-{frame}");
+            using(var file=new FileStream(stem+".owner",FileMode.CreateNew))file.Write(owner,0,owner.Length);
+            if(pipes!=null)using(var file=new FileStream(stem+".pipes",FileMode.CreateNew))file.Write(pipes,0,pipes.Length);
         }
     }
 
@@ -222,6 +263,12 @@ namespace MixedAtmospheres.Oni
     internal static class ColonyContinuationHoldPatch
     {
         [HarmonyPriority(Priority.First)]
-        private static bool Prefix() => !ColonyContinuationProbe.Holding;
+        private static bool Prefix(ref float __0)
+        {
+            // Restored callback-owned requests are rebound before positive
+            // time; until then a tick runs as a paused, zero-time tick.
+            if (__0 > 0 && !ColonyCallbackRequests.ReadyForPositiveTime()) __0 = 0;
+            return !ColonyContinuationProbe.Holding;
+        }
     }
 }

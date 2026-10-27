@@ -1169,6 +1169,31 @@ MAOniResult ma_oni_colony_receipt_job(std::uint64_t sequence,std::uint64_t* toke
         *token=ma::oni::colony::receipt_job(sequence);
     });
 }
+std::uint32_t ma_oni_colony_callback_rebind_version() { return 1; }
+MAOniResult ma_oni_colony_copy_checkpoint_callbacks(MAOniColonyCallbackRecord* records,std::uint32_t capacity,std::uint32_t* count) {
+    return boundary([&] {
+        static_assert(sizeof(MAOniColonyCallbackRecord)==32 && sizeof(MAOniColonyCallbackRebind)==8);
+        if (!count || (capacity && !records)) throw Failure(MA_ONI_INVALID_ARGUMENT,"Invalid callback record output");
+        const auto values=ma::oni::colony::checkpoint_callbacks();
+        *count=static_cast<std::uint32_t>(values.size());
+        if (!records) return;
+        if (capacity<values.size()) throw Failure(MA_ONI_BUFFER_TOO_SMALL,"Callback record output is too small");
+        std::copy(values.begin(),values.end(),records);
+    });
+}
+MAOniResult ma_oni_colony_callback_rebind_state(std::uint32_t* awaiting,std::uint64_t* released) {
+    return boundary([&] {
+        if (!awaiting || !released) throw Failure(MA_ONI_INVALID_ARGUMENT,"Invalid callback rebind state output");
+        const auto [pending,dropped]=ma::oni::colony::callback_rebind_state(); *awaiting=pending; *released=dropped;
+    });
+}
+MAOniResult ma_oni_colony_rebind_callbacks(const MAOniColonyCallbackRebind* values,std::uint32_t count) {
+    return boundary([&] {
+        if (!values || !count) throw Failure(MA_ONI_INVALID_ARGUMENT,"Invalid callback rebinds");
+        try { ma::oni::colony::rebind_callbacks({values,count}); }
+        catch (const std::invalid_argument& error) { throw Failure(MA_ONI_INVALID_ARGUMENT,error.what()); }
+    });
+}
 std::uint32_t ma_oni_colony_passive_snapshot_version() { return 1; }
 MAOniResult ma_oni_colony_read_passives(std::uint64_t session,std::uint64_t frame,const std::uint32_t* cells,std::uint32_t cell_count,
     MAOniColonyPassiveStamp* stamp,MAOniColonyPassiveRow* rows,std::uint32_t capacity,std::uint32_t* count) {

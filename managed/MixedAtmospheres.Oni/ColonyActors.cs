@@ -1,6 +1,7 @@
 using System;
 using System.Buffers.Binary;
 using System.Collections.Generic;
+using System.Linq;
 using System.Runtime.InteropServices;
 using HarmonyLib;
 
@@ -42,6 +43,56 @@ namespace MixedAtmospheres.Oni
             public float Interval, Mass, Temperature, MaximumKg; public uint Disease; public int Germs; // emitter
             public int OnBlocked = -1, OnUnblocked = -1; public bool Blocked;
             public string? Source; // what stands at the emitter's cell (a geyser, a building)
+            // The registering component: a stable identity across saves.
+            public SimComponent? Component; public ColonyCallbackIdentity? Identity;
+        }
+        // Owned actors run in one canonical order, their persistent identity,
+        // so a loaded colony queues its consumers and emitters exactly as the
+        // uninterrupted one whatever order they registered in.
+        private static List<KeyValuePair<int,Actor>>? ordered;
+        private static List<KeyValuePair<int,Actor>> Ordered()
+        {
+            if(ordered!=null)return ordered;
+            var complete=true;
+            foreach(var actor in owned.Values)complete&=(actor.Identity??=ColonyCallbackRequests.Identify(actor.Component))!=null||actor.Component==null;
+            var result=owned.ToList();
+            result.Sort((a,b)=>
+            {
+                var x=a.Value.Identity;var y=b.Value.Identity;
+                if(x==null||y==null)return x!=null?-1:y!=null?1:a.Key.CompareTo(b.Key);
+                var order=x.CompareTo(y);return order!=0?order:a.Key.CompareTo(b.Key);
+            });
+            // An identity still unresolved (a component not yet tracked) is
+            // looked up again next frame rather than fixing its order.
+            if(complete)ordered=result;
+            return result;
+        }
+        // The persistent actor answering a handle, if it has one.
+        internal static ColonyCallbackIdentity? IdentityOf(int handle)
+        {
+            if(!owned.TryGetValue(handle,out var actor)&&!native.TryGetValue(handle,out actor))return null;
+            return actor.Identity??=ColonyCallbackRequests.Identify(actor.Component);
+        }
+        // The handle of a running actor with this identity; null while it is
+        // still registering (its native answer has not arrived).
+        internal static int? HandleOf(ColonyCallbackIdentity identity)
+        {
+            foreach(var map in new[]{owned,native})
+                foreach(var entry in map)
+                {
+                    entry.Value.Identity??=ColonyCallbackRequests.Identify(entry.Value.Component);
+                    if(entry.Value.Identity!=null&&entry.Value.Identity.CompareTo(identity)==0)return entry.Key;
+                }
+            return null;
+        }
+        internal static bool Registering(ColonyCallbackIdentity identity)
+        {
+            foreach(var actor in registering.Values)
+            {
+                actor.Identity??=ColonyCallbackRequests.Identify(actor.Component);
+                if(actor.Identity!=null&&actor.Identity.CompareTo(identity)==0)return true;
+            }
+            return false;
         }
         // External source ledger (docs/colony-owner.md#element-consumers-and-emitters):
         // mass every emitter source kind added to the owner, per element.
@@ -65,7 +116,7 @@ namespace MixedAtmospheres.Oni
         internal static double DeliveredKg { get; private set; }
         internal static void Reset()
         {
-            registering.Clear(); native.Clear(); owned.Clear(); replies.Clear(); callbacks.Clear();
+            registering.Clear(); native.Clear(); owned.Clear(); replies.Clear(); callbacks.Clear(); ordered=null;
             issued = 0; Consumers = Emitters = 0; Queued = Delivered = 0; DeliveredKg = 0; SourceKg.Clear();
         }
 
@@ -132,6 +183,7 @@ namespace MixedAtmospheres.Oni
                     var actor = message == AddConsumer
                         ? new Actor { Cell = Int(payload, addCell), Kind = Configuration(payload[addConfiguration], UShort(payload, addElement)), Radius = payload[addRadius], NativeIndex = UShort(payload, addElement) }
                         : new Actor { Emitter = true, MaximumKg = Float(payload, emitterPressure), OnBlocked = Int(payload, emitterBlocked), OnUnblocked = Int(payload, emitterUnblocked) };
+                    actor.Component = RegisteringComponent(callback);
                     if (!running) { registering[callback] = actor; return false; }
                     var handle = OwnedHandles + ++issued;
                     Own(handle, actor);
@@ -158,7 +210,7 @@ namespace MixedAtmospheres.Oni
                 default: // RemoveConsumer, RemoveEmitter
                 {
                     var handle = Int(payload, removeHandle);
-                    if (owned.TryGetValue(handle, out var actor)) { owned.Remove(handle); if (actor.Emitter) --Emitters; else --Consumers; return true; }
+                    if (owned.TryGetValue(handle, out var actor)) { owned.Remove(handle); ordered = null; if (actor.Emitter) --Emitters; else --Consumers; return true; }
                     native.Remove(handle); return false;
                 }
             }
@@ -174,7 +226,18 @@ namespace MixedAtmospheres.Oni
                 ElementConsumer.Configuration.AllLiquid => OniNativeColony.ExtractLiquid,
                 _ => OniNativeColony.Extract
             };
-        private static void Own(int handle, Actor actor) { owned[handle] = actor; if (actor.Emitter) ++Emitters; else ++Consumers; }
+        private static void Own(int handle, Actor actor) { owned[handle] = actor; ordered = null; if (actor.Emitter) ++Emitters; else ++Consumers; }
+        // A SimComponent registers through simComponentCallbackManager; its
+        // callback names the component while the registration message is sent.
+        private static SimComponent? RegisteringComponent(int callback)
+        {
+            try
+            {
+                var item = Game.Instance.simComponentCallbackManager.GetItem(new HandleVector<Game.ComplexCallbackInfo<int>>.Handle { index = callback });
+                return item.callbackData as SimComponent;
+            }
+            catch (Exception error) when (error is ArgumentException || error is IndexOutOfRangeException || error is NullReferenceException) { return null; }
+        }
 
         // Native registration answers, in every native frame's data.
         internal static void Observe(Sim.GameDataUpdate* source)
@@ -214,7 +277,7 @@ namespace MixedAtmospheres.Oni
             if (!(seconds > 0) || owned.Count == 0) return;
             using var pipeBatch = ColonyPipePumps.BeginActorBatch();
             var list = new List<OniNativeColony.Transfer>(owned.Count);
-            foreach (var entry in owned)
+            foreach (var entry in Ordered())
             {
                 var a = entry.Value;
                 if (!a.Emitter)

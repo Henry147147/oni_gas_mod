@@ -319,6 +319,16 @@ int main() {
             "invalid/inactive durable pipe job changed outputs");
         require(ma_oni_colony_receipt_job(1,nullptr)==MA_ONI_INVALID_ARGUMENT &&
             ma_oni_colony_receipt_job(1,&job_token)==MA_ONI_OK && job_token==0,"unknown pipe receipt token");
+        std::uint32_t callback_count=77,awaiting_requests=77; std::uint64_t released_requests=88;
+        const MAOniColonyCallbackRebind no_rebind{0,0};
+        require(ma_oni_colony_callback_rebind_version()==1 &&
+            ma_oni_colony_copy_checkpoint_callbacks(nullptr,0,nullptr)==MA_ONI_INVALID_ARGUMENT &&
+            ma_oni_colony_copy_checkpoint_callbacks(nullptr,1,&callback_count)==MA_ONI_INVALID_ARGUMENT && callback_count==77 &&
+            ma_oni_colony_callback_rebind_state(nullptr,&released_requests)==MA_ONI_INVALID_ARGUMENT &&
+            ma_oni_colony_rebind_callbacks(nullptr,1)==MA_ONI_INVALID_ARGUMENT &&
+            ma_oni_colony_rebind_callbacks(&no_rebind,1)==MA_ONI_INVALID_ARGUMENT,"invalid/inactive callback rebinding admitted");
+        require(ma_oni_colony_callback_rebind_state(&awaiting_requests,&released_requests)==MA_ONI_OK && awaiting_requests==0,
+            "inactive owner reports awaiting callback requests");
         const std::uint8_t invalid_parcel=0;
         require(ma_oni_colony_moving_parcel_version()==1 &&
             ma_oni_colony_queue_moving_parcel(1,1,nullptr,1,&job_state,&last_receipt)==MA_ONI_INVALID_ARGUMENT &&

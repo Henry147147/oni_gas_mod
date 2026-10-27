@@ -58,12 +58,18 @@ namespace MixedAtmospheres.Oni
             // Normally settled at SaveLoader.Save(string) entry; any other
             // path settles here, before the native section is captured.
             var settledFrame = ColonySaveBarrier.ForCapture();
+            // Bind restored in-flight requests if their actors are ready;
+            // otherwise they are saved again under their loaded actors.
+            ColonyCallbackRequests.TryRebind(false);
             int size; byte* data = BeginSave(&size, offsetX, offsetY); byte[] native;
             try { native = new ReadOnlySpan<byte>(data, size).ToArray(); } finally { EndSave(); }
             var image = ColonyOwner.Checkpoint();
             var completedFrame = ColonyCheckpointMetadata.CompletedFrames(image);
             if (completedFrame != settledFrame)
                 throw new InvalidOperationException("The colony owner advanced between its save barrier and its capture.");
+            // The actors answering the image's callback-owned requests (wrapper 13).
+            var requests = ColonyCallbackRequests.Capture();
+            ColonyCallbackRequestImage.ValidateOwner(image, requests);
             var config = ConfigBytes(ColonyOwner.Config);
             // Sections hold what is in flight outside the owner image; with
             // none the payload keeps the exact historical MACOLP01 bytes.
@@ -75,6 +81,8 @@ namespace MixedAtmospheres.Oni
             // Only a colony whose breathing rules differ from the defaults.
             if (ModSettingsRuntime.CaptureRecord() is byte[] settings)
                 sections.Add(new KeyValuePair<uint, byte[]>(ColonySavePayload.ColonySettings, settings));
+            if (requests != null)
+                sections.Add(new KeyValuePair<uint, byte[]>(ColonySavePayload.CallbackRequests, requests));
             var payload = ColonySavePayload.Encode(config, image, sections);
             var envelope = ColonySaveEnvelope.Create(RunningBuild, MaterialModel, completedFrame,
                 CatalogueHash(ColonyOwner.Materials), native, payload);
@@ -97,12 +105,15 @@ namespace MixedAtmospheres.Oni
             // Once the MACOLONY envelope is recognized, an unknown managed
             // payload is an incompatible mixture save, not a native save.
             var sections = ColonySavePayload.Decode(envelope.CustomData);
+            ColonyCallbackRequestImage.ValidateOwner(sections.Owner, sections.Section(ColonySavePayload.CallbackRequests));
             OniNativeColony.Config config;
             fixed (byte* source = sections.Config) config = Marshal.PtrToStructure<OniNativeColony.Config>((IntPtr)source);
             var image = sections.Owner;
             ModSettingsRuntime.LoadRecord(sections.Section(ColonySavePayload.ColonySettings));
             if (sections.Section(ColonySavePayload.CarbonParticles) is byte[] particles) ColonySavedParticles.Load(particles, config);
             if (sections.Section(ColonySavePayload.PipeRuntime) is byte[] pipeImage) ColonyPipeSave.Load(pipeImage);
+            if (sections.Section(ColonySavePayload.CallbackRequests) is byte[] requests) ColonyCallbackRequests.Load(requests);
+            else ColonyCallbackRequests.Unload();
             if (reader.ReadInt32() != length) throw new InvalidDataException("Colony save section changed while loading.");
             _ = reader.ReadBytes(length);
             var native = envelope.NativeData.ToArray(); IntPtr loaded;
@@ -151,6 +162,7 @@ namespace MixedAtmospheres.Oni
                 var payload = ColonySavePayload.Decode(envelope.CustomData);
                 _ = ColonyCheckpointMetadata.Profile(payload.Owner);
                 if (payload.Section(ColonySavePayload.ColonySettings) is byte[] settings) _ = ColonySettingsRecord.Decode(settings, SettingValues.Defaults());
+                ColonyCallbackRequestImage.ValidateOwner(payload.Owner, payload.Section(ColonySavePayload.CallbackRequests));
                 return null;
             }
             catch (Exception error) { return error.Message; }
@@ -164,7 +176,7 @@ namespace MixedAtmospheres.Oni
             ColonyPipeRuntime.Persistable = ColonyPipeSave.WriterEnabled;
             var value = pending; pending = null; return value;
         }
-        internal static void Reset() { ColonySaveBarrier.Reset(); ColonySavedParticles.Reset(); ColonySaveControls.Reset(); ColonyContinuationProbe.Reset(); ColonyLoadRefusal.Reset(); ColonyPipeSave.Reset(); pending = null; RestoredProfile = null; RestoredImageSha256 = ""; RestoredImageReencoded = null; RestoredReencodeMilliseconds = 0; RestoredReencodeScope = ""; }
+        internal static void Reset() { ColonyCallbackRequests.Reset(); ColonySaveBarrier.Reset(); ColonySavedParticles.Reset(); ColonySaveControls.Reset(); ColonyContinuationProbe.Reset(); ColonyLoadRefusal.Reset(); ColonyPipeSave.Reset(); pending = null; RestoredProfile = null; RestoredImageSha256 = ""; RestoredImageReencoded = null; RestoredReencodeMilliseconds = 0; RestoredReencodeScope = ""; }
 
         internal static object? RestoredReport() => RestoredProfile is not ColonyPhysicalProfile p ? null : new {
             p.OwnerVersion, p.PhysicalVersion, p.LiquidLaw, p.PressureIterationCap, p.HeatIterationCap, p.GasHeatMixing,

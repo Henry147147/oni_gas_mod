@@ -194,6 +194,19 @@ namespace MixedAtmospheres.Oni
         internal static extern int PipeJobState(ulong token, out uint state, out ulong lastReceipt);
         [DllImport(Library, EntryPoint = "ma_oni_colony_receipt_job", CallingConvention = CallingConvention.Cdecl)]
         internal static extern int ReceiptJob(ulong sequence, out ulong token);
+        // Callback-owned requests across a save (owner wrapper 13, docs/colony-owner.md#saves).
+        [StructLayout(LayoutKind.Sequential)]
+        internal struct CallbackRecord {public uint StructSize,AbiVersion;public int Callback;public uint Kind,PublicCell,NativeIndex,Awaiting,Reserved;}
+        [StructLayout(LayoutKind.Sequential)]
+        internal struct CallbackRebind {public int Callback;public uint Bind;}
+        [DllImport(Library, EntryPoint = "ma_oni_colony_callback_rebind_version", CallingConvention = CallingConvention.Cdecl)]
+        internal static extern uint CallbackRebindVersion();
+        [DllImport(Library, EntryPoint = "ma_oni_colony_copy_checkpoint_callbacks", CallingConvention = CallingConvention.Cdecl)]
+        internal static extern int CopyCheckpointCallbacks([Out] CallbackRecord[]? records, uint capacity, out uint count);
+        [DllImport(Library, EntryPoint = "ma_oni_colony_callback_rebind_state", CallingConvention = CallingConvention.Cdecl)]
+        internal static extern int CallbackRebindState(out uint awaiting, out ulong released);
+        [DllImport(Library, EntryPoint = "ma_oni_colony_rebind_callbacks", CallingConvention = CallingConvention.Cdecl)]
+        internal static extern int RebindCallbacks([In] CallbackRebind[] values, uint count);
         [DllImport(Library, EntryPoint = "ma_oni_colony_ack_receipts", CallingConvention = CallingConvention.Cdecl)] internal static extern int AckReceipts(ulong through);
         [DllImport(Library, EntryPoint = "ma_oni_colony_checkpoint", CallingConvention = CallingConvention.Cdecl)]
         internal static extern int Checkpoint([Out] byte[]? buffer, uint capacity, out uint bytes);

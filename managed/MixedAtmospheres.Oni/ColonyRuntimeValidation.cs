@@ -479,7 +479,7 @@ namespace MixedAtmospheres.Oni
                 BlockedMilliseconds = ColonyOwner.BlockedMilliseconds.ToDictionary(item => item.Key.ToString(), item => item.Value),
                 LongestBlockMilliseconds = ColonyOwner.LongestBlockMilliseconds.ToDictionary(item => item.Key.ToString(), item => item.Value),
                 Census = ColonyOwner.Census.OrderByDescending(item => item.Value).ToDictionary(item => item.Key.ToString(), item => item.Value),
-                Scenario = ColonyScenarios.Current, Scenarios = ColonyScenarios.Results, OwnerMenuReload = OwnerReloadReport(), RestoredOwner = ColonyOwnerPersistence.RestoredReport(), SaveBarrier = ColonySaveBarrier.Report(), SavedParticles = ColonySavedParticles.Report(), PipeSave = ColonyPipeSave.Report(), SaveControl = ColonySaveControls.Report(), Continuation = ColonyContinuationProbe.Report(),
+                Scenario = ColonyScenarios.Current, Scenarios = ColonyScenarios.Results, OwnerMenuReload = OwnerReloadReport(), RestoredOwner = ColonyOwnerPersistence.RestoredReport(), SaveBarrier = ColonySaveBarrier.Report(), SavedParticles = ColonySavedParticles.Report(), PipeSave = ColonyPipeSave.Report(), SaveControl = ColonySaveControls.Report(), Continuation = ColonyContinuationProbe.Report(), CallbackRequests = ColonyCallbackRequests.Report(),
                 Consumers = ColonyActors.Consumers, Emitters = ColonyActors.Emitters, NativeActors = ColonyActors.Native, ActorTransfers = ColonyActors.Queued, ConsumerEvents = ColonyActors.Delivered,
                 Error = status.Error
             };
