@@ -173,9 +173,19 @@ Current status:
 
 ## Starting air and progression (milestone F design)
 
-Design of 2026-10-27 for the first release (base game and Spaced Out!). Items
-marked **decision** need the user; until then the defaults below keep today's
-playtest behaviour (easy mode on vanilla world generation).
+Design of 2026-10-27 for the first release (base game and Spaced Out!).
+
+**User decisions, 2026-10-27:**
+
+1. Nitrogen air is a new-colony option, off by default; the built-in *Hard
+   mode* preset turns it on.
+2. Generated nitrogen air holds 25% oxygen by moles, with the same mass and
+   temperature as the generated oxygen it replaces.
+3. Vanilla-air starts (the easy-mode default) also get the oxylite oxygen
+   reserve when the ten-cycle bridge shows an oxygen shortfall, by the same
+   mechanism as nitrogen-air starts. A carbon dioxide headroom shortfall stays
+   a start notice only. The notice says what was added, and the reserve is
+   deterministic for a given world and starting duplicants.
 
 ### Facts it rests on (build 744825)
 
@@ -197,21 +207,19 @@ playtest behaviour (easy mode on vanilla world generation).
 
 ### Proposal
 
-1. **Nitrogen air** (new-colony setting, off by default; **decision**:
-   option or default). When the owner imports a new colony, each cell's
-   generated oxygen and polluted oxygen becomes air of the same mass and
-   temperature with 21% oxygen by moles and nitrogen for the rest. Polluted
+1. **Nitrogen air** (new-colony setting, off by default). When the owner
+   imports a new colony, each cell's generated oxygen and polluted oxygen
+   becomes air of the same mass and temperature with 25% oxygen by moles and
+   nitrogen for the rest. Polluted
    oxygen stays polluted and keeps its germs. This applies on every owned
    asteroid, the whole cluster in Spaced Out!. ONI's world generation (seed,
    layout, templates, solids, liquids, other gases, geysers, POIs) is
    unchanged; only the imported gas inventory differs, and that is the
    colony's initial ledger inventory, with no new checkpoint field. Keeping the
-   mass keeps ONI's mass limits meaningful. Pressure falls to about 63% (about
-   160 kPa near the pod, oxygen partial pressure about 34 kPa); air below about
-   0.75 kg per cell is under 15 kPa of oxygen. The import lays air out as one
-   mixed layer, not as separate nitrogen and oxygen layers. **Decision:** the
-   oxygen share. 21% is Earth's air; 25% or 30% (still inside hard mode) give
-   1.7× or 2.5× the breathable oxygen per cell.
+   mass keeps ONI's mass limits meaningful. Pressure falls to about 64% (about
+   164 kPa near the pod, oxygen partial pressure about 41 kPa); air below about
+   0.61 kg per cell is under 15 kPa of oxygen. The import lays air out as one
+   mixed layer, not as separate nitrogen and oxygen layers.
 2. **Finite nitrogen reserves**: the converted air itself, in every biome
    that generates oxygen or polluted oxygen. Nothing produces nitrogen (no
    geyser or machine). Liquid and solid nitrogen cannot persist at generated
@@ -221,13 +229,13 @@ playtest behaviour (easy mode on vanilla world generation).
    duplicants and reads each one's oxygen use (the game attribute, so traits
    count). Over the gas connected to the printing pod it computes the oxygen
    that can be breathed under the colony's rules and the carbon dioxide
-   headroom, in cycles. Nitrogen-air colonies get oxylite debris beside the
-   pod for the ten-cycle oxygen shortfall: a vanilla item that sublimates only
-   below 1.8 kg, so a room of 21% air at 1.67 kg per cell settles near 30% oxygen,
-   inside hard mode. No vanilla carbon dioxide sink works unattended. When either margin is
-   under ten cycles, the start notice says so and names the remedies (open the
-   cave, algae terrarium, carbon skimmer). Vanilla-air colonies only get this
-   report; **decision:** whether they also get reserves.
+   headroom, in cycles. Every start with an oxygen shortfall gets oxylite
+   debris beside the pod for the ten-cycle shortfall. Oxylite is a vanilla
+   item that sublimates only below 1.8 kg, so 25% air stays inside hard mode's
+   35% at that limit wherever it holds at least 1.64 kg per cell; thinner air
+   beside the reserve can pass 35%. No vanilla carbon dioxide sink works
+   unattended. When either margin is under ten cycles, the start notice says so
+   and names the remedies (open the cave, algae terrarium, carbon skimmer).
 4. **Hard mode** keeps the existing maximum-oxygen setting (35%). A new
    built-in preset, *Hard mode*, sets it with nitrogen air. The window warns
    that hard mode without nitrogen air fails everywhere, because vanilla air
