@@ -71,6 +71,9 @@ namespace MixedAtmospheres.Oni
                     case "spaced-out-rocket-retire": SpacedOutRocketRetirement(frame,status); break;
                     case "spaced-out-warp-ports": SpacedOutWarpPorts(frame,status); break;
                     case "spaced-out-rocket-flight": SpacedOutRocketFlight(frame,status); break;
+                    case "spaced-out-cargo-gas": SpacedOutCargo(frame,status,true); break;
+                    case "spaced-out-cargo-liquid": SpacedOutCargo(frame,status,false); break;
+                    case "spaced-out-rocket-abandon": SpacedOutRocketAbandon(frame,status); break;
                     case "terrain": Terrain(frame); break;
                     case "heat": Heat(frame, status); break;
                     case "phase": Phase(frame, status); break;

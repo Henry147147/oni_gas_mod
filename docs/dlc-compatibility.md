@@ -247,8 +247,9 @@ The `1ccbe75` actual source now passes retirement and slot reuse: it recovers
 closes the removed cells and reuses the same world-9 rectangle. The new cabin
 contains none of the former CO2/liquids and retains its new 0.125/0.0625 kg gas
 source. The source ends at frame 87 with relative mass/energy errors
-2.37e-16/5.56e-16. Fresh-process load reaches frame 96, reencoding the restored
-wrapper12/core23 owner exactly. The menu-load check remains queued. These are
+2.37e-16/5.56e-16. Fresh-process and menu loads reach frame96 and reencode the
+same wrapper12/core23 image exactly (`8608173e…f4db3`). The menu path verifies
+teardown, the actual main menu and a second load into a new owner session. These are
 WindowsPlayer/Proton development controls, not ordinary activation or Windows OS
 acceptance.
 
@@ -279,6 +280,31 @@ changes must reach `InFlight`; the advancing cabin must retain both gases and
 closed world/pipe accounts at the destination. It does not certify preflight
 crew or obstruction checks. The scenario compiles against both installed SDKs;
 its game and in-flight save/load checks remain unrun.
+
+The `2b291d5` actual flight source passes all four checks and saves at owner
+frame170. The native craft reaches a different hex in `InFlight`; its cabin
+keeps 0.25 kg oxygen and 0.125 kg carbon dioxide to rounding, with exact pipe
+accounts. Maximum relative mass/energy errors are6.84e-16/1.06e-15. The
+fresh-process and menu loads of that airborne source remain queued. Native
+DLLs retain their exact `1ccbe75` provenance; these are Proton controls.
+
+### Cargo and airborne recovery controls
+
+`spaced-out-cargo-gas` and `spaced-out-cargo-liquid` add real small cargo bays
+and connected powered modular launch-pad stations. The ordinary unloader
+filter initially accepts nothing. After the native loader/distributor places
+the declared 0.75/0.25 kg mixture in the actual bay, the control opens that
+filter and requires both constituents at the output, no duplicate input or
+storage inventory and closed accounts. Empty bays are removed through normal
+module deconstruction so both phases fit the same small engine. No cargo or
+pipe simulation callback is invoked manually.
+
+`spaced-out-rocket-abandon` follows actual flight and emits the normal
+confirmed self-destruct event. It waits for the game's monitor and recovery
+callbacks, then requires every cabin/pipe/native-fuel constituent in actual
+debris stores, removed interior ownership and closed accounts. These new
+controls compile against both SDKs and are registered in both validation
+entry points; their game and persistence checks remain unrun.
 
 The 2026-10-26 request covers Spaced Out!, Frosty, Bionic, Prehistoric and
 Aquatic: every one of their 32 selections on Linux and Windows x64. This

@@ -50,7 +50,7 @@ namespace MixedAtmospheres.Oni
                 {
                     if (frame < 240) return;
                     Record("rocket reached actual flight", false,
-                        $"status {clusterFlightCraft.Status}, location {clusterFlightCraft.Location}, destination {clusterFlightDestination}");
+                        $"status {clusterFlightCraft.Status}, location {clusterFlightCraft.Location.r},{clusterFlightCraft.Location.q}, destination {clusterFlightDestination.r},{clusterFlightDestination.q}");
                     Finish(); return;
                 }
                 recorded["observed actual flight"] = frame;
@@ -59,7 +59,7 @@ namespace MixedAtmospheres.Oni
             var proof = WorldSpecies(clusterRocketWorld!);
             Record("rocket travelled to another cluster hex", clusterFlightCraft!.Status == Clustercraft.CraftStatus.InFlight &&
                 clusterFlightCraft.Location == clusterFlightDestination && clusterFlightDestination != clusterFlightOrigin,
-                $"{clusterFlightOrigin} -> {clusterFlightCraft.Location}, status {clusterFlightCraft.Status}");
+                $"{clusterFlightOrigin.r},{clusterFlightOrigin.q} -> {clusterFlightCraft.Location.r},{clusterFlightCraft.Location.q}, status {clusterFlightCraft.Status}");
             Record("flight retains both cabin constituents", Math.Abs(proof.Oxygen - recorded["flight oxygen"]) < 1e-6 &&
                 Math.Abs(proof.Carbon - recorded["flight carbon"]) < 1e-6 && proof.Frame > recorded["flight owner frame"],
                 $"oxygen {proof.Oxygen:R}/{recorded["flight oxygen"]:R} kg, carbon dioxide {proof.Carbon:R}/{recorded["flight carbon"]:R} kg");
