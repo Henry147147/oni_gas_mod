@@ -21,6 +21,11 @@ namespace MixedAtmospheres.Oni
                     s.spawnInfo.id == "WarpConduitReceiver").ToArray();
                 Debug.Log("[Mixed Atmospheres] Generated warp hardware: " + string.Join("; ", generated.Select(s =>
                     $"{s.spawnInfo.id} cell {s.cell}, world {Grid.WorldIdx[s.cell]}, spawned {s.isSpawned}")));
+                // Material teleporters remain unspawned on an undiscovered
+                // asteroid. Use the same discovery entry as arrival there,
+                // retaining the generated positions and native spawn path.
+                foreach (var world in generated.Select(s => (int)Grid.WorldIdx[s.cell]).Distinct())
+                    ClusterManager.Instance.GetWorld(world).SetDiscovered(false);
                 // Reveal the actual generated objects, just as discovering a
                 // linked endpoint does. No synthetic partner or transfer tick.
                 spawner.SpawnTag("WarpConduitSender");

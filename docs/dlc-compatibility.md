@@ -286,8 +286,20 @@ capture from0.40000000596 to0.60000000894 seconds. A separate synthetic
 24x16 control has61 invalid cells under the old solve; the repair leaves all
 temperatures in the initial range, closes energy to1.93e-18 relative, matches
 workers1/12 and refuses an insufficient total iteration budget atomically.
-The ordinary finite heat path and checkpoint format remain unchanged. A new
-actual-game teleporter control and clean diagnostic comparison remain required.
+The ordinary finite heat path and checkpoint format remain unchanged. Clean
+`1ccbe75`/`6c91161` builds retain every comparable `ma_mac_*` physical output
+and exit code across85 executables; only validation timings differ, and the
+long Riemann gate remains unrun. The fresh Windows build passes the kernel
+regression under Wine. Its actual teleporter run passes the former heat fault,
+then reaches the hardware check at frame31 with a healthy owner.
+
+That run finds only the starting world's active endpoints. All four generation
+records exist in worlds0/2; the linked asteroid is still undiscovered, so its
+material endpoints have not spawned. The fixture now discovers those actual
+worlds through `WorldContainer.SetDiscovered(false)` before requesting normal
+spawns, as arrival would. It keeps their generated positions, both directions
+and all physical inputs/bounds. The installed Windows SDK build passes; the
+replacement game result remains required.
 
 ### Rocket flight
 
