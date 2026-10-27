@@ -6,11 +6,14 @@
 // Jacobi or geometric-multigrid preconditioner.
 #include "mac_kernel_detail.hpp"
 #include "mixed_atmospheres/mac_phase_change.hpp"
+#include <algorithm>
 #include <array>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
+#include <exception>
 #include <numeric>
+#include <span>
 #include <utility>
 
 namespace ma::experimental::mac_kernel {
@@ -197,8 +200,46 @@ ComponentLayout component_layout(const Context& c, const LinearSystem& sys) {
         [&](const auto& b) { return std::pair<std::size_t, double>{local[b.first], b.second}; });
     return layout;
 }
+// Fixed reduction blocks of a parallel component solve. A solve of at most
+// this many cells reproduces the serial component solve exactly.
+constexpr std::size_t parallel_reduction_rows = 1024;
+// Rows of one large component in IC sweep tasks: bands of whole grid rows
+// with about equal cell counts, cut into column chunks. A row's lower
+// neighbours (left and below) are earlier in its task or in a task of a
+// lower or equal band and chunk. The tasks only schedule rows; the
+// arithmetic of every row is the serial factor's.
+PressureParallelPlan sweep_plan(const Grid& g, std::span<const std::size_t> cells, unsigned workers) {
+    PressureParallelPlan plan;
+    const auto count = cells.size();
+    std::size_t x0 = g.W, x1 = 0;
+    for (const auto cell : cells) { x0 = std::min(x0, cell % g.W); x1 = std::max(x1, cell % g.W); }
+    const auto y0 = cells.front() / g.W, rows = cells.back() / g.W - y0 + 1, width = x1 - x0 + 1;
+    plan.bands = std::max<std::size_t>(1, std::min<std::size_t>(workers, rows));
+    plan.chunks = std::clamp<std::size_t>(width / 8, 1, 64);
+    std::vector<std::size_t> band_of_row(rows, 0);
+    {
+        std::size_t band = 0, seen = 0, k = 0;
+        for (std::size_t r = 0; r < rows; ++r) {
+            band_of_row[r] = band;
+            for (; k < count && cells[k] / g.W == y0 + r; ++k) ++seen;
+            if (band + 1 < plan.bands && seen * plan.bands >= (band + 1) * count) ++band;
+        }
+    }
+    const auto task = [&](std::size_t cell) {
+        return band_of_row[cell / g.W - y0] * plan.chunks + (cell % g.W - x0) * plan.chunks / width;
+    };
+    plan.start.assign(plan.bands * plan.chunks + 1, 0);
+    for (const auto cell : cells) ++plan.start[task(cell) + 1];
+    for (std::size_t t = 0; t + 1 < plan.start.size(); ++t) plan.start[t + 1] += plan.start[t];
+    plan.order.resize(count);
+    auto cursor = plan.start;
+    for (std::size_t k = 0; k < count; ++k) plan.order[cursor[task(cells[k])]++] = k;
+    plan.reduction_rows = parallel_reduction_rows;
+    return plan;
+}
 LinearSolveResult solve_component_ic(Context& c, const LinearSystem& sys, const std::vector<double>& b,
-    std::vector<double>& x, double rtol, double atol, std::size_t maximum, const ComponentLayout* cached = nullptr) {
+    std::vector<double>& x, double rtol, double atol, std::size_t maximum, const ComponentLayout* cached = nullptr,
+    std::size_t parallel_rows = 0) {
     const auto transient = cached ? ComponentLayout{} : component_layout(c, sys);
     const auto& layout = cached ? *cached : transient;
     const auto parts = layout.size();
@@ -208,7 +249,13 @@ LinearSolveResult solve_component_ic(Context& c, const LinearSystem& sys, const 
     // Sum of squared component residual limits is at most half the squared
     // original global limit, including when relative and absolute terms mix.
     const double local_atol = parts == 0 ? atol : .5 * atol / std::sqrt(static_cast<double>(parts));
-    c.exec.pool.run(parts, [&](std::size_t index) {
+    // Components of at least parallel_rows cells run after the others, one at
+    // a time across the pool; the lowest failing component's error is raised.
+    std::vector<std::size_t> serial, parallel;
+    for (std::size_t index = 0; index < parts; ++index)
+        (parallel_rows && layout.cell_start[index + 1] - layout.cell_start[index] >= parallel_rows ? parallel : serial).push_back(index);
+    std::vector<std::exception_ptr> errors(parts);
+    const auto solve_one = [&](std::size_t index, const PressureParallelPlan* plan) {
         const auto first = layout.cell_start[index], last = layout.cell_start[index + 1];
         const auto face_first = layout.face_start[index], face_last = layout.face_start[index + 1];
         std::vector<double> diagonal, rhs; diagonal.reserve(last - first); rhs.reserve(last - first);
@@ -228,12 +275,30 @@ LinearSolveResult solve_component_ic(Context& c, const LinearSystem& sys, const 
                 layout.faces.begin() + static_cast<std::ptrdiff_t>(face_last)),
             PressurePreconditioner::incomplete_cholesky);
         PressureSolveResult solved;
-        try { solved = matrix.solve(rhs, std::vector<double>(rhs.size(), 0), .5 * rtol, local_atol, maximum); }
+        try { solved = matrix.solve(rhs, std::vector<double>(rhs.size(), 0), .5 * rtol, local_atol, maximum, plan); }
         catch (const std::runtime_error&) { reject("Production component pressure solve did not converge"); }
         for (auto j = first; j < last; ++j) x[layout.cells[j]] = solved.pressure[j - first];
         results[index] = {{solved.iterations, solved.residual_norm, true},
             solved.preconditioner_used == PressurePreconditioner::incomplete_cholesky, solved.preconditioner_fallback};
-    });
+    };
+    if (parallel.empty()) c.exec.pool.run(parts, [&](std::size_t index) { solve_one(index, nullptr); });
+    else {
+        c.exec.pool.run(serial.size(), [&](std::size_t k) {
+            try { solve_one(serial[k], nullptr); } catch (...) { errors[serial[k]] = std::current_exception(); }
+        });
+        struct Executor { Pool* pool; };
+        Executor executor{&c.exec.pool};
+        for (const auto index : parallel) {
+            const auto first = layout.cell_start[index], last = layout.cell_start[index + 1];
+            auto plan = sweep_plan(c.g, std::span(layout.cells).subspan(first, last - first), c.exec.pool.size());
+            plan.executor_context = &executor;
+            plan.executor = [](const void* context, std::size_t count, PressureParallelPlan::Task task, const void* job) {
+                static_cast<const Executor*>(context)->pool->run(count, [task, job](std::size_t t) { task(job, t); });
+            };
+            try { solve_one(index, &plan); } catch (...) { errors[index] = std::current_exception(); }
+        }
+        for (const auto& error : errors) if (error) std::rethrow_exception(error);
+    }
     LinearSolveResult result; result.converged = true; DD squared;
     c.counters.maximum_linear_components = std::max(c.counters.maximum_linear_components, parts);
     for (const auto& solved : results) {
@@ -243,6 +308,12 @@ LinearSolveResult solve_component_ic(Context& c, const LinearSystem& sys, const 
     }
     result.residual = std::sqrt(squared.value()); return result;
 }
+}
+LinearSolveResult solve_components(Context& c, const LinearSystem& sys, const std::vector<double>& b, std::vector<double>& x,
+    double rtol, double atol, std::size_t maximum, std::size_t parallel_rows) {
+    if (c.settings.preconditioner != PressurePreconditioner::incomplete_cholesky || parallel_rows == 0)
+        throw std::invalid_argument("Parallel component solves need the IC preconditioner and a size");
+    return solve_component_ic(c, sys, b, x, rtol, atol, maximum, nullptr, parallel_rows);
 }
 LinearSolveResult solve_linear(Context& c, const LinearSystem& sys, const std::vector<double>& b, std::vector<double>& x,
     double rtol, double atol, std::size_t maximum, bool try_jacobi) {

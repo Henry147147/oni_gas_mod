@@ -253,8 +253,10 @@ public:
       rhs_norm.add(w.rhs[i] * w.rhs[i]);
     const double tolerance =
         std::max(1e-14, relative_tolerance * std::sqrt(rhs_norm.value()));
-    const auto solved = kernel::solve_linear(context, system, w.increment_rhs,
-                                             result.p, 0, tolerance, maximum_iterations);
+    // Components of at least 4096 cells solve across the pool; their dot
+    // products sum fixed 1024-cell blocks (PressureParallelPlan).
+    const auto solved = kernel::solve_components(context, system, w.increment_rhs,
+                                                 result.p, 0, tolerance, maximum_iterations, 4096);
     context.exec.rows([&](std::size_t y0, std::size_t y1, std::size_t) {
       for (std::size_t i = y0 * g.W; i < y1 * g.W; ++i)
         if (system.active[i])

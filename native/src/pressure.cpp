@@ -1,9 +1,16 @@
 #include "mixed_atmospheres/pressure.hpp"
 #include "mixed_atmospheres/species.hpp"
 #include <algorithm>
+#include <atomic>
 #include <cmath>
+#include <memory>
 #include <numeric>
+#include <optional>
 #include <stdexcept>
+#include <thread>
+#if defined(__x86_64__) || defined(_M_X64)
+#include <immintrin.h>
+#endif
 
 namespace ma {
 namespace {
@@ -93,6 +100,10 @@ public:
         }
         return true;
     }
+    [[nodiscard]] const std::vector<std::size_t>& offsets() const noexcept { return offsets_; }
+    [[nodiscard]] std::size_t column(std::size_t k) const noexcept { return lower_[k].column; }
+    [[nodiscard]] double value(std::size_t k) const noexcept { return lower_[k].value; }
+    [[nodiscard]] double inverse_pivot(std::size_t row) const noexcept { return inverse_pivots_[row]; }
     void apply(std::span<const double> residual, std::span<double> output) const {
         for (std::size_t row = 0; row < residual.size(); ++row) {
             double value = residual[row];
@@ -106,6 +117,111 @@ public:
             for (auto k = offsets_[row]; k < offsets_[row + 1]; ++k)
                 output[lower_[k].column] -= lower_[k].value * value;
         }
+    }
+};
+
+// Parallel solve support (PressureParallelPlan).
+template<class F> void run_tasks(const PressureParallelPlan& plan, std::size_t count, const F& body) {
+    if (count == 0) return;
+    plan.executor(plan.executor_context, count,
+        [](const void* context, std::size_t task) { (*static_cast<const F*>(context))(task); }, &body);
+}
+void await_progress(const std::atomic<std::size_t>& progress, std::size_t target) {
+    for (unsigned spin = 0; progress.load(std::memory_order_acquire) < target; ++spin) {
+#if defined(__x86_64__) || defined(_M_X64)
+        if (spin < 256) { _mm_pause(); continue; }
+#endif
+        std::this_thread::yield();
+    }
+}
+// Block sums of one dot product, added in block order.
+double finish_dot(const std::vector<long double>& partial) {
+    long double result = 0;
+    for (const auto value : partial) result += value;
+    const double value = static_cast<double>(result);
+    require_finite(value, "pressure reduction");
+    return value;
+}
+// IC(0) sweeps in the plan's order. The forward rows gather their lower
+// entries in factor order; the backward rows gather, in descending row order,
+// the updates the serial sweep scatters into them.
+class ParallelSweeps {
+    const IncompleteCholesky& factor_;
+    const PressureParallelPlan& plan_;
+    std::vector<std::size_t> upper_offsets_, upper_rows_;
+    std::vector<double> upper_values_;
+    std::unique_ptr<std::atomic<std::size_t>[]> forward_, backward_;
+public:
+    ParallelSweeps(const IncompleteCholesky& factor, const PressureParallelPlan& plan, std::size_t count)
+        : factor_(factor), plan_(plan), forward_(new std::atomic<std::size_t>[plan.bands]),
+          backward_(new std::atomic<std::size_t>[plan.bands]) {
+        const auto& offsets = factor.offsets();
+        const auto tasks = plan.bands * plan.chunks;
+        if (plan.bands == 0 || plan.chunks == 0 || plan.start.size() != tasks + 1 || plan.start.front() != 0 ||
+            plan.start.back() != count || plan.order.size() != count)
+            throw std::invalid_argument("Invalid pressure sweep plan");
+        std::vector<std::size_t> task(count, tasks), position(count);
+        for (std::size_t t = 0; t < tasks; ++t) {
+            if (plan.start[t] > plan.start[t + 1]) throw std::invalid_argument("Invalid pressure sweep plan");
+            for (auto k = plan.start[t]; k < plan.start[t + 1]; ++k) {
+                const auto row = plan.order[k];
+                if (row >= count || task[row] != tasks) throw std::invalid_argument("Invalid pressure sweep plan");
+                task[row] = t; position[row] = k;
+            }
+        }
+        for (std::size_t row = 0; row < count; ++row)
+            for (auto k = offsets[row]; k < offsets[row + 1]; ++k) {
+                const auto column = factor.column(k);
+                const auto a = task[column], b = task[row];
+                const bool ordered = a == b ? position[column] < position[row] :
+                    a / plan.chunks <= b / plan.chunks && a % plan.chunks <= b % plan.chunks;
+                if (!ordered) throw std::invalid_argument("Pressure sweep plan breaks an IC dependency");
+            }
+        upper_offsets_.assign(count + 1, 0);
+        for (std::size_t k = 0; k < offsets[count]; ++k) ++upper_offsets_[factor.column(k) + 1];
+        for (std::size_t row = 0; row < count; ++row) upper_offsets_[row + 1] += upper_offsets_[row];
+        upper_rows_.resize(offsets[count]);
+        upper_values_.resize(offsets[count]);
+        auto cursor = upper_offsets_;
+        for (auto row = count; row-- > 0;)
+            for (auto k = offsets[row]; k < offsets[row + 1]; ++k) {
+                const auto at = cursor[factor.column(k)]++;
+                upper_rows_[at] = row; upper_values_[at] = factor.value(k);
+            }
+    }
+    void apply(std::span<const double> residual, std::span<double> output) {
+        const auto& plan = plan_; const auto& offsets = factor_.offsets();
+        const auto bands = plan.bands, chunks = plan.chunks;
+        for (std::size_t b = 0; b < bands; ++b) { forward_[b].store(0, std::memory_order_relaxed); backward_[b].store(0, std::memory_order_relaxed); }
+        run_tasks(plan, bands, [&](std::size_t b) {
+            for (std::size_t j = 0; j < chunks; ++j) {
+                if (b > 0) await_progress(forward_[b - 1], j + 1);
+                const auto t = b * chunks + j;
+                for (auto k = plan.start[t]; k < plan.start[t + 1]; ++k) {
+                    const auto row = plan.order[k];
+                    double value = residual[row];
+                    for (auto e = offsets[row]; e < offsets[row + 1]; ++e)
+                        value -= factor_.value(e) * output[factor_.column(e)];
+                    output[row] = value;
+                }
+                forward_[b].store(j + 1, std::memory_order_release);
+            }
+        });
+        run_tasks(plan, bands, [&](std::size_t reversed) {
+            const auto b = bands - 1 - reversed;
+            for (std::size_t done = 0; done < chunks; ++done) {
+                if (b + 1 < bands) await_progress(backward_[b + 1], done + 1);
+                const auto t = b * chunks + (chunks - 1 - done);
+                for (auto k = plan.start[t + 1]; k-- > plan.start[t];) {
+                    const auto row = plan.order[k];
+                    double value = output[row] * factor_.inverse_pivot(row);
+                    for (auto e = upper_offsets_[row]; e < upper_offsets_[row + 1]; ++e)
+                        value -= upper_values_[e] * output[upper_rows_[e]];
+                    output[row] = value;
+                }
+                backward_[b].store(done + 1, std::memory_order_release);
+            }
+        });
     }
 };
 }
@@ -163,6 +279,135 @@ std::vector<double> PressureSystem::apply(std::span<const double> pressure) cons
     multiply(pressure, result);
     check_vector(result, pressure.size());
     return result;
+}
+
+PressureSolveResult PressureSystem::solve(std::span<const double> rhs, std::span<const double> initial,
+                                        double relative, double absolute, std::size_t maximum,
+                                        const PressureParallelPlan* plan) const {
+    if (!plan) return solve(rhs, initial, relative, absolute, maximum);
+    if (!plan->executor || plan->reduction_rows == 0) throw std::invalid_argument("Invalid pressure parallel plan");
+    check_vector(rhs, compliance_.size());
+    check_vector(initial, compliance_.size());
+    require_finite(relative, "relative pressure tolerance");
+    require_finite(absolute, "absolute pressure tolerance");
+    if (relative < 0 || absolute < 0 || (relative == 0 && absolute == 0) || maximum == 0)
+        throw std::invalid_argument("Invalid pressure solve limits");
+    const auto count = rhs.size();
+    const auto rows = plan->reduction_rows, blocks = (count + rows - 1) / rows;
+    const auto block_end = [&](std::size_t block) { return std::min(count, (block + 1) * rows); };
+    // Each row's faces in face order, with the sign of its flux.
+    std::vector<std::size_t> incident_offsets(count + 1, 0), incident(2 * faces_.size());
+    for (const auto& face : faces_) { ++incident_offsets[face.left + 1]; ++incident_offsets[face.right + 1]; }
+    for (std::size_t i = 0; i < count; ++i) incident_offsets[i + 1] += incident_offsets[i];
+    {
+        auto cursor = incident_offsets;
+        for (std::size_t f = 0; f < faces_.size(); ++f) {
+            incident[cursor[faces_[f].left]++] = 2 * f;
+            incident[cursor[faces_[f].right]++] = 2 * f + 1;
+        }
+    }
+    // A row of the operator: compliance, then its faces' fluxes in face order.
+    const auto row_product = [&](std::size_t i, const auto& input) {
+        double value = compliance_[i] * input(i);
+        for (auto k = incident_offsets[i]; k < incident_offsets[i + 1]; ++k) {
+            const auto& face = faces_[incident[k] / 2];
+            const double flux = face.conductance * (input(face.left) - input(face.right));
+            if (incident[k] % 2 == 0) value += flux; else value -= flux;
+        }
+        return value;
+    };
+    std::vector<long double> partial(blocks);
+    const auto reduce = [&](const auto& block_sum) {
+        run_tasks(*plan, blocks, [&](std::size_t block) { partial[block] = block_sum(block * rows, block_end(block)); });
+        return finish_dot(partial);
+    };
+    const auto pdot = [&](std::span<const double> a, std::span<const double> b) {
+        return reduce([&](std::size_t first, std::size_t last) {
+            long double result = 0;
+            for (auto i = first; i < last; ++i) result += static_cast<long double>(a[i]) * b[i];
+            return result;
+        });
+    };
+    PressureSolveResult result{std::vector<double>(initial.begin(), initial.end()), 0, 0};
+    std::vector<double> residual(count), z(count), direction(count), product(count), next(count);
+    const double threshold = std::max(absolute, relative * std::sqrt(pdot(rhs, rhs)));
+    require_finite(threshold, "pressure convergence threshold");
+    result.residual_threshold = threshold;
+    const auto true_residual = [&] {
+        const auto& pressure = result.pressure;
+        result.residual_norm = std::sqrt(reduce([&](std::size_t first, std::size_t last) {
+            long double sum = 0;
+            for (auto i = first; i < last; ++i) {
+                product[i] = row_product(i, [&](std::size_t j) { return pressure[j]; });
+                residual[i] = rhs[i] - product[i];
+                sum += static_cast<long double>(residual[i]) * residual[i];
+            }
+            return sum;
+        }));
+    };
+    true_residual();
+    if (result.residual_norm <= threshold) return result;
+    IncompleteCholesky factor;
+    if (preconditioner_ == PressurePreconditioner::incomplete_cholesky ||
+        (preconditioner_ == PressurePreconditioner::automatic && count >= 256)) {
+        if (factor.factor(inverse_diagonal_, faces_)) result.preconditioner_used = PressurePreconditioner::incomplete_cholesky;
+        else result.preconditioner_fallback = true;
+    }
+    std::optional<ParallelSweeps> sweeps;
+    if (result.preconditioner_used == PressurePreconditioner::incomplete_cholesky) sweeps.emplace(factor, *plan, count);
+    const auto precondition = [&] {
+        if (sweeps) sweeps->apply(residual, z);
+        else run_tasks(*plan, blocks, [&](std::size_t block) {
+            for (auto i = block * rows; i < block_end(block); ++i) z[i] = inverse_diagonal_[i] * residual[i];
+        });
+    };
+    // The next direction is z (restart) or z + beta * direction, formed in
+    // the following product exactly as the serial update forms it.
+    bool restart = true; double beta = 0;
+    precondition();
+    double previous = pdot(residual, z);
+    while (result.iterations < maximum) {
+        const double denominator = reduce([&](std::size_t first, std::size_t last) {
+            const auto form = [&](std::size_t j) { return restart ? z[j] : z[j] + beta * direction[j]; };
+            long double sum = 0;
+            for (auto i = first; i < last; ++i) {
+                next[i] = form(i);
+                product[i] = row_product(i, form);
+                sum += static_cast<long double>(next[i]) * product[i];
+            }
+            return sum;
+        });
+        direction.swap(next);
+        if (denominator <= 0 || previous <= 0) throw std::runtime_error("Pressure solve lost positive definiteness");
+        const double alpha = previous / denominator;
+        require_finite(alpha, "pressure solve step");
+        const double rr = reduce([&](std::size_t first, std::size_t last) {
+            long double sum = 0;
+            for (auto i = first; i < last; ++i) {
+                result.pressure[i] += alpha * direction[i];
+                residual[i] -= alpha * product[i];
+                sum += static_cast<long double>(residual[i]) * residual[i];
+            }
+            return sum;
+        });
+        ++result.iterations;
+        result.residual_norm = std::sqrt(rr);
+        if (result.residual_norm <= threshold) {
+            true_residual();
+            if (result.residual_norm <= threshold) return result;
+            precondition();
+            restart = true;
+            previous = pdot(residual, z);
+            continue;
+        }
+        precondition();
+        const double following = pdot(residual, z);
+        beta = following / previous;
+        require_finite(beta, "pressure solve recurrence");
+        restart = false;
+        previous = following;
+    }
+    throw std::runtime_error("Pressure solve did not converge; no state published");
 }
 
 PressureSolveResult PressureSystem::solve(std::span<const double> rhs, std::span<const double> initial,

@@ -1,13 +1,17 @@
 #include "mixed_atmospheres/fluid_world.hpp"
 #include "mixed_atmospheres/volume_work.hpp"
 #include <algorithm>
+#include <bit>
 #include <cmath>
+#include <cstdint>
 #include <cstdlib>
 #include <functional>
 #include <iostream>
 #include <limits>
 #include <new>
 #include <stdexcept>
+#include <thread>
+#include <utility>
 #include <vector>
 
 // Test-only allocation fault injection exercises the public world's strong
@@ -79,6 +83,102 @@ void grid_reduces_iterations_without_relaxing_residual() {
     check(rejected && std::all_of(initial.begin(), initial.end(), [](double value) { return value == 0; }),
           "Exhausted IC(0) solve published or changed its initial field");
     std::cout << "  variable grid Jacobi=" << reference.iterations << ", IC(0)=" << improved.iterations << '\n';
+}
+// A grid with holes, its compact rows in grid order, and an IC sweep plan of
+// whole-row bands cut into column chunks (as the game pressure builds it).
+struct HoledGrid {
+    std::size_t width = 0;
+    std::vector<std::size_t> cells; // compact row -> grid cell
+    std::vector<double> compliance;
+    std::vector<ma::PressureFace> faces;
+};
+HoledGrid holed_grid(std::size_t width, std::size_t height) {
+    HoledGrid grid; grid.width = width;
+    std::vector<std::size_t> row(width * height, SIZE_MAX);
+    for (std::size_t i = 0; i < width * height; ++i)
+        if ((i % width * 7 + i / width * 3) % 11 != 0) { row[i] = grid.cells.size(); grid.cells.push_back(i); }
+    for (const auto i : grid.cells) grid.compliance.push_back(1e-4 * (1 + static_cast<double>(i % 5)));
+    for (std::size_t i = 0; i < width * height; ++i) // x faces, then y faces
+        if (i % width + 1 < width && row[i] != SIZE_MAX && row[i + 1] != SIZE_MAX)
+            grid.faces.push_back({row[i], row[i + 1], 0.5 + static_cast<double>(i % 3)});
+    for (std::size_t i = 0; i + width < width * height; ++i)
+        if (row[i] != SIZE_MAX && row[i + width] != SIZE_MAX)
+            grid.faces.push_back({row[i], row[i + width], 1 + static_cast<double>(i % 4)});
+    return grid;
+}
+ma::PressureParallelPlan sweep_plan(const HoledGrid& grid, std::size_t bands, std::size_t chunks, std::size_t reduction) {
+    ma::PressureParallelPlan plan; plan.bands = bands; plan.chunks = chunks; plan.reduction_rows = reduction;
+    const auto rows = grid.cells.back() / grid.width + 1;
+    const auto task = [&](std::size_t cell) {
+        return (cell / grid.width) * bands / rows * chunks + (cell % grid.width) * chunks / grid.width;
+    };
+    plan.start.assign(bands * chunks + 1, 0);
+    for (const auto cell : grid.cells) ++plan.start[task(cell) + 1];
+    for (std::size_t t = 0; t + 1 < plan.start.size(); ++t) plan.start[t + 1] += plan.start[t];
+    plan.order.resize(grid.cells.size());
+    auto cursor = plan.start;
+    for (std::size_t k = 0; k < grid.cells.size(); ++k) plan.order[cursor[task(grid.cells[k])]++] = k;
+    return plan;
+}
+// Executors: tasks in order on this thread, or every task on its own thread.
+void sequential(const void*, std::size_t count, ma::PressureParallelPlan::Task task, const void* context) {
+    for (std::size_t t = 0; t < count; ++t) task(context, t);
+}
+void concurrent(const void*, std::size_t count, ma::PressureParallelPlan::Task task, const void* context) {
+    std::vector<std::thread> threads;
+    for (std::size_t t = 0; t < count; ++t) threads.emplace_back([=] { task(context, t); });
+    for (auto& thread : threads) thread.join();
+}
+bool same_solve(const ma::PressureSolveResult& a, const ma::PressureSolveResult& b) {
+    return a.iterations == b.iterations && std::bit_cast<std::uint64_t>(a.residual_norm) == std::bit_cast<std::uint64_t>(b.residual_norm) &&
+        a.preconditioner_used == b.preconditioner_used && a.pressure.size() == b.pressure.size() &&
+        std::equal(a.pressure.begin(), a.pressure.end(), b.pressure.begin(), [](double x, double y) {
+            return std::bit_cast<std::uint64_t>(x) == std::bit_cast<std::uint64_t>(y);
+        });
+}
+void parallel_plan_keeps_serial_rows_and_worker_independence() {
+    const auto grid = holed_grid(61, 37);
+    const auto count = grid.cells.size();
+    std::vector<double> expected(count);
+    for (std::size_t k = 0; k < count; ++k)
+        expected[k] = 1e5 + 300 * std::sin(0.21 * static_cast<double>(grid.cells[k] % 61)) * std::cos(0.13 * static_cast<double>(grid.cells[k] / 61));
+    for (const auto preconditioner : {ma::PressurePreconditioner::incomplete_cholesky, ma::PressurePreconditioner::jacobi}) {
+        const ma::PressureSystem system(grid.compliance, grid.faces, preconditioner);
+        const auto rhs = system.apply(expected);
+        const std::vector<double> initial(count, 0);
+        const auto serial = system.solve(rhs, initial, 0, 1e-6, 5000);
+        residual_verified(system, rhs, serial);
+        // One reduction block: the serial solve, bit for bit, in any schedule.
+        for (const auto& [bands, chunks] : {std::pair<std::size_t, std::size_t>{1, 1}, {4, 6}, {9, 13}})
+            for (const auto executor : {&sequential, &concurrent}) {
+                auto plan = sweep_plan(grid, bands, chunks, count);
+                plan.executor = executor;
+                check(same_solve(serial, system.solve(rhs, initial, 0, 1e-6, 5000, &plan)),
+                      "A one-block parallel solve differs from the serial solve");
+            }
+        // Fixed smaller blocks change only the reduction order: one result for
+        // every schedule and worker count, meeting the unchanged tolerance.
+        auto plan = sweep_plan(grid, 1, 1, 128); plan.executor = &sequential;
+        const auto blocked = system.solve(rhs, initial, 0, 1e-6, 5000, &plan);
+        residual_verified(system, rhs, blocked);
+        check(blocked.iterations + 3 >= serial.iterations && blocked.iterations <= serial.iterations + 3,
+              "Blocked reductions changed the convergence");
+        for (const auto& [bands, chunks] : {std::pair<std::size_t, std::size_t>{3, 2}, {8, 11}, {37, 61}})
+            for (const auto executor : {&sequential, &concurrent}) {
+                auto other = sweep_plan(grid, bands, chunks, 128);
+                other.executor = executor;
+                check(same_solve(blocked, system.solve(rhs, initial, 0, 1e-6, 5000, &other)),
+                      "Parallel pressure solve depends on its schedule");
+            }
+    }
+    // A schedule that visits a row before its lower neighbour is refused.
+    const ma::PressureSystem system(grid.compliance, grid.faces, ma::PressurePreconditioner::incomplete_cholesky);
+    auto plan = sweep_plan(grid, 1, 1, 128); plan.executor = &sequential;
+    std::reverse(plan.order.begin(), plan.order.end());
+    bool refused = false;
+    try { (void)system.solve(system.apply(expected), std::vector<double>(count), 0, 1e-6, 5000, &plan); }
+    catch (const std::invalid_argument&) { refused = true; }
+    check(refused, "An IC sweep plan that breaks a dependency was accepted");
 }
 void irregular_graph_preserves_references_barriers_and_parallel_faces() {
     // First two components have a reference only at one node. The second is
@@ -225,6 +325,7 @@ int main() {
     const std::vector<std::pair<const char*,std::function<void()>>> tests{
         {"IC(0) variable grid residual and iteration reduction", grid_reduces_iterations_without_relaxing_residual},
         {"IC(0) irregular referenced disconnected graph", irregular_graph_preserves_references_barriers_and_parallel_faces},
+        {"parallel plan keeps serial rows and worker independence", parallel_plan_keeps_serial_rows_and_worker_independence},
         {"IC(0) unsafe/dense Jacobi fallback", unsafe_or_dense_factors_fall_back_to_original_jacobi},
         {"IC(0) incompressible gauge and gravity", incompressible_gauge_and_gravity_remain_physical},
         {"IC(0) coupled world reference and conservation", coupled_world_preserves_conservation_and_reference_solution},

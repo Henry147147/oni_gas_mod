@@ -491,4 +491,9 @@ struct LinearSystem {
 struct LinearSolveResult { std::size_t iterations = 0; double residual = 0; bool converged = false; };
 LinearSolveResult solve_linear(Context&, const LinearSystem&, const std::vector<double>& b, std::vector<double>& x,
     double relative_tolerance, double absolute_tolerance, std::size_t maximum_iterations, bool try_jacobi = false);
+// The component IC(0) solve of solve_linear, with every component of at
+// least `parallel_rows` cells solved by one parallel PCG across the pool
+// (PressureParallelPlan). Smaller components keep their serial solves.
+LinearSolveResult solve_components(Context&, const LinearSystem&, const std::vector<double>& b, std::vector<double>& x,
+    double relative_tolerance, double absolute_tolerance, std::size_t maximum_iterations, std::size_t parallel_rows);
 }
