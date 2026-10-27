@@ -51,7 +51,15 @@ class Arena:
         return out
 
     def series(self, start: int):
-        """(time after `start`, cells) for every sample from that tick on."""
+        """(time after `start`, cells) for every sample from that tick on.
+
+        A frozen-origin record (F3/F4 with exact admission proofs) samples
+        only completed intervals: its t=0 is the prescribed field itself, not
+        an exported pre-fill row, so the frozen placements stand at t=0.
+        """
+        frozen = frozen_placements(self) if frozen_origin(self.record) else None
+        if frozen is not None:
+            return [(0.0, frozen)] + [((row[0] - start) * self.dt, self.cells(row)) for row in self.rows if row[0] > start]
         return [((row[0] - start) * self.dt, self.cells(row)) for row in self.rows if row[0] >= start]
 
     def row_at(self, tick: int):
@@ -255,6 +263,33 @@ def f3(arena: Arena):
             "initial_water_kg": mass(first, rect(1, 20, 1, 12), element_id="Water")}
 
 
+def frozen_origin(record: dict) -> bool:
+    return str(record.get("initial_time_origin", "")).startswith("before first completed fluid interval")
+
+
+def stored32(value: float) -> float:
+    return struct.unpack("<f", struct.pack("<f", value))[0]
+
+
+def f3_placements(arena: Arena):
+    """F3's released field: full water cells x=1..5, y=1..8, the gate already
+    removed and every other interior cell empty, from the binary32 placements.
+    Only a record whose gate opens in the fill's own frame starts from it."""
+    placed = arena.record.get("placed", {})
+    if "Water_full_cell_kg" not in placed or not placed.get("release_staging"):
+        return None
+    water = next(element for element in arena.elements.values() if element["id"] == "Water")
+    mass, temperature = stored32(placed["Water_full_cell_kg"]), stored32(293.15)
+    if not math.isfinite(mass) or mass <= 0:
+        raise ValueError("Invalid frozen F3 placement mass")
+    return {(x, y): (([(water, mass)], temperature) if x <= 5 and y <= 8 else ([], 0.0))
+            for y in range(1, arena.height - 1) for x in range(1, arena.width - 1)}
+
+
+def frozen_placements(arena: Arena):
+    return {"f3": f3_placements, "f4": f4_placements}.get(arena.record["arena"], lambda _: None)(arena)
+
+
 def f4_placements(arena: Arena):
     """Frozen F4 fields, reconstructed from the binary32 placement contract.
 
@@ -297,7 +332,8 @@ def f4(arena: Arena):
             "final_gas_temperature_k": final_t, "common_temperature_k": common, "temperature_error_k": abs(final_t - common),
             "initial_heat_j": heat, "initial_gas_kg": mass(first, gas, "gas"),
             "initial_source": "frozen binary32 placements" if placed is not None else "release sample; frozen placements unavailable",
-            "release_sample_heat_j": gas_totals(series[0][1], everything)[1]}
+            # The first exported row (one interval after a frozen origin).
+            "release_sample_heat_j": gas_totals(series[1 if frozen_origin(arena.record) and len(series) > 1 else 0][1], everything)[1]}
 
 
 def f5(arena: Arena):
@@ -352,7 +388,7 @@ def load(path: Path) -> Arena:
 def initial(arena: Arena) -> dict:
     """Initial mass/heat by element; F4 uses prescribed binary32 inputs when available."""
     tick = arena.ticks["locked"] if arena.record["arena"] == "f2" else arena.ticks["release"]
-    placed = f4_placements(arena) if arena.record["arena"] == "f4" else None
+    placed = frozen_placements(arena)
     first = placed if placed is not None else arena.row_at(tick)
     out = {}
     for element, m, t in constituents(first, list(first)):

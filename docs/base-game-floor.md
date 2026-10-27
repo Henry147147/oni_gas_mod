@@ -581,6 +581,113 @@ the earlier inconsistent 8×/16× VOF events cannot certify this trajectory.
 F4's matched vanilla preparation, full 20000 s selected-profile measurement
 and coupled dynamic reference remain open as described above.
 
+### Frozen-origin F3 and F4 comparisons, 2026-10-27
+
+**F3 starts from its frozen field.** The protocol removes the gate at t=0 from
+a filled column at rest. The fixture previously filled, then held the column
+for five intervals before removing the gate; under the owner that hold
+evaporated 2.79 g of water and left 388 J of kinetic energy in the release row,
+while vanilla's held column stays static. F3 now removes the gate in the
+fill's own frame, like F4's fill. Its time origin is the frozen placement
+itself: the first exported water row follows it by one interval, and
+`floor_metrics.py` puts the binary32 placements at t=0 for such records
+(`placed.release_staging`), dropping any exported pre-fill row. Legacy records
+keep their release-row origin and give byte-identical metrics. Two proofs
+accompany each run: the native admission capture (`MAFLRQ01`, all 308 cells:
+Unobtanium border, 40 water cells, every other interior cell including the gate
+empty) must match both native buffers before the first heat update, and an
+owner run's `MAREL001` world capture, taken after the edits and before the
+first flow, must hold exactly the placed water (mass, creation-state U, zero
+remainder), empty other cells, an open gate and zero face momentum. Geometry,
+fills, duration, metrics and bounds are unchanged; F1/F5 keep their hold.
+
+F4 needs the same rule: with its matched preparation the first exported row
+precedes the fill (empty rooms, on which the old reader divided by zero), so
+F4 frozen-origin records also put the placements at t=0.
+
+**F4 timing truth range.** Heat leaves a sealed room only through its 2 m²
+granite face, by conduction through the gas at the wall; Unobtanium and the
+front/back faces are adiabatic and O2 does not radiate. The rooms' binary32
+placements and the catalogue's 1005 J/(kg·K) give C_hot = 2219.489 J/K and
+C_cold = 2768.188 J/K. By the maximum principle every surface stays within
+the initial 283.15–353.15 K, so the gas–surface difference is at most 70 K and
+the room difference falls no faster than `2 m² · 70 K · (1/C_hot + 1/C_cold) · h`
+= 0.11365·h K/s, with h the gas-side heat-transfer coefficient. Reaching 35 K
+therefore takes at least 307.96/h seconds. All motion starts from rest and is
+buoyancy-driven: the free-fall bound `sqrt(2 g H Δρ/ρ)` with H = 2 m and
+Δρ/ρ ≤ 70/283.15 is 3.11 m/s. Standard correlations then give h ≈ 2.5 W/(m²K)
+for natural convection on a 2 m isothermal plate (Churchill–Chu, Ra 5.3e9) and
+at most 6.0–11.3 W/(m²K) for turbulent forced convection along 2 m at 3.11 m/s
+(catalogue or real O2 density, μ = 2.07e-5 Pa·s, Pr 0.72). With h ≤ 12 the
+crossing needs at least 25.66 s; stagnant conduction alone needs about
+18,158 s (semi-infinite conduction into the hot room). The documented range is
+[25.66, 18158] s. The comparison below is insensitive to it: any lower bound
+above 1.8 s (h below 171 W/(m²K), 15 times the turbulent forced-convection
+value at the bounding speed) gives the same result. These are engineering
+correlations, not a theorem; accepting them is the user's judgment.
+
+**F3 results.** Private Linux runs `f3-owner-s1` (profile5/core23) and
+`f3-vanilla-s1` use one package built from a clean `2a7377c` snapshot plus
+this fixture change, GPU rendering and the low CPU lock.
+
+| Proof or metric | Vanilla | Profile5 | Truth / comparison |
+| --- | --- | --- | --- |
+| Frozen field | Native capture matches all 308 requested tuples in both buffers before ticket 511's first heat update | `MAREL001` world before frame 11: 40 water cells of exactly 1000.0460815429688 kg (binary32) with U = m·(offset + cv·T) at 293.1499939 K, zero remainders and passives; 200 empty interior cells, gate open, border walls only, zero face momentum | Both start from the protocol's field; t=0 is that placement, the first water row one interval later |
+| Levelling | [68.8, 69.0] s | [10.4, 10.6] s | Unresolved (below) |
+| Final mean depth | 2.0000002244 m, error 2.2054e-4 m | 1.9997874927 m, error 7.806e-6 m | Amended truth 1.999779687 m: **profile5 passes**, error 28 times smaller |
+
+The owner run has 601 consecutive retained samples, no repeats, skips or
+refused projections, booked inventory residual 3.638e-11 kg, zero accepted
+external heat, maximum relative mass/energy errors 8.30e-16/8.41e-16, trace sink
+1.940e-9 kg/0.004004 J, and no fault or skipped relaxation. The vanilla
+bracket equals the earlier held-column runs', so no repeat changed it. The
+owner run's native shadow did not satisfy the 308-tuple native capture; its
+physical initial state is the exact world capture above, checked by a private
+offline reader of that image (`MacClosedWorld::from_checkpoint`).
+
+**F3 levelling stays unresolved.** Profile5's error is no larger than
+vanilla's for every truth up to 39.6 s and larger for every truth above 39.8 s.
+The levelling predicate needs six consecutive samples with column heights
+within 1 m, and in every reference attempt the sloshing amplitude hovers at
+that threshold for tens of seconds. In the retained (rejected) VOF series the
+8× run has sub-threshold runs of 3, 1, **5**, 2, 1, 4 and 3 samples from
+32.6 s before its first six-sample run at 48.6 s; the 16× run has five-sample
+runs at 18.0 and 22.6 s before its event at 26.0 s. One sample more or less
+moves the event by about 10 s, across the 39.7 s crossover. No physical
+argument bounds the inviscid sloshing decay tightly enough to decide this,
+so the amendment's resolved 8×/16× VOF truth is required, and the earlier
+independent VOF code remains rejected (16× instability, detached water). With
+the exploratory range [18.0, 48.6] s `floor_timing.py` reports `unresolved`
+(game minus vanilla error between −43.6 and +18.0 s).
+
+**F4 results.** Vanilla `f4-vanilla-m1` (full 20000 s) and bounded repeats
+`m2`/`m3` use the clean `2a7377c` package; the bounded owner run `b1` uses the
+F3 package, whose F4 path is identical. Every vanilla run proves the matched
+preparation in both native buffers: vacuum (ticket 509), quiescent divider and
+vacuum (511), and the exact 28-tuple fill before ticket 512's first contact,
+with the solids request at the same contact. The owner proves vacuum (510),
+divider (512), pre-contact granite (514) and its exact `MAREL002` initial world
+before frame 13, as before.
+
+| Run | 35 K crossing | Final fluid temperature | Error vs 318.0901645714533 K |
+| --- | --- | --- | --- |
+| Vanilla m1 (20000 s) | [1.6, 1.8] s | 317.9956045519 K | 0.0945600 K |
+| Vanilla m2 / m3 (bounded) | [1.2, 1.4] / [1.2, 1.4] s | — | — |
+| Profile5 b1 (bounded) | [1.4, 1.6] s | — | — |
+
+Vanilla's matched repeats disagree because its gas cells swap from t ≈ 1.0 s;
+all three start from byte-identical captured arrays. Profile5's own heat
+exchange starts one interval after its fill (native contact sees the owner's
+first shadow): its room differences from t = 0.4 s read 61.25, 54.31 and
+48.74 K, where vanilla's from t = 0.2 s read 61.25, 54.69 and 49.75 K. Against the [25.66, 18158] s range
+`floor_timing.py` gives **pass** against m2/m3 (game minus vanilla error
+[−0.4, 0] s) and **unresolved** against m1 ([0, +0.4] s, brackets sharing
+1.6 s). Profile5 lies inside vanilla's own run-to-run spread, so whether the
+timing metric passes depends on how vanilla's differing repeats are combined,
+which the protocol does not state: requiring every repeat leaves it
+unresolved; the two-of-three bracket passes. That is a user decision. The
+final-temperature metric needs the full 20000 s profile5 run, still pending.
+
 ## Performance and feature variants
 
 Each numerical step needs same-lock Terra60 before/after, affected floor

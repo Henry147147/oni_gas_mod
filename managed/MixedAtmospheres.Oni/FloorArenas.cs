@@ -81,12 +81,15 @@ namespace MixedAtmospheres.Oni
             Id = id; output = directory; ticks = 0; cleared = uncovered = built = filled = locked = commanded = opened = release = -1; releasedAt = -1;
             prefixDump = id == "f4" ? Environment.GetEnvironmentVariable("MA_COLONY_FLOOR_PREFIX_DUMP") ?? "" : "";
             prefixHeaderWritten = false; f4Cleared = f4Reset = prefillCleaned = -1;
-            admissionPath = id == "f4" ? Environment.GetEnvironmentVariable("MA_COLONY_FLOOR_ADMISSION_DUMP") ?? Path.Combine(output,"floor-f4-admission.bin") : "";
-            if(id == "f4")
+            // F3 and F4 start from their exact frozen fields: native arrays and
+            // the owner's initial world are captured before the first interval.
+            var frozen = id == "f3" || id == "f4";
+            admissionPath = frozen ? Environment.GetEnvironmentVariable("MA_COLONY_FLOOR_ADMISSION_DUMP") ?? Path.Combine(output,"floor-"+id+"-admission.bin") : "";
+            if(frozen)
             {
                 Environment.SetEnvironmentVariable("MA_COLONY_FLOOR_ADMISSION_DUMP",admissionPath);
                 if(string.IsNullOrEmpty(Environment.GetEnvironmentVariable("MA_COLONY_RELEASE_DUMP")))
-                    Environment.SetEnvironmentVariable("MA_COLONY_RELEASE_DUMP",Path.Combine(output,"floor-f4-initial-world.bin"));
+                    Environment.SetEnvironmentVariable("MA_COLONY_RELEASE_DUMP",Path.Combine(output,"floor-"+id+"-initial-world.bin"));
             }
             if (prefixDump.Length != 0 && File.Exists(prefixDump)) throw new IOException("Floor prefix capture requires a fresh private path.");
             door = null; simulated = 0; seen.Clear(); placed.Clear(); samples?.Dispose(); samples = null;
@@ -151,7 +154,7 @@ namespace MixedAtmospheres.Oni
         {
             var line = new System.Text.StringBuilder(32 * width * height);
             line.Append(sampleTick.ToString(CultureInfo.InvariantCulture));
-            var fluid = false;
+            bool fluid = false, water = false;
             // Per cell: its constituents (count, then element and kg each) and
             // its temperature. ONI's cell holds one element; an owned cell
             // holds the owner's mixture (the published element is only its
@@ -191,6 +194,7 @@ namespace MixedAtmospheres.Oni
             void Part(int element, double kg)
             {
                 if (kg > 0 && (ElementLoader.elements[element].IsGas || ElementLoader.elements[element].IsLiquid)) fluid = true;
+                if (kg > 0 && ElementLoader.elements[element].id == SimHashes.Water) water = true;
                 if (!seen.ContainsKey(element)) seen[element] = Describe(ElementLoader.elements[element]);
                 line.Append(' ').Append(element).Append(' ').Append(kg.ToString("R", CultureInfo.InvariantCulture));
             }
@@ -198,7 +202,9 @@ namespace MixedAtmospheres.Oni
             // The first fluid row is a completed interval. Its preceding
             // endpoint is the frozen initial state, proved separately; the
             // conducted endpoint must never be relabelled as that state.
-            if (Id == "f4" && release < 0 && fluid) { release = sampleTick - 1; ownerReleaseStamped = historyStarted; }
+            // F3's first water row likewise follows its frozen released field
+            // (displaced background gas before the fill is not that field).
+            if ((Id == "f4" && fluid || Id == "f3" && water) && release < 0) { release = sampleTick - 1; ownerReleaseStamped = historyStarted; }
             // F2: t = 0 is the first sample after the door is fully open.
             if (commanded >= 0 && opened < 0 && !ElementLoader.elements[update->elementIdx[Cell(9, 4)]].IsSolid &&
                 !ElementLoader.elements[update->elementIdx[Cell(9, 5)]].IsSolid &&
@@ -391,12 +397,13 @@ namespace MixedAtmospheres.Oni
                     // Hold closed for 10 s (50 ticks), then open.
                     if (locked >= 0 && commanded < 0 && ticks >= locked + 50) { SetDoor(Door.ControlState.Opened); commanded = ticks; }
                     break;
-                case "f1": case "f3": case "f5":
+                // F3 releases its gate in the fill's own frame (Fill); its
+                // first water row then stamps the frozen field's time origin.
+                case "f1": case "f5":
                     if (release < 0 && ticks >= filled + 5)
                     {
                         // The t = 0 sample is this tick's: the wall goes at the next.
-                        var wall = Id == "f1" ? Enumerable.Range(1, 8).Select(y => (9, y)) : Id == "f3" ? Enumerable.Range(1, 8).Select(y => (6, y))
-                            : Enumerable.Range(1, 8).Select(x => (x, 6));
+                        var wall = Id == "f1" ? Enumerable.Range(1, 8).Select(y => (9, y)) : Enumerable.Range(1, 8).Select(x => (x, 6));
                         var gates = wall.ToArray();
                         RequestReleaseCapture(gates);
                         foreach (var (x, y) in gates) Replace(x, y, SimHashes.Vacuum, 0, 0);
@@ -588,10 +595,23 @@ namespace MixedAtmospheres.Oni
                 foreach(var (x,y) in requested)
                 {
                     var border=x==0 || y==0 || x==width-1 || y==height-1;
-                    var empty=vacuum && !border && x!=3;
-                    var element=border?SimHashes.Unobtanium:x==3?SimHashes.Granite:empty?SimHashes.Vacuum:SimHashes.Oxygen;
-                    var mass=border?20000:x==3?placed["granite_tile_kg"]:empty?0:placed[x<3?"hot_cell_kg":"cold_cell_kg"];
-                    var temperature=border?Room:x==3?318.15:empty?0:x<3?353.15:283.15;
+                    SimHashes element;double mass,temperature;
+                    if(Id=="f3")
+                    {
+                        // The released F3 field: filled column, gate already
+                        // removed, every other interior cell empty.
+                        var filled=!border && x<=5 && y<=8;
+                        element=border?SimHashes.Unobtanium:filled?SimHashes.Water:SimHashes.Vacuum;
+                        mass=border?20000:filled?placed["Water_full_cell_kg"]:0;
+                        temperature=border||filled?Room:0;
+                    }
+                    else
+                    {
+                        var empty=vacuum && !border && x!=3;
+                        element=border?SimHashes.Unobtanium:x==3?SimHashes.Granite:empty?SimHashes.Vacuum:SimHashes.Oxygen;
+                        mass=border?20000:x==3?placed["granite_tile_kg"]:empty?0:placed[x<3?"hot_cell_kg":"cold_cell_kg"];
+                        temperature=border?Room:x==3?318.15:empty?0:x<3?353.15:283.15;
+                    }
                     writer.Write((uint)Cell(x,y));writer.Write((uint)ElementLoader.FindElementByHash(element).idx);
                     writer.Write((float)mass);writer.Write((float)temperature);
                 }
@@ -626,8 +646,18 @@ namespace MixedAtmospheres.Oni
                             else if (x > 9 && right > 0) Replace(x, y, SimHashes.Oxygen, right, Room);
                     break;
                 case "f3":
+                    // t = 0 is the filled column at rest with its gate removed:
+                    // the gate goes in this same frame, so no held interval
+                    // (evaporation, hydrostatic settling) precedes release.
                     var water = FullCell(SimHashes.Water);
+                    var gate = Enumerable.Range(1, 8).Select(y => (6, y)).ToArray();
+                    placed["release_staging"] = 1; // fill and gate removal in one frame
+                    RequestAdmissionCapture();
+                    // Owner: the world after these edits and before the first
+                    // flow, published before any fill or gate message.
+                    if (ColonyOwner.Active) RequestReleaseCapture(gate);
                     for (var y = 1; y <= 8; ++y) for (var x = 1; x <= 5; ++x) Replace(x, y, SimHashes.Water, water, Room);
+                    foreach (var (x, y) in gate) Replace(x, y, SimHashes.Vacuum, 0, 0);
                     break;
                 case "f4":
                     placed["hot_cell_kg"] = Gas(Atmosphere, 353.15); placed["cold_cell_kg"] = Gas(Atmosphere, 283.15);
@@ -677,7 +707,7 @@ namespace MixedAtmospheres.Oni
                 ["origin_x"] = x0, ["origin_y"] = y0, ["grid_width"] = Grid.WidthInCells, ["grid_height"] = Grid.HeightInCells,
                 ["temperature_storage"] = "binary32",
                 ["fluid_sampling"] = historyStarted ? "retained completed owner frames" : ColonyOwner.Active ? "single completed owner frame" : "native published update",
-                ["initial_time_origin"] = Id=="f4"?"before first completed fluid interval; separate exact admission proofs required":"release sample",
+                ["initial_time_origin"] = Id=="f3"||Id=="f4"?"before first completed fluid interval; separate exact admission proofs required":"release sample",
                 ["solid_sampling"] = historyStarted && Id == "f4" ? "retained native heat-input ticket paired with the same owner frame" : "native published update",
                 ["owner_sample_history"] = historyStarted, ["owner_tick_offset"] = ownerTickOffset,
                 ["owner_sample_frames"] = ownerSampleFrames,

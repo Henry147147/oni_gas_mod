@@ -145,6 +145,40 @@ class FloorMetricsTests(unittest.TestCase):
         self.assertTrue(out["levelled"]["censored"])
         self.assertAlmostEqual(out["final_mean_depth_m"], 2.0)
 
+    def test_f3_frozen_origin_starts_from_the_released_placements_not_a_prefill_row(self):
+        full = 1000.0460568181818
+        stored = lambda value: struct.unpack("<f", struct.pack("<f", value))[0]
+        oxygen = {**OXYGEN, "id": "Oxygen"}
+        # Tick 10 is exported before the fill reached the owner: displaced
+        # background gas only. The frozen origin replaces it at t=0.
+        def prefill(x, y):
+            return (3, 1e-4, 294) if x >= 7 else (2, 0, 0)
+        def levelled(x, y):
+            return (1, stored(full) * 40 / 240, 293.15) if y <= 12 else (2, 0, 0)
+        with tempfile.TemporaryDirectory() as folder:
+            path = write(Path(folder), "f3", 22, 14, {"release": 10}, {1: WATER, 2: VACUUM, 3: oxygen},
+                         [(10, prefill)] + [(t, levelled) for t in range(11, 30)],
+                         {"Water_full_cell_kg": full, "release_staging": 1})
+            record = json.loads(path.read_text())
+            record["initial_time_origin"] = "before first completed fluid interval; separate exact admission proofs required"
+            path.write_text(json.dumps(record))
+            out = floor_metrics.metrics(path)
+            arena = floor_metrics.load(path)
+            series = arena.series(10)
+            # Without the same-frame staging, the exported release row stays t=0.
+            record["placed"].pop("release_staging"); path.write_text(json.dumps(record))
+            legacy = floor_metrics.load(path).series(10)
+        self.assertEqual(legacy[0][1][(7, 1)][0][0][1], 1e-4)
+        self.assertEqual(series[0][0], 0.0)
+        self.assertEqual(len(series), 20)
+        self.assertEqual(out["initial_water_kg"], 40 * stored(full))
+        self.assertEqual(out["initial"]["elements"]["Water"]["kg"], 40 * stored(full))
+        self.assertNotIn("Oxygen", out["initial"]["elements"])
+        # The frozen column cannot satisfy the levelling predicate; the
+        # first exported (levelled) row is the event, bracketed from t=0.
+        self.assertEqual(out["levelled"]["bracket_s"], [0.0, .2])
+        self.assertAlmostEqual(out["final_mean_depth_m"], 2.0 * stored(full) / full)
+
     def test_f2_final_target_includes_booked_heat_and_released_kinetic_energy(self):
         # The catalogue interprets the game's fixed-cell specific heat as Cv.
         capacity = 130 * OXYGEN["specific_heat_j_per_kg_k"]
