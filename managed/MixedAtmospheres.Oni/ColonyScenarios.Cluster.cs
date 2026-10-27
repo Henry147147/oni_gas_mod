@@ -33,12 +33,22 @@ namespace MixedAtmospheres.Oni
                 }
                 Record("actual multi-asteroid cluster",true,$"{layout.Worlds.Count} worlds on {layout.GridWidth}x{layout.GridHeight}");
             }
+            // Closing the border displaces its original gas into neighbours,
+            // including the centre. Clear that completed displacement before
+            // applying the declared source, as the normal arena helper does.
+            if(Once(4,"clear sealed cluster probes"))
+                foreach(var cell in clusterProbeCells)
+                    SimMessages.ReplaceElement(cell,SimHashes.Vacuum,CellEventLogger.Instance.SandBoxTool,0,0);
             if(Once(6,"cluster mixtures"))
+            {
+                var empty=clusterProbeCells.All(cell=>CellMass(cell)==0);
+                Record("sealed probes are empty before the source",empty,string.Join("; ",clusterProbeCells.Select(cell=>$"{cell}: {CellMass(cell):R} kg")));
                 foreach(var cell in clusterProbeCells)
                 {
                     SimMessages.AddRemoveSubstance(cell,SimHashes.Oxygen,CellEventLogger.Instance.OxygenModifierSimUpdate,1,300,byte.MaxValue,0);
                     SimMessages.AddRemoveSubstance(cell,SimHashes.CarbonDioxide,CellEventLogger.Instance.OxygenModifierSimUpdate,.5f,300,byte.MaxValue,0);
                 }
+            }
             if(Once(14,"cluster ownership"))
             {
                 foreach(var cell in clusterProbeCells)
