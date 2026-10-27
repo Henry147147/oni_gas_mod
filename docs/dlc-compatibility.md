@@ -242,6 +242,16 @@ The entropy repair passes the full build (386 Python tests, eight skipped;
 `ma_mac_*` executables retain their physical outputs and exit codes; only the
 validation timing fields differ. The long Riemann gate remains unrun.
 
+The `1ccbe75` actual source now passes retirement and slot reuse: it recovers
+1 kg oxygen, 0.375 kg carbon dioxide, 0.75 kg water and 0.25 kg polluted water,
+closes the removed cells and reuses the same world-9 rectangle. The new cabin
+contains none of the former CO2/liquids and retains its new 0.125/0.0625 kg gas
+source. The source ends at frame 87 with relative mass/energy errors
+2.37e-16/5.56e-16. Fresh-process load reaches frame 96, reencoding the restored
+wrapper12/core23 owner exactly. The menu-load check remains queued. These are
+WindowsPlayer/Proton development controls, not ordinary activation or Windows OS
+acceptance.
+
 ### Inter-asteroid teleporter ports
 
 The `spaced-out-warp-ports` control discovers the actual generated sender and
@@ -251,6 +261,17 @@ then seeds 0.75/0.25 kg mixtures. Ordinary callbacks must move both identities
 in both directions, empty each input/shared store, and keep the owner and pipe
 accounts closed. No transfer callback is invoked manually. The scenario builds
 against the installed SDK; its actual game/save/load checks remain unrun.
+
+### Rocket flight
+
+`spaced-out-rocket-flight` fuels the constructed CO2 engine and selects a valid
+adjacent space hex. It issues the normal launch command with the same temporary
+instant-build fixture switch used for construction, then restores that switch
+before game updates. The actual engine animation, fuel use and world-parent
+changes must reach `InFlight`; the advancing cabin must retain both gases and
+closed world/pipe accounts at the destination. It does not certify preflight
+crew or obstruction checks. The scenario compiles against both installed SDKs;
+its game and in-flight save/load checks remain unrun.
 
 The 2026-10-26 request covers Spaced Out!, Frosty, Bionic, Prehistoric and
 Aquatic: every one of their 32 selections on Linux and Windows x64. This
