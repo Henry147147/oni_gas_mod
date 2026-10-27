@@ -29,6 +29,7 @@ namespace MixedAtmospheres.Oni
             return new { Pending, Captured, CapturedSha256, Restored, RestoredSha256, ColonyPipeRuntime.Active, AuditClosed = closed, Audit = audit,
                 ColonyPipeRuntime.NativeScheduleControl,
                 ColonyPipeRuntime.NativeBindingsPending,
+                NativeClock=ColonyNativeClock.Report(),
                 OwnedStorage = ColonyOwnedStorage.Diagnostics(),
                 BiologyContext = ColonyPipeCultureState.Report() };
         }
@@ -70,6 +71,9 @@ namespace MixedAtmospheres.Oni
                 catch(Exception error){ColonyLoadRefusal.Refuse(error);}
             if(!ColonyLoadRefusal.Refused&&ColonyPipeCultureState.NeedsReadyBarrier)
                 try{ColonyPipeCultureState.RequireReady();}
+                catch(Exception error){ColonyLoadRefusal.Refuse(error);}
+            if(!ColonyLoadRefusal.Refused)
+                try{ColonyNativeClock.BeforePositiveTime();}
                 catch(Exception error){ColonyLoadRefusal.Refuse(error);}
         }
     }

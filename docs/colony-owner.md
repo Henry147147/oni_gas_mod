@@ -696,6 +696,39 @@ positive time. Ordinary payloads and owner wrapper13/core23 bytes stay
 unchanged. This reservation covers loop state only; managed scheduling and
 native thermal state require their own continuation work and proofs.
 
+The gated writer now implements this section. Native clock ABI1 exposes a
+completed 36-byte typed capture and a queued restore; it retains no native
+pointer between hooks. Every input and live geometry is validated before any
+field is written. Original message processing completes first; pending writes
+refuse positive time and are cleared on shutdown. Zero-time frames do not run
+`UpdateData`, so the capture also samples their completed `ProcessNextFrame`
+boundary. The main thread fences and verifies the restored fields before
+resuming. Ordinary saves omit section5 and retain their prior bytes.
+
+`release-native-clock-source-v2` passes the seven-check drained-reservoir
+control. Cold and menu loading in `release-native-clock-load-v2` restore every
+saved counter; the independent native trace records both zero-time restores
+from tick0 to saved tick40 before positive time. All eight complete pipe
+images remain byte-identical across source/cold/menu. The owner still first
+differs at frame41: breathing and solid-heat inputs remain different. The
+earlier load lacking zero-time capture is retained as a failed control.
+
+WindowsPlayer/Proton also passes all seven checks and cold/menu loading
+(`release-native-clock-windows-source` / `windows-load`). Saved and restored
+loop fields match, and its eight complete pipe images also match in all three
+branches. The runner records `--native-clock-control` as a development
+override requiring the exact-storage control. This is not Windows OS evidence.
+
+The Ubuntu 22.04 build also passes this source/cold/menu control on the Linux
+development host (`release-native-clock-compatible-source` / `compatible-load`),
+with matching loop fields and all eight complete pipe prefixes. Both native
+libraries meet glibc2.34, and all 89 container CTests pass. This does not claim
+an Ubuntu 22.04 Unity run. Focused native controls verify bounded writes,
+original-failure retry, reset, positive-time refusal and 1,000 threaded
+handoffs; the observer test executable also passes under ThreadSanitizer.
+Linux and Windows/Wine full native suites each pass 89 tests; managed codec,
+228 snapshot checks, both platform builds and Python436 (nine skips) pass.
+
 **Reserved 2026-10-27, immediately after fetching `f3d5390`:** owner wrapper
 `MACOLN01` version **13** and MACOLP03 section **4** (`MACCBR01`) are assigned
 to callback-owned requests in flight at a save ([below](#callback-owned-requests)).

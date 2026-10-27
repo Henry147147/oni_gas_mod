@@ -10,6 +10,7 @@
 #include "oni_storage_heat_native.hpp"
 #include "oni_conduit_heat.hpp"
 #include "oni_runtime_trace.hpp"
+#include "oni_runtime_clock.hpp"
 #include "oni_conduit_contact.hpp"
 #include "oni_windows_lifecycle_trace.hpp"
 #include "oni_funchook_storage.hpp"
@@ -107,6 +108,7 @@ std::uint64_t installed_mask{};
 bool installed{}, recovery_required{};
 ma::oni::storage_heat::Monitor storage_heat;
 ma::oni::conduit_heat::Monitor conduit_heat;
+ma::oni::runtime_clock::Monitor runtime_clock;
 // Both modules remain resident. Never free cached P/Invoke targets or native
 // trampolines while any simulator could retain their addresses.
 void* game_module{};
@@ -182,6 +184,7 @@ void on_shutdown() {
     Call call(MA_ONI_SHUTDOWN);
     storage_heat.reset();
     conduit_heat.reset();
+    runtime_clock.reset();
     ma::oni::windows_lifecycle_trace("native shutdown entered");
 #if defined(_WIN32)
     std::fprintf(stderr,"[Mixed Atmospheres] Windows native shutdown entered.\n");
@@ -242,7 +245,7 @@ void on_process_frame(void* frame,void* data) {
     if(ma::oni::runtime_trace::Frame::enabled())runtime_observation.emplace(ordinal,data,seconds);
     if(ma::oni::body_heat_trace::Frame::enabled())body_observation.emplace(ordinal,frame,data);
     if(ma::oni::chunk_heat_trace::Frame::enabled())chunk_observation.emplace(ordinal,frame,data);
-    conduit_heat.process(frame,[&]{storage_heat.process(frame,data,ordinal,[&]{original<void (*)(void*,void*)>(MA_ONI_PROCESS_FRAME)(frame,data);});});
+    runtime_clock.process(data,seconds,[&]{conduit_heat.process(frame,[&]{storage_heat.process(frame,data,ordinal,[&]{original<void (*)(void*,void*)>(MA_ONI_PROCESS_FRAME)(frame,data);});});});
 }
 float on_next_frame(void* self,void* data) {
     Call call(MA_ONI_NEXT_FRAME);
@@ -255,6 +258,9 @@ float on_next_frame(void* self,void* data) {
     // shadow publication would let new inputs leak into the preceding tick.
     if (ma::oni::colony::active()) ma::oni::colony::wait();
     const float dt = original<float (*)(void*,void*)>(MA_ONI_NEXT_FRAME)(self,data);
+    // Zero-time frames process messages without entering UpdateData. Their
+    // completed clock view is needed by the startup/restore barrier too.
+    if((std::bit_cast<std::uint32_t>(dt)&0x7fffffffU)==0)runtime_clock.sample(data);
     native_heat_contact_bits.store(std::bit_cast<std::uint32_t>(dt),std::memory_order_release);
     call.bits = std::bit_cast<std::uint32_t>(dt);
     if (dt > 0) pending_timestep={positive_steps.fetch_add(1,std::memory_order_relaxed)+1,dt};
@@ -361,6 +367,7 @@ void on_update_data(void* self,void* data) {
     native_heat_contact_bits.store(std::bit_cast<std::uint32_t>(pending.seconds),std::memory_order_release);
     native_floor_contact_ticket.store(floors.enabled?pending.ticket:0,std::memory_order_release);
     original<void (*)(void*,void*)>(MA_ONI_UPDATE_DATA)(self,data);
+    runtime_clock.sample(data);
     storage_heat.sample(data,counters[MA_ONI_PROCESS_FRAME].entries.load(std::memory_order_relaxed));
     native_floor_contact_ticket.store(0,std::memory_order_release);
     native_heat_contact_bits.store(0,std::memory_order_release);
@@ -1583,6 +1590,19 @@ MAOniResult ma_oni_domain_stop(MAOniDomainStatus* output) {
     });
 }
 std::uint32_t ma_oni_domain_heat_abi_version() { return 1; }
+std::uint32_t ma_oni_runtime_clock_version() {return ma::oni::runtime_clock::Monitor::supported()?1U:0U;}
+MAOniResult ma_oni_runtime_clock_start() {
+    return boundary([&]{if(!installed||!ma::oni::runtime_clock::Monitor::supported())throw Failure(MA_ONI_BUSY,"Native runtime clocks require the attached backend");runtime_clock.start();});
+}
+MAOniResult ma_oni_runtime_clock_copy(MAOniRuntimeClock* output) {
+    return boundary([&]{if(!output||output->struct_size!=sizeof(*output)||output->abi_version!=1)throw Failure(MA_ONI_INVALID_ARGUMENT,"Invalid native clock output ABI");*output=runtime_clock.copy();});
+}
+MAOniResult ma_oni_runtime_clock_restore(const MAOniRuntimeClock* input) {
+    return boundary([&]{if(!input)throw Failure(MA_ONI_INVALID_ARGUMENT,"Missing native clock input");runtime_clock.restore(*input);});
+}
+MAOniResult ma_oni_runtime_clock_pending(std::uint32_t* pending) {
+    return boundary([&]{if(!pending)throw Failure(MA_ONI_INVALID_ARGUMENT,"Missing native clock pending output");*pending=runtime_clock.pending()?1U:0U;});
+}
 std::uint32_t ma_oni_conduit_heat_version() {return ma::oni::conduit_heat::Monitor::supported()?1U:0U;}
 MAOniResult ma_oni_conduit_heat_expect(std::int32_t handle,float energy,float minimum,float maximum) {
     return boundary([&] {

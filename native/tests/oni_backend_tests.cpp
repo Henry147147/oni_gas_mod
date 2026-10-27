@@ -10,6 +10,7 @@
 #include "../src/oni_storage_heat_native.hpp"
 #include "../src/oni_conduit_heat.hpp"
 #include "../src/oni_runtime_trace.hpp"
+#include "../src/oni_runtime_clock.hpp"
 #include <array>
 #include <chrono>
 #include <cstring>
@@ -18,6 +19,7 @@
 #include <iostream>
 #include <stdexcept>
 #include <string>
+#include <thread>
 #if defined(__linux__)
 #include <unistd.h>
 #endif
@@ -86,6 +88,67 @@ static void body_heat_trace_controls() {
         "native body trace did not retain actual capacity, area and valid paired observations");
     std::cout<<"PASS native body heat observation: actual registered area/capacity, stale/retired rejection, readonly source and preserved math/errno\n";
 #endif
+}
+static void runtime_clock_controls() {
+    using namespace ma::oni::runtime_clock;
+    for(const auto windows:{false,true}) {
+        std::array<std::byte,168> sim{};sim.fill(std::byte{0x7a});
+        const auto put=[&](std::size_t offset,const auto& value){std::memcpy(sim.data()+offset,&value,sizeof(value));};
+        put(0,std::int32_t{258});put(4,std::int32_t{386});put(8,std::int32_t{98304});put(12,std::uint32_t{123});
+        put(16,std::int32_t{-1});put(20,std::int32_t{1});put(windows?160:144,std::uint16_t{42});
+        const auto original=sim;auto desired=read(sim.data(),windows);desired.random=0;desired.tick=65535;desired.iterate=1;desired.displacement=-1;
+        auto malformed=desired;malformed.width+=2;malformed.cells+=768;
+        try{write(sim.data(),windows,malformed);throw std::runtime_error("foreign clock geometry accepted");}catch(const std::invalid_argument&){}
+        require(sim==original,"foreign clock geometry partially changed native state");
+        write(sim.data(),windows,desired);const auto changed=read(sim.data(),windows);
+        require(std::memcmp(&changed,&desired,sizeof(desired))==0,"native loop field restoration changed values");
+        auto expected=original;
+        std::memcpy(expected.data()+12,&desired.random,4);std::memcpy(expected.data()+16,&desired.iterate,4);
+        std::memcpy(expected.data()+20,&desired.displacement,4);std::memcpy(expected.data()+(windows?160:144),&desired.tick,2);
+        require(sim==expected,"native loop restore changed another native field");
+        for(const auto kind:{0,1,2,3}) {
+            malformed=desired;if(kind==0)malformed.struct_size=0;if(kind==1)malformed.abi_version=2;if(kind==2)malformed.reserved=1;if(kind==3)malformed.iterate=0;
+            try{write(sim.data(),windows,malformed);throw std::runtime_error("malformed clock accepted");}catch(const std::invalid_argument&){}
+            require(sim==expected,"malformed native loop state partially changed native memory");
+        }
+        if(windows!=Monitor::windows)continue;
+        Monitor monitor;monitor.sample(nullptr);monitor.start();monitor.sample(original.data());
+        monitor.restore(desired);require(monitor.pending(),"native loop restore was not deferred");
+        sim=original;unsigned forwards=0;
+        try{monitor.process(sim.data(),0,[&]{++forwards;throw std::runtime_error("original failure");});}catch(const std::runtime_error&){}
+        require(monitor.pending()&&sim==original&&forwards==1,"original failure consumed clock restoration");
+        monitor.process(sim.data(),0,[&]{++forwards;require(sim==original,"clock changed before original native message processing");});
+        require(!monitor.pending()&&sim==expected&&forwards==2,"zero-time native clock restoration failed");
+        monitor.sample(sim.data());const auto captured=monitor.copy();require(std::memcmp(&captured,&desired,sizeof(desired))==0,"completed native clock capture changed state");
+        monitor.restore(desired);monitor.reset();sim=original;monitor.process(sim.data(),0,[&]{++forwards;});
+        require(sim==original&&!monitor.pending(),"shutdown retained a pending native clock write");
+        monitor.start();monitor.sample(sim.data());monitor.restore(desired);monitor.process(sim.data(),.2f,[&]{++forwards;});
+        require(sim==original,"premature positive time applied native clock restoration");
+        try{(void)monitor.copy();throw std::runtime_error("positive-time restore failure was hidden");}catch(const std::logic_error&){}
+        monitor.reset();monitor.start();monitor.sample(sim.data());
+        std::atomic<bool> finished{false};
+        std::thread worker([&]{while(!finished.load(std::memory_order_acquire)){
+            monitor.process(sim.data(),0,[]{});monitor.sample(sim.data());std::this_thread::yield();}});
+        try {
+            for(unsigned step=0;step<1000;++step) {
+                desired.random=0xffffffffU-step;desired.tick=static_cast<std::uint16_t>(65500U+step);
+                desired.iterate=(step&1U)?-1:1;desired.displacement=-desired.iterate;
+                monitor.restore(desired);const auto deadline=std::chrono::steady_clock::now()+std::chrono::seconds(5);
+                for(;;) {
+                    bool complete=false;
+                    try{const auto observed=monitor.copy();complete=std::memcmp(&observed,&desired,sizeof(desired))==0;}
+                    catch(const std::logic_error&){} // pending or awaiting its completed sample
+                    if(complete)break;
+                    require(std::chrono::steady_clock::now()<deadline,"native clock worker handoff did not complete");std::this_thread::yield();
+                }
+            }
+        }catch(...){finished.store(true,std::memory_order_release);worker.join();throw;}
+        finished.store(true,std::memory_order_release);worker.join();
+    }
+    require(ma_oni_runtime_clock_version()==1&&ma_oni_runtime_clock_start()==MA_ONI_BUSY&&
+        ma_oni_runtime_clock_copy(nullptr)==MA_ONI_INVALID_ARGUMENT&&ma_oni_runtime_clock_restore(nullptr)==MA_ONI_INVALID_ARGUMENT&&
+        ma_oni_runtime_clock_pending(nullptr)==MA_ONI_INVALID_ARGUMENT,"native clock ABI admission differs");
+    std::cout<<"PASS native loop state: both layouts, exact bounded writes, deferred zero-time restore, original failure retry, shutdown reset, premature-positive refusal and1000 threaded handoffs\n";
 }
 static void runtime_context_controls() {
     std::array<std::byte,168> sim{};
@@ -382,6 +445,7 @@ int main() {
         capture_file_controls();
         body_heat_trace_controls();
         runtime_context_controls();
+        runtime_clock_controls();
         chunk_heat_trace_controls();
         storage_heat_receipt_controls();
         storage_heat_native_controls();

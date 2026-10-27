@@ -83,6 +83,8 @@ namespace MixedAtmospheres.Oni
                 sections.Add(new KeyValuePair<uint, byte[]>(ColonySavePayload.ColonySettings, settings));
             if (requests != null)
                 sections.Add(new KeyValuePair<uint, byte[]>(ColonySavePayload.CallbackRequests, requests));
+            if(ColonyNativeClock.Capture() is byte[] clock)
+                sections.Add(new KeyValuePair<uint, byte[]>(ColonySavePayload.NativeRuntimeClock,clock));
             var payload = ColonySavePayload.Encode(config, image, sections);
             var envelope = ColonySaveEnvelope.Create(RunningBuild, MaterialModel, completedFrame,
                 CatalogueHash(ColonyOwner.Materials), native, payload);
@@ -98,6 +100,11 @@ namespace MixedAtmospheres.Oni
             var recorded = sim.Length >= 60 ? sim.Slice(28, ColonySaveEnvelope.CatalogHashBytes).ToArray() : new byte[ColonySaveEnvelope.CatalogHashBytes];
             var envelope = ColonySaveEnvelope.Parse(sim, ColonySaveEnvelope.FirstSupportedBuild, RunningBuild, MaterialModel, recorded);
             var payload = ColonySavePayload.Decode(envelope.CustomData);
+            if(payload.Section(ColonySavePayload.NativeRuntimeClock) is byte[] clock)
+            {
+                _=ColonyNativeClockState.Decode(clock);
+                if(payload.Section(ColonySavePayload.PipeRuntime)==null)throw new InvalidDataException("Native loop continuation requires its mixed-pipe section.");
+            }
             ColonyCheckpointMetadata.RefuseRemovedNitrogen(payload.Owner);
             var settings = payload.Section(ColonySavePayload.ColonySettings) ??
                 throw new NotSupportedException("This R&D save predates the current breathing settings. Start a new colony.");
@@ -124,6 +131,7 @@ namespace MixedAtmospheres.Oni
             OniNativeColony.Config config;
             fixed (byte* source = sections.Config) config = Marshal.PtrToStructure<OniNativeColony.Config>((IntPtr)source);
             var image = sections.Owner;
+            ColonyNativeClock.Load(sections.Section(ColonySavePayload.NativeRuntimeClock));
             ModSettingsRuntime.LoadRecord(sections.Section(ColonySavePayload.ColonySettings));
             if (sections.Section(ColonySavePayload.CarbonParticles) is byte[] particles) ColonySavedParticles.Load(particles, config);
             if (sections.Section(ColonySavePayload.PipeRuntime) is byte[] pipeImage) ColonyPipeSave.Load(pipeImage);
@@ -192,7 +200,7 @@ namespace MixedAtmospheres.Oni
             ColonyPipeRuntime.Persistable = ColonyPipeSave.WriterEnabled;
             var value = pending; pending = null; return value;
         }
-        internal static void Reset() { ColonyCallbackRequests.Reset(); ColonySaveBarrier.Reset(); ColonySavedParticles.Reset(); ColonySaveControls.Reset(); ColonyContinuationProbe.Reset(); ColonyLoadRefusal.Reset(); ColonyPipeSave.Reset(); pending = null; RestoredProfile = null; RestoredImageSha256 = ""; RestoredImageReencoded = null; RestoredReencodeMilliseconds = 0; RestoredReencodeScope = ""; }
+        internal static void Reset() { ColonyNativeClock.Reset(); ColonyCallbackRequests.Reset(); ColonySaveBarrier.Reset(); ColonySavedParticles.Reset(); ColonySaveControls.Reset(); ColonyContinuationProbe.Reset(); ColonyLoadRefusal.Reset(); ColonyPipeSave.Reset(); pending = null; RestoredProfile = null; RestoredImageSha256 = ""; RestoredImageReencoded = null; RestoredReencodeMilliseconds = 0; RestoredReencodeScope = ""; }
 
         internal static object? RestoredReport() => RestoredProfile is not ColonyPhysicalProfile p ? null : new {
             p.OwnerVersion, p.PhysicalVersion, p.LiquidLaw, p.PressureIterationCap, p.HeatIterationCap, p.GasHeatMixing,

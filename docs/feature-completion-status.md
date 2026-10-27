@@ -91,6 +91,10 @@ playtest deferrals remain recorded until their own controls pass.
   temperatures. Preserve native loop control first; managed scheduling and
   temperature provenance remain separate open repairs. Zero-time frames do
   not advance the observed native counters.
+  Gated MACNRC01/section5 now preserves native loop state before positive time;
+  host Linux and WindowsPlayer/Proton source/cold/menu controls pass, including
+  exact counter readback and unchanged eight-frame pipe prefixes. Full world
+  continuation still fails with different breathing/solid-heat inputs.
 
 ## Remaining implementation and proofs
 

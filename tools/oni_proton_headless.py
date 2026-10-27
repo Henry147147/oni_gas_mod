@@ -315,6 +315,7 @@ def playtest(args, state: Path, session: dict) -> int:
             result["owner_environment_overrides"] = bool(getattr(args,"spaced_out_control",False) or getattr(args,"exact_storage_control",False))
             result["experimental_spaced_out_control"] = bool(getattr(args,"spaced_out_control",False))
             result["exact_storage_control"] = bool(getattr(args,"exact_storage_control",False))
+            result["native_clock_control"] = bool(getattr(args,"native_clock_control",False))
         env=owner_fault_environment(env,args,output,result)
         settings_preset=getattr(args,"settings_preset",None)
         if settings_preset:
@@ -530,6 +531,9 @@ def owner_environment(env, args):
     """Keep ordinary owner runs free of implicit development overrides."""
     experimental = getattr(args, "spaced_out_control", False)
     exact_storage = getattr(args,"exact_storage_control",False)
+    native_clock = getattr(args,"native_clock_control",False)
+    if native_clock and not exact_storage:
+        raise ValueError("Native loop continuation control requires --exact-storage-control")
     if exact_storage and args.mode not in ("colony-owner","colony-owner-load"):
         raise ValueError("Exact-storage continuation control requires an owner source or load")
     if experimental and (args.mode not in ("colony-owner", "colony-owner-load") or
@@ -544,6 +548,8 @@ def owner_environment(env, args):
         clean.update(MA_COLONY_NATIVE_SCHEDULE_CONTROL="1",MA_COLONY_CONTINUATION_FRAMES="8",
                      MA_COLONY_CONTINUATION_RUNTIME="1",MA_COLONY_CONTINUATION_DUMP="1")
         if args.mode=="colony-owner":clean["MA_COLONY_CONTINUATION_SOURCE"]="1"
+    if native_clock:
+        clean["MA_COLONY_NATIVE_CLOCK_CONTROL"]="1"
     return clean
 
 
@@ -572,6 +578,8 @@ def main() -> int:
                         help="Experimental cluster-owner admission; records a development override, not ordinary DLC acceptance")
     parser.add_argument("--exact-storage-control",action="store_true",
                         help="Development-only exact-storage/scheduling and eight-frame continuation control; records an override")
+    parser.add_argument("--native-clock-control",action="store_true",
+                        help="Development-only native loop continuation; requires --exact-storage-control")
     parser.add_argument("--capture-owner-fault",action="store_true",
                         help="Diagnostic owner dump on a failed flow; marks the run as a development override")
     parser.add_argument("--dlc-mask", type=int, choices=range(32), metavar="0..31",

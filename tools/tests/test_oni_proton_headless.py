@@ -37,6 +37,18 @@ class ProtonIsolationTests(unittest.TestCase):
         self.assertEqual(loaded,{k:v for k,v in source.items() if k!="MA_COLONY_CONTINUATION_SOURCE"})
         self.assertEqual(env["MA_OTHER_CONTROL"],"1")
 
+    def test_native_clock_control_requires_explicit_exact_storage(self):
+        from types import SimpleNamespace
+        args=SimpleNamespace(mode="colony-owner",native_clock_control=True,exact_storage_control=False)
+        with self.assertRaisesRegex(ValueError,"exact-storage-control"):
+            runner.owner_environment({"PATH":"fixture"},args)
+        args.exact_storage_control=True
+        env=runner.owner_environment({"PATH":"fixture","MA_UNRELATED":"1"},args)
+        self.assertEqual(env["MA_COLONY_NATIVE_CLOCK_CONTROL"],"1")
+        self.assertNotIn("MA_UNRELATED",env)
+        args.native_clock_control=False
+        self.assertNotIn("MA_COLONY_NATIVE_CLOCK_CONTROL",runner.owner_environment(env,args))
+
     def test_exact_storage_control_refuses_nonowner_and_inactive_routes(self):
         for mode in ("menu","native-domain","colony-owner-inactive"):
             with self.subTest(mode=mode),self.assertRaises(ValueError):

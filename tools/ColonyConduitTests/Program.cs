@@ -421,6 +421,7 @@ static class Program
         BiologyStateTests.Run();
         OwnedStorageTests.Run();
         RetiredStorageTests.Run();
+        NativeClockTests.Run();
         StorageJournalTests.Run();
         StorageWeightTests.Run();
         ContactWorkTests.Run();

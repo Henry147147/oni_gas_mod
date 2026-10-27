@@ -304,7 +304,8 @@ internal static unsafe class Program
             Check(ColonySavePayload.Decode(single).Section(1)==null && ColonySavePayload.Decode(single).Section(2)!.SequenceEqual(particles));
             void Refuse(System.Action action){var refused=false;try{action();}catch(InvalidDataException){refused=true;}catch(NotSupportedException){refused=true;}Check(refused);}
             // Section 3 is the colony settings record (docs/settings.md); 4 the
-            // callback-owned request actors (MACCBR01); 5 is unknown.
+            // callback-owned request actors (MACCBR01); 5 the native loop
+            // record (MACNRC01); 6 is unknown.
             var settings=new byte[]{7,7};
             var three=ColonySavePayload.Encode(config,owner,new[]{new KeyValuePair<uint,byte[]>(3,settings),new KeyValuePair<uint,byte[]>(1,pipes),new KeyValuePair<uint,byte[]>(2,particles)});
             var threeParsed=ColonySavePayload.Decode(three);
@@ -313,7 +314,10 @@ internal static unsafe class Program
                 new KeyValuePair<uint,byte[]>(1,pipes),new KeyValuePair<uint,byte[]>(2,particles)});
             var fourParsed=ColonySavePayload.Decode(four);
             Check(fourParsed.Sections.Count==4 && fourParsed.Section(4)!.SequenceEqual(pipes) && ColonySavePayload.Encode(config,owner,fourParsed.Sections).SequenceEqual(four));
-            Refuse(()=>ColonySavePayload.Encode(config,owner,new[]{new KeyValuePair<uint,byte[]>(5,pipes)}));
+            var five=ColonySavePayload.Encode(config,owner,fourParsed.Sections.Append(new KeyValuePair<uint,byte[]>(ColonySavePayload.NativeRuntimeClock,particles)));
+            var fiveParsed=ColonySavePayload.Decode(five);
+            Check(fiveParsed.Sections.Count==5&&fiveParsed.Section(5)!.SequenceEqual(particles)&&ColonySavePayload.Encode(config,owner,fiveParsed.Sections).SequenceEqual(five));
+            Refuse(()=>ColonySavePayload.Encode(config,owner,new[]{new KeyValuePair<uint,byte[]>(6,pipes)}));
             Refuse(()=>ColonySavePayload.Encode(config,owner,new[]{new KeyValuePair<uint,byte[]>(1,Array.Empty<byte>())}));
             Refuse(()=>ColonySavePayload.Encode(config,owner,new[]{new KeyValuePair<uint,byte[]>(1,pipes),new KeyValuePair<uint,byte[]>(1,pipes)}));
             Refuse(()=>ColonySavePayload.Encode(new byte[55],owner));
@@ -324,9 +328,9 @@ internal static unsafe class Program
             var at=8+4+56+4+owner.Length;
             byte[] Mutate(int offset,int value){var copy=(byte[])sectioned.Clone();BinaryPrimitives.WriteInt32LittleEndian(copy.AsSpan(offset),value);return copy;}
             Refuse(()=>ColonySavePayload.Decode(Mutate(at,0)));                     // no sections
-            Refuse(()=>ColonySavePayload.Decode(Mutate(at,5)));                     // too many sections
+            Refuse(()=>ColonySavePayload.Decode(Mutate(at,6)));                     // too many sections
             Refuse(()=>ColonySavePayload.Decode(Mutate(at+4,2)));                   // out of order (2 then 2)
-            Refuse(()=>ColonySavePayload.Decode(Mutate(at+4,5)));                   // unknown tag
+            Refuse(()=>ColonySavePayload.Decode(Mutate(at+4,6)));                   // unknown tag
             Refuse(()=>ColonySavePayload.Decode(Mutate(at,4)));                     // more sections than present
             Refuse(()=>ColonySavePayload.Decode(Mutate(at+8,0)));                   // empty section
             Refuse(()=>ColonySavePayload.Decode(Mutate(8+4+56,int.MaxValue)));      // owner length

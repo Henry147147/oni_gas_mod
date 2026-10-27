@@ -66,6 +66,7 @@ namespace MixedAtmospheres.Oni
             if(!Active||!ColonyMachinePorts.Enabled)throw new InvalidOperationException("Native schedule control needs the complete mixed-pipe runtime.");
             if(ColonyOwnedStorage.Count!=0)throw new InvalidOperationException("Native schedule control must start before any exact store is bound.");
             ColonyOwnedStorage.StartControl();ColonyOwnedStorage.StartBiologyControl();NativeScheduleControl=true;
+            ColonyNativeClock.StartRequestedControl();
         }
         // Save point (docs/mixed-pipes.md#saved-runtime). The caller has
         // delivered and acknowledged every committed owner receipt.
