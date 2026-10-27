@@ -1,6 +1,7 @@
 #include "mac_fixture.hpp"
 #include "mac_game_liquid_control.hpp"
 #include "mac_game_surface_control.hpp"
+#include "../src/mac_hypot.hpp"
 #include "../src/mac_game/account.hpp"
 #include "../src/mac_game/entropy.hpp"
 #include "../src/mac_game/heat_mix.hpp"
@@ -9,6 +10,7 @@
 #include <bit>
 #include <limits>
 #include <random>
+#include <tuple>
 
 namespace {
 using namespace ma;
@@ -228,6 +230,24 @@ void zero_add_matches_two_sum() {
     }
   }
 }
+// The portable hypot is exact where the answer is representable and keeps
+// IEEE edge cases, at any magnitude.
+void rounded_hypot_is_exact_where_representable() {
+  for (const double scale : {1., 0x1p-1000, 0x1p-1060, 0x1p1000})
+    for (const auto &[a, b, c] : {std::tuple{3., 4., 5.}, std::tuple{5., 12., 13.},
+                                  std::tuple{20., 21., 29.}, std::tuple{119., 120., 169.}}) {
+      require(ma::rounded_hypot(a * scale, b * scale) == c * scale &&
+                  ma::rounded_hypot(-b * scale, a * scale) == c * scale,
+              "Portable hypot missed an exact Pythagorean value");
+    }
+  require(ma::rounded_hypot(0., -0.) == 0 && !std::signbit(ma::rounded_hypot(-0., -0.)) &&
+              ma::rounded_hypot(7., 0.) == 7 && std::isinf(ma::rounded_hypot(INFINITY, NAN)) &&
+              std::isnan(ma::rounded_hypot(NAN, 1.)) && std::isinf(ma::rounded_hypot(1.7e308, 1.7e308)) &&
+              std::isfinite(ma::rounded_hypot(1e308, 1e308)) &&
+              ma::rounded_hypot(1., 0x1p-60) == 1,
+          "Portable hypot edge cases differ");
+  std::cout << "PASS portable rounded hypot exact values and edge cases\n";
+}
 void closed_energy(long double before, long double after) {
   require(std::abs(after - before) <=
               1e-12L * (std::abs(before) + std::abs(after)),
@@ -297,6 +317,7 @@ void full_worker_continuation() {
 } // namespace
 int main() {
   try {
+    rounded_hypot_is_exact_where_representable();
     zero_add_matches_two_sum();
     trace_entropy_is_finite();
     near_vacuum_heat_remains_physical();

@@ -1,4 +1,5 @@
 #pragma once
+#include "../mac_hypot.hpp"
 #include <algorithm>
 #include <cmath>
 #include <limits>
@@ -66,7 +67,7 @@ inline double positive_quadratic(double a, double b, double c) {
     return c == 0 ? 0 : c / b;
   if (c == 0)
     return b < 0 ? -b / a : 0;
-  const double d = std::hypot(b, 2 * std::sqrt(a) * std::sqrt(c));
+  const double d = ma::rounded_hypot(b, 2 * std::sqrt(a) * std::sqrt(c));
   return b >= 0 ? 2 * c / (b + d) : (d - b) / (2 * a);
 }
 struct Root {

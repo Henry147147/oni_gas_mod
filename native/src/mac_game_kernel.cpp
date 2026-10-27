@@ -1,5 +1,6 @@
 // Opt-in game kernel. Its dense owner bridge is temporary; physical stages
 // operate on sparse fields and never call the reference evolution solver.
+#include "mac_hypot.hpp"
 #include "mac_game/tick.hpp"
 #include "mac_game_bridge.hpp"
 #include "mixed_atmospheres/mac_kernel.hpp"
@@ -340,7 +341,7 @@ void MacGameKernelAccess::initialize(const SpeciesRegistry &registry,
         pressure = c / state.grid.volume_m3();
       else {
         const double d =
-            std::hypot(b, 2 * std::sqrt(compliance) * std::sqrt(c));
+            ma::rounded_hypot(b, 2 * std::sqrt(compliance) * std::sqrt(c));
         pressure = b >= 0 ? 2 * c / (b + d) : (d - b) / (2 * compliance);
       }
     } else if (volume > state.grid.volume_m3())

@@ -85,7 +85,7 @@ inline const char *try_evaluate_selected(Eos &result,
       result.pressure = c / volume;
     else {
       const double discriminant =
-          std::hypot(b, 2 * std::sqrt(a) * std::sqrt(c));
+          ma::rounded_hypot(b, 2 * std::sqrt(a) * std::sqrt(c));
       result.pressure =
           b >= 0 ? 2 * c / (b + discriminant) : (discriminant - b) / (2 * a);
     }

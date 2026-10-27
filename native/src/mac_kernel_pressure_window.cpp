@@ -1,5 +1,6 @@
 // Nonlinear pressure windows with conditional fine-cell evolution. Physical
 // face paths remain shared; a masked pressure graph is only a preconditioner.
+#include "mac_hypot.hpp"
 #include "mac_kernel_pressure_window.hpp"
 #include "mac_kernel_detail.hpp"
 #include "mac_kernel_time.hpp"
@@ -214,7 +215,7 @@ struct PressureTimeWorkspace::Impl::Run {
                     const double h = cs[j] * H[j][columns] + sn[j] * H[j + 1][columns];
                     H[j + 1][columns] = -sn[j] * H[j][columns] + cs[j] * H[j + 1][columns]; H[j][columns] = h;
                 }
-                const double divisor = std::hypot(H[columns][columns], H[columns + 1][columns]);
+                const double divisor = ma::rounded_hypot(H[columns][columns], H[columns + 1][columns]);
                 if (!(divisor > 0) || !std::isfinite(divisor)) reject("Pressure window Krylov breakdown");
                 cs[columns] = H[columns][columns] / divisor; sn[columns] = H[columns + 1][columns] / divisor;
                 H[columns][columns] = divisor; H[columns + 1][columns] = 0;
