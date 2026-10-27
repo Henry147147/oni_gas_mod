@@ -1,5 +1,5 @@
 {
-  "scope": "linux-windows-base-game-private-playtest",
+  "scope": "linux-windows-spaced-out-private-playtest",
   "requirements": [
     {"id": "mixed-pipes-and-ports", "status": "open", "evidence": "docs/mixed-pipes.md"},
     {"id": "heat-and-all-germ-identities", "status": "deferred", "evidence": "docs/mixed-pipes.md", "decision": "docs/completion-plan.md", "scope": "Exact owned-storage schema 5 heat and biology only. Current world and mixed-pipe heat/biology remain required gameplay checks."},
@@ -10,6 +10,7 @@
     {"id": "ordinary-player-build", "status": "open", "evidence": "docs/playtest-plan.md"},
     {"id": "ten-cycle-acceptance-and-package", "status": "open", "evidence": "docs/colony-owner.md"},
     {"id": "configuration-and-presets", "status": "open", "evidence": "docs/settings.md"},
-    {"id": "windows-player-acceptance", "status": "open", "evidence": "docs/windows-validation.md"}
+    {"id": "windows-player-acceptance", "status": "open", "evidence": "docs/windows-validation.md"},
+    {"id": "spaced-out-cluster-playtest", "status": "open", "evidence": "docs/dlc-compatibility.md"}
   ]
 }

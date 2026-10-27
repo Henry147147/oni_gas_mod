@@ -23,7 +23,7 @@ PRIVATE_REQUIREMENTS = frozenset((
     "mixed-pipes-and-ports", "heat-and-all-germ-identities", "conserved-gameplay-transactions",
     "exact-in-flight-saves", "whole-asteroid-reliability", "selected-profile-accuracy",
     "ordinary-player-build", "ten-cycle-acceptance-and-package",
-    "configuration-and-presets", "windows-player-acceptance"))
+    "configuration-and-presets", "windows-player-acceptance", "spaced-out-cluster-playtest"))
 
 # Systems out of this playtest, with the reason recorded on their entries.
 OUT_SYSTEMS = {
@@ -313,7 +313,7 @@ def status(inventory: dict) -> dict:
 
 def readiness(inventory: dict, acceptance: dict) -> dict:
     """Implementation coverage alone cannot certify a playable package."""
-    if acceptance.get("scope") != "linux-windows-base-game-private-playtest":
+    if acceptance.get("scope") != "linux-windows-spaced-out-private-playtest":
         raise ValueError("Incorrect private-playtest acceptance scope")
     rows = acceptance.get("requirements", [])
     ids = [row["id"] for row in rows]

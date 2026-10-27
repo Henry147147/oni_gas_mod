@@ -92,6 +92,19 @@ class PrivateReadinessTests(unittest.TestCase):
         self.assertFalse(report["private_playtest_ready"])
         self.assertEqual(report["open_acceptances"], ["windows-player-acceptance"])
 
+    def test_base_game_passes_cannot_certify_the_required_spaced_out_playtest(self):
+        for row in self.acceptance["requirements"]:
+            row["status"] = "open" if row["id"] == "spaced-out-cluster-playtest" else "passed"
+        for entry in self.inventory["entries"]:
+            if entry.get("playtest") == "in":
+                entry["status"] = "implemented"
+        report = checklist.readiness(self.inventory, self.acceptance)
+        self.assertFalse(report["private_playtest_ready"])
+        self.assertEqual(report["open_acceptances"], ["spaced-out-cluster-playtest"])
+        self.acceptance["scope"] = "linux-windows-base-game-private-playtest"
+        with self.assertRaises(ValueError):
+            checklist.readiness(self.inventory, self.acceptance)
+
 
 if __name__ == "__main__":
     unittest.main()

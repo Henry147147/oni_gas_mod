@@ -1,5 +1,10 @@
 # Feature completion work
 
+**Current priority, 2026-10-27:** fully working Spaced Out! is required for
+the user's Windows playtest. The [cluster admission and DLC work](dlc-compatibility.md)
+comes first. The readiness gate now explicitly requires its own passing
+Spaced Out! acceptance; base-game passes cannot certify that playtest.
+
 This tracks work toward the full [completion plan](completion-plan.md), beyond
 the narrower first private base-game playtest. A private candidate is already
 available; it is not evidence that these requirements have passed. The earlier
