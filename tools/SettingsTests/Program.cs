@@ -50,8 +50,11 @@ static class Program
                 Check(NativeAccepts(SettingValues.Defaults().With(d.Key, step).ToNative()), "native refuses " + d.Key + " = " + step);
         foreach (var p in BuiltInPresets.All) Check(NativeAccepts(p.Values.ToNative()), "native refuses preset " + p.Id);
         // Experimental marks.
-        Check(BuiltInPresets.All.Select(p => p.Id).SequenceEqual(new[] { "default", "robust", "fast", "precise", "relaxed-breathing", "strict-breathing" }), "built-in preset list");
-        foreach (var id in new[] { "default", "robust", "relaxed-breathing", "strict-breathing" }) Check(!BuiltInPresets.Find(id)!.Experimental, id + " marked experimental");
+        Check(BuiltInPresets.All.Select(p => p.Id).SequenceEqual(new[] { "default", "robust", "fast", "precise", "relaxed-breathing", "strict-breathing", "hard-mode" }), "built-in preset list");
+        foreach (var id in new[] { "default", "robust", "relaxed-breathing", "strict-breathing", "hard-mode" }) Check(!BuiltInPresets.Find(id)!.Experimental, id + " marked experimental");
+        // Hard mode: the 35% ceiling with nitrogen air; nitrogen air is off by default.
+        var hard = BuiltInPresets.Find("hard-mode")!.Values;
+        Check(hard.Number("breathing.maximumOxygenFraction") == .35 && hard.Toggle("breathing.nitrogenAir") && !SettingValues.Defaults().Toggle("breathing.nitrogenAir"), "hard mode preset");
         foreach (var id in new[] { "fast", "precise" }) Check(BuiltInPresets.Find(id)!.Experimental, id + " not marked experimental");
         Check(SettingValues.Defaults().With("solver.sharpenLiquidInterfaces", false).Experimental(SettingScope.Colony).Any(), "sharpening off not experimental");
         Check(SettingValues.Defaults().With("solver.pressureTolerance", 1e-6).Experimental(SettingScope.Colony).Any(), "looser tolerance not experimental");
@@ -179,10 +182,56 @@ static class Program
         var decoded = ColonySettingsRecord.Decode(bytes, SettingValues.Defaults());
         Check(decoded.ScopeEquals(SettingScope.Colony, strict), "record round trip");
         var wrongVersion = (byte[])bytes.Clone(); wrongVersion[0] = 2;
-        Throws<NotSupportedException>(() => ColonySettingsRecord.Decode(wrongVersion, SettingValues.Defaults()), "future record version");
+        Throws<InvalidDataException>(() => ColonySettingsRecord.Decode(wrongVersion, SettingValues.Defaults()), "version 2 needs six values");
         Throws<InvalidDataException>(() => ColonySettingsRecord.Decode(bytes.AsSpan(0, 20), SettingValues.Defaults()), "truncated record");
         var outside = (byte[])bytes.Clone(); BitConverter.GetBytes(2.0).CopyTo(outside, 8);
         Throws<InvalidDataException>(() => ColonySettingsRecord.Decode(outside, SettingValues.Defaults()), "out-of-range record");
+        // Version 2 adds nitrogen air and is written only for nitrogen-air colonies.
+        var hard = BuiltInPresets.Find("hard-mode")!.Values;
+        var v2 = ColonySettingsRecord.Encode(hard)!;
+        Check(v2.Length == 56 && BitConverter.ToUInt32(v2, 0) == 2 && BitConverter.ToUInt32(v2, 4) == 6 && BitConverter.ToDouble(v2, 48) == 1, "version 2 layout");
+        Check(ColonySettingsRecord.Decode(v2, SettingValues.Defaults()).ScopeEquals(SettingScope.Colony, hard), "version 2 round trip");
+        var airOnly = SettingValues.Defaults().With("breathing.nitrogenAir", true);
+        Check(ColonySettingsRecord.Encode(airOnly)!.Length == 56 && ColonySettingsRecord.Decode(ColonySettingsRecord.Encode(airOnly)!, SettingValues.Defaults()).Toggle("breathing.nitrogenAir"),
+              "nitrogen air alone is recorded");
+        Check(!ColonySettingsRecord.Decode(bytes, SettingValues.Defaults().With("breathing.nitrogenAir", true)).Toggle("breathing.nitrogenAir"), "version 1 means generated air");
+        var badAir = (byte[])v2.Clone(); BitConverter.GetBytes(.5).CopyTo(badAir, 48);
+        Throws<InvalidDataException>(() => ColonySettingsRecord.Decode(badAir, SettingValues.Defaults()), "nitrogen air flag");
+        var shortV2 = (byte[])v2.Clone(); shortV2[4] = 5;
+        Throws<InvalidDataException>(() => ColonySettingsRecord.Decode(shortV2, SettingValues.Defaults()), "version 2 count");
+        var future = (byte[])v2.Clone(); future[0] = 3;
+        Throws<NotSupportedException>(() => ColonySettingsRecord.Decode(future, SettingValues.Defaults()), "version 3");
+    }
+
+    // The ten-cycle bridge (docs/nitrogen.md): 1,000 cells of 1.67 kg air at
+    // 295 K, the game's 16 g/mol oxygen and 44 g/mol carbon dioxide.
+    private static void Bridge()
+    {
+        const double cells = 1000, kg = 1.67, t = 295, mo = .0159994, mn = .0280134, mc = .04401;
+        var k = mo * .02 / mc;
+        bool Near(double a, double b) => Math.Abs(a - b) <= 1e-12 * Math.Max(1, Math.Abs(b));
+        // Same-mass air: 25% of its moles stay oxygen, mass kept.
+        var air = StartingAirBridge.AirMoles(kg, mo, mn, .25);
+        Check(Near(.25 * air * mo + .75 * air * mn, kg) && air < kg / mo, "same-mass air");
+        // Pure generated oxygen under easy mode: carbon dioxide binds first, by
+        // its 500 Pa partial pressure (the gas is at about 256 kPa).
+        var n = cells * kg / mo;
+        var (o, c) = StartingAirBridge.BreathableMoles(n, 0, n, cells, t, k, .15, 15000, 1, .005, 500);
+        var byPressure = 500 * cells / (StartingAirBridge.GasConstant * t) / k;
+        // Pure oxygen never falls below 15% of the gas; its partial pressure falls to 15 kPa.
+        Check(Near(o, n - 15000 * cells / (StartingAirBridge.GasConstant * t)) && Near(c, byPressure) && byPressure < .005 * n / (k * (1 - .005) + .005) && c < o,
+              "easy-mode bridge on generated oxygen");
+        // Nitrogen air: oxygen binds first, at (x - 15%) / (85% + 15% k) of the moles.
+        var g = cells * air;
+        (o, c) = StartingAirBridge.BreathableMoles(.25 * g, 0, g, cells, t, k, .15, 15000, .35, .005, 500);
+        Check(Near(o, (.25 * g - .15 * g) / (1 - .15 + .15 * k)) && o < c, "nitrogen-air bridge");
+        // Hard mode on generated oxygen breathes nothing; thin air binds by pressure.
+        Check(StartingAirBridge.BreathableMoles(n, 0, n, cells, t, k, .15, 15000, .35, .005, 500).oxygen == 0, "hard mode on generated oxygen");
+        var thin = cells * .3 / mo;
+        (o, _) = StartingAirBridge.BreathableMoles(thin, 0, thin, cells, t, k, .15, 15000, 1, .005, 500);
+        Check(Near(o, thin - 15000 * cells / (StartingAirBridge.GasConstant * t)), "partial pressure binds in thin air");
+        // Carbon dioxide already past its limit leaves no headroom.
+        Check(StartingAirBridge.BreathableMoles(n, .01 * n, n, cells, t, k, .15, 15000, 1, .005, 500).carbonDioxide == 0, "no headroom past the limit");
     }
 
     private static int Main()
@@ -190,7 +239,7 @@ static class Program
         var root = Path.Combine(Path.GetTempPath(), "ma-settings-tests-" + Guid.NewGuid().ToString("N"));
         try
         {
-            Catalog(); Json(); Store(root); Record();
+            Catalog(); Json(); Store(root); Record(); Bridge();
             Console.WriteLine($"PASS settings model, JSON, files, presets and colony record ({checks} checks)");
             return 0;
         }

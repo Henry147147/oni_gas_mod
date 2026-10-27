@@ -86,11 +86,21 @@ play.
   the owner's edits that follow it. Their mass per species, U+K+G and momentum are
   booked as their own ledger term (`trace_sink_kg`, `trace_sink_j` in the
   status), apart from the space sink. The game does not select the profile yet.
+- **Starting air** (`ColonyStartingAir.cs`, [nitrogen](nitrogen.md)): before the
+  import, the gas connected to the printing pod is counted; once the starting
+  duplicants exist, their oxygen use and the colony's breathing rules give the
+  cycles of breathable oxygen and carbon dioxide headroom (the
+  `StartingAir` report and a log line). An oxygen shortfall over ten cycles
+  is placed as oxylite debris beside the pod and named in a start notice.
+  Validation scenes place it only with `MA_COLONY_STARTING_RESERVE=1`.
 - **Breathing** (easy mode): a cell is breathable with at least 15% oxygen by
   moles and 15 kPa oxygen partial pressure, carbon dioxide below 0.5% and
   500 Pa; polluted oxygen counts as oxygen. A breathable cell offers its oxygen
   of the more abundant kind. A colony started with other breathing
-  [settings](settings.md) records and keeps them.
+  [settings](settings.md) records and keeps them, and its duplicants breathe
+  by them, including hard mode's maximum oxygen share (until 2026-10-27 the
+  breathing reader used the easy-mode defaults and only the presentation
+  followed the settings).
 
 A faulted owner keeps publishing its last frame (fluids freeze), logs the error
 and refuses saves. An exception escaping one of the mod's paths inside the
@@ -303,6 +313,9 @@ fluids it receives exactly in its own ledgers either way.
 
 ## Sensors
 
+The mod's Gas Share Sensor (`GasShareSensor.cs`) compares one gas's mole share
+of its cell's gas with a threshold; off the owned asteroid a cell's single
+element counts as all or none of it.
 An element sensor (`LogicElementSensor`) on the owned asteroid is true when its
 element is present above the trace threshold, 0.1% of the mass of its phase in
 the cell (`ColonySensors.cs`, a transpiler on its sampler). Pipe element sensors
@@ -944,6 +957,16 @@ whole asteroid starts at rest.
    pockets.
 5. Liquid masses depend on the gas pressure above them, so steps 2 and 4 repeat
    three times.
+
+**Nitrogen air** ([nitrogen](nitrogen.md#starting-air-and-progression),
+`ma_oni_colony_set_starting_air`). With the new-colony setting on, every
+imported cell of oxygen or polluted oxygen first becomes air of the same mass
+and temperature, the source gas at 25% of the moles and nitrogen for the rest.
+In step 4 a region's air species then form one mixed layer at their mean
+molar mass, not separate nitrogen and oxygen layers (only where every cell is
+above each member's critical temperature). The converted inventory is the
+owner's initial inventory; no checkpoint field changes, and with the setting
+off the import is unchanged byte for byte.
 
 The import ignores the small hydrostatic gradient within gas.
 

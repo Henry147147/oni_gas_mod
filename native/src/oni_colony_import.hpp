@@ -19,9 +19,20 @@ struct ImportCell {
 // Liquid that cannot fit in its sealed region at its zero-pressure density.
 // It stays booked to that region and is never deleted.
 struct ReservoirEntry { std::size_t region_cell = 0; std::size_t species = 0; double mass_kg = 0, temperature_k = 0; };
+// Nitrogen air (docs/nitrogen.md): each fluid cell holding one of `sources`
+// (generated oxygen and polluted oxygen) keeps its mass and temperature and
+// becomes that species and `nitrogen`, the source at `oxygen_fraction` of the
+// moles. A gas region lays its air out as one mixed layer. Disabled when
+// `sources` is empty.
+struct ImportAir {
+    std::vector<std::uint32_t> sources; // catalogue gas species
+    std::uint32_t nitrogen = import_vacuum;
+    double oxygen_fraction = 0;          // in (0, 1)
+    [[nodiscard]] bool enabled() const noexcept { return !sources.empty(); }
+};
 struct ImportReport {
-    std::size_t regions = 0, liquid_bodies = 0, raised_cells = 0, headspaces_filled = 0, vacuum_cells_filled = 0;
-    double reservoir_kg = 0, moved_gas_mol = 0, condensed_kg = 0, evaporated_kg = 0;
+    std::size_t regions = 0, liquid_bodies = 0, raised_cells = 0, headspaces_filled = 0, vacuum_cells_filled = 0, air_cells = 0;
+    double reservoir_kg = 0, moved_gas_mol = 0, condensed_kg = 0, evaporated_kg = 0, air_nitrogen_kg = 0;
     double maximum_relative_pressure_spread = 0; // after settling, over regions with gas
     double maximum_relative_mass_error = 0;      // per species, imported against settled plus reservoir
 };
@@ -38,5 +49,5 @@ struct ImportResult { experimental::MacTransportState state; std::vector<Reservo
 // each connected region is then laid out in density layers at one pressure,
 // filling the headspace of partly filled liquid cells and vacuum pockets.
 [[nodiscard]] ImportResult settle_import(const Catalogue&, std::size_t width, std::size_t height,
-    std::span<const ImportCell> cells, double gravity_m_per_s2);
+    std::span<const ImportCell> cells, double gravity_m_per_s2, const ImportAir& air = {});
 }

@@ -73,6 +73,7 @@ namespace MixedAtmospheres.Oni
                 GasDiffusionOptions.Initialize();
                 MixtureOverlays.InitializeStrings();
                 OniNitrogenElements.InitializeStrings();
+                GasShareSensorConfig.InitializeStrings();
                 ColonyRuntimeValidation.Initialize();
                 ModSettingsRuntime.Initialize(); // docs/settings.md; after the validation request is known
                 NitrogenElementTagPatch.WarmNativeCalls();

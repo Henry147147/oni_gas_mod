@@ -108,7 +108,7 @@ namespace MixedAtmospheres.Oni
             current?.Dispose(); current = null;
             if (Active) { var s = OniNativeColony.Status.Empty; _ = OniNativeColony.Stop(ref s); }
             ColonyPacing.Reset(); ColonyOwnerPersistence.Reset(); ModSettingsRuntime.Reset();
-            ColonyClusterWorlds.Reset();OwnedCells=0;
+            ColonyClusterWorlds.Reset();ColonyStartingAir.Reset();OwnedCells=0;
             publicationCells=Array.Empty<int>();CellMapComparisons=0;
             passiveSession=0;passiveFrame=ulong.MaxValue;WorldPassiveComparisons=WorldPassiveRows=WorldPassiveBusy=0;
             Active = false; considered = false; restoreAttempted = false; StartFailure = ""; loggedFault = ""; ColonyFault.Reset(); Publications = 0; PublicationMilliseconds = MaximumPublicationMilliseconds = 0; Census.Clear(); molarMass = Array.Empty<double>();
@@ -220,7 +220,9 @@ namespace MixedAtmospheres.Oni
                 var started = System.Diagnostics.Stopwatch.StartNew();
                 ColonyWorldGerms.Configure();
                 var output = OniNativeColony.Status.Empty;
-                ModSettingsRuntime.BeforeStart(config.Flags); // the player's colony settings (docs/settings.md)
+                var colonySettings = ModSettingsRuntime.BeforeStart(config.Flags); // the player's colony settings (docs/settings.md)
+                ColonyStartingAir.Capture(source, colonySettings.Toggle("breathing.nitrogenAir"), // docs/nitrogen.md
+                    c => zones != null && ElementLoader.elements[source->elementIdx[c]].IsVacuum && zones.GetSubWorldZoneType(c) == ProcGen.SubWorld.ZoneType.Space);
                 OniNativeColony.Check(OniNativeColony.Start(ref config, materials, (uint)materials.Length, cells, (uint)cells.Length, ref output));
                 ModSettingsRuntime.AfterStart();
                 status = output; views = new OniNativeColony.CellView[cells.Length]; Active = true; ColonyPacingDriver.Ensure(); ConfigurePresentation();
@@ -406,6 +408,7 @@ namespace MixedAtmospheres.Oni
                 Lap("retire");
                 ++Publications;
                 ColonyPresentation.Publish(status.CompletedFrames);
+                ColonyStartingAir.Update();
                 Lap("presentation");
                 PublicationMilliseconds = (System.Diagnostics.Stopwatch.GetTimestamp() - started) * 1000.0 / System.Diagnostics.Stopwatch.Frequency;
                 MaximumPublicationMilliseconds = Math.Max(MaximumPublicationMilliseconds, PublicationMilliseconds);
@@ -719,15 +722,29 @@ namespace MixedAtmospheres.Oni
             OniNativeColony.Check(OniNativeColony.Composition((uint)cell, partIndices, partMasses, (uint)partIndices.Length, out var count));
             return (int)Math.Min(count, (uint)partIndices.Length);
         }
-        // Easy-mode breathing (docs/playtest-plan.md): at least 15% oxygen by
-        // moles and 15 kPa oxygen partial pressure, carbon dioxide below 0.5%
-        // and 500 Pa. Polluted oxygen counts as oxygen. A breathable cell offers
-        // its oxygen of the more abundant kind; otherwise none.
-        internal const double MinimumOxygenFraction = .15, MinimumOxygenPressurePa = 15000, MaximumCarbonDioxideFraction = .005, MaximumCarbonDioxidePressurePa = 500;
+        // Breathing by the colony's recorded rules (docs/settings.md): by
+        // default easy mode, at least 15% oxygen by moles and 15 kPa oxygen
+        // partial pressure, carbon dioxide below 0.5% and 500 Pa; hard mode
+        // also fails above its maximum oxygen share. Polluted oxygen counts as
+        // oxygen. A breathable cell offers its oxygen of the more abundant
+        // kind; otherwise none.
+        private static object? rulesOf;
+        private static double minimumOxygenFraction = .15, minimumOxygenPressurePa = 15000, maximumOxygenFraction = 1,
+            maximumCarbonDioxideFraction = .005, maximumCarbonDioxidePressurePa = 500;
+        private static void RefreshBreathingRules()
+        {
+            var colony = ModSettingsRuntime.Colony;
+            if (ReferenceEquals(colony, rulesOf) && rulesOf != null) return;
+            var rules = ModSettingsRuntime.Breathing; rulesOf = colony;
+            minimumOxygenFraction = rules.MinimumOxygenFraction; minimumOxygenPressurePa = rules.MinimumOxygenPartialPressurePa;
+            maximumOxygenFraction = rules.MaximumOxygenFraction;
+            maximumCarbonDioxideFraction = rules.MaximumCo2Fraction; maximumCarbonDioxidePressurePa = rules.MaximumCo2PartialPressurePa;
+        }
         internal static bool TryReadBreathingCell(int cell, out float mass, out SimHashes element)
         {
             mass = 0; element = SimHashes.Vacuum;
             if (!TryReadView(cell, out var view)) return false;
+            RefreshBreathingRules();
             if ((view.Flags & OniNativeColony.ViewGas) == 0 || status.State != 1) return true;
             if (molarMass.Length == 0)
             {
@@ -747,8 +764,8 @@ namespace MixedAtmospheres.Oni
             if (!(moles > 0)) return true;
             var pressure = (double)view.PressurePa;
             var xo = oxygenMoles / moles; var xc = carbonMoles / moles;
-            if (xo < MinimumOxygenFraction || xo * pressure < MinimumOxygenPressurePa || xc >= MaximumCarbonDioxideFraction ||
-                xc * pressure >= MaximumCarbonDioxidePressurePa) return true;
+            if (xo < minimumOxygenFraction || xo * pressure < minimumOxygenPressurePa || xo > maximumOxygenFraction ||
+                carbonMoles > 0 && (xc >= maximumCarbonDioxideFraction || xc * pressure >= maximumCarbonDioxidePressurePa)) return true;
             element = oxygen >= polluted ? SimHashes.Oxygen : SimHashes.ContaminatedOxygen;
             // Rounded down so the advertised amount never exceeds the cell.
             var offered = (float)(oxygen >= polluted ? oxygen : polluted);

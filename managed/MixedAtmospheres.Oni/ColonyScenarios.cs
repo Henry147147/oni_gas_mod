@@ -118,6 +118,7 @@ namespace MixedAtmospheres.Oni
                     case "rocket-exhaust": RocketExhaust(frame); break;
                     case "meteor": Meteor(frame, status); break;
                     case "sensor": Sensor(frame); break;
+                    case "starting-air": StartingAir(frame); break;
                     case "filter": Filter(frame); break;
                     case "mixed-pipes": MixedPipes(frame); break;
                     case "mixed-pipe-filter": MixedPipeFilter(frame); break;

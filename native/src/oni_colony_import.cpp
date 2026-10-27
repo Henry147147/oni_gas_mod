@@ -44,13 +44,21 @@ struct Grid {
 }
 
 ImportResult settle_import(const Catalogue& catalogue, std::size_t width, std::size_t height,
-    std::span<const ImportCell> input, double gravity) {
+    std::span<const ImportCell> input, double gravity, const ImportAir& air) {
     const auto& registry = catalogue.registry;
     require(width >= 1 && height >= 1 && width <= 4096 && height <= 4096 && input.size() == width * height, "Invalid import geometry");
     require(std::isfinite(gravity) && gravity >= 0, "Invalid import gravity");
+    const auto is_air_source = [&](std::uint32_t k) { return std::find(air.sources.begin(), air.sources.end(), k) != air.sources.end(); };
+    if (air.enabled()) {
+        require(air.nitrogen < registry.size() && registry[air.nitrogen].phase == Phase::gas && !is_air_source(air.nitrogen),
+            "Import air needs a nitrogen gas species");
+        require(std::isfinite(air.oxygen_fraction) && air.oxygen_fraction > 0 && air.oxygen_fraction < 1, "Import air oxygen share is outside (0, 1)");
+        for (const auto k : air.sources) require(k < registry.size() && registry[k].phase == Phase::gas, "Import air sources must be gas species");
+    }
     const auto N = input.size(); const Grid g{width, height};
     std::vector<Gas> gas(N); std::vector<Liquid> liquid(N);
     std::vector<long double> imported(registry.size()), converted(registry.size()); // condensation: vapour -, liquid +
+    ImportResult result; auto& report = result.report;
     for (std::size_t i = 0; i < N; ++i) {
         const auto& c = input[i];
         require(c.kind == ImportCellKind::solid || c.kind == ImportCellKind::fluid || c.kind == ImportCellKind::space, "Invalid import cell kind");
@@ -62,13 +70,23 @@ ImportResult settle_import(const Catalogue& catalogue, std::size_t width, std::s
         require(c.species < registry.size() && c.temperature_k > 0, "Import fluid needs a catalogue species and a positive temperature");
         const auto& s = registry[c.species];
         imported[c.species] += c.mass_kg;
-        if (s.phase == Phase::gas) { gas[i].masses.emplace_back(c.species, c.mass_kg); gas[i].capacity = s.cv() * c.mass_kg; gas[i].heat = gas[i].capacity * c.temperature_k; }
+        if (s.phase == Phase::gas && air.enabled() && is_air_source(c.species)) {
+            // Air of the same mass: x of the moles stay the source gas.
+            const auto& n = registry[air.nitrogen]; const double x = air.oxygen_fraction;
+            const double moles = c.mass_kg / (x * s.molar_mass + (1 - x) * n.molar_mass);
+            const double source_kg = std::min(c.mass_kg, x * moles * s.molar_mass), nitrogen_kg = c.mass_kg - source_kg;
+            imported[c.species] -= nitrogen_kg; imported[air.nitrogen] += nitrogen_kg;
+            gas[i].masses.emplace_back(c.species, source_kg);
+            if (nitrogen_kg > 0) gas[i].masses.emplace_back(air.nitrogen, nitrogen_kg);
+            gas[i].capacity = s.cv() * source_kg + n.cv() * nitrogen_kg; gas[i].heat = gas[i].capacity * c.temperature_k;
+            ++report.air_cells; report.air_nitrogen_kg += nitrogen_kg;
+        }
+        else if (s.phase == Phase::gas) { gas[i].masses.emplace_back(c.species, c.mass_kg); gas[i].capacity = s.cv() * c.mass_kg; gas[i].heat = gas[i].capacity * c.temperature_k; }
         else liquid[i] = {c.species, c.mass_kg, c.temperature_k};
     }
     const auto open = [&](std::size_t i) { return i != none && input[i].kind == ImportCellKind::fluid; };
     const auto rho0 = [&](std::uint32_t k) { return catalogue.eos->reference().materials()[k].zero_pressure_density_kg_per_m3; };
     const auto bulk = [&](std::uint32_t k) { return catalogue.eos->reference().materials()[k].reference_bulk_modulus_pa; };
-    ImportResult result; auto& report = result.report;
 
     // Regions: connected open (non-solid, non-space) cells.
     std::vector<std::size_t> region(N, none); std::vector<std::vector<std::size_t>> regions;
@@ -337,6 +355,30 @@ ImportResult settle_import(const Catalogue& catalogue, std::size_t width, std::s
         for (const auto i : regions[r])
             cell_t[i] = gas[i].capacity > 0 ? gas[i].heat / gas[i].capacity : liquid[i].mass > 0 ? liquid[i].temperature : static_cast<double>(common);
         for (const auto i : regions[r]) for (const auto& [k, m] : gas[i].masses) report.moved_gas_mol += m / registry[k].molar_mass;
+        // Layers, heaviest first: one species each, except that nitrogen air
+        // forms one mixed layer at its mean molar mass. Air is mixed only where
+        // every cell is above each member's critical temperature, so no member
+        // has a saturation cap; otherwise its species are laid separately.
+        std::vector<std::vector<std::uint32_t>> layers;
+        {
+            std::vector<std::uint32_t> members;
+            if (air.enabled()) for (const auto k : present) if (k == air.nitrogen || is_air_source(k)) members.push_back(k);
+            double critical = 0;
+            for (const auto k : members) for (const auto& pair : catalogue.pairs)
+                if (pair.vapour == k) critical = std::max(critical, pair.critical_k > 0 ? pair.critical_k : std::numeric_limits<double>::infinity());
+            bool mixed = members.size() > 1;
+            for (const auto i : regions[r]) if (mixed && gas_volume(i) > 0 && !(cell_t[i] > critical)) mixed = false;
+            long double air_moles = 0, air_mass = 0;
+            for (const auto k : members) { air_moles += moles[k]; air_mass += moles[k] * registry[k].molar_mass; }
+            const double air_molar = mixed ? static_cast<double>(air_mass / air_moles) : 0;
+            bool placed = false;
+            for (const auto k : present) {
+                if (mixed && std::find(members.begin(), members.end(), k) != members.end()) continue;
+                if (mixed && !placed && registry[k].molar_mass < air_molar) { layers.push_back(members); placed = true; }
+                layers.push_back({k});
+            }
+            if (mixed && !placed) layers.push_back(members);
+        }
         // Lay each species into the ordered cells. A cell holds pressure V/(RT)
         // moles in all; a vapour of a saturation pair holds at most its
         // saturation partial pressure there, so its layer spreads over more
@@ -357,7 +399,39 @@ ImportResult settle_import(const Catalogue& catalogue, std::size_t width, std::s
             std::vector<long double> room_left(order.size());
             for (std::size_t q = 0; q < order.size(); ++q) room_left[q] = pressure * gas_volume(order[q]) / (R * cell_t[order[q]]);
             std::size_t first = 0; bool condensed = false;
-            for (const auto k : present) {
+            for (const auto& layer : layers) {
+                if (layer.size() > 1) {
+                    // Mixed air: each cell takes the region's air composition;
+                    // the last cell it reaches takes every member's remainder.
+                    long double left = 0; std::vector<long double> part_left(layer.size());
+                    for (std::size_t j = 0; j < layer.size(); ++j) { part_left[j] = moles[layer[j]]; left += part_left[j]; }
+                    const long double total = left;
+                    while (first < order.size() && !(room_left[first] > 0)) ++first;
+                    std::size_t reached = order.size();
+                    for (std::size_t q = first; q < order.size() && left > 0; ++q) {
+                        const bool last = q + 1 == order.size();
+                        const long double take = last ? left : std::min(left, room_left[q]);
+                        if (!(take > 0)) continue;
+                        const double t = cell_t[order[q]]; auto& cell = gas[order[q]]; reached = q;
+                        for (std::size_t j = 0; j < layer.size(); ++j) {
+                            const auto k = layer[j];
+                            const long double part = last ? part_left[j] : std::min(part_left[j], take * (moles[k] / total));
+                            if (!(part > 0)) continue;
+                            const auto mass = static_cast<double>(part * registry[k].molar_mass);
+                            cell.add(k, mass); cell.capacity += registry[k].cv() * mass; cell.heat += registry[k].cv() * mass * t;
+                            part_left[j] -= part;
+                        }
+                        left -= take; room_left[q] -= take;
+                    }
+                    const auto into = reached < order.size() ? order[reached] : order.back();
+                    for (std::size_t j = 0; j < layer.size(); ++j) if (part_left[j] > 0) {
+                        const auto k = layer[j]; const auto mass = static_cast<double>(part_left[j] * registry[k].molar_mass);
+                        auto& cell = gas[into]; cell.add(k, mass);
+                        cell.capacity += registry[k].cv() * mass; cell.heat += registry[k].cv() * mass * cell_t[into];
+                    }
+                    continue;
+                }
+                const auto k = layer.front();
                 // A vapour of a pair is capped at its saturation pressure at each
                 // cell's temperature (no cap above the critical temperature).
                 std::size_t liquid_of = registry.size(); const CatalogueSaturationPair* sat = nullptr;

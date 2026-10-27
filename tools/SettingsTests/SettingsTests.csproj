@@ -8,5 +8,7 @@
     <Compile Include="../../managed/MixedAtmospheres.Oni/ModSettings.cs" Link="ModSettings.cs" />
     <Compile Include="../../managed/MixedAtmospheres.Oni/ModSettingsJson.cs" Link="ModSettingsJson.cs" />
     <Compile Include="../../managed/MixedAtmospheres.Oni/ModSettingsStore.cs" Link="ModSettingsStore.cs" />
+    <!-- Engine-free ten-cycle bridge arithmetic (docs/nitrogen.md). -->
+    <Compile Include="../../managed/MixedAtmospheres.Oni/StartingAirBridge.cs" Link="StartingAirBridge.cs" />
   </ItemGroup>
 </Project>

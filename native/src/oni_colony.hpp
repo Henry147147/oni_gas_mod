@@ -45,6 +45,8 @@ void set_diseases(std::span<const MAOniColonyDisease>, std::span<const MAOniColo
 [[nodiscard]] unsigned physical_core_count() noexcept;
 void set_worker_count(unsigned);
 void set_options(const MAOniColonyOptions*);
+// Nitrogen air for the next new colonies (null or disabled: unchanged gas).
+void set_starting_air(const MAOniColonyStartingAir*);
 bool copy_options(MAOniColonyOptions&);
 void queue_germs(std::span<const MAOniColonyGermEdit>);
 void germ_accounts(MAOniColonyBiology&, std::vector<MAOniColonyBiologyAccount>&);

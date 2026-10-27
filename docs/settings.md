@@ -40,6 +40,7 @@ Built-in presets set the colony settings and keep the player's preferences.
 | Precise (experimental) | Two solver steps per game tick, pressure tolerance 1e-10 and the Robust caps; about twice the solver time. |
 | Relaxed breathing | Oxygen ≥ 10% and 10 kPa; carbon dioxide ≤ 1% and 1 kPa. |
 | Strict breathing | Oxygen ≥ 18% and 18 kPa; carbon dioxide ≤ 0.3% and 300 Pa. |
+| Hard mode | Oxygen 15–35% (maximum oxygen share 35%) with nitrogen air for new colonies ([nitrogen](nitrogen.md#starting-air-and-progression)). |
 
 Lower caps are not offered: they are never faster, and reaching a cap stops
 the simulation. Players save the shown settings (colony settings and
@@ -99,7 +100,8 @@ those of `MAOniColonyOptions` (`oni_colony.h`).
 | `breathing.minimumOxygenPressurePa` | Minimum oxygen partial pressure | 15 kPa | 1–50 kPa | …and at least this oxygen partial pressure | section 3 |
 | `breathing.maximumCo2Fraction` | Maximum carbon dioxide share | 0.5% | 0–10% | …and carbon dioxide below this share | section 3 |
 | `breathing.maximumCo2PressurePa` | Maximum carbon dioxide partial pressure | 500 Pa | 0–10 kPa | …and below this partial pressure | section 3 |
-| `breathing.maximumOxygenFraction` | Maximum oxygen share | no limit (1) | 30–100% | Cells richer in oxygen fail (1: easy mode, no limit) | section 3 |
+| `breathing.maximumOxygenFraction` | Maximum oxygen share | no limit (1) | 30–100% | Cells richer in oxygen fail (1: easy mode, no limit). Below 100% needs nitrogen air; the window warns otherwise | section 3 |
+| `breathing.nitrogenAir` | Nitrogen air | off | on/off | New colonies only: generated oxygen and polluted oxygen become air of the same mass, 25% oxygen by moles and nitrogen for the rest (user decision 2026-10-27) | section 3 (version 2) |
 
 ## Preferences
 
@@ -138,14 +140,17 @@ The status panel describes only the cell under the cursor: a solid tile reads
 
 ## Save record
 
-MACOLP03 section 3 (assigned by main, 2026-10-25), record version 1, little
-endian: `u32 version = 1`, `u32 count = 5`, then binary64 minimum oxygen share,
-minimum oxygen partial pressure (Pa), maximum carbon dioxide share, maximum
-carbon dioxide partial pressure (Pa), maximum oxygen share. It is written only
-when one of them differs from its default, so Default colonies keep their
-earlier save bytes; an absent record means the defaults, and older saves load
-unchanged. Another record version or a value outside its range refuses the
-save before loading, with the reason.
+MACOLP03 section 3 (assigned by main, 2026-10-25), little endian:
+`u32 version`, `u32 count`, then binary64 minimum oxygen share, minimum
+oxygen partial pressure (Pa), maximum carbon dioxide share, maximum carbon
+dioxide partial pressure (Pa), maximum oxygen share. Version 1 has count 5.
+Version 2 (2026-10-27) has count 6 and adds nitrogen air (1.0); it is written
+only for a nitrogen-air colony. Version 1 is written when a breathing rule
+differs from its default and nitrogen air is off, so those colonies keep their
+earlier bytes. Default colonies write no record; an absent record means the
+defaults on generated air, and older saves load unchanged. Another record
+version, count or flag value, or a value outside its range, refuses the save
+before loading, with the reason.
 
 ## Not settings
 
@@ -161,7 +166,7 @@ player chooses unless set:
 | Purpose | Variables |
 | --- | --- |
 | Solver/pipe selectors for development runs (unsupported for play) | `MA_COLONY_GAME_FLOOR`, `MA_COLONY_KERNEL3`, `MA_COLONY_KERNEL3_POSITIVE`, `MA_COLONY_KERNEL3_SURFACE`, `MA_COLONY_MIXED_PIPES=0`, `MA_COLONY_PIPE_SAVES=0`, `MA_COLONY_SUBSTEP_TRACE`, `MA_COLONY_FAST_PHASE_EOS`, `MA_COLONY_GERM_ORACLE`, `MA_MAC_WORKERS` |
-| Harness | `MA_COLONY_SETTINGS_PRESET`, `MA_SETTINGS_OPEN` (opens the window on tab N at the menu and in a colony, unpaused; `mods` clicks the Mods-screen button), `MA_COLONY_SAVE_CONTROL`, `MA_COLONY_SAVE_FRAME`, `MA_COLONY_CONTINUATION_FRAMES`, `MA_COLONY_EXPECT_LOAD_REFUSAL`, `MA_COLONY_PIPE_CONTACT_HEAT` |
+| Harness | `MA_COLONY_STARTING_RESERVE` (validation scenes place the starting oxylite reserve), `MA_COLONY_SETTINGS_PRESET`, `MA_SETTINGS_OPEN` (opens the window on tab N at the menu and in a colony, unpaused; `mods` clicks the Mods-screen button), `MA_COLONY_SAVE_CONTROL`, `MA_COLONY_SAVE_FRAME`, `MA_COLONY_CONTINUATION_FRAMES`, `MA_COLONY_EXPECT_LOAD_REFUSAL`, `MA_COLONY_PIPE_CONTACT_HEAT` |
 | Exactness controls | `MA_COLONY_CELL_MAP_CONTROL`, `MA_COLONY_UNCACHED_CELL_MAP`, `MA_COLONY_COPY_CONTROL`, `MA_COLONY_MARSHALLED_OUTPUT`, `MA_COLONY_MARSHALLED_RECEIPTS`, `MA_COLONY_RECEIPT_COPY_CONTROL`, `MA_COLONY_UNCACHED_VIEWS`, `MA_COLONY_VIEW_CACHE_CONTROL`, `MA_COLONY_WORLD_PASSIVE_CONTROL` |
 | Logs and dumps | `MA_COLONY_LEDGER_LOG`, `MA_COLONY_HEAT_LOG`, `MA_COLONY_TERRAIN_LOG`, `MA_COLONY_STAGE_LOG`, `MA_COLONY_PUBLICATION_LOG`, `MA_COLONY_VIEW_TIMING_LOG`, `MA_COLONY_DUPE_LOG`, `MA_COLONY_PIPE_BIOLOGY_TIMING`, `MA_COLONY_PIPE_THERMAL_LOG`, `MA_COLONY_FAULT_DUMP`, `MA_COLONY_DUMP_FRAME`, `MA_COLONY_SLOW_DUMP`, `MA_COLONY_TRANSFER_DUMP`, `MA_COLONY_RELEASE_DUMP`, `MA_COLONY_FLOOR_ADMISSION_DUMP`, `MA_COLONY_FLOOR_PREFIX_DUMP`, `MA_ONI_BODY_HEAT_TRACE`, `MA_ONI_CHUNK_HEAT_TRACE`, `MA_ONI_STORAGE_HEAT_TRACE`, `MA_KERNEL_DEBUG` |
 | Native harness and builds | `MA_VERIFY_*`, `MA_NATIVE_*`, `MA_TEST_NATIVE_LIBRARY`, `MA_BUILD_*` |

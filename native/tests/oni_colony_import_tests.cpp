@@ -111,6 +111,59 @@ int main() {
             require(std::abs(beside - expected) <= .02 * expected && under_air == 0, "a pool beside vacuum starts saturated");
             require(settled.report.maximum_relative_mass_error <= 1e-14, "evaporation at import conserves mass");
         }
+        // Nitrogen air (docs/nitrogen.md): generated oxygen and polluted
+        // oxygen keep their mass and become 25% of the moles with nitrogen,
+        // laid out as one mixed layer between carbon dioxide and hydrogen.
+        {
+            const auto air_catalogue = build_catalogue({element("Oxygen", 1, 0, true, .016, 1005), element("ContaminatedOxygen", 6, 1, true, .016, 1010),
+                element("Nitrogen", 7, 2, true, .0280134, 1040), element("CarbonDioxide", 8, 3, true, .044, 846), element("Hydrogen", 2, 4, true, .002, 2400)});
+            const auto o = static_cast<std::uint32_t>(air_catalogue.species_of_hash(1)), po = static_cast<std::uint32_t>(air_catalogue.species_of_hash(6));
+            const auto n = static_cast<std::uint32_t>(air_catalogue.species_of_hash(7)), co2 = static_cast<std::uint32_t>(air_catalogue.species_of_hash(8));
+            const auto h2 = static_cast<std::uint32_t>(air_catalogue.species_of_hash(2));
+            constexpr std::size_t AW = 8, AH = 9;
+            std::vector<ImportCell> room(AW * AH);
+            long double source_kg = 0;
+            for (std::size_t y = 1; y + 1 < AH; ++y) for (std::size_t x = 1; x + 1 < AW; ++x) {
+                const auto kind = y == 1 ? co2 : y == AH - 2 ? h2 : x < 3 ? po : o;
+                const double mass = kind == co2 ? 2.5 : kind == h2 ? .2 : 1.2 + .1 * static_cast<double>(y);
+                room[x + y * AW] = {ImportCellKind::fluid, kind, mass, 290 + static_cast<double>(x)};
+                if (kind == o || kind == po) source_kg += mass;
+            }
+            const ImportAir air{{o, po}, n, .25};
+            const auto settled = settle_import(air_catalogue, AW, AH, room, 9.81, air);
+            const auto& rep = settled.report; const auto& state = settled.state;
+            const auto& reg = air_catalogue.registry;
+            long double air_kg = 0, nitrogen_kg = 0;
+            std::size_t air_cells = 0;
+            for (std::size_t i = 0; i < room.size(); ++i) {
+                const auto& m = state.cells[i].mixture.masses;
+                air_kg += m[o] + m[po] + m[n]; nitrogen_kg += m[n];
+                if (m[o] + m[po] + m[n] == 0) continue;
+                ++air_cells;
+                if (m[co2] > 0 || m[h2] > 0) continue; // the cells where two layers meet
+                const double ox = m[o] / reg[o].molar_mass + m[po] / reg[po].molar_mass, ni = m[n] / reg[n].molar_mass;
+                require(m[o] > 0 && m[po] > 0 && m[n] > 0, "air is one mixed layer");
+                require(std::abs(ox / (ox + ni) - .25) <= 1e-12, "air holds 25% oxygen by moles");
+            }
+            std::cout << "air cells " << rep.air_cells << " nitrogen " << rep.air_nitrogen_kg << " kg, settled air " << static_cast<double>(air_kg)
+                      << " kg in " << air_cells << " cells, mass error " << rep.maximum_relative_mass_error << '\n';
+            require(rep.air_cells == 5 * 6 && std::abs(static_cast<double>(air_kg - source_kg)) <= 1e-13 * static_cast<double>(source_kg), "air keeps the mass");
+            require(std::abs(static_cast<double>(nitrogen_kg) - rep.air_nitrogen_kg) <= 1e-12 * rep.air_nitrogen_kg, "nitrogen booked once");
+            require(rep.maximum_relative_mass_error <= 1e-14 && rep.maximum_relative_pressure_spread < 1e-12, "air import conserves and levels");
+            // Carbon dioxide stays the floor layer and hydrogen the top one.
+            for (std::size_t i = 0; i < room.size(); ++i) {
+                const auto y = i / AW; const auto& m = state.cells[i].mixture.masses;
+                require((m[co2] == 0 || y <= 2) && (m[h2] == 0 || y >= AH - 3), "layers keep their order");
+            }
+            require(state.cells[1 + AW].mixture.masses[co2] > 0 && state.cells[1 + (AH - 2) * AW].mixture.masses[h2] > 0, "floor and top layers");
+            // Without air the same generated cells import unchanged.
+            const auto plain = settle_import(air_catalogue, AW, AH, room, 9.81);
+            long double plain_n = 0; for (const auto& c : plain.state.cells) plain_n += c.mixture.masses[n];
+            require(plain_n == 0 && plain.report.air_cells == 0, "air is opt-in");
+            bool refused = false;
+            try { (void)settle_import(air_catalogue, AW, AH, room, 9.81, ImportAir{{o}, o, .21}); } catch (const std::invalid_argument&) { refused = true; }
+            require(refused, "air needs a distinct nitrogen species");
+        }
         std::cout << "IMPORT PASS\n";
         return 0;
     } catch (const std::exception& e) {

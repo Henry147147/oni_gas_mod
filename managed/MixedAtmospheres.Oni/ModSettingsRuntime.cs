@@ -25,6 +25,9 @@ namespace MixedAtmospheres.Oni
         [DllImport(Library, EntryPoint = "ma_oni_last_error", CallingConvention = CallingConvention.Cdecl)] private static extern IntPtr LastError();
         [DllImport(Library, EntryPoint = "ma_oni_colony_physical_core_count", CallingConvention = CallingConvention.Cdecl)] private static extern uint PhysicalCoreCount();
         [DllImport(Library, EntryPoint = "ma_oni_colony_set_worker_count", CallingConvention = CallingConvention.Cdecl)] private static extern int SetWorkerCount(uint workers);
+        [DllImport(Library, EntryPoint = "ma_oni_colony_starting_air_version", CallingConvention = CallingConvention.Cdecl)] private static extern uint StartingAirVersion();
+        [DllImport(Library, EntryPoint = "ma_oni_colony_set_starting_air", CallingConvention = CallingConvention.Cdecl)] private static extern int SetStartingAir(ref NativeStartingAir air);
+        [DllImport(Library, EntryPoint = "ma_oni_colony_set_starting_air", CallingConvention = CallingConvention.Cdecl)] private static extern int ResetStartingAir(IntPtr none);
         internal static uint PhysicalCores { get; private set; }
         private static uint? appliedWorkerCount;
 
@@ -162,8 +165,44 @@ namespace MixedAtmospheres.Oni
             }
             if ((flags & OniNativeColony.GameSurface) == 0)
                 Debug.LogWarning("[Mixed Atmospheres] A development selector chose an older profile; colony solver settings do not apply to it.");
+            values = ApplyStartingAir(values);
+            if (values.Number("breathing.maximumOxygenFraction") < 1 && !values.Toggle("breathing.nitrogenAir"))
+                Debug.LogWarning("[Mixed Atmospheres] Hard-mode breathing on generated air: pure oxygen exceeds the maximum oxygen share everywhere.");
             startedWith = values;
             return values;
+        }
+        // Nitrogen air for the import (docs/nitrogen.md). The registered
+        // nitrogen gas must be in the catalogue, or the colony starts on its
+        // generated air with a notice; the native start must never fail on it.
+        private static SettingValues ApplyStartingAir(SettingValues values)
+        {
+            try
+            {
+                if (StartingAirVersion() != 1) throw new NotSupportedException("the native library's starting air version differs from this build");
+                if (!values.Toggle("breathing.nitrogenAir")) { Check(ResetStartingAir(IntPtr.Zero)); return values; }
+                var nitrogen = ElementLoader.FindElementByHash(OniNitrogenElements.Gas);
+                if (nitrogen == null || !nitrogen.IsGas || nitrogen.disabled) throw new InvalidOperationException("nitrogen is not registered");
+                var air = new NativeStartingAir
+                {
+                    Size = NativeStartingAir.Bytes, Version = 1, Enabled = 1, SourceCount = 2, NitrogenHash = (int)OniNitrogenElements.Gas,
+                    Source0 = (int)SimHashes.Oxygen, Source1 = (int)SimHashes.ContaminatedOxygen, OxygenMoleFraction = NitrogenAir.OxygenShare
+                };
+                NativeStartingAir.CheckLayout();
+                Check(SetStartingAir(ref air));
+                return values;
+            }
+            catch (Exception error) when (!(error is OutOfMemoryException))
+            {
+                try { _ = ResetStartingAir(IntPtr.Zero); } catch (Exception) { }
+                var message = "Nitrogen air could not be applied (" + error.Message + "). This colony starts with its generated air.";
+                if (values.Toggle("breathing.nitrogenAir")) { Notice(message); ColonyNotices.Show("Mixed Atmospheres settings", message); }
+                else Debug.LogWarning("[Mixed Atmospheres] " + message);
+                return values.With("breathing.nitrogenAir", false);
+            }
+        }
+        private static void Check(int result)
+        {
+            if (result != 0) throw new InvalidOperationException(Marshal.PtrToStringAnsi(LastError()) ?? ("error " + result));
         }
         internal static void AfterStart()
         {

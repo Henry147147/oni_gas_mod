@@ -58,7 +58,11 @@ Rows are keyed by the game's element id. Sources:
   compressibility (magma and molten glass, about 15 GPa).
 - NIST Chemistry WebBook and CRC Handbook: critical temperatures of water,
   ethanol, carbon dioxide, oxygen, hydrogen, methane, propane, helium, chlorine,
-  sulfur, phosphorus and mercury.
+  sulfur, phosphorus, mercury and nitrogen.
+- The mod's liquid nitrogen ([nitrogen](nitrogen.md)) has its own row: 199 kJ/kg
+  (5.57 kJ/mol at 77.3 K), 0.59 GPa (806 kg/m³, 853 m/s), 0.16 mPa·s and 126.2 K.
+  The running game names it by its decimal hash, so the row is also matched
+  by that hash.
 
 ## Surrogates
 

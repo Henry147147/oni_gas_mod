@@ -171,7 +171,7 @@ Current status:
   20 C, -203.2 C and -223.2 C. This used an older adapter revision, and the
   items were disposed before exit.
 
-## Starting air and progression (milestone F design)
+## Starting air and progression
 
 Design of 2026-10-27 for the first release (base game and Spaced Out!).
 
@@ -200,12 +200,15 @@ Design of 2026-10-27 for the first release (base game and Spaced Out!).
   electrolyzer and oxygen diffuser stop at 1.8 kg, gas vents at 2 kg, and
   oxylite debris sublimates (0.01·m^0.7 kg/s) only while its cell holds less
   than 1.8 kg.
-- Under easy mode, pure oxygen air can be breathed until its carbon dioxide
-  reaches 0.5% (69% of its oxygen). The carbon dioxide limit binds first:
-  ten cycles of three duplicants need about 164,000 mol of connected gas
-  (about 1,600 vanilla starting-air cells). Rocket interiors start in vacuum.
+- On generated oxygen, carbon dioxide runs out of headroom before oxygen.
+  Above 100 kPa the 500 Pa limit binds before the 0.5% share, and it depends
+  only on volume: 0.204 mol per cell at 295 K. Ten cycles of three
+  duplicants exhale 818 mol, so they need about 4,000 connected cells of gas.
+  In 25% nitrogen air oxygen binds first (about 0.13 kg breathable per
+  1.67 kg cell).
+  Rocket interiors start in vacuum.
 
-### Proposal
+### Design (implemented)
 
 1. **Nitrogen air** (new-colony setting, off by default). When the owner
    imports a new colony, each cell's generated oxygen and polluted oxygen
@@ -266,9 +269,42 @@ Design of 2026-10-27 for the first release (base game and Spaced Out!).
    cluster, an unattended ten-cycle start per mode on Terra, and a nitrogen
    filter/storage scenario.
 
+### Implementation
+
+- **Catalogue** (`native/src/oni_catalogue.cpp`): the liquid nitrogen row
+  above, matched by id or by the decimal hash the running game uses.
+  `ma_oni_catalogue_tests` checks the pair, latent heat and saturation at
+  77.355 K and one atmosphere.
+- **Import** (`oni_colony_import.cpp`, `ma_oni_colony_set_starting_air`): the
+  same-mass conversion and the mixed air layer. `ma_oni_colony_import_tests`
+  checks mass kept, 25% oxygen in every air cell, one mixed layer between a
+  carbon dioxide floor and hydrogen above, and the unchanged default. With
+  the option off nothing changes, byte for byte, and no checkpoint field is
+  added.
+- **Settings** (`ModSettings*.cs`): `breathing.nitrogenAir`, the *Hard mode*
+  preset, the hard-mode warning and section 3 record version 2
+  ([settings](settings.md)). `tools/SettingsTests` covers both record
+  versions.
+- **Bridge** (`ColonyStartingAir.cs`): counted before the import over the
+  open cells connected to the printing pod, settled once the starting
+  duplicants exist. It uses their `AirConsumptionRate`, the game's
+  2% CO2 ratio and the colony's breathing rules, taking the gas as well mixed.
+  Oxylite goes in chunks of at most 300 kg on floor cells beside the pod
+  (left up to 12 cells, right up to 6), in a fixed order. The result goes to
+  the log, the `StartingAir` report and, when oxylite was added or the carbon
+  dioxide headroom is under ten cycles, a start notice. Validation scenes
+  place oxylite only with `MA_COLONY_STARTING_RESERVE=1`.
+- **Gas Share Sensor** (`GasShareSensor.cs`): an element filter and a 0–100%
+  threshold; on the owned asteroid it reads the cell's mixture through
+  `ColonySensors.GasShare`.
+- **In game**: the `starting-air` scenario checks the settled bridge, the
+  oxylite beside the pod (with the variable), the pod's air (25% oxygen with
+  nitrogen air) and two gas share sensors switching as nitrogen dilutes an
+  arena.
+
 ## Open items
 
 - A Linux native-item rerun with the current adapter, including save, quit and
   resume.
 - Arbitrary future Unity versions, and the cause of the helper-patch fault.
-- The [milestone F work above](#starting-air-and-progression-milestone-f-design).
+- The [milestone F work above](#starting-air-and-progression).

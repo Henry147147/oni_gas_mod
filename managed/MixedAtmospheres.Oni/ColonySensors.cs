@@ -39,6 +39,31 @@ namespace MixedAtmospheres.Oni
             return mass > 0 && mass >= TraceFraction * phase;
         }
 
+        // The mole share (0..1) of one gas among a cell's gases, for the gas
+        // share sensor (docs/nitrogen.md). Off the owned asteroid a cell holds
+        // one element: all of it or none.
+        internal static double GasShare(int cell, Element? wanted)
+        {
+            try { return ReadGasShare(cell, wanted); }
+            catch (System.Exception error) { ColonyFault.Raise("gas share sensor", error); return wanted != null && Grid.Element[cell] == wanted && Grid.Mass[cell] > 0 ? 1 : 0; }
+        }
+        private static double ReadGasShare(int cell, Element? wanted)
+        {
+            if (wanted == null || !wanted.IsGas || !Grid.IsValidCell(cell)) return 0;
+            if (!ColonyOwner.Active || !ColonyOwner.OwnsFluidCell(cell)) return Grid.Element[cell] == wanted && Grid.Mass[cell] > 0 ? 1 : 0;
+            var count = ColonyOwner.Composition(cell, out var indices, out var masses);
+            double all = 0, mine = 0;
+            for (var k = 0; k < count; ++k)
+            {
+                var e = ElementLoader.elements[(int)indices[k]];
+                if (!e.IsGas || !(e.molarMass > 0)) continue;
+                var moles = masses[k] / e.molarMass;
+                all += moles;
+                if (e == wanted) mine += moles;
+            }
+            return all > 0 ? mine / all : 0;
+        }
+
         // Gas or liquid mass of a cell for an atmo or hydro sensor.
         internal static float PhaseMass(int cell, Element.State state)
         {

@@ -364,6 +364,12 @@ namespace MixedAtmospheres.Oni
                 GUILayout.EndVertical();
                 RowEnd();
             }
+            if (group == SettingCatalog.Breathing && values.Number("breathing.maximumOxygenFraction") < 1 && !values.Toggle("breathing.nitrogenAir"))
+            {
+                GUI.contentColor = Warn;
+                GUILayout.Label("A maximum oxygen share below 100% needs nitrogen air: generated oxygen is pure, so no cell would be breathable. Turn on Nitrogen air or load Hard mode.", small!);
+                GUI.contentColor = Color.white;
+            }
             if (locked) GUILayout.Label("Read-only: this colony keeps the values above.", small!);
         }
 

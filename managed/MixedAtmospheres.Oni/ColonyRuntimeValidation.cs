@@ -467,6 +467,7 @@ namespace MixedAtmospheres.Oni
                 EmitterSources = ColonyActors.SourceKg,
                 OwnerConfigFlags = ColonyOwner.Config.Flags, OwnerMaximumTimestepSeconds = ColonyOwner.Config.MaximumTimestepSeconds,
                 ColonySettings = ModSettingsRuntime.Report(),
+                StartingAir = ColonyStartingAir.Report,
                 ViewCacheComparisons = ColonyViewCache.Comparisons, ViewCacheChangedDuringComparison = ColonyViewCache.ChangedDuringComparison,
                 ReceiptCopyComparisons = ColonyCopyValidation.ReceiptComparisons, ReceiptCopyEmptyComparisons = ColonyCopyValidation.ReceiptEmptyComparisons,
                 ReceiptEntriesCompared = ColonyCopyValidation.ReceiptEntriesCompared, ReceiptCopyGrowthComparisons = ColonyCopyValidation.ReceiptGrowthComparisons,
