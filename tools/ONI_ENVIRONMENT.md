@@ -37,10 +37,12 @@ native boundary is in [the interop contract](../docs/interop-contract.md).
 Windows. Pass the game root to builds as `ONI_GAME_DIR` or `-p:OniGameDir`.
 `tools/build.py --game-dir` passes both.
 
-Game-facing code is pinned to ONI build **744825** (shown in game as U59-744825,
+Game-facing code was inspected against ONI build **744825** (shown in game as U59-744825,
 [released 2026-07-28](https://kleiforums.com/game-updates/oni-alpha/744825-r2776/)),
-Unity 6000.3.5f2 and Harmony 2.4.2.0. A newer game is rejected until it has been
-inspected. Steam BuildID 24423041 is a separate identifier. The adapter targets
+Unity 6000.3.5f2 and Harmony 2.4.2.0. A package with a game contract accepts any
+build in which every member the mod uses is unchanged and whose SimDLL matches a
+verified profile; anything else is refused with a notice
+([game-update resilience](../docs/game-update-resilience.md)). Steam BuildID 24423041 is a separate identifier. The adapter targets
 .NET Standard 2.1, which Klei's
 [March 2026 update](https://kleiforums.com/game-updates/oni-alpha/719533-r2701/)
 recommends.

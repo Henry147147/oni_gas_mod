@@ -1,7 +1,9 @@
 # Game-update resilience
 
-**Status (2026-10-27): design accepted for implementation; until it lands, the
-mod still requires build 744825 exactly.**
+**Status (2026-10-27): implemented.** Packages carry `game-contract.json`, the
+native library selects SimDLL profiles by normalised identity, and mixture saves
+load across verified builds. The in-game run and remaining gaps are under
+[Verification](#verification).
 
 Steam updates Oxygen Not Included automatically. Until now the mod accepted
 exactly one game build, 744825, by whole-file SHA-256 of `Assembly-CSharp.dll`,
@@ -140,6 +142,109 @@ private, under `local/` or `artifacts/`.
 | Unverified game build | Nothing patched except the verified load guard; notice lists the differences |
 | Second copy of the mod enabled | Second copy patches nothing; notice asks the player to keep one |
 | Frosty, Bionic, Prehistoric or Aquatic content active | The mod loads, but the colony owner never takes a colony over; notice; the colony keeps ONI's simulation. A mixture save is not loaded while such a pack is active. This is the release behaviour (user decision 2026-10-27: the first release supports the base game and Spaced Out! only). |
+
+## Commands
+
+```sh
+# Written by both packagers; by hand for a built mod folder:
+dotnet run --project tools/GameContract -c Release -- generate --mod DIR \
+  --game windows-x64=WINDOWS_ROOT --game linux-x64=LINUX_ROOT --output DIR/game-contract.json
+dotnet run --project tools/GameContract -c Release -- verify   --mod DIR --game linux-x64=ROOT --contract DIR/game-contract.json
+dotnet run --project tools/GameContract -c Release -- controls --mod DIR --game linux-x64=ROOT --contract DIR/game-contract.json
+python3 tools/game_mono_contract_check.py --mod DIR [--managed-game WINDOWS_ROOT --platform windows-x64]
+python3 tools/retarget_oni.py --windows-game NEW_WINDOWS_ROOT --linux-game NEW_LINUX_ROOT \
+  --managed-dir DIR [--write-profiles --build N]
+```
+
+`retarget_oni.py` compares against the team's 744825 copies by default
+(`--reference-windows`, `--reference-linux`). It exits 0 only when nothing needs
+review. `--write-profiles --build N` appends carried candidate profiles to
+`docs/native-hook-profiles.json`. Review, then rebuild the native library and
+run a game check before committing them. The Linux private chunk-heat location
+(`CHUNK_HEAT_LOCATIONS` in `tools/oni_hook_profiles.py`) is keyed by image hash,
+so a carried Linux image also needs its new hash added there.
+
+## Implementation
+
+| Piece | Where |
+| --- | --- |
+| Canonical forms, scope, patch-target discovery | `managed/MixedAtmospheres.Oni/GameContract.cs` |
+| Generation (reflection-call scanning) and verification | `GameContractCheck.cs` |
+| Build check in `Mod.OnLoad`, refused-build load guard | `GameBuildCheck.cs` |
+| Offline host: generate, verify, controls | `tools/GameContract` (`tools/game_contract.py` wraps it) |
+| The same check inside the game's own Mono runtime, without Unity | `tools/game_mono_contract_check.py` and `.c` |
+| Normalised identity | `tools/oni_hook_profiles.py`, `native/src/oni_image_identity.hpp` |
+| Profile selection | `native/src/oni_backend.cpp` (`NativeProfile`, `verify_files`) |
+| Saves across builds | `ColonySaveEnvelope.Parse(..., earliest, latest, ...)`, `ColonyOwnerPersistence.cs` |
+| Retargeting | `tools/retarget_oni.py` |
+
+Reflection by name is covered three ways:
+
+- a constant name (`AccessTools.Field(typeof(T), "name")`, `nameof`,
+  `FieldRefAccess<T, F>("name")`, the mod's own `(Type, string)` helpers) checks
+  every member reachable by that name;
+- a computed name on a known type checks every member signature of that type;
+- a computed name in a method checks every game type that method touches.
+
+The contract lists the sites it cannot attribute (24 on the current sources):
+the contract code's own reflection, development-only scenes, two
+`TargetMethod`s whose targets are already patched entries, and four pipe and
+germ helpers that take their type at run time (`ColonyConduitsSchedule.Flush`
+and `Value`, `ColonyGermEvolutionProbe.Field`, `ColonyMixedPipeEdgePatch.Fields`).
+`retarget_oni.py` prints them for review.
+
+## Verification
+
+Measured on the 744825 installations:
+
+- **Contract.** 2,456 entries per platform: 570 types, 1,342 members, 329 named
+  lookups and 215 patched originals. The Windows and Linux contracts differ
+  only in `App`'s constants. Verification takes 0.55–0.65 s in a warm CoreCLR
+  host (2.7 s cold).
+- **Game Mono.** `game_mono_contract_check.py` loads the Linux installation's
+  `libmonobdwgc-2.0.so` and runs the check there.
+  - The Linux contract: 0 differences in 0.65–1.0 s, including Harmony target
+    discovery.
+  - The Windows assemblies on that runtime: all 2,241 non-patch entries match.
+    Their patch-target step needs Windows' `BCrypt.dll`, so those targets are
+    checked under CoreCLR.
+  - This run found two runtime differences, both now normalised. Mono reports
+    the default struct packing as 8 where CoreCLR reports 0. Members inherited
+    from framework base classes differ between the runtimes, so they are left
+    out. Floating-point constants are compared by their bits for the same
+    reason.
+  - Harmony's own `PatchAll` cannot run outside Unity: patching runs game static
+    initialisers that need the player. The check that every patched original
+    is verified therefore runs in the game.
+- **Managed controls** (`GameContract controls`, both platforms). The unchanged
+  contract verifies; all 14 synthetic changes are refused and name their entry:
+  type, member, named and patched values and keys, a `Sim.Cell` layout, the
+  `SimHashes` values, a method body, a token resolving to a different member, a
+  vanished named member, an unexpected patch target and a vanished one.
+- **Native controls.** The C++ and Python identities agree on shared PE and ELF
+  fixtures (`native_oni_image_identity`, `test_oni_hook_profiles.py`) and on
+  both real SimDLLs. Through the built library's `ma_oni_probe`, the unchanged
+  Linux image and a copy with only a different build-id are accepted, and a copy
+  with one changed byte is refused (`InstalledImageControls`).
+- **Retarget controls** (`test_retarget_oni.py`, plus a manual Windows repeat).
+  - The unchanged installation reports nothing to do.
+  - A changed byte outside every hooked function gives a *carried* candidate,
+    with all 29 Linux and 27 Windows functions equivalent.
+  - A changed byte inside `UpdateTemperature` needs review.
+  - A changed `gas.yaml` is reported as a save-migration issue.
+- **Saves** (`tools/DistributionTests`).
+  - Synthetic envelopes saved at 744825 load under 744826.
+  - Newer, older-than-supported, catalogue-changed and model-changed envelopes
+    are refused with their reason.
+  - Two real envelopes are accepted byte for byte by a later build: the prepared
+    base-game save `local/saves/base-defaults-p5-v1.sav` and a `bfb1168` Spaced
+    Out! manual save.
+  - The envelope's format and framing are unchanged. Saves written under 744825
+    are byte-identical to before; a later build writes its own build number into
+    the existing field.
+
+Open: a Windows game run of the new checks (Proton or the user's PC), and a
+save migration for catalogue changes, which is future work.
 
 ## Controls
 
