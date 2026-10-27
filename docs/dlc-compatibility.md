@@ -246,6 +246,16 @@ unrun. The mask's fixed bit order is:
 Mask 0 selects the base game; 31 selects all five. The empty string is the
 game's vanilla ID. The text `VANILLA_ID` is invalid.
 
+The captured frame-72 failure is now reproduced and fixed offline: a valid
+cell carries about 1e-313 kg of gas before trace removal. The diagnostic's
+`R*T/partial` overflows although its mass-weighted entropy is finite. An
+exceptional logarithmic fallback avoids the ratio; ordinary finite diagnostic
+arithmetic, trace thresholds, physical evolution and checkpoint encoding are
+unchanged. The same private capture advances from 14.200000211596489 to
+14.400000214576721 seconds with the fix. A regression compares the exceptional
+result with a wide evaluation and the ordinary path bit for bit. Actual rocket
+recovery/reuse and cold/menu restoration still require a new game control.
+
 ## Running a selection
 
 The Linux and Proton harnesses accept `--dlc-mask 0..31`. They set all five

@@ -23,6 +23,27 @@ inline double entropy_selected(std::span<const Species> species,
       }
       total += mass(a) * specific;
     }
+  if (!std::isfinite(total)) {
+    // A newly transported trace can be subnormal before the trace sink
+    // removes it. R*T/partial may overflow even though m*s is finite.
+    // Recompute only that exceptional diagnostic with logarithms of its
+    // positive factors: R*T/partial = molar_mass*gas_volume/mass.
+    // Keep the ordinary arithmetic (and physical evolution) unchanged.
+    total = 0;
+    const double thermal = std::isfinite(thermal_log)
+                               ? thermal_log
+                               : std::log(eos.temperature) - std::log(298.15);
+    for (std::size_t a = 0; a < count; ++a)
+      if (mass(a) > 0) {
+        const auto &s = species[key(a)];
+        double specific = s.cv * thermal + s.entropy_offset;
+        if (s.gas)
+          specific += R / s.molar_mass *
+                      (std::log(s.molar_mass) + std::log(eos.gas_volume) -
+                       std::log(mass(a)));
+        total += mass(a) * specific;
+      }
+  }
   if (!std::isfinite(total))
     throw std::runtime_error("Private entropy diagnostic is nonfinite");
   return total;

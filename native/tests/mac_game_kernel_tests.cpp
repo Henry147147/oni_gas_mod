@@ -2,6 +2,7 @@
 #include "mac_game_liquid_control.hpp"
 #include "mac_game_surface_control.hpp"
 #include "../src/mac_game/account.hpp"
+#include "../src/mac_game/entropy.hpp"
 #include "mixed_atmospheres/mac_kernel.hpp"
 #include <array>
 #include <bit>
@@ -14,6 +15,74 @@ using namespace ma::experimental;
 void require(bool value, const char *text) {
   if (!value)
     throw std::runtime_error(text);
+}
+void trace_entropy_is_finite() {
+  namespace k = ma::experimental::game_kernel;
+  std::array<k::Species, 3> species{};
+  species[0].gas = false;
+  species[0].cv = 4180;
+  species[0].rho0 = 1000;
+  species[0].stiffness = 8e7;
+  species[1].molar_mass = .016;
+  species[1].cv = 1000;
+  species[1].entropy_offset = 5000;
+  species[2].molar_mass = .018;
+  species[2].cv = 4180;
+  species[2].entropy_offset = 8000;
+  const std::array<double, 3> masses{.025, 1e-313, .002};
+  const double energy =
+      (masses[0] * 4180 + masses[1] * 1000 + masses[2] * 4180) * 258;
+  const auto key = [](std::size_t a) { return a; };
+  const auto mass = [&](std::size_t a) { return masses[a]; };
+  const auto eos = k::evaluate_selected(species, 3, key, mass, energy, 1);
+  const auto value = k::entropy_selected(species, 3, key, mass, eos);
+  require(std::isfinite(value),
+          "A subnormal transported trace overflowed its entropy diagnostic");
+  // Independent wide evaluation of the original physical expression. Its
+  // intermediate ratio exceeds binary64's range, but not long double here.
+  long double reference = 0;
+  for (std::size_t a = 0; a < masses.size(); ++a) {
+    const auto &s = species[a];
+    long double specific =
+        s.cv * std::log(static_cast<long double>(eos.temperature) / 298.15L) +
+        s.entropy_offset;
+    if (s.gas) {
+      const auto partial = static_cast<long double>(masses[a]) * k::R /
+                           s.molar_mass * eos.temperature / eos.gas_volume;
+      specific += k::R / s.molar_mass *
+                  std::log(static_cast<long double>(k::R) * eos.temperature /
+                           partial);
+    }
+    reference += masses[a] * specific;
+  }
+  if constexpr (std::numeric_limits<long double>::max_exponent > 1024)
+    require(std::abs(value - reference) <
+                1e-12L * std::max(1.L, std::abs(reference)),
+            "Trace entropy differs from the wide physical reference");
+  // The common path retains the original expression bit for bit.
+  for (const double small : {1e-8, 1e-3, .1}) {
+    auto ordinary = masses;
+    ordinary[1] = small;
+    const auto get = [&](std::size_t a) { return ordinary[a]; };
+    const auto e = k::evaluate_selected(species, 3, key, get,
+                                        energy + small * 1000 * 258, 1);
+    double old = 0;
+    const auto thermal = std::log(e.temperature / 298.15);
+    for (std::size_t a = 0; a < ordinary.size(); ++a) {
+      const auto &s = species[a];
+      double specific = s.cv * thermal + s.entropy_offset;
+      if (s.gas) {
+        const auto partial =
+            ordinary[a] * k::R / s.molar_mass * e.temperature / e.gas_volume;
+        specific += k::R / s.molar_mass * std::log(k::R * e.temperature / partial);
+      }
+      old += ordinary[a] * specific;
+    }
+    require(std::bit_cast<std::uint64_t>(old) ==
+                std::bit_cast<std::uint64_t>(
+                    k::entropy_selected(species, 3, key, get, e)),
+            "Ordinary entropy arithmetic changed");
+  }
 }
 long double energy(const MacClosedWorld &world) {
   const auto &s = world.state();
@@ -155,6 +224,7 @@ void full_worker_continuation() {
 int main() {
   try {
     zero_add_matches_two_sum();
+    trace_entropy_is_finite();
     full_worker_continuation();
     const auto &f = ma::testing::setup();
     auto state = f.state(8, 4, false, true);
