@@ -8,6 +8,20 @@ still require separate authorization.
 
 Amendments:
 
+- **First Steam release scope, 2026-10-27 (user decisions):**
+  1. *Packs.* The first public release supports the base game and Spaced
+     Out!. Frosty, Bionic, Prehistoric and Aquatic follow in a later update;
+     their content is not installed here. A colony with any of those packs
+     active keeps ONI's own simulation, with a player-visible notice, and the
+     mod never takes it over. Release acceptance applies to the supported
+     content: the compatibility matrix covers the base-game and Spaced Out!
+     selections on both operating systems plus the refusal of the others;
+     long-run regressions and progression starts cover base game and Spaced
+     Out!. Every other release requirement, gate and bound is unchanged.
+  2. *Licence.* Chosen later by the user; it blocks only publication.
+  3. *Work.* Everything continues on `main`; all project work lives in this
+     repository folder (older clones and agent folders are in `archive/`).
+
 - **Spaced Out! playtest, 2026-10-27 (user decision):** the user's Windows
   install uses Spaced Out!, so its full support is now required for the next
   usable private playtest. Prioritize multi-asteroid ownership, rocket
