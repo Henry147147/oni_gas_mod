@@ -116,6 +116,30 @@ namespace MixedAtmospheres.Oni
             if (ColonyRuntimeValidation.Settings != null && ColonyPipeRuntime.Active) ++BodyHeatChecks;
             return Record(status);
         }
+        // A world is about to disappear. Settle native work first, then drain
+        // follow-up owner inputs and precise outcomes at the SAME fluid time.
+        // Only lifecycle adapters call this; ordinary saves retain their
+        // existing queued-input checkpoint semantics.
+        internal static ulong FlushInputs()
+        {
+            if(OniNativeColony.InputFlushVersion()!=1)
+                throw new NotSupportedException("World teardown requires matching native input-boundary support.");
+            _=Settle();settledForSave=false;
+            for(var round=0;round<64;++round)
+            {
+                OniNativeColony.Check(OniNativeColony.FlushInputs(out var submitted,out var deferred));
+                if(submitted==0&&deferred==0&&Quiescent(out var status))return Record(status);
+                ColonyOwner.InvalidateLifecycleReadings();
+                // Install the edited owner's vacuum/mass in native buffers as
+                // well as managed Grid. Otherwise cleanup could refund an old
+                // scalar shadow after its complete mixture had already left.
+                var before=NativeFrames();
+                SimTick.Invoke(Game.Instance,new object[]{0f});
+                _=WaitNativeFrameAfter(before);
+                Publish.Invoke(Game.Instance,new object[]{0f});++NativePublications;
+            }
+            throw new InvalidOperationException("World teardown could not settle all owner inputs and callbacks without advancing time.");
+        }
         // Sim.Save: reuse this save's barrier when it ran at the file entry
         // (nothing has advanced since); any other entry settles here.
         internal static ulong ForCapture()

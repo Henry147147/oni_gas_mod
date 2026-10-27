@@ -202,6 +202,15 @@ MA_ONI_API MAOniResult ma_oni_colony_copy_precise_receipt(uint64_t sequence, uin
 /* Wait for queued/running advances. Call while the game submitter is paused
  * to establish a save boundary; this does not acknowledge any receipts. */
 MA_ONI_API MAOniResult ma_oni_colony_wait(void);
+/* Lifecycle boundary, with the native submitter paused: apply queued inputs
+ * without advancing fluid, germs or clocks. Receipts use the CURRENT frame;
+ * clients must dispatch/ack them normally. Return the number of deferred
+ * inputs (e.g. refused heat), not a promise of quiescence. submitted_inputs
+ * counts the batch taken from the queues, including any deferred edits.
+ * Same-frame view copies remain marked changed until a positive advance.
+ * No checkpoint schema or positive-tick arithmetic changes. */
+MA_ONI_API uint32_t ma_oni_colony_input_flush_version(void);
+MA_ONI_API MAOniResult ma_oni_colony_flush_inputs(uint32_t* submitted_inputs, uint32_t* deferred_inputs);
 /* Durable pipe jobs: tokens are accepted contiguously from 1. Repeating an
  * accepted token never queues another transfer; pending requests must match.
  * callback=-1, disease/count=0; kind is INJECT, EXTRACT_GAS or EXTRACT_LIQUID.

@@ -106,6 +106,9 @@ struct NativeArenaFrame {
     std::vector<MAOniColonyNativeSampleCell> cells;
 };
 struct Published {
+    // A lifecycle edit can publish new cells without consuming a fluid tick.
+    // Frame-only clients must keep copying until the next positive advance.
+    bool same_frame_edit=false;
     std::vector<detail::PrecisionParcel> precision;
     MAOniColonyConfig config{};
     double booked_mass_kg=0, booked_heat_j=0;
@@ -244,7 +247,7 @@ NativeExchange exchanged; // under inputs
 // timestep here and returns. Frames that arrive while a step runs add their
 // time to the next step (at most 10 s waits), so the owner never drops game
 // time; pacing in the mod normally holds the game clock instead.
-void run_frame(std::uint64_t ticket, double seconds, std::uint64_t frames, const char* refusal, std::uint64_t thread) noexcept;
+void run_frame(std::uint64_t ticket, double seconds, std::uint64_t frames, const char* refusal, std::uint64_t thread, bool flush_only=false) noexcept;
 struct Solver {
     std::mutex m; std::condition_variable wake, idle;
     std::thread thread;
@@ -560,8 +563,9 @@ Projection project(const Session& s, const MacClosedWorld& w) {
     }
     return out;
 }
-void publish(const Session& s, Projection projection) {
+void publish(const Session& s, Projection projection, bool same_frame_edit=false) {
     auto p = std::make_shared<Published>();
+    p->same_frame_edit=same_frame_edit;
     p->config=s.config; p->status = s.status; p->views = std::move(projection.views); p->readings = std::move(projection.readings); p->parts = std::move(projection.parts);
     p->world = s.world; p->catalogue = s.catalogue; p->precision=s.precision;
     p->native_arena=s.native_arena;p->native_arena_owner_frames=s.native_arena_owner_frames;
@@ -583,7 +587,7 @@ void publish(const Session& s, Projection projection) {
     p->booked_heat_j=static_cast<double>(L.heat);
     std::lock_guard lock(publication);
     if (retained_sample_frames) {
-        sample_frames.emplace(p->status.completed_frames,p);
+        sample_frames.insert_or_assign(p->status.completed_frames,p);
         while (sample_frames.size()>retained_sample_frames) sample_frames.erase(sample_frames.begin());
     }
     latest = std::move(p);
@@ -1036,6 +1040,10 @@ MacClosedWorld convert_identities(Session& s, MacClosedWorld world, double secon
 bool active() noexcept { return enabled.load(std::memory_order_acquire); }
 bool busy() noexcept { return solver.busy.load(std::memory_order_acquire); }
 void wait() noexcept { solver.settle(false); }
+bool needs_shadow_refresh() noexcept {
+    std::lock_guard lock(publication);
+    return latest && latest->same_frame_edit;
+}
 
 void start(const MAOniColonyConfig& config, std::span<const MAOniColonyMaterial> materials, std::span<const MAOniColonyCell> cells, std::uint64_t thread) {
     std::lock_guard lock(lifecycle);
@@ -1140,7 +1148,7 @@ bool copy_published(MAOniColonyStatus& out, MAOniColonyCellView* views, std::uin
     std::optional<std::pair<std::uint64_t,std::uint64_t>> previous) {
     std::shared_ptr<const Published> p; { std::lock_guard lock(publication); p = latest; }
     require(p != nullptr, "No colony owner is active");
-    const bool changed=!previous || previous->first!=p->status.session || previous->second!=p->status.completed_frames;
+    const bool changed=p->same_frame_edit || !previous || previous->first!=p->status.session || previous->second!=p->status.completed_frames;
     if (views) {
         require(capacity >= p->views.size(), "Colony view buffer is too small");
         if (changed) std::copy(p->views.begin(), p->views.end(), views);
@@ -2227,7 +2235,7 @@ MacClosedWorld evolve_germs(Session& s, MacClosedWorld world, std::span<const Ge
     s.germs_held = std::move(held); s.germ_cells = germ_cells;
     return world;
 }
-void run_frame(std::uint64_t ticket, double seconds, std::uint64_t frames, const char* refusal, std::uint64_t thread) noexcept {
+void run_frame(std::uint64_t ticket, double seconds, std::uint64_t frames, const char* refusal, std::uint64_t thread, bool flush_only) noexcept {
     std::lock_guard lock(lifecycle);
     if (!session || session->status.state != 1) return;
     auto& s = *session;
@@ -2246,8 +2254,10 @@ void run_frame(std::uint64_t ticket, double seconds, std::uint64_t frames, const
         const ArithmeticScope arithmetic;
         const auto started = std::chrono::steady_clock::now();
         if (refusal) throw std::runtime_error(refusal);
-        if (!ticket || ticket <= s.status.native_ticket || !std::isfinite(seconds) || seconds <= 0 || seconds > 10)
+        if (!flush_only && (!ticket || ticket <= s.status.native_ticket || !std::isfinite(seconds) || seconds <= 0 || seconds > 10))
             throw std::runtime_error("Native frame ticket or timestep is invalid");
+        require(!flush_only || (!ticket && !frames && seconds==0),"An input flush cannot advance simulation time");
+        const auto completed_frame=s.status.completed_frames+(flush_only?0:1);
         std::vector<MAOniColonyTransfer> transfers; std::vector<MAOniColonyHeat> heat; std::vector<MAOniColonyTerrain> terrain;
         std::vector<Freeze> freezes; std::vector<GermEdit> germ_edits;
         std::map<std::size_t,std::uint64_t> job_tokens;
@@ -2255,7 +2265,7 @@ void run_frame(std::uint64_t ticket, double seconds, std::uint64_t frames, const
         std::map<std::size_t,std::shared_ptr<const std::vector<std::uint8_t>>> moving_jobs;
         std::map<std::uint64_t,std::uint64_t> committed_jobs;
         { std::lock_guard q(inputs); transfers.swap(pending_transfers); heat.swap(pending_heat); terrain.swap(pending_terrain); freezes.swap(pending_freezes);
-          s.native_arena=std::move(pending_native_arena);s.native_arena_owner_frames=frames;pending_native_arena_captures=0;
+          if(!flush_only) { s.native_arena=std::move(pending_native_arena);s.native_arena_owner_frames=frames;pending_native_arena_captures=0; }
           germ_edits.swap(pending_germs); job_tokens.swap(pending_job_tokens);
           for (const auto& [index,token] : job_tokens) {
               const auto& job=pipe_jobs.at(token);
@@ -2392,7 +2402,7 @@ void run_frame(std::uint64_t ticket, double seconds, std::uint64_t frames, const
         // near its anchor, at most reservoir_release_kg_per_s, at its own
         // temperature. The anchor's open cells within three take it, the cell
         // with the least liquid first.
-        if (!s.reservoir.empty()) {
+        if (!flush_only && !s.reservoir.empty()) {
             const auto& st = world.state(); std::vector<MacFluidTransfer> released; std::vector<std::size_t> from;
             const auto& eos_materials = cat.eos->reference().materials();
             for (std::size_t e = 0; e < s.reservoir.size() && released.size() < 4096; ++e) {
@@ -2617,7 +2627,7 @@ void run_frame(std::uint64_t ticket, double seconds, std::uint64_t frames, const
             std::lock_guard q(inputs);
             const auto receipt = [&](const MAOniColonyTransfer& t, std::uint32_t native_index, long double mass, long double heat_capacity_t,
                                      const PassiveQuantities& germs, const Pending& p, std::optional<std::size_t> only_species) {
-                MAOniColonyReceipt r{}; r.sequence = ++receipt_sequence; r.completed_frame = s.status.completed_frames + 1;
+                MAOniColonyReceipt r{}; r.sequence = ++receipt_sequence; r.completed_frame = completed_frame;
                 r.callback = t.callback; r.kind = t.kind; r.native_index = native_index; r.public_cell = t.public_cell;
                 r.mass_kg = static_cast<float>(mass); r.temperature_k = mass > 0 ? static_cast<float>(heat_capacity_t / mass) : 0;
                 const auto germ = dominant_germ(germs); r.disease = germ.first; r.disease_count = germ.second;
@@ -2750,6 +2760,8 @@ void run_frame(std::uint64_t ticket, double seconds, std::uint64_t frames, const
             std::fprintf(stderr,"[Mixed Atmospheres] moving parcels frame %llu: batches %zu items %zu accepted %zu refused %zu ms %.6f\n",
                 static_cast<unsigned long long>(s.status.completed_frames+1),moving_jobs.size(),moving_items,moving_accepted,moving_refused,ms);
         }
+        std::uint64_t substeps=0,rejected_attempts=0;
+        if(!flush_only) {
         // The profile's trace sink before the flow is the flow's own (advanced()
         // applies it at both ends of its interval).
         lap(2); step("flow");
@@ -2819,6 +2831,7 @@ void run_frame(std::uint64_t ticket, double seconds, std::uint64_t frames, const
         catch (...) { stop_watchdog(); dump(std::getenv("MA_COLONY_FAULT_DUMP")); throw; }
         stop_watchdog();
         auto advanced = std::move(*flowed);
+        substeps=advanced.substeps;rejected_attempts=advanced.rejected_attempts;
         book_trace(s, advanced.trace_sink);
         for (std::size_t k = 0; k < advanced.converted.size(); ++k) {
             L.converted[k] += advanced.converted[k]; L.converted_gross[k] += advanced.converted_gross[k];
@@ -2879,6 +2892,7 @@ void run_frame(std::uint64_t ticket, double seconds, std::uint64_t frames, const
             world = std::move(result.world);
             for (const auto& parcel : result.parcels) { L.sunk[parcel.species_index] += parcel.mass_kg; L.energy_sunk += parcel_energy(parcel); s.status.space_sink_kg += parcel.mass_kg; }
         }
+        }
         lap(4); step("ledger");
         // Ledgers close: every species and U+K+G against the booked flows.
         // The world's audit totals when its last operation kept them.
@@ -2912,23 +2926,25 @@ void run_frame(std::uint64_t ticket, double seconds, std::uint64_t frames, const
         if (mass_error > 1e-8 || energy_error > 1e-6) throw std::runtime_error("The colony exceeded its mass/energy ledger bound");
         (void)registry;
         s.world = std::make_shared<const MacClosedWorld>(std::move(world));
-        ++s.status.completed_frames; s.status.native_ticket = ticket; s.status.solver_thread = thread;
-        s.status.substeps += advanced.substeps; s.status.rejected_attempts += advanced.rejected_attempts;
-        s.status.time_seconds = s.world->time_s(); s.status.last_frame_seconds = seconds;
-        s.status.last_advance_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
-        s.status.maximum_advance_ms = std::max(s.status.maximum_advance_ms, s.status.last_advance_ms);
+        if(!flush_only) {
+            ++s.status.completed_frames; s.status.native_ticket = ticket; s.status.solver_thread = thread;
+            s.status.substeps += substeps; s.status.rejected_attempts += rejected_attempts;
+            s.status.time_seconds = s.world->time_s(); s.status.last_frame_seconds = seconds;
+            s.status.last_advance_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
+            s.status.maximum_advance_ms = std::max(s.status.maximum_advance_ms, s.status.last_advance_ms);
+        }
         step("projection");
         auto projection = project(s, *s.world);
-        lap(5); std::copy(std::begin(stage), std::end(stage), s.status.stage_ms);
+        lap(5); if(!flush_only)std::copy(std::begin(stage), std::end(stage), s.status.stage_ms);
         step("publication");
-        if (stage_log && s.status.completed_frames % 10 == 0) {
+        if (!flush_only && stage_log && s.status.completed_frames % 10 == 0) {
             std::string line = "[Mixed Atmospheres] stages frame " + std::to_string(s.status.completed_frames) + ":";
             char item[128];
             for (const auto& [name, ms] : steps) { std::snprintf(item, sizeof item, " %s %.1f", name, ms); line += item; }
             std::snprintf(item, sizeof item, "; heat %zu transfers %zu terrain %zu germs %zu", heat.size(), transfers.size(), terrain.size(), germ_edits.size()); line += item;
             std::fprintf(stderr, "%s\n", line.c_str()); std::fflush(stderr);
         }
-        publish(s, std::move(projection));
+        publish(s, std::move(projection),flush_only);
         // Pipe outcomes become readable only after the physical frame is
         // committed and published; a fault cannot credit an uncommitted edit.
         if (!committed_jobs.empty()) { std::lock_guard q(inputs);
@@ -2936,6 +2952,23 @@ void run_frame(std::uint64_t ticket, double seconds, std::uint64_t frames, const
     } catch (const std::exception& error) { fault(s, (std::string(doing) + ": " + error.what()).c_str()); }
       catch (...) { fault(s, "Unknown colony advance failure"); }
 }
+}
+
+std::uint32_t flush_inputs(std::uint32_t* submitted) {
+    // The caller fences the native submitter. Queues retain their usual
+    // ordering and durable outcomes; this function never dispatches callbacks.
+    wait();
+    const auto pending=[] {
+        std::lock_guard q(inputs);
+        return static_cast<std::uint32_t>(pending_transfers.size()+pending_heat.size()+pending_terrain.size()+
+            pending_freezes.size()+pending_germs.size());
+    };
+    { std::lock_guard lock(lifecycle); require(session && session->status.state==1,"Input flushing requires a healthy colony owner"); }
+    const auto count=pending();
+    if(submitted)*submitted=count;
+    if(count)run_frame(0,0,0,nullptr,0,true);
+    { std::lock_guard lock(lifecycle); require(session && session->status.state==1,"Colony input flush failed"); }
+    return pending();
 }
 
 // MACOLN01 checkpoint: header, configuration and material records (exact

@@ -15,8 +15,8 @@ identities/geometry. The ordinary DLC restriction remains in place. An explicit
 development control, `MA_COLONY_SPACED_OUT_CONTROL=1`, admits the complete
 fixed cluster grid to the existing solver, keeping unallocated cells closed
 and refusing any fluid that would be omitted outside registered worlds.
-It is not player-ready: dynamic rocket allocation/removal, inter-world
-transports and complete cluster persistence remain required exits.
+It is not player-ready: rocket removal/reuse, the remaining inter-world
+transports and complete cluster gameplay acceptance remain required exits.
 
 The normal DLC-enabled WindowsPlayer diagnostic activated `EXPANSION1_ID`
 through its usual menu preferences and measured **nine worlds on a 736×304
@@ -117,7 +117,28 @@ components to share the same storage, seeds 0.75 kg/0.25 kg of two constituents 
 and waits 16 owner frames for ordinary callbacks. It requires both constituents
 at the opposite world's output, empty source/storage, closed world ledgers and
 the exact pipe/storage boundary audit. It does not call transfer callbacks or
-replace the game's rates. This new port control has no accepted game run yet.
+replace the game's rates.
+
+The `76b36f8` control passes all four directions: every opposite output holds
+exactly 0.75 kg/0.25 kg, with empty input pipes/shared native stores and an exact
+pipe account. The source saves at frame 68 with four occupied pipes holding
+4 kg. Cold and menu loads both reach frame 77 and exactly reencode the same
+wrapper-12/core-23 owner image; the menu load verifies a new owner session.
+Maximum relative mass/energy errors across the runs are 5.52e-16/6.02e-16.
+These are Proton controls with `76b36f8` managed code and the unchanged
+`13e5345` native binaries, retaining that build provenance. They do not certify
+ordinary activation, rocket removal/flight, teleporters or cargo.
+
+Rocket retirement also needs to finish edits queued by the last native frame
+before freeing its cells. A new explicit native input boundary applies the
+existing ordered edits and precise receipts without consuming a fluid frame.
+It runs no flow, reservoir release, phase conversion, trace/space sink or germ
+growth. Deferred edits remain visible and cannot be declared settled. Tests
+cover every constituent of a mixed extraction, germ edits without growth,
+refused heat/retry, durable outcomes, same-frame view/history invalidation and
+exact cold reencoding. Its managed caller fences native work and publishes
+callbacks through the normal zero-time game step. Ordinary save semantics are
+unchanged; this boundary alone does not implement rocket evacuation.
 
 The 2026-10-26 request covers Spaced Out!, Frosty, Bionic, Prehistoric and
 Aquatic: every one of their 32 selections on Linux and Windows x64. This
@@ -240,11 +261,12 @@ No ABI pass was recorded and no solver arithmetic was changed to hide this
 failure. Native Windows compilation and actual Windows OS runs remain separate
 checks; compiling the managed adapter against Windows assemblies proves neither.
 
-Spaced Out! still explicitly refuses startup. Multi-asteroid ownership,
-transfers, rocket interiors,
-bionic oxygen and aquatic ecosystem adapters remain to be implemented and
-verified before their rows can pass. The matrix is a compatibility check,
-not proof of every pack's gameplay systems.
+Ordinary Spaced Out! activation still explicitly refuses startup. Development
+controls above establish multi-asteroid ownership, rocket creation and paired
+mixed ports, including source/cold/menu restoration. Rocket retirement,
+teleporter/cargo and full cluster gameplay acceptance remain open. Bionic
+oxygen and aquatic ecosystem adapters also remain incomplete. The matrix is a
+compatibility check, not proof of every pack's gameplay systems.
 
 Exact stored-fluid heat/biology and nonempty schema5 cold rebinding remain open
 in [mixed pipes](mixed-pipes.md). Native receipts remove the former multi-kJ

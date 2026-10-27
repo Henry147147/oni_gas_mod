@@ -162,6 +162,10 @@ namespace MixedAtmospheres.Oni
         internal static extern int CopyPreciseReceipt(ulong sequence, [Out] byte[]? bytes, uint capacity, out uint count);
         [DllImport(Library, EntryPoint = "ma_oni_colony_wait", CallingConvention = CallingConvention.Cdecl)]
         internal static extern int Wait();
+        [DllImport(Library, EntryPoint = "ma_oni_colony_input_flush_version", CallingConvention = CallingConvention.Cdecl)]
+        internal static extern uint InputFlushVersion();
+        [DllImport(Library, EntryPoint = "ma_oni_colony_flush_inputs", CallingConvention = CallingConvention.Cdecl)]
+        internal static extern int FlushInputs(out uint submitted,out uint deferred);
         [StructLayout(LayoutKind.Sequential)]
         internal struct PipePassive { public ulong Identity; public double Quantity; }
         [StructLayout(LayoutKind.Sequential)]

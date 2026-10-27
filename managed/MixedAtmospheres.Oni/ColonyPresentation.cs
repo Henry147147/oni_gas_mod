@@ -78,6 +78,11 @@ namespace MixedAtmospheres.Oni
         // a build runs waits for the next request, so the presentation may skip
         // frames but never holds the game thread.
         private static int building;
+        // Discard an in-flight pre-edit presentation. Its physics frame may
+        // equal the replacement's, so a frame-number comparison is insufficient.
+        private static ulong lifecycleRevision;
+        internal static void InvalidateLifecycleReadings()
+        {lock(sessionGate){++lifecycleRevision;publishedFrame=ulong.MaxValue;}}
         internal static void Publish(ulong completedFrame)
         {
             if (catalog == null || completedFrame == publishedFrame || Interlocked.CompareExchange(ref building, 1, 0) != 0) return;
@@ -99,6 +104,7 @@ namespace MixedAtmospheres.Oni
             // worker keeps a consistent set even if the owner restarts.
             var table = new Table(catalog!, ids, phases, molarMasses, readings, parts);
             var producerSession = MixturePresentationRuntime.NativeDomainSession;
+            var revision=lifecycleRevision;
             ThreadPool.QueueUserWorkItem(_ =>
             {
                 var begun = System.Diagnostics.Stopwatch.GetTimestamp();
@@ -117,7 +123,7 @@ namespace MixedAtmospheres.Oni
                     }
                     lock (sessionGate)
                     {
-                        if (catalog != table.Catalog) return;
+                        if (catalog != table.Catalog || revision!=lifecycleRevision) return;
                         if (cells.Count != 0 && !MixturePresentationRuntime.PublishNativeDomainFrame(width, height, (long)frame, cells, producerSession)) return;
                         RejectedCells = rejected;
                         if (rejected > 0) FirstRejection = firstRejection;
@@ -129,7 +135,7 @@ namespace MixedAtmospheres.Oni
                     // A frame still building when the owner stops or the game
                     // shuts the presentation down is dropped, not a failure.
                     lock (sessionGate)
-                        if (catalog == table.Catalog && MixturePresentationRuntime.CurrentModel != null) Failed(error, frame);
+                        if (catalog == table.Catalog && revision==lifecycleRevision && MixturePresentationRuntime.CurrentModel != null) Failed(error, frame);
                 }
                 finally
                 {

@@ -435,6 +435,11 @@ namespace MixedAtmospheres.Oni
             ++WorldPassiveComparisons;WorldPassiveRows+=observation!.Rows.Count;
             passiveSession=status.Session;passiveFrame=status.CompletedFrames;
         }
+        internal static void InvalidateLifecycleReadings()
+        {
+            passiveSession=0;passiveFrame=ulong.MaxValue;
+            ColonyPresentation.InvalidateLifecycleReadings();
+        }
         // A conversion's solid byproduct (salt from boiling salt water) becomes debris.
         private static void SpawnByproduct(in OniNativeColony.Receipt r)
         {

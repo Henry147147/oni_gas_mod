@@ -319,7 +319,8 @@ void on_update_data(void* self,void* data) {
     // owner has installed its shadow. The earlier native fields may be
     // overwritten here and cannot establish an admission/time origin.
     ma::oni::colony::NativeCells shadow{};
-    const bool shadowed=pending.ticket && ma::oni::colony::active() && native_cells(data,shadow);
+    const bool shadowed=ma::oni::colony::active() &&
+        (pending.ticket || ma::oni::colony::needs_shadow_refresh()) && native_cells(data,shadow);
     if (shadowed) ma::oni::colony::write_shadow(shadow);
     if(pending.ticket && floors.enabled) {
         std::lock_guard diagnostic(floors.mutex);
@@ -1016,6 +1017,13 @@ MAOniResult ma_oni_colony_copy_precise_receipt(std::uint64_t sequence,std::uint8
 }
 MAOniResult ma_oni_colony_wait() {
     return boundary([&] { ma::oni::colony::wait(); });
+}
+std::uint32_t ma_oni_colony_input_flush_version() { return 1; }
+MAOniResult ma_oni_colony_flush_inputs(std::uint32_t* submitted,std::uint32_t* deferred) {
+    return boundary([&] {
+        if(!submitted || !deferred)throw Failure(MA_ONI_INVALID_ARGUMENT,"Missing input-flush output");
+        *deferred=ma::oni::colony::flush_inputs(submitted);
+    });
 }
 MAOniResult ma_oni_colony_queue_pipe_job(std::uint64_t token,const MAOniColonyTransfer* transfer,
     const MAOniColonyPassive* passives,std::uint32_t count,std::uint32_t* state,std::uint64_t* last) {

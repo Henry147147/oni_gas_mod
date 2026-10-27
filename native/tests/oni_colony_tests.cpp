@@ -1654,6 +1654,83 @@ void world_biology_control() {
     require(refused, "inconsistent disease table admitted");
     std::cout << "WORLD BIOLOGY PASS\n";
 }
+void input_flush_control() {
+    using namespace ma::oni::colony;
+    // Adjacent empty cells expose accidental flow; a separate space source
+    // exposes an accidental sink. A live growth rule exposes biology ticks.
+    const float inf=std::numeric_limits<float>::infinity();
+    MAOniColonyDisease disease{};disease.struct_size=sizeof(disease);disease.abi_version=1;disease.strength=1;
+    std::fill(std::begin(disease.temperature_range),std::end(disease.temperature_range),inf);
+    std::fill(std::begin(disease.temperature_half_lives),std::end(disease.temperature_half_lives),inf);
+    std::vector<MAOniColonyDiseaseGrowth> growth(10,{0,inf,inf,0,0,inf,0,0});
+    growth[oxygen]={0,-1,inf,1,0,inf,1,0};
+    set_diseases(std::span(&disease,1),growth,10);
+    MAOniColonyConfig cfg{};cfg.struct_size=sizeof(cfg);cfg.abi_version=1;
+    cfg.flags=MA_ONI_COLONY_GAME_KERNEL|MA_ONI_COLONY_GAME_SURFACE;cfg.vacuum_index=vacuum;
+    cfg.grid_width=cfg.width=3;cfg.grid_height=cfg.height=3;cfg.maximum_timestep_s=.1;
+    const std::vector<MAOniColonyMaterial> mats{material("Oxygen",11,oxygen,true,.032,1005),material("CarbonDioxide",12,carbon,true,.044,850)};
+    std::vector<MAOniColonyCell> cells(9);cells[4]={oxygen,MA_ONI_COLONY_FLUID,1,300,1,100};
+    cells[8]={vacuum,MA_ONI_COLONY_SPACE,0,0,0,0};
+    start(cfg,mats,cells,1);enable_precise_receipts(true);sample_history(4);
+    const auto initial=checkpoint();
+    require(flush_inputs()==0 && checkpoint()==initial,"An empty input flush changed the checkpoint");
+    const auto mass=[](std::uint32_t cell) {
+        std::array<std::uint32_t,4> ids{};std::array<double,4> amounts{};double total=0;
+        const auto count=composition(cell,ids.data(),amounts.data(),4);
+        for(std::uint32_t k=0;k<count;++k)total+=amounts[k];
+        return total;
+    };
+    const std::array<MAOniColonyTransfer,2> sources{{{4,carbon,MA_ONI_COLONY_INJECT,0,77,0,.25,300,0},
+        {8,carbon,MA_ONI_COLONY_INJECT,0,-1,0,.5,300,0}}};
+    const MAOniColonyHeat heat{4,0,5,0};const MAOniColonyGermEdit germ{4,1,3};
+    const std::array<MAOniColonyTerrain,2> openings{{{0,MA_ONI_COLONY_OPEN},{5,MA_ONI_COLONY_OPEN}}};
+    queue_transfers(sources);queue_heat(std::span(&heat,1));queue_germs(std::span(&germ,1));queue_terrain(openings);
+    require(flush_inputs()==0,"Valid lifecycle inputs remained pending");
+    const auto settled=status();
+    std::cout<<"lifecycle inputs: masses "<<mass(4)<<' '<<mass(5)<<' '<<mass(8)<<", sinks "<<settled.space_sink_kg<<' '<<settled.trace_sink_kg<<", heat "<<settled.committed_heat<<'\n';
+    require(settled.state==1 && settled.completed_frames==0 && settled.native_ticket==0 && settled.time_seconds==0 && settled.substeps==0,
+        "Input flushing advanced the owner's clock");
+    require(mass(4)==1.25 && mass(5)==0 && mass(8)==.5 && settled.space_sink_kg==0 && settled.trace_sink_kg==0 && settled.committed_heat==1,
+        "Input flushing omitted an edit or ran a physical stage");
+    MAOniColonyBiology biology{};std::vector<MAOniColonyBiologyAccount> accounts;germ_accounts(biology,accounts);
+    require(biology.frames==0 && accounts.size()==1 && accounts[0].held==103 && accounts[0].born==0 && accounts[0].moved==0,
+        "Input flushing grew, diffused or lost queued germs");
+    MAOniColonyStatus copied{};std::array<MAOniColonyCellView,9> views{};
+    require(needs_shadow_refresh() && copy_changed(settled.session,0,copied,views.data(),9) && views[8].mass_kg==.5f && (views[0].flags&MA_ONI_COLONY_VIEW_OWNED),
+        "Frame-only view caching hid a lifecycle edit");
+    std::vector<MAOniColonySampleCell> sample_cells;std::vector<MAOniColonySamplePart> sample_parts;
+    const std::array<std::uint32_t,1> selection{8};
+    sample_frame(0,selection,copied,sample_cells,sample_parts,nullptr,nullptr);
+    require(sample_parts.size()==1 && sample_parts[0].mass_kg==.5,"Same-frame sampling retained the pre-edit snapshot");
+    MAOniColonyReceipt receipt{};require(copy_receipts(&receipt,1)==1 && receipt.callback==77 && receipt.completed_frame==0 && receipt.mass_kg==.25f,
+        "A lifecycle callback did not retain its current-frame label");ack_receipts(receipt.sequence);
+    // Refused work must stay visible to the caller, rather than being called
+    // quiescent. Nothing can flow into a vacuum neighbour in this operation.
+    refuse_heat(4);queue_heat(std::span(&heat,1));
+    require(flush_inputs()==1 && status().committed_heat==1,"Deferred lifecycle heat was silently discarded");
+    refuse_heat(-1);require(flush_inputs()==0 && status().committed_heat==2,"Deferred lifecycle heat did not retry");
+    const MAOniColonyTransfer take{4,0,MA_ONI_COLONY_EXTRACT_GAS,0,-1,0,2,0,0};
+    (void)queue_pipe_job(1,take,{});require(flush_inputs()==0,"Durable lifecycle extraction did not settle");
+    std::array<MAOniColonyReceipt,4> receipts{};const auto count=copy_receipts(receipts.data(),4);double taken=0;
+    require(count==2 && pipe_job_state(1).first==2,"A mixed lifecycle extraction lost its durable outcomes");
+    for(std::uint32_t k=0;k<count;++k) {
+        require(receipts[k].completed_frame==0 && receipt_job(receipts[k].sequence)==1 && copy_precise_receipt(receipts[k].sequence,nullptr,0)>0,
+            "A lifecycle constituent lost its precise receipt");taken+=receipts[k].mass_kg;
+    }
+    require(taken==1.25 && mass(4)==0,"Lifecycle evacuation lost a constituent or left duplicate mass");
+    ack_receipts(receipts[count-1].sequence);
+    const auto saved=checkpoint();stop();restore(cfg,mats,saved,1);
+    require(checkpoint()==saved && status().time_seconds==0,"A zero-time lifecycle edit failed exact cold reencoding");
+    advance(1,.2,2);wait();const auto advanced=status();
+    require(advanced.state==1 && advanced.completed_frames==1 && advanced.native_ticket==1 && advanced.time_seconds>0 && advanced.space_sink_kg>0,
+        "A positive advance stopped working after lifecycle edits");
+    require(!needs_shadow_refresh() && !copy_changed(advanced.session,advanced.completed_frames,copied,views.data(),9),"A positive advance did not restore ordinary frame caching");
+    require(advanced.maximum_relative_mass_error<1e-12 && advanced.maximum_relative_energy_error<1e-12,"Lifecycle edit ledgers do not close");
+    sample_history(0);stop();set_diseases({}, {},0);
+    bool refused=false;try{(void)flush_inputs();}catch(const std::invalid_argument&){refused=true;}
+    require(refused,"Input flushing admitted an absent owner");
+    std::cout<<"PASS lifecycle input flush: all constituents, germs, deferred heat, durable receipts, same-frame cache, no time/flow/sink, cold reencoding\n";
+}
 void cluster_boundary_control() {
     using namespace ma::oni::colony;
     MAOniColonyConfig cfg{};cfg.struct_size=sizeof(cfg);cfg.abi_version=1;
@@ -1702,6 +1779,7 @@ int main(int argc, char** argv) {
         if (argc == 2 && std::strcmp(argv[1], "--passives-only") == 0) {passive_observation_control();return 0;}
         if (argc == 2 && std::strcmp(argv[1], "--biology-only") == 0) {world_biology_control();unplaced_output_control();return 0;}
         if (argc == 2 && std::strcmp(argv[1], "--cluster-boundaries-only") == 0) {cluster_boundary_control();return 0;}
+        if (argc == 2 && std::strcmp(argv[1], "--input-flush-only") == 0) {input_flush_control();return 0;}
         if (argc == 2 && std::strcmp(argv[1], "--quiet-game-cell-only") == 0) {quiet_game_cell_control();return 0;}
         if (argc == 2 && std::strcmp(argv[1], "--shadow-handoff-only") == 0) {shadow_handoff_control();return 0;}
         if (argc == 2 && std::strcmp(argv[1], "--timestep-only") == 0) { timestep_control(); return 0; }
@@ -1732,6 +1810,7 @@ int main(int argc, char** argv) {
         passive_observation_control();
         world_biology_control();
         cluster_boundary_control();
+        input_flush_control();
         unplaced_output_control();
         quiet_game_cell_control();
         shadow_handoff_control();

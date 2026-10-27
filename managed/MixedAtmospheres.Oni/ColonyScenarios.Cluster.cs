@@ -13,6 +13,39 @@ namespace MixedAtmospheres.Oni
         private static WorldContainer? clusterRocketWorld;
         private static int clusterWorldsBeforeRocket;
 
+        private static void SpacedOutInputFlush(int frame,OniNativeColony.Status status)
+        {
+            if(!Once(0,"cluster lifecycle input boundary"))return;
+            if(clusterProbeCells.Length==0)throw new InvalidOperationException("Run spaced-out-worlds before the input-boundary control.");
+            _=ColonySaveBarrier.FlushInputs();
+            var before=OniNativeColony.Status.Empty;OniNativeColony.Check(OniNativeColony.CopyStatus(ref before));
+            var cell=clusterProbeCells[0];var oxygen=SpeciesMass(cell,SimHashes.Oxygen);var carbon=SpeciesMass(cell,SimHashes.CarbonDioxide);
+            SimMessages.AddRemoveSubstance(cell,SimHashes.Oxygen,CellEventLogger.Instance.OxygenModifierSimUpdate,.125f,300,byte.MaxValue,0);
+            SimMessages.AddRemoveSubstance(cell,SimHashes.CarbonDioxide,CellEventLogger.Instance.OxygenModifierSimUpdate,.0625f,300,byte.MaxValue,0);
+            ulong extracted;
+            using(var batch=new ColonyPipePorts.ActorBatch())
+            {
+                var ordered=new System.Collections.Generic.List<OniNativeColony.Transfer>();
+                extracted=batch.Extract(ordered,cell,1,(uint)cell,.375,0);batch.Commit(ordered);
+            }
+            _=ColonySaveBarrier.FlushInputs();
+            var parcel=ColonyPipePorts.BufferInventory(extracted);
+            Record("zero-time boundary delivers precise mixed outcomes",!ColonyPipePorts.IsPending(extracted)&&
+                Math.Abs(ClusterPipeMass(parcel,SimHashes.Oxygen)-.25)<1e-9&&Math.Abs(ClusterPipeMass(parcel,SimHashes.CarbonDioxide)-.125)<1e-9,
+                $"oxygen {ClusterPipeMass(parcel,SimHashes.Oxygen):R} kg, carbon dioxide {ClusterPipeMass(parcel,SimHashes.CarbonDioxide):R} kg");
+            var returned=ColonyPipePorts.DispatchBuffer(extracted,(uint)cell);
+            _=ColonySaveBarrier.FlushInputs();
+            var after=OniNativeColony.Status.Empty;OniNativeColony.Check(OniNativeColony.CopyStatus(ref after));
+            Record("lifecycle boundary retains the same physical clock",after.State==1&&after.Session==before.Session&&
+                after.CompletedFrames==before.CompletedFrames&&after.NativeTicket==before.NativeTicket&&after.TimeSeconds==before.TimeSeconds,
+                $"frames {before.CompletedFrames}/{after.CompletedFrames}, tickets {before.NativeTicket}/{after.NativeTicket}, time {before.TimeSeconds:R}/{after.TimeSeconds:R}");
+            Record("zero-time return retains both source constituents",Math.Abs(SpeciesMass(cell,SimHashes.Oxygen)-oxygen-.125)<1e-9&&
+                Math.Abs(SpeciesMass(cell,SimHashes.CarbonDioxide)-carbon-.0625)<1e-9&&returned.All(id=>!ColonyPipePorts.IsPending(id)&&ColonyPipePorts.BufferInventory(id).Count==0),
+                $"oxygen {SpeciesMass(cell,SimHashes.Oxygen):R} kg, carbon dioxide {SpeciesMass(cell,SimHashes.CarbonDioxide):R} kg");
+            Record("lifecycle boundary closes the pipe account",ColonyConduits.Audit(out var detail),detail);
+            Finish();
+        }
+
         // Exercise each real generated asteroid, rather than counting world
         // metadata while owning only the currently selected camera world.
         private static void SpacedOutWorlds(int frame,OniNativeColony.Status status)

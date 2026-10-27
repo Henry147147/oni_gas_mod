@@ -114,4 +114,9 @@ void observe_native_solid(const NativeCells&, int source) noexcept;
 void advance(std::uint64_t ticket, double seconds, std::uint64_t thread) noexcept;
 // Returns once the solver thread has no step running or waiting.
 void wait() noexcept;
+// Lifecycle boundary only, with the native submitter fenced. Apply one batch
+// of queued edits without flow, clock or biology growth. Return deferred edits.
+std::uint32_t flush_inputs(std::uint32_t* submitted=nullptr);
+// A zero-time native update must project lifecycle edits into its shadow too.
+[[nodiscard]] bool needs_shadow_refresh() noexcept;
 }
