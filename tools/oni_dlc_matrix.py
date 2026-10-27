@@ -19,7 +19,7 @@ import oni_dlc as dlc
 from oni_native_matrix import digest, fingerprint, invoke
 
 TARGETS = ("linux", "windows", "proton")
-DEFAULT_GAME_SLOT = Path.home() / "oni-agents/game-slot.sh"
+DEFAULT_GAME_SLOT = Path(__file__).resolve().parent / "game_slot.sh"
 PROBE_FLAGS = ("ManagedFrameIntercepted", "ManagedSnapshotIntercepted", "DirectNativeMessageIntercepted",
                "ManagedSaveIntercepted", "NativeMixtureRoundtripPassed", "SettingsSerializationRoundtripPassed")
 
@@ -102,7 +102,7 @@ def run_matrix(runner: Path, package: Path, output: Path, *, target: str, masks:
     if target != "windows":
         game_slot = (game_slot or DEFAULT_GAME_SLOT).resolve()
         if not game_slot.is_file():
-            raise ValueError("Supply the team's game-slot.sh wrapper with --game-slot before launching a game")
+            raise ValueError("Supply the game-slot wrapper (tools/game_slot.sh) with --game-slot before launching a game")
     masks = list(range(32)) if masks is None else list(masks)
     if not masks or len(set(masks)) != len(masks):
         raise ValueError("Select distinct DLC masks")
@@ -233,7 +233,7 @@ def main() -> int:
     run.add_argument("--timeout", type=int, default=1800)
     run.add_argument("--proton", type=Path)
     run.add_argument("--game-dir", type=Path)
-    run.add_argument("--game-slot", type=Path, help="Linux/Proton per-game queue (default: ~/oni-agents/game-slot.sh)")
+    run.add_argument("--game-slot", type=Path, help="Linux/Proton per-game queue (default: tools/game_slot.sh)")
     args = parser.parse_args()
     if args.command == "plan":
         print(json.dumps(plan(), indent=2))

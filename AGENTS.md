@@ -60,10 +60,16 @@ python3 tools/build.py                           # full native + managed + Pytho
   files from `git archive` can keep stale objects, so touch the sources first.
 - The in-game harness is `tools/oni_headless.py` (`status`, `start`, `run`,
   `screenshot`): it runs the licensed Linux game on a private virtual desktop. Its
-  state lives in the ignored `local/` folder; do not delete it.
+  Steam home is `~/.local/share/oni-headless`; do not move it. Run each game
+  through `tools/game_slot.sh low|high|whole CMD` and timed work through
+  `tools/run_locked.sh`. Their locks and the prepared private saves live in the
+  ignored `local/` folder (`local/locks`, `local/saves`); do not delete it.
 
 ## Workspace hygiene
 
 Build folders (`build*/`), `artifacts/` and `local/` are ignored. Delete one-off
 build folders when you are done, keep scratch work outside the repository, and do
-not leave stashes or uncommitted work behind.
+not leave stashes or uncommitted work behind. All project work lives in this
+folder: older clones, agent folders and run records are in `archive/` (excluded
+through `.git/info/exclude`; `archive/MANIFEST.txt` maps original paths). Do not
+create clones or work folders elsewhere.

@@ -430,7 +430,7 @@ Use `--target windows` on Windows with Python and PowerShell 7, or
 route is additional WindowsPlayer evidence; it cannot fill Windows OS rows.
 `--masks 0 20` limits a diagnostic run to those selections and cannot pass
 full target coverage. On Linux, each individual game goes through
-`/home/henry/oni-agents/game-slot.sh low`, releasing the slot between phases.
+`tools/game_slot.sh low`, releasing the slot between phases.
 `--game-slot` can name the same shared wrapper in another home directory;
 a missing wrapper refuses the run. Queue time does not consume the inner
 game's timeout. Run the outer matrix directly: putting the whole matrix under
