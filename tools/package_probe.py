@@ -11,6 +11,7 @@ import struct
 import subprocess
 import tarfile
 from build_linux_compat import glibc_versions_within_limit
+import game_contract
 import mod_identity
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -147,6 +148,10 @@ def main() -> None:
     parser.add_argument("--native-observer", type=Path, help="Opt-in SimDLL backend from its CMake build directory; forwards by default, experimental sealed domains require separate validation")
     parser.add_argument("--native-build-info", type=Path, help="Completed Linux compatibility build report, checked against all supplied native binaries")
     parser.add_argument("--oni-build", type=int, default=744825, help="Verified ONI build number, not Steam BuildID")
+    parser.add_argument("--game-dir", type=Path, help="Licensed installation for the managed game contract "
+                        "(default: ONI_GAME_DIR_WINDOWS/ONI_GAME_DIR_LINUX/ONI_GAME_DIR or the team's share copy)")
+    parser.add_argument("--no-game-contract", action="store_true",
+                        help="Omit game-contract.json: the mod then accepts only the exact inspected 744825 assemblies")
     parser.add_argument("--private-file-protocol-validator", type=Path,
                         help="Optional normal-source Windows Mono fixture DLL; never a save/load permission")
     args = parser.parse_args()
@@ -194,10 +199,18 @@ def main() -> None:
         parser.error("Output must be empty so a previous package cannot leave stale or game-owned DLLs")
     for file in files[:2]:
         shutil.copy2(file, output / file.name)
+    rid = "win-x64" if args.native.suffix == ".dll" else "linux-x64"
+    if not args.no_game_contract:
+        # The managed game contract for exactly these DLLs (docs/game-update-resilience.md).
+        platform = "windows-x64" if rid == "win-x64" else "linux-x64"
+        try:
+            game_contract.generate(managed, {platform: game_contract.game_root(platform, args.game_dir)}, output / game_contract.FILE_NAME)
+        except ValueError as error:
+            shutil.rmtree(output, ignore_errors=True)
+            parser.error(str(error))
     # Mod-owned YAML is loaded through ONI's virtual streaming-assets layer.
     # Never copy data into the licensed game installation.
     shutil.copytree(ROOT / "elements", output / "elements")
-    rid = "win-x64" if args.native.suffix == ".dll" else "linux-x64"
     native_directory = output / "native" / rid
     native_directory.mkdir(parents=True)
     copy_native_binary(files[2], native_directory / files[2].name)

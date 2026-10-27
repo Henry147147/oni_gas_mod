@@ -16,7 +16,11 @@ namespace MixedAtmospheres.Oni
     // loader, which refuses it.
     internal static unsafe class ColonyOwnerPersistence
     {
-        private const int OniBuild = 744825, MaterialModel = 3, NativeLoad = -672538170;
+        // Envelopes record the build that wrote them and are accepted from
+        // the first supported build up to the running one
+        // (docs/game-update-resilience.md#saves-across-builds).
+        private const int MaterialModel = 3, NativeLoad = -672538170;
+        private static int RunningBuild => GameBuildCheck.RunningBuild;
         [DllImport("SimDLL", EntryPoint = "SIM_BeginSave")] private static extern byte* BeginSave(int* size, int width, int height);
         [DllImport("SimDLL", EntryPoint = "SIM_EndSave")] private static extern void EndSave();
         private static (OniNativeColony.Config config, byte[] image)? pending;
@@ -72,7 +76,7 @@ namespace MixedAtmospheres.Oni
             if (ModSettingsRuntime.CaptureRecord() is byte[] settings)
                 sections.Add(new KeyValuePair<uint, byte[]>(ColonySavePayload.ColonySettings, settings));
             var payload = ColonySavePayload.Encode(config, image, sections);
-            var envelope = ColonySaveEnvelope.Create(OniBuild, MaterialModel, completedFrame,
+            var envelope = ColonySaveEnvelope.Create(RunningBuild, MaterialModel, completedFrame,
                 CatalogueHash(ColonyOwner.Materials), native, payload);
             envelope.WriteLengthPrefixed(writer); ++Saves; LastSavedFrame=completedFrame;
             UnityEngine.Debug.Log($"[Mixed Atmospheres] Colony saved at owner frame {completedFrame} ({envelope.EncodedLength} bytes).");
@@ -89,7 +93,7 @@ namespace MixedAtmospheres.Oni
             var packs = GameplayPacks.ActiveUnsupported();
             if (packs.Length != 0) throw new NotSupportedException(ModAdmission.PacksLoadRefusal(packs));
             var materials = ColonyOwner.BuildCatalogue();
-            var envelope = ColonySaveEnvelope.Parse(data.AsSpan(position + 4, length), OniBuild, MaterialModel, CatalogueHash(materials));
+            var envelope = ColonySaveEnvelope.Parse(data.AsSpan(position + 4, length), ColonySaveEnvelope.FirstSupportedBuild, RunningBuild, MaterialModel, CatalogueHash(materials));
             // Once the MACOLONY envelope is recognized, an unknown managed
             // payload is an incompatible mixture save, not a native save.
             var sections = ColonySavePayload.Decode(envelope.CustomData);
@@ -122,33 +126,28 @@ namespace MixedAtmospheres.Oni
                 "The save has not been changed.\n\n" + reason;
         }
 
+        // Whether a save file holds a Mixed Atmospheres colony (its native
+        // section is a MACOLONY envelope). Reads the file only.
+        internal static bool IsMixtureSave(string filename) => ReadSimSection(filename) is byte[] sim && ColonySaveEnvelope.HasMagic(sim);
+
+        private static byte[]? ReadSimSection(string filename)
+        {
+            try { return ColonySaveReadback.SimSection(File.ReadAllBytes(filename)); }
+            catch (Exception) { return null; }
+        }
+
         private static string? EnvelopeRefusal(string filename, out bool mixture)
         {
             mixture = false;
-            byte[] sim;
-            try
-            {
-                var source = SavedImage.CopyFrom(File.ReadAllBytes(filename));
-                var count = BinaryPrimitives.ReadInt32LittleEndian(source.CopySlice(4, 4));
-                var header = OwnedReservoirLoadHeaderV1.InspectLayoutHeader(source.CopySlice(0, 16 + count), allowUncompressed: true);
-                var directory = SavedDirectoryInspector.InspectPrefix(source, 16 + count, new SavedInspectionLimits());
-                var start = directory.Range.End;
-                var body = header.Compression == 1 ?
-                    SavedZlibInflationInspector.Inspect(source, new SavedByteRange(start, source.Length - start), new SavedInflationLimits()).BodyImage :
-                    SavedImage.CopyFrom(source.CopySlice(start, source.Length - start));
-                var range = SavedBodyPrefixInspector.Inspect(body, directory, new SavedPrefixLimits()).SimPayload;
-                sim = body.CopySlice(range.Offset, range.Length);
-            }
-            catch (Exception) { return null; }
-            if (sim.Length >= 4 && !ColonySaveEnvelope.HasMagic(sim) && ColonySaveEnvelope.HasMagic(sim.AsSpan(4))) sim = sim.AsSpan(4).ToArray();
-            if (!ColonySaveEnvelope.HasMagic(sim)) return null;
+            var sim = ReadSimSection(filename);
+            if (sim == null || !ColonySaveEnvelope.HasMagic(sim)) return null;
             mixture = true;
             try
             {
                 // The material catalogue is compared once elements exist (the in-game load checks it again).
                 var catalogue = ElementLoader.elements != null && ElementLoader.elements.Count != 0 ? CatalogueHash(ColonyOwner.BuildCatalogue()) :
                     sim.Length >= 60 ? sim.AsSpan(28, ColonySaveEnvelope.CatalogHashBytes).ToArray() : new byte[ColonySaveEnvelope.CatalogHashBytes];
-                var envelope = ColonySaveEnvelope.Parse(sim, OniBuild, MaterialModel, catalogue);
+                var envelope = ColonySaveEnvelope.Parse(sim, ColonySaveEnvelope.FirstSupportedBuild, RunningBuild, MaterialModel, catalogue);
                 var payload = ColonySavePayload.Decode(envelope.CustomData);
                 _ = ColonyCheckpointMetadata.Profile(payload.Owner);
                 if (payload.Section(ColonySavePayload.ColonySettings) is byte[] settings) _ = ColonySettingsRecord.Decode(settings, SettingValues.Defaults());

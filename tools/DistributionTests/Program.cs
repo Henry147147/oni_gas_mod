@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
 using MixedAtmospheres.Oni;
@@ -62,9 +63,71 @@ static class Program
         Check(two.Contains("copy in\n  /m/Local/B\nand keep\n  /m/Dev/A") && two.Contains("(Dev, running)") && two.Contains("(Local, not loaded)"), two);
     }
 
+    private static bool Refused(Action parse, string why)
+    {
+        try { parse(); } catch (NotSupportedException error) { Check(error.Message.Contains(why), "refusal names its reason: " + error.Message); return true; }
+        return false;
+    }
+
+    // A minimal SIMSAVE v15 native section (3x3 cells) for synthetic envelopes.
+    private static byte[] NativeSection()
+    {
+        var native = new byte[29 + 36 * 9];
+        System.Text.Encoding.ASCII.GetBytes("SIMSAVE\0").CopyTo(native, 0);
+        BitConverter.GetBytes(15).CopyTo(native, 8); BitConverter.GetBytes(3).CopyTo(native, 12); BitConverter.GetBytes(3).CopyTo(native, 16);
+        return native;
+    }
+
+    private static void SyntheticEnvelopes()
+    {
+        var catalog = Enumerable.Repeat((byte)7, 32).ToArray();
+        byte[] Saved(int build) => ColonySaveEnvelope.Create(build, 3, 42, catalog, NativeSection(), new byte[] { 1, 2, 3 }).CopyEncodedData();
+        var first = ColonySaveEnvelope.FirstSupportedBuild;
+        // Saved at 744825, loaded by 744825 and by a later verified build.
+        Check(ColonySaveEnvelope.Parse(Saved(first), first, first, 3, catalog).OniBuild == first, "same build loads");
+        Check(ColonySaveEnvelope.Parse(Saved(first), first, first + 1, 3, catalog).OniBuild == first, "a later verified build loads a 744825 save");
+        Check(ColonySaveEnvelope.Parse(Saved(first + 1), first, first + 1, 3, catalog).OniBuild == first + 1, "a later build loads its own save");
+        Check(Refused(() => ColonySaveEnvelope.Parse(Saved(first + 2), first, first + 1, 3, catalog), "newer game build (744827)"), "a newer save is refused");
+        Check(Refused(() => ColonySaveEnvelope.Parse(Saved(first - 1), first, first + 1, 3, catalog), "744824"), "an earlier unsupported save is refused");
+        Check(Refused(() => ColonySaveEnvelope.Parse(Saved(first), first, first + 1, 3, Enumerable.Repeat((byte)8, 32).ToArray()), "save migration"), "a changed catalogue is refused");
+        Check(Refused(() => ColonySaveEnvelope.Parse(Saved(first), first, first + 1, 4, catalog), "material model"), "a changed material model is refused");
+        // The single-build form keeps its exact meaning for development paths.
+        Check(Refused(() => ColonySaveEnvelope.Parse(Saved(first), first + 1, 3, catalog), "game build 744825"), "exact-build parsing is unchanged");
+    }
+
+    // Real envelopes from private colony saves (skipped where absent): the
+    // prepared base-game save and a bfb1168 Spaced Out! manual save.
+    private static int RealEnvelopes()
+    {
+        var root = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../.."));
+        var saves = (Environment.GetEnvironmentVariable("MA_TEST_MIXTURE_SAVES") ?? "").Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries).ToList();
+        if (saves.Count == 0)
+            saves.AddRange(new[] { Path.Combine(root, "local/saves/base-defaults-p5-v1.sav"),
+                Path.Combine(root, "../../archive/oni-agents/claude-team/spacedout-ordinary-bfb1168/artifacts/spacedout-ordinary-classic-manual-save-cold/input-colony.sav") });
+        var checkedSaves = 0;
+        foreach (var path in saves.Where(File.Exists))
+        {
+            var sim = ColonySaveReadback.SimSection(File.ReadAllBytes(path));
+            Check(sim != null && ColonySaveEnvelope.HasMagic(sim), "real save holds a Mixed Atmospheres envelope: " + path);
+            var build = BitConverter.ToInt32(sim!, 12); var model = BitConverter.ToInt32(sim!, 16);
+            var catalog = sim!.AsSpan(28, 32).ToArray();
+            Check(build == ColonySaveEnvelope.FirstSupportedBuild, "existing saves record build 744825");
+            Check(ColonySaveEnvelope.Parse(sim, build, model, catalog).EncodedLength == sim!.Length, "the real envelope parses unchanged");
+            var later = ColonySaveEnvelope.Parse(sim, ColonySaveEnvelope.FirstSupportedBuild, build + 1, model, catalog);
+            Check(later.OniBuild == build && later.CopyEncodedData().AsSpan().SequenceEqual(sim!), "a later verified build accepts the real envelope byte for byte");
+            var other = (byte[])catalog.Clone(); other[0] ^= 1;
+            Check(Refused(() => ColonySaveEnvelope.Parse(sim, ColonySaveEnvelope.FirstSupportedBuild, build + 1, model, other), "save migration"), "a changed catalogue refuses the real envelope");
+            Check(Refused(() => ColonySaveEnvelope.Parse(sim, ColonySaveEnvelope.FirstSupportedBuild, build - 1, model, catalog), "newer game build"), "an older running build refuses it");
+            ++checkedSaves;
+        }
+        return checkedSaves;
+    }
+
     private static int Main()
     {
-        Platforms(); Packs(); Duplicates();
+        Platforms(); Packs(); Duplicates(); SyntheticEnvelopes();
+        var real = RealEnvelopes();
+        Console.WriteLine(real == 0 ? "Real mixture saves: none available, skipped." : $"Real mixture saves: {real} envelopes accepted across builds.");
         Console.WriteLine($"Distribution refusal controls passed ({checks} checks).");
         return 0;
     }

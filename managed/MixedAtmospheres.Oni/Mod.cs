@@ -44,11 +44,29 @@ namespace MixedAtmospheres.Oni
                     running.Substring(separator + 1), running.Substring(0, separator), path, platform));
                 return;
             }
+            DirectoryPath = path; StaticId = mod?.staticID ?? "";
+            // The game build: every managed dependency, then the native
+            // SimDLL. A refused build patches nothing except, when its own
+            // targets verify, a guard that explains why mixture saves wait.
+            var build = GameBuildCheck.RunningBuild;
+            List<string>? differences;
+            try { differences = GameBuildCheck.VerifyManaged(path) ?? NativeBuildRefusal(path); }
+            catch (Exception error) { differences = new List<string> { "the game could not be checked (" + error.Message + ")" }; }
+            if (differences != null)
+            {
+                UnityEngine.Debug.LogWarning("[Mixed Atmospheres] Game build " + build + " is not supported; nothing is patched. Differences:\n  " + string.Join("\n  ", differences));
+                MenuNotices.Post("Mixed Atmospheres is not active", ModAdmission.BuildRefusal(build, differences));
+                var contract = GameBuildCheck.Contract;
+                if (contract == null && File.Exists(Path.Combine(path, GameContractFile.FileName)))
+                    try { GameContractFile.Parse(File.ReadAllText(Path.Combine(path, GameContractFile.FileName))).Platforms.TryGetValue(GameBuildCheck.Platform, out contract); }
+                    catch (Exception) { contract = null; }
+                RefusedBuildLoadGuard.TryInstall(harmony, contract, build);
+                return;
+            }
             try
             {
-                DirectoryPath = path; StaticId = mod?.staticID ?? "";
                 Development = File.Exists(Path.Combine(path, "development.json")) || File.Exists(Path.Combine(path, "colony-validation.json"));
-                var verifiedAssemblyHash = IntegrationProbe.VerifyContract();
+                var verifiedAssemblyHash = IntegrationProbe.VerifyContract(GameBuildCheck.Contract != null);
                 NativeLibraryBootstrap.Load(path);
                 NativeBackendObservation.Initialize(path);
                 ColonyWindowsLifecycle.Install();
@@ -66,6 +84,7 @@ namespace MixedAtmospheres.Oni
                 UnityEngine.Debug.Log("[Mixed Atmospheres] Native enum tag helpers and nitrogen aliases passed.");
                 MixtureWorldRendering.Install(harmony);
                 OwnedReservoirOwnerMarker.Install(harmony);
+                GameBuildCheck.RequireVerifiedPatches(harmony);
                 var report = IntegrationProbe.Run(verifiedAssemblyHash);
                 var destination = Development ? ReportPath : "Player.log only (ordinary play writes nothing into the mod folder)";
                 if (Development) File.WriteAllText(destination, report.ToJson());
@@ -81,8 +100,22 @@ namespace MixedAtmospheres.Oni
             {
                 var teardown = TearDownFailedLoad(harmony, error);
                 UnityEngine.Debug.LogError("[Mixed Atmospheres] Integration probe failed: " + error + "\n" + teardown);
+                MenuNotices.Post("Mixed Atmospheres is not active", ModAdmission.StartFailure(error.Message));
                 throw;
             }
+        }
+
+        // The native library checks the game's SimDLL against its verified
+        // profiles; an unsupported image refuses the build like a managed
+        // difference. Probing loads only this mod's own library and changes nothing.
+        private static List<string>? NativeBuildRefusal(string modDirectory)
+        {
+            if (!NativeLibraryBootstrap.ObserverAvailable(modDirectory)) return null;
+            var managed = Path.GetDirectoryName(typeof(Sim).Assembly.Location) ?? throw new InvalidOperationException("Cannot locate the loaded game assembly.");
+            var game = Directory.GetParent(managed)?.Parent?.FullName ?? throw new InvalidOperationException("Cannot locate the loaded game's root.");
+            NativeLibraryBootstrap.LoadObserver(modDirectory);
+            var refusal = OniNativeObserver.ProbeGame(game);
+            return refusal == null ? null : new List<string> { "the game's native simulator (SimDLL): " + refusal };
         }
 
         // One copy per process. ONI loads every enabled copy: a Dev copy left

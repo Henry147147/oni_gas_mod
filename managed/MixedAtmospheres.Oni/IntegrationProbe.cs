@@ -15,6 +15,8 @@ namespace MixedAtmospheres.Oni
     {
         [DataMember] public string PackageKind = "integration-probe";
         [DataMember] public string InspectedOniBuild = "744825";
+        [DataMember] public int RunningOniBuild = GameBuildCheck.RunningBuild;
+        [DataMember] public int GameContractEntries = GameBuildCheck.CheckedEntries;
         [DataMember] public string AssemblySha256 = "";
         [DataMember] public string UnityVersion = "";
         [DataMember] public string Platform = "";
@@ -54,24 +56,29 @@ namespace MixedAtmospheres.Oni
 
         // The loaded assembly cannot change within a process, so the 14 MB hash
         // and layout gate run once; later diagnostics reuse the verified value.
-        internal static string VerifyContract()
+        // With a verified game contract (GameBuildCheck) the member-level
+        // checks replace the exact assembly hash; without one (older
+        // development packages) only the inspected 744825 assemblies pass.
+        internal static string VerifyContract(bool gameContractVerified)
         {
             var cached = verifiedAssemblySha256;
             if (cached != null) return cached;
             if (IntPtr.Size != 8) throw new PlatformNotSupportedException("The integration probe requires a 64-bit game.");
             string assemblyHash;
-            using (var hash = SHA256.Create())
-            using (var source = File.OpenRead(typeof(Sim).Assembly.Location))
-                assemblyHash = BitConverter.ToString(hash.ComputeHash(source)).Replace("-", "").ToLowerInvariant();
+            if (gameContractVerified) assemblyHash = "game-contract";
+            else
+                using (var hash = SHA256.Create())
+                using (var source = File.OpenRead(typeof(Sim).Assembly.Location))
+                    assemblyHash = BitConverter.ToString(hash.ComputeHash(source)).Replace("-", "").ToLowerInvariant();
             // Inspected build 744825 has distinct PE hashes on Windows/Linux,
             // but identical Sim/SimMessages declarations and audited imports.
-            var inspectedAssembly = assemblyHash == "a58e04d0ffdf89b86fb28b71ad900625b3b539db30d67f8c6269f73a9f5ae599" ||
+            var inspectedAssembly = gameContractVerified || assemblyHash == "a58e04d0ffdf89b86fb28b71ad900625b3b539db30d67f8c6269f73a9f5ae599" ||
                 assemblyHash == "6db652990ad1038e86b3493ed43004e12bfd61e62a4be60c787a9a9b9ac52ee1";
             if (!inspectedAssembly ||
                 Marshal.SizeOf<Sim.Cell>() != 16 || Marshal.SizeOf<Sim.NewGameFrame>() != 28 ||
                 Marshal.SizeOf<Sim.GameDataUpdate>() != 496 ||
                 typeof(Sim.GameDataUpdate).GetFields(BindingFlags.Public | BindingFlags.Instance).Length != 77)
-                throw new NotSupportedException("This private probe requires the inspected ONI 744825 assembly and layouts. No patches were installed.");
+                throw new NotSupportedException(gameContractVerified ? "The game's simulator layouts differ from the inspected ones. No patches were installed." : "This package has no game contract and requires the inspected ONI 744825 assembly and layouts. No patches were installed.");
             verifiedAssemblySha256 = assemblyHash;
             return assemblyHash;
         }

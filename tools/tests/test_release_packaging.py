@@ -46,6 +46,24 @@ def managed_image(stamp=0, guid=b"\x11" * 16, debug=b"RSDS" + b"\x22" * 28, il=b
     return bytes(data)
 
 
+def fake_contract(managed, games, output):
+    """Stands in for tools/GameContract, which needs the real mod and game."""
+    output.write_text(json.dumps({"SchemaVersion": 1, "ModuleVersionId": "fixture", "Platforms": {p: {} for p in games}}))
+
+
+def setUpModule():
+    global CONTRACT_PATCHES
+    CONTRACT_PATCHES = [mock.patch.object(RELEASE.game_contract, "generate", side_effect=fake_contract),
+                        mock.patch.object(RELEASE.game_contract, "game_root", side_effect=lambda platform, explicit=None: Path("/game/" + platform))]
+    for patch in CONTRACT_PATCHES:
+        patch.start()
+
+
+def tearDownModule():
+    for patch in CONTRACT_PATCHES:
+        patch.stop()
+
+
 class ManagedEquivalenceTests(unittest.TestCase):
     def test_only_build_identity_is_ignored(self):
         base = RELEASE.normalized_managed_image(managed_image())
@@ -102,7 +120,7 @@ class ReleaseAssemblyTests(unittest.TestCase):
     def arguments(self, root, output, builds, info, managed, preview=None):
         return mock.Mock(output=output, linux_native=builds["linux-x64"], windows_native=builds["win-x64"],
                          linux_build_info=info, managed_linux=managed["linux"], managed_windows=managed["windows"],
-                         preview=preview, allow_dirty=False)
+                         preview=preview, allow_dirty=False, windows_game=None, linux_game=None)
 
     def build(self, root, name="release", **changes):
         builds, info, managed = self.fixture(root / ("inputs-" + name), **changes)
@@ -115,7 +133,7 @@ class ReleaseAssemblyTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             output, manifest = self.build(Path(folder))
             files = set(manifest["files"])
-            for required in ("MixedAtmospheres.Oni.dll", "MixedAtmospheres.Core.dll", "mod.yaml", "mod_info.yaml", "README.txt",
+            for required in ("MixedAtmospheres.Oni.dll", "MixedAtmospheres.Core.dll", "mod.yaml", "mod_info.yaml", "README.txt", "game-contract.json",
                              "native/linux-x64/libmixed_atmospheres.so", "native/linux-x64/libmixed_atmospheres_oni.so",
                              "native/win-x64/mixed_atmospheres.dll", "native/win-x64/mixed_atmospheres_oni.dll",
                              "third-party/licenses/funchook/LICENSE", "third-party/licenses/distorm/COPYING",

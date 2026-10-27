@@ -17,7 +17,7 @@ namespace MixedAtmospheres.Oni
         {
             var report = new RuntimeCoverageReport
             {
-                AssemblySha256 = IntegrationProbe.VerifyContract(),
+                AssemblySha256 = IntegrationProbe.VerifyContract(GameBuildCheck.Contract != null),
                 Platform = Application.platform.ToString(),
                 LoadedDlcIds = DlcManager.GetActiveDLCIds().OrderBy(id => id, StringComparer.Ordinal).ToArray(),
                 PrefabRegistryInitialized = Assets.Prefabs != null && Assets.Prefabs.Count > 0

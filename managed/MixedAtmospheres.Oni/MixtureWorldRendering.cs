@@ -2,6 +2,7 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Linq;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Threading;
@@ -45,6 +46,20 @@ namespace MixedAtmospheres.Oni
         internal static long ValidationProbeEpoch => Volatile.Read(ref validationProbes)?.Epoch ?? 0;
 
         static MixtureWorldRendering() { MixturePresentationRuntime.SessionEnding += ResetSessionRendering; }
+
+        // The originals Install patches, for the game contract
+        // (docs/game-update-resilience.md); keep in step with Install.
+        internal static IEnumerable<MethodBase> ContractTargets() => new MethodBase?[]
+        {
+            AccessTools.Method(typeof(PropertyTextures), "LateUpdate"), AccessTools.Method(typeof(PropertyTextures), "OnReset"),
+            AccessTools.Method(typeof(PropertyTextures), "OnShadersReloaded"), AccessTools.Method(typeof(PropertyTextures), nameof(PropertyTextures.DestroyInstance)),
+            AccessTools.Method(typeof(PropertyTextures), "UpdateGasColour", new[] { typeof(TextureRegion), typeof(int), typeof(int), typeof(int), typeof(int) }),
+            AccessTools.Method(typeof(PropertyTextures), "UpdatePressure", new[] { typeof(TextureRegion), typeof(int), typeof(int), typeof(int), typeof(int) }),
+            AccessTools.Method(typeof(PropertyTextures), "UpdateDanger", new[] { typeof(TextureRegion), typeof(int), typeof(int), typeof(int), typeof(int) }),
+            AccessTools.Method(typeof(SimDebugView), nameof(SimDebugView.UpdateData), new[] { typeof(Texture2D), typeof(byte[]), typeof(HashedString), typeof(byte) }),
+            AccessTools.Method(typeof(SimDebugView), "GetOxygenMapColour", new[] { typeof(SimDebugView), typeof(int) }),
+            AccessTools.Method(typeof(SimDebugView), "GetPressureMapColour", new[] { typeof(SimDebugView), typeof(int) }),
+        }.Select(method => method ?? throw new NotSupportedException("A mixture render hook target is missing."));
 
         internal static void Install(Harmony harmony)
         {

@@ -17,6 +17,31 @@ namespace MixedAtmospheres.Oni
             FileBytes=file.Length;BodyBytes=body.Length;
             FileSha256=file.HashSlice(0,file.Length);BodySha256=body.HashSlice(0,body.Length);
         }
+        // The native (sim) section of a complete save file, or null when the
+        // bytes are not a save this inspector reads. Reads bytes only; shared
+        // by the load checks and tools/DistributionTests.
+        internal static byte[]? SimSection(byte[] file)
+        {
+            try
+            {
+                var source = SavedImage.CopyFrom(file);
+                var count = BinaryPrimitives.ReadInt32LittleEndian(source.CopySlice(4, 4));
+                var header = OwnedReservoirLoadHeaderV1.InspectLayoutHeader(source.CopySlice(0, 16 + count), allowUncompressed: true);
+                var directory = SavedDirectoryInspector.InspectPrefix(source, 16 + count, new SavedInspectionLimits());
+                var start = directory.Range.End;
+                var body = header.Compression == 1 ?
+                    SavedZlibInflationInspector.Inspect(source, new SavedByteRange(start, source.Length - start), new SavedInflationLimits()).BodyImage :
+                    SavedImage.CopyFrom(source.CopySlice(start, source.Length - start));
+                var range = SavedBodyPrefixInspector.Inspect(body, directory, new SavedPrefixLimits()).SimPayload;
+                var sim = body.CopySlice(range.Offset, range.Length);
+                // The envelope may keep ONI's int32 length prefix.
+                return sim.Length >= 4 && !Envelope(sim) && Envelope(sim.AsSpan(4)) ? sim.AsSpan(4).ToArray() : sim;
+            }
+            catch (Exception) { return null; }
+        }
+
+        private static bool Envelope(ReadOnlySpan<byte> data) => data.Length >= 8 && data.Slice(0, 8).SequenceEqual("MACOLONY"u8);
+
         internal static ColonySaveReadback Verify(byte[] written, int expectedBodyBytes, string expectedBodySha256,
             ReadOnlySpan<byte> expectedSim, Guid expectedColony,ReadOnlySpan<byte> expectedHeaderJson)
         {

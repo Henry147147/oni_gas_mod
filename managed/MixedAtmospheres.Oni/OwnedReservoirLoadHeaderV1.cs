@@ -186,8 +186,10 @@ namespace MixedAtmospheres.Oni
             uint build = BinaryPrimitives.ReadUInt32LittleEndian(bytes);
             uint version = BinaryPrimitives.ReadUInt32LittleEndian(bytes.AsSpan(8));
             int compression = BinaryPrimitives.ReadInt32LittleEndian(bytes.AsSpan(12));
-            if (build != 744825 || version != 1 || (compression != 1 && !(allowUncompressed && compression == 0)))
-                throw new NotSupportedException("Unsupported pinned build/v1 body layout or compression.");
+            // Any build from the first supported one: the v1 layout and the
+            // 7.38 object-save version below are what the inspector depends on.
+            if (build < 744825 || version != 1 || (compression != 1 && !(allowUncompressed && compression == 0)))
+                throw new NotSupportedException("Unsupported build/v1 body layout or compression.");
             try
             {
                 // A bounded second use of the original strict parser reads

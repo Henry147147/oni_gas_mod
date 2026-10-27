@@ -75,6 +75,26 @@ namespace MixedAtmospheres.Oni
             (ids.Count == 1 ? " is" : " are") + " active. Turn " + (ids.Count == 1 ? "that pack" : "those packs") +
             " off in the main menu's content settings, then load the colony again. The save has not been changed.";
 
+        // A game build whose verification failed (docs/game-update-resilience.md).
+        internal static string BuildRefusal(int build, IReadOnlyList<string> differences)
+        {
+            var shown = differences.Take(3).Select(d => "  - " + d).ToArray();
+            return "This version of Mixed Atmospheres does not support this version of Oxygen Not Included" + (build > 0 ? " (build " + build + ")" : "") +
+                ". It checks every part of the game it depends on, and " + (differences.Count == 1 ? "one has" : differences.Count + " have") + " changed:\n" +
+                string.Join("\n", shown) + (differences.Count > shown.Length ? "\n  - and " + (differences.Count - shown.Length) + " more (listed in Player.log)" : "") +
+                "\n\nThe mod has not changed the game. Colonies started with Mixed Atmospheres are untouched and can be loaded again once a Mixed Atmospheres " +
+                "update for this game version is installed.";
+        }
+
+        // A mixture save while the build is refused.
+        internal static string RefusedBuildLoad(string build) =>
+            "This colony uses Mixed Atmospheres, which is not active in this version of Oxygen Not Included" + (build.Length != 0 && build != "0" ? " (build " + build + ")" : "") +
+            ", so it was not loaded. The save has not been changed. Install a Mixed Atmospheres update for this game version, then load the colony again.";
+
+        // Any other failure while starting: the mod removed its changes.
+        internal static string StartFailure(string reason) =>
+            "Mixed Atmospheres could not start and has removed all of its changes, so the game runs as normal: " + reason;
+
         // A second copy in the same process. Keep the Steam Workshop copy when
         // there is one; otherwise keep the copy that loaded first.
         internal static string DuplicateNotice(string runningPath, string runningPlatform, string otherPath, string otherPlatform)

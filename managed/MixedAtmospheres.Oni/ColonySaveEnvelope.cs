@@ -14,6 +14,8 @@ namespace MixedAtmospheres.Oni
         private static readonly byte[] Magic = { (byte)'M', (byte)'A', (byte)'C', (byte)'O', (byte)'L', (byte)'O', (byte)'N', (byte)'Y' };
         private static readonly byte[] NativeMagic = { (byte)'S', (byte)'I', (byte)'M', (byte)'S', (byte)'A', (byte)'V', (byte)'E', 0 };
         internal const int FormatVersion = 1;
+        // The first game build Mixed Atmospheres saves exist for.
+        internal const int FirstSupportedBuild = 744825;
         internal const int CatalogHashBytes = 32;
         internal const int MaximumPayloadBytes = 640 * 1024 * 1024;
         private const int HeaderBytes = 76;
@@ -65,17 +67,31 @@ namespace MixedAtmospheres.Oni
         // All metadata, lengths, native framing and checksum pass before a
         // caller can receive either subpayload or publish custom state.
         internal static ColonySaveEnvelope Parse(ReadOnlySpan<byte> data, int expectedOniBuild,
+            int expectedMaterialModelVersion, ReadOnlySpan<byte> expectedMaterialCatalogHash) =>
+            Parse(data, expectedOniBuild, expectedOniBuild, expectedMaterialModelVersion, expectedMaterialCatalogHash);
+
+        // A save written by any build from earliestBuild to the running
+        // (latest) build: the envelope's own format, material model and
+        // catalogue decide whether its contents can continue.
+        internal static ColonySaveEnvelope Parse(ReadOnlySpan<byte> data, int earliestBuild, int latestBuild,
             int expectedMaterialModelVersion, ReadOnlySpan<byte> expectedMaterialCatalogHash)
         {
-            ValidateIdentity(expectedOniBuild, expectedMaterialModelVersion, expectedMaterialCatalogHash);
+            ValidateIdentity(earliestBuild, expectedMaterialModelVersion, expectedMaterialCatalogHash);
+            ValidateIdentity(latestBuild, expectedMaterialModelVersion, expectedMaterialCatalogHash);
             if (data.Length < HeaderBytes + ChecksumBytes || data.Length > MaximumPayloadBytes || !HasMagic(data))
                 throw new InvalidDataException("Unrecognized or incomplete Mixed Atmospheres colony save.");
             if (BinaryPrimitives.ReadInt32LittleEndian(data.Slice(8)) != FormatVersion)
                 throw new NotSupportedException("Unsupported Mixed Atmospheres colony-save version.");
-            if (BinaryPrimitives.ReadInt32LittleEndian(data.Slice(12)) != expectedOniBuild ||
-                BinaryPrimitives.ReadInt32LittleEndian(data.Slice(16)) != expectedMaterialModelVersion ||
-                !data.Slice(28, CatalogHashBytes).SequenceEqual(expectedMaterialCatalogHash))
-                throw new NotSupportedException("Colony save requires a different ONI build or material model.");
+            var build = BinaryPrimitives.ReadInt32LittleEndian(data.Slice(12));
+            if (build > latestBuild)
+                throw new NotSupportedException($"This colony was saved by a newer game build ({build}) than this one ({latestBuild}).");
+            if (build < earliestBuild)
+                throw new NotSupportedException($"This colony was saved by game build {build}, which this Mixed Atmospheres version does not support.");
+            if (BinaryPrimitives.ReadInt32LittleEndian(data.Slice(16)) != expectedMaterialModelVersion)
+                throw new NotSupportedException("This colony was saved with a different Mixed Atmospheres material model.");
+            if (!data.Slice(28, CatalogHashBytes).SequenceEqual(expectedMaterialCatalogHash))
+                throw new NotSupportedException("This game's gases and liquids differ from the ones this colony was saved with, so its fluids cannot continue " +
+                    "without a save migration that this Mixed Atmospheres version does not have.");
             var nativeLength = BinaryPrimitives.ReadInt64LittleEndian(data.Slice(60));
             var customLength = BinaryPrimitives.ReadInt64LittleEndian(data.Slice(68));
             // Compare lengths using subtraction, before any conversion/allocation

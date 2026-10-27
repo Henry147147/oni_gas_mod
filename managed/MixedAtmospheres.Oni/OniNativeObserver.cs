@@ -91,6 +91,21 @@ namespace MixedAtmospheres.Oni
                 Check(Attach(ref config, ref status));
             });
         }
+        // Null when the native library accepts the game's SimDLL; otherwise
+        // its reason. Hashes files only: nothing is attached or changed.
+        internal static string? ProbeGame(string directory)
+        {
+            if (NativeVersion() != 4) return "the mod's native library is from a different build of the mod";
+            var path = Marshal.StringToCoTaskMemUTF8(directory);
+            try
+            {
+                var config = new Config { Size = 24, Version = 4, Flags = 1, GameDirectory = path };
+                var status = Status.Empty;
+                var result = Probe(ref config, ref status);
+                return result == 0 ? null : result == 2 ? Marshal.PtrToStringAnsi(LastError()) : throw new InvalidOperationException("Native observer " + result + ": " + Marshal.PtrToStringAnsi(LastError()));
+            }
+            finally { Marshal.FreeCoTaskMem(path); }
+        }
         private delegate void ConfigAction(ref Config config);
         private void WithConfig(ConfigAction action)
         {

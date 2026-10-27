@@ -6,5 +6,14 @@
   <ItemGroup>
     <!-- Engine-free refusal decisions (docs/game-update-resilience.md#refusals). -->
     <Compile Include="../../managed/MixedAtmospheres.Oni/ModAdmission.cs" Link="ModAdmission.cs" />
+    <!-- Mixture saves across game builds (docs/game-update-resilience.md#saves-across-builds). -->
+    <Compile Include="../../managed/MixedAtmospheres.Oni/ColonySaveEnvelope.cs" Link="ColonySaveEnvelope.cs" />
+    <Compile Include="../../managed/MixedAtmospheres.Oni/ColonySaveReadback.cs" Link="ColonySaveReadback.cs" />
+    <Compile Include="../../managed/MixedAtmospheres.Oni/OwnedReservoirLoadHeaderV1.cs" Link="OwnedReservoirLoadHeaderV1.cs" />
+    <Compile Include="../../managed/MixedAtmospheres.Oni/OwnedReservoirSavedTemplates.cs" Link="OwnedReservoirSavedTemplates.cs" />
+    <Compile Include="../../managed/MixedAtmospheres.Oni/OwnedReservoirSavedInflation.cs" Link="OwnedReservoirSavedInflation.cs" />
+    <Compile Include="../../managed/MixedAtmospheres.Oni/OwnedReservoirSavedDeflateStructure.cs" Link="OwnedReservoirSavedDeflateStructure.cs" />
+    <Compile Include="../../managed/MixedAtmospheres.Oni/OwnedReservoirBodyPrefixInspection.cs" Link="OwnedReservoirBodyPrefixInspection.cs" />
+    <Compile Include="../../managed/MixedAtmospheres.Oni/OwnedReservoirKsavInspection.cs" Link="OwnedReservoirKsavInspection.cs" />
   </ItemGroup>
 </Project>

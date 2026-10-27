@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Reflection;
 using System.Text;
 using System.Threading;
@@ -75,6 +76,14 @@ namespace MixedAtmospheres.Oni
 
         private static int installationThread;
         internal static bool Installed { get; private set; }
+        // The original Install patches, for the game contract
+        // (docs/game-update-resilience.md); keep in step with Install.
+        internal static IEnumerable<MethodBase> ContractTargets() => new MethodBase[]
+        {
+            AccessTools.Method(typeof(GasReservoirConfig), nameof(GasReservoirConfig.DoPostConfigureComplete), new[] { typeof(GameObject) })
+                ?? throw new NotSupportedException("The pinned completed GasReservoir prefab hook is unavailable.")
+        };
+
         internal static void Install(Harmony harmony)
         {
             if (harmony == null) throw new ArgumentNullException(nameof(harmony));

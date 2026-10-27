@@ -22,6 +22,7 @@ import tarfile
 import zipfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import game_contract  # noqa: E402
 import mod_identity  # noqa: E402
 import package_probe  # noqa: E402
 
@@ -241,6 +242,10 @@ def assemble(args: argparse.Namespace) -> dict:
     try:
         for name in MANAGED:
             shutil.copyfile(args.managed_linux.resolve() / name, output / name)
+        # The shipped DLLs' managed game contract for both platforms' games.
+        game_contract.generate(args.managed_linux.resolve(), {
+            "windows-x64": game_contract.game_root("windows-x64", args.windows_game),
+            "linux-x64": game_contract.game_root("linux-x64", args.linux_game)}, output / game_contract.FILE_NAME)
         shutil.copytree(ROOT / "elements", output / "elements")
         for rid, files in natives.items():
             (output / "native" / rid).mkdir(parents=True)
@@ -312,6 +317,8 @@ def main() -> None:
     parser.add_argument("--linux-native", type=Path, required=True, help="Linux compatibility build's native directory (both .so files)")
     parser.add_argument("--linux-build-info", type=Path, required=True, help="Its compatibility-build.json (glibc ceiling)")
     parser.add_argument("--windows-native", type=Path, required=True, help="Windows cross-build directory (both DLLs)")
+    parser.add_argument("--windows-game", type=Path, help="Windows ONI installation for the game contract (default: the team's copy)")
+    parser.add_argument("--linux-game", type=Path, help="Linux ONI installation for the game contract (default: the team's copy)")
     parser.add_argument("--preview", type=Path, help="Optional preview.png for the Mods list and Workshop page")
     parser.add_argument("--output", type=Path, required=True, help="New Workshop-shaped folder")
     parser.add_argument("--zip", type=Path, help="Fresh deterministic ZIP of the folder")
