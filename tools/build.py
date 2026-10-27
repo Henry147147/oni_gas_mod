@@ -65,13 +65,13 @@ def main() -> None:
         # The managed game contract for this build: unchanged verifies, synthetic changes are refused
         # (docs/game-update-resilience.md).
         game = Path(args.game_dir).resolve()
-        platform = "windows-x64" if (game / "OxygenNotIncluded_Data/Plugins/x86_64/SimDLL.dll").is_file() else "linux-x64"
+        game_platform = "windows-x64" if (game / "OxygenNotIncluded_Data/Plugins/x86_64/SimDLL.dll").is_file() else "linux-x64"
         managed = ROOT / "managed/MixedAtmospheres.Oni/bin/Release/netstandard2.1"
         contract = directory / "game-contract.json"
         run(["dotnet", "run", "--project", "tools/GameContract", "-c", "Release", "--", "generate", "--mod", str(managed),
-             "--game", f"{platform}={game}", "--output", str(contract)])
+             "--game", f"{game_platform}={game}", "--output", str(contract)])
         run(["dotnet", "run", "--project", "tools/GameContract", "-c", "Release", "--", "controls", "--mod", str(managed),
-             "--game", f"{platform}={game}", "--contract", str(contract)])
+             "--game", f"{game_platform}={game}", "--contract", str(contract)])
         run(["dotnet", "run", "--project", "tools/ColonyConduitHookTests", "-c", "Release",
              "-p:OniGameDir=" + str(Path(args.game_dir).resolve()), "--", str(Path(args.game_dir).resolve())])
         run(["dotnet", "run", "--project", "tools/OwnedSnapshotTests", "-c", "Release",

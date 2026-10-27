@@ -239,6 +239,11 @@ Design of 2026-10-27 for the first release (base game and Spaced Out!).
    beside the reserve can pass 35%. No vanilla carbon dioxide sink works
    unattended. When either margin is under ten cycles, the start notice says so
    and names the remedies (open the cave, algae terrarium, carbon skimmer).
+   **User confirmation, 2026-10-27: Keep connected pocket.** The calculation
+   counts only connected gas, even when the small printing-pod pocket makes
+   every ordinary start need a reserve (Terra: about 1,740 kg on vanilla air,
+   1,795 kg on nitrogen air). The user accepted that nitrogen air beside the
+   reserve can briefly exceed Hard mode's 35% oxygen ceiling.
 4. **Hard mode** keeps the existing maximum-oxygen setting (35%). A new
    built-in preset, *Hard mode*, sets it with nitrogen air. The window warns
    that hard mode without nitrogen air fails everywhere, because vanilla air

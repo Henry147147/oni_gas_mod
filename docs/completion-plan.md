@@ -30,6 +30,11 @@ Amendments:
      pod on both nitrogen-air and vanilla-air starts and says what it added. A
      CO2-headroom shortfall is reported in the start notice only. Easy-mode
      breathing on vanilla air remains the default.
+     The user subsequently confirmed **Keep connected pocket**: count only gas
+     connected to the printing pod, even though ordinary starts then receive
+     about 1,740 kg of oxylite (about 1,795 kg with nitrogen air). Nitrogen-air
+     cells beside the reserve can briefly exceed Hard mode's 35% oxygen ceiling;
+     the reserve and the breathing bounds stay as specified.
 
 - **Spaced Out! playtest, 2026-10-27 (user decision):** the user's Windows
   install uses Spaced Out!, so its full support is now required for the next
