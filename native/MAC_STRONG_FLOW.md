@@ -2,7 +2,8 @@
 
 This is the accuracy gate for [`MacClosedWorld`](MAC_SOLVER.md) on strong ideal-gas
 shocks and rarefactions. It is **failed**. With the production defaults, collision
-density refinement fails only from N64 to N128 (0.856 against 0.85). Since the
+density refinement fails only from N64 to N128 (0.860 at `2a7377c` on Linux, 0.856
+at earlier revisions, against 0.85). Since the
 2026-10-19 user decision, separation is judged against a fine
 [resting-slab reference](#resting-slab-separation-reference) of the gate's own
 discrete start rather than the textbook Riemann core; against it the defaults fail
@@ -12,7 +13,10 @@ regularization (compression 4, heat 4) lowers every Sod and collision error and 
 both, with a phase-sensitive collision margin; separation is unchanged, so it fails
 the same velocity bound. The latest diagnosis localizes a convention mismatch between
 the pressure step and the momentum remap under curved deformation; its share of the
-separation error is not yet quantified. Gate 2 in
+separation error is not yet quantified. The separation velocity failure is
+[localized](#start-up-resolution-of-the-resting-slab) to the unresolved start-up of
+the one-cell resting slab: the same MAC passes the bound from a start the gate grid
+resolves, and at twice the gate resolution of the same slab. Gate 2 in
 [playtesting readiness](../docs/playtesting-readiness.md) requires this gate and the
 vacuum gate to pass with production defaults.
 
@@ -211,6 +215,7 @@ rejects when applied to it.
 | **2 / 4 / 3 / 2 (best opt-in)** | passes | Separation fails (below) |
 | 1 / 1 / 4 / 4 (monotone, Linux) | 0.840 / 0.802 / 0.674 | Sod and collision pass; separation unchanged from the defaults ([below](#monotone-regularization-modes-4)) |
 | 2 / 4 / 4 / 4 (Linux) | 0.842 / 0.800 / 0.676 | Sod and collision pass; separation as 2 / 4 / 3 / 2 |
+| 1 / 3 / 4 / 4 (Linux probe, `2a7377c`) | 0.837 / 0.801 / 0.676 | Collision passes; separation as momentum 3 alone (velocity **0.0666**, central density 0.107) |
 
 Between the first two rows, Linux runs also stopped on transfers below binary64
 range (a 9.12e-436 J kinetic parcel, an 8.59e-325 kg helium parcel, a 3.6e-585 kg m/s
@@ -442,6 +447,65 @@ Saved-profile analysis, without native reruns, located the collision errors:
   entropy from −965.92363 to −970.30012 J/(kg K), below the initial −970.22915;
   reconstruction and heat do not contribute there.
 
+### Start-up resolution of the resting slab
+
+Linux GNU Release at `2a7377c`, production defaults unless stated; the gate itself
+reproduces the recorded collision failure (N64/N128 density L1 0.0427788312 /
+0.0367981286, ratio 0.860, Sod passing) and the probe the separation errors
+against the R = 8 resting slab (0.01188 / 0.02196 / **0.07587**, central
+0.0493 / 0.742). `ma_mac_riemann_slab_diagnostic` (below) repeats those separation
+metrics exactly for its `fine 1` mode.
+
+**The error is made in the first steps.** Started at the gate's own time zero, the
+velocity L1 against the slab reference reaches 0.017 by step 14 and 0.035 by
+step 28, all within 0.05 of the centre, and then spreads outward with the fans.
+The same unchanged MAC, started instead from the R = 8 reference projected onto the
+gate grid (cell mass and internal energy, dual-cell momentum; the dropped subcell
+kinetic energy is at most 0.36% of the kinetic energy), ends with:
+
+| Start | Velocity L1 | Split <.05 / <.1 / <.18 / rest | Density / pressure L1 | Central density / pressure |
+| --- | ---: | --- | --- | --- |
+| Gate start, t = 0 | **0.0759** | 0.0290 / 0.0226 / 0.0213 / 0.0029 | 0.0119 / 0.0220 | 0.049 / 0.742 |
+| Reference at 0.025 T (4.5 steps) | 0.0576 | 0.0206 / 0.0110 / 0.0228 / 0.0032 | 0.0145 / 0.0196 | 0.088 / 0.183 |
+| Reference at 0.05 T (9 steps) | 0.0379 | 0.0073 / 0.0092 / 0.0184 / 0.0030 | 0.0134 / 0.0182 | 0.143 / 0.342 |
+| Reference at 0.05 T, momentum selector 3 | 0.0326 | 0.0053 / 0.0094 / 0.0152 / 0.0028 | 0.0130 / 0.0167 | 0.195 / 0.434 |
+| Reference at 0.3 T | 0.0229 | 0.0027 / 0.0070 / 0.0116 / 0.0016 | 0.0091 / 0.0118 | 0.018 / 0.026 |
+
+The same physical start (a resting slab of width 1/256; each fine dual keeps its
+at-rest mass fraction) on finer MAC grids, compared on the gate grid with the same
+reference, converges:
+
+| MAC grid | Velocity L1 | Split <.05 / <.1 / <.18 / rest | Density / pressure L1 | Central density / pressure |
+| --- | ---: | --- | --- | --- |
+| 256 (the gate) | **0.0759** | 0.0290 / 0.0226 / 0.0213 / 0.0029 | 0.0119 / 0.0220 | 0.049 / 0.742 |
+| 512 | 0.0471 | 0.0180 / 0.0126 / 0.0153 / 0.0012 | 0.0088 / 0.0114 | 0.187 / 0.292 |
+| 1024 | 0.0233 | 0.0087 / 0.0074 / 0.0069 / 0.0002 | 0.0047 / 0.0053 | 0.104 / 0.155 |
+
+So the MAC is consistent with the slab problem; at the gate grid the slab is one
+dual cell, and its first sound crossing (half a cell at c₀, about 10 steps of
+0.05 h/c₀) is not resolved.
+
+**Mechanism.** In the first step `p/ρ^γ` in cells 126–128 rises from 1.0e5 to
+1.19–1.20e5 for every selector tried (material 0/1, momentum 0/1/3, compression
+0/2, heat 0/2; the values agree to five digits). It reaches 1.63e5 by step 9 and
+stays near 1.69e5, whereas the reference core stays at 1.005e5. The resting centre
+dual has no net pressure force (its two half cells are symmetric) and no stored
+kinetic energy. The slab therefore spreads only through the dual remap: its mass
+enters the ±4c₀ neighbour duals with the donor velocity zero. With the first
+step's dual flux of 0.1 cell mass, the mixing heat is
+½·(0.8·0.1/0.9)·(4c₀)² ≈ 99.5 kJ per kg of cell mass on each side, about 40% of a
+cell's 250 kJ/kg internal energy. No pairwise correction applies, because the
+resting dual has neither mixing heat nor transported kinetic energy to fund
+faster departing material (the selector-3 finding [above](#separation)). In the
+exact slab solution the slab's own pressure converts its internal energy into
+expansion kinetic energy instead. The MAC core ends 69% higher in `p/ρ^γ` (946
+against 557 Pa at the right density) and expands with about 23% less velocity
+gradient. Funding that subcell kinetic energy from internal energy (selector 4)
+overcools the core instead (central density 0.656 against 0.5). Correct slab
+start-up needs a momentum representation that carries the subcell expansion
+kinetic energy of a resting dual from its own pdV work; the lumped dual kinetic
+energy cannot.
+
 ### Curved-deformation pressure and remap convention
 
 The pressure step moves material face boundaries with the face velocity `J/I`. The
@@ -533,15 +597,31 @@ velocity and central criteria failing.
 
 ## Next step
 
-1. Define a conservative conversion of momentum and kinetic energy between the
-   pressure step's face-value velocity and the remapper's dual-volume-mean
-   representation, keeping the original physical source. Make the curved-nodal
-   diagnostic pass without loosening its momentum account.
-2. Then revisit expansion-fan transport: scalar reconstruction near the separating
-   core and the order and entropy of signed-work deposition.
-3. Rerun the complete native prerequisite suite, then this benchmark once with
-   unchanged criteria. Promote a selector to default only after the full gate (and
-   the vacuum gate) passes.
+Separation cannot pass at the gate grid by any tracked selector; its remaining
+error is the [slab start-up](#start-up-resolution-of-the-resting-slab). The
+choices are:
+
+1. *No decision needed, research scope.* Give the remap a momentum
+   representation that carries a resting dual's subcell expansion kinetic energy
+   from its own pdV work (a consistent rather than lumped dual kinetic energy),
+   with exact conservation and no local entropy decrease. This is a new method,
+   not a selector tweak. Then port it, and monotone compression/heat for
+   collision, to the production kernel. Promote a selector to default only after
+   the full gate, the vacuum gate and every other gate pass.
+2. *User decision.* The gate's inputs and the 2026-10-19 resting-slab decision are
+   fixed. Only the user can decide to judge separation from a start the gate grid
+   resolves, or otherwise reconsider that start. The measurements above are the
+   evidence for that choice; nothing here adopts it.
+
+Independently of separation, monotone modes 4 pass collision in the gate ([above](#monotone-regularization-modes-4))
+but have no production-kernel port. Making them defaults would send every
+production-kernel owner and gate (G1–V) to the audited reference interval until
+they are ported.
+
+Earlier items remain open: the curved-nodal conversion between the pressure
+step's face-value velocity and the remapper's dual-volume mean, and expansion-fan
+transport (scalar reconstruction near the separating core and signed-work
+deposition order).
 
 ## Reproduce
 
@@ -560,6 +640,9 @@ build/ma_mac_riemann_probe 1 256 comp=4 heat=4 chunks=182   # collision S(k) (SK
 build/ma_mac_riemann_probe 2 256 profile=1                  # separation profile
 build/ma_mac_riemann_probe 2 256 slab=8                      # separation against the reference
 build/ma_riemann_slab_reference 256 2 4 8 16 32               # reference convergence study
+cmake --build build --config Release --target ma_mac_riemann_slab_diagnostic
+build/ma_mac_riemann_slab_diagnostic 256 fine 2                # same slab on a 2x MAC grid (fine 1 = the gate start)
+build/ma_mac_riemann_slab_diagnostic 256 restart 0.05          # gate-grid MAC from the R = 8 reference at 0.05 T
 ```
 
 Visual Studio places executables under `build/Release/`. Without `--selectors` the
