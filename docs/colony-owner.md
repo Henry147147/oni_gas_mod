@@ -729,6 +729,41 @@ handoffs; the observer test executable also passes under ThreadSanitizer.
 Linux and Windows/Wine full native suites each pass 89 tests; managed codec,
 228 snapshot checks, both platform builds and Python436 (nine skips) pass.
 
+Mixture loading also scopes native load-transition checks to preserve the
+saved projection before its owner is active. ONI otherwise condenses six
+sampled Rock Gas projections into Magma and adds 1.5 K while loading, using
+its fixed transition temperature rather than the owner's pressure-based law.
+`ColonyNativeLoadGuard` brackets the verified native load in a `finally` scope.
+The native guard validates the saved rectangle, excludes its padded border,
+rejects nested/foreign tokens, and restores normal forwarding on scope exit.
+It grants no ownership and suppresses no ordinary positive-time update.
+
+The private cell observer (`MA_ONI_RUNTIME_CELLS`, comma-separated public cell
+IDs, with the runtime context trace) records raw old/updated element, mass and
+temperature fields before/after message processing. Both native vector layouts,
+signed-zero bits, short vectors and unchanged inputs have focused controls.
+The 180-cell Linux comparison shows no old/updated difference at the source
+save boundary. With the guard, all six gas cells retain their exact identity
+and temperature; five solid temperatures still change during startup's second
+zero-time message frame. Full world continuation therefore remains open.
+
+`release-load-guard-source` passes the seven-check drained-store control;
+`release-load-guard-load` passes cold/menu loading and guards 98,304 checks per
+load. This is a count of skipped checks, not 98,304 physical phase changes.
+WindowsPlayer/Proton passes the same path (`release-load-guard-windows-source`
+/ `windows-load`) and preserves all eight complete pipe prefixes. Ordinary
+Linux schema4 source/cold/menu checks also pass with experimental scheduling
+and clock controls off (`release-load-guard-default-source` / `default-load`).
+Ordinary Spaced Out! WindowsPlayer/Proton generation and cold/menu loading
+also pass with no owner overrides: nine worlds, both controls off, matching
+restored owner images, and 223,744 guarded checks per load
+(`release-load-guard-spacedout-source` / `spacedout-load`).
+Guard controls cover exact bounds, token lifetime, overflow geometry and
+40,000 parallel calls, including the ThreadSanitizer observer executable.
+Host Linux, Windows/Wine and Ubuntu 22.04 container builds each pass all
+89 native tests. The compatible libraries pass the same seven-check source
+control in host Unity; this does not establish Unity execution on Ubuntu 22.04.
+
 **Reserved 2026-10-27, immediately after fetching `f3d5390`:** owner wrapper
 `MACOLN01` version **13** and MACOLP03 section **4** (`MACCBR01`) are assigned
 to callback-owned requests in flight at a save ([below](#callback-owned-requests)).

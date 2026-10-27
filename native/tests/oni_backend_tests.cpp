@@ -11,6 +11,7 @@
 #include "../src/oni_conduit_heat.hpp"
 #include "../src/oni_runtime_trace.hpp"
 #include "../src/oni_runtime_clock.hpp"
+#include "../src/oni_load_guard.hpp"
 #include <array>
 #include <chrono>
 #include <cstring>
@@ -89,6 +90,36 @@ static void body_heat_trace_controls() {
     std::cout<<"PASS native body heat observation: actual registered area/capacity, stale/retired rejection, readonly source and preserved math/errno\n";
 #endif
 }
+static void native_load_guard_controls() {
+    ma::oni::load_guard::Scope scope;
+    MAOniLoadGuardConfig config{32,1,8,6,2,1,3,2};
+    require(!scope.suppress(23),"ordinary native loading was guarded");
+    const auto token=scope.begin(config);
+    for(int cell=0;cell<80;++cell) {
+        const auto x=cell%10,y=cell/10;const bool inside=x>=3&&x<=5&&y>=2&&y<=3;
+        require(scope.suppress(cell)==inside,"native load guard covered a border or missed its exact rectangle");
+    }
+    require(!scope.suppress(-1),"negative native load cell was guarded");
+    try{(void)scope.begin(config);throw std::runtime_error("nested native load guard accepted");}catch(const std::logic_error&){}
+    try{(void)scope.end(token+1);throw std::runtime_error("foreign native load token accepted");}catch(const std::logic_error&){}
+    require(scope.suppress(23)&&scope.end(token)==7&&!scope.suppress(23),"native load guard token mismatch changed scope or end did not restore forwarding");
+    for(const auto kind:{0,1,2,3}) {
+        auto invalid=config;if(kind==0)invalid.struct_size=0;if(kind==1)invalid.abi_version=2;
+        if(kind==2)invalid.width=7;if(kind==3)invalid.grid_width=invalid.grid_height=0xfffffffeU;
+        try{(void)scope.begin(invalid);throw std::runtime_error("invalid native load geometry accepted");}catch(const std::invalid_argument&){}
+        require(!scope.suppress(23),"invalid load guard left suppression active");
+    }
+    const auto second=scope.begin(config);require(second!=token,"native load scope reused a retired token");
+    std::vector<std::thread> workers;
+    for(unsigned i=0;i<4;++i)workers.emplace_back([&]{for(unsigned n=0;n<10000;++n)(void)scope.suppress(23);});
+    for(auto& worker:workers)worker.join();
+    require(scope.end(second)==40000&&!scope.suppress(23),"parallel native load phase accounting lost calls or remained active");
+    std::uint64_t output=123;
+    require(ma_oni_load_guard_version()==1&&ma_oni_load_guard_begin(&config,&output)==MA_ONI_BUSY&&output==123&&
+        ma_oni_load_guard_begin(nullptr,&output)==MA_ONI_INVALID_ARGUMENT&&ma_oni_load_guard_end(0,nullptr)==MA_ONI_INVALID_ARGUMENT,
+        "native load guard ABI admission or failure output changed");
+    std::cout<<"PASS native mixture-load guard: exact padded rectangle, scoped forwarding, foreign/nested/stale token refusal, invalid/overflow geometry and40000 parallel calls\n";
+}
 static void runtime_clock_controls() {
     using namespace ma::oni::runtime_clock;
     for(const auto windows:{false,true}) {
@@ -162,6 +193,29 @@ static void runtime_context_controls() {
             value.iterate==-1&&value.displacement==2&&value.tick==(windows?3:65535),"native runtime context layout differs");
     }
     require(sim==original&&ma::oni::runtime_trace::context(nullptr,false).cells==0,"native context observer changed source or null contract");
+    for(const auto windows:{false,true}) {
+        std::array<std::byte,168> owner{};std::array<std::array<std::byte,96>,2> arrays{};
+        std::array<std::array<std::uint16_t,12>,2> elements{};
+        std::array<std::array<std::uint32_t,12>,2> masses{},temperatures{};
+        const auto set=[](auto& target,std::size_t offset,const auto& value){std::memcpy(target.data()+offset,&value,sizeof(value));};
+        set(owner,0,std::int32_t{4});set(owner,4,std::int32_t{3});set(owner,8,std::int32_t{2});
+        const std::array<std::size_t,3> offsets=windows?std::array<std::size_t,3>{8,72,40}:std::array<std::size_t,3>{0,48,24};
+        for(unsigned b=0;b<2;++b) {
+            elements[b][5]=static_cast<std::uint16_t>(71+b);masses[b][5]=b?0x3f800000U:0x80000000U;temperatures[b][5]=0x43960000U+b;
+            set(owner,32+8*b,arrays[b].data());
+            set(arrays[b],offsets[0],elements[b].data());set(arrays[b],offsets[0]+8,elements[b].data()+12);
+            set(arrays[b],offsets[1],masses[b].data());set(arrays[b],offsets[1]+8,masses[b].data()+12);
+            set(arrays[b],offsets[2],temperatures[b].data());set(arrays[b],offsets[2]+8,temperatures[b].data()+12);
+        }
+        const auto kept_owner=owner;const auto kept_arrays=arrays;const auto kept_mass=masses;const auto kept_temperatures=temperatures;
+        const auto view=ma::oni::runtime_trace::cell(owner.data(),0,windows);
+        require(view.valid&&view.element[0]==71&&view.element[1]==72&&view.mass[0]==0x80000000U&&view.mass[1]==0x3f800000U&&
+            view.temperature[0]==0x43960000U&&view.temperature[1]==0x43960001U,"native paired cell trace changed raw fields or layout");
+        require(!ma::oni::runtime_trace::cell(owner.data(),2,windows).valid,"native paired cell trace accepted outside public cell");
+        require(owner==kept_owner&&arrays==kept_arrays&&masses==kept_mass&&temperatures==kept_temperatures,"native paired cell trace modified its input");
+        set(arrays[1],offsets[2]+8,temperatures[1].data()+5);
+        require(!ma::oni::runtime_trace::cell(owner.data(),0,windows).valid,"native paired cell trace read beyond a short vector");
+    }
 }
 static void chunk_heat_trace_controls() {
 #if defined(__linux__)
@@ -446,6 +500,7 @@ int main() {
         body_heat_trace_controls();
         runtime_context_controls();
         runtime_clock_controls();
+        native_load_guard_controls();
         chunk_heat_trace_controls();
         storage_heat_receipt_controls();
         storage_heat_native_controls();

@@ -1,8 +1,9 @@
 # Feature completion work
 
 **Current goal, 2026-10-27:** a Steam-ready first release covering the base
-game and Spaced Out! ([amendment](completion-plan.md#amendments)). The private
-`bfb1168` Spaced Out! candidate is with the user. Revision `d252486` removes
+game and Spaced Out! ([amendment](completion-plan.md#amendments)). A private
+Windows candidate is with the user ([current instructions](spaced-out-private-playtest.md));
+actual Windows feedback remains pending. Revision `d252486` removes
 nitrogen, makes CO₂ breathing limits optional (off by default) and moves
 technical controls and solver presets under Advanced. Release engineering now
 continues with exact storage and continuation. Performance and the
@@ -95,6 +96,12 @@ playtest deferrals remain recorded until their own controls pass.
   host Linux and WindowsPlayer/Proton source/cold/menu controls pass, including
   exact counter readback and unchanged eight-frame pipe prefixes. Full world
   continuation still fails with different breathing/solid-heat inputs.
+- **Saved projection loading:** a scoped native load guard prevents ONI from
+  applying its load-time phase law before the mixture owner restores. The
+  sampled Rock Gas cells now retain their exact saved identity and temperature;
+  Linux and WindowsPlayer/Proton cold/menu checks pass. Five solid temperatures
+  still change during zero-time startup messages; thermal and breather
+  scheduling continuation remain open.
 
 ## Remaining implementation and proofs
 

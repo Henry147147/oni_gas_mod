@@ -11,6 +11,7 @@
 #include "oni_conduit_heat.hpp"
 #include "oni_runtime_trace.hpp"
 #include "oni_runtime_clock.hpp"
+#include "oni_load_guard.hpp"
 #include "oni_conduit_contact.hpp"
 #include "oni_windows_lifecycle_trace.hpp"
 #include "oni_funchook_storage.hpp"
@@ -109,6 +110,7 @@ bool installed{}, recovery_required{};
 ma::oni::storage_heat::Monitor storage_heat;
 ma::oni::conduit_heat::Monitor conduit_heat;
 ma::oni::runtime_clock::Monitor runtime_clock;
+ma::oni::load_guard::Scope load_guard;
 // Both modules remain resident. Never free cached P/Invoke targets or native
 // trampolines while any simulator could retain their addresses.
 void* game_module{};
@@ -242,7 +244,7 @@ void on_process_frame(void* frame,void* data) {
     std::optional<ma::oni::chunk_heat_trace::Frame> chunk_observation;
     std::optional<ma::oni::runtime_trace::Frame> runtime_observation;
     const auto ordinal=counters[MA_ONI_PROCESS_FRAME].entries.load(std::memory_order_relaxed);
-    if(ma::oni::runtime_trace::Frame::enabled())runtime_observation.emplace(ordinal,data,seconds);
+    if(ma::oni::runtime_trace::Frame::enabled())runtime_observation.emplace(ordinal,data,seconds,ma::oni::colony::active());
     if(ma::oni::body_heat_trace::Frame::enabled())body_observation.emplace(ordinal,frame,data);
     if(ma::oni::chunk_heat_trace::Frame::enabled())chunk_observation.emplace(ordinal,frame,data);
     runtime_clock.process(data,seconds,[&]{conduit_heat.process(frame,[&]{storage_heat.process(frame,data,ordinal,[&]{original<void (*)(void*,void*)>(MA_ONI_PROCESS_FRAME)(frame,data);});});});
@@ -477,7 +479,7 @@ bool on_transition(void* data,void* events,int cell,const void* definition) {
 }
 void on_load_transition(void* data,int cell) {
     Call call(MA_ONI_LOAD_TRANSITION);
-    if (!owned_cell(MA_ONI_LOAD_TRANSITION,cell)) original<void (*)(void*,int)>(MA_ONI_LOAD_TRANSITION)(data,cell);
+    if (!load_guard.suppress(cell)&&!owned_cell(MA_ONI_LOAD_TRANSITION,cell)) original<void (*)(void*,int)>(MA_ONI_LOAD_TRANSITION)(data,cell);
 }
 bool on_sublimation(void* data,void* events,int cell,const void* definition) {
     Call call(MA_ONI_SUBLIMATION);
@@ -1590,6 +1592,17 @@ MAOniResult ma_oni_domain_stop(MAOniDomainStatus* output) {
     });
 }
 std::uint32_t ma_oni_domain_heat_abi_version() { return 1; }
+std::uint32_t ma_oni_load_guard_version() {return 1;}
+MAOniResult ma_oni_load_guard_begin(const MAOniLoadGuardConfig* input,std::uint64_t* token) {
+    return boundary([&]{
+        if(!input||!token)throw Failure(MA_ONI_INVALID_ARGUMENT,"Missing native load guard input/output");
+        if(!installed)throw Failure(MA_ONI_BUSY,"Native mixture-load guard requires the attached backend");
+        *token=load_guard.begin(*input);
+    });
+}
+MAOniResult ma_oni_load_guard_end(std::uint64_t token,std::uint64_t* suppressed) {
+    return boundary([&]{if(!suppressed)throw Failure(MA_ONI_INVALID_ARGUMENT,"Missing native load guard result");*suppressed=load_guard.end(token);});
+}
 std::uint32_t ma_oni_runtime_clock_version() {return ma::oni::runtime_clock::Monitor::supported()?1U:0U;}
 MAOniResult ma_oni_runtime_clock_start() {
     return boundary([&]{if(!installed||!ma::oni::runtime_clock::Monitor::supported())throw Failure(MA_ONI_BUSY,"Native runtime clocks require the attached backend");runtime_clock.start();});
