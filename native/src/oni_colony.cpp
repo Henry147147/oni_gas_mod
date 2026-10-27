@@ -224,6 +224,14 @@ std::uint64_t released_rebinds=0; // restored requests resolved without an actor
 // The most recent checkpoint's callback-owned requests in ordinal order,
 // with the session callbacks it replaced. Under lifecycle.
 std::vector<MAOniColonyCallbackRecord> checkpoint_callbacks_written;
+// Diagnostic journal handles belong to the active owner. Writes and close
+// both hold lifecycle, so a stopped owner releases its Windows file handle.
+std::FILE* input_journal_file=nullptr;
+std::uint64_t input_journal_session=0;
+void close_input_journal() noexcept {
+    if(input_journal_file)std::fclose(input_journal_file);
+    input_journal_file=nullptr;input_journal_session=0;
+}
 std::map<std::uint64_t,std::uint64_t> receipt_jobs; // sequence -> durable job token
 std::uint64_t accepted_job_token=0;
 bool moving_protocol_used=false; // persisted only after explicit admission
@@ -1175,6 +1183,7 @@ void stop() noexcept {
     ma::oni::windows_lifecycle_trace("colony process-resident workers parked");
     std::lock_guard lock(lifecycle);
     ma::oni::windows_lifecycle_trace("colony lifecycle locked");
+    close_input_journal();
     session.reset();prepared_retirement.reset();retiring_count=0;
     std::scoped_lock p(publication,inputs);latest.reset();sample_frames.clear();retained_sample_frames=0;
     capture_native_arena.store(false,std::memory_order_release);
@@ -2390,9 +2399,9 @@ void journal_inputs(const Session& s,std::uint64_t ticket,double seconds,std::ui
     const std::vector<GermEdit>& germs,const std::map<std::size_t,std::uint64_t>& jobs) noexcept {
     const auto* directory=journal_directory();
     if(!directory)return;
-    static std::FILE* file=nullptr; static std::uint64_t file_session=0;
+    auto*& file=input_journal_file; auto& file_session=input_journal_session;
     if(file_session!=s.status.session) {
-        if(file)std::fclose(file);
+        close_input_journal();
         const auto path=std::string(directory)+"/inputs-"+std::to_string(s.status.session)+".txt";
         file=std::fopen(path.c_str(),"wx"); file_session=s.status.session;
         if(file)std::fprintf(file,"session %llu restored_frames %llu\n",static_cast<unsigned long long>(s.status.session),

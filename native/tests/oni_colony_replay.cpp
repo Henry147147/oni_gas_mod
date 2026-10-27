@@ -268,7 +268,10 @@ int run(std::vector<std::string> argv) {
         }
         ma::oni::colony::stop();
         return 0;
-    } catch (const std::exception& error) { std::cerr << "REPLAY FAIL: " << error.what() << '\n'; return 1; }
+    } catch (const std::exception& error) {
+        ma::oni::colony::stop();
+        std::cerr << "REPLAY FAIL: " << error.what() << '\n'; return 1;
+    }
 }
 }
 
