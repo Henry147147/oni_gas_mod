@@ -1,11 +1,11 @@
 # Private Linux and Windows playtest completion
 
-Spaced Out! update, 2026-10-27: ordinary DLC activation and the cluster lifecycle
-adapters are implemented after targeted multi-world, rocket, teleporter and
-cargo controls. The replacement Windows package is undergoing ordinary New
-Game and source/cold/menu checks. Keep Spaced Out! enabled for that package;
-the older `dde2a09` ZIP remains base-only. Current evidence is in
-[DLC compatibility](dlc-compatibility.md). Full release acceptance remains open.
+Spaced Out! update, 2026-10-27: the private Windows candidate **`bfb1168`**
+supports ordinary new Spaced Out! colonies. Its normal Classic New Game,
+UI-created save, manual Save/Save and Quit, and fresh-process reload pass the
+recorded controls. Keep Spaced Out! enabled; the older `dde2a09` ZIP remains
+base-only. Use the [current installation guide and exact evidence](spaced-out-private-playtest.md).
+Full release acceptance remains open while the base-game regression queue runs.
 
 Candidate update, 2026-10-26: `dde2a09` was delivered early at the user's
 request; installer startup was repaired separately in `4e069af`. That
@@ -47,7 +47,7 @@ physics gates, frozen arenas, bounds or the user's decisions.
 | Ordinary player build and presentation | Windows managed/native builds and86/86 Wine CTests pass. Native fault containment prevents repeated game-loop exceptions and refuses unsafe saving. README captures show actual WindowsPlayer gameplay, mixture inspection and settings under official Proton; Windows OS remains unverified here. |
 | Ten-cycle acceptance and package | Pending the final immutable source/bundle after fixture corrections. The prepared colony must advance ten cycles without invincibility, keeping every duplicant alive, no owner fault and closed ledgers, with actual natural autosave files. |
 | Configuration and presets | Mods-row settings open; creating/saving/loading a user preset, resetting Default, new Precise + Strict colony creation and cold restoration pass in WindowsPlayer. Loaded colony values are read-only. Native Default bytes remain identical; see [settings](settings.md). |
-| WindowsPlayer acceptance | Selected gameplay groups, contact and biology controls, ordinary/cold non-default saves, same-process reload and both quit paths pass bounded runs. The final candidate still needs its default cycle, natural autosave/cold reload, inactive Spaced Out! control and final selected gameplay checks; see [Windows validation](windows-validation.md). |
+| WindowsPlayer acceptance | Selected gameplay groups, contact and biology controls, ordinary/cold non-default saves, same-process reload and both quit paths pass bounded runs. The final candidate still needs its default cycle, natural autosave/cold reload, ordinary active Spaced Out! checks and final selected gameplay checks; see [Windows validation](windows-validation.md). |
 
 Source through `f5a6dde` passes the full build:354 Python tests,86 native CTests
 and all managed suites. The Windows lifecycle change also preserves every

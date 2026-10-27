@@ -22,7 +22,7 @@ Settings live behind the Settings button in the Mods row or the status panel. Yo
 
 Watch [a colony in motion](docs/images/mixed-atmospheres-gameplay.mp4) and [its mixture overlay](docs/images/mixed-atmospheres-composition.mp4).
 
-To install on Windows, extract the private ZIP, close ONI, and run `powershell -NoProfile -ExecutionPolicy Bypass -File .\install_windows.ps1`. Launch ONI through Steam with Spaced Out! enabled. In Mods, enable Mixed Atmospheres and restart. Optionally open Settings, then start a NEW base-game or Spaced Out! colony. The detailed guide is in [docs/private-playtest-release.md](docs/private-playtest-release.md).
+To install on Windows, extract the private ZIP, close ONI, and run `powershell -NoProfile -ExecutionPolicy Bypass -File .\install_windows.ps1`. Launch ONI through Steam with Spaced Out! enabled. In Mods, enable Mixed Atmospheres and restart. Optionally open Settings, then start a NEW base-game or Spaced Out! colony. The current Spaced Out! build and installation guide are in [docs/spaced-out-private-playtest.md](docs/spaced-out-private-playtest.md).
 
 After playing, please send your Player.log from `%USERPROFILE%\AppData\LocalLow\Klei\Oxygen Not Included\Player.log`.
 

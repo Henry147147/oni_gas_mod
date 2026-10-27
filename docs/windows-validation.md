@@ -1,12 +1,16 @@
 # Windows validation
 
+Current private Windows candidate: **`bfb1168`**. Ordinary Spaced Out! New Game,
+manual saves and fresh-process loading are verified under Proton; the full
+release gate remains open. See [install instructions and exact provenance](spaced-out-private-playtest.md).
+
 Spaced Out! update, 2026-10-27: native `6c91161` passes all 86 Windows
 cross-build CTests under Wine. The `c942141` managed recovery controls pass
 actual flight/self-destruct and landed retirement/reuse, each followed by a
 fresh-process load. `0b93056` passes gas and liquid cargo loading/unloading.
 These retain their exact revision and native-binary provenance; they are not
 relabeled as current-package or Windows OS acceptance. Ordinary DLC activation
-is implemented and its separate package/UI/load controls are running.
+and its separate package/UI/load controls pass as recorded in the current guide.
 
 ## Private playtest build (2026-10-25)
 

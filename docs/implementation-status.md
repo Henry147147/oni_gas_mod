@@ -1,10 +1,14 @@
 # Implementation status
 
+Current private Windows candidate: **`bfb1168`**. Ordinary Spaced Out! New Game,
+manual saves and fresh-process loading are verified under Proton; the full
+release gate remains open. See [install instructions and exact provenance](spaced-out-private-playtest.md).
+
 Spaced Out! update, 2026-10-27: ordinary new colonies now use the cluster
 owner without a development opt-in. Targeted controls pass multi-asteroid
 ownership, rocket creation and mixed ports, actual flight, landed and airborne
 retirement, slot reuse, teleporters and gas/liquid cargo. Current-package
-ordinary New Game and save/load acceptance is running; Windows OS still needs
+ordinary New Game and save/load controls pass; Windows OS still needs
 the user's PC. See [DLC evidence](dlc-compatibility.md).
 
 ## Base-game playtest ([plan](playtest-plan.md))

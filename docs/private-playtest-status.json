@@ -11,6 +11,6 @@
     {"id": "ten-cycle-acceptance-and-package", "status": "open", "evidence": "docs/colony-owner.md"},
     {"id": "configuration-and-presets", "status": "open", "evidence": "docs/settings.md"},
     {"id": "windows-player-acceptance", "status": "open", "evidence": "docs/windows-validation.md"},
-    {"id": "spaced-out-cluster-playtest", "status": "open", "evidence": "docs/dlc-compatibility.md"}
+    {"id": "spaced-out-cluster-playtest", "status": "passed", "evidence": "docs/spaced-out-private-playtest.md"}
   ]
 }

@@ -1,13 +1,18 @@
 # DLC compatibility controls
 
+Current private Windows candidate: **`bfb1168`**. Ordinary Spaced Out! New Game,
+manual saves and fresh-process loading are verified under Proton; the full
+release gate remains open. See [install instructions and exact provenance](spaced-out-private-playtest.md).
+
 **Current priority, 2026-10-27:** the user's private Windows playtest requires
 fully working Spaced Out!, including multiple asteroids, rocket interiors,
-transport and cluster persistence. The existing ZIP is unsuitable for that
+transport and cluster persistence. The older `dde2a09` ZIP is unsuitable for that
 playtest. Multi-world ownership, mixed rocket ports, actual flight, landed and airborne
 retirement, teleporters and mixed gas/liquid cargo now pass targeted game
-controls. Ordinary Spaced Out! activation is implemented; its new immutable
-package and normal New Game/save/load checks are the current acceptance work.
-No player-ready claim is made before those checks pass.
+controls. Ordinary Spaced Out! activation and its immutable package
+New Game/save/load controls now pass as recorded in the current guide.
+The private Windows candidate is available for the user's DLC playtest; the
+broader release gate remains open.
 
 Initial implementation now captures a validated world-ID layout from the live
 cluster, separating asteroid and rocket rectangles, rejecting overlapping or
@@ -15,7 +20,7 @@ out-of-grid regions, and keeping unallocated cells outside world ownership.
 Base-game geometry description uses this same layout. Synthetic controls cover
 adjacent worlds, reserved holes, rocket removal, stable ordering and invalid
 identities/geometry. Earlier admission used an explicit
-development control, `MA_COLONY_SPACED_OUT_CONTROL=1`, admits the complete
+development control, `MA_COLONY_SPACED_OUT_CONTROL=1`, which admitted the complete
 fixed cluster grid to the existing solver, keeping unallocated cells closed
 and refusing any fluid that would be omitted outside registered worlds.
 The revision-by-revision development record below retains its original limits;
