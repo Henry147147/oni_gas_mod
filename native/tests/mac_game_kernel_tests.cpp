@@ -3,6 +3,7 @@
 #include "mac_game_surface_control.hpp"
 #include "../src/mac_game/account.hpp"
 #include "../src/mac_game/entropy.hpp"
+#include "../src/mac_game/heat_mix.hpp"
 #include "mixed_atmospheres/mac_kernel.hpp"
 #include <array>
 #include <bit>
@@ -83,6 +84,79 @@ void trace_entropy_is_finite() {
                     k::entropy_selected(species, 3, key, get, e)),
             "Ordinary entropy arithmetic changed");
   }
+}
+void near_vacuum_heat_remains_physical() {
+  namespace k = ma::experimental::game_kernel;
+  MacGrid grid;
+  grid.width = 24;
+  grid.height = 16;
+  const auto count = grid.width * grid.height;
+  grid.walls.assign(count, 0);
+  std::vector<k::Species> species(1);
+  species[0].cv = 480;
+  species[0].offset = 85000;
+  species[0].molar_mass = .044;
+  species[0].conductivity = .03;
+  k::State state;
+  state.energy.resize(count);
+  state.jx.resize(grid.x_width() * grid.height);
+  state.jy.resize(grid.width * grid.y_height());
+  std::vector<k::Eos> readings(count);
+  std::mt19937_64 random(1);
+  long double before = 0;
+  for (std::size_t i = 0; i < count; ++i) {
+    const double mass = random() % 3 == 0
+                            ? 1.1e-11
+                            : .5 + .125 * static_cast<double>(random() % 40);
+    const double temperature = 100 + .5 * static_cast<double>(random() % 900);
+    state.masses.offsets.push_back(i);
+    state.masses.species.push_back(0);
+    state.masses.mass.push_back(mass);
+    state.energy[i] = mass * (85000 + 480 * temperature);
+    readings[i] = k::evaluate(species, std::span<const double>(&mass, 1),
+                              state.energy[i], 1);
+    before += state.energy[i];
+  }
+  state.masses.offsets.push_back(count);
+  for (std::size_t y = 0; y < grid.height; ++y)
+    for (std::size_t x = 1; x < grid.width; ++x) {
+      const auto right = x + y * grid.width, left = right - 1;
+      state.jx[grid.x_face(x, y)] = .5 * (readings[left].mass + readings[right].mass) *
+                                   (random() % 2 ? 17. : -17.);
+    }
+  for (std::size_t y = 1; y < grid.height; ++y)
+    for (std::size_t x = 0; x < grid.width; ++x) {
+      const auto top = x + y * grid.width, bottom = top - grid.width;
+      state.jy[grid.y_face(x, y)] = .5 * (readings[bottom].mass + readings[top].mass) *
+                                   (random() % 2 ? 17. : -17.);
+    }
+  const auto original_energy = state.energy;
+  k::HeatSolver heat(grid, species, 1, 8, nullptr, 800);
+  const auto result = heat.advance(state, readings, .2);
+  long double after = 0;
+  for (std::size_t i = 0; i < count; ++i) {
+    const auto eos = k::evaluate(species,
+        std::span<const double>(&state.masses.mass[i], 1), result.energy[i], 1);
+    require(eos.temperature >= 100 - 1e-6 && eos.temperature <= 549.5 + 1e-6,
+            "Near-vacuum heat left its initial temperature range");
+    after += result.energy[i];
+  }
+  require(std::abs(after - before) <= 1e-14L * before && result.error <= 1e-12,
+          "Near-vacuum heat lost conservative energy closure");
+  require(result.iterations > 1 && result.iterations <= 800,
+          "Connected heat solve exceeded its shared iteration cap");
+  k::HeatSolver workers(grid, species, 12, 8, nullptr, 800);
+  require(workers.advance(state, readings, .2).energy == result.energy,
+          "Heat refinement depends on the worker count");
+  // One connected component: spending its full cap again on each residual
+  // solve would incorrectly let this smaller total budget succeed.
+  k::HeatSolver limited(grid, species, 1, 8, nullptr,
+                         static_cast<unsigned>(result.iterations - 1));
+  bool refused = false;
+  try { (void)limited.advance(state, readings, .2); }
+  catch (const std::runtime_error &) { refused = true; }
+  require(refused && state.energy == original_energy,
+          "Heat refinement reset its iteration budget or mutated the source on refusal");
 }
 long double energy(const MacClosedWorld &world) {
   const auto &s = world.state();
@@ -225,6 +299,7 @@ int main() {
   try {
     zero_add_matches_two_sum();
     trace_entropy_is_finite();
+    near_vacuum_heat_remains_physical();
     full_worker_continuation();
     const auto &f = ma::testing::setup();
     auto state = f.state(8, 4, false, true);

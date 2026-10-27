@@ -109,9 +109,16 @@ public:
   solve(ma::experimental::mac_kernel::Context &c,
         const ma::experimental::mac_kernel::LinearSystem &sys,
         const std::vector<double> &b, std::vector<double> &x, double rtol,
-        double atol, std::size_t maximum) {
+        double atol, std::size_t maximum,
+        std::vector<std::size_t> *iterations_used = nullptr) {
     namespace k = ma::experimental::mac_kernel;
     prepare(c.g, sys);
+    if (iterations_used) {
+      if (iterations_used->empty())
+        iterations_used->assign(parts.size(), 0);
+      if (iterations_used->size() != parts.size())
+        throw std::runtime_error("Component iteration budget changed topology");
+    }
     x.assign(c.g.N, 0);
     struct Result {
       k::LinearSolveResult linear;
@@ -142,8 +149,25 @@ public:
       ma::PressureSystem matrix(
           std::move(diagonal), std::move(faces),
           ma::PressurePreconditioner::incomplete_cholesky);
+      const auto used = iterations_used ? (*iterations_used)[index] : 0;
+      if (used >= maximum) {
+        // A component that spent its cap may already need no correction.
+        // Match the zero-initial-guess convergence check without taking an
+        // additional iteration merely to discover that fact.
+        long double squared = 0;
+        for (const double value : rhs)
+          squared += static_cast<long double>(value) * value;
+        const double residual = std::sqrt(static_cast<double>(squared));
+        if (!std::isfinite(residual) ||
+            residual > std::max(local_atol, .5 * rtol * residual))
+          throw std::runtime_error("Component linear iteration budget exhausted");
+        results[index].linear = {0, residual, true};
+        return;
+      }
       const auto solved = matrix.solve(rhs, std::vector<double>(rhs.size(), 0),
-                                       .5 * rtol, local_atol, maximum);
+                                       .5 * rtol, local_atol, maximum - used);
+      if (iterations_used)
+        (*iterations_used)[index] += solved.iterations;
       for (std::size_t j = 0; j < part.cells.size(); ++j)
         x[part.cells[j]] = solved.pressure[j];
       results[index] = {{solved.iterations, solved.residual_norm, true},

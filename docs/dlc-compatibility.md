@@ -270,6 +270,25 @@ the actual generated hardware and runs the teleporter scenario independently
 of the destructive central-cell ownership probes, retaining both-direction
 requirements and the declared mixtures/windows/bounds.
 
+The independent `b19998e` attempt confirms all four generated endpoint records
+in worlds0/2, then exposes a physical heat fault at owner frame2. Its `9dcb158`
+diagnostic repeat captures the same failure. Offline initial EOS checks pass,
+but conduction leaves negative thermal energy in two roughly1e-11 kg gas
+pockets. A converged global relative residual of about0.001 J overwhelms their
+few microjoules of heat; the conservative face reconstruction reveals it.
+
+The repair refines the same implicit heat equation from its local residual
+only when the first conservative update has nonpositive thermal energy. Each
+face still carries one shared flux; the original solve and all corrections
+share each component's saved iteration cap and unchanged tolerances. No
+energy is clamped or created. One correction advances the exact private
+capture from0.40000000596 to0.60000000894 seconds. A separate synthetic
+24x16 control has61 invalid cells under the old solve; the repair leaves all
+temperatures in the initial range, closes energy to1.93e-18 relative, matches
+workers1/12 and refuses an insufficient total iteration budget atomically.
+The ordinary finite heat path and checkpoint format remain unchanged. A new
+actual-game teleporter control and clean diagnostic comparison remain required.
+
 ### Rocket flight
 
 `spaced-out-rocket-flight` fuels the constructed CO2 engine and selects a valid
@@ -285,8 +304,11 @@ The `2b291d5` actual flight source passes all four checks and saves at owner
 frame170. The native craft reaches a different hex in `InFlight`; its cabin
 keeps 0.25 kg oxygen and 0.125 kg carbon dioxide to rounding, with exact pipe
 accounts. Maximum relative mass/energy errors are6.84e-16/1.06e-15. The
-fresh-process and menu loads of that airborne source remain queued. Native
-DLLs retain their exact `1ccbe75` provenance; these are Proton controls.
+fresh-process and menu loads of that airborne source both reach frame178 and
+reencode the same owner image (`74a69fba…cccfd53`). The menu path verifies
+teardown and a new owner session. This proves saved-owner restoration, not
+byte-exact active flight continuation. Native DLLs retain their exact
+`1ccbe75` provenance; these are Proton controls.
 
 ### Cargo and airborne recovery controls
 

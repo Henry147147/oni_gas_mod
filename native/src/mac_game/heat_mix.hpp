@@ -113,37 +113,71 @@ public:
     DoubleDouble norm;
     for (double value : rhs)
       norm.add(value * value);
+    std::vector<std::size_t> iterations_used;
     const auto solved = component_cache.solve(context, system, rhs, increment,
-                                              1e-9, 1e-12, maximum_iterations);
+                                              1e-9, 1e-12, maximum_iterations,
+                                              &iterations_used);
     if (!solved.converged)
       throw std::runtime_error("Private heat linear solve failed");
     HeatResult result;
     result.iterations = solved.iterations;
     result.energy = state.energy;
     std::vector<double> flux_x(g.NX), flux_y(g.NY);
-    const auto fluxes = [&](const auto &l, const auto &r, const auto &weights,
-                            auto &flux) {
-      for (std::size_t f = 0; f < weights.size(); ++f)
-        if (weights[f] != 0)
-          flux[f] = weights[f] * ((eos[l[f]].temperature + increment[l[f]]) -
-                                  (eos[r[f]].temperature + increment[r[f]]));
-    };
-    fluxes(g.xl, g.xr, system.wx, flux_x);
-    fluxes(g.yl, g.yr, system.wy, flux_y);
-    Balance audit;
-    for (std::size_t i = 0; i < g.N; ++i)
-      if (!g.wall[i]) {
-        result.energy[i] += flux_x[g.left_face(i)] - flux_x[g.right_face(i)] +
-                            flux_y[g.bottom_face(i)] - flux_y[g.top_face(i)];
-        audit.add(state.energy[i]);
-        audit.add(-result.energy[i]);
+    for (;;) {
+      const auto fluxes = [&](const auto &l, const auto &r, const auto &weights,
+                              auto &flux) {
+        for (std::size_t f = 0; f < weights.size(); ++f)
+          if (weights[f] != 0)
+            flux[f] = weights[f] * ((eos[l[f]].temperature + increment[l[f]]) -
+                                    (eos[r[f]].temperature + increment[r[f]]));
+      };
+      fluxes(g.xl, g.xr, system.wx, flux_x);
+      fluxes(g.yl, g.yr, system.wy, flux_y);
+      Balance audit;
+      bool nonpositive = false;
+      for (std::size_t i = 0; i < g.N; ++i)
+        if (!g.wall[i]) {
+          result.energy[i] += flux_x[g.left_face(i)] - flux_x[g.right_face(i)] +
+                              flux_y[g.bottom_face(i)] - flux_y[g.top_face(i)];
+          audit.add(state.energy[i]);
+          audit.add(-result.energy[i]);
+          if (system.active[i] && !(result.energy[i] - eos[i].offset > 0))
+            nonpositive = true;
+        }
+      if (!audit.closed())
+        throw std::runtime_error("Private shared heat flux ledger failed");
+      result.error = audit.operands.value() ? std::abs(audit.residual.value()) /
+                                                  audit.operands.value()
+                                            : 0;
+      if (!nonpositive)
+        return result;
+
+      // A global relative residual can exceed a near-vacuum cell's entire
+      // heat budget. Refine the same implicit equation with its local heat
+      // residual, retaining one shared conservative flux on every face.
+      // The original solve and all refinements share each component's saved
+      // iteration cap. No energy floor, flux limiter or relaxed audit is used.
+      std::vector<double> residual(g.N), correction;
+      for (std::size_t i = 0; i < g.N; ++i)
+        if (system.active[i])
+          residual[i] = flux_x[g.left_face(i)] - flux_x[g.right_face(i)] +
+                        flux_y[g.bottom_face(i)] - flux_y[g.top_face(i)] -
+                        eos[i].capacity * increment[i];
+      const auto refined = component_cache.solve(context, system, residual,
+                                                  correction, 1e-9, 1e-12,
+                                                  maximum_iterations,
+                                                  &iterations_used);
+      result.iterations += refined.iterations;
+      bool changed = false;
+      for (std::size_t i = 0; i < g.N; ++i) {
+        const double next = increment[i] + correction[i];
+        changed = changed || next != increment[i];
+        increment[i] = next;
       }
-    if (!audit.closed())
-      throw std::runtime_error("Private shared heat flux ledger failed");
-    result.error = audit.operands.value() ? std::abs(audit.residual.value()) /
-                                                audit.operands.value()
-                                          : 0;
-    return result;
+      if (!changed)
+        throw std::runtime_error("Private heat refinement made no progress");
+      result.energy = state.energy;
+    }
   }
 };
 } // namespace ma::experimental::game_kernel
