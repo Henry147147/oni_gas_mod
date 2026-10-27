@@ -314,6 +314,7 @@ def playtest(args, state: Path, session: dict) -> int:
             # Defaults and saved settings must stand on their own in this route.
             result["owner_environment_overrides"] = bool(getattr(args,"spaced_out_control",False))
             result["experimental_spaced_out_control"] = bool(getattr(args,"spaced_out_control",False))
+        env=owner_fault_environment(env,args,output,result)
         settings_preset=getattr(args,"settings_preset",None)
         if settings_preset:
             preset_hash=common.digest(settings_preset)
@@ -538,6 +539,20 @@ def owner_environment(env, args):
     return clean
 
 
+def owner_fault_environment(env, args, output, result):
+    """Explicit diagnostic only; never inherited into ordinary acceptance."""
+    if not getattr(args,"capture_owner_fault",False):
+        return env
+    if args.mode not in OWNER_MODES:
+        raise ValueError("Owner fault capture requires a colony-owner run")
+    path=output/"owner-fault.bin"
+    clean=dict(env)
+    clean["MA_COLONY_FAULT_DUMP"]=windows_path(path)
+    result["owner_environment_overrides"]=True
+    result["owner_fault_capture"]={"requested":True,"path":str(path)}
+    return clean
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--state", type=Path, default=common.DEFAULT_STATE)
@@ -547,6 +562,8 @@ def main() -> int:
     parser.add_argument("--package", type=Path, required=True)
     parser.add_argument("--spaced-out-control", action="store_true",
                         help="Experimental cluster-owner admission; records a development override, not ordinary DLC acceptance")
+    parser.add_argument("--capture-owner-fault",action="store_true",
+                        help="Diagnostic owner dump on a failed flow; marks the run as a development override")
     parser.add_argument("--dlc-mask", type=int, choices=range(32), metavar="0..31",
                         help="Exact content selection: bits Spaced Out!, Frosty, Bionic, Prehistoric, Aquatic")
     parser.add_argument("--output", type=Path)

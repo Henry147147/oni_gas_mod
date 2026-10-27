@@ -201,6 +201,15 @@ its nonempty mixed ports, checks recovered constituents, rebuilds it in the
 same slot and verifies a fresh mixture. That game result is still required;
 ordinary DLC support remains disabled.
 
+The first `14ec7b4` retirement game control passes worlds, rocket creation and
+all four mixed-port directions, then completes recovery/unregister of world 9.
+It fails at owner frame 71, two frames after the retirement boundary, with
+`flow: Private entropy diagnostic is nonfinite`; constituent recovery/rebuild
+and cold/menu checks are not accepted. This failure blocks DLC activation.
+The Proton runner has an explicit `--capture-owner-fault` diagnostic to write
+the pre-flow owner dump inside that run's private output directory. It marks
+an environment override and cannot be mistaken for ordinary acceptance.
+
 The 2026-10-26 request covers Spaced Out!, Frosty, Bionic, Prehistoric and
 Aquatic: every one of their 32 selections on Linux and Windows x64. This
 extends the [base-game playtest](playtest-plan.md); it does not certify the

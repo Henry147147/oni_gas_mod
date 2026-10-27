@@ -22,6 +22,19 @@ common = runner.common
 
 
 class ProtonIsolationTests(unittest.TestCase):
+    def test_owner_fault_capture_is_explicit_private_and_not_ordinary_evidence(self):
+        env={"PATH":"fixture"};result={"owner_environment_overrides":False}
+        args=SimpleNamespace(mode="colony-owner",capture_owner_fault=False)
+        self.assertIs(runner.owner_fault_environment(env,args,Path('/fixture/run'),result),env)
+        args.capture_owner_fault=True
+        captured=runner.owner_fault_environment(env,args,Path('/fixture/run'),result)
+        self.assertNotIn("MA_COLONY_FAULT_DUMP",env)
+        self.assertEqual(captured["MA_COLONY_FAULT_DUMP"],runner.windows_path(Path('/fixture/run/owner-fault.bin')))
+        self.assertTrue(result["owner_environment_overrides"])
+        self.assertEqual(result["owner_fault_capture"]["path"],'/fixture/run/owner-fault.bin')
+        args.mode="menu"
+        with self.assertRaises(ValueError):runner.owner_fault_environment(env,args,Path('/fixture/run'),{})
+
     def test_cluster_control_is_explicit_and_does_not_inherit_other_overrides(self):
         env={"PATH":"fixture", "MA_COLONY_SPACED_OUT_CONTROL":"1", "MA_OTHER_CONTROL":"1"}
         args=SimpleNamespace(mode="colony-owner",dlc_mask=1,spaced_out_control=False)
