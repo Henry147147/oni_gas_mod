@@ -309,10 +309,11 @@ def playtest(args, state: Path, session: dict) -> int:
     try:
         xvfb, display, desktop = start_display(state, output,getattr(args,"gpu_display",None))
         env = game_env(state, output, game, display,gpu=bool(getattr(args,"gpu_display",None)))
+        env = owner_environment(env, args)
         if args.mode in OWNER_MODES:
             # Defaults and saved settings must stand on their own in this route.
-            env = {key: value for key, value in env.items() if not key.startswith("MA_")}
-            result["owner_environment_overrides"] = False
+            result["owner_environment_overrides"] = bool(getattr(args,"spaced_out_control",False))
+            result["experimental_spaced_out_control"] = bool(getattr(args,"spaced_out_control",False))
         settings_preset=getattr(args,"settings_preset",None)
         if settings_preset:
             preset_hash=common.digest(settings_preset)
@@ -523,6 +524,20 @@ def playtest(args, state: Path, session: dict) -> int:
             raise
 
 
+def owner_environment(env, args):
+    """Keep ordinary owner runs free of implicit development overrides."""
+    experimental = getattr(args, "spaced_out_control", False)
+    if experimental and (args.mode not in ("colony-owner", "colony-owner-load") or
+                         not ((getattr(args, "dlc_mask", None) or 0) & 1)):
+        raise ValueError("The experimental cluster control requires a Spaced Out owner run")
+    if args.mode not in OWNER_MODES:
+        return env
+    clean = {key: value for key, value in env.items() if not key.startswith("MA_")}
+    if experimental:
+        clean["MA_COLONY_SPACED_OUT_CONTROL"] = "1"
+    return clean
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--state", type=Path, default=common.DEFAULT_STATE)
@@ -530,6 +545,8 @@ def main() -> int:
     parser.add_argument("--game-dir", type=Path, default="/mnt/data/share/oni/OxygenNotIncluded")
     parser.add_argument("--proton", type=Path, required=True, help="Installed complete Proton tool root")
     parser.add_argument("--package", type=Path, required=True)
+    parser.add_argument("--spaced-out-control", action="store_true",
+                        help="Experimental cluster-owner admission; records a development override, not ordinary DLC acceptance")
     parser.add_argument("--dlc-mask", type=int, choices=range(32), metavar="0..31",
                         help="Exact content selection: bits Spaced Out!, Frosty, Bionic, Prehistoric, Aquatic")
     parser.add_argument("--output", type=Path)

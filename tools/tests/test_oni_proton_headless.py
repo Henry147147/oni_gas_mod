@@ -22,6 +22,17 @@ common = runner.common
 
 
 class ProtonIsolationTests(unittest.TestCase):
+    def test_cluster_control_is_explicit_and_does_not_inherit_other_overrides(self):
+        env={"PATH":"fixture", "MA_COLONY_SPACED_OUT_CONTROL":"1", "MA_OTHER_CONTROL":"1"}
+        args=SimpleNamespace(mode="colony-owner",dlc_mask=1,spaced_out_control=False)
+        self.assertEqual(runner.owner_environment(env,args),{"PATH":"fixture"})
+        args.spaced_out_control=True
+        self.assertEqual(runner.owner_environment(env,args),{"PATH":"fixture","MA_COLONY_SPACED_OUT_CONTROL":"1"})
+        for mode,mask in (("menu",1),("colony-owner-inactive",1),("colony-owner",0),("colony-owner",None)):
+            with self.subTest(mode=mode,mask=mask),self.assertRaises(ValueError):
+                runner.owner_environment(env,SimpleNamespace(mode=mode,dlc_mask=mask,spaced_out_control=True))
+        self.assertEqual(env["MA_OTHER_CONTROL"],"1")
+
     def test_base_game_profile_uses_the_normal_persisted_dlc_preferences(self):
         with tempfile.TemporaryDirectory() as directory:
             profile = Path(directory)

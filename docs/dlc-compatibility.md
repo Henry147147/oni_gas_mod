@@ -24,6 +24,13 @@ grid**. The original candidate correctly stayed inactive; that run establishes
 installed content and layout, not mod ownership. The development owner needs
 its separate game run before activation can be reported as passing.
 
+The Proton runner requires `--spaced-out-control` together with an explicit
+Spaced Out! DLC mask for that development run. Ordinary owner runs continue
+to strip inherited development environment variables. The explicit control
+is recorded as an environment override and cannot certify ordinary DLC
+acceptance. The first attempt without that runner opt-in stayed inactive;
+it is not an owner-admission result.
+
 The 2026-10-26 request covers Spaced Out!, Frosty, Bionic, Prehistoric and
 Aquatic: every one of their 32 selections on Linux and Windows x64. This
 extends the [base-game playtest](playtest-plan.md); it does not certify the
