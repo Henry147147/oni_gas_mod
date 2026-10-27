@@ -65,6 +65,25 @@ namespace MixedAtmospheres.Oni
                     for(var x=world.X;x<world.X+world.Width;++x)ids[x+y*GridWidth]=world.Id;
             return ids;
         }
+        internal ColonyWorldLayout Retaining(IEnumerable<ColonyWorldRegion> pending)
+        {
+            var regions = Worlds.ToDictionary(w => w.Id);
+            foreach (var world in pending)
+            {
+                if (regions.TryGetValue(world.Id, out var live) && !live.SameRegion(world))
+                    throw new InvalidOperationException("A retiring world identity was reused before evacuation.");
+                regions[world.Id] = world;
+            }
+            return new ColonyWorldLayout(GridWidth, GridHeight, regions.Values);
+        }
+        internal static int AvailableWorldId(int proposed, IEnumerable<int> registered, IEnumerable<int> retiring)
+        {
+            var occupied = new HashSet<int>(registered.Concat(retiring));
+            while (proposed >= 0 && proposed < byte.MaxValue && occupied.Contains(proposed)) ++proposed;
+            if (proposed < 0 || proposed >= byte.MaxValue)
+                throw new InvalidOperationException("No free native world identity remains.");
+            return proposed;
+        }
         // Existing cell coordinates and identities must survive a layout
         // update. A moved/reused identity is not a newly generated world.
         internal (ColonyWorldRegion[] Added,ColonyWorldRegion[] Removed) ChangesFrom(ColonyWorldLayout previous)

@@ -31,6 +31,9 @@ namespace MixedAtmospheres.Oni
                 Grid.CellToXY(padCell, out var px, out clusterCargoY);
                 if (gas || clusterCargoNextX == 0)
                     clusterCargoNextX = px + clusterLaunchPad.GetComponent<OccupyArea>().OccupiedCellsOffsets.Max(o => o.x) + 1;
+                // Power helpers use this scenario's actual station site,
+                // rather than an unrelated arena beside the printing pod.
+                x0 = clusterCargoNextX; y0 = clusterCargoY;
                 var width = loaderDef.WidthInCells + unloaderDef.WidthInCells;
                 for (var x = clusterCargoNextX; x < clusterCargoNextX + width; ++x)
                     for (var y = clusterCargoY - 1; y < clusterCargoY + 7; ++y)
@@ -49,9 +52,11 @@ namespace MixedAtmospheres.Oni
             {
                 clusterCargoModule = AddRocketModule(clusterEngine!, gas ? GasCargoBaySmallConfig.ID : LiquidCargoBaySmallConfig.ID, false);
                 clusterCargoModule.GetComponent<TreeFilterable>().UpdateFilters(new HashSet<Tag> { first.CreateTag(), second.CreateTag() });
-                clusterCargoLoader = Build(loaderId, Grid.XYToCell(clusterCargoNextX + loaderDef.WidthInCells / 2, clusterCargoY));
+                var loaderOffset = loaderDef.BuildingComplete.GetComponent<OccupyArea>().OccupiedCellsOffsets.Min(o => o.x);
+                var unloaderOffset = unloaderDef.BuildingComplete.GetComponent<OccupyArea>().OccupiedCellsOffsets.Min(o => o.x);
+                clusterCargoLoader = Build(loaderId, Grid.XYToCell(clusterCargoNextX - loaderOffset, clusterCargoY));
                 clusterCargoNextX += loaderDef.WidthInCells;
-                clusterCargoUnloader = Build(unloaderId, Grid.XYToCell(clusterCargoNextX + unloaderDef.WidthInCells / 2, clusterCargoY));
+                clusterCargoUnloader = Build(unloaderId, Grid.XYToCell(clusterCargoNextX - unloaderOffset, clusterCargoY));
                 clusterCargoNextX += unloaderDef.WidthInCells;
                 // The normal unloader filter keeps the cargo aboard until its
                 // composition has been observed; then the player filter opens.

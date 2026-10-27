@@ -7,15 +7,15 @@ using UnityEngine;
 namespace MixedAtmospheres.Oni
 {
     // The game recovers resources one Unity frame after dismantling interior
-    // buildings. Hold its early unregister until that recovery and native grid
-    // cleanup finish, so the allocator cannot reuse a still-live rectangle.
+    // buildings. Let the game's world list shed destroyed Unity objects while
+    // reserving their identities and grid rectangles until evacuation finishes.
     internal static class ColonyClusterRetirement
     {
         private sealed class Retirement
         {
             internal readonly WorldContainer World;
             internal readonly ColonyWorldRegion Region;
-            internal bool Exported,Releasing,DeleteRequested,AllowDelete,InDelete;
+            internal bool Exported,Unregistered,DeleteRequested,AllowDelete,InDelete;
             internal int RequestedUnityFrame;
             internal Retirement(WorldContainer world)
             {World=world;Region=new ColonyWorldRegion(world.id,world.WorldOffset.x,world.WorldOffset.y,world.WorldSize.x,world.WorldSize.y,true);}
@@ -34,7 +34,12 @@ namespace MixedAtmospheres.Oni
             if(OniNativeColony.RetirementVersion()!=1)throw new NotSupportedException("Rocket retirement requires a matching native/managed bundle.");
             Worlds.Add(id,new Retirement(world));return true;
         }
-        internal static bool HoldUnregister(WorldContainer world)=>Worlds.TryGetValue(world.id,out var state)&&!state.Releasing;
+        internal static IEnumerable<ColonyWorldRegion> Regions=>Worlds.Values.Select(state=>state.Region).ToArray();
+        internal static bool CanUnregister(WorldContainer world)=>!Worlds.TryGetValue(world.id,out var state)||!state.Unregistered;
+        internal static void Unregistered(WorldContainer world)
+        {if(Worlds.TryGetValue(world.id,out var state))state.Unregistered=true;}
+        internal static int AvailableWorldId(int proposed)=>!Pending?proposed:
+            ColonyWorldLayout.AvailableWorldId(proposed,ClusterManager.Instance.WorldContainers.Select(world=>world.id),Worlds.Keys);
         internal static bool DeferDelete(WorldContainer world)
         {
             if(!Worlds.TryGetValue(world.id,out var state))return false;
@@ -132,8 +137,9 @@ namespace MixedAtmospheres.Oni
         {
             var state=State(world);_=ColonySaveBarrier.FlushInputs();
             OniNativeColony.Check(OniNativeColony.FinishRetirement(state.Origin,(uint)state.Region.Width,(uint)state.Region.Height));
-            ColonyClusterWorlds.Removed(state.Region);state.Releasing=true;
-            AccessTools.Method(typeof(ClusterManager),"UnregisterWorldContainer").Invoke(ClusterManager.Instance,new object[]{world});
+            ColonyClusterWorlds.Removed(state.Region);
+            if(!state.Unregistered)
+                AccessTools.Method(typeof(ClusterManager),"UnregisterWorldContainer").Invoke(ClusterManager.Instance,new object[]{world});
             Worlds.Remove(world.id);++Completed;
             Debug.Log($"[Mixed Atmospheres] Retired rocket world {world.id}: complete mixture recovered; native grid slot released.");
         }

@@ -1,4 +1,6 @@
 using System.Reflection;
+using System.Reflection.Emit;
+using HarmonyLib;
 
 internal static class ClusterRetirementTests
 {
@@ -30,6 +32,24 @@ internal static class ClusterRetirementTests
         finally{barrier.GetMethod("ExitStep",all)!.Invoke(null,null);}
         var unregister=assembly.GetType("MixedAtmospheres.Oni.ColonyRocketUnregisterPatch")!.GetMethod("Prefix",all)!;
         Check(unregister.ReturnType==typeof(bool)&&unregister.GetParameters().Single().ParameterType==typeof(WorldContainer),"The allocation fence lost its live world.");
-        Console.WriteLine("PASS rocket retirement bindings: live destruction, both recovery destinations, native grid cleanup, unregister fence; inactive path untouched");
+        var allocate=typeof(ClusterManager).GetMethod("GetNextWorldId",all)!;
+        Check(allocate.ReturnType==typeof(int)&&allocate.GetParameters().Length==0,"Native world identity allocation signature changed.");
+        var reserve=assembly.GetType("MixedAtmospheres.Oni.ColonyRocketWorldIdPatch")!.GetMethod("Postfix",all)!;
+        Check(reserve.GetParameters().Single().ParameterType==typeof(int).MakeByRefType(),"Pending rocket identities lost their allocation fence.");
+        Check((int)retirement.GetMethod("AvailableWorldId",all)!.Invoke(null,new object[]{7})! ==7,"Inactive allocation changed its native identity.");
+        var unitsPatch=assembly.GetType("MixedAtmospheres.Oni.ColonyRocketDebrisUnitsPatch")!;
+        var transpiler=unitsPatch.GetMethod("Transpiler",all)!;
+        var original=PatchProcessor.GetOriginalInstructions(typeof(CraftModuleInterface).GetMethod("CompleteSelfDestruct",all)!);
+        var patched=((IEnumerable<CodeInstruction>)transpiler.Invoke(null,new object[]{original})!).ToArray();
+        Check(patched.Length==original.Count&&patched.Count(i=>i.operand is MethodInfo m&&m.DeclaringType==unitsPatch&&m.Name=="SetUnits")==1,
+            "Rocket debris no longer preserves fluid quantities at its single native rounding operation.");
+        for(var i=0;i<original.Count;++i)
+            if(!ReferenceEquals(original[i],patched[i]))
+                Check(original[i].Calls(AccessTools.PropertySetter(typeof(PrimaryElement),"Units")),"Unrelated native self-destruct instructions were changed.");
+        var broken=original.Where(i=>!i.Calls(AccessTools.PropertyGetter(typeof(PrimaryElement),"Units"))).ToArray();
+        try{transpiler.Invoke(null,new object[]{broken});throw new Exception("Unknown debris rounding body accepted.");}
+        catch(TargetInvocationException error)when(error.InnerException is NotSupportedException){}
+        Console.WriteLine("PASS rocket retirement bindings: both recovery destinations, deferred native cleanup, early unregister and reserved identities; inactive path untouched");
+        Console.WriteLine("PASS rocket debris binding: only the inspected rounded-unit setter is replaced; solid packing and unknown-body refusal retained");
     }
 }

@@ -59,7 +59,7 @@ namespace MixedAtmospheres.Oni
         internal static void Synchronize(Sim.GameDataUpdate* source)
         {
             if(layout==null||!dirty||source->numFramesProcessed<=0)return;
-            var next=ColonyOwner.CaptureWorldLayout();var change=next.ChangesFrom(layout);
+            var next=ColonyOwner.CaptureWorldLayout().Retaining(ColonyClusterRetirement.Regions);var change=next.ChangesFrom(layout);
             // Until evacuation has its own complete-mixture transaction, do
             // not silently abandon an owner-held world or reuse its cells.
             if(change.Removed.Length!=0)
@@ -105,7 +105,13 @@ namespace MixedAtmospheres.Oni
     [HarmonyPatch(typeof(ClusterManager),"UnregisterWorldContainer")]
     internal static class ColonyRocketUnregisterPatch
     {
-        private static bool Prefix(WorldContainer __0)=>!ColonyClusterRetirement.HoldUnregister(__0);
-        private static void Postfix()=>ColonyClusterWorlds.Changed();
+        private static bool Prefix(WorldContainer __0)=>ColonyClusterRetirement.CanUnregister(__0);
+        private static void Postfix(WorldContainer __0)
+        {ColonyClusterRetirement.Unregistered(__0);ColonyClusterWorlds.Changed();}
+    }
+    [HarmonyPatch(typeof(ClusterManager),"GetNextWorldId")]
+    internal static class ColonyRocketWorldIdPatch
+    {
+        private static void Postfix(ref int __result)=>__result=ColonyClusterRetirement.AvailableWorldId(__result);
     }
 }

@@ -182,8 +182,11 @@ persistent checkpoint fields or solver arithmetic.
 
 After commit, the empty cells stay quarantined until the game finishes its
 native grid cleanup. Saves defer/refuse during that interval. The adapter
-holds the game's early unregister so another capsule cannot reuse the live
-slot. Landed recovery creates the ordinary per-species chunks; airborne
+reserves its native identity separately while allowing early unregister to
+remove destroyed Unity objects from the game's visible world list. The owner
+retains the pending region until evacuation; native grid free remains deferred,
+so another capsule cannot reuse its live rectangle. Landed recovery creates
+the ordinary per-species chunks; airborne
 recovery uses the game's debris stores and travel lifecycle. Retained pipe
 spills are included. In-flight carbon-dioxide particles move to the landed
 destination, or become native debris items before their old pool entries
@@ -301,6 +304,16 @@ spawns, as arrival would. It keeps their generated positions, both directions
 and all physical inputs/bounds. The installed Windows SDK build passes; the
 replacement game result remains required.
 
+The corrected `dc39f60` teleporter source passes all11 checks at frame23:
+both gas and liquid routes in each direction between worlds0/2 deliver the
+full0.75/0.25 kg mixture and drain their actual input/shared stores. Pipe
+accounts are exact. Cold and menu loads reach frame32 and reencode the same
+wrapper12/core23 image (`39b4d723…c3f0da`), with verified teardown/new session.
+Maximum relative mass/energy errors across the controls are3.80e-16/2.81e-16.
+Native DLLs retain `6c91161` provenance; all are Proton development controls.
+Full CI at `dc39f60` passes386 Python tests (eight skipped),86 native CTests
+and every managed suite.
+
 ### Rocket flight
 
 `spaced-out-rocket-flight` fuels the constructed CO2 engine and selects a valid
@@ -339,6 +352,28 @@ callbacks, then requires every cabin/pipe/native-fuel constituent in actual
 debris stores, removed interior ownership and closed accounts. These new
 controls compile against both SDKs and are registered in both validation
 entry points; their game and persistence checks remain unrun.
+
+The first `6c91161` airborne control retires the physical interior with closed
+owner/pipe ledgers and recovers its oxygen and both liquids, but fails CO2
+recovery (43.375 versus83.708335876464844 kg including native fuel). Native
+debris spawn also reports a cluster-map exception: the held unregister leaves
+a destroyed Unity world in the list read by `FloatyAsteroidAnimation`. IDs are
+now reserved independently of that list, and the owner retains its pending
+rectangle until cleanup. Pure controls cover concurrent allocation, immutable
+reservations, reuse conflicts and eventual release. The native self-destruct
+packing code also rounds pickupable unit counts. A narrowly bound replacement
+preserves continuous gas/liquid quantities while retaining solid rounding and
+all original storage/packing operations; unknown bodies refuse the patch.
+Both SDK builds and binding controls pass. Actual airborne recovery remains
+unaccepted until the replacement run passes the unchanged quantity bounds.
+
+The first cargo process is interrupted by a restart of the shared hardware
+display. Its same-package repeat reaches the checks but exposes fixture
+placement errors: a tile gap breaks the station chain, the unloader extends
+outside its cleared room, and the second power helper is buried. Setup now
+uses the actual prefab footprint offsets and the real station site's power
+coordinates. Mixture inputs, readiness limits,16-frame observations and
+quantity bounds are unchanged. Cargo gameplay/save/load remains unaccepted.
 
 The 2026-10-26 request covers Spaced Out!, Frosty, Bionic, Prehistoric and
 Aquatic: every one of their 32 selections on Linux and Windows x64. This
