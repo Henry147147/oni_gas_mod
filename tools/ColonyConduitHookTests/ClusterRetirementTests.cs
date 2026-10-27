@@ -19,6 +19,15 @@ internal static class ClusterRetirementTests
         retirement.GetMethod("Reset",all)!.Invoke(null,null);
         Check(!(bool)retirement.GetProperty("Pending",all)!.GetValue(null)!,"Inactive retirement reports a pending world.");
         Check((bool)retirement.GetMethod("Begin",all)!.Invoke(null,new object[]{1234})!,"Inactive/base-game destruction acquired a retirement transaction.");
+        retirement.GetMethod("PumpDeletes",all)!.Invoke(null,null); // inactive: no native or Unity access
+        var driver=assembly.GetType("MixedAtmospheres.Oni.ColonyPacingDriver")!;
+        Check(driver.GetMethod("LateUpdate",all)?.ReturnType==typeof(void),"Deferred cleanup lost its Unity LateUpdate boundary.");
+        var barrier=assembly.GetType("MixedAtmospheres.Oni.ColonySaveBarrier")!;
+        bool Eligible()=>(bool)barrier.GetProperty("CanRunLifecycle",all)!.GetValue(null)!;
+        Check(Eligible(),"Idle lifecycle boundary is unavailable.");
+        barrier.GetMethod("EnterStep",all)!.Invoke(null,null);
+        try{Check(!Eligible(),"A lifecycle command became eligible inside an unfinished native publication.");}
+        finally{barrier.GetMethod("ExitStep",all)!.Invoke(null,null);}
         var unregister=assembly.GetType("MixedAtmospheres.Oni.ColonyRocketUnregisterPatch")!.GetMethod("Prefix",all)!;
         Check(unregister.ReturnType==typeof(bool)&&unregister.GetParameters().Single().ParameterType==typeof(WorldContainer),"The allocation fence lost its live world.");
         Console.WriteLine("PASS rocket retirement bindings: live destruction, both recovery destinations, native grid cleanup, unregister fence; inactive path untouched");

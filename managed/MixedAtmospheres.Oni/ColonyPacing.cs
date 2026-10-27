@@ -102,6 +102,10 @@ namespace MixedAtmospheres.Oni
     }
     public sealed class ColonyPacingDriver : MonoBehaviour
     {
+        // A zero-time native publication can run game scheduler callbacks
+        // recursively. Free a retiring grid only after its resource callback
+        // has returned to Unity, never from inside that publication.
+        private void LateUpdate()=>ColonyClusterRetirement.PumpDeletes();
         internal static void Ensure()
         {
             if (FindFirstObjectByType<ColonyPacingDriver>() != null) return;

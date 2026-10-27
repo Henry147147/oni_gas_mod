@@ -32,6 +32,7 @@ namespace MixedAtmospheres.Oni
         internal static object Report() => new { Settled, Deferred, ReceiptsAtSave, BodyHeatChecks, NativePublications, LastSettledFrame, LastSettledSession, LastSynchronization };
 
         internal static void EnterStep() => ++stepping;
+        internal static bool CanRunLifecycle=>stepping==0;
         internal static void ExitStep() { if (stepping > 0) --stepping; }
 
         // SaveLoader.Save(string, bool, bool) entry. False: deferred.

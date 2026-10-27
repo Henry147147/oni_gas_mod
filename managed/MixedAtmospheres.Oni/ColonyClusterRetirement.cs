@@ -15,7 +15,8 @@ namespace MixedAtmospheres.Oni
         {
             internal readonly WorldContainer World;
             internal readonly ColonyWorldRegion Region;
-            internal bool Exported,Releasing;
+            internal bool Exported,Releasing,DeleteRequested,AllowDelete,InDelete;
+            internal int RequestedUnityFrame;
             internal Retirement(WorldContainer world)
             {World=world;Region=new ColonyWorldRegion(world.id,world.WorldOffset.x,world.WorldOffset.y,world.WorldSize.x,world.WorldSize.y,true);}
             internal uint Origin=>(uint)Grid.XYToCell(Region.X,Region.Y);
@@ -34,6 +35,25 @@ namespace MixedAtmospheres.Oni
             Worlds.Add(id,new Retirement(world));return true;
         }
         internal static bool HoldUnregister(WorldContainer world)=>Worlds.TryGetValue(world.id,out var state)&&!state.Releasing;
+        internal static bool DeferDelete(WorldContainer world)
+        {
+            if(!Worlds.TryGetValue(world.id,out var state))return false;
+            if(state.InDelete)return true;
+            if(state.AllowDelete)return false;
+            state.DeleteRequested=true;state.RequestedUnityFrame=Time.frameCount;return true;
+        }
+        internal static void PumpDeletes()
+        {
+            if(!ColonyOwner.Active||ColonyOwner.Status.State!=1||!ColonySaveBarrier.CanRunLifecycle)return;
+            foreach(var state in Worlds.Values.ToArray())
+            {
+                if(!state.DeleteRequested||!state.Exported||Time.frameCount<=state.RequestedUnityFrame)continue;
+                state.DeleteRequested=false;state.AllowDelete=true;
+                try{AccessTools.Method(typeof(ClusterManager),"DeleteWorldObjects").Invoke(ClusterManager.Instance,new object[]{state.World});}
+                catch(Exception error){ColonyFault.Raise("deferred rocket grid cleanup",error);return;}
+                finally{state.AllowDelete=false;}
+            }
+        }
         private static Retirement State(WorldContainer world)
         {
             if(!Worlds.TryGetValue(world.id,out var state)||!ReferenceEquals(state.World,world))
@@ -97,6 +117,7 @@ namespace MixedAtmospheres.Oni
         {
             if(!Worlds.TryGetValue(world.id,out var state))return false;
             if(!state.Exported)throw new InvalidOperationException("The game freed a rocket before complete-mixture recovery.");
+            state.InDelete=true;
             _=ColonySaveBarrier.FlushInputs();
             if(ColonyPipeTeardown.HasWorldSpill(state.Region))
                 throw new InvalidOperationException("Rocket cleanup produced an unexpected late fluid spill.");
@@ -149,7 +170,11 @@ namespace MixedAtmospheres.Oni
         private static bool Prefix(WorldContainer __0,out bool __state)
         {
             __state=false;if(!ColonyClusterWorlds.Enabled)return true;
-            try{__state=ColonyClusterRetirement.BeforeDelete(__0);return true;}
+            try
+            {
+                if(ColonyClusterRetirement.DeferDelete(__0))return false;
+                __state=ColonyClusterRetirement.BeforeDelete(__0);return true;
+            }
             catch(Exception error){ColonyFault.Raise("rocket grid cleanup",error);return false;}
         }
         private static void Postfix(WorldContainer __0,bool __state)

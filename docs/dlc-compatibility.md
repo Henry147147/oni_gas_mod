@@ -210,6 +210,16 @@ The Proton runner has an explicit `--capture-owner-fault` diagnostic to write
 the pre-flow owner dump inside that run's private output directory. It marks
 an environment override and cannot be mistaken for ordinary acceptance.
 
+The `d89800c` diagnostic repeat fails earlier: native grid cleanup reenters
+while complete-mixture recovery is still running, so the adapter correctly
+refuses the free at frame 69. No failing flow occurs and no flow dump is
+expected from that attempt. The zero-time game publication can dispatch the
+game's scheduled callbacks recursively. Cleanup now records the delete request
+and runs it from a later Unity `LateUpdate`, after the recovery callback has
+returned and outside any unfinished sim step. Duplicate nested requests are
+suppressed; saves stay blocked until completion. The original entropy failure
+is not waived or yet proven resolved by this ordering repair.
+
 The 2026-10-26 request covers Spaced Out!, Frosty, Bionic, Prehistoric and
 Aquatic: every one of their 32 selections on Linux and Windows x64. This
 extends the [base-game playtest](playtest-plan.md); it does not certify the
