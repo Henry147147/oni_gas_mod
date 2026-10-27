@@ -1,6 +1,7 @@
 // Colony owner control (docs/colony-owner.md). Made-up materials and
 // inventories, not game data.
 #include "../src/oni_colony.hpp"
+#include "../src/oni_catalogue.hpp"
 #include "../src/oni_world_biology.hpp"
 #include <functional>
 #include <limits>
@@ -1199,6 +1200,67 @@ void callback_rebind_control() {
     require(at!=wrong_ordinal.end(),"saved breath request not found"); *(at+16)=2; refuses(wrong_ordinal,"out-of-order callback ordinal restored");
     std::cout<<"PASS callback-owned requests: wrapper13 framing, awaiting saves, exact rebound continuation, release as the previous policy, refusal of corrupt ordinals\n";
 }
+void catalogue_restore_control() {
+    using namespace ma::oni;
+    using namespace ma::oni::colony;
+    using namespace ma::experimental;
+    MAOniColonyConfig cfg{}; cfg.struct_size=sizeof(cfg); cfg.abi_version=1;
+    cfg.flags=12; cfg.vacuum_index=vacuum; cfg.grid_width=cfg.grid_height=cfg.width=cfg.height=3;
+    cfg.maximum_timestep_s=.1;
+    auto gas=material("Nitrogen",12,4,true,.028,1040);
+    auto liquid=material("1078696428",1078696428,5,false,.028,2040,806);
+    gas.low_temperature_k=liquid.high_temperature_k=77.355;
+    gas.low_target=liquid.element_hash; liquid.high_target=gas.element_hash;
+    const std::vector<MAOniColonyMaterial> mats{material("Oxygen",11,oxygen,true,.016,1000),gas,liquid};
+    std::vector<GameFluidElement> elements;
+    for(const auto& m:mats) elements.push_back({m.id,m.element_hash,m.native_index,m.phase==1,
+        m.molar_mass_kg_per_mol,m.specific_heat_j_per_kg_k,m.conductivity_w_per_m_k,m.density_kg_per_m3,
+        m.low_temperature_k,m.high_temperature_k,m.low_target,m.high_target,m.low_byproduct,m.high_byproduct,
+        m.low_byproduct_fraction,m.high_byproduct_fraction});
+    const auto current=build_catalogue(elements);
+    const auto previous=build_catalogue(elements,CatalogueReference::before_nitrogen);
+    require(current.materials[2].reference.latent_heat_j_per_kg==199000 && previous.materials[2].reference.surrogate_latent,
+        "Catalogue restore control needs different nitrogen laws");
+    std::vector<MAOniColonyCell> cells(9,{oxygen,MA_ONI_COLONY_FLUID,1,300,0,0});
+    start(cfg,mats,cells,1);
+    const auto ordinary=checkpoint(); stop();
+    const std::array<std::uint8_t,8> magic{'M','A','C','C','L','S','0','1'};
+    const auto found=std::search(ordinary.begin(),ordinary.end(),magic.begin(),magic.end());
+    require(found!=ordinary.end(),"Catalogue restore control has no physical image");
+    const auto at=static_cast<std::size_t>(found-ordinary.begin());
+    const auto world=MacClosedWorld::from_checkpoint(current.registry,current.eos,
+        std::span(ordinary).subspan(at,ordinary.size()-at-64));
+    auto settings=world.settings();
+    for(auto& pair:settings.game.saturation_pairs) for(const auto& old:previous.pairs)
+        if(pair.liquid==old.liquid && pair.vapour==old.vapour) pair.critical_temperature_k=old.critical_k;
+    // A synthetic pre-change save, with nitrogen present in the catalogue
+    // but absent from every cell, exactly the ordinary-colony regression.
+    const auto physical=MacClosedWorld(previous.registry,previous.eos,world.state(),settings).checkpoint();
+    std::vector<std::uint8_t> legacy(ordinary.begin(),ordinary.begin()+static_cast<std::ptrdiff_t>(at-8));
+    for(unsigned bit=0;bit<64;bit+=8) legacy.push_back(static_cast<std::uint8_t>(physical.size()>>bit));
+    legacy.insert(legacy.end(),physical.begin(),physical.end());
+    const auto digest=hash_memory(legacy.data(),legacy.size()); legacy.insert(legacy.end(),digest.begin(),digest.end());
+    require(ordinary!=legacy,"Catalogue restore control did not change the saved model");
+    for(const auto* saved:std::array<const std::vector<std::uint8_t>*,2>{&ordinary,&legacy}) {
+        restore(cfg,mats,*saved,1); require(checkpoint()==*saved,"Catalogue restore changed the saved law or bytes");
+        const MAOniColonyHeat heat{4,0,100,0}; queue_heat(std::span(&heat,1));
+        advance(1,.2,2); wait(); require(status().state==1,"Catalogue restore continuation faulted");
+        const auto endpoint=checkpoint(); stop();
+        restore(cfg,mats,*saved,1); queue_heat(std::span(&heat,1)); advance(1,.2,2); wait();
+        require(checkpoint()==endpoint,"Catalogue restore changed exact continued evolution"); stop();
+    }
+    auto unknown=legacy;
+    unknown[at+20]^=1; // first string of the embedded model identity
+    std::uint64_t checksum=14695981039346656037ULL;
+    for(auto i=at;i<unknown.size()-72;++i) {checksum^=unknown[i];checksum*=1099511628211ULL;}
+    for(unsigned bit=0;bit<64;bit+=8) unknown[unknown.size()-72+bit/8]=static_cast<std::uint8_t>(checksum>>bit);
+    const auto unknown_digest=hash_memory(unknown.data(),unknown.size()-64);
+    std::copy(unknown_digest.begin(),unknown_digest.end(),unknown.end()-64);
+    bool refused=false;try {restore(cfg,mats,unknown,1);}catch(const std::invalid_argument&){refused=true;}
+    if(!refused)stop();
+    require(refused,"An unknown catalogue model restored through the legacy fallback");
+    std::cout<<"PASS catalogue restore: current and previous nitrogen laws reencode and continue exactly; unknown models refuse\n";
+}
 void sample_history_control() {
     using namespace ma::oni::colony;
     {
@@ -2006,6 +2068,7 @@ int main(int argc, char** argv) {
         if (argc == 2 && std::strcmp(argv[1], "--view-cache-only") == 0) { view_cache_control(); return 0; }
         if (argc == 2 && std::strcmp(argv[1], "--actor-batch-only") == 0) { actor_batch_control(); return 0; }
         if (argc == 2 && std::strcmp(argv[1], "--callback-rebind-only") == 0) { callback_rebind_control(); return 0; }
+        if (argc == 2 && std::strcmp(argv[1], "--catalogue-restore-only") == 0) { catalogue_restore_control(); return 0; }
         if (argc == 2 && std::strcmp(argv[1], "--sample-history-only") == 0) { sample_history_control();native_sample_history_control();region_energy_control();return 0; }
         require(argc == 1, "Usage: ma_oni_colony_tests [--projection-only|--timestep-only|--precise-receipts-only]");
         precise_receipt_control();
@@ -2033,6 +2096,7 @@ int main(int argc, char** argv) {
         view_cache_control();
         actor_batch_control();
         callback_rebind_control();
+        catalogue_restore_control();
         sample_history_control();
         native_sample_history_control();
         region_energy_control();

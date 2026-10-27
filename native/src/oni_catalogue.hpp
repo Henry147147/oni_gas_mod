@@ -58,8 +58,9 @@ struct Catalogue {
     std::vector<std::uint32_t> native_to_species; // UINT32_MAX where the element is not a catalogue fluid
 };
 // The committed reference row for an element id, or the surrogate rule.
-[[nodiscard]] ReferenceProperties reference_properties(const GameFluidElement&);
+enum class CatalogueReference { current, before_nitrogen };
+[[nodiscard]] ReferenceProperties reference_properties(const GameFluidElement&, CatalogueReference = CatalogueReference::current);
 // Validates every record (finite positive properties, unique ids, indices
 // and hashes) and builds the registry and EOS. Throws std::invalid_argument.
-[[nodiscard]] Catalogue build_catalogue(std::vector<GameFluidElement> elements);
+[[nodiscard]] Catalogue build_catalogue(std::vector<GameFluidElement> elements, CatalogueReference = CatalogueReference::current);
 }

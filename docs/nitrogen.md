@@ -284,8 +284,10 @@ Design of 2026-10-27 for the first release (base game and Spaced Out!).
   same-mass conversion and the mixed air layer. `ma_oni_colony_import_tests`
   checks mass kept, 25% oxygen in every air cell, one mixed layer between a
   carbon dioxide floor and hydrogen above, and the unchanged default. With
-  the option off nothing changes, byte for byte, and no checkpoint field is
-  added.
+  the option off, gas import is unchanged for a given catalogue and no
+  checkpoint field is added. The new nitrogen reference row changes the
+  catalogue identity even in colonies without nitrogen; older saves retain
+  their original surrogate law ([saved catalogues](material-catalogue.md#saved-catalogues)).
 - **Settings** (`ModSettings*.cs`): `breathing.nitrogenAir`, the *Hard mode*
   preset, the hard-mode warning and section 3 record version 2
   ([settings](settings.md)). `tools/SettingsTests` covers both record

@@ -49,6 +49,7 @@
 #include <optional>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <unordered_map>
 #include <xmmintrin.h>
@@ -362,7 +363,8 @@ void validate(const MAOniColonyConfig& c) {
     require(std::isfinite(c.gravity_m_per_s2) && c.gravity_m_per_s2 >= 0 && c.gravity_m_per_s2 <= 100, "Invalid colony gravity");
     require(std::isfinite(c.maximum_timestep_s) && c.maximum_timestep_s > 0 && c.maximum_timestep_s <= static_cast<double>(.1f), "Invalid colony maximum timestep");
 }
-std::shared_ptr<const Catalogue> catalogue_of(std::span<const MAOniColonyMaterial> materials) {
+std::shared_ptr<const Catalogue> catalogue_of(std::span<const MAOniColonyMaterial> materials,
+    CatalogueReference reference = CatalogueReference::current) {
     require(!materials.empty() && materials.size() <= 4096, "A colony needs 1..4096 materials");
     std::vector<GameFluidElement> elements;
     for (const auto& m : materials) {
@@ -377,7 +379,7 @@ std::shared_ptr<const Catalogue> catalogue_of(std::span<const MAOniColonyMateria
         e.low_byproduct_fraction = m.low_byproduct_fraction; e.high_byproduct_fraction = m.high_byproduct_fraction;
         elements.push_back(std::move(e));
     }
-    return std::make_shared<const Catalogue>(build_catalogue(std::move(elements)));
+    return std::make_shared<const Catalogue>(build_catalogue(std::move(elements), reference));
 }
 // Each pair's critical temperature from the catalogue (no liquid above it).
 std::vector<MacSaturationPair> with_critical(const Catalogue& cat, std::vector<MacSaturationPair> pairs) {
@@ -3630,8 +3632,24 @@ void restore(const MAOniColonyConfig& config, std::span<const MAOniColonyMateria
         }
     }
     const auto physical = r.u64(); require(physical == r.bytes.size() - r.at, "Colony checkpoint physical image length differs");
-    next->world = std::make_shared<const MacClosedWorld>(MacClosedWorld::from_checkpoint(next->catalogue->registry, next->catalogue->eos,
-        r.bytes.subspan(r.at, static_cast<std::size_t>(physical))));
+    const auto physical_image = r.bytes.subspan(r.at, static_cast<std::size_t>(physical));
+    try {
+        next->world = std::make_shared<const MacClosedWorld>(MacClosedWorld::from_checkpoint(
+            next->catalogue->registry, next->catalogue->eos, physical_image));
+    } catch (const std::invalid_argument& error) {
+        // The physical image includes the complete registry/EOS identity,
+        // even for species absent from every cell. The nitrogen reference
+        // row therefore changed every game catalogue's save identity. Admit
+        // the previous law only when its entire identity and checkpoint pass
+        // the ordinary reader, and keep that catalogue for all continuation.
+        const std::string_view reason = error.what();
+        if (reason != "Saved game model size differs" && reason != "Saved game registry/EOS identity differs") throw;
+        auto previous = catalogue_of(next->materials, CatalogueReference::before_nitrogen);
+        next->world = std::make_shared<const MacClosedWorld>(MacClosedWorld::from_checkpoint(
+            previous->registry, previous->eos, physical_image));
+        next->catalogue = std::move(previous);
+    }
+    next->pairs = with_critical(*next->catalogue, mac_saturation_pairs(next->catalogue->registry, *next->catalogue->eos));
     require(((config.flags&MA_ONI_COLONY_GAME_KERNEL)!=0)==(next->world->settings().numerical_kernel==MacNumericalKernel::game),"Saved core kernel differs from saved colony flags");
     activate(std::move(next), thread);
     // Ledger bounds and counters continue from the saved session.

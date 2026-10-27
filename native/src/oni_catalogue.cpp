@@ -106,10 +106,11 @@ LiquidClass guess_class(std::string_view id) {
 constexpr double trouton_j_per_mol_k = 88; // Trouton's rule, molar entropy of vaporization
 }
 
-ReferenceProperties reference_properties(const GameFluidElement& element) {
+ReferenceProperties reference_properties(const GameFluidElement& element, CatalogueReference reference) {
     ReferenceProperties r;
     if (element.gas) { r.source = "ideal gas from game values"; return r; }
-    const auto* row = row_of(element);
+    const auto* row = reference == CatalogueReference::before_nitrogen &&
+        (element.hash == liquid_nitrogen_hash || element.id == "MixedAtmospheresLiquidNitrogen") ? nullptr : row_of(element);
     const auto type = row ? row->type : guess_class(element.id);
     r.miscibility_group = row ? static_cast<std::uint32_t>(row->group) : 0;
     r.viscosity_pa_s = row ? row->viscosity_pa_s : 1e-3;
@@ -139,7 +140,7 @@ std::size_t Catalogue::species_of_hash(std::int32_t hash) const {
     throw std::out_of_range("Element hash is not a catalogue fluid");
 }
 
-Catalogue build_catalogue(std::vector<GameFluidElement> elements) {
+Catalogue build_catalogue(std::vector<GameFluidElement> elements, CatalogueReference reference) {
     require(!elements.empty() && elements.size() <= 4096, "A catalogue needs 1..4096 fluid elements");
     std::sort(elements.begin(), elements.end(), [](const auto& a, const auto& b) { return a.native_index < b.native_index; });
     std::set<std::string> ids; std::set<std::int32_t> hashes; std::set<std::uint32_t> indices;
@@ -167,7 +168,7 @@ Catalogue build_catalogue(std::vector<GameFluidElement> elements) {
         if (!positive(liquid.high_temperature_k)) continue;
         vapour_of[l] = it->second; liquid_of[it->second] = l;
     }
-    for (auto& e : elements) c.materials.push_back({e, reference_properties(e)});
+    for (auto& e : elements) c.materials.push_back({e, reference_properties(e, reference)});
     // Registry: atoms label identity only; a pair shares one label and the
     // vapour's molar mass, so the saturation machinery recognizes it.
     const auto label = [&](std::size_t i) {

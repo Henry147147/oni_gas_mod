@@ -64,6 +64,17 @@ Rows are keyed by the game's element id. Sources:
   The running game names it by its decimal hash, so the row is also matched
   by that hash.
 
+### Saved catalogues
+
+The physical checkpoint records the complete registry and EOS identity,
+including materials absent from the colony. Adding the nitrogen reference row
+therefore changes new checkpoints even when nitrogen air is off. Restoring a
+pre-change colony first checks the current catalogue, then the exact previous
+nitrogen surrogate catalogue. The ordinary checkpoint reader must accept every
+identity byte and checksum; an unknown model still refuses. A restored colony
+keeps its saved catalogue, saturation pairs and continuation law, and reencodes
+the same bytes. New colonies use the nitrogen reference row.
+
 ## Surrogates
 
 - **Latent heat:** Trouton's rule, 88 J/(mol K) times the game's boiling
