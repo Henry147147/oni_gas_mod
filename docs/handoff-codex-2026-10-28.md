@@ -163,15 +163,40 @@ reaches only 2.862× owner / 2.861× game, a small gain with saturated debt and
 dropped time. Do not adopt it or claim 3× from the traced losses. The original
 diagnostic changes no dt, cap or fence.
 
+Exact heat validation reuse is now implemented for batches of at least 32
+edits; smaller calls keep the original path because table setup regresses them.
+It reuses transfer EOS evaluation and its absent-liquid rejection fallback,
+with lazy setup after the original argument and representability checks.
+The private differential passes 6057 comparisons over 2019 cases, including
+refusals, revisions, rounding and complete checkpoint bytes. Two actual
+79-species journal cohorts and 96 owner-frame executions preserve physical,
+full-owner and receipt/job hashes. Heat-stage replay means improve about 30–33%;
+complete fresh owner time is unchanged within noise. All 80 frames/all twelve
+digs retain the original physical and owner hashes. Final Linux and Windows
+x64/Wine each pass 89 CTests; the full managed/game-contract suites and 439
+Python tests pass. All 87 short MAC outputs and exit codes are retained except
+the added heat-control PASS line. Checkpoint formats and solver arithmetic are
+unchanged. Evidence: `artifacts/tier-integration-2026-10-28/heat-exact/`,
+`heat-native.log`, `heat-managed.log` and `mac-heat-final/comparison-reviewed.json`.
+The heat-only actual Linux Terra450 run passes at 2.7469× warmed owner /
+2.7470× game speed. Heat falls slightly to 8.2/8.1 ms, while transfers rise to
+10.3/10.5 ms against the earlier run's 4.8/6.8 ms; runtime inputs differ, so this
+does not prove an overall speedup or explain that increase. A clean 15 s window
+has two GCs averaging 146.3 ms, frame p99 94.74 ms and 166,368 lazy cell reads.
+See `linux-heat-only-3x-r7/compact-summary.json` under the same evidence folder.
+
 **Next:** finish the Spaced Out! cohort. Its first attempt stopped before
 world creation because requested DLC1 did not activate; the normal Steam UI
 requires refreshed sign-in after the account logged in elsewhere. The user has
 been asked to authenticate; do not enter credentials or bypass ownership.
-Meanwhile, measure exact heat validation reuse: `apply_heat` currently builds
-full readings per edit although it needs only temperature. The transfer EOS
-helper may omit those arrays/entropy with the same rare rejection fallback.
-Keep this private until extensive output/refusal and owner replay comparisons
-prove it exact. Retain pressure/transport and allocation work after that;
+Meanwhile, attribute the higher transfer work and test presentation allocations.
+A private texture-scalar prototype aims to remove rich per-cell allocations;
+its first uncached form was slower. It is not adopted: the cached form needs
+channel-pass, large-viewport, lease/session, retention and actual-game proof.
+Native hook-counter sharding has only a small synthetic gain and lacks the
+public status/lifetime proof; it is not adopted. Local transfer scratch and
+open-centre injection search are further exact candidates. Retain
+pressure/transport and allocation work after that;
 active-cell physics benchmarks cannot benefit from sleeping their
 active cells. A private Windows package is prepared; Windows OS acceptance,
 actual 3× and smooth input on the user's PC remain open. The old

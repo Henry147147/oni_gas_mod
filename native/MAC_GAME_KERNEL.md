@@ -795,3 +795,32 @@ short MAC comparison retains all exit codes and numeric output, apart from
 the two new PASS lines and the existing measured timing fields. Private compact
 evidence is `artifacts/region-tiers-2026-10-28/transfer-summary.json` and
 `mac-comparison.json`. Long gates were not run.
+
+## Exact heat reading reuse
+
+Heat batches of at least 32 edits now build one species table and use the same
+validated EOS helper to obtain temperature. Smaller batches retain the original
+full-reading cache: the table setup cost loses on one- and eight-edit calls.
+The table is built only after the first edit passes the original cell, heat,
+limit-argument and representable-energy checks. Edit order, the 4096-edit
+cap, positive-heat ceiling, source revisions and copied/in-place rollback stay
+the same. The full-reading fallback still rejects an unrepresentable extended
+branch of an absent, unusually soft liquid.
+
+Private original/candidate controls compare complete checkpoint bytes,
+revisions, rounding diagnostics and exception types/messages across 6057
+comparisons over 2019 cases, plus the actual fresh and digging input journals.
+Cases include maximum/oversized batches, zero/subnormal heat, temperature-limit
+adjacent doubles, invalid cells, walls, vacuum, partially applied refusal and
+the absent-liquid fallback. Permanent controls cover the 31/32 cutoff,
+single-edit equivalence with explicit revision alignment, copied/in-place
+results, refusal rollback and temperature limits. This optimization reuses
+existing arithmetic and does not assign a new checkpoint version. See the
+[timings and scope](../docs/performance-acceptance.md#further-hot-path-evaluation).
+
+The final heat source passes all 89 Linux Release and 89 Windows x64/Wine
+CTests, 439 Python tests and the managed/game-contract suites. All 87 short
+MAC programs retain their prior exit codes and existing output; only the new
+heat-control PASS line is added, with the usual two timing fields masked.
+The full 80-frame twelve-dig replay retains every physical and full-owner
+checkpoint hash. Long gates and Windows OS acceptance are separate.

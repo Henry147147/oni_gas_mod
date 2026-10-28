@@ -1094,6 +1094,10 @@ namespace {
 void apply_heat(const MacClosedWorld &source, MacTransportState &next,
                 std::span<const MacCellHeat> edits, EditJournal &journal) {
   require(!edits.empty() && edits.size() <= 4096, "Invalid game heat batch");
+  // Building the table pays off on batches; keep one-off/refused-edit
+  // retries on the original cached reading path.
+  const bool batch_reading = edits.size() >= 32;
+  std::optional<std::vector<k::Species>> species;
   for (const auto &edit : edits) {
     require(edit.cell_index < next.cells.size() &&
                 !next.grid.walls[edit.cell_index] &&
@@ -1107,8 +1111,14 @@ void apply_heat(const MacClosedWorld &source, MacTransportState &next,
     cell.mixture.energy += edit.joules;
     require(edit.joules == 0 || cell.mixture.energy != old,
             "Game heat change is unrepresentable");
-    const auto e = MacGameKernelAccess::reading(source, cell);
-    require(edit.joules <= 0 || e.temperature_k <= edit.maximum_temperature_k,
+    if (batch_reading && !species)
+      species.emplace(table(source.registry(), source.thermodynamics(),
+                            source.settings().game.liquid_stiffness_ratio,
+                            source.settings().game.liquid_law));
+    const double temperature = batch_reading
+        ? transfer_reading(source, *species, cell, next.grid.volume_m3()).temperature
+        : MacGameKernelAccess::reading(source, cell).temperature_k;
+    require(edit.joules <= 0 || temperature <= edit.maximum_temperature_k,
             "Game heat exceeds reserved temperature limit");
   }
 }

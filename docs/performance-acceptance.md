@@ -163,6 +163,63 @@ clock/accounting analysis in
 The small gain does not justify declaring 3× or changing the default. More CPU
 headroom and full handoff timing remain necessary.
 
+### Further hot-path evaluation
+
+Heat validation builds a full thermodynamic reading for every edit although
+the caller uses only temperature. The exact batch experiment reuses the
+transfer EOS helper, including its uncommon absent-liquid rejection fallback.
+Two original 79-species saved worlds and their actual journals retain physical
+and full-owner checkpoint hashes, complete receipt fields and job IDs across
+96 owner-frame executions. Heat-stage means fall from 1.247 to 0.838 ms in the
+fresh Spaced Out! replay and 3.773 to 2.633 ms in the digging replay. The fresh
+complete owner is unchanged within noise; the digging mean improves about
+1.9%, with enough variance that it cannot all be attributed to heat.
+Isolated journal batches fall from 3.655 to 2.079 ms and 6.070 to 4.069 ms.
+These are native replay measurements, not achieved game speed.
+
+The setup cost matters: a single fresh-world edit regresses from about 108 to
+114 µs, while 32 edits improve from 128 to 120 µs and 4096 from 2539 to
+1406 µs. The implementation retains the original path below 32 edits and builds its
+table lazily after the original edit and energy validation. This preserves
+small retries, validation order, the 4096-edit cap and rollback. Private
+differential controls cover 6057 comparisons across 2019 accepted/refused
+inputs, plus both real journal cohorts. Evidence:
+`artifacts/tier-integration-2026-10-28/heat-exact/`.
+The complete 80-frame twelve-dig replay retains all physical and owner hashes.
+Final verification passes 89 Linux and 89 Windows x64/Wine CTests, all managed
+and game-contract checks, 439 Python tests and the 87 short MAC output/exit-code
+comparison (one added heat-control PASS line).
+
+The heat-only frozen package then passes an actual 450-frame Linux Terra ultra
+run with the same seed/settings/logging and unchanged r7 managed libraries.
+Warmed frames151–450 reach 2.7469× owner / 2.7470× game progress, below the
+earlier traced 2.818× run. Heat costs 8.2/8.1 ms in its two warmed windows, but
+transfers cost 10.3/10.5 ms rather than 4.8/6.8 ms. This is one fresh-game
+comparison with differing runtime inputs, so it establishes neither a total
+speedup nor the cause of the transfer increase. One clean 15 s window has two
+GC-containing frames averaging 146.3 ms, frame p99 94.74 ms and 166,368 lazy
+cell reads. Accounting errors, owner faults and dropped timing samples are 0.
+Compact evidence: `artifacts/tier-integration-2026-10-28/linux-heat-only-3x-r7/compact-summary.json`.
+
+The remaining investigation priorities are based on the integrated run:
+
+| Path | Measured scope | Next exact experiment |
+| --- | --- | --- |
+| Presentation sampling | About 169,000 lazy cell reads and 3 GCs in a clean 15 s window | Sample texture scalars directly from the retained compact frame; prove all sampled bits, rejection messages, snapshot lifetimes and allocation behavior against the full reading path |
+| Local transfers | Roughly 4–7 ms per owner frame | Avoid whole-grid scratch initialization for radius-local searches, retaining BFS, accumulation and receipt order |
+| Native UpdateData | Roughly 14 ms per call | Attribute the remaining original work and hook overhead; preserve solids, boundary exchange and public observer counters |
+| Flow | Roughly 16–17 ms per fresh Terra owner frame | Profile the active regions' pressure and transport after tiers; large connected colonies still need a faster pressure solve |
+| Projection readings | Ledger/projection aggregate around 2.8 ms, partly overlapping the partial timer | Validate immutable registry context once per worker batch instead of rescanning it per cell |
+
+Four atomic counter updates execute in each native hook. A short synthetic
+per-hook sharding experiment, retaining the global active-call guard, reduces
+mixed-hook cost from about 38–39 to 34–35 ns/call at twelve threads. It omits
+game work and live status/lifecycle behavior, so it is not adopted. Naively
+sharding the active-call guard can miss activity during a scan and permit an
+unsafe detach. The counter result does not establish an UpdateData gain.
+Full publication latency includes scheduling and observation; it must not be
+added to the component timers as another CPU phase.
+
 ### Measurement and test harness first
 
 - Measure both `GameClock` and owner-clock deltas against monotonic wall time

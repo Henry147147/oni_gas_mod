@@ -7,12 +7,16 @@ retain their saved behavior. The owner records activity clocks, actor census
 and pending frame inputs across saves; passive solid conduction alone does not
 wake a region. Native and engine-free controls cover region cadence, lifecycle,
 frame ordering, pending save/load, selective postprocessing and census geometry.
-A clean integration build passed 89 Linux Release CTests and 437 Python tests;
-focused owner controls also passed ASan/UBSan. Those runs preceded a later
-managed diagnostic guard fix and must be repeated on the final source. The
-current-package real-game activity and Windows OS checks are pending. The
-earlier profile8 Linux measurement was below actual 3×; no new speed or release
-acceptance is claimed. See [activity controls](region-activity-controls.md) and
+A final integration build passed 89 Linux Release CTests, 89 Windows x64/Wine
+CTests, 439 Python tests and the managed/game-contract suites. Focused owner
+and regional-scheduler controls passed ASan/UBSan; the complete instrumented
+game-kernel target retains a reproduced pre-existing zero-add control failure.
+The base-game lifecycle cohort passes 16 checks. Pending cold load, paused
+resave and a second cold file readback preserve the saved actor binding and
+claim the queued packet once. Spaced Out! validation awaits normal Steam
+re-authentication; Windows OS checks remain pending. Fresh Linux Terra reaches
+about 2.80× warmed owner/game progress, with three GCs in a clean 15 s window.
+Actual 3× and release acceptance remain open. See [activity controls](region-activity-controls.md) and
 [performance acceptance](performance-acceptance.md).
 
 **Temperature regression, 2026-10-28:** controlled digging in the user's
@@ -65,7 +69,7 @@ the user's PC. See [DLC evidence](dlc-compatibility.md).
 Current repairs and the work beyond private playtesting are tracked in
 [feature completion work](feature-completion-status.md).
 
-Current state on 2026-10-28. [Private-playtest acceptance](private-playtest-release.md) remains open. New colonies use profile9/core28 with boil-only phase change, activity tiers, mixed pipes and pipe saves (flags29); the choice of Always simulate is saved for a new colony. Earlier profile8 recorded-input replays and Linux standalone controls pass; current integrated game checks and Windows OS behavior need validation. One line per system; details in the linked pages.
+Current state on 2026-10-28. [Private-playtest acceptance](private-playtest-release.md) remains open. New colonies use profile9/core28 with boil-only phase change, activity tiers, mixed pipes and pipe saves (flags29); the choice of Always simulate is saved for a new colony. The integrated base-game activity and pending-save cohort passes on Linux; the broader scenario matrix, Spaced Out! cohort and Windows OS behavior need validation. One line per system; details in the linked pages.
 
 | System | State |
 | --- | --- |

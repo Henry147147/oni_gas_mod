@@ -25,6 +25,90 @@ void require(bool value, const char *text) {
   if (!value)
     throw std::runtime_error(text);
 }
+void heat_reading_controls() {
+  const auto &f = ma::testing::setup();
+  MacClosedSettings cfg;
+  cfg.numerical_kernel = MacNumericalKernel::game;
+  cfg.game_profile = MacGameProfile::game_kernel_carried_momentum;
+  cfg.vacuum = MacVacuumRepresentation::void_phase;
+  cfg.game.liquid_law = MacGameLiquidLaw::positive_segments;
+  const auto make = [&] {
+    return MacClosedWorld::game_colony(f.registry, f.eos, f.state(2, 1, false),
+                                       std::vector<double>(2, 300), cfg);
+  };
+  const auto source = make();
+  const auto image = source.checkpoint();
+  for (const std::size_t count : {31U, 32U, 64U}) {
+    std::vector<MacCellHeat> edits;
+    for (std::size_t i = 0; i < count; ++i)
+      edits.push_back({i % 2, i % 3 == 0 ? -.25 : .5, 100000});
+    // A zero after changed cells still validates its limit and evaluates
+    // the same state; the positive-only temperature ceiling does not apply.
+    edits.back() = {1, 0, 1};
+    auto sequential = make();
+    for (const auto &edit : edits)
+      sequential = sequential.with_cell_heat(std::span(&edit, 1));
+    const auto copied = source.with_cell_heat(edits);
+    // Revision is saved: one batch counts once, while the reference counts
+    // each single edit. Add explicitly inert zero-heat operations to the
+    // batch result so the complete images can also agree on revision.
+    auto same_revision = copied;
+    const MacCellHeat zero{0, 0, 1};
+    for (std::size_t i = 1; i < count; ++i)
+      same_revision = same_revision.with_cell_heat(std::span(&zero, 1));
+    auto victim = make();
+    const auto *state = &victim.state();
+    auto inplace = std::move(victim).with_cell_heat(edits);
+    require(inplace.checkpoint() == copied.checkpoint() &&
+                same_revision.checkpoint() == sequential.checkpoint() &&
+                &inplace.state() == state &&
+                copied.revision() == source.revision() + 1 &&
+                inplace.revision() == source.revision() + 1 &&
+                same_revision.revision() == source.revision() + count &&
+                sequential.revision() == source.revision() + count,
+            "Batched heat differs from original single readings or revision policy");
+    for (const MacCellHeat invalid :
+         {MacCellHeat{2, 1, 100000}, MacCellHeat{1, 0, 0},
+          MacCellHeat{1, std::numeric_limits<double>::denorm_min(), 100000}}) {
+      edits.back() = invalid;
+      auto refused = make();
+      const auto before = refused.checkpoint();
+      const auto revision = refused.revision();
+      std::string copied_error, inplace_error;
+      try { (void)source.with_cell_heat(edits); }
+      catch (const std::invalid_argument &error) { copied_error = error.what(); }
+      try { (void)std::move(refused).with_cell_heat(edits); }
+      catch (const std::invalid_argument &error) { inplace_error = error.what(); }
+      require(!copied_error.empty() && copied_error == inplace_error &&
+                  refused.checkpoint() == before &&
+                  refused.revision() == revision && source.checkpoint() == image,
+              "Batched heat refusal changed error, source bytes or revision");
+    }
+  }
+  const MacCellHeat warm{0, 10, 100000};
+  const auto warmed = source.with_cell_heat(std::span(&warm, 1));
+  const double temperature = warmed.cell_reading(0).temperature_k;
+  for (const double limit : {std::nextafter(temperature, 0), temperature,
+                            std::nextafter(temperature,
+                                std::numeric_limits<double>::infinity())}) {
+    std::vector<MacCellHeat> edits(32, MacCellHeat{0, 0, 100000});
+    edits.back() = {0, 10, limit};
+    bool refused = false;
+    try {
+      const auto result = source.with_cell_heat(edits);
+      require(result.checkpoint() == warmed.checkpoint(),
+              "Batched heat changed an exact temperature limit");
+    } catch (const std::invalid_argument &error) {
+      refused = true;
+      require(std::string(error.what()) == "Game heat exceeds reserved temperature limit",
+              "Batched heat changed temperature-limit refusal");
+    }
+    require(refused == (limit < temperature) && source.checkpoint() == image,
+            "Batched heat changed adjacent temperature-limit acceptance");
+  }
+  std::cout << "PASS batched heat exact original single readings, 31/32 cutoff, "
+               "temperature limits and copied/in-place rollback/revisions\n";
+}
 void absent_liquid_transfer_rejection() {
   const auto &f = ma::testing::setup();
   auto state = f.state(2, 1, false);
@@ -48,6 +132,19 @@ void absent_liquid_transfer_rejection() {
   catch (const std::runtime_error &error) { transfer_error = error.what(); }
   require(transfer_error == reading_error && world.checkpoint() == original,
           "Fast transfer changed an absent-liquid rejection or source bytes");
+  const std::vector<MacCellHeat> heats(32, MacCellHeat{0, 0, 100000});
+  for (const bool inplace : {false, true}) {
+    auto victim = MacClosedWorld::from_checkpoint(f.registry, f.eos, original);
+    const auto revision = victim.revision();
+    std::string heat_error;
+    try {
+      if (inplace) (void)std::move(victim).with_cell_heat(heats);
+      else (void)victim.with_cell_heat(heats);
+    } catch (const std::runtime_error &error) { heat_error = error.what(); }
+    require(heat_error == reading_error && victim.checkpoint() == original &&
+                victim.revision() == revision,
+            "Batched heat changed absent-liquid rejection or source bytes/revision");
+  }
   std::cout << "PASS transfer reading preserves absent-liquid rejection\n";
 }
 void trace_entropy_is_finite() {
@@ -358,6 +455,7 @@ int main() {
     ma::testing::game_activity_control();
     ma::testing::regional_execution_control();
     absent_liquid_transfer_rejection();
+    heat_reading_controls();
     ma::testing::component_cache_control();
     full_worker_continuation();
     const auto &f = ma::testing::setup();
