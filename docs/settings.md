@@ -147,6 +147,19 @@ have fewer blocks. A running colony takes the change between frames, with
 identical physical results and checkpoint bytes. More workers can be slower;
 the [Terra measurement](../native/MAC_GAME_KERNEL.md) records that result.
 
+The default stays at physical cores. Reserving cores for Unity was measured
+and was not clearly better (Ryzen 9 5900X, 12 cores, game and solver on the
+same 12 logical CPUs, base-game Terra; a 9950X was not available). Solver
+alone, 100,000 active cells, owner step ms (mean, one run each): 12 workers 1,423;
+10: 1,762; 8: 1,553; 6: 1,683; 4: 1,723; 2: 3,456 (the pool scales poorly past
+about 4-6 workers). In the game at ultra speed, where the owner is nearly
+always busy, Unity frame p95/p99 ms and owner step ms: 12 workers 81/182 and
+93; 8: 85/207 and 112; 6: 75/150 and 90 (differences are inside the run-to-run
+spread); at fast speed 24 and 6 workers gave 78/184 and 69/197. A player who
+sees camera hitches while the solver is saturated can try physical cores minus
+two; `MA_FRAME_LOG=1` shows whether Unity's frame time follows
+([main-thread smoothness](colony-owner.md#main-thread-smoothness)).
+
 Automatic detection uses Linux's core sibling topology within the current
 CPU affinity, or Windows' processor-core records (honouring process affinity
 on a single processor group). It counts physical cores directly rather than
