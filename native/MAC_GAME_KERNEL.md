@@ -598,7 +598,17 @@ Spaced Out! colony (frames4–43) averages 1.31 s per frame with profile6 and
 1.16 s with profile7; the magma face still forms there (up to −2,081 m/s).
 Without interface sharpening it never forms (at most −70 m/s) and the same
 replay averages 1.05 s; that is a measurement of the cause, not a setting
-change. Profile7 roughly halves the attempts of the storm regions;
+change. Making profile7 the new-colony default is a one-line change in the colony
+owner's settings, but one control must first be rebuilt: the owner's legacy
+liquid-boundary law check (`oni_colony_owner`, an image relabelled as owner
+wrapper11) expects a water front to cross an airflow-tile column within one
+frame. On profile6 253.6 kg crosses; on profile7 the front reaches the
+column more gradually, each frame's expulsion returns it, and none crosses in
+six frames. A wrapper11 image with a profile7 core cannot exist, so that
+fixture should be created on profile6. The owner's creation, option and
+restore controls pass with profile7 and core26 expectations.
+
+Profile7 roughly halves the attempts of the storm regions;
 it does not reach real time on these states. The remaining cost is the
 interval count of the fast flows described above, and the per-interval cost
 of transport (about 1–2 ms per interval on 5,000–9,000 cells), pressure and
