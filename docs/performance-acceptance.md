@@ -129,3 +129,15 @@ Offline prototypes on the captured 100k systems (scratch, not adopted):
 smoothed-aggregation multigrid PCG with Jacobi smoothing converges in 26–33
 iterations instead of IC(0)'s 272–441, and a two-level IC(0) with 4 × 4
 aggregates in 61–107. Both keep the equation and its tolerance.
+
+### Fresh-colony storms, 2026-10-28
+
+Bounded pressure intervals (profile6) made the fresh Spaced Out! colony
+spend most of each advance in a few regions with fast flows; see
+[retry storms and speed profile 7](../native/MAC_GAME_KERNEL.md#retry-storms-and-speed-profile-7).
+On the same saved states, physical-only advances (twelve workers, high CPU
+lock) went from 1.905/2.978 s mean/p95 (frame 32) and 0.591/1.498 s
+(frame 60) at the parent to 1.171/1.724 and 0.337/0.750 s with profile7
+and the bit-identical reading and pressure-structure changes. This is
+still several times slower than one 0.2 s frame per 0.2 s of game time.
+

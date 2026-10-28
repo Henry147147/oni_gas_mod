@@ -509,3 +509,99 @@ with **Evaporation below boiling** on keeps core24 and its arithmetic. The
 phase stage's entropy remains a diagnostic: it reports the mixture entropy,
 which falls when unsaturated vapour condenses, while the rule's own entropy
 (each gas at the total gas pressure) rises.
+
+## Retry storms and speed profile 7
+
+The bounded intervals of profile6 multiplied the work of a few regions. In
+the fresh Spaced Out! frame-32 state (`writer32`) one 2,846-cell magma region
+made 2,062 pressure attempts for 1,024 accepted intervals per 0.2 s advance.
+The cause is a face, not the region: between an 8.3 kg magma cell (308,219)
+and a rock-gas cell above it holding 2.7e-7 kg, the face momentum was
+−4,998 kg·m/s on 4.1 kg of face inertia, −1,207 m/s. The 0.4-cell net-volume
+bound then admits at most 3.3e-4 s, and fixed halving and doubling settled
+on alternating 1.95e-4 s accepted and 3.9e-4 s rejected trials.
+
+An owner replay of the same fresh colony from frame3 with its recorded
+inputs shows how that velocity forms. Interface sharpening moves about 11%
+of the cell's magma per tick into its fuller neighbour, and its equal-volume
+parcels leave face momentum unchanged (layering has the same rule), so the
+face kept J while its inertia fell from 345 to 1.7 kg: −4.8 m/s at frame3,
+−24 at frame10, −1,690 at frame32. The kinetic energy came from internal
+energy; the cell cooled from 1,722 K to 1,345 K. The rock-gas cell above is
+not exactly empty, so the free-surface closure does not close the face, and
+its trace mass carries almost nothing, so pressure cannot build to stop it.
+This is a modelling defect of the stages that move material without its
+momentum, not a physical flow; correcting it changes the equations and is
+reported as an option rather than adopted here.
+
+The other expensive regions of fresh colonies are physical: gas and vapour
+of nanograms to grams per cell expanding into vacuum pockets at 100–700 m/s.
+The per-cell bound applies to them regardless of mass. In the replayed
+frame-60 state the four slowest regions accepted 150–330 intervals per
+advance, limited by cells whose own or donor mass was below 1 µg in about
+70% of rejections.
+
+Three changes reduce the cost of these intervals:
+
+- *Changed-cell EOS readings* (all profiles, no arithmetic change). After an
+  accepted flow interval, a trace prune and layering, cells whose inventory
+  and energy are bitwise unchanged keep their reading.
+- *Cached component structure* (all profiles, no arithmetic change).
+  `solve_components_cached` keeps the component layout, face order, IC(0)
+  sparsity and reduction plan while the active cells and coupled faces are
+  unchanged. On a one-worker pool (each region of a multi-region world) it
+  runs each component's PCG with the general solve's exact arithmetic:
+  single reductions below 4,096 cells, 1,024-row reductions above. A control
+  compares both paths bit for bit. Setup had been about 0.8 ms of a 1.3 ms
+  one-iteration solve on a 9,000-cell component.
+- *Game profile7 / physical checkpoint26* (new colonies still create
+  profile6). Profile6's equations, criterion, tolerances and caps; each
+  interval is proposed from the swept volume the previous trial measured: a
+  net-volume rejection retries at `0.9 / ratio` of its interval (at most
+  half), other refinements halve, an accepted interval proposes 90% of the
+  bound (growth two, shrink half), a remainder shorter than two proposals is
+  split in halves, and the proposal carries into the second flow part.
+  Accepted intervals still satisfy the same bound, and the expansion control
+  checks profile7 against the resolved temporal reference.
+
+Same-state physical benchmarks (Ryzen 9 5900X, twelve workers, the high CPU
+lock, three interleaved repeats of eight 0.2 s advances, no owner inputs):
+
+| State | Parent profile6 mean / p95 s | This series, profile6 | This series, profile7 |
+| --- | --- | --- | --- |
+| Fresh frame 32 (`writer32`) | 1.905 / 2.978 | 1.532 / 2.297 | 1.171 / 1.724 |
+| Fresh replay frame 30 | 1.735 / 2.791 | 1.663 / 2.834 | 1.022 / 1.710 |
+| Fresh replay frame 60 | 0.591 / 1.498 | 0.541 / 1.331 | 0.337 / 0.750 |
+
+The fresh replay states come from the owner replay above (Spaced Out!
+colony, recorded inputs from frame3, profile6). Concurrent builds on the
+other CPU half made these runs slower than unloaded ones; the comparison
+within each row is interleaved.
+
+Profile6 checkpoint images of the series equal the parent's in every
+compared advance. Clean Release builds give the same exit codes and outputs
+for all 87 run MAC programs (the long Riemann gate is not run), apart from
+timing fields and the game-kernel test's new PASS lines: before rebasing onto
+the boil-only rule (`94c42f6` against this series' cached structure and
+profile7) and after it (`1058d0d` against the series' last commit). All 89
+CTests pass on both. Profile7 also runs the boil-only rule (version26,
+selector1) on the fresh frame-60 state.
+
+The overfill regression was replayed offline through the colony owner with
+the recorded inputs of the twelve-dig Proton run (the uploaded colony's
+unchanged physical state, frames505–584, twelve workers). Profile6
+reproduces the recorded in-game bounds of the watched cell: 32.340–34.560°C,
+1.6462–1.6818 kg and 249.85–254.39 kPa. Profile7 stays within
+32.350–34.520°C, 1.6492–1.6818 kg and 249.75–254.39 kPa, while the mean
+owner frame falls from 2.94 to 1.49 s. An owner replay of the fresh
+Spaced Out! colony (frames4–43) averages 1.31 s per frame with profile6 and
+1.16 s with profile7; the magma face still forms there (up to −2,081 m/s).
+Without interface sharpening it never forms (at most −70 m/s) and the same
+replay averages 1.05 s; that is a measurement of the cause, not a setting
+change. Profile7 roughly halves the attempts of the storm regions;
+it does not reach real time on these states. The remaining cost is the
+interval count of the fast flows described above, and the per-interval cost
+of transport (about 1–2 ms per interval on 5,000–9,000 cells), pressure and
+readings. Options that would change the model (momentum-carrying sharpening
+and layering; a net-volume bound that ignores cells and donors below a mass
+floor) are measured in the orchestration report, not adopted.
