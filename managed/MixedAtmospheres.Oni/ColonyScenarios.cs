@@ -216,15 +216,43 @@ namespace MixedAtmospheres.Oni
         }
 
         // Warm water evaporates into the dry air above it at its temperature.
+        // Warm (57 C) water under oxygen with a row of unsaturated steam
+        // (0.02 kg per cell). The colony's saved rule decides the result
+        // (native/MAC_PHASE_CHANGE.md#boil-only-rule): boil-only (the default)
+        // keeps the water liquid and condenses the steam as it mixes into the
+        // air; with Evaporation below boiling the water evaporates into the air.
         private static void Phase(int frame, OniNativeColony.Status status)
         {
             if (Once(0, "arena"))
-                Arena((x, y) => y == 0 ? (SimHashes.Granite, 4000f, 330f) : y <= 2 ? (SimHashes.Water, 990f, 330f) : (SimHashes.Oxygen, 1.2f, 330f));
-            if (Once(6, "start")) recorded["evaporated"] = status.EvaporatedKg;
-            if (Once(32, "check"))
+                Arena((x, y) => y == 0 ? (SimHashes.Granite, 4000f, 330f) : y <= 2 ? (SimHashes.Water, 990f, 330f) :
+                    y == 4 ? (SimHashes.Steam, .02f, 330f) : (SimHashes.Oxygen, 1.2f, 330f));
+            double Steam(Func<int, bool> row) { double t = 0; for (var y = 0; y < Height; ++y) if (row(y)) for (var x = 0; x < Width; ++x) t += SpeciesMass(Cell(x, y), SimHashes.Steam); return t; }
+            double Water() { double t = 0; for (var y = 0; y < Height; ++y) for (var x = 0; x < Width; ++x) t += SpeciesMass(Cell(x, y), SimHashes.Water); return t; }
+            var evaporation = ModSettingsRuntime.Colony?.Toggle(SettingCatalog.EvaporationBelowBoiling) == true;
+            if (Once(4, "start"))
             {
-                Record("water evaporated", status.EvaporatedKg > recorded["evaporated"] + .01, $"{status.EvaporatedKg - recorded["evaporated"]:G4} kg");
-                Record("vapour is in the air", Enumerable.Range(0, Width).Any(x => SpeciesMass(Cell(x, 4), SimHashes.Steam) > 0), "steam above the pool");
+                recorded["evaporated"] = status.EvaporatedKg; recorded["condensed"] = status.CondensedKg;
+                recorded["steam"] = Steam(_ => true); recorded["water"] = Water();
+            }
+            if (Once(evaporation ? 32 : 64, "check"))
+            {
+                var evaporated = status.EvaporatedKg - recorded["evaporated"];
+                var steam = Steam(y => y >= 3);
+                if (evaporation)
+                {
+                    Record("water evaporated", evaporated > .01, $"{evaporated:G4} kg");
+                    Record("vapour is in the air", Enumerable.Range(0, Width).Any(x => SpeciesMass(Cell(x, 4), SimHashes.Steam) > 0), "steam above the pool");
+                }
+                else
+                {
+                    var condensed = status.CondensedKg - recorded["condensed"];
+                    Record("boil-only colony setting", ModSettingsRuntime.Colony != null && !evaporation, "Evaporation below boiling off");
+                    Record("warm water stays liquid and the air holds no vapour", steam <= 1e-3 * recorded["steam"] && Water() >= recorded["water"],
+                        $"air steam {recorded["steam"]:G4} -> {steam:G4} kg, arena water {recorded["water"]:G6} -> {Water():G6} kg, colony evaporation {evaporated:G4} kg");
+                    Record("the vapour condensed", condensed >= .9 * recorded["steam"], $"colony condensation {condensed:G4} kg");
+                }
+                Record("phase change keeps closed ledgers", status.State == 1 && status.MaximumRelativeMassError <= 1e-12 &&
+                    status.MaximumRelativeEnergyError <= 1e-12, $"mass {status.MaximumRelativeMassError:R}, energy {status.MaximumRelativeEnergyError:R}");
                 Finish();
             }
         }

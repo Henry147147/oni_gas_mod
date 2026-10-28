@@ -1228,7 +1228,7 @@ MAOniResult ma_oni_colony_read_passives(std::uint64_t session,std::uint64_t fram
         *stamp=source;*count=static_cast<std::uint32_t>(values.size());
     });
 }
-std::uint32_t ma_oni_colony_options_version() { return 1; }
+std::uint32_t ma_oni_colony_options_version() { return 2; }
 std::uint32_t ma_oni_colony_physical_core_count() { return ma::oni::colony::physical_core_count(); }
 MAOniResult ma_oni_colony_set_worker_count(std::uint32_t workers) {
     return boundary([&] {

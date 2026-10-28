@@ -81,6 +81,8 @@ struct MacGameSettings {
     bool sharpen_liquid_interfaces = true;
     double interface_detail_fraction = 0;
     double phase_relaxation_time_s = 1;
+    // Profile6 only; boil-only is saved as physical version25 (MAC_CHECKPOINT.md).
+    MacPhaseRule phase_rule = MacPhaseRule::equilibrium;
     std::vector<MacSaturationPair> saturation_pairs;
     void validate() const;
 };
@@ -415,11 +417,13 @@ public:
     // production kernel; docs/colony-owner.md#phase-change): every cell holding
     // a saturation pair relaxes at fixed U and volume (advance_mac_phase_change).
     // Momentum and the clock are unchanged; species masses move within pairs.
-    // fraction: the share of the way to equilibrium each cell moves.
-    [[nodiscard]] MacPhaseRelaxation with_phase_relaxation(std::span<const MacSaturationPair>, double fraction = 1) const;
+    // fraction: the share of the way to equilibrium each cell moves; rule:
+    // equilibrium, or boil-only (MacPhaseRule).
+    [[nodiscard]] MacPhaseRelaxation with_phase_relaxation(std::span<const MacSaturationPair>, double fraction = 1,
+        MacPhaseRule rule = MacPhaseRule::equilibrium) const;
     // The same fixed-U equilibrium, restricted to explicit cell indices.
     [[nodiscard]] MacPhaseRelaxation with_phase_relaxation_in_cells(std::span<const MacSaturationPair>,
-        std::span<const std::size_t> cells, double fraction = 1) const;
+        std::span<const std::size_t> cells, double fraction = 1, MacPhaseRule rule = MacPhaseRule::equilibrium) const;
     // Buoyant settling of immiscible liquids (MAC_TRANSPORT.md, "Liquid
     // settling"): across each vertical face of two full liquid-bearing cells,
     // the lower cell's lightest liquid phase rises and the upper cell's

@@ -496,3 +496,16 @@ conversions; it is not a whole-game performance acceptance run. No timestep,
 phase-conversion rate, trace threshold or acceptance bound was changed to
 obtain these measurements. Further optimization must address that local flow
 without restoring the overfill defect.
+
+## Boil-only phase rule (profile6/core25)
+
+New colonies save the [boil-only rule](MAC_PHASE_CHANGE.md#boil-only-rule)
+(user decision 2026-10-28) as physical checkpoint25: the tick's phase stage
+compares saturation with the cell's total gas pressure, the sum of the Dalton
+partials, instead of the vapour's partial pressure. Liquids vaporise only by
+boiling, vapour below its boiling point condenses and the air holds no
+humidity; a cell whose only gas is the vapour gives identical bytes. Profile6
+with **Evaporation below boiling** on keeps core24 and its arithmetic. The
+phase stage's entropy remains a diagnostic: it reports the mixture entropy,
+which falls when unsaturated vapour condenses, while the rule's own entropy
+(each gas at the total gas pressure) rises.

@@ -18,7 +18,7 @@ static class Program
 
     // The native refusal ranges (native/src/oni_colony.cpp validate_options).
     private static bool NativeAccepts(NativeColonyOptions o) =>
-        o.Size == 80 && o.Version == 1 && o.PressureMaximumIterations >= 400 && o.PressureMaximumIterations <= 65536 &&
+        o.Size == 88 && o.Version == 2 && o.EvaporationBelowBoiling <= 1 && o.Reserved == 0 && o.PressureMaximumIterations >= 400 && o.PressureMaximumIterations <= 65536 &&
         o.HeatMaximumIterations >= 800 && o.HeatMaximumIterations <= 65536 && o.FlowParts >= 1 && o.FlowParts <= 8 && o.SharpenLiquidInterfaces <= 1 &&
         (o.MaximumTimestepSeconds == (double).2f || o.MaximumTimestepSeconds == (double).1f || o.MaximumTimestepSeconds == (double).05f) &&
         o.TraceSinkThresholdKg >= 1e-11 && o.TraceSinkThresholdKg <= 1e-6 && o.LiquidStiffnessRatio >= .01 && o.LiquidStiffnessRatio <= 1 &&
@@ -35,15 +35,32 @@ static class Program
             Check(Equals(d.Accept(d.Default), d.Default), "default rejected: " + d.Key);
             Check(!d.IsExperimental(d.Default), "default is experimental: " + d.Key);
             foreach (var step in d.Steps) d.Accept(step);
-            Check(d.Key.StartsWith(d.Scope == SettingScope.Colony ? "solver." : "", StringComparison.Ordinal) || d.Key.StartsWith("breathing.", StringComparison.Ordinal) || d.Scope == SettingScope.Preference,
-                "colony keys are solver or breathing: " + d.Key);
+            Check(d.Key.StartsWith(d.Scope == SettingScope.Colony ? "solver." : "", StringComparison.Ordinal) || d.Key.StartsWith("breathing.", StringComparison.Ordinal) ||
+                d.Key == SettingCatalog.EvaporationBelowBoiling || d.Scope == SettingScope.Preference,
+                "colony keys are solver, breathing or the phase rule: " + d.Key);
         }
         // Default reproduces today's profile 5 exactly (oni_colony.cpp default_options_value).
         var native = SettingValues.Defaults().ToNative();
         Check(native.PressureMaximumIterations == 400 && native.HeatMaximumIterations == 800 && native.FlowParts == 2 && native.SharpenLiquidInterfaces == 1 &&
               native.MaximumTimestepSeconds == (double).2f && native.TraceSinkThresholdKg == 1e-11 && native.LiquidStiffnessRatio == .04 &&
-              native.PressureRelativeTolerance == 1e-8 && native.GasHeatMixing == 8 && native.InterfaceDetailFraction == 0 && native.PhaseRelaxationSeconds == 1,
-              "Default native options differ from today's profile 5");
+              native.PressureRelativeTolerance == 1e-8 && native.GasHeatMixing == 8 && native.InterfaceDetailFraction == 0 && native.PhaseRelaxationSeconds == 1 &&
+              native.Size == 88 && native.Version == 2 && native.EvaporationBelowBoiling == 0 && native.Reserved == 0,
+              "Default native options differ from today's profile 6 with boil-only phase change");
+        // Boil-only phase change: on by default (no evaporation below boiling), a basic Gameplay
+        // colony setting saved in the physical image (not the breathing record), never experimental.
+        var evaporation = SettingCatalog.Get(SettingCatalog.EvaporationBelowBoiling);
+        Check(evaporation.Kind == SettingKind.Toggle && evaporation.Scope == SettingScope.Colony && !evaporation.Advanced &&
+              evaporation.Group == SettingCatalog.PhaseChange && (bool)evaporation.Default == false && !evaporation.IsExperimental(true) &&
+              evaporation.Label == "Evaporation below boiling", "phase rule definition");
+        var realistic = SettingValues.Defaults().With(SettingCatalog.EvaporationBelowBoiling, true);
+        Check(realistic.ToNative().EvaporationBelowBoiling == 1 && NativeAccepts(realistic.ToNative()), "evaporation below boiling native value");
+        Check(SettingValues.Defaults().WithNative(realistic.ToNative()).Toggle(SettingCatalog.EvaporationBelowBoiling) &&
+              !realistic.WithNative(SettingValues.Defaults().ToNative()).Toggle(SettingCatalog.EvaporationBelowBoiling), "phase rule native round trip");
+        Check(ColonySettingsRecord.Encode(realistic).SequenceEqual(ColonySettingsRecord.Encode(SettingValues.Defaults())), "phase rule entered the breathing record");
+        Check(realistic.WithGroup(SettingCatalog.Solver, BuiltInPresets.Find("precise")!.Values).Toggle(SettingCatalog.EvaporationBelowBoiling), "solver preset changed the phase rule");
+        Check(BuiltInPresets.All.All(p => !p.Values.Toggle(SettingCatalog.EvaporationBelowBoiling)), "a built-in preset enables evaporation below boiling");
+        var badRule = realistic.ToNative(); badRule.EvaporationBelowBoiling = 2;
+        Throws<FormatException>(() => SettingValues.Defaults().WithNative(badRule), "invalid native phase rule");
         // Every offered step of every solver setting, and every built-in preset, is inside the native ranges.
         foreach (var d in SettingCatalog.All.Where(d => d.Key.StartsWith("solver.", StringComparison.Ordinal)))
             foreach (var step in d.Kind == SettingKind.Toggle ? new object[] { true, false } : d.Steps.Cast<object>())

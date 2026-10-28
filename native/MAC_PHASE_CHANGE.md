@@ -78,6 +78,67 @@ full cell raises that cell's pressure only to the saturation pressure, and then 
 A fixed boiling point instead forced evaporation regardless of pressure: in a
 prototype, a full water cell reached about 10 bar and the water slug cavitated.
 
+## Boil-only rule
+
+New colonies default to the boil-only rule (user decision 2026-10-28,
+`MacPhaseRule::boil_only`; the player's **Evaporation below boiling** setting
+off, [settings](../docs/settings.md)). The relaxation compares saturation with
+the cell's **total gas pressure** where the equilibrium rule uses the vapour's
+Dalton partial pressure:
+- **Boiling.** A liquid vaporises only above its boiling point at the total gas
+  pressure, which stays pressure-dependent: 100 °C at 1 atm, lower in thin air.
+  Water still boils in vacuum, and a gas-free liquid still needs the 5 K
+  nucleation superheat at its own pressure. Boiling stops when the total gas
+  pressure reaches saturation.
+- **Condensation.** Vapour below its boiling point at the total gas pressure
+  condenses, as in ONI, until it is gone or its latent heat brings the cell to
+  boiling. The gas holds no equilibrium humidity: 25 °C air beside water carries
+  no vapour instead of 3.2 kPa.
+- **Unchanged.** A cell whose only gas is the vapour (a kettle, sealed steam) is
+  unaffected: the total is the sum of the Dalton partials, so it is the same
+  number, bit for bit. Fraction, critical temperature, latent heat, fixed U and
+  the conserved masses, momentum and passives are those of the equilibrium rule.
+
+**Compressed mixtures.** Because every pair compares with the total gas pressure,
+a minor gas in a compressed mixture condenses once the total exceeds its
+saturation pressure, although its own partial pressure is far below it. A fresh
+Terra (seed 147147) has such pockets: chlorine with hydrogen at about 1.9 MPa and
+383–387 K (chlorine's saturation pressure there is 0.78 MPa, below its 417 K
+critical temperature), and carbon dioxide with hydrogen at 0.84–1.3 MPa and
+277–303 K. From the frame-2 state, 6 s of play condense 214 kg of chlorine and
+28 kg of carbon dioxide under the boil-only rule; the equilibrium rule
+evaporates those liquids again and instead evaporates 54 kg of liquids into
+unsaturated gas. Vanilla ONI keeps both gases (it ignores pressure).
+
+**Entropy.** Condensing vapour below its saturation pressure lowers the mixture
+entropy, so the boil-only rule does not maximize it. It maximizes the entropy
+with each gas taken at the total gas pressure, S + R Σ n_k ln x_k over the cell's
+gases (the mixture entropy less the ideal entropy of mixing): condensing dn moles
+changes it by R ln(P / p_sat) dn. The reference relaxation checks that entropy
+instead, with its own rounding bound added to the allowance. In the control,
+humid air over water at 25 °C condenses 7.27 g with ΔS = −4.95 J/K and a rule
+entropy change of +11.5 J/K.
+
+**Where.** The game kernel's per-tick relaxation (`mac_game/phase.hpp`) and the
+reference `advance_mac_phase_change` / `with_phase_relaxation` take the rule. Only
+game profile6 saves it, as physical [version25](MAC_CHECKPOINT.md#version-assignment);
+profile6 with the equilibrium rule keeps version24, and other owners always use
+the equilibrium rule. Sharp-interface boiling and gate M5 (production kernel,
+`phase_change = saturation`) keep the equilibrium rule; no colony runs them. Under
+the boil-only rule an interface cell would be held at the saturation temperature
+of its gas neighbours' total pressure, the same value for the steam-only film M5
+tests.
+
+The control `ma_mac_phase_change_tests --boil-only` checks single cells under
+both rules (humid air condenses entirely, dry air over 25 °C water stays dry,
+11 kPa of vapour in 1 atm air at 50 °C condenses until the cell boils, water at
+105 °C boils until the total gas pressure reaches saturation, pure steam and
+water in vacuum give identical bytes) and a 4×6 game-kernel pool: 25 °C water
+under humid air loses 0.2326 kg of vapour to 1.06e-5 kg in 10 s with no
+evaporation (the equilibrium rule evaporates to 0.273 kg), with closed energy
+and water+steam ledgers, core25 restore and cold continuation; 110 °C water
+and 25 °C water in vacuum boil.
+
 ## Sharp interfaces
 
 Boiling at a liquid surface is limited by the heat reaching the surface, not by
@@ -157,8 +218,10 @@ With the void phase, liquid resting in vacuum boils into its cell's void
 
 An owner without phase change in its settings (the colony owner, whose
 production kernel runs the void phase) can relax between intervals with
-`MacClosedWorld::with_phase_relaxation(pairs, fraction)`: the same equilibrium
-relaxation, each cell moving `fraction` of the way to equilibrium. A pair's
+`MacClosedWorld::with_phase_relaxation(pairs, fraction, rule)`: the same
+relaxation, each cell moving `fraction` of the way to equilibrium. The game
+kernel relaxes pairs inside each tick with its own EOS and the saved
+[rule](#boil-only-rule). A pair's
 `critical_temperature_k` (infinite by default) bounds its liquid: at or above
 it none condenses and liquid evaporates, since the elastic-liquid saturation
 curve otherwise continues far past the critical point. Neither changes any

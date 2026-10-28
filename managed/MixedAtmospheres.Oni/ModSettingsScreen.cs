@@ -149,6 +149,7 @@ namespace MixedAtmospheres.Oni
                         GUILayout.Label("Duplicants always need enough oxygen. CO₂ continues to mix and displace oxygen when its breathing limits are off.", text!);
                         SettingsTab(SettingCatalog.Breathing, false);
                         GUILayout.Label("Oxygen requirements and optional CO₂ thresholds are under Advanced → Breathing thresholds.", small!);
+                        SettingsTab(SettingCatalog.PhaseChange, false);
                         break;
                     case 1:
                         SettingsTab(SettingCatalog.Display, false); SettingsTab(SettingCatalog.Panel, false); SettingsTab(SettingCatalog.Keys, false); break;
@@ -184,7 +185,7 @@ namespace MixedAtmospheres.Oni
             string context;
             if (ReadOnlyColony)
                 context = ModSettingsRuntime.Colony == null ? "This colony is not simulated by Mixed Atmospheres; it has no colony settings. Preferences apply at once." :
-                    "Changes to CO₂ breathing limits apply to this colony and are saved with it. Solver settings and breathing thresholds are fixed for this colony. Display and performance changes apply at once.";
+                    "Changes to CO₂ breathing limits apply to this colony and are saved with it. Evaporation, solver settings and breathing thresholds are fixed for this colony. Display and performance changes apply at once.";
             else
                 context = "Choose gameplay settings for new colonies here. Each colony saves its rules. Display and performance changes apply at once.";
             GUILayout.Label(context, small!);
@@ -362,7 +363,7 @@ namespace MixedAtmospheres.Oni
             var definitions = SettingCatalog.All.Where(d => d.Group == group && d.Advanced == advanced).ToArray();
             if (definitions.Length == 0) return;
             Section((advanced ? "Advanced · " : "") + group);
-            var colony = group == SettingCatalog.Solver || group == SettingCatalog.Breathing;
+            var colony = group == SettingCatalog.Solver || group == SettingCatalog.Breathing || group == SettingCatalog.PhaseChange;
             var locked = colony && ReadOnlyColony;
             var values = Shown;
             if (group == SettingCatalog.Breathing && advanced)
@@ -415,7 +416,7 @@ namespace MixedAtmospheres.Oni
                 GUILayout.Label("An oxygen ceiling below 100% makes pure generated oxygen unbreathable. Starting air is not diluted automatically.", small!);
                 GUI.contentColor = Color.white;
             }
-            if (locked && advanced) GUILayout.Label("Read-only: this colony keeps the values above. Set them from the main menu for new colonies.", small!);
+            if (locked && (advanced || group == SettingCatalog.PhaseChange)) GUILayout.Label("Read-only: this colony keeps the values above. Set them from the main menu for new colonies.", small!);
         }
 
         private void Change(SettingDefinition d, object value)

@@ -23,8 +23,9 @@ extern "C" {
 #define MA_ONI_COLONY_GAME_FLOOR 2U
 /* Explicit new-colony diagnostic kernel; exclusive with GAME_FLOOR. */
 #define MA_ONI_COLONY_GAME_KERNEL 4U
-/* With GAME_KERNEL only: create game profile 6 (core24, heat mixing 8), the
- * default for new colonies (docs/completion-plan.md#amendments). */
+/* With GAME_KERNEL only: create game profile 6 (heat mixing 8), the default
+ * for new colonies (docs/completion-plan.md#amendments): core25 with the
+ * default boil-only phase rule, core24 when evaporation below boiling is on. */
 #define MA_ONI_COLONY_GAME_SURFACE 8U
 
 typedef struct MAOniColonyMaterial {
@@ -332,14 +333,17 @@ typedef struct MAOniColonyDiseaseGrowth {
 MA_ONI_API uint32_t ma_oni_colony_world_biology_version(void);
 MA_ONI_API MAOniResult ma_oni_colony_set_diseases(const MAOniColonyDisease*, uint32_t disease_count,
     const MAOniColonyDiseaseGrowth*, uint32_t element_count);
-/* Saved profile-5 options (docs/settings.md). A new colony created with
+/* Saved profile-6 options (docs/settings.md). A new colony created with
  * GAME_KERNEL|GAME_SURFACE takes the options last set here and saves them in
- * its physical image (core24); other profiles and restore ignore them, and a
+ * its physical image (core25, or core24 with evaporation below boiling);
+ * other profiles and restore ignore them, and a
  * restored colony keeps the values its save holds. Set them while no owner
  * runs; NULL restores the defaults, which reproduce the colony created without
  * this call byte for byte. A value outside its range is refused and keeps the
  * previous options. copy_options reports the running game-kernel colony's
- * saved values (MA_ONI_INCOMPATIBLE for other profiles). Version 1. */
+ * saved values (MA_ONI_INCOMPATIBLE for other profiles; older game profiles
+ * report evaporation below boiling, their only rule). Version 2 (abi_version
+ * 2, 88 bytes) adds the phase rule. */
 typedef struct MAOniColonyOptions {
     uint32_t struct_size, abi_version;
     uint32_t pressure_maximum_iterations; /* 400..65536 */
@@ -353,6 +357,11 @@ typedef struct MAOniColonyOptions {
     double gas_heat_mixing;               /* 0..32 */
     double interface_detail_fraction;     /* 0..0.5 */
     double phase_relaxation_time_s;       /* 0.1..10 */
+    /* 0 (default): boil-only phase change, liquids vaporise only above their
+     * boiling point at the cell's total gas pressure and vapour below it
+     * condenses; 1: evaporation into unsaturated gas (equilibrium humidity). */
+    uint32_t evaporation_below_boiling;
+    uint32_t reserved;                    /* 0 */
 } MAOniColonyOptions;
 MA_ONI_API uint32_t ma_oni_colony_options_version(void);
 MA_ONI_API MAOniResult ma_oni_colony_default_options(MAOniColonyOptions*);

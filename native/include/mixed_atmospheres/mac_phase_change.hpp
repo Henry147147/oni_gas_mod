@@ -12,6 +12,15 @@ namespace ma::experimental {
 // critical_temperature_k: at or above it the pair has no liquid (none
 // condenses, and liquid evaporates); infinity keeps every temperature.
 struct MacSaturationPair { std::size_t liquid = 0, vapour = 0; double critical_temperature_k = std::numeric_limits<double>::infinity(); };
+// Saved phase-change rule (MAC_PHASE_CHANGE.md). Value 0: the liquid and its
+// vapour relax to equilibrium at the vapour's Dalton partial pressure, so a
+// liquid evaporates into unsaturated gas and the gas holds equilibrium
+// humidity. Value 1 (boil-only, user decision 2026-10-28): the comparison
+// uses the cell's total gas pressure, so a liquid vaporises only above its
+// boiling point at that pressure and vapour below it condenses (as in ONI).
+// A cell whose only gas is the vapour is unaffected. Both keep U, momentum,
+// passives and every mass account.
+enum class MacPhaseRule { equilibrium = 0, boil_only = 1 };
 // The vapour entropy offset that puts liquid and vapour in equilibrium at the
 // given temperature and pressure (liquid entropy offset zero).
 [[nodiscard]] double mac_saturation_entropy_offset(const ReferenceMaterial& liquid, const ReferenceMaterial& vapour,
@@ -61,9 +70,17 @@ struct MacPhaseChangeAdvance { MacTransportState state; MacPhaseChangeReport rep
 // states with the reference. Accepted endpoints and entropy remain strict.
 // With fraction < 1 each cell moves only that fraction of the way to
 // equilibrium (a first-order relaxation over the caller's interval).
+// With MacPhaseRule::boil_only the vapour's partial pressure is replaced by
+// the cell's total gas pressure. That relaxation does not maximize the
+// mixture entropy (it condenses unsaturated vapour), so its entropy check
+// uses the entropy with each gas taken at the total gas pressure: the
+// mixture entropy less the ideal entropy of mixing, which this rule never
+// decreases (MAC_PHASE_CHANGE.md, "Boil-only rule").
 [[nodiscard]] MacPhaseChangeAdvance advance_mac_phase_change(const SpeciesRegistry&, const FluidThermodynamics&,
-    const MacTransportState&, std::span<const MacSaturationPair>, bool skip_sharp_interfaces = false, double fraction = 1, bool fast_trial_eos = false);
+    const MacTransportState&, std::span<const MacSaturationPair>, bool skip_sharp_interfaces = false, double fraction = 1, bool fast_trial_eos = false,
+    MacPhaseRule rule = MacPhaseRule::equilibrium);
 // Restrict that operation to these cells; an empty list changes no cells.
 [[nodiscard]] MacPhaseChangeAdvance advance_mac_phase_change_in_cells(const SpeciesRegistry&, const FluidThermodynamics&,
-    const MacTransportState&, std::span<const MacSaturationPair>, std::span<const std::size_t> cells, double fraction = 1, bool fast_trial_eos = false);
+    const MacTransportState&, std::span<const MacSaturationPair>, std::span<const std::size_t> cells, double fraction = 1, bool fast_trial_eos = false,
+    MacPhaseRule rule = MacPhaseRule::equilibrium);
 }

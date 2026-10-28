@@ -208,8 +208,11 @@ void MacClosedSettings::validate() const {
             compression_viscosity==MacCompressionViscosity::acoustic_quadratic && shock_heat==MacShockHeatRegularization::pressure_sensed_acoustic &&
             gas_expansion_volume_fraction==16*eps && viscosity.shear_pa_s==0 && viscosity.bulk_pa_s==0,
             "Invalid diagnostic game-kernel settings");
+        require(game.phase_rule==MacPhaseRule::equilibrium || game_profile==MacGameProfile::game_kernel_bounded_pressure,
+            "The boil-only phase rule requires game profile6");
         return;
     }
+    require(game.phase_rule==MacPhaseRule::equilibrium,"The boil-only phase rule requires game profile6");
     require(game_profile!=MacGameProfile::game_kernel &&
         game_profile!=MacGameProfile::game_kernel_positive_liquid &&
         game_profile!=MacGameProfile::game_kernel_free_surface &&
@@ -867,18 +870,18 @@ MacTraceSink MacClosedWorld::with_trace_sink() const {
     return {derived(std::move(next)),std::move(report)};
 }
 
-MacPhaseRelaxation MacClosedWorld::with_phase_relaxation(std::span<const MacSaturationPair> pairs, double fraction) const {
+MacPhaseRelaxation MacClosedWorld::with_phase_relaxation(std::span<const MacSaturationPair> pairs, double fraction, MacPhaseRule rule) const {
     require_mac_energy_environment();
     if (revision_ == std::numeric_limits<std::uint64_t>::max()) throw std::overflow_error("MAC closed revision overflow");
-    auto advanced = advance_mac_phase_change(registry_, *thermodynamics_, state(), pairs, false, fraction, settings_.fast_phase_trial_eos);
+    auto advanced = advance_mac_phase_change(registry_, *thermodynamics_, state(), pairs, false, fraction, settings_.fast_phase_trial_eos, rule);
     auto candidate=derived(std::move(advanced.state));
     return {std::move(candidate), advanced.report};
 }
 MacPhaseRelaxation MacClosedWorld::with_phase_relaxation_in_cells(std::span<const MacSaturationPair> pairs,
-    std::span<const std::size_t> cells, double fraction) const {
+    std::span<const std::size_t> cells, double fraction, MacPhaseRule rule) const {
     require_mac_energy_environment();
     if (revision_ == std::numeric_limits<std::uint64_t>::max()) throw std::overflow_error("MAC closed revision overflow");
-    auto advanced = advance_mac_phase_change_in_cells(registry_, *thermodynamics_, state(), pairs, cells, fraction, settings_.fast_phase_trial_eos);
+    auto advanced = advance_mac_phase_change_in_cells(registry_, *thermodynamics_, state(), pairs, cells, fraction, settings_.fast_phase_trial_eos, rule);
     return {derived(std::move(advanced.state)), advanced.report};
 }
 MacClosedWorld MacClosedWorld::with_cell_heat(std::span<const MacCellHeat> edits,MacPrimaryRoundingCounts* accepted_rounding) && {

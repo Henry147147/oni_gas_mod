@@ -2,9 +2,14 @@
 #include "flow_local.hpp"
 #include <optional>
 namespace ma::experimental::game_kernel {
+// boil_only (saved profile6 rule, MAC_PHASE_CHANGE.md): compare saturation
+// with the cell's total gas pressure instead of the vapour's partial
+// pressure. The total is the sum of Dalton partials (nR T / V_gas), so a cell
+// whose only gas is the vapour gives exactly the equilibrium rule's value.
 struct PhasePair {
   std::size_t liquid = 0, vapour = 0;
   double critical = 1e300;
+  bool boil_only = false;
 };
 struct PhaseResult {
   SparseMass masses;
@@ -133,11 +138,12 @@ public:
               if (moved != 0 && try_reading(trial))
                 return std::nullopt;
               const auto &eos = moved == 0 ? before : trial;
-              const double pv = eos.gas_volume > 0
-                                    ? masses[pair.vapour] * R /
-                                          vapour.molar_mass * eos.temperature /
-                                          eos.gas_volume
-                                    : eos.pressure;
+              const double pv =
+                  eos.gas_volume > 0
+                      ? (pair.boil_only ? eos.nR : masses[pair.vapour] * R /
+                                                       vapour.molar_mass) *
+                            eos.temperature / eos.gas_volume
+                      : eos.pressure;
               const double ps = saturation_pressure(
                   liquid, vapour, eos.temperature, eos.pressure);
               if (!std::isfinite(pv - ps))

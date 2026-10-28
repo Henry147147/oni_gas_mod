@@ -46,6 +46,8 @@ def main():
         "4. Spaced Out! can stay enabled. Keep the other gameplay packs disabled for this playtest.\n"
         "5. Optional: Mods -> Mixed Atmospheres -> Settings. Default is recommended.\n"
         "   CO2 breathing limits default Off on Gameplay; oxygen is always required.\n"
+        "   Evaporation below boiling defaults Off: liquids vaporise only by boiling and\n"
+        "   vapour condenses below its boiling point, as in ONI.\n"
         "   Advanced holds solver presets, thresholds, performance and saved presets.\n"
         "6. Start a NEW base-game or Spaced Out! colony. Old R&D/nitrogen saves are unsupported.\n"
         "   No environment variables are needed.\n\n"

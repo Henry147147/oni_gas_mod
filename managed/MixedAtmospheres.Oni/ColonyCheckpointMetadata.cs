@@ -5,7 +5,7 @@ using System.IO;
 namespace MixedAtmospheres.Oni
 {
     // The physical profile a restored owner actually runs: its MACCLS01
-    // version and, for game kernels (20-24), the saved gas heat mixing, liquid
+    // version and, for game kernels (20-25), the saved gas heat mixing, liquid
     // law and solver caps. Read from the owner image itself, never from
     // generic config flags.
     internal readonly struct ColonyPhysicalProfile : IEquatable<ColonyPhysicalProfile>
@@ -56,8 +56,9 @@ namespace MixedAtmospheres.Oni
         }
 
         // Walks the complete owner framing to its physical image. Versions 20
-        // (linear law 0, caps 200/200), 21–24 (saved law and caps at the
-        // same offsets; 22/23/24 imply profile families 4/5/6) report the game kernel;
+        // (linear law 0, caps 200/200), 21–25 (saved law and caps at the
+        // same offsets; 22/23/24 imply profile families 4/5/6, and 25 is
+        // profile 6 with boil-only phase change) report the game kernel;
         // older physical versions report zero law/caps.
         internal static uint OwnerVersion(ReadOnlySpan<byte> image) { CountersOffset(image,out var version); return version; }
         internal static uint CallbackRequestCount(ReadOnlySpan<byte> image)
@@ -74,7 +75,7 @@ namespace MixedAtmospheres.Oni
             var at=PhysicalOffset(image,out var version,out var length);
             var body=image.Slice(at,length);
             var p=8;var physicalVersion=U32(body,ref p);
-            if(physicalVersion<20 || physicalVersion>24) return new ColonyPhysicalProfile(version,physicalVersion,0,0,0);
+            if(physicalVersion<20 || physicalVersion>25) return new ColonyPhysicalProfile(version,physicalVersion,0,0,0);
             var model=U32(body,ref p);Skip(body,ref p,model);
             // time, revision, width/height, spacing/depth, timestep, gravity,
             // conduction, trace threshold, stiffness, flow parts, tolerance;

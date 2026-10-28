@@ -15,6 +15,19 @@ it. Code: `ModSettings*.cs` (model, files, window, runtime); tests:
   displaces oxygen. Turn the switch on to enforce the saved CO₂ thresholds.
   During play this switch applies immediately to the current colony and its
   next save. At the main menu it chooses the default for new colonies.
+- **Gameplay → Boiling and condensation → Evaporation below boiling** defaults
+  to **Off** (user decision 2026-10-28): liquids turn to vapour only by boiling,
+  and vapour below its boiling point condenses back to liquid, as in ONI. The
+  boiling point depends on the surrounding gas pressure (water: 100 °C at
+  normal pressure, lower in thin air, and it boils in vacuum), and the air
+  holds no humidity. Every gas follows the same rule with the total gas
+  pressure, so a minor gas in a strongly compressed mixture can condense
+  (chlorine in Terra's ~19 bar hydrogen pocket). **On** restores realistic
+  evaporation into drier air and equilibrium humidity. It is chosen for new colonies, saved in the colony's
+  physical image and read-only during play
+  ([boil-only rule](../native/MAC_PHASE_CHANGE.md#boil-only-rule)). It is a
+  gameplay rule rather than a solver tunable, so it is on Gameplay; solver
+  presets keep it as chosen.
 - **Display & keys** contains reading precision, mixture appearance, status
   panel options and shortcuts. Changes apply immediately.
 - **Advanced** contains **Solver** (including solver presets), **Breathing
@@ -30,14 +43,16 @@ nitrogen catalogue, missing the current breathing record, using its older
 versions or using the earlier pressure profiles20–23 are refused with a reason
 before native loading. Start a new colony for the corrected pressure update.
 
-Colony settings are stored in the physical image (solver, core24)
-and MACOLP03 section 3 (breathing). Preferences live in the user's config and
-are not stored in colony saves.
+Colony settings are stored in the physical image (solver and the evaporation
+rule: core25, or core24 with evaporation below boiling) and MACOLP03 section 3
+(breathing). Preferences live in the user's config and are not stored in colony
+saves.
 
-The solver is always the supported one: game profile 6 (core24) with mixed
-pipes. No setting selects the production kernel, the game-floor profile, an
-older game-kernel profile or single-element packet pipes; only profile 5's own
-saved tunables vary, within the ranges below. A value outside the measured one
+The solver is always the supported one: game profile 6 (core25, or core24
+with evaporation below boiling) with mixed pipes. No setting selects the
+production kernel, the game-floor profile, an older game-kernel profile or
+single-element packet pipes; only profile 6's own saved tunables vary, within
+the ranges below. A value outside the measured one
 is marked **experimental** in the window. The native library refuses values
 outside the ranges (`ma_oni_colony_set_options`); a refusal starts the colony
 with Default and shows a notice.
@@ -51,7 +66,7 @@ and keep preferences unless a user preset explicitly contains them.
 
 | Preset | Colony settings |
 | --- | --- |
-| Default (recommended) | Default solver and oxygen rules; CO₂ limits off. |
+| Default (recommended) | Default solver and oxygen rules; CO₂ limits off; no evaporation below boiling. |
 | Robust | Pressure/heat iteration caps 1600/3200. A converged solve stops early, so results are identical wherever Default completes; a difficult solve gets more room before it faults. |
 | Fast (experimental) | Pressure tolerance 1e-6: fewer pressure iterations, pressures settle less exactly. |
 | Precise (experimental) | Two solver steps per game tick, pressure tolerance 1e-10 and the Robust caps; about twice the solver time. |
@@ -97,21 +112,23 @@ under `/tmp`.
 ## Colony settings
 
 All are recorded per colony. Only the CO₂ switch is editable in a loaded colony. Native ranges are
-those of `MAOniColonyOptions` (`oni_colony.h`).
+those of `MAOniColonyOptions` (`oni_colony.h`, options version 2, 88 bytes,
+which adds `evaporation_below_boiling`).
 
 | Key | Name | Default | Range (window steps) | Effect | Storage |
 | --- | --- | --- | --- | --- | --- |
-| `solver.stepsPerFrame` | Solver steps per game tick | 1 | 1, 2, 4 (≠1 experimental) | Maximum step 0.2/0.1/0.05 s (binary32): finer fast flow, 1×/2×/4× solver time | core24 timestep |
-| `solver.pressureTolerance` | Pressure solve tolerance | 1e-8 | 1e-12–1e-4 (decades; ≠1e-8 experimental) | Relative pressure-root accuracy | core24 |
-| `solver.pressureIterationCap` | Pressure iteration cap | 400 | 400–65536 (400…12800) | Room for difficult pressure solves; no result changes where Default converges | core24 |
-| `solver.heatIterationCap` | Heat iteration cap | 800 | 800–65536 (800…25600) | Same for heat solves | core24 |
-| `solver.flowParts` | Flow parts per step | 2 | 1–8 (≠2 experimental) | Transport sub-steps per solver step | core24 |
-| `solver.gasHeatMixing` | Gas heat mixing | 8 | 0–32 (≠8 experimental) | Temperature mixing by moving gas, energy conserved (user decision 2026-10-24) | core24 |
-| `solver.liquidStiffness` | Liquid stiffness | 0.04 | 0.01–1 (≠0.04 experimental) | Fraction of the catalogue bulk modulus; sealed liquids stiffer | core24 |
-| `solver.sharpenLiquidInterfaces` | Sharpen liquid surfaces | on | on/off (off experimental) | Bounded interface correction keeps surfaces crisp | core24 |
-| `solver.interfaceDetail` | Thinnest sharpened film | 0 | 0–0.5 of a cell (≠0 experimental) | Thinner films are left unsharpened | core24 |
-| `solver.phaseRelaxationSeconds` | Boiling/condensation time | 1 s | 0.1–10 s (≠1 experimental) | Liquid/vapour relaxation time constant (other conversions keep 1 s) | core24 |
-| `solver.traceThresholdKg` | Trace removal threshold | 1e-11 kg | 1e-11–1e-6 kg (≠1e-11 experimental) | Per-constituent booked trace sink; 1 mg ceiling | core24 |
+| `solver.stepsPerFrame` | Solver steps per game tick | 1 | 1, 2, 4 (≠1 experimental) | Maximum step 0.2/0.1/0.05 s (binary32): finer fast flow, 1×/2×/4× solver time | core24/25 timestep |
+| `solver.pressureTolerance` | Pressure solve tolerance | 1e-8 | 1e-12–1e-4 (decades; ≠1e-8 experimental) | Relative pressure-root accuracy | core24/25 |
+| `solver.pressureIterationCap` | Pressure iteration cap | 400 | 400–65536 (400…12800) | Room for difficult pressure solves; no result changes where Default converges | core24/25 |
+| `solver.heatIterationCap` | Heat iteration cap | 800 | 800–65536 (800…25600) | Same for heat solves | core24/25 |
+| `solver.flowParts` | Flow parts per step | 2 | 1–8 (≠2 experimental) | Transport sub-steps per solver step | core24/25 |
+| `solver.gasHeatMixing` | Gas heat mixing | 8 | 0–32 (≠8 experimental) | Temperature mixing by moving gas, energy conserved (user decision 2026-10-24) | core24/25 |
+| `solver.liquidStiffness` | Liquid stiffness | 0.04 | 0.01–1 (≠0.04 experimental) | Fraction of the catalogue bulk modulus; sealed liquids stiffer | core24/25 |
+| `solver.sharpenLiquidInterfaces` | Sharpen liquid surfaces | on | on/off (off experimental) | Bounded interface correction keeps surfaces crisp | core24/25 |
+| `solver.interfaceDetail` | Thinnest sharpened film | 0 | 0–0.5 of a cell (≠0 experimental) | Thinner films are left unsharpened | core24/25 |
+| `solver.phaseRelaxationSeconds` | Boiling/condensation time | 1 s | 0.1–10 s (≠1 experimental) | Liquid/vapour relaxation time constant (other conversions keep 1 s) | core24/25 |
+| `solver.traceThresholdKg` | Trace removal threshold | 1e-11 kg | 1e-11–1e-6 kg (≠1e-11 experimental) | Per-constituent booked trace sink; 1 mg ceiling | core24/25 |
+| `liquids.evaporationBelowBoiling` | Evaporation below boiling (Gameplay) | off | on/off | Off: liquid/vapour pairs compare saturation with the total gas pressure (boil-only, ONI-like condensation, no humidity); on: the vapour's partial pressure (evaporation into unsaturated gas) | core25 phase rule; on writes core24 |
 | `breathing.co2Limits` | CO₂ breathing limits | off | on/off | Enforce the CO₂ share and partial pressure thresholds; oxygen remains required when off | section 3 v3 |
 | `breathing.minimumOxygenFraction` | Minimum oxygen share | 15% | 5–25% | Breathable with at least this oxygen share by moles (polluted oxygen counts) | section 3 |
 | `breathing.minimumOxygenPressurePa` | Minimum oxygen partial pressure | 15 kPa | 1–50 kPa | …and at least this oxygen partial pressure | section 3 |
@@ -191,6 +208,17 @@ Game catalogue identity changes when nitrogen content is removed, and every
 new save carries breathing record v3. The native physical checkpoint format
 is unchanged. These focused checks do not close the separate performance,
 accuracy and full release-acceptance work.
+
+## Verification of the boil-only setting (2026-10-28)
+
+Linux Release passes 89 CTests. All 96 `ma_mac_*` program outputs (62 CTests
+and 34 further programs) match the parent from clean builds except the added
+boil-only control's lines. The settings (310), managed/native (92),
+presentation (46) and snapshot (228) suites pass. In the Linux game (Terra),
+the `phase` scenario passes in a Default colony: 57 °C water stays liquid, the
+0.131 kg of vapour placed in its air falls to 8.0e-7 kg within 12 s, and the
+mass/energy ledgers close (1.5e-16/1.1e-15). With **Evaporation below boiling**
+on (a preset file), the same pool evaporates 7.2 kg into the air instead.
 
 ## Not settings
 

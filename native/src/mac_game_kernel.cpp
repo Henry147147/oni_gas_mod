@@ -193,6 +193,7 @@ bool same_settings(const MacGameSettings &a, const MacGameSettings &b) {
       a.sharpen_liquid_interfaces != b.sharpen_liquid_interfaces ||
       a.interface_detail_fraction != b.interface_detail_fraction ||
       a.phase_relaxation_time_s != b.phase_relaxation_time_s ||
+      a.phase_rule != b.phase_rule ||
       a.saturation_pairs.size() != b.saturation_pairs.size())
     return false;
   for (std::size_t i = 0; i < a.saturation_pairs.size(); ++i) {
@@ -221,6 +222,8 @@ void MacGameSettings::validate() const {
               interface_detail_fraction >= 0 && interface_detail_fraction < 1 &&
               std::isfinite(phase_relaxation_time_s) &&
               phase_relaxation_time_s > 0 && phase_relaxation_time_s <= 1000 &&
+              (phase_rule == MacPhaseRule::equilibrium ||
+               phase_rule == MacPhaseRule::boil_only) &&
               saturation_pairs.size() <= 65536,
           "Invalid saved game-kernel options");
   for (const auto &pair : saturation_pairs)
@@ -477,7 +480,8 @@ MacClosedAdvance MacGameKernelAccess::advance_guarded(
                                cfg.liquid_stiffness_ratio, cfg.liquid_law);
     std::vector<k::PhasePair> pairs;
     for (const auto &p : cfg.saturation_pairs)
-      pairs.push_back({p.liquid, p.vapour, p.critical_temperature_k});
+      pairs.push_back({p.liquid, p.vapour, p.critical_temperature_k,
+                       cfg.phase_rule == MacPhaseRule::boil_only});
     if(bounded) {
       cache.regional=std::make_unique<k::RegionalTick>(source.state().grid,species,pairs,threads,cfg,source.settings_.thermal_conduction);
       cache.tick.reset();

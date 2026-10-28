@@ -163,7 +163,7 @@ namespace MixedAtmospheres.Oni
             try
             {
                 NativeColonyOptions.CheckLayout();
-                if (OptionsVersion() != 1) throw new NotSupportedException("the native library's settings version differs from this build");
+                if (OptionsVersion() != NativeColonyOptions.CurrentVersion) throw new NotSupportedException("the native library's settings version differs from this build");
                 var native = values.ToNative();
                 var result = SetOptions(ref native);
                 if (result != 0) throw new InvalidOperationException(Marshal.PtrToStringAnsi(LastError()) ?? ("error " + result));
@@ -204,7 +204,7 @@ namespace MixedAtmospheres.Oni
 
         private static SettingValues WithRunningSolver(SettingValues basis)
         {
-            var native = new NativeColonyOptions { Size = NativeColonyOptions.Bytes, Version = 1 };
+            var native = new NativeColonyOptions { Size = NativeColonyOptions.Bytes, Version = NativeColonyOptions.CurrentVersion };
             try { if (CopyOptions(ref native) == 0) return basis.WithNative(native); }
             catch (Exception error) when (error is EntryPointNotFoundException || error is FormatException)
             { Debug.LogWarning("[Mixed Atmospheres] The running colony's solver settings could not be read: " + error.Message); }

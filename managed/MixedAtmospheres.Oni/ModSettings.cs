@@ -93,8 +93,8 @@ namespace MixedAtmospheres.Oni
     // Every supported setting (docs/settings.md lists the same table).
     internal static class SettingCatalog
     {
-        internal const string Solver = "Solver", Breathing = "Breathing", Performance = "Performance", Display = "Display", Panel = "Status panel", Keys = "Keyboard shortcuts";
-        internal const string Co2Limits = "breathing.co2Limits";
+        internal const string Solver = "Solver", Breathing = "Breathing", PhaseChange = "Boiling and condensation", Performance = "Performance", Display = "Display", Panel = "Status panel", Keys = "Keyboard shortcuts";
+        internal const string Co2Limits = "breathing.co2Limits", EvaporationBelowBoiling = "liquids.evaporationBelowBoiling";
         private static double[] Decades(int from, int to) { var r = new List<double>(); for (var e = from; e <= to; ++e) r.Add(double.Parse("1e" + e.ToString(CultureInfo.InvariantCulture), CultureInfo.InvariantCulture)); return r.ToArray(); }
         internal static readonly string[] KeyChoices = { "None", "F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9", "F10", "F11", "F12" };
 
@@ -133,6 +133,11 @@ namespace MixedAtmospheres.Oni
             SettingDefinition.Number("solver.traceThresholdKg", SettingScope.Colony, Solver, "Trace removal threshold",
                 "A constituent below this mass in a cell leaves through the booked trace sink. 1e-11 kg is the smallest tested value; the ceiling is 1 mg.",
                 1e-11, 1e-11, 1e-6, Decades(-11, -6), "kg", false, v => v == 1e-11),
+            // Gameplay, saved in the colony's physical image: boil-only phase
+            // change by default (user decision 2026-10-28).
+            SettingDefinition.Toggle(EvaporationBelowBoiling, SettingScope.Colony, PhaseChange, "Evaporation below boiling",
+                "Off (default): liquids turn to vapour only by boiling, and vapour below its boiling point condenses back to liquid, as in ONI. The boiling point depends on the surrounding gas pressure: water boils at 100 °C at normal pressure, lower in thin air and even in vacuum. Air holds no humidity. " +
+                "On: liquids also evaporate slowly into drier air below boiling, and air keeps realistic humidity. Chosen for new colonies and saved with each colony.", false),
             // Gameplay: CO2 toxicity is optional; oxygen requirements always apply.
             SettingDefinition.Toggle(Co2Limits, SettingScope.Colony, Breathing, "CO₂ breathing limits",
                 "Off (default): carbon dioxide does not block breathing while enough oxygen remains. On: apply the CO₂ thresholds in Advanced. CO₂ still mixes, moves and carries heat.", false),
@@ -241,22 +246,24 @@ namespace MixedAtmospheres.Oni
             return result;
         }
 
-        // Profile-5 options for the native owner (oni_colony.h MAOniColonyOptions).
+        // Profile-6 options for the native owner (oni_colony.h MAOniColonyOptions).
         internal NativeColonyOptions ToNative() => new NativeColonyOptions
         {
-            Size = NativeColonyOptions.Bytes, Version = 1,
+            Size = NativeColonyOptions.Bytes, Version = NativeColonyOptions.CurrentVersion,
             PressureMaximumIterations = (uint)Number("solver.pressureIterationCap"), HeatMaximumIterations = (uint)Number("solver.heatIterationCap"),
             FlowParts = (uint)Number("solver.flowParts"), SharpenLiquidInterfaces = Toggle("solver.sharpenLiquidInterfaces") ? 1U : 0U,
             MaximumTimestepSeconds = Number("solver.stepsPerFrame") switch { 1 => .2f, 2 => .1f, 4 => .05f,
                 _ => throw new FormatException("Solver steps per game tick must be 1, 2 or 4.") },
             TraceSinkThresholdKg = Number("solver.traceThresholdKg"), LiquidStiffnessRatio = Number("solver.liquidStiffness"),
             PressureRelativeTolerance = Number("solver.pressureTolerance"), GasHeatMixing = Number("solver.gasHeatMixing"),
-            InterfaceDetailFraction = Number("solver.interfaceDetail"), PhaseRelaxationSeconds = Number("solver.phaseRelaxationSeconds")
+            InterfaceDetailFraction = Number("solver.interfaceDetail"), PhaseRelaxationSeconds = Number("solver.phaseRelaxationSeconds"),
+            EvaporationBelowBoiling = Toggle(SettingCatalog.EvaporationBelowBoiling) ? 1U : 0U
         };
         // The solver settings a running colony reports, with this set's other values.
         internal SettingValues WithNative(NativeColonyOptions o)
         {
-            if (o.Size != NativeColonyOptions.Bytes || o.Version != 1) throw new FormatException("Unknown native colony options.");
+            if (o.Size != NativeColonyOptions.Bytes || o.Version != NativeColonyOptions.CurrentVersion || o.EvaporationBelowBoiling > 1)
+                throw new FormatException("Unknown native colony options.");
             var steps = o.MaximumTimestepSeconds == (double).2f ? 1 : o.MaximumTimestepSeconds == (double).1f ? 2 : o.MaximumTimestepSeconds == (double).05f ? 4 : 0;
             var c = Copy();
             // A loaded colony reports what it saved, even outside today's ranges.
@@ -266,6 +273,7 @@ namespace MixedAtmospheres.Oni
             c.values["solver.liquidStiffness"] = o.LiquidStiffnessRatio; c.values["solver.pressureTolerance"] = o.PressureRelativeTolerance;
             c.values["solver.gasHeatMixing"] = o.GasHeatMixing; c.values["solver.interfaceDetail"] = o.InterfaceDetailFraction;
             c.values["solver.phaseRelaxationSeconds"] = o.PhaseRelaxationSeconds;
+            c.values[SettingCatalog.EvaporationBelowBoiling] = o.EvaporationBelowBoiling != 0;
             return c;
         }
         internal static string Describe(object value) => value switch
@@ -274,18 +282,21 @@ namespace MixedAtmospheres.Oni
         };
     }
 
-    // MAOniColonyOptions (native/include/mixed_atmospheres/oni_colony.h), 80 bytes.
+    // MAOniColonyOptions (native/include/mixed_atmospheres/oni_colony.h), version 2, 88 bytes.
     [StructLayout(LayoutKind.Sequential)]
     internal struct NativeColonyOptions
     {
-        internal const uint Bytes = 80;
+        internal const uint Bytes = 88, CurrentVersion = 2;
         public uint Size, Version, PressureMaximumIterations, HeatMaximumIterations, FlowParts, SharpenLiquidInterfaces;
         public double MaximumTimestepSeconds, TraceSinkThresholdKg, LiquidStiffnessRatio, PressureRelativeTolerance, GasHeatMixing,
             InterfaceDetailFraction, PhaseRelaxationSeconds;
+        // 0: boil-only phase change (default); 1: evaporation below boiling.
+        public uint EvaporationBelowBoiling, Reserved;
         internal static void CheckLayout()
         {
             if (Marshal.SizeOf<NativeColonyOptions>() != Bytes || Marshal.OffsetOf<NativeColonyOptions>(nameof(MaximumTimestepSeconds)).ToInt32() != 24 ||
-                Marshal.OffsetOf<NativeColonyOptions>(nameof(PhaseRelaxationSeconds)).ToInt32() != 72)
+                Marshal.OffsetOf<NativeColonyOptions>(nameof(PhaseRelaxationSeconds)).ToInt32() != 72 ||
+                Marshal.OffsetOf<NativeColonyOptions>(nameof(EvaporationBelowBoiling)).ToInt32() != 80)
                 throw new InvalidOperationException("Colony options layout differs from the native library.");
         }
     }
@@ -321,7 +332,7 @@ namespace MixedAtmospheres.Oni
         }
         internal static readonly IReadOnlyList<SettingsPreset> All = new[]
         {
-            Make(DefaultId, "Default (recommended)", "Exactly what a new colony gets without any settings: the measured solver, normal oxygen requirements and CO₂ breathing limits off."),
+            Make(DefaultId, "Default (recommended)", "Exactly what a new colony gets without any settings: the measured solver, normal oxygen requirements, CO₂ breathing limits off and no evaporation below boiling."),
             Make("robust", "Robust", "Higher pressure and heat iteration caps. Identical results wherever Default completes; a difficult solve that would stop Default gets more room.",
                 ("solver.pressureIterationCap", 1600.0), ("solver.heatIterationCap", 3200.0)),
             Make("fast", "Fast", "A looser pressure tolerance: fewer pressure iterations, pressures settle less exactly.",

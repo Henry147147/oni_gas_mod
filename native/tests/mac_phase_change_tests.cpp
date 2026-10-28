@@ -316,11 +316,196 @@ void vacuum_boiling(const Water& s) {
               << " kg, pair mass drift " << static_cast<double>((pair_mass(x) - initial) / initial) << '\n';
     check(steam > first && x.cells[1].mixture.masses[s.steam] > 0 && std::abs(pair_mass(x) - initial) <= 1e-14L * initial, "Vacuum boiling did not spread or lost mass");
 }
+// Boil-only rule (MAC_PHASE_CHANGE.md, "Boil-only rule", user decision
+// 2026-10-28): saturation is compared with the cell's total gas pressure.
+// The entropy it never decreases: each gas taken at the total gas pressure,
+// the mixture entropy plus R sum n_k ln x_k.
+double rule_entropy(const Water& s, const MixtureInventory& m, double volume) {
+    const auto e = s.eos->evaluate(m, volume); double moles = 0, value = e.entropy_j_per_k;
+    for (const auto k : {s.steam, s.air}) moles += m.masses[k] / s.registry[k].molar_mass;
+    for (const auto k : {s.steam, s.air}) if (m.masses[k] > 0) {
+        const double n = m.masses[k] / s.registry[k].molar_mass; value += gas_constant * n * std::log(n / moles);
+    }
+    return value;
+}
+// One 1 m3 cell relaxed fully under both rules; returns the boil-only state.
+MixtureInventory boil_only_cell(const Water& s, const char* name, std::vector<double> masses, double temperature,
+    int boil_direction, int equilibrium_direction) {
+    MacTransportState st; st.grid = {1, 1, 1, 1, false, false, {0}};
+    st.cells.push_back({s.eos->initialize_at_temperature(masses, temperature, 1).mixture, {}});
+    st.momentum_x.assign(2, 0); st.momentum_y.assign(2, 0);
+    const MacSaturationPair pair{s.water, s.steam};
+    const auto boil = advance_mac_phase_change(s.registry, *s.eos, st, std::span(&pair, 1), false, 1, false, MacPhaseRule::boil_only);
+    const auto equilibrium = advance_mac_phase_change(s.registry, *s.eos, st, std::span(&pair, 1));
+    const auto& a = st.cells[0].mixture; const auto& b = boil.state.cells[0].mixture;
+    const double moved = b.masses[s.steam] - a.masses[s.steam], reference = equilibrium.state.cells[0].mixture.masses[s.steam] - a.masses[s.steam];
+    const auto ea = s.eos->evaluate(a, 1), eb = s.eos->evaluate(b, 1);
+    std::cout << "PCBOIL " << name << " moved_kg=" << moved << " (equilibrium " << reference << ") T=" << ea.temperature_k << "->" << eb.temperature_k
+              << " p=" << ea.mechanical_pressure_pa << "->" << eb.mechanical_pressure_pa << " dS=" << eb.entropy_j_per_k - ea.entropy_j_per_k
+              << " dS_rule=" << rule_entropy(s, b, 1) - rule_entropy(s, a, 1) << '\n';
+    check(b.energy == a.energy && b.masses[s.air] == a.masses[s.air] && std::abs(b.masses[s.water] + b.masses[s.steam] - a.masses[s.water] - a.masses[s.steam]) <=
+        4e-16 * (a.masses[s.water] + a.masses[s.steam]), "Boil-only phase change changed U, air or the pair's mass");
+    check((moved > 0) - (moved < 0) == boil_direction && (reference > 0) - (reference < 0) == equilibrium_direction,
+        "Boil-only or equilibrium phase change moved mass the wrong way");
+    check(rule_entropy(s, b, 1) - rule_entropy(s, a, 1) >= -1e-9 * std::abs(rule_entropy(s, a, 1)), "Boil-only relaxation lowered its entropy");
+    // A cell left with both phases and gas is at boiling: total gas pressure = saturation.
+    if (boil_direction != 0 && b.masses[s.water] > 0 && b.masses[s.steam] > 0 && eb.has_gas) {
+        const double saturation = mac_saturation_pressure(*s.eos, 0, 1, eb.temperature_k, eb.mechanical_pressure_pa);
+        check(std::abs(eb.gas_pressure_pa - saturation) <= 1e-9 * saturation, "Boil-only cell did not stop at its boiling point");
+    }
+    return b;
+}
+// A game-kernel box (profile6, the colony's kernel) of 1 m cells with walls
+// around; fill(x, y) gives masses and temperature of each open cell.
+template <class Fill>
+MacClosedWorld game_box(const Water& s, MacPhaseRule rule, std::size_t w, std::size_t h, double gravity, Fill fill) {
+    MacTransportState st; st.grid = {w, h, 1, 1, false, false, std::vector<std::uint8_t>(w * h)};
+    std::vector<double> temperatures(w * h, 300);
+    for (std::size_t y = 0; y < h; ++y) for (std::size_t x = 0; x < w; ++x) {
+        const auto i = x + y * w; MixtureInventory m(s.registry.size());
+        if (x == 0 || y == 0 || x + 1 == w || y + 1 == h) st.grid.walls[i] = 1;
+        else { const auto [masses, t] = fill(x, y); for (std::size_t k = 0; k < masses.size(); ++k) m.masses[k] = masses[k]; temperatures[i] = t; }
+        st.cells.push_back({m, {}});
+    }
+    st.momentum_x.assign(st.grid.x_width() * h, 0); st.momentum_y.assign(w * st.grid.y_height(), 0);
+    MacClosedSettings cfg; cfg.numerical_kernel = MacNumericalKernel::game; cfg.game_profile = MacGameProfile::game_kernel_bounded_pressure;
+    cfg.vacuum = MacVacuumRepresentation::void_phase; cfg.thermal_conduction = true; cfg.gravity_m_per_s2 = gravity;
+    cfg.maximum_timestep_s = static_cast<double>(.2f); cfg.trace_sink_threshold_kg = 1e-11;
+    cfg.game.liquid_law = MacGameLiquidLaw::positive_segments; cfg.game.pressure_maximum_iterations = 400; cfg.game.heat_maximum_iterations = 800;
+    cfg.game.gas_heat_mixing = 8; cfg.game.phase_rule = rule; cfg.game.saturation_pairs = {{s.water, s.steam, 647.096}};
+    return MacClosedWorld::game_colony(s.registry, s.eos, st, temperatures, cfg);
+}
+struct GameRun { MacClosedWorld world; double evaporated = 0, condensed = 0, steam = 0, liquid_in_gas = 0; };
+// Advances whole 0.2 s ticks, closing the energy and water+steam ledgers.
+GameRun run_game(const Water& s, MacClosedWorld world, int ticks) {
+    const auto pair = [&](const MacClosedWorld& x) { long double m = 0; for (const auto& c : x.state().cells) m += c.mixture.masses[s.water] + c.mixture.masses[s.steam]; return m; };
+    const long double initial = pair(world); long double sunk = 0; GameRun out{world};
+    for (int k = 0; k < ticks; ++k) {
+        auto next = out.world.advanced(static_cast<double>(.2f));
+        check(std::abs(next.report.energy_residual_j) <= next.report.energy_bound_j, "Game-kernel energy ledger failed");
+        out.evaporated += next.report.evaporated_kg; out.condensed += next.report.condensed_kg;
+        if (!next.report.trace_sink.mass_kg.empty())
+            sunk += static_cast<long double>(next.report.trace_sink.mass_kg[s.water].project().value) + next.report.trace_sink.mass_kg[s.steam].project().value;
+        out.world = std::move(next.world);
+    }
+    check(std::abs(pair(out.world) + sunk - initial) <= 1e-12L * initial, "Game-kernel water and steam ledger failed");
+    for (const auto& c : out.world.state().cells) out.steam += c.mixture.masses[s.steam];
+    return out;
+}
+void boil_only_control(const Water& s) {
+    const auto masses = [&](double water, double steam, double air) { std::vector<double> m(3); m[s.water] = water; m[s.steam] = steam; m[s.air] = air; return m; };
+    const auto gas = [&](std::size_t k, double pressure, double t, double volume) { return pressure * volume * s.registry[k].molar_mass / (gas_constant * t); };
+    // Humid air (2 kPa of vapour, below the 3.2 kPa saturation) over water at 25 C
+    // and 1 atm: the vapour condenses entirely; the mixture entropy falls, the
+    // rule's entropy rises. The equilibrium rule evaporates instead.
+    const auto humid = boil_only_cell(s, "humid_25C", masses(498.5, gas(s.steam, 2000, 298.15, .5), gas(s.air, 99325, 298.15, .5)), 298.15, -1, 1);
+    check(humid.masses[s.steam] == 0, "Humid air kept vapour under the boil-only rule");
+    // Dry air over water at 25 C: no evaporation below boiling.
+    (void)boil_only_cell(s, "dry_25C", masses(498.5, 0, gas(s.air, 101325, 298.15, .5)), 298.15, 0, 1);
+    // Vapour in air without liquid, below its boiling point (the equilibrium
+    // rule keeps both, being below saturation): 2 kPa at 25 C condenses
+    // entirely; 11 kPa in 1 atm air at 50 C condenses until its latent heat
+    // brings the cell to boiling (checked at saturation in boil_only_cell).
+    check(boil_only_cell(s, "air_only_25C", masses(0, gas(s.steam, 2000, 298.15, 1), gas(s.air, 99325, 298.15, 1)), 298.15, -1, 0).masses[s.steam] == 0,
+          "Vapour below its boiling point did not condense");
+    check(boil_only_cell(s, "steam_in_air_50C", masses(0, gas(s.steam, 11000, 323.15, 1), gas(s.air, 90325, 323.15, 1)), 323.15, -1, 0).masses[s.steam] > 0,
+          "Condensing steam did not stop at its boiling point");
+    // Water at 105 C under 1 atm of air boils until the cell reaches its boiling point.
+    (void)boil_only_cell(s, "hot_105C", masses(498.5, 0, gas(s.air, 101325, 378.15, .5)), 378.15, 1, 1);
+    // Sealed pure steam over water: partial = total pressure, identical bytes.
+    for (const double t : {380., 360.}) {
+        MacTransportState st; st.grid = {1, 1, 1, 1, false, false, {0}};
+        st.cells.push_back({s.eos->initialize_at_temperature(masses(498.5, gas(s.steam, 101325, t, .5), 0), t, 1).mixture, {}});
+        st.momentum_x.assign(2, 0); st.momentum_y.assign(2, 0);
+        const MacSaturationPair pair{s.water, s.steam};
+        const auto a = advance_mac_phase_change(s.registry, *s.eos, st, std::span(&pair, 1), false, .18);
+        const auto b = advance_mac_phase_change(s.registry, *s.eos, st, std::span(&pair, 1), false, .18, false, MacPhaseRule::boil_only);
+        check(ma::testing::fingerprint(a.state) == ma::testing::fingerprint(b.state) &&
+              a.state.cells[0].mixture.masses[s.steam] != st.cells[0].mixture.masses[s.steam], "Sealed pure steam differs between the rules");
+    }
+    // Water in vacuum (void phase) boils into its void under either rule, identically.
+    {
+        constexpr double h = .1, volume = h * h * h;
+        MacTransportState st; st.grid = {1, 1, h, h, false, false, {0}};
+        st.cells.push_back({s.eos->initialize_at_temperature(masses(.5, 0, 0), 300, volume).mixture, {}});
+        st.occupied_volumes_m3 = {.5 / s.registry[s.water].density}; st.momentum_x.assign(2, 0); st.momentum_y.assign(2, 0);
+        const MacSaturationPair pair{s.water, s.steam};
+        const auto a = advance_mac_phase_change(s.registry, *s.eos, st, std::span(&pair, 1));
+        const auto b = advance_mac_phase_change(s.registry, *s.eos, st, std::span(&pair, 1), false, 1, false, MacPhaseRule::boil_only);
+        check(b.state.cells[0].mixture.masses[s.steam] > 0 && ma::testing::fingerprint(a.state) == ma::testing::fingerprint(b.state) &&
+              a.state.occupied_volumes_m3 == b.state.occupied_volumes_m3, "Water in vacuum did not boil identically under the boil-only rule");
+    }
+    std::cout << "PASS boil-only reference relaxation: humid air condenses, no evaporation below boiling, boiling at total pressure, "
+                 "pure steam and vacuum unchanged, rule entropy checked\n";
+
+    // The colony's game kernel. A 4x6 pool: two rows of water (2% air) at
+    // 25 C under humid air (2 kPa vapour), gravity on.
+    constexpr std::size_t W = 6, H = 8;
+    const auto pool = [&](double water_t, double air_t, double vapour_pa, double air_pa) {
+        return [=, &s](std::size_t, std::size_t y) -> std::pair<std::vector<double>, double> {
+            if (y <= 2) return {masses(.98 * s.registry[s.water].density, 0, gas(s.air, 101325, water_t, .02)), water_t};
+            return {masses(0, gas(s.steam, vapour_pa, air_t, 1), air_pa > 0 ? gas(s.air, air_pa, air_t, 1) : 0), air_t};
+        };
+    };
+    const auto boil_pool = game_box(s, MacPhaseRule::boil_only, W, H, 9.81, pool(298.15, 298.15, 2000, 99325));
+    const auto image = boil_pool.checkpoint();
+    check(image.at(8) == 25 && MacClosedWorld::from_checkpoint(s.registry, s.eos, image).checkpoint() == image, "Boil-only profile6 did not save as core25");
+    auto bad = image; bad.at(8) = 24;
+    bool refused = false; try { (void)MacClosedWorld::from_checkpoint(s.registry, s.eos, bad); } catch (const std::exception&) { refused = true; }
+    check(refused, "A core25 image was accepted as core24");
+    const double humid_steam = [&] { double m = 0; for (const auto& c : boil_pool.state().cells) m += c.mixture.masses[s.steam]; return m; }();
+    const auto boiled = run_game(s, boil_pool, 50);
+    const auto realistic = run_game(s, game_box(s, MacPhaseRule::equilibrium, W, H, 9.81, pool(298.15, 298.15, 2000, 99325)), 50);
+    std::cout << "PCGAME humid pool 10 s: steam " << humid_steam << " -> boil-only " << boiled.steam << " kg (evaporated " << boiled.evaporated
+              << ", condensed " << boiled.condensed << "), equilibrium " << realistic.steam << " kg (evaporated " << realistic.evaporated << ")\n";
+    check(boiled.evaporated == 0 && boiled.condensed > 0 && boiled.steam < 1e-3 * humid_steam && realistic.steam > humid_steam,
+          "Game-kernel humid air kept vapour or evaporated below boiling");
+    check(realistic.world.checkpoint().at(8) == 24, "Equilibrium profile6 did not keep core24");
+    // Cold continuation of a boil-only world mid-condensation.
+    const auto mid = run_game(s, boil_pool, 3).world;
+    check(MacClosedWorld::from_checkpoint(s.registry, s.eos, mid.checkpoint()).advanced(static_cast<double>(.2f)).world.checkpoint() ==
+          mid.advanced(static_cast<double>(.2f)).world.checkpoint(), "Boil-only cold continuation differs");
+    // Hot water (110 C) under 1 atm of air boils; water at 25 C under vacuum boils.
+    const auto hot = run_game(s, game_box(s, MacPhaseRule::boil_only, W, H, 9.81, pool(383.15, 383.15, 0, 101325)), 5);
+    const auto vacuum = run_game(s, game_box(s, MacPhaseRule::boil_only, W, H, 9.81, [&](std::size_t, std::size_t y) -> std::pair<std::vector<double>, double> {
+        return {y <= 2 ? masses(.98 * s.registry[s.water].density, 0, 0) : masses(0, 0, 0), 298.15}; }), 5);
+    std::cout << "PCGAME boiling: 110 C pool evaporated " << hot.evaporated << " kg; 25 C pool in vacuum evaporated " << vacuum.evaporated << " kg, steam " << vacuum.steam << " kg\n";
+    check(hot.evaporated > 0 && vacuum.evaporated > 0 && vacuum.steam > 0, "Game-kernel water did not boil when hot or in vacuum");
+    // Sealed pure steam over water: the rules give identical cell states.
+    const auto kettle = [&](std::size_t, std::size_t y) -> std::pair<std::vector<double>, double> {
+        return {y <= 2 ? masses(.98 * s.registry[s.water].density, 0, 0) : masses(0, gas(s.steam, 101325, 378.15, 1), 0), 378.15}; };
+    const auto kettle_boil = run_game(s, game_box(s, MacPhaseRule::boil_only, W, H, 9.81, kettle), 5);
+    const auto kettle_equilibrium = run_game(s, game_box(s, MacPhaseRule::equilibrium, W, H, 9.81, kettle), 5);
+    check(ma::testing::fingerprint(kettle_boil.world.state()) == ma::testing::fingerprint(kettle_equilibrium.world.state()) &&
+          kettle_boil.evaporated + kettle_boil.condensed > 0, "Sealed pure steam differs between the game-kernel rules");
+    // One cell (no flow or conduction partners): the tick's phase stage alone
+    // condenses humid air without lowering the rule's entropy.
+    {
+        const auto cell = game_box(s, MacPhaseRule::boil_only, 3, 3, 0, [&](std::size_t, std::size_t) -> std::pair<std::vector<double>, double> {
+            return {masses(.5 * s.registry[s.water].density, gas(s.steam, 2000, 298.15, .5), gas(s.air, 99325, 298.15, .5)), 298.15}; });
+        const auto next = cell.advanced(static_cast<double>(.2f)).world;
+        const auto before = cell.cell_reading(4), after = next.cell_reading(4);
+        const auto rule = [&](const ReferenceEquilibriumState& e, const MixtureInventory& m) {
+            double value = e.entropy_j_per_k, moles = 0;
+            for (const auto k : {s.steam, s.air}) moles += m.masses[k] / s.registry[k].molar_mass;
+            for (const auto k : {s.steam, s.air}) if (m.masses[k] > 0) { const double n = m.masses[k] / s.registry[k].molar_mass; value += gas_constant * n * std::log(n / moles); }
+            return value;
+        };
+        const auto& a = cell.state().cells[4].mixture; const auto& b = next.state().cells[4].mixture;
+        std::cout << "PCGAME one cell: steam " << a.masses[s.steam] << " -> " << b.masses[s.steam] << " kg, dS " << after.entropy_j_per_k - before.entropy_j_per_k
+                  << ", dS_rule " << rule(after, b) - rule(before, a) << '\n';
+        check(b.masses[s.steam] < a.masses[s.steam] && b.energy == a.energy && after.entropy_j_per_k < before.entropy_j_per_k &&
+              rule(after, b) - rule(before, a) > 0, "Game-kernel boil-only phase stage lowered its entropy");
+    }
+    std::cout << "PASS boil-only game kernel: humid pool condenses with no evaporation, closed ledgers, core25 save/continuation, "
+                 "hot and vacuum boiling, pure steam unchanged, rule entropy rises\n";
+}
 int main(int argc, char** argv) {
     try {
         if (argc == 2 && std::strcmp(argv[1], "--cold-flow-only") == 0) { cold_phase_flow_control(); return 0; }
         if (argc == 2 && std::strcmp(argv[1], "--parallel-only") == 0) { parallel_control(); return 0; }
-        check(argc == 1, "Usage: ma_mac_phase_change_tests [--parallel-only]");
+        if (argc == 2 && std::strcmp(argv[1], "--boil-only") == 0) { boil_only_control(Water()); return 0; }
+        check(argc == 1, "Usage: ma_mac_phase_change_tests [--parallel-only|--boil-only|--cold-flow-only]");
         const Water s; saturation_curve(s);
         const auto masses = [&](double water, double steam, double air) { std::vector<double> m(3); m[s.water] = water; m[s.steam] = steam; m[s.air] = air; return m; };
         // 1 m3: half water, half steam at 1 atm.
@@ -336,6 +521,7 @@ int main(int argc, char** argv) {
         cold_phase_flow_control();
         parallel_control(true);
         cold_phase_flow_control(true);
+        boil_only_control(s);
         std::cout << "MAC phase-change tests passed\n"; return 0;
     } catch (const std::exception& e) { std::cerr << "FAIL " << e.what() << '\n'; return 1; }
 }

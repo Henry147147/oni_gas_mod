@@ -219,6 +219,9 @@ Using it
 4. Optional: Mods > Mixed Atmospheres > Settings. Gameplay opens first.
    CO2 breathing limits default Off. Oxygen is always required; CO2 still
    mixes and displaces oxygen. The switch can be changed during play.
+   Evaporation below boiling defaults Off: liquids turn to vapour only by
+   boiling (at a pressure-dependent boiling point) and vapour below its
+   boiling point condenses, as in ONI. It is chosen per new colony.
    Advanced holds solver presets, technical controls, breathing thresholds,
    performance and saved presets. Numeric colony rules are fixed per colony.
 5. Nitrogen content and nitrogen starting air have been removed. An oxygen
