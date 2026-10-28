@@ -22,6 +22,15 @@ common = runner.common
 
 
 class ProtonIsolationTests(unittest.TestCase):
+    def test_measurement_variables_are_named_explicitly_and_limited(self):
+        self.assertEqual(runner.measurement_environment(["MA_FRAME_LOG=1", "MA_COLONY_WORKERS=8"]),
+                         {"MA_FRAME_LOG": "1", "MA_COLONY_WORKERS": "8"})
+        for bad in ("MA_FRAME_LOG", "MA_COLONY_KERNEL3=1", "PATH=x"):
+            with self.assertRaises(ValueError):
+                runner.measurement_environment([bad])
+        env = runner.owner_environment({"PATH": "fixture", "MA_FRAME_LOG": "1"}, SimpleNamespace(mode="colony-owner"))
+        self.assertEqual(env, {"PATH": "fixture"})
+
     def test_exact_storage_control_is_explicit_and_keeps_other_overrides_out(self):
         env={"PATH":"fixture","MA_OTHER_CONTROL":"1","MA_COLONY_CONTINUATION_SOURCE":"1"}
         args=SimpleNamespace(mode="colony-owner",exact_storage_control=False)

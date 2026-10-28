@@ -75,6 +75,15 @@ namespace MixedAtmospheres.Oni
         // there would prevent PrepareGameData from ever starting it.
         private static IntPtr ForwardNative(int message,int length,byte* payload)
         {
+            if(!ColonyFrameLog.Enabled)return ForwardNativeUntimed(message,length,payload);
+            var begun=ColonyFrameLog.Now;var collections=GC.CollectionCount(0);
+            try{return ForwardNativeUntimed(message,length,payload);}
+            finally{if(message==DevelopmentTelemetrySampler.PrepareGameDataMessage&&GC.CollectionCount(0)!=collections)ColonyFrameLog.Add(ColonyFrameLog.Part.NativeWaitGc,begun);
+                ColonyFrameLog.Add(message==DevelopmentTelemetrySampler.PrepareGameDataMessage?ColonyFrameLog.Part.NativeWait:
+                message==DevelopmentTelemetrySampler.NewGameFrameMessage?ColonyFrameLog.Part.NativeSubmit:ColonyFrameLog.Part.NativeOther,begun);}
+        }
+        private static IntPtr ForwardNativeUntimed(int message,int length,byte* payload)
+        {
             if(message==DevelopmentTelemetrySampler.NewGameFrameMessage)
             {
                 var queued=Sim.SIM_HandleMessage(message,length,payload);nativeFrameQueued=true;return queued;

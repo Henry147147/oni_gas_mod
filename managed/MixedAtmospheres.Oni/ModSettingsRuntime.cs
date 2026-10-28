@@ -135,6 +135,8 @@ namespace MixedAtmospheres.Oni
         private static void ApplyWorkers()
         {
             var requested = (uint)Current.Number("performance.workerThreads");
+            // Development control for worker-count sweeps (docs/settings.md).
+            if (uint.TryParse(Environment.GetEnvironmentVariable("MA_COLONY_WORKERS"), out var forced) && forced <= 256) requested = forced;
             if (appliedWorkerCount == requested) return;
             try
             {

@@ -207,6 +207,8 @@ namespace MixedAtmospheres.Oni
         {
             if (width <= 0 || height <= 0 || revision < 0 || readings.Count == 0)
                 throw new ArgumentException("Invalid native domain frame.");
+            // Lazy owner readings hold the completed frame's own cells and revision.
+            if (!(readings is ILazyReadings))
             foreach (var reading in readings)
                 if (reading.Key < 0 || reading.Key >= (long)width * height || reading.Value.Revision != revision)
                     throw new ArgumentException("Native domain cell or revision disagrees with its completed frame.");
@@ -476,6 +478,8 @@ namespace MixedAtmospheres.Oni
                 long revision, MixturePresentationModel model)
             {
                 Width = width; Height = height; Volume = 1; Revision = revision; IsFixture = false;
+                Inventories = new ReadOnlyDictionary<int, FluidInventory>(new Dictionary<int, FluidInventory>());
+                if (readings is ILazyReadings lazy) { physical = lazy; Presentations = lazy.Describe(model); return; }
                 physical = new ReadOnlyDictionary<int, MixtureThermodynamicReading>(readings.ToDictionary(entry => entry.Key, entry => entry.Value));
                 Inventories = new ReadOnlyDictionary<int, FluidInventory>(new Dictionary<int, FluidInventory>());
                 Presentations = new ReadOnlyDictionary<int, MixturePresentation>(physical.ToDictionary(entry => entry.Key, entry => model.Describe(entry.Value)));

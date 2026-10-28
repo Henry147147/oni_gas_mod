@@ -118,13 +118,16 @@ owned cell holding material (`ma_oni_colony_readings`: temperature, pressures,
 internal energy, occupied and liquid volume, each constituent's mass and
 volume) and hands the frame to the mixture presentation runtime. The readings
 come from the projection's EOS evaluation on the solver thread; the game
-thread only copies them (about 3 ms on Terra), and a worker builds the
-presentation frame (about 0.3 s), one at a time, so the presentation can skip
-a frame but never holds the game thread. The gas
+thread only copies them into a pooled buffer (about 0.7 ms on Terra). The
+reading and presentation objects of a cell are built when a reader first asks
+for that cell (the renderer's visible cells, the hover, the status display), once
+per completed frame ([Main-thread smoothness](#main-thread-smoothness)); no
+worker builds every cell, so the presentation never holds the game thread and
+never skips a completed frame. The gas
 renderer, hover, overlays and status display then show the real mixture; each
 species uses the game's element id, name and substance colour, and breathing
 follows the easy-mode rule. A cell whose reading fails validation keeps the
-vanilla projection and is counted. The cell hover lists every germ identity,
+vanilla projection and is counted (when a reader first asks for it). The cell hover lists every germ identity,
 and a duplicant holding its breath or suffocating is told why the air at its
 head fails (the hover's breathing warnings, `ColonyBreathingStatus.cs`).
 
@@ -683,6 +686,84 @@ reports only the newest step's timing, so when a slow Unity frame sees two steps
 finish the earlier one goes unsampled; each line covers its fixed 150 frame
 numbers and ends with `samples`, how many of them it timed.
 `MA_PERFORMANCE_LOG=0` turns it off.
+
+### Main-thread smoothness
+
+The game's frame rate, camera and menus must not depend on the solver: the game
+clock may slow when the solver is behind, but a Unity frame may not wait for it
+or for work the solver causes. Findings from the first Windows playtest (a
+stuttering camera at 0.85x) and the fixes:
+
+- **Garbage collection was the stutter.** ONI's player uses Unity's
+  non-generational, non-incremental collector: every collection stops the game
+  and marks the whole heap (about 1 GB, 150-350 ms), and one runs after roughly
+  50-100 MB of allocation. The presentation worker built a reading, a
+  presentation and several lists and strings for every open owned cell after
+  every owner frame (30 MB per frame, 150-300 MB per second at speed 2), so a
+  collection stopped the game about once a second. Now a completed frame is
+  copied into a pooled array (no per-cell objects) and `ColonyLazyReadings` /
+  `ColonyLazyPresentations` build a cell's reading and presentation, with the
+  same code and values as before, when a reader asks for it, and keep it for the
+  frame. The pool recycles a buffer only two seconds after a newer frame
+  replaced it; readers hold a frame for at most a Unity frame (the status
+  display for one refresh). A buffer carries a lease number, and a reader that
+  finds its buffer reused (never expected; counted in `ColonyReadingPool.StaleReads`)
+  treats the cell as absent instead of reading another frame's values. A cell
+  that fails validation is now rejected when it is first read rather than when
+  the frame is published. `MA_COLONY_PRESENTATION_EAGER=1` restores the eager
+  build for comparison.
+- **Receipt bursts.** A publication spawned every solid byproduct (salt, debris
+  from phase changes) it received; a Terra start produced about 100 per owner
+  frame, 8-12 ms of game-object work in one Unity frame. A publication now
+  spends at most 2 ms (`MA_COLONY_RECEIPT_BUDGET_MS`, 0 for no limit) before
+  it leaves the remaining byproducts, unacknowledged and in order, for the
+  next publication. It only stops before a byproduct, never inside a pipe
+  outcome; a backlog over 1,500 receipts, zero-time steps (saves, restores,
+  startup) and a save barrier deliver everything at once, so saves still hold
+  every receipt.
+- **Per-frame reflection.** The pacing read the player's speed through a new
+  reflection `Traverse` each Unity frame; it uses cached field references.
+- What remains on the game thread is ONI's own synchronous wait in
+  `PrepareGameData` for the native frame (the end-of-frame projection, about
+  9 ms and up to about 30 ms, which vanilla ONI also waits for its native
+  frame), publication (snapshot copy, overlay and receipts, 1-4 ms per Unity
+  frame that publishes) and the remaining allocation of ONI itself and of the
+  lazily built cells (a few MB per second).
+
+Measured on the Linux dev machine (Ryzen 9 5900X, RTX 5090, base-game Terra colony
+at fast speed, 900 owner frames, the game on cores 0-11 with other agents' jobs
+on the sibling threads, so run-to-run spread is large), one package, the old
+behaviour selected with `MA_COLONY_PRESENTATION_EAGER=1
+MA_COLONY_RECEIPT_BUDGET_MS=0`; medians of the 15 s windows after start-up:
+
+| | Old behaviour | Now |
+| --- | ---: | ---: |
+| Unity frame ms p50 / p95 / p99 / max | 18.4 / 164 / 344 / 501 | 19.2 / 85 / 179 / 370 |
+| Frames over 33 / 100 ms per 1,000 | 205 / 70 | 184 / 39 |
+| Garbage collections per window, each | 14 x 305 ms | 5 x 198 ms |
+| Allocation per Unity frame | 5.8 MB | 0.63 MB |
+| Mod time per frame (`mod_ms`) mean / p95 | 3.6 / 16.3 ms | 2.9 / 15.0 ms |
+| Native frame wait (`blocked_ms`) mean / p99 | 1.1 / 33 ms | 1.1 / 40 ms |
+
+Vanilla ONI in the same harness (the small floor arena `f1`) collects about once
+per 15 s window, allocating 50-60 KB per frame. The rest of the owner's
+allocation is the cells readers build per completed frame (about 600 visible
+cells, 2-5 KB each, a few MB per second), so a collection still comes about
+every three seconds. The mod time p95 is publication frames (snapshot copy,
+overlay, receipts) and collections that fall inside mod code.
+
+Measure with `MA_FRAME_LOG=1` (development only; the Proton runner passes it
+with `--measurement-env MA_FRAME_LOG=1`). `ColonyFrameLog` then writes one
+`frame-log` line to Player.log every 15 s: Unity frame time mean/p50/p95/p99/max
+and counts over 33, 50 and 100 ms; main-thread milliseconds per frame in mod
+code (`mod_ms`: publication, receipts and other message handling, pacing), in
+blocking native calls (`blocked_ms`: the native frame wait and submit), and the
+rest (`other_ms`: ONI, rendering, GC); the same parts averaged per frame
+(`views`, `snapshot`, `overlay`, `receipts` are publication laps); garbage
+collections, the frames that contained one and their length (`gc_frames`),
+managed heap growth per frame, and the slowest frame's parts. Garbage
+collections inside mod code count as mod time. `MA_COLONY_WORKERS=N` forces the
+solver worker count for sweeps.
 
 ## Saves
 

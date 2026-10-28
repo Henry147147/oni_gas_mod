@@ -45,6 +45,7 @@ namespace MixedAtmospheres.Oni
                 return;
             }
             DirectoryPath = path; StaticId = mod?.staticID ?? "";
+            ColonyFrameLog.Install();
             // The game build: every managed dependency, then the native
             // SimDLL. A refused build patches nothing except, when its own
             // targets verify, a guard that explains why mixture saves wait.

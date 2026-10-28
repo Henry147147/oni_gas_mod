@@ -24,6 +24,10 @@ namespace MixedAtmospheres.Oni
         private static long updateTicks, tickTicks, updateCalls, tickCalls, maximumUpdateTicks, loggedHeldTicks;
         private static ulong loggedFrame = ulong.MaxValue;
         private static readonly AccessTools.FieldRef<Game, int> subTick = AccessTools.FieldRefAccess<Game, int>("simSubTick");
+        // The player's speed settings, read without per-frame reflection.
+        private static readonly AccessTools.FieldRef<SpeedControlScreen, float> normalSpeed = AccessTools.FieldRefAccess<SpeedControlScreen, float>("normalSpeed");
+        private static readonly AccessTools.FieldRef<SpeedControlScreen, float> fastSpeed = AccessTools.FieldRefAccess<SpeedControlScreen, float>("fastSpeed");
+        private static readonly AccessTools.FieldRef<SpeedControlScreen, float> ultraSpeed = AccessTools.FieldRefAccess<SpeedControlScreen, float>("ultraSpeed");
         private static readonly AccessTools.FieldRef<Game, float> simDt = AccessTools.FieldRefAccess<Game, float>("simDt");
 
         internal static void Reset()
@@ -38,6 +42,15 @@ namespace MixedAtmospheres.Oni
         // and posts the 200 ms simulation tick on every twelfth. While the
         // owner is busy, the sub ticks before that one still run.
         internal static bool BeforeSimEveryTick(Game game, ref float dt)
+        {
+            if (ColonyFrameLog.Enabled)
+            {
+                var framed = ColonyFrameLog.Now;
+                try { return BeforeSimEveryTickTimed(game, ref dt); } finally { ColonyFrameLog.Add(ColonyFrameLog.Part.Tick, framed); }
+            }
+            return BeforeSimEveryTickTimed(game, ref dt);
+        }
+        private static bool BeforeSimEveryTickTimed(Game game, ref float dt)
         {
             if (!publicationLog) return BeforeTick(game, ref dt);
             var begun = System.Diagnostics.Stopwatch.GetTimestamp();
@@ -57,6 +70,11 @@ namespace MixedAtmospheres.Oni
         }
 
         internal static void Update()
+        {
+            var framed = ColonyFrameLog.Now;
+            try { UpdateTimed(); } finally { ColonyFrameLog.Add(ColonyFrameLog.Part.Pacing, framed); }
+        }
+        private static void UpdateTimed()
         {
             if (!publicationLog) { UpdateClock(); return; }
             var begun = System.Diagnostics.Stopwatch.GetTimestamp();
@@ -91,11 +109,7 @@ namespace MixedAtmospheres.Oni
             }
             var speed = SpeedControlScreen.Instance;
             if (speed == null || speed.IsPaused || OwnerRate == 0) return;
-            var t = Traverse.Create(speed);
-            playerScale = speed.GetSpeed() switch
-            {
-                0 => t.Field<float>("normalSpeed").Value, 1 => t.Field<float>("fastSpeed").Value, _ => t.Field<float>("ultraSpeed").Value
-            };
+            playerScale = speed.GetSpeed() switch { 0 => normalSpeed(speed), 1 => fastSpeed(speed), _ => ultraSpeed(speed) };
             var target = Mathf.Clamp((float)(.95 * OwnerRate), .01f, playerScale);
             if (Mathf.Abs(Time.timeScale - target) > 1e-3f * target) { Time.timeScale = target; scaled = true; }
         }

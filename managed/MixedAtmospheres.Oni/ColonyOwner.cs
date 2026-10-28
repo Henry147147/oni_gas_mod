@@ -313,8 +313,11 @@ namespace MixedAtmospheres.Oni
         internal static IntPtr AfterNativeMessage(int message, IntPtr pointer)
         {
             if (message != PrepareGameData || pointer == IntPtr.Zero || !Available) return pointer;
+            var begun = ColonyFrameLog.Now;
+            var heap = ColonyFrameLog.Enabled ? GC.GetTotalMemory(false) : 0; var collectionsBefore = ColonyFrameLog.Enabled ? GC.CollectionCount(0) : 0;
             try { ColonyFault.Inject("publication"); return Publish(pointer); }
             catch (Exception error) { ColonyFault.Raise("owner publication", error); return IntPtr.Zero; }
+            finally { ColonyFrameLog.Add(ColonyFrameLog.Part.Publication, begun); ColonyFrameLog.Published(); ColonyFrameLog.HeapDone(heap, collectionsBefore); }
         }
         private static IntPtr Publish(IntPtr pointer)
         {
@@ -324,11 +327,22 @@ namespace MixedAtmospheres.Oni
             if (!Active) { TryStart(source); if (!Active) return pointer; }
             ColonyClusterWorlds.Synchronize(source);
             var started = System.Diagnostics.Stopwatch.GetTimestamp();
-            var lapStarted = started;
+            var lapStarted = started; var frameLap = started;
+            var lapHeap = ColonyFrameLog.Enabled ? GC.GetTotalMemory(false) : 0; var lapCollections = GC.CollectionCount(0);
             var laps = publicationLog ? new System.Text.StringBuilder() : null;
             var previousCollections=publicationLog?GC.CollectionCount(0):0;
             void Lap(string name)
             {
+                if (ColonyFrameLog.Enabled)
+                {
+                    var stamp = System.Diagnostics.Stopwatch.GetTimestamp();
+                    ColonyFrameLog.AddTicks(name switch { "views" => ColonyFrameLog.Part.Views, "snapshot" => ColonyFrameLog.Part.Snapshot, "overlay" => ColonyFrameLog.Part.Overlay,
+                        "receipts" => ColonyFrameLog.Part.Receipts, "presentation" => ColonyFrameLog.Part.Presentation, _ => ColonyFrameLog.Part.Actors }, stamp - frameLap);
+                    frameLap = stamp;
+                    var heapNow = GC.GetTotalMemory(false);
+                    if (GC.CollectionCount(0) == lapCollections) ColonyFrameLog.AddHeap("lap_" + name, Math.Max(0, heapNow - lapHeap));
+                    lapHeap = heapNow; lapCollections = GC.CollectionCount(0);
+                }
                 if (laps == null) return;
                 var now = System.Diagnostics.Stopwatch.GetTimestamp();
                 laps.AppendFormat(System.Globalization.CultureInfo.InvariantCulture, " {0} {1:F3}", name,
@@ -448,6 +462,7 @@ namespace MixedAtmospheres.Oni
         {
             var element = ElementLoader.FindElementByHash((SimHashes)r.Callback);
             if (element == null || !(r.MassKg > 0)) return;
+            ColonyFrameLog.CountByproduct(element.id.ToString(), r.MassKg);
             var cell = (int)r.PublicCell;
             element.substance.SpawnResource(Grid.CellToPosCCC(cell, Grid.SceneLayer.Ore), r.MassKg, r.TemperatureK, byte.MaxValue, 0,
                 prevent_merge: MergeTargetIsDying(cell, element.tag, r.MassKg));
@@ -475,6 +490,15 @@ namespace MixedAtmospheres.Oni
         // A receipt the adapter cannot settle (a pipe outcome it must refuse)
         // faults the owner (ColonyFault); a faulted owner's receipts are not
         // delivered again (they would refuse again).
+        // Main-thread time one publication may spend on receipts before it
+        // leaves the remaining byproducts for the next one (0: no limit;
+        // MA_COLONY_RECEIPT_BUDGET_MS overrides, for measurements). A backlog
+        // beyond ReceiptBacklogLimit is delivered at once.
+        private static readonly long ReceiptBudgetTicks = (long)(ReceiptBudgetMilliseconds() * System.Diagnostics.Stopwatch.Frequency / 1000);
+        private const int ReceiptBacklogLimit = 1500;
+        private static double ReceiptBudgetMilliseconds() =>
+            double.TryParse(Environment.GetEnvironmentVariable("MA_COLONY_RECEIPT_BUDGET_MS"), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var value) && value >= 0 ? value : 2;
+        internal static long DeferredReceiptPublications { get; private set; }
         private static void DeliverReceipts(OwnedGameDataSnapshot copy)
         {
             if (ColonyFault.Faulted) return;
@@ -483,7 +507,8 @@ namespace MixedAtmospheres.Oni
         }
         private static void DeliverReceiptsOrThrow(OwnedGameDataSnapshot copy)
         {
-            var begun=publicationLog ? System.Diagnostics.Stopwatch.GetTimestamp() : 0;
+            var begunAt = System.Diagnostics.Stopwatch.GetTimestamp();
+            var begun=publicationLog ? begunAt : 0;
             OniNativeColony.Check(OniNativeColony.CopyReceipts(receipts, (uint)receipts.Length, out var count));
             var copied=publicationLog ? System.Diagnostics.Stopwatch.GetTimestamp() : 0;
             if (count == 0)
@@ -496,9 +521,16 @@ namespace MixedAtmospheres.Oni
             var removed = new List<Sim.ConsumedMassInfo>();
             var through = 0UL; var delivered = (int)Math.Min(count, (uint)receipts.Length);
             var byproducts=0;long byproductTicks=0;
+            // Spawning a byproduct is a game object: a burst of them is spread
+            // over publications. The rest stay unacknowledged in the owner and
+            // arrive, in order, with the next ones (docs/colony-owner.md#main-thread-smoothness).
+            var limited = ReceiptBudgetTicks > 0 && delivered <= ReceiptBacklogLimit && ColonySaveBarrier.StepSeconds > 0;
             for (var k = 0; k < delivered; ++k)
             {
-                var r = receipts[k]; through = r.Sequence;
+                var r = receipts[k];
+                if (limited && k > 0 && r.Kind == OniNativeColony.Byproduct && System.Diagnostics.Stopwatch.GetTimestamp() - begunAt > ReceiptBudgetTicks)
+                { delivered = k; ++DeferredReceiptPublications; break; }
+                through = r.Sequence;
                 if (ColonyPipePorts.Receipt(in r)) continue;
                 if (ColonyActors.IsConsumerReceipt(r)) { if (r.MassKg > 0) removed.Add(ColonyActors.Event(r)); }
                 else if (r.Kind == OniNativeColony.Byproduct)
@@ -537,6 +569,7 @@ namespace MixedAtmospheres.Oni
         internal static bool TryHandle(int message, int length, int count, byte* payload)
         {
             if (count <= 0 || payload == null || !Available) return false;
+            var begun = ColonyFrameLog.Now;
             try
             {
                 if (message == MassEmission || message == MassConsumption || message == ModifyCellEnergy) ColonyFault.Inject("messages");
@@ -547,6 +580,7 @@ namespace MixedAtmospheres.Oni
                 ColonyFault.Raise("owner messages", error);
                 return message != NewGameFrame && message != Dig && message != CellProperties && message != ColonyWorldGerms.CellDiseaseModification;
             }
+            finally { ColonyFrameLog.Add(ColonyFrameLog.Part.Messages, begun); }
         }
         private static bool Handle(int message, int length, int count, byte* payload)
         {

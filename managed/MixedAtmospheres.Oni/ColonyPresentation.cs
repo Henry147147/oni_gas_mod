@@ -20,13 +20,24 @@ namespace MixedAtmospheres.Oni
         private static NativeMatterPhase[] phases = Array.Empty<NativeMatterPhase>();
         private static double[] molarMasses = Array.Empty<double>();
         private static ulong publishedFrame = ulong.MaxValue;
+        // Development control: build every reading and presentation at
+        // publication, as before the lazy readings (MA_COLONY_PRESENTATION_EAGER=1).
+        private static readonly bool eager = Environment.GetEnvironmentVariable("MA_COLONY_PRESENTATION_EAGER") == "1";
         private static OniNativeColony.Reading[] readings = Array.Empty<OniNativeColony.Reading>();
         private static OniNativeColony.Constituent[] parts = Array.Empty<OniNativeColony.Constituent>();
+        private static ColonyReadingBuffer? publishedBuffer;
         private static long publications;
         private static readonly bool publicationLog = Environment.GetEnvironmentVariable("MA_COLONY_PUBLICATION_LOG") == "1";
         internal static long Publications => Interlocked.Read(ref publications);
-        internal static int RejectedCells { get; private set; }
+        private static int rejectedCells;
+        private static readonly object rejectionGate = new object();
+        internal static int RejectedCells => Volatile.Read(ref rejectedCells);
         internal static string FirstRejection { get; private set; } = "";
+        // A lazily built reading that fails validation keeps its cell's vanilla projection.
+        private static void Rejected(int cell, string message)
+        {
+            if (Interlocked.Increment(ref rejectedCells) == 1) lock (rejectionGate) FirstRejection = "cell " + cell + ": " + message;
+        }
         internal static double LastBuildMilliseconds { get; private set; } // worker
         internal static double CopyMilliseconds { get; private set; }      // game thread
         internal static string LastError { get; private set; } = "";
@@ -35,9 +46,9 @@ namespace MixedAtmospheres.Oni
         {
             lock (sessionGate)
             {
-                catalog = null; publishedFrame = ulong.MaxValue;
+                catalog = null; publishedFrame = ulong.MaxValue; ColonyReadingPool.Release(publishedBuffer); publishedBuffer = null;
                 Interlocked.Exchange(ref publications, 0); LastError = "";
-                RejectedCells = 0; FirstRejection = ""; LastBuildMilliseconds = 0; CopyMilliseconds = 0;
+                Volatile.Write(ref rejectedCells, 0); FirstRejection = ""; LastBuildMilliseconds = 0; CopyMilliseconds = 0;
             }
         }
 
@@ -88,6 +99,8 @@ namespace MixedAtmospheres.Oni
             if (catalog == null || completedFrame == publishedFrame || Interlocked.CompareExchange(ref building, 1, 0) != 0) return;
             var started = System.Diagnostics.Stopwatch.GetTimestamp();
             ulong frame; uint count, partCount;
+            if (!eager) { PublishLazy(completedFrame, started); return; }
+            using var tracked = ColonyFrameLog.Track("pres_copy");
             try
             {
                 OniNativeColony.Check(OniNativeColony.Readings(out frame, null, 0, out count, null, 0, out partCount));
@@ -112,6 +125,7 @@ namespace MixedAtmospheres.Oni
                 {
                     var cells = new Dictionary<int, MixtureThermodynamicReading>((int)count);
                     var rejected = 0; var firstRejection = "";
+                    using (ColonyFrameLog.Track("pres_readings"))
                     for (var r = 0; r < count; ++r)
                     {
                         try { cells.Add((int)table.Readings[r].PublicCell, Create(table, table.Readings[r], (long)frame)); }
@@ -124,8 +138,9 @@ namespace MixedAtmospheres.Oni
                     lock (sessionGate)
                     {
                         if (catalog != table.Catalog || revision!=lifecycleRevision) return;
+                        using (ColonyFrameLog.Track("pres_publish"))
                         if (cells.Count != 0 && !MixturePresentationRuntime.PublishNativeDomainFrame(width, height, (long)frame, cells, producerSession)) return;
-                        RejectedCells = rejected;
+                        Volatile.Write(ref rejectedCells, rejected);
                         if (rejected > 0) FirstRejection = firstRejection;
                         if (cells.Count != 0) Interlocked.Increment(ref publications);
                     }
@@ -144,6 +159,51 @@ namespace MixedAtmospheres.Oni
                 }
             });
         }
+        // The normal path: the completed frame's compact readings are copied
+        // into a pooled buffer and become the lazily read presentation source.
+        // Called with `building` held; releases it.
+        private static void PublishLazy(ulong completedFrame, long started)
+        {
+            ColonyReadingBuffer? buffer = null; var published = false;
+            try
+            {
+                using var tracked = ColonyFrameLog.Track("pres_copy");
+                OniNativeColony.Check(OniNativeColony.Readings(out var frame, null, 0, out var count, null, 0, out var partCount));
+                buffer = ColonyReadingPool.Acquire((int)count, (int)partCount);
+                OniNativeColony.Check(OniNativeColony.Readings(out frame, buffer.Readings, (uint)buffer.Readings.Length, out count, buffer.Parts, (uint)buffer.Parts.Length, out partCount));
+                buffer.Count = (int)count; buffer.PartCount = (int)partCount; buffer.Frame = frame; buffer.Sorted = true;
+                for (var i = 1; i < buffer.Count && buffer.Sorted; ++i) buffer.Sorted = buffer.Readings[i - 1].PublicCell < buffer.Readings[i].PublicCell;
+                publishedFrame = frame;
+                CopyMilliseconds = Milliseconds(started);
+                if (publicationLog) Debug.Log(FormattableString.Invariant($"[Mixed Atmospheres] presentation copy frame {frame} copy_ms {CopyMilliseconds:F3}"));
+                var table = new Table(catalog!, ids, phases, molarMasses, buffer.Readings, buffer.Parts);
+                var producerSession = MixturePresentationRuntime.NativeDomainSession;
+                var revision = lifecycleRevision;
+                using var publishing = ColonyFrameLog.Track("pres_publish");
+                lock (sessionGate)
+                {
+                    if (catalog != table.Catalog || revision != lifecycleRevision || count == 0) return;
+                    Volatile.Write(ref rejectedCells, 0);
+                    var lazy = new ColonyLazyReadings(buffer, table, (long)frame, Rejected);
+                    if (!MixturePresentationRuntime.PublishNativeDomainFrame(Grid.WidthInCells, Grid.HeightInCells, (long)frame, lazy, producerSession)) return;
+                    ColonyReadingPool.Release(publishedBuffer); publishedBuffer = buffer; published = true;
+                    Interlocked.Increment(ref publications);
+                }
+            }
+            catch (Exception error)
+            {
+                // A frame still publishing when the owner stops is dropped, not a failure.
+                lock (sessionGate)
+                    if (catalog != null && MixturePresentationRuntime.CurrentModel != null) Failed(error, completedFrame);
+            }
+            finally
+            {
+                if (!published) ColonyReadingPool.Release(buffer);
+                LastBuildMilliseconds = Milliseconds(started);
+                Volatile.Write(ref building, 0);
+            }
+        }
+
         // Presentation never stops the owner; the vanilla projection stays visible.
         private static void Failed(Exception error, ulong frame)
         {
@@ -155,7 +215,7 @@ namespace MixedAtmospheres.Oni
 
         // Gas partial volumes follow the reading's ideal-gas contract (n R T / p),
         // scaled to the cell's headspace when that geometry agrees with it.
-        private sealed class Table
+        internal sealed class Table
         {
             internal readonly FluidMaterialCatalog Catalog; internal readonly string[] Ids; internal readonly NativeMatterPhase[] Phases;
             internal readonly double[] MolarMasses; internal readonly OniNativeColony.Reading[] Readings; internal readonly OniNativeColony.Constituent[] Parts;
@@ -163,7 +223,7 @@ namespace MixedAtmospheres.Oni
                 OniNativeColony.Reading[] readings, OniNativeColony.Constituent[] parts)
             { Catalog = catalog; Ids = ids; Phases = phases; MolarMasses = molarMasses; Readings = readings; Parts = parts; }
         }
-        private static MixtureThermodynamicReading Create(Table table, OniNativeColony.Reading cell, long revision)
+        internal static MixtureThermodynamicReading Create(Table table, OniNativeColony.Reading cell, long revision)
         {
             var parts = table.Parts; var phases = table.Phases; var molarMasses = table.MolarMasses; var ids = table.Ids; var catalog = table.Catalog;
             var gasMoles = 0.0;

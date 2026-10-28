@@ -15,6 +15,7 @@
     <Compile Include="../../managed/MixedAtmospheres.Oni/MixtureHoverViewport.cs" Link="MixtureHoverViewport.cs" />
     <Compile Include="../../managed/MixedAtmospheres.Oni/MixtureInspectionValidation.cs" Link="MixtureInspectionValidation.cs" />
     <Compile Include="../../managed/MixedAtmospheres.Oni/MixturePresentationRuntime.cs" Link="MixturePresentationRuntime.cs" />
+    <Compile Include="../../managed/MixedAtmospheres.Oni/LazyPresentationSource.cs" Link="LazyPresentationSource.cs" />
     <Compile Include="../../managed/MixedAtmospheres.Oni/DevelopmentTelemetry.cs" Link="DevelopmentTelemetry.cs" />
     <Compile Include="../../managed/MixedAtmospheres.Oni/MixturePresentationLifecycle.cs" Link="MixturePresentationLifecycle.cs" />
     <Reference Include="Assembly-CSharp"><HintPath>$(OniManagedDir)/Assembly-CSharp.dll</HintPath><Private>false</Private></Reference>

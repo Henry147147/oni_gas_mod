@@ -317,6 +317,11 @@ def playtest(args, state: Path, session: dict) -> int:
             result["exact_storage_control"] = bool(getattr(args,"exact_storage_control",False))
             result["native_clock_control"] = bool(getattr(args,"native_clock_control",False))
         env=owner_fault_environment(env,args,output,result)
+        measured=measurement_environment(getattr(args,"measurement_env",None) or [])
+        if measured:
+            env.update(measured)
+            result["measurement_environment"]=measured
+            if args.mode in OWNER_MODES:result["owner_environment_overrides"]=True
         settings_preset=getattr(args,"settings_preset",None)
         if settings_preset:
             preset_hash=common.digest(settings_preset)
@@ -527,6 +532,22 @@ def playtest(args, state: Path, session: dict) -> int:
             raise
 
 
+# Development measurement controls (docs/colony-owner.md#main-thread-smoothness):
+# the owner environment above strips every MA_ variable, so a frame-time run
+# names these explicitly and the result records them.
+MEASUREMENT_VARIABLES = ("MA_FRAME_LOG", "MA_COLONY_PRESENTATION_EAGER", "MA_COLONY_RECEIPT_BUDGET_MS", "MA_COLONY_WORKERS")
+
+
+def measurement_environment(assignments):
+    result = {}
+    for item in assignments:
+        name, separator, value = item.partition("=")
+        if not separator or name not in MEASUREMENT_VARIABLES:
+            raise ValueError("--measurement-env takes NAME=VALUE with NAME one of " + ", ".join(MEASUREMENT_VARIABLES))
+        result[name] = value
+    return result
+
+
 def owner_environment(env, args):
     """Keep ordinary owner runs free of implicit development overrides."""
     experimental = getattr(args, "spaced_out_control", False)
@@ -574,6 +595,8 @@ def main() -> int:
     parser.add_argument("--game-dir", type=Path, default="/mnt/data/share/oni/OxygenNotIncluded")
     parser.add_argument("--proton", type=Path, required=True, help="Installed complete Proton tool root")
     parser.add_argument("--package", type=Path, required=True)
+    parser.add_argument("--measurement-env", action="append", metavar="NAME=VALUE",
+                        help="Pass a development measurement variable to the game (repeatable): " + ", ".join(MEASUREMENT_VARIABLES))
     parser.add_argument("--spaced-out-control", action="store_true",
                         help="Experimental cluster-owner admission; records a development override, not ordinary DLC acceptance")
     parser.add_argument("--exact-storage-control",action="store_true",
