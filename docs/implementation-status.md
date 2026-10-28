@@ -64,7 +64,7 @@ Linux and WindowsPlayer/Proton each pass eight checks and retain identical
 source/cold/menu histories without a live host. Nonempty teardown and containers remain open.
 
 
-Current private Windows candidate: **`ef1ede0`**. Its DLLs match the Windows
+Current private Windows candidate: **`fc0fcc4`**. Its DLLs match the Windows
 x64/Wine 89-test build; current Linux activity/save cohorts pass. Windows OS
 speed, smooth input and broader release acceptance remain open. See
 [install instructions and exact provenance](spaced-out-private-playtest.md).

@@ -289,8 +289,9 @@ spends about 8.1 ms obtaining missing audit totals; the next reuses them in
 0.0005 ms. A parallel fixed-order audit prototype and hook-counter sharding
 remain private/unadopted, with no default throughput claim. Keep large active
 pressure/transport work in scope: active-cell benchmarks cannot benefit from
-sleeping their active cells. A private Windows package is prepared; refresh its
-clean-source manifest after the passive commit. Actual Windows OS acceptance,
+sleeping their active cells. The clean private Windows package `MixedAtmospheres-private-windows-fc0fcc4.zip`
+is delivered in `/mnt/data/share/oni/playtest`, with the tested native DLLs and
+2,587/0 Windows managed contract. See [provenance and install](spaced-out-private-playtest.md). Actual Windows OS acceptance,
 3×, smooth input, full active save continuation, exact storage and the broader
 release matrix remain open. Historical worktree patches below are superseded
 by main.

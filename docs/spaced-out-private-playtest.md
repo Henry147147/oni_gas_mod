@@ -1,18 +1,18 @@
 # Spaced Out! private Windows playtest
 
 The current engineering ZIP is
-`MixedAtmospheres-private-windows-ef1ede0.zip` in the private playtest share
+`MixedAtmospheres-private-windows-fc0fcc4.zip` in the private playtest share
 (2026-10-28; SHA-256
-`75b8fdd737f2383e18d40e933546d4000a36497bc84fbb3fb11c8e22a9ead565`).
-Its manifest records clean revision `ef1ede0`. It includes profile9/core28
+`bebcf1d7f53e401c3007af8d1797666f2362cadf097bfad8c638e6988421cfe0`).
+Its manifest records clean revision `fc0fcc4`. It includes profile9/core28
 activity tiers, durable pending owner inputs, callback/readiness repairs and
-exact heat/passive-edit optimizations. The original accepted boil-only and
-momentum corrections remain. Private rendering, report-cadence and pacing
-experiments are excluded.
+exact heat/passive-edit optimizations and bounded numeric texture caching. The
+original accepted boil-only and momentum corrections remain. Private receipt
+policy, report-cadence and pacing experiments are excluded.
 
 Linux and Windows x64/Wine each pass all 89 native tests; the four packaged
 DLL hashes match the tested Windows candidate. The managed Windows contract
-reports 2,585 dependencies and zero differences. Native build provenance is
+reports 2,587 dependencies and zero differences. Native build provenance is
 explicitly null in the manifest; retained build/test logs and DLL hashes provide
 the evidence. Base-game and nine-world Spaced Out! pending-save/lifecycle
 cohorts pass on Linux. Windows OS speed, input smoothness, complete active-world
@@ -45,7 +45,7 @@ the user's part of the playtest.
 
 ## Install
 
-1. Close ONI and extract `MixedAtmospheres-private-windows-ef1ede0.zip`.
+1. Close ONI and extract `MixedAtmospheres-private-windows-fc0fcc4.zip`.
 2. Open PowerShell in the extracted folder and run:
 
    ```powershell
