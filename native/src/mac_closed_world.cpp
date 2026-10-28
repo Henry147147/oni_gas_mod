@@ -193,7 +193,8 @@ void MacClosedSettings::validate() const {
         const bool positive = (game_profile==MacGameProfile::game_kernel_positive_liquid ||
             game_profile==MacGameProfile::game_kernel_free_surface ||
             game_profile==MacGameProfile::game_kernel_trace_heat ||
-            game_profile==MacGameProfile::game_kernel_bounded_pressure) &&
+            game_profile==MacGameProfile::game_kernel_bounded_pressure ||
+            game_profile==MacGameProfile::game_kernel_sized_intervals) &&
             game.liquid_law==MacGameLiquidLaw::positive_segments;
         require((original || positive) && vacuum==MacVacuumRepresentation::void_phase &&
             step_control==MacStepControl::doubling && subcell_void==MacSubcellVoidPolicy::exact_geometry &&
@@ -208,16 +209,18 @@ void MacClosedSettings::validate() const {
             compression_viscosity==MacCompressionViscosity::acoustic_quadratic && shock_heat==MacShockHeatRegularization::pressure_sensed_acoustic &&
             gas_expansion_volume_fraction==16*eps && viscosity.shear_pa_s==0 && viscosity.bulk_pa_s==0,
             "Invalid diagnostic game-kernel settings");
-        require(game.phase_rule==MacPhaseRule::equilibrium || game_profile==MacGameProfile::game_kernel_bounded_pressure,
-            "The boil-only phase rule requires game profile6");
+        require(game.phase_rule==MacPhaseRule::equilibrium || game_profile==MacGameProfile::game_kernel_bounded_pressure ||
+            game_profile==MacGameProfile::game_kernel_sized_intervals,
+            "The boil-only phase rule requires game profile6 or 7");
         return;
     }
-    require(game.phase_rule==MacPhaseRule::equilibrium,"The boil-only phase rule requires game profile6");
+    require(game.phase_rule==MacPhaseRule::equilibrium,"The boil-only phase rule requires game profile6 or 7");
     require(game_profile!=MacGameProfile::game_kernel &&
         game_profile!=MacGameProfile::game_kernel_positive_liquid &&
         game_profile!=MacGameProfile::game_kernel_free_surface &&
         game_profile!=MacGameProfile::game_kernel_trace_heat &&
-        game_profile!=MacGameProfile::game_kernel_bounded_pressure,"Game profile requires numerical kernel3");
+        game_profile!=MacGameProfile::game_kernel_bounded_pressure &&
+        game_profile!=MacGameProfile::game_kernel_sized_intervals,"Game profile requires numerical kernel3");
     viscosity.validate();
     diffusion.validate();
     require(game_profile == MacGameProfile::base_game_floor ||

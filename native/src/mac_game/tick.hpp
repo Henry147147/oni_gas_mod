@@ -59,6 +59,11 @@ class Tick {
   // heat solve's tolerance could otherwise drive its U below its offset.
   bool prune_before_heat = false;
   bool bounded_pressure_volume = false;
+  // Profile 7: each pressure interval is proposed from the net swept volume
+  // the previous trial measured, aiming at 90% of the unchanged 0.4-cell
+  // bound, instead of by fixed halving and doubling. The criterion, the
+  // equations and the tolerances are profile 6's.
+  bool sized_intervals = false;
   SurfaceScratch surface_scratch;
   static double ms(std::chrono::steady_clock::time_point start) {
     return std::chrono::duration<double, std::milli>(
@@ -75,7 +80,8 @@ public:
        unsigned viscosity_sweeps = 2, double phase_relaxation_time = 1,
        bool enable_heat = true, unsigned pressure_iterations = 200,
        unsigned heat_iterations = 200, bool surface_closure = false,
-       bool trace_before_heat = false, bool bound_pressure_volume = false)
+       bool trace_before_heat = false, bool bound_pressure_volume = false,
+       bool size_intervals = false)
       : grid(source), species(table),
         flow(source, table, threads, false, pressure_tolerance, gravity_source, pressure_iterations,
              surface_closure, bound_pressure_volume),
@@ -87,7 +93,8 @@ public:
         filter_speed(speed_limit), filter_sweeps(viscosity_sweeps),
         phase_time(phase_relaxation_time), heat_enabled(enable_heat),
         prune_before_heat(trace_before_heat),
-        bounded_pressure_volume(bound_pressure_volume) {}
+        bounded_pressure_volume(bound_pressure_volume),
+        sized_intervals(bound_pressure_volume && size_intervals) {}
   [[nodiscard]] unsigned threads_used() const noexcept {
     return flow.worker_pool().size();
   }
@@ -217,9 +224,11 @@ public:
       out.state = std::move(sunk.state);
       return true;
     };
+    // Profile 7 carries its proposal from one flow part into the next.
+    double proposal = dt / parts;
     for (unsigned part = 0; part < parts; ++part) {
       double remaining = dt / parts;
-      double trial = remaining;
+      double trial = sized_intervals ? std::min(remaining, proposal) : remaining;
       while (remaining > 0) {
         prune(true, true);
         auto stage_start = std::chrono::steady_clock::now();
@@ -238,7 +247,13 @@ public:
           out.pressure_iterations += advanced.pressure_iterations;
           out.pressure_corrections += advanced.pressure_corrections;
           out.eos = std::move(advanced.eos);
-          const double shorter = .5 * trial;
+          // A net-volume rejection (ratio above one) proposes the interval
+          // its measured swept volume predicts; any other refinement halves.
+          const double ratio = advanced.pressure_volume_change / .4;
+          const double shorter =
+              sized_intervals && ratio > 1
+                  ? trial * std::clamp(.9 / ratio, 1. / 1024, .5)
+                  : .5 * trial;
           if (!(shorter > 0) || shorter == trial || remaining - shorter == remaining)
             throw std::runtime_error("Game pressure refinement cannot advance time");
           trial = shorter;
@@ -283,7 +298,17 @@ public:
         if (after == remaining)
           throw std::runtime_error("Game pressure interval cannot advance time");
         remaining = after;
-        trial = std::min(remaining, 2 * trial);
+        if (sized_intervals) {
+          // Grow by at most two, or shrink by at most half, towards 90% of
+          // the bound. A remainder shorter than two proposals is split in
+          // equal halves rather than leaving a short final interval.
+          const double ratio = advanced.pressure_volume_change / .4;
+          proposal = trial * (ratio > 0 ? std::clamp(.9 / ratio, .5, 2.) : 2.);
+          trial = remaining <= proposal         ? remaining
+                  : remaining < 2 * proposal ? .5 * remaining
+                                             : proposal;
+        } else
+          trial = std::min(remaining, 2 * trial);
       }
     }
     auto stage_start = std::chrono::steady_clock::now();

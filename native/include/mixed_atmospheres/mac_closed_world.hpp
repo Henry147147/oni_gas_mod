@@ -65,10 +65,12 @@ enum class MacStepControl { doubling = 0, predictive = 1, regional_predictive = 
 // scientific gates never select the base-game accuracy-floor profile.
 // Family 4 adds the free-surface closure to family 3: no face carries
 // material out of an empty cell. Family 5 also sinks sub-threshold traces
-// before conduction (native/MAC_GAME_KERNEL.md).
+// before conduction (native/MAC_GAME_KERNEL.md). Family 6 bounds each
+// pressure interval's net swept volume; family 7 keeps family 6's equations
+// and bound but sizes each interval from the swept volume it measured.
 enum class MacGameProfile { legacy = 0, base_game_floor = 1, game_kernel = 2,
     game_kernel_positive_liquid = 3, game_kernel_free_surface = 4,
-    game_kernel_trace_heat = 5, game_kernel_bounded_pressure = 6 };
+    game_kernel_trace_heat = 5, game_kernel_bounded_pressure = 6, game_kernel_sized_intervals = 7 };
 enum class MacGameLiquidLaw { linear = 0, positive_segments = 1 };
 // Saved settings of the opt-in diagnostic game kernel; never selected by gates.
 struct MacGameSettings {
@@ -81,7 +83,8 @@ struct MacGameSettings {
     bool sharpen_liquid_interfaces = true;
     double interface_detail_fraction = 0;
     double phase_relaxation_time_s = 1;
-    // Profile6 only; boil-only is saved as physical version25 (MAC_CHECKPOINT.md).
+    // Profiles 6 and 7; boil-only is saved as physical version25 by profile6
+    // and in version26's selector by profile7 (MAC_CHECKPOINT.md).
     MacPhaseRule phase_rule = MacPhaseRule::equilibrium;
     std::vector<MacSaturationPair> saturation_pairs;
     void validate() const;

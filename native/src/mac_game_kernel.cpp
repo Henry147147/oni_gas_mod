@@ -456,7 +456,7 @@ MacClosedAdvance MacGameKernelAccess::advance_guarded(
     MacGrid grid;
     MacGameSettings settings;
     unsigned threads = 0;
-    bool conduction = true, closure = false, trace_heat = false, bounded = false;
+    bool conduction = true, closure = false, trace_heat = false, bounded = false, sized = false;
     std::unique_ptr<k::Tick> tick;
     std::unique_ptr<k::RegionalTick> regional;
   };
@@ -464,7 +464,8 @@ MacClosedAdvance MacGameKernelAccess::advance_guarded(
   const auto &cfg = source.settings_.game;
   const auto options = mac_kernel_default_options();
   const unsigned threads = options.threads;
-  const bool bounded = source.settings_.game_profile == MacGameProfile::game_kernel_bounded_pressure;
+  const bool sized = source.settings_.game_profile == MacGameProfile::game_kernel_sized_intervals;
+  const bool bounded = sized || source.settings_.game_profile == MacGameProfile::game_kernel_bounded_pressure;
   const bool trace_heat = bounded ||
       source.settings_.game_profile == MacGameProfile::game_kernel_trace_heat;
   const bool closure =
@@ -472,7 +473,7 @@ MacClosedAdvance MacGameKernelAccess::advance_guarded(
       source.settings_.game_profile == MacGameProfile::game_kernel_free_surface;
   if ((bounded ? !cache.regional : !cache.tick) || cache.eos != source.thermodynamics_ ||
       cache.threads != threads || cache.closure != closure ||
-      cache.trace_heat != trace_heat || cache.bounded != bounded ||
+      cache.trace_heat != trace_heat || cache.bounded != bounded || cache.sized != sized ||
       cache.conduction != source.settings_.thermal_conduction ||
       !same_grid(cache.grid, source.state().grid) ||
       !same_settings(cache.settings, cfg)) {
@@ -483,7 +484,7 @@ MacClosedAdvance MacGameKernelAccess::advance_guarded(
       pairs.push_back({p.liquid, p.vapour, p.critical_temperature_k,
                        cfg.phase_rule == MacPhaseRule::boil_only});
     if(bounded) {
-      cache.regional=std::make_unique<k::RegionalTick>(source.state().grid,species,pairs,threads,cfg,source.settings_.thermal_conduction);
+      cache.regional=std::make_unique<k::RegionalTick>(source.state().grid,species,pairs,threads,cfg,source.settings_.thermal_conduction,sized);
       cache.tick.reset();
     } else {
     cache.tick = std::make_unique<k::Tick>(
@@ -503,6 +504,7 @@ MacClosedAdvance MacGameKernelAccess::advance_guarded(
     cache.closure = closure;
     cache.trace_heat = trace_heat;
     cache.bounded = bounded;
+    cache.sized = sized;
   }
   MacClosedAdvance result{source, {}};
   result.report.game_threads_used = bounded?cache.regional->threads_used():cache.tick->threads_used();

@@ -125,6 +125,12 @@ solver-iterate change is listed here when it is enabled. Versions20–25 keep
 their bytes, arithmetic and continuation. This reservation does not enable the
 profile or claim validation.
 
+*Implemented 2026-10-28* ([speed profile 7](MAC_GAME_KERNEL.md#retry-storms-and-speed-profile-7)):
+version26 writes version24's fields, then the u32 phase-rule selector after
+the heat iteration cap: 0 for the equilibrium rule, 1 for boil-only (the same
+selector version25 holds). Other values reject as noncanonical. Profile7 is
+not yet the new-colony default.
+
 **Reserved 2026-10-28 immediately after fetching `058683a`:** physical
 `MACCLS01` version **25** identifies game profile **6** with the saved
 boil-only phase-change rule (user decision 2026-10-28,

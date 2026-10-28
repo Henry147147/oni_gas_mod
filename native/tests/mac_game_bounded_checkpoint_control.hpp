@@ -125,17 +125,42 @@ inline void bounded_pressure_checkpoint_control() {
   for(const auto profile:{MacGameProfile::game_kernel,
       MacGameProfile::game_kernel_positive_liquid,
       MacGameProfile::game_kernel_free_surface,MacGameProfile::game_kernel_trace_heat,
-      MacGameProfile::game_kernel_bounded_pressure}) {
+      MacGameProfile::game_kernel_bounded_pressure,MacGameProfile::game_kernel_sized_intervals}) {
     const auto source=MacClosedWorld::game_colony(f.registry,f.eos,state,temperatures,config(profile));
     const auto image=source.checkpoint();
-    check(image.at(8)==18+static_cast<unsigned>(profile),"Saved game pressure policy version differs");
+    const bool sized=profile==MacGameProfile::game_kernel_sized_intervals;
+    check(image.at(8)==(sized?26U:18+static_cast<unsigned>(profile)),"Saved game pressure policy version differs");
     const auto cold=MacClosedWorld::from_checkpoint(f.registry,f.eos,image);
     check(cold.checkpoint()==image && cold.settings().game_profile==profile,
           "Saved game pressure policy changed on restore");
     const auto first=source.advanced(.2);
     check(first.world.checkpoint()==cold.advanced(.2).world.checkpoint(),
           "Saved game pressure policy changed cold continuation");
-    if(profile!=MacGameProfile::game_kernel_bounded_pressure) {
+    if(sized) {
+      // Version 26 saves version 25's phase-rule selector: 0 equilibrium,
+      // 1 boil-only; any other value is refused.
+      std::uint32_t model=0;for(unsigned b=0;b<4;++b)model|=std::uint32_t(image.at(12+b))<<(8*b);
+      // Magic, version, model identity; clock, geometry and settings through
+      // the heat iteration cap; then the selector.
+      const auto at=std::size_t(8+4+4)+model+8+8+4+4+8+8+8+8+1+8+8+4+8+8+1+8+8+4+4+4;
+      check(image.at(at)==0&&image.at(at+1)==0&&image.at(at+2)==0&&image.at(at+3)==0,"Profile 7 phase rule is not saved as equilibrium");
+      const auto relabel=[&](std::uint8_t rule) {
+        auto other=image;other.at(at)=rule;std::uint64_t h=14695981039346656037ULL;
+        for(std::size_t n=0;n+8<other.size();++n)h=(h^other[n])*1099511628211ULL;
+        for(unsigned b=0;b<8;++b)other[other.size()-8+b]=static_cast<std::uint8_t>(h>>(8*b));
+        return other;
+      };
+      auto boil_cfg=config(profile);boil_cfg.game.phase_rule=MacPhaseRule::boil_only;
+      const auto boiling=MacClosedWorld::game_colony(f.registry,f.eos,state,temperatures,boil_cfg).checkpoint();
+      check(boiling==relabel(1),"Profile 7 boil-only checkpoint differs from its selector");
+      const auto restored=MacClosedWorld::from_checkpoint(f.registry,f.eos,boiling);
+      check(restored.settings().game_profile==profile&&restored.settings().game.phase_rule==MacPhaseRule::boil_only&&
+            restored.checkpoint()==boiling,"Profile 7 boil-only rule changed on restore");
+      bool refused=false;
+      try{(void)MacClosedWorld::from_checkpoint(f.registry,f.eos,relabel(2));}catch(const std::exception& error){refused=std::string(error.what()).find("phase rule")!=std::string::npos;}
+      check(refused,"Profile 7 restored a noncanonical saved phase rule");
+    }
+    if(profile!=MacGameProfile::game_kernel_bounded_pressure && !sized) {
       check(first.report.game_stages.pressure_refinements==0,
             "Legacy saved profile acquired pressure refinement");
       continue;
@@ -158,6 +183,6 @@ inline void bounded_pressure_checkpoint_control() {
           "Bounded pressure worker cold continuation differs");
   }
   regional_pressure_controls();
-  std::cout<<"PASS saved pressure profiles20-24, bounded attempt budget, cache retry and worker/cold continuation\n";
+  std::cout<<"PASS saved pressure profiles20-24 and 26 (both phase rules), bounded/sized attempt budget, cache retry and worker/cold continuation\n";
 }
 } // namespace ma::testing

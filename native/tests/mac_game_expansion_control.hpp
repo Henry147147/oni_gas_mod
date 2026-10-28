@@ -33,9 +33,9 @@ inline void bounded_pressure_expansion_control() {
     s.masses.offsets.push_back(s.masses.mass.size());
     return s;
   };
-  const auto make_tick = [&](const MacGrid &g, bool bounded) {
+  const auto make_tick = [&](const MacGrid &g, bool bounded, bool sized = false) {
     return k::Tick(g, species, {}, 1, 2, 8, false, 0, 1e-8, 0,
-                   false, 0, 2, 1, true, 400, 800, true, true, bounded);
+                   false, 0, 2, 1, true, 400, 800, true, true, bounded, sized);
   };
   MacGrid g;
   g.width = 32; g.height = 24;
@@ -45,8 +45,10 @@ inline void bounded_pressure_expansion_control() {
     const auto source = make_state(g, [&](std::size_t i) { return i == opened ? trace : 1.6; });
     auto old_tick = make_tick(g, false);
     auto new_tick = make_tick(g, true);
+    auto sized_tick = make_tick(g, true, true);
     const auto old = old_tick.advance(source, .2, 0, 1e-11);
     const auto fixed = new_tick.advance(source, .2, 0, 1e-11);
+    const auto sized = sized_tick.advance(source, .2, 0, 1e-11);
     // A much smaller legacy pressure interval independently resolves the
     // newly opened cell. No candidate retry/volume criterion enters this run.
     auto fine_tick = make_tick(g, false);
@@ -54,12 +56,23 @@ inline void bounded_pressure_expansion_control() {
     for (unsigned n = 0; n < 400; ++n)
       fine = fine_tick.advance(fine, .0005, 0, 1e-11).state;
     const auto reference = fine_tick.evaluate_state(fine);
-    double old_error = 0, fixed_error = 0, scale = 0;
+    double old_error = 0, fixed_error = 0, sized_error = 0, scale = 0;
     for (std::size_t i = 0; i < reference.size(); ++i) {
       old_error += std::abs(old.eos[i].pressure - reference[i].pressure);
       fixed_error += std::abs(fixed.eos[i].pressure - reference[i].pressure);
+      sized_error += std::abs(sized.eos[i].pressure - reference[i].pressure);
       scale += reference[i].pressure;
     }
+    // Profile 7 sizes the same bounded intervals from the measured swept
+    // volume: it meets the same reference with no more pressure work.
+    check(sized_error < .01 * scale && sized_error < .1 * old_error,
+          "Sized pressure intervals differ from the resolved temporal reference");
+    check(sized.pressure_attempts == sized.flow_substeps + sized.pressure_refinements &&
+              sized.pressure_attempts <= fixed.pressure_attempts,
+          "Sized pressure intervals did not report or reduce their pressure work");
+    check(sized.energy_error < 1e-12 && sized.mass_error < 1e-12 &&
+              sized.momentum_error < 1e-12 && sized.region_error < 1e-12,
+          "Sized pressure intervals broke the physical audit contract");
     check(old_error > .1 * scale,
           "Opening regression no longer exposes the coarse frozen-pressure defect");
     check(fixed_error < .01 * scale && fixed_error < .1 * old_error,
@@ -93,14 +106,16 @@ inline void bounded_pressure_expansion_control() {
   // reservoir value. This oracle does not apply to the 2-D cavity above.
   MacGrid line;
   line.width = 128; line.height = 1; line.walls.resize(line.width);
-  auto one_d = make_tick(line, true);
-  const auto slab = make_state(line, [](std::size_t i) { return i < 64 ? 1.6 : 0.; });
-  const double initial_p = one_d.evaluate_state(slab)[0].pressure;
-  const auto front = one_d.advance(slab, .005, 0, 1e-11);
-  double maximum = 0;
-  for (const auto &e : front.eos) maximum = std::max(maximum, e.pressure);
-  check(maximum <= initial_p * 1.001,
-        "Pre-reflection one-dimensional vacuum expansion created a pressure spike");
+  for (const bool sized : {false, true}) {
+    auto one_d = make_tick(line, true, sized);
+    const auto slab = make_state(line, [](std::size_t i) { return i < 64 ? 1.6 : 0.; });
+    const double initial_p = one_d.evaluate_state(slab)[0].pressure;
+    const auto front = one_d.advance(slab, .005, 0, 1e-11);
+    double maximum = 0;
+    for (const auto &e : front.eos) maximum = std::max(maximum, e.pressure);
+    check(maximum <= initial_p * 1.001,
+          "Pre-reflection one-dimensional vacuum expansion created a pressure spike");
+  }
   // Large transport alone does not need a smaller pressure interval. A
   // corner streamfunction gives a closed-boundary, divergence-free velocity
   // field while the remap still needs its local advection microcycles.
@@ -124,6 +139,6 @@ inline void bounded_pressure_expansion_control() {
   check(transported.energy_error < 1e-12 && transported.mass_error < 1e-12 &&
             transported.momentum_error < 1e-12,
         "Fast circulation broke the existing physical audit contract");
-  std::cout << "PASS bounded pressure: new and nearly empty cells match a resolved temporal reference; 1D expansion, fast circulation and physical audits\n";
+  std::cout << "PASS bounded and sized pressure intervals: new and nearly empty cells match a resolved temporal reference; 1D expansion, fast circulation and physical audits\n";
 }
 } // namespace ma::testing
