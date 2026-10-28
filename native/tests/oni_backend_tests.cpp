@@ -194,6 +194,21 @@ static void runtime_context_controls() {
     }
     require(sim==original&&ma::oni::runtime_trace::context(nullptr,false).cells==0,"native context observer changed source or null contract");
     for(const auto windows:{false,true}) {
+        for(const auto building:{false,true}) {
+            std::array<std::byte,0x500> world{};std::array<std::uint32_t,22> records{};
+            for(std::size_t i=0;i<records.size();++i)records[i]=0x80000000U+static_cast<std::uint32_t>(i);
+            const auto offset=building?(windows?0x4e0U:0x438U):(windows?0x410U:0x398U);
+            const auto* first=reinterpret_cast<const std::byte*>(records.data());const auto* last=first+88;
+            std::memcpy(world.data()+offset,&first,8);std::memcpy(world.data()+offset+8,&last,8);
+            const auto kept_world=world;const auto kept_records=records;
+            const auto rows=ma::oni::runtime_trace::actors(world.data(),windows,building);
+            require(rows.size()==2&&rows[0][0]==0x80000000U&&rows[0][10]==0x8000000aU&&rows[1][0]==0x8000000bU&&rows[1][10]==0x80000015U,
+                "native actor registry trace changed layout or order");
+            require(world==kept_world&&records==kept_records,"native actor trace changed its source");
+            last=first+87;std::memcpy(world.data()+offset+8,&last,8);
+            bool refused=false;try{(void)ma::oni::runtime_trace::actors(world.data(),windows,building);}catch(const std::invalid_argument&){refused=true;}
+            require(refused,"native actor trace accepted truncated records");
+        }
         std::array<std::byte,168> owner{};std::array<std::array<std::byte,160>,2> arrays{};
         std::array<std::array<std::uint16_t,12>,2> elements{};
         std::array<std::array<std::uint32_t,12>,2> masses{},temperatures{};

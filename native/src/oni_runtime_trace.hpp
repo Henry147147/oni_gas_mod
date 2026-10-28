@@ -62,6 +62,17 @@ inline Cell cell(const void* sim,std::uint32_t public_cell,bool windows) noexcep
     // padding and are neither physical context nor meaningful evidence.
     result.stable_ticks=timers[index]&31U;result.context_valid=true;return result;
 }
+inline std::vector<std::array<std::uint32_t,11>> actors(const void* sim,bool windows,bool building) {
+    if(!sim)throw std::invalid_argument("Missing private native actor world");
+    using body_heat_trace::detail::read;
+    const auto offset=building?(windows?0x4e0U:0x438U):(windows?0x410U:0x398U);
+    const auto* first=read<const std::byte*>(sim,offset);const auto* last=read<const std::byte*>(sim,offset+8);
+    const auto count=body_heat_trace::detail::count(first,last,44,65536);
+    if(first!=last&&!count)throw std::invalid_argument("Invalid private native actor vector");
+    std::vector<std::array<std::uint32_t,11>> result(count);
+    for(std::size_t i=0;i<count;++i)std::memcpy(result[i].data(),first+i*44,44);
+    return result;
+}
 class Frame {
     std::uint64_t ordinal_;
     const void* sim_;
@@ -125,7 +136,26 @@ public:
     // Phases2/3 are the actual native physics endpoints, after installation
     // of the owner projection and before its resulting inputs are captured.
     static void physics_cells(std::uint64_t ordinal,unsigned phase,const void* sim,bool active) noexcept {
-        if(enabled())observe_cells(ordinal,phase,sim,active);
+        if(!enabled())return;
+        observe_cells(ordinal,phase,sim,active);
+        static const bool requested=[] {const auto* value=std::getenv("MA_ONI_RUNTIME_ACTORS");return value&&std::strcmp(value,"1")==0;}();
+        if(!active||!requested)return;
+        body_heat_trace::detail::Preserve preserve;
+        try {
+            static auto* output=[] {const auto name=std::string(path())+".actors";auto* f=ma::oni::capture_file(name.c_str(),false);
+                if(f)std::fputs("frame\tphase\tkind\tordinal\trecord_bits\n",f);
+                return f;}();
+            if(!output)return;
+            for(const bool building:{false,true}) {
+                const auto records=actors(sim,windows,building);
+                for(std::size_t i=0;i<records.size();++i) {
+                    std::fprintf(output,"%llu\t%u\t%s\t%zu\t",static_cast<unsigned long long>(ordinal),phase,building?"building":"chunk",i);
+                    for(const auto word:records[i])std::fprintf(output,"%08x",word);
+                    std::fputc('\n',output);
+                }
+            }
+            (void)std::fflush(output);
+        }catch(...){std::fputs("[Mixed Atmospheres] Private native actor observation failed.\n",stderr);}
     }
     Frame(std::uint64_t ordinal,const void* sim,float seconds,bool observe_cells=false) noexcept:
         ordinal_(ordinal),sim_(sim),seconds_(std::bit_cast<std::uint32_t>(seconds)),before_(context(sim,windows)),observe_cells_(observe_cells) {Frame::observe_cells(ordinal_,0,sim_,observe_cells_);}

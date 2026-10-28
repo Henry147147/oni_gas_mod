@@ -803,6 +803,18 @@ match each other. Registered thermal context remains under investigation;
 this observation is not a continuation pass. Both native suites pass 89 tests,
 and the focused observer executable passes AddressSanitizer/UBSan.
 
+`MA_ONI_RUNTIME_ACTORS=1` adds a private `.actors` file to that trace. At
+phases2/3 it records the ordered native chunk and building thermal registries
+as raw 44-byte records. Both pinned platform layouts reject truncated vectors;
+the observer retains no native pointers and changes no records. Linux and
+Windows/Wine native suites each pass 89 tests. The Linux source/cold/menu
+control (`release-native-actor-physics-source` / `actor-physics-load`) passes
+the existing loading checks, but its first native physics entry has 177 chunk
+records in the source and 169 after loading. Managed object positions and
+duplicant transfer thickness also differ at this boundary. These observations
+identify additional context to investigate; they do not establish which
+difference causes the heat mismatch or justify restoring raw native records.
+
 **Reserved 2026-10-27, immediately after fetching `f3d5390`:** owner wrapper
 `MACOLN01` version **13** and MACOLP03 section **4** (`MACCBR01`) are assigned
 to callback-owned requests in flight at a save ([below](#callback-owned-requests)).

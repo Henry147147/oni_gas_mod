@@ -9,8 +9,10 @@ nitrogen removal, CO₂ limits off by default, Gameplay/Advanced settings,
 reservoir lifecycle work, and the native load-transition/tile recreation fixes.
 Ordinary Spaced Out! source/cold/menu loading passes with nine worlds and no
 experimental overrides. Full deterministic continuation remains open; the exact
-storage and native clock controls remain development-only. Actual Windows OS
-feedback is pending. Start new colonies: old R&D saves are unsupported.
+storage and native clock controls remain development-only. The user's Windows
+recording reports large recurring temperature changes during early digging;
+diagnosis and a verified fix are pending. The other Windows acceptance steps
+have not all been confirmed. Start new colonies: old R&D saves are unsupported.
 
 The previous engineering ZIP,
 `MixedAtmospheres-windows-storage-retirement-private.zip` (2026-10-27;
