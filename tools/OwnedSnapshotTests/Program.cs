@@ -284,7 +284,7 @@ internal static unsafe class Program
                 Refuse(()=>ColonyCheckpointMetadata.CompletedFrames(Wrapped(13,version,0)));
                 Refuse(()=>ColonyCheckpointMetadata.CompletedFrames(Wrapped(13,13,1)));
                 Refuse(()=>ColonyCheckpointMetadata.CompletedFrames(Wrapped(13,7,1)));
-                Refuse(()=>ColonyCheckpointMetadata.CompletedFrames(Wrapped(14,version,1)));
+                Refuse(()=>ColonyCheckpointMetadata.CompletedFrames(Wrapped(15,version,1)));
             }
         });
         Test("sectioned colony payload keeps legacy bytes without sections and refuses malformed sections", () =>
@@ -584,6 +584,45 @@ internal static unsafe class Program
             Check(new ReadOnlySpan<byte>(source.Pointer->massConsumedCallbacks, originalCount * sizeof(Sim.MassConsumedCallback))
                 .SequenceEqual(new ReadOnlySpan<byte>(copy.Pointer->massConsumedCallbacks, originalCount * sizeof(Sim.MassConsumedCallback))));
             Reject(() => { _ = retained!.Masses.Length; });
+        });
+        Test("event append preserves aliased bytes without intermediate managed arrays and refuses before mutation", () =>
+        {
+            using var source = new NativeFixture();
+            using var copy = OwnedGameDataSnapshot.Capture(source.Pointer, 3, 2);
+            var count = copy.Pointer->numMassConsumedCallbacks;
+            var original = new ReadOnlySpan<byte>(copy.Pointer->massConsumedCallbacks, count * sizeof(Sim.MassConsumedCallback)).ToArray();
+            var oldAddress = (IntPtr)copy.Pointer->massConsumedCallbacks;
+            var oldBytes = copy.CapturedBytes;
+            copy.AppendEvents<Sim.MassConsumedCallback>(SnapshotEventChannel.MassConsumedCallbacks, ReadOnlySpan<Sim.MassConsumedCallback>.Empty);
+            Check((IntPtr)copy.Pointer->massConsumedCallbacks == oldAddress && copy.CapturedBytes == oldBytes);
+            // Warm generic/JIT paths, then append a span aliasing the previous
+            // owned buffer. The source must remain alive through both copies.
+            copy.AppendEvents<Sim.MassConsumedCallback>(SnapshotEventChannel.MassConsumedCallbacks,
+                new ReadOnlySpan<Sim.MassConsumedCallback>(copy.Pointer->massConsumedCallbacks, count));
+            var aliasCount = copy.Pointer->numMassConsumedCallbacks;
+            var allocated = GC.GetAllocatedBytesForCurrentThread();
+            copy.AppendEvents<Sim.MassConsumedCallback>(SnapshotEventChannel.MassConsumedCallbacks,
+                new ReadOnlySpan<Sim.MassConsumedCallback>(copy.Pointer->massConsumedCallbacks, aliasCount));
+            var appendAllocation = GC.GetAllocatedBytesForCurrentThread() - allocated;
+            Check(appendAllocation == 0 && copy.Pointer->numMassConsumedCallbacks == count * 4 &&
+                copy.CapturedBytes == oldBytes + 3L * original.Length);
+            for (var i = 0; i < 4; ++i)
+                Check(new ReadOnlySpan<byte>((byte*)copy.Pointer->massConsumedCallbacks + i * original.Length, original.Length).SequenceEqual(original));
+            var stableAddress = (IntPtr)copy.Pointer->massConsumedCallbacks;
+            var stableBytes = copy.CapturedBytes;
+            foreach (var invalidCount in new[] { int.MaxValue, 134_217_728, 1_073_741_824 / sizeof(Sim.MassConsumedCallback) })
+            {
+                var refused = false;
+                // Counts must reject before any byte of this deliberately
+                // oversized source view can be read.
+                try { copy.AppendEvents<Sim.MassConsumedCallback>(SnapshotEventChannel.MassConsumedCallbacks,
+                    new ReadOnlySpan<Sim.MassConsumedCallback>(copy.Pointer->massConsumedCallbacks, invalidCount)); }
+                catch (OverflowException) { refused = true; }
+                catch (InvalidDataException) { refused = true; }
+                Check(refused && (IntPtr)copy.Pointer->massConsumedCallbacks == stableAddress && copy.CapturedBytes == stableBytes &&
+                    copy.Pointer->numMassConsumedCallbacks == count * 4);
+                Check(new ReadOnlySpan<byte>(copy.Pointer->massConsumedCallbacks, original.Length).SequenceEqual(original));
+            }
         });
         Test("physical identity projection owns its cache-update events and retains the native source", () =>
         {

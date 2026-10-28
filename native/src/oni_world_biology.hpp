@@ -101,5 +101,5 @@ bool apply(Cells&, const Edit&, bool cell_has_mass);
 // germs). Appends the edits in the order they must be applied and updates
 // cultures, clocks and accounts to match.
 void frame(const Table&, std::size_t width, std::size_t height, const std::function<const Medium&(std::size_t)>& medium,
-    Cells&, Clocks&, Accounts&, std::vector<Edit>&);
+    Cells&, Clocks&, Accounts&, std::vector<Edit>&, std::span<const std::uint8_t> active={});
 }

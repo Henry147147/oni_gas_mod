@@ -278,6 +278,7 @@ namespace MixedAtmospheres.Oni
         [HarmonyPriority(Priority.First)]
         private static bool Prefix(ref float __0)
         {
+            if (__0 > 0 && ColonyOwnerPausedResave.Holding) __0 = 0;
             // Restored callback-owned requests are rebound before positive
             // time; until then a tick runs as a paused, zero-time tick.
             if (__0 > 0 && !ColonyCallbackRequests.ReadyForPositiveTime()) __0 = 0;

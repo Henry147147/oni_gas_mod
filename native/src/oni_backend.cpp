@@ -59,6 +59,9 @@ static_assert(sizeof(MAOniDomainPublicationInfo) == 64);
 static_assert(sizeof(MAOniDomainPhysics) == 40);
 static_assert(sizeof(MAOniTraceEvent) == 32);
 static_assert(sizeof(MAOniStorageHeatReceipt) == 48);
+static_assert(sizeof(MAOniColonyActivityState) == 56 &&
+              offsetof(MAOniColonyActivityState, pending_head_seconds) == 40);
+static_assert(sizeof(MAOniColonyActivityCell) == 32);
 static_assert(MA_ONI_CHUNK_HEAT + 1 == MA_ONI_HOOK_COUNT);
 struct HookProfile { std::uint32_t index; std::uintptr_t rva; const char* hash; };
 // One verified SimDLL image (docs/native-hook-profiles.json): selected by the
@@ -605,13 +608,23 @@ float on_chunk_heat(float dt,const void* data,const void* handle,void* accessor,
     Call call(MA_ONI_CHUNK_HEAT);const auto result=prepare_chunk_contact(accessor,chunk,dt,scale);
     if (result.handled) return result.delta_kj;
     using Function=float (*)(float,const void*,const void*,void*,float,void*);
-    return original<Function>(MA_ONI_CHUNK_HEAT)(dt,data,handle,accessor,scale,chunk);
+    const auto exchanged=original<Function>(MA_ONI_CHUNK_HEAT)(dt,data,handle,accessor,scale,chunk);
+    if(exchanged!=0 && dt>0 && accessor && ma::oni::colony::active()) {
+        std::int32_t cell{};std::memcpy(&cell,static_cast<const std::uint8_t*>(accessor)+8,4);
+        ma::oni::colony::wake_native_cell(cell);
+    }
+    return exchanged;
 }
 #else
 float on_chunk_heat(void* accessor,void* chunk,float dt,float scale) {
     Call call(MA_ONI_CHUNK_HEAT);const auto result=prepare_chunk_contact(accessor,chunk,dt,scale);
     if (result.handled) return result.delta_kj;
-    return original<float (*)(void*,void*,float,float)>(MA_ONI_CHUNK_HEAT)(accessor,chunk,dt,scale);
+    const auto exchanged=original<float (*)(void*,void*,float,float)>(MA_ONI_CHUNK_HEAT)(accessor,chunk,dt,scale);
+    if(exchanged!=0 && dt>0 && accessor && ma::oni::colony::active()) {
+        std::int32_t cell{};std::memcpy(&cell,static_cast<const std::uint8_t*>(accessor)+8,4);
+        ma::oni::colony::wake_native_cell(cell);
+    }
+    return exchanged;
 }
 #endif
 
@@ -1026,6 +1039,53 @@ MAOniResult ma_oni_colony_queue_terrain(const MAOniColonyTerrain* edits,std::uin
         catch (const std::invalid_argument& error) { throw Failure(MA_ONI_INVALID_ARGUMENT,error.what()); }
     });
 }
+std::uint32_t ma_oni_colony_activity_version() { return 1; }
+MAOniResult ma_oni_colony_queue_activity(std::uint64_t session,double seconds,
+    const std::uint32_t* actors,std::uint32_t actor_count,const std::uint32_t* touched,std::uint32_t touched_count,std::uint64_t* sequence) {
+    return boundary([&] {
+        if(!sequence || (actor_count && !actors) || (touched_count && !touched) || actor_count>1000000 || touched_count>1000000)
+            throw Failure(MA_ONI_INVALID_ARGUMENT,"Invalid colony activity buffers");
+        try { *sequence=ma::oni::colony::queue_activity(session,seconds,std::span(actors,actor_count),std::span(touched,touched_count)); }
+        catch(const std::invalid_argument& error) { throw Failure(MA_ONI_INVALID_ARGUMENT,error.what()); }
+    });
+}
+MAOniResult ma_oni_colony_set_activity_tiers(std::uint64_t session,std::uint32_t enabled) {
+    return boundary([&] {
+        if(enabled>1)throw Failure(MA_ONI_INVALID_ARGUMENT,"Invalid colony activity policy");
+        try {ma::oni::colony::set_activity_tiers(session,enabled!=0);}
+        catch(const std::invalid_argument& error) {throw Failure(MA_ONI_INVALID_ARGUMENT,error.what());}
+    });
+}
+MAOniResult ma_oni_colony_claim_activity_frame(std::uint64_t session,std::uint64_t sequence,double seconds) {
+    return boundary([&] {
+        try {ma::oni::colony::claim_activity_frame(session,sequence,seconds);}
+        catch(const std::invalid_argument& error) {throw Failure(MA_ONI_INVALID_ARGUMENT,error.what());}
+    });
+}
+MAOniResult ma_oni_colony_copy_activity(MAOniColonyActivityState* output) {
+    return boundary([&] {
+        if(!output || output->struct_size!=sizeof(*output) || output->abi_version!=1)
+            throw Failure(MA_ONI_INVALID_ARGUMENT,"Invalid colony activity ABI");
+        MAOniColonyActivityState state{};
+        try {
+            if(!ma::oni::colony::copy_activity(state))throw Failure(MA_ONI_INCOMPATIBLE,"The running colony has no activity tiers");
+        } catch(const std::invalid_argument& error) {throw Failure(MA_ONI_INVALID_ARGUMENT,error.what());}
+        *output=state;
+    });
+}
+MAOniResult ma_oni_colony_sample_activity(std::uint64_t session,std::uint64_t frame,
+    const std::uint32_t* cells,std::uint32_t count,MAOniColonyStatus* status,MAOniColonyActivityCell* rows) {
+    return boundary([&] {
+        if(!cells || !count || count>4096 || !status || !rows ||
+            status->struct_size!=sizeof(*status) || status->abi_version!=MA_ONI_COLONY_ABI_VERSION)
+            throw Failure(MA_ONI_INVALID_ARGUMENT,"Invalid activity observation output");
+        try {
+            if(!ma::oni::colony::sample_activity(session,frame,std::span(cells,count),*status,std::span(rows,count)))
+                throw Failure(MA_ONI_BUSY,"The activity publication has advanced");
+        } catch(const std::domain_error& error) {throw Failure(MA_ONI_INCOMPATIBLE,error.what());}
+          catch(const std::invalid_argument& error) {throw Failure(MA_ONI_INVALID_ARGUMENT,error.what());}
+    });
+}
 std::uint32_t ma_oni_colony_cluster_world_version() {return 1;}
 MAOniResult ma_oni_colony_set_space_cells(const std::uint32_t* cells,std::uint32_t count,std::uint32_t space) {
     return boundary([&] {
@@ -1362,13 +1422,14 @@ MAOniResult ma_oni_colony_readings(std::uint64_t* frame, MAOniColonyReading* out
     MAOniColonyConstituent* parts, std::uint32_t part_capacity, std::uint32_t* part_count) {
     return boundary([&] {
         if (!frame || !count || !part_count) throw Failure(MA_ONI_INVALID_ARGUMENT,"Null colony reading output");
-        std::vector<MAOniColonyReading> readings; std::vector<MAOniColonyConstituent> constituents;
-        try { *frame=ma::oni::colony::readings(readings,constituents); }
+        ma::oni::colony::ReadingSnapshot snapshot;
+        try { snapshot=ma::oni::colony::reading_snapshot(); }
         catch (const std::exception& error) { throw Failure(MA_ONI_INVALID_ARGUMENT,error.what()); }
-        *count=static_cast<std::uint32_t>(readings.size()); *part_count=static_cast<std::uint32_t>(constituents.size());
+        *frame=snapshot.frame;
+        *count=static_cast<std::uint32_t>(snapshot.readings.size()); *part_count=static_cast<std::uint32_t>(snapshot.parts.size());
         if (!out && !parts) return;
-        if (!out || !parts || capacity<readings.size() || part_capacity<constituents.size()) throw Failure(MA_ONI_BUFFER_TOO_SMALL,"Colony reading buffers are too small");
-        std::copy(readings.begin(),readings.end(),out); std::copy(constituents.begin(),constituents.end(),parts);
+        if (!out || !parts || capacity<snapshot.readings.size() || part_capacity<snapshot.parts.size()) throw Failure(MA_ONI_BUFFER_TOO_SMALL,"Colony reading buffers are too small");
+        std::copy(snapshot.readings.begin(),snapshot.readings.end(),out); std::copy(snapshot.parts.begin(),snapshot.parts.end(),parts);
     });
 }
 MAOniResult ma_oni_colony_sample_history(std::uint32_t frames) {

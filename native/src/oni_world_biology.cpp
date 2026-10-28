@@ -151,8 +151,8 @@ bool apply(Cells& cells, const Edit& e, bool cell_has_mass) {
 }
 
 void frame(const Table& table, std::size_t width, std::size_t height, const std::function<const Medium&(std::size_t)>& medium,
-    Cells& cells, Clocks& clocks, Accounts& accounts, std::vector<Edit>& edits) {
-    require(width > 0 && height > 0, "Invalid world germ grid");
+    Cells& cells, Clocks& clocks, Accounts& accounts, std::vector<Edit>& edits,std::span<const std::uint8_t> active) {
+    require(width > 0 && height > 0 && (active.empty() || active.size()==width*height), "Invalid world germ grid");
     const auto ticks_of = [&](std::size_t cell, std::uint64_t identity) -> std::uint8_t {
         const auto it = clocks.find({cell, identity}); return it == clocks.end() ? std::uint8_t{0} : it->second.ticks; };
     const auto holds_fluid = [](const Medium& m) { return m.open && m.state != 0 && m.mass_kg > 0; };
@@ -162,6 +162,7 @@ void frame(const Table& table, std::size_t width, std::size_t height, const std:
     // both hold the identity).
     std::map<std::pair<std::size_t, std::uint64_t>, double> moved;
     for (const auto& [i, list] : cells) {
+        if(!active.empty() && !active[i])continue;
         const auto& here = medium(i);
         if (!holds_fluid(here)) continue;
         const auto x = i % width, y = i / width;
@@ -169,7 +170,7 @@ void frame(const Table& table, std::size_t width, std::size_t height, const std:
         for (const auto& c : list) {
             if (!disease_identity(c.identity) || c.identity > table.diseases.size() || !(c.quantity > 0)) continue;
             for (const auto n : around) {
-                if (n == i) continue;
+                if (n == i || (!active.empty() && !active[n])) continue;
                 const auto& there = medium(n);
                 if (!holds_fluid(there) || there.state != here.state) continue;
                 const auto other = cells.find(n);
@@ -195,9 +196,11 @@ void frame(const Table& table, std::size_t width, std::size_t height, const std:
     }
     // Growth and death of every culture after diffusion.
     Clocks next;
+    if(!active.empty())for(const auto& [key,clock]:clocks)if(!active[key.first])next.emplace(key,clock);
     std::vector<std::size_t> visited; visited.reserve(cells.size());
     for (const auto& entry : cells) visited.push_back(entry.first);
     for (const auto i : visited) {
+        if(!active.empty() && !active[i])continue;
         const auto found = cells.find(i);
         if (found == cells.end()) continue;
         const auto list = found->second; // edits below may change the cell's list

@@ -50,9 +50,10 @@ namespace MixedAtmospheres.Oni
 
         internal static void RefuseExperimentalActivity(ReadOnlySpan<byte> image)
         {
-            if(Profile(image).PhysicalVersion==28)
+            var profile = Profile(image);
+            if(profile.PhysicalVersion==28 && profile.OwnerVersion!=14)
                 throw new NotSupportedException("This save uses experimental region activity tiers. " +
-                    "Game integration for that solver profile is not complete in this build.");
+                    "It lacks the integrated owner frame and lifecycle records required by this build.");
         }
 
         internal static ulong CompletedFrames(ReadOnlySpan<byte> image)
@@ -83,7 +84,7 @@ namespace MixedAtmospheres.Oni
             var at=PhysicalOffset(image,out var version,out var length);
             var body=image.Slice(at,length);
             var p=8;var physicalVersion=U32(body,ref p);
-            if(physicalVersion<20 || physicalVersion>27) return new ColonyPhysicalProfile(version,physicalVersion,0,0,0);
+            if(physicalVersion<20 || physicalVersion>28 || physicalVersion==28 && version!=14) return new ColonyPhysicalProfile(version,physicalVersion,0,0,0);
             var model=U32(body,ref p);Skip(body,ref p,model);
             // time, revision, width/height, spacing/depth, timestep, gravity,
             // conduction, trace threshold, stiffness, flow parts, tolerance;
@@ -128,6 +129,17 @@ namespace MixedAtmospheres.Oni
                 if(held<12 || held>16*1024*1024 || !image.Slice(heldAt,8).SequenceEqual(new byte[]{77,65,80,82,69,67,48,49}))
                     throw new InvalidDataException("Invalid owner precision inventory framing.");
             }
+            if(version==14)
+            {
+                Skip(image,ref at,16); // committed and accepted activity sequence
+                _=Boolean(image,ref at);if(Boolean(image,ref at))_=Boolean(image,ref at);
+                var elapsed=U32(image,ref at);Skip(image,ref at,(long)elapsed*8);
+                var packets=U32(image,ref at);
+                if(packets>1024)throw new InvalidDataException("Invalid pending activity frame count.");
+                for(var k=0U;k<packets;++k)SkipActivityPacket(image,ref at);
+                if(Boolean(image,ref at))SkipActivityPacket(image,ref at);
+                var touches=U32(image,ref at);Skip(image,ref at,(long)touches*4);
+            }
             var lengthAt=at;Skip(image,ref at,8);
             var physical=BinaryPrimitives.ReadUInt64LittleEndian(image.Slice(lengthAt,8));
             if(physical<20 || physical!=(ulong)(image.Length-at-DigestBytes))
@@ -151,12 +163,12 @@ namespace MixedAtmospheres.Oni
                 if(image.Length<20) throw new InvalidDataException("Truncated colony checkpoint framing.");
                 version=BinaryPrimitives.ReadUInt32LittleEndian(image.Slice(12,4));
                 var requests=BinaryPrimitives.ReadUInt32LittleEndian(image.Slice(16,4));
-                if(version<8 || version>12 || requests==0 || requests>1u<<20) throw new InvalidDataException("Invalid callback-owned request framing.");
+                if(version<8 || version>14 || version==13 || requests==0 || requests>1u<<20) throw new InvalidDataException("Invalid callback-owned request framing.");
                 at=20;
             }
             // Wrapper12 selects the conservative owner boundary law and keeps
             // wrapper11's complete framing, including its precision block.
-            else if(version<6 || version>12) throw new InvalidDataException("Unsupported colony checkpoint metadata version.");
+            else if(version<6 || version>14) throw new InvalidDataException("Unsupported colony checkpoint metadata version.");
             Skip(image,ref at,56); // MAOniColonyConfig
             materials=U32(image,ref at);materialTable=at;
             Skip(image,ref at,(long)materials*168);
@@ -194,6 +206,13 @@ namespace MixedAtmospheres.Oni
         }
         private static uint U32(ReadOnlySpan<byte> image,ref int at)
         {var offset=at;Skip(image,ref at,4);return BinaryPrimitives.ReadUInt32LittleEndian(image.Slice(offset,4));}
+        private static bool Boolean(ReadOnlySpan<byte> image,ref int at)
+        {var offset=at;Skip(image,ref at,1);if(image[offset]>1)throw new InvalidDataException("Invalid activity policy flag.");return image[offset]!=0;}
+        private static void SkipActivityPacket(ReadOnlySpan<byte> image,ref int at)
+        {
+            Skip(image,ref at,16);var actors=U32(image,ref at);Skip(image,ref at,(long)actors*4);
+            var touches=U32(image,ref at);Skip(image,ref at,(long)touches*4);Skip(image,ref at,5*8);
+        }
         private static void Skip(ReadOnlySpan<byte> image,ref int at,long bytes)
         {
             if(bytes<0 || bytes>image.Length-at) throw new InvalidDataException("Truncated colony checkpoint metadata.");

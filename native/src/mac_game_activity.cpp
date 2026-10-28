@@ -36,7 +36,7 @@ MacClosedWorld MacClosedWorld::with_game_activity(std::span<const std::uint8_t> 
     cells[i].actors=present[i]!=0;
     if(active[i] || present[i])cells[i].last_activity_s=time_s_;
   }
-  const game_kernel::ActivityRegions regions(g);
+  const auto& regions=game_kernel::cached_activity_regions(g);
   for(const auto& region:regions.cells) {
     double last=-1;bool present_actor=false;
     for(const auto i:region){last=std::max(last,cells[i].last_activity_s);present_actor=present_actor||cells[i].actors;}
@@ -70,7 +70,7 @@ std::vector<double> MacClosedWorld::game_activity_steps(double seconds) const {
   }
   game_kernel::validate_activity(game_activity(),g.walls.size(),time_s_,g.walls);
   game_kernel::validate_activity_interval(seconds,settings_.maximum_timestep_s);
-  const game_kernel::ActivityRegions regions(g);
+  const auto& regions=game_kernel::cached_activity_regions(g);
   auto cells=std::vector<MacGameActivityCell>(game_activity().begin(),game_activity().end());
   double elapsed=0;std::size_t intervals=0;
   while(elapsed<seconds) {

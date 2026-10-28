@@ -170,11 +170,17 @@ namespace MixedAtmospheres.Oni
                 var native = values.ToNative();
                 var result = SetOptions(ref native);
                 if (result != 0) throw new InvalidOperationException(Marshal.PtrToStringAnsi(LastError()) ?? ("error " + result));
+                if ((flags & OniNativeColony.GameActivity) != 0)
+                {
+                    if (OniNativeColony.ActivityVersion() != 1) throw new NotSupportedException("the native region activity version differs from this build");
+                    OniNativeColony.Check(OniNativeColony.SetActivityTiers(0, values.Choice(SettingCatalog.RegionActivity) == "tiers" ? 1u : 0u));
+                }
             }
             catch (Exception error) when (!(error is OutOfMemoryException))
             {
                 try { _ = ResetOptions(IntPtr.Zero); } catch (Exception) { }
                 values = SettingValues.Defaults(); startedPreset = BuiltInPresets.DefaultId;
+                if ((flags & OniNativeColony.GameActivity) != 0) OniNativeColony.Check(OniNativeColony.SetActivityTiers(0, 1));
                 var message = "Your colony settings could not be applied (" + error.Message + "). This colony uses Default.";
                 Notice(message);
                 ColonyNotices.Show("Mixed Atmospheres settings", message);
@@ -208,10 +214,12 @@ namespace MixedAtmospheres.Oni
         private static SettingValues WithRunningSolver(SettingValues basis)
         {
             var native = new NativeColonyOptions { Size = NativeColonyOptions.Bytes, Version = NativeColonyOptions.CurrentVersion };
-            try { if (CopyOptions(ref native) == 0) return basis.WithNative(native); }
+            try { if (CopyOptions(ref native) == 0) basis = basis.WithNative(native); }
             catch (Exception error) when (error is EntryPointNotFoundException || error is FormatException)
             { Debug.LogWarning("[Mixed Atmospheres] The running colony's solver settings could not be read: " + error.Message); }
-            return basis;
+            var activity = OniNativeColony.ActivityState.Empty;
+            OniNativeColony.Check(OniNativeColony.CopyActivity(ref activity));
+            return basis.With(SettingCatalog.RegionActivity, activity.Enabled != 0 ? "tiers" : "always");
         }
 
         // Breathing of the running colony (easy-mode defaults without one).

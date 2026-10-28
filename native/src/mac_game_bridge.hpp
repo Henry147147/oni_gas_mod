@@ -15,7 +15,7 @@ struct MacGameKernelAccess {
   static MacClosedAdvance advance_guarded(const MacClosedWorld &, double,
                                          std::size_t,
                                          std::span<const std::uint8_t>);
-  static MacTraceSink trace(const MacClosedWorld &);
+  static MacTraceSink trace(const MacClosedWorld &, std::span<const std::uint8_t> eligible = {});
   static MacClosedWorld heat(const MacClosedWorld &,
                              std::span<const MacCellHeat>);
   static MacFluidTransferResult transfers(const MacClosedWorld &,

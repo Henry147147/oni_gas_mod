@@ -75,6 +75,94 @@ allocation API is unavailable, so approximate heap growth cannot certify
 allocation-free sampling. Compact private evidence is
 `artifacts/region-tiers-2026-10-28/linux-3x-run/measurement-summary.json`.
 
+### Regional critical-path experiment during integration
+
+A private execution-only prototype replays two original profile8 saved states
+and their real input journals under the whole-machine CPU lock, with 12 total
+workers. Two matched 12-frame repetitions reverse configuration order; their
+first two frames are excluded from the table. All 192 owner frames retain both
+physical checkpoint bytes and full-owner hashes across configurations/repeats.
+The prototype assigns four inner workers to one measured expensive region and
+eight workers to the other regions, retaining fixed reduction blocks. These
+timings include the complete native owner through publication; they omit ONI,
+the managed adapter and rendering. The prefix does not cover all twelve digs.
+
+| Replay | Original owner mean | Four inner workers | Observation |
+| --- | --- | --- | --- |
+| Fresh Spaced Out! | 591.1 ms | 590.6 ms | No meaningful gain: another region remains critical |
+| Digging colony | 842.9 ms | 605.3 ms | 28.2% lower owner time; kernel 770.2 →529.7 ms |
+
+The fresh replay's selected region costs 416 ms while a competing region
+costs 450 ms. Making only the selected region infinitely fast would improve
+the complete owner by at most about 1.6% in this window. The digging replay's
+selected region costs 714 ms versus 167 ms for the next region, so sharing idle
+workers helps. Giving it 8 or 12 inner workers is worse than4 and raises summed
+process CPU time sharply. Cell count alone selects the wrong region in both
+scenes; a production scheduler needs observed cost, dominance, a bounded worker
+budget and a serial fallback when activity/topology changes.
+
+Aggregate stage durations identify pressure and transport as substantial work:
+fresh pressure 729 ms / transport 661 ms, digging pressure 417 ms / transport 350 ms.
+These are sums over concurrently advancing regions and are **not** exclusive
+wall-time shares. The owner outside the kernel costs roughly 104/73 ms in these
+two scenes. The fixed physics, tolerances, timestep and acceptance bounds are
+unchanged. This experiment does not certify integrated tiers or actual 3×.
+Private evidence: `artifacts/tier-integration-2026-10-28/region-experiment/whole/`.
+
+### Integrated tiers: Linux Terra probe
+
+The frozen private r6 package completes 450 frames on the same 5900X/NVIDIA host,
+seed 147147, base-game Terra, 12 workers and ultra selection, under the whole CPU
+lock. Expensive activity-mask checks and publication strings are off; frame and
+native wait logging match the earlier probe. This is a fresh-colony performance
+case, not the save-restoration acceptance case: later callback-readiness repairs
+addressed the separate pending-save control.
+
+| Owner frames | Owner / game seconds per real second | Partial owner mean / p95 | Submit → publication mean / p95 |
+| --- | --- | --- | --- |
+| 151–300 | 2.811× / 2.811× | 30.0 / 36.7 ms | 74.5 / 126.8 ms |
+| 301–450 | 2.791× / 2.791× | Not isolated from the printed cleanup window | Not isolated from the printed cleanup window |
+
+The second clock window is derived from the bounded frame 450 report minus the
+first two 150-frame windows. The printed 301–451 window includes a cleanup/save
+pause and must not be used as an unpaused throughput window. Combined warmed
+owner progress is about 2.80× versus 1.938× in the earlier profile8 probe, about
+44.5% faster. The requested actual 3× remains open. The complete 0–450 report
+retains 90 owner seconds and 89.934719 game seconds over 33.368039 monotonic wall
+seconds (2.697× / 2.695×), without an observed pause or dropped timing sample.
+
+The first warmed window spends 16.1 ms in flow, 8.6 ms in heat inputs and 4.7 ms
+in transfers. Native UpdateData remains about 13.5–14.2 ms, with roughly 1.1 ms
+each for shadow writing/capture and 1.5 ms copying to the game. Mean native
+next-frame waits are 0.46–1.51 ms in the later groups, with a 31.65 ms maximum.
+The publication latency includes observation/queueing and is not an exclusive
+CPU phase. One clean 15 s frame-log window has 3 GCs (previously 5), frame p99
+95.09 ms and 121.1 ms mean GC-containing frames; exact allocation telemetry is
+unavailable. The one-GC/15 s and input-response targets remain open.
+
+The actual game caller discards time clipped/skipped by the pacing prefix;
+it does not retain that argument. The original game also caps its admitted
+argument at 0.2 s. The new opt-in `MA_COLONY_PACING_LOSS_LOG=1` observer separates
+raw offered time, original cap loss, pacing loss and intentional guard loss in
+bounded 50-owner-frame windows. It makes no timestep/debt/fence change and is
+absent when disabled. Measure these losses before changing admission policy.
+Private compact evidence: `artifacts/tier-integration-2026-10-28/linux-3x-run-r6/compact-summary.json`.
+
+The r7 trace then measures warmed frames 151–450: raw offered 63.846806 simulated
+seconds, original cap loss 2.558634, pacing loss 1.281474, admitted 60.006697;
+other-guard loss and all accounting-error counters are zero. The wall span is
+21.289978 s, so discarded time explains nearly all the gap to nominal 3×.
+An ignored, opt-in bounded-retention prototype passes 17,138 pure accounting
+checks and 81 controls using the real Mono/Harmony libraries. Its actual 450-frame
+test reaches only 2.862× owner / 2.861× game, roughly 1.6% above the traced default,
+while still dropping 2.513 simulated seconds in its warmed window. It is **not
+adopted**. The raw harness flags its diagnostic word `errors` despite every such
+counter being zero; the original result is retained, with the independent
+clock/accounting analysis in
+`artifacts/tier-integration-2026-10-28/linux-retention-3x-r7/compact-summary.json`.
+The small gain does not justify declaring 3× or changing the default. More CPU
+headroom and full handoff timing remain necessary.
+
 ### Measurement and test harness first
 
 - Measure both `GameClock` and owner-clock deltas against monotonic wall time
@@ -116,19 +204,33 @@ programs benefit from solver improvements and efficient test scheduling.
    showed substantial CPU savings, but 1 s stepping did not shorten the
    largest region's amortized critical path. Fully active bases and the fixed
    active-cell benchmarks cannot benefit from sleeping their active cells.
-   Profile9/core28 supplies an experimental, opt-in solver core; the game
-   continues to use profile8. Before enabling tiers, complete the main-thread
-   actor census and native input/thermal-contact provenance, pending-input save
-   state and ordered germs/conversions/space-sink scheduling. An aggregate due
-   duration alone does not establish correct ordering for those owner stages.
-   Paused core regions still incur extraction, EOS and whole-state audit work;
-   measure that cost before claiming a whole-game gain.
-2. **Largest-region pressure and parallelism.** With multiple regions,
-   `RegionalTick` gives each regional `Tick` one worker; the slowest region
-   dominates after the others finish. Develop execution that can use idle
-   capacity within large regions without nested oversubscription or changing
-   reduction order. The prior shared-executor prototype was slower, so keep
-   a measured cost gate. Test CPU aggregation/multigrid preconditioning with
+   Profile9/core28 is integrated through the owner and selected for new game
+   colonies. Wrapper14 persists immutable actor/input cuts and restored frame
+   claims; actor footprints include occupied cells and primary/secondary ports.
+   Actual contact and external inputs wake regions; passive solid conduction
+   alone does not. Germs, conversions, trace and space sinks share the selected
+   due cells, with saved fractional biology time. Always simulate retains
+   profile8 physical fields exactly after normalizing profile metadata.
+   Held regions now skip local extraction and EOS, and their dense fields
+   remain byte-identical; connectivity is cached by wall geometry. Global
+   packing and conservation audits remain. See [controls](region-activity-controls.md).
+   The profile8 numbers above remain the pre-integration baseline until a
+   separately measured, diagnostic-free game run completes.
+2. **Regional pressure and parallelism.** With multiple regions, the original
+   `RegionalTick` gives each regional `Tick` one worker. The current scheduler
+   uses nonsaved measured cost to give a dominant expensive region at most 4
+   inner workers, with the remaining worker budget processing other regions.
+   It needs two serial samples, at least 20 ms predicted work and 2× dominance;
+   hysteresis and periodic original serial probes avoid unstable routing.
+   Unknown/changed regions and competing hot regions keep the original path.
+   Fixed reduction order, physics and saved activity policy are unchanged.
+   The matched general-policy prefix reduces digging owner time 842.3 →690.6 ms
+   (18.0%); fresh 586.8 →592.1 ms is within repeat noise and selects no inner
+   region. All 96 frames retain the original physical bytes and owner hashes.
+   Process CPU rises 16.6% on digging: this exchanges otherwise idle cores for
+   lower wall time, not lower total CPU. See the experiment above and
+   [kernel details](../native/MAC_GAME_KERNEL.md).
+   Test CPU aggregation/multigrid preconditioning with
    unchanged equations/tolerance: captured-system prototypes took 26–33
    iterations versus IC(0)'s 272–441; full-frame gain and setup cost remain
    unproved. This is a standard CPU method ([hypre guide](https://hypre.readthedocs.io/en/stable/solvers-boomeramg.html)),
@@ -148,9 +250,14 @@ programs benefit from solver improvements and efficient test scheduling.
    two private 78-material states, with all 192 batch checkpoints and receipts
    matching. This does not measure a whole-owner gain; see
    [the workload and controls](../native/MAC_GAME_KERNEL.md#exact-transfer-reading-reuse).
-5. **Main-thread work and allocation.** The current clean Linux window has
-   two GCs/15 s, about 109 ms GC-containing frames and 51 ms p99 native
-   blocking. Pool snapshot/event storage, avoid duplicate per-cell render
+5. **Main-thread work and allocation.** The later profile8 ultra baseline has
+   five GCs/15 s, frame p99 120–123 ms and 13–14 ms mean native UpdateData.
+   Current exact changes copy native readings directly from a pinned immutable
+   publication and append/prepend events directly into their final unmanaged
+   buffer, omitting two native vectors and temporary managed arrays. The event
+   control verifies byte order, aliasing, overflow refusal and zero managed
+   allocation after warmup. These isolated controls do not certify Unity GC.
+   Pool remaining snapshot storage, avoid duplicate per-cell render
    construction and cache the fluid part of repeated publications. The 520
    publication attempts in one window include only about 75 physical ticks;
    unchanged owner frames can still carry new native body work and events.
@@ -177,8 +284,9 @@ colony owner through its native API, exactly as the game's frames do: each
 0.2 s frame queues the duplicants' and machines' transfers and heat, advances
 the owner (inputs, flow, sinks, ledgers, projection and publication), copies
 the complete published views as the adapter does and acknowledges the
-receipts. New colonies use the default game profile 8 with the physical-core
-worker count, the playtest default.
+receipts. This benchmark deliberately retains the fully active profile8
+control with the physical-core worker count. New game colonies use profile9;
+sleeping benchmark cells would change the fixed active-cell workload.
 
 The generated asteroid is a grid of 40 × 24 rooms with upper doors and floor
 hatches, so the atmosphere is one connected region. Six room kinds cycle:

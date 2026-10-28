@@ -130,6 +130,7 @@ namespace MixedAtmospheres.Oni
             if (ColonyPipeRuntime.Active) ColonyConduitsSchedule.FlushTopology();
             Quiescent(out var entry);
             if (entry.State != 1) throw new InvalidOperationException("A faulted colony owner cannot be saved: " + entry.Error);
+            ColonyActivity.Refresh();
             var before = NativeFrames(); var timer = System.Diagnostics.Stopwatch.StartNew();
             // Zero time: no owner frame is submitted and no native physics
             // advances; the game dispatches the owner's completed frame.

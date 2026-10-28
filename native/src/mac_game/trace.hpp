@@ -17,12 +17,15 @@ trace_sink(const ma::experimental::MacGrid &source,
            const std::vector<Species> &species, const State &initial,
            double threshold, double gravity, RegionAudit *regions = nullptr,
            const ma::experimental::mac_kernel::Grid *cached_grid = nullptr,
-           ma::experimental::mac_kernel::Pool *executor = nullptr) {
+           ma::experimental::mac_kernel::Pool *executor = nullptr,
+           std::span<const std::uint8_t> eligible = {}) {
   namespace k = ma::experimental::mac_kernel;
   k::Grid built;
   if (!cached_grid)
     built = k::Grid(source);
   const auto &g = cached_grid ? *cached_grid : built;
+  if (!eligible.empty() && eligible.size() != g.N)
+    throw std::invalid_argument("Trace activity coverage differs");
   const auto blocks = [&](const std::function<void(std::size_t)> &job) {
     if (executor)
       executor->run(g.blocks, job);
@@ -54,7 +57,7 @@ trace_sink(const ma::experimental::MacGrid &source,
            a < initial.masses.offsets[i + 1]; ++a) {
         const double m = initial.masses.mass[a];
         old_mass[i] += m;
-        if (m < threshold) {
+        if (m < threshold && (eligible.empty() || eligible[i])) {
           trace = true;
           continue;
         }
@@ -77,7 +80,7 @@ trace_sink(const ma::experimental::MacGrid &source,
     for (auto [i, end] = cells(block); i < end; ++i) {
       for (std::size_t a = initial.masses.offsets[i];
            a < initial.masses.offsets[i + 1]; ++a)
-        if (initial.masses.mass[a] >= threshold) {
+        if (initial.masses.mass[a] >= threshold || (!eligible.empty() && !eligible[i])) {
           masses.species[at] = initial.masses.species[a];
           masses.mass[at] = initial.masses.mass[a];
           ++at;

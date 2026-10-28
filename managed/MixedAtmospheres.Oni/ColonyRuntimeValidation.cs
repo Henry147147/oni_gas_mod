@@ -121,7 +121,7 @@ namespace MixedAtmospheres.Oni
                 throw new InvalidDataException("Private load rejection validation requires its explicit flag and a separate native-only colony.");
             if (configuration.SaveOnComplete && configuration.Mode != "colony-owner" && configuration.Mode != "colony-owner-load" && (!NativeSealedDomainValidation.IsMode || NativeSealedDomainValidation.ColonyRestoreMode))
                 throw new InvalidDataException("SaveOnComplete requires a colony owner or an initial native domain validation scene.");
-            if (configuration.SaveBeforeResume && !NativeSealedDomainValidation.ColonyRestoreMode)
+            if (configuration.SaveBeforeResume && configuration.Mode != "colony-owner-load" && !NativeSealedDomainValidation.ColonyRestoreMode)
                 throw new InvalidDataException("SaveBeforeResume requires an admitted saved-colony validation scene.");
             if (configuration.VerifySaveIoRecovery && (configuration.Mode!="native-save-domain" || configuration.CompletedFrames<16))
                 throw new InvalidDataException("Save IO recovery requires the explicit source-save validation scene and at least sixteen frames.");
@@ -428,6 +428,8 @@ namespace MixedAtmospheres.Oni
                 if (ColonyOwner.StartFailure.Length != 0) throw new InvalidOperationException("Colony owner did not start: " + ColonyOwner.StartFailure);
                 return;
             }
+            ColonyOwnerPausedResave.Step();
+            if(ColonyOwnerPausedResave.Holding)return;
             ColonyContinuationProbe.Step();
             var status = ColonyOwner.Status;
             // A colony that asked for mixed pipes and fell back to packets fails the run.
@@ -456,6 +458,8 @@ namespace MixedAtmospheres.Oni
                 ColonyPacing.HeldTicks, ColonyPacing.UnityFrames, ColonyPacing.OwnerRate, ColonyPacing.TimeScale,
                 WallSeconds = (System.DateTime.UtcNow - colonyOwnerWallStart).TotalSeconds,
                 Performance = ColonyPerformanceLog.Timerun(),
+                PausedResave = ColonyOwnerPausedResave.Report(),
+                RegionActivity = ColonyActivity.Report(),
                 PresentationFrames = ColonyPresentation.Publications, PresentationRejectedCells = ColonyPresentation.RejectedCells, ColonyPresentation.FirstRejection,
                 PresentationBuildMilliseconds = ColonyPresentation.LastBuildMilliseconds, PresentationCopyMilliseconds = ColonyPresentation.CopyMilliseconds,
                 ColonyOwner.PublicationMilliseconds, ColonyOwner.MaximumPublicationMilliseconds, PresentationError = ColonyPresentation.LastError,
@@ -722,7 +726,7 @@ namespace MixedAtmospheres.Oni
         {
             ShutdownTelemetry();
             if(OwnerReloadRequested) ownerReload.Shutdown();
-            colonyWindow.Reset();
+            colonyWindow.Reset(); ColonyOwnerPausedResave.Reset();
             ColonyConduits.Reset();
             actualColonyActive = false; publisher?.Dispose(); publisher = null;
             if (NativeSealedDomainValidation.IsMode) NativeSealedDomainValidation.Shutdown();

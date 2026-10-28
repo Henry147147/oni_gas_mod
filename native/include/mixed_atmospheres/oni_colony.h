@@ -27,6 +27,9 @@ extern "C" {
  * for new colonies (docs/completion-plan.md#amendments): core25 with the
  * default boil-only phase rule, core24 when evaporation below boiling is on. */
 #define MA_ONI_COLONY_GAME_SURFACE 8U
+/* With GAME_KERNEL|GAME_SURFACE: complete persisted activity integration,
+ * profile9/core28. Older callers using flags13 keep profile8. */
+#define MA_ONI_COLONY_GAME_ACTIVITY 16U
 
 typedef struct MAOniColonyMaterial {
     uint32_t struct_size, abi_version;
@@ -146,6 +149,10 @@ typedef struct MAOniColonyReceipt {
     float mass_kg, temperature_k; /* binary32 compatibility projection; precise sidecars retain original parcels */
     uint32_t disease; int32_t disease_count;
 } MAOniColonyReceipt;
+/* Profile9 only: reserved=1 denotes passive solid-conduction provenance.
+ * It books heat without waking a region. Actual body/contact heat separately
+ * supplies a touch. Other profiles require reserved=0. */
+#define MA_ONI_COLONY_HEAT_PASSIVE 1U
 typedef struct MAOniColonyHeat { uint32_t public_cell, reserved; double joules, maximum_temperature_k; } MAOniColonyHeat;
 /* Terrain changes commit at the start of the next native frame, before
  * transfers. Opening a solid cell (digging) makes it vacuum and refills it
@@ -200,6 +207,35 @@ MA_ONI_API MAOniResult ma_oni_colony_composition(uint32_t public_cell, uint32_t*
 MA_ONI_API MAOniResult ma_oni_colony_queue_transfers(const MAOniColonyTransfer*, uint32_t count);
 MA_ONI_API MAOniResult ma_oni_colony_queue_heat(const MAOniColonyHeat*, uint32_t count);
 MA_ONI_API MAOniResult ma_oni_colony_queue_terrain(const MAOniColonyTerrain*, uint32_t count);
+/* Full census immediately after managed inputs for one positive native frame.
+ * Native assigns the FIFO submission sequence; the immutable timestep binds
+ * that packet to its actual native ticket. seconds=0 refreshes lifecycle census
+ * without consuming any positive packet. Public-cell lists may be empty. */
+typedef struct MAOniColonyActivityState {
+    uint32_t struct_size, abi_version;
+    uint64_t session, last_committed_sequence, next_submission_sequence, pending_head_sequence;
+    double pending_head_seconds;
+    uint32_t pending_frames, enabled; /* unclaimed restored packets; requested policy incl queued toggle */
+} MAOniColonyActivityState;
+typedef struct MAOniColonyActivityCell {
+    uint32_t public_cell, actors;
+    double last_activity_s, pending_s, next_remote_s;
+} MAOniColonyActivityCell;
+MA_ONI_API uint32_t ma_oni_colony_activity_version(void);
+MA_ONI_API MAOniResult ma_oni_colony_queue_activity(uint64_t session,double seconds,
+    const uint32_t* actor_cells,uint32_t actor_count,const uint32_t* touched_cells,uint32_t touched_count,uint64_t* sequence);
+/* Claims the next restored packet for resubmission, retaining its saved actor
+ * inputs and census. No native frame or physics is consumed by this call. */
+MA_ONI_API MAOniResult ma_oni_colony_claim_activity_frame(uint64_t session,uint64_t sequence,double seconds);
+/* session=0 sets the next-colony policy before start. Otherwise queues a saved
+ * policy change at the next frame or zero-time lifecycle flush. */
+MA_ONI_API MAOniResult ma_oni_colony_set_activity_tiers(uint64_t session,uint32_t enabled);
+MA_ONI_API MAOniResult ma_oni_colony_copy_activity(MAOniColonyActivityState*);
+/* Read-only coverage/control observation of 1..4096 sorted unique cells from
+ * one pinned publication. session=0 accepts the latest frame; otherwise an
+ * advanced session/frame returns BUSY without modifying either output. */
+MA_ONI_API MAOniResult ma_oni_colony_sample_activity(uint64_t session,uint64_t frame,
+    const uint32_t* cells,uint32_t count,MAOniColonyStatus*,MAOniColonyActivityCell*);
 MA_ONI_API MAOniResult ma_oni_colony_copy_receipts(MAOniColonyReceipt*, uint32_t capacity, uint32_t* count);
 MA_ONI_API MAOniResult ma_oni_colony_ack_receipts(uint64_t through_sequence);
 /* Optional exact adapter receipts. Enable before any outstanding receipts;

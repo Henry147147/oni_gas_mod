@@ -14,7 +14,7 @@ namespace MixedAtmospheres.Oni
         internal static extern int ReadPassives(ulong session,ulong frame,[In] uint[] cells,uint cellCount,ref WorldPassiveStamp stamp,
             [Out] WorldPassiveRow[]? rows,uint capacity,out uint count);
 
-        internal const uint AbiVersion = 1, PhysicsConduction = 1, GameFloor = 2, GameKernel = 4, GameSurface = 8;
+        internal const uint AbiVersion = 1, PhysicsConduction = 1, GameFloor = 2, GameKernel = 4, GameSurface = 8, GameActivity = 16;
         internal const uint Solid = 0, Fluid = 1, Space = 2;
         internal const uint Inject = 1, Extract = 2, ExtractGas = 3, ExtractLiquid = 4, Byproduct = 5, ConsumerFlag = 0x100;
         internal const uint ViewGas = 1, ViewLiquid = 2, ViewOwned = 4;
@@ -72,6 +72,37 @@ namespace MixedAtmospheres.Oni
         internal struct Terrain { public uint PublicCell, Kind; }
 
         [StructLayout(LayoutKind.Sequential)]
+        internal struct ActivityState
+        {
+            public uint Size, Version;
+            public ulong Session, LastCommittedSequence, NextSubmissionSequence, PendingHeadSequence;
+            public double PendingHeadSeconds;
+            public uint PendingFrames, Enabled;
+            internal static ActivityState Empty => new ActivityState { Size = 56, Version = 1 };
+        }
+        [StructLayout(LayoutKind.Sequential)]
+        internal struct ActivityCell
+        { public uint PublicCell, Actors; public double LastActivitySeconds, PendingSeconds, NextRemoteSeconds; }
+        [DllImport(Library, EntryPoint = "ma_oni_colony_activity_version", CallingConvention = CallingConvention.Cdecl)]
+        internal static extern uint ActivityVersion();
+        [DllImport(Library, EntryPoint = "ma_oni_colony_copy_activity", CallingConvention = CallingConvention.Cdecl)]
+        internal static extern int CopyActivity(ref ActivityState state);
+        [DllImport(Library, EntryPoint = "ma_oni_colony_queue_activity", CallingConvention = CallingConvention.Cdecl)]
+        private static unsafe extern int QueueActivityPinned(ulong session, double seconds, uint* actors, uint actorCount, uint* touched, uint touchedCount, out ulong sequence);
+        internal static unsafe int QueueActivity(ulong session, double seconds, ColonyActivitySnapshot snapshot, out ulong sequence)
+        {
+            fixed (uint* actors = snapshot.Actors)
+            fixed (uint* touched = snapshot.Touched)
+                return QueueActivityPinned(session, seconds, actors, (uint)snapshot.Actors.Length, touched, (uint)snapshot.Touched.Length, out sequence);
+        }
+        [DllImport(Library, EntryPoint = "ma_oni_colony_claim_activity_frame", CallingConvention = CallingConvention.Cdecl)]
+        internal static extern int ClaimActivityFrame(ulong session, ulong sequence, double seconds);
+        [DllImport(Library, EntryPoint = "ma_oni_colony_set_activity_tiers", CallingConvention = CallingConvention.Cdecl)]
+        internal static extern int SetActivityTiers(ulong session, uint enabled);
+        [DllImport(Library, EntryPoint = "ma_oni_colony_sample_activity", CallingConvention = CallingConvention.Cdecl)]
+        internal static extern int SampleActivity(ulong session, ulong frame, [In] uint[] cells, uint count, ref Status status, [Out] ActivityCell[] rows);
+
+        [StructLayout(LayoutKind.Sequential)]
         internal struct Species { public uint NativeIndex, Phase; public double MolarMassKgPerMol, CvJoulesPerKgKelvin, DensityKgPerCubicMetre, EnergyOffsetJoulesPerKg; }
         [StructLayout(LayoutKind.Sequential)]
         internal struct Reading
@@ -87,7 +118,7 @@ namespace MixedAtmospheres.Oni
         internal static byte DiseaseIdx(uint germ) => germ == 0 || germ > 255 ? byte.MaxValue : (byte)(germ - 1);
         internal static unsafe void CheckLayouts()
         {
-            if (Marshal.SizeOf<ActorBatchJob>() != 24 || Marshal.OffsetOf<ActorBatchJob>(nameof(ActorBatchJob.Token)).ToInt32() != 16 || Marshal.SizeOf<Material>() != 168 || Marshal.SizeOf<Config>() != 56 || Marshal.SizeOf<Cell>() != 24 || Marshal.SizeOf<Status>() != 600 ||
+            if (Marshal.SizeOf<ActivityState>() != 56 || Marshal.SizeOf<ActivityCell>() != 32 || Marshal.SizeOf<ActorBatchJob>() != 24 || Marshal.OffsetOf<ActorBatchJob>(nameof(ActorBatchJob.Token)).ToInt32() != 16 || Marshal.SizeOf<Material>() != 168 || Marshal.SizeOf<Config>() != 56 || Marshal.SizeOf<Cell>() != 24 || Marshal.SizeOf<Status>() != 600 ||
                 Marshal.SizeOf<CellView>() != 32 || Marshal.SizeOf<Transfer>() != 48 || Marshal.SizeOf<Receipt>() != 48 || Marshal.SizeOf<Heat>() != 24 ||
                 Marshal.SizeOf<Species>() != 40 || Marshal.SizeOf<Reading>() != 64 || Marshal.SizeOf<Constituent>() != 24 ||
                 sizeof(CellView) != 32 || sizeof(Reading) != 64 || sizeof(Constituent) != 24 || sizeof(Receipt) != 48)

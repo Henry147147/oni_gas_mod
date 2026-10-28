@@ -539,6 +539,27 @@ int main() {
                     ma_oni_colony_set_worker_count(0) == MA_ONI_OK,
                 "worker preference ABI or physical-core default differs");
         require(ma_oni_colony_precise_receipt_version()==2,"precise receipt observation capability");
+        {
+            static_assert(sizeof(MAOniColonyActivityState)==56 && sizeof(MAOniColonyActivityCell)==32);
+            MAOniColonyActivityState state{};state.struct_size=sizeof(state);state.abi_version=1;state.session=123;
+            const auto original=state;std::uint64_t sequence=456;
+            require(ma_oni_colony_activity_version()==1 && ma_oni_colony_copy_activity(nullptr)==MA_ONI_INVALID_ARGUMENT &&
+                ma_oni_colony_copy_activity(&state)==MA_ONI_INVALID_ARGUMENT && std::memcmp(&state,&original,sizeof(state))==0,
+                "Inactive activity query changed its output");
+            require(ma_oni_colony_queue_activity(0,.2,nullptr,1,nullptr,0,&sequence)==MA_ONI_INVALID_ARGUMENT &&
+                ma_oni_colony_queue_activity(0,.2,nullptr,0,nullptr,0,&sequence)==MA_ONI_INVALID_ARGUMENT && sequence==456 &&
+                ma_oni_colony_claim_activity_frame(0,1,.2)==MA_ONI_INVALID_ARGUMENT &&
+                ma_oni_colony_set_activity_tiers(0,2)==MA_ONI_INVALID_ARGUMENT,"Invalid activity input admitted or changed its sequence");
+            std::uint64_t frame=99;std::uint32_t count=101,parts=103;
+            require(ma_oni_colony_readings(&frame,nullptr,0,&count,nullptr,0,&parts)==MA_ONI_INVALID_ARGUMENT &&
+                frame==99 && count==101 && parts==103,"Inactive pinned readings changed count outputs");
+            const std::uint32_t cell=1;MAOniColonyStatus status{};status.struct_size=sizeof(status);status.abi_version=1;
+            MAOniColonyActivityCell row{1,7,2,3,4};const auto original_row=row;const auto original_status=status;
+            require(ma_oni_colony_sample_activity(0,0,&cell,1,&status,&row)==MA_ONI_INVALID_ARGUMENT &&
+                ma_oni_colony_sample_activity(0,0,&cell,0,&status,&row)==MA_ONI_INVALID_ARGUMENT &&
+                std::memcmp(&status,&original_status,sizeof(status))==0 && std::memcmp(&row,&original_row,sizeof(row))==0,
+                "Inactive activity observation changed a partial output");
+        }
         static_assert(sizeof(MAOniColonyParcelContext)==72);
         MAOniColonyParcelContext parcel_context{};parcel_context.struct_size=sizeof(parcel_context);parcel_context.abi_version=1;
         parcel_context.session=456;const auto original_context=parcel_context;

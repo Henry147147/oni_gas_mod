@@ -88,14 +88,95 @@ The preserved work below has now been recovered onto `main`:
   rejections. See [full measurement scope](performance-acceptance.md#linux-ultra-probe-after-the-first-implementation)
   and private `linux-3x-run/measurement-summary.json` under the evidence folder.
 
-**Resume with C's owner integration:** complete actor census and external
-input/thermal-contact provenance, durable pending activity and ordered
-germs/conversions/trace/space stages before enabling tiers in game. The aggregate
-due-time query alone does not define that ordering. Then measure residual
-regional extraction/EOS/audits, large-region pressure and native frame waits,
-and prepare another private Windows candidate. Actual 3× and smooth-input
-acceptance on the user's PC remain open. The old worktree patches below are
-historical snapshots; current implementations and controls live on `main`.
+### Full activity integration
+
+The owner pipeline now selects profile9/core28 for new colonies (flags29).
+Owner wrapper14, reserved in `3a855ee`, saves immutable census packets, exact
+input cuts, FIFO sequence watermarks and fractional biology clocks; outer
+callback wrapper13 can contain it. Restored packets are claimed once without
+regenerating actor inputs, including migration of pre-owner native actors.
+The managed census includes inactive actors, occupied/placement cells, rotated
+primary/secondary ports and old/new motion/removal contacts. Native body
+contacts and accepted external inputs wake regions; passive solid conduction
+alone does not. Zero-time lifecycle refresh and policy changes preserve both
+physical clocks. Germs, conversions, trace and space sinks follow the region's
+due cells. Older profiles retain Always simulate. Gameplay → Region activity
+chooses Tiers or Always simulate for new colonies.
+
+Held regions now skip local extraction/EOS; wall connectivity is cached and
+dormant dense fields retain even signed-zero and partial-volume bits. Global
+audits remain. Native readings copy directly from a pinned immutable
+publication; event appends/prepends copy directly into their final unmanaged
+buffer. Controls cover byte order, aliasing, rejection and zero managed
+allocation for the event-copy path. These are exact optimizations, not a Unity
+GC acceptance result.
+
+Clean Linux and Windows x64/Wine builds pass all 89 native CTests. The final
+Python suite passes 439 checks, with all managed/game-contract suites passing.
+All 87 short MAC programs retain parent exit codes and existing numeric output
+(existing timing fields masked); only the new regional execution PASS line is
+added. This includes identical baseline nonzero/usage exits, not a claim that
+all diagnostics pass. Replay covers two saved pending packets and rejects a
+deliberately dropped callback. Managed activity/readiness/resave checks cover 209
+synthetic cases plus 12 actual native wrapper images, with 26 pacing-loss checks.
+Focused owner controls passed ASan/UBSan, as does the isolated regional scheduler
+control. The complete instrumented game-kernel test hits an unchanged zero-add
+control failure; the old HEAD test reproduces it with the same header/compiler
+flags, without a sanitizer memory diagnostic. Its finite-input diagnostic sweep
+has no mismatch. Keep this limitation rather than claiming a full ASan pass. See
+[activity controls](region-activity-controls.md). Evidence lives in
+`artifacts/tier-integration-2026-10-28/` and
+`artifacts/region-tiers-2026-10-28/native-owner/`.
+
+The first actual startup exposed an OccupyArea cache read before initialization;
+it is guarded. The native fault path retains the originating adapter failure.
+The pending-save control then exposed premature release of a supported actor
+before OnSpawn and a zero-time native flush releasing protected requests.
+Managed binding now preflights all requests, waits for supported late actors
+and rolls back partial callback creation on failure. Native zero-time flushes
+preserve requests within saved packet cuts and refuse an unresolved tail.
+The deferred paused-save control waits for actual component startup and compares
+the complete before/after owner bytes. Base-game r7 passes all 16 lifecycle checks;
+its cold load/resave retains pending 1 at saved frame 34, rebinds the saved actor
+once and releases none. A second normal cold load reads the exact writer owner
+hash from the produced file, reencodes it exactly and claims the packet once.
+Both final loads have no creature/SMI serializer errors or owner fault.
+Pre-owner native migration remains controlled in the implementation but its
+nonzero live branch was not observed (the real runs report 0 migrations).
+
+The diagnostic-free r6 Terra probe reaches about 2.80× warmed owner/game progress
+versus 1.938× in the profile8 baseline (about 44.5% faster), still below 3×.
+Partial owner work falls from about 65 to 30 ms; native UpdateData remains about 14
+ms. A clean 15 s window has 3 GCs and frame p99 95 ms. Its loader uses the earlier
+callback path, so this is throughput evidence only. The general regional
+scheduler cuts the short digging prefix 18% and keeps the fresh Spaced Out!
+path serial when hot regions compete. All 80 frames of the full twelve-dig
+trajectory retain the original physical bytes and owner hashes.
+
+The opt-in pacing trace explains nearly all the remaining warmed Terra gap:
+over 300 owner frames, raw offered time 63.846806 s loses 2.558634 s to the game's
+original 0.2 s argument cap and 1.281474 s to pacing, admitting 60.006697 s.
+Other-guard loss and all diagnostic errors are 0. The corresponding wall span
+is 21.289978 s. A bounded time-retention experiment remains private/off by
+default. It passes 17,138 accounting and 81 real Mono/Harmony controls but
+reaches only 2.862× owner / 2.861× game, a small gain with saturated debt and
+dropped time. Do not adopt it or claim 3× from the traced losses. The original
+diagnostic changes no dt, cap or fence.
+
+**Next:** finish the Spaced Out! cohort. Its first attempt stopped before
+world creation because requested DLC1 did not activate; the normal Steam UI
+requires refreshed sign-in after the account logged in elsewhere. The user has
+been asked to authenticate; do not enter credentials or bypass ownership.
+Meanwhile, measure exact heat validation reuse: `apply_heat` currently builds
+full readings per edit although it needs only temperature. The transfer EOS
+helper may omit those arrays/entropy with the same rare rejection fallback.
+Keep this private until extensive output/refusal and owner replay comparisons
+prove it exact. Retain pressure/transport and allocation work after that;
+active-cell physics benchmarks cannot benefit from sleeping their
+active cells. A private Windows package is prepared; Windows OS acceptance,
+actual 3× and smooth input on the user's PC remain open. The old
+worktree patches below are historical snapshots; current implementations and
+controls live on `main`.
 
 Private compact evidence is in `local/profile8/replay-summary.json`,
 `artifacts/smoothness-baseline-driver/control-summary.json` and

@@ -93,7 +93,8 @@ namespace MixedAtmospheres.Oni
     // Every supported setting (docs/settings.md lists the same table).
     internal static class SettingCatalog
     {
-        internal const string Solver = "Solver", Breathing = "Breathing", PhaseChange = "Boiling and condensation", Performance = "Performance", Display = "Display", Panel = "Status panel", Keys = "Keyboard shortcuts";
+        internal const string Solver = "Solver", Simulation = "Region simulation", Breathing = "Breathing", PhaseChange = "Boiling and condensation", Performance = "Performance", Display = "Display", Panel = "Status panel", Keys = "Keyboard shortcuts";
+        internal const string RegionActivity = "simulation.regionActivity";
         internal const string Co2Limits = "breathing.co2Limits", EvaporationBelowBoiling = "liquids.evaporationBelowBoiling";
         private static double[] Decades(int from, int to) { var r = new List<double>(); for (var e = from; e <= to; ++e) r.Add(double.Parse("1e" + e.ToString(CultureInfo.InvariantCulture), CultureInfo.InvariantCulture)); return r.ToArray(); }
         internal static readonly string[] KeyChoices = { "None", "F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9", "F10", "F11", "F12" };
@@ -133,6 +134,9 @@ namespace MixedAtmospheres.Oni
             SettingDefinition.Number("solver.traceThresholdKg", SettingScope.Colony, Solver, "Trace removal threshold",
                 "A constituent below this mass in a cell leaves through the booked trace sink. 1e-11 kg is the smallest tested value; the ceiling is 1 mg.",
                 1e-11, 1e-11, 1e-6, Decades(-11, -6), "kg", false, v => v == 1e-11),
+            SettingDefinition.Choice(RegionActivity, SettingScope.Colony, Simulation, "Region simulation",
+                "Activity tiers keep regions around actors active, update disturbed remote regions each second, and pause pristine regions. Always simulate updates every fluid region each game tick. Chosen for new colonies and saved with each colony.",
+                "tiers", new[] { "tiers", "always" }, new[] { "Activity tiers", "Always simulate" }),
             // Gameplay, saved in the colony's physical image: boil-only phase
             // change by default (user decision 2026-10-28).
             SettingDefinition.Toggle(EvaporationBelowBoiling, SettingScope.Colony, PhaseChange, "Evaporation below boiling",

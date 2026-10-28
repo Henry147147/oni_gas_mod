@@ -1981,8 +1981,10 @@ void cluster_boundary_control() {
         "Dynamic cluster boundary mass or energy ledger did not close");
     stop();std::cout<<"PASS cluster boundaries: atomic validation, new vacuum/space, reused cells, no zero-time deletion, exact cold reencoding\n";
 }
+#include "oni_activity_owner_control.hpp"
 int main(int argc, char** argv) {
     try {
+        if (argc == 2 && std::strcmp(argv[1], "--activity-only") == 0) {activity_owner_control();return 0;}
         if (argc == 2 && std::strcmp(argv[1], "--passives-only") == 0) {passive_observation_control();return 0;}
         if (argc == 2 && std::strcmp(argv[1], "--biology-only") == 0) {world_biology_control();unplaced_output_control();return 0;}
         if (argc == 2 && std::strcmp(argv[1], "--cluster-boundaries-only") == 0) {cluster_boundary_control();return 0;}
@@ -2008,6 +2010,7 @@ int main(int argc, char** argv) {
         if (argc == 2 && std::strcmp(argv[1], "--callback-rebind-only") == 0) { callback_rebind_control(); return 0; }
         if (argc == 2 && std::strcmp(argv[1], "--sample-history-only") == 0) { sample_history_control();native_sample_history_control();region_energy_control();return 0; }
         require(argc == 1, "Usage: ma_oni_colony_tests [--projection-only|--timestep-only|--precise-receipts-only]");
+        activity_owner_control();
         precise_receipt_control();
         transfer_capture_control();
         floor_capture_control();

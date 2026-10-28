@@ -6,6 +6,7 @@
 #include <span>
 #include <vector>
 #include <utility>
+#include <memory>
 
 namespace ma::experimental { class MacClosedWorld; }
 namespace ma::oni::colony {
@@ -24,6 +25,15 @@ void queue_transfers(std::span<const MAOniColonyTransfer>);
 void queue_actor_batch(std::span<const MAOniColonyTransfer>,std::span<const MAOniColonyActorJob>,std::span<const MAOniColonyPassive>);
 void queue_heat(std::span<const MAOniColonyHeat>);
 void queue_terrain(std::span<const MAOniColonyTerrain>);
+std::uint64_t queue_activity(std::uint64_t session,double seconds,std::span<const std::uint32_t> actors,
+    std::span<const std::uint32_t> touched);
+void claim_activity_frame(std::uint64_t session,std::uint64_t sequence,double seconds);
+void set_activity_tiers(std::uint64_t session,bool enabled);
+bool copy_activity(MAOniColonyActivityState&);
+bool sample_activity(std::uint64_t session,std::uint64_t frame,std::span<const std::uint32_t> cells,
+    MAOniColonyStatus&,std::span<MAOniColonyActivityCell>);
+// Actual native body/contact heat only; never waits for lifecycle/solver work.
+void wake_native_cell(int native_cell) noexcept;
 void set_space_cells(std::span<const std::uint32_t>,bool space);
 std::uint32_t copy_receipts(MAOniColonyReceipt*, std::uint32_t capacity);
 void ack_receipts(std::uint64_t through);
@@ -56,11 +66,21 @@ void rebind_callbacks(std::span<const MAOniColonyCallbackRebind>);
 // Replay only (ma_oni_colony_replay): a native shadow's frozen-cell inputs.
 struct ReplayFreeze { std::uint32_t public_cell, native_index; double mass_kg; };
 void queue_replay_freezes(std::span<const ReplayFreeze>);
+void queue_replay_activity_native(std::uint64_t session,std::uint64_t ticket,
+    std::span<const MAOniColonyTransfer>,std::span<const MAOniColonyHeat>,std::span<const MAOniColonyTerrain>,
+    std::span<const ReplayFreeze>,std::span<const MAOniColonyGermEdit>,std::span<const std::uint32_t> touched);
 // Latest published owner-held precision inventory (MAPREC01), separate from grid readings.
 [[nodiscard]] std::vector<std::uint8_t> precision_inventory();
 std::uint32_t species(MAOniColonySpecies* out, std::uint32_t capacity);
 // Readings and constituents of the latest completed frame; returns the frame.
 std::uint64_t readings(std::vector<MAOniColonyReading>&, std::vector<MAOniColonyConstituent>&);
+struct ReadingSnapshot {
+    std::shared_ptr<const void> lifetime;
+    std::span<const MAOniColonyReading> readings;
+    std::span<const MAOniColonyConstituent> parts;
+    std::uint64_t frame=0;
+};
+[[nodiscard]] ReadingSnapshot reading_snapshot();
 void sample(std::span<const std::uint32_t>,MAOniColonyStatus&,std::vector<MAOniColonySampleCell>&,std::vector<MAOniColonySamplePart>&,double* booked_mass=nullptr);
 bool read_passives(std::uint64_t session,std::uint64_t frame,std::span<const std::uint32_t>,
     MAOniColonyPassiveStamp&,std::vector<MAOniColonyPassiveRow>&);

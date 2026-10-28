@@ -637,7 +637,8 @@ or inflow exactly at 1 mg is included. This floor affects interval selection,
 and removes no material. Liquid stiffness, interface sharpening, trace-sink
 thresholds and all frozen gate inputs and bounds stay as adopted.
 
-New colonies use profile8 with the boil-only rule. Earlier saved profiles keep
+Profile8 uses the boil-only rule; integrated new colonies select profile9 below.
+Earlier saved profiles keep
 their arithmetic and checkpoint bytes. Development controls can request
 profile6 or profile7 explicitly through `MA_COLONY_KERNEL3_PROFILE6=1` or
 `MA_COLONY_KERNEL3_PROFILE7=1`.
@@ -668,12 +669,14 @@ into a newly opened vacuum/trace cell retains profile7's resolved temporal
 trajectory when its inflow is massive; the floor excludes all-sub-mg flows
 and includes an inflow exactly at 1 mg.
 
-## Experimental region activity core, profile9
+## Region activity tiers, profile9
 
-Profile9 / checkpoint28 implements the saved solver-side activity policy;
-it is not the ordinary new-colony default. Profile8 remains selected until the
-complete actor census, external heat provenance and owner-stage integration
-are verified. No 3x performance or whole-game activity acceptance is claimed.
+Profile9 / checkpoint28 implements the saved activity policy. Integrated
+managed new-colony creation requests the explicit native `GAME_ACTIVITY` flag;
+existing native callers and saved profiles keep their previous selection.
+[Owner wrapper14](../docs/colony-owner.md#region-activity-tiers) pairs census,
+external-input provenance and all owner stages. No sustained 3× performance
+acceptance is claimed.
 
 `with_game_activity(touched, actors)` supplies a one-frame binary input mask
 and the complete current actor census. Empty masks mean all false. A wall-cell
@@ -703,9 +706,61 @@ trace removal or the space sink. An explicit booked external heat edit can
 change a paused cell's internal energy without waking it; internal fluid heat,
 phase change, layering and sharpening run only when its region is due.
 
-The initial implementation still extracts every region, evaluates held cells'
-EOS, scatters the global state and retains full audits. Optimizing these costs
-is separate work; skipping physical evolution alone is not a measured 3x gain.
+The owner constrains adaptive frames to exactly `double(0.2f)`, containing at
+most one 1 s remote event, and tests its full pipeline under that contract.
+Held regions reuse their physical state/EOS; solid topology is cached until
+walls change. Global reconstruction, publication and full conservation audits
+remain costs. Skipping evolution alone is not a measured 3× gain.
+
+## Bounded regional worker scheduling
+
+Regional pressure kernels retain the original serial-per-region path and its
+outer worker pool. A nonsaved execution history now allows one expensive,
+dominant due region to use inner workers while the remaining regions keep
+serial Ticks on a residual pool. Actual inner plus residual workers never exceed
+the configured budget; an outer region job never invokes an inner parallel Tick.
+Budgets of 1–2 retain original dispatch. Larger budgets allow at most four inner
+workers and at most half the total budget, capped by the unchanged fixed blocks.
+
+The policy requires two serial measurements, predicts at least 20 ms of regional
+work for the requested interval, and requires a 2× lead over the next due region.
+Retention uses 1.5× hysteresis. Unknown systems use the original serial fallback.
+After 16 selected intervals a serial probe refreshes that system's cost; paused
+systems neither execute nor age the probe. Costs scale with actual due duration,
+so a held region cannot borrow a cadence or force physical work. Successful
+regional audits alone commit samples; errors and invalid measurements do not
+poison timing history. Coordinator infrastructure failures join and rethrow on
+the caller, retaining ordered region-error handling.
+
+Keys contain each region's global representative, cell count and membership
+fingerprint. Temporary face barriers retain history; split/merged membership
+starts with serial sampling. Each regional cache keeps its original serial Ticks
+and at most one additional parallel Tick. History is never serialized, and cold
+execution can use a different worker route while retaining identical physical
+bytes. Equations, pressure caps/tolerances, reductions, timesteps, activity clocks
+and all checkpoint layouts are unchanged.
+
+The native control supplies measured costs explicitly and verifies the gates,
+hysteresis/probes, budgets, coordinator failures, worker 1/4/8/12 physical bytes,
+failed-work isolation, due-mask sleep/wake, topology remapping and cold equality.
+The private WHOLE-lock owner replay uses the original saved Spaced Out! and
+digging states with their recorded heat/terrain/actor inputs. Two matched 12-frame
+repetitions compare every physical image to the original profile8 bytes. The
+automatic policy selects no fresh-scene frames and six digging-scene frames per
+repetition; the others conservatively sample new/changed regions. Excluding the
+first two frames gives 20 samples/configuration: fresh owner mean 586.8→592.1 ms
+and kernel 481.3→486.3 ms (no meaningful gain); digging owner 842.3→690.6 ms and
+kernel 767.4→617.2 ms (18.0%/19.6% less). Digging process CPU increases 16.6%.
+These short windows precede most of the twelve digs and omit the actual game
+loop. They establish an exact execution opportunity, not sustained 3× acceptance.
+
+The competing fresh regions explain its flat result. A fixed inner 4 experiment
+reduced one region 416→322 ms, but another remained 444–450 ms; even an infinitely
+fast selected region could improve that owner's mean by only about 1.6%. Parallel
+pressure currently leaves the cached IC path (`solve_components_cached` routes
+pools larger than one to the general assembly). Caching the parallel component
+layout/sweep plan and reusing remaining `PatchTransport` scratch capacity are
+follow-ups; neither is part of this scheduler.
 
 ## Exact transfer reading reuse
 

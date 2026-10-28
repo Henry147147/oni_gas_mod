@@ -120,7 +120,20 @@ the committed actor census, queued census/touch submissions and policy changes,
 their durable sequence, and regional biology scheduling state. Callback wrapper13
 may enclose base14. Earlier owners retain their framing and bytes. Physical
 `MACCLS01` version28 is already assigned to profile9 and retains its layout.
-This reservation alone changes no simulation arithmetic or checkpoint bytes.
+*Implemented 2026-10-28:* the version12 prefix, including germ clocks/accounts
+and precision inventory, is unchanged. Before the physical-image length,
+version14 appends committed/accepted submission sequences (two u64), requested
+policy (u8), pending-policy presence/value (u8/u8), biological elapsed count
+(u32) and binary64 values. Next come a u32 positive-packet count and each packet:
+u64 sequence, binary64 timestep, u32 actor count and public-cell u32s, u32 touch
+count and public-cell u32s, then five u64 cuts into transfer/heat/terrain/freeze/
+germ queues. A lifecycle-presence byte optionally adds the same packet layout
+with sequence/time/cuts zero. Finally a u32 contact-touch count and public-cell
+u32s precede the existing u64 physical length and image. Cell lists are sorted
+and unique; sequences and cuts are ordered, bounded and validated. Saved positive
+packets restore unclaimed so the adapter can resubmit without duplicating actor
+inputs. The native frame must be fenced before capture; an unbound native
+boundary-input bucket refuses saving. See [owner scheduling](../docs/colony-owner.md#region-activity-tiers).
 
 **Reserved 2026-10-28 immediately after fetching `8f79853`:** physical
 `MACCLS01` version **28** identifies game profile **9**, adding the adopted
@@ -132,7 +145,7 @@ reservation does not enable the profile; ordinary default selection waits
 for complete owner input/actor integration and conservation/continuation
 controls.
 
-*Experimental core implemented 2026-10-28:* version28 keeps version27's
+*Implemented 2026-10-28:* version28 keeps version27's
 prefix through the phase-rule selector, then writes one boolean activity-tier
 flag and binary64 active-hold/idle-pause durations (defaults 2/60 s), before
 the saturation-pair count. After the momentum arrays it writes the cell count
@@ -146,11 +159,13 @@ phase while their fluid neighbours split. Shared owner edits retain the records;
 the accepted physical advance alone commits cadence updates.
 
 The flag is false for **Always simulate**, which retains profile8 physical
-trajectories. True enables the solver-side cadence for explicit experiments.
-Ordinary colonies still select profile8: the full actor/provenance census and
-owner germs/conversions/trace/space-stage integration are not enabled by this
-core implementation. The aggregate due-time query is informational, not an
-ordered schedule for those nonlinear owner stages.
+trajectories. True enables the adopted cadence. Integrated owner wrappers must
+be version14 and set `GAME_ACTIVITY`; older owner wrappers carrying physical28
+are rejected. The full owner constrains adaptive frames to exactly 0.2f seconds
+and pairs ordered actor/input snapshots with native tickets; its biology and
+post-flow stages consume the same per-cell due time. The standalone aggregate
+due-time query remains informational for arbitrary longer intervals; it does
+not encode event order.
 
 **Reserved 2026-10-28 immediately after fetching `eb40d9b`:** physical
 `MACCLS01` version **27** identifies game profile **8**: profile7 with the

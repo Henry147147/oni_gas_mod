@@ -455,7 +455,9 @@ double finite_reduction(long double value) {
     return result;
 }
 // One component's PCG, as PressureSystem::solve (block == count) or its
-// plan form (block == plan rows): only the reduction blocks differ.
+// plan form (block == plan rows): only the reduction blocks differ. The
+// returned metadata describes cache.pressure; the caller scatters it before
+// the next component reuses that storage.
 PressureSolveResult solve_cached_component(CacheImpl& cache, const CacheImpl::Component& component,
     std::size_t first, double relative, double absolute, std::size_t maximum, std::size_t block) {
     const auto count = component.cells.size();
@@ -502,9 +504,8 @@ PressureSolveResult solve_cached_component(CacheImpl& cache, const CacheImpl::Co
             return static_cast<long double>(residual[i]) * residual[i];
         }));
     };
-    const auto finish = [&] { result.pressure.assign(pressure.begin(), pressure.end()); return result; };
     true_residual();
-    if (result.residual_norm <= threshold) return finish();
+    if (result.residual_norm <= threshold) return result;
     // IncompleteCholesky::factor on the cached sparsity.
     bool ic = component.degree_ok;
     if (ic) {
@@ -578,7 +579,7 @@ PressureSolveResult solve_cached_component(CacheImpl& cache, const CacheImpl::Co
         result.residual_norm = std::sqrt(rr);
         if (result.residual_norm <= threshold) {
             true_residual();
-            if (result.residual_norm <= threshold) return finish();
+            if (result.residual_norm <= threshold) return result;
             precondition();
             restart = true;
             previous = reduce([&](std::size_t i) { return static_cast<long double>(residual[i]) * z[i]; });
@@ -659,7 +660,7 @@ LinearSolveResult solve_components_cached(Context& c, ComponentSolveCache& handl
         const auto block = count >= parallel_rows ? parallel_reduction_rows : std::max<std::size_t>(count, 1);
         try { solved = solve_cached_component(cache, component, 0, .5 * rtol, local_atol, maximum, block); }
         catch (const std::runtime_error&) { throw ComponentPressureSolveFailure{}; }
-        for (std::size_t k = 0; k < count; ++k) x[component.cells[k]] = solved.pressure[k];
+        for (std::size_t k = 0; k < count; ++k) x[component.cells[k]] = cache.pressure[k];
         result.iterations += solved.iterations; squared.add(solved.residual_norm * solved.residual_norm);
         c.counters.incomplete_cholesky_solves += solved.preconditioner_used == PressurePreconditioner::incomplete_cholesky ? 1 : 0;
         c.counters.incomplete_cholesky_fallbacks += solved.preconditioner_fallback ? 1 : 0;

@@ -36,8 +36,8 @@ static class Program
             Check(!d.IsExperimental(d.Default), "default is experimental: " + d.Key);
             foreach (var step in d.Steps) d.Accept(step);
             Check(d.Key.StartsWith(d.Scope == SettingScope.Colony ? "solver." : "", StringComparison.Ordinal) || d.Key.StartsWith("breathing.", StringComparison.Ordinal) ||
-                d.Key == SettingCatalog.EvaporationBelowBoiling || d.Scope == SettingScope.Preference,
-                "colony keys are solver, breathing or the phase rule: " + d.Key);
+                d.Key == SettingCatalog.EvaporationBelowBoiling || d.Key == SettingCatalog.RegionActivity || d.Scope == SettingScope.Preference,
+                "colony keys are solver, breathing, activity or the phase rule: " + d.Key);
         }
         // Default reproduces today's profile 5 exactly (oni_colony.cpp default_options_value).
         var native = SettingValues.Defaults().ToNative();
@@ -61,6 +61,14 @@ static class Program
         Check(BuiltInPresets.All.All(p => !p.Values.Toggle(SettingCatalog.EvaporationBelowBoiling)), "a built-in preset enables evaporation below boiling");
         var badRule = realistic.ToNative(); badRule.EvaporationBelowBoiling = 2;
         Throws<FormatException>(() => SettingValues.Defaults().WithNative(badRule), "invalid native phase rule");
+        var activity = SettingCatalog.Get(SettingCatalog.RegionActivity);
+        Check(activity.Kind == SettingKind.Choice && activity.Scope == SettingScope.Colony && !activity.Advanced &&
+              activity.Group == SettingCatalog.Simulation && (string)activity.Default == "tiers", "activity policy definition");
+        var always = SettingValues.Defaults().With(SettingCatalog.RegionActivity, "always");
+        Check(always.Choice(SettingCatalog.RegionActivity) == "always" && always.ToNative().Reserved == 0, "activity policy leaves options ABI unchanged");
+        Check(ColonySettingsRecord.Encode(always).SequenceEqual(ColonySettingsRecord.Encode(SettingValues.Defaults())), "activity policy entered breathing record");
+        Check(always.WithGroup(SettingCatalog.Solver, BuiltInPresets.Find("precise")!.Values).Choice(SettingCatalog.RegionActivity) == "always", "solver preset changed activity policy");
+        Throws<FormatException>(() => always.With(SettingCatalog.RegionActivity, "sometimes"), "invalid activity policy");
         // Every offered step of every solver setting, and every built-in preset, is inside the native ranges.
         foreach (var d in SettingCatalog.All.Where(d => d.Key.StartsWith("solver.", StringComparison.Ordinal)))
             foreach (var step in d.Kind == SettingKind.Toggle ? new object[] { true, false } : d.Steps.Cast<object>())

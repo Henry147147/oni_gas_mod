@@ -67,6 +67,39 @@ inline void game_activity_control() {
         still.report.phase_change_stages==0 && still.report.trace_sink.constituents==0,
         "Pristine activity region evolved or entered a trace/phase stage");
   const std::size_t left=1+13,middle=5+13,right=9+13;
+  {
+    auto held_state=state;
+    held_state.cells[left].mixture.masses[f.registry.index("water")]=-0.;
+    held_state.cells[right].mixture=MixtureInventory(f.registry.size());
+    held_state.cells[right].mixture.masses[f.registry.index("water")]=200;
+    held_state.cells[right].passive_quantities={{17,.125}};
+    const auto held=MacClosedWorld::game_colony(f.registry,f.eos,held_state,temperatures,cfg).with_game_activity_tiers(true);
+    const auto paused=held.advanced(frame).world;
+    check(physical(held,paused),"Paused reconstruction changed dormant mass bits, passives or partial-liquid volume");
+    const std::size_t cell=middle;
+    const auto saved=paused.checkpoint();
+    check(paused.with_trace_sink_in_cells({}).world.checkpoint()==saved,
+          "An empty trace selection changed a paused world");
+    const auto cleaned=paused.with_trace_sink_in_cells(std::span(&cell,1));
+    const auto helium=f.registry.index("helium");
+    check(cleaned.report.constituents==1 && cleaned.report.cells==1 &&
+          cleaned.world.state().cells[cell].mixture.masses[helium]==0 &&
+          cleaned.world.state().cells[left].mixture.masses[helium]==paused.state().cells[left].mixture.masses[helium] &&
+          cleaned.world.state().cells[right].mixture.masses[helium]==paused.state().cells[right].mixture.masses[helium],
+          "Selected trace removal changed a dormant region or missed its target");
+    auto observed=cleaned.world.state();
+    observed.cells[cell]=paused.state().cells[cell];
+    observed.occupied_volumes_m3[cell]=paused.state().occupied_volumes_m3[cell];
+    check(fingerprint(observed)==fingerprint(paused.state()),
+          "Selected trace reconstruction changed a dormant field or zero-momentum face");
+    const auto image=cleaned.world.checkpoint();
+    check(MacClosedWorld::from_checkpoint(f.registry,f.eos,image).checkpoint()==image,
+          "Selected trace removal changed checkpoint continuation");
+    for(const auto invalid: {std::vector<std::size_t>{cell,cell},std::vector<std::size_t>{state.cells.size()}}) {
+      bool refused=false;try{(void)paused.with_trace_sink_in_cells(invalid);}catch(const std::exception&){refused=true;}
+      check(refused && paused.checkpoint()==saved,"Invalid trace selection changed its source");
+    }
+  }
   std::vector<std::uint8_t> actors(state.cells.size()),touched(state.cells.size());actors[left]=1;
   auto active=adaptive.with_game_activity({},actors);
   const auto due=active.game_activity_steps(frame);

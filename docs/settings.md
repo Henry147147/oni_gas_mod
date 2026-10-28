@@ -28,6 +28,13 @@ it. Code: `ModSettings*.cs` (model, files, window, runtime); tests:
   ([boil-only rule](../native/MAC_PHASE_CHANGE.md#boil-only-rule)). It is a
   gameplay rule rather than a solver tunable, so it is on Gameplay; solver
   presets keep it as chosen.
+- **Gameplay → Region simulation** defaults to **Activity tiers** for new
+  colonies. Regions around actors and recent inputs run each game tick;
+  disturbed remote regions run at a reduced cadence and eventually pause.
+  Untouched regions pause without catching up when disturbed later. **Always
+  simulate** updates every fluid region each game tick. The choice is saved
+  per colony and is read-only during play; supported older profiles continue
+  with Always simulate.
 - **Display & keys** contains reading precision, mixture appearance, status
   panel options and shortcuts. Changes apply immediately.
 - **Advanced** contains **Solver** (including solver presets), **Breathing
@@ -43,18 +50,18 @@ nitrogen catalogue, missing the current breathing record, using its older
 versions or using the earlier pressure profiles20–23 are refused with a reason
 before native loading. Start a new colony for the corrected pressure update.
 
-Colony settings are stored in the physical image (solver and the evaporation
-rule: core27 with the boil-only or equilibrium phase-rule selector) and MACOLP03 section 3
-(breathing). Preferences live in the user's config and are not stored in colony
-saves.
+Colony settings are stored in the physical image (solver, evaporation rule and
+region policy), the integrated owner checkpoint (region delivery and lifecycle
+state), and MACOLP03 section 3 (breathing). Preferences live in the user's
+config and are not stored in colony saves.
 
-The solver is always the supported one: game profile 8 (core27, either
-phase rule; [speed profile 8](../native/MAC_GAME_KERNEL.md#carried-interface-momentum-and-speed-profile-8))
-with mixed pipes. Colonies created earlier keep game profile 6 (core24/25) or
-profile 7 (core26).
+New colonies use game profile 9 (core28, owner wrapper14) with mixed pipes and
+either phase rule. Supported colonies created earlier retain their saved game
+profile 6 (core24/25), 7 (core26) or 8 (core27) and run all regions. See the
+[game kernel](../native/MAC_GAME_KERNEL.md) for the profile history.
 No setting selects the production kernel, the game-floor profile, an older
-game-kernel profile or single-element packet pipes; only profile 8's own saved
-tunables vary, within
+game-kernel profile or single-element packet pipes; profile 9's saved
+tunables vary within
 the ranges below. A value outside the measured one
 is marked **experimental** in the window. The native library refuses values
 outside the ranges (`ma_oni_colony_set_options`); a refusal starts the colony
@@ -69,7 +76,7 @@ and keep preferences unless a user preset explicitly contains them.
 
 | Preset | Colony settings |
 | --- | --- |
-| Default (recommended) | Default solver and oxygen rules; CO₂ limits off; no evaporation below boiling. |
+| Default (recommended) | Default solver and oxygen rules; CO₂ limits off; no evaporation below boiling; Activity tiers. |
 | Robust | Pressure/heat iteration caps 1600/3200. A converged solve stops early, so results are identical wherever Default completes; a difficult solve gets more room before it faults. |
 | Fast (experimental) | Pressure tolerance 1e-6: fewer pressure iterations, pressures settle less exactly. |
 | Precise (experimental) | Two solver steps per game tick, pressure tolerance 1e-10 and the Robust caps; about twice the solver time. |
@@ -131,7 +138,8 @@ which adds `evaporation_below_boiling`).
 | `solver.interfaceDetail` | Thinnest sharpened film | 0 | 0–0.5 of a cell (≠0 experimental) | Thinner films are left unsharpened | core24/25 |
 | `solver.phaseRelaxationSeconds` | Boiling/condensation time | 1 s | 0.1–10 s (≠1 experimental) | Liquid/vapour relaxation time constant (other conversions keep 1 s) | core24/25 |
 | `solver.traceThresholdKg` | Trace removal threshold | 1e-11 kg | 1e-11–1e-6 kg (≠1e-11 experimental) | Per-constituent booked trace sink; 1 mg ceiling | core24/25 |
-| `liquids.evaporationBelowBoiling` | Evaporation below boiling (Gameplay) | off | on/off | Off: liquid/vapour pairs compare saturation with the total gas pressure (boil-only, ONI-like condensation, no humidity); on: the vapour's partial pressure (evaporation into unsaturated gas) | core27 phase-rule selector (1 off, 0 on) |
+| `simulation.regionActivity` | Region simulation (Gameplay) | Activity tiers | Activity tiers / Always simulate | Select adaptive regions or simulate every region each tick | core28 policy and owner wrapper14 |
+| `liquids.evaporationBelowBoiling` | Evaporation below boiling (Gameplay) | off | on/off | Off: liquid/vapour pairs compare saturation with the total gas pressure (boil-only, ONI-like condensation, no humidity); on: the vapour's partial pressure (evaporation into unsaturated gas) | core27/28 phase-rule selector (1 off, 0 on) |
 | `breathing.co2Limits` | CO₂ breathing limits | off | on/off | Enforce the CO₂ share and partial pressure thresholds; oxygen remains required when off | section 3 v3 |
 | `breathing.minimumOxygenFraction` | Minimum oxygen share | 15% | 5–25% | Breathable with at least this oxygen share by moles (polluted oxygen counts) | section 3 |
 | `breathing.minimumOxygenPressurePa` | Minimum oxygen partial pressure | 15 kPa | 1–50 kPa | …and at least this oxygen partial pressure | section 3 |
@@ -206,7 +214,8 @@ minimum oxygen share, minimum oxygen partial pressure (Pa), maximum CO₂ share,
 maximum CO₂ partial pressure (Pa), maximum oxygen share, and CO₂ limits
 (`0.0` off, `1.0` on). Missing records, other versions/counts, invalid switches
 and out-of-range thresholds refuse before loading. The physical solver
-checkpoint format is unchanged.
+checkpoint format was unchanged by this historical settings change; the later
+profile9 integration writes core28 and owner wrapper14.
 
 ## Verification (2026-10-27)
 
@@ -242,6 +251,26 @@ the `phase` scenario passes in a Default colony: 57 °C water stays liquid, the
 mass/energy ledgers close (1.5e-16/1.1e-15). With **Evaporation below boiling**
 on (a preset file), the same pool evaporates 7.2 kg into the air instead.
 
+## Region activity controls (2026-10-28)
+
+The integrated profile has native controls for paused, active and remote
+regions; ordered frame inputs; zero-time lifecycle changes; saved pending
+frames and cold continuation; and selected biology, conversions, trace removal
+and space sinks. Engine-free managed controls cover footprint geometry,
+including owner-boundary contacts, census transitions, delivery admission and
+wrapper14 metadata. A clean integration build passed 89 Linux Release CTests
+and 437 Python tests; the activity controls passed 134 managed checks and 12
+native-image checks. The 87 compared MAC program results matched the prior
+profile8 revision in numeric output and exit status, with timings excluded.
+Focused native owner controls also passed ASan/UBSan.
+The build preceded a subsequent managed diagnostic guard fix, so the full
+checks must be repeated on the final source.
+
+The separate [real-game activity controls](region-activity-controls.md)
+exercise live actors, solid footprints, ports and pending-frame save/load.
+Their current-package game results and Windows OS playtest remain pending;
+these controls do not establish sustained 3× or the other release gates.
+
 ## Not settings
 
 Fixed by design: game gravity, thermal conduction, the profile's vacuum and
@@ -255,10 +284,10 @@ player chooses unless set:
 
 | Purpose | Variables |
 | --- | --- |
-| Solver/pipe selectors for development runs (unsupported for play) | `MA_COLONY_GAME_FLOOR`, `MA_COLONY_KERNEL3`, `MA_COLONY_KERNEL3_POSITIVE`, `MA_COLONY_KERNEL3_SURFACE`, `MA_COLONY_MIXED_PIPES=0`, `MA_COLONY_PIPE_SAVES=0`, `MA_COLONY_SUBSTEP_TRACE`, `MA_COLONY_FAST_PHASE_EOS`, `MA_COLONY_GERM_ORACLE`, `MA_MAC_WORKERS` |
+| Solver/pipe selectors for development runs (unsupported for play) | `MA_COLONY_GAME_FLOOR`, `MA_COLONY_KERNEL3`, `MA_COLONY_KERNEL3_POSITIVE`, `MA_COLONY_KERNEL3_SURFACE`, `MA_COLONY_KERNEL3_PROFILE8`, `MA_COLONY_MIXED_PIPES=0`, `MA_COLONY_PIPE_SAVES=0`, `MA_COLONY_SUBSTEP_TRACE`, `MA_COLONY_FAST_PHASE_EOS`, `MA_COLONY_GERM_ORACLE`, `MA_MAC_WORKERS` |
 | Harness | `MA_COLONY_STARTING_RESERVE` (validation scenes place the starting oxylite reserve), `MA_COLONY_SETTINGS_PRESET`, `MA_SETTINGS_OPEN` (opens the window on tab N at the menu and in a colony, unpaused; `mods` clicks the Mods-screen button), `MA_COLONY_SAVE_CONTROL`, `MA_COLONY_SAVE_FRAME`, `MA_COLONY_CONTINUATION_FRAMES`, `MA_COLONY_EXPECT_LOAD_REFUSAL`, `MA_COLONY_PIPE_CONTACT_HEAT` |
 | Frame-time measurement (docs/colony-owner.md#main-thread-smoothness) | `MA_FRAME_LOG=1` (frame-time log in Player.log; the preference "Log frame timing" does the same), `MA_COLONY_WORKERS` (solver worker count for sweeps, overrides the preference), `MA_COLONY_RECEIPT_BUDGET_MS` (receipt time per publication, 0 for no limit), `MA_COLONY_PRESENTATION_EAGER=1` (build every reading at publication, the earlier behaviour), `MA_COLONY_NATIVE_WAIT_LOG=1` (native frame phase timing to stderr) |
-| Exactness controls | `MA_COLONY_CELL_MAP_CONTROL`, `MA_COLONY_UNCACHED_CELL_MAP`, `MA_COLONY_COPY_CONTROL`, `MA_COLONY_MARSHALLED_OUTPUT`, `MA_COLONY_MARSHALLED_RECEIPTS`, `MA_COLONY_RECEIPT_COPY_CONTROL`, `MA_COLONY_UNCACHED_VIEWS`, `MA_COLONY_VIEW_CACHE_CONTROL`, `MA_COLONY_WORLD_PASSIVE_CONTROL` |
+| Exactness controls | `MA_COLONY_ACTIVITY_CONTROL`, `MA_COLONY_CELL_MAP_CONTROL`, `MA_COLONY_UNCACHED_CELL_MAP`, `MA_COLONY_COPY_CONTROL`, `MA_COLONY_MARSHALLED_OUTPUT`, `MA_COLONY_MARSHALLED_RECEIPTS`, `MA_COLONY_RECEIPT_COPY_CONTROL`, `MA_COLONY_UNCACHED_VIEWS`, `MA_COLONY_VIEW_CACHE_CONTROL`, `MA_COLONY_WORLD_PASSIVE_CONTROL` |
 | Logs and dumps | `MA_COLONY_LEDGER_LOG`, `MA_COLONY_HEAT_LOG`, `MA_COLONY_TERRAIN_LOG`, `MA_COLONY_STAGE_LOG`, `MA_COLONY_PUBLICATION_LOG`, `MA_COLONY_VIEW_TIMING_LOG`, `MA_COLONY_DUPE_LOG`, `MA_COLONY_PIPE_BIOLOGY_TIMING`, `MA_COLONY_PIPE_THERMAL_LOG`, `MA_COLONY_FAULT_DUMP`, `MA_COLONY_DUMP_FRAME`, `MA_COLONY_SLOW_DUMP`, `MA_COLONY_TRANSFER_DUMP`, `MA_COLONY_RELEASE_DUMP`, `MA_COLONY_FLOOR_ADMISSION_DUMP`, `MA_COLONY_FLOOR_PREFIX_DUMP`, `MA_ONI_BODY_HEAT_TRACE`, `MA_ONI_CHUNK_HEAT_TRACE`, `MA_ONI_STORAGE_HEAT_TRACE`, `MA_KERNEL_DEBUG` |
 | Native harness and builds | `MA_VERIFY_*`, `MA_NATIVE_*`, `MA_TEST_NATIVE_LIBRARY`, `MA_BUILD_*` |
 

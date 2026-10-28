@@ -26,6 +26,9 @@ namespace MixedAtmospheres.Oni
         private static (OniNativeColony.Config config, byte[] image)? pending;
         internal static int Saves { get; private set; }
         internal static ulong LastSavedFrame { get; private set; }
+        // Exact image supplied to the successful envelope writer, not disk readback.
+        internal static string ValidationWriterOwnerSha256 { get; private set; } = "";
+        internal static string ValidationWriterPhysicalSha256 { get; private set; } = "";
         internal static int Loads { get; private set; }
         // What the last restore actually runs (decoded from the owner image,
         // not from config flags) and, under validation, whether an immediate
@@ -89,6 +92,12 @@ namespace MixedAtmospheres.Oni
             var envelope = ColonySaveEnvelope.Create(RunningBuild, MaterialModel, completedFrame,
                 CatalogueHash(ColonyOwner.Materials), native, payload);
             envelope.WriteLengthPrefixed(writer); ++Saves; LastSavedFrame=completedFrame;
+            if (ColonyRuntimeValidation.Settings?.SaveBeforeResume == true && ColonyRuntimeValidation.Settings.Mode == "colony-owner-load")
+            {
+                using var digest = SHA256.Create();
+                ValidationWriterOwnerSha256 = BitConverter.ToString(digest.ComputeHash(image)).Replace("-", "").ToLowerInvariant();
+                ValidationWriterPhysicalSha256 = BitConverter.ToString(digest.ComputeHash(ColonyCheckpointMetadata.PhysicalImage(image).ToArray())).Replace("-", "").ToLowerInvariant();
+            }
             UnityEngine.Debug.Log($"[Mixed Atmospheres] Colony saved at owner frame {completedFrame} ({envelope.EncodedLength} bytes).");
             return true;
         }
@@ -204,7 +213,7 @@ namespace MixedAtmospheres.Oni
             ColonyPipeRuntime.Persistable = ColonyPipeSave.WriterEnabled;
             var value = pending; pending = null; return value;
         }
-        internal static void Reset() { ColonyLoadedTiles.Reset(); ColonyNativeLoadGuard.Reset(); ColonyNativeClock.Reset(); ColonyCallbackRequests.Reset(); ColonySaveBarrier.Reset(); ColonySavedParticles.Reset(); ColonySaveControls.Reset(); ColonyContinuationProbe.Reset(); ColonyLoadRefusal.Reset(); ColonyPipeSave.Reset(); pending = null; RestoredProfile = null; RestoredImageSha256 = ""; RestoredImageReencoded = null; RestoredReencodeMilliseconds = 0; RestoredReencodeScope = ""; }
+        internal static void Reset() { ColonyLoadedTiles.Reset(); ColonyNativeLoadGuard.Reset(); ColonyNativeClock.Reset(); ColonyCallbackRequests.Reset(); ColonySaveBarrier.Reset(); ColonySavedParticles.Reset(); ColonySaveControls.Reset(); ColonyContinuationProbe.Reset(); ColonyLoadRefusal.Reset(); ColonyPipeSave.Reset(); pending = null; ValidationWriterOwnerSha256 = ValidationWriterPhysicalSha256 = ""; RestoredProfile = null; RestoredImageSha256 = ""; RestoredImageReencoded = null; RestoredReencodeMilliseconds = 0; RestoredReencodeScope = ""; }
 
         internal static object? RestoredReport() => RestoredProfile is not ColonyPhysicalProfile p ? null : new {
             p.OwnerVersion, p.PhysicalVersion, p.LiquidLaw, p.PressureIterationCap, p.HeatIterationCap, p.GasHeatMixing,

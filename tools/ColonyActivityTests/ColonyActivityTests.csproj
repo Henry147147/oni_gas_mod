@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType><TargetFramework>net10.0</TargetFramework><Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings><TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../../managed/MixedAtmospheres.Oni/ColonyCheckpointMetadata.cs" Link="ColonyCheckpointMetadata.cs" />
+    <Compile Include="../../managed/MixedAtmospheres.Oni/ColonyActivityCells.cs" Link="ColonyActivityCells.cs" />
+    <Compile Include="../../managed/MixedAtmospheres.Oni/ColonyCallbackRebindPlan.cs" Link="ColonyCallbackRebindPlan.cs" />
+    <Compile Include="../../managed/MixedAtmospheres.Oni/ColonyActivityResaveProof.cs" Link="ColonyActivityResaveProof.cs" />
+    <Compile Include="../../managed/MixedAtmospheres.Oni/ColonyActivityDelivery.cs" Link="ColonyActivityDelivery.cs" />
+  </ItemGroup>
+</Project>

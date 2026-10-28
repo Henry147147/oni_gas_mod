@@ -32,6 +32,7 @@ namespace MixedAtmospheres.Oni
 
         internal static void Reset()
         {
+            ColonyPacingLossLog.Reset();
             ColonyPerformanceLog.FinishRun();
             HeldTicks = UnityFrames = 0; OwnerRate = 0; seenFrames = 0;
             updateTicks = tickTicks = updateCalls = tickCalls = maximumUpdateTicks = loggedHeldTicks = 0;
@@ -62,18 +63,33 @@ namespace MixedAtmospheres.Oni
 
         private static bool BeforeTick(Game game, ref float dt)
         {
-            if (!Busy) return true;
+            if (!Busy)
+            {
+                if (ColonyPacingLossLog.Enabled) ColonyPacingLossLog.Pacing(dt, dt, true, false);
+                return true;
+            }
+            var before = dt;
             var allowed = (12 - subTick(game)) / 60f - simDt(game) - 1e-4f;
-            if (Mathf.Min(dt, .2f) < allowed) return true;
+            if (Mathf.Min(dt, .2f) < allowed)
+            {
+                if (ColonyPacingLossLog.Enabled) ColonyPacingLossLog.Pacing(before, dt, true, true);
+                return true;
+            }
             ++HeldTicks;
-            if (allowed <= 0) return false;
-            dt = allowed; return true;
+            if (allowed <= 0)
+            {
+                if (ColonyPacingLossLog.Enabled) ColonyPacingLossLog.Pacing(before, 0, false, true);
+                return false;
+            }
+            dt = allowed;
+            if (ColonyPacingLossLog.Enabled) ColonyPacingLossLog.Pacing(before, dt, true, true);
+            return true;
         }
 
         internal static void Update()
         {
             var framed = ColonyFrameLog.Now;
-            try { UpdateTimed(); } finally { ColonyFrameLog.Add(ColonyFrameLog.Part.Pacing, framed); }
+            try { UpdateTimed(); } finally { ColonyPacingLossLog.AfterUpdate(); ColonyFrameLog.Add(ColonyFrameLog.Part.Pacing, framed); }
         }
         private static void UpdateTimed()
         {
@@ -113,6 +129,70 @@ namespace MixedAtmospheres.Oni
             playerScale = speed.GetSpeed() switch { 0 => normalSpeed(speed), 1 => fastSpeed(speed), _ => ultraSpeed(speed) };
             var target = Mathf.Clamp((float)(.95 * OwnerRate), .01f, playerScale);
             if (Mathf.Abs(Time.timeScale - target) > 1e-3f * target) { Time.timeScale = target; scaled = true; }
+        }
+    }
+    // Off by default. Entry observes the caller's dt before the existing
+    // Priority.First load/continuation guards; final admission observes whether
+    // the original actually ran. All strings are emitted at bounded windows.
+    internal static class ColonyPacingLossLog
+    {
+        internal static readonly bool Enabled = Environment.GetEnvironmentVariable("MA_COLONY_PACING_LOSS_LOG") == "1";
+        private const ulong WindowFrames = 50;
+        private static readonly ColonyPacingLoss totals = new ColonyPacingLoss();
+        private static ulong session, bucket;
+        private static bool haveWindow;
+        internal static ColonyPacingLossToken Begin(float dt)
+        {
+            var active = ColonyOwner.Active;
+            var status = active ? ColonyOwner.Status : default;
+            var nextFrame = status.CompletedFrames + 1;
+            var nextBucket = status.CompletedFrames / WindowFrames;
+            if (active && (status.Session != session || !haveWindow || (bucket != nextBucket && totals.Depth == 0)))
+            {
+                Emit();
+                if (status.Session != session) totals.Reset();
+                session = status.Session; bucket = nextBucket; haveWindow = true;
+            }
+            return totals.Begin(dt, active, nextFrame, status.Session);
+        }
+        internal static void Pacing(float before, float after, bool returned, bool busy) => totals.Pacing(before, after, returned, busy);
+        internal static void Complete(ColonyPacingLossToken token, float dt, bool originalRan)
+        {
+            if (!ColonyOwner.Active || ColonyOwner.Status.Session != token.Session) totals.Cancel(token);
+            else totals.Complete(token, dt, originalRan);
+        }
+        internal static void Exception(ColonyPacingLossToken token) => totals.Exception(token);
+        internal static void End(ColonyPacingLossToken token) => totals.Cancel(token);
+        internal static void AfterUpdate()
+        {
+            if (!Enabled || !haveWindow || totals.Depth != 0 || !ColonyOwner.Active) return;
+            if (ColonyOwner.Status.CompletedFrames >= (bucket + 1) * WindowFrames) { Emit(); haveWindow = false; }
+        }
+        internal static void Reset()
+        {
+            if (!Enabled) return;
+            Emit(); totals.Reset(); session = bucket = 0; haveWindow = false;
+        }
+        private static void Emit()
+        {
+            var value = totals.Drain();
+            if (value.Calls == 0 && value.Exceptions == 0 && value.Overflow == 0 && value.ScopeErrors == 0) return;
+            Debug.Log(FormattableString.Invariant($"[Mixed Atmospheres] pacing loss session {session} from_frame {value.FirstFrame} through_frame {value.LastFrame} calls {value.Calls} original {value.OriginalRuns} skipped {value.OriginalSkipped} raw_offered_s {value.RawOfferedSeconds:R} offered_capped_s {value.OfferedSeconds:R} original_cap_lost_s {value.OriginalCapLostSeconds:R} admitted_s {value.AdmittedSeconds:R} lost_s {value.LostSeconds:R} raw_lost_s {value.OriginalCapLostSeconds + value.LostSeconds:R} pacing_lost_s {value.PacingLostSeconds:R} other_lost_s {value.OtherLostSeconds:R} gained_s {value.GainedSeconds:R} pacing_calls {value.PacingCalls} busy {value.BusyCalls} clipped {value.ClippedCalls} fully_held {value.FullyHeldCalls} earlier_zero {value.EarlierZeroCalls} other_veto {value.OtherVetoCalls} exceptions {value.Exceptions} overflow {value.Overflow} scope_errors {value.ScopeErrors} invalid_dt {value.InvalidDt} attribution_errors {value.AttributionErrors}"));
+        }
+    }
+    [HarmonyPatch(typeof(Game), "SimEveryTick")]
+    internal static class ColonyPacingLossPatch
+    {
+        private static bool Prepare() => ColonyPacingLossLog.Enabled;
+        [HarmonyPriority(Priority.First + 1)]
+        private static void Prefix(float __0, out ColonyPacingLossToken __state) => __state = ColonyPacingLossLog.Begin(__0);
+        [HarmonyPriority(Priority.Last)]
+        private static void Postfix(float __0, bool __runOriginal, ColonyPacingLossToken __state) => ColonyPacingLossLog.Complete(__state, __0, __runOriginal);
+        private static Exception? Finalizer(Exception? __exception, ColonyPacingLossToken __state)
+        {
+            if (__exception != null) ColonyPacingLossLog.Exception(__state);
+            else ColonyPacingLossLog.End(__state);
+            return __exception;
         }
     }
     public sealed class ColonyPacingDriver : MonoBehaviour

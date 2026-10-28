@@ -6,17 +6,21 @@ colonies default to boil-only phase change (no evaporation below the
 pressure-dependent boiling point, ONI-like condensation). See the
 [amendment](completion-plan.md#amendments).
 
-**Resumed speed work, 2026-10-28:** new colonies now use profile8/core27 with
-boil-only, momentum-carrying liquid sharpening/layering and the adopted 1 mg
-interval floor. The fresh Spaced Out! magma-face and twelve-dig owner replays
-pass; real-time acceptance and region activity tiers remain open. Reading
-allocation reductions and a player-accessible frame log support the next
-smoothness check. Profile9/core28 now supplies an opt-in native activity core;
-complete actor/input and owner-stage integration before enabling it in game.
-Accurate clock logging measures warmed actual game speed at 1.935× in a fresh
-450-frame Linux Terra ultra run, with five GCs/15 s: 3× and smooth input remain
-open ([measurements](performance-acceptance.md#linux-ultra-probe-after-the-first-implementation),
-[handoff](handoff-codex-2026-10-28.md)).
+**Resumed speed work, 2026-10-28:** new colonies use profile9/core28 with
+boil-only, momentum-carrying liquid sharpening/layering, the adopted 1 mg
+interval floor and region activity tiers. The owner integration includes
+complete actor footprints, native contact/input provenance, saved immutable
+frame inputs and ordered germs/conversions/trace/space stages. Owner wrapper14
+preserves pending delivery; older profiles keep Always simulate. Gameplay →
+Region activity chooses Tiers or Always simulate for new colonies. See
+[activity controls](region-activity-controls.md) and the
+[handoff](handoff-codex-2026-10-28.md).
+The previous profile8 fresh Linux Terra measurement was 1.935× with five
+GCs/15 s. Integrated tiers reach about 2.80× warmed owner/game progress, with
+three GCs in one clean 15 s window. Actual 3×, smooth input and the Windows
+playtest remain open. Reading allocation
+reductions, direct pinned native readings and event-buffer copies support
+the next throughput/GC check ([measurements](performance-acceptance.md)).
 
 **Current regression, 2026-10-28:** the user's Windows recording and uploaded
 colony reproduce large temperature, pressure and mass swings after digging.
@@ -283,7 +287,7 @@ buildable and the asteroid loadable.
   Because boiling points follow total pressure, a minor gas in a strongly
   compressed mixture can condense. Turning the setting on restores realistic
   evaporation for a new colony.
-- The current default profile8/core27 uses a positive-volume liquid law. Below half
+- The current default profile9/core28 retains the positive-volume liquid law. Below half
   the saved bulk stiffness it retains the earlier linear law; higher pressures
   progressively stiffen compression, with continuous volume and elastic energy.
   High-pressure readings and boiling therefore differ from profile2/core20.

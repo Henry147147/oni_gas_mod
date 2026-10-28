@@ -38,6 +38,32 @@ class ScenarioContractTests(unittest.TestCase):
         self.assertEqual(runner.scenario_list("spaced-out-worlds"), "spaced-out-worlds")
 
 
+class PausedOwnerResaveCliTests(unittest.TestCase):
+    def test_resave_accepts_both_load_paths_before_any_game_launch(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp); saved=root/"input.sav";saved.write_bytes(b"private fixture placeholder")
+            for mode in ("native-load-domain", "colony-owner-load"):
+                args=["oni_headless.py","--state",str(root/"state"),"run","--package",str(root/"package"),
+                      "--mode",mode,"--load-save",str(saved),"--resave-before-resume","--frames","80"]
+                with mock.patch.object(sys,"argv",args),mock.patch.object(runner,"read_session",return_value={}), \
+                     mock.patch.object(runner,"locked_command",return_value=0) as launch:
+                    self.assertEqual(runner.main(),0)
+                    self.assertTrue(launch.call_args.args[0].resave_before_resume)
+                    self.assertEqual(launch.call_args.args[0].mode,mode)
+    def test_resave_refuses_fresh_native_and_vanilla_paths_before_locking(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);saved=root/"input.sav";saved.write_bytes(b"private fixture placeholder")
+            for mode in ("native-domain","colony-owner","native-observer","snapshot-copy","colony-owner-load"):
+                args=["oni_headless.py","--state",str(root/"state"),"run","--package",str(root/"package"),
+                      "--mode",mode,"--resave-before-resume","--frames","80"]
+                if mode=="colony-owner-load":args += ["--load-save",str(saved),"--vanilla-load"]
+                with mock.patch.object(sys,"argv",args),mock.patch.object(runner,"locked_command") as launch, \
+                     contextlib.redirect_stderr(io.StringIO()):
+                    with self.assertRaises(SystemExit) as error:runner.main()
+                    self.assertEqual(error.exception.code,2)
+                    launch.assert_not_called()
+
+
 class CompletedInspectionTests(unittest.TestCase):
     def test_starts_only_after_completion_and_uses_the_first_success_deadline(self):
         self.assertEqual(runner.completed_inspection({'Status':'pending'},120,None,1000),(None,False))

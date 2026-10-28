@@ -405,6 +405,9 @@ public:
     // sink receipt for mass, U+K+G, canonical J and carried passives. Legacy
     // and unchanged inventories return the original shared owner/revision.
     [[nodiscard]] MacTraceSink with_trace_sink() const;
+    // Owner activity integration: remove traces only in sorted, unique cells.
+    // An empty selection is inert. The existing whole-world operation is unchanged.
+    [[nodiscard]] MacTraceSink with_trace_sink_in_cells(std::span<const std::size_t>) const;
     // Game kernel: the species masses (kg) and U+K+G (J) of state() as the
     // operation that produced this world summed them for its audit (double-
     // double sums, here rounded to long double); empty when none were kept.

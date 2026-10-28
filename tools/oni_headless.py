@@ -65,7 +65,7 @@ MANIFEST_REVISION = re.compile(r"[0-9a-f]{40}(?:[0-9a-f]{24})?")
 FRAME_LIMIT, LONG_RUN_FRAME_LIMIT, LONG_RUN_DEFAULT_FRAMES = 10000, 100000, 30000
 TIMEOUT_LIMIT, LONG_RUN_TIMEOUT_LIMIT = 7200, 48 * 3600
 TELEMETRY_INTERVAL_DEFAULT, TELEMETRY_INTERVAL_LIMITS = 300, (10, 10000)
-SCENARIOS = ("spaced-out-worlds", "spaced-out-rocket", "spaced-out-rocket-ports", "spaced-out-input-flush", "spaced-out-rocket-retire", "spaced-out-warp-ports", "spaced-out-rocket-flight", "spaced-out-cargo-gas", "spaced-out-cargo-liquid", "spaced-out-rocket-abandon", "dlc-fluid-readers", "terrain", "heat", "phase", "freeze-melt", "deoxidizer", "pipes", "door", "sublimation", "falling", "breathing", "airflow",
+SCENARIOS = ("activity-lifecycle", "spaced-out-worlds", "spaced-out-rocket", "spaced-out-rocket-ports", "spaced-out-input-flush", "spaced-out-rocket-retire", "spaced-out-warp-ports", "spaced-out-rocket-flight", "spaced-out-cargo-gas", "spaced-out-cargo-liquid", "spaced-out-rocket-abandon", "dlc-fluid-readers", "terrain", "heat", "phase", "freeze-melt", "deoxidizer", "pipes", "door", "sublimation", "falling", "breathing", "airflow",
              "electrolysis", "vent-overpressure", "space-heater", "bottle-emptier", "gas-generator", "germs", "puft",
              "plant", "wheezewort", "life-support", "mask-station", "polymer-press", "oxyfern", "debris-heat", "building-melt", "byproduct-merge", "geyser", "rocket-exhaust", "meteor", "sensor", "starting-air", "filter", "mixed-pipes", "mixed-pipe-filter", "mixed-pipe-boundary", "mixed-pipe-output", "mixed-pipe-teardown", "mixed-pipe-valves", "mixed-pipe-gas-vents", "mixed-pipe-biology", "mixed-pipe-all-germs", "mixed-pipe-save-guard", "mixed-pipe-pumps", "mixed-pipe-thermal", "mixed-pipe-cold", "windows-contact", "mixed-pipe-machines", "mixed-pipe-colony", "mixed-pipe-heat-machines", "mixed-pipe-retire", "mixed-pipe-readers", "mixed-pipe-owned-storage", "mixed-storage-transfer-heat", "mixed-storage-heat", "owned-storage-retirement", "owned-storage-active-outlet", "owned-storage-drained-save", "owned-storage-retired-save", "owned-storage-readers", "owned-storage-biology", "pipe-schedule", "pipe-body-rounding", "mixed-pipe-catalogue", "pacu", "liquid-pump", "world-germs", "germ-oracle", "skimmer", "terrarium", "deodorizer", "rust-deoxidizer", "coal-generator", "oil-refinery", "electrolyzer-blocked", "hazards", "germ-exposure", "suit", "pitcher-pump", "fault-containment", "base")
 
@@ -1241,8 +1241,8 @@ def main() -> int:
     state = args.state.resolve()
     if args.command == "run" and args.reload_in_process and args.mode != "colony-owner-load" and (args.mode != "native-load-domain" or not args.resave_before_resume):
         parser.error("--reload-in-process requires colony-owner-load or native-load-domain --resave-before-resume")
-    if args.command == "run" and args.resave_before_resume and args.mode != "native-load-domain":
-        parser.error("--resave-before-resume requires native-load-domain")
+    if args.command == "run" and args.resave_before_resume and (args.mode not in ("native-load-domain", "colony-owner-load") or args.vanilla_load):
+        parser.error("--resave-before-resume requires native-load-domain or a mod-owned colony-owner-load")
     if args.command == "run" and args.verify_save_io_recovery and (args.mode != "native-save-domain" or args.frames<16):
         parser.error("--verify-save-io-recovery requires native-save-domain and at least sixteen frames")
     if args.command == "run" and args.save_colony and (not (args.mode.startswith("native-") or args.mode in ("colony-owner", "colony-owner-load")) or args.mode in ("native-observer", "native-load-domain")):

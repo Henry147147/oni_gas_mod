@@ -45,6 +45,7 @@ namespace MixedAtmospheres.Oni
             public string? Source; // what stands at the emitter's cell (a geyser, a building)
             // The registering component: a stable identity across saves.
             public SimComponent? Component; public ColonyCallbackIdentity? Identity;
+            public uint[] ActivityCells = Array.Empty<uint>();
         }
         // Owned actors run in one canonical order, their persistent identity,
         // so a loaded colony queues its consumers and emitters exactly as the
@@ -254,6 +255,8 @@ namespace MixedAtmospheres.Oni
 
         // Before the owner's frame: native registrations leave ONI (direct
         // native calls, past the mod's message boundary) and the owner runs them.
+        internal static int TakeNativeForReplay()
+        { var migrated = native.Count; TakeNative(); return migrated; }
         private static void TakeNative()
         {
             if (native.Count == 0) return;
@@ -271,6 +274,27 @@ namespace MixedAtmospheres.Oni
 
         // At each positive native frame: this frame's consumption and
         // emission, committed at the owner's next step.
+        internal static void RegisterActivityComponents()
+        {
+            foreach (var actor in registering.Values) ColonyActivity.Register(actor.Component, true);
+            foreach (var actor in native.Values) ColonyActivity.Register(actor.Component, true);
+            foreach (var actor in owned.Values) ColonyActivity.Register(actor.Component, true);
+        }
+        internal static void CaptureActivity(ColonyActivityCells census, ColonyActivityFootprint footprint)
+        {
+            CaptureMap(registering, 1); CaptureMap(native, 2); CaptureMap(owned, 3);
+            void CaptureMap(Dictionary<int, Actor> map, long domain)
+            {
+                foreach (var pair in map)
+                {
+                    var actor = pair.Value;
+                    ColonyActivity.BeginFootprint(footprint);
+                    footprint.Radius(actor.Cell, checked((int)actor.Radius));
+                    actor.ActivityCells = footprint.Finish(actor.ActivityCells);
+                    census.Observe((domain << 32) | (uint)pair.Key, actor.ActivityCells);
+                }
+            }
+        }
         internal static void QueueFrame(float seconds)
         {
             TakeNative();

@@ -6,6 +6,7 @@
 #include "mac_game_component_cache_control.hpp"
 #include "mac_game_carried_momentum_control.hpp"
 #include "mac_game_activity_control.hpp"
+#include "mac_game_regional_execution_control.hpp"
 #include "../src/mac_hypot.hpp"
 #include "../src/mac_game/account.hpp"
 #include "../src/mac_game/entropy.hpp"
@@ -355,6 +356,7 @@ int main() {
     ma::testing::bounded_pressure_checkpoint_control();
     ma::testing::carried_momentum_control();
     ma::testing::game_activity_control();
+    ma::testing::regional_execution_control();
     absent_liquid_transfer_rejection();
     ma::testing::component_cache_control();
     full_worker_continuation();

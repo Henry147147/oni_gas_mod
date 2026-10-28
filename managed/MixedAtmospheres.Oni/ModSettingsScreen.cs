@@ -150,6 +150,7 @@ namespace MixedAtmospheres.Oni
                         SettingsTab(SettingCatalog.Breathing, false);
                         GUILayout.Label("Oxygen requirements and optional CO₂ thresholds are under Advanced → Breathing thresholds.", small!);
                         SettingsTab(SettingCatalog.PhaseChange, false);
+                        SettingsTab(SettingCatalog.Simulation, false);
                         break;
                     case 1:
                         SettingsTab(SettingCatalog.Display, false); SettingsTab(SettingCatalog.Panel, false); SettingsTab(SettingCatalog.Keys, false); break;
@@ -363,7 +364,7 @@ namespace MixedAtmospheres.Oni
             var definitions = SettingCatalog.All.Where(d => d.Group == group && d.Advanced == advanced).ToArray();
             if (definitions.Length == 0) return;
             Section((advanced ? "Advanced · " : "") + group);
-            var colony = group == SettingCatalog.Solver || group == SettingCatalog.Breathing || group == SettingCatalog.PhaseChange;
+            var colony = group == SettingCatalog.Solver || group == SettingCatalog.Breathing || group == SettingCatalog.PhaseChange || group == SettingCatalog.Simulation;
             var locked = colony && ReadOnlyColony;
             var values = Shown;
             if (group == SettingCatalog.Breathing && advanced)
@@ -416,7 +417,7 @@ namespace MixedAtmospheres.Oni
                 GUILayout.Label("An oxygen ceiling below 100% makes pure generated oxygen unbreathable. Starting air is not diluted automatically.", small!);
                 GUI.contentColor = Color.white;
             }
-            if (locked && (advanced || group == SettingCatalog.PhaseChange)) GUILayout.Label("Read-only: this colony keeps the values above. Set them from the main menu for new colonies.", small!);
+            if (locked && (advanced || group == SettingCatalog.PhaseChange || group == SettingCatalog.Simulation)) GUILayout.Label("Read-only: this colony keeps the values above. Set them from the main menu for new colonies.", small!);
         }
 
         private void Change(SettingDefinition d, object value)

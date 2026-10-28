@@ -20,7 +20,7 @@ namespace MixedAtmospheres.Oni
         // solve shorten them where needed (docs/colony-owner.md#pacing).
         // Two steps exactly cover the native binary32 0.2 s frame.
         internal const double MaximumTimestepSeconds = .1f;
-        // New colonies run game profile 8 (core27 with the default boil-only
+        // New colonies run game profile 9 (core28 with region activity and the default boil-only
         // phase rule or with evaporation below boiling), the user's playtest
         // choice (docs/completion-plan.md#amendments); players cannot select
         // older solvers. Development floor runs alone still select the
@@ -35,7 +35,11 @@ namespace MixedAtmospheres.Oni
                 throw new InvalidOperationException("Select either MA_COLONY_KERNEL3 or MA_COLONY_GAME_FLOOR for a new colony, not both.");
             if (NewColoniesUseGameFloor) return OniNativeColony.PhysicsConduction | OniNativeColony.GameFloor;
             RequireGameKernel();
-            return OniNativeColony.PhysicsConduction | OniNativeColony.GameKernel | (NewColoniesUseGameKernel ? 0 : OniNativeColony.GameSurface);
+            var legacySurface = Environment.GetEnvironmentVariable("MA_COLONY_KERNEL3_PROFILE6") == "1" ||
+                Environment.GetEnvironmentVariable("MA_COLONY_KERNEL3_PROFILE7") == "1" ||
+                Environment.GetEnvironmentVariable("MA_COLONY_KERNEL3_PROFILE8") == "1";
+            return OniNativeColony.PhysicsConduction | OniNativeColony.GameKernel |
+                (NewColoniesUseGameKernel ? 0 : OniNativeColony.GameSurface | (legacySurface ? 0 : OniNativeColony.GameActivity));
         }
         private static void RequireGameKernel()
         {
@@ -106,7 +110,7 @@ namespace MixedAtmospheres.Oni
 
         internal static void ResetForNewSession()
         {
-            ColonyPresentation.Reset(); ColonyActors.Reset(); ColonyViewCache.Reset(); ColonyConduits.Reset(); ColonyWorldGerms.Reset(); ColonyNotices.Reset(); ColonyBalance.Reset(); ColonyDlcFluidReaders.Reset();
+            ColonyPresentation.Reset(); ColonyActivity.Reset(); ColonyActors.Reset(); ColonyViewCache.Reset(); ColonyConduits.Reset(); ColonyWorldGerms.Reset(); ColonyNotices.Reset(); ColonyBalance.Reset(); ColonyDlcFluidReaders.Reset();
             current?.Dispose(); current = null;
             if (Active) { var s = OniNativeColony.Status.Empty; _ = OniNativeColony.Stop(ref s); }
             ColonyPacing.Reset(); ColonyOwnerPersistence.Reset(); ModSettingsRuntime.Reset();
@@ -125,6 +129,11 @@ namespace MixedAtmospheres.Oni
             var x = cell % Grid.WidthInCells - x0; var y = cell / Grid.WidthInCells - y0;
             if (x < 0 || y < 0 || x >= width || y >= height) return false;
             index = x + y * width; return true;
+        }
+        internal static bool PublishedActivityFluid(uint cell)
+        {
+            var x=(long)(cell % config.GridWidth)-config.OffsetX;var y=(long)(cell / config.GridWidth)-config.OffsetY;
+            return x>=0 && y>=0 && x<config.Width && y<config.Height && (views[(int)(x+y*config.Width)].Flags & OniNativeColony.ViewOwned)!=0;
         }
         internal static bool OwnsFluidCell(int cell) => OwnsFluid(cell);
         private static bool OwnsFluid(int cell) => Active && InRect(cell, out var index) && (views[index].Flags & OniNativeColony.ViewOwned) != 0;
@@ -227,7 +236,7 @@ namespace MixedAtmospheres.Oni
                     c => zones != null && ElementLoader.elements[source->elementIdx[c]].IsVacuum && zones.GetSubWorldZoneType(c) == ProcGen.SubWorld.ZoneType.Space);
                 OniNativeColony.Check(OniNativeColony.Start(ref config, materials, (uint)materials.Length, cells, (uint)cells.Length, ref output));
                 ModSettingsRuntime.AfterStart();
-                status = output; views = new OniNativeColony.CellView[cells.Length]; Active = true; ColonyPacingDriver.Ensure(); ConfigurePresentation();
+                status = output; views = new OniNativeColony.CellView[cells.Length]; Active = true; ColonyActivity.Started(config.Flags, status.Session); ColonyPacingDriver.Ensure(); ConfigurePresentation();
                 ColonyClusterWorlds.Initialize(cluster?layout:null);
                 if (ColonyPipeRuntime.NewColoniesUseMixedPipes) ColonyPipeRuntime.StartForNewColony(); // docs/mixed-pipes.md#runtime
                 OwnedCells = cells.Count(c => c.Kind != OniNativeColony.Solid);
@@ -300,7 +309,7 @@ namespace MixedAtmospheres.Oni
             var output = OniNativeColony.Status.Empty;
             OniNativeColony.Check(OniNativeColony.Restore(ref config, materials, (uint)materials.Length, image, (uint)image.Length, ref output));
             ModSettingsRuntime.Restored(); // the settings this colony recorded (docs/settings.md)
-            status = output; views = new OniNativeColony.CellView[width * height]; considered = true; Active = true; ColonyPacingDriver.Ensure(); ConfigurePresentation();
+            status = output; views = new OniNativeColony.CellView[width * height]; considered = true; Active = true; ColonyActivity.Started(config.Flags, status.Session); ColonyPacingDriver.Ensure(); ConfigurePresentation();
             ColonyClusterWorlds.Initialize(DlcManager.IsExpansion1Active()?CaptureWorldLayout():null);
             OniNativeColony.Check(OniNativeColony.Copy(ref status, views, (uint)views.Length));
             OwnedCells = views.Count(v => (v.Flags & OniNativeColony.ViewOwned) != 0);
@@ -422,6 +431,7 @@ namespace MixedAtmospheres.Oni
                 Lap("overlay");
                 DeliverReceipts(copy);
                 Lap("receipts");
+                ColonyActivity.ValidatePublication(status);
                 ColonyActors.Publish(copy);
                 Lap("actors");
                 var previous = current; current = copy; previous?.Dispose();
@@ -595,7 +605,7 @@ namespace MixedAtmospheres.Oni
             if (message == NewGameFrame && length >= 4)
             {
                 var begun = publicationLog ? System.Diagnostics.Stopwatch.GetTimestamp() : 0;
-                ColonyActors.QueueFrame(*(float*)payload);
+                ColonyActivity.QueueFrame(*(float*)payload);
                 if ((publicationLog || ColonyPerformanceLog.Enabled) && *(float*)payload > 0)
                 {
                     var now = System.Diagnostics.Stopwatch.GetTimestamp();

@@ -36,7 +36,7 @@ class Flow {
   // Capacity of the previous pressure result, lent to the next solve.
   Pressure pressure_storage;
   // Scratch capacity; every entry is written before it is read.
-  std::vector<double> cell_mass, body_heat;
+  std::vector<double> body_heat;
   // Runs f(first row, end row, block) over the grid's fixed row blocks.
   template <class F> void rows(F &&f) const {
     eos_pool.run(g.blocks, [&](std::size_t block) {
@@ -278,18 +278,7 @@ public:
     // pressure work of the time-centred swept volumes (no volume limiter
     // here), then body-force work from the vertical faces, then the damping
     // defect. Each cell adds its terms in the original order.
-    const auto &mass = cell_mass;
-    cell_mass.resize(g.N);
     body_heat.resize(g.NY);
-    rows([&](std::size_t y0, std::size_t y1, std::size_t) {
-      for (std::size_t i = y0 * g.W; i < y1 * g.W; ++i) {
-        double total = 0;
-        for (std::size_t a = initial.masses.offsets[i];
-             a < initial.masses.offsets[i + 1]; ++a)
-          total += initial.masses.mass[a];
-        cell_mass[i] = total;
-      }
-    });
     // Body-force work is booked locally. Potential-energy changes are
     // booked from each shared vertical mass flux during remap below.
     rows([&](std::size_t y0, std::size_t, std::size_t block) {
@@ -320,11 +309,13 @@ public:
         const auto vertical = [&](std::size_t f) {
           if (body_heat[f] == 0)
             return 0.;
-          const double sum = (g.yl[f] == k::none ? 0 : mass[g.yl[f]]) +
-                             (g.yr[f] == k::none ? 0 : mass[g.yr[f]]);
+          // EOS sums these same sparse constituents in the same order.
+          // Reuse that exact mass instead of another full-grid pass.
+          const double sum = (g.yl[f] == k::none ? 0 : eos[g.yl[f]].mass) +
+                             (g.yr[f] == k::none ? 0 : eos[g.yr[f]].mass);
           if (sum == 0)
             throw std::runtime_error("Private empty vertical face has work");
-          return body_heat[f] * (mass[i] / sum);
+          return body_heat[f] * (eos[i].mass / sum);
         };
         u += vertical(b) + vertical(t);
         // Backward-Euler pressure removes unresolved kinetic oscillations.

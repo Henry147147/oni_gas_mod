@@ -15,6 +15,7 @@ namespace MixedAtmospheres.Oni
         private const long MaximumOwnedBytes = 1024L * 1024 * 1024;
         private const int MaximumCells = 16_777_216;
         private static readonly Channel[] Channels = CreateChannels();
+        private static readonly string[] EventPointerFields = CreateEventPointerFields();
         private readonly IntPtr[] allocations = new IntPtr[Channels.Length];
         private readonly int[] lengths = new int[Channels.Length];
         private IntPtr snapshot;
@@ -114,12 +115,21 @@ namespace MixedAtmospheres.Oni
             if (disposed) throw new ObjectDisposedException(nameof(OwnedGameDataSnapshot));
         }
 
-        private void ReplaceBuffer(int index, IntPtr source, int count)
+        private void ReplaceBuffer(int index, IntPtr source, int count) =>
+            ReplaceCombinedBuffer(index, IntPtr.Zero, 0, source, count);
+
+        // Copy directly into the final allocation. Both sources may refer to
+        // our previous buffer, which stays alive until both copies succeed.
+        private void ReplaceCombinedBuffer(int index, IntPtr prefix, int prefixCount, IntPtr suffix, int suffixCount)
         {
             RequireOpen();
             var channel = Channels[index];
-            if (count < 0 || (count != 0 && source == IntPtr.Zero)) throw new InvalidDataException("Invalid replacement channel.");
+            if (prefixCount < 0 || suffixCount < 0 || (prefixCount != 0 && prefix == IntPtr.Zero) ||
+                (suffixCount != 0 && suffix == IntPtr.Zero)) throw new InvalidDataException("Invalid replacement channel.");
+            var count = checked(prefixCount + suffixCount);
             var bytes = checked(count * channel.Stride);
+            var prefixBytes = checked(prefixCount * channel.Stride);
+            var suffixBytes = checked(suffixCount * channel.Stride);
             var previousBytes = (long)lengths[index] * channel.Stride;
             var total = checked(CapturedBytes - previousBytes + bytes);
             if (total > MaximumOwnedBytes) throw new InvalidDataException("Snapshot exceeds the owned-buffer limit.");
@@ -129,7 +139,8 @@ namespace MixedAtmospheres.Oni
                 if (bytes != 0)
                 {
                     replacement = Marshal.AllocHGlobal(bytes);
-                    Buffer.MemoryCopy((void*)source, (void*)replacement, bytes, bytes);
+                    if (prefixBytes != 0) Buffer.MemoryCopy((void*)prefix, (void*)replacement, bytes, prefixBytes);
+                    if (suffixBytes != 0) Buffer.MemoryCopy((void*)suffix, (byte*)replacement + prefixBytes, suffixBytes, suffixBytes);
                 }
             }
             catch
@@ -167,10 +178,8 @@ namespace MixedAtmospheres.Oni
             if (newCount > MaximumCells * 8L) throw new InvalidDataException("Too many snapshot event records.");
             if (CapturedBytes + (long)events.Length * channel.Stride > MaximumOwnedBytes)
                 throw new InvalidDataException("Snapshot exceeds the owned-buffer limit.");
-            var combined = new T[newCount];
-            new ReadOnlySpan<T>((void*)allocations[index], lengths[index]).CopyTo(combined);
-            events.CopyTo(combined.AsSpan(lengths[index]));
-            fixed (T* pointer = combined) ReplaceBuffer(index, (IntPtr)pointer, newCount);
+            fixed (T* pointer = events)
+                ReplaceCombinedBuffer(index, allocations[index], lengths[index], (IntPtr)pointer, events.Length);
         }
 
         internal static bool HasTransientEvents(Sim.GameDataUpdate* source)
@@ -191,11 +200,7 @@ namespace MixedAtmospheres.Oni
                 if(channel.CountOffset<0 || RetainedStatusTable(channel.PointerField) || earlier.lengths[index]==0) continue;
                 var count=checked(earlier.lengths[index]+lengths[index]);
                 if(count>MaximumCells*8L) throw new InvalidDataException("Too many replayed native events.");
-                var bytes=checked(count*channel.Stride);var prefixBytes=checked(earlier.lengths[index]*channel.Stride);
-                var combined=new byte[bytes];
-                new ReadOnlySpan<byte>((void*)earlier.allocations[index],prefixBytes).CopyTo(combined);
-                new ReadOnlySpan<byte>((void*)allocations[index],checked(lengths[index]*channel.Stride)).CopyTo(combined.AsSpan(prefixBytes));
-                fixed(byte* pointer=combined) ReplaceBuffer(index,(IntPtr)pointer,count);
+                ReplaceCombinedBuffer(index,earlier.allocations[index],earlier.lengths[index],allocations[index],lengths[index]);
             }
             Pointer->numFramesProcessed=checked(Pointer->numFramesProcessed+earlier.Pointer->numFramesProcessed);
         }
@@ -233,9 +238,21 @@ namespace MixedAtmospheres.Oni
 
         private static string EventPointerField(SnapshotEventChannel channel)
         {
-            var name = Enum.GetName(typeof(SnapshotEventChannel), channel);
-            if (name == null) throw new ArgumentOutOfRangeException(nameof(channel));
-            return char.ToLowerInvariant(name[0]) + name.Substring(1);
+            if ((uint)channel >= EventPointerFields.Length) throw new ArgumentOutOfRangeException(nameof(channel));
+            return EventPointerFields[(int)channel];
+        }
+
+        private static string[] CreateEventPointerFields()
+        {
+            var names = Enum.GetNames(typeof(SnapshotEventChannel));
+            var fields = new string[names.Length];
+            for (var i = 0; i < names.Length; ++i)
+            {
+                if ((int)Enum.Parse(typeof(SnapshotEventChannel), names[i]) != i)
+                    throw new InvalidOperationException("Snapshot event channel indices must be consecutive.");
+                fields[i] = char.ToLowerInvariant(names[i][0]) + names[i].Substring(1);
+            }
+            return fields;
         }
 
         public void Dispose()

@@ -22,6 +22,7 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <bit>
 #include <cfenv>
 #include <chrono>
 #if defined(__linux__)
@@ -37,6 +38,7 @@
 #endif
 #include <cmath>
 #include <condition_variable>
+#include <deque>
 #include <cstddef>
 #include <cstdio>
 #include <cstring>
@@ -125,6 +127,7 @@ struct Published {
     std::shared_ptr<const Catalogue> catalogue;
     std::shared_ptr<const NativeArenaFrame> native_arena;
     std::uint64_t native_arena_owner_frames=0;
+    std::uint64_t activity_sequence=0;
     // World germ accounts at this frame (docs/colony-owner.md#germs).
     MAOniColonyBiology biology{};
     std::vector<MAOniColonyBiologyAccount> germ_accounts;
@@ -164,6 +167,8 @@ struct Session {
     biology::Clocks clocks;
     biology::Accounts accounts;
     std::uint64_t biology_frames = 0;
+    std::uint64_t activity_sequence = 0;
+    std::vector<double> biology_pending_s;
     std::map<std::uint64_t, double> germs_held; // per identity after the last biology stage
     std::uint64_t germ_cells = 0;
     double biology_error = 0;
@@ -204,7 +209,6 @@ std::unique_ptr<std::atomic<std::uint8_t>[]> owned;
 std::unique_ptr<std::atomic<std::uint8_t>[]> retiring;
 std::atomic<std::size_t> retiring_count=0;
 std::size_t owned_count = 0;
-std::array<std::atomic<std::uint64_t>, MA_ONI_HOOK_COUNT> suppressed{};
 std::vector<MAOniColonyTransfer> pending_transfers;
 std::vector<MAOniColonyHeat> pending_heat;
 std::vector<MAOniColonyTerrain> pending_terrain;
@@ -266,6 +270,77 @@ struct Oracle {
 // A cell native froze: its liquid leaves the owner and the cell closes.
 struct Freeze { std::uint32_t public_cell, native_index; double mass_kg; };
 std::vector<Freeze> pending_freezes; // under inputs
+struct InputCuts {
+    std::size_t transfers=0,heat=0,terrain=0,freezes=0,germs=0;
+};
+struct ActivityPacket {
+    std::uint64_t sequence=0;
+    double seconds=0;
+    std::vector<std::uint32_t> actors,touched;
+    InputCuts cuts;
+    bool claimed=true; // session delivery only; saved packets restore unclaimed
+};
+struct InputBatch {
+    std::vector<MAOniColonyTransfer> transfers;
+    std::vector<MAOniColonyHeat> heat;
+    std::vector<MAOniColonyTerrain> terrain;
+    std::vector<Freeze> freezes;
+    std::vector<GermEdit> germs;
+    std::map<std::size_t,std::uint64_t> jobs;
+};
+struct ActivityTask {
+    std::uint64_t ticket=0;
+    ActivityPacket packet;
+    InputBatch batch;
+    std::optional<bool> mode;
+};
+std::deque<ActivityPacket> pending_activity;
+std::optional<ActivityPacket> lifecycle_activity;
+std::optional<bool> pending_activity_mode;
+std::atomic<bool> activity_owner{false};
+std::uint64_t activity_session=0,accepted_activity_sequence=0;
+bool next_activity_tiers=true,requested_activity_tiers=true;
+InputBatch native_activity_inputs;
+std::vector<std::uint32_t> native_activity_touches;
+std::uint64_t native_activity_ticket=0;
+std::atomic<bool> native_activity_wake_all{false},native_activity_capture_failed{false};
+void release_unbound_rebinds();
+InputCuts activity_flush_cuts() { // inputs held
+    const auto cut=pending_activity.empty()?InputCuts{}:pending_activity.back().cuts;
+    for(const auto index:awaiting_rebind)
+        require(index<cut.transfers,"Resolve restored callback tail before lifecycle input flushing");
+    return cut;
+}
+InputBatch take_activity_inputs(InputCuts cut,bool prefix) { // inputs held
+    InputBatch out;
+    const auto take=[&](auto& from,auto& to,std::size_t n) {
+        require(n<=from.size(),"Activity input cut exceeds its queue");
+        const auto begin=prefix?from.begin():from.begin()+static_cast<std::ptrdiff_t>(n);
+        const auto end=prefix?from.begin()+static_cast<std::ptrdiff_t>(n):from.end();
+        to.assign(std::make_move_iterator(begin),std::make_move_iterator(end));from.erase(begin,end);
+    };
+    take(pending_transfers,out.transfers,cut.transfers);take(pending_heat,out.heat,cut.heat);
+    take(pending_terrain,out.terrain,cut.terrain);take(pending_freezes,out.freezes,cut.freezes);take(pending_germs,out.germs,cut.germs);
+    std::map<std::size_t,std::uint64_t> kept;
+    for(const auto& [index,token]:pending_job_tokens) {
+        if(prefix?index<cut.transfers:index>=cut.transfers)out.jobs.emplace(prefix?index:index-cut.transfers,token);
+        else kept.emplace(prefix?index-cut.transfers:index,token);
+    }
+    pending_job_tokens=std::move(kept);
+    if(prefix)for(auto& p:pending_activity) {
+        require(p.cuts.transfers>=cut.transfers && p.cuts.heat>=cut.heat && p.cuts.terrain>=cut.terrain &&
+            p.cuts.freezes>=cut.freezes && p.cuts.germs>=cut.germs,"Activity input cuts are not ordered");
+        p.cuts.transfers-=cut.transfers;p.cuts.heat-=cut.heat;p.cuts.terrain-=cut.terrain;
+        p.cuts.freezes-=cut.freezes;p.cuts.germs-=cut.germs;
+    }
+    return out;
+}
+void append_inputs(InputBatch& out,InputBatch add) {
+    require(add.jobs.empty(),"Native activity input unexpectedly owns a durable job");
+    const auto append=[](auto& a,auto& b){a.insert(a.end(),std::make_move_iterator(b.begin()),std::make_move_iterator(b.end()));};
+    append(out.transfers,add.transfers);append(out.heat,add.heat);append(out.terrain,add.terrain);
+    append(out.freezes,add.freezes);append(out.germs,add.germs);
+}
 std::vector<ShadowCell> shadow;
 struct SolidDisplacement {
     struct Cell { int native_cell = -1; std::uint16_t element = 0; float mass = 0; };
@@ -281,7 +356,8 @@ NativeExchange exchanged; // under inputs
 // timestep here and returns. Frames that arrive while a step runs add their
 // time to the next step (at most 10 s waits), so the owner never drops game
 // time; pacing in the mod normally holds the game clock instead.
-void run_frame(std::uint64_t ticket, double seconds, std::uint64_t frames, const char* refusal, std::uint64_t thread, bool flush_only=false) noexcept;
+void run_frame(std::uint64_t ticket, double seconds, std::uint64_t frames, const char* refusal, std::uint64_t thread,
+    bool flush_only=false,std::shared_ptr<ActivityTask> activity={}) noexcept;
 struct Solver {
     std::mutex m; std::condition_variable wake, idle;
     std::thread thread;
@@ -292,6 +368,8 @@ struct Solver {
     std::uint64_t ticket = 0; double seconds = 0; // waiting work
     std::uint64_t frames = 0; // native frames in the waiting work (germs evolve once per frame)
     std::atomic<bool> busy{};
+    std::deque<std::shared_ptr<ActivityTask>> activity_work;
+    double activity_waiting_seconds=0;
     void loop() {
         // New OS threads can inherit the creator's x87 register/tag state.
         // This thread owns its FP state; each operation then installs the
@@ -303,33 +381,37 @@ struct Solver {
         const auto id = static_cast<std::uint64_t>(std::hash<std::thread::id>{}(std::this_thread::get_id()));
         std::unique_lock l(m);
         for (;;) {
-            wake.wait(l, [&] { return quit || seconds > 0 || refusal || command; });
+            wake.wait(l, [&] { return quit || seconds > 0 || refusal || command || !activity_work.empty(); });
             if (quit) return;
-            const auto t = ticket; const double dt = seconds; const auto r = refusal; const auto f = frames;
+            std::shared_ptr<ActivityTask> activity;
+            if(!command && !activity_work.empty()){activity=std::move(activity_work.front());activity_work.pop_front();activity_waiting_seconds-=activity->packet.seconds;}
+            const auto t = activity?activity->ticket:ticket; const double dt = activity?activity->packet.seconds:seconds;
+            const auto r = refusal; const auto f = activity?1:frames;
             auto operation=std::move(command);std::exception_ptr error;
-            seconds = 0; frames = 0; refusal = nullptr; running = true;
+            if(!operation && !activity){seconds = 0; frames = 0; refusal = nullptr;}
+            running = true;
             l.unlock();
             if(operation)try{operation();}catch(...){error=std::current_exception();}
-            else run_frame(t,dt,f,r,id);
-            l.lock();command_error=error;
+            else run_frame(t,dt,f,r,id,false,std::move(activity));
+            l.lock();if(operation)command_error=error;
             running = false;
-            if (seconds == 0 && !command) busy.store(false, std::memory_order_release);
+            if (seconds == 0 && !command && activity_work.empty()) busy.store(false, std::memory_order_release);
             idle.notify_all();
         }
     }
     // Waits until no step runs or waits; `discard` drops waiting work first.
     void settle(bool discard) {
         std::unique_lock l(m);
-        if (discard) { seconds = 0; frames = 0; refusal = nullptr; }
-        idle.wait(l, [&] { return !running && seconds == 0 && !refusal && !command; });
+        if (discard) { seconds = 0; frames = 0; refusal = nullptr;activity_work.clear();activity_waiting_seconds=0; }
+        idle.wait(l, [&] { return !running && seconds == 0 && !refusal && !command && activity_work.empty(); });
         busy.store(false, std::memory_order_release);
     }
     void execute(std::function<void()> operation) {
         std::unique_lock l(m);
-        require(!running && seconds==0 && !refusal && !command,"Fence positive advances before lifecycle commands");
+        require(!running && seconds==0 && !refusal && !command && activity_work.empty(),"Fence positive advances before lifecycle commands");
         if(!thread.joinable())thread=std::thread([this]{loop();});
         command_error=nullptr;command=std::move(operation);busy.store(true,std::memory_order_release);wake.notify_one();
-        idle.wait(l,[&]{return !running && !command && seconds==0 && !refusal;});
+        idle.wait(l,[&]{return !running && !command && seconds==0 && !refusal && activity_work.empty();});
         if(command_error)std::rethrow_exception(command_error);
     }
     // Keep the process-resident worker asleep between colonies. Joining a
@@ -359,8 +441,9 @@ void write_error(MAOniColonyStatus& s, const char* text) { std::snprintf(s.error
 
 void validate(const MAOniColonyConfig& c) {
     require(c.struct_size == sizeof(c) && c.abi_version == MA_ONI_COLONY_ABI_VERSION, "Invalid colony configuration ABI");
-    require((c.flags & ~(MA_ONI_COLONY_PHYSICS_CONDUCTION | MA_ONI_COLONY_GAME_FLOOR | MA_ONI_COLONY_GAME_KERNEL | MA_ONI_COLONY_GAME_SURFACE)) == 0, "Unknown colony physics flag");
-    require(!(c.flags&MA_ONI_COLONY_GAME_SURFACE) || (c.flags&MA_ONI_COLONY_GAME_KERNEL), "Game profile 6 needs the game kernel");
+    require((c.flags & ~(MA_ONI_COLONY_PHYSICS_CONDUCTION | MA_ONI_COLONY_GAME_FLOOR | MA_ONI_COLONY_GAME_KERNEL | MA_ONI_COLONY_GAME_SURFACE | MA_ONI_COLONY_GAME_ACTIVITY)) == 0, "Unknown colony physics flag");
+    require(!(c.flags&MA_ONI_COLONY_GAME_SURFACE) || (c.flags&MA_ONI_COLONY_GAME_KERNEL), "Game surface profile needs the game kernel");
+    require(!(c.flags&MA_ONI_COLONY_GAME_ACTIVITY) || (c.flags&(MA_ONI_COLONY_GAME_KERNEL|MA_ONI_COLONY_GAME_SURFACE))==(MA_ONI_COLONY_GAME_KERNEL|MA_ONI_COLONY_GAME_SURFACE),"Activity profile needs the game surface kernel");
     require((c.flags&(MA_ONI_COLONY_GAME_FLOOR|MA_ONI_COLONY_GAME_KERNEL))!=(MA_ONI_COLONY_GAME_FLOOR|MA_ONI_COLONY_GAME_KERNEL),"Colony game profiles are exclusive");
     require(c.grid_width >= 3 && c.grid_height >= 3 && c.grid_width <= 65535 && c.grid_height <= 65535, "Invalid colony grid");
     require(c.width >= 2 && c.height >= 2 && c.width <= MA_ONI_COLONY_MAXIMUM_SIDE && c.height <= MA_ONI_COLONY_MAXIMUM_SIDE &&
@@ -439,10 +522,14 @@ MacClosedSettings settings_of(const MAOniColonyConfig& c, const MAOniColonyOptio
             game.game_profile=!surface?MacGameProfile::game_kernel_positive_liquid:
                 selected("MA_COLONY_KERNEL3_PROFILE6")?MacGameProfile::game_kernel_bounded_pressure:
                 selected("MA_COLONY_KERNEL3_PROFILE7")?MacGameProfile::game_kernel_sized_intervals:
-                MacGameProfile::game_kernel_carried_momentum;
+                (c.flags&MA_ONI_COLONY_GAME_ACTIVITY)?MacGameProfile::game_kernel_activity_tiers:MacGameProfile::game_kernel_carried_momentum;
             game.game.liquid_law=MacGameLiquidLaw::positive_segments;
             game.game.pressure_maximum_iterations=400;
             game.game.heat_maximum_iterations=800;
+        }
+        if(c.flags&MA_ONI_COLONY_GAME_ACTIVITY) {
+            game.game_profile=MacGameProfile::game_kernel_activity_tiers;
+            game.game.activity_tiers=next_activity_tiers;
         }
         // Profiles 6-8 save the adopted gas heat mixing (docs/base-game-floor.md,
         // F1 split) and the player's options; the defaults keep every value above.
@@ -630,7 +717,7 @@ Projection project(const Session& s, const MacClosedWorld& w) {
 std::shared_ptr<Published> make_publication(const Session& s, Projection projection, bool same_frame_edit=false) {
     auto p = std::make_shared<Published>();
     p->same_frame_edit=same_frame_edit;
-    p->config=s.config; p->status = s.status; p->views = std::move(projection.views); p->readings = std::move(projection.readings); p->parts = std::move(projection.parts);
+    p->config=s.config; p->status = s.status; p->activity_sequence=s.activity_sequence; p->views = std::move(projection.views); p->readings = std::move(projection.readings); p->parts = std::move(projection.parts);
     p->world = s.world; p->catalogue = s.catalogue; p->precision=s.precision;
     p->native_arena=s.native_arena;p->native_arena_owner_frames=s.native_arena_owner_frames;
     auto& b = p->biology; b.struct_size = sizeof(b); b.abi_version = 1; b.mode = s.germ_mode;
@@ -662,6 +749,9 @@ void publish(const Session& s, Projection projection, bool same_frame_edit=false
 }
 void publish(const Session& s) { publish(s, project(s, *s.world)); }
 void fault(Session& s, const char* why) noexcept {
+    // Keep the originating failure. Native callbacks can still arrive after
+    // an adapter fault, and their missing frame inputs are only a consequence.
+    if (s.status.state == 2) return;
     s.status.state = 2; write_error(s.status, why);
     try { auto p = std::make_shared<Published>(); p->config=s.config; p->status = s.status;
         { std::lock_guard lock(publication); if (latest) { p->views = latest->views; p->readings = latest->readings; p->parts = latest->parts; p->world = latest->world; p->catalogue = latest->catalogue; p->booked_mass_kg=latest->booked_mass_kg; p->booked_heat_j=latest->booked_heat_j; p->precision=latest->precision;
@@ -686,8 +776,11 @@ void activate(std::unique_ptr<Session> next, std::uint64_t thread) {
     owned = std::make_unique<std::atomic<std::uint8_t>[]>(owned_count);
     retiring=std::make_unique<std::atomic<std::uint8_t>[]>(owned_count);retiring_count=0;prepared_retirement.reset();
     for (std::size_t i = 0; i < owned_count; ++i) owned[i].store(next->world->state().grid.walls[i] ? 0 : 1, std::memory_order_relaxed);
-    for (auto& v : suppressed) v.store(0, std::memory_order_relaxed);
     { std::lock_guard lock(inputs); pending_transfers.clear(); pending_heat.clear(); pending_terrain.clear(); pending_freezes.clear(); pending_germs.clear(); receipts.clear();
+      pending_activity.clear();lifecycle_activity.reset();pending_activity_mode.reset();
+      activity_session=next->status.session;accepted_activity_sequence=next->activity_sequence;
+      requested_activity_tiers=next->world->settings().game.activity_tiers;
+      native_activity_inputs={};native_activity_touches.clear();native_activity_ticket=0;native_activity_wake_all.store(false,std::memory_order_relaxed);native_activity_capture_failed.store(false,std::memory_order_relaxed);
       pending_native_arena.reset();pending_native_arena_captures=0;
       precise_receipts.clear(); precise_receipts_enabled = false;
       pipe_jobs.clear(); pending_job_tokens.clear(); receipt_jobs.clear(); accepted_job_token=0;
@@ -698,6 +791,7 @@ void activate(std::unique_ptr<Session> next, std::uint64_t thread) {
     publish(*next);
     session = std::move(next);
     live_parcel_session.store(session->status.session,std::memory_order_release);
+    activity_owner.store(session->world->settings().game_profile==MacGameProfile::game_kernel_activity_tiers,std::memory_order_release);
     enabled.store(true, std::memory_order_release);
 }
 
@@ -724,6 +818,13 @@ std::vector<std::size_t> nearby(const MacTransportState& st, std::size_t centre,
 // target's parcels at the temperature whose internal energy is their U+K+G
 // less the potential at the target. Both directions are booked, so the ledger
 // closes whatever the rounding.
+thread_local std::vector<std::uint8_t>* external_activity_touched=nullptr;
+MacFluidTransferResult external_transfers(MacClosedWorld&& world,std::span<const MacFluidTransfer> edits,MacFluidTransferTopology topology) {
+    auto result=std::move(world).with_fluid_transfers(edits,topology);
+    if(external_activity_touched)for(const auto& parcel:result.parcels)
+        if(parcel.mass_kg>0)(*external_activity_touched)[parcel.cell_index]=1;
+    return result;
+}
 struct Move { std::size_t from = 0, to = 0, species = 0; double mass = 0; };
 MacClosedWorld move_material(MacClosedWorld world, std::span<const Move> moves, Ledger& L, MAOniColonyStatus& st) {
     if (moves.empty()) return world;
@@ -733,7 +834,7 @@ MacClosedWorld move_material(MacClosedWorld world, std::span<const Move> moves, 
     for (std::size_t first = 0; first < moves.size(); first += 4096) {
         std::vector<MacFluidTransfer> edits;
         for (std::size_t k = first; k < std::min(moves.size(), first + 4096); ++k) edits.push_back({moves[k].from, moves[k].species, false, moves[k].mass, 0});
-        auto result = std::move(world).with_fluid_transfers(edits, MacFluidTransferTopology::occupied_mixture);
+        auto result = external_transfers(std::move(world),edits, MacFluidTransferTopology::occupied_mixture);
         world = std::move(result.world);
         for (std::size_t k = 0; k < result.parcels.size(); ++k) {
             const auto& p = result.parcels[k]; auto& t = targets[moves[first + k].to];
@@ -762,7 +863,7 @@ MacClosedWorld move_material(MacClosedWorld world, std::span<const Move> moves, 
     }
     for (std::size_t first = 0; first < inject.size(); first += 4096) {
         const std::span<const MacFluidTransfer> batch(inject.data() + first, std::min<std::size_t>(4096, inject.size() - first));
-        auto result = std::move(world).with_fluid_transfers(batch, MacFluidTransferTopology::occupied_mixture);
+        auto result = external_transfers(std::move(world),batch, MacFluidTransferTopology::occupied_mixture);
         world = std::move(result.world);
         for (const auto& p : result.parcels) { L.injected[p.species_index] += p.mass_kg; L.energy_in += parcel_energy(p); }
     }
@@ -794,10 +895,10 @@ MacClosedWorld close_blocked_faces(const Session& s, MacClosedWorld world) {
 // Direct inputs and phase changes may place liquid inside a blocking cell.
 // Move that inventory to the open neighbour holding the most liquid, or the
 // one below. Legacy owners also use this for liquid arriving during flow.
-MacClosedWorld expel_blocked_liquid(Session& s, MacClosedWorld world) {
+MacClosedWorld expel_blocked_liquid(Session& s, MacClosedWorld world, std::span<const double> due={}) {
     const auto& grid = world.state().grid; const auto w = grid.width, h = grid.height; std::vector<struct Move> moves;
     for (std::size_t i = 0; i < s.blocking.size(); ++i) {
-        if (!s.blocking[i] || grid.walls[i] || !(liquid_mass(world, i) > 0)) continue;
+        if ((!due.empty() && due[i]==0) || !s.blocking[i] || grid.walls[i] || !(liquid_mass(world, i) > 0)) continue;
         const auto x = i % w, yy = i / w; std::size_t best = SIZE_MAX; double most = -1;
         for (const auto n : {yy > 0 ? i - w : SIZE_MAX, x > 0 ? i - 1 : SIZE_MAX, x + 1 < w ? i + 1 : SIZE_MAX, yy + 1 < h ? i + w : SIZE_MAX}) {
             if (n == SIZE_MAX || grid.walls[n] || s.blocking[n] || s.space[n]) continue;
@@ -844,7 +945,7 @@ MacClosedWorld apply_terrain(Session& s, MacClosedWorld world, std::span<const M
             return a.cell_index != b.cell_index ? a.cell_index < b.cell_index : a.mass_kg < b.mass_kg; });
         for (std::size_t first = 0; first < cleared.size(); first += 4096) {
             const std::span<const MacFluidTransfer> batch(cleared.data() + first, std::min<std::size_t>(4096, cleared.size() - first));
-            auto result = std::move(world).with_fluid_transfers(batch, MacFluidTransferTopology::occupied_mixture);
+            auto result = external_transfers(std::move(world),batch, MacFluidTransferTopology::occupied_mixture);
             world = std::move(result.world);
             for (const auto& p : result.parcels) { s.ledger.extracted[p.species_index] += p.mass_kg; s.ledger.energy_out += parcel_energy(p); s.status.extracted_kg += p.mass_kg; }
         }
@@ -887,7 +988,7 @@ MacClosedWorld apply_terrain(Session& s, MacClosedWorld world, std::span<const M
                 std::vector<MacFluidTransfer> drain;
                 for (std::size_t k = 0; k < m.masses.size(); ++k) if (m.masses[k] > 0) drain.push_back({i, k, false, m.masses[k], 0});
                 std::stable_sort(drain.begin(), drain.end(), [](const MacFluidTransfer& a, const MacFluidTransfer& b) { return a.mass_kg < b.mass_kg; });
-                auto result = std::move(world).with_fluid_transfers(drain, MacFluidTransferTopology::occupied_mixture);
+                auto result = external_transfers(std::move(world),drain, MacFluidTransferTopology::occupied_mixture);
                 world = std::move(result.world);
                 for (const auto& p : result.parcels) {
                     s.ledger.extracted[p.species_index] += p.mass_kg; s.ledger.energy_out += parcel_energy(p);
@@ -914,7 +1015,7 @@ MacClosedWorld apply_terrain(Session& s, MacClosedWorld world, std::span<const M
         }
         for (std::size_t first = 0; first < traces.size(); first += 4096) {
             const std::span<const MacFluidTransfer> batch(traces.data() + first, std::min<std::size_t>(4096, traces.size() - first));
-            auto result = std::move(world).with_fluid_transfers(batch, MacFluidTransferTopology::occupied_mixture);
+            auto result = external_transfers(std::move(world),batch, MacFluidTransferTopology::occupied_mixture);
             world = std::move(result.world);
             for (const auto& p : result.parcels) { s.ledger.extracted[p.species_index] += p.mass_kg; s.ledger.energy_out += parcel_energy(p); s.status.extracted_kg += p.mass_kg; }
         }
@@ -971,7 +1072,7 @@ MacClosedWorld apply_terrain(Session& s, MacClosedWorld world, std::span<const M
 // spawned by the game as debris through a byproduct receipt. Mass moves by
 // booked transfers; the energy difference is booked with them, as the game's
 // own transitions keep the temperature.
-MacClosedWorld convert_identities(Session& s, MacClosedWorld world, double seconds) {
+MacClosedWorld convert_identities(Session& s, MacClosedWorld world, double seconds, std::span<const double> due={}) {
     const auto& cat = *s.catalogue; const auto& st = world.state();
     struct Rule { std::size_t from, to; std::int32_t byproduct; double fraction; bool high; double threshold; bool unseen = false; };
     std::vector<Rule> rules;
@@ -1006,7 +1107,7 @@ MacClosedWorld convert_identities(Session& s, MacClosedWorld world, double secon
     std::vector<Candidate> candidates;
     const auto scan_start = std::chrono::steady_clock::now();
     for (std::size_t i = 0; i < st.cells.size(); ++i) {
-        if (st.grid.walls[i] || s.space[i]) continue;
+        if (st.grid.walls[i] || s.space[i] || (!due.empty() && due[i]==0)) continue;
         const auto& m = st.cells[i].mixture;
         bool candidate = false; for (const auto& r : rules) candidate = candidate || m.masses[r.from] > 0;
         if (candidate) candidates.push_back({i});
@@ -1040,7 +1141,7 @@ MacClosedWorld convert_identities(Session& s, MacClosedWorld world, double secon
             if (r.unseen && r.from == shown) continue;
             // A conversion too small to change the cell's masses in binary64
             // waits (traces stay unconverted).
-            const double converted = m.masses[r.from] * share;
+            const double converted = m.masses[r.from] * (due.empty()?share:1-std::exp(-due[i]/phase_relaxation_time_s));
             if (!(converted > 1e-9 * m.mass())) continue;
             const double byproduct = r.byproduct != 0 ? (r.unseen ? converted : converted * std::clamp(r.fraction, 0.0, 1.0)) : 0;
             edits.push_back({i, r.from, false, converted, 0});
@@ -1061,12 +1162,12 @@ MacClosedWorld convert_identities(Session& s, MacClosedWorld world, double secon
     });
     std::size_t joined_gives = 0;
     auto taken = [&] {
-        if (!sterile) return std::move(world).with_fluid_transfers(edits, MacFluidTransferTopology::occupied_mixture);
+        if (!sterile) return external_transfers(std::move(world),edits, MacFluidTransferTopology::occupied_mixture);
         auto combined = edits;
         for (std::size_t q = 0; q < products.size(); ++q) if (products[q].mass > 0)
             combined.push_back({products[q].cell, products[q].species, true, products[q].mass, temperature[q]});
         joined_gives = combined.size() - edits.size();
-        return std::move(world).with_fluid_transfers(combined, MacFluidTransferTopology::occupied_mixture);
+        return external_transfers(std::move(world),combined, MacFluidTransferTopology::occupied_mixture);
     }();
     world = std::move(taken.world);
     std::vector<MacFluidTransfer> given;
@@ -1094,7 +1195,7 @@ MacClosedWorld convert_identities(Session& s, MacClosedWorld world, double secon
             L.injected[parcel.species_index] += parcel.mass_kg; L.energy_in += parcel_energy(parcel);
         }
     } else if (!given.empty()) {
-        auto result = std::move(world).with_fluid_transfers(given, MacFluidTransferTopology::occupied_mixture);
+        auto result = external_transfers(std::move(world),given, MacFluidTransferTopology::occupied_mixture);
         world = std::move(result.world);
         for (const auto& parcel : result.parcels) { L.injected[parcel.species_index] += parcel.mass_kg; L.energy_in += parcel_energy(parcel); }
     }
@@ -1170,6 +1271,7 @@ void start(const MAOniColonyConfig& config, std::span<const MAOniColonyMaterial>
 void stop() noexcept {
     ma::oni::windows_lifecycle_trace("colony stop entered");
     enabled.store(false, std::memory_order_release);
+    activity_owner.store(false,std::memory_order_release);
     capture_native_arena.store(false,std::memory_order_release);
     biology_mode.store(0, std::memory_order_relaxed);
     solver.settle(true);
@@ -1293,11 +1395,30 @@ double liquid_density(std::span<const MAOniColonyMaterial> materials, std::uint3
     require(!c->materials[k].game.gas, "Liquid density of a gas");
     return 1 / c->eos->reference().liquid_response(k, pressure_pa).specific_volume_m3_per_kg;
 }
-std::uint64_t readings(std::vector<MAOniColonyReading>& out, std::vector<MAOniColonyConstituent>& parts) {
-    std::shared_ptr<const Published> p; { std::lock_guard lock(publication); p = latest; }
-    require(p != nullptr && p->world != nullptr, "No colony owner is active");
-    out = p->readings; parts = p->parts;
-    return p->status.completed_frames;
+ReadingSnapshot reading_snapshot() {
+    std::shared_ptr<const Published> p; { std::lock_guard lock(publication); p=latest; }
+    require(p && p->world,"No colony owner is active");
+    return {p,p->readings,p->parts,p->status.completed_frames};
+}
+bool sample_activity(std::uint64_t expected_session,std::uint64_t expected_frame,
+    std::span<const std::uint32_t> cells,MAOniColonyStatus& status,std::span<MAOniColonyActivityCell> rows) {
+    require(!cells.empty() && cells.size()<=4096 && rows.size()==cells.size(),"Invalid activity observation coverage");
+    for(std::size_t i=1;i<cells.size();++i)require(cells[i]>cells[i-1],"Activity observation cells must be sorted and unique");
+    std::shared_ptr<const Published> p;{std::lock_guard lock(publication);p=latest;}
+    require(p && p->world,"No colony owner is active");
+    if(expected_session && (expected_session!=p->status.session || expected_frame!=p->status.completed_frames))return false;
+    if(p->world->settings().game_profile!=MacGameProfile::game_kernel_activity_tiers)
+        throw std::domain_error("The published colony has no activity tiers");
+    const auto activity=p->world->game_activity();
+    for(const auto cell:cells)require(rect_index(p->config,cell)<activity.size(),"Activity observation is outside its world");
+    for(std::size_t i=0;i<cells.size();++i) {
+        const auto& c=activity[rect_index(p->config,cells[i])];
+        rows[i]={cells[i],c.actors?1u:0u,c.last_activity_s,c.pending_s,c.next_remote_s};
+    }
+    status=p->status;return true;
+}
+std::uint64_t readings(std::vector<MAOniColonyReading>& out,std::vector<MAOniColonyConstituent>& parts) {
+    const auto p=reading_snapshot();out.assign(p.readings.begin(),p.readings.end());parts.assign(p.parts.begin(),p.parts.end());return p.frame;
 }
 bool read_passives(std::uint64_t expected_session,std::uint64_t expected_frame,std::span<const std::uint32_t> cells,
     MAOniColonyPassiveStamp& stamp,std::vector<MAOniColonyPassiveRow>& rows) {
@@ -1705,6 +1826,71 @@ bool copy_options(MAOniColonyOptions& out) {
     o.evaporation_below_boiling=s.game.phase_rule==MacPhaseRule::equilibrium?1:0;
     out=o;return true;
 }
+std::uint64_t queue_activity(std::uint64_t expected,double seconds,std::span<const std::uint32_t> actors,
+    std::span<const std::uint32_t> touched) {
+    require(activity_owner.load(std::memory_order_acquire),"Activity census needs an activity colony");
+    require(std::isfinite(seconds) && seconds>=0 && seconds<=1,"Invalid activity census timestep");
+    const auto cells=[](auto values) {
+        require(values.size()<=1u<<20,"Too many activity cells");
+        std::vector<std::uint32_t> out(values.begin(),values.end());
+        for(const auto cell:out)(void)rect_index(geometry,cell);
+        std::sort(out.begin(),out.end());out.erase(std::unique(out.begin(),out.end()),out.end());return out;
+    };
+    ActivityPacket packet;packet.seconds=seconds;packet.actors=cells(actors);packet.touched=cells(touched);
+    std::lock_guard q(inputs);
+    require(enabled.load(std::memory_order_acquire) && expected==activity_session,"Stale activity census session");
+    const auto merge_lifecycle_touches=[&] {
+        if(lifecycle_activity){packet.touched.insert(packet.touched.end(),lifecycle_activity->touched.begin(),lifecycle_activity->touched.end());
+            std::sort(packet.touched.begin(),packet.touched.end());packet.touched.erase(std::unique(packet.touched.begin(),packet.touched.end()),packet.touched.end());}
+    };
+    if(seconds==0){merge_lifecycle_touches();lifecycle_activity=std::move(packet);return 0;}
+    require(!requested_activity_tiers || seconds==static_cast<double>(.2f),"Activity tiers require a 0.2 s native frame");
+    require(pending_activity.size()<1024 && accepted_activity_sequence<UINT64_MAX,"Activity submission queue exhausted");
+    packet.sequence=accepted_activity_sequence+1;
+    packet.cuts={pending_transfers.size(),pending_heat.size(),pending_terrain.size(),pending_freezes.size(),pending_germs.size()};
+    merge_lifecycle_touches();pending_activity.push_back(std::move(packet));lifecycle_activity.reset();return ++accepted_activity_sequence;
+}
+void claim_activity_frame(std::uint64_t expected,std::uint64_t sequence,double seconds) {
+    std::lock_guard q(inputs);require(enabled.load(std::memory_order_acquire) && expected==activity_session,"Stale activity claim session");
+    const auto head=std::find_if(pending_activity.begin(),pending_activity.end(),[](const auto& p){return !p.claimed;});
+    require(head!=pending_activity.end() && head->sequence==sequence &&
+        std::bit_cast<std::uint64_t>(head->seconds)==std::bit_cast<std::uint64_t>(seconds),"Restored activity claim differs from the saved frame");
+    head->claimed=true;
+}
+void set_activity_tiers(std::uint64_t expected,bool on) {
+    if(!expected){std::lock_guard lock(lifecycle);require(!enabled.load(std::memory_order_acquire),"Prestart activity policy needs a stopped colony");next_activity_tiers=on;return;}
+    std::lock_guard q(inputs);require(activity_owner.load(std::memory_order_acquire) && enabled.load(std::memory_order_acquire) &&
+        expected==activity_session,"Stale activity policy session");
+    if(on)for(const auto& packet:pending_activity)require(packet.seconds==static_cast<double>(.2f),"Pending frames need 0.2 s before enabling activity tiers");
+    requested_activity_tiers=on;pending_activity_mode=on;
+}
+bool copy_activity(MAOniColonyActivityState& out) {
+    std::scoped_lock lock(inputs,publication);
+    require(latest && latest->world,"No colony owner is active");
+    MAOniColonyActivityState value{};value.struct_size=sizeof(value);value.abi_version=1;value.session=latest->status.session;
+    if(latest->world->settings().game_profile==MacGameProfile::game_kernel_activity_tiers) {
+        value.last_committed_sequence=latest->activity_sequence;value.next_submission_sequence=accepted_activity_sequence+1;
+        value.enabled=requested_activity_tiers?1U:0U;
+        for(const auto& p:pending_activity)if(!p.claimed) {
+            if(!value.pending_frames){value.pending_head_sequence=p.sequence;value.pending_head_seconds=p.seconds;}
+            ++value.pending_frames;
+        }
+    }
+    out=value;return true;
+}
+void wake_native_cell(int cell) noexcept {
+    if(!activity_owner.load(std::memory_order_acquire) || cell<0)return;
+    try {
+        const auto pitch=geometry.grid_width+2;const auto native=static_cast<std::uint32_t>(cell);
+        const auto nx=native%pitch,ny=native/pitch;if(!nx||!ny)return;
+        const auto x=nx-1,y=ny-1;
+        if(x<geometry.offset_x||y<geometry.offset_y||x-geometry.offset_x>=geometry.width||y-geometry.offset_y>=geometry.height)return;
+        std::lock_guard q(inputs);
+        if(native_activity_touches.size()<1u<<20)native_activity_touches.push_back(x+y*geometry.grid_width);
+        else native_activity_wake_all.store(true,std::memory_order_relaxed);
+    }catch(...){native_activity_wake_all.store(true,std::memory_order_relaxed);}
+}
+
 void queue_germs(std::span<const MAOniColonyGermEdit> edits) {
     require(active(), "No colony owner is active");
     for (const auto& e : edits) {
@@ -1727,7 +1913,7 @@ void germ_accounts(MAOniColonyBiology& out, std::vector<MAOniColonyBiologyAccoun
 void queue_heat(std::span<const MAOniColonyHeat> edits) {
     require(active(), "No colony owner is active");
     for (const auto& e : edits) {
-        require(std::isfinite(e.joules) && std::isfinite(e.maximum_temperature_k) && e.reserved == 0, "Invalid colony heat edit");
+        require(std::isfinite(e.joules) && std::isfinite(e.maximum_temperature_k) && (e.reserved == 0 || (activity_owner.load(std::memory_order_acquire) && e.reserved==1)), "Invalid colony heat edit");
         (void)rect_index(geometry, e.public_cell);
     }
     std::lock_guard lock(inputs);
@@ -1753,7 +1939,7 @@ void queue_terrain(std::span<const MAOniColonyTerrain> edits) {
     // A queued close leaves the cell to ONI at once (the solid that replaced
     // it is native); the owner displaces its fluid at its next step. A queued
     // open marks the wall as opening, so the shadow does not open it again.
-    for (const auto& e : edits) {
+    if(!activity_owner.load(std::memory_order_acquire))for (const auto& e : edits) {
         auto& state = owned[rect_index(geometry, e.public_cell)];
         if (e.kind == MA_ONI_COLONY_CLOSE) { std::uint8_t open = 1; state.compare_exchange_strong(open, 2, std::memory_order_relaxed); }
         if (e.kind == MA_ONI_COLONY_OPEN) { std::uint8_t closed = 0; state.compare_exchange_strong(closed, 3, std::memory_order_relaxed); }
@@ -1771,6 +1957,7 @@ void set_space_cells(std::span<const std::uint32_t> cells,bool space) {
     require(!cells.empty() && cells.size()<=MA_ONI_COLONY_MAXIMUM_CELLS,"Invalid cluster boundary cell count");
     for(const auto cell:cells)(void)rect_index(session->config,cell);
     for(const auto cell:cells)session->space[rect_index(session->config,cell)]=space?1:0;
+    if(activity_owner.load(std::memory_order_acquire)){std::lock_guard q(inputs);native_activity_touches.insert(native_activity_touches.end(),cells.begin(),cells.end());}
 }
 std::uint32_t copy_receipts(MAOniColonyReceipt* out, std::uint32_t capacity) {
     std::lock_guard lock(inputs);
@@ -1850,6 +2037,15 @@ void write_shadow(const NativeCells& n) noexcept {
     std::shared_ptr<const Published> p; { std::lock_guard lock(publication); p = latest; }
     if (!p || !p->catalogue || p->views.size() != owned_count || p->status.state != 1 || n.pitch != geometry.grid_width + 2) return;
     const auto& cat = *p->catalogue; const auto vacuum = geometry.vacuum_index;
+    if(activity_owner.load(std::memory_order_acquire)) {
+        std::lock_guard q(inputs);
+        const auto count=pending_activity.empty()?std::size_t{0}:pending_activity.front().cuts.terrain;
+        for(std::size_t k=0;k<count;++k) {
+            const auto& edit=pending_terrain[k];auto& state=owned[rect_index(geometry,edit.public_cell)];
+            if(edit.kind==MA_ONI_COLONY_CLOSE){std::uint8_t open=1;state.compare_exchange_strong(open,2,std::memory_order_relaxed);}
+            if(edit.kind==MA_ONI_COLONY_OPEN){std::uint8_t closed=0;state.compare_exchange_strong(closed,3,std::memory_order_relaxed);}
+        }
+    }
     try { shadow.assign(owned_count, ShadowCell{}); solid_displacements.clear(); } catch (...) { return; }
     std::vector<MAOniColonyTerrain> closes;
     for (std::size_t i = 0; i < owned_count; ++i) {
@@ -1890,7 +2086,10 @@ void write_shadow(const NativeCells& n) noexcept {
     }
     if (!closes.empty()) {
         std::lock_guard q(inputs);
-        try { pending_terrain.insert(pending_terrain.end(), closes.begin(), closes.end()); } catch (...) {}
+        try {
+            auto& queue=activity_owner.load(std::memory_order_acquire)?native_activity_inputs.terrain:pending_terrain;
+            queue.insert(queue.end(),closes.begin(),closes.end());
+        } catch (...) {if(activity_owner.load(std::memory_order_acquire))native_activity_capture_failed.store(true,std::memory_order_relaxed);}
         log_terrain("shadow close", closes);
     }
 }
@@ -2139,7 +2338,16 @@ void capture_shadow(const NativeCells& n,std::uint64_t native_ticket) noexcept {
             // Cancel a close not yet taken by the owner; one already taken is
             // followed by an open at the next step.
             const auto before = pending_terrain.size();
-            std::erase_if(pending_terrain, [&](const MAOniColonyTerrain& t) { return t.public_cell == cell && t.kind == MA_ONI_COLONY_CLOSE; });
+            const auto eligible=activity_owner.load(std::memory_order_acquire)?
+                (pending_activity.empty()?std::size_t{0}:pending_activity.front().cuts.terrain):pending_terrain.size();
+            std::vector<std::uint8_t> removed(pending_terrain.size());
+            for(std::size_t k=0;k<eligible;++k)removed[k]=(pending_terrain[k].public_cell==cell && pending_terrain[k].kind==MA_ONI_COLONY_CLOSE)?1:0;
+            if(activity_owner.load(std::memory_order_acquire))for(auto& packet:pending_activity) {
+                const auto end=removed.begin()+static_cast<std::ptrdiff_t>(packet.cuts.terrain);
+                packet.cuts.terrain-=static_cast<std::size_t>(std::count(removed.begin(),end,std::uint8_t{1}));
+            }
+            std::size_t ordinal=0;
+            std::erase_if(pending_terrain, [&](const MAOniColonyTerrain&) { return removed[ordinal++]!=0; });
             if (pending_terrain.size() != before) { owned[i].store(1, std::memory_order_relaxed); continue; }
             // The close is in flight or done: the cell opens again without
             // taking ONI's fluid (its copy of the owner's).
@@ -2147,12 +2355,23 @@ void capture_shadow(const NativeCells& n,std::uint64_t native_ticket) noexcept {
             while ((state == 0 || state == 2) && !owned[i].compare_exchange_weak(state, 3, std::memory_order_relaxed)) {}
             opened.push_back({cell, MA_ONI_COLONY_OPEN});
         }
-        pending_germs.insert(pending_germs.end(), germs.begin(), germs.end());
-        pending_heat.insert(pending_heat.end(), heat.begin(), heat.end());
-        pending_terrain.insert(pending_terrain.end(), opened.begin(), opened.end());
+        if(activity_owner.load(std::memory_order_acquire) && native_ticket) {
+            require(!native_activity_ticket || native_activity_ticket==native_ticket,"Native activity frames overlapped capture");
+            native_activity_ticket=native_ticket;
+            for(auto& h:heat)h.reserved=1; // passive unless an actual body/contact hook marked a touch
+            native_activity_inputs.germs.insert(native_activity_inputs.germs.end(),germs.begin(),germs.end());
+            native_activity_inputs.heat.insert(native_activity_inputs.heat.end(),heat.begin(),heat.end());
+            native_activity_inputs.terrain.insert(native_activity_inputs.terrain.end(),opened.begin(),opened.end());
+            native_activity_inputs.transfers.insert(native_activity_inputs.transfers.end(),moves.begin(),moves.end());
+            native_activity_inputs.freezes.insert(native_activity_inputs.freezes.end(),froze.begin(),froze.end());
+        } else {
+            pending_germs.insert(pending_germs.end(), germs.begin(), germs.end());
+            pending_heat.insert(pending_heat.end(), heat.begin(), heat.end());
+            pending_terrain.insert(pending_terrain.end(), opened.begin(), opened.end());
+            pending_transfers.insert(pending_transfers.end(), moves.begin(), moves.end());
+            pending_freezes.insert(pending_freezes.end(), froze.begin(), froze.end());
+        }
         log_terrain("shadow open", opened);
-        pending_transfers.insert(pending_transfers.end(), moves.begin(), moves.end());
-        pending_freezes.insert(pending_freezes.end(), froze.begin(), froze.end());
         if(capture_arena) {
             ++pending_native_arena_captures;
             if(native_arena)native_arena->captures=pending_native_arena_captures;
@@ -2178,7 +2397,7 @@ bool allow_native_transition(int native_cell, std::uint16_t element, float tempe
     } catch (...) { return true; }
 }
 
-bool suppress(std::uint32_t hook, int native_cell) noexcept {
+bool suppress(std::uint32_t /*hook*/, int native_cell) noexcept {
     if (!enabled.load(std::memory_order_acquire) || native_cell < 0) return false;
     const auto pitch = geometry.grid_width + 2, position = static_cast<std::uint32_t>(native_cell);
     const auto nx = position % pitch, ny = position / pitch;
@@ -2188,13 +2407,13 @@ bool suppress(std::uint32_t hook, int native_cell) noexcept {
     // Native transitions, sublimation and post-processing act on native
     // solids; their effect on owned cells is captured through the shadow.
     if (owned[(x - geometry.offset_x) + static_cast<std::size_t>(y - geometry.offset_y) * geometry.width].load(std::memory_order_relaxed) != 1) return false;
-    if (hook < suppressed.size()) suppressed[hook].fetch_add(1, std::memory_order_relaxed);
     return true;
 }
 
 void advance(std::uint64_t ticket, double seconds, std::uint64_t thread) noexcept {
     if (!enabled.load(std::memory_order_acquire)) return;
     try {
+        { std::lock_guard lock(publication); if (!latest || latest->status.state != 1) return; }
         std::unique_lock l(solver.m);
 #if defined(_WIN32)
         if(!enabled.load(std::memory_order_acquire))return;
@@ -2209,10 +2428,42 @@ void advance(std::uint64_t ticket, double seconds, std::uint64_t thread) noexcep
         solver.idle.wait(l, [&] { return solver.quit || solver.seconds + seconds <= 10; });
         if (solver.quit) return;
 #endif
+        if(activity_owner.load(std::memory_order_acquire) && seconds>0 && !why) {
+            solver.idle.wait(l,[&]{return solver.quit || solver.activity_waiting_seconds+seconds<=10;});
+            if(solver.quit)return;
+            auto task=std::make_shared<ActivityTask>();task->ticket=ticket;
+            {std::lock_guard q(inputs);release_unbound_rebinds();
+                require(!native_activity_capture_failed.load(std::memory_order_relaxed),"Native activity capture could not retain its terrain input");
+                require(!pending_activity.empty() && pending_activity.front().claimed,"Native activity frame lacks its claimed census");
+                require(std::bit_cast<std::uint64_t>(pending_activity.front().seconds)==std::bit_cast<std::uint64_t>(seconds),"Native activity timestep differs from its census");
+                require(!native_activity_ticket || native_activity_ticket==ticket,"Native activity capture ticket differs");
+                task->packet=std::move(pending_activity.front());pending_activity.pop_front();
+                task->batch=take_activity_inputs(task->packet.cuts,true);
+                append_inputs(task->batch,std::move(native_activity_inputs));native_activity_inputs={};native_activity_ticket=0;
+                task->packet.touched.insert(task->packet.touched.end(),native_activity_touches.begin(),native_activity_touches.end());
+                if(native_activity_wake_all.load(std::memory_order_relaxed)) {
+                    task->packet.touched.clear();task->packet.touched.reserve(owned_count);
+                    for(std::size_t i=0;i<owned_count;++i)task->packet.touched.push_back(static_cast<std::uint32_t>((geometry.offset_x+i%geometry.width)+(geometry.offset_y+i/geometry.width)*geometry.grid_width));
+                }
+                native_activity_touches.clear();native_activity_wake_all.store(false,std::memory_order_relaxed);
+                task->mode=pending_activity_mode;pending_activity_mode.reset();
+            }
+            solver.activity_waiting_seconds+=seconds;solver.activity_work.push_back(std::move(task));
+            solver.busy.store(true,std::memory_order_release);
+            if(!solver.thread.joinable())solver.thread=std::thread([]{solver.loop();});
+            solver.wake.notify_one();return;
+        }
         solver.ticket = ticket; solver.seconds += seconds; if (seconds > 0) ++solver.frames;
         solver.busy.store(true, std::memory_order_release);
         if (!solver.thread.joinable()) solver.thread = std::thread([] { solver.loop(); });
         solver.wake.notify_one();
+    } catch (const std::exception& error) {
+        std::lock_guard lock(lifecycle);
+        if (session) {
+            char reason[512]{};
+            std::snprintf(reason,sizeof(reason),"The colony solver thread could not take a frame: %s",error.what());
+            fault(*session,reason);
+        }
     } catch (...) {
         std::lock_guard lock(lifecycle);
         if (session) fault(*session, "The colony solver thread could not take a frame");
@@ -2235,9 +2486,11 @@ void book_trace(Session& s, const MacTraceSinkReport& r) {
 // The profile's sink after the owner's own edits that follow the flow step
 // (the flow applies it at both ends of its interval, so traces imported or
 // made by the edits before it leave there).
-MacClosedWorld sink_traces(Session& s, MacClosedWorld world) {
+MacClosedWorld sink_traces(Session& s, MacClosedWorld world,std::span<const double> due={}) {
     if (!(world.settings().trace_sink_threshold_kg > 0)) return world;
-    auto sunk = world.with_trace_sink();
+    std::vector<std::size_t> selected;
+    if(!due.empty())for(std::size_t i=0;i<due.size();++i)if(due[i]>0)selected.push_back(i);
+    auto sunk = due.empty()?world.with_trace_sink():world.with_trace_sink_in_cells(selected);
     book_trace(s, sunk.report);
     return std::move(sunk.world);
 }
@@ -2245,7 +2498,7 @@ MacClosedWorld sink_traces(Session& s, MacClosedWorld world) {
 // (native emitters acting on the shadow, the game's own cell edits), then one
 // frame of the game's world rules per native frame, all applied as one ordered
 // passive edit. Media come from the publication this world produced.
-MacClosedWorld evolve_germs(Session& s, MacClosedWorld world, std::span<const GermEdit> queued, std::uint64_t frames) {
+MacClosedWorld evolve_germs(Session& s, MacClosedWorld world, std::span<const GermEdit> queued, std::uint64_t frames,std::span<const double> due={}) {
     const auto& st = world.state(); const auto& cat = *s.catalogue;
     biology::Cells cells; std::map<std::uint64_t, long double> before;
     for (std::size_t i = 0; i < st.cells.size(); ++i) {
@@ -2278,14 +2531,43 @@ MacClosedWorld evolve_germs(Session& s, MacClosedWorld world, std::span<const Ge
             if (!inserted || st.grid.walls[i]) return m;
             const auto& mixture = st.cells[i].mixture; const auto& v = p->views[i];
             m.open = true; m.mass_kg = mixture.mass(); m.temperature_k = v.temperature_k; m.element = v.element_index;
+            if(!due.empty() && m.mass_kg>0) {
+                const auto reading=world.cell_reading(i);m.temperature_k=static_cast<float>(std::clamp(reading.temperature_k,1.,9999.));
+                double gas=0,best_gas=0,best_liquid=0;std::size_t gas_k=0,liquid_k=0;
+                for(std::size_t k=0;k<mixture.masses.size();++k) {
+                    const double mass=mixture.masses[k];
+                    if(cat.materials[k].game.gas){gas+=mass;if(mass>best_gas){best_gas=mass;gas_k=k;}}
+                    else if(mass>best_liquid){best_liquid=mass;liquid_k=k;}
+                }
+                m.element=cat.materials[reading.liquid_volume_m3>=.5*st.grid.volume_m3() || gas==0?liquid_k:gas_k].game.native_index;
+            }
             for (std::size_t k = 0; k < mixture.masses.size(); ++k)
                 if (mixture.masses[k] > 0) m.parts.push_back({cat.materials[k].game.native_index, mixture.masses[k]});
-            if (m.mass_kg > 0 && cat.has_native(v.element_index)) m.state = cat.materials[cat.species_of_native(v.element_index)].game.gas ? 1 : 2;
+            if (m.mass_kg > 0 && cat.has_native(m.element)) m.state = cat.materials[cat.species_of_native(m.element)].game.gas ? 1 : 2;
             return m;
         };
-        for (std::uint64_t f = 0; f < frames; ++f)
-            biology::frame(disease_table, st.grid.width, st.grid.height, medium, cells, s.clocks, s.accounts, edits);
-        s.biology_frames += frames;
+        if(due.empty()) {
+            for (std::uint64_t f = 0; f < frames; ++f)
+                biology::frame(disease_table, st.grid.width, st.grid.height, medium, cells, s.clocks, s.accounts, edits);
+            s.biology_frames += frames;
+        } else {
+            if(s.biology_pending_s.empty())s.biology_pending_s.assign(st.cells.size(),0);
+            std::vector<unsigned> ticks(st.cells.size());unsigned maximum=0;
+            for(std::size_t i=0;i<due.size();++i) {
+                s.biology_pending_s[i]+=due[i];
+                while(s.biology_pending_s[i]>=static_cast<double>(biology::frame_seconds)) {
+                    require(ticks[i]<8,"Activity biology interval exceeds one remote event");
+                    s.biology_pending_s[i]-=static_cast<double>(biology::frame_seconds);++ticks[i];
+                }
+                maximum=std::max(maximum,ticks[i]);
+            }
+            std::vector<std::uint8_t> active(st.cells.size());
+            for(unsigned f=0;f<maximum;++f) {
+                for(std::size_t i=0;i<active.size();++i)active[i]=ticks[i]>f?1:0;
+                biology::frame(disease_table,st.grid.width,st.grid.height,medium,cells,s.clocks,s.accounts,edits,active);
+            }
+            s.biology_frames+=maximum;
+        }
     }
     if (!edits.empty()) {
         std::vector<MacPassiveEdit> passive; passive.reserve(edits.size());
@@ -2343,6 +2625,10 @@ void resolve_rebinds(std::span<const MAOniColonyCallbackRebind> values) {
         if (const auto job=pending_job_tokens.find(i); job!=pending_job_tokens.end()) tokens.emplace(kept.size(),job->second);
         kept.push_back(pending_transfers[i]);
     }
+    for(auto& packet:pending_activity) {
+        const auto end=withdrawn.begin()+static_cast<std::ptrdiff_t>(packet.cuts.transfers);
+        packet.cuts.transfers-=static_cast<std::size_t>(std::count(withdrawn.begin(),end,true));
+    }
     pending_transfers=std::move(kept); pending_job_tokens=std::move(tokens);
 }
 void release_unbound_rebinds() {
@@ -2356,7 +2642,7 @@ void release_unbound_rebinds() {
 // Floating values are exact hexadecimal. Callback values are session-local
 // handles and are written in their own column. Physics is unaffected.
 const char* journal_directory() noexcept {
-    static const char* const directory=std::getenv("MA_COLONY_INPUT_JOURNAL_DIR");
+    const char* const directory=std::getenv("MA_COLONY_INPUT_JOURNAL_DIR");
     return directory&&*directory?directory:nullptr;
 }
 // The game's disease table, which a replay must install before restoring.
@@ -2374,7 +2660,7 @@ void journal_diseases(std::span<const MAOniColonyDisease> diseases,std::span<con
 }
 void journal_inputs(const Session& s,std::uint64_t ticket,double seconds,std::uint64_t frames,bool flush_only,const std::vector<MAOniColonyTransfer>& transfers,
     const std::vector<MAOniColonyHeat>& heat,const std::vector<MAOniColonyTerrain>& terrain,const std::vector<Freeze>& freezes,
-    const std::vector<GermEdit>& germs,const std::map<std::size_t,std::uint64_t>& jobs) noexcept {
+    const std::vector<GermEdit>& germs,const std::map<std::size_t,std::uint64_t>& jobs,const ActivityTask* activity) noexcept {
     const auto* directory=journal_directory();
     if(!directory)return;
     auto*& file=input_journal_file; auto& file_session=input_journal_session;
@@ -2404,13 +2690,22 @@ void journal_inputs(const Session& s,std::uint64_t ticket,double seconds,std::ui
             }
         }
     }
-    for(const auto& h:heat)std::fprintf(file,"H %u %a %a\n",h.public_cell,h.joules,h.maximum_temperature_k);
+    for(const auto& h:heat) {
+        if(activity)std::fprintf(file,"H %u %a %a %u\n",h.public_cell,h.joules,h.maximum_temperature_k,h.reserved);
+        else std::fprintf(file,"H %u %a %a\n",h.public_cell,h.joules,h.maximum_temperature_k);
+    }
     for(const auto& t:terrain)std::fprintf(file,"R %u %u\n",t.public_cell,t.kind);
     for(const auto& f:freezes)std::fprintf(file,"F %u %u %a\n",f.public_cell,f.native_index,f.mass_kg);
     for(const auto& g:germs)std::fprintf(file,"G %u %u %a\n",g.public_cell,g.germ,g.change);
+    if(activity) {
+        std::fprintf(file,"A %llu %d\n",static_cast<unsigned long long>(activity->packet.sequence),activity->mode?(*activity->mode?1:0):-1);
+        for(const auto cell:activity->packet.actors)std::fprintf(file,"C %u\n",cell);
+        for(const auto cell:activity->packet.touched)std::fprintf(file,"D %u\n",cell);
+    }
     std::fflush(file);
 }
-void run_frame(std::uint64_t ticket, double seconds, std::uint64_t frames, const char* refusal, std::uint64_t thread, bool flush_only) noexcept {
+void run_frame(std::uint64_t ticket,double seconds,std::uint64_t frames,const char* refusal,std::uint64_t thread,
+    bool flush_only,std::shared_ptr<ActivityTask> activity) noexcept {
     std::lock_guard lock(lifecycle);
     if (!session || session->status.state != 1) return;
     auto& s = *session;
@@ -2439,23 +2734,55 @@ void run_frame(std::uint64_t ticket, double seconds, std::uint64_t frames, const
         std::map<std::size_t,PassiveQuantities> job_passives;
         std::map<std::size_t,std::shared_ptr<const std::vector<std::uint8_t>>> moving_jobs;
         std::map<std::uint64_t,std::uint64_t> committed_jobs;
-        { std::lock_guard q(inputs); release_unbound_rebinds();
-          transfers.swap(pending_transfers); heat.swap(pending_heat); terrain.swap(pending_terrain); freezes.swap(pending_freezes);
+        { std::lock_guard q(inputs);
+          if(!flush_only || !activity_owner.load(std::memory_order_acquire))release_unbound_rebinds();
+          if(activity) {
+              transfers=std::move(activity->batch.transfers);heat=std::move(activity->batch.heat);
+              terrain=std::move(activity->batch.terrain);freezes=std::move(activity->batch.freezes);
+              germ_edits=std::move(activity->batch.germs);job_tokens=std::move(activity->batch.jobs);
+          } else if(flush_only && activity_owner.load(std::memory_order_acquire)) {
+              const auto cuts=activity_flush_cuts();
+              auto batch=take_activity_inputs(cuts,false);
+              transfers=std::move(batch.transfers);heat=std::move(batch.heat);terrain=std::move(batch.terrain);
+              freezes=std::move(batch.freezes);germ_edits=std::move(batch.germs);job_tokens=std::move(batch.jobs);
+              activity=std::make_shared<ActivityTask>();
+              if(lifecycle_activity && pending_activity.empty()){activity->packet=std::move(*lifecycle_activity);lifecycle_activity.reset();}
+              else for(std::size_t i=0;i<s.world->game_activity().size();++i)if(s.world->game_activity()[i].actors)
+                  activity->packet.actors.push_back(static_cast<std::uint32_t>((s.config.offset_x+i%s.config.width)+(s.config.offset_y+i/s.config.width)*s.config.grid_width));
+              activity->mode=pending_activity_mode;pending_activity_mode.reset();
+          } else {
+              transfers.swap(pending_transfers);heat.swap(pending_heat);terrain.swap(pending_terrain);freezes.swap(pending_freezes);
+              germ_edits.swap(pending_germs);job_tokens.swap(pending_job_tokens);
+          }
           if(!flush_only) { s.native_arena=std::move(pending_native_arena);s.native_arena_owner_frames=frames;pending_native_arena_captures=0; }
-          germ_edits.swap(pending_germs); job_tokens.swap(pending_job_tokens);
           for (const auto& [index,token] : job_tokens) {
               const auto& job=pipe_jobs.at(token);
               if(job.moving_wire)moving_jobs.emplace(index,job.moving_wire);
               else job_passives.emplace(index,job.passives);
           } }
-        journal_inputs(s,ticket,seconds,frames,flush_only,transfers,heat,terrain,freezes,germ_edits,job_tokens);
+        journal_inputs(s,ticket,seconds,frames,flush_only,transfers,heat,terrain,freezes,germ_edits,job_tokens,activity.get());
         auto world = *s.world;
+        if(activity && activity->mode) {
+            if(world.settings().game.activity_tiers!=*activity->mode)s.biology_pending_s.assign(world.state().cells.size(),0);
+            world=world.with_game_activity_tiers(*activity->mode);
+        }
+        const bool adaptive=world.settings().game_profile==MacGameProfile::game_kernel_activity_tiers && world.settings().game.activity_tiers;
+        require(!adaptive || flush_only || seconds==static_cast<double>(.2f),"Activity owner requires exactly one 0.2 s native frame");
+        std::vector<std::uint8_t> touched(world.state().cells.size());
+        struct TouchScope { ~TouchScope(){external_activity_touched=nullptr;} } touch_scope;
+        if(activity) {
+            external_activity_touched=&touched;
+            for(const auto cell:activity->packet.touched)touched[rect_index(s.config,cell)]=1;
+            for(const auto& e:terrain)touched[rect_index(s.config,e.public_cell)]=1;
+            for(const auto& e:freezes)touched[rect_index(s.config,e.public_cell)]=1;
+            for(const auto& e:germ_edits)touched[rect_index(s.config,e.public_cell)]=1;
+        }
         const auto& cat = *s.catalogue; const auto& registry = cat.registry;
         auto& L = s.ledger;
         auto mark = std::chrono::steady_clock::now(); double stage[6]{};
         const auto lap = [&](int k) { const auto now = std::chrono::steady_clock::now(); stage[k] = std::chrono::duration<double, std::milli>(now - mark).count(); mark = now; };
         step("biology");
-        if (s.germ_mode == 1) world = evolve_germs(s, std::move(world), germ_edits, frames);
+        if (s.germ_mode == 1 && !adaptive) world = evolve_germs(s, std::move(world), germ_edits, frames);
         // Frozen cells: the liquid native turned solid leaves, then the cell closes.
         step("freezing");
         if (!freezes.empty()) {
@@ -2479,7 +2806,7 @@ void run_frame(std::uint64_t ticket, double seconds, std::uint64_t frames, const
                 terrain.insert(terrain.begin(), MAOniColonyTerrain{f.public_cell, MA_ONI_COLONY_CLOSE});
             }
             if (!taken.empty()) {
-                auto result = std::move(world).with_fluid_transfers(taken, MacFluidTransferTopology::occupied_mixture);
+                auto result = external_transfers(std::move(world),taken, MacFluidTransferTopology::occupied_mixture);
                 world = std::move(result.world);
                 for (const auto& parcel : result.parcels) {
                     L.extracted[parcel.species_index] += parcel.mass_kg; L.energy_out += parcel_energy(parcel); s.status.extracted_kg += parcel.mass_kg;
@@ -2550,7 +2877,11 @@ void run_frame(std::uint64_t ticket, double seconds, std::uint64_t frames, const
                 const auto hook = refused_heat.load(std::memory_order_relaxed);
                 const bool control = std::any_of(edits.begin() + static_cast<std::ptrdiff_t>(from), edits.begin() + static_cast<std::ptrdiff_t>(from + count),
                     [&](const MacCellHeat& e) { return e.cell_index == hook; });
-                if (!control) try { world = std::move(world).with_cell_heat(std::span(edits.data() + from, count)); return; }
+                if (!control) try {
+                    world = std::move(world).with_cell_heat(std::span(edits.data() + from, count));
+                    if(activity)for(std::size_t q=from;q<from+count;++q)if(heat[source[q]].reserved==0)touched[edits[q].cell_index]=1;
+                    return;
+                }
                 catch (const std::exception&) {}
                 if (count == 1) { refused.push_back(from); return; }
                 self(self, from, count / 2); self(self, from + count / 2, count - count / 2);
@@ -2561,13 +2892,15 @@ void run_frame(std::uint64_t ticket, double seconds, std::uint64_t frames, const
                 for (const auto n : {i % W > 0 ? i - 1 : SIZE_MAX, i % W + 1 < W ? i + 1 : SIZE_MAX, i >= W ? i - W : SIZE_MAX, i + W < st0.cells.size() ? i + W : SIZE_MAX}) {
                     if (n == SIZE_MAX || world.state().grid.walls[n] || !(world.state().cells[n].mixture.mass() > 0)) continue;
                     MacCellHeat moved = edits[q]; moved.cell_index = n;
-                    try { world = std::move(world).with_cell_heat(std::span(&moved, 1)); placed = true; break; } catch (const std::exception&) {}
+                    try { world = std::move(world).with_cell_heat(std::span(&moved, 1));
+                        if(activity && heat[source[q]].reserved==0){touched[i]=1;touched[n]=1;}
+                        placed = true; break; } catch (const std::exception&) {}
                 }
                 if (placed) continue;
                 L.heat -= edits[q].joules;
                 const auto& h = heat[source[q]];
                 auto same = std::find_if(deferred.begin(), deferred.end(), [&](const MAOniColonyHeat& d) { return d.public_cell == h.public_cell; });
-                if (same != deferred.end()) same->joules += h.joules; else deferred.push_back(h);
+                if (same != deferred.end()){same->joules += h.joules;same->reserved=(same->reserved && h.reserved)?1u:0u;}else deferred.push_back(h);
                 if (std::getenv("MA_COLONY_LEDGER_LOG")) { std::fprintf(stderr, "[Mixed Atmospheres] heat refused at cell %u (%.6g J), deferred\n", h.public_cell, h.joules); std::fflush(stderr); }
             }
             s.status.committed_heat += edits.size() - deferred.size();
@@ -2602,7 +2935,7 @@ void run_frame(std::uint64_t ticket, double seconds, std::uint64_t frames, const
                 released.push_back({best, entry.species, true, mass, entry.temperature_k}); from.push_back(e);
             }
             if (!released.empty()) {
-                auto result = std::move(world).with_fluid_transfers(released, MacFluidTransferTopology::occupied_mixture);
+                auto result = external_transfers(std::move(world),released, MacFluidTransferTopology::occupied_mixture);
                 world = std::move(result.world);
                 for (std::size_t q = 0; q < result.parcels.size(); ++q) {
                     const auto& parcel = result.parcels[q];
@@ -2708,7 +3041,7 @@ void run_frame(std::uint64_t ticket, double seconds, std::uint64_t frames, const
         for (std::size_t first = 0; first < edits.size(); first += 4096) {
             const std::span<const MacFluidTransfer> batch(edits.data() + first, std::min<std::size_t>(4096, edits.size() - first));
             try {
-                auto result = std::move(world).with_fluid_transfers(batch, MacFluidTransferTopology::occupied_mixture);
+                auto result = external_transfers(std::move(world),batch, MacFluidTransferTopology::occupied_mixture);
                 world = std::move(result.world);
                 parcels.insert(parcels.end(), result.parcels.begin(), result.parcels.end());
             } catch (const std::exception&) {
@@ -2718,7 +3051,7 @@ void run_frame(std::uint64_t ticket, double seconds, std::uint64_t frames, const
                 for (const auto& e : batch) {
                     std::string failure;
                     try {
-                        auto one = std::move(world).with_fluid_transfers(std::span(&e, 1), MacFluidTransferTopology::occupied_mixture);
+                        auto one = external_transfers(std::move(world),std::span(&e, 1), MacFluidTransferTopology::occupied_mixture);
                         world = std::move(one.world); parcels.push_back(one.parcels.front()); continue;
                     } catch (const std::exception& single) { failure = single.what(); }
                     if (e.inject && world.settings().numerical_kernel == MacNumericalKernel::game &&
@@ -2738,7 +3071,7 @@ void run_frame(std::uint64_t ticket, double seconds, std::uint64_t frames, const
                             if (cell == e.cell_index) continue;
                             auto candidate = e; candidate.cell_index = cell;
                             try {
-                                auto one = std::move(world).with_fluid_transfers(std::span(&candidate, 1), MacFluidTransferTopology::occupied_mixture);
+                                auto one = external_transfers(std::move(world),std::span(&candidate, 1), MacFluidTransferTopology::occupied_mixture);
                                 world = std::move(one.world); parcels.push_back(one.parcels.front()); placed = true; break;
                             } catch (const std::exception& error) { all_mass_refusals=all_mass_refusals && std::string_view(error.what())=="Game transfer mass is unrepresentable"; }
                         }
@@ -2873,6 +3206,10 @@ void run_frame(std::uint64_t ticket, double seconds, std::uint64_t frames, const
                     std::erase_if(durable,[](const auto& p){return p.mass_kg==0 && p.energy_j.sign()==0;});
                     (void)detail::encode_precision_inventory(durable);
                 } catch(const std::invalid_argument&) { world=before_world;held=before_held; }
+                if(activity && held.mass_kg!=before_held.mass_kg) {
+                    touched[rect_index(s.config,held.source)]=1;touched[rect_index(s.config,held.anchor)]=1;
+                    for(const auto cell:destinations)if(world.state().cells[cell].mixture.masses!=before_world.state().cells[cell].mixture.masses)touched[cell]=1;
+                }
             }
         }
         std::erase_if(s.precision,[](const auto& held){return held.mass_kg==0 && held.energy_j.sign()==0;});
@@ -2929,6 +3266,7 @@ void run_frame(std::uint64_t ticket, double seconds, std::uint64_t frames, const
             if(!outcome.refusal) {
                 for(std::size_t n=0;n<batch.size();++n) {L.injected[batch[n].species_index]+=masses[n];s.status.injected_kg+=static_cast<double>(masses[n]);}
                 L.energy_in+=energy;world=std::move(candidate->world);++moving_accepted;
+                if(activity)for(std::size_t n=0;n<batch.size();++n)if(masses[n]>0)touched[batch[n].cell_index]=1;
             } else ++moving_refused;
             ++s.status.committed_transfers;
         }
@@ -2936,6 +3274,26 @@ void run_frame(std::uint64_t ticket, double seconds, std::uint64_t frames, const
             const double ms=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-moving_started).count();
             std::fprintf(stderr,"[Mixed Atmospheres] moving parcels frame %llu: batches %zu items %zu accepted %zu refused %zu ms %.6f\n",
                 static_cast<unsigned long long>(s.status.completed_frames+1),moving_jobs.size(),moving_items,moving_accepted,moving_refused,ms);
+        }
+        external_activity_touched=nullptr;
+        std::vector<double> due;
+        if(activity) {
+            std::vector<std::uint8_t> actors(touched.size());
+            for(const auto cell:activity->packet.actors)actors[rect_index(s.config,cell)]=1;
+            const auto previous_world=world;const auto previous=previous_world.game_activity();
+            auto census=world.with_game_activity(touched,actors);
+            const auto next_census=census.game_activity();
+            const bool same_actors=std::equal(previous.begin(),previous.end(),next_census.begin(),[](const auto& a,const auto& b){return a.actors==b.actors;});
+            if(!flush_only || !same_actors || std::any_of(touched.begin(),touched.end(),[](auto value){return value!=0;}))world=std::move(census);
+            if(adaptive) {
+                if(s.biology_pending_s.empty())s.biology_pending_s.assign(touched.size(),0);
+                const auto current=world.game_activity();
+                for(std::size_t i=0;i<current.size();++i)
+                    if(current[i].next_remote_s==0 && (previous[i].next_remote_s>0 || current[i].last_activity_s>previous[i].last_activity_s || current[i].last_activity_s<0 ||
+                        (!current[i].actors && world.time_s()-current[i].last_activity_s>=world.settings().game.activity_pause_s)))s.biology_pending_s[i]=0;
+                if(!flush_only)due=world.game_activity_steps(seconds);
+                if(s.germ_mode==1)world=evolve_germs(s,std::move(world),germ_edits,frames,due);
+            }
         }
         std::uint64_t substeps=0,rejected_attempts=0;
         if(!flush_only) {
@@ -3051,21 +3409,21 @@ void run_frame(std::uint64_t ticket, double seconds, std::uint64_t frames, const
             s.status.settled_kg += settled.report.moved_kg; world = std::move(settled.world);
         } catch (const std::domain_error&) { ++s.status.skipped_relaxations; }
         step("airflow tiles");
-        world = expel_blocked_liquid(s, std::move(world));
+        world = expel_blocked_liquid(s, std::move(world),due);
         step("conversions");
-        world = convert_identities(s, std::move(world), seconds);
+        world = convert_identities(s, std::move(world), seconds,due);
         step("trace sink");
-        world = sink_traces(s, std::move(world));
+        world = sink_traces(s, std::move(world),due);
         lap(3); step("space sink");
         // Open sky: whatever reaches a space cell leaves through the sink.
         std::vector<MacFluidTransfer> sink;
-        for (std::size_t i = 0; i < s.space.size(); ++i) if (s.space[i]) {
+        for (std::size_t i = 0; i < s.space.size(); ++i) if (s.space[i] && (due.empty() || due[i]>0)) {
             const auto& m = world.state().cells[i].mixture;
             for (std::size_t k = 0; k < m.masses.size(); ++k) if (m.masses[k] > 0) sink.push_back({i, k, false, m.masses[k], 0});
         }
         for (std::size_t first = 0; first < sink.size(); first += 4096) {
             const std::span<const MacFluidTransfer> batch(sink.data() + first, std::min<std::size_t>(4096, sink.size() - first));
-            auto result = std::move(world).with_fluid_transfers(batch, MacFluidTransferTopology::occupied_mixture);
+            auto result = external_transfers(std::move(world),batch, MacFluidTransferTopology::occupied_mixture);
             world = std::move(result.world);
             for (const auto& parcel : result.parcels) { L.sunk[parcel.species_index] += parcel.mass_kg; L.energy_sunk += parcel_energy(parcel); s.status.space_sink_kg += parcel.mass_kg; }
         }
@@ -3130,6 +3488,7 @@ void run_frame(std::uint64_t ticket, double seconds, std::uint64_t frames, const
             std::snprintf(item, sizeof item, "; heat %zu transfers %zu terrain %zu germs %zu", heat.size(), transfers.size(), terrain.size(), germ_edits.size()); line += item;
             std::fprintf(stderr, "%s\n", line.c_str()); std::fflush(stderr);
         }
+        if(activity && !flush_only)s.activity_sequence=activity->packet.sequence;
         publish(s, std::move(projection),flush_only);
         // Pipe outcomes become readable only after the physical frame is
         // committed and published; a fault cannot credit an uncommitted edit.
@@ -3146,8 +3505,11 @@ std::uint32_t flush_inputs(std::uint32_t* submitted) {
     wait();
     const auto pending=[] {
         std::lock_guard q(inputs);
-        return static_cast<std::uint32_t>(pending_transfers.size()+pending_heat.size()+pending_terrain.size()+
-            pending_freezes.size()+pending_germs.size());
+        // Reject an unresolved restored tail before dispatch: the owner and
+        // all queues remain healthy/unchanged so explicit rebinding can retry.
+        const auto cut=activity_owner.load(std::memory_order_acquire)?activity_flush_cuts():InputCuts{};
+        return static_cast<std::uint32_t>(pending_transfers.size()-cut.transfers+pending_heat.size()-cut.heat+pending_terrain.size()-cut.terrain+
+            pending_freezes.size()-cut.freezes+pending_germs.size()-cut.germs+(lifecycle_activity && pending_activity.empty()?1:0)+(pending_activity_mode?1:0));
     };
     { std::lock_guard lock(lifecycle); require(session && session->status.state==1,"Input flushing requires a healthy colony owner"); }
     const auto count=pending();
@@ -3173,7 +3535,8 @@ std::vector<std::size_t> retirement_cells(const Session& s,std::uint32_t origin,
 }
 bool pending_inputs() { // input lock held
     return !pending_transfers.empty() || !pending_heat.empty() || !pending_terrain.empty() ||
-        !pending_freezes.empty() || !pending_germs.empty() || !receipts.empty() || !pipe_jobs.empty();
+        !pending_freezes.empty() || !pending_germs.empty() || !receipts.empty() || !pipe_jobs.empty() || !pending_activity.empty() ||
+        lifecycle_activity.has_value() || pending_activity_mode.has_value() || native_activity_ticket!=0 || !native_activity_touches.empty() || native_activity_wake_all.load(std::memory_order_relaxed);
 }
 void audit_retirement(Session& s) {
     auto mass=totals(*s.world);long double energy=energy_of(*s.world);
@@ -3219,7 +3582,7 @@ std::pair<std::uint64_t,std::uint32_t> prepare_retirement(std::uint32_t origin,s
         for(const auto k:species) {edits.push_back({i,k,false,m.masses[k],0});edits.back().observe_passives=true;}
     }
     for(std::size_t first=0;first<edits.size();first+=4096) {
-        auto result=std::move(world).with_fluid_transfers(std::span(edits.data()+first,std::min<std::size_t>(4096,edits.size()-first)),MacFluidTransferTopology::occupied_mixture);
+        auto result=external_transfers(std::move(world),std::span(edits.data()+first,std::min<std::size_t>(4096,edits.size()-first)),MacFluidTransferTopology::occupied_mixture);
         world=std::move(result.world);
         for(const auto& p:result.parcels) {
             const auto& material=cat.materials[p.species_index];inventories[material.game.gas?0:1].add(p,material.game.native_index);
@@ -3338,7 +3701,7 @@ constexpr char magic[8] = {'M', 'A', 'C', 'O', 'L', 'N', '0', '1'};
 // (version 2 the raw status struct).
 // Version 12 uses the version-11 layout and selects conservative liquid
 // boundaries. Versions <=11 retain their original owner boundary law.
-constexpr std::uint32_t checkpoint_version = 12;
+constexpr std::uint32_t checkpoint_version = 14;
 // Wrapper 13 encloses a base wrapper (8..12) whose queue keeps callback-owned
 // requests under ordinals: magic, 13, base version, request count, then the
 // base layout unchanged.
@@ -3354,7 +3717,7 @@ std::vector<std::uint8_t> checkpoint() {
     const auto& s = *session; Writer w;
     // Keep the queue and selected wrapper framing one coherent save snapshot.
     std::unique_lock input_snapshot(inputs);
-    const std::uint32_t saved_version=s.conservative_liquid_boundary?12:s.precision_used?11:s.germ_mode==1?10:moving_protocol_used?9:8;
+    const std::uint32_t saved_version=(s.config.flags&MA_ONI_COLONY_GAME_ACTIVITY)?14:s.conservative_liquid_boundary?12:s.precision_used?11:s.germ_mode==1?10:moving_protocol_used?9:8;
     // Inputs queued for the next step are in flight at the save. A request
     // answering a game callback (a breath, a consumer, an emitter callback)
     // keeps its place in the queue; its session callback becomes an ordinal
@@ -3435,10 +3798,35 @@ std::vector<std::uint8_t> checkpoint() {
     if(saved_version>=11) {
         const auto held=detail::encode_precision_inventory(s.precision);w.u32(static_cast<std::uint32_t>(held.size()));w.raw(held.data(),held.size());
     }
+    if(saved_version>=14) {
+        require(!native_activity_capture_failed.load(std::memory_order_relaxed) && native_activity_ticket==0 && native_activity_inputs.transfers.empty() && native_activity_inputs.heat.empty() &&
+            native_activity_inputs.terrain.empty() && native_activity_inputs.freezes.empty() && native_activity_inputs.germs.empty(),
+            "Fence the native frame before saving activity inputs");
+        w.u64(s.activity_sequence);w.u64(accepted_activity_sequence);w.u8(requested_activity_tiers?1:0);
+        w.u8(pending_activity_mode?1:0);if(pending_activity_mode)w.u8(*pending_activity_mode?1:0);
+        w.u32(static_cast<std::uint32_t>(s.biology_pending_s.size()));for(const auto x:s.biology_pending_s)w.f64(x);
+        const auto cells=[&](const auto& values){w.u32(static_cast<std::uint32_t>(values.size()));for(const auto cell:values)w.u32(cell);};
+        const auto packet=[&](const ActivityPacket& value) {
+            w.u64(value.sequence);w.f64(value.seconds);cells(value.actors);cells(value.touched);
+            for(const auto n:{value.cuts.transfers,value.cuts.heat,value.cuts.terrain,value.cuts.freezes,value.cuts.germs})w.u64(n);
+        };
+        w.u32(static_cast<std::uint32_t>(pending_activity.size()));for(const auto& value:pending_activity)packet(value);
+        w.u8(lifecycle_activity?1:0);if(lifecycle_activity)packet(*lifecycle_activity);
+        auto touches=native_activity_touches;
+        if(native_activity_wake_all.load(std::memory_order_relaxed)) {
+            touches.clear();touches.reserve(owned_count);
+            for(std::size_t i=0;i<owned_count;++i)touches.push_back(static_cast<std::uint32_t>((geometry.offset_x+i%geometry.width)+(geometry.offset_y+i/geometry.width)*geometry.grid_width));
+        }
+        std::sort(touches.begin(),touches.end());touches.erase(std::unique(touches.begin(),touches.end()),touches.end());cells(touches);
+    }
     const auto image = s.world->checkpoint();
     w.u64(image.size()); w.raw(image.data(), image.size());
     const auto digest = hash_memory(w.bytes.data(), w.bytes.size());
     w.raw(digest.data(), digest.size());
+    if(input_journal_file && input_journal_session==s.status.session) {
+        std::fprintf(input_journal_file,"checkpoint %llu %s\n",static_cast<unsigned long long>(s.status.completed_frames),digest.c_str());
+        std::fflush(input_journal_file);
+    }
     checkpoint_callbacks_written=std::move(answered_requests);
     return std::move(w.bytes);
 }
@@ -3450,6 +3838,22 @@ void queue_replay_freezes(std::span<const ReplayFreeze> edits) {
     for (const auto& e : edits) { (void)rect_index(geometry, e.public_cell); require(std::isfinite(e.mass_kg) && e.mass_kg >= 0, "Invalid replayed freeze"); }
     std::lock_guard lock(inputs);
     for (const auto& e : edits) pending_freezes.push_back({e.public_cell, e.native_index, e.mass_kg});
+}
+void queue_replay_activity_native(std::uint64_t expected,std::uint64_t ticket,
+    std::span<const MAOniColonyTransfer> transfers,std::span<const MAOniColonyHeat> heat,
+    std::span<const MAOniColonyTerrain> terrain,std::span<const ReplayFreeze> freezes,
+    std::span<const MAOniColonyGermEdit> germs,std::span<const std::uint32_t> touched) {
+    std::lock_guard q(inputs);
+    require(activity_owner.load(std::memory_order_acquire) && expected==activity_session && ticket>0,
+        "Replay native activity needs its active session and ticket");
+    require(native_activity_ticket==0 || native_activity_ticket==ticket,"Replay native activity ticket differs");
+    native_activity_ticket=ticket;
+    native_activity_inputs.transfers.insert(native_activity_inputs.transfers.end(),transfers.begin(),transfers.end());
+    native_activity_inputs.heat.insert(native_activity_inputs.heat.end(),heat.begin(),heat.end());
+    native_activity_inputs.terrain.insert(native_activity_inputs.terrain.end(),terrain.begin(),terrain.end());
+    for(const auto& f:freezes)native_activity_inputs.freezes.push_back({f.public_cell,f.native_index,f.mass_kg});
+    for(const auto& g:germs)native_activity_inputs.germs.push_back({g.public_cell,g.disease,g.change});
+    native_activity_touches.insert(native_activity_touches.end(),touched.begin(),touched.end());
 }
 std::pair<std::uint32_t,std::uint64_t> callback_rebind_state() {
     std::lock_guard q(inputs); return {static_cast<std::uint32_t>(awaiting_rebind.size()),released_rebinds};
@@ -3476,10 +3880,11 @@ void restore(const MAOniColonyConfig& config, std::span<const MAOniColonyMateria
     // Wrapper 13 encloses a base layout 8..12 and names its callback-owned requests.
     const auto version = wrapper == callback_wrapper_version ? r.u32() : wrapper;
     const std::uint32_t saved_requests = wrapper == callback_wrapper_version ? r.u32() : 0;
-    require(wrapper != callback_wrapper_version || (version >= 8 && version <= checkpoint_version && saved_requests > 0 &&
+    require(wrapper != callback_wrapper_version || (version >= 8 && version <= checkpoint_version && version!=callback_wrapper_version && saved_requests > 0 &&
         saved_requests <= 1u << 20), "Invalid callback-owned request wrapper");
     MAOniColonyConfig saved{}; r.raw(&saved, sizeof(saved));
     require(std::memcmp(&saved, &config, sizeof(config)) == 0, "Colony checkpoint geometry or physics differs from the loaded game");
+    require(((config.flags&MA_ONI_COLONY_GAME_ACTIVITY)!=0)==(version==14),"Activity owner needs integrated wrapper 14");
     const auto count = r.u32(); require(count == materials.size(), "Colony checkpoint catalogue differs from the running game");
     std::vector<MAOniColonyMaterial> stored(count); r.raw(stored.data(), count * sizeof(MAOniColonyMaterial));
     require(std::memcmp(stored.data(), materials.data(), count * sizeof(MAOniColonyMaterial)) == 0, "Colony checkpoint catalogue differs from the running game");
@@ -3618,10 +4023,56 @@ void restore(const MAOniColonyConfig& config, std::span<const MAOniColonyMateria
                 "Invalid precision material temperature");
         }
     }
+    std::deque<ActivityPacket> restored_activity;std::optional<ActivityPacket> restored_lifecycle;
+    std::optional<bool> restored_mode;bool restored_requested=false;std::uint64_t restored_activity_sequence=0;
+    std::vector<std::uint32_t> restored_touches;
+    if(version==14) {
+        next->activity_sequence=r.u64();restored_activity_sequence=r.u64();
+        require(restored_activity_sequence>=next->activity_sequence && restored_activity_sequence<UINT64_MAX,"Invalid activity sequence watermark");
+        const auto boolean=[&] {const auto value=r.u8();require(value<=1,"Invalid activity policy flag");return value!=0;};
+        restored_requested=boolean();if(boolean())restored_mode=boolean();
+        const auto elapsed=r.u32();require(elapsed==0 || elapsed==cells,"Invalid biology activity clock count");
+        next->biology_pending_s.resize(elapsed);for(auto& x:next->biology_pending_s) {
+            x=r.f64();require(std::isfinite(x) && x>=0 && x<static_cast<double>(biology::frame_seconds) && !std::signbit(x),"Invalid biology activity clock");
+        }
+        const auto read_cells=[&] {
+            const auto n=r.u32();require(n<=cells && n<=(r.bytes.size()-r.at)/4,"Invalid activity cell count");
+            std::vector<std::uint32_t> values;values.reserve(n);
+            for(std::uint32_t i=0;i<n;++i){const auto cell=r.u32();(void)rect_index(config,cell);
+                require(i==0 || cell>values.back(),"Activity cells must be sorted and unique");values.push_back(cell);}
+            return values;
+        };
+        const auto packet=[&] {
+            ActivityPacket value;value.claimed=false;value.sequence=r.u64();value.seconds=r.f64();value.actors=read_cells();value.touched=read_cells();
+            std::size_t* cut[]{&value.cuts.transfers,&value.cuts.heat,&value.cuts.terrain,&value.cuts.freezes,&value.cuts.germs};
+            const std::size_t limit[]{transfers.size(),heat.size(),terrain.size(),freezes.size(),restored_germs.size()};
+            for(std::size_t i=0;i<5;++i){const auto n=r.u64();require(n<=limit[i],"Activity input cut exceeds queue");*cut[i]=static_cast<std::size_t>(n);}
+            return value;
+        };
+        const auto packets=r.u32();require(packets<=1024 && restored_activity_sequence-next->activity_sequence==packets,"Invalid pending activity sequence count");
+        InputCuts previous{};
+        for(std::uint32_t i=0;i<packets;++i) {
+            auto value=packet();require(value.sequence==next->activity_sequence+i+1 && std::isfinite(value.seconds) && value.seconds>0 && value.seconds<=1 &&
+                value.cuts.transfers>=previous.transfers && value.cuts.heat>=previous.heat && value.cuts.terrain>=previous.terrain &&
+                value.cuts.freezes>=previous.freezes && value.cuts.germs>=previous.germs,"Invalid pending activity packet");
+            previous=value.cuts;restored_activity.push_back(std::move(value));
+        }
+        if(boolean()){restored_lifecycle=packet();require(restored_lifecycle->sequence==0 && restored_lifecycle->seconds==0 &&
+            restored_lifecycle->cuts.transfers==0 && restored_lifecycle->cuts.heat==0 && restored_lifecycle->cuts.terrain==0 &&
+            restored_lifecycle->cuts.freezes==0 && restored_lifecycle->cuts.germs==0,"Invalid lifecycle activity census");}
+        restored_touches=read_cells();
+    }
     const auto physical = r.u64(); require(physical == r.bytes.size() - r.at, "Colony checkpoint physical image length differs");
     next->world = std::make_shared<const MacClosedWorld>(MacClosedWorld::from_checkpoint(next->catalogue->registry, next->catalogue->eos,
         r.bytes.subspan(r.at, static_cast<std::size_t>(physical))));
     require(((config.flags&MA_ONI_COLONY_GAME_KERNEL)!=0)==(next->world->settings().numerical_kernel==MacNumericalKernel::game),"Saved core kernel differs from saved colony flags");
+    require(((config.flags&MA_ONI_COLONY_GAME_ACTIVITY)!=0)==(next->world->settings().game_profile==MacGameProfile::game_kernel_activity_tiers),
+        "Saved activity core differs from owner integration");
+    if(version==14) {
+        const bool effective=restored_mode.value_or(next->world->settings().game.activity_tiers);
+        require(restored_requested==effective,"Saved activity requested policy differs");
+        if(effective)for(const auto& value:restored_activity)require(value.seconds==static_cast<double>(.2f),"Saved adaptive frame has an unsupported timestep");
+    }
     activate(std::move(next), thread);
     // Ledger bounds and counters continue from the saved session.
     auto& st = session->status;
@@ -3636,13 +4087,16 @@ void restore(const MAOniColonyConfig& config, std::span<const MAOniColonyMateria
         std::lock_guard q(inputs);
         pending_transfers = std::move(transfers); pending_heat = std::move(heat); pending_terrain = std::move(terrain); pending_freezes = std::move(freezes);
         pending_germs = std::move(restored_germs);
+        if(version==14){pending_activity=std::move(restored_activity);lifecycle_activity=std::move(restored_lifecycle);
+            pending_activity_mode=restored_mode;requested_activity_tiers=restored_requested;accepted_activity_sequence=restored_activity_sequence;
+            native_activity_touches=std::move(restored_touches);}
         pending_job_tokens=std::move(restored_tokens); pipe_jobs=std::move(restored_jobs); accepted_job_token=restored_watermark;
         awaiting_rebind=std::move(restored_requests); released_rebinds=0;
         // Pending durable jobs must publish full outcomes even before the
         // managed client has finished rebuilding its port objects.
         precise_receipts_enabled=!pipe_jobs.empty();moving_protocol_used=version>=9;
         // A wall queued to open is opening, as before the save.
-        for (const auto& e : pending_terrain) if (e.kind == MA_ONI_COLONY_OPEN) {
+        for (const auto& e : pending_terrain) if (e.kind == MA_ONI_COLONY_OPEN && !(config.flags&MA_ONI_COLONY_GAME_ACTIVITY)) {
             std::uint8_t closed = 0; owned[rect_index(geometry, e.public_cell)].compare_exchange_strong(closed, 3, std::memory_order_relaxed);
         }
     }

@@ -4,10 +4,10 @@
 game and Spaced Out! ([amendment](completion-plan.md#amendments)). The user's
 0.85× Windows playtest with stuttering input failed acceptance; the latest
 release goal is sustained actual 3× with smooth input. Profile8/core27 carries
-liquid-correction
-momentum and the adopted 1 mg interval floor. Region activity tiers now have an
-experimental solver core (profile9/core28); their owner integration, native
-frame waits, exact storage and the accuracy/persistence proofs remain open.
+liquid-correction momentum and the adopted 1 mg interval floor. Profile9/core28
+now integrates region activity tiers through the game owner, with wrapper14
+for immutable pending inputs. Actual speed, native frame waits, exact storage
+and the accuracy/persistence proofs remain open.
 
 This tracks work toward the full [completion plan](completion-plan.md), beyond
 the narrower first private base-game playtest. A private candidate is already
@@ -16,16 +16,22 @@ playtest deferrals remain recorded until their own controls pass.
 
 ## Current repairs
 
-- **3× instrumentation and activity core, 2026-10-28:** performance diagnostics
+- **3× instrumentation and activity integration, 2026-10-28:** performance diagnostics
   measure independent absolute owner/game clock deltas against monotonic wall
   time, retain pauses and report matched submit-through-managed-publication
   latency. Profile9/core28 adds persisted per-cell activity history, deterministic
-  regional remote cadence, no catch-up and an Always simulate control. It is
-  opt-in at the solver API; new game colonies still use profile8. Complete actor
-  census, native contact/input provenance, pending-input persistence and ordered
-  owner germs/conversions/sinks before enabling it. A fresh Linux Terra run
-  passes 450 frames, with warmed actual game throughput 1.935×, five GCs/15 s
-  and frame p99 120–123 ms. Full-game 3× and smooth-input acceptance remain open;
+  regional remote cadence, no catch-up and an Always simulate control. New
+  colonies use it with the actor census, native contact/input provenance,
+  immutable queued-frame save state and ordered owner germs/conversions/sinks.
+  Controls cover multiple queued cuts, cold claims, lifecycle refresh, passive
+  versus contact heat, terrain isolation and exact Always simulate equality.
+  The earlier profile8 Linux Terra baseline reaches 1.935×; integrated tiers
+  reach about 2.80× warmed actual owner/game progress. Owner work falls from
+  about 65 to 30 ms. One clean 15 s window has 3 GCs and frame p99 95 ms, versus 5
+  GCs and 120–123 ms in the earlier baseline. An opt-in trace attributes almost
+  all remaining throughput loss to discarded game-update time (original cap
+  plus pacing clipping); no admission policy change is adopted from that
+  measurement alone. Full-game 3× and smooth-input acceptance remain open;
   see [measurements and remaining optimizations](performance-acceptance.md#requested-3-release-goal-2026-10-28).
 - **Scenario baseline, 2026-10-28:** immutable `16da60c` also fails the unchanged
   freeze/melt check (357.9 kg, required >380 kg) and airflow gas check
@@ -129,16 +135,16 @@ playtest deferrals remain recorded until their own controls pass.
 | Work | Completion condition |
 | --- | --- |
 | [Exact component storage](mixed-pipes.md) | Transfers with outstanding thermal work, demolition, bottles and machine recipes preserve every constituent, energy and germ identity. Extend the verified reservoir binding/cleanup and schema7 empty-host retirement to the remaining lifecycle controls, then enable exact storage through the normal player path. |
-| [Active continuation](mixed-pipes.md) | Preserve callback-owned requests and rebind actors to stable identities; compare identical future inputs and complete owner, pipe/scheduling and particle states after source, cold and menu loads. Current first-resumed-frame differences remain failures. |
+| [Active continuation](mixed-pipes.md) | Pending activity requests now wait for supported actor startup, bind transactionally and survive zero-time flushes. Base-game paused resave and second cold file readback retain the full owner image and deliver the saved packet once with no released callback. Still compare identical future inputs and complete owner, pipe/scheduling and particle states after source, cold and menu loads; broader first-resumed-frame differences remain failures. |
 | [Game-profile accuracy](base-game-floor.md) | Establish the frozen initial fields and independent timing truths for F3 and F4, including solid heat exchange. Run the unchanged floor comparisons. The accepted 0.703 J storage residual does not waive F4 or other accuracy bounds. |
 | [Strong-flow accuracy](../native/MAC_STRONG_FLOW.md) | Repair the recorded collision-refinement and separation-velocity failures against their fixed grids and bounds. The separately recorded [gravity, free-surface, multiphase and vacuum gates](../native/MAC_GATES.md) already pass; preserve them. Game-profile floor results do not substitute for the strong-flow gate. |
 | [DLC gameplay](dlc-compatibility.md) | First release: base game and Spaced Out!. Multi-asteroid ownership, rocket interiors, ports, flight, retirement, teleporters and cargo pass targeted controls; verify generation, gameplay and persistence for both selections on both operating systems. Colonies with Frosty, Bionic, Prehistoric or Aquatic active must stay on ONI's simulation with a notice. Those packs (bionic oxygen, aquatic systems) follow later; their content is not installed here. |
 | [Starting air and progression](starting-air.md) | Nitrogen removed, default CO₂ opt-out, live switch, Advanced controls and finite starting oxylite reserve. Prove representative starts reach sustainable life support and endgame without developer intervention. |
 | [Mixture presentation](mixture-presentation.md) | Finish exact container coverage and the required real-game hover, detail, overlay and contrast checks on both operating systems. Prove the 100,000-cell publication and allocation requirements as well as functional display. |
 | [Performance](performance-acceptance.md#requested-3-release-goal-2026-10-28) | Latest release goal: sustained actual 3× with smooth input, camera and menus on the user's PC in representative base-game and Spaced Out! colonies. Fixed active-cell/duplicant, memory, disturbance-recovery and presentation bounds remain unchanged; current smaller-colony measurements do not certify them. Features may be removed for speed only by the user's choice. |
-| Boil-only phase change | Implemented in `1058d0d` (options version 2); profile8/core27 saves either phase rule and defaults to boil-only. The native control, saved-profile support and the earlier Linux in-game phase scenario pass in both modes. Open: Windows in-game check. |
-| Speed work, 2026-10-28 | Profile8/core27 is the new-colony default: momentum-carrying sharpening/layering plus the 1 mg interval floor. The matched fresh Spaced Out! replay drops mean owner time from 0.764 to 0.583 s and the defective magma face from −2,081 to −25 m/s; the twelve-dig replay passes. This contended 5900X evidence does not establish real time. Open: paused and 1 s-step remote regions, space-sink and owner overhead. |
-| Smooth input and UI | Readings allocate 64–68% less in fixed-JIT .NET controls and match the parent bytes across 60,000 cells plus 528 edge cases. Advanced → Performance → Log frame timing enables Windows diagnostics. A fresh 180-frame GPU Linux Terra run passes; its one clean 15 s window has two GCs and frame p95/p99 55/103 ms. Native logs separate owner waits (about 9–10 ms mean) from UpdateData (13–14 ms). The one-GC/15 s goal, native wait spikes and actual Windows smoothness remain open. |
+| Boil-only phase change | Implemented in `1058d0d` (options version 2); profile9/core28 retains either saved phase rule and defaults to boil-only. The native control, saved-profile support and the earlier Linux in-game phase scenario pass in both modes. Open: Windows in-game check. |
+| Speed work, 2026-10-28 | Profile9/core28 is the new-colony default with integrated paused/1 s remote regions; wrapper14 preserves queued census/input delivery. Profile8's momentum-carrying sharpening/layering and 1 mg interval floor remain. The earlier matched Spaced Out! replay drops mean owner time from 0.764 to 0.583 s and the defective magma face from −2,081 to −25 m/s; the twelve-dig replay passes. These contended profile8 numbers do not measure tiers or establish real time. Open: actual integrated throughput, regional critical paths, space-sink and owner overhead. |
+| Smooth input and UI | Readings allocate 64–68% less in fixed-JIT .NET controls and match the parent across 60,000 cells plus 528 edge cases. Event appends/prepends now omit temporary arrays; native reading copies use pinned publications. The integrated ultra Terra probe has one clean 15 s window with 3 GCs and frame p99 95 ms; native UpdateData remains about 14 ms. Advanced → Performance → Log frame timing enables Windows diagnostics. The one-GC/15 s goal and actual Windows smoothness remain open. |
 | [Compatibility and packaging](windows-validation.md) | Complete current-bundle gameplay, natural autosave, cold/menu load and UI checks; resolve portable Linux ABI validation; retain separate evidence for Proton and actual Windows OS. |
 | [Long regressions and release](completion-plan.md#release-acceptance) | Complete the base-game and Spaced Out! mode and all-content colony regressions, player documentation and human playtesting. Workshop publication remains a separate authorized action. |
 | Game-update resilience | The mod and its saves are pinned to ONI build 744825 (whole-file hashes, fixed hook addresses, save envelopes). Verify each build by what the mod actually depends on, fail closed with a clear message, load saves across supported builds, and provide a re-targeting tool for new builds. |

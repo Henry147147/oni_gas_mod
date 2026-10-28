@@ -2,6 +2,7 @@
 #include "mixed_atmospheres/mac_closed_world.hpp"
 #include <algorithm>
 #include <cmath>
+#include <memory>
 #include <stdexcept>
 
 namespace ma::experimental::game_kernel {
@@ -28,6 +29,21 @@ struct ActivityRegions {
     }
   }
 };
+// Activity connectivity depends only on solid walls. Actor snapshots and due
+// queries reuse it until geometry changes; face closures do not split regions.
+inline const ActivityRegions& cached_activity_regions(const MacGrid& g) {
+  struct Cache {
+    std::size_t width=0,height=0;
+    std::vector<std::uint8_t> walls;
+    std::unique_ptr<ActivityRegions> regions;
+  };
+  thread_local Cache cache;
+  if(!cache.regions || cache.width!=g.width || cache.height!=g.height || cache.walls!=g.walls) {
+    auto regions=std::make_unique<ActivityRegions>(g);
+    cache.walls=g.walls;cache.width=g.width;cache.height=g.height;cache.regions=std::move(regions);
+  }
+  return *cache.regions;
+}
 inline void validate_activity(std::span<const MacGameActivityCell> state,
                               std::size_t cells, double time,
                               std::span<const std::uint8_t> walls = {}) {

@@ -1,7 +1,9 @@
 #pragma once
 #include "tick.hpp"
+#include "regional_execution.hpp"
 #include <exception>
 #include <memory>
+#include <thread>
 
 namespace ma::experimental::game_kernel {
 // Solid walls make these systems independent. Keep explicit face barriers
@@ -21,6 +23,24 @@ class RegionalTick {
     std::unique_ptr<Tick> tick;
   };
   std::vector<Region> regions;
+  std::vector<RegionExecutionKey> execution_keys;
+  std::vector<Species> execution_species;
+  std::vector<PhasePair> execution_pairs;
+  MacGameSettings execution_settings;
+  bool execution_conduction=false,execution_sized=false,execution_carried=false;
+  double execution_floor=0;
+  std::shared_ptr<RegionalExecutionHistory> execution_history;
+  std::unique_ptr<Tick> parallel_tick;
+  std::optional<std::size_t> parallel_region;
+  std::unique_ptr<ma::experimental::mac_kernel::Pool> residual_pool;
+  std::unique_ptr<Tick> make_tick(const Region& r,unsigned threads) const {
+    const auto& cfg=execution_settings;
+    return std::make_unique<Tick>(r.box,execution_species,execution_pairs,threads,cfg.flow_parts,
+      cfg.gas_heat_mixing,cfg.sharpen_liquid_interfaces,cfg.interface_detail_fraction,
+      cfg.pressure_relative_tolerance,0,false,0,2,cfg.phase_relaxation_time_s,
+      execution_conduction,cfg.pressure_maximum_iterations,cfg.heat_maximum_iterations,true,true,true,
+      execution_sized,execution_carried,execution_floor);
+  }
   static Topology wall_topology(MacGrid source) {
     source.closed_x.clear();source.closed_y.clear();
     return Topology(Grid(source));
@@ -68,15 +88,22 @@ public:
   RegionalTick(const MacGrid& g,std::vector<Species> species,
                std::vector<PhasePair> pairs,unsigned threads,
                const MacGameSettings& cfg,bool conduction,bool sized_intervals=false,
-               bool carry_momentum=false,double bound_mass_floor=0)
+               bool carry_momentum=false,double bound_mass_floor=0,
+               std::shared_ptr<RegionalExecutionHistory> history={})
     :source(g),grid(g),pool(static_cast<unsigned>(std::min<std::size_t>(threads,grid.blocks))),
-     topology(wall_topology(g)),species_count(species.size()),regions(topology.count) {
+     topology(wall_topology(g)),species_count(species.size()),regions(topology.count),
+     execution_keys(regions.size()),execution_species(std::move(species)),execution_pairs(std::move(pairs)),
+     execution_settings(cfg),execution_conduction(conduction),execution_sized(sized_intervals),
+     execution_carried(carry_momentum),execution_floor(bound_mass_floor),
+     execution_history(history?std::move(history):std::make_shared<RegionalExecutionHistory>()) {
     std::vector<std::size_t> right(regions.size()),top(regions.size());
     for(auto& r:regions){r.x=g.width;r.y=g.height;}
     for(std::size_t i=0;i<grid.N;++i)if(!grid.wall[i]) {
       const auto id=topology.labels[i];auto& r=regions[id];
       const auto x=i%g.width,y=i/g.width;
-      if(r.x==g.width)r.representative=i;
+      if(r.x==g.width){r.representative=i;execution_keys[id].representative=i;}
+      ++execution_keys[id].cells;execution_keys[id].membership^=static_cast<std::uint64_t>(i);
+      execution_keys[id].membership*=1099511628211ULL;
       r.x=std::min(r.x,x);r.y=std::min(r.y,y);right[id]=std::max(right[id],x);top[id]=std::max(top[id],y);
     }
     for(std::size_t id=0;id<regions.size();++id) {
@@ -85,12 +112,11 @@ public:
       for(std::size_t i=0;i<b.walls.size();++i)b.walls[i]=topology.labels[global_cell(r,i)]!=id;
       if(!g.closed_x.empty()) {b.closed_x.resize(b.x_width()*b.height);for(std::size_t f=0;f<b.closed_x.size();++f)b.closed_x[f]=g.closed_x[global_face(r,true,f)];}
       if(!g.closed_y.empty()) {b.closed_y.resize(b.width*b.y_height());for(std::size_t f=0;f<b.closed_y.size();++f)b.closed_y[f]=g.closed_y[global_face(r,false,f)];}
-      r.tick=std::make_unique<Tick>(b,species,pairs,regions.size()==1?threads:1,cfg.flow_parts,
-        cfg.gas_heat_mixing,cfg.sharpen_liquid_interfaces,cfg.interface_detail_fraction,
-        cfg.pressure_relative_tolerance,0,false,0,2,cfg.phase_relaxation_time_s,
-        conduction,cfg.pressure_maximum_iterations,cfg.heat_maximum_iterations,true,true,true,sized_intervals,carry_momentum,bound_mass_floor);
+      r.tick=make_tick(r,regions.size()==1?threads:1);
     }
+    execution_history->retain(execution_keys);
   }
+  std::span<const RegionExecutionKey> execution_region_keys() const noexcept {return execution_keys;}
   unsigned threads_used() const noexcept {
     return regions.size()==1?regions.front().tick->threads_used():
       static_cast<unsigned>(std::max<std::size_t>(1,std::min<std::size_t>(pool.size(),regions.size())));
@@ -102,27 +128,47 @@ public:
                      std::span<const std::uint8_t> blocked={},std::size_t budget=65536,
                      std::span<const double> due={}) {
     if(!due.empty() && due.size()!=grid.N)throw std::invalid_argument("Game activity step coverage differs");
+    std::vector<double> steps(regions.size(),dt);
+    for(std::size_t id=0;id<regions.size();++id) {
+      const auto& r=regions[id];
+      const double step=due.empty()?dt:due[r.representative];
+      if(!std::isfinite(step) || step<0)throw std::invalid_argument("Invalid game activity step");
+      if(!due.empty())for(std::size_t i=0;i<r.box.walls.size();++i)
+        if(!r.box.walls[i] && due[global_cell(r,i)]!=step)
+          throw std::invalid_argument("Game activity region clocks differ");
+      steps[id]=step;
+    }
+    std::vector<RegionExecutionWork> execution_work;execution_work.reserve(regions.size());
+    for(std::size_t id=0;id<regions.size();++id) {
+      const auto& box=regions[id].box;const auto rows=Grid::block_rows(box.width);
+      execution_work.push_back({execution_keys[id],steps[id],static_cast<unsigned>((box.height+rows-1)/rows)});
+    }
+    const auto execution=execution_history->plan(execution_work,pool.size());
+    if(execution.parallel_region) {
+      const auto id=*execution.parallel_region;
+      if(parallel_region!=id || !parallel_tick || parallel_tick->threads_used()!=execution.inner_threads) {
+        auto candidate=make_tick(regions[id],execution.inner_threads);
+        const auto remaining=pool.size()-candidate->threads_used();
+        if(!residual_pool || residual_pool->size()!=remaining)
+          residual_pool=std::make_unique<ma::experimental::mac_kernel::Pool>(remaining);
+        parallel_tick=std::move(candidate);parallel_region=id;
+      }
+    }
     attempt_depth=refinement_depth=0;
     RegionAudit audit(grid,topology,species_count);Totals before;
     audit.capture(initial,gravity,1,&before,&pool);
     std::vector<TickResult> results(regions.size());std::vector<std::exception_ptr> errors(regions.size());
-    pool.run(regions.size(),[&](std::size_t id) {
+    std::vector<double> region_ms(regions.size());
+    const auto run_region=[&](std::size_t id) {
+      if(steps[id]==0)return;
+      const auto started=std::chrono::steady_clock::now();
       try {
         auto& r=regions[id];auto state=extract(initial,id);
         std::vector<std::uint8_t> local_blocked;
         if(!blocked.empty()) {local_blocked.resize(r.box.walls.size());for(std::size_t i=0;i<local_blocked.size();++i)local_blocked[i]=blocked[global_cell(r,i)];}
-        const double step=due.empty()?dt:due[r.representative];
-        if(!std::isfinite(step) || step<0)throw std::invalid_argument("Invalid game activity step");
-        if(!due.empty())for(std::size_t i=0;i<r.box.walls.size();++i)
-          if(!r.box.walls[i] && due[global_cell(r,i)]!=step)
-            throw std::invalid_argument("Game activity region clocks differ");
         try {
-          if(step>0)results[id]=r.tick->advance(state,step,gravity,threshold,local_blocked,budget);
-          else {
-            auto& held=results[id];held.eos=r.tick->evaluate_state(state);
-            held.state=std::move(state);held.sink_species.resize(species_count);
-            held.conversion_species.resize(species_count);
-          }
+          auto& tick=execution.parallel_region==id?*parallel_tick:*r.tick;
+          results[id]=tick.advance(state,steps[id],gravity,threshold,local_blocked,budget);
         }
         catch(const LiquidBoundaryConflict& e) {
           auto translated=e;
@@ -133,7 +179,14 @@ public:
           throw translated;
         }
       }catch(...){errors[id]=std::current_exception();}
-    });
+      region_ms[id]=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-started).count();
+    };
+    if(execution.parallel_region) {
+      const auto selected=*execution.parallel_region;
+      run_regional_pair([&]{run_region(selected);},[&]{
+        residual_pool->run(regions.size()-1,[&](std::size_t block){run_region(block<selected?block:block+1);});
+      });
+    } else pool.run(regions.size(),run_region);
     for(const auto& error:errors)if(error)std::rethrow_exception(error);
     TickResult out;out.state.energy=initial.energy;out.state.jx=initial.jx;out.state.jy=initial.jy;out.eos.resize(grid.N);
     std::vector<DoubleDouble> sinks(species_count),conversion(species_count);
@@ -141,6 +194,7 @@ public:
     DoubleDouble sink_u,sink_k,sink_g,sink_x,sink_y,wall_x,wall_y,body_y;
     out.regions=topology.count;
     for(std::size_t id=0;id<regions.size();++id) {
+      if(steps[id]==0)continue;
       const auto& r=regions[id];const auto& next=results[id];const auto cell=r.representative;
       attempt_depth=std::max(attempt_depth,next.pressure_attempts);
       refinement_depth=std::max(refinement_depth,next.pressure_refinements);
@@ -186,9 +240,10 @@ public:
       out.state.masses.offsets.push_back(out.state.masses.mass.size());out.state.passives.offsets.push_back(out.state.passives.mass.size());
       if(grid.wall[i])continue;
       const auto id=topology.labels[i];const auto& r=regions[id];const auto local=i%source.width-r.x+(i/source.width-r.y)*r.box.width;
-      const auto& state=results[id].state;
-      for(auto a=state.masses.offsets[local];a<state.masses.offsets[local+1];++a) {out.state.masses.species.push_back(state.masses.species[a]);out.state.masses.mass.push_back(state.masses.mass[a]);}
-      if(!state.passives.offsets.empty())for(auto a=state.passives.offsets[local];a<state.passives.offsets[local+1];++a) {out.state.passives.species.push_back(state.passives.species[a]);out.state.passives.mass.push_back(state.passives.mass[a]);}
+      const auto& state=steps[id]>0?results[id].state:initial;
+      const auto source_cell=steps[id]>0?local:i;
+      for(auto a=state.masses.offsets[source_cell];a<state.masses.offsets[source_cell+1];++a) {out.state.masses.species.push_back(state.masses.species[a]);out.state.masses.mass.push_back(state.masses.mass[a]);}
+      if(!state.passives.offsets.empty())for(auto a=state.passives.offsets[source_cell];a<state.passives.offsets[source_cell+1];++a) {out.state.passives.species.push_back(state.passives.species[a]);out.state.passives.mass.push_back(state.passives.mass[a]);}
     }
     out.state.masses.offsets.push_back(out.state.masses.mass.size());out.state.passives.offsets.push_back(out.state.passives.mass.size());
     Totals after;audit.capture(out.state,gravity,-1,&after,&pool);out.region_error=audit.finish();
@@ -209,7 +264,8 @@ public:
     out.energy_residual=energy.residual;out.energy_operands=energy.operands;
     out.energy_error=energy.operands.value()?std::abs(energy.residual.value())/energy.operands.value():0;
     out.momentum_error=std::max(mx.operands.value()?std::abs(mx.residual.value())/mx.operands.value():0,my.operands.value()?std::abs(my.residual.value())/my.operands.value():0);
-    out.totals=std::move(after);out.sink_j=removed_energy.value();return out;
+    out.totals=std::move(after);out.sink_j=removed_energy.value();
+    execution_history->committed(execution_work,region_ms,execution);return out;
   }
 };
 } // namespace ma::experimental::game_kernel

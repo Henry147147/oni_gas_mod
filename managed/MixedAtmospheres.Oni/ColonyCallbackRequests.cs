@@ -31,14 +31,15 @@ namespace MixedAtmospheres.Oni
         internal static int Rebound { get; private set; }
         internal static int ReleasedRequests { get; private set; }
         internal static int HeldTicks { get; private set; }
+        internal static int ReadinessWaits { get; private set; }
         internal static string LastDetail { get; private set; } = "";
         internal static bool Pending => loaded != null;
-        internal static void Reset() { loaded = null; SavedRequests = RestoredRequests = Rebound = ReleasedRequests = HeldTicks = 0; LastDetail = ""; }
+        internal static void Reset() { loaded = null; SavedRequests = RestoredRequests = Rebound = ReleasedRequests = HeldTicks = ReadinessWaits = 0; LastDetail = ""; }
         internal static object Report()
         {
             uint awaiting = 0; ulong released = 0;
             if (ColonyOwner.Active) OniNativeColony.Check(OniNativeColony.CallbackRebindState(out awaiting, out released));
-            return new { SavedRequests, RestoredRequests, Rebound, Released = ReleasedRequests, HeldTicks, Awaiting = awaiting, NativeReleased = released, Pending, LastDetail };
+            return new { SavedRequests, RestoredRequests, Rebound, Released = ReleasedRequests, HeldTicks, ReadinessWaits, Awaiting = awaiting, NativeReleased = released, Pending, LastDetail };
         }
 
         internal static ColonyCallbackIdentity? Identify(object? value)
@@ -164,7 +165,8 @@ namespace MixedAtmospheres.Oni
         internal static void Unload() { loaded = null; }
 
         // After the owner restore, before positive time. Returns false while
-        // an actor is still registering; final=true releases what remains.
+        // a supported saved identity has not spawned/registered yet; final=true
+        // retains the existing explicit fallback for requests that remain missing.
         internal static bool TryRebind(bool final)
         {
             if (!ColonyOwner.Active) return true;
@@ -172,23 +174,12 @@ namespace MixedAtmospheres.Oni
             if (awaiting == 0) { loaded = null; return true; }
             if (loaded == null || loaded.Count != awaiting)
                 throw new InvalidDataException("The colony's callback-owned requests do not match their saved actors.");
-            var values = new OniNativeColony.CallbackRebind[loaded.Count];
-            var bound = 0; var released = 0;
-            for (var k = 0; k < loaded.Count; ++k)
-            {
-                var entry = loaded[k]; int? callback = null;
-                if (entry.Kind == Actor && entry.Target != null)
-                {
-                    callback = ColonyActors.HandleOf(entry.Target);
-                    if (callback == null && !final && ColonyActors.Registering(entry.Target)) return false;
-                }
-                else if ((entry.Kind == Consumed || entry.Kind == Emitted) && entry.Target != null && Resolve(entry.Target) is object data)
-                    callback = entry.Kind == Consumed ? AddConsumed(entry, data) : FindEmitted(entry, data);
-                values[k] = callback is int value && value >= 0 ? new OniNativeColony.CallbackRebind { Callback = value, Bind = 1 } :
-                    new OniNativeColony.CallbackRebind { Callback = 0, Bind = 0 };
-                if (values[k].Bind == 1) ++bound; else ++released;
-            }
-            OniNativeColony.Check(OniNativeColony.RebindCallbacks(values, (uint)values.Length));
+            var probes=new RebindProbe[loaded.Count];var states=new ColonyCallbackReadiness[loaded.Count];
+            for(var k=0;k<loaded.Count;++k){probes[k]=Probe(loaded[k]);states[k]=probes[k].State;}
+            if(!ColonyCallbackRebindPlan.TryCommit(states,final,k=>Prepare(probes[k]),bindings=>
+                OniNativeColony.Check(OniNativeColony.RebindCallbacks(bindings.Select(b=>b.Native).ToArray(),(uint)bindings.Length)),
+                binding=>binding.Undo?.Invoke(),out PreparedRebind[] prepared)){++ReadinessWaits;return false;}
+            var bound=prepared.Count(b=>b.Native.Bind!=0);var released=prepared.Length-bound;
             Rebound += bound; ReleasedRequests += released; loaded = null;
             if (released != 0) Debug.LogWarning($"[Mixed Atmospheres] {released} in-flight request(s) from the save had no actor to answer and were released.");
             return true;
@@ -203,16 +194,61 @@ namespace MixedAtmospheres.Oni
             catch (Exception error) { ColonyLoadRefusal.Refuse(error); return false; }
             ++HeldTicks; return false;
         }
-        private static int? AddConsumed(ColonyCallbackEntry entry, object data)
+        private sealed class RebindProbe
         {
-            var callback = Rebuild(entry, typeof(Action<Sim.MassConsumedCallback, object>), data) as Action<Sim.MassConsumedCallback, object>;
-            if (callback == null) return null;
-            return Game.Instance.massConsumedCallbackManager.Add(callback, data, entry.Debug).index;
+            internal ColonyCallbackReadiness State;
+            internal int? Existing;
+            internal ColonyCallbackEntry Entry=null!;
+            internal object? Data;
+            internal Action<Sim.MassConsumedCallback,object>? ConsumedCallback;
+        }
+        private readonly struct PreparedRebind
+        {
+            internal readonly OniNativeColony.CallbackRebind Native;
+            internal readonly System.Action? Undo;
+            internal PreparedRebind(int callback,System.Action? undo=null)
+            { Native=new OniNativeColony.CallbackRebind{Callback=callback,Bind=1};Undo=undo; }
+        }
+        private static RebindProbe Probe(ColonyCallbackEntry entry)
+        {
+            var probe=new RebindProbe{Entry=entry};
+            if(entry.Kind==Released || entry.Target==null)return probe;
+            probe.State=ColonyCallbackReadiness.Waiting;
+            if(entry.Kind==Actor)
+            {
+                probe.Existing=ColonyActors.HandleOf(entry.Target);
+                if(probe.Existing is int handle&&handle>=0)probe.State=ColonyCallbackReadiness.Ready;
+                return probe;
+            }
+            if(entry.Kind!=Consumed&&entry.Kind!=Emitted){probe.State=ColonyCallbackReadiness.Unsupported;return probe;}
+            probe.Data=Resolve(entry.Target);
+            if(probe.Data==null || probe.Data is KMonoBehaviour component&&!component.isSpawned)return probe;
+            if(entry.Kind==Consumed)
+            {
+                probe.ConsumedCallback=Rebuild(entry,typeof(Action<Sim.MassConsumedCallback,object>),probe.Data) as Action<Sim.MassConsumedCallback,object>;
+                probe.State=probe.ConsumedCallback==null?ColonyCallbackReadiness.Unsupported:ColonyCallbackReadiness.Ready;
+            }
+            else
+            {
+                probe.Existing=FindEmitted(entry,probe.Data,out var ambiguous);
+                probe.State=ambiguous?ColonyCallbackReadiness.Unsupported:
+                    probe.Existing is int handle&&handle>=0?ColonyCallbackReadiness.Ready:ColonyCallbackReadiness.Waiting;
+            }
+            return probe;
+        }
+        private static PreparedRebind Prepare(RebindProbe probe)
+        {
+            if(probe.Existing is int callback)return new PreparedRebind(callback);
+            var manager=Game.Instance.massConsumedCallbackManager;
+            var handle=manager.Add(probe.ConsumedCallback!,probe.Data!,probe.Entry.Debug);
+            return new PreparedRebind(handle.index,()=>
+            { if(manager.IsVersionValid(handle))manager.Release(handle,"restored callback binding rolled back"); });
         }
         // Emitted-mass callbacks are persistent registrations made by their
         // component; the restored component already holds its own handle.
-        private static int? FindEmitted(ColonyCallbackEntry entry, object data)
+        private static int? FindEmitted(ColonyCallbackEntry entry, object data,out bool ambiguous)
         {
+            ambiguous=false;
             var handleType = typeof(HandleVector<Game.ComplexCallbackInfo<Sim.MassEmittedCallback>>.Handle);
             int? found = null;
             foreach (var field in AccessTools.GetDeclaredFields(data.GetType()).Where(f => f.FieldType == handleType && !f.IsStatic))
@@ -224,7 +260,7 @@ namespace MixedAtmospheres.Oni
                 catch (Exception error) when (error is ArgumentException || error is IndexOutOfRangeException) { continue; }
                 if (!ReferenceEquals(item.callbackData, data) || item.cb == null || item.cb.Method.Name != entry.Method ||
                     item.cb.Method.DeclaringType?.FullName != entry.DeclaringType) continue;
-                if (found != null) return null; // ambiguous
+                if (found != null) {ambiguous=true;return null;}
                 found = handle.index;
             }
             return found;

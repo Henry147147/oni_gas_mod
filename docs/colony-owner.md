@@ -111,6 +111,74 @@ once (`ma_oni_colony_fault`, `ColonyFault`): owned pipes freeze with the fluids,
 the notice shows, and the exception never reaches the sim step, which would
 otherwise stop every later step without telling the player.
 
+## Region activity tiers
+
+New managed colonies request `MA_ONI_COLONY_GAME_ACTIVITY` (flag 16, alongside
+`GAME_KERNEL|GAME_SURFACE`), selecting profile9 / physical checkpoint28.
+Native callers that retain flags13 continue to select profile8. Old saved
+profiles retain their pipeline and checkpoint bytes. **Always simulate** is a
+saved profile9 policy: it runs the profile8 physical pipeline every frame.
+No sustained 3× performance claim follows from the tier implementation.
+
+Each positive managed `NewGameFrame` queues its complete actor census and a
+one-frame touched-cell union after its actor inputs. Native code allocates a
+logical submission sequence and records cuts in the transfer, heat, terrain,
+freeze and germ queues. Each native ticket consumes exactly one census and
+only that packet's managed prefix, plus its own captured native boundary
+inputs. Frames do not coalesce. The sequence is independent of observation
+polling, frame timing and logging. Queuing takes only the input lock and does
+not wait for the solver or a lifecycle fence.
+
+The adaptive owner accepts exactly `double(0.2f)` per native frame. Its core
+maximum timestep may divide that interval into one, two or four steps. A
+remote deadline has period 1 s, so this interval contains at most one remote
+event per region; the shared policy's aggregate due duration therefore defines
+one owner-stage interval. Larger or differently represented adaptive frames
+are refused. Always simulate and older profiles retain their previous timestep
+contract. This restriction is essential: an arbitrary aggregate of several
+remote events does not establish the order of nonlinear owner stages.
+
+External inputs commit first and wake every affected region: accepted fluid
+and moving-parcel transfers, terrain/freezes, germ edits, reservoir releases,
+precision releases and actual native body/contact heat. Passive solid heat
+books the same energy without a wake (`MAOniColonyHeat.reserved=1` on profile9);
+zero-time contacts do not count. A contact touch queue that cannot retain more
+entries conservatively wakes all cells and saves that fallback as a full touch
+list. The native shadow exposes only the terrain prefix of its bound packet,
+so later queued closes cannot alter an earlier native frame.
+
+For adaptive frames, germ input edits apply immediately and the due cells
+receive their scheduled biological time before flow. Per-cell fractions below
+the game's 0.2 s biological tick persist; diffusion and growth touch only due
+cells. The core advances with the same planner. Identity conversions, trace
+removal, blocking-cell cleanup and the space sink then run only in due cells;
+conversion uses each cell's actual due duration. Paused regions can therefore
+retain traces, freezing minorities, germs and space inventory until a real
+input wakes them. Ledgers still audit all held inventory. A wake, policy change
+or idle pause discards held evolution time rather than catching up.
+
+Owner wrapper14 saves logical sequence watermarks, each queued census and its
+input cuts, pending policy, lifecycle census/touch union, contact touches and
+per-cell biological fractions. Callback wrapper13 may enclose base14. On
+restore, saved positive packets are exposed as unclaimed. The adapter validates
+the exact saved timestep, claims each packet in order, skips its already-saved
+actor input generation/census, and resubmits the native frame. A lifecycle
+census has zero time, never consumes a positive packet, unions pending touches
+and replaces actor presence. It waits behind older positive packets or folds
+into the next fresh census. Repeating unchanged zero-time presence is a
+metadata no-op. Restored callback-owned requests inside a protected positive
+packet remain unresolved through unrelated zero-time flushes. An unresolved
+callback in the uncaptured tail refuses flushing until explicitly rebound;
+its saved ordinal is never executed as a live callback. Saving still requires
+the native-frame fence; a partly captured native frame cannot be saved.
+
+`ma_oni_colony_sample_activity` observes selected cells' actor marks and saved
+clocks from one immutable publication. It changes no physics. The focused
+`ma_oni_colony_tests --activity-only` control covers the owner pipeline, queue
+cuts/claims, cold continuation, policy changes, native-shadow ordering,
+passive/contact heat, dormant post stages, remote/idle clocks and Always
+simulate's profile8 physical bytes across worker counts.
+
 ## Presentation
 
 After each completed owner frame the mod builds one mixture reading per open
@@ -1458,6 +1526,14 @@ Environment variables of the game process (the harness passes them through):
   never finishes is caught).
 - `MA_COLONY_STAGE_LOG=1`: every tenth owner frame, each stage's wall time and
   the frame's edit counts (in the run's `Player.log`).
+- `MA_COLONY_PACING_LOSS_LOG=1`: bounded aggregates for each 50 owner-frame
+  window, including its first/last target frame. Records raw positive offered
+  time, the existing 0.2 s cap loss, final admitted time, busy pacing loss and
+  other guard loss separately. Load, continuation and callback readiness
+  refusals count as other guard loss. Nested calls, exceptions and accounting
+  overflow have separate counters. The observer is absent when unset and
+  changes no timestep, pacing fence or saved data; it does not recover lost
+  time. Compare windows 151–200, 201–250 and 251–300 for the warmed interval.
 - `MA_COLONY_PUBLICATION_LOG=1`: each managed publication's view copy, snapshot
   capture, overlay, receipts, actors, retirement and presentation hand-off in
   milliseconds, plus the presentation copy and pacing CPU time separately.

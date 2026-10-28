@@ -75,6 +75,13 @@ internal static class ColonyValidationLimitsTests
             reject(()=>Valid(new ColonyValidationConfiguration{Mode="colony-owner",VanillaLoad=true}));
             check(Valid(new ColonyValidationConfiguration{Mode="colony-owner-load",VanillaLoad=true}).VanillaLoad);
         });
+        test("paused resave admits both owned load paths and refuses fresh or vanilla scenes",()=> {
+            foreach(var mode in new[]{"native-load-domain","colony-owner-load"})
+                check(Valid(new ColonyValidationConfiguration{Mode=mode,SaveBeforeResume=true}).SaveBeforeResume);
+            foreach(var mode in new[]{"native-domain","colony-owner","native-observer","snapshot-copy"})
+                reject(()=>Valid(new ColonyValidationConfiguration{Mode=mode,SaveBeforeResume=true}));
+            reject(()=>Valid(new ColonyValidationConfiguration{Mode="colony-owner-load",SaveBeforeResume=true,VanillaLoad=true}));
+        });
         test("short requests reject their old out-of-range values and name the explicit long-run opt-in",()=> {
             foreach(var value in new[]{Request("native-domain",0,600),Request("native-domain",-1,600),Request("native-domain",120,29),
                 Request("native-unknown",120,600),Request("Native-Domain",120,600),Request("native-domain",100001,600),

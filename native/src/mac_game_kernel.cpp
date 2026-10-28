@@ -132,7 +132,8 @@ k::State sparse(const MacTransportState &state, mac_kernel::Pool *pool = nullptr
 MacTransportState dense(const MacTransportState &source, const k::State &state,
                         std::size_t species,
                         const std::vector<k::Eos> &readings,
-                        mac_kernel::Pool *pool = nullptr) {
+                        mac_kernel::Pool *pool = nullptr,
+                        std::span<const std::uint8_t> rebuilt = {}) {
   MacTransportState result;
   result.grid = source.grid;
   result.cells.resize(state.energy.size());
@@ -142,6 +143,13 @@ MacTransportState dense(const MacTransportState &source, const k::State &state,
   chunks(pool, state.energy.size(), [&](std::size_t, std::size_t first, std::size_t end) {
     for (std::size_t i = first; i < end; ++i) {
       auto &cell = result.cells[i];
+      if (!rebuilt.empty() && !rebuilt[i]) {
+        cell = source.cells[i];
+        result.occupied_volumes_m3[i] = source.occupied_volumes_m3.empty()
+            ? (!source.grid.walls[i] && cell.mixture.mass() > 0 ? source.grid.volume_m3() : 0)
+            : source.occupied_volumes_m3[i];
+        continue;
+      }
       cell.mixture = MixtureInventory(species);
       cell.mixture.energy = state.energy[i];
       for (std::size_t a = state.masses.offsets[i];
@@ -464,6 +472,7 @@ MacClosedAdvance MacGameKernelAccess::advance_guarded(
     bool conduction = true, closure = false, trace_heat = false, bounded = false, sized = false, carried = false;
     std::unique_ptr<k::Tick> tick;
     std::unique_ptr<k::RegionalTick> regional;
+    std::shared_ptr<k::RegionalExecutionHistory> regional_execution;
   };
   thread_local Cache cache;
   const auto &cfg = source.settings_.game;
@@ -493,8 +502,10 @@ MacClosedAdvance MacGameKernelAccess::advance_guarded(
       pairs.push_back({p.liquid, p.vapour, p.critical_temperature_k,
                        cfg.phase_rule == MacPhaseRule::boil_only});
     if(bounded) {
+      if(!cache.regional_execution || cache.eos!=source.thermodynamics_ || cache.threads!=threads)
+        cache.regional_execution=std::make_shared<k::RegionalExecutionHistory>();
       cache.regional=std::make_unique<k::RegionalTick>(source.state().grid,species,pairs,threads,cfg,source.settings_.thermal_conduction,sized,
-                                                       carried,carried?1e-6:0.);
+                                                       carried,carried?1e-6:0.,cache.regional_execution);
       cache.tick.reset();
     } else {
     cache.tick = std::make_unique<k::Tick>(
@@ -532,12 +543,14 @@ MacClosedAdvance MacGameKernelAccess::advance_guarded(
   std::vector<k::Eos> last;
   k::Totals last_totals;
   std::vector<MacGameActivityCell> activity_state;
-  std::optional<k::ActivityRegions> activity_regions;
+  std::vector<std::uint8_t> evolved;
+  const k::ActivityRegions* activity_regions=nullptr;
   if(activity) {
+    evolved.resize(source.state().cells.size());
     k::validate_activity(source.game_activity(),source.state().cells.size(),source.time_s_,source.state().grid.walls);
     k::validate_activity_interval(seconds,source.settings_.maximum_timestep_s,budget);
     activity_state.assign(source.game_activity().begin(),source.game_activity().end());
-    activity_regions.emplace(source.state().grid);
+    activity_regions=&k::cached_activity_regions(source.state().grid);
   }
   result.report.game_converted_mass_kg.assign(source.registry_.size(), 0);
   std::size_t activity_intervals=0;
@@ -550,6 +563,7 @@ MacClosedAdvance MacGameKernelAccess::advance_guarded(
         std::min(source.settings_.maximum_timestep_s, seconds - elapsed);
     const auto due=activity?k::activity_step(source.state().grid,*activity_regions,
         activity_state,cfg,source.time_s_+elapsed,dt):std::vector<double>{};
+    if(activity)for(std::size_t i=0;i<due.size();++i)if(due[i]>0)evolved[i]=1;
     stamp = std::chrono::steady_clock::now();
     auto next = bounded?
         cache.regional->advance(state,dt,source.settings_.gravity_m_per_s2,
@@ -573,7 +587,10 @@ MacClosedAdvance MacGameKernelAccess::advance_guarded(
     stages.pressure_attempts += next.pressure_attempts;
     stages.pressure_refinements += next.pressure_refinements;
     state = std::move(next.state);
-    last = std::move(next.eos);
+    if(activity) {
+      if(last.empty())last.resize(next.eos.size());
+      for(std::size_t i=0;i<due.size();++i)if(due[i]>0)last[i]=next.eos[i];
+    } else last = std::move(next.eos);
     last_totals = std::move(next.totals);
     MacTraceSinkReport sink;
     fill_trace(sink, next.sink_species, next.sink_internal, next.sink_kinetic,
@@ -602,7 +619,7 @@ MacClosedAdvance MacGameKernelAccess::advance_guarded(
   }
   stamp = std::chrono::steady_clock::now();
   result.world = source.derived(
-      dense(source.state(), state, source.registry_.size(), last));
+      dense(source.state(), state, source.registry_.size(), last, nullptr, evolved));
   stages.dense_ms = since(stamp);
   result.world.game_totals_ =
       std::make_shared<const k::Totals>(std::move(last_totals));
@@ -637,24 +654,44 @@ std::optional<MacGameAuditTotals> MacClosedWorld::game_audit_totals() const {
   out.energy_j = value(game_totals_->energy);
   return out;
 }
-MacTraceSink MacGameKernelAccess::trace(const MacClosedWorld &world) {
+MacTraceSink MacClosedWorld::with_trace_sink_in_cells(std::span<const std::size_t> cells) const {
+  require(settings_.numerical_kernel == MacNumericalKernel::game,
+          "Selected trace removal requires the game kernel");
+  if (cells.empty()) return {*this, {}};
+  std::vector<std::uint8_t> eligible(state().cells.size());
+  std::size_t previous = 0;
+  for (std::size_t k = 0; k < cells.size(); ++k) {
+    const auto cell = cells[k];
+    require(cell < eligible.size() && (k == 0 || cell > previous),
+            "Selected trace cells must be sorted, unique and in range");
+    eligible[cell] = 1; previous = cell;
+  }
+  return MacGameKernelAccess::trace(*this, eligible);
+}
+MacTraceSink MacGameKernelAccess::trace(const MacClosedWorld &world,
+                                       std::span<const std::uint8_t> eligible) {
+  require(eligible.empty() || eligible.size() == world.state().cells.size(),
+          "Trace activity coverage differs");
   MacTraceSink out{world, {}};
   const double threshold = world.settings_.trace_sink_threshold_kg;
   if (threshold == 0)
     return out;
   bool found = false;
-  for (const auto &c : world.state().cells)
+  for (std::size_t i = 0; i < world.state().cells.size(); ++i) {
+    if (!eligible.empty() && !eligible[i]) continue;
+    const auto &c = world.state().cells[i];
     if (!c.mixture.masses.implicit_zero())
       for (double m : c.mixture.masses)
         if (m > 0 && m < threshold)
           found = true;
+  }
   if (!found)
     return out;
   const auto species = table(world.registry_, *world.thermodynamics_,
                              world.settings_.game.liquid_stiffness_ratio, world.settings_.game.liquid_law);
   const auto state = sparse(world.state());
   auto sunk = k::trace_sink(world.state().grid, species, state, threshold,
-                            world.settings_.gravity_m_per_s2);
+                            world.settings_.gravity_m_per_s2, nullptr, nullptr, nullptr, eligible);
   std::vector<k::Eos> readings(state.energy.size());
   for (std::size_t i = 0; i < readings.size(); ++i)
     if (!world.state().grid.walls[i]) {
@@ -666,7 +703,7 @@ MacTraceSink MacGameKernelAccess::trace(const MacClosedWorld &world) {
           sunk.state.energy[i], world.state().grid.volume_m3());
     }
   out.world = world.derived(
-      dense(world.state(), sunk.state, world.registry_.size(), readings));
+      dense(world.state(), sunk.state, world.registry_.size(), readings, nullptr, eligible));
   fill_trace(out.report, sunk.mass, sunk.internal, sunk.kinetic, sunk.potential,
              sunk.jx, sunk.jy, sunk.passives);
   out.report.constituents = sunk.constituents;
