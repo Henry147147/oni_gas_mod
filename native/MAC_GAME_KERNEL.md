@@ -474,3 +474,25 @@ The core reader preserves versions20–23 and their original policies. Ordinary
 mod loading refuses those R&D saves with instructions to start a new colony;
 there is no supported save migration. A private same-state version23-to-24
 copy is used only to compare the affected colony under the two policies.
+
+### Performance follow-up
+
+A shared executor for regions of at least4,096 cells was measured and rejected.
+On the same saved frame32 physical state, eight advances repeated three times
+were byte-identical to the accepted code, but mean advance time increased
+from1.4423 to1.9311 s (+33.9%). The accepted implementation and private ZIP
+retain the previous executor ownership. The paired evidence is
+`artifacts/temperature-pooled-physical-benchmark/summary.json`.
+
+An observational profile of the accepted code also retains all eight checkpoint
+images exactly. A 2,846-cell remote magma region accounts for most work:
+6,066 of7,953 retries, all caused by the net-volume limit. Two cells contain
+magma/rock-gas mixtures with substantial canonical momentum. Over eight
+advances that region spends4.66 s in pressure,3.60 s in transport,1.03 s in
+EOS work and1.29 s in audits; heat costs only3.5 ms. The report is
+`artifacts/temperature-accepted-region-profile/summary.json`.
+This is a same-state physical-kernel benchmark without owner-level inputs or
+conversions; it is not a whole-game performance acceptance run. No timestep,
+phase-conversion rate, trace threshold or acceptance bound was changed to
+obtain these measurements. Further optimization must address that local flow
+without restoring the overfill defect.
