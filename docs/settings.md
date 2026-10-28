@@ -44,14 +44,16 @@ versions or using the earlier pressure profiles20–23 are refused with a reason
 before native loading. Start a new colony for the corrected pressure update.
 
 Colony settings are stored in the physical image (solver and the evaporation
-rule: core25, or core24 with evaporation below boiling) and MACOLP03 section 3
+rule: core26 with the boil-only or equilibrium phase-rule selector) and MACOLP03 section 3
 (breathing). Preferences live in the user's config and are not stored in colony
 saves.
 
-The solver is always the supported one: game profile 6 (core25, or core24
-with evaporation below boiling) with mixed pipes. No setting selects the
-production kernel, the game-floor profile, an older game-kernel profile or
-single-element packet pipes; only profile 6's own saved tunables vary, within
+The solver is always the supported one: game profile 7 (core26, either
+phase rule; [speed profile 7](../native/MAC_GAME_KERNEL.md#retry-storms-and-speed-profile-7))
+with mixed pipes. Colonies created earlier keep game profile 6 (core24/25).
+No setting selects the production kernel, the game-floor profile, an older
+game-kernel profile or single-element packet pipes; only profile 7's own saved
+tunables vary, within
 the ranges below. A value outside the measured one
 is marked **experimental** in the window. The native library refuses values
 outside the ranges (`ma_oni_colony_set_options`); a refusal starts the colony
@@ -128,7 +130,7 @@ which adds `evaporation_below_boiling`).
 | `solver.interfaceDetail` | Thinnest sharpened film | 0 | 0–0.5 of a cell (≠0 experimental) | Thinner films are left unsharpened | core24/25 |
 | `solver.phaseRelaxationSeconds` | Boiling/condensation time | 1 s | 0.1–10 s (≠1 experimental) | Liquid/vapour relaxation time constant (other conversions keep 1 s) | core24/25 |
 | `solver.traceThresholdKg` | Trace removal threshold | 1e-11 kg | 1e-11–1e-6 kg (≠1e-11 experimental) | Per-constituent booked trace sink; 1 mg ceiling | core24/25 |
-| `liquids.evaporationBelowBoiling` | Evaporation below boiling (Gameplay) | off | on/off | Off: liquid/vapour pairs compare saturation with the total gas pressure (boil-only, ONI-like condensation, no humidity); on: the vapour's partial pressure (evaporation into unsaturated gas) | core25 phase rule; on writes core24 |
+| `liquids.evaporationBelowBoiling` | Evaporation below boiling (Gameplay) | off | on/off | Off: liquid/vapour pairs compare saturation with the total gas pressure (boil-only, ONI-like condensation, no humidity); on: the vapour's partial pressure (evaporation into unsaturated gas) | core26 phase-rule selector (1 off, 0 on) |
 | `breathing.co2Limits` | CO₂ breathing limits | off | on/off | Enforce the CO₂ share and partial pressure thresholds; oxygen remains required when off | section 3 v3 |
 | `breathing.minimumOxygenFraction` | Minimum oxygen share | 15% | 5–25% | Breathable with at least this oxygen share by moles (polluted oxygen counts) | section 3 |
 | `breathing.minimumOxygenPressurePa` | Minimum oxygen partial pressure | 15 kPa | 1–50 kPa | …and at least this oxygen partial pressure | section 3 |

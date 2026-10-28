@@ -140,8 +140,10 @@ profile or claim validation.
 *Implemented 2026-10-28* ([speed profile 7](MAC_GAME_KERNEL.md#retry-storms-and-speed-profile-7)):
 version26 writes version24's fields, then the u32 phase-rule selector after
 the heat iteration cap: 0 for the equilibrium rule, 1 for boil-only (the same
-selector version25 holds). Other values reject as noncanonical. Profile7 is
-not yet the new-colony default.
+selector version25 holds). Other values reject as noncanonical. New
+colonies create profile7 with the boil-only selector (1); existing core24/25
+colonies keep profile6, and `MA_COLONY_KERNEL3_PROFILE6=1` still creates
+profile6 for the controls written for it.
 
 **Reserved 2026-10-28 immediately after fetching `058683a`:** physical
 `MACCLS01` version **25** identifies game profile **6** with the saved

@@ -342,7 +342,7 @@ unchanged. A cell moves 1 − exp(−dt / 1 s) of the way to equilibrium per ste
 so a superheated pool boils over seconds instead of flashing (Terra's small
 liquid carbon dioxide pools under thin gas otherwise collapse the step to 2 ms).
 
-The game kernel (game profile6, new colonies) runs the same relaxation inside
+The game kernel (game profile7 for new colonies, profile6 for earlier ones) runs the same relaxation inside
 each tick. Its saved rule is boil-only by default
 ([boil-only rule](../native/MAC_PHASE_CHANGE.md#boil-only-rule)): saturation is
 compared with the cell's total gas pressure, so liquids vaporise only by boiling,

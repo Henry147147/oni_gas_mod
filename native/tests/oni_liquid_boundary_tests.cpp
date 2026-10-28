@@ -18,6 +18,20 @@ using namespace ma;
 using namespace ma::experimental;
 using namespace ma::oni::colony;
 void check(bool ok,const char* why) {if(!ok)throw std::runtime_error(why);}
+// Creates new colonies with game profile 6 while it lives
+// (MA_COLONY_KERNEL3_PROFILE6=1), restoring the variable afterwards.
+struct Profile6Colonies {
+    std::string previous;bool present=false;
+    Profile6Colonies() {if(const char* v=std::getenv("MA_COLONY_KERNEL3_PROFILE6")){previous=v;present=true;}set("1");}
+    ~Profile6Colonies() {set(present?previous.c_str():nullptr);}
+    static void set(const char* value) {
+#ifdef _WIN32
+        _putenv_s("MA_COLONY_KERNEL3_PROFILE6",value?value:"");
+#else
+        if(value)setenv("MA_COLONY_KERNEL3_PROFILE6",value,1);else unsetenv("MA_COLONY_KERNEL3_PROFILE6");
+#endif
+    }
+};
 constexpr std::uint32_t oxygen=3,marker=4,water=5,steam=6;
 constexpr double dt=static_cast<double>(.2f);
 MAOniColonyMaterial material(const char* id,int hash,unsigned native,bool gas,double molar,double cp,double rho=0) {
@@ -138,7 +152,38 @@ void legacy_fixture() {
 }
 }
 
+namespace {
+// The airflow-tile column on the new-colony default, profile 7 (boil-only):
+// under the current owner law and under the old version-11 law the water
+// front stays behind the column, the column's water returns each frame and
+// no water reaches it or the cells beyond. In ONI airflow tiles block liquid.
+void profile7_airflow_column_control() {
+    set_options(nullptr);set_diseases({}, {},0);const auto cfg=config();const auto mats=materials();const auto cat=catalogue(mats);
+    const auto filled=fill_front(cfg,mats);const auto world=physical(filled,cat);
+    check(world.settings().game_profile==MacGameProfile::game_kernel_sized_intervals &&
+          world.settings().game.phase_rule==MacPhaseRule::boil_only,"New colony is not boil-only profile7");
+    const double water_total=owner_mass(water,1);
+    open_membrane();const auto pending=checkpoint();
+    for(std::uint64_t t=2;t<=8;++t) {
+        tick(t);check(owner_mass(water,5)==0,"Profile7 water crossed the airflow column");
+    }
+    check(std::abs(owner_mass(water,1)-water_total)<=1e-9*water_total,"Profile7 airflow column changed the water inventory");
+    stop();
+    auto old=pending;old[8]=11;rehash(old);restore(cfg,mats,old,1);
+    for(std::uint64_t t=1;t<=6;++t) {
+        tick(t);check(owner_mass(water,5)==0,"Profile7 water crossed the airflow column under the old law");
+    }
+    check(std::abs(owner_mass(water,1)-water_total)<=1e-9*water_total,"Profile7 old-law airflow column changed the water inventory");
+    stop();
+    std::cout<<"PROFILE7 AIRFLOW COLUMN PASS: boil-only core26; water beyond the column 0 kg for 7 frames (current law) and 6 frames (old law); water inventory "<<water_total<<" kg kept\n";
+}
+}
+
 void airflow_boundary_control() {
+    profile7_airflow_column_control();
+    // The controls below were written for the profile-6 default; they keep
+    // their inputs and bounds on that profile.
+    const Profile6Colonies profile6;
     using ma::oni::colony::detail::advance_liquid_boundary;
     dry_cell_operators();
     set_options(nullptr);set_diseases({}, {},0);const auto cfg=config();const auto mats=materials();const auto cat=catalogue(mats);

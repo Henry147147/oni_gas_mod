@@ -554,8 +554,8 @@ Three changes reduce the cost of these intervals:
   single reductions below 4,096 cells, 1,024-row reductions above. A control
   compares both paths bit for bit. Setup had been about 0.8 ms of a 1.3 ms
   one-iteration solve on a 9,000-cell component.
-- *Game profile7 / physical checkpoint26* (new colonies still create
-  profile6). Profile6's equations, criterion, tolerances and caps; each
+- *Game profile7 / physical checkpoint26* (the new-colony default since
+  the commit after it; existing profile6 colonies keep their profile). Profile6's equations, criterion, tolerances and caps; each
   interval is proposed from the swept volume the previous trial measured: a
   net-volume rejection retries at `0.9 / ratio` of its interval (at most
   half), other refinements halve, an accepted interval proposes 90% of the
@@ -598,15 +598,15 @@ Spaced Out! colony (frames4–43) averages 1.31 s per frame with profile6 and
 1.16 s with profile7; the magma face still forms there (up to −2,081 m/s).
 Without interface sharpening it never forms (at most −70 m/s) and the same
 replay averages 1.05 s; that is a measurement of the cause, not a setting
-change. Making profile7 the new-colony default is a one-line change in the colony
-owner's settings, but one control must first be rebuilt: the owner's legacy
-liquid-boundary law check (`oni_colony_owner`, an image relabelled as owner
-wrapper11) expects a water front to cross an airflow-tile column within one
-frame. On profile6 253.6 kg crosses; on profile7 the front reaches the
-column more gradually, each frame's expulsion returns it, and none crosses in
-six frames. A wrapper11 image with a profile7 core cannot exist, so that
-fixture should be created on profile6. The owner's creation, option and
-restore controls pass with profile7 and core26 expectations.
+change. New colonies create profile7 with the boil-only rule. The owner's legacy
+liquid-boundary law control (an image relabelled as owner wrapper11) was
+written for profile6 and expects its water front to cross an airflow-tile
+column within one frame (253.6 kg on profile6); it now names profile6 with
+`MA_COLONY_KERNEL3_PROFILE6=1`, a creation selector for such controls. On
+profile7 the same front stays behind the column under both owner laws (each
+frame's expulsion returns the column's water); a separate control asserts
+that for seven frames under the current law and six under the old law, as
+ONI's airflow tiles block liquid.
 
 Profile7 roughly halves the attempts of the storm regions;
 it does not reach real time on these states. The remaining cost is the
