@@ -26,6 +26,11 @@ means fall 15–20% in two captured windows. All 89 Linux/Windows-under-Wine tes
 87 short MAC output comparisons and managed/Python suites pass. Two longer Linux
 runs still reach only about 2.6× warmed speed; actual 3× remains open.
 
+**Texture allocation reduction, 2026-10-28:** bounded numeric texture caching
+retains original rich/fallback behavior and passes 569,496 controls in each
+standard default/opt-out process. A private Linux comparison halves clean-window
+GC frames and reaches 2.667× warmed speed; Windows OS and sustained 3× remain open.
+
 **Temperature regression, 2026-10-28:** controlled digging in the user's
 uploaded colony reproduced large gas overfill and temperature swings.
 Profile6 / core24 checks pressure intervals before transport and advances

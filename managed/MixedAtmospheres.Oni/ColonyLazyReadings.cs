@@ -31,6 +31,7 @@ namespace MixedAtmospheres.Oni
         internal long ReleasedAt;      // Stopwatch ticks when replaced; 0 while published or being filled
         internal bool Pooled;
         internal bool Sorted;          // PublicCell ascending: lookups bisect
+        internal ColonyCompactReadings.Cache? CompactCache;
         internal Dictionary<int, int>? Index; // otherwise, built once on first lookup
     }
 
@@ -68,7 +69,8 @@ namespace MixedAtmospheres.Oni
                     ++Allocated;
                     if (chosen.Pooled) buffers.Add(chosen);
                 }
-                chosen.ReleasedAt = 0; chosen.Lease = ++leases; chosen.Index = null; chosen.Count = chosen.PartCount = 0;
+                if(ColonyCompactReadings.Enabled && chosen.Pooled && chosen.CompactCache==null)chosen.CompactCache=new ColonyCompactReadings.Cache(4093);
+                chosen.ReleasedAt = 0; chosen.Lease = ++leases; chosen.CompactCache?.Activate(chosen.Lease); chosen.Index = null; chosen.Count = chosen.PartCount = 0;
             }
             return chosen;
         }
@@ -80,7 +82,9 @@ namespace MixedAtmospheres.Oni
             lock (buffers) buffer.ReleasedAt = Stopwatch.GetTimestamp();
         }
 
-        internal static void Reset() { lock (buffers) buffers.Clear(); }
+        internal static long CompactSlots { get { lock(buffers){long slots=0;foreach(var b in buffers)slots+=b.CompactCache?.Slots.Length??0;return slots;} } }
+        internal static void RetireCompactModels() {lock(buffers)foreach(var buffer in buffers)buffer.CompactCache?.RetireModel();}
+        internal static void Reset() { lock (buffers) {foreach(var buffer in buffers)buffer.CompactCache?.RetireModel();buffers.Clear();} }
     }
 
     // The readings of one completed frame, built on demand per cell.
@@ -138,6 +142,17 @@ namespace MixedAtmospheres.Oni
             if (!Current) { Interlocked.Increment(ref ColonyReadingPool.StaleReads); value = null!; return false; }
             return true;
         }
+        internal bool PrepareTextureScalars(int width,int x0,int y0,int x1,int y1,out int count)
+        {count=0;return Current&&ColonyCompactReadings.Prepare(buffer,lease,width,x0,y0,x1,y1,table.Ids.Length,out count)&&Current;}
+        internal bool TrySampleTexture(int key,MixturePresentationModel model,double x,double y,out MixtureTextureScalars value)
+        {
+            value=default;if(!Current)return false;
+            var i=IndexOf(key);if(i<0 || buffer.Readings[i].Constituents>Math.Min(table.Ids.Length,ColonyCompactReadings.MaximumCompactConstituents))return false;
+            var constructorRejected=false;
+            try{value=ColonyCompactReadings.SampleCached(buffer,table,i,lease,revision,model,x,y,out constructorRejected);}
+            catch(ArgumentException) when(constructorRejected){return false;} // existing full path owns rejection/cache diagnostics
+            if(!Current){value=default;return false;}return true;
+        }
         public bool ContainsKey(int key) => Current && IndexOf(key) >= 0;
         public MixtureThermodynamicReading this[int key] => TryGetValue(key, out var value) ? value : throw new KeyNotFoundException();
         public IEnumerable<int> Keys { get { for (var i = 0; i < Count; ++i) yield return (int)buffer.Readings[i].PublicCell; } }
@@ -155,13 +170,15 @@ namespace MixedAtmospheres.Oni
 
     // Presentations of those readings, described on first use and kept for the
     // frame (readers ask for the same visible cells every Unity frame).
-    internal sealed class ColonyLazyPresentations : IReadOnlyDictionary<int, MixturePresentation>
+    internal sealed class ColonyLazyPresentations : IReadOnlyDictionary<int, MixturePresentation>, ICompactTextureSource
     {
         private readonly ColonyLazyReadings readings;
         private readonly MixturePresentationModel model;
         private readonly ConcurrentDictionary<int, MixturePresentation?> cache = new ConcurrentDictionary<int, MixturePresentation?>();
         internal ColonyLazyPresentations(ColonyLazyReadings readings, MixturePresentationModel model) { this.readings = readings; this.model = model; }
 
+        public bool PrepareTextureScalars(int width,int x0,int y0,int x1,int y1,out int count)=>readings.PrepareTextureScalars(width,x0,y0,x1,y1,out count);
+        public bool TrySampleTexture(int key,double x,double y,out MixtureTextureScalars value)=>readings.TrySampleTexture(key,model,x,y,out value);
         public int Count => readings.Count;
         public bool TryGetValue(int key, out MixturePresentation value)
         {

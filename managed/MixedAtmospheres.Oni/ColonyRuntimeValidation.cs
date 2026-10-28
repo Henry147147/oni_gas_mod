@@ -459,7 +459,7 @@ namespace MixedAtmospheres.Oni
                 WallSeconds = (System.DateTime.UtcNow - colonyOwnerWallStart).TotalSeconds,
                 Performance = ColonyPerformanceLog.Timerun(),
                 PausedResave = ColonyOwnerPausedResave.Report(),
-                RegionActivity = ColonyActivity.Report(),
+                RegionActivity = ColonyActivity.Report(), CompactTextures = ColonyCompactReadings.Report(),
                 PresentationFrames = ColonyPresentation.Publications, PresentationRejectedCells = ColonyPresentation.RejectedCells, ColonyPresentation.FirstRejection,
                 PresentationBuildMilliseconds = ColonyPresentation.LastBuildMilliseconds, PresentationCopyMilliseconds = ColonyPresentation.CopyMilliseconds,
                 ColonyOwner.PublicationMilliseconds, ColonyOwner.MaximumPublicationMilliseconds, PresentationError = ColonyPresentation.LastError,

@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <AssemblyName>MixedAtmospheres.Tests</AssemblyName>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <OniGameDir Condition="'$(OniGameDir)' == ''">$(ONI_GAME_DIR)</OniGameDir>
+    <OniManagedDir>$(OniGameDir)/OxygenNotIncluded_Data/Managed</OniManagedDir>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../managed/MixedAtmospheres.Oni/MixedAtmospheres.Oni.csproj" />
+    <Reference Include="Assembly-CSharp"><HintPath>$(OniManagedDir)/Assembly-CSharp.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="UnityEngine.CoreModule"><HintPath>$(OniManagedDir)/UnityEngine.CoreModule.dll</HintPath><Private>false</Private></Reference>
+    <EmbeddedResource Include="../../managed/MixedAtmospheres.Core/MixtureThermodynamicReading.cs" LogicalName="OriginalRichConstructor.cs" />
+    <EmbeddedResource Include="../../managed/MixedAtmospheres.Core/MixturePresentation.cs" LogicalName="OriginalRichPresentation.cs" />
+  </ItemGroup>
+</Project>

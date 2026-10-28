@@ -13,6 +13,9 @@ namespace MixedAtmospheres.Oni
     // Grid's dominant element is never interpreted as a mixture inventory.
     internal static class MixturePresentationRuntime
     {
+        // Immutable per process;0 keeps the original rich renderer for comparison.
+        internal static readonly bool CompactTexturesEnabled = Environment.GetEnvironmentVariable("MA_COLONY_COMPACT_TEXTURES") != "0";
+
         private static readonly object Sync = new object();
         private static readonly Dictionary<string, InventoryRegistration> Registrations = new Dictionary<string, InventoryRegistration>(StringComparer.Ordinal);
         private static MixturePresentationModel? model;
@@ -523,6 +526,12 @@ namespace MixedAtmospheres.Oni
             InventoryErrors = new ReadOnlyDictionary<string, string>(errors);
         }
 
+        internal bool PrepareTextureScalars(int x0,int y0,int x1,int y1,out int count)
+        {count=0;return fixtures is ICompactTextureSource compact&&compact.PrepareTextureScalars(Width,x0,y0,x1,y1,out count);}
+        internal bool TryGetTextureScalars(int cell,double x,double y,out MixtureTextureScalars value)
+        {
+            value=default;return fixtures is ICompactTextureSource compact && compact.TrySampleTexture(cell,x,y,out value);
+        }
         internal bool TryGetCell(int globalCell, out MixturePresentation? reading)
         {
             if (fixtures != null) return fixtures.TryGetValue(globalCell, out reading);

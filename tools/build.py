@@ -78,6 +78,16 @@ def main() -> None:
              "--game", f"{game_platform}={game}", "--contract", str(contract)])
         run(["dotnet", "run", "--project", "tools/ColonyConduitHookTests", "-c", "Release",
              "-p:OniGameDir=" + str(Path(args.game_dir).resolve()), "--", str(Path(args.game_dir).resolve())])
+        # Independent rich/golden oracle stays in ReadingEquivalenceTests above;
+        # this suite exercises scalar/cache/frame/error behavior against that
+        # unchanged rich path, using generated data and inspected declarations.
+        compact_env = env.copy()
+        compact_env.pop("MA_COLONY_COMPACT_TEXTURES", None)
+        run(["dotnet", "run", "--project", "tools/CompactTextureTests", "-c", "Release",
+             "-p:OniGameDir=" + str(game), "--", str(game)], compact_env)
+        compact_env["MA_COLONY_COMPACT_TEXTURES"] = "0"
+        run(["dotnet", "run", "--project", "tools/CompactTextureTests", "-c", "Release", "--no-build",
+             "-p:OniGameDir=" + str(game), "--", str(game)], compact_env)
         run(["dotnet", "run", "--project", "tools/OwnedSnapshotTests", "-c", "Release",
              "-p:OniGameDir=" + str(Path(args.game_dir).resolve()), "--", str(Path(args.game_dir).resolve())])
         run(["dotnet", "run", "--project", "tools/OwnedReservoirTests", "-c", "Release",

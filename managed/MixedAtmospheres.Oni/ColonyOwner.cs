@@ -536,11 +536,13 @@ namespace MixedAtmospheres.Oni
             var consumed = new List<Sim.MassConsumedCallback>(); var emitted = new List<Sim.MassEmittedCallback>();
             var removed = new List<Sim.ConsumedMassInfo>();
             var through = 0UL; var delivered = (int)Math.Min(count, (uint)receipts.Length);
-            var byproducts=0;long byproductTicks=0;
+            var byproducts=0;long byproductTicks=0,maximumByproductTicks=0;
+            var receiptCollections=publicationLog ? GC.CollectionCount(0) : 0;
             // Spawning a byproduct is a game object: a burst of them is spread
             // over publications. The rest stay unacknowledged in the owner and
             // arrive, in order, with the next ones (docs/colony-owner.md#main-thread-smoothness).
-            var limited = ReceiptBudgetTicks > 0 && delivered <= ReceiptBacklogLimit && ColonySaveBarrier.StepSeconds > 0;
+            var stepSeconds = ColonySaveBarrier.StepSeconds;
+            var limited = ReceiptBudgetTicks > 0 && delivered <= ReceiptBacklogLimit && stepSeconds > 0;
             for (var k = 0; k < delivered; ++k)
             {
                 var r = receipts[k];
@@ -553,7 +555,11 @@ namespace MixedAtmospheres.Oni
                 {
                     var before=publicationLog ? System.Diagnostics.Stopwatch.GetTimestamp() : 0;
                     SpawnByproduct(r);
-                    if(publicationLog) { byproductTicks+=System.Diagnostics.Stopwatch.GetTimestamp()-before;++byproducts; }
+                    if(publicationLog)
+                    {
+                        var elapsed=System.Diagnostics.Stopwatch.GetTimestamp()-before;
+                        byproductTicks+=elapsed;maximumByproductTicks=Math.Max(maximumByproductTicks,elapsed);++byproducts;
+                    }
                 }
                 else if (r.Kind == OniNativeColony.Extract)
                     consumed.Add(new Sim.MassConsumedCallback { callbackIdx = r.Callback, elemIdx = (ushort)r.NativeIndex, mass = r.MassKg,
@@ -573,7 +579,8 @@ namespace MixedAtmospheres.Oni
             if(publicationLog)
             {
                 var finished=System.Diagnostics.Stopwatch.GetTimestamp();var factor=1000.0/System.Diagnostics.Stopwatch.Frequency;
-                Debug.Log(FormattableString.Invariant($"[Mixed Atmospheres] receipt delivery frame {status.CompletedFrames} available {count} delivered {delivered} copy_ms {(copied-begun)*factor:F3} dispatch_ms {(dispatched-copied)*factor:F3} byproducts {byproducts} byproduct_ms {byproductTicks*factor:F3} append_ms {(appended-dispatched)*factor:F3} ack_ms {(acknowledged-appended)*factor:F3} settle_ms {(finished-acknowledged)*factor:F3}"));
+                var receiptCollectionsAfter=GC.CollectionCount(0);
+                Debug.Log(FormattableString.Invariant($"[Mixed Atmospheres] receipt delivery frame {status.CompletedFrames} available {count} delivered {delivered} copy_ms {(copied-begun)*factor:F3} dispatch_ms {(dispatched-copied)*factor:F3} byproducts {byproducts} byproduct_ms {byproductTicks*factor:F3} append_ms {(appended-dispatched)*factor:F3} ack_ms {(acknowledged-appended)*factor:F3} settle_ms {(finished-acknowledged)*factor:F3} step_s {stepSeconds:R} limited {(limited?1:0)} budget_ms {ReceiptBudgetTicks*factor:F3} byproduct_max_ms {maximumByproductTicks*factor:F3} gc_delta {unchecked(receiptCollectionsAfter-receiptCollections)}"));
             }
         }
 

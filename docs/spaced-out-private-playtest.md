@@ -69,8 +69,9 @@ After testing, send `%USERPROFILE%\AppData\LocalLow\Klei\Oxygen Not Included\Pla
 
 ## Verified scope
 
-All game evidence here is **WindowsPlayer under Proton on Linux**, not Windows
-OS evidence or a prediction for the user's 9950X/5070 Ti.
+The historical game controls in the table below use **WindowsPlayer under
+Proton on Linux**. The current candidate's Linux and Wine evidence is described
+above; none certifies Windows OS behavior or the user's 9950X/5070 Ti speed.
 
 | Control | Evidence and provenance |
 | --- | --- |

@@ -237,15 +237,51 @@ windows. This single ordered pair has differing gameplay inputs and proves no
 whole-game speedup. Ordinary play skips this configured harness report path.
 The observer remains private. See `harness-overhead/README.md`.
 
-**Next:** measure the private compact-rendering cache in an unpaired 900-frame
-run against the same cadence30/new-native baseline. Its final rich constructor
-and disabled color loops match the original source; 118,750,539 captured Mono
-property/color bytes and 6,144 actual CPU texture destinations match, with no
-paired mismatch. Actual Mono allocation counting is unsupported. Cached Mono
-viewport loops improve about 18%, but uncached loops regress and oversized
-viewports fall back. Keep it private until actual GC/speed benefit is verified.
-Late receipt/byproduct work and main-thread costs still need attribution;
-byproduct counts are receipt deliveries, not counts of newly created objects.
+The bounded compact texture cache is now integrated, enabled by default with
+`MA_COLONY_COMPACT_TEXTURES=0` retaining the original renderer. Viewport preflight
+and guarded optional getter binding preserve fallback for unsupported/oversized
+batches and lifecycle context failures. The original rich constructor and full
+color/off loops stay independent. Tracked `tools/CompactTextureTests` runs in
+both default and opt-out processes through `tools/build.py`: each passes
+569,496 scalar/cache/error/lifetime/viewport controls, including source/value
+oracles and deliberate mutation negatives. Existing original-value goldens stay
+separate. The full official managed/game-contract suites and 439 Python tests
+pass; Windows managed contract checks 2,587 dependencies with zero differences.
+Native sources/DLLs are unchanged from the 89-test passive candidate.
+
+The private compact-on 900-frame run passes at 2.667× warmed owner / 2.668×
+game speed versus cadence30's 2.588/2.590×. Three clean-window GC counts fall
+3/4/5→1/2/3, approximate heap growth 188/269/345→60/127/155 KB per Unity frame
+and p99 90/104/146→32/101/108 ms. This is one ordered comparison with differing
+runtime inputs, not a precise causal speedup estimate. The cache admits about
+95% of batches with about 95% hits; 126,883 retained numeric slots are below
+the 196,464 bound. .NET warmed allocation controls pass; actual Mono allocation
+counting is unsupported. Same-runtime original/current captures match
+118,750,539 bytes; the separate actual CPU destination proof matches 6,144
+texture samples without mismatch, not GPU readback. See `compact-observer/`,
+`linux-compact-observer900/` and [performance scope](performance-acceptance.md#cached-texture-scalars).
+
+**Next:** pin down and test the receipt-budget bypass. Existing publication
+logging in a separate diagnostic run attributes 3.543 of 3.554 s of dispatch
+to 35,970 byproduct calls. Copy/append/ack costs are only 1.75/2.80/3.06 ms
+in total. Five ready counts exceed 1,500, but unbounded long batches also occur
+below that threshold. Game API inspection confirms ordinary low-dt polling
+calls `StepTheSim(0)`; the old `StepSeconds > 0` budget gate therefore also
+bypasses ordinary polls. New optional logs capture step duration, admission,
+budget, maximum single spawn and collections, without changing policy.
+A private explicit settlement-scope candidate passes 102,336 controls and an
+old-predicate negative control fails as expected. It is not adopted: verify
+actual backlog/throughput, save/startup/retirement and cold restoration first.
+Byproduct counts are receipt deliveries, not newly created objects; the game
+merges before instantiating. See `linux-compact-publication900/` and
+`receipt-budget/` under the artifacts.
+
+A second private pacing experiment retains a configurable maximum of 2 s,
+leaving the original 0.4 s default, 0.2f argument cap and 1f/60f repayment cap.
+The original 17,138 controls plus 102,908 added checks pass; real Mono/Harmony
+passes 81 original plus five configured checks in each separate bound process.
+No production pacing changes are adopted. An actual clock/input/GC run is still
+needed. See `pacing-retention2/`; preserve the old baseline and its limitations.
 
 Nearby searches cost about 0.06 ms in measured replays, all reservoir anchors
 are open and saved precision inventories are empty. The cold first DLC transfer

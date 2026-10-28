@@ -10,4 +10,10 @@
   <ItemGroup>
     <InternalsVisibleTo Include="MixedAtmospheres.Tests" />
   </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="MixedAtmospheres.Oni" />
+    <InternalsVisibleTo Include="OwnedSnapshotTests" />
+    <InternalsVisibleTo Include="MixtureInspectionTests" />
+    <InternalsVisibleTo Include="NativeDescriptionTests" />
+  </ItemGroup>
 </Project>

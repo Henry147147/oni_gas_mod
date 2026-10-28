@@ -357,7 +357,7 @@ namespace MixedAtmospheres.Core
         }
     }
 
-    public sealed class MixturePresentationModel
+    public sealed partial class MixturePresentationModel
     {
         private readonly FluidMaterialCatalog catalog;
         private readonly IReadOnlyDictionary<string, MixtureSpeciesStyle> styles;

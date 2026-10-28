@@ -34,4 +34,5 @@
   <Target Name="RequireGameAssemblies" BeforeTargets="ResolveAssemblyReferences">
     <Error Condition="!Exists('$(OniManagedDir)/Assembly-CSharp.dll')" Text="A licensed ONI installation is required. Set ONI_GAME_DIR or /p:OniGameDir to its root. Run tools/inspect_oni.py first." />
   </Target>
+  <ItemGroup><InternalsVisibleTo Include="MixedAtmospheres.Tests" /></ItemGroup>
 </Project>

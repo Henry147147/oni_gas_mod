@@ -789,6 +789,13 @@ stuttering camera at 0.85x) and the fixes:
   outcome; a backlog over 1,500 receipts, zero-time steps (saves, restores,
   startup) and a save barrier deliver everything at once, so saves still hold
   every receipt.
+- **Visible-cell allocations.** Bounded texture batches now sample cached
+  numeric values from the retained immutable frame, avoiding rich cell objects
+  for color, opacity and hazard. Unsupported/oversized batches retain the
+  original path; hover and detailed readers retain their rich readings. The
+  900-frame Linux comparison halves GC-containing frames in three clean
+  windows, but late receipt costs remain. See
+  [texture measurements](performance-acceptance.md#cached-texture-scalars).
 - **Per-frame reflection.** The pacing read the player's speed through a new
   reflection `Traverse` each Unity frame; it uses cached field references.
 - What remains on the game thread is ONI's own synchronous wait in

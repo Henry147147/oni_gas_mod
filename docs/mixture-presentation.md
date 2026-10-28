@@ -512,6 +512,18 @@ explicit boundary input, not a powered device or complete colony ownership.
 
 ### Performance
 
+The 2026-10-28 texture path uses a bounded numeric cache over immutable colony
+readings, preserving the original rich reading/presentation path for hover,
+validation and fallback. It avoids constructing those objects for admitted
+color, opacity and hazard batches. Viewport preflight, lease/model keys and
+bounded scratch prevent oversized batches, stale frames and retained model
+references from changing behavior. The original rich constructor and full
+color loop remain independent equivalence oracles. Same-runtime differential
+and actual CPU texture comparisons match; GPU readback is separate.
+A 900-frame Linux comparison reduces clean-window GC frames from 3/4/5 to
+1/2/3 and reaches 2.667× warmed owner speed, still below 3×. See
+[scope and measurements](performance-acceptance.md#cached-texture-scalars).
+
 Host benchmark (`--presentation-benchmark`): 100,000 cells of 21% O2/79% N2,
 single shared-host samples with ONI closed, allocations in decimal MB. The
 all-changed update gives every cell a distinct heat input, creating new

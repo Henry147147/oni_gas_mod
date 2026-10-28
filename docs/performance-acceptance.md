@@ -300,6 +300,56 @@ remain unadopted; late main-thread work and GC still need attribution.
 Private evidence under `artifacts/tier-integration-2026-10-28/`:
 `passive-expiring/`, `linux-base-stage2-capture/` and `harness-overhead/`.
 
+### Cached texture scalars
+
+The next private 900-frame run enables bounded compact texture sampling with
+the same native code, observer cadence30, seed, workers, GPU and speed setting.
+It samples numeric presentation values from the immutable reading frame instead
+of constructing full reading/presentation objects for each visible cell. A
+viewport preflight rejects collisions, oversized bounds or unsupported tables
+before using the original renderer. Cache keys include frame lease, model and
+coordinates; retiring a lease clears references and prevents an old reader from
+reinstalling them. At most 48 pooled buffers have 4,093 numeric slots each.
+
+| Clean-window measure | Original texture path | Compact cache |
+| --- | --- | --- |
+| GC-containing frames per 15 s | 3 / 4 / 5 | 1 / 2 / 3 |
+| Approximate heap growth, KB/Unity frame | 188 / 269 / 345 | 60 / 127 / 155 |
+| Frame p99, ms per window | 90 / 104 / 146 | 32 / 101 / 108 |
+| Warm owner/game progress | 2.588 / 2.590× | 2.667 / 2.668× |
+
+Both runs pass; this is one ordered comparison with differing runtime inputs,
+not a precise causal speedup estimate. Actual Mono allocation counting is
+unsupported. The compact run admits 5,896 of 6,208 texture batches and has
+13,630,746 cache hits versus 711,207 misses. It retains 126,883 numeric slots,
+below the 196,464-slot bound. Paired correctness is disabled for this timing
+run. The separate actual-game correctness control matches 6,144 CPU texture
+destinations with zero mismatches; this is not GPU readback. Same-runtime
+original/current controls also match 118,750,539 captured property, rejection
+and unquantized-color bytes. Original rich validation/color loops remain the
+independent oracle. These results justify the bounded cache, not sustained 3×
+or the full smoothness gate. Late receipt work and GC remain open.
+The production default now uses that cache, with `MA_COLONY_COMPACT_TEXTURES=0`
+for the original path. Standard CI runs 569,496 controls in each mode, including
+source/golden mutation negatives and optional getter/lifecycle fallback. The
+full managed/game-contract suites and 439 Python tests pass; Windows contract
+verification checks 2,587 dependencies with zero differences. Native code is
+unchanged from the verified 89-test passive candidate.
+Private evidence: `compact-observer/`, `linux-compact-observer900/` and
+`texture-shortcut/` under the same artifact folder.
+
+A separate publication-logging diagnostic ends at actual owner frame903. Across
+932 nonempty publications, 35,970 byproduct calls consume 3.543 of 3.554 s of
+dispatch, while receipt copy/append/ack total only 1.75/2.80/3.06 ms. Five ready
+counts exceed the 1,500 bypass threshold, but long unbounded batches also occur
+below it. Ordinary game polling can call `StepTheSim(0)`, which the existing
+receipt gate treats as an unbudgeted step. Optional per-publication fields now
+identify `step_s`, `limited`, `budget_ms`, `byproduct_max_ms` and `gc_delta`;
+policy is unchanged. An explicit settlement-scope fix remains private pending
+actual backlog, save/lifecycle and performance tests. Diagnostic logging adds
+overhead; neither its timing nor receipt counts establish achieved throughput
+or the number of newly created objects.
+
 ### Measurement and test harness first
 
 - Measure both `GameClock` and owner-clock deltas against monotonic wall time

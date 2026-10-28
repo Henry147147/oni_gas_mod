@@ -15,7 +15,7 @@ namespace MixedAtmospheres.Oni
     // Retains TerrainBG's shipped compiled gas shader, stock detail/flow inputs,
     // render queue and Gas/GasFront passes. Only their three existing property
     // textures are supplied from an explicit immutable mixture publication.
-    internal static class MixtureWorldRendering
+    internal static partial class MixtureWorldRendering
     {
         private static readonly PropertyTextures.Property[] GasProperties =
         { PropertyTextures.Property.GasColour, PropertyTextures.Property.GasPressure, PropertyTextures.Property.GasDanger };
@@ -23,6 +23,66 @@ namespace MixedAtmospheres.Oni
         private static readonly FieldInfo PressureRange = AccessTools.Field(typeof(PropertyTextures), "PressureRange");
         private static readonly FieldInfo MinimumVisibility = AccessTools.Field(typeof(PropertyTextures), "MinPressureVisibility");
         private static readonly FieldInfo LerperCamera = AccessTools.Field(typeof(TextureLerper), "cameraGO");
+        private static readonly bool compactTextures = MixturePresentationRuntime.CompactTexturesEnabled;
+        internal delegate void VisibleRange(PropertyTextures owner, out int x0, out int y0, out int x1, out int y1);
+        private static readonly VisibleRange? readVisibleRange = compactTextures
+            ? TryBindVisibleRange(() => AccessTools.Method(typeof(PropertyTextures), "GetVisibleCellRange"))
+            : null;
+        internal static bool CompactRangeAvailable => readVisibleRange != null;
+
+        // Optional cache admission must not poison the renderer's initializer.
+        // Binding inspects metadata only; it never calls the game getter.
+        internal static VisibleRange? TryBindVisibleRange(Func<MethodInfo?> lookup,
+            Func<MethodInfo, VisibleRange>? bind = null)
+        {
+            try
+            {
+                var method = lookup();
+                if (method == null || method.IsStatic || method.ReturnType != typeof(void) ||
+                    method.DeclaringType == null || !method.DeclaringType.IsAssignableFrom(typeof(PropertyTextures))) return null;
+                var parameters = method.GetParameters();
+                if (parameters.Length != 4 || parameters.Any(p => !p.IsOut || p.ParameterType != typeof(int).MakeByRefType())) return null;
+                return bind != null ? bind(method) : AccessTools.MethodDelegate<VisibleRange>(method);
+            }
+            catch (Exception error) when (error is ArgumentException || error is MissingMemberException ||
+                error is NotSupportedException || error is InvalidOperationException || error is MemberAccessException ||
+                error is TypeLoadException || error is TargetInvocationException)
+            {
+                return null;
+            }
+        }
+
+        internal static bool TryPrepareOptionalTextures(VisibleRange? getter, PropertyTextures owner,
+            RuntimeMixturePresentationFrame frame)
+        {
+            if (getter == null) return false;
+            try
+            {
+                getter(owner, out var x0, out var y0, out var x1, out var y1);
+                return frame.PrepareTextureScalars(x0, y0, x1, y1, out _);
+            }
+            catch (Exception error) when (error is NullReferenceException || error is InvalidOperationException ||
+                error is ArgumentException || error is IndexOutOfRangeException)
+            {
+                // Camera/reset teardown can make the optional early lookup
+                // unavailable. The original LateUpdate retains its own guards.
+                // Sampling/model/coordinate failures remain outside this catch.
+                return false;
+            }
+        }
+        internal sealed class CompactTexturePlan
+        {
+            internal readonly RuntimeMixturePresentationFrame Frame;
+            internal readonly OpacityParameters Parameters;
+            internal readonly bool Admitted;
+            internal CompactTexturePlan(RuntimeMixturePresentationFrame frame, OpacityParameters parameters, bool admitted)
+            {
+                Frame = frame;
+                Parameters = parameters;
+                Admitted = admitted;
+            }
+        }
+        private static CompactTexturePlan? texturePlan;
         private static RuntimeMixturePresentationFrame? textureFrame, overlayFrame;
         private static OpacityParameters opacity = new OpacityParameters(15, 200, 0.1);
         private static ScheduleOverride? schedule;
@@ -128,7 +188,8 @@ namespace MixedAtmospheres.Oni
 
         private static void BeginTextureBatch(PropertyTextures __instance, out RenderBatchState __state)
         {
-            __state = new RenderBatchState(Volatile.Read(ref textureFrame));
+            __state = new RenderBatchState(Volatile.Read(ref textureFrame),Volatile.Read(ref texturePlan));
+            Volatile.Write(ref texturePlan,null);
             var acquired = MixturePresentationRuntime.AcquireFrame();
             if (acquired == null || !acquired.HasWorld)
             {
@@ -137,8 +198,12 @@ namespace MixedAtmospheres.Oni
             if (acquired.Width != Grid.WidthInCells || acquired.Height != Grid.HeightInCells)
                 throw new InvalidOperationException("Mixture presentation geometry differs from the live grid.");
             EnsureScheduling(__instance);
+            var admitted=false;
+            if (compactTextures && Volatile.Read(ref validationProbes) == null)
+                admitted = TryPrepareOptionalTextures(readVisibleRange, __instance, acquired);
             var range = Read<Vector2>(PressureRange, __instance);
             opacity = new OpacityParameters(range.x, range.y, Read<float>(MinimumVisibility, __instance));
+            if(compactTextures)Volatile.Write(ref texturePlan,new CompactTexturePlan(acquired,opacity,ProofAdmit(acquired,admitted)));
             __state.Lease = MixturePresentationRuntime.EnterWorkerBatch(acquired);
             __state.StartTimestamp = Stopwatch.GetTimestamp();
             Volatile.Write(ref textureFrame, acquired);
@@ -164,6 +229,7 @@ namespace MixedAtmospheres.Oni
                 if (__state != null)
                 {
                     Volatile.Write(ref textureFrame, __state.Previous);
+                    Volatile.Write(ref texturePlan, __state.PreviousPlan);
                     __state.Lease?.Dispose();
                     if (__state.StartTimestamp != 0)
                     {
@@ -205,7 +271,10 @@ namespace MixedAtmospheres.Oni
 
         private static void AfterGasColour(TextureRegion __0, int __1, int __2, int __3, int __4)
         {
-            var frame = Volatile.Read(ref textureFrame); if (frame == null) return;
+            var plan = compactTextures ? Volatile.Read(ref texturePlan) : null;
+            var frame = plan?.Frame ?? Volatile.Read(ref textureFrame);
+            if (frame == null) return;
+            var parameters = plan?.Parameters ?? opacity;
             var probes = Volatile.Read(ref validationProbes);
             long written = 0;
             if (probes != null)
@@ -215,12 +284,36 @@ namespace MixedAtmospheres.Oni
                     {
                         var cell = x + y * frame.Width;
                         if (!Grid.IsActiveWorld(cell) || !frame.TryGetCell(cell, out var reading)) continue;
-                        var sample = Sample(reading!, x, y, opacity);
+                        var sample = Sample(reading!, x, y, parameters);
                         __0.SetBytes(x, y, sample.R, sample.G, sample.B, sample.Alpha); ++written;
-                        probes.Record(0, __0, cell, x, y, frame, reading!, opacity, sample.R, sample.G, sample.B, sample.Alpha);
+                        probes.Record(0, __0, cell, x, y, frame, reading!, parameters, sample.R, sample.G, sample.B, sample.Alpha);
                     }
                 Interlocked.Add(ref colourCells, written); return;
             }
+            if (plan?.Admitted == true)
+            {
+                for (var y = __2; y <= __4; ++y)
+                    for (var x = __1; x <= __3; ++x)
+                    {
+                        var cell = x + y * frame.Width;
+                        if (!Grid.IsActiveWorld(cell)) continue;
+                        if (frame.TryGetTextureScalars(cell, x, y, out var scalar))
+                        {
+                            var sample = Sample(scalar, parameters);
+                            __0.SetBytes(x, y, sample.R, sample.G, sample.B, sample.Alpha);
+                            VerifyCompactWrite(0, __0, cell, x, y, frame, parameters, sample);
+                            ++written;
+                            continue;
+                        }
+                        if (!frame.TryGetCell(cell, out var reading)) continue;
+                        var fallback = Sample(reading!, x, y, parameters);
+                        __0.SetBytes(x, y, fallback.R, fallback.G, fallback.B, fallback.Alpha);
+                        ++written;
+                    }
+                Interlocked.Add(ref colourCells, written);
+                return;
+            }
+            ProofFullJob();
             // The normal path retains its original loop: no per-cell probe
             // check, provider access or diagnostic allocation when disabled.
             for (var y = __2; y <= __4; ++y)
@@ -228,7 +321,7 @@ namespace MixedAtmospheres.Oni
                 {
                     var cell = x + y * frame.Width;
                     if (!Grid.IsActiveWorld(cell) || !frame.TryGetCell(cell, out var reading)) continue;
-                    var sample = Sample(reading!, x, y, opacity);
+                    var sample = Sample(reading!, x, y, parameters);
                     __0.SetBytes(x, y, sample.R, sample.G, sample.B, sample.Alpha); ++written;
                 }
             Interlocked.Add(ref colourCells, written);
@@ -236,7 +329,10 @@ namespace MixedAtmospheres.Oni
 
         private static void AfterGasPressure(TextureRegion __0, int __1, int __2, int __3, int __4)
         {
-            var frame = Volatile.Read(ref textureFrame); if (frame == null) return;
+            var plan = compactTextures ? Volatile.Read(ref texturePlan) : null;
+            var frame = plan?.Frame ?? Volatile.Read(ref textureFrame);
+            if (frame == null) return;
+            var parameters = plan?.Parameters ?? opacity;
             var probes = Volatile.Read(ref validationProbes);
             long written = 0;
             if (probes != null)
@@ -246,25 +342,51 @@ namespace MixedAtmospheres.Oni
                     {
                         var cell = x + y * frame.Width;
                         if (!Grid.IsActiveWorld(cell) || !frame.TryGetCell(cell, out var reading)) continue;
-                        var value = WorldFluidOpacity(reading!, opacity);
+                        var value = WorldFluidOpacity(reading!, parameters);
                         __0.SetBytes(x, y, value); ++written;
-                        probes.Record(1, __0, cell, x, y, frame, reading!, opacity, value, 0, 0, 0);
+                        probes.Record(1, __0, cell, x, y, frame, reading!, parameters, value, 0, 0, 0);
                     }
                 Interlocked.Add(ref pressureCells, written); return;
             }
+            if (plan?.Admitted == true)
+            {
+                for (var y = __2; y <= __4; ++y)
+                    for (var x = __1; x <= __3; ++x)
+                    {
+                        var cell = x + y * frame.Width;
+                        if (!Grid.IsActiveWorld(cell)) continue;
+                        if (frame.TryGetTextureScalars(cell, x, y, out var scalar))
+                        {
+                            var sample = Sample(scalar, parameters);
+                            __0.SetBytes(x, y, sample.Opacity);
+                            VerifyCompactWrite(1, __0, cell, x, y, frame, parameters, sample);
+                            ++written;
+                            continue;
+                        }
+                        if (!frame.TryGetCell(cell, out var reading)) continue;
+                        __0.SetBytes(x, y, WorldFluidOpacity(reading!, parameters));
+                        ++written;
+                    }
+                Interlocked.Add(ref pressureCells, written);
+                return;
+            }
+            ProofFullJob();
             for (var y = __2; y <= __4; ++y)
                 for (var x = __1; x <= __3; ++x)
                 {
                     var cell = x + y * frame.Width;
                     if (!Grid.IsActiveWorld(cell) || !frame.TryGetCell(cell, out var reading)) continue;
-                    __0.SetBytes(x, y, WorldFluidOpacity(reading!, opacity)); ++written;
+                    __0.SetBytes(x, y, WorldFluidOpacity(reading!, parameters)); ++written;
                 }
             Interlocked.Add(ref pressureCells, written);
         }
 
         private static void AfterGasDanger(TextureRegion __0, int __1, int __2, int __3, int __4)
         {
-            var frame = Volatile.Read(ref textureFrame); if (frame == null) return;
+            var plan = compactTextures ? Volatile.Read(ref texturePlan) : null;
+            var frame = plan?.Frame ?? Volatile.Read(ref textureFrame);
+            if (frame == null) return;
+            var parameters = plan?.Parameters ?? opacity;
             var probes = Volatile.Read(ref validationProbes);
             long written = 0;
             if (probes != null)
@@ -276,10 +398,33 @@ namespace MixedAtmospheres.Oni
                         if (!Grid.IsActiveWorld(cell) || !frame.TryGetCell(cell, out var reading)) continue;
                         var value = HazardByte(reading!);
                         __0.SetBytes(x, y, value); ++written;
-                        probes.Record(2, __0, cell, x, y, frame, reading!, opacity, value, 0, 0, 0);
+                        probes.Record(2, __0, cell, x, y, frame, reading!, parameters, value, 0, 0, 0);
                     }
                 Interlocked.Add(ref dangerCells, written); return;
             }
+            if (plan?.Admitted == true)
+            {
+                for (var y = __2; y <= __4; ++y)
+                    for (var x = __1; x <= __3; ++x)
+                    {
+                        var cell = x + y * frame.Width;
+                        if (!Grid.IsActiveWorld(cell)) continue;
+                        if (frame.TryGetTextureScalars(cell, x, y, out var scalar))
+                        {
+                            var sample = Sample(scalar, parameters);
+                            __0.SetBytes(x, y, sample.Hazard);
+                            VerifyCompactWrite(2, __0, cell, x, y, frame, parameters, sample);
+                            ++written;
+                            continue;
+                        }
+                        if (!frame.TryGetCell(cell, out var reading)) continue;
+                        __0.SetBytes(x, y, HazardByte(reading!));
+                        ++written;
+                    }
+                Interlocked.Add(ref dangerCells, written);
+                return;
+            }
+            ProofFullJob();
             for (var y = __2; y <= __4; ++y)
                 for (var x = __1; x <= __3; ++x)
                 {
@@ -321,6 +466,24 @@ namespace MixedAtmospheres.Oni
                 WorldFluidOpacity(reading, parameters), HazardByte(reading), reading.TotalPressurePa);
         }
 
+        internal static GasVisualSample Sample(MixtureTextureScalars reading, OpacityParameters parameters)
+        {
+            if (reading.GasMassKg <= 0 || reading.GasVolumeCubicMetres <= 0) return default;
+            var color = reading.Color;
+            return new GasVisualSample(Byte(color.R), Byte(color.G), Byte(color.B), byte.MaxValue,
+                WorldFluidOpacity(reading, parameters), HazardByte(reading), reading.TotalPressurePa);
+        }
+        internal static byte WorldFluidOpacity(MixtureTextureScalars reading, OpacityParameters parameters)
+        {
+            var fraction = reading.GasMassKg <= 0 || reading.GasVolumeCubicMetres <= 0 ? 0 :
+                Math.Max(Clamp01((reading.GasDensityKgPerCubicMetre * 101.3 - parameters.Minimum) /
+                    (parameters.Maximum - parameters.Minimum)), parameters.MinimumVisibility);
+            return Byte(reading.HasPhaseVolumeAppearance ?
+                fraction * reading.GasVolumeCubicMetres / reading.VolumeCubicMetres +
+                    reading.LiquidVolumeCubicMetres / reading.VolumeCubicMetres : fraction);
+        }
+        internal static byte HazardByte(MixtureTextureScalars reading)
+            => reading.GasMassKg > 0 && !reading.IsBreathable ? byte.MaxValue : (byte)0;
         internal static GasVisualSample SampleForValidation(MixturePresentation reading, double worldX, double worldY)
             => Sample(reading, worldX, worldY, opacity);
 
@@ -386,6 +549,7 @@ namespace MixedAtmospheres.Oni
         private static void ResetSessionRendering()
         {
             DisableValidationProbes();
+            Volatile.Write(ref texturePlan, null);
             LastError = "";
             try { RestoreScheduling(false); }
             catch (Exception error) { LastError = error.ToString(); throw; }
@@ -401,9 +565,14 @@ namespace MixedAtmospheres.Oni
         private sealed class RenderBatchState
         {
             internal readonly RuntimeMixturePresentationFrame? Previous;
+            internal readonly CompactTexturePlan? PreviousPlan;
             internal IDisposable? Lease;
             internal long StartTimestamp;
-            internal RenderBatchState(RuntimeMixturePresentationFrame? previous) { Previous = previous; }
+            internal RenderBatchState(RuntimeMixturePresentationFrame? previous, CompactTexturePlan? previousPlan = null)
+            {
+                Previous = previous;
+                PreviousPlan = previousPlan;
+            }
         }
 
         internal readonly struct OpacityParameters

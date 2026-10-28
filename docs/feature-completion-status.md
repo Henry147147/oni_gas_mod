@@ -42,7 +42,9 @@ playtest deferrals remain recorded until their own controls pass.
   matched replays. Captured native owner means improve 15–20%; all native,
   managed and output-comparison checks pass. Longer 900-frame Linux probes still
   slow from about 2.827× early to about 2.6× overall. Private reporting and
-  rendering experiments do not yet establish a whole-game gain.
+  report-cadence experiments do not establish a whole-game gain. The adopted
+  bounded texture cache passes both standard test modes and halves measured
+  GC frames; its private Linux run reaches 2.667× warmed speed, still below 3×.
 - **Scenario baseline, 2026-10-28:** immutable `16da60c` also fails the unchanged
   freeze/melt check (357.9 kg, required >380 kg) and airflow gas check
   (4.278 → 4.052 kg, required increase >0.05 kg; liquid barrier passes).

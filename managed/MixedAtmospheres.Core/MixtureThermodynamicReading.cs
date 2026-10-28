@@ -39,8 +39,8 @@ namespace MixedAtmospheres.Core
     public sealed class MixtureThermodynamicReading
     {
         public const double MaximumVolumeClosureRelativeTolerance = 2e-10;
-        private const double ArithmeticTolerance = 64 * 2.2204460492503131e-16;
-        private const int MaximumConstituents = 65536;
+        internal const double ArithmeticTolerance = 64 * 2.2204460492503131e-16;
+        internal const int MaximumConstituents = 65536;
         public IReadOnlyList<MixtureThermodynamicConstituent> Constituents { get; }
         public string SourceId { get; }
         public long Revision { get; }
@@ -210,10 +210,10 @@ namespace MixedAtmospheres.Core
             return pressure;
         }
 
-        private static double Difference(double a, double b) { var sum = new Sum(); sum.Add(a); sum.Add(-b); return sum.Value; }
-        private static void Within(double residual, double scale, double relative, string message)
+        internal static double Difference(double a, double b) { var sum = new Sum(); sum.Add(a); sum.Add(-b); return sum.Value; }
+        internal static void Within(double residual, double scale, double relative, string message)
         { if (Math.Abs(residual) > relative * scale) throw new ArgumentException(message); }
-        private static void AddBulk(ref Sum terms, double momentum, double mass)
+        internal static void AddBulk(ref Sum terms, double momentum, double mass)
         {
             var term = ProductRatio(Math.Abs(momentum), Math.Abs(momentum), .5, mass);
             FluidChecks.Positive(term, "representable bulk kinetic energy"); terms.Add(term);
@@ -245,12 +245,12 @@ namespace MixedAtmospheres.Core
             return BitConverter.Int64BitsToDouble((bits & 0x000fffffffffffffL) | 0x3ff0000000000000L);
         }
         private static double PowerOfTwo(int exponent) => BitConverter.Int64BitsToDouble((long)(exponent + 1023) << 52);
-        private sealed class ConstituentOrder : IComparer<MixtureThermodynamicConstituent>
+        internal sealed class ConstituentOrder : IComparer<MixtureThermodynamicConstituent>
         {
             internal static readonly ConstituentOrder Instance = new ConstituentOrder();
             public int Compare(MixtureThermodynamicConstituent a, MixtureThermodynamicConstituent b) => string.CompareOrdinal(a.MaterialId, b.MaterialId);
         }
-        private struct Sum
+        internal struct Sum
         {
             private double high, low;
             internal void Add(double value)
