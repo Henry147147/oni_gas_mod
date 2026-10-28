@@ -114,6 +114,17 @@ current binary has.
 
 ### Version assignment
 
+**Reserved 2026-10-28 immediately after fetching `3549185`:** physical
+`MACCLS01` version **26** identifies game profile **7**, a speed profile with
+profile6's equations, net swept-volume criterion, tolerances and iteration
+caps. Its layout is version25's (including the phase-rule selector, so either
+phase rule may be saved). Profile7 changes only how the work is sequenced and
+solved: each pressure interval is proposed from the swept volume measured on
+the previous trial instead of by fixed halving and doubling, and any further
+solver-iterate change is listed here when it is enabled. Versions20–25 keep
+their bytes, arithmetic and continuation. This reservation does not enable the
+profile or claim validation.
+
 **Reserved 2026-10-28 immediately after fetching `058683a`:** physical
 `MACCLS01` version **25** identifies game profile **6** with the saved
 boil-only phase-change rule (user decision 2026-10-28,
