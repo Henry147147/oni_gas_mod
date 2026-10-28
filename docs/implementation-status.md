@@ -59,9 +59,9 @@ Linux and WindowsPlayer/Proton each pass eight checks and retain identical
 source/cold/menu histories without a live host. Nonempty teardown and containers remain open.
 
 
-Current private Windows candidate: **`59cce0f`**. Fresh Fast-preset digging,
-completed-frame32 writing and ordinary cold/menu loading are verified under
-Proton; the full release gate remains open. See
+Current private Windows candidate: **`ef1ede0`**. Its DLLs match the Windows
+x64/Wine 89-test build; current Linux activity/save cohorts pass. Windows OS
+speed, smooth input and broader release acceptance remain open. See
 [install instructions and exact provenance](spaced-out-private-playtest.md).
 
 Spaced Out! update, 2026-10-27: ordinary new colonies now use the cluster

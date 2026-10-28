@@ -1,20 +1,31 @@
 # Spaced Out! private Windows playtest
 
 The current engineering ZIP is
-`MixedAtmospheres-windows-59cce0f-temperature-fix-private.zip` (2026-10-28;
-SHA-256 `b254936dfefa0dddce2485454dfda643917e4f981eb4de55f0161c19113c2bfb`).
-It is packaged from clean revision `59cce0f`. Its native DLL hashes match the
-tested regional-pressure WindowsPlayer/Proton bundle; its managed build also
-has version-neutral solver UI labels. It includes
-nitrogen removal, CO₂ limits off by default, Gameplay/Advanced settings,
-reservoir lifecycle work, native load-transition/tile recreation fixes and
-the digging-temperature fix. An identical twelve-dig control in the uploaded
-colony keeps the observed cell at 32.3–34.6°C instead of dropping below −78°C.
-Fresh Fast-preset digging and completed-frame32 source/cold/menu loading pass.
-Full deterministic continuation and release performance remain open; exact
-storage and native clock controls remain development-only. Updated Windows OS
-feedback is pending. Start new colonies: earlier pressure-profile R&D saves
-are refused with a reason.
+`MixedAtmospheres-private-windows-ef1ede0.zip` in the private playtest share
+(2026-10-28; SHA-256
+`75b8fdd737f2383e18d40e933546d4000a36497bc84fbb3fb11c8e22a9ead565`).
+Its manifest records clean revision `ef1ede0`. It includes profile9/core28
+activity tiers, durable pending owner inputs, callback/readiness repairs and
+exact heat/passive-edit optimizations. The original accepted boil-only and
+momentum corrections remain. Private rendering, report-cadence and pacing
+experiments are excluded.
+
+Linux and Windows x64/Wine each pass all 89 native tests; the four packaged
+DLL hashes match the tested Windows candidate. The managed Windows contract
+reports 2,585 dependencies and zero differences. Native build provenance is
+explicitly null in the manifest; retained build/test logs and DLL hashes provide
+the evidence. Base-game and nine-world Spaced Out! pending-save/lifecycle
+cohorts pass on Linux. Windows OS speed, input smoothness, complete active-world
+continuation and broader release acceptance remain open. Actual Linux probes
+still fall below sustained 3×. Use a new colony; old R&D save compatibility
+remains limited. See [current measurements](performance-acceptance.md).
+
+The previous `MixedAtmospheres-windows-59cce0f-temperature-fix-private.zip`
+(SHA-256 `b254936dfefa0dddce2485454dfda643917e4f981eb4de55f0161c19113c2bfb`)
+contains the digging-temperature fix but predates activity integration and
+these exact optimizations. Its twelve-dig control kept the watched cell at
+32.3–34.6°C rather than below −78°C; fresh Fast-preset digging and
+completed-frame32 source/cold/menu loading passed.
 
 The earlier `MixedAtmospheres-windows-5d11aea-private.zip` (SHA-256
 `36ed89745eaf3990ffb42ee2a84d595600958ec2876c5f24d69370acae31bdb0`)
@@ -34,7 +45,7 @@ the user's part of the playtest.
 
 ## Install
 
-1. Close ONI and extract `MixedAtmospheres-windows-59cce0f-temperature-fix-private.zip`.
+1. Close ONI and extract `MixedAtmospheres-private-windows-ef1ede0.zip`.
 2. Open PowerShell in the extracted folder and run:
 
    ```powershell
