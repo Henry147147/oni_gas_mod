@@ -25,6 +25,10 @@ playtest deferrals remain recorded until their own controls pass.
   immutable queued-frame save state and ordered owner germs/conversions/sinks.
   Controls cover multiple queued cuts, cold claims, lifecycle refresh, passive
   versus contact heat, terrain isolation and exact Always simulate equality.
+  Base-game and ordinary nine-world Spaced Out! lifecycle, pending cold claim,
+  paused full-owner resave and actual-file readback cohorts pass on Linux,
+  preserving one supported actor binding and one packet claim without release.
+  These do not certify the broader gameplay matrix or full active continuation.
   The earlier profile8 Linux Terra baseline reaches 1.935×; integrated tiers
   reach about 2.80× warmed actual owner/game progress. Owner work falls from
   about 65 to 30 ms. One clean 15 s window has 3 GCs and frame p99 95 ms, versus 5

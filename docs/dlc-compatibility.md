@@ -1,6 +1,16 @@
 # DLC compatibility controls
 
-Current private Windows candidate: **`bfb1168`**. Ordinary Spaced Out! New Game,
+**Latest activity/save verification, 2026-10-28:** the frozen r7 profile9/core28
+bundle passes all 16 lifecycle checks with ordinary Spaced Out! active across
+nine worlds. Pending cold load and paused resave preserve the complete owner
+image and actor binding; a second ordinary cold load restores the exact writer
+hash. Both loads resume 80 frames without owner or serializer errors. See the
+[cohort and limits](region-activity-controls.md#private-linux-evidence-2026-10-28).
+The clean `5375843` Windows private package is prepared with the heat optimization,
+89/89 Wine CTests and an unchanged 2,585-dependency game contract. Actual Windows
+OS, sustained 3× and broader release acceptance remain open.
+
+Previously delivered private Windows candidate: **`bfb1168`**. Ordinary Spaced Out! New Game,
 manual saves and fresh-process loading are verified under Proton; the full
 release gate remains open. See [install instructions and exact provenance](spaced-out-private-playtest.md).
 

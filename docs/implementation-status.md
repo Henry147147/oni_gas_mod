@@ -13,8 +13,9 @@ and regional-scheduler controls passed ASan/UBSan; the complete instrumented
 game-kernel target retains a reproduced pre-existing zero-add control failure.
 The base-game lifecycle cohort passes 16 checks. Pending cold load, paused
 resave and a second cold file readback preserve the saved actor binding and
-claim the queued packet once. Spaced Out! validation awaits normal Steam
-re-authentication; Windows OS checks remain pending. Fresh Linux Terra reaches
+claim the queued packet once. The same source/cold-resave/file-readback cohort
+also passes with Spaced Out! active across nine worlds and 79 species. Windows
+OS checks remain pending. Fresh Linux Terra reaches
 about 2.80× warmed owner/game progress, with three GCs in a clean 15 s window.
 Actual 3× and release acceptance remain open. See [activity controls](region-activity-controls.md) and
 [performance acceptance](performance-acceptance.md).
@@ -69,7 +70,7 @@ the user's PC. See [DLC evidence](dlc-compatibility.md).
 Current repairs and the work beyond private playtesting are tracked in
 [feature completion work](feature-completion-status.md).
 
-Current state on 2026-10-28. [Private-playtest acceptance](private-playtest-release.md) remains open. New colonies use profile9/core28 with boil-only phase change, activity tiers, mixed pipes and pipe saves (flags29); the choice of Always simulate is saved for a new colony. The integrated base-game activity and pending-save cohort passes on Linux; the broader scenario matrix, Spaced Out! cohort and Windows OS behavior need validation. One line per system; details in the linked pages.
+Current state on 2026-10-28. [Private-playtest acceptance](private-playtest-release.md) remains open. New colonies use profile9/core28 with boil-only phase change, activity tiers, mixed pipes and pipe saves (flags29); the choice of Always simulate is saved for a new colony. The integrated base-game and Spaced Out! activity/pending-save cohorts pass on Linux; the broader scenario matrix and Windows OS behavior need validation. One line per system; details in the linked pages.
 
 | System | State |
 | --- | --- |

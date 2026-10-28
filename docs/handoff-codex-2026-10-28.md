@@ -185,17 +185,45 @@ does not prove an overall speedup or explain that increase. A clean 15 s window
 has two GCs averaging 146.3 ms, frame p99 94.74 ms and 166,368 lazy cell reads.
 See `linux-heat-only-3x-r7/compact-summary.json` under the same evidence folder.
 
-**Next:** finish the Spaced Out! cohort. Its first attempt stopped before
-world creation because requested DLC1 did not activate; the normal Steam UI
-requires refreshed sign-in after the account logged in elsewhere. The user has
-been asked to authenticate; do not enter credentials or bypass ownership.
-Meanwhile, attribute the higher transfer work and test presentation allocations.
+The Spaced Out! cohort is now complete on Linux using the original frozen r7
+bundle: nine worlds/79 species, all 16 lifecycle checks, a pending packet saved
+at owner frame 33 for sequence 34, cold paused resave and a second ordinary
+cold file readback. Both loads resume 80 frames; each rebinds the actor once,
+releases none and claims one packet. The readback restores the exact resave
+writer owner hash `005c76cc502e9627c4e29d33dc91ceb9a0ac59225341ce1f98bd00bc6b42a48d`.
+Mask checks are 27/59/59 for source/load/readback, with no dropped checks, owner
+faults or creature/serializer errors. Migration stays 0 and full resumed-world
+equality against the uncontrolled source branch remains open.
+
+The user completed normal Steam sign-in. A second pre-world refusal then exposed
+the real content issue: the shared game copy lacked 422 installed DLC assets.
+The official Steam installation has them; all 132 managed DLLs and eight
+native/code binaries match the shared copy. The successful cohort uses that
+official directory and ordinary content-mask checks, without an ownership
+override. Evidence: `linux-activity-dlc1-{source,load,readback}-r7-installed/`
+under the same artifact folder. Do not repeat the old sign-in question.
+
+**Next:** attribute the higher reported transfer-stage work and test presentation
+allocations. The `transfers` timer also includes activity census, scheduling and
+adaptive germ evolution. A private detailed logger preserves physical/owner
+hashes and separates these costs. Legacy replays spend about 7.4 ms in passive
+edits, mostly cloning; the controlled tiered fixture spends only about 0.8 ms
+there. Nearby searches cost about 0.06 ms per frame in those measurements,
+not the complete stage cost. The expensive first transfer needs its audit
+totals/state-copy costs measured; a fixed-order parallel audit prototype is
+private and unadopted. `stage2-profile/` contains the logger and scoped evidence.
+Current DLC readback data includes a frame 34 owner image, journal and disease
+table for controlled replay. Initial replay matches the frame 35/36 reference
+hashes; the complete dataset/receipt-cut proof remains in progress. The first
+transfer edits in place but spends about 8.1 ms recomputing missing audit totals;
+the next frame reuses them in 0.0005 ms. These are cold observations, not a
+steady-state cost claim.
 A private texture-scalar prototype aims to remove rich per-cell allocations;
 its first uncached form was slower. It is not adopted: the cached form needs
 channel-pass, large-viewport, lease/session, retention and actual-game proof.
 Native hook-counter sharding has only a small synthetic gain and lacks the
 public status/lifetime proof; it is not adopted. Local transfer scratch and
-open-centre injection search are further exact candidates. Retain
+open-centre injection search have limited measured scope. Retain
 pressure/transport and allocation work after that;
 active-cell physics benchmarks cannot benefit from sleeping their
 active cells. A private Windows package is prepared; Windows OS acceptance,

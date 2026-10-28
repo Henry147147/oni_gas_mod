@@ -15,6 +15,9 @@ preserves pending delivery; older profiles keep Always simulate. Gameplay →
 Region activity chooses Tiers or Always simulate for new colonies. See
 [activity controls](region-activity-controls.md) and the
 [handoff](handoff-codex-2026-10-28.md).
+The activity lifecycle, pending cold claim, paused resave and actual-file cold
+readback cohorts pass on Linux for both the base game and nine-world Spaced Out!.
+This does not certify the broader gameplay matrix or Windows OS behavior.
 The previous profile8 fresh Linux Terra measurement was 1.935× with five
 GCs/15 s. Integrated tiers reach about 2.80× warmed owner/game progress, with
 three GCs in one clean 15 s window. Actual 3×, smooth input and the Windows

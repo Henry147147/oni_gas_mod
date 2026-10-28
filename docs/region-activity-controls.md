@@ -106,6 +106,25 @@ resaved file. Both loads complete 80 resumed frames with clean creature startup.
 Migration counters are zero in these runs, so they do not establish coverage of a
 pre-owner native registration being migrated during replay.
 
+The same frozen r7 cohort also passes with ordinary Spaced Out! activation:
+nine worlds, 79 species, all 16 source lifecycle checks, and an unbound packet
+saved at owner frame 33 for sequence 34. The cold paused resave retains the full
+owner bytes and pending packet; it rebinds the saved actor once, releases none
+and claims the packet once. A second ordinary cold load, without a resave flag,
+restores the exact writer owner SHA
+`005c76cc502e9627c4e29d33dc91ceb9a0ac59225341ce1f98bd00bc6b42a48d`.
+Both loads resume 80 frames. Source/load/readback perform 27/59/59 sampled mask
+checks over 5,910/36,486/37,027 cells, with no dropped checks, owner faults or
+creature/state-machine serializer errors. Migration counts remain 0. Resumed
+whole-world equality against the uncontrolled source branch remains unproved.
+
+The DLC run uses the existing official Steam installation. After normal user
+sign-in, Steam showed Spaced Out! owned and installed, but the older shared game
+copy lacked 422 DLC asset files. All 132 managed assemblies and eight native/code
+binaries match between the installations. Using the official directory passes
+the ordinary content-mask check; no ownership override is used. Compact evidence
+is under `artifacts/tier-integration-2026-10-28/linux-activity-dlc1-{source,load,readback}-r7-installed/`.
+
 A separate default 450-frame Terra run measures about 2.80× across the two warmed
 150-frame windows, versus the frozen profile8 baseline's 1.94×. This is an
 improvement, not a sustained 3× result or Windows gameplay acceptance. An opt-in

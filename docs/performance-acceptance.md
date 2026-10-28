@@ -132,7 +132,9 @@ retains 90 owner seconds and 89.934719 game seconds over 33.368039 monotonic wal
 seconds (2.697× / 2.695×), without an observed pause or dropped timing sample.
 
 The first warmed window spends 16.1 ms in flow, 8.6 ms in heat inputs and 4.7 ms
-in transfers. Native UpdateData remains about 13.5–14.2 ms, with roughly 1.1 ms
+in the stage labelled `transfers`. For profile9 that stage also includes activity
+census, scheduling and germ evolution; it is not exclusive transfer work.
+Native UpdateData remains about 13.5–14.2 ms, with roughly 1.1 ms
 each for shadow writing/capture and 1.5 ms copying to the game. Mean native
 next-frame waits are 0.46–1.51 ms in the later groups, with a 31.65 ms maximum.
 The publication latency includes observation/queueing and is not an exclusive
@@ -206,7 +208,7 @@ The remaining investigation priorities are based on the integrated run:
 | Path | Measured scope | Next exact experiment |
 | --- | --- | --- |
 | Presentation sampling | About 169,000 lazy cell reads and 3 GCs in a clean 15 s window | Sample texture scalars directly from the retained compact frame; prove all sampled bits, rejection messages, snapshot lifetimes and allocation behavior against the full reading path |
-| Local transfers | Roughly 4–7 ms per owner frame | Avoid whole-grid scratch initialization for radius-local searches, retaining BFS, accumulation and receipt order |
+| Transfers/activity/biology | Reported stage roughly 4–7 ms in the earlier probe and 10 ms in the heat-only run | Separate reservoir, transfer, census, schedule and germ costs before optimizing |
 | Native UpdateData | Roughly 14 ms per call | Attribute the remaining original work and hook overhead; preserve solids, boundary exchange and public observer counters |
 | Flow | Roughly 16–17 ms per fresh Terra owner frame | Profile the active regions' pressure and transport after tiers; large connected colonies still need a faster pressure solve |
 | Projection readings | Ledger/projection aggregate around 2.8 ms, partly overlapping the partial timer | Validate immutable registry context once per worker batch instead of rescanning it per cell |
@@ -219,6 +221,33 @@ sharding the active-call guard can miss activity during a scan and permit an
 unsafe detach. The counter result does not establish an UpdateData gain.
 Full publication latency includes scheduling and observation; it must not be
 added to the component timers as another CPU phase.
+
+The private split logger retains physical/owner hashes over the measured legacy
+replays and a controlled tiered repeat. Legacy fresh/dig biology spends about
+7.42/7.44 ms in passive edits, chiefly cloning, while the controlled tiered
+fixture spends 0.76 ms; these are different workloads. Fresh reservoir work
+averages 5.16 ms and ordinary transfer application 3.38 ms; digging averages
+0.87/7.29 ms. The costly first application moves between reservoir release and
+ordinary transfers, suggesting a common opening-total/state cost. Nearby
+searches themselves take about 0.06 ms per frame. All measured reservoir
+anchors are open, so an empty-neighborhood cache would not help these cases;
+saved precision inventories are empty too. Fixed-order parallel audit totals
+and uniquely owned passive edits remain private proposals. No tolerance, cache
+invalidation rule or checkpoint is changed by this profiling.
+
+The controlled tiered case repeats saved actors without new external heat or
+transfers and borrows the earlier disease table. It is not actual game
+continuation or a replacement for the next current-input attribution capture.
+Scoped evidence is in `artifacts/tier-integration-2026-10-28/stage2-profile/`.
+
+A first controlled replay from the current DLC frame 34 anchor reproduces the
+frame 35/36 reference hashes. Its first transfer edits in place and spends
+8.10 ms obtaining missing audit totals (8.09 ms in `dense_totals`), versus
+0.019 ms in edits and 0.011 ms in their audit. The next frame reuses totals in
+0.0005 ms. These are cold-frame observations, not steady-state means or proof
+that every default-profile frame pays that cost. The parallel-total experiment
+must retain fixed cell/face addition and block-merge order, cache invalidation,
+exceptions and checkpoint/receipt bytes before any adoption.
 
 ### Measurement and test harness first
 
