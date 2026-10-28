@@ -114,6 +114,18 @@ current binary has.
 
 ### Version assignment
 
+**Reserved 2026-10-28 immediately after fetching `eb40d9b`:** physical
+`MACCLS01` version **27** identifies game profile **8**: profile7 with the
+two model changes the user adopted on 2026-10-28. Interface sharpening and
+density layering carry the face momentum of the material they move
+(velocity-preserving, booked to the receiving faces or as a wall impulse, the
+kinetic-energy change to local heat) instead of keeping each face's momentum
+while its inertia changes; and the 0.4-cell net swept-volume bound applies
+only where the cell or a neighbour flowing into it holds at least 1 mg. Its
+layout is version26's (with the phase-rule selector). Versions20–26 keep their
+bytes, arithmetic and continuation. This reservation does not enable the
+profile or claim validation.
+
 **Reserved 2026-10-28 immediately after fetching `3549185`:** physical
 `MACCLS01` version **26** identifies game profile **7**, a speed profile with
 profile6's equations, net swept-volume criterion, tolerances and iteration
