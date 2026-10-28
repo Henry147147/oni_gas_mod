@@ -8,7 +8,17 @@ still require separate authorization.
 
 Amendments:
 
-- **Real time and boil-only phase change, 2026-10-28 (latest user decisions):**
+- **3× release speed, 2026-10-28 (latest user request):** target sustained
+  actual 3 game seconds per wall-clock second with smooth input on the user's
+  Windows PC in representative base-game and Spaced Out! colonies. Continue
+  implementation and Linux verification while Windows playtesting is pending.
+  Measure elapsed game/owner clocks against monotonic wall time; the speed
+  button, `Time.timeScale` and pacing estimate alone are not acceptance.
+  Existing fixed physics gates, active-cell performance bounds, disturbance
+  recovery bounds and other release requirements remain unchanged. See the
+  [optimization and Linux-first work](performance-acceptance.md#requested-3-release-goal-2026-10-28).
+
+- **Real time and boil-only phase change, 2026-10-28 (earlier user decisions):**
   1. *Real time blocks release.* The user's 0.85× Windows playtest with
      stuttering mouse and UI was not acceptable. Before release the game must
      sustain at least 1× on the user's PC in representative base-game and

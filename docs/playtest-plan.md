@@ -1,6 +1,6 @@
 # Base-game playtest plan
 
-**Release priorities, 2026-10-28:** at least real time with smooth input and
+**Release priorities, 2026-10-28:** sustained actual 3× with smooth input and
 UI now blocks release, and the user may remove features to reach it. New
 colonies default to boil-only phase change (no evaporation below the
 pressure-dependent boiling point, ONI-like condensation). See the

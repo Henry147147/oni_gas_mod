@@ -2,8 +2,9 @@
 
 **Current goal, 2026-10-28:** a Steam-ready first release covering the base
 game and Spaced Out! ([amendment](completion-plan.md#amendments)). The user's
-0.85× Windows playtest with stuttering input failed acceptance; real time and
-smooth input now block release. Profile8/core27 carries liquid-correction
+0.85× Windows playtest with stuttering input failed acceptance; the latest
+release goal is sustained actual 3× with smooth input. Profile8/core27 carries
+liquid-correction
 momentum and the adopted 1 mg interval floor. Region activity tiers, native
 frame waits, exact storage and the accuracy/persistence proofs remain open.
 
@@ -122,7 +123,7 @@ playtest deferrals remain recorded until their own controls pass.
 | [DLC gameplay](dlc-compatibility.md) | First release: base game and Spaced Out!. Multi-asteroid ownership, rocket interiors, ports, flight, retirement, teleporters and cargo pass targeted controls; verify generation, gameplay and persistence for both selections on both operating systems. Colonies with Frosty, Bionic, Prehistoric or Aquatic active must stay on ONI's simulation with a notice. Those packs (bionic oxygen, aquatic systems) follow later; their content is not installed here. |
 | [Starting air and progression](starting-air.md) | Nitrogen removed, default CO₂ opt-out, live switch, Advanced controls and finite starting oxylite reserve. Prove representative starts reach sustainable life support and endgame without developer intervention. |
 | [Mixture presentation](mixture-presentation.md) | Finish exact container coverage and the required real-game hover, detail, overlay and contrast checks on both operating systems. Prove the 100,000-cell publication and allocation requirements as well as functional display. |
-| [Performance](completion-plan.md#release-acceptance) | At least 1× sustained with smooth input, camera and menus on the user's PC in representative base-game and Spaced Out! colonies (2026-10-28; the 0.85× playtest with stutter failed it). Measure the active-cell/duplicant, memory, disturbance-recovery and presentation targets on the specified hardware; the current smaller-colony measurements do not certify them. Features may be removed for speed only by the user's choice. |
+| [Performance](performance-acceptance.md#requested-3-release-goal-2026-10-28) | Latest release goal: sustained actual 3× with smooth input, camera and menus on the user's PC in representative base-game and Spaced Out! colonies. Fixed active-cell/duplicant, memory, disturbance-recovery and presentation bounds remain unchanged; current smaller-colony measurements do not certify them. Features may be removed for speed only by the user's choice. |
 | Boil-only phase change | Implemented in `1058d0d` (options version 2); profile8/core27 saves either phase rule and defaults to boil-only. The native control, saved-profile support and the earlier Linux in-game phase scenario pass in both modes. Open: Windows in-game check. |
 | Speed work, 2026-10-28 | Profile8/core27 is the new-colony default: momentum-carrying sharpening/layering plus the 1 mg interval floor. The matched fresh Spaced Out! replay drops mean owner time from 0.764 to 0.583 s and the defective magma face from −2,081 to −25 m/s; the twelve-dig replay passes. This contended 5900X evidence does not establish real time. Open: paused and 1 s-step remote regions, space-sink and owner overhead. |
 | Smooth input and UI | Readings allocate 64–68% less in fixed-JIT .NET controls and match the parent bytes across 60,000 cells plus 528 edge cases. Advanced → Performance → Log frame timing enables Windows diagnostics. A fresh 180-frame GPU Linux Terra run passes; its one clean 15 s window has two GCs and frame p95/p99 55/103 ms. Native logs separate owner waits (about 9–10 ms mean) from UpdateData (13–14 ms). The one-GC/15 s goal, native wait spikes and actual Windows smoothness remain open. |
@@ -136,3 +137,26 @@ The existing immutable `dde2a09` verification continues independently of new
 source changes. Its passed 30,000-frame/ten-cycle survival run is retained with
 that revision, and its failed freeze/melt result is not erased by a successful
 diagnostic repeat. No release-readiness row is marked passed by this tracker.
+
+## Linux work while Windows playtesting is pending
+
+Most engineering and the Linux half of acceptance can proceed now. Keep
+evidence tied to one immutable candidate, covering the base game and Spaced
+Out! through ordinary player paths and unchanged physical checks.
+
+| Work to finish | Linux completion evidence | Windows/user work still needed |
+| --- | --- | --- |
+| 3× and smoothness | Activity tiers, full-cycle profiling, pressure/transport/owner optimization, actual clock throughput, input/frame logs and bounded memory/backlog | Actual Windows 9950X/5070 Ti speed and input/camera/menu response |
+| Gameplay and coverage | Diagnose freeze/melt and airflow; current-profile scenario/starting-asteroid matrix, machines, life, pipes, heat and Spaced Out! travel/cargo | WindowsPlayer prechecks under Proton here, then actual Windows OS checks |
+| Exact component storage | Bottles/canisters, recipes, thermal transfers and nonempty demolition preserve all constituents, energy and germs through normal play | Windows lifecycle/save/reader checks |
+| Active save continuation | Identical future inputs give exact complete source/cold/menu owner, pipe and particle states; repair breathing/solid-heat scheduling | Windows same-platform continuation and bounded cross-platform save-transfer differences |
+| Published-save compatibility | Define and control loading every published profile across future updates; retain corruption/missing-mod refusal | Windows loader/path/error checks; earlier R&D saves keep their existing policy |
+| Accuracy | Complete F3/F4 comparisons and fixed collision-refinement/separation-velocity controls | Required compiler/platform coverage |
+| Progression and long runs | Base-game/Spaced Out! starts reach sustainable life support and endgame without developer help; current-candidate autosaves, 100/1,000-cycle runs and inter-asteroid transfers | Windows half of long-run/save/DLC evidence and human playtesting |
+| Presentation and automation | Real-game hover/overlays, containers, sensors and contrast; 100k-cell allocation/sampling proof | Windows rendering/scaling/controls and equivalent performance evidence |
+| Compatibility/distribution | Ubuntu 22.04-compatible native build and game checks, Windows cross-build/Wine/Proton prechecks, reproducible mod-only folder, negative admission controls, retargeting, tested mod-compatibility policy and accurate player/minimum-hardware docs | Windows install/update behavior and hardware evidence; licence selection and separate Workshop upload authorization |
+
+Proton pretests the Windows player on Linux; it does not certify Windows OS
+behavior or the user's performance. Other gameplay packs remain outside this
+first release and must be refused cleanly. The harness also needs the long-run changes in
+[performance acceptance](performance-acceptance.md#measurement-and-test-harness-first).

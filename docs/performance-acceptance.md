@@ -14,6 +14,111 @@ and records the current numbers. No target passes yet.
 | Presentation | Worker sampling and colour lookup allocate nothing after publication |
 | Disturbances | Fault-free 10,000-cell decompression and 1,000-cell flooding/phase events recover to sustained 1× within 30 wall-clock seconds |
 
+## Requested 3× release goal, 2026-10-28
+
+The user wants sustained actual **3×** for release, also to accelerate testing,
+in representative base-game and Spaced Out! colonies on their Ryzen 9 9950X
+Windows PC, with smooth input, camera and menus. Linux engineering and
+verification proceed while that playtest is pending. The fixed targets above
+retain their inputs and bounds.
+
+A 0.2 simulated-second owner frame has **66.7 ms wall time at 3×**. The
+current pacing controller reserves 5%, requiring its measured owner work to
+average below about **63.3 ms**, before omitted work is considered. Roughly
+50 ms is a useful engineering headroom target, not a new acceptance bound.
+Final acceptance measures full-game throughput, frame-time tails, input,
+memory and publication backlog together.
+
+| Current profile8 case on the 5900X | Mean / p95 | Timing scope |
+| --- | --- | --- |
+| Fresh Linux Terra, 180 frames at normal speed | 66.2 / 85.6 ms | Status timer **before** projection/publication; the run achieved about 1× |
+| Fresh Spaced Out! replay, frames4–43 | 583 / 707 ms | `advance()` plus `wait()` through owner completion |
+| Uploaded colony's twelve-dig replay, frames505–584 | 860 / 932 ms | Same complete owner observer |
+
+The replays were contended. On those measured conditions, 66.7 ms would
+require about 8.7×/12.9× lower mean cost; this is not a hardware conversion or
+prediction for the Windows PC. Terra does not certify Spaced Out! or a
+developed base. Profile8's earlier 23.7% improvement is already in this baseline.
+
+### Measurement and test harness first
+
+- Measure both `GameClock` and owner-clock deltas against monotonic wall time
+  over warmed-up, unpaused windows. `--speed 3` selects ONI's ultra preset;
+  inspect its multiplier and report achieved speed separately.
+- Time the full owner cycle through projection/publication and native
+  handoff. `last_advance_ms` currently stops before `project()`/`publish()`.
+  The performance log sums only the newest observed `LastFrameSeconds`, so
+  skipped observations can undercount progress. Test skipped frames,
+  duplicate polls, restores and session changes.
+- Establish whole-CPU-lock profile8 baselines without competing builds for
+  fresh Terra, fresh Spaced Out!, the digging colony and a developed connected
+  base. Include other owned asteroids/rocket interiors and regional critical
+  paths. Re-profile after activity tiers before projecting combined gains.
+- Extend long-run orchestration with bounded telemetry, physical-progress
+  watchdogs, memory/backlog and conservation checks. Its 100,000-frame and
+  48-hour ceilings cannot cover the required 100/1,000-cycle runs, which need
+  about 300,000/3,000,000 native frames. At perfect 3×, 1,000 cycles still
+  require 55.6 hours of advancement, excluding loads/pauses. Preserve cycle
+  counts; resumable segments need verified next-frame save continuation.
+
+Standalone physics/unit programs already run without the game speed limiter.
+Selecting 3× accelerates in-game progression and cycle tests; those standalone
+programs benefit from solver improvements and efficient test scheduling.
+
+### Optimization order
+
+1. **Adopted region activity tiers.** Pause untouched regions without
+   catch-up, step remote actor-free regions every 1 s and active regions at
+   0.2 s. Persist clocks and activity across saves/splits/merges; use complete
+   actor/input provenance, excluding passive solid conduction as a wake
+   source. Coordinate flow, heat, germs, conversions and sinks. Stagger remote
+   due times deterministically to avoid synchronized bursts. Older probes
+   showed substantial CPU savings, but 1 s stepping did not shorten the
+   largest region's amortized critical path. Fully active bases and the fixed
+   active-cell benchmarks cannot benefit from sleeping their active cells.
+2. **Largest-region pressure and parallelism.** With multiple regions,
+   `RegionalTick` gives each regional `Tick` one worker; the slowest region
+   dominates after the others finish. Develop execution that can use idle
+   capacity within large regions without nested oversubscription or changing
+   reduction order. The prior shared-executor prototype was slower, so keep
+   a measured cost gate. Test CPU aggregation/multigrid preconditioning with
+   unchanged equations/tolerance: captured-system prototypes took 26–33
+   iterations versus IC(0)'s 272–441; full-frame gain and setup cost remain
+   unproved. This is a standard CPU method ([hypre guide](https://hypre.readthedocs.io/en/stable/solvers-boomeramg.html)),
+   not a dependency selection. The game kernel forces IC(0), so the existing
+   production multigrid is not a ready switch. Different floating-point
+   iterates require profile and continuation controls.
+3. **Transport, state movement and audits.** Reuse interval workspaces,
+   sparse storage and addressing; reduce repeated region extraction,
+   bounding-box copies, global packing and unchanged EOS/audit work. Preserve
+   accounts and ordering. Re-profile phase and sharpening after tiers;
+   critical-temperature skipping already exists.
+4. **Owner and space sink.** Batch actual sink work and reuse derived data
+   while preserving exact parcel/boundary ledgers. The older Spaced Out!
+   sink cost about 65 ms; fresh Terra measured 0.5 ms. They are different
+   states and need current workload-specific measurements.
+5. **Main-thread work and allocation.** The current clean Linux window has
+   two GCs/15 s, about 109 ms GC-containing frames and 51 ms p99 native
+   blocking. Pool snapshot/event storage, avoid duplicate per-cell render
+   construction and cache the fluid part of repeated publications. The 520
+   publication attempts in one window include only about 75 physical ticks;
+   unchanged owner frames can still carry new native body work and events.
+   A submit/consume split must preserve shadow pairing, heat/receipt delivery,
+   one-shot events and save/lifecycle drain fences. Re-test camera/menu/pause
+   response at achieved 3×.
+
+Fewer pressure iterations do not equal whole-game speedup: removing an
+illustrative 45% pressure share entirely caps total CPU gain at about 1.8×.
+Measure critical paths as well as summed CPU work. Keep adopted sharpening,
+stiffness, trace settings and fixed physics bounds. Any further gameplay
+tradeoff needs measurements and the user's choice.
+
+Each implementation gets a focused control plus the required native suite
+and MAC comparisons, including old-profile bytes where relevant. Then test
+one immutable Linux package at actual 3× with disturbances, save/load,
+memory/backlog and representative gameplay. Windows OS/hardware acceptance
+remains separate. See [Linux feature work](feature-completion-status.md#linux-work-while-windows-playtesting-is-pending).
+
 ## Colony owner benchmark
 
 `ma_colony_benchmark` (`native/apps/colony_benchmark.cpp`) drives the actual
@@ -21,7 +126,7 @@ colony owner through its native API, exactly as the game's frames do: each
 0.2 s frame queues the duplicants' and machines' transfers and heat, advances
 the owner (inputs, flow, sinks, ledgers, projection and publication), copies
 the complete published views as the adapter does and acknowledges the
-receipts. New colonies use the default game profile 5 with the physical-core
+receipts. New colonies use the default game profile 8 with the physical-core
 worker count, the playtest default.
 
 The generated asteroid is a grid of 40 × 24 rooms with upper doors and floor
