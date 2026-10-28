@@ -23,6 +23,17 @@ Amendments:
      (pressure-dependent, so water still boils in vacuum), and vapour below
      that boiling point condenses as in ONI. The air holds no equilibrium
      humidity. Off restores the earlier evaporation into unsaturated gas.
+     The user then confirmed that every vapour keeps following total gas
+     pressure, so minor gases in strongly compressed mixtures may condense
+     (for example chlorine in Terra's hot ~19 bar hydrogen pocket).
+  4. *Speed choices.* Adopt momentum-carrying interface sharpening and
+     layering (it corrects a defect that produced ~1,000 m/s faces and
+     spurious cooling) and a 1 mg floor below which cells and inflows do
+     not limit the net-volume interval bound, as a new game profile. For
+     speed the user gives up two things: regions untouched by any actor or
+     input pause until something touches them (no catch-up when woken), and
+     remote regions without actors advance in 1 s steps. Liquid-surface
+     sharpening, liquid stiffness and the trace threshold stay as they are.
 
 - **Windows digging regression, 2026-10-28 (requested fix):** investigate and
   correct the temperature fluctuations in the user's recording and uploaded

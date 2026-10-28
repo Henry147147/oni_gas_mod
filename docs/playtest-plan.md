@@ -263,6 +263,14 @@ buildable and the asteroid loadable.
 
 ## What plays differently from vanilla
 
+- New colonies default to boil-only phase change (Settings → Gameplay →
+  Evaporation below boiling: Off). A liquid turns to vapour only when it boils
+  at the cell's total gas pressure: water at 100 °C at 1 atm, lower in thin
+  air, and it boils in vacuum. Vapour below that boiling point condenses, as
+  in ONI; the air holds no humidity and pools do not evaporate into dry air.
+  Because boiling points follow total pressure, a minor gas in a strongly
+  compressed mixture can condense. Turning the setting on restores realistic
+  evaporation for a new colony.
 - The current default profile5/core23 uses a positive-volume liquid law. Below half
   the saved bulk stiffness it retains the earlier linear law; higher pressures
   progressively stiffen compression, with continuous volume and elastic energy.
