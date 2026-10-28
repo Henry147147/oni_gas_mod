@@ -315,6 +315,357 @@ LinearSolveResult solve_components(Context& c, const LinearSystem& sys, const st
         throw std::invalid_argument("Parallel component solves need the IC preconditioner and a size");
     return solve_component_ic(c, sys, b, x, rtol, atol, maximum, nullptr, parallel_rows);
 }
+
+// ComponentSolveCache: the structure of component_layout, PressureSystem,
+// IncompleteCholesky and the plan reductions for one active pattern.
+struct ComponentSolveCache::Impl {
+    struct Face { std::size_t left, right, source; bool x; };
+    struct Component {
+        std::vector<std::size_t> cells;
+        std::vector<Face> faces;                       // component face order
+        std::vector<std::size_t> incident_offsets;     // row -> faces, face order
+        std::vector<std::size_t> incident;             // 2 * face + (row is right)
+        std::vector<std::size_t> lower_offsets, lower_columns; // IC(0) lower rows, by column
+        std::vector<std::size_t> lower_faces_offsets, lower_faces; // faces combined into each entry
+        std::vector<std::size_t> upper_offsets, upper_rows, upper_entries; // gather of the backward sweep
+        bool degree_ok = true;
+    };
+    std::vector<std::uint8_t> active, open_x, open_y;
+    std::size_t parallel_rows = 0;
+    bool valid = false, boundary = false;
+    std::vector<Component> components;
+    // Values, rebuilt every solve.
+    std::vector<double> compliance, conductance, inverse_diagonal, rhs, lower_values, inverse_pivots;
+    std::vector<double> pressure, residual, z, direction, product, next;
+};
+ComponentSolveCache::ComponentSolveCache() : impl(std::make_unique<Impl>()) {}
+ComponentSolveCache::~ComponentSolveCache() = default;
+ComponentSolveCache::ComponentSolveCache(ComponentSolveCache&&) noexcept = default;
+ComponentSolveCache& ComponentSolveCache::operator=(ComponentSolveCache&&) noexcept = default;
+namespace {
+using CacheImpl = ComponentSolveCache::Impl;
+// Rebuilds the structure exactly as component_layout, PressureSystem and
+// IncompleteCholesky::factor order it.
+void rebuild_structure(CacheImpl& cache, const Context& c, const LinearSystem& sys) {
+    const auto& g = c.g; const auto N = g.N;
+    cache.components.clear(); cache.boundary = false;
+    std::vector<std::size_t> nodes(N, N), cells;
+    for (std::size_t i = 0; i < N; ++i) if (sys.active[i]) { nodes[i] = cells.size(); cells.push_back(i); }
+    struct Edge { std::size_t left, right, source; bool x; };
+    std::vector<Edge> faces;
+    const auto face = [&](bool x, std::size_t f) {
+        const auto l = (x ? g.xl : g.yl)[f], r = (x ? g.xr : g.yr)[f];
+        if (!((x ? sys.wx : sys.wy)[f] != 0)) return;
+        const auto a = l == none ? N : nodes[l], b = r == none ? N : nodes[r];
+        if (a != N && b != N) faces.push_back({a, b, f, x});
+        else if (a != N || b != N) cache.boundary = true;
+    };
+    for (std::size_t f = 0; f < g.NX; ++f) face(true, f);
+    for (std::size_t f = 0; f < g.NY; ++f) face(false, f);
+    if (cache.boundary) return;
+    const auto M = cells.size();
+    std::vector<std::size_t> parent(M); std::iota(parent.begin(), parent.end(), 0);
+    const auto root = [&](std::size_t i) {
+        while (parent[i] != i) { parent[i] = parent[parent[i]]; i = parent[i]; }
+        return i;
+    };
+    for (const auto& edge : faces) {
+        const auto l = root(edge.left), r = root(edge.right);
+        if (l != r) parent[r] = l;
+    }
+    std::vector<std::size_t> labels(M, M), which(M), local(M);
+    for (std::size_t i = 0; i < M; ++i) {
+        const auto r = root(i);
+        if (labels[r] == M) { labels[r] = cache.components.size(); cache.components.emplace_back(); }
+        which[i] = labels[r]; local[i] = cache.components[which[i]].cells.size();
+        cache.components[which[i]].cells.push_back(cells[i]);
+    }
+    for (const auto& edge : faces) {
+        auto& component = cache.components[which[edge.left]];
+        component.faces.push_back({local[edge.left], local[edge.right], edge.source, edge.x});
+    }
+    for (auto& component : cache.components) {
+        const auto count = component.cells.size();
+        auto& io = component.incident_offsets; io.assign(count + 1, 0);
+        for (const auto& f : component.faces) { ++io[f.left + 1]; ++io[f.right + 1]; }
+        for (std::size_t i = 0; i < count; ++i) io[i + 1] += io[i];
+        component.incident.resize(2 * component.faces.size());
+        {
+            auto cursor = io;
+            for (std::size_t f = 0; f < component.faces.size(); ++f) {
+                component.incident[cursor[component.faces[f].left]++] = 2 * f;
+                component.incident[cursor[component.faces[f].right]++] = 2 * f + 1;
+            }
+        }
+        // IC(0) lower rows: faces with positive conductance (all faces here),
+        // grouped by row = max endpoint in face order, sorted by column,
+        // parallel faces combined in that order.
+        constexpr std::size_t maximum_lower_degree = 64;
+        std::vector<std::size_t> offsets(count + 1, 0);
+        for (const auto& f : component.faces) ++offsets[std::max(f.left, f.right) + 1];
+        for (std::size_t row = 0; row < count; ++row) {
+            if (offsets[row + 1] > maximum_lower_degree) component.degree_ok = false;
+            offsets[row + 1] += offsets[row];
+        }
+        std::vector<std::pair<std::size_t, std::size_t>> entries(component.faces.size()); // column, face
+        {
+            auto cursor = offsets;
+            for (std::size_t f = 0; f < component.faces.size(); ++f) {
+                const auto& edge = component.faces[f];
+                entries[cursor[std::max(edge.left, edge.right)]++] = {std::min(edge.left, edge.right), f};
+            }
+        }
+        component.lower_offsets.assign(count + 1, 0); component.lower_columns.clear();
+        component.lower_faces_offsets.assign(1, 0); component.lower_faces.clear();
+        for (std::size_t row = 0; row < count; ++row) {
+            const auto begin = offsets[row], end = offsets[row + 1];
+            // std::sort of IncompleteCholesky::factor: equal columns keep no
+            // defined order there; only their sum (in sorted order) is used,
+            // so parallel faces are summed in the order std::sort leaves.
+            std::sort(entries.begin() + static_cast<std::ptrdiff_t>(begin), entries.begin() + static_cast<std::ptrdiff_t>(end),
+                [](const auto& a, const auto& b) { return a.first < b.first; });
+            for (auto k = begin; k < end; ++k) {
+                if (k > begin && entries[k - 1].first == entries[k].first) component.lower_faces.push_back(entries[k].second);
+                else {
+                    if (k > begin) component.lower_faces_offsets.push_back(component.lower_faces.size());
+                    component.lower_columns.push_back(entries[k].first);
+                    component.lower_faces.push_back(entries[k].second);
+                }
+            }
+            if (end > begin) component.lower_faces_offsets.push_back(component.lower_faces.size());
+            component.lower_offsets[row + 1] = component.lower_columns.size();
+        }
+        // Backward gather: rows referencing each column, in descending row order.
+        const auto nnz = component.lower_columns.size();
+        component.upper_offsets.assign(count + 1, 0);
+        for (std::size_t k = 0; k < nnz; ++k) ++component.upper_offsets[component.lower_columns[k] + 1];
+        for (std::size_t row = 0; row < count; ++row) component.upper_offsets[row + 1] += component.upper_offsets[row];
+        component.upper_rows.resize(nnz); component.upper_entries.resize(nnz);
+        auto cursor = component.upper_offsets;
+        for (auto row = count; row-- > 0;)
+            for (auto k = component.lower_offsets[row]; k < component.lower_offsets[row + 1]; ++k) {
+                const auto at = cursor[component.lower_columns[k]]++;
+                component.upper_rows[at] = row; component.upper_entries[at] = k;
+            }
+    }
+}
+double finite_reduction(long double value) {
+    const double result = static_cast<double>(value);
+    require_finite(result, "pressure reduction");
+    return result;
+}
+// One component's PCG, as PressureSystem::solve (block == count) or its
+// plan form (block == plan rows): only the reduction blocks differ.
+PressureSolveResult solve_cached_component(CacheImpl& cache, const CacheImpl::Component& component,
+    std::size_t first, double relative, double absolute, std::size_t maximum, std::size_t block) {
+    const auto count = component.cells.size();
+    const auto* C = cache.compliance.data() + first;
+    const auto* G = cache.conductance.data();
+    const auto* D = cache.inverse_diagonal.data() + first;
+    const auto* B = cache.rhs.data() + first;
+    for (std::size_t i = 0; i < count; ++i) require_finite(B[i], "pressure vector value");
+    require_finite(relative, "relative pressure tolerance");
+    require_finite(absolute, "absolute pressure tolerance");
+    if (relative < 0 || absolute < 0 || (relative == 0 && absolute == 0) || maximum == 0)
+        throw std::invalid_argument("Invalid pressure solve limits");
+    const auto blocks = (count + block - 1) / block;
+    const auto reduce = [&](const auto& body) {
+        long double total = 0;
+        for (std::size_t q = 0; q < blocks; ++q) {
+            long double sum = 0;
+            const auto end = std::min(count, (q + 1) * block);
+            for (auto i = q * block; i < end; ++i) sum += body(i);
+            total += sum;
+        }
+        return finite_reduction(total);
+    };
+    const auto row_product = [&](std::size_t i, const double* input) {
+        double value = C[i] * input[i];
+        for (auto k = component.incident_offsets[i]; k < component.incident_offsets[i + 1]; ++k) {
+            const auto& face = component.faces[component.incident[k] / 2];
+            const double flux = G[component.incident[k] / 2] * (input[face.left] - input[face.right]);
+            if (component.incident[k] % 2 == 0) value += flux; else value -= flux;
+        }
+        return value;
+    };
+    auto& pressure = cache.pressure; auto& residual = cache.residual; auto& z = cache.z;
+    auto& direction = cache.direction; auto& product = cache.product;
+    pressure.assign(count, 0); residual.resize(count); z.resize(count); direction.resize(count); product.resize(count);
+    PressureSolveResult result{{}, 0, 0};
+    const double threshold = std::max(absolute, relative * std::sqrt(reduce([&](std::size_t i) { return static_cast<long double>(B[i]) * B[i]; })));
+    require_finite(threshold, "pressure convergence threshold");
+    result.residual_threshold = threshold;
+    const auto true_residual = [&] {
+        result.residual_norm = std::sqrt(reduce([&](std::size_t i) {
+            product[i] = row_product(i, pressure.data());
+            residual[i] = B[i] - product[i];
+            return static_cast<long double>(residual[i]) * residual[i];
+        }));
+    };
+    const auto finish = [&] { result.pressure.assign(pressure.begin(), pressure.end()); return result; };
+    true_residual();
+    if (result.residual_norm <= threshold) return finish();
+    // IncompleteCholesky::factor on the cached sparsity.
+    bool ic = component.degree_ok;
+    if (ic) {
+        auto& L = cache.lower_values; auto& P = cache.inverse_pivots;
+        L.resize(component.lower_columns.size()); P.resize(count);
+        for (std::size_t k = 0; k < L.size(); ++k) {
+            double value = 0; bool started = false;
+            for (auto q = component.lower_faces_offsets[k]; q < component.lower_faces_offsets[k + 1]; ++q) {
+                const double entry = -G[component.lower_faces[q]];
+                if (!started) { value = entry; started = true; } else value += entry;
+            }
+            L[k] = value;
+        }
+        const auto& offsets = component.lower_offsets; const auto& columns = component.lower_columns;
+        for (std::size_t row = 0; row < count && ic; ++row) {
+            const double diagonal = 1 / D[row];
+            double pivot = diagonal;
+            for (auto k = offsets[row]; k < offsets[row + 1]; ++k) {
+                double value = L[k];
+                auto left = offsets[row], right = offsets[columns[k]];
+                const auto right_end = offsets[columns[k] + 1];
+                while (left < k && right < right_end) {
+                    if (columns[left] < columns[right]) ++left;
+                    else if (columns[right] < columns[left]) ++right;
+                    else { value -= L[left] * L[right] / P[columns[left]]; ++left; ++right; }
+                }
+                L[k] = value * P[columns[k]];
+                pivot -= L[k] * value;
+            }
+            if (!std::isfinite(pivot) || pivot <= diagonal * 1e-12) { ic = false; break; }
+            P[row] = 1 / pivot;
+            if (!std::isfinite(P[row])) ic = false;
+        }
+    }
+    if (ic) result.preconditioner_used = PressurePreconditioner::incomplete_cholesky;
+    else result.preconditioner_fallback = true;
+    const auto precondition = [&] {
+        if (!ic) { for (std::size_t i = 0; i < count; ++i) z[i] = D[i] * residual[i]; return; }
+        const auto& L = cache.lower_values; const auto& P = cache.inverse_pivots;
+        const auto& offsets = component.lower_offsets; const auto& columns = component.lower_columns;
+        for (std::size_t row = 0; row < count; ++row) {
+            double value = residual[row];
+            for (auto k = offsets[row]; k < offsets[row + 1]; ++k) value -= L[k] * z[columns[k]];
+            z[row] = value;
+        }
+        for (auto row = count; row-- > 0;) {
+            double value = z[row] * P[row];
+            for (auto e = component.upper_offsets[row]; e < component.upper_offsets[row + 1]; ++e)
+                value -= L[component.upper_entries[e]] * z[component.upper_rows[e]];
+            z[row] = value;
+        }
+    };
+    bool restart = true; double beta = 0;
+    precondition();
+    double previous = reduce([&](std::size_t i) { return static_cast<long double>(residual[i]) * z[i]; });
+    while (result.iterations < maximum) {
+        for (std::size_t i = 0; i < count; ++i) direction[i] = restart ? z[i] : z[i] + beta * direction[i];
+        const double denominator = reduce([&](std::size_t i) {
+            product[i] = row_product(i, direction.data());
+            return static_cast<long double>(direction[i]) * product[i];
+        });
+        if (denominator <= 0 || previous <= 0) throw std::runtime_error("Pressure solve lost positive definiteness");
+        const double alpha = previous / denominator;
+        require_finite(alpha, "pressure solve step");
+        const double rr = reduce([&](std::size_t i) {
+            pressure[i] += alpha * direction[i];
+            residual[i] -= alpha * product[i];
+            return static_cast<long double>(residual[i]) * residual[i];
+        });
+        ++result.iterations;
+        result.residual_norm = std::sqrt(rr);
+        if (result.residual_norm <= threshold) {
+            true_residual();
+            if (result.residual_norm <= threshold) return finish();
+            precondition();
+            restart = true;
+            previous = reduce([&](std::size_t i) { return static_cast<long double>(residual[i]) * z[i]; });
+            continue;
+        }
+        precondition();
+        const double following = reduce([&](std::size_t i) { return static_cast<long double>(residual[i]) * z[i]; });
+        beta = following / previous;
+        require_finite(beta, "pressure solve recurrence");
+        restart = false;
+        previous = following;
+    }
+    throw std::runtime_error("Pressure solve did not converge; no state published");
+}
+}
+LinearSolveResult solve_components_cached(Context& c, ComponentSolveCache& handle, const LinearSystem& sys,
+    const std::vector<double>& b, std::vector<double>& x, double rtol, double atol, std::size_t maximum,
+    std::size_t parallel_rows) {
+    if (c.exec.pool.size() != 1 || c.settings.game_profile == MacGameProfile::base_game_floor)
+        return solve_components(c, sys, b, x, rtol, atol, maximum, parallel_rows);
+    if (c.settings.preconditioner != PressurePreconditioner::incomplete_cholesky || parallel_rows == 0)
+        throw std::invalid_argument("Parallel component solves need the IC preconditioner and a size");
+    auto& cache = *handle.impl;
+    const auto& g = c.g;
+    bool same = cache.valid && cache.parallel_rows == parallel_rows && cache.active.size() == g.N &&
+        cache.open_x.size() == g.NX && cache.open_y.size() == g.NY;
+    for (std::size_t i = 0; same && i < g.N; ++i) same = cache.active[i] == sys.active[i];
+    for (std::size_t f = 0; same && f < g.NX; ++f) same = cache.open_x[f] == (sys.wx[f] != 0);
+    for (std::size_t f = 0; same && f < g.NY; ++f) same = cache.open_y[f] == (sys.wy[f] != 0);
+    if (!same) {
+        cache.valid = false;
+        cache.active.assign(sys.active.begin(), sys.active.end());
+        cache.open_x.resize(g.NX); cache.open_y.resize(g.NY);
+        for (std::size_t f = 0; f < g.NX; ++f) cache.open_x[f] = sys.wx[f] != 0;
+        for (std::size_t f = 0; f < g.NY; ++f) cache.open_y[f] = sys.wy[f] != 0;
+        cache.parallel_rows = parallel_rows;
+        rebuild_structure(cache, c, sys);
+        cache.valid = true;
+    }
+    // Couplings to an inactive cell (none in the game kernel's systems) keep
+    // the general path.
+    if (cache.boundary) return solve_components(c, sys, b, x, rtol, atol, maximum, parallel_rows);
+    const auto parts = cache.components.size();
+    x.assign(g.N, 0);
+    const double local_atol = parts == 0 ? atol : .5 * atol / std::sqrt(static_cast<double>(parts));
+    LinearSolveResult result; result.converged = true; DD squared;
+    c.counters.maximum_linear_components = std::max(c.counters.maximum_linear_components, parts);
+    for (const auto& component : cache.components) {
+        // PressureSystem: compliance, then each face's conductance on both
+        // rows in face order; the inverse diagonal is the reciprocal.
+        const auto count = component.cells.size();
+        cache.compliance.resize(count); cache.rhs.resize(count); cache.inverse_diagonal.resize(count);
+        cache.conductance.resize(component.faces.size());
+        for (std::size_t k = 0; k < count; ++k) {
+            const double value = sys.diag[component.cells[k]];
+            require_finite(value, "pressure compliance");
+            if (value < 0) throw std::invalid_argument("Negative pressure compliance");
+            cache.compliance[k] = value; cache.inverse_diagonal[k] = value; cache.rhs[k] = b[component.cells[k]];
+        }
+        bool anchored = false;
+        for (std::size_t k = 0; k < count; ++k) anchored = anchored || cache.compliance[k] > 0;
+        for (std::size_t f = 0; f < component.faces.size(); ++f) {
+            const auto& face = component.faces[f];
+            const double value = (face.x ? sys.wx : sys.wy)[face.source];
+            require_finite(value, "pressure face conductance");
+            if (value < 0) throw std::invalid_argument("Invalid pressure face");
+            cache.conductance[f] = value;
+            cache.inverse_diagonal[face.left] += value;
+            cache.inverse_diagonal[face.right] += value;
+        }
+        if (!anchored) throw std::invalid_argument("Pressure component has no compressibility or pressure reference");
+        for (std::size_t k = 0; k < count; ++k) {
+            require_finite(cache.inverse_diagonal[k], "pressure diagonal");
+            cache.inverse_diagonal[k] = 1 / cache.inverse_diagonal[k];
+            require_finite(cache.inverse_diagonal[k], "pressure preconditioner");
+        }
+        PressureSolveResult solved;
+        const auto block = count >= parallel_rows ? parallel_reduction_rows : std::max<std::size_t>(count, 1);
+        try { solved = solve_cached_component(cache, component, 0, .5 * rtol, local_atol, maximum, block); }
+        catch (const std::runtime_error&) { throw ComponentPressureSolveFailure{}; }
+        for (std::size_t k = 0; k < count; ++k) x[component.cells[k]] = solved.pressure[k];
+        result.iterations += solved.iterations; squared.add(solved.residual_norm * solved.residual_norm);
+        c.counters.incomplete_cholesky_solves += solved.preconditioner_used == PressurePreconditioner::incomplete_cholesky ? 1 : 0;
+        c.counters.incomplete_cholesky_fallbacks += solved.preconditioner_fallback ? 1 : 0;
+    }
+    result.residual = std::sqrt(squared.value()); return result;
+}
 LinearSolveResult solve_linear(Context& c, const LinearSystem& sys, const std::vector<double>& b, std::vector<double>& x,
     double rtol, double atol, std::size_t maximum, bool try_jacobi) {
     if (c.settings.preconditioner == PressurePreconditioner::incomplete_cholesky && !(try_jacobi && c.g.N >= 256))

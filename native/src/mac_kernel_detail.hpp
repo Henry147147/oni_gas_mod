@@ -19,6 +19,7 @@
 #include <mutex>
 #include <stdexcept>
 #include <thread>
+#include <memory>
 #include <vector>
 
 namespace ma::experimental::mac_kernel {
@@ -501,4 +502,23 @@ LinearSolveResult solve_linear(Context&, const LinearSystem&, const std::vector<
 // (PressureParallelPlan). Smaller components keep their serial solves.
 LinearSolveResult solve_components(Context&, const LinearSystem&, const std::vector<double>& b, std::vector<double>& x,
     double relative_tolerance, double absolute_tolerance, std::size_t maximum_iterations, std::size_t parallel_rows);
+// The structure of solve_components' last layout (components, face order,
+// IC(0) sparsity), kept while the active cells and coupled faces stay the
+// same. Values are always rebuilt; nothing numerical carries over.
+class ComponentSolveCache {
+public:
+    ComponentSolveCache();
+    ~ComponentSolveCache();
+    ComponentSolveCache(ComponentSolveCache&&) noexcept;
+    ComponentSolveCache& operator=(ComponentSolveCache&&) noexcept;
+    struct Impl;
+    std::unique_ptr<Impl> impl;
+};
+// solve_components with the cached structure. On a one-worker pool it runs
+// each component's serial or blocked-reduction PCG directly, with the same
+// arithmetic, results and errors as solve_components; otherwise it calls
+// solve_components.
+LinearSolveResult solve_components_cached(Context&, ComponentSolveCache&, const LinearSystem&,
+    const std::vector<double>& b, std::vector<double>& x, double relative_tolerance,
+    double absolute_tolerance, std::size_t maximum_iterations, std::size_t parallel_rows);
 }
