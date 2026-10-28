@@ -1,5 +1,11 @@
 # Base-game playtest plan
 
+**Release priorities, 2026-10-28:** at least real time with smooth input and
+UI now blocks release, and the user may remove features to reach it. New
+colonies will default to boil-only phase change (no evaporation below the
+pressure-dependent boiling point, ONI-like condensation). See the
+[amendment](completion-plan.md#amendments).
+
 **Current regression, 2026-10-28:** the user's Windows recording and uploaded
 colony reproduce large temperature, pressure and mass swings after digging.
 Profile6 / core24 bounds pressure intervals before transport and advances
@@ -60,8 +66,10 @@ plan's targets are unchanged.
   rest, and a machine takes only what its recipe uses.
 - **Asteroids.** Every base-game starting asteroid loads. Development and the
   harness use Terra, seed 147147.
-- **Speed** is measured and reported, never a gate here and never a reason to
-  cut a feature.
+- **Speed** was measured and reported, not gated, for the private playtest.
+  Superseded for release on 2026-10-28: at least 1× with smooth input is
+  required, and features may be cut for speed by the user's choice
+  ([amendment](completion-plan.md#amendments)).
 - **Platforms:** Linux and Windows x64. Windows OS behaviour and speed need
   the user's PC; Proton results are labelled separately.
 - **Evidence stays light** ([below](#evidence)).

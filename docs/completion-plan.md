@@ -8,6 +8,22 @@ still require separate authorization.
 
 Amendments:
 
+- **Real time and boil-only phase change, 2026-10-28 (latest user decisions):**
+  1. *Real time blocks release.* The user's 0.85× Windows playtest with
+     stuttering mouse and UI was not acceptable. Before release the game must
+     sustain at least 1× on the user's PC in representative base-game and
+     Spaced Out! colonies, with smooth input, camera and menus while the
+     solver works. The fixed performance targets below are unchanged.
+  2. *Features may be removed for speed.* Unlike the playtest plan's earlier
+     rule, speed is now a reason to cut or simplify features, by the user's
+     choice: each option is measured and presented with its gameplay effect
+     and speed gain, and the user decides.
+  3. *Boil-only phase change.* A new colony setting, on by default: a liquid
+     turns to vapour only when it boils at the cell's total gas pressure
+     (pressure-dependent, so water still boils in vacuum), and vapour below
+     that boiling point condenses as in ONI. The air holds no equilibrium
+     humidity. Off restores the earlier evaporation into unsaturated gas.
+
 - **Windows digging regression, 2026-10-28 (requested fix):** investigate and
   correct the temperature fluctuations in the user's recording and uploaded
   colony. Implementation: game profile6 / physical checkpoint24 replaces
