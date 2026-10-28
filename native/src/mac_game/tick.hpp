@@ -183,7 +183,9 @@ public:
       current_entropy = next;
       out.entropy_ms += ms(stamp);
     };
-    const auto prune = [&](bool tracking = true) {
+    // `refresh`: out.eos holds the readings of out.state; afterwards they
+    // are the readings of the pruned state (only changed cells are read).
+    const auto prune = [&](bool tracking = true, bool refresh = false) {
       // On an already valid state with no sub-threshold constituents,
       // the sink is exactly the identity, including passives and J.
       if (std::none_of(out.state.masses.mass.begin(),
@@ -209,6 +211,9 @@ public:
       sink_energy.add(sunk.potential);
       sink_x.add(sunk.jx);
       sink_y.add(sunk.jy);
+      if (refresh)
+        out.eos = flow.evaluate_changed(out.state.masses, out.state.energy,
+                                        sunk.state, std::move(out.eos));
       out.state = std::move(sunk.state);
       return true;
     };
@@ -216,8 +221,7 @@ public:
       double remaining = dt / parts;
       double trial = remaining;
       while (remaining > 0) {
-        if (prune())
-          out.eos = flow.evaluate_state(out.state, std::move(out.eos));
+        prune(true, true);
         auto stage_start = std::chrono::steady_clock::now();
         FlowReport advanced;
         for (;;) {
@@ -286,8 +290,9 @@ public:
     auto layered = layer(grid, species, out.state, out.eos, dt, gravity,
                          &flow.kernel_grid(), &flow.worker_pool());
     if (layered.faces) {
+      out.eos = flow.evaluate_changed(out.state.masses, out.state.energy,
+                                      layered.state, std::move(out.eos));
       out.state = std::move(layered.state);
-      out.eos = flow.evaluate_state(out.state, std::move(out.eos));
     }
     out.layering_ms = ms(stage_start);
     observe_entropy(out.layer_entropy);
@@ -307,8 +312,8 @@ public:
       out.interface_ms = ms(stage_start);
       observe_entropy(out.surface_entropy);
     }
-    if (prune_before_heat && prune())
-      out.eos = flow.evaluate_state(out.state, std::move(out.eos));
+    if (prune_before_heat)
+      prune(true, true);
     stage_start = std::chrono::steady_clock::now();
     if (heat_enabled) {
       auto heated = heat.advance(out.state, out.eos, dt);

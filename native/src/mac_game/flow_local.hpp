@@ -2,6 +2,7 @@
 #include "patch.hpp"
 #include "pressure_be.hpp"
 #include "region.hpp"
+#include <bit>
 #include <chrono>
 #include <limits>
 namespace ma::experimental::game_kernel {
@@ -126,6 +127,55 @@ public:
       if (!error.empty())
         throw std::runtime_error(error);
     return result;
+  }
+  // Readings of `after`, given `readings` of the cells `masses` and
+  // `energy` describe. A cell whose inventory and energy are bitwise
+  // unchanged keeps its reading, which evaluate_selected would reproduce
+  // exactly (it reads nothing else); every other cell is evaluated as
+  // evaluate_state does, so the result and any error are the same.
+  std::vector<Eos> evaluate_changed(const SparseMass &masses,
+                                    const std::vector<double> &energy,
+                                    const State &after,
+                                    std::vector<Eos> readings) const {
+    if (readings.size() != g.N || masses.offsets.size() != g.N + 1 ||
+        energy.size() != g.N)
+      return evaluate_state(after, std::move(readings));
+    const auto same = [](double a, double b) {
+      return std::bit_cast<std::uint64_t>(a) == std::bit_cast<std::uint64_t>(b);
+    };
+    std::vector<std::string> errors(g.blocks);
+    eos_pool.run(g.blocks, [&](std::size_t block) {
+      for (std::size_t i = g.block_row_begin(block) * g.W;
+           i < g.block_row_end(block) * g.W; ++i) {
+        if (g.wall[i])
+          continue;
+        const auto begin = after.masses.offsets[i],
+                   count = after.masses.offsets[i + 1] - begin;
+        const auto old = masses.offsets[i];
+        bool unchanged = same(energy[i], after.energy[i]) &&
+                         masses.offsets[i + 1] - old == count;
+        for (std::size_t a = 0; unchanged && a < count; ++a)
+          unchanged = masses.species[old + a] == after.masses.species[begin + a] &&
+                      same(masses.mass[old + a], after.masses.mass[begin + a]);
+        if (unchanged)
+          continue;
+        try {
+          readings[i] = evaluate_selected(
+              species, count,
+              [&](std::size_t a) { return after.masses.species[begin + a]; },
+              [&](std::size_t a) { return after.masses.mass[begin + a]; },
+              after.energy[i], g.V);
+        } catch (const std::exception &e) {
+          errors[block] =
+              "Private flow EOS cell " + std::to_string(i) + ": " + e.what();
+          break;
+        }
+      }
+    });
+    for (const auto &error : errors)
+      if (!error.empty())
+        throw std::runtime_error(error);
+    return readings;
   }
   // `readings` are those of `initial` when the caller already holds them.
   FlowReport advance(const State &initial, double dt, double gravity,
@@ -356,7 +406,8 @@ public:
     }
     pressure_storage = std::move(projected);
     start = std::chrono::steady_clock::now();
-    result.eos = evaluate_state(result.state, std::move(eos));
+    result.eos = evaluate_changed(initial.masses, initial.energy, result.state,
+                                  std::move(eos));
     result.eos_ms += milliseconds(start);
     return result;
   }
