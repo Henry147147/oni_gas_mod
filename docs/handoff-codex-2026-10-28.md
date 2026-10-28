@@ -203,33 +203,61 @@ official directory and ordinary content-mask checks, without an ownership
 override. Evidence: `linux-activity-dlc1-{source,load,readback}-r7-installed/`
 under the same artifact folder. Do not repeat the old sign-in question.
 
-**Next:** attribute the higher reported transfer-stage work and test presentation
-allocations. The `transfers` timer also includes activity census, scheduling and
-adaptive germ evolution. A private detailed logger preserves physical/owner
-hashes and separates these costs. Legacy replays spend about 7.4 ms in passive
-edits, mostly cloning; the controlled tiered fixture spends only about 0.8 ms
-there. Nearby searches cost about 0.06 ms per frame in those measurements,
-not the complete stage cost. The expensive first transfer needs its audit
-totals/state-copy costs measured; a fixed-order parallel audit prototype is
-private and unadopted. `stage2-profile/` contains the logger and scoped evidence.
-Current DLC readback data includes a frame 34 owner image, journal and disease
-table for controlled replay. Initial replay matches the frame 35/36 reference
-hashes; the complete dataset/receipt-cut proof remains in progress. The first
-transfer edits in place but spends about 8.1 ms recomputing missing audit totals;
-the next frame reuses them in 0.0005 ms. These are cold observations, not a
-steady-state cost claim.
-A private texture-scalar prototype aims to remove rich per-cell allocations;
-its first uncached form was slower. It is not adopted: the cached form needs
-channel-pass, large-viewport, lease/session, retention and actual-game proof.
-Native hook-counter sharding has only a small synthetic gain and lacks the
-public status/lifetime proof; it is not adopted. Local transfer scratch and
-open-centre injection search have limited measured scope. Retain
-pressure/transport and allocation work after that;
-active-cell physics benchmarks cannot benefit from sleeping their
-active cells. A private Windows package is prepared; Windows OS acceptance,
-actual 3× and smooth input on the user's PC remain open. The old
-worktree patches below are historical snapshots; current implementations and
-controls live on `main`.
+### Passive-edit optimization and longer speed probes
+
+The higher “transfers” time is chiefly biology in the actual base-game
+frames151–200 capture: 7.410 ms, including 4.268 ms cloning the passive-edit
+state. Census/scheduling cost 0.978/0.927 ms; transfer application only 0.252 ms.
+The owner now releases its previous activity snapshot after its last history
+read, then consumes the unique game state through an expiring passive-edit
+operation. Shared/non-game states retain the old copying path. All validation,
+allocation and result construction precede nonthrowing commit. Empty/nonempty
+cache policy, arithmetic and checkpoint bytes remain unchanged.
+
+Two reversed 16-frame runs per scene retain every physical/full-owner byte and
+canonical receipt record. With two warmup frames excluded per run, native owner
+means improve 31.836→27.057 ms in base game and 68.518→54.736 ms in Spaced Out!
+(15.0%/20.1%, 28 warm samples/mode). This excludes ONI/managed/rendering.
+All 89 Linux Release and 89 Windows x64/Wine tests pass, along with 439 Python
+and the full managed/game-contract suites. All 87 short MAC programs retain
+existing output/exit codes, apart from the exact new passive-control PASS line
+and the two usual timing masks. Seven nonzero diagnostic/usage exits are
+unchanged. Full-dependency ASan/UBSan focused controls pass 977 checks and 42
+allocation-refusal positions plus owner lifecycle tests. See
+`passive-expiring/`, `passive-{native,managed}.log` and
+`mac-passive-final/comparison-reviewed.json` under the tier-integration artifacts.
+
+Two actual 900-frame games with the new native code both pass. A private
+observer experiment holds binaries fixed and reduces full harness report
+cadence from every update to every 30 updates, preserving per-update clock and
+all lifecycle/target/fault checks. Report cost falls 5.679→0.311 s; warmed
+owner/game throughput is 2.641/2.638× versus 2.588/2.590×. Both reach about
+2.827× early and slow later; each has 3/4/5 GC frames in three clean 15 s
+windows. This single ordered pair has differing gameplay inputs and proves no
+whole-game speedup. Ordinary play skips this configured harness report path.
+The observer remains private. See `harness-overhead/README.md`.
+
+**Next:** measure the private compact-rendering cache in an unpaired 900-frame
+run against the same cadence30/new-native baseline. Its final rich constructor
+and disabled color loops match the original source; 118,750,539 captured Mono
+property/color bytes and 6,144 actual CPU texture destinations match, with no
+paired mismatch. Actual Mono allocation counting is unsupported. Cached Mono
+viewport loops improve about 18%, but uncached loops regress and oversized
+viewports fall back. Keep it private until actual GC/speed benefit is verified.
+Late receipt/byproduct work and main-thread costs still need attribution;
+byproduct counts are receipt deliveries, not counts of newly created objects.
+
+Nearby searches cost about 0.06 ms in measured replays, all reservoir anchors
+are open and saved precision inventories are empty. The cold first DLC transfer
+spends about 8.1 ms obtaining missing audit totals; the next reuses them in
+0.0005 ms. A parallel fixed-order audit prototype and hook-counter sharding
+remain private/unadopted, with no default throughput claim. Keep large active
+pressure/transport work in scope: active-cell benchmarks cannot benefit from
+sleeping their active cells. A private Windows package is prepared; refresh its
+clean-source manifest after the passive commit. Actual Windows OS acceptance,
+3×, smooth input, full active save continuation, exact storage and the broader
+release matrix remain open. Historical worktree patches below are superseded
+by main.
 
 Private compact evidence is in `local/profile8/replay-summary.json`,
 `artifacts/smoothness-baseline-driver/control-summary.json` and

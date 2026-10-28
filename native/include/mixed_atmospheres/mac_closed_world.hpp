@@ -473,7 +473,11 @@ public:
     // Adds each change to its cell's passive (a cell holding material only);
     // a quantity that reaches zero or below is removed. Mass, U and momentum
     // are unchanged.
-    [[nodiscard]] MacClosedWorld with_passive_edits(std::span<const MacPassiveEdit>) const;
+    // An expiring game owner stages touched passive vectors and commits them
+    // in place when uniquely held; aliases use the copying form. Refusals
+    // leave the expiring owner unchanged.
+    [[nodiscard]] MacClosedWorld with_passive_edits(std::span<const MacPassiveEdit>) const&;
+    [[nodiscard]] MacClosedWorld with_passive_edits(std::span<const MacPassiveEdit>) &&;
     [[nodiscard]] MacClosedWorld with_opened_cells(std::span<const std::size_t>) const;
     [[nodiscard]] MacClosedWorld with_closed_cells(std::span<const std::size_t>) const;
     // Physical owner checkpoint, not a scalar/display projection. Restoring

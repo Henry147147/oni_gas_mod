@@ -1,3 +1,5 @@
+#include <map>
+#include <type_traits>
 #include "mac_game_bridge.hpp"
 #include "mixed_atmospheres/mac_closed_world.hpp"
 #include "mixed_atmospheres/fluid_thermodynamics.hpp"
@@ -574,7 +576,50 @@ MacClosedWorld MacClosedWorld::with_closed_faces(std::vector<std::uint8_t> x,std
     return candidate;
 }
 
-MacClosedWorld MacClosedWorld::with_passive_edits(std::span<const MacPassiveEdit> edits) const {
+MacClosedWorld MacClosedWorld::with_passive_edits(std::span<const MacPassiveEdit> edits) && {
+    if (settings_.numerical_kernel!=MacNumericalKernel::game || state_snapshot_.use_count()!=1)
+        return std::as_const(*this).with_passive_edits(edits);
+    if (revision_ == std::numeric_limits<std::uint64_t>::max()) throw std::overflow_error("MAC closed revision overflow");
+    if (edits.empty()) { auto candidate=*this; ++candidate.revision_; return candidate; }
+    struct Staged { std::size_t cell; PassiveQuantities after; };
+    std::vector<Staged> staged;
+    std::map<std::size_t,std::size_t> indices;
+    const auto& before=state();
+    for (const auto& edit : edits) {
+        require(edit.cell_index < before.cells.size() && !before.grid.walls[edit.cell_index] && edit.identity != 0 && std::isfinite(edit.change),
+            "Invalid MAC passive edit");
+        const auto& cell=before.cells[edit.cell_index];
+        if (!(cell.mixture.mass() > 0) || edit.change == 0) continue;
+        auto found=indices.find(edit.cell_index);
+        if(found==indices.end()) {
+            const auto index=staged.size();staged.push_back({edit.cell_index,cell.passive_quantities});
+            found=indices.emplace(edit.cell_index,index).first;
+        }
+        auto& q=staged[found->second].after;
+        auto it=std::find_if(q.begin(),q.end(),[&](const PassiveQuantity& v){return v.identity==edit.identity;});
+        if(it==q.end()) {
+            if (!(edit.change > 0)) continue;
+            add_passive_quantities(q,std::array<PassiveQuantity,1>{PassiveQuantity{edit.identity,edit.change}},1);
+            continue;
+        }
+        it->quantity+=edit.change;
+        if (!(it->quantity > 0)) q.erase(it);
+    }
+    // Registry allocation and canonicalization decisions precede every write.
+    // Nonempty calls clear cached totals, including no-op calls, as before.
+    MacClosedWorld result(Derived{},*this,state_snapshot_);
+    bool partial=false;
+    for(std::size_t i=0;i<before.occupied_volumes_m3.size() && !partial;++i)
+        partial=before.cells[i].mixture.mass()>0 && before.occupied_volumes_m3[i]<before.grid.volume_m3();
+    auto& next=const_cast<MacTransportState&>(*state_snapshot_);
+    static_assert(noexcept(std::declval<PassiveQuantities&>().swap(std::declval<PassiveQuantities&>())));
+    static_assert(std::is_nothrow_move_constructible_v<MacClosedWorld>);
+    for(auto& item:staged)next.cells[item.cell].passive_quantities.swap(item.after);
+    if(!partial)next.occupied_volumes_m3.clear();
+    state_snapshot_.reset();
+    return result;
+}
+MacClosedWorld MacClosedWorld::with_passive_edits(std::span<const MacPassiveEdit> edits) const& {
     if (revision_ == std::numeric_limits<std::uint64_t>::max()) throw std::overflow_error("MAC closed revision overflow");
     if (edits.empty()) { auto candidate=*this; ++candidate.revision_; return candidate; }
     auto next=state();

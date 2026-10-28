@@ -20,6 +20,12 @@ about 2.80× warmed owner/game progress, with three GCs in a clean 15 s window.
 Actual 3× and release acceptance remain open. See [activity controls](region-activity-controls.md) and
 [performance acceptance](performance-acceptance.md).
 
+**Exact native optimization, 2026-10-28:** uniquely held germ edits stage only
+touched passive vectors; complete replay bytes remain equal and native owner
+means fall 15–20% in two captured windows. All 89 Linux/Windows-under-Wine tests,
+87 short MAC output comparisons and managed/Python suites pass. Two longer Linux
+runs still reach only about 2.6× warmed speed; actual 3× remains open.
+
 **Temperature regression, 2026-10-28:** controlled digging in the user's
 uploaded colony reproduced large gas overfill and temperature swings.
 Profile6 / core24 checks pressure intervals before transport and advances
@@ -76,7 +82,7 @@ Current state on 2026-10-28. [Private-playtest acceptance](private-playtest-rele
 | --- | --- |
 | [Material catalogue](material-catalogue.md) | Every game gas and liquid becomes a species from game values read at runtime plus cited reference data; liquid/vapour pairs boil by pressure from the game's boiling point. |
 | [Colony owner](colony-owner.md) | A normal base-game colony starts one whole-asteroid owner (Terra: 30,915 open cells, 78 materials). It publishes cells and routes emission, consumption and heat with closed ledgers. The final current-profile nine-asteroid sweep and prepared ten-cycle run are pending. |
-| [Region activity](region-activity-controls.md) | The owner selects active, remote and paused fluid regions from actors, inputs and actual body contacts, preserving pending clocks and frame delivery in core28/wrapper14. Passive solid conduction alone does not wake a region. Standalone and managed controls cover the policy and persistence; current-package live census, save/load and speed measurements remain pending. |
+| [Region activity](region-activity-controls.md) | The owner selects active, remote and paused regions from actors, inputs and body contacts, preserving clocks and frame delivery in core28/wrapper14. Linux base-game and Spaced Out! census/pending-save cohorts pass; actual sustained 3× and Windows OS acceptance remain open. |
 | [Import settle](colony-owner.md#import) | Liquid bodies flood their basins to one hydrostatic level, gas regions reach one pressure layered by density (no mixing); liquid that cannot fit goes to a booked reservoir (Terra: 656 t) that seeps back as its pocket gains room; supersaturated vapour condenses, and a liquid beside vacuum starts under its saturated vapour. |
 | [Terrain](colony-owner.md#terrain) | Dig and tile building open and close cells with booked refill and displacement; ONI's replacement replaces a cell's fluid; airlocks close by displacement and open by digging; [airflow tiles](colony-owner.md#airflow-tiles) close their faces to liquid; falling sand lands as a tile; melting and freezing open and close cells (in game: `terrain`, `door`, `airflow`, `falling`, `freeze-melt`, `building-melt`, `meteor`). |
 | [Pacing](colony-owner.md#pacing) | The owner steps on its own thread with predictive step control; the game clock slows to the owner's rate and holds before a tick the owner has not finished. The mixture presentation keeps each completed frame's readings as a compact pooled copy and builds a cell's reading when a reader asks for it, so it no longer allocates tens of MB per owner frame (the cause of once-a-second garbage-collection stalls in the first Windows playtest); a publication spends at most 2 ms on receipts and leaves further solid byproducts for the next one ([main-thread smoothness](colony-owner.md#main-thread-smoothness)). Between frames the game waits only for the end-of-frame projection (about 30 ms) and a Unity frame. |

@@ -824,3 +824,35 @@ MAC programs retain their prior exit codes and existing output; only the new
 heat-control PASS line is added, with the usual two timing fields masked.
 The full 80-frame twelve-dig replay retains every physical and full-owner
 checkpoint hash. Long gates and Windows OS acceptance are separate.
+
+## Expiring passive edits
+
+Germ evolution can consume a uniquely owned game state with
+`std::move(world).with_passive_edits(edits)`. The copying overload keeps its
+original operations. Shared states and other kernels retain that path.
+The expiring path stages only touched passive vectors, in edit order, then
+constructs the result and decides volume canonicalization before any state
+write. Nonthrowing swaps commit the staged vectors. Allocation or validation
+failure preserves the source bytes, revision, cache and state address.
+
+Empty batches retain the shared physical state and audit cache while advancing
+the revision. Every nonempty batch still invalidates cached totals, including
+no-op batches. Overflow, deletion and absent-identity behavior remain unchanged.
+The owner releases its previous activity snapshot only after the last history
+comparison, before scheduling and biology; this makes the expiring path usable
+without invalidating the history span. No clock, physics arithmetic, checkpoint
+format or checkpoint bytes change for the same operations.
+
+Two reversed 16-frame repetitions per saved scene retain complete physical and
+owner bytes and canonical receipt/job records. After excluding the first two
+frames of each run, full native owner means fall 31.84→27.06 ms in the base-game
+capture and 68.52→54.74 ms in Spaced Out!, with 28 samples per mode. These omit
+ONI, managed work and rendering; they do not establish actual 3×.
+The fully instrumented ASan/UBSan dependency graph passes 977 focused controls,
+42 allocation-failure points and owner lifecycle controls. The permanent
+boundary suite covers public bytes/errors, aliases, true partial volumes,
+revisions, cache presence/values, cold accounting and allocation rollback.
+Linux Release and Windows x64/Wine each pass all 89 native tests; all 87 short
+MAC programs retain existing output and exits apart from the new passive-test
+PASS line. Python and managed/game-contract suites pass too. Evidence:
+`artifacts/tier-integration-2026-10-28/passive-expiring/`.

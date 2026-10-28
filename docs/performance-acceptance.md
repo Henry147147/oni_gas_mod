@@ -232,7 +232,7 @@ ordinary transfers, suggesting a common opening-total/state cost. Nearby
 searches themselves take about 0.06 ms per frame. All measured reservoir
 anchors are open, so an empty-neighborhood cache would not help these cases;
 saved precision inventories are empty too. Fixed-order parallel audit totals
-and uniquely owned passive edits remain private proposals. No tolerance, cache
+remain a private proposal; the passive-edit result follows below. No tolerance, cache
 invalidation rule or checkpoint is changed by this profiling.
 
 The controlled tiered case repeats saved actors without new external heat or
@@ -248,6 +248,57 @@ frame 35/36 reference hashes. Its first transfer edits in place and spends
 that every default-profile frame pays that cost. The parallel-total experiment
 must retain fixed cell/face addition and block-merge order, cache invalidation,
 exceptions and checkpoint/receipt bytes before any adoption.
+
+### Expiring passive-edit comparison
+
+The actual base-game diagnostic capture then identifies a steady cost over
+frames 151–200: the reported transfer/activity/biology stage includes 7.410 ms
+of biology, 0.978 ms of census and 0.927 ms of scheduling. Transfer application
+is only 0.252 ms. Within passive edits, cloning costs 4.268 ms, edits 0.009 ms
+and canonicalization/result construction 0.250 ms. That run includes a deliberate
+save and input journaling, so its throughput is not accepted.
+
+The implemented expiring passive path removes that redundant clone when the
+state is unique, while retaining the copying path for shared states and other
+kernels. The prior activity snapshot remains alive through its final history
+read, then leaves scope before biology. All failable staging/result construction
+precedes nonthrowing commit; empty/nonempty cache policies stay unchanged.
+
+| Captured inputs, full native owner | Original mean / p95 | Expiring mean / p95 | Mean change |
+| --- | --- | --- | --- |
+| Base game, frames 102–117 | 31.836 / 36.178 ms | 27.057 / 28.558 ms | −15.0% |
+| Spaced Out!, frames 35–50 | 68.518 / 80.429 ms | 54.736 / 59.325 ms | −20.1% |
+
+Two reversed repetitions per scene use 12 workers and the whole-machine lock;
+each excludes its first two frames, leaving 28 samples per mode. Timing includes
+queue/wait and native publication, excluding comparison serialization/hashing.
+Complete physical/owner bytes and canonical receipt/precise/job/moving records
+match between modes and repeats; this does not imply nonempty coverage of every
+record kind. The result is a native replay gain, not actual game throughput.
+All 89 Linux and Windows-under-Wine native tests, 439 Python tests,
+managed/game-contract checks, the full
+87-program MAC output comparison and focused ASan/UBSan controls pass. The new
+permanent passive PASS line is the only MAC output addition.
+
+The validation harness itself also materializes and atomically writes a full
+owner report on every Unity update. Ordinary play skips this configured harness
+path. Two private 900-frame runs use identical binaries with report cadence
+1 versus 30, retaining every clock observation, fault/scenario/save/target check
+and forced final report. Reports fall from 5,106 to 196 and direct report cost
+from 5.679 to 0.311 s (8.3% to 0.45% of total wall time). This is observer cost,
+not a solver speedup. Both runs pass, but warmed owner/game speed is
+2.641/2.638× versus 2.588/2.590×: no throughput gain is established. Both reach
+about 2.827× early and slow later. Each has 12 GC-containing frames across three
+clean 15 s windows; approximate heap growth falls, while collection counts
+remain 3/4/5 per window. Actual Mono allocation totals are unsupported.
+
+This is one ordered pair with differing gameplay inputs, so it cannot establish
+a precise causal whole-game change. Frame p99s are 95/110/129 versus
+90/104/146 ms per window. There are no dropped timing samples, owner faults or
+critical game-log errors. The private observer and compact-rendering changes
+remain unadopted; late main-thread work and GC still need attribution.
+Private evidence under `artifacts/tier-integration-2026-10-28/`:
+`passive-expiring/`, `linux-base-stage2-capture/` and `harness-overhead/`.
 
 ### Measurement and test harness first
 

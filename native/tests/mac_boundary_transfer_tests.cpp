@@ -1,4 +1,5 @@
 #include "mac_fixture.hpp"
+#include "mac_passive_expiring_control.hpp"
 #include <array>
 #include <cmath>
 #include <iostream>
@@ -267,6 +268,7 @@ int main() {
     try {
         const auto& fixture=ma::testing::setup(); auto state=fixture.state(2,2,false);
         passive_observation_controls(fixture);
+        ma::testing::passive_expiring::controls();
         for (auto& cell : state.cells) cell.passive_quantities.clear();
         state.momentum_x[state.grid.x_face(1,0)]=.25; state.momentum_x[state.grid.x_face(1,1)]=-.15;
         state.momentum_y[state.grid.y_face(0,1)]=.1; state.momentum_y[state.grid.y_face(1,1)]=-.2;

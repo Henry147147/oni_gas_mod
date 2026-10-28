@@ -37,6 +37,12 @@ playtest deferrals remain recorded until their own controls pass.
   plus pacing clipping); no admission policy change is adopted from that
   measurement alone. Full-game 3× and smooth-input acceptance remain open;
   see [measurements and remaining optimizations](performance-acceptance.md#requested-3-release-goal-2026-10-28).
+- **Exact passive edits, 2026-10-28:** germ evolution now avoids cloning a
+  uniquely held physical state, retaining full checkpoint/receipt bytes in
+  matched replays. Captured native owner means improve 15–20%; all native,
+  managed and output-comparison checks pass. Longer 900-frame Linux probes still
+  slow from about 2.827× early to about 2.6× overall. Private reporting and
+  rendering experiments do not yet establish a whole-game gain.
 - **Scenario baseline, 2026-10-28:** immutable `16da60c` also fails the unchanged
   freeze/melt check (357.9 kg, required >380 kg) and airflow gas check
   (4.278 → 4.052 kg, required increase >0.05 kg; liquid barrier passes).

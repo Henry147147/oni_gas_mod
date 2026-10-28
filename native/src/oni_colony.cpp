@@ -2572,7 +2572,7 @@ MacClosedWorld evolve_germs(Session& s, MacClosedWorld world, std::span<const Ge
     if (!edits.empty()) {
         std::vector<MacPassiveEdit> passive; passive.reserve(edits.size());
         for (const auto& e : edits) passive.push_back({e.cell, e.identity, e.change});
-        world = world.with_passive_edits(passive);
+        world = std::move(world).with_passive_edits(passive);
     }
     // Audit: per identity, the world holds what it held plus the stage's
     // booked edits, births, deaths and culled germs (diffusion only moves).
@@ -3278,19 +3278,25 @@ void run_frame(std::uint64_t ticket,double seconds,std::uint64_t frames,const ch
         external_activity_touched=nullptr;
         std::vector<double> due;
         if(activity) {
-            std::vector<std::uint8_t> actors(touched.size());
-            for(const auto cell:activity->packet.actors)actors[rect_index(s.config,cell)]=1;
-            const auto previous_world=world;const auto previous=previous_world.game_activity();
-            auto census=world.with_game_activity(touched,actors);
-            const auto next_census=census.game_activity();
-            const bool same_actors=std::equal(previous.begin(),previous.end(),next_census.begin(),[](const auto& a,const auto& b){return a.actors==b.actors;});
-            if(!flush_only || !same_actors || std::any_of(touched.begin(),touched.end(),[](auto value){return value!=0;}))world=std::move(census);
+            // Keep the prior activity span alive through clock resets, then
+            // release its physical-state alias before biology edits.
+            {
+                std::vector<std::uint8_t> actors(touched.size());
+                for(const auto cell:activity->packet.actors)actors[rect_index(s.config,cell)]=1;
+                const auto previous_world=world;const auto previous=previous_world.game_activity();
+                auto census=world.with_game_activity(touched,actors);
+                const auto next_census=census.game_activity();
+                const bool same_actors=std::equal(previous.begin(),previous.end(),next_census.begin(),[](const auto& a,const auto& b){return a.actors==b.actors;});
+                if(!flush_only || !same_actors || std::any_of(touched.begin(),touched.end(),[](auto value){return value!=0;}))world=std::move(census);
+                if(adaptive) {
+                    if(s.biology_pending_s.empty())s.biology_pending_s.assign(touched.size(),0);
+                    const auto current=world.game_activity();
+                    for(std::size_t i=0;i<current.size();++i)
+                        if(current[i].next_remote_s==0 && (previous[i].next_remote_s>0 || current[i].last_activity_s>previous[i].last_activity_s || current[i].last_activity_s<0 ||
+                            (!current[i].actors && world.time_s()-current[i].last_activity_s>=world.settings().game.activity_pause_s)))s.biology_pending_s[i]=0;
+                }
+            }
             if(adaptive) {
-                if(s.biology_pending_s.empty())s.biology_pending_s.assign(touched.size(),0);
-                const auto current=world.game_activity();
-                for(std::size_t i=0;i<current.size();++i)
-                    if(current[i].next_remote_s==0 && (previous[i].next_remote_s>0 || current[i].last_activity_s>previous[i].last_activity_s || current[i].last_activity_s<0 ||
-                        (!current[i].actors && world.time_s()-current[i].last_activity_s>=world.settings().game.activity_pause_s)))s.biology_pending_s[i]=0;
                 if(!flush_only)due=world.game_activity_steps(seconds);
                 if(s.germ_mode==1)world=evolve_germs(s,std::move(world),germ_edits,frames,due);
             }
