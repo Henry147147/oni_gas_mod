@@ -8,7 +8,7 @@ control now keeps the observed cell at 32.3–34.6°C rather than falling below
 −78°C. Fresh Fast-preset generation/digging, all 89 native tests on each
 platform route, clean preservation of legacy MAC outputs, completed-frame32
 writing and ordinary cold/menu loading pass. Focused pressure/region controls
-also pass AddressSanitizer/UBSan. Final packaging is being completed;
+also pass AddressSanitizer/UBSan. The clean `59cce0f` private Windows ZIP is packaged;
 performance remains below the release target. Earlier pressure-profile R&D saves are refused with new-colony
 instructions. See [the solver record](../native/MAC_GAME_KERNEL.md#pressure-intervals-after-digging).
 
@@ -33,9 +33,10 @@ Linux and WindowsPlayer/Proton each pass eight checks and retain identical
 source/cold/menu histories without a live host. Nonempty teardown and containers remain open.
 
 
-Current private Windows candidate: **`bfb1168`**. Ordinary Spaced Out! New Game,
-manual saves and fresh-process loading are verified under Proton; the full
-release gate remains open. See [install instructions and exact provenance](spaced-out-private-playtest.md).
+Current private Windows candidate: **`59cce0f`**. Fresh Fast-preset digging,
+completed-frame32 writing and ordinary cold/menu loading are verified under
+Proton; the full release gate remains open. See
+[install instructions and exact provenance](spaced-out-private-playtest.md).
 
 Spaced Out! update, 2026-10-27: ordinary new colonies now use the cluster
 owner without a development opt-in. Targeted controls pass multi-asteroid

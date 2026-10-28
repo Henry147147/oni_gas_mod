@@ -1,18 +1,24 @@
 # Spaced Out! private Windows playtest
 
 The current engineering ZIP is
-`MixedAtmospheres-windows-5d11aea-private.zip` (2026-10-28;
-SHA-256 `36ed89745eaf3990ffb42ee2a84d595600958ec2876c5f24d69370acae31bdb0`).
-It is packaged from clean revision `5d11aea`; its two managed and two native
-DLL hashes match the final tested WindowsPlayer/Proton bundle. It includes
+`MixedAtmospheres-windows-59cce0f-temperature-fix-private.zip` (2026-10-28;
+SHA-256 `b254936dfefa0dddce2485454dfda643917e4f981eb4de55f0161c19113c2bfb`).
+It is packaged from clean revision `59cce0f`. Its native DLL hashes match the
+tested regional-pressure WindowsPlayer/Proton bundle; its managed build also
+has version-neutral solver UI labels. It includes
 nitrogen removal, CO₂ limits off by default, Gameplay/Advanced settings,
-reservoir lifecycle work, and the native load-transition/tile recreation fixes.
-Ordinary Spaced Out! source/cold/menu loading passes with nine worlds and no
-experimental overrides. Full deterministic continuation remains open; the exact
-storage and native clock controls remain development-only. The user's Windows
-recording reports large recurring temperature changes during early digging;
-diagnosis and a verified fix are pending. The other Windows acceptance steps
-have not all been confirmed. Start new colonies: old R&D saves are unsupported.
+reservoir lifecycle work, native load-transition/tile recreation fixes and
+the digging-temperature fix. An identical twelve-dig control in the uploaded
+colony keeps the observed cell at 32.3–34.6°C instead of dropping below −78°C.
+Fresh Fast-preset digging and completed-frame32 source/cold/menu loading pass.
+Full deterministic continuation and release performance remain open; exact
+storage and native clock controls remain development-only. Updated Windows OS
+feedback is pending. Start new colonies: earlier pressure-profile R&D saves
+are refused with a reason.
+
+The earlier `MixedAtmospheres-windows-5d11aea-private.zip` (SHA-256
+`36ed89745eaf3990ffb42ee2a84d595600958ec2876c5f24d69370acae31bdb0`)
+contains the loading fixes but predates the digging-temperature correction.
 
 The previous engineering ZIP,
 `MixedAtmospheres-windows-storage-retirement-private.zip` (2026-10-27;
@@ -28,7 +34,7 @@ the user's part of the playtest.
 
 ## Install
 
-1. Close ONI and extract `MixedAtmospheres-windows-5d11aea-private.zip`.
+1. Close ONI and extract `MixedAtmospheres-windows-59cce0f-temperature-fix-private.zip`.
 2. Open PowerShell in the extracted folder and run:
 
    ```powershell
@@ -57,7 +63,8 @@ OS evidence or a prediction for the user's 9950X/5070 Ti.
 
 | Control | Evidence and provenance |
 | --- | --- |
-| Current loading fixes | The final Windows bundle passes ordinary Spaced Out! source/cold/menu loading: nine worlds, 24 saved tile recreation messages preserved, matching restored owner images and no experimental overrides (`release-loaded-tiles-spacedout-source` / `spacedout-load`). Its DLL hashes match clean `5d11aea`. This is not a complete continuation proof. |
+| Temperature correction | Profile6 / core24 passes all twelve matched native digs in the uploaded colony, fresh Fast-preset digging, and completed-frame32 source/cold/menu loading. Both native suites pass 89 tests, with clean legacy MAC numerical outputs retained. See [pressure intervals](../native/MAC_GAME_KERNEL.md#pressure-intervals-after-digging). This does not pass release performance or complete colony continuation. |
+| Earlier loading fixes | The `5d11aea` Windows bundle passes ordinary Spaced Out! source/cold/menu loading: nine worlds, 24 saved tile recreation messages preserved, matching restored owner images and no experimental overrides (`release-loaded-tiles-spacedout-source` / `spacedout-load`). Its DLL hashes match clean `5d11aea`. This is not a complete continuation proof. |
 | Whole cluster and camera changes | Nine Spaced Out-style asteroids pass mixture/ownership probes. Ordinary activation, source save, fresh-process load and menu reload pass on `34c63de`, without an owner environment override. |
 | Rocket lifecycle and paired ports | `c942141` passes construction, gas/liquid ports in both directions, actual flight, airborne self-destruct, landed retirement and immediate grid-slot reuse, followed by fresh-process and menu reloads. All recovered constituent bounds and closed-ledger checks are unchanged. |
 | Teleporters | `dc39f60` passes actual generated material endpoints in both directions, both phases, drained source/shared stores, exact pipe accounts and source/cold/menu checks. |
@@ -86,8 +93,8 @@ The ZIP contains 23 entries, including the installer, with no game assemblies,
 saves, colony validation configuration or private observer DLL. Every file
 passes its manifest hash and the ZIP readback check.
 
-- Source: `5d11aea49f1b96efd54c539af5e3f2ef378210b3`
-- ZIP SHA256: `36ed89745eaf3990ffb42ee2a84d595600958ec2876c5f24d69370acae31bdb0`
+- Source: `59cce0fac25852e4a1c0b4997db6dd302f7050e0`
+- ZIP SHA256: `b254936dfefa0dddce2485454dfda643917e4f981eb4de55f0161c19113c2bfb`
 
 ## Historical bfb1168 package identity
 
