@@ -114,6 +114,15 @@ current binary has.
 
 ### Version assignment
 
+**Reserved 2026-10-28 immediately after fetching `8df8be4`:** physical
+`MACCLS01` version **24** identifies game profile **6**, which bounds the net
+swept-volume change of each cell during a pressure interval to the existing
+0.4-cell numerical fraction. A rejected pressure trial commits no work,
+transport or momentum; the interval is subdivided and pressure is solved again.
+The layout remains that of version23; the version identifies the changed
+arithmetic. Profiles2–5 / versions20–23 retain their equations, bytes and
+continuation. This reservation does not enable the policy or claim validation.
+
 Version **23 is game profile5** (2026-10-24), confirmed after
 a fresh fetch of `c57532a`. It retains version22's layout and identifies an
 additional booked trace prune before conduction, with refreshed EOS data after
