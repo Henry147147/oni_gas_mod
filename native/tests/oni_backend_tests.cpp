@@ -194,9 +194,10 @@ static void runtime_context_controls() {
     }
     require(sim==original&&ma::oni::runtime_trace::context(nullptr,false).cells==0,"native context observer changed source or null contract");
     for(const auto windows:{false,true}) {
-        std::array<std::byte,168> owner{};std::array<std::array<std::byte,96>,2> arrays{};
+        std::array<std::byte,168> owner{};std::array<std::array<std::byte,160>,2> arrays{};
         std::array<std::array<std::uint16_t,12>,2> elements{};
         std::array<std::array<std::uint32_t,12>,2> masses{},temperatures{};
+        std::array<std::array<std::uint8_t,12>,2> properties{},insulation{};std::array<std::uint8_t,12> timers{};
         const auto set=[](auto& target,std::size_t offset,const auto& value){std::memcpy(target.data()+offset,&value,sizeof(value));};
         set(owner,0,std::int32_t{4});set(owner,4,std::int32_t{3});set(owner,8,std::int32_t{2});
         const std::array<std::size_t,3> offsets=windows?std::array<std::size_t,3>{8,72,40}:std::array<std::size_t,3>{0,48,24};
@@ -206,13 +207,25 @@ static void runtime_context_controls() {
             set(arrays[b],offsets[0],elements[b].data());set(arrays[b],offsets[0]+8,elements[b].data()+12);
             set(arrays[b],offsets[1],masses[b].data());set(arrays[b],offsets[1]+8,masses[b].data()+12);
             set(arrays[b],offsets[2],temperatures[b].data());set(arrays[b],offsets[2]+8,temperatures[b].data()+12);
+            const auto property=windows?104U:72U,insulate=windows?136U:96U;
+            properties[b][5]=static_cast<std::uint8_t>(0x81U+b);insulation[b][5]=static_cast<std::uint8_t>(0xf0U+b);
+            set(arrays[b],property,properties[b].data());set(arrays[b],property+8,properties[b].data()+12);
+            set(arrays[b],insulate,insulation[b].data());set(arrays[b],insulate+8,insulation[b].data()+12);
         }
+        timers[5]=0xa5;set(owner,windows?112:104,timers.data());
         const auto kept_owner=owner;const auto kept_arrays=arrays;const auto kept_mass=masses;const auto kept_temperatures=temperatures;
+        const auto kept_properties=properties,kept_insulation=insulation;const auto kept_timers=timers;
         const auto view=ma::oni::runtime_trace::cell(owner.data(),0,windows);
         require(view.valid&&view.element[0]==71&&view.element[1]==72&&view.mass[0]==0x80000000U&&view.mass[1]==0x3f800000U&&
             view.temperature[0]==0x43960000U&&view.temperature[1]==0x43960001U,"native paired cell trace changed raw fields or layout");
+        require(view.context_valid&&view.properties[0]==0x81&&view.properties[1]==0x82&&view.insulation[0]==0xf0&&view.insulation[1]==0xf1&&view.stable_ticks==5,
+            "native paired cell trace lost thermal properties or timer bits");
         require(!ma::oni::runtime_trace::cell(owner.data(),2,windows).valid,"native paired cell trace accepted outside public cell");
         require(owner==kept_owner&&arrays==kept_arrays&&masses==kept_mass&&temperatures==kept_temperatures,"native paired cell trace modified its input");
+        require(properties==kept_properties&&insulation==kept_insulation&&timers==kept_timers,"native thermal context trace changed its inputs");
+        set(arrays[1],(windows?136U:96U)+8,insulation[1].data()+5);
+        const auto short_context=ma::oni::runtime_trace::cell(owner.data(),0,windows);
+        require(short_context.valid&&!short_context.context_valid,"native paired cell trace accepted short thermal context");
         set(arrays[1],offsets[2]+8,temperatures[1].data()+5);
         require(!ma::oni::runtime_trace::cell(owner.data(),0,windows).valid,"native paired cell trace read beyond a short vector");
     }

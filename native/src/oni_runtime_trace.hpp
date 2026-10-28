@@ -1,6 +1,7 @@
 #pragma once
 #include "oni_body_heat_trace.hpp"
 #include <algorithm>
+#include <array>
 #include <limits>
 #include <stdexcept>
 #include <string>
@@ -23,7 +24,8 @@ inline Context context(const void* sim,bool windows) noexcept {
 struct Cell {
     std::uint16_t element[2]{};
     std::uint32_t mass[2]{},temperature[2]{};
-    bool valid=false;
+    std::uint8_t properties[2]{},insulation[2]{},stable_ticks{};
+    bool valid=false,context_valid=false;
 };
 inline Cell cell(const void* sim,std::uint32_t public_cell,bool windows) noexcept {
     Cell result;if(!sim)return result;
@@ -44,7 +46,21 @@ inline Cell cell(const void* sim,std::uint32_t public_cell,bool windows) noexcep
             else result.temperature[b]=read<std::uint32_t>(first,index*stride);
         }
     }
-    result.valid=true;return result;
+    result.valid=true;
+    for(unsigned b=0;b<2;++b) {
+        const auto* arrays=read<const std::byte*>(sim,32+8*b);
+        const std::array<std::size_t,2> extra=windows?std::array<std::size_t,2>{104,136}:std::array<std::size_t,2>{72,96};
+        for(unsigned field=0;field<2;++field) {
+            const auto* first=read<const std::byte*>(arrays,extra[field]);const auto* last=read<const std::byte*>(arrays,extra[field]+8);
+            if(index>=body_heat_trace::detail::count(first,last,1,1U<<30))return result;
+            (field==0?result.properties[b]:result.insulation[b])=read<std::uint8_t>(first,index);
+        }
+    }
+    const auto* timers=read<const std::uint8_t*>(sim,windows?112:104);
+    if(!timers)return result;
+    // Native Timers uses five low bits; its remaining bits are allocator
+    // padding and are neither physical context nor meaningful evidence.
+    result.stable_ticks=timers[index]&31U;result.context_valid=true;return result;
 }
 class Frame {
     std::uint64_t ordinal_;
@@ -81,22 +97,24 @@ class Frame {
     static std::FILE* cell_file() {
         static auto* output=[] {
             const auto name=std::string(path())+".cells";auto* opened=ma::oni::capture_file(name.c_str(),false);
-            if(opened)std::fputs("frame\tphase\tcell\tvalid\telement_old\telement_new\tmass_old_bits\tmass_new_bits\ttemperature_old_bits\ttemperature_new_bits\n",opened);
+            if(opened)std::fputs("frame\tphase\tcell\tvalid\telement_old\telement_new\tmass_old_bits\tmass_new_bits\ttemperature_old_bits\ttemperature_new_bits\tcontext_valid\tproperties_old\tproperties_new\tinsulation_old\tinsulation_new\tstable_ticks\n",opened);
             return opened;
         }();return output;
     }
-    void observe_cells(unsigned phase) noexcept {
-        if(!observe_cells_)return;
+    static void observe_cells(std::uint64_t ordinal,unsigned phase,const void* sim,bool enabled) noexcept {
+        if(!enabled)return;
         body_heat_trace::detail::Preserve preserve;
         try {
             if(cells().empty())return;
             if(auto* output=cell_file()) {
                 for(const auto id:cells()) {
-                    const auto state=cell(sim_,id,windows);
-                    std::fprintf(output,"%llu\t%u\t%u\t%u\t%u\t%u\t%08x\t%08x\t%08x\t%08x\n",
-                        static_cast<unsigned long long>(ordinal_),phase,id,state.valid?1U:0U,
+                    const auto state=cell(sim,id,windows);
+                    std::fprintf(output,"%llu\t%u\t%u\t%u\t%u\t%u\t%08x\t%08x\t%08x\t%08x\t%u\t%u\t%u\t%u\t%u\t%u\n",
+                        static_cast<unsigned long long>(ordinal),phase,id,state.valid?1U:0U,
                         static_cast<unsigned>(state.element[0]),static_cast<unsigned>(state.element[1]),
-                        state.mass[0],state.mass[1],state.temperature[0],state.temperature[1]);
+                        state.mass[0],state.mass[1],state.temperature[0],state.temperature[1],state.context_valid?1U:0U,
+                        static_cast<unsigned>(state.properties[0]),static_cast<unsigned>(state.properties[1]),
+                        static_cast<unsigned>(state.insulation[0]),static_cast<unsigned>(state.insulation[1]),static_cast<unsigned>(state.stable_ticks));
                 }
                 (void)std::fflush(output);
             }
@@ -104,11 +122,16 @@ class Frame {
     }
 public:
     static bool enabled() noexcept {return path()!=nullptr&&*path()!=0;}
+    // Phases2/3 are the actual native physics endpoints, after installation
+    // of the owner projection and before its resulting inputs are captured.
+    static void physics_cells(std::uint64_t ordinal,unsigned phase,const void* sim,bool active) noexcept {
+        if(enabled())observe_cells(ordinal,phase,sim,active);
+    }
     Frame(std::uint64_t ordinal,const void* sim,float seconds,bool observe_cells=false) noexcept:
-        ordinal_(ordinal),sim_(sim),seconds_(std::bit_cast<std::uint32_t>(seconds)),before_(context(sim,windows)),observe_cells_(observe_cells) {this->observe_cells(0);}
+        ordinal_(ordinal),sim_(sim),seconds_(std::bit_cast<std::uint32_t>(seconds)),before_(context(sim,windows)),observe_cells_(observe_cells) {Frame::observe_cells(ordinal_,0,sim_,observe_cells_);}
     ~Frame() {
         body_heat_trace::detail::Preserve preserve;
-        observe_cells(1);
+        observe_cells(ordinal_,1,sim_,observe_cells_);
         const auto after=context(sim_,windows);
         if(auto* output=file()) {
             std::fprintf(output,"%llu\t%08x\t%d\t%d\t%d\t%08x\t%08x\t%d\t%d\t%d\t%d\t%u\t%u\n",

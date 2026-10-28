@@ -792,6 +792,17 @@ OS testing remains pending. The 89-test Linux native suite, both managed builds,
 both games' hook suites, codec and 228 snapshot checks pass.
 
 
+The private native cell trace now also observes the actual physics endpoints:
+phase2 follows owner-shadow installation, phase3 follows native physics before
+its inputs are captured. It includes both buffers' properties/insulation and
+the five meaningful stability bits; allocator padding is excluded.
+`release-native-thermal-context-source` / `thermal-context-load` pass the
+unchanged source/cold/menu controls. All 235 selected cells match at physics
+entry, but 51 updated temperatures differ afterwards. Cold/menu heat inputs
+match each other. Registered thermal context remains under investigation;
+this observation is not a continuation pass. Both native suites pass 89 tests,
+and the focused observer executable passes AddressSanitizer/UBSan.
+
 **Reserved 2026-10-27, immediately after fetching `f3d5390`:** owner wrapper
 `MACOLN01` version **13** and MACOLP03 section **4** (`MACCBR01`) are assigned
 to callback-owned requests in flight at a save ([below](#callback-owned-requests)).

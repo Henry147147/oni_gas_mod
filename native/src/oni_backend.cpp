@@ -368,7 +368,9 @@ void on_update_data(void* self,void* data) {
     // UpdateData, and what they change there is booked to the owner.
     native_heat_contact_bits.store(std::bit_cast<std::uint32_t>(pending.seconds),std::memory_order_release);
     native_floor_contact_ticket.store(floors.enabled?pending.ticket:0,std::memory_order_release);
+    ma::oni::runtime_trace::Frame::physics_cells(counters[MA_ONI_PROCESS_FRAME].entries.load(std::memory_order_relaxed),2,data,shadowed);
     original<void (*)(void*,void*)>(MA_ONI_UPDATE_DATA)(self,data);
+    ma::oni::runtime_trace::Frame::physics_cells(counters[MA_ONI_PROCESS_FRAME].entries.load(std::memory_order_relaxed),3,data,shadowed);
     runtime_clock.sample(data);
     storage_heat.sample(data,counters[MA_ONI_PROCESS_FRAME].entries.load(std::memory_order_relaxed));
     native_floor_contact_ticket.store(0,std::memory_order_release);
