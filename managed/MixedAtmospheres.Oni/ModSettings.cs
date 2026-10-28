@@ -14,8 +14,8 @@ namespace MixedAtmospheres.Oni
     // Colony settings are impactful: a new colony records them (the solver's
     // in its own physical image, breathing in MACOLP03 section 3) and a
     // loaded colony keeps its recorded values. Preferences are execution,
-    // controls and display; they apply at once. The solver is always game
-    // profile 5 with mixed pipes; only profile 5's own saved tunables vary.
+    // controls and display; they apply at once. The supported solver and
+    // mixed pipes are always enabled; their saved settings can be adjusted.
     internal enum SettingScope { Colony, Preference }
     internal enum SettingKind { Number, Toggle, Choice }
 
@@ -93,7 +93,7 @@ namespace MixedAtmospheres.Oni
     // Every supported setting (docs/settings.md lists the same table).
     internal static class SettingCatalog
     {
-        internal const string Solver = "Solver (profile 5)", Breathing = "Breathing", Performance = "Performance", Display = "Display", Panel = "Status panel", Keys = "Keyboard shortcuts";
+        internal const string Solver = "Solver", Breathing = "Breathing", Performance = "Performance", Display = "Display", Panel = "Status panel", Keys = "Keyboard shortcuts";
         internal const string Co2Limits = "breathing.co2Limits";
         private static double[] Decades(int from, int to) { var r = new List<double>(); for (var e = from; e <= to; ++e) r.Add(double.Parse("1e" + e.ToString(CultureInfo.InvariantCulture), CultureInfo.InvariantCulture)); return r.ToArray(); }
         internal static readonly string[] KeyChoices = { "None", "F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9", "F10", "F11", "F12" };

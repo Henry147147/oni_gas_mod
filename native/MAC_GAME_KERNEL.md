@@ -397,3 +397,80 @@ iterations are not where the heat stage spends its time.
 The physical model, tolerances, iteration caps, saved settings and checkpoint
 format are unchanged. Large components' trajectories differ from the serial
 solve's only by the reduction order of their dot products.
+
+## Pressure intervals after digging
+
+The 2026-10-28 Windows playtest exposed a transport/pressure splitting defect.
+The pressure solve freezes compliance and face velocities while local transport
+microsteps finish. At a newly opened vacuum cell, those microsteps could keep
+bringing in gas before pressure was recomputed. In the user's colony, twelve
+actual native digs drove the observed neighbour from 1.67 kg to 15.36 kg,
+pressure above 2 MPa, and temperature below 195 K. The same colony without the
+added digs stayed near 304–308 K. The original save remains private and unchanged.
+
+Game profile6, saved as physical checkpoint24, checks the net swept volume
+before any pressure work, transport or ledger mutation:
+`abs(q_right - q_left + q_top - q_bottom) <= 0.4 * cell_volume`.
+The fraction is the existing numerical 0.4-cell scale. A rejected pressure
+trial returns its unchanged EOS storage; its shorter replacement solves
+pressure again, including work, damping and canonical momentum. Accepted
+intervals cover the requested time, with proposals growing by at most two.
+Both accepted and rejected pressure trials count against the attempt budget;
+non-progress refuses the advance. The net-volume criterion permits rapid
+through-flow with zero discrete divergence, which has a separate circulation
+control using multiple transport microsteps.
+
+Pressure time refinement applies independently to components separated by
+solid walls. Each component runs the complete tick in its bounding rectangle;
+explicit face barriers stay within that component. The merged image retains
+global cell/face coordinates, translates membrane conflicts, and corrects
+trace-sink potential energy for the rectangle's vertical origin. Every child's
+physical audits and a global closed account must pass before the candidate is
+returned. The attempt budget bounds each independent temporal sequence;
+`report.attempts` records the deepest sequence while stage counters sum all
+component work. Component stage durations can exceed enclosing elapsed wall
+time when components run concurrently.
+
+The focused Linux and Windows/Wine controls pass: a new and a nearly empty
+cell agree with a fine temporal reference that does not use the new criterion;
+a one-dimensional pre-reflection rarefaction retains its initial pressure
+bound; mass/energy/momentum audits, budget refusal, cache retry, worker
+equivalence and cold continuation pass. Controls also cover 1,024 isolated rooms
+with a two-attempt temporal budget, moving regions at several worker counts,
+shifted gravitational sinks, and global membrane coordinates. Both full native
+suites pass 89 tests. Clean builds compare all 88 MAC targets: 87 standard
+programs retain the same legacy physical outputs and exit codes, with only
+three new test messages and timing differences; the long Riemann gate remains
+unrun as required. Existing diagnostic failures stay recorded.
+
+The WindowsPlayer/Proton regression uses the uploaded colony's unchanged
+physical state and an identical private helper for twelve actual native digs.
+Across frames504–584, the watched cell stays at 32.338–34.561°C,
+1.6462–1.6818 kg and 249.852–254.394 kPa; the earlier policy reaches
+−78.636°C, 15.364 kg and 2.173 MPa. All twelve inputs match exactly.
+Maximum relative mass/energy errors are 8.48e-16/3.53e-15.
+The full colony retains expensive remote flows inherited from the earlier
+policy: the corrected regional run averages 2.67 s per 0.2 s frame. The
+global-refinement prototype took about 18–22 s; this motivated independent
+components.
+
+A fresh Spaced Out! Fast-preset run also passes 80 frames and twelve digs,
+with mass/energy errors 3.41e-16/6.02e-14 and no first-flow fault. Its observed
+cell stays at 19.266–22.697°C. On the development host's assigned cores it
+averages 1.37 s per 0.2 s frame (p95 2.01 s); the other CPU slot was active.
+These measurements establish no real-time or Windows OS performance pass.
+Completed-frame32 writing and ordinary cold/menu loading pass: both loads
+restore Fast and advance twelve frames to44, with mass/energy errors
+2.63e-16/3.52e-14 and verified menu return. Focused AddressSanitizer/UBSan
+pressure, regional and worker/continuation controls pass. The complete
+instrumented game-kernel executable stops earlier at the unchanged account
+zero-add non-finite bit-pattern fixture; an isolated copy using the baseline
+header also reproduces that fixture failure. Its acceptance checks are not
+changed. The compact private comparison is
+`artifacts/windows-temperature-flux-comparison.json`.
+
+Checkpoint24 retains version23's field layout and identifies the new arithmetic.
+The core reader preserves versions20–23 and their original policies. Ordinary
+mod loading refuses those R&D saves with instructions to start a new colony;
+there is no supported save migration. A private same-state version23-to-24
+copy is used only to compare the affected colony under the two policies.

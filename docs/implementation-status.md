@@ -1,5 +1,17 @@
 # Implementation status
 
+**Temperature regression, 2026-10-28:** controlled digging in the user's
+uploaded colony reproduced large gas overfill and temperature swings.
+Profile6 / core24 checks pressure intervals before transport and advances
+disconnected regions independently. The same twelve-dig WindowsPlayer/Proton
+control now keeps the observed cell at 32.3–34.6°C rather than falling below
+−78°C. Fresh Fast-preset generation/digging, all 89 native tests on each
+platform route, clean preservation of legacy MAC outputs, completed-frame32
+writing and ordinary cold/menu loading pass. Focused pressure/region controls
+also pass AddressSanitizer/UBSan. Final packaging is being completed;
+performance remains below the release target. Earlier pressure-profile R&D saves are refused with new-colony
+instructions. See [the solver record](../native/MAC_GAME_KERNEL.md#pressure-intervals-after-digging).
+
 **Latest R&D update, 2026-10-27:** nitrogen removed; older saves need not be
 preserved. CO₂ breathing limits default off and can be changed during play.
 Settings open on Gameplay, with solver presets and technical controls under

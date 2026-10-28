@@ -68,7 +68,7 @@ enum class MacStepControl { doubling = 0, predictive = 1, regional_predictive = 
 // before conduction (native/MAC_GAME_KERNEL.md).
 enum class MacGameProfile { legacy = 0, base_game_floor = 1, game_kernel = 2,
     game_kernel_positive_liquid = 3, game_kernel_free_surface = 4,
-    game_kernel_trace_heat = 5 };
+    game_kernel_trace_heat = 5, game_kernel_bounded_pressure = 6 };
 enum class MacGameLiquidLaw { linear = 0, positive_segments = 1 };
 // Saved settings of the opt-in diagnostic game kernel; never selected by gates.
 struct MacGameSettings {
@@ -212,12 +212,13 @@ struct MacClosedAdvanceReport {
     std::vector<double> game_converted_mass_kg;
     // Execution diagnostic only; includes the caller and is limited by grid blocks.
     unsigned game_threads_used = 0;
-    // Game-kernel execution diagnostics (wall milliseconds summed over the
-    // interval's ticks, and pressure solver work); never saved or audited.
+    // Game-kernel execution diagnostics; never saved or audited. Profile6
+    // sums component stage durations/work, which can exceed elapsed wall time.
     struct GameStages {
         double sparse_ms = 0, dense_ms = 0, tick_ms = 0, flow_ms = 0, eos_ms = 0, pressure_ms = 0, transport_ms = 0;
         double layering_ms = 0, interface_ms = 0, heat_ms = 0, phase_ms = 0, entropy_ms = 0, audit_ms = 0;
         std::size_t pressure_iterations = 0, pressure_corrections = 0;
+        std::size_t pressure_attempts = 0, pressure_refinements = 0;
     } game_stages;
     MacDiffusionReport diffusion;
     std::size_t interval_kernel_intervals = 0, interval_reference_fallbacks = 0;

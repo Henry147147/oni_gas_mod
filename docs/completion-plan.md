@@ -8,6 +8,17 @@ still require separate authorization.
 
 Amendments:
 
+- **Windows digging regression, 2026-10-28 (requested fix):** investigate and
+  correct the temperature fluctuations in the user's recording and uploaded
+  colony. Implementation: game profile6 / physical checkpoint24 replaces
+  profile5 for new colonies, bounding pressure intervals before transport and
+  advancing disconnected fluid regions independently. Earlier numerical
+  profiles remain in the standalone reader for regression checks; ordinary
+  mod loading refuses those R&D saves and directs the player to start a new
+  colony, consistent with the decision below that old saves need not survive.
+  This supersedes the profile5 new-colony default below. All fixed physics,
+  performance and release bounds remain unchanged.
+
 - **Gameplay and settings direction, 2026-10-27 (latest user decisions):**
   Remove the mod's nitrogen content and nitrogen-air option. Saves using the
   removed nitrogen catalogue are refused with an explanation; no load-only

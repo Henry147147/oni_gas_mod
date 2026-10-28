@@ -489,6 +489,11 @@ struct LinearSystem {
     std::vector<std::uint8_t> active;   // 1 = unknown
 };
 struct LinearSolveResult { std::size_t iterations = 0; double residual = 0; bool converged = false; };
+// A failed numerical pressure root is distinct from malformed inputs or a
+// broken solver invariant. Legacy callers retain its domain_error contract.
+struct ComponentPressureSolveFailure final : std::domain_error {
+    ComponentPressureSolveFailure() : std::domain_error("Production component pressure solve did not converge") {}
+};
 LinearSolveResult solve_linear(Context&, const LinearSystem&, const std::vector<double>& b, std::vector<double>& x,
     double relative_tolerance, double absolute_tolerance, std::size_t maximum_iterations, bool try_jacobi = false);
 // The component IC(0) solve of solve_linear, with every component of at

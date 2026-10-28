@@ -1,6 +1,8 @@
 #include "mac_fixture.hpp"
 #include "mac_game_liquid_control.hpp"
 #include "mac_game_surface_control.hpp"
+#include "mac_game_expansion_control.hpp"
+#include "mac_game_bounded_checkpoint_control.hpp"
 #include "../src/mac_hypot.hpp"
 #include "../src/mac_game/account.hpp"
 #include "../src/mac_game/entropy.hpp"
@@ -321,6 +323,8 @@ int main() {
     zero_add_matches_two_sum();
     trace_entropy_is_finite();
     near_vacuum_heat_remains_physical();
+    ma::testing::bounded_pressure_expansion_control();
+    ma::testing::bounded_pressure_checkpoint_control();
     full_worker_continuation();
     const auto &f = ma::testing::setup();
     auto state = f.state(8, 4, false, true);

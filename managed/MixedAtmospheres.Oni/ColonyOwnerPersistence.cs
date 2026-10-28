@@ -106,6 +106,7 @@ namespace MixedAtmospheres.Oni
                 if(payload.Section(ColonySavePayload.PipeRuntime)==null)throw new InvalidDataException("Native loop continuation requires its mixed-pipe section.");
             }
             ColonyCheckpointMetadata.RefuseRemovedNitrogen(payload.Owner);
+            ColonyCheckpointMetadata.RefuseUnboundedPressure(payload.Owner);
             var settings = payload.Section(ColonySavePayload.ColonySettings) ??
                 throw new NotSupportedException("This R&D save predates the current breathing settings. Start a new colony.");
             _ = ColonySettingsRecord.Decode(settings, SettingValues.Defaults());

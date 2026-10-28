@@ -1,5 +1,14 @@
 # Base-game playtest plan
 
+**Current regression, 2026-10-28:** the user's Windows recording and uploaded
+colony reproduce large temperature, pressure and mass swings after digging.
+Profile6 / core24 bounds pressure intervals before transport and advances
+independent regions separately. The same twelve-dig WindowsPlayer/Proton
+sequence, fresh Fast-preset digging, completed-frame32 writing and ordinary
+cold/menu loading pass. Focused reference/conservation/continuation controls
+and both 89-test native suites pass. Performance remains below release targets;
+see [pressure intervals](../native/MAC_GAME_KERNEL.md#pressure-intervals-after-digging).
+
 **Priority amendment, 2026-10-27:** the next usable private Windows playtest
 must support Spaced Out! fully. See [DLC work](dlc-compatibility.md) and the
 [accepted amendment](completion-plan.md#amendments). The base-game-only

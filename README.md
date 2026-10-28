@@ -14,7 +14,7 @@ Mixed Atmospheres is a private playtest build for Windows x64 and Linux. It appl
 
 *A real development colony in WindowsPlayer under Proton on Linux.*
 
-Settings open from the Mods row or the status panel. **Gameplay** contains the CO₂ breathing limits switch (Off by default), which you can change during play. **Display & keys** contains appearance and shortcuts. **Advanced** contains solver presets, solver controls, breathing thresholds, performance, advanced display and saved presets. Solver controls and numeric thresholds are fixed per colony; preferences apply at once. Files persist in `mods/config/MixedAtmospheres`, outside the mod folder. Older R&D saves, including nitrogen saves, are refused; start a new colony.
+Settings open from the Mods row or the status panel. **Gameplay** contains the CO₂ breathing limits switch (Off by default), which you can change during play. **Display & keys** contains appearance and shortcuts. **Advanced** contains solver presets, solver controls, breathing thresholds, performance, advanced display and saved presets. Solver controls and numeric thresholds are fixed per colony; preferences apply at once. Files persist in `mods/config/MixedAtmospheres`, outside the mod folder. Older R&D saves, including nitrogen saves and saves using the earlier pressure update, are refused; start a new colony.
 
 ![Mixed Atmospheres composition display](docs/images/mixed-atmospheres-composition.png)
 

@@ -19,12 +19,15 @@ struct TickResult {
   std::size_t regions = 0, trace_constituents = 0, trace_cells = 0;
   // Execution diagnostics: pressure solver iterations and corrections.
   std::size_t pressure_iterations = 0, pressure_corrections = 0;
+  std::size_t pressure_attempts = 0, pressure_refinements = 0,
+              flow_substeps = 0;
   std::vector<double> sink_species, conversion_species;
   std::vector<std::pair<std::uint64_t, double>> sink_passive_quantities;
   double sink_internal = 0, sink_kinetic = 0, sink_potential = 0, sink_px = 0,
          sink_py = 0, wall_px = 0, wall_py = 0, body_py = 0, evaporated = 0,
          condensed = 0;
   DoubleDouble energy_residual, energy_operands;
+  double wall_operands_x = 0, wall_operands_y = 0, body_operands_y = 0;
   double region_error = 0, entropy_change = 0, trace_entropy = 0,
          phase_entropy_change = 0, entropy_ms = 0, flow_entropy = 0,
          layer_entropy = 0, surface_entropy = 0, heat_entropy = 0,
@@ -55,6 +58,7 @@ class Tick {
   // cell has a negligible heat capacity but a full conduction weight, so the
   // heat solve's tolerance could otherwise drive its U below its offset.
   bool prune_before_heat = false;
+  bool bounded_pressure_volume = false;
   SurfaceScratch surface_scratch;
   static double ms(std::chrono::steady_clock::time_point start) {
     return std::chrono::duration<double, std::milli>(
@@ -71,10 +75,10 @@ public:
        unsigned viscosity_sweeps = 2, double phase_relaxation_time = 1,
        bool enable_heat = true, unsigned pressure_iterations = 200,
        unsigned heat_iterations = 200, bool surface_closure = false,
-       bool trace_before_heat = false)
+       bool trace_before_heat = false, bool bound_pressure_volume = false)
       : grid(source), species(table),
         flow(source, table, threads, false, pressure_tolerance, gravity_source, pressure_iterations,
-             surface_closure),
+             surface_closure, bound_pressure_volume),
         heat(source, table, threads, heat_mixing, &flow.worker_pool(), heat_iterations),
         phase(source, std::move(table), std::move(pairs), threads,
               &flow.worker_pool()),
@@ -82,7 +86,8 @@ public:
         interface_enabled(interfaces), interface_detail(detail),
         filter_speed(speed_limit), filter_sweeps(viscosity_sweeps),
         phase_time(phase_relaxation_time), heat_enabled(enable_heat),
-        prune_before_heat(trace_before_heat) {}
+        prune_before_heat(trace_before_heat),
+        bounded_pressure_volume(bound_pressure_volume) {}
   [[nodiscard]] unsigned threads_used() const noexcept {
     return flow.worker_pool().size();
   }
@@ -94,7 +99,10 @@ public:
   }
   TickResult advance(const State &initial, double dt, double gravity,
                      double threshold,
-                     std::span<const std::uint8_t> liquid_blocked = {}) {
+                     std::span<const std::uint8_t> liquid_blocked = {},
+                     std::size_t pressure_budget = 65536) {
+    if (bounded_pressure_volume && pressure_budget == 0)
+      throw std::runtime_error("Game pressure interval has no attempt budget");
     const LiquidBoundary boundary{liquid_blocked, species};
     // A preceding tick may have condensed liquid inside a marked cell. Keep
     // such a cell isolated before pressure AND the later layer/sharpen stages;
@@ -205,46 +213,73 @@ public:
       return true;
     };
     for (unsigned part = 0; part < parts; ++part) {
-      if (prune())
-        out.eos = flow.evaluate_state(out.state, std::move(out.eos));
-      auto stage_start = std::chrono::steady_clock::now();
-      auto advanced = flow.advance(out.state, dt / parts, gravity, &regions,
-                                   liquid_blocked.empty() ? nullptr : &boundary,
-                                   std::move(out.eos));
-      out.flow_ms += ms(stage_start);
-      out.pressure_ms += advanced.pressure_ms;
-      out.transport_ms += advanced.transport_ms;
-      out.eos_ms += advanced.eos_ms;
-      out.pressure_iterations += advanced.pressure_iterations;
-      out.pressure_corrections += advanced.pressure_corrections;
-      out.microevents += advanced.subcycles;
-      wall_x += advanced.wall_x;
-      wall_y += advanced.wall_y;
-      body_y += advanced.body_y;
-      wall_ops_x += advanced.wall_ops_x;
-      wall_ops_y += advanced.wall_ops_y;
-      body_ops_y += std::abs(advanced.body_y);
-      out.state = std::move(advanced.state);
-      out.eos = std::move(advanced.eos);
-      observe_entropy(out.flow_entropy);
-      if (filter_speed > 0) {
-        const auto filter_start = std::chrono::steady_clock::now();
-        const auto filtered = filter_velocity(
-            flow.kernel_grid(), flow.region_topology(), out.state, out.eos,
-            filter_speed, filter_sweeps, flow.worker_pool(), &regions);
-        wall_x += filtered.wall_x;
-        wall_y += filtered.wall_y;
-        wall_ops_x += filtered.wall_ops_x;
-        wall_ops_y += filtered.wall_ops_y;
-        out.filter_heat += filtered.heat;
-        out.filter_max_speed =
-            std::max(out.filter_max_speed, filtered.max_speed);
-        out.filter_exchanges += filtered.exchanges;
-        out.filter_negative_heat += filtered.negative_heat_faces;
-        if (filtered.exchanges)
+      double remaining = dt / parts;
+      double trial = remaining;
+      while (remaining > 0) {
+        if (prune())
           out.eos = flow.evaluate_state(out.state, std::move(out.eos));
-        out.filter_ms += ms(filter_start);
-        observe_entropy(out.filter_entropy);
+        auto stage_start = std::chrono::steady_clock::now();
+        FlowReport advanced;
+        for (;;) {
+          if (bounded_pressure_volume && out.pressure_attempts >= pressure_budget)
+            throw std::runtime_error("Game interval exceeds its pressure attempt budget");
+          ++out.pressure_attempts;
+          advanced = flow.advance(out.state, trial, gravity, &regions,
+                                  liquid_blocked.empty() ? nullptr : &boundary,
+                                  std::move(out.eos));
+          if (!advanced.pressure_refinement_requested) break;
+          ++out.pressure_refinements;
+          out.pressure_ms += advanced.pressure_ms;
+          out.eos_ms += advanced.eos_ms;
+          out.pressure_iterations += advanced.pressure_iterations;
+          out.pressure_corrections += advanced.pressure_corrections;
+          out.eos = std::move(advanced.eos);
+          const double shorter = .5 * trial;
+          if (!(shorter > 0) || shorter == trial || remaining - shorter == remaining)
+            throw std::runtime_error("Game pressure refinement cannot advance time");
+          trial = shorter;
+        }
+        ++out.flow_substeps;
+        out.flow_ms += ms(stage_start);
+        out.pressure_ms += advanced.pressure_ms;
+        out.transport_ms += advanced.transport_ms;
+        out.eos_ms += advanced.eos_ms;
+        out.pressure_iterations += advanced.pressure_iterations;
+        out.pressure_corrections += advanced.pressure_corrections;
+        out.microevents += advanced.subcycles;
+        wall_x += advanced.wall_x;
+        wall_y += advanced.wall_y;
+        body_y += advanced.body_y;
+        wall_ops_x += advanced.wall_ops_x;
+        wall_ops_y += advanced.wall_ops_y;
+        body_ops_y += std::abs(advanced.body_y);
+        out.state = std::move(advanced.state);
+        out.eos = std::move(advanced.eos);
+        observe_entropy(out.flow_entropy);
+        if (filter_speed > 0) {
+          const auto filter_start = std::chrono::steady_clock::now();
+          const auto filtered = filter_velocity(
+              flow.kernel_grid(), flow.region_topology(), out.state, out.eos,
+              filter_speed, filter_sweeps, flow.worker_pool(), &regions);
+          wall_x += filtered.wall_x;
+          wall_y += filtered.wall_y;
+          wall_ops_x += filtered.wall_ops_x;
+          wall_ops_y += filtered.wall_ops_y;
+          out.filter_heat += filtered.heat;
+          out.filter_max_speed =
+              std::max(out.filter_max_speed, filtered.max_speed);
+          out.filter_exchanges += filtered.exchanges;
+          out.filter_negative_heat += filtered.negative_heat_faces;
+          if (filtered.exchanges)
+            out.eos = flow.evaluate_state(out.state, std::move(out.eos));
+          out.filter_ms += ms(filter_start);
+          observe_entropy(out.filter_entropy);
+        }
+        const double after = remaining - trial;
+        if (after == remaining)
+          throw std::runtime_error("Game pressure interval cannot advance time");
+        remaining = after;
+        trial = std::min(remaining, 2 * trial);
       }
     }
     auto stage_start = std::chrono::steady_clock::now();
@@ -414,6 +449,9 @@ public:
     out.wall_px = wall_x;
     out.wall_py = wall_y;
     out.body_py = body_y;
+    out.wall_operands_x = wall_ops_x;
+    out.wall_operands_y = wall_ops_y;
+    out.body_operands_y = body_ops_y;
     out.sink_j = sink_energy.value();
     out.totals = std::move(after);
     out.trace_audit_ms = ms(start) - out.flow_ms - out.heat_ms - out.phase_ms -

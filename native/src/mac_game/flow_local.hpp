@@ -3,6 +3,7 @@
 #include "pressure_be.hpp"
 #include "region.hpp"
 #include <chrono>
+#include <limits>
 namespace ma::experimental::game_kernel {
 struct FlowReport {
   State state;
@@ -12,6 +13,10 @@ struct FlowReport {
   double wall_x = 0, wall_y = 0, body_y = 0, wall_ops_x = 0, wall_ops_y = 0,
          mass_error = 0, energy_error = 0, momentum_error = 0;
   double eos_ms = 0, pressure_ms = 0, transport_ms = 0;
+  // A pressure-only trial can request a shorter interval before any work,
+  // transport or ledger entry. Its unchanged EOS storage returns to the caller.
+  bool pressure_refinement_requested = false;
+  double pressure_volume_change = 0;
 };
 class Flow {
   ma::experimental::MacGrid source;
@@ -22,6 +27,7 @@ class Flow {
   PressureSolver pressure;
   unsigned gravity_rule = 0;
   bool audit_mode = true;
+  bool bounded_pressure_volume = false;
   PatchTransport patch;
   // Capacity of the previous pressure result, lent to the next solve.
   Pressure pressure_storage;
@@ -73,7 +79,7 @@ public:
   Flow(const ma::experimental::MacGrid &grid, std::vector<Species> table,
        unsigned threads, bool auditing = true, double pressure_tolerance = 1e-8,
        unsigned gravity_source = 0, unsigned pressure_iterations = 200,
-       bool surface_closure = false)
+       bool surface_closure = false, bool bound_pressure_volume = false)
       : source(grid), g(source), topology(g), species(std::move(table)),
         eos_pool(
             static_cast<unsigned>(std::min<std::size_t>(threads, g.blocks))),
@@ -81,6 +87,7 @@ public:
                  pressure_tolerance, gravity_source, &eos_pool, pressure_iterations,
                  surface_closure),
         gravity_rule(gravity_source), audit_mode(auditing),
+        bounded_pressure_volume(bound_pressure_volume),
         patch(grid, &eos_pool, &topology) {}
   ma::experimental::mac_kernel::Pool &worker_pool() const { return eos_pool; }
   const auto &region_topology() const { return topology; }
@@ -131,17 +138,71 @@ public:
     auto eos = readings.empty() ? evaluate_state(initial) : std::move(readings);
     result.eos_ms = milliseconds(start);
     start = std::chrono::steady_clock::now();
-    auto projected = pressure.advance(eos, initial.jx, initial.jy, dt, gravity,
-                                      true, nullptr, std::move(pressure_storage));
+    Pressure projected;
+    try {
+      projected = pressure.advance(eos, initial.jx, initial.jy, dt, gravity,
+                                    true, nullptr, std::move(pressure_storage));
+    } catch (const k::ComponentPressureSolveFailure &) {
+      if (!bounded_pressure_volume) throw;
+      result.pressure_ms = milliseconds(start);
+      result.pressure_refinement_requested = true;
+      result.eos = std::move(eos);
+      return result;
+    }
     result.pressure_ms = milliseconds(start);
     result.pressure_iterations = projected.iterations;
     result.pressure_corrections = projected.corrections;
-    if (!projected.converged)
-      throw std::runtime_error("Private flow pressure did not converge");
-    if (std::any_of(projected.p.begin(), projected.p.end(),
-                    [](double p) { return p < 0; }))
+    const auto request_refinement = [&] {
+      result.pressure_refinement_requested = true;
+      result.eos = std::move(eos);
+      pressure_storage = std::move(projected);
+    };
+    if (!projected.converged) {
+      if (!bounded_pressure_volume)
+        throw std::runtime_error("Private flow pressure did not converge");
+      request_refinement();
+      return result;
+    }
+    const bool negative_pressure = std::any_of(projected.p.begin(), projected.p.end(),
+                                              [](double p) { return p < 0; });
+    if (negative_pressure && !bounded_pressure_volume)
       throw std::runtime_error(
           "Private flow correction retains negative pressure");
+    if (bounded_pressure_volume) {
+      if (negative_pressure || std::any_of(projected.p.begin(), projected.p.end(),
+                                          [](double p) { return !std::isfinite(p); })) {
+        request_refinement();
+        return result;
+      }
+      std::vector<double> maxima(g.blocks);
+      rows([&](std::size_t y0, std::size_t y1, std::size_t block) {
+        double largest = 0;
+        for (std::size_t i = y0 * g.W; i < y1 * g.W; ++i) {
+          if (g.wall[i]) continue;
+          const double divergence = projected.qx[g.right_face(i)] - projected.qx[g.left_face(i)] +
+                                    projected.qy[g.top_face(i)] - projected.qy[g.bottom_face(i)];
+          if (!std::isfinite(divergence)) {
+            largest = std::numeric_limits<double>::infinity();
+            break;
+          }
+          largest = std::max(largest, std::abs(divergence));
+        }
+        maxima[block] = largest;
+      });
+      const double largest = *std::max_element(maxima.begin(), maxima.end());
+      result.pressure_volume_change = largest / g.V;
+      // The pressure solve freezes its compliance and face velocities until
+      // the remap finishes. Re-solve before a cell's net swept volume exceeds
+      // the existing 0.4-cell transport scale. Net volume
+      // leaves uniform fast through-flow unrestricted, and also detects a
+      // front entering a cell containing a tiny nonzero gas inventory.
+      // The one-pass nonnegative pressure correction can also need a finer
+      // interval; neither condition may reach work or transport unchanged.
+      if (largest > .4 * g.V) {
+        request_refinement();
+        return result;
+      }
+    }
     // Post-pressure U, cell by cell in the grid's fixed row blocks: the
     // pressure work of the time-centred swept volumes (no volume limiter
     // here), then body-force work from the vertical faces, then the damping

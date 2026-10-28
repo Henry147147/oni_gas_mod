@@ -20,7 +20,7 @@ namespace MixedAtmospheres.Oni
         // solve shorten them where needed (docs/colony-owner.md#pacing).
         // Two steps exactly cover the native binary32 0.2 s frame.
         internal const double MaximumTimestepSeconds = .1f;
-        // New colonies run game profile 5 (core23), the user's playtest
+        // New colonies run game profile 6 (core24), the user's playtest
         // choice (docs/completion-plan.md#amendments); players cannot select
         // older solvers. Development floor runs alone still select the
         // production floor profile (MA_COLONY_GAME_FLOOR=1) or the game kernel

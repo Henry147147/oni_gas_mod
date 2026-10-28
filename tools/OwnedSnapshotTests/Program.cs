@@ -423,7 +423,17 @@ internal static unsafe class Program
                     Check(ColonyCheckpointMetadata.Profile(Owner(version,22,1,400,800,jobs,8)).Equals(new ColonyPhysicalProfile(version,22,1,400,800,8)));
                     Check(!ColonyCheckpointMetadata.Profile(Owner(version,22,1,400,800,jobs,8)).Equals(new ColonyPhysicalProfile(version,22,1,400,800,.5)));
                     Check(ColonyCheckpointMetadata.Profile(Owner(version,23,1,400,800,jobs,8)).Equals(new ColonyPhysicalProfile(version,23,1,400,800,8)));
-                    Check(ColonyCheckpointMetadata.Profile(Owner(version,24,1,400,800,jobs,8)).Equals(new ColonyPhysicalProfile(version,24,0,0,0)));
+                    var bounded=Owner(version,24,1,400,800,jobs,8);
+                    Check(ColonyCheckpointMetadata.Profile(bounded).Equals(new ColonyPhysicalProfile(version,24,1,400,800,8)));
+                    ColonyCheckpointMetadata.RefuseUnboundedPressure(bounded);
+                    Check(ColonyCheckpointMetadata.Profile(Owner(version,25,1,400,800,jobs,8)).Equals(new ColonyPhysicalProfile(version,25,0,0,0)));
+                    foreach(var old in new uint[]{20,21,22,23})
+                    {
+                        var earlier=Owner(version,old,1,400,800,jobs,8);var unchanged=(byte[])earlier.Clone();
+                        var oldRefused=false;
+                        try{ColonyCheckpointMetadata.RefuseUnboundedPressure(earlier);}catch(NotSupportedException error){oldRefused=error.Message.Contains("temperature swings");}
+                        Check(oldRefused && earlier.SequenceEqual(unchanged));
+                    }
                     Check(ColonyCheckpointMetadata.CompletedFrames(core21)==77 && ColonyCheckpointMetadata.OwnerVersion(core21)==version);
                     var physical=ColonyCheckpointMetadata.PhysicalImage(core21);
                     Check(physical.Slice(0,8).SequenceEqual(System.Text.Encoding.ASCII.GetBytes("MACCLS01")) &&

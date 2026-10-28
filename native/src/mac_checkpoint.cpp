@@ -120,10 +120,11 @@ std::vector<std::uint8_t> MacClosedWorld::checkpoint() const {
     for (auto value : magic) out.byte(static_cast<std::uint8_t>(value));
     if(settings_.numerical_kernel==MacNumericalKernel::game) {
         settings_.validate();
-        const bool trace_heat=settings_.game_profile==MacGameProfile::game_kernel_trace_heat;
+        const bool bounded=settings_.game_profile==MacGameProfile::game_kernel_bounded_pressure;
+        const bool trace_heat=bounded || settings_.game_profile==MacGameProfile::game_kernel_trace_heat;
         const bool surface=settings_.game_profile==MacGameProfile::game_kernel_free_surface;
         const bool positive=trace_heat || surface || settings_.game_profile==MacGameProfile::game_kernel_positive_liquid;
-        out.u32(trace_heat?23:surface?22:positive?21:20);const auto model=identity(registry_,*thermodynamics_);out.count(model.size());for(auto b:model)out.byte(b);
+        out.u32(bounded?24:trace_heat?23:surface?22:positive?21:20);const auto model=identity(registry_,*thermodynamics_);out.count(model.size());for(auto b:model)out.byte(b);
         out.number(time_s_);out.u64(revision_);const auto& st=state();const auto& g=st.grid;
         out.count(g.width);out.count(g.height);out.number(g.spacing_m);out.number(g.depth_m);
         out.number(settings_.maximum_timestep_s);out.number(settings_.gravity_m_per_s2);out.byte(settings_.thermal_conduction?1:0);out.number(settings_.trace_sink_threshold_kg);
@@ -227,14 +228,14 @@ MacClosedWorld MacClosedWorld::from_checkpoint(SpeciesRegistry registry,std::sha
     Reader in{bytes.first(bytes.size()-8)};
     for (auto value : magic) check(in.byte()==static_cast<std::uint8_t>(value),"Unrecognized MAC checkpoint signature");
     const auto version=in.u32();
-    if(version>=20 && version<=23) {
+    if(version>=20 && version<=24) {
         const auto model=identity(registry,*eos);check(in.u32()==model.size()&&model.size()<=in.remaining(),"Saved game model size differs");for(auto value:model)check(in.byte()==value,"Saved game registry/EOS identity differs");
         const double time=in.number();const auto revision=in.u64();check(time>=0&&revision>0,"Invalid saved game clock");
         MacTransportState st;st.grid.width=in.u32();st.grid.height=in.u32();st.grid.spacing_m=in.number();st.grid.depth_m=in.number();
         MacClosedSettings cfg;cfg.numerical_kernel=MacNumericalKernel::game;cfg.game_profile=MacGameProfile::game_kernel;cfg.vacuum=MacVacuumRepresentation::void_phase;cfg.thermal_conduction=true;
         cfg.maximum_timestep_s=in.number();cfg.gravity_m_per_s2=in.number();cfg.thermal_conduction=in.flag();cfg.trace_sink_threshold_kg=in.number();
         cfg.game.liquid_stiffness_ratio=in.number();cfg.game.flow_parts=in.u32();cfg.game.pressure_relative_tolerance=in.number();cfg.game.gas_heat_mixing=in.number();cfg.game.sharpen_liquid_interfaces=in.flag();cfg.game.interface_detail_fraction=in.number();cfg.game.phase_relaxation_time_s=in.number();
-        if(version>=21){cfg.game_profile=version==23?MacGameProfile::game_kernel_trace_heat:version==22?MacGameProfile::game_kernel_free_surface:MacGameProfile::game_kernel_positive_liquid;cfg.game.liquid_law=static_cast<MacGameLiquidLaw>(in.u32());cfg.game.pressure_maximum_iterations=in.u32();cfg.game.heat_maximum_iterations=in.u32();}
+        if(version>=21){cfg.game_profile=version==24?MacGameProfile::game_kernel_bounded_pressure:version==23?MacGameProfile::game_kernel_trace_heat:version==22?MacGameProfile::game_kernel_free_surface:MacGameProfile::game_kernel_positive_liquid;cfg.game.liquid_law=static_cast<MacGameLiquidLaw>(in.u32());cfg.game.pressure_maximum_iterations=in.u32();cfg.game.heat_maximum_iterations=in.u32();}
         const auto pairs=in.u32();check(pairs<=65536&&pairs<=in.remaining()/16,"Invalid saved game pairs");for(std::size_t n=0;n<pairs;++n){MacSaturationPair pair;pair.liquid=in.u32();pair.vapour=in.u32();pair.critical_temperature_k=in.number();cfg.game.saturation_pairs.push_back(pair);}cfg.validate();
         const auto cells=in.u32();check(st.grid.width>0&&st.grid.height>0&&static_cast<std::uint64_t>(st.grid.width)*st.grid.height==cells&&cells<=in.remaining()/17,"Invalid saved game geometry");
         st.grid.walls.reserve(cells);for(std::size_t i=0;i<cells;++i)st.grid.walls.push_back(in.flag()?1:0);

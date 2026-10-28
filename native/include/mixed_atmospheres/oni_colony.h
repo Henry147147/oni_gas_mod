@@ -23,7 +23,7 @@ extern "C" {
 #define MA_ONI_COLONY_GAME_FLOOR 2U
 /* Explicit new-colony diagnostic kernel; exclusive with GAME_FLOOR. */
 #define MA_ONI_COLONY_GAME_KERNEL 4U
-/* With GAME_KERNEL only: create game profile 5 (core23, heat mixing 8), the
+/* With GAME_KERNEL only: create game profile 6 (core24, heat mixing 8), the
  * default for new colonies (docs/completion-plan.md#amendments). */
 #define MA_ONI_COLONY_GAME_SURFACE 8U
 
@@ -334,7 +334,7 @@ MA_ONI_API MAOniResult ma_oni_colony_set_diseases(const MAOniColonyDisease*, uin
     const MAOniColonyDiseaseGrowth*, uint32_t element_count);
 /* Saved profile-5 options (docs/settings.md). A new colony created with
  * GAME_KERNEL|GAME_SURFACE takes the options last set here and saves them in
- * its physical image (core23); other profiles and restore ignore them, and a
+ * its physical image (core24); other profiles and restore ignore them, and a
  * restored colony keeps the values its save holds. Set them while no owner
  * runs; NULL restores the defaults, which reproduce the colony created without
  * this call byte for byte. A value outside its range is refused and keeps the

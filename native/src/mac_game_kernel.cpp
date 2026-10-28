@@ -2,6 +2,7 @@
 // operate on sparse fields and never call the reference evolution solver.
 #include "mac_hypot.hpp"
 #include "mac_game/tick.hpp"
+#include "mac_game/regional_tick.hpp"
 #include "mac_game_bridge.hpp"
 #include "mixed_atmospheres/mac_kernel.hpp"
 #include <cmath>
@@ -452,21 +453,23 @@ MacClosedAdvance MacGameKernelAccess::advance_guarded(
     MacGrid grid;
     MacGameSettings settings;
     unsigned threads = 0;
-    bool conduction = true, closure = false, trace_heat = false;
+    bool conduction = true, closure = false, trace_heat = false, bounded = false;
     std::unique_ptr<k::Tick> tick;
+    std::unique_ptr<k::RegionalTick> regional;
   };
   thread_local Cache cache;
   const auto &cfg = source.settings_.game;
   const auto options = mac_kernel_default_options();
   const unsigned threads = options.threads;
-  const bool trace_heat =
+  const bool bounded = source.settings_.game_profile == MacGameProfile::game_kernel_bounded_pressure;
+  const bool trace_heat = bounded ||
       source.settings_.game_profile == MacGameProfile::game_kernel_trace_heat;
   const bool closure =
       trace_heat ||
       source.settings_.game_profile == MacGameProfile::game_kernel_free_surface;
-  if (!cache.tick || cache.eos != source.thermodynamics_ ||
+  if ((bounded ? !cache.regional : !cache.tick) || cache.eos != source.thermodynamics_ ||
       cache.threads != threads || cache.closure != closure ||
-      cache.trace_heat != trace_heat ||
+      cache.trace_heat != trace_heat || cache.bounded != bounded ||
       cache.conduction != source.settings_.thermal_conduction ||
       !same_grid(cache.grid, source.state().grid) ||
       !same_settings(cache.settings, cfg)) {
@@ -475,13 +478,19 @@ MacClosedAdvance MacGameKernelAccess::advance_guarded(
     std::vector<k::PhasePair> pairs;
     for (const auto &p : cfg.saturation_pairs)
       pairs.push_back({p.liquid, p.vapour, p.critical_temperature_k});
+    if(bounded) {
+      cache.regional=std::make_unique<k::RegionalTick>(source.state().grid,species,pairs,threads,cfg,source.settings_.thermal_conduction);
+      cache.tick.reset();
+    } else {
     cache.tick = std::make_unique<k::Tick>(
         source.state().grid, species, pairs, threads, cfg.flow_parts,
         cfg.gas_heat_mixing, cfg.sharpen_liquid_interfaces,
         cfg.interface_detail_fraction, cfg.pressure_relative_tolerance, 0,
         false, 0, 2, cfg.phase_relaxation_time_s,
         source.settings_.thermal_conduction, cfg.pressure_maximum_iterations,
-        cfg.heat_maximum_iterations, closure, trace_heat);
+        cfg.heat_maximum_iterations, closure, trace_heat, bounded);
+    cache.regional.reset();
+    }
     cache.eos = source.thermodynamics_;
     cache.grid = source.state().grid;
     cache.settings = cfg;
@@ -489,15 +498,17 @@ MacClosedAdvance MacGameKernelAccess::advance_guarded(
     cache.conduction = source.settings_.thermal_conduction;
     cache.closure = closure;
     cache.trace_heat = trace_heat;
+    cache.bounded = bounded;
   }
   MacClosedAdvance result{source, {}};
-  result.report.game_threads_used = cache.tick->threads_used();
+  result.report.game_threads_used = bounded?cache.regional->threads_used():cache.tick->threads_used();
+  auto& execution_pool=bounded?cache.regional->worker_pool():cache.tick->worker_pool();
   auto &stages = result.report.game_stages;
   const auto since = [](std::chrono::steady_clock::time_point start) {
     return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
   };
   auto stamp = std::chrono::steady_clock::now();
-  auto state = sparse(source.state(), &cache.tick->worker_pool());
+  auto state = sparse(source.state(), &execution_pool);
   stages.sparse_ms = since(stamp);
   double elapsed = 0;
   MacEnergySum energy_residual, energy_bound;
@@ -510,10 +521,12 @@ MacClosedAdvance MacGameKernelAccess::advance_guarded(
     const double dt =
         std::min(source.settings_.maximum_timestep_s, seconds - elapsed);
     stamp = std::chrono::steady_clock::now();
-    auto next =
+    auto next = bounded?
+        cache.regional->advance(state,dt,source.settings_.gravity_m_per_s2,
+                               source.settings_.trace_sink_threshold_kg,liquid_blocked,budget-result.report.attempts):
         cache.tick->advance(state, dt, source.settings_.gravity_m_per_s2,
                             source.settings_.trace_sink_threshold_kg,
-                            liquid_blocked);
+                            liquid_blocked, bounded ? budget-result.report.attempts : 65536);
     stages.tick_ms += since(stamp);
     stages.flow_ms += next.flow_ms;
     stages.eos_ms += next.eos_ms;
@@ -527,6 +540,8 @@ MacClosedAdvance MacGameKernelAccess::advance_guarded(
     stages.audit_ms += next.trace_audit_ms;
     stages.pressure_iterations += next.pressure_iterations;
     stages.pressure_corrections += next.pressure_corrections;
+    stages.pressure_attempts += next.pressure_attempts;
+    stages.pressure_refinements += next.pressure_refinements;
     state = std::move(next.state);
     last = std::move(next.eos);
     last_totals = std::move(next.totals);
@@ -548,8 +563,9 @@ MacClosedAdvance MacGameKernelAccess::advance_guarded(
     energy_residual.add(next.energy_residual.hi);
     energy_residual.add(next.energy_residual.lo);
     energy_bound.add(1e-12 * next.energy_operands.value());
-    ++result.report.attempts;
-    result.report.substeps += cfg.flow_parts;
+    result.report.attempts += bounded ? cache.regional->pressure_attempt_depth() : 1;
+    result.report.rejected_attempts += bounded ? cache.regional->pressure_refinement_depth() : 0;
+    result.report.substeps += bounded ? next.flow_substeps : cfg.flow_parts;
     ++result.report.phase_change_stages;
     elapsed += dt;
   }

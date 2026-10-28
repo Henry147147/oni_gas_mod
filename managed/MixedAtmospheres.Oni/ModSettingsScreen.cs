@@ -368,7 +368,7 @@ namespace MixedAtmospheres.Oni
             if (group == SettingCatalog.Breathing && advanced)
                 GUILayout.Label("Oxygen requirements always apply. CO₂ thresholds apply only when CO₂ breathing limits is On in Gameplay.", small!);
             if (group == SettingCatalog.Solver)
-                GUILayout.Label("The solver is always the supported one: game profile 5 with mixed pipes. These are its saved tunables. Values marked experimental were not measured.", small!);
+                GUILayout.Label("The supported solver and mixed pipes are always enabled. These controls are saved with the colony. Values marked experimental were not measured.", small!);
             foreach (var d in definitions)
             {
                 var value = values[d.Key];

@@ -276,7 +276,7 @@ LinearSolveResult solve_component_ic(Context& c, const LinearSystem& sys, const 
             PressurePreconditioner::incomplete_cholesky);
         PressureSolveResult solved;
         try { solved = matrix.solve(rhs, std::vector<double>(rhs.size(), 0), .5 * rtol, local_atol, maximum, plan); }
-        catch (const std::runtime_error&) { reject("Production component pressure solve did not converge"); }
+        catch (const std::runtime_error&) { throw ComponentPressureSolveFailure{}; }
         for (auto j = first; j < last; ++j) x[layout.cells[j]] = solved.pressure[j - first];
         results[index] = {{solved.iterations, solved.residual_norm, true},
             solved.preconditioner_used == PressurePreconditioner::incomplete_cholesky, solved.preconditioner_fallback};
