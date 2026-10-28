@@ -11,7 +11,12 @@ boil-only, momentum-carrying liquid sharpening/layering and the adopted 1 mg
 interval floor. The fresh Spaced Out! magma-face and twelve-dig owner replays
 pass; real-time acceptance and region activity tiers remain open. Reading
 allocation reductions and a player-accessible frame log support the next
-smoothness check ([handoff](handoff-codex-2026-10-28.md)).
+smoothness check. Profile9/core28 now supplies an opt-in native activity core;
+complete actor/input and owner-stage integration before enabling it in game.
+Accurate clock logging measures warmed actual game speed at 1.935× in a fresh
+450-frame Linux Terra ultra run, with five GCs/15 s: 3× and smooth input remain
+open ([measurements](performance-acceptance.md#linux-ultra-probe-after-the-first-implementation),
+[handoff](handoff-codex-2026-10-28.md)).
 
 **Current regression, 2026-10-28:** the user's Windows recording and uploaded
 colony reproduce large temperature, pressure and mass swings after digging.

@@ -667,3 +667,76 @@ audits. Checkpoint27 saves and continues both phase rules exactly. Expansion
 into a newly opened vacuum/trace cell retains profile7's resolved temporal
 trajectory when its inflow is massive; the floor excludes all-sub-mg flows
 and includes an inflow exactly at 1 mg.
+
+## Experimental region activity core, profile9
+
+Profile9 / checkpoint28 implements the saved solver-side activity policy;
+it is not the ordinary new-colony default. Profile8 remains selected until the
+complete actor census, external heat provenance and owner-stage integration
+are verified. No 3x performance or whole-game activity acceptance is claimed.
+
+`with_game_activity(touched, actors)` supplies a one-frame binary input mask
+and the complete current actor census. Empty masks mean all false. A wall-cell
+mark reaches its fluid face neighbours. Updates retain physical fields and
+time; touched regions and regions containing actors advance at the saved active
+maximum step (at most 0.2 s). After the saved hold time they use remote steps
+on a 1 s game-time cadence, staggered into five slots by the lowest global cell
+modulo five. After the idle deadline they pause. Pristine regions pause from
+creation. Neither physical motion nor passive solid heat counts as activity.
+
+Last-activity time, pending seconds, remote deadline and actor presence are
+saved per cell, not under transient region IDs. Splits inherit the held phase;
+touched merges wake the joined region. Different merged clocks also wake
+conservatively rather than adding histories. Waking or disabling tiers discards
+pending time without catch-up. Metadata and physics publish together after a
+successful advance; failed work budgets and liquid-boundary retries cannot
+commit partial clocks. Worker count, camera and elapsed wall time do not enter
+the cadence. Scheduling has a separate finite interval budget even when every
+region is paused.
+
+`game_activity_steps(seconds)` runs the same policy through every saved maximum
+step and returns total physical seconds due per cell, including multiple remote
+events in a longer request. This aggregate does not specify event order. The
+owner must consume an ordered schedule or constrain and verify its frame/stage
+contract before using it for nonlinear germ evolution, identity conversions,
+trace removal or the space sink. An explicit booked external heat edit can
+change a paused cell's internal energy without waking it; internal fluid heat,
+phase change, layering and sharpening run only when its region is due.
+
+The initial implementation still extracts every region, evaluates held cells'
+EOS, scatters the global state and retains full audits. Optimizing these costs
+is separate work; skipping physical evolution alone is not a measured 3x gain.
+
+## Exact transfer reading reuse
+
+Transfer batches already build a species table. Their point reads and occupied
+volume updates now use the same EOS directly, without constructing unused
+partial-volume/specific-energy vectors or entropy diagnostics. Temperature,
+pressure and gas/liquid occupied-volume arithmetic retain their original
+expressions. Entering any catalogue positive-liquid extended branch falls back
+to the full reading, preserving even the rejection of an absent, extremely soft
+liquid whose segment cannot be represented. A focused gas-only control checks
+that rejection and unchanged source checkpoint bytes.
+
+A private whole-machine-lock comparison uses two actual 78-material saved
+states, withdraws 25% or 100% of each nonzero constituent in cell/species order,
+and repeats each case twice. Each batch has at most 4,096 requests. Checkpoint
+bytes and every serialized parcel field (including passives, energy, both
+momenta and rounding diagnostics) match after every batch: 771,324 withdrawals
+per implementation, in 192 batches. These comparisons use the same Linux
+compiler/platform; they are not cross-platform save equality.
+
+| Private state / withdrawal | Requests per repeat | Parent → current mean transfer work | Reduction |
+| --- | --- | --- | --- |
+| Fresh Spaced Out!, 25% | 82,584 | 527 → 339 ms | 35.6% |
+| Fresh Spaced Out!, 100% | 82,584 | 418 → 312 ms | 25.3% |
+| Digging colony, 25% | 110,247 | 684 → 445 ms | 34.9% |
+| Digging colony, 100% | 110,247 | 567 → 405 ms | 28.6% |
+
+Timing includes actual transfer operations and their state edits, excluding the
+comparison serialization/hash work. This is an isolated transfer workload,
+not a whole-owner or full-game speedup. The clean parent/current 87-program
+short MAC comparison retains all exit codes and numeric output, apart from
+the two new PASS lines and the existing measured timing fields. Private compact
+evidence is `artifacts/region-tiers-2026-10-28/transfer-summary.json` and
+`mac-comparison.json`. Long gates were not run.

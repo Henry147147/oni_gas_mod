@@ -8,11 +8,21 @@ namespace MixedAtmospheres.Oni
     internal sealed class ColonyFrameTiming
     {
         private readonly Queue<(ulong Frame, long At)> pending = new Queue<(ulong, long)>();
+        private readonly int maximumPending;
         private ulong submitted;
+        internal long DroppedSubmissions { get; private set; }
+        internal int PendingCount => pending.Count;
+
+        internal ColonyFrameTiming(int maximumPending = 256)
+        {
+            if (maximumPending <= 0) throw new ArgumentOutOfRangeException(nameof(maximumPending));
+            this.maximumPending = maximumPending;
+        }
 
         internal ulong Submit(ulong observed, long at)
         {
             submitted = Math.Max(submitted, observed) + 1;
+            if (pending.Count == maximumPending) { pending.Dequeue(); ++DroppedSubmissions; }
             pending.Enqueue((submitted, at));
             return submitted;
         }
@@ -25,6 +35,6 @@ namespace MixedAtmospheres.Oni
             return matched;
         }
 
-        internal void Reset() { pending.Clear(); submitted = 0; }
+        internal void Reset() { pending.Clear(); submitted = 0; DroppedSubmissions = 0; }
     }
 }

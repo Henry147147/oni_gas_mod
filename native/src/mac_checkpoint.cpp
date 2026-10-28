@@ -1,5 +1,6 @@
 #include "mixed_atmospheres/mac_closed_world.hpp"
 #include "mixed_atmospheres/fluid_thermodynamics.hpp"
+#include "mac_game/activity.hpp"
 #include <algorithm>
 #include <bit>
 #include <cmath>
@@ -120,14 +121,15 @@ std::vector<std::uint8_t> MacClosedWorld::checkpoint() const {
     for (auto value : magic) out.byte(static_cast<std::uint8_t>(value));
     if(settings_.numerical_kernel==MacNumericalKernel::game) {
         settings_.validate();
-        const bool carried=settings_.game_profile==MacGameProfile::game_kernel_carried_momentum;
+        const bool activity=settings_.game_profile==MacGameProfile::game_kernel_activity_tiers;
+        const bool carried=activity || settings_.game_profile==MacGameProfile::game_kernel_carried_momentum;
         const bool sized=carried || settings_.game_profile==MacGameProfile::game_kernel_sized_intervals;
         const bool bounded=sized || settings_.game_profile==MacGameProfile::game_kernel_bounded_pressure;
         const bool trace_heat=bounded || settings_.game_profile==MacGameProfile::game_kernel_trace_heat;
         const bool surface=settings_.game_profile==MacGameProfile::game_kernel_free_surface;
         const bool positive=trace_heat || surface || settings_.game_profile==MacGameProfile::game_kernel_positive_liquid;
         const bool boil_only=settings_.game.phase_rule==MacPhaseRule::boil_only;
-        out.u32(carried?27:sized?26:boil_only?25:bounded?24:trace_heat?23:surface?22:positive?21:20);const auto model=identity(registry_,*thermodynamics_);out.count(model.size());for(auto b:model)out.byte(b);
+        out.u32(activity?28:carried?27:sized?26:boil_only?25:bounded?24:trace_heat?23:surface?22:positive?21:20);const auto model=identity(registry_,*thermodynamics_);out.count(model.size());for(auto b:model)out.byte(b);
         out.number(time_s_);out.u64(revision_);const auto& st=state();const auto& g=st.grid;
         out.count(g.width);out.count(g.height);out.number(g.spacing_m);out.number(g.depth_m);
         out.number(settings_.maximum_timestep_s);out.number(settings_.gravity_m_per_s2);out.byte(settings_.thermal_conduction?1:0);out.number(settings_.trace_sink_threshold_kg);
@@ -137,6 +139,7 @@ std::vector<std::uint8_t> MacClosedWorld::checkpoint() const {
         // Version25 saves the boil-only rule (1); versions 26/27 (profiles 7/8)
         // save either rule in the same selector (MAC_CHECKPOINT.md).
         if(sized||boil_only)out.u32(static_cast<std::uint32_t>(cfg.phase_rule));
+        if(activity){out.byte(cfg.activity_tiers?1:0);out.number(cfg.activity_hold_s);out.number(cfg.activity_pause_s);}
         out.count(cfg.saturation_pairs.size());for(const auto& p:cfg.saturation_pairs){out.count(p.liquid);out.count(p.vapour);out.number(p.critical_temperature_k);}
         out.count(st.cells.size());for(auto wall:g.walls)out.byte(wall);
         for(const auto& mask:{g.closed_x,g.closed_y}){out.count(mask.size());for(auto value:mask)out.byte(value);}
@@ -147,6 +150,13 @@ std::vector<std::uint8_t> MacClosedWorld::checkpoint() const {
         }
         check(st.full_momentum_x.empty()&&st.full_momentum_y.empty(),"Game checkpoint cannot omit full-range momentum");
         for(const auto* field:{&st.momentum_x,&st.momentum_y}){out.count(field->size());for(auto value:*field)out.number(value);}
+        if(activity){
+            game_kernel::validate_activity(game_activity(),st.cells.size(),time_s_,st.grid.walls);
+            out.count(game_activity().size());
+            for(const auto& cell:game_activity()){
+                out.number(cell.last_activity_s);out.number(cell.pending_s);out.number(cell.next_remote_s);out.byte(cell.actors?1:0);
+            }
+        }
         out.u64(checksum(out.bytes));return out.bytes;
     }
     // Keep every pre-viscosity checkpoint byte unchanged when disabled.
@@ -234,18 +244,19 @@ MacClosedWorld MacClosedWorld::from_checkpoint(SpeciesRegistry registry,std::sha
     Reader in{bytes.first(bytes.size()-8)};
     for (auto value : magic) check(in.byte()==static_cast<std::uint8_t>(value),"Unrecognized MAC checkpoint signature");
     const auto version=in.u32();
-    if(version>=20 && version<=27) {
+    if(version>=20 && version<=28) {
         const auto model=identity(registry,*eos);check(in.u32()==model.size()&&model.size()<=in.remaining(),"Saved game model size differs");for(auto value:model)check(in.byte()==value,"Saved game registry/EOS identity differs");
         const double time=in.number();const auto revision=in.u64();check(time>=0&&revision>0,"Invalid saved game clock");
         MacTransportState st;st.grid.width=in.u32();st.grid.height=in.u32();st.grid.spacing_m=in.number();st.grid.depth_m=in.number();
         MacClosedSettings cfg;cfg.numerical_kernel=MacNumericalKernel::game;cfg.game_profile=MacGameProfile::game_kernel;cfg.vacuum=MacVacuumRepresentation::void_phase;cfg.thermal_conduction=true;
         cfg.maximum_timestep_s=in.number();cfg.gravity_m_per_s2=in.number();cfg.thermal_conduction=in.flag();cfg.trace_sink_threshold_kg=in.number();
         cfg.game.liquid_stiffness_ratio=in.number();cfg.game.flow_parts=in.u32();cfg.game.pressure_relative_tolerance=in.number();cfg.game.gas_heat_mixing=in.number();cfg.game.sharpen_liquid_interfaces=in.flag();cfg.game.interface_detail_fraction=in.number();cfg.game.phase_relaxation_time_s=in.number();
-        if(version>=21){cfg.game_profile=version==27?MacGameProfile::game_kernel_carried_momentum:version==26?MacGameProfile::game_kernel_sized_intervals:version>=24?MacGameProfile::game_kernel_bounded_pressure:version==23?MacGameProfile::game_kernel_trace_heat:version==22?MacGameProfile::game_kernel_free_surface:MacGameProfile::game_kernel_positive_liquid;cfg.game.liquid_law=static_cast<MacGameLiquidLaw>(in.u32());cfg.game.pressure_maximum_iterations=in.u32();cfg.game.heat_maximum_iterations=in.u32();}
+        if(version>=21){cfg.game_profile=version==28?MacGameProfile::game_kernel_activity_tiers:version==27?MacGameProfile::game_kernel_carried_momentum:version==26?MacGameProfile::game_kernel_sized_intervals:version>=24?MacGameProfile::game_kernel_bounded_pressure:version==23?MacGameProfile::game_kernel_trace_heat:version==22?MacGameProfile::game_kernel_free_surface:MacGameProfile::game_kernel_positive_liquid;cfg.game.liquid_law=static_cast<MacGameLiquidLaw>(in.u32());cfg.game.pressure_maximum_iterations=in.u32();cfg.game.heat_maximum_iterations=in.u32();}
         // Version25 is profile6 with the boil-only rule, its canonical value1;
         // versions 26/27 are profiles 7/8 with either rule.
         if(version==25){check(in.u32()==static_cast<std::uint32_t>(MacPhaseRule::boil_only),"Noncanonical saved game phase rule");cfg.game.phase_rule=MacPhaseRule::boil_only;}
-        if(version==26||version==27){const auto rule=in.u32();check(rule<=static_cast<std::uint32_t>(MacPhaseRule::boil_only),"Noncanonical saved game phase rule");cfg.game.phase_rule=static_cast<MacPhaseRule>(rule);}
+        if(version>=26){const auto rule=in.u32();check(rule<=static_cast<std::uint32_t>(MacPhaseRule::boil_only),"Noncanonical saved game phase rule");cfg.game.phase_rule=static_cast<MacPhaseRule>(rule);}
+        if(version==28){cfg.game.activity_tiers=in.flag();cfg.game.activity_hold_s=in.number();cfg.game.activity_pause_s=in.number();}
         const auto pairs=in.u32();check(pairs<=65536&&pairs<=in.remaining()/16,"Invalid saved game pairs");for(std::size_t n=0;n<pairs;++n){MacSaturationPair pair;pair.liquid=in.u32();pair.vapour=in.u32();pair.critical_temperature_k=in.number();cfg.game.saturation_pairs.push_back(pair);}cfg.validate();
         const auto cells=in.u32();check(st.grid.width>0&&st.grid.height>0&&static_cast<std::uint64_t>(st.grid.width)*st.grid.height==cells&&cells<=in.remaining()/17,"Invalid saved game geometry");
         st.grid.walls.reserve(cells);for(std::size_t i=0;i<cells;++i)st.grid.walls.push_back(in.flag()?1:0);
@@ -256,7 +267,15 @@ MacClosedWorld MacClosedWorld::from_checkpoint(SpeciesRegistry registry,std::sha
             const auto passive=in.u32();check(passive<=in.remaining()/16,"Invalid saved game passives");std::uint64_t last=0;for(std::size_t n=0;n<passive;++n){const auto id=in.u64();const double q=in.number();check(q>0&&(n==0||id>last),"Noncanonical saved game passive");cell.passive_quantities.push_back({id,q});last=id;}
         }
         for(auto* field:{&st.momentum_x,&st.momentum_y}){const auto count=in.u32();check(count==(field==&st.momentum_x?nx:ny)&&count<=in.remaining()/8,"Invalid saved game momentum coverage");field->reserve(count);for(std::size_t f=0;f<count;++f)field->push_back(in.number());}
-        check(in.remaining()==0,"Trailing saved game data");MacClosedWorld result(std::move(registry),std::move(eos),std::move(st),cfg,std::move(transport));result.time_s_=time;result.revision_=revision;return result;
+        std::vector<MacGameActivityCell> activity;
+        if(version==28){
+            const auto count=in.u32();check(count==cells&&count<=in.remaining()/25,"Saved game activity coverage differs");
+            activity.resize(count);for(auto& c:activity){c.last_activity_s=in.number();c.pending_s=in.number();c.next_remote_s=in.number();c.actors=in.flag();}
+            game_kernel::validate_activity(activity,cells,time,st.grid.walls);
+        }
+        check(in.remaining()==0,"Trailing saved game data");MacClosedWorld result(std::move(registry),std::move(eos),std::move(st),cfg,std::move(transport));result.time_s_=time;result.revision_=revision;
+        if(version==28)result.game_activity_=std::make_shared<const std::vector<MacGameActivityCell>>(std::move(activity));
+        return result;
     }
 
     const bool moment_version=version==moment_format_version || version==coupled_moment_format_version;

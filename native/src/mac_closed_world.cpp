@@ -195,7 +195,8 @@ void MacClosedSettings::validate() const {
             game_profile==MacGameProfile::game_kernel_trace_heat ||
             game_profile==MacGameProfile::game_kernel_bounded_pressure ||
             game_profile==MacGameProfile::game_kernel_sized_intervals ||
-            game_profile==MacGameProfile::game_kernel_carried_momentum) &&
+            game_profile==MacGameProfile::game_kernel_carried_momentum ||
+            game_profile==MacGameProfile::game_kernel_activity_tiers) &&
             game.liquid_law==MacGameLiquidLaw::positive_segments;
         require((original || positive) && vacuum==MacVacuumRepresentation::void_phase &&
             step_control==MacStepControl::doubling && subcell_void==MacSubcellVoidPolicy::exact_geometry &&
@@ -212,18 +213,28 @@ void MacClosedSettings::validate() const {
             "Invalid diagnostic game-kernel settings");
         require(game.phase_rule==MacPhaseRule::equilibrium || game_profile==MacGameProfile::game_kernel_bounded_pressure ||
             game_profile==MacGameProfile::game_kernel_sized_intervals ||
-            game_profile==MacGameProfile::game_kernel_carried_momentum,
-            "The boil-only phase rule requires game profile6, 7 or 8");
+            game_profile==MacGameProfile::game_kernel_carried_momentum ||
+            game_profile==MacGameProfile::game_kernel_activity_tiers,
+            "The boil-only phase rule requires game profile6-9");
+        require(game_profile==MacGameProfile::game_kernel_activity_tiers ||
+            (!game.activity_tiers && game.activity_hold_s==2 && game.activity_pause_s==60),
+            "Game activity options require experimental profile9");
+        require(game_profile!=MacGameProfile::game_kernel_activity_tiers ||
+            maximum_timestep_s<=static_cast<double>(.2f),
+            "Game activity active intervals must be at most 0.2 seconds");
         return;
     }
-    require(game.phase_rule==MacPhaseRule::equilibrium,"The boil-only phase rule requires game profile6, 7 or 8");
+    require(game.phase_rule==MacPhaseRule::equilibrium,"The boil-only phase rule requires game profile6-9");
+    require(!game.activity_tiers && game.activity_hold_s==2 && game.activity_pause_s==60,
+        "Game activity options require experimental profile9");
     require(game_profile!=MacGameProfile::game_kernel &&
         game_profile!=MacGameProfile::game_kernel_positive_liquid &&
         game_profile!=MacGameProfile::game_kernel_free_surface &&
         game_profile!=MacGameProfile::game_kernel_trace_heat &&
         game_profile!=MacGameProfile::game_kernel_bounded_pressure &&
         game_profile!=MacGameProfile::game_kernel_sized_intervals &&
-        game_profile!=MacGameProfile::game_kernel_carried_momentum,"Game profile requires numerical kernel3");
+        game_profile!=MacGameProfile::game_kernel_carried_momentum &&
+        game_profile!=MacGameProfile::game_kernel_activity_tiers,"Game profile requires numerical kernel3");
     viscosity.validate();
     diffusion.validate();
     require(game_profile == MacGameProfile::base_game_floor ||
@@ -688,9 +699,11 @@ MacClosedWorld::MacClosedWorld(SpeciesRegistry registry, std::shared_ptr<const F
     validate_momentum(topology.x, inertia.x, mac_field_values(state.momentum_x, state.full_momentum_x));
     validate_momentum(topology.y, inertia.y, mac_field_values(state.momentum_y, state.full_momentum_y));
     replace_state(std::move(state));
+    if(settings_.game_profile==MacGameProfile::game_kernel_activity_tiers)
+        game_activity_=std::make_shared<const std::vector<MacGameActivityCell>>(state_snapshot_->cells.size());
 }
 MacClosedWorld::MacClosedWorld(Derived, const MacClosedWorld& from, MacTransportState state) : registry_(from.registry_),
-    thermodynamics_(from.thermodynamics_), settings_(from.settings_), transport_(from.transport_), time_s_(from.time_s_),
+    thermodynamics_(from.thermodynamics_), game_activity_(from.game_activity_), settings_(from.settings_), transport_(from.transport_), time_s_(from.time_s_),
     revision_(from.revision_ + 1) {
     bool partial = false;
     for (std::size_t i = 0; i < state.occupied_volumes_m3.size() && !partial; ++i)
@@ -699,7 +712,7 @@ MacClosedWorld::MacClosedWorld(Derived, const MacClosedWorld& from, MacTransport
     replace_state(std::move(state));
 }
 MacClosedWorld::MacClosedWorld(Derived, const MacClosedWorld& from, std::shared_ptr<const MacTransportState> state) :
-    registry_(from.registry_), thermodynamics_(from.thermodynamics_), state_snapshot_(std::move(state)), settings_(from.settings_),
+    registry_(from.registry_), thermodynamics_(from.thermodynamics_), state_snapshot_(std::move(state)), game_activity_(from.game_activity_), settings_(from.settings_),
     transport_(from.transport_), time_s_(from.time_s_), revision_(from.revision_ + 1) {
     if (from.revision_ == std::numeric_limits<std::uint64_t>::max()) throw std::overflow_error("MAC closed revision overflow");
 }

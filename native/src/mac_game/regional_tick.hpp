@@ -99,7 +99,9 @@ public:
   std::size_t pressure_refinement_depth() const {return refinement_depth;}
   ma::experimental::mac_kernel::Pool& worker_pool() {return pool;}
   TickResult advance(const State& initial,double dt,double gravity,double threshold,
-                     std::span<const std::uint8_t> blocked={},std::size_t budget=65536) {
+                     std::span<const std::uint8_t> blocked={},std::size_t budget=65536,
+                     std::span<const double> due={}) {
+    if(!due.empty() && due.size()!=grid.N)throw std::invalid_argument("Game activity step coverage differs");
     attempt_depth=refinement_depth=0;
     RegionAudit audit(grid,topology,species_count);Totals before;
     audit.capture(initial,gravity,1,&before,&pool);
@@ -109,7 +111,19 @@ public:
         auto& r=regions[id];auto state=extract(initial,id);
         std::vector<std::uint8_t> local_blocked;
         if(!blocked.empty()) {local_blocked.resize(r.box.walls.size());for(std::size_t i=0;i<local_blocked.size();++i)local_blocked[i]=blocked[global_cell(r,i)];}
-        try {results[id]=r.tick->advance(state,dt,gravity,threshold,local_blocked,budget);}
+        const double step=due.empty()?dt:due[r.representative];
+        if(!std::isfinite(step) || step<0)throw std::invalid_argument("Invalid game activity step");
+        if(!due.empty())for(std::size_t i=0;i<r.box.walls.size();++i)
+          if(!r.box.walls[i] && due[global_cell(r,i)]!=step)
+            throw std::invalid_argument("Game activity region clocks differ");
+        try {
+          if(step>0)results[id]=r.tick->advance(state,step,gravity,threshold,local_blocked,budget);
+          else {
+            auto& held=results[id];held.eos=r.tick->evaluate_state(state);
+            held.state=std::move(state);held.sink_species.resize(species_count);
+            held.conversion_species.resize(species_count);
+          }
+        }
         catch(const LiquidBoundaryConflict& e) {
           auto translated=e;
           for(auto& face:translated.faces) {

@@ -124,6 +124,26 @@ reservation does not enable the profile; ordinary default selection waits
 for complete owner input/actor integration and conservation/continuation
 controls.
 
+*Experimental core implemented 2026-10-28:* version28 keeps version27's
+prefix through the phase-rule selector, then writes one boolean activity-tier
+flag and binary64 active-hold/idle-pause durations (defaults 2/60 s), before
+the saturation-pair count. After the momentum arrays it writes the cell count
+and one 25-byte record per cell: binary64 last-activity time (-1 for pristine),
+pending physical seconds, next remote deadline, then one actor-presence byte.
+The record count must equal the grid cell count. Invalid flags, nonfinite or
+future activity times, impossible pending/deadline tuples and negative zero
+clocks reject on read. Advancing a non-progressing binary64 clock rejects
+before physical work. Closed solid cells may retain a held
+phase while their fluid neighbours split. Shared owner edits retain the records;
+the accepted physical advance alone commits cadence updates.
+
+The flag is false for **Always simulate**, which retains profile8 physical
+trajectories. True enables the solver-side cadence for explicit experiments.
+Ordinary colonies still select profile8: the full actor/provenance census and
+owner germs/conversions/trace/space-stage integration are not enabled by this
+core implementation. The aggregate due-time query is informational, not an
+ordered schedule for those nonlinear owner stages.
+
 **Reserved 2026-10-28 immediately after fetching `eb40d9b`:** physical
 `MACCLS01` version **27** identifies game profile **8**: profile7 with the
 two model changes the user adopted on 2026-10-28. Interface sharpening and

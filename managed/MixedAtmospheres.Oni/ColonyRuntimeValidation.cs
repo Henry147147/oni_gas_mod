@@ -455,6 +455,7 @@ namespace MixedAtmospheres.Oni
                 ClusterWorlds=ColonyClusterWorlds.Report(),
                 ColonyPacing.HeldTicks, ColonyPacing.UnityFrames, ColonyPacing.OwnerRate, ColonyPacing.TimeScale,
                 WallSeconds = (System.DateTime.UtcNow - colonyOwnerWallStart).TotalSeconds,
+                Performance = ColonyPerformanceLog.Timerun(),
                 PresentationFrames = ColonyPresentation.Publications, PresentationRejectedCells = ColonyPresentation.RejectedCells, ColonyPresentation.FirstRejection,
                 PresentationBuildMilliseconds = ColonyPresentation.LastBuildMilliseconds, PresentationCopyMilliseconds = ColonyPresentation.CopyMilliseconds,
                 ColonyOwner.PublicationMilliseconds, ColonyOwner.MaximumPublicationMilliseconds, PresentationError = ColonyPresentation.LastError,

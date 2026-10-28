@@ -3,6 +3,7 @@
 #include "mac_hypot.hpp"
 #include "mac_game/tick.hpp"
 #include "mac_game/regional_tick.hpp"
+#include "mac_game/activity.hpp"
 #include "mac_game_bridge.hpp"
 #include "mixed_atmospheres/mac_kernel.hpp"
 #include <cmath>
@@ -194,6 +195,8 @@ bool same_settings(const MacGameSettings &a, const MacGameSettings &b) {
       a.interface_detail_fraction != b.interface_detail_fraction ||
       a.phase_relaxation_time_s != b.phase_relaxation_time_s ||
       a.phase_rule != b.phase_rule ||
+      a.activity_tiers != b.activity_tiers || a.activity_hold_s != b.activity_hold_s ||
+      a.activity_pause_s != b.activity_pause_s ||
       a.saturation_pairs.size() != b.saturation_pairs.size())
     return false;
   for (std::size_t i = 0; i < a.saturation_pairs.size(); ++i) {
@@ -224,6 +227,8 @@ void MacGameSettings::validate() const {
               phase_relaxation_time_s > 0 && phase_relaxation_time_s <= 1000 &&
               (phase_rule == MacPhaseRule::equilibrium ||
                phase_rule == MacPhaseRule::boil_only) &&
+              std::isfinite(activity_hold_s) && activity_hold_s > 0 &&
+              std::isfinite(activity_pause_s) && activity_pause_s >= activity_hold_s &&
               saturation_pairs.size() <= 65536,
           "Invalid saved game-kernel options");
   for (const auto &pair : saturation_pairs)
@@ -466,7 +471,8 @@ MacClosedAdvance MacGameKernelAccess::advance_guarded(
   const unsigned threads = options.threads;
   // Profile 8 is profile 7 with momentum-carrying sharpening and layering
   // and a 1 mg floor on the net swept-volume bound.
-  const bool carried = source.settings_.game_profile == MacGameProfile::game_kernel_carried_momentum;
+  const bool activity = source.settings_.game_profile == MacGameProfile::game_kernel_activity_tiers;
+  const bool carried = activity || source.settings_.game_profile == MacGameProfile::game_kernel_carried_momentum;
   const bool sized = carried || source.settings_.game_profile == MacGameProfile::game_kernel_sized_intervals;
   const bool bounded = sized || source.settings_.game_profile == MacGameProfile::game_kernel_bounded_pressure;
   const bool trace_heat = bounded ||
@@ -525,16 +531,29 @@ MacClosedAdvance MacGameKernelAccess::advance_guarded(
   MacEnergySum energy_residual, energy_bound;
   std::vector<k::Eos> last;
   k::Totals last_totals;
+  std::vector<MacGameActivityCell> activity_state;
+  std::optional<k::ActivityRegions> activity_regions;
+  if(activity) {
+    k::validate_activity(source.game_activity(),source.state().cells.size(),source.time_s_,source.state().grid.walls);
+    k::validate_activity_interval(seconds,source.settings_.maximum_timestep_s,budget);
+    activity_state.assign(source.game_activity().begin(),source.game_activity().end());
+    activity_regions.emplace(source.state().grid);
+  }
   result.report.game_converted_mass_kg.assign(source.registry_.size(), 0);
+  std::size_t activity_intervals=0;
   while (elapsed < seconds) {
+    if(activity && ++activity_intervals>budget)
+      throw std::invalid_argument("Game activity interval exceeds its scheduling budget");
     require(result.report.attempts < budget,
             "Game interval exceeds its tick budget");
     const double dt =
         std::min(source.settings_.maximum_timestep_s, seconds - elapsed);
+    const auto due=activity?k::activity_step(source.state().grid,*activity_regions,
+        activity_state,cfg,source.time_s_+elapsed,dt):std::vector<double>{};
     stamp = std::chrono::steady_clock::now();
     auto next = bounded?
         cache.regional->advance(state,dt,source.settings_.gravity_m_per_s2,
-                               source.settings_.trace_sink_threshold_kg,liquid_blocked,budget-result.report.attempts):
+                               source.settings_.trace_sink_threshold_kg,liquid_blocked,budget-result.report.attempts,due):
         cache.tick->advance(state, dt, source.settings_.gravity_m_per_s2,
                             source.settings_.trace_sink_threshold_kg,
                             liquid_blocked, bounded ? budget-result.report.attempts : 65536);
@@ -577,7 +596,8 @@ MacClosedAdvance MacGameKernelAccess::advance_guarded(
     result.report.attempts += bounded ? cache.regional->pressure_attempt_depth() : 1;
     result.report.rejected_attempts += bounded ? cache.regional->pressure_refinement_depth() : 0;
     result.report.substeps += bounded ? next.flow_substeps : cfg.flow_parts;
-    ++result.report.phase_change_stages;
+    if(!activity || std::any_of(due.begin(),due.end(),[](double value){return value>0;}))
+      ++result.report.phase_change_stages;
     elapsed += dt;
   }
   stamp = std::chrono::steady_clock::now();
@@ -587,6 +607,8 @@ MacClosedAdvance MacGameKernelAccess::advance_guarded(
   result.world.game_totals_ =
       std::make_shared<const k::Totals>(std::move(last_totals));
   result.world.time_s_ = source.time_s_ + seconds;
+  if(activity)result.world.game_activity_=
+      std::make_shared<const std::vector<MacGameActivityCell>>(std::move(activity_state));
   require(std::isfinite(result.world.time_s_) &&
               result.world.time_s_ > source.time_s_,
           "Game clock cannot advance");
@@ -691,8 +713,23 @@ std::array<std::size_t, 2> cell_faces(const MacGrid &g, std::size_t i, bool x) {
            : std::array<std::size_t, 2>{g.y_face(col, row),
                                         g.y_face(col, row + 1)};
 }
+k::Eos transfer_reading(const MacClosedWorld &source,
+                        const std::vector<k::Species> &species,
+                        const MacMaterialCell &cell, double volume) {
+  const auto e = k::evaluate(species, cell.mixture.masses, cell.mixture.energy,
+                           volume);
+  // The full reading also validates extended elastic branches of absent
+  // liquids. Preserve those uncommon rejections without constructing its
+  // unused arrays and entropy in the ordinary, low-strain transfer path.
+  if (std::any_of(species.begin(), species.end(), [&](const auto &s) {
+        return !s.gas && s.positive_liquid && e.pressure >= .5 * s.stiffness;
+      }))
+    (void)MacGameKernelAccess::reading(source, cell);
+  return e;
+}
 void occupied(const MacClosedWorld &source, MacTransportState &state,
-              std::span<const std::size_t> touched) {
+              std::span<const std::size_t> touched,
+              const std::vector<k::Species> *species = nullptr) {
   if (state.occupied_volumes_m3.empty()) {
     state.occupied_volumes_m3.resize(state.cells.size());
     for (std::size_t i = 0; i < state.cells.size(); ++i)
@@ -707,9 +744,19 @@ void occupied(const MacClosedWorld &source, MacTransportState &state,
       state.occupied_volumes_m3[i] = 0;
       continue;
     }
-    const auto e = MacGameKernelAccess::reading(source, state.cells[i]);
-    state.occupied_volumes_m3[i] =
-        e.has_gas ? state.grid.volume_m3() : e.liquid_volume_m3;
+    if (species) {
+      // Transfer batches already hold the same material table. The occupied
+      // volume needs only the EOS, without presentation arrays or entropy.
+      const auto &cell = state.cells[i];
+      const auto e = transfer_reading(source, *species, cell,
+                                      state.grid.volume_m3());
+      state.occupied_volumes_m3[i] =
+          e.nR > 0 ? state.grid.volume_m3() : e.liquid_volume;
+    } else {
+      const auto e = MacGameKernelAccess::reading(source, state.cells[i]);
+      state.occupied_volumes_m3[i] =
+          e.has_gas ? state.grid.volume_m3() : e.liquid_volume_m3;
+    }
   }
 }
 // The tick's audit totals of a state (RegionAudit::capture), read from the
@@ -1073,7 +1120,7 @@ TransferWork apply_transfers(const MacClosedWorld &source,
   work.parcels.reserve(edits.size());
   std::vector<std::size_t> touched;
   const auto reading = [&](const MacMaterialCell &cell) {
-    return MacGameKernelAccess::reading(source, cell);
+    return transfer_reading(source, species, cell, next.grid.volume_m3());
   };
   for (const auto &edit : edits) {
     touched.clear();
@@ -1101,7 +1148,7 @@ TransferWork apply_transfers(const MacClosedWorld &source,
     p.cell_index = edit.cell_index;
     p.species_index = edit.species_index;
     p.injected = edit.inject;
-    p.temperature_k = edit.inject ? edit.temperature_k : before.temperature_k;
+    p.temperature_k = edit.inject ? edit.temperature_k : before.temperature;
     if (edit.observe_passives)
       p.passives_before = cell.passive_quantities;
     if (edit.mass_kg == 0 ||
@@ -1150,7 +1197,7 @@ TransferWork apply_transfers(const MacClosedWorld &source,
     const double specific =
         material.offset + material.cv * p.temperature_k +
         (material.gas ? 0
-                      : k::liquid_specific_elastic(material,before.mechanical_pressure_pa));
+                      : k::liquid_specific_elastic(material,before.pressure));
     cell.mixture.energy =
         cell.mixture.mass() == 0
             ? 0
@@ -1237,7 +1284,7 @@ TransferWork apply_transfers(const MacClosedWorld &source,
     if (edit.observe_passives)
       p.passives_after = cell.passive_quantities;
     journal.volumes(next, touched);
-    occupied(source, next, touched);
+    occupied(source, next, touched, &species);
     work.cells.insert(work.cells.end(), touched.begin(), touched.end());
     for (bool x : {true, false})
       for (const auto f : cell_faces(next.grid, edit.cell_index, x))

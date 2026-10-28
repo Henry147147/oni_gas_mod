@@ -48,6 +48,13 @@ namespace MixedAtmospheres.Oni
                     "Start a new colony to use the corrected pressure update.");
         }
 
+        internal static void RefuseExperimentalActivity(ReadOnlySpan<byte> image)
+        {
+            if(Profile(image).PhysicalVersion==28)
+                throw new NotSupportedException("This save uses experimental region activity tiers. " +
+                    "Game integration for that solver profile is not complete in this build.");
+        }
+
         internal static ulong CompletedFrames(ReadOnlySpan<byte> image)
         {
             var at=CountersOffset(image,out _);

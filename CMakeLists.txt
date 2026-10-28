@@ -188,7 +188,7 @@ endforeach()
 if(MINGW)
     target_link_options(ma_mac_block_execution_tests PRIVATE -static)
 endif()
-add_library(ma_mac_closed_world STATIC EXCLUDE_FROM_ALL native/src/mac_closed_world.cpp native/src/mac_game_kernel.cpp native/src/mac_parcel_deposit.cpp native/src/mac_interval_fallback.cpp native/src/mac_pressure_multigrid.cpp native/src/mac_diffusion.cpp native/src/mac_diffusion_normal.cpp native/src/mac_boundary_transfer.cpp native/src/mac_thermal.cpp native/src/mac_viscosity.cpp native/src/mac_native_heat.cpp native/src/mac_checkpoint.cpp native/src/mac_phase_change.cpp
+add_library(ma_mac_closed_world STATIC EXCLUDE_FROM_ALL native/src/mac_closed_world.cpp native/src/mac_game_activity.cpp native/src/mac_game_kernel.cpp native/src/mac_parcel_deposit.cpp native/src/mac_interval_fallback.cpp native/src/mac_pressure_multigrid.cpp native/src/mac_diffusion.cpp native/src/mac_diffusion_normal.cpp native/src/mac_boundary_transfer.cpp native/src/mac_thermal.cpp native/src/mac_viscosity.cpp native/src/mac_native_heat.cpp native/src/mac_checkpoint.cpp native/src/mac_phase_change.cpp
     ${MA_MAC_KERNEL_SOURCES})
 target_link_libraries(ma_mac_closed_world PUBLIC ma_mac_reconstruction ma_mac_block_execution)
 target_link_libraries(ma_mac_closed_world PUBLIC Threads::Threads)

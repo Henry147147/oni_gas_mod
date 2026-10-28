@@ -107,6 +107,7 @@ namespace MixedAtmospheres.Oni
             }
             ColonyCheckpointMetadata.RefuseRemovedNitrogen(payload.Owner);
             ColonyCheckpointMetadata.RefuseUnboundedPressure(payload.Owner);
+            ColonyCheckpointMetadata.RefuseExperimentalActivity(payload.Owner);
             var settings = payload.Section(ColonySavePayload.ColonySettings) ??
                 throw new NotSupportedException("This R&D save predates the current breathing settings. Start a new colony.");
             _ = ColonySettingsRecord.Decode(settings, SettingValues.Defaults());

@@ -32,6 +32,7 @@ namespace MixedAtmospheres.Oni
 
         internal static void Reset()
         {
+            ColonyPerformanceLog.FinishRun();
             HeldTicks = UnityFrames = 0; OwnerRate = 0; seenFrames = 0;
             updateTicks = tickTicks = updateCalls = tickCalls = maximumUpdateTicks = loggedHeldTicks = 0;
             loggedFrame = ulong.MaxValue;

@@ -5,6 +5,7 @@
 #include "mac_game_bounded_checkpoint_control.hpp"
 #include "mac_game_component_cache_control.hpp"
 #include "mac_game_carried_momentum_control.hpp"
+#include "mac_game_activity_control.hpp"
 #include "../src/mac_hypot.hpp"
 #include "../src/mac_game/account.hpp"
 #include "../src/mac_game/entropy.hpp"
@@ -22,6 +23,31 @@ using namespace ma::experimental;
 void require(bool value, const char *text) {
   if (!value)
     throw std::runtime_error(text);
+}
+void absent_liquid_transfer_rejection() {
+  const auto &f = ma::testing::setup();
+  auto state = f.state(2, 1, false);
+  MacClosedSettings cfg;
+  cfg.numerical_kernel = MacNumericalKernel::game;
+  cfg.game_profile = MacGameProfile::game_kernel_carried_momentum;
+  cfg.vacuum = MacVacuumRepresentation::void_phase;
+  cfg.game.liquid_law = MacGameLiquidLaw::positive_segments;
+  cfg.game.liquid_stiffness_ratio = 1e-200;
+  const auto world = MacClosedWorld::game_colony(
+      f.registry, f.eos, state, std::vector<double>(2, 300), cfg);
+  const auto original = world.checkpoint();
+  std::string reading_error;
+  try { (void)world.cell_reading(0); }
+  catch (const std::runtime_error &error) { reading_error = error.what(); }
+  require(reading_error == "Positive-liquid segment is unrepresentable",
+          "Absent ultra-soft liquid no longer exercises reading rejection");
+  const MacFluidTransfer edit{0, f.registry.index("oxygen"), false, .001, 300};
+  std::string transfer_error;
+  try { (void)world.with_fluid_transfers(std::span(&edit, 1)); }
+  catch (const std::runtime_error &error) { transfer_error = error.what(); }
+  require(transfer_error == reading_error && world.checkpoint() == original,
+          "Fast transfer changed an absent-liquid rejection or source bytes");
+  std::cout << "PASS transfer reading preserves absent-liquid rejection\n";
 }
 void trace_entropy_is_finite() {
   namespace k = ma::experimental::game_kernel;
@@ -328,6 +354,8 @@ int main() {
     ma::testing::bounded_pressure_expansion_control();
     ma::testing::bounded_pressure_checkpoint_control();
     ma::testing::carried_momentum_control();
+    ma::testing::game_activity_control();
+    absent_liquid_transfer_rejection();
     ma::testing::component_cache_control();
     full_worker_continuation();
     const auto &f = ma::testing::setup();

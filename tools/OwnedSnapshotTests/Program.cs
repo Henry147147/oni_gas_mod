@@ -434,8 +434,14 @@ internal static unsafe class Program
                         var saved=Owner(version,current,1,400,800,jobs,8);
                         Check(ColonyCheckpointMetadata.Profile(saved).Equals(new ColonyPhysicalProfile(version,current,1,400,800,8)));
                         ColonyCheckpointMetadata.RefuseUnboundedPressure(saved);
+                        ColonyCheckpointMetadata.RefuseExperimentalActivity(saved);
                     }
-                    Check(ColonyCheckpointMetadata.Profile(Owner(version,28,1,400,800,jobs,8)).Equals(new ColonyPhysicalProfile(version,28,0,0,0)));
+                    var experimental=Owner(version,28,1,400,800,jobs,8);
+                    Check(ColonyCheckpointMetadata.Profile(experimental).Equals(new ColonyPhysicalProfile(version,28,0,0,0)));
+                    var originalExperimental=(byte[])experimental.Clone();var activityRefused=false;
+                    try{ColonyCheckpointMetadata.RefuseExperimentalActivity(experimental);}
+                    catch(NotSupportedException error){activityRefused=error.Message.Contains("experimental region activity");}
+                    Check(activityRefused && experimental.SequenceEqual(originalExperimental));
                     foreach(var old in new uint[]{20,21,22,23})
                     {
                         var earlier=Owner(version,old,1,400,800,jobs,8);var unchanged=(byte[])earlier.Clone();

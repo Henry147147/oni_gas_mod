@@ -52,10 +52,50 @@ The preserved work below has now been recovered onto `main`:
   airflow NVIDIA. Possible airflow diagnostics are coherent bulk sampling
   and wet-face closures; neither is a confirmed cause.
 
-**Resume with C**, then native frame waits and another private Windows
-candidate once the speed work is ready. Real-time and smooth-input acceptance
-on the user's PC remain open. The old worktree patches below are historical
-snapshots; current implementations and controls live on `main`.
+### 3× work started after the recovery
+
+- **C now has a verified experimental solver core.** Profile9/core28 persists
+  per-cell activity, pending time, deadlines and actors. It controls pristine
+  pause, staggered remote stepping, wake without catch-up, splits/merges,
+  worker equality and exact cold continuation. Always simulate retains profile8
+  physical fields bit for bit. Malformed clocks and non-progressing or excessive
+  schedules reject. New colonies remain profile8; normal game loading refuses
+  experimental28 saves until the full owner pipeline is integrated.
+- **Throughput measurement is repaired.** Independent absolute owner/game clock
+  deltas use monotonic wall time, including pauses and skipped completions.
+  Matched submit-through-managed-publication latency is separate from the
+  partial native work timer. Final partial windows and
+  `colony_owner.Performance` retain short-run results. Diagnostic queues are
+  bounded and report dropped samples. The focused suite passes 81 checks.
+- **Exact transfer work is reduced.** Reuse the batch's EOS table and omit
+  unused full-reading arrays/entropy, retaining rare validation through a
+  conservative fallback. Two private actual 78-material states, two withdrawal
+  fractions and two repeats give 771,324 withdrawals per implementation in
+  192 batches, with identical checkpoint bytes and serialized receipt fields.
+  Isolated batch work falls 25–36% under the whole-machine lock; this is not a
+  whole-game gain. See [transfer details](../native/MAC_GAME_KERNEL.md#exact-transfer-reading-reuse).
+- **Verification:** all 89 Linux Release CTests, 437 Python tests and the full
+  managed/game-contract suites pass. All 87 short MAC programs retain their
+  exit codes and numeric output from clean parent/current builds; only two new
+  PASS lines differ after masking existing `ref_ms`/`prod_ms` fields. Long
+  gates were not run. Evidence: `artifacts/region-tiers-2026-10-28/`.
+- **Actual Linux speed is measured, still below 3×.** The frozen private
+  profile8 Terra run passes at frame450. Warmed frames151–450 achieve
+  1.938× owner / 1.935× game progress, versus partial capacity estimates near
+  3.2×. Owner work averages 65 ms, submit-through-publication 109–115 ms.
+  Two clean 15 s windows each have five GCs and frame p99 123/120 ms. There
+  are no dropped timing samples, pauses, owner faults or presentation
+  rejections. See [full measurement scope](performance-acceptance.md#linux-ultra-probe-after-the-first-implementation)
+  and private `linux-3x-run/measurement-summary.json` under the evidence folder.
+
+**Resume with C's owner integration:** complete actor census and external
+input/thermal-contact provenance, durable pending activity and ordered
+germs/conversions/trace/space stages before enabling tiers in game. The aggregate
+due-time query alone does not define that ordering. Then measure residual
+regional extraction/EOS/audits, large-region pressure and native frame waits,
+and prepare another private Windows candidate. Actual 3× and smooth-input
+acceptance on the user's PC remain open. The old worktree patches below are
+historical snapshots; current implementations and controls live on `main`.
 
 Private compact evidence is in `local/profile8/replay-summary.json`,
 `artifacts/smoothness-baseline-driver/control-summary.json` and

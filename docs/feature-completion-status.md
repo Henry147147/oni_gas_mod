@@ -5,7 +5,8 @@ game and Spaced Out! ([amendment](completion-plan.md#amendments)). The user's
 0.85× Windows playtest with stuttering input failed acceptance; the latest
 release goal is sustained actual 3× with smooth input. Profile8/core27 carries
 liquid-correction
-momentum and the adopted 1 mg interval floor. Region activity tiers, native
+momentum and the adopted 1 mg interval floor. Region activity tiers now have an
+experimental solver core (profile9/core28); their owner integration, native
 frame waits, exact storage and the accuracy/persistence proofs remain open.
 
 This tracks work toward the full [completion plan](completion-plan.md), beyond
@@ -15,6 +16,17 @@ playtest deferrals remain recorded until their own controls pass.
 
 ## Current repairs
 
+- **3× instrumentation and activity core, 2026-10-28:** performance diagnostics
+  measure independent absolute owner/game clock deltas against monotonic wall
+  time, retain pauses and report matched submit-through-managed-publication
+  latency. Profile9/core28 adds persisted per-cell activity history, deterministic
+  regional remote cadence, no catch-up and an Always simulate control. It is
+  opt-in at the solver API; new game colonies still use profile8. Complete actor
+  census, native contact/input provenance, pending-input persistence and ordered
+  owner germs/conversions/sinks before enabling it. A fresh Linux Terra run
+  passes 450 frames, with warmed actual game throughput 1.935×, five GCs/15 s
+  and frame p99 120–123 ms. Full-game 3× and smooth-input acceptance remain open;
+  see [measurements and remaining optimizations](performance-acceptance.md#requested-3-release-goal-2026-10-28).
 - **Scenario baseline, 2026-10-28:** immutable `16da60c` also fails the unchanged
   freeze/melt check (357.9 kg, required >380 kg) and airflow gas check
   (4.278 → 4.052 kg, required increase >0.05 kg; liquid barrier passes).

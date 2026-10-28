@@ -73,7 +73,7 @@ enum class MacStepControl { doubling = 0, predictive = 1, regional_predictive = 
 enum class MacGameProfile { legacy = 0, base_game_floor = 1, game_kernel = 2,
     game_kernel_positive_liquid = 3, game_kernel_free_surface = 4,
     game_kernel_trace_heat = 5, game_kernel_bounded_pressure = 6, game_kernel_sized_intervals = 7,
-    game_kernel_carried_momentum = 8 };
+    game_kernel_carried_momentum = 8, game_kernel_activity_tiers = 9 };
 enum class MacGameLiquidLaw { linear = 0, positive_segments = 1 };
 // Saved settings of the opt-in diagnostic game kernel; never selected by gates.
 struct MacGameSettings {
@@ -89,6 +89,10 @@ struct MacGameSettings {
     // Profiles 6-8; boil-only is saved as physical version25 by profile6
     // and in the selector of versions 26/27 by profiles 7/8 (MAC_CHECKPOINT.md).
     MacPhaseRule phase_rule = MacPhaseRule::equilibrium;
+    // Experimental profile9 only. False always simulates, retaining profile8
+    // trajectories; true applies the saved activity cadence.
+    bool activity_tiers = false;
+    double activity_hold_s = 2, activity_pause_s = 60;
     std::vector<MacSaturationPair> saturation_pairs;
     void validate() const;
 };
@@ -357,6 +361,13 @@ struct MacPassiveEdit {
     std::uint64_t identity;
     double change;
 };
+// Profile9's per-cell durable activity history. Region IDs are transient:
+// splits inherit these records and merges normalize them before advancing.
+struct MacGameActivityCell {
+    double last_activity_s = -1, pending_s = 0, next_remote_s = 0;
+    bool actors = false;
+    bool operator==(const MacGameActivityCell&) const = default;
+};
 // Owns its registry, immutable EOS identity, canonical state and clock. Advance
 // creates a new owner; failed later attempts publish neither time nor state.
 class MacClosedWorld {
@@ -376,6 +387,18 @@ public:
     [[nodiscard]] MacClosedWorld with_diffusion(MacDiffusionSettings) const;
     [[nodiscard]] double time_s() const noexcept { return time_s_; }
     [[nodiscard]] std::uint64_t revision() const noexcept { return revision_; }
+    // Full binary census and one-frame input mask. Empty masks mean all false.
+    // Wall-cell activity also touches its fluid face neighbours. No physics or
+    // clock changes; a rejected update leaves the source unchanged.
+    [[nodiscard]] MacClosedWorld with_game_activity(std::span<const std::uint8_t> touched,
+        std::span<const std::uint8_t> actors) const;
+    [[nodiscard]] MacClosedWorld with_game_activity_tiers(bool enabled) const;
+    [[nodiscard]] std::span<const MacGameActivityCell> game_activity() const noexcept;
+    // Informational total physical seconds due in each cell, including every
+    // maximum-timestep interval. This is not an ordered owner-stage schedule:
+    // nonlinear germs/conversions/sinks need their own verified integration.
+    // Older profiles return seconds in fluid cells.
+    [[nodiscard]] std::vector<double> game_activity_steps(double seconds) const;
     [[nodiscard]] MacClosedAdvance advanced(double seconds, std::size_t attempt_budget = 1024,
         MacExecutionPolicy = MacExecutionPolicy::reference) const;
     // Remove only constituents below the saved threshold, returning a named
@@ -476,6 +499,7 @@ private:
     // Game kernel: the audit totals of state(), kept when the operation that
     // produced this world already summed them; null otherwise.
     std::shared_ptr<const game_kernel::Totals> game_totals_;
+    std::shared_ptr<const std::vector<MacGameActivityCell>> game_activity_;
     MacClosedSettings settings_;
     std::shared_ptr<const GasTransportProfile> transport_;
     double time_s_ = 0;

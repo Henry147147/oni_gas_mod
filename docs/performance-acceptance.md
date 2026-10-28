@@ -40,16 +40,56 @@ require about 8.7×/12.9× lower mean cost; this is not a hardware conversion or
 prediction for the Windows PC. Terra does not certify Spaced Out! or a
 developed base. Profile8's earlier 23.7% improvement is already in this baseline.
 
+### Linux ultra probe after the first implementation
+
+A frozen private profile8 package with the transfer optimization and new
+diagnostics completes the fresh base-game Terra validation at frame450 without
+an owner fault or mod-log error. It runs on the 5900X/NVIDIA Linux host with
+12 workers, ultra selected and the whole-machine CPU lock. Startup frames1–150
+and the two cleanup frames are excluded from the warmed windows below.
+
+| Owner frames | Owner / game seconds per real second | Partial owner mean / p95 | Submit → managed publication mean / p95 | Average FPS |
+| --- | --- | --- | --- | --- |
+| 151–300 | 1.921× / 1.928× | 65.5 / 78.0 ms | 114.6 / 182.5 ms | 59 |
+| 301–450 | 1.956× / 1.943× | 64.8 / 75.5 ms | 109.0 / 171.0 ms | 63 |
+
+Both windows are unpaused. The first has 143 latest-work samples for 150
+completed frames; absolute clocks still retain all 30 physical seconds.
+There are no unmatched publications or dropped timing samples. The partial
+timer's smoothed capacity estimates are 3.16×/3.23×, demonstrating why that
+estimate and the selected speed cannot certify actual throughput. Flow alone
+averages 51.4/50.9 ms, before full adapter/native handoff and UI work.
+Publication latency includes queueing and observation, so subtracting the
+partial owner timer does not isolate adapter CPU cost.
+
+The bounded report (frames0–450) retains 90.000001 owner seconds and
+89.901379 game seconds over 49.101678 monotonic wall seconds: 1.833×/1.831×,
+including startup, with no observed pause. The warmed windows remain below
+actual 3×. This fresh Terra run does not certify developed colonies, Spaced
+Out!, Windows performance or smooth input. Two clean 15 s frame-log windows
+each have five GCs, frame p99 123/120 ms and GC-containing frame means
+140/131 ms. The one-GC/15 s target remains open. Native 20-call phase summaries
+show next-frame waits averaging 11.75–22.61 ms (maximum 120.8 ms) and UpdateData
+13.43–14.15 ms; those groups can straddle warmup boundaries. Unity's main-thread
+allocation API is unavailable, so approximate heap growth cannot certify
+allocation-free sampling. Compact private evidence is
+`artifacts/region-tiers-2026-10-28/linux-3x-run/measurement-summary.json`.
+
 ### Measurement and test harness first
 
 - Measure both `GameClock` and owner-clock deltas against monotonic wall time
   over warmed-up, unpaused windows. `--speed 3` selects ONI's ultra preset;
   inspect its multiplier and report achieved speed separately.
 - Time the full owner cycle through projection/publication and native
-  handoff. `last_advance_ms` currently stops before `project()`/`publish()`.
-  The performance log sums only the newest observed `LastFrameSeconds`, so
-  skipped observations can undercount progress. Test skipped frames,
-  duplicate polls, restores and session changes.
+  handoff. `last_advance_ms` stops before `project()`/`publish()` and is now
+  labelled as a partial work/capacity estimate. The performance log measures
+  owner and game clock deltas against monotonic wall time, including skipped
+  completions and pauses. It reports matched submit-through-managed-publication
+  latency separately, including queueing and observation delay. The bounded
+  game report saves these independent clocks in `colony_owner.Performance`;
+  short runs also flush a final partial log window. Focused controls cover
+  skipped/duplicate polls, saved origins, clock/session resets, pauses,
+  startup and publication matching.
 - Establish whole-CPU-lock profile8 baselines without competing builds for
   fresh Terra, fresh Spaced Out!, the digging colony and a developed connected
   base. Include other owned asteroids/rocket interiors and regional critical
@@ -76,6 +116,13 @@ programs benefit from solver improvements and efficient test scheduling.
    showed substantial CPU savings, but 1 s stepping did not shorten the
    largest region's amortized critical path. Fully active bases and the fixed
    active-cell benchmarks cannot benefit from sleeping their active cells.
+   Profile9/core28 supplies an experimental, opt-in solver core; the game
+   continues to use profile8. Before enabling tiers, complete the main-thread
+   actor census and native input/thermal-contact provenance, pending-input save
+   state and ordered germs/conversions/space-sink scheduling. An aggregate due
+   duration alone does not establish correct ordering for those owner stages.
+   Paused core regions still incur extraction, EOS and whole-state audit work;
+   measure that cost before claiming a whole-game gain.
 2. **Largest-region pressure and parallelism.** With multiple regions,
    `RegionalTick` gives each regional `Tick` one worker; the slowest region
    dominates after the others finish. Develop execution that can use idle
@@ -97,6 +144,10 @@ programs benefit from solver improvements and efficient test scheduling.
    while preserving exact parcel/boundary ledgers. The older Spaced Out!
    sink cost about 65 ms; fresh Terra measured 0.5 ms. They are different
    states and need current workload-specific measurements.
+   Exact transfer-reading reuse now cuts isolated batch work by 25–36% on
+   two private 78-material states, with all 192 batch checkpoints and receipts
+   matching. This does not measure a whole-owner gain; see
+   [the workload and controls](../native/MAC_GAME_KERNEL.md#exact-transfer-reading-reuse).
 5. **Main-thread work and allocation.** The current clean Linux window has
    two GCs/15 s, about 109 ms GC-containing frames and 51 ms p99 native
    blocking. Pool snapshot/event storage, avoid duplicate per-cell render
