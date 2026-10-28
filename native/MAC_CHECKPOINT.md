@@ -114,6 +114,16 @@ current binary has.
 
 ### Version assignment
 
+**Reserved 2026-10-28 immediately after fetching `058683a`:** physical
+`MACCLS01` version **25** identifies game profile **6** with the saved
+boil-only phase-change rule (user decision 2026-10-28,
+[MAC_PHASE_CHANGE.md](MAC_PHASE_CHANGE.md)). Its layout is version24's with
+one unsigned 32-bit phase-rule selector (canonical value 1, boil-only) after
+the heat iteration cap and before the saturation pairs. Profile6 owners with
+the earlier equilibrium rule keep writing version24, with its bytes, arithmetic
+and continuation. This reservation does not enable the rule or claim
+validation.
+
 **Reserved 2026-10-28 immediately after fetching `8df8be4`:** physical
 `MACCLS01` version **24** identifies game profile **6**, which bounds the net
 swept-volume change of each cell during a pressure interval to the existing
