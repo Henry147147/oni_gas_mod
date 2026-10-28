@@ -114,6 +114,16 @@ current binary has.
 
 ### Version assignment
 
+**Reserved 2026-10-28 immediately after fetching `8f79853`:** physical
+`MACCLS01` version **28** identifies game profile **9**, adding the adopted
+region activity tiers to profile8. Persist the activity policy and regional
+clock/activity state needed for deterministic active 0.2 s steps, remote 1 s
+steps, paused regions without catch-up, and exact continuation through
+topology changes. Versions20–27 retain their arithmetic and bytes. This
+reservation does not enable the profile; ordinary default selection waits
+for complete owner input/actor integration and conservation/continuation
+controls.
+
 **Reserved 2026-10-28 immediately after fetching `eb40d9b`:** physical
 `MACCLS01` version **27** identifies game profile **8**: profile7 with the
 two model changes the user adopted on 2026-10-28. Interface sharpening and
