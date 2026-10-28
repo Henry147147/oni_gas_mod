@@ -99,9 +99,13 @@ playtest deferrals remain recorded until their own controls pass.
 - **Saved projection loading:** a scoped native load guard prevents ONI from
   applying its load-time phase law before the mixture owner restores. The
   sampled Rock Gas cells now retain their exact saved identity and temperature;
-  Linux and WindowsPlayer/Proton cold/menu checks pass. Five solid temperatures
-  still change during zero-time startup messages; thermal and breather
-  scheduling continuation remain open.
+  Linux and WindowsPlayer/Proton cold/menu checks pass. A separate tile-startup
+  correction preserves native temperature/cultures when deserialized prefabs
+  recreate matching cells. The final Linux cold/menu pair now matches all
+  98,304 projected cells and the 180-cell native sample before resuming; thermal
+  and breather scheduling continuation remain open. The final WindowsPlayer/Proton
+  build also passes ordinary Spaced Out! source/cold/menu loading with nine
+  worlds and both experimental controls off.
 
 ## Remaining implementation and proofs
 

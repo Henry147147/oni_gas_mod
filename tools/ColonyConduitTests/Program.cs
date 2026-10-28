@@ -50,6 +50,7 @@ static class Program
         {CheckpointInspection.Print(args[1]);return;}
         RetirementInventoryTests.Run();
         ScheduleStateTests.Run();
+        TileLoadProjectionTests.Run();
         StorageHeatTests.Run();
         byte[] AmountImage(PipeAmount amount){using var stream=new MemoryStream();using var writer=new BinaryWriter(stream);amount.Write(writer);return stream.ToArray();}
         var operands=new[]{1.0,Math.ScaleB(1,-53),Math.ScaleB(1,-106),-.75,-Math.ScaleB(1,-54),1e200,-1e200,1e-240};

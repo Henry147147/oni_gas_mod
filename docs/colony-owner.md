@@ -762,7 +762,35 @@ Guard controls cover exact bounds, token lifetime, overflow geometry and
 40,000 parallel calls, including the ThreadSanitizer observer executable.
 Host Linux, Windows/Wine and Ubuntu 22.04 container builds each pass all
 89 native tests. The compatible libraries pass the same seven-check source
-control in host Unity; this does not establish Unity execution on Ubuntu 22.04.
+control in host Unity; cold/menu loading also passes with matching loop state
+and all 24 pipe images (`release-load-guard-compatible-source` /
+`compatible-load`). This does not establish Unity execution on Ubuntu 22.04.
+
+Tile recreation was a separate startup overwrite. A private caller trace
+identified `SimCellOccupier.OnSpawn` replacing saved solid cells with cached
+prefab temperatures. `ColonyLoadedTiles` records native cell state only for
+deserialized tiles, then retains each matching cell's exact temperature and
+germ identity/count within that tile's startup scope. Material, mass, callback,
+displacement and properties follow the original native message. New construction,
+foreign messages and unmatched replacements remain unchanged. Nested scopes,
+thread isolation, reset generations and exceptional cleanup have focused controls;
+an unfinished tile refuses positive time. No checkpoint encoding or solver
+arithmetic changes.
+
+The final frozen Linux pair (`release-loaded-tiles-final-source` / `final-load`)
+passes seven source checks and cold/menu loading. All 98,304 projected cell
+identities, masses and temperatures match before resuming; the paired native
+180-cell sample also matches, including the five previously overwritten solids.
+All 24 pipe images and eight-frame native loop traces match. Full owner images
+still differ on the first resumed frame, with breathing and native heat inputs
+remaining open. A deliberately disabled temperature write fails the new regression.
+The final WindowsPlayer/Proton bundle also passes ordinary Spaced Out!
+source/cold/menu controls with nine worlds, both experimental controls off,
+matching restored owner images and 24 saved tile recreation messages preserved
+(`release-loaded-tiles-spacedout-source` / `spacedout-load`). Actual Windows
+OS testing remains pending. The 89-test Linux native suite, both managed builds,
+both games' hook suites, codec and 228 snapshot checks pass.
+
 
 **Reserved 2026-10-27, immediately after fetching `f3d5390`:** owner wrapper
 `MACOLN01` version **13** and MACOLP03 section **4** (`MACCBR01`) are assigned

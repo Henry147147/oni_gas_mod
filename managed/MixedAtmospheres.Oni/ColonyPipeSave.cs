@@ -63,6 +63,9 @@ namespace MixedAtmospheres.Oni
         internal static void BeforePositiveTime(float seconds)
         {
             if (!(seconds > 0)) return;
+            if(!ColonyLoadRefusal.Refused)
+                try{ColonyLoadedTiles.Complete();}
+                catch(Exception error){ColonyLoadRefusal.Refuse(error);}
             if(pending!=null)TryRestore();
             if (pending != null && !ColonyLoadRefusal.Refused)
                 ColonyLoadRefusal.Refuse(new InvalidOperationException("Simulation time cannot advance before the saved mixed pipes are restored."));

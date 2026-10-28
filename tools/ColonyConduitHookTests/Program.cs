@@ -28,6 +28,7 @@ internal static class Program
         PipeDiseaseVisibilityTests.Run(assembly);
         MeltCustodyTests.Run(assembly);
         StoredBiologyHooks.Run(assembly);
+        LoadedTileHooks.Run(assembly);
         var cultureProbe=assembly.GetType("MixedAtmospheres.Oni.ColonyGermEvolutionProbe")!;
         var cultureAllocate=(MethodInfo)cultureProbe.GetField("AllocateCulture",BindingFlags.Static|BindingFlags.NonPublic)!.GetValue(null)!;
         Check(cultureAllocate.DeclaringType==typeof(ConduitDiseaseManager)&&cultureAllocate.GetParameters().Length==2&&

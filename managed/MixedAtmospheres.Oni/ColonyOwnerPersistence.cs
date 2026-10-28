@@ -143,6 +143,7 @@ namespace MixedAtmospheres.Oni
             using(var guard=new ColonyNativeLoadGuard(config))
                 fixed (byte* pointer = native) loaded = Sim.SIM_HandleMessage(NativeLoad, native.Length, pointer);
             if (loaded == IntPtr.Zero) throw new InvalidDataException("ONI's native loader rejected the colony's native section.");
+            ColonyLoadedTiles.Load(config);
             pending = (config, image); result = 0; ++Loads;
             return true;
         }
@@ -201,12 +202,12 @@ namespace MixedAtmospheres.Oni
             ColonyPipeRuntime.Persistable = ColonyPipeSave.WriterEnabled;
             var value = pending; pending = null; return value;
         }
-        internal static void Reset() { ColonyNativeLoadGuard.Reset(); ColonyNativeClock.Reset(); ColonyCallbackRequests.Reset(); ColonySaveBarrier.Reset(); ColonySavedParticles.Reset(); ColonySaveControls.Reset(); ColonyContinuationProbe.Reset(); ColonyLoadRefusal.Reset(); ColonyPipeSave.Reset(); pending = null; RestoredProfile = null; RestoredImageSha256 = ""; RestoredImageReencoded = null; RestoredReencodeMilliseconds = 0; RestoredReencodeScope = ""; }
+        internal static void Reset() { ColonyLoadedTiles.Reset(); ColonyNativeLoadGuard.Reset(); ColonyNativeClock.Reset(); ColonyCallbackRequests.Reset(); ColonySaveBarrier.Reset(); ColonySavedParticles.Reset(); ColonySaveControls.Reset(); ColonyContinuationProbe.Reset(); ColonyLoadRefusal.Reset(); ColonyPipeSave.Reset(); pending = null; RestoredProfile = null; RestoredImageSha256 = ""; RestoredImageReencoded = null; RestoredReencodeMilliseconds = 0; RestoredReencodeScope = ""; }
 
         internal static object? RestoredReport() => RestoredProfile is not ColonyPhysicalProfile p ? null : new {
             p.OwnerVersion, p.PhysicalVersion, p.LiquidLaw, p.PressureIterationCap, p.HeatIterationCap, p.GasHeatMixing,
             ImageSha256 = RestoredImageSha256, Reencoded = RestoredImageReencoded, ReencodeScope = RestoredReencodeScope, ReencodeMilliseconds = RestoredReencodeMilliseconds,
-            NativeLoadTransitionChecksSuppressed=ColonyNativeLoadGuard.Suppressed };
+            NativeLoadTransitionChecksSuppressed=ColonyNativeLoadGuard.Suppressed,TilesRecreatedFromSavedCells=ColonyLoadedTiles.Preserved };
 
         // A restore that fails refuses the colony (ColonyLoadRefusal) instead
         // of leaving it to ONI's own fluid simulation.

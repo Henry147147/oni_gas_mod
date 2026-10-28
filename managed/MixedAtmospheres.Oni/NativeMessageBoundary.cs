@@ -95,6 +95,7 @@ namespace MixedAtmospheres.Oni
         internal static IntPtr Handle(int message, int length, byte* payload)
         {
             if (NativeContractCapture.IsActive) return NativeContractCapture.Accept(message, length, (IntPtr)payload);
+            ColonyLoadedTiles.Rewrite(message,length,payload);
             var world = ProbeScope.World;
             if (world == null && Ordinary)
             {
