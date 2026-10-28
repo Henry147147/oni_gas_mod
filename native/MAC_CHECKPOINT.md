@@ -114,6 +114,14 @@ current binary has.
 
 ### Version assignment
 
+**Reserved 2026-10-28 immediately after fetching `f6c6096`:** colony-owner
+`MACOLN01` base wrapper **14** carries profile9's complete activity integration:
+the committed actor census, queued census/touch submissions and policy changes,
+their durable sequence, and regional biology scheduling state. Callback wrapper13
+may enclose base14. Earlier owners retain their framing and bytes. Physical
+`MACCLS01` version28 is already assigned to profile9 and retains its layout.
+This reservation alone changes no simulation arithmetic or checkpoint bytes.
+
 **Reserved 2026-10-28 immediately after fetching `8f79853`:** physical
 `MACCLS01` version **28** identifies game profile **9**, adding the adopted
 region activity tiers to profile8. Persist the activity policy and regional
