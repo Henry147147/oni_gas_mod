@@ -7,6 +7,62 @@ first, then the 2026-10-28 entries in the
 "Performance", "Boil-only phase change", "Speed work, 2026-10-28" and "Smooth
 input and UI" in [feature completion status](feature-completion-status.md).
 
+## Codex continuation, 2026-10-28
+
+The preserved work below has now been recovered onto `main`:
+
+- **A is implemented.** New colonies use profile8/core27 with boil-only.
+  Sharpening and layering carry both momentum components, book closed-face
+  impulses and retain the fixed conservation bounds. Controls cover separate
+  correction clusters, shared layering faces, both gravity signs, the exact
+  1 mg threshold, massive inflows, worker equality and cold continuation.
+  The fresh Spaced Out! replay (frames 4–43) limits the watched magma face to
+  −24.84..+5.04 m/s, versus −2,080.92 m/s on profile7. Matched-script mean
+  owner time falls from 0.764 to 0.583 s (23.7%) on the contended 5900X.
+  The twelve-dig replay (505–584) stays within 32.346–34.370°C,
+  1.64923–1.68182 kg and 249.755–254.394 kPa, without an owner fault.
+- **B's allocation and logging changes are implemented.** Original/current
+  readings and presentations match across 60,000 generated cells and 528
+  boundary cases, including all public properties and rejection messages.
+  Fixed-JIT .NET construction allocates 64–68% less for 1–5 constituents;
+  this is not a Unity GC acceptance result. Advanced → Performance →
+  **Log frame timing** works without environment variables; native phase
+  timing is available with `MA_COLONY_NATIVE_WAIT_LOG=1`. The stopped
+  scheduler-niceness experiment was omitted. The one-GC/15 s target and the
+  main thread's native wait remain open.
+  A fresh GPU Linux Terra run passes 180 normal-speed frames with no owner
+  fault or presentation rejection. Its single clean 15 s window has two GCs,
+  108.8 ms mean GC-containing frame time and frame p95/p99 of 55.1/103.4 ms.
+  Main-thread blocking p99 is 51.4 ms; native phase logs show about 9–10 ms
+  mean next-frame owner waits (up to 113 ms) and 13–14 ms in UpdateData.
+  Startup windows are excluded. This is not a paired GC comparison or a
+  Windows acceptance run.
+- **Native verification:** both clean parent and candidate pass 89 CTests.
+  All 87 short MAC programs retain their exit codes and numeric output;
+  only new/updated profile8 PASS lines differ after masking the existing
+  `ref_ms`/`prod_ms` timing fields. Long gates were not included.
+  The Python and managed suites pass too. The extended managed run exposed
+  an already-stale checkpoint26 metadata expectation; it now checks saved
+  law/caps for 26/27 and keeps the unknown28 control, and all remaining checks
+  pass after that repair.
+- **D predates today's changes.** Immutable `16da60c` (profile6,
+  equilibrium phase rule) also fails freeze/melt at 357.9 kg and airflow at
+  4.278→4.052 kg. Airflow's liquid barrier still passes. Inputs and bounds
+  are unchanged; the causes remain open. Freeze/melt used llvmpipe,
+  airflow NVIDIA. Possible airflow diagnostics are coherent bulk sampling
+  and wet-face closures; neither is a confirmed cause.
+
+**Resume with C**, then native frame waits and another private Windows
+candidate once the speed work is ready. Real-time and smooth-input acceptance
+on the user's PC remain open. The old worktree patches below are historical
+snapshots; current implementations and controls live on `main`.
+
+Private compact evidence is in `local/profile8/replay-summary.json`,
+`artifacts/smoothness-baseline-driver/control-summary.json` and
+`artifacts/codex-resume-2026-10-28/` (comparison, verification and scenario
+triage, plus `smoothness-linux-run/smoothness-summary.json`). The original
+handoff follows.
+
 ## User decisions of 2026-10-28
 
 1. **Real time blocks release.** The private `5d11aea` (profile 5) Windows
@@ -128,6 +184,15 @@ worktrees themselves were left as they were.
 - **Scope:** in fresh Spaced Out!, untouched regions hold 87–98% of
   single-thread solver time; freezing them cut those regions' cost 2.6–4.4×,
   and 1 s steps cut their CPU about 44%.
+- **Implementation constraints found during resumption:** region IDs change
+  on topology edits, so save activity per cell or remap splits/merges by
+  overlap. `ColonyActors` alone is not a complete actor census; idle buildings,
+  ports, bodies, plants and debris need coverage, including inactive or
+  burrowed entities. Native heat records combine passive solid conduction
+  with actor heat. The owner also evolves germs before flow and runs identity
+  conversions, trace removal and the space sink afterwards: define consistent
+  tier semantics for these stages, not just `RegionalTick`. Persist remote
+  fractional-step state and deterministic wake rules.
 
 ### D. Failing in-game scenarios
 

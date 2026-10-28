@@ -27,6 +27,7 @@
 #include <cmath>
 #include <chrono>
 #include <cstdlib>
+#include <string>
 #include <xmmintrin.h>
 #include <cstring>
 #include <memory>
@@ -156,6 +157,35 @@ void trace(std::uint32_t hook, bool entering, std::uint32_t bits=0) noexcept {
     traces[i] = {index+1, thread, hook, entering ? 1U : 0U, bits, 0U};
     trace_ready[i].store(true, std::memory_order_release);
 }
+// Development timing of the native frame the game thread waits for in
+// PrepareGameData (MA_COLONY_NATIVE_WAIT_LOG=1): per phase, mean and maximum
+// milliseconds over each 20 positive frames, to stderr. Off: one bool test.
+namespace wait_log {
+const bool enabled = [] { const auto* value = std::getenv("MA_COLONY_NATIVE_WAIT_LOG"); return value && std::strcmp(value, "1") == 0; }();
+enum Phase { Process, NextFrameWait, WriteShadow, UpdateData, CaptureShadow, Advance, CopyToGame, EndFrame, PhaseCount };
+const char* const names[PhaseCount] = {"process", "next_wait", "write_shadow", "update_data", "capture_shadow", "advance", "copy_to_game", "end_frame"};
+struct Stat { std::atomic<std::int64_t> sum{}, max{}, count{}; };
+Stat stats[PhaseCount];
+std::atomic<std::uint32_t> frames{};
+inline std::int64_t now() noexcept { return std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now().time_since_epoch()).count(); }
+inline void add(Phase phase, std::int64_t begun) noexcept {
+    const auto elapsed = now() - begun; auto& stat = stats[phase];
+    stat.sum.fetch_add(elapsed, std::memory_order_relaxed); stat.count.fetch_add(1, std::memory_order_relaxed);
+    auto seen = stat.max.load(std::memory_order_relaxed);
+    while (elapsed > seen && !stat.max.compare_exchange_weak(seen, elapsed, std::memory_order_relaxed)) {}
+}
+struct Scope { Phase phase; std::int64_t begun; explicit Scope(Phase p) noexcept : phase(p), begun(enabled ? now() : 0) {} ~Scope() { if (enabled) add(phase, begun); } };
+void report() noexcept {
+    if (!enabled || frames.fetch_add(1, std::memory_order_relaxed) % 20 != 19) return;
+    std::string line = "[Mixed Atmospheres] native frame wait (mean/max ms per call):";
+    for (int k = 0; k < PhaseCount; ++k) {
+        const auto n = stats[k].count.exchange(0), sum = stats[k].sum.exchange(0), max = stats[k].max.exchange(0);
+        char item[96]; std::snprintf(item, sizeof item, " %s %.2f/%.2f", names[k], n ? static_cast<double>(sum) / 1e6 / static_cast<double>(n) : 0.0, static_cast<double>(max) / 1e6);
+        line += item;
+    }
+    std::fprintf(stderr, "%s\n", line.c_str()); std::fflush(stderr);
+}
+}
 struct Call {
     std::uint32_t hook, bits{};
     explicit Call(std::uint32_t id) noexcept : hook(id) {
@@ -234,7 +264,7 @@ void on_end_save() {
 }
 FORWARD(on_main, MA_ONI_MAIN, void, (void* self), (self))
 void on_process_frame(void* frame,void* data) {
-    Call call(MA_ONI_PROCESS_FRAME);
+    Call call(MA_ONI_PROCESS_FRAME); wait_log::Scope timed(wait_log::Process);
     // Cell-pair physics runs inside ProcessNextFrame, before that function
     // returns its duration. SimFrameInfo carries elapsedSeconds at offset 0
     // in both inspected native builds.
@@ -258,7 +288,7 @@ float on_next_frame(void* self,void* data) {
     // Settle the previous owner tick before ProcessNextFrame applies this
     // frame's messages as well as its native heat/solid work. Waiting only at
     // shadow publication would let new inputs leak into the preceding tick.
-    if (ma::oni::colony::active()) ma::oni::colony::wait();
+    if (ma::oni::colony::active()) { wait_log::Scope timed(wait_log::NextFrameWait); ma::oni::colony::wait(); }
     const float dt = original<float (*)(void*,void*)>(MA_ONI_NEXT_FRAME)(self,data);
     // Zero-time frames process messages without entering UpdateData. Their
     // completed clock view is needed by the startup/restore barrier too.
@@ -348,7 +378,7 @@ void on_update_data(void* self,void* data) {
     ma::oni::colony::NativeCells shadow{};
     const bool shadowed=ma::oni::colony::active() &&
         (pending.ticket || ma::oni::colony::needs_shadow_refresh()) && native_cells(data,shadow);
-    if (shadowed) ma::oni::colony::write_shadow(shadow);
+    if (shadowed) { wait_log::Scope timed(wait_log::WriteShadow); ma::oni::colony::write_shadow(shadow); }
     if(pending.ticket && floors.enabled) {
         std::lock_guard diagnostic(floors.mutex);
         try {
@@ -369,16 +399,17 @@ void on_update_data(void* self,void* data) {
     native_heat_contact_bits.store(std::bit_cast<std::uint32_t>(pending.seconds),std::memory_order_release);
     native_floor_contact_ticket.store(floors.enabled?pending.ticket:0,std::memory_order_release);
     ma::oni::runtime_trace::Frame::physics_cells(counters[MA_ONI_PROCESS_FRAME].entries.load(std::memory_order_relaxed),2,data,shadowed);
-    original<void (*)(void*,void*)>(MA_ONI_UPDATE_DATA)(self,data);
+    { wait_log::Scope timed(wait_log::UpdateData); original<void (*)(void*,void*)>(MA_ONI_UPDATE_DATA)(self,data); }
     ma::oni::runtime_trace::Frame::physics_cells(counters[MA_ONI_PROCESS_FRAME].entries.load(std::memory_order_relaxed),3,data,shadowed);
     runtime_clock.sample(data);
     storage_heat.sample(data,counters[MA_ONI_PROCESS_FRAME].entries.load(std::memory_order_relaxed));
     native_floor_contact_ticket.store(0,std::memory_order_release);
     native_heat_contact_bits.store(0,std::memory_order_release);
-    if (shadowed && native_cells(data,shadow)) ma::oni::colony::capture_shadow(shadow,pending.ticket);
+    if (shadowed && native_cells(data,shadow)) { wait_log::Scope timed(wait_log::CaptureShadow); ma::oni::colony::capture_shadow(shadow,pending.ticket); }
     if (pending.ticket) {
         ma::oni::advance_domain(pending.ticket,pending.seconds,native_thread());
-        ma::oni::colony::advance(pending.ticket,pending.seconds,native_thread());
+        { wait_log::Scope timed(wait_log::Advance); ma::oni::colony::advance(pending.ticket,pending.seconds,native_thread()); }
+        wait_log::report();
     }
     observe_completed_solid_cell(data);
 }
@@ -526,7 +557,7 @@ float on_displacement(std::uint16_t element,int a,int b,int c,void* data) {
 FORWARD(on_step, MA_ONI_STEP, void, (void* self,void* data,void* game,const void* previous), (self,data,game,previous))
 FORWARD(on_begin_frame, MA_ONI_BEGIN_FRAME, int, (void* self), (self))
 void on_end_frame(void* self) {
-    Call call(MA_ONI_END_FRAME);
+    Call call(MA_ONI_END_FRAME); wait_log::Scope timed(wait_log::EndFrame);
     original<void (*)(void*)>(MA_ONI_END_FRAME)(self);
     native_frame_epochs.fetch_add(1,std::memory_order_release);
     if (pair_pending.load(std::memory_order_acquire)) {
@@ -585,7 +616,7 @@ float on_chunk_heat(void* accessor,void* chunk,float dt,float scale) {
 #endif
 
 void on_copy_to_game(void* self, void* data, void* game, const void* previous, int frames) {
-    PublicationCall call;
+    PublicationCall call; wait_log::Scope timed(wait_log::CopyToGame);
     std::unique_lock<std::mutex> frame_lock;
     if (!worker_frame_fence.owns_lock()) frame_lock = std::unique_lock<std::mutex>(ma::oni::domain_frame_mutex());
     using Function = void (*)(void*, void*, void*, const void*, int);

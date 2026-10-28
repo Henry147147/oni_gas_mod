@@ -122,12 +122,16 @@ namespace MixedAtmospheres.Oni
             return index.TryGetValue(cell, out var found) ? found : -1;
         }
 
-        public bool TryGetValue(int key, out MixtureThermodynamicReading value)
+        public bool TryGetValue(int key, out MixtureThermodynamicReading value) => TryCreate(key, out value, out _);
+
+        // exists: the frame holds a reading for the cell (false: the cell is absent, not rejected).
+        internal bool TryCreate(int key, out MixtureThermodynamicReading value, out bool exists)
         {
-            value = null!;
+            value = null!; exists = false;
             if (!Current) { Interlocked.Increment(ref ColonyReadingPool.StaleReads); return false; }
             var i = IndexOf(key);
             if (i < 0) return false;
+            exists = true;
             try { value = ColonyPresentation.Create(table, buffer.Readings[i], revision); }
             catch (ArgumentException error) { rejected(key, error.Message); return false; }
             // The buffer was recycled while this reading was built.
@@ -162,11 +166,9 @@ namespace MixedAtmospheres.Oni
         public bool TryGetValue(int key, out MixturePresentation value)
         {
             if (cache.TryGetValue(key, out var hit)) { value = hit!; return hit != null; }
-            var heap = ColonyFrameLog.HeapNow; var collections = ColonyFrameLog.Enabled ? GC.CollectionCount(0) : 0;
-            if (!readings.TryGetValue(key, out var reading)) { if (readings.Current) cache[key] = null; value = null!; return false; }
+            if (!readings.TryCreate(key, out var reading, out var exists)) { if (exists && readings.Current) cache[key] = null; value = null!; return false; }
             ColonyFrameLog.CountCell();
             var described = model.Describe(reading);
-            ColonyFrameLog.CountCellBytes(heap, collections);
             if (readings.Current) cache[key] = described;
             value = described; return true;
         }

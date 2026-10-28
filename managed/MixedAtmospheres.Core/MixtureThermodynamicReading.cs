@@ -98,7 +98,11 @@ namespace MixedAtmospheres.Core
             if (volumeClosureRelativeTolerance > MaximumVolumeClosureRelativeTolerance)
                 throw new ArgumentOutOfRangeException(nameof(volumeClosureRelativeTolerance));
 
-            var values = new SortedDictionary<string, MixtureThermodynamicConstituent>(StringComparer.Ordinal);
+            // Constituents are kept sorted by ordinal identity in a plain array (no
+            // per-reading dictionary): a presentation builds one per cell it shows.
+            var capacity = constituents is ICollection<MixtureThermodynamicConstituent> sized ? Math.Min(sized.Count, MaximumConstituents + 1) : 4;
+            var values = new MixtureThermodynamicConstituent[capacity];
+            var valueCount = 0; HashSet<string>? seen = null;
             var mass = new Sum(); var gasMass = new Sum(); var gasMoles = new Sum();
             var gasPartials = new Sum(); var liquidPartials = new Sum();
             foreach (var entry in constituents)
@@ -111,21 +115,33 @@ namespace MixedAtmospheres.Core
                 FluidChecks.Positive(entry.PartialVolumeCubicMetres, nameof(constituents));
                 if (entry.Phase != NativeMatterPhase.Gas && entry.Phase != NativeMatterPhase.Liquid)
                     throw new ArgumentException("Unsupported constituent phase.", nameof(constituents));
-                if (values.ContainsKey(entry.MaterialId)) throw new ArgumentException("Duplicate constituent identity.", nameof(constituents));
-                values.Add(entry.MaterialId, entry);
-                if (values.Count > MaximumConstituents) throw new ArgumentException("Too many constituents.", nameof(constituents));
+                if (valueCount >= 24 && seen == null) { seen = new HashSet<string>(StringComparer.Ordinal); for (var i = 0; i < valueCount; ++i) seen.Add(values[i].MaterialId); }
+                if (seen != null) { if (!seen.Add(entry.MaterialId)) throw new ArgumentException("Duplicate constituent identity.", nameof(constituents)); }
+                else for (var i = 0; i < valueCount; ++i)
+                    if (string.Equals(values[i].MaterialId, entry.MaterialId, StringComparison.Ordinal)) throw new ArgumentException("Duplicate constituent identity.", nameof(constituents));
+                if (valueCount == values.Length) Array.Resize(ref values, Math.Min(MaximumConstituents + 1, Math.Max(4, valueCount * 2)));
+                values[valueCount++] = entry;
+                if (valueCount > MaximumConstituents) throw new ArgumentException("Too many constituents.", nameof(constituents));
                 mass.Add(entry.MassKg);
                 if (entry.Phase == NativeMatterPhase.Gas)
                 { gasMass.Add(entry.MassKg); gasMoles.Add(entry.Moles); gasPartials.Add(entry.PartialVolumeCubicMetres); }
                 else liquidPartials.Add(entry.PartialVolumeCubicMetres);
             }
+            if (valueCount > 16) Array.Sort(values, 0, valueCount, ConstituentOrder.Instance);
+            else
+                for (var i = 1; i < valueCount; ++i)
+                {
+                    var moving = values[i]; var j = i - 1;
+                    for (; j >= 0 && string.CompareOrdinal(values[j].MaterialId, moving.MaterialId) > 0; --j) values[j + 1] = values[j];
+                    values[j + 1] = moving;
+                }
             var representedMass = mass.Value;
             MassResidualKg = Difference(representedMass, totalMassKg);
             Within(MassResidualKg, Math.Max(representedMass, totalMassKg), ArithmeticTolerance, "Constituent mass does not match total mass.");
-            if (values.Count != 0 && totalMassKg == 0) throw new ArgumentException("Positive constituents require positive total mass.");
-            if (values.Count == 0 && (totalMassKg != 0 || storedInternalEnergyJoules != 0 || resolvedKineticEnergyJoules != 0 || momentumX != 0 || momentumY != 0 || temperatureKelvin != 0 || mechanicalPressurePa != 0))
+            if (valueCount != 0 && totalMassKg == 0) throw new ArgumentException("Positive constituents require positive total mass.");
+            if (valueCount == 0 && (totalMassKg != 0 || storedInternalEnergyJoules != 0 || resolvedKineticEnergyJoules != 0 || momentumX != 0 || momentumY != 0 || temperatureKelvin != 0 || mechanicalPressurePa != 0))
                 throw new ArgumentException("Vacuum cannot store fluid mass, energy, momentum, temperature or pressure.");
-            if (values.Count != 0) FluidChecks.Positive(temperatureKelvin, nameof(temperatureKelvin));
+            if (valueCount != 0) FluidChecks.Positive(temperatureKelvin, nameof(temperatureKelvin));
             GasMassKg = gasMass.Value; GasMoles = gasMoles.Value;
             if (GasMoles == 0)
             {
@@ -146,13 +162,16 @@ namespace MixedAtmospheres.Core
                 IdealGasVolumeResidualCubicMetres = Difference(idealVolume, gasVolumeCubicMetres);
                 var gasTolerance = Math.Max(ArithmeticTolerance, volumeClosureRelativeTolerance);
                 Within(IdealGasVolumeResidualCubicMetres, Math.Max(idealVolume, gasVolumeCubicMetres), gasTolerance, "Gas pressure, temperature, moles and headspace contradict the declared ideal-gas profile.");
-                foreach (var entry in values.Values)
+                for (var index = 0; index < valueCount; ++index)
+                {
+                    var entry = values[index];
                     if (entry.Phase == NativeMatterPhase.Gas)
                     {
                         var share = ProductRatio(gasVolumeCubicMetres, entry.Moles, 1, GasMoles);
                         FluidChecks.Positive(share, "representable ideal-gas partial volume");
                         Within(Difference(entry.PartialVolumeCubicMetres, share), Math.Max(entry.PartialVolumeCubicMetres, share), gasTolerance, "Gas partial volume contradicts its canonical mole share.");
                     }
+                }
             }
             if (liquidPartials.Value == 0 && liquidVolumeCubicMetres != 0)
                 throw new ArgumentException("No liquid constituent supports the declared liquid volume.");
@@ -172,7 +191,8 @@ namespace MixedAtmospheres.Core
             if (bulk > resolvedKineticEnergyJoules && bulk - resolvedKineticEnergyJoules > KineticArithmeticBoundJoules)
                 throw new ArgumentException("Resolved kinetic energy is below bulk kinetic energy.");
 
-            Constituents = new ReadOnlyCollection<MixtureThermodynamicConstituent>(new List<MixtureThermodynamicConstituent>(values.Values));
+            if (values.Length != valueCount) Array.Resize(ref values, valueCount);
+            Constituents = new ReadOnlyCollection<MixtureThermodynamicConstituent>(values);
             SourceId = sourceId; Revision = revision; ThermodynamicProfileVersion = thermodynamicProfileVersion;
             ThermodynamicProfileFingerprint = thermodynamicProfileFingerprint; TotalMassKg = totalMassKg;
             StoredInternalEnergyJoules = storedInternalEnergyJoules; ResolvedKineticEnergyJoules = resolvedKineticEnergyJoules;
@@ -225,6 +245,11 @@ namespace MixedAtmospheres.Core
             return BitConverter.Int64BitsToDouble((bits & 0x000fffffffffffffL) | 0x3ff0000000000000L);
         }
         private static double PowerOfTwo(int exponent) => BitConverter.Int64BitsToDouble((long)(exponent + 1023) << 52);
+        private sealed class ConstituentOrder : IComparer<MixtureThermodynamicConstituent>
+        {
+            internal static readonly ConstituentOrder Instance = new ConstituentOrder();
+            public int Compare(MixtureThermodynamicConstituent a, MixtureThermodynamicConstituent b) => string.CompareOrdinal(a.MaterialId, b.MaterialId);
+        }
         private struct Sum
         {
             private double high, low;

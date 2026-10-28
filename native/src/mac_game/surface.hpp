@@ -7,10 +7,14 @@ struct SurfaceResult {
   State state;
   std::vector<Eos> eos;
   std::size_t faces = 0, limited = 0, clusters = 0, largest_cluster = 0;
+  // Profile 8: momentum the moved material carried into closed faces
+  // (impulse on the fluid) and its operand scale.
+  double wall_x = 0, wall_y = 0, wall_ops_x = 0, wall_ops_y = 0;
 };
 // Conservative anti-diffusive interface correction around the admitted remap.
-// Equal phase/remaining-volume parcels leave J unchanged; actual G and face-K
-// changes are local U work. A bounded local flux limiter admits each correction
+// Equal phase/remaining-volume parcels retain face J on profiles 2-7 and
+// carry their donor face velocities on profile 8; actual G and face-K changes
+// are local U work. A bounded local flux limiter admits each correction
 // before application. No timestep or whole-world attempt is retried.
 // `eos` holds the readings of `initial`; the result returns them, updated
 // for every corrected cell.
@@ -33,7 +37,8 @@ sharpen(const ma::experimental::MacGrid &source,
         double detail_fraction = 0,
         ma::experimental::mac_kernel::Pool *executor = nullptr,
         const ma::experimental::mac_kernel::Grid *cached_grid = nullptr,
-        SurfaceScratch *reuse = nullptr) {
+        SurfaceScratch *reuse = nullptr, bool carry_momentum = false,
+        RegionAudit *audit = nullptr) {
   namespace k = ma::experimental::mac_kernel;
   SurfaceResult out;
   bool any = false;
@@ -72,6 +77,20 @@ sharpen(const ma::experimental::MacGrid &source,
   geom.resize(g.N);
   mass.resize(g.N);
   std::vector<double> energy = initial.energy;
+  // Profile 8 moves face momentum with the material; otherwise J is read
+  // from the initial state and never changes here.
+  std::vector<double> carried_x, carried_y;
+  if (carry_momentum) {
+    carried_x = initial.jx;
+    carried_y = initial.jy;
+  }
+  const auto &JX = carry_momentum ? carried_x : initial.jx;
+  const auto &JY = carry_momentum ? carried_y : initial.jy;
+  const auto fluid_face = [&](bool x, std::size_t f) {
+    const auto l = (x ? g.xl : g.yl)[f], r = (x ? g.xr : g.yr)[f];
+    return l != k::none && r != k::none && !g.wall[l] && !g.wall[r] &&
+           !g.closed(!x, f);
+  };
   blocks([&](std::size_t block) {
     for (auto [i, end] = block_cells(block); i < end; ++i) {
       cells[i].clear();
@@ -162,8 +181,14 @@ sharpen(const ma::experimental::MacGrid &source,
     return scale > 0 ? (x_axis ? std::abs(gx) : std::abs(gy)) / scale : .5;
   };
   const double fraction = std::min(.45, 4 * dt);
+  struct Receipt {
+    std::size_t cell;
+    bool x;
+    double value;
+  };
   struct Counts {
     std::size_t faces = 0, limited = 0;
+    std::vector<Receipt> receipts;
   };
   const auto process = [&](bool x_axis, std::size_t face, Counts &counts) {
     const auto &left = x_axis ? g.xl : g.yl, &right = x_axis ? g.xr : g.yr;
@@ -253,7 +278,7 @@ sharpen(const ma::experimental::MacGrid &source,
     std::vector<std::size_t> touched{donor, target};
     touched.reserve(10);
     for (const auto &[x, f] : faces)
-      if ((x ? initial.jx : initial.jy)[f] != 0)
+      if (carry_momentum || (x ? JX : JY)[f] != 0)
         for (const auto i : {(x ? g.xl : g.yl)[f], (x ? g.xr : g.yr)[f]})
           if (i != k::none && !g.wall[i])
             touched.push_back(i);
@@ -265,7 +290,14 @@ sharpen(const ma::experimental::MacGrid &source,
       double energy = 0, mass = 0;
       Eos eos;
     };
-    const auto trial = [&](double theta) -> std::optional<std::vector<Local>> {
+    // Profile 8: the momentum the trial leaves on `faces`, and what moved
+    // material carried into closed faces.
+    struct Trial {
+      std::vector<Local> rows;
+      std::vector<double> momentum;
+      std::vector<Receipt> walls;
+    };
+    const auto trial = [&](double theta) -> std::optional<Trial> {
       std::vector<Local> local;
       local.reserve(touched.size());
       for (const auto i : touched) {
@@ -312,21 +344,96 @@ sharpen(const ma::experimental::MacGrid &source,
           return 0.;
         return updated ? find(i).mass : mass[i];
       };
-      for (const auto &[x, f] : faces) {
-        const auto a = (x ? g.xl : g.yl)[f], b = (x ? g.xr : g.yr)[f];
-        const double j = (x ? initial.jx : initial.jy)[f];
-        if (j == 0)
-          continue;
-        const double I0 = .5 * (m(a, false) + m(b, false)),
-                     I1 = .5 * (m(a, true) + m(b, true));
-        if (!(I0 > 0 && I1 > 0))
+      Trial result;
+      if (!carry_momentum)
+        for (const auto &[x, f] : faces) {
+          const auto a = (x ? g.xl : g.yl)[f], b = (x ? g.xr : g.yr)[f];
+          const double j = (x ? initial.jx : initial.jy)[f];
+          if (j == 0)
+            continue;
+          const double I0 = .5 * (m(a, false) + m(b, false)),
+                       I1 = .5 * (m(a, true) + m(b, true));
+          if (!(I0 > 0 && I1 > 0))
+            return std::nullopt;
+          const double heat = .5 * j * (j / I0) - .5 * j * (j / I1),
+                       sum = m(a, true) + m(b, true);
+          if (a != k::none && !g.wall[a])
+            find(a).energy += heat * m(a, true) / sum;
+          if (b != k::none && !g.wall[b])
+            find(b).energy += heat * m(b, true) / sum;
+        }
+      else {
+        // Each parcel keeps the velocities of the faces it leaves: the
+        // forward parcel's half on each donor face moves to the target's
+        // face on the same side, the backward parcel's likewise. Momentum
+        // reaching a closed face is a wall impulse; every face's kinetic
+        // energy change is local heat.
+        auto &next = result.momentum;
+        next.resize(faces.size());
+        for (std::size_t n = 0; n < faces.size(); ++n)
+          next[n] = (faces[n].first ? JX : JY)[faces[n].second];
+        const auto position = [&](std::pair<bool, std::size_t> which_face) {
+          return static_cast<std::size_t>(
+              std::lower_bound(faces.begin(), faces.end(), which_face) - faces.begin());
+        };
+        const auto side = [&](std::size_t cell, unsigned which) {
+          return which == 0   ? std::pair{true, g.left_face(cell)}
+                 : which == 1 ? std::pair{true, g.right_face(cell)}
+                 : which == 2 ? std::pair{false, g.bottom_face(cell)}
+                              : std::pair{false, g.top_face(cell)};
+        };
+        bool valid = true;
+        const auto velocity = [&](std::pair<bool, std::size_t> which_face) {
+          const double j = (which_face.first ? JX : JY)[which_face.second];
+          if (j == 0)
+            return 0.;
+          const auto a = (which_face.first ? g.xl : g.yl)[which_face.second],
+                     b = (which_face.first ? g.xr : g.yr)[which_face.second];
+          const double I0 = .5 * (m(a, false) + m(b, false));
+          if (!(I0 > 0))
+            valid = false;
+          return I0 > 0 ? j / I0 : 0.;
+        };
+        const auto carry = [&](std::pair<bool, std::size_t> from,
+                               std::pair<bool, std::size_t> to,
+                               std::size_t receiver, double amount) {
+          if (amount == 0)
+            return;
+          next[position(from)] -= amount;
+          if (fluid_face(to.first, to.second))
+            next[position(to)] += amount;
+          else
+            result.walls.push_back({receiver, to.first, -amount});
+        };
+        const double moved_forward = theta * forward_mass,
+                     moved_back = theta * back_mass;
+        for (unsigned which = 0; which < 4; ++which) {
+          const auto d = side(donor, which), t = side(target, which);
+          const double forward = .5 * moved_forward * velocity(d),
+                       backward = .5 * moved_back * velocity(t);
+          carry(d, t, target, forward);
+          carry(t, d, donor, backward);
+        }
+        if (!valid)
           return std::nullopt;
-        const double heat = .5 * j * (j / I0) - .5 * j * (j / I1),
-                     sum = m(a, true) + m(b, true);
-        if (a != k::none && !g.wall[a])
-          find(a).energy += heat * m(a, true) / sum;
-        if (b != k::none && !g.wall[b])
-          find(b).energy += heat * m(b, true) / sum;
+        for (std::size_t n = 0; n < faces.size(); ++n) {
+          const auto [x, f] = faces[n];
+          const double j0 = (x ? JX : JY)[f], j1 = next[n];
+          if (j0 == 0 && j1 == 0)
+            continue;
+          const auto a = (x ? g.xl : g.yl)[f], b = (x ? g.xr : g.yr)[f];
+          const double I0 = .5 * (m(a, false) + m(b, false)),
+                       I1 = .5 * (m(a, true) + m(b, true));
+          if ((j0 != 0 && !(I0 > 0)) || !(I1 > 0))
+            return std::nullopt;
+          const double heat = (j0 == 0 ? 0. : .5 * j0 * (j0 / I0)) -
+                              (j1 == 0 ? 0. : .5 * j1 * (j1 / I1)),
+                       sum = m(a, true) + m(b, true);
+          if (a != k::none && !g.wall[a])
+            find(a).energy += heat * m(a, true) / sum;
+          if (b != k::none && !g.wall[b])
+            find(b).energy += heat * m(b, true) / sum;
+        }
       }
       try {
         for (auto &row : local) {
@@ -341,7 +448,8 @@ sharpen(const ma::experimental::MacGrid &source,
       } catch (const std::runtime_error &) {
         return std::nullopt;
       }
-      return local;
+      result.rows = std::move(local);
+      return result;
     };
     double accepted = 1;
     auto candidate = trial(1);
@@ -382,7 +490,14 @@ sharpen(const ma::experimental::MacGrid &source,
           passives[i].emplace_back(identity, quantity);
       }
     }
-    for (auto &row : *candidate) {
+    if (carry_momentum) {
+      for (std::size_t n = 0; n < faces.size(); ++n)
+        (faces[n].first ? carried_x : carried_y)[faces[n].second] =
+            candidate->momentum[n];
+      counts.receipts.insert(counts.receipts.end(), candidate->walls.begin(),
+                             candidate->walls.end());
+    }
+    for (auto &row : candidate->rows) {
       if (row.i == donor || row.i == target)
         cells[row.i] = std::move(row.inventory);
       mass[row.i] = row.mass;
@@ -433,7 +548,7 @@ sharpen(const ma::experimental::MacGrid &source,
            {std::pair{true, g.left_face(i)}, std::pair{true, g.right_face(i)},
             std::pair{false, g.bottom_face(i)},
             std::pair{false, g.top_face(i)}})
-        if ((edge.first ? initial.jx : initial.jy)[edge.second] != 0)
+        if (carry_momentum || (edge.first ? initial.jx : initial.jy)[edge.second] != 0)
           for (const auto cell : {(edge.first ? g.xl : g.yl)[edge.second],
                                   (edge.first ? g.xr : g.yr)[edge.second]})
             if (cell != k::none && !g.wall[cell])
@@ -491,9 +606,23 @@ sharpen(const ma::experimental::MacGrid &source,
     out.eos = std::move(eos);
     return out;
   }
+  // Wall impulses of carried momentum, booked in cluster order.
+  DoubleDouble wall_x, wall_y, ops_x, ops_y;
+  for (const auto &cluster : counts)
+    for (const auto &receipt : cluster.receipts) {
+      (receipt.x ? wall_x : wall_y).add(receipt.value);
+      (receipt.x ? ops_x : ops_y).add(std::abs(receipt.value));
+      if (audit)
+        audit->momentum_receipt(receipt.cell, receipt.x, receipt.value,
+                                std::abs(receipt.value));
+    }
+  out.wall_x = wall_x.value();
+  out.wall_y = wall_y.value();
+  out.wall_ops_x = ops_x.value();
+  out.wall_ops_y = ops_y.value();
   out.state.energy = std::move(energy);
-  out.state.jx = initial.jx;
-  out.state.jy = initial.jy;
+  out.state.jx = carry_momentum ? std::move(carried_x) : initial.jx;
+  out.state.jy = carry_momentum ? std::move(carried_y) : initial.jy;
   // Corrected inventories back to sparse form, from per-block counts.
   const auto pack = [&](const auto &rows, auto &into) {
     std::vector<std::size_t> start(g.blocks + 1);

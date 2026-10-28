@@ -432,18 +432,19 @@ MacClosedSettings settings_of(const MAOniColonyConfig& c, const MAOniColonyOptio
         const auto selected=[](const char* name){const char* value=std::getenv(name);return value && std::strcmp(value,"1")==0;};
         const bool surface=(c.flags&MA_ONI_COLONY_GAME_SURFACE)!=0 || selected("MA_COLONY_KERNEL3_SURFACE");
         if (surface || selected("MA_COLONY_KERNEL3_POSITIVE")) {
-            // The surface selector creates the newest candidate, family 7
-            // (family 6's equations with sized pressure intervals).
+            // The surface selector creates family 8: carried interface
+            // momentum and the adopted 1 mg net-volume-bound floor.
             // MA_COLONY_KERNEL3_PROFILE6=1 still creates family 6 for the
             // controls written for it.
             game.game_profile=!surface?MacGameProfile::game_kernel_positive_liquid:
                 selected("MA_COLONY_KERNEL3_PROFILE6")?MacGameProfile::game_kernel_bounded_pressure:
-                MacGameProfile::game_kernel_sized_intervals;
+                selected("MA_COLONY_KERNEL3_PROFILE7")?MacGameProfile::game_kernel_sized_intervals:
+                MacGameProfile::game_kernel_carried_momentum;
             game.game.liquid_law=MacGameLiquidLaw::positive_segments;
             game.game.pressure_maximum_iterations=400;
             game.game.heat_maximum_iterations=800;
         }
-        // Profiles 6 and 7 save the adopted gas heat mixing (docs/base-game-floor.md,
+        // Profiles 6-8 save the adopted gas heat mixing (docs/base-game-floor.md,
         // F1 split) and the player's options; the defaults keep every value above.
         if (surface) {
             game.maximum_timestep_s=o.maximum_timestep_s;game.trace_sink_threshold_kg=o.trace_sink_threshold_kg;

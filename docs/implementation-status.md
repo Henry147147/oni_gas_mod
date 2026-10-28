@@ -50,7 +50,7 @@ the user's PC. See [DLC evidence](dlc-compatibility.md).
 Current repairs and the work beyond private playtesting are tracked in
 [feature completion work](feature-completion-status.md).
 
-Current state on 2026-10-25. [Private-playtest acceptance](private-playtest-release.md) remains open. New colonies use profile5/core23 with mixed pipes and pipe saves (flags13). LinuxPlayer and WindowsPlayer under Proton are checked here; Windows OS behaviour needs the user’s PC. One line per system; details in the linked pages.
+Current state on 2026-10-28. [Private-playtest acceptance](private-playtest-release.md) remains open. New colonies use profile8/core27 with boil-only phase change, mixed pipes and pipe saves (flags13). The recorded-input replays and Linux standalone controls pass; current Windows OS behaviour and real-time acceptance need the user’s PC. One line per system; details in the linked pages.
 
 | System | State |
 | --- | --- |

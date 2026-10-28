@@ -46,7 +46,7 @@ namespace MixedAtmospheres.Oni
         {
             lock (sessionGate)
             {
-                catalog = null; publishedFrame = ulong.MaxValue; ColonyReadingPool.Release(publishedBuffer); publishedBuffer = null;
+                catalog = null; publishedFrame = ulong.MaxValue; Volatile.Write(ref cellIds, new string?[Math.Max(0, Grid.CellCount)]); ColonyReadingPool.Release(publishedBuffer); publishedBuffer = null;
                 Interlocked.Exchange(ref publications, 0); LastError = "";
                 Volatile.Write(ref rejectedCells, 0); FirstRejection = ""; LastBuildMilliseconds = 0; CopyMilliseconds = 0;
             }
@@ -73,6 +73,7 @@ namespace MixedAtmospheres.Oni
                     styles.Add(new MixtureSpeciesStyle(ids[k], string.IsNullOrWhiteSpace(name) ? ids[k] : name, new MixtureSrgbColor(colour.r, colour.g, colour.b)));
                 }
                 catalog = new FluidMaterialCatalog(Version, materials);
+                Volatile.Write(ref cellIds, new string?[Math.Max(0, Grid.CellCount)]);
                 // The colony's recorded breathing rules (docs/settings.md); by
                 // default easy mode (docs/colony-owner.md): no upper oxygen bound.
                 var breathing = ModSettingsRuntime.Breathing;
@@ -223,6 +224,15 @@ namespace MixedAtmospheres.Oni
                 OniNativeColony.Reading[] readings, OniNativeColony.Constituent[] parts)
             { Catalog = catalog; Ids = ids; Phases = phases; MolarMasses = molarMasses; Readings = readings; Parts = parts; }
         }
+        // "colony:cell:N", kept per cell for the session: a visible cell is read
+        // every owner frame and the string would otherwise be new each time.
+        private static string?[] cellIds = Array.Empty<string?>();
+        private static string CellId(uint cell)
+        {
+            var ids = Volatile.Read(ref cellIds);
+            if (cell >= ids.Length) return "colony:cell:" + cell;
+            return ids[cell] ?? (ids[cell] = "colony:cell:" + cell);
+        }
         internal static MixtureThermodynamicReading Create(Table table, OniNativeColony.Reading cell, long revision)
         {
             var parts = table.Parts; var phases = table.Phases; var molarMasses = table.MolarMasses; var ids = table.Ids; var catalog = table.Catalog;
@@ -236,7 +246,7 @@ namespace MixedAtmospheres.Oni
             var idealVolume = gasMoles > 0 && cell.GasPressurePa > 0 ? gasMoles * FluidMaterialCatalog.GasConstantJoulesPerMolKelvin * cell.TemperatureKelvin / cell.GasPressurePa : 0;
             var geometric = gasMoles > 0 && headspace > 0 && Math.Abs(headspace - idealVolume) <=
                 MixtureThermodynamicReading.MaximumVolumeClosureRelativeTolerance * Math.Max(headspace, idealVolume);
-            var constituents = new List<MixtureThermodynamicConstituent>((int)cell.Constituents); var gasVolume = 0.0;
+            var constituents = new MixtureThermodynamicConstituent[cell.Constituents]; var gasVolume = 0.0;
             for (var c = 0; c < cell.Constituents; ++c)
             {
                 var part = parts[cell.FirstConstituent + c]; var k = (int)part.Species;
@@ -248,7 +258,7 @@ namespace MixedAtmospheres.Oni
                     volume = geometric ? headspace * (moles / gasMoles) : idealVolume * (moles / gasMoles);
                     gasVolume += volume;
                 }
-                constituents.Add(new MixtureThermodynamicConstituent(ids[k], phases[k], part.MassKg, molarMasses[k], volume));
+                constituents[c] = new MixtureThermodynamicConstituent(ids[k], phases[k], part.MassKg, molarMasses[k], volume);
             }
             if (geometric) gasVolume = headspace;
             var total = 0.0; foreach (var c in constituents) total += c.MassKg;
@@ -257,7 +267,7 @@ namespace MixedAtmospheres.Oni
             var mechanical = gasVolume == 0 && vacuum > 0 ? 0 : cell.MechanicalPressurePa;
             return new MixtureThermodynamicReading(constituents, total, cell.InternalEnergyJoules, 0,
                 cell.TemperatureKelvin, gasVolume > 0 ? cell.GasPressurePa : 0, mechanical, 1, gasVolume, cell.LiquidVolumeCubicMetres,
-                vacuum, catalog.Version, catalog.Fingerprint, revision, "colony:cell:" + cell.PublicCell,
+                vacuum, catalog.Version, catalog.Fingerprint, revision, CellId(cell.PublicCell),
                 resolvedVacuumInterface: true);
         }
     }

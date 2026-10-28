@@ -4,6 +4,7 @@
 #include "mac_game_expansion_control.hpp"
 #include "mac_game_bounded_checkpoint_control.hpp"
 #include "mac_game_component_cache_control.hpp"
+#include "mac_game_carried_momentum_control.hpp"
 #include "../src/mac_hypot.hpp"
 #include "../src/mac_game/account.hpp"
 #include "../src/mac_game/entropy.hpp"
@@ -326,6 +327,7 @@ int main() {
     near_vacuum_heat_remains_physical();
     ma::testing::bounded_pressure_expansion_control();
     ma::testing::bounded_pressure_checkpoint_control();
+    ma::testing::carried_momentum_control();
     ma::testing::component_cache_control();
     full_worker_continuation();
     const auto &f = ma::testing::setup();

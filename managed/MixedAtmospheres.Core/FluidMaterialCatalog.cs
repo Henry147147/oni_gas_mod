@@ -167,9 +167,14 @@ namespace MixedAtmospheres.Core
         { Finite(value, name); if (value < 0) throw new ArgumentOutOfRangeException(name, "A nonnegative value is required."); }
         internal static void Positive(double value, string name)
         { Finite(value, name); if (value <= 0) throw new ArgumentOutOfRangeException(name, "A positive value is required."); }
+        private static bool HasControl(string value)
+        {
+            foreach (var c in value) if (char.IsControl(c)) return true;
+            return false;
+        }
         internal static void Identity(string value, string name)
         {
-            if (string.IsNullOrWhiteSpace(value) || value.Length > 256 || value.Any(char.IsControl) || StrictUtf8.GetByteCount(value) > 1024)
+            if (string.IsNullOrWhiteSpace(value) || value.Length > 256 || HasControl(value) || StrictUtf8.GetByteCount(value) > 1024)
                 throw new ArgumentException("A bounded, stable identity is required.", name);
         }
     }

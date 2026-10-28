@@ -44,15 +44,16 @@ versions or using the earlier pressure profiles20–23 are refused with a reason
 before native loading. Start a new colony for the corrected pressure update.
 
 Colony settings are stored in the physical image (solver and the evaporation
-rule: core26 with the boil-only or equilibrium phase-rule selector) and MACOLP03 section 3
+rule: core27 with the boil-only or equilibrium phase-rule selector) and MACOLP03 section 3
 (breathing). Preferences live in the user's config and are not stored in colony
 saves.
 
-The solver is always the supported one: game profile 7 (core26, either
-phase rule; [speed profile 7](../native/MAC_GAME_KERNEL.md#retry-storms-and-speed-profile-7))
-with mixed pipes. Colonies created earlier keep game profile 6 (core24/25).
+The solver is always the supported one: game profile 8 (core27, either
+phase rule; [speed profile 8](../native/MAC_GAME_KERNEL.md#carried-interface-momentum-and-speed-profile-8))
+with mixed pipes. Colonies created earlier keep game profile 6 (core24/25) or
+profile 7 (core26).
 No setting selects the production kernel, the game-floor profile, an older
-game-kernel profile or single-element packet pipes; only profile 7's own saved
+game-kernel profile or single-element packet pipes; only profile 8's own saved
 tunables vary, within
 the ranges below. A value outside the measured one
 is marked **experimental** in the window. The native library refuses values
@@ -130,7 +131,7 @@ which adds `evaporation_below_boiling`).
 | `solver.interfaceDetail` | Thinnest sharpened film | 0 | 0–0.5 of a cell (≠0 experimental) | Thinner films are left unsharpened | core24/25 |
 | `solver.phaseRelaxationSeconds` | Boiling/condensation time | 1 s | 0.1–10 s (≠1 experimental) | Liquid/vapour relaxation time constant (other conversions keep 1 s) | core24/25 |
 | `solver.traceThresholdKg` | Trace removal threshold | 1e-11 kg | 1e-11–1e-6 kg (≠1e-11 experimental) | Per-constituent booked trace sink; 1 mg ceiling | core24/25 |
-| `liquids.evaporationBelowBoiling` | Evaporation below boiling (Gameplay) | off | on/off | Off: liquid/vapour pairs compare saturation with the total gas pressure (boil-only, ONI-like condensation, no humidity); on: the vapour's partial pressure (evaporation into unsaturated gas) | core26 phase-rule selector (1 off, 0 on) |
+| `liquids.evaporationBelowBoiling` | Evaporation below boiling (Gameplay) | off | on/off | Off: liquid/vapour pairs compare saturation with the total gas pressure (boil-only, ONI-like condensation, no humidity); on: the vapour's partial pressure (evaporation into unsaturated gas) | core27 phase-rule selector (1 off, 0 on) |
 | `breathing.co2Limits` | CO₂ breathing limits | off | on/off | Enforce the CO₂ share and partial pressure thresholds; oxygen remains required when off | section 3 v3 |
 | `breathing.minimumOxygenFraction` | Minimum oxygen share | 15% | 5–25% | Breathable with at least this oxygen share by moles (polluted oxygen counts) | section 3 |
 | `breathing.minimumOxygenPressurePa` | Minimum oxygen partial pressure | 15 kPa | 1–50 kPa | …and at least this oxygen partial pressure | section 3 |
@@ -148,6 +149,11 @@ default. Small grids still use fewer workers when they
 have fewer blocks. A running colony takes the change between frames, with
 identical physical results and checkpoint bytes. More workers can be slower;
 the [Terra measurement](../native/MAC_GAME_KERNEL.md) records that result.
+
+**Advanced → Performance → Log frame timing** is off by default. Turn it on, play for a
+minute or two, then send Player.log (or its `frame-log` lines); `MA_FRAME_LOG=1`
+does the same without the window. The `perf frames` line the owner writes every
+150 frames is always on.
 
 The default stays at physical cores. Reserving cores for Unity was measured
 and was not clearly better (Ryzen 9 5900X, 12 cores, game and solver on the
@@ -172,6 +178,7 @@ worker. Sources: [Linux CPU topology](https://docs.kernel.org/admin-guide/cputop
 | Key | Name | Default | Range | Effect | Storage |
 | --- | --- | --- | --- | --- | --- |
 | `performance.workerThreads` | Solver workers | Physical cores (`0`) | `0` automatic, or integer 1–256 | Execution only; applies between frames, including after loading a save. | config.json |
+| `performance.logFrameTiming` | Log frame timing | Off | on, off | Writes a `frame-log` line to Player.log every 15 s (Windows: `%USERPROFILE%\AppData\LocalLow\Klei\Oxygen Not Included\Player.log`): Unity frame time mean/p50/p95/p99/max, frames over 33/50/100 ms, milliseconds per frame in this mod, blocked in native calls and elsewhere, garbage collections and allocation per frame. For diagnosing stutter ([main-thread smoothness](colony-owner.md#main-thread-smoothness)); applies at once, not saved in colonies. | config.json |
 | `display.readingPrecision` | Reading precision | 4 significant figures | `friendly`, `exact` | Hover card and status panel: kPa/°C/kg to 4 figures, or every digit with Pa and K. Values are the same. | config.json |
 | `display.patternContrast` | Mixture pattern contrast | 0.04 | 0–0.15 (0 off) | Map pattern for mixed gases (also set from the overlay legend) | config.json |
 | `display.traceMoleFraction` | Trace gas threshold | 1% | 0–10% | Gases below it are listed as traces | config.json |
@@ -250,7 +257,7 @@ player chooses unless set:
 | --- | --- |
 | Solver/pipe selectors for development runs (unsupported for play) | `MA_COLONY_GAME_FLOOR`, `MA_COLONY_KERNEL3`, `MA_COLONY_KERNEL3_POSITIVE`, `MA_COLONY_KERNEL3_SURFACE`, `MA_COLONY_MIXED_PIPES=0`, `MA_COLONY_PIPE_SAVES=0`, `MA_COLONY_SUBSTEP_TRACE`, `MA_COLONY_FAST_PHASE_EOS`, `MA_COLONY_GERM_ORACLE`, `MA_MAC_WORKERS` |
 | Harness | `MA_COLONY_STARTING_RESERVE` (validation scenes place the starting oxylite reserve), `MA_COLONY_SETTINGS_PRESET`, `MA_SETTINGS_OPEN` (opens the window on tab N at the menu and in a colony, unpaused; `mods` clicks the Mods-screen button), `MA_COLONY_SAVE_CONTROL`, `MA_COLONY_SAVE_FRAME`, `MA_COLONY_CONTINUATION_FRAMES`, `MA_COLONY_EXPECT_LOAD_REFUSAL`, `MA_COLONY_PIPE_CONTACT_HEAT` |
-| Frame-time measurement (docs/colony-owner.md#main-thread-smoothness) | `MA_FRAME_LOG=1` (frame-time log in Player.log), `MA_COLONY_WORKERS` (solver worker count for sweeps, overrides the preference), `MA_COLONY_RECEIPT_BUDGET_MS` (receipt time per publication, 0 for no limit), `MA_COLONY_PRESENTATION_EAGER=1` (build every reading at publication, the earlier behaviour) |
+| Frame-time measurement (docs/colony-owner.md#main-thread-smoothness) | `MA_FRAME_LOG=1` (frame-time log in Player.log; the preference "Log frame timing" does the same), `MA_COLONY_WORKERS` (solver worker count for sweeps, overrides the preference), `MA_COLONY_RECEIPT_BUDGET_MS` (receipt time per publication, 0 for no limit), `MA_COLONY_PRESENTATION_EAGER=1` (build every reading at publication, the earlier behaviour), `MA_COLONY_NATIVE_WAIT_LOG=1` (native frame phase timing to stderr) |
 | Exactness controls | `MA_COLONY_CELL_MAP_CONTROL`, `MA_COLONY_UNCACHED_CELL_MAP`, `MA_COLONY_COPY_CONTROL`, `MA_COLONY_MARSHALLED_OUTPUT`, `MA_COLONY_MARSHALLED_RECEIPTS`, `MA_COLONY_RECEIPT_COPY_CONTROL`, `MA_COLONY_UNCACHED_VIEWS`, `MA_COLONY_VIEW_CACHE_CONTROL`, `MA_COLONY_WORLD_PASSIVE_CONTROL` |
 | Logs and dumps | `MA_COLONY_LEDGER_LOG`, `MA_COLONY_HEAT_LOG`, `MA_COLONY_TERRAIN_LOG`, `MA_COLONY_STAGE_LOG`, `MA_COLONY_PUBLICATION_LOG`, `MA_COLONY_VIEW_TIMING_LOG`, `MA_COLONY_DUPE_LOG`, `MA_COLONY_PIPE_BIOLOGY_TIMING`, `MA_COLONY_PIPE_THERMAL_LOG`, `MA_COLONY_FAULT_DUMP`, `MA_COLONY_DUMP_FRAME`, `MA_COLONY_SLOW_DUMP`, `MA_COLONY_TRANSFER_DUMP`, `MA_COLONY_RELEASE_DUMP`, `MA_COLONY_FLOOR_ADMISSION_DUMP`, `MA_COLONY_FLOOR_PREFIX_DUMP`, `MA_ONI_BODY_HEAT_TRACE`, `MA_ONI_CHUNK_HEAT_TRACE`, `MA_ONI_STORAGE_HEAT_TRACE`, `MA_KERNEL_DEBUG` |
 | Native harness and builds | `MA_VERIFY_*`, `MA_NATIVE_*`, `MA_TEST_NATIVE_LIBRARY`, `MA_BUILD_*` |

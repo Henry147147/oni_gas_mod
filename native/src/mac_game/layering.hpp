@@ -6,16 +6,20 @@ struct LayerResult {
   State state;
   std::size_t faces = 0;
   double released = 0;
+  // Profile 8: momentum the parcels carried into closed faces.
+  double wall_x = 0, wall_y = 0, wall_ops_x = 0, wall_ops_y = 0;
 };
 // Jacobi equal-volume buoyant exchanges. Miscible constituents share one phase.
-// Donor-specific U and mass-carried passives use shared parcels. Face J is
-// retained; its actual inertia/K change and gravity release go to local U.
+// Donor-specific U and mass-carried passives use shared parcels. Profiles 2-7
+// retain face J; profile 8 carries the parcels' donor face velocities. Actual
+// face-K change and gravity release go to local U.
 inline LayerResult
 layer(const ma::experimental::MacGrid &source,
       const std::vector<Species> &species, const State &initial,
       const std::vector<Eos> &eos, double dt, double gravity,
       const ma::experimental::mac_kernel::Grid *cached_grid = nullptr,
-      ma::experimental::mac_kernel::Pool *executor = nullptr) {
+      ma::experimental::mac_kernel::Pool *executor = nullptr,
+      bool carry_momentum = false, RegionAudit *audit = nullptr) {
   namespace k = ma::experimental::mac_kernel;
   k::Grid built;
   if (!cached_grid)
@@ -266,11 +270,88 @@ layer(const ma::experimental::MacGrid &source,
     released.add(drop);
   }
   out.released = released.value();
-  // Face J keeps its value; where an endpoint's mass changed, the K change
-  // goes to U. Such faces are found in row blocks, then booked in face order.
   const auto m = [](const std::vector<double> &values, k::Index i) {
     return i == k::none ? 0 : values[i];
   };
+  if (carry_momentum) {
+    // Profile 8: each parcel keeps the velocities of the faces it leaves.
+    // Its half on each face of its source cell moves to the face on the same
+    // side of its destination (velocities from the initial momentum and
+    // masses); momentum reaching a closed face is a wall impulse. Each
+    // face's kinetic energy change, in face order, is local heat.
+    auto &jx = out.state.jx;
+    auto &jy = out.state.jy;
+    const auto fluid = [&](bool x, std::size_t f) {
+      const auto l = (x ? g.xl : g.yl)[f], r = (x ? g.xr : g.yr)[f];
+      return l != k::none && r != k::none && !g.wall[l] && !g.wall[r] &&
+             !g.closed(!x, f);
+    };
+    const auto velocity = [&](bool x, std::size_t f) {
+      const double j = (x ? initial.jx : initial.jy)[f];
+      if (j == 0)
+        return 0.;
+      const double I0 = .5 * (m(old_mass, (x ? g.xl : g.yl)[f]) +
+                              m(old_mass, (x ? g.xr : g.yr)[f]));
+      if (!(I0 > 0))
+        throw std::runtime_error("Private layering J without inertia");
+      return j / I0;
+    };
+    const auto side = [&](std::size_t cell, unsigned which) {
+      return which == 0   ? std::pair{true, g.left_face(cell)}
+             : which == 1 ? std::pair{true, g.right_face(cell)}
+             : which == 2 ? std::pair{false, g.bottom_face(cell)}
+                          : std::pair{false, g.top_face(cell)};
+    };
+    DoubleDouble wall_x, wall_y, ops_x, ops_y;
+    std::vector<std::pair<bool, std::size_t>> touched;
+    for (const auto &parcel : parcels)
+      for (unsigned which = 0; which < 4; ++which) {
+        const auto from = side(parcel.from, which),
+                   to = side(parcel.to, which);
+        touched.push_back(from);
+        touched.push_back(to);
+        const double amount = .5 * parcel.mass * velocity(from.first, from.second);
+        if (amount == 0)
+          continue;
+        (from.first ? jx : jy)[from.second] -= amount;
+        if (fluid(to.first, to.second))
+          (to.first ? jx : jy)[to.second] += amount;
+        else {
+          (to.first ? wall_x : wall_y).add(-amount);
+          (to.first ? ops_x : ops_y).add(std::abs(amount));
+          if (audit)
+            audit->momentum_receipt(parcel.to, to.first, -amount, std::abs(amount));
+        }
+      }
+    std::sort(touched.begin(), touched.end(), [](const auto &a, const auto &b) {
+      return a.first != b.first ? a.first > b.first : a.second < b.second;
+    });
+    touched.erase(std::unique(touched.begin(), touched.end()), touched.end());
+    for (const auto &[x, f] : touched) {
+      const double j0 = (x ? initial.jx : initial.jy)[f], j1 = (x ? jx : jy)[f];
+      if (j0 == 0 && j1 == 0)
+        continue;
+      const auto l = (x ? g.xl : g.yl)[f], r = (x ? g.xr : g.yr)[f];
+      const double I0 = .5 * (m(old_mass, l) + m(old_mass, r)),
+                   I1 = .5 * (m(new_mass, l) + m(new_mass, r));
+      if ((j0 != 0 && !(I0 > 0)) || !(I1 > 0))
+        throw std::runtime_error("Private layering removed face inertia");
+      const double heat = (j0 == 0 ? 0. : .5 * j0 * (j0 / I0)) -
+                          (j1 == 0 ? 0. : .5 * j1 * (j1 / I1)),
+                   sum = m(new_mass, l) + m(new_mass, r);
+      if (l != k::none)
+        out.state.energy[l] += heat * m(new_mass, l) / sum;
+      if (r != k::none)
+        out.state.energy[r] += heat * m(new_mass, r) / sum;
+    }
+    out.wall_x = wall_x.value();
+    out.wall_y = wall_y.value();
+    out.wall_ops_x = ops_x.value();
+    out.wall_ops_y = ops_y.value();
+    return out;
+  }
+  // Face J keeps its value; where an endpoint's mass changed, the K change
+  // goes to U. Such faces are found in row blocks, then booked in face order.
   const auto inertias = [&](bool x, std::size_t f) {
     const auto l = (x ? g.xl : g.yl)[f], r = (x ? g.xr : g.yr)[f];
     return std::pair{.5 * (m(old_mass, l) + m(old_mass, r)),

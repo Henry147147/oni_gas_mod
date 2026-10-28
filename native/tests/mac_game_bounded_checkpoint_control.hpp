@@ -125,11 +125,13 @@ inline void bounded_pressure_checkpoint_control() {
   for(const auto profile:{MacGameProfile::game_kernel,
       MacGameProfile::game_kernel_positive_liquid,
       MacGameProfile::game_kernel_free_surface,MacGameProfile::game_kernel_trace_heat,
-      MacGameProfile::game_kernel_bounded_pressure,MacGameProfile::game_kernel_sized_intervals}) {
+      MacGameProfile::game_kernel_bounded_pressure,MacGameProfile::game_kernel_sized_intervals,
+      MacGameProfile::game_kernel_carried_momentum}) {
     const auto source=MacClosedWorld::game_colony(f.registry,f.eos,state,temperatures,config(profile));
     const auto image=source.checkpoint();
-    const bool sized=profile==MacGameProfile::game_kernel_sized_intervals;
-    check(image.at(8)==(sized?26U:18+static_cast<unsigned>(profile)),"Saved game pressure policy version differs");
+    const bool carried=profile==MacGameProfile::game_kernel_carried_momentum;
+    const bool sized=carried || profile==MacGameProfile::game_kernel_sized_intervals;
+    check(image.at(8)==(carried?27U:sized?26U:18+static_cast<unsigned>(profile)),"Saved game pressure policy version differs");
     const auto cold=MacClosedWorld::from_checkpoint(f.registry,f.eos,image);
     check(cold.checkpoint()==image && cold.settings().game_profile==profile,
           "Saved game pressure policy changed on restore");
@@ -183,6 +185,6 @@ inline void bounded_pressure_checkpoint_control() {
           "Bounded pressure worker cold continuation differs");
   }
   regional_pressure_controls();
-  std::cout<<"PASS saved pressure profiles20-24 and 26 (both phase rules), bounded/sized attempt budget, cache retry and worker/cold continuation\n";
+  std::cout<<"PASS saved pressure profiles20-24 and 26/27 (both phase rules), bounded/sized attempt budget, cache retry and worker/cold continuation\n";
 }
 } // namespace ma::testing

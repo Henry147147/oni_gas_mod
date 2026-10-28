@@ -30,7 +30,23 @@ namespace MixedAtmospheres.Oni
         }
         private static readonly string[] Names =
             { "submit", "wait", "native_other", "wait_gc", "publication", "messages", "pacing", "tick", "views", "snapshot", "overlay", "receipts", "actors", "presentation" };
-        internal static readonly bool Enabled = Environment.GetEnvironmentVariable("MA_FRAME_LOG") == "1";
+        // On with MA_FRAME_LOG=1 or the Advanced > Performance preference "Log frame timing".
+        private static readonly bool environment = Environment.GetEnvironmentVariable("MA_FRAME_LOG") == "1";
+        internal static bool Enabled = environment;
+        private static void LogEnvironment()
+        {
+            try
+            {
+                UnityEngine.Debug.Log(FormattableString.Invariant($"[Mixed Atmospheres] frame-log environment: gc_mode {UnityEngine.Scripting.GarbageCollector.GCMode} incremental {UnityEngine.Scripting.GarbageCollector.isIncremental} vsync {QualitySettings.vSyncCount} target_fps {Application.targetFrameRate} max_gen {GC.MaxGeneration} cpu \"{SystemInfo.processorType}\" logical {SystemInfo.processorCount} gpu \"{SystemInfo.graphicsDeviceName}\" unity {Application.unityVersion}"));
+            }
+            catch (Exception error) { UnityEngine.Debug.LogWarning("[Mixed Atmospheres] frame-log environment unavailable: " + error.Message); }
+        }
+        internal static void SetPreference(bool on)
+        {
+            var enabled = environment || on;
+            if (enabled && !Enabled) { started = false; LogEnvironment(); }
+            Enabled = enabled;
+        }
         private const double WindowSeconds = 15;
         private static readonly long[] accumulated = new long[(int)Part.Count], worstParts = new long[(int)Part.Count];
         private static readonly double[] sums = new double[(int)Part.Count];
@@ -46,12 +62,7 @@ namespace MixedAtmospheres.Oni
         // Installed from Mod.OnLoad so the log also covers games without an owner.
         internal static void Install()
         {
-            if (!Enabled) return;
-            try
-            {
-                UnityEngine.Debug.Log(FormattableString.Invariant($"[Mixed Atmospheres] frame-log environment: gc_mode {UnityEngine.Scripting.GarbageCollector.GCMode} incremental {UnityEngine.Scripting.GarbageCollector.isIncremental} vsync {QualitySettings.vSyncCount} target_fps {Application.targetFrameRate} max_gen {GC.MaxGeneration} cpu \"{SystemInfo.processorType}\" logical {SystemInfo.processorCount} gpu \"{SystemInfo.graphicsDeviceName}\" unity {Application.unityVersion}"));
-            }
-            catch (Exception error) { UnityEngine.Debug.LogWarning("[Mixed Atmospheres] frame-log environment unavailable: " + error.Message); }
+            if (Enabled) LogEnvironment();
             var holder = new GameObject("Mixed Atmospheres frame log");
             UnityEngine.Object.DontDestroyOnLoad(holder); holder.AddComponent<ColonyFrameLogDriver>();
         }
@@ -81,9 +92,24 @@ namespace MixedAtmospheres.Oni
             lock (tracks) { if (!tracks.TryGetValue(name, out var t)) tracks[name] = t = new double[4]; ++t[0]; t[2] += bytes / 1024.0; }
         }
         internal static TrackScope? Track(string name) => Enabled ? new TrackScope(name) : (TrackScope?)null;
+        // Exact bytes allocated by the Unity main thread, where the runtime
+        // offers GC.GetAllocatedBytesForCurrentThread (Mono may not).
+        private static readonly Func<long>? threadAllocated = ThreadAllocationCounter();
+        private static Func<long>? ThreadAllocationCounter()
+        {
+            try
+            {
+                var counter = (Func<long>?)typeof(GC).GetMethod("GetAllocatedBytesForCurrentThread", Type.EmptyTypes)?.CreateDelegate(typeof(Func<long>));
+                if (counter == null) return null;
+                var before = counter(); var probe = new byte[64]; var after = counter(); GC.KeepAlive(probe);
+                // Some Unity Mono runtimes expose the method but always return zero.
+                return after > before ? counter : null;
+            }
+            catch (Exception) { return null; }
+        }
+        private static long lastThreadAllocated, mainAllocated;
         private static long counted;
         // Cells whose reading and presentation objects were built on demand.
-        private static long countedBytes;
         private static readonly Dictionary<string, double[]> byproducts = new Dictionary<string, double[]>();
         // Solid byproducts spawned as debris, by element: count and kilograms.
         internal static void CountByproduct(string element, float kilograms)
@@ -92,10 +118,6 @@ namespace MixedAtmospheres.Oni
             lock (byproducts) { if (!byproducts.TryGetValue(element, out var t)) byproducts[element] = t = new double[2]; ++t[0]; t[1] += kilograms; }
         }
         internal static void CountCell() { if (Enabled) Interlocked.Increment(ref counted); }
-        // Heap growth around building one lazy cell (approximate while other threads allocate).
-        internal static long HeapNow => Enabled ? GC.GetTotalMemory(false) : 0;
-        internal static void CountCellBytes(long before, int collections)
-        { if (Enabled && GC.CollectionCount(0) == collections) { var grown = GC.GetTotalMemory(false) - before; if (grown > 0) Interlocked.Add(ref countedBytes, grown); } }
         internal static long Now => Enabled ? Stopwatch.GetTimestamp() : 0;
         internal static void Add(Part part, long begun) { if (Enabled) accumulated[(int)part] += Stopwatch.GetTimestamp() - begun; }
         internal static void AddTicks(Part part, long ticks) { if (Enabled) accumulated[(int)part] += ticks; }
@@ -112,9 +134,12 @@ namespace MixedAtmospheres.Oni
             if (!started)
             {
                 started = true; last = windowStart = now; Array.Clear(accumulated, 0, accumulated.Length); Restart();
+                lastCollections = collections0; lastHeap = heapStart;
+                if (threadAllocated != null) lastThreadAllocated = threadAllocated();
                 return;
             }
             var frame = now - last; last = now;
+            if (threadAllocated != null) { var a = threadAllocated(); mainAllocated += a - lastThreadAllocated; lastThreadAllocated = a; }
             var collected = GC.CollectionCount(0);
             if (collected != lastCollections) { lastCollections = collected; ++gcFrames; gcFrameTicks += frame; gcWorstTicks = Math.Max(gcWorstTicks, frame); lastHeap = GC.GetTotalMemory(false); }
             else { var heap = GC.GetTotalMemory(false); if (heap > lastHeap) allocated += heap - lastHeap; lastHeap = heap; }
@@ -133,9 +158,12 @@ namespace MixedAtmospheres.Oni
         private static void Restart()
         {
             frames.Clear(); mod.Clear(); blocked.Clear(); other.Clear(); Array.Clear(sums, 0, sums.Length);
-            hitch33 = hitch50 = hitch100 = publications = worstFrameTicks = 0; gcFrames = gcFrameTicks = gcWorstTicks = allocated = publicationAllocated = 0; Array.Clear(worstParts, 0, worstParts.Length);
+            hitch33 = hitch50 = hitch100 = publications = worstFrameTicks = 0; gcFrames = gcFrameTicks = gcWorstTicks = allocated = publicationAllocated = mainAllocated = 0; Array.Clear(worstParts, 0, worstParts.Length);
             collections0 = GC.CollectionCount(0); collections1 = GC.CollectionCount(1); collections2 = GC.CollectionCount(2);
             heapStart = GC.GetTotalMemory(false);
+            Interlocked.Exchange(ref counted, 0);
+            lock (tracks) tracks.Clear();
+            lock (byproducts) byproducts.Clear();
         }
 
         private static double Rank(double[] sorted, double fraction) =>
@@ -166,6 +194,7 @@ namespace MixedAtmospheres.Oni
                     .Append(" gc2 ").Append((GC.CollectionCount(2) - collections2).ToString(c)).Append(" heap_mb ").Append((GC.GetTotalMemory(false) / 1048576.0).ToString("0.0", c))
                     .Append(" gc_frames ").Append(gcFrames.ToString(c)).Append(" gc_frame_mean_ms ").Append((gcFrames == 0 ? 0 : gcFrameTicks * 1000.0 / Stopwatch.Frequency / gcFrames).ToString("0.0", c))
                     .Append(" gc_frame_max_ms ").Append((gcWorstTicks * 1000.0 / Stopwatch.Frequency).ToString("0.0", c))
+                    .Append(" main_thread_alloc_kb_per_frame ").Append(threadAllocated == null ? "n/a" : (mainAllocated / 1024.0 / frames.Count).ToString("0.0", c))
                     .Append(" alloc_kb_per_frame ").Append((allocated / 1024.0 / frames.Count).ToString("0.0", c)).Append(" publication_alloc_kb ").Append((publicationAllocated / 1024.0 / Math.Max(1, publications)).ToString("0.0", c))
                     .Append(" heap_delta_mb ").Append(((GC.GetTotalMemory(false) - heapStart) / 1048576.0).ToString("0.0", c));
                 line.Append(" per_frame_ms");
@@ -184,7 +213,7 @@ namespace MixedAtmospheres.Oni
                     foreach (var pair in byproducts) line.Append(" byproduct_").Append(pair.Key).Append(' ').Append(pair.Value[0].ToString("0", c)).Append(" kg ").Append(pair.Value[1].ToString("0.###", c));
                     byproducts.Clear();
                 }
-                line.Append(" lazy_cells ").Append(Interlocked.Exchange(ref counted, 0).ToString(c)).Append(" lazy_cell_kb ").Append((Interlocked.Exchange(ref countedBytes, 0) / 1024).ToString(c));
+                line.Append(" lazy_cells ").Append(Interlocked.Exchange(ref counted, 0).ToString(c));
                 line.Append(" publications ").Append(publications.ToString(c));
                 UnityEngine.Debug.Log(line.ToString());
             }

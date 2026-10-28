@@ -67,7 +67,8 @@ class RegionalTick {
 public:
   RegionalTick(const MacGrid& g,std::vector<Species> species,
                std::vector<PhasePair> pairs,unsigned threads,
-               const MacGameSettings& cfg,bool conduction,bool sized_intervals=false)
+               const MacGameSettings& cfg,bool conduction,bool sized_intervals=false,
+               bool carry_momentum=false,double bound_mass_floor=0)
     :source(g),grid(g),pool(static_cast<unsigned>(std::min<std::size_t>(threads,grid.blocks))),
      topology(wall_topology(g)),species_count(species.size()),regions(topology.count) {
     std::vector<std::size_t> right(regions.size()),top(regions.size());
@@ -87,7 +88,7 @@ public:
       r.tick=std::make_unique<Tick>(b,species,pairs,regions.size()==1?threads:1,cfg.flow_parts,
         cfg.gas_heat_mixing,cfg.sharpen_liquid_interfaces,cfg.interface_detail_fraction,
         cfg.pressure_relative_tolerance,0,false,0,2,cfg.phase_relaxation_time_s,
-        conduction,cfg.pressure_maximum_iterations,cfg.heat_maximum_iterations,true,true,true,sized_intervals);
+        conduction,cfg.pressure_maximum_iterations,cfg.heat_maximum_iterations,true,true,true,sized_intervals,carry_momentum,bound_mass_floor);
     }
   }
   unsigned threads_used() const noexcept {

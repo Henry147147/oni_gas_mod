@@ -128,6 +128,7 @@ namespace MixedAtmospheres.Oni
         private static void ApplyPreferences()
         {
             ApplyWorkers();
+            ColonyFrameLog.SetPreference(Current.Toggle("performance.logFrameTiming"));
             MixtureInspection.ExactReadings = Current.Choice("display.readingPrecision") == "exact";
             MixtureAppearanceSettings.Apply(Current.Number("display.patternContrast"), Current.Number("display.traceMoleFraction"));
             PreferencesChanged?.Invoke();

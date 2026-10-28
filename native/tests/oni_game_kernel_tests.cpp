@@ -49,7 +49,7 @@ double heat_mixing(const std::vector<std::uint8_t> &image) {
   at+=4+model+8+8+4+4+8+8+8+8+1+8+8+4+8;
   double value=0;std::memcpy(&value,image.data()+at,8);return value;
 }
-// The phase-rule selector of a core25/26 image, after the heat iteration cap.
+// The phase-rule selector of a core25/26/27 image, after the heat iteration cap.
 std::uint32_t phase_selector(const std::vector<std::uint8_t> &image) {
   const std::string magic="MACCLS01";
   auto at=std::search(image.begin(),image.end(),magic.begin(),magic.end())-image.begin()+12;
@@ -185,30 +185,30 @@ int main() {
     surface.set("1");
     c::start(config,materials,cells,1);
     const auto created=c::checkpoint();
-    require(core_version(created)==26 && heat_mixing(created)==8 && phase_selector(created)==1,"Surface selector did not create boil-only core26 with heat mixing 8");
+    require(core_version(created)==27 && heat_mixing(created)==8 && phase_selector(created)==1,"Surface selector did not create boil-only core27 with heat mixing 8");
     c::advance(1,.2,2);c::wait();
     require(c::status().state==1,"Profile7 game owner faulted");
     const auto surface_image=c::checkpoint();
     c::advance(2,.2,2);c::wait();const auto surface_expected=c::checkpoint();c::stop();
     surface.set("0");
     c::restore(config,materials,surface_image,1);
-    require(c::checkpoint()==surface_image,"Core26 idle restore changed saved profile");
+    require(c::checkpoint()==surface_image,"Core27 idle restore changed saved profile");
     c::advance(2,.2,2);c::wait();
-    require(c::checkpoint()==surface_expected,"Core26 owner cold continuation differs");
+    require(c::checkpoint()==surface_expected,"Core27 owner cold continuation differs");
     c::stop();
-    std::cout<<"PASS explicit core26 creation with saved heat mixing 8 and core26 restore without its selector\n";
+    std::cout<<"PASS explicit core27 creation with saved heat mixing 8 and core27 restore without its selector\n";
     {
       auto flagged=config;flagged.flags|=MA_ONI_COLONY_GAME_SURFACE;
       c::start(flagged,materials,cells,1);
       const auto image=c::checkpoint();c::stop();
-      require(core_version(image)==26 && heat_mixing(image)==8 && phase_selector(image)==1,"Profile flag did not create boil-only core26 with heat mixing 8");
+      require(core_version(image)==27 && heat_mixing(image)==8 && phase_selector(image)==1,"Profile flag did not create boil-only core27 with heat mixing 8");
       auto lone=flagged;lone.flags=MA_ONI_COLONY_PHYSICS_CONDUCTION|MA_ONI_COLONY_GAME_SURFACE;
       bool refused=false;
       try{c::start(lone,materials,cells,1);}catch(const std::exception&){refused=true;}
       c::stop();
       require(refused,"Profile flag without the game kernel was accepted");
     }
-    std::cout<<"PASS default profile flag creates boil-only profile7 core26 without a selector; refused without the game kernel\n";
+    std::cout<<"PASS default profile flag creates boil-only profile8 core27 without a selector; refused without the game kernel\n";
     {
       // Saved profile-7 options (docs/settings.md): the defaults reproduce the
       // colony created without the setter byte for byte; higher caps give the
@@ -234,21 +234,21 @@ int main() {
       const auto plain=run(nullptr,3,&reset_created,&plain_readings,&plain_parts,&copied);
       require(same(copied,defaults),"Default options differ from the running colony's values");
       (void)run(&defaults,0,&set_created,nullptr,nullptr,nullptr);
-      require(plain_created==reset_created && plain_created==set_created && core_version(set_created)==26 && heat_mixing(set_created)==8 &&
+      require(plain_created==reset_created && plain_created==set_created && core_version(set_created)==27 && heat_mixing(set_created)==8 &&
               phase_selector(set_created)==1 &&
               defaults.evaporation_below_boiling==0 && defaults.reserved==0 && defaults.abi_version==2 && defaults.struct_size==88,
-              "Default options changed the new profile7 colony");
+              "Default options changed the new profile8 colony");
       {
         // Evaporation below boiling (the earlier equilibrium rule) writes
-        // core26 with selector 0; without a liquid/vapour pair both rules
+        // core27 with selector 0; without a liquid/vapour pair both rules
         // give the same physical results.
         auto realistic=defaults;realistic.evaporation_below_boiling=1;
         MAOniColonyOptions realistic_saved{};std::vector<std::uint8_t> realistic_created;
         std::vector<MAOniColonyReading> realistic_readings;std::vector<MAOniColonyConstituent> realistic_parts;
         const auto realistic_image=run(&realistic,3,&realistic_created,&realistic_readings,&realistic_parts,&realistic_saved);
-        require(same(realistic_saved,realistic) && core_version(realistic_created)==26 && core_version(realistic_image)==26 &&
+        require(same(realistic_saved,realistic) && core_version(realistic_created)==27 && core_version(realistic_image)==27 &&
                 phase_selector(realistic_created)==0 && realistic_created.size()==plain_created.size(),
-                "Evaporation below boiling was not saved as core26 with the equilibrium selector");
+                "Evaporation below boiling was not saved as core27 with the equilibrium selector");
         require(realistic_readings.size()==plain_readings.size() && realistic_parts.size()==plain_parts.size() &&
                 std::memcmp(realistic_readings.data(),plain_readings.data(),plain_readings.size()*sizeof(MAOniColonyReading))==0 &&
                 std::memcmp(realistic_parts.data(),plain_parts.data(),plain_parts.size()*sizeof(MAOniColonyConstituent))==0,
@@ -271,7 +271,7 @@ int main() {
       precise.pressure_maximum_iterations=1600;precise.heat_maximum_iterations=3200;precise.gas_heat_mixing=4;
       MAOniColonyOptions precise_saved{};std::vector<std::uint8_t> precise_created;
       (void)run(&precise,0,&precise_created,nullptr,nullptr,&precise_saved);
-      require(same(precise_saved,precise) && core_version(precise_created)==26 && heat_mixing(precise_created)==4,"Precise options were not saved");
+      require(same(precise_saved,precise) && core_version(precise_created)==27 && heat_mixing(precise_created)==4,"Precise options were not saved");
       c::set_options(nullptr);
       c::restore(flagged,materials,precise_created,1);
       MAOniColonyOptions restored{};require(c::copy_options(restored) && same(restored,precise),"Restore did not keep the saved options");
@@ -299,7 +299,7 @@ int main() {
       require(core_version(core20)==20 && copied20 && legacy.pressure_maximum_iterations==200 && legacy.evaporation_below_boiling==1,
               "Options leaked into an older game profile");
     }
-    std::cout<<"PASS profile7 options: defaults byte-identical, higher caps identical results, saved/restored values, refusals\n";
+    std::cout<<"PASS profile8 options: defaults byte-identical, higher caps identical results, saved/restored values, refusals\n";
     std::cout << "PASS diagnostic kernel3 owner flag5, ownEOS publication, "
                  "native heat, opened door, zero retry/phase skips, ledgers "
                  "and exact owner cold continuation\n";

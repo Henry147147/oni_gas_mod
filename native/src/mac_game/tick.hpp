@@ -64,6 +64,9 @@ class Tick {
   // bound, instead of by fixed halving and doubling. The criterion, the
   // equations and the tolerances are profile 6's.
   bool sized_intervals = false;
+  // Profile 8: sharpening and layering carry the momentum of the material
+  // they move (and the flow's net-volume bound has a mass floor).
+  bool carry_momentum = false;
   SurfaceScratch surface_scratch;
   static double ms(std::chrono::steady_clock::time_point start) {
     return std::chrono::duration<double, std::milli>(
@@ -81,10 +84,12 @@ public:
        bool enable_heat = true, unsigned pressure_iterations = 200,
        unsigned heat_iterations = 200, bool surface_closure = false,
        bool trace_before_heat = false, bool bound_pressure_volume = false,
-       bool size_intervals = false)
+       bool size_intervals = false, bool carry_moved_momentum = false,
+       double bound_mass_floor = 0)
       : grid(source), species(table),
         flow(source, table, threads, false, pressure_tolerance, gravity_source, pressure_iterations,
-             surface_closure, bound_pressure_volume),
+             surface_closure, bound_pressure_volume,
+             bound_pressure_volume ? bound_mass_floor : 0),
         heat(source, table, threads, heat_mixing, &flow.worker_pool(), heat_iterations),
         phase(source, std::move(table), std::move(pairs), threads,
               &flow.worker_pool()),
@@ -94,7 +99,8 @@ public:
         phase_time(phase_relaxation_time), heat_enabled(enable_heat),
         prune_before_heat(trace_before_heat),
         bounded_pressure_volume(bound_pressure_volume),
-        sized_intervals(bound_pressure_volume && size_intervals) {}
+        sized_intervals(bound_pressure_volume && size_intervals),
+        carry_momentum(carry_moved_momentum) {}
   [[nodiscard]] unsigned threads_used() const noexcept {
     return flow.worker_pool().size();
   }
@@ -313,7 +319,12 @@ public:
     }
     auto stage_start = std::chrono::steady_clock::now();
     auto layered = layer(grid, species, out.state, out.eos, dt, gravity,
-                         &flow.kernel_grid(), &flow.worker_pool());
+                         &flow.kernel_grid(), &flow.worker_pool(),
+                         carry_momentum, &regions);
+    wall_x += layered.wall_x;
+    wall_y += layered.wall_y;
+    wall_ops_x += layered.wall_ops_x;
+    wall_ops_y += layered.wall_ops_y;
     if (layered.faces) {
       out.eos = flow.evaluate_changed(out.state.masses, out.state.energy,
                                       layered.state, std::move(out.eos));
@@ -326,7 +337,11 @@ public:
       auto sharpened =
           sharpen(grid, species, out.state, std::move(out.eos), dt, gravity,
                   interface_detail, &flow.worker_pool(), &flow.kernel_grid(),
-                  &surface_scratch);
+                  &surface_scratch, carry_momentum, &regions);
+      wall_x += sharpened.wall_x;
+      wall_y += sharpened.wall_y;
+      wall_ops_x += sharpened.wall_ops_x;
+      wall_ops_y += sharpened.wall_ops_y;
       if (sharpened.faces)
         out.state = std::move(sharpened.state);
       out.eos = std::move(sharpened.eos);

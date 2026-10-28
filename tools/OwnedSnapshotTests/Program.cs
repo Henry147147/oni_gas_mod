@@ -429,7 +429,13 @@ internal static unsafe class Program
                     var boilOnly=Owner(version,25,1,400,800,jobs,8);
                     Check(ColonyCheckpointMetadata.Profile(boilOnly).Equals(new ColonyPhysicalProfile(version,25,1,400,800,8)));
                     ColonyCheckpointMetadata.RefuseUnboundedPressure(boilOnly);
-                    Check(ColonyCheckpointMetadata.Profile(Owner(version,26,1,400,800,jobs,8)).Equals(new ColonyPhysicalProfile(version,26,0,0,0)));
+                    foreach(var current in new uint[]{26,27})
+                    {
+                        var saved=Owner(version,current,1,400,800,jobs,8);
+                        Check(ColonyCheckpointMetadata.Profile(saved).Equals(new ColonyPhysicalProfile(version,current,1,400,800,8)));
+                        ColonyCheckpointMetadata.RefuseUnboundedPressure(saved);
+                    }
+                    Check(ColonyCheckpointMetadata.Profile(Owner(version,28,1,400,800,jobs,8)).Equals(new ColonyPhysicalProfile(version,28,0,0,0)));
                     foreach(var old in new uint[]{20,21,22,23})
                     {
                         var earlier=Owner(version,old,1,400,800,jobs,8);var unchanged=(byte[])earlier.Clone();

@@ -29,6 +29,9 @@ class Flow {
   unsigned gravity_rule = 0;
   bool audit_mode = true;
   bool bounded_pressure_volume = false;
+  // Profile 8: the net swept-volume bound applies only where the cell or a
+  // neighbour flowing into it holds at least this mass (kg); 0 bounds all cells.
+  double bound_mass_floor = 0;
   PatchTransport patch;
   // Capacity of the previous pressure result, lent to the next solve.
   Pressure pressure_storage;
@@ -80,7 +83,8 @@ public:
   Flow(const ma::experimental::MacGrid &grid, std::vector<Species> table,
        unsigned threads, bool auditing = true, double pressure_tolerance = 1e-8,
        unsigned gravity_source = 0, unsigned pressure_iterations = 200,
-       bool surface_closure = false, bool bound_pressure_volume = false)
+       bool surface_closure = false, bool bound_pressure_volume = false,
+       double bound_mass = 0)
       : source(grid), g(source), topology(g), species(std::move(table)),
         eos_pool(
             static_cast<unsigned>(std::min<std::size_t>(threads, g.blocks))),
@@ -89,7 +93,7 @@ public:
                  surface_closure),
         gravity_rule(gravity_source), audit_mode(auditing),
         bounded_pressure_volume(bound_pressure_volume),
-        patch(grid, &eos_pool, &topology) {}
+        bound_mass_floor(bound_mass), patch(grid, &eos_pool, &topology) {}
   ma::experimental::mac_kernel::Pool &worker_pool() const { return eos_pool; }
   const auto &region_topology() const { return topology; }
   const auto &kernel_grid() const { return g; }
@@ -234,6 +238,23 @@ public:
           if (!std::isfinite(divergence)) {
             largest = std::numeric_limits<double>::infinity();
             break;
+          }
+          if (bound_mass_floor > 0) {
+            // Below the floor in the cell and every neighbour that flows
+            // into it, no mass worth bounding is swept in.
+            double held = eos[i].mass;
+            const auto inflow = [&](bool x, std::size_t f, bool upper) {
+              const double q = (x ? projected.qx : projected.qy)[f];
+              const auto other = upper ? (x ? g.xr : g.yr)[f] : (x ? g.xl : g.yl)[f];
+              if (other != k::none && (upper ? q < 0 : q > 0))
+                held = std::max(held, eos[other].mass);
+            };
+            inflow(true, g.left_face(i), false);
+            inflow(true, g.right_face(i), true);
+            inflow(false, g.bottom_face(i), false);
+            inflow(false, g.top_face(i), true);
+            if (held < bound_mass_floor)
+              continue;
           }
           largest = std::max(largest, std::abs(divergence));
         }

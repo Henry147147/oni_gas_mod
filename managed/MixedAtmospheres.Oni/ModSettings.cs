@@ -160,6 +160,8 @@ namespace MixedAtmospheres.Oni
             SettingDefinition.Number("performance.workerThreads", SettingScope.Preference, Performance, "Solver workers",
                 "Physical cores (default) uses one worker per physical CPU core. Choose a number to use fewer workers or include SMT threads. More workers can be slower. Changes apply to the current colony and are not saved in the colony.",
                 0, 0, 256, Enumerable.Range(0, 257).Select(n => (double)n).ToArray(), "", true),
+            SettingDefinition.Toggle("performance.logFrameTiming", SettingScope.Preference, Performance, "Log frame timing",
+                "Write a frame-time summary to Player.log every 15 seconds: Unity frame percentiles, time spent in this mod, time blocked on the solver, garbage collections and allocation. Turn it on when investigating stutter; off by default.", false),
             SettingDefinition.Choice("display.readingPrecision", SettingScope.Preference, Display, "Reading precision",
                 "How the hover card and status panel print readings. Exact prints every digit and both units; the values are the same.",
                 "friendly", new[] { "friendly", "exact" }, new[] { "4 significant figures", "Exact" }),

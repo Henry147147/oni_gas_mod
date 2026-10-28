@@ -1,13 +1,11 @@
 # Feature completion work
 
-**Current goal, 2026-10-27:** a Steam-ready first release covering the base
-game and Spaced Out! ([amendment](completion-plan.md#amendments)). A private
-Windows candidate is with the user ([current instructions](spaced-out-private-playtest.md));
-actual Windows feedback remains pending. Revision `d252486` removes
-nitrogen, makes CO₂ breathing limits optional (off by default) and moves
-technical controls and solver presets under Advanced. Release engineering now
-continues with exact storage and continuation. Performance and the
-accuracy/persistence proofs below remain required.
+**Current goal, 2026-10-28:** a Steam-ready first release covering the base
+game and Spaced Out! ([amendment](completion-plan.md#amendments)). The user's
+0.85× Windows playtest with stuttering input failed acceptance; real time and
+smooth input now block release. Profile8/core27 carries liquid-correction
+momentum and the adopted 1 mg interval floor. Region activity tiers, native
+frame waits, exact storage and the accuracy/persistence proofs remain open.
 
 This tracks work toward the full [completion plan](completion-plan.md), beyond
 the narrower first private base-game playtest. A private candidate is already
@@ -16,6 +14,12 @@ playtest deferrals remain recorded until their own controls pass.
 
 ## Current repairs
 
+- **Scenario baseline, 2026-10-28:** immutable `16da60c` also fails the unchanged
+  freeze/melt check (357.9 kg, required >380 kg) and airflow gas check
+  (4.278 → 4.052 kg, required increase >0.05 kg; liquid barrier passes).
+  Both failures can predate boil-only and profile7; their causes remain open.
+  Freeze/melt used llvmpipe, airflow NVIDIA, so these are functional results,
+  not a performance comparison. No scenario inputs or bounds were changed.
 - **Freeze/melt handoff:** the delivered `dde2a09` failed its unchanged
   arena-water check (337.9 kg; required greater than 380 kg). A diagnostic
   repeat admitted the full 400 kg ice source at 290 K and passed with 387.3 kg
@@ -119,9 +123,9 @@ playtest deferrals remain recorded until their own controls pass.
 | [Starting air and progression](starting-air.md) | Nitrogen removed, default CO₂ opt-out, live switch, Advanced controls and finite starting oxylite reserve. Prove representative starts reach sustainable life support and endgame without developer intervention. |
 | [Mixture presentation](mixture-presentation.md) | Finish exact container coverage and the required real-game hover, detail, overlay and contrast checks on both operating systems. Prove the 100,000-cell publication and allocation requirements as well as functional display. |
 | [Performance](completion-plan.md#release-acceptance) | At least 1× sustained with smooth input, camera and menus on the user's PC in representative base-game and Spaced Out! colonies (2026-10-28; the 0.85× playtest with stutter failed it). Measure the active-cell/duplicant, memory, disturbance-recovery and presentation targets on the specified hardware; the current smaller-colony measurements do not certify them. Features may be removed for speed only by the user's choice. |
-| Boil-only phase change | Implemented in `1058d0d` (checkpoint 25, options version 2; profile 7/checkpoint 26 carries the rule too). The native control, saved-profile support and the Linux in-game phase scenario pass in both modes. Open: Windows in-game check. |
-| Speed work, 2026-10-28 | Exact speedups `a19d6ba`, `23882ca` and profile 7 (`e1615ba`): fresh Spaced Out! physics about 40% faster, still about 1.0–1.2 s per 0.2 s owner frame on the 5900X. In progress: profile 7 as the default, the user-approved momentum-carrying sharpening/layering and 1 mg interval floor, paused and 1 s-step remote regions, space-sink and owner overhead. |
-| Smooth input and UI | The stutter came from non-incremental GC fed by about 30 MB of presentation objects per owner frame. `d223793` (lazy readings, receipt budget, frame log) cut base-game frame p95/p99 from 164/344 to 85/179 ms. Remaining: about one ~200 ms GC pause per 3 s, and native frame-wait spikes. A Windows frame-log run is needed. |
+| Boil-only phase change | Implemented in `1058d0d` (options version 2); profile8/core27 saves either phase rule and defaults to boil-only. The native control, saved-profile support and the earlier Linux in-game phase scenario pass in both modes. Open: Windows in-game check. |
+| Speed work, 2026-10-28 | Profile8/core27 is the new-colony default: momentum-carrying sharpening/layering plus the 1 mg interval floor. The matched fresh Spaced Out! replay drops mean owner time from 0.764 to 0.583 s and the defective magma face from −2,081 to −25 m/s; the twelve-dig replay passes. This contended 5900X evidence does not establish real time. Open: paused and 1 s-step remote regions, space-sink and owner overhead. |
+| Smooth input and UI | Readings allocate 64–68% less in fixed-JIT .NET controls and match the parent bytes across 60,000 cells plus 528 edge cases. Advanced → Performance → Log frame timing enables Windows diagnostics. A fresh 180-frame GPU Linux Terra run passes; its one clean 15 s window has two GCs and frame p95/p99 55/103 ms. Native logs separate owner waits (about 9–10 ms mean) from UpdateData (13–14 ms). The one-GC/15 s goal, native wait spikes and actual Windows smoothness remain open. |
 | [Compatibility and packaging](windows-validation.md) | Complete current-bundle gameplay, natural autosave, cold/menu load and UI checks; resolve portable Linux ABI validation; retain separate evidence for Proton and actual Windows OS. |
 | [Long regressions and release](completion-plan.md#release-acceptance) | Complete the base-game and Spaced Out! mode and all-content colony regressions, player documentation and human playtesting. Workshop publication remains a separate authorized action. |
 | Game-update resilience | The mod and its saves are pinned to ONI build 744825 (whole-file hashes, fixed hook addresses, save envelopes). Verify each build by what the mod actually depends on, fail closed with a clear message, load saves across supported builds, and provide a re-targeting tool for new builds. |

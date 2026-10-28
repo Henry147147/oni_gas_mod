@@ -9,7 +9,7 @@ existing implementations and settings.
 An additional explicit creation selector, `MA_COLONY_KERNEL3_POSITIVE=1`,
 selects profile3/core21 while kernel3 is enabled. The original selector alone
 continues to create profile2/core20. `MA_COLONY_KERNEL3_SURFACE=1` creates
-profile5/core23 ([below](#trace-removal-before-conduction-profile5core23)). Saves
+profile8/core27 ([below](#carried-interface-momentum-and-speed-profile-8)). Saves
 restore their recorded law and work caps independently of any creation selector.
 These profiles remain opt-in; floor and colony acceptance are open.
 
@@ -614,4 +614,56 @@ interval count of the fast flows described above, and the per-interval cost
 of transport (about 1–2 ms per interval on 5,000–9,000 cells), pressure and
 readings. Options that would change the model (momentum-carrying sharpening
 and layering; a net-volume bound that ignores cells and donors below a mass
-floor) are measured in the orchestration report, not adopted.
+floor) were measured in the orchestration report and subsequently adopted
+as profile8 below.
+
+## Carried interface momentum and speed profile 8
+
+Game profile8 / physical checkpoint27 implements the two changes adopted on
+2026-10-28. Liquid sharpening and density layering carry momentum with their
+material parcels. A parcel's half mass on each donor face carries that face's
+velocity to the same side of its receiving cell. Initial face velocities are
+frozen across each layering pass and each sharpening correction. Receiving
+faces closed by a wall or an impermeable mask book the carried momentum as a
+wall impulse. Actual face kinetic-energy changes become local internal-energy
+work; gravitational work and mass-carried passives retain their existing rules.
+The species, passive, energy and both momentum accounts retain their original
+relative bounds, including each connected region's independent audit.
+
+The sized net swept-volume intervals also ignore a cell only when its own
+mass and every neighbor flowing into it are each below 1e-6 kg (1 mg). A
+massive inflow into a vacuum or trace cell still applies the bound, and a cell
+or inflow exactly at 1 mg is included. This floor affects interval selection,
+and removes no material. Liquid stiffness, interface sharpening, trace-sink
+thresholds and all frozen gate inputs and bounds stay as adopted.
+
+New colonies use profile8 with the boil-only rule. Earlier saved profiles keep
+their arithmetic and checkpoint bytes. Development controls can request
+profile6 or profile7 explicitly through `MA_COLONY_KERNEL3_PROFILE6=1` or
+`MA_COLONY_KERNEL3_PROFILE7=1`.
+
+The fresh Spaced Out! owner replay, from the unchanged frame3 state with its
+recorded inputs through frame43, keeps the watched magma face at (308,219)
+between -24.84 and +5.04 m/s instead of profile7's -2,080.92 m/s. The cell
+stays at 1,720.91–1,722.52 K; the paired profile7 replay reaches
+1,153.34–1,764.94 K. The same observer, original physical fields and recorded
+inputs give 0.764/1.105 s mean/p95 per owner frame for profile7 and
+0.583/0.707 s for profile8 (23.7% lower mean), twelve workers under the high
+CPU lock while the clean test suite runs on the low half. These are single
+paired development-machine observations, not real-time acceptance on the
+user's PC.
+
+The uploaded colony's twelve-dig owner replay also completes all 80 frames
+(505–584), with the watched cell at 32.346–34.370°C, 1.64923–1.68182 kg
+and 249.755–254.394 kPa. It averages 0.860 s per owner frame (p95 0.932 s)
+under the same CPU lock. Both replay sources retain their original
+equilibrium phase-rule selector to isolate the profile change; new colonies
+still create the independently tested boil-only selector.
+
+Focused controls cover both momentum components, closed receiving-face
+impulses, vacuum neighbors, both gravity signs, independent sharpening
+clusters, overlapping layering footprints, worker equality and connected
+audits. Checkpoint27 saves and continues both phase rules exactly. Expansion
+into a newly opened vacuum/trace cell retains profile7's resolved temporal
+trajectory when its inflow is massive; the floor excludes all-sub-mg flows
+and includes an inflow exactly at 1 mg.

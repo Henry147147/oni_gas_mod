@@ -52,6 +52,7 @@ def main() -> None:
     run(["dotnet", "run", "--project", "tools/ColonyConduitTests", "-c", "Release"], env)
     run(["dotnet", "run", "--project", "tools/ColonyWorldLayoutTests", "-c", "Release"], env)
     run(["dotnet", "run", "--project", "tools/SettingsTests", "-c", "Release"], env)
+    run(["dotnet", "run", "--project", "tools/ReadingEquivalenceTests", "-c", "Release"], env)
     run(["dotnet", "run", "--project", "tools/DistributionTests", "-c", "Release"], env)
     run(["dotnet", "run", "--project", "tools/OwnedReservoirCheckpointTests", "-c", "Release"], env)
     run(["dotnet", "run", "--project", "tools/OwnedReservoirSavedInspectionTests", "-c", "Release"], env)

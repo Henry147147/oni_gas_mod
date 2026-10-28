@@ -126,6 +126,12 @@ layout is version26's (with the phase-rule selector). Versions20–26 keep their
 bytes, arithmetic and continuation. This reservation does not enable the
 profile or claim validation.
 
+*Implemented 2026-10-28* ([carried momentum profile8](MAC_GAME_KERNEL.md#carried-interface-momentum-and-speed-profile-8)):
+version27 keeps version26's layout and canonical phase-rule selector (0
+equilibrium, 1 boil-only). New colonies use profile8 with boil-only; restored
+profiles retain their saved equations. `MA_COLONY_KERNEL3_PROFILE6=1` and
+`MA_COLONY_KERNEL3_PROFILE7=1` select earlier profiles for development controls.
+
 **Reserved 2026-10-28 immediately after fetching `3549185`:** physical
 `MACCLS01` version **26** identifies game profile **7**, a speed profile with
 profile6's equations, net swept-volume criterion, tolerances and iteration

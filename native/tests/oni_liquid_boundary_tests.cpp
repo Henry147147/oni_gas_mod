@@ -18,20 +18,23 @@ using namespace ma;
 using namespace ma::experimental;
 using namespace ma::oni::colony;
 void check(bool ok,const char* why) {if(!ok)throw std::runtime_error(why);}
-// Creates new colonies with game profile 6 while it lives
-// (MA_COLONY_KERNEL3_PROFILE6=1), restoring the variable afterwards.
-struct Profile6Colonies {
+// Pins historical controls to their saved physical profile, restoring the
+// creation selector afterwards.
+template<unsigned Profile> struct ProfileColonies {
+    static constexpr const char* variable=Profile==6?"MA_COLONY_KERNEL3_PROFILE6":"MA_COLONY_KERNEL3_PROFILE7";
     std::string previous;bool present=false;
-    Profile6Colonies() {if(const char* v=std::getenv("MA_COLONY_KERNEL3_PROFILE6")){previous=v;present=true;}set("1");}
-    ~Profile6Colonies() {set(present?previous.c_str():nullptr);}
+    ProfileColonies() {if(const char* v=std::getenv(variable)){previous=v;present=true;}set("1");}
+    ~ProfileColonies() {set(present?previous.c_str():nullptr);}
     static void set(const char* value) {
 #ifdef _WIN32
-        _putenv_s("MA_COLONY_KERNEL3_PROFILE6",value?value:"");
+        _putenv_s(variable,value?value:"");
 #else
-        if(value)setenv("MA_COLONY_KERNEL3_PROFILE6",value,1);else unsetenv("MA_COLONY_KERNEL3_PROFILE6");
+        if(value)setenv(variable,value,1);else unsetenv(variable);
 #endif
     }
 };
+using Profile6Colonies=ProfileColonies<6>;
+using Profile7Colonies=ProfileColonies<7>;
 constexpr std::uint32_t oxygen=3,marker=4,water=5,steam=6;
 constexpr double dt=static_cast<double>(.2f);
 MAOniColonyMaterial material(const char* id,int hash,unsigned native,bool gas,double molar,double cp,double rho=0) {
@@ -153,11 +156,12 @@ void legacy_fixture() {
 }
 
 namespace {
-// The airflow-tile column on the new-colony default, profile 7 (boil-only):
+// The airflow-tile column on historical profile 7 (boil-only):
 // under the current owner law and under the old version-11 law the water
 // front stays behind the column, the column's water returns each frame and
 // no water reaches it or the cells beyond. In ONI airflow tiles block liquid.
 void profile7_airflow_column_control() {
+    const Profile7Colonies profile7;
     set_options(nullptr);set_diseases({}, {},0);const auto cfg=config();const auto mats=materials();const auto cat=catalogue(mats);
     const auto filled=fill_front(cfg,mats);const auto world=physical(filled,cat);
     check(world.settings().game_profile==MacGameProfile::game_kernel_sized_intervals &&

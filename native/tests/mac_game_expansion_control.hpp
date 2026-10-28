@@ -33,9 +33,11 @@ inline void bounded_pressure_expansion_control() {
     s.masses.offsets.push_back(s.masses.mass.size());
     return s;
   };
-  const auto make_tick = [&](const MacGrid &g, bool bounded, bool sized = false) {
+  const auto make_tick = [&](const MacGrid &g, bool bounded, bool sized = false,
+                             bool carried = false) {
     return k::Tick(g, species, {}, 1, 2, 8, false, 0, 1e-8, 0,
-                   false, 0, 2, 1, true, 400, 800, true, true, bounded, sized);
+                   false, 0, 2, 1, true, 400, 800, true, true, bounded, sized,
+                   carried, carried ? 1e-6 : 0.);
   };
   MacGrid g;
   g.width = 32; g.height = 24;
@@ -46,9 +48,11 @@ inline void bounded_pressure_expansion_control() {
     auto old_tick = make_tick(g, false);
     auto new_tick = make_tick(g, true);
     auto sized_tick = make_tick(g, true, true);
+    auto carried_tick = make_tick(g, true, true, true);
     const auto old = old_tick.advance(source, .2, 0, 1e-11);
     const auto fixed = new_tick.advance(source, .2, 0, 1e-11);
     const auto sized = sized_tick.advance(source, .2, 0, 1e-11);
+    const auto carried = carried_tick.advance(source, .2, 0, 1e-11);
     // A much smaller legacy pressure interval independently resolves the
     // newly opened cell. No candidate retry/volume criterion enters this run.
     auto fine_tick = make_tick(g, false);
@@ -73,6 +77,12 @@ inline void bounded_pressure_expansion_control() {
     check(sized.energy_error < 1e-12 && sized.mass_error < 1e-12 &&
               sized.momentum_error < 1e-12 && sized.region_error < 1e-12,
           "Sized pressure intervals broke the physical audit contract");
+    // Every inflow into the tiny opened cell comes from a massive donor;
+    // profile 8 must retain the bound and the same temporal trajectory here.
+    check(carried.state.energy == sized.state.energy &&
+              carried.state.masses.mass == sized.state.masses.mass &&
+              carried.state.jx == sized.state.jx && carried.state.jy == sized.state.jy,
+          "The 1 mg floor ignored a massive inflow into an empty/trace cell");
     check(old_error > .1 * scale,
           "Opening regression no longer exposes the coarse frozen-pressure defect");
     check(fixed_error < .01 * scale && fixed_error < .1 * old_error,
@@ -104,10 +114,19 @@ inline void bounded_pressure_expansion_control() {
   // A one-dimensional expansion before either rarefaction/front reaches a
   // wall has no compressing/focusing jet: pressure cannot exceed its initial
   // reservoir value. This oracle does not apply to the 2-D cavity above.
+  const auto dilute = make_state(g, [&](std::size_t i) { return i == opened ? 0. : 1e-9; });
+  k::Flow dilute_bounded(g, species, 1, true, 1e-8, 0, 400, true, true),
+          dilute_floor(g, species, 1, true, 1e-8, 0, 400, true, true, 1e-6);
+  check(dilute_bounded.advance(dilute, .2, 0).pressure_refinement_requested &&
+            !dilute_floor.advance(dilute, .2, 0).pressure_refinement_requested,
+        "The 1 mg floor did not exempt cells and inflows below its mass threshold");
+  const auto threshold = make_state(g, [&](std::size_t i) { return i == opened ? 0. : 1e-6; });
+  check(dilute_floor.advance(threshold, .2, 0).pressure_refinement_requested,
+        "The 1 mg floor exempted an inflow exactly at its inclusive threshold");
   MacGrid line;
   line.width = 128; line.height = 1; line.walls.resize(line.width);
-  for (const bool sized : {false, true}) {
-    auto one_d = make_tick(line, true, sized);
+  for (const unsigned profile : {6U, 7U, 8U}) {
+    auto one_d = make_tick(line, true, profile >= 7, profile >= 8);
     const auto slab = make_state(line, [](std::size_t i) { return i < 64 ? 1.6 : 0.; });
     const double initial_p = one_d.evaluate_state(slab)[0].pressure;
     const auto front = one_d.advance(slab, .005, 0, 1e-11);

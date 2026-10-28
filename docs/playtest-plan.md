@@ -2,9 +2,16 @@
 
 **Release priorities, 2026-10-28:** at least real time with smooth input and
 UI now blocks release, and the user may remove features to reach it. New
-colonies will default to boil-only phase change (no evaporation below the
+colonies default to boil-only phase change (no evaporation below the
 pressure-dependent boiling point, ONI-like condensation). See the
 [amendment](completion-plan.md#amendments).
+
+**Resumed speed work, 2026-10-28:** new colonies now use profile8/core27 with
+boil-only, momentum-carrying liquid sharpening/layering and the adopted 1 mg
+interval floor. The fresh Spaced Out! magma-face and twelve-dig owner replays
+pass; real-time acceptance and region activity tiers remain open. Reading
+allocation reductions and a player-accessible frame log support the next
+smoothness check ([handoff](handoff-codex-2026-10-28.md)).
 
 **Current regression, 2026-10-28:** the user's Windows recording and uploaded
 colony reproduce large temperature, pressure and mass swings after digging.
@@ -271,7 +278,7 @@ buildable and the asteroid loadable.
   Because boiling points follow total pressure, a minor gas in a strongly
   compressed mixture can condense. Turning the setting on restores realistic
   evaporation for a new colony.
-- The current default profile5/core23 uses a positive-volume liquid law. Below half
+- The current default profile8/core27 uses a positive-volume liquid law. Below half
   the saved bulk stiffness it retains the earlier linear law; higher pressures
   progressively stiffen compression, with continuous volume and elastic energy.
   High-pressure readings and boiling therefore differ from profile2/core20.
@@ -283,7 +290,7 @@ buildable and the asteroid loadable.
   fronts, internal fluid heat updates once per tick and latent phase relaxation
   once per second. A bounded sharp-interface correction remains for liquids.
   Mixing, inertia, per-cell physical pressure and latent heat remain present.
-  Profile5 also saves gas heat mixing8. These numerical choices belong to the
+  Profiles5–8 also save gas heat mixing8. These numerical choices belong to the
   game profile; the strict reference and production physics gates are separate.
 - In the mixed-pipe implementation, a deconstruction spill that cannot
   fit stays owned at its source and appears as "Fluid waiting for space". It
