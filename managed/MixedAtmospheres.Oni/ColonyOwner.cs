@@ -478,7 +478,7 @@ namespace MixedAtmospheres.Oni
         {
             var element = ElementLoader.FindElementByHash((SimHashes)r.Callback);
             if (element == null || !(r.MassKg > 0)) return;
-            ColonyFrameLog.CountByproduct(element.id.ToString(), r.MassKg);
+            if (ColonyFrameLog.Enabled) ColonyFrameLog.CountByproduct(element.id.ToString(), r.MassKg);
             var cell = (int)r.PublicCell;
             element.substance.SpawnResource(Grid.CellToPosCCC(cell, Grid.SceneLayer.Ore), r.MassKg, r.TemperatureK, byte.MaxValue, 0,
                 prevent_merge: MergeTargetIsDying(cell, element.tag, r.MassKg));
