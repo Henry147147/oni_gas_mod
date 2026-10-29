@@ -149,6 +149,7 @@ static partial class Proof
         LargeCases();
         Lifetime(models, success);
         BatchControls(models[0], success);
+        CollisionAdmission(models, success);
         Boundaries(models[0], success);
         PairedControls(models[0], success);
         Console.WriteLine($"PASS texture scalar exact same-process {checks} checks, {success.Count} valid cases, {rejected} model rejections, warmed allocation {allocated} bytes/20000 samples, parallel workers8");

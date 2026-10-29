@@ -26,7 +26,10 @@ Cases cover native ordering and equal-ID permutations, 76/79-species catalogues,
 2..257 constituents, invalid inputs, cached-null rejection counts, model and
 coordinate errors, opacity options, collisions, busy writers, stale/reused
 leases, old models, sessions, nested worker frames and concurrent readers.
-Viewport preflight rejects colliding/unsupported/large views before scalar work.
+Viewport preflight accepts colliding visible indices within the bounded slot
+count. Exact index/model/coordinate/lease tags turn conflicts into misses under
+the existing per-slot gate. Unsupported and over-capacity views retain whole
+full-provider fallback.
 Optional range lookup/binding/camera failures fall back without hiding sampling
 errors. Destination-byte checker negatives remain independent of renderer
 validation probes, which intentionally use the rich route.

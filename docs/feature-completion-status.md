@@ -25,8 +25,15 @@ playtest deferrals remain recorded until their own controls pass.
   controlled Lead merging and precise-pipe custody checks pass. Pacing credit
   now retains at most 2 s and repays under the original cap/busy guards, with
   default/on/off and actual game-Mono patch-order controls. Sustained representative 3× and smooth
-  input remain open. Native held-vector sharing improves captured mean times
-  but worsens p95, so it remains private.
+  input remain open. Native held-vector sharing improves captured mean times;
+  the latest representation improves DLC p95 but worsens base-game p95, so
+  full-backend game evaluation remains private.
+- **DLC texture fallback, 2026-10-29:** all 5,543 diagnostic rejections were
+  modulo collisions despite spare bounded capacity. The production preflight
+  now permits conflicts as misses, preserving slot locks and full cache keys.
+  Scalar/renderer, actual game-Mono and 6,144 sampled CPU destination-byte
+  controls pass. An ordered DLC comparison improves 1.906→1.948× and lowers
+  heap-growth estimates; native work and representative 3× remain open.
 - **3× instrumentation and activity integration, 2026-10-28:** performance diagnostics
   measure independent absolute owner/game clock deltas against monotonic wall
   time, retain pauses and report matched submit-through-managed-publication

@@ -380,6 +380,38 @@ default/on/off, baseline loss logging and the deliberate disabled negative.
 This uses fake game endpoints, not the Windows OS or an active game owner.
 Evidence: `windows-credit-harmony/results.json`.
 
+The production-port base-game repeat passes at 2.99675× warmed game progress;
+five windows range 2.960–3.027× and clean-window GC counts are 1/2/4. The
+latest clean Windows private ZIP is `MixedAtmospheres-private-windows-eb5f408.zip`
+in the playtest share, with pump/credit included. It still predates the next
+cache repair. Windows OS and representative sustained 3× remain open.
+
+The DLC texture diagnostic identifies all 5,543 fallbacks as modulo collisions
+with only 1,606 visible readings in one 4,093-slot cache. A same-binary clean
+OFF/ON pair improves warmed game progress 1.90644→1.94790× with lower heap
+growth estimates, 5,445 admitted batches and no fallback in ON. Runtime inputs
+vary, so the observed 2.17% is not a precise causal speedup. Separate actual
+DLC CPU destination proof matches all 6,144 samples with zero mismatch.
+The production repair permits bounded conflicts as misses while preserving
+slot locks and full keys; large/unsupported views retain rich fallback.
+The full managed/game-contract suite and 439 Python tests pass; Windows
+contract verifies 2,588 dependencies with zero differences. Permanent cache
+default/opt-out .NET controls pass 569,506 each, and actual Linux game Mono
+passes 569,496 each with unsupported allocation assertions omitted.
+Evidence: `compact-collision-final/` and the detailed
+[performance record](performance-acceptance.md#idle-frame-byproducts-and-combined-pacing-2026-10-29).
+
+Native dense-state construction copies about 40.54 MB of held mass vectors
+per captured DLC frame. Two immutable-sharing prototypes retain replay bytes
+but worsen tails. The third uses a 32-byte tagged storage / 96-byte cell and
+passes 339 storage controls plus native/cold/reference tests and 256 exact
+replay outputs. DLC mean/p95 improves 55.258/62.819→45.110/48.859 ms; base
+mean improves 28.120→26.668 but p95 rises 29.674→33.682 ms. It remains private
+while a clean full backend is prepared for actual game tests, followed by
+sanitizers and broad platform/output checks if supported. No native sharing
+prototype is included in the delivered ZIP. Preserve the failed performance
+variants and fixed acceptance bounds. Evidence: `dense-frozen-{copy,memory,descriptor,variant}/`.
+
 The private combined real-game controls pass ordinary overwrite/cold resave,
 independent file readback and menu reload. A separate activity cohort passes
 all 16 original checks, preserves a pending frame, rebinds one actor without

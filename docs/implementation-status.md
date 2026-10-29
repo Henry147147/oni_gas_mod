@@ -30,6 +30,12 @@ runs still reach only about 2.6× warmed speed; actual 3× remains open.
 retains original rich/fallback behavior and passes 569,496 controls in each
 standard default/opt-out process. A private Linux comparison halves clean-window
 GC frames and reaches 2.667× warmed speed; Windows OS and sustained 3× remain open.
+The 2026-10-29 DLC follow-up identifies unnecessary modulo-collision rejection
+and now admits bounded conflicting indices as cache misses under the existing
+slot locks and complete keys. Same-binary private DLC runs reach
+1.906→1.948× with lower heap-growth estimates, and 6,144 actual CPU texture
+destination comparisons match the rich path. This is not GPU readback or
+representative 3× acceptance.
 
 **Idle receipt delivery, 2026-10-29:** the default-on pump drains only a
 successfully published, sequence-fenced byproduct prefix during idle Unity

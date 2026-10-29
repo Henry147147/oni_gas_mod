@@ -70,7 +70,7 @@ static partial class Proof
         var lazy = new ColonyLazyReadings(b, pair.Table, 7, (_, _) => { });
         var source = (ICompactTextureSource)lazy.Describe(model);
         Check(source.PrepareTextureScalars(256, 0, 0, 79, 29, out var visible) && visible == 800, "realistic800batch fits unique slots");
-        Check(!source.PrepareTextureScalars(256, 0, 0, 159, 74, out visible) && visible == 4000, "4k collision batch chooses whole full fallback");
+        Check(source.PrepareTextureScalars(256, 0, 0, 159, 74, out visible) && visible == 4000, "4k colliding batch fits bounded eviction cache");
         Check(!source.PrepareTextureScalars(256, 0, 0, 255, 383, out visible) && visible == 32768, "full native batch chooses whole full fallback");
         Check(source.PrepareTextureScalars(256, 0, 0, 79, 29, out visible) && visible == 800, "zoom in returns to compact");
         b.Sorted = false;

@@ -306,7 +306,7 @@ The next private 900-frame run enables bounded compact texture sampling with
 the same native code, observer cadence30, seed, workers, GPU and speed setting.
 It samples numeric presentation values from the immutable reading frame instead
 of constructing full reading/presentation objects for each visible cell. A
-viewport preflight rejects collisions, oversized bounds or unsupported tables
+viewport preflight originally rejected collisions, oversized bounds or unsupported tables
 before using the original renderer. Cache keys include frame lease, model and
 coordinates; retiring a lease clears references and prevents an old reader from
 reinstalling them. At most 48 pooled buffers have 4,093 numeric slots each.
@@ -532,6 +532,41 @@ this is not a clean acceptance or a causal speedup over the earlier DLC run.
 A bounded conflict-miss experiment follows; memory bounds, complete cache
 keys and slot locks remain fixed. Evidence: `linux-production-final-dlc1-900/`.
 
+The collision experiment then uses one binary for diagnostic-off OFF/ON DLC
+900-frame runs, with the same workers/renderer/cadence30 and unchanged inputs.
+Warm progress is OFF 149.954393 / 78.656707 s = 1.90644× and ON
+150.154433 / 77.085175 s = 1.94790×, a 2.17% observed gain in this ordered
+comparison. Runtime workloads differ; the larger variation between earlier
+baseline runs precludes a precise causal gain claim. OFF reports zero fits /
+5,817 fallbacks; ON reports 5,445 fits / zero fallbacks, 10,761,988 cache hits
+and 2,048,141 misses. Both pass without an owner fault. Actual session ends
+are 903/904, not invented exact-900 end timestamps.
+
+The late clean 15 s windows estimate OFF heap growth of
+214.5/244.4/252.2/265.9 KB per Unity frame and one GC-containing frame each;
+ON estimates 85.7/91.6/112.1 KB and 1/0/0 GC-containing frames. These are
+unequal sets of process-wide heap estimates, not exact mod allocation counters
+or aggregate latency percentiles. The rich/scalar same-process and actual
+Linux Mono controls pass, including 8,000 concurrent all-field conflicts.
+Separate actual CPU destination-byte proof precedes production adoption.
+The unchanged native solver remains the larger DLC throughput limit.
+
+The separate collision-ON DLC80 proof passes 6,144 actual CPU destination
+comparisons (2,048 each for color, opacity and hazard) with zero mismatches,
+722 admitted batches and no owner fault. It deliberately forces 273 rich
+batches / 3,924 rich jobs; sampled frames are 5–40. This is sampled scalar/rich
+and CPU destination proof, not GPU readback or performance acceptance.
+
+Production now uses the bounded conflict-miss policy and removes its obsolete
+occupancy scratch. Permanent .NET default/cache-opt-out tests each pass
+569,506 assertions; actual Linux game Mono passes 569,496 in each mode,
+omitting unsupported allocation checks. Full managed/game-contract suites
+and 439 Python tests pass. The original rich constructor and full-provider
+fallback remain independent; slot keys, locking and the 29,862,528-byte numeric
+slot bound are unchanged. Native solver arithmetic and checkpoint bytes are
+unchanged. Evidence: `compact-collision-final/production-source-freeze.json`
+and `collision-production-full-managed.log`.
+
 Finer matched DLC replay timing finds 222,885 held cells and 859 rebuilt cells;
 64,152 held owned vectors copy 5,067,980 doubles (40.54 MB) per frame. Dense
 setup/loop wall is 1.899/8.738 ms, compared with 10.951 ms enclosing dense/Derived.
@@ -567,6 +602,18 @@ all 256 outputs in a fresh 32-frame/reversed-order matrix. Base mean/p95 is
 the tail regression, and its DLC mean benefit is small. A compact tagged
 representation is the next bounded experiment; no native sharing variant is
 part of the Windows candidate. Evidence: `dense-frozen-descriptor/`.
+
+The next tagged variant uses 32-byte storage and 96-byte cells, preserving
+owned deep copies and immutable zero/frozen alternatives without a pointee
+mode flag. It passes 339 storage/transition controls, the wrong-alias negative,
+native/cold/reference checks and 256 exact old/new replay outputs. In its
+32-frame/reversed-order matrix, base mean/p95 is
+28.120/29.674→26.668/33.682 ms; DLC is
+55.258/62.819→45.110/48.859 ms. The DLC result supports actual-game testing;
+base p95 still worsens, although these native replay times remain below a
+66.7 ms frame budget at 3×. This remains private pending full-backend game
+tests, sanitizer checks and broader output/platform verification. Evidence:
+`dense-frozen-variant/`.
 
 ### Measurement and test harness first
 

@@ -54,7 +54,6 @@ namespace MixedAtmospheres.Oni
             }
             internal readonly Slot[] Slots;
             private readonly object modelGate = new object(), prepareGate = new object();
-            private readonly bool[] occupied;
             private long preparedLease = long.MinValue;
             private int preparedWidth, left, bottom, right, top, preparedCount;
             private bool preparedResult;
@@ -71,7 +70,6 @@ namespace MixedAtmospheres.Oni
                     var valid = buffer.Sorted && width > 0 && Slots.Length > 0;
                     if (valid)
                     {
-                        Array.Clear(occupied, 0, occupied.Length);
                         var low = 0;
                         var high = buffer.Count;
                         var first = (long)y0 * width + x0;
@@ -95,11 +93,8 @@ namespace MixedAtmospheres.Oni
                             ++count;
                             if (valid)
                             {
-                                var slot = i % Slots.Length;
-                                if (occupied[slot] || buffer.Readings[i].Constituents > Math.Min(tableSpecies, MaximumCompactConstituents))
+                                if (count > Slots.Length || buffer.Readings[i].Constituents > Math.Min(tableSpecies, MaximumCompactConstituents))
                                     valid = false;
-                                else
-                                    occupied[slot] = true;
                             }
                         }
                     }
@@ -165,7 +160,6 @@ namespace MixedAtmospheres.Oni
             {
                 activeLease = lease;
                 Slots = new Slot[Math.Min(count, 4093)];
-                occupied = new bool[Slots.Length];
                 System.Threading.Interlocked.Add(ref cacheSlots, Slots.Length);
             }
         }
