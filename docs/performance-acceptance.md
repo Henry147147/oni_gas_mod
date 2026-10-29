@@ -507,6 +507,31 @@ and 439 Python tests pass. These ports do not turn the private 3× starting
 colony measurement into representative release acceptance. Detailed credit
 telemetry is opt-in, and the old loss-only logger requires credit disabled.
 
+A fresh final production-port base-game probe passes to owner frame 900 with
+flags29/tiers, unset pump/credit flags (both default on), workers12 and RTX 5090
+rendering on display `:99`. The private report-cadence30 observer remains the
+only reporting change; compact admission diagnostics are off. Warm frames
+151–900 achieve 150.021073 game seconds / 50.061325 wall seconds = **2.99675×**.
+Five 150-frame windows are 2.998/2.997/3.003/2.960/3.027×, so this is nominal
+3×, not every-window-at-least-3× acceptance. Session-end logs actually reach
+904, with total progress 2.969× including startup. Three clean 15 s windows
+have 1/2/4 GC-containing frames and p99 34.44/102.96/106.71 ms separately.
+There are no owner faults or dropped submission/publication samples. This
+repeat corroborates the narrow private starting-colony result, not the full
+release speed/smooth-input matrix. Evidence: `linux-production-final-base900/`.
+
+The final baseline DLC diagnostic explains the unused compact path: all
+5,543 rejected batches are modulo-slot collisions (921 fresh / 4,622 cached
+preflights), with no missing-cache, invalid, empty or unsupported result. The
+first 736-wide viewport has 1,606 visible readings within 4,093 slots; global
+indices 13,374 and 17,467 collide. Sorted/pooled source and 79 species are
+confirmed. Existing admission still rejects collisions. Diagnostic warmed
+game progress is 2.03572× (149.887742 / 73.628950 s), with five windows
+2.021/2.001/2.028/2.061/2.068×. Counters and report cadence30 are enabled, so
+this is not a clean acceptance or a causal speedup over the earlier DLC run.
+A bounded conflict-miss experiment follows; memory bounds, complete cache
+keys and slot locks remain fixed. Evidence: `linux-production-final-dlc1-900/`.
+
 Finer matched DLC replay timing finds 222,885 held cells and 859 rebuilt cells;
 64,152 held owned vectors copy 5,067,980 doubles (40.54 MB) per frame. Dense
 setup/loop wall is 1.899/8.738 ms, compared with 10.951 ms enclosing dense/Derived.
@@ -533,6 +558,15 @@ neither indefinite memory stability nor a whole-process memory reduction.
 Warm source-owned counts remain roughly 851–994 in DLC, so the slow frames
 are not explained by repeatedly freezing all 64,000 vectors. Evidence:
 `dense-frozen-memory/`; the 56-byte storage prototype remains unadopted.
+
+The first layout-preserving descriptor also remains private. It restores
+40-byte storage and 104-byte cells, passes 250 safety controls and preserves
+all 256 outputs in a fresh 32-frame/reversed-order matrix. Base mean/p95 is
+28.134/30.414→24.803/31.470 ms; DLC is
+54.699/57.003→53.163/62.751 ms. Restoring size alone therefore does not remove
+the tail regression, and its DLC mean benefit is small. A compact tagged
+representation is the next bounded experiment; no native sharing variant is
+part of the Windows candidate. Evidence: `dense-frozen-descriptor/`.
 
 ### Measurement and test harness first
 

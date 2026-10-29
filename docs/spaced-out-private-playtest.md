@@ -1,23 +1,28 @@
 # Spaced Out! private Windows playtest
 
 The current engineering ZIP is
-`MixedAtmospheres-private-windows-fc0fcc4.zip` in the private playtest share
-(2026-10-28; SHA-256
-`bebcf1d7f53e401c3007af8d1797666f2362cadf097bfad8c638e6988421cfe0`).
-Its manifest records clean revision `fc0fcc4`. It includes profile9/core28
+`MixedAtmospheres-private-windows-eb5f408.zip` in the private playtest share
+(2026-10-29; SHA-256
+`8f0ed9d7ebde7232c20848cfe695a0059540637e926b8802fdf64e7a4053b3e4`).
+Its manifest records clean revision `eb5f408`. It includes profile9/core28
 activity tiers, durable pending owner inputs, callback/readiness repairs and
 exact heat/passive-edit optimizations and bounded numeric texture caching. The
-original accepted boil-only and momentum corrections remain. Private receipt
-policy, report-cadence and pacing experiments are excluded.
+original accepted boil-only and momentum corrections remain. Fenced idle
+byproduct delivery and bounded pacing credit are enabled by default, with
+opt-outs. Private report-cadence, compact-fallback diagnostics and native
+immutable-vector experiments are excluded.
 
 Linux and Windows x64/Wine each pass all 89 native tests; the four packaged
 DLL hashes match the tested Windows candidate. The managed Windows contract
-reports 2,587 dependencies and zero differences. Native build provenance is
+reports 2,588 dependencies and zero differences. Actual Linux and Windows game
+Mono checks cover the receipt ABI and credit patch ordering; Windows Mono runs
+under Wine with fake endpoints. Native build provenance is
 explicitly null in the manifest; retained build/test logs and DLL hashes provide
 the evidence. Base-game and nine-world Spaced Out! pending-save/lifecycle
 cohorts pass on Linux. Windows OS speed, input smoothness, complete active-world
-continuation and broader release acceptance remain open. Actual Linux probes
-still fall below sustained 3×. Use a new colony; old R&D save compatibility
+continuation and broader release acceptance remain open. The private combined
+probe reaches nominal 3× in fresh base game and 1.955× in Spaced Out!;
+representative sustained 3× remains open. Use a new colony; old R&D save compatibility
 remains limited. See [current measurements](performance-acceptance.md).
 
 The previous `MixedAtmospheres-windows-59cce0f-temperature-fix-private.zip`
@@ -45,7 +50,7 @@ the user's part of the playtest.
 
 ## Install
 
-1. Close ONI and extract `MixedAtmospheres-private-windows-fc0fcc4.zip`.
+1. Close ONI and extract `MixedAtmospheres-private-windows-eb5f408.zip`.
 2. Open PowerShell in the extracted folder and run:
 
    ```powershell
