@@ -43,7 +43,6 @@ import oni_hook_profiles as profiles  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 RELATIVE = {"windows-x64": "OxygenNotIncluded_Data/Plugins/x86_64/SimDLL.dll", "linux-x64": "OxygenNotIncluded_Data/Plugins/libSimDLL.so"}
-WINDOW = 512  # bytes compared when a function's extent is unknown
 
 
 def sha(data: bytes) -> str:
@@ -80,10 +79,16 @@ def image_base(data: bytes, platform: str) -> int:
 
 
 def normalized_body(image: Path, data: bytes, platform: str, rva: int, extents: dict[int, int]) -> list[str]:
-    """The function's instructions with addresses, branch targets and
-    RIP-relative displacements replaced by position-independent forms.
-    Immediates and memory offsets (struct layouts) are kept."""
-    end = extents.get(rva, rva + WINDOW)
+    """Compare internal labels relatively; retain external destination identity.
+
+    An external code/data reference must have both an image-relative address
+    and an objdump symbol. Relocated external destinations conservatively need
+    review. Never erase a destination or equate unresolved indirect calls.
+    Immediates and memory offsets (struct layouts) are kept.
+    """
+    if rva not in extents or extents[rva] <= rva:
+        raise ValueError(f"Unresolved function extent at {image.name}+{rva:#x}")
+    end = extents[rva]
     base = image_base(data, platform)
     output = subprocess.check_output(
         ["objdump", "-d", "-w", "-M", "intel", "--no-show-raw-insn",
@@ -93,15 +98,31 @@ def normalized_body(image: Path, data: bytes, platform: str, rva: int, extents: 
         match = re.match(r"^\s*([0-9a-f]+):\s+(.*)$", line)
         if not match:
             continue
-        text = re.sub(r"\s+#.*$", "", match[2]).strip()
-        text = re.sub(r"<[^>]*>", "", text)
-        text = re.sub(r"rip\s*[+-]\s*0x[0-9a-f]+", "rip+REL", text)
-
-        def target(found: re.Match) -> str:
-            value = int(found[0], 16) - base
-            return f"L{value - rva:+#x}" if rva <= value < end else "EXT"
-        if re.match(r"^(call|j\w+|loop\w*)\s", text):
-            text = re.sub(r"\b(?:0x)?[0-9a-f]{4,}\b", target, text)
+        text = match[2].strip()
+        location = f"{image.name}+{int(match[1], 16) - base:#x}"
+        if re.search(r"\brip\b", text):
+            target = re.search(r"\s+#\s*(?:0x)?([0-9a-f]+)\s+<([^>]+)>\s*$", text)
+            if target is None:
+                raise ValueError(f"Unresolved RIP-relative target at {location}")
+            destination = f"RVA[{int(target[1], 16) - base:#x} <{target[2]}>]"
+            text = re.sub(r"\s+#.*$", "", text)
+            text, replacements = re.subn(r"\[rip(?:\s*[+-]\s*(?:0x)?[0-9a-f]+)?\]", f"[{destination}]", text)
+            if replacements != 1:
+                raise ValueError(f"Unresolved RIP-relative operand at {location}")
+        else:
+            branch = re.match(r"^((?:(?:bnd|notrack)\s+)?(?:callq?|j\w+|loop\w*))\s+(.+)$", text)
+            if branch:
+                target = re.fullmatch(r"(?:0x)?([0-9a-f]+)(?:\s+<([^>]+)>)?", branch[2])
+                if target is None:
+                    raise ValueError(f"Unresolved indirect branch target at {location}")
+                value = int(target[1], 16) - base
+                if rva <= value < end:
+                    destination = f"L{value - rva:+#x}"
+                elif target[2]:
+                    destination = f"RVA[{value:#x} <{target[2]}>]"
+                else:
+                    raise ValueError(f"Unresolved external branch target at {location}")
+                text = f"{branch[1]} {destination}"
         lines.append(" ".join(text.split()))
     return lines
 
@@ -148,12 +169,16 @@ def native_report(platform: str, new_root: Path, reference_root: Path | None, va
             else:
                 offset = profiles.file_offset(sections, rva, 32, executable=True)
                 item["fingerprint_sha256"] = sha(data[offset:offset + 32])
-                old = normalized_body(reference_image, reference_data, platform, hook["rva"], old_extents)
-                new = normalized_body(image, data, platform, rva, new_extents)
-                item["equivalent_body"] = old == new and bool(old)
-                item["result"] = "carried" if item["equivalent_body"] else "body changed"
+                try:
+                    old = normalized_body(reference_image, reference_data, platform, hook["rva"], old_extents)
+                    new = normalized_body(image, data, platform, rva, new_extents)
+                    item["equivalent_body"] = old == new and bool(old)
+                    item["result"] = "carried" if item["equivalent_body"] else "body changed"
+                except ValueError as error:
+                    item["equivalent_body"] = False
+                    item["result"] = str(error)
                 if not item["equivalent_body"]:
-                    report["needs_review"].append(f"{hook['role']} ({symbol}): function body changed"
+                    report["needs_review"].append(f"{hook['role']} ({symbol}): {item['result']}"
                                                   + (" (private location: re-derive it in oni_hook_profiles.py)" if private else ""))
                 entry["rva"], entry["fingerprint_sha256"] = rva, item["fingerprint_sha256"]
             report["hooks"].append(item)

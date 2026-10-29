@@ -2261,6 +2261,42 @@ class LongRunLimitTests(unittest.TestCase):
         self.assertIn(f'Kind = "{runner.TELEMETRY_KIND}"', (ROOT / "managed/MixedAtmospheres.Oni/DevelopmentTelemetry.cs").read_text())
 
 
+class ReleaseRunLimitTests(unittest.TestCase):
+    def test_release_limits_need_both_explicit_opt_ins(self):
+        self.assertIsNotNone(runner.run_limits_error(_run_args(release_run=True)))
+        self.assertIsNotNone(runner.run_limits_error(_run_args(long_run=True, frames=300000)))
+
+    def test_release_limits_cover_full_floor_and_thousand_cycle_windows(self):
+        for mode in ("colony-owner", "colony-owner-load", "colony-vanilla"):
+            with self.subTest(mode=mode):
+                self.assertIsNone(runner.run_limits_error(_run_args(
+                    mode=mode, frames=3100000, timeout=1209600, long_run=True, release_run=True,
+                    telemetry_interval_frames=3000, dlc_mask=0)))
+        for values in ({"frames": 3100001}, {"timeout": 1209601}, {"mode": "native-domain"},
+                       {"mode": "snapshot-copy"}, {"scenario": "terrain"}, {"keep_open": True},
+                       {"dlc_mask": None}, {"dlc_mask": 2}, {"dlc_mask": True}):
+            with self.subTest(values=values):
+                args = dict(mode="colony-owner", frames=3100000, timeout=1209600,
+                            long_run=True, release_run=True, dlc_mask=0)
+                self.assertIsNotNone(runner.run_limits_error(_run_args(**dict(args, **values))))
+
+    def test_release_request_is_explicit_in_managed_configuration(self):
+        request = runner.colony_configuration(_run_args(mode="colony-owner", frames=3100000,
+            timeout=1209600, long_run=True, release_run=True, dlc_mask=0), "MA-release-unit", None, 0)
+        self.assertIs(request.get("ReleaseRun"), True)
+        self.assertNotIn("ReleaseRun", runner.colony_configuration(_run_args(long_run=True), "MA-unit", None, 0))
+
+    def test_parser_keeps_release_window_explicit(self):
+        with tempfile.TemporaryDirectory() as state, mock.patch.object(sys, "argv", [
+                "oni_headless", "--state", state, "run", "--package", state, "--mode", "colony-owner",
+                "--long-run", "--release-run", "--dlc-mask", "0", "--frames", "3100000", "--timeout", "1209600"]), \
+                mock.patch.object(runner, "locked_command", return_value=0) as command:
+            self.assertEqual(runner.main(), 0)
+            args = command.call_args.args[0]
+            self.assertTrue(args.release_run and args.long_run)
+            self.assertEqual((args.frames, args.timeout, args.dlc_mask), (3100000, 1209600, 0))
+
+
 class ConfiguredDomainMirrorTests(unittest.TestCase):
     def test_managed_configured_constants_match_the_native_header(self):
         header=(ROOT/"native/include/mixed_atmospheres/oni_domain.h").read_text()

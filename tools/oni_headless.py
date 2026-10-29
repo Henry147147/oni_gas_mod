@@ -64,6 +64,8 @@ MANIFEST_REVISION = re.compile(r"[0-9a-f]{40}(?:[0-9a-f]{24})?")
 # cycles are about 30,000 native 0.2 s frames; long runs are an explicit opt-in.
 FRAME_LIMIT, LONG_RUN_FRAME_LIMIT, LONG_RUN_DEFAULT_FRAMES = 10000, 100000, 30000
 TIMEOUT_LIMIT, LONG_RUN_TIMEOUT_LIMIT = 7200, 48 * 3600
+RELEASE_RUN_FRAME_LIMIT, RELEASE_RUN_TIMEOUT_LIMIT = 3100000, 14 * 24 * 3600
+RELEASE_RUN_MODES = ("colony-owner", "colony-owner-load", "colony-vanilla")
 TELEMETRY_INTERVAL_DEFAULT, TELEMETRY_INTERVAL_LIMITS = 300, (10, 10000)
 SCENARIOS = ("activity-lifecycle", "spaced-out-worlds", "spaced-out-rocket", "spaced-out-rocket-ports", "spaced-out-input-flush", "spaced-out-rocket-retire", "spaced-out-warp-ports", "spaced-out-rocket-flight", "spaced-out-cargo-gas", "spaced-out-cargo-liquid", "spaced-out-rocket-abandon", "dlc-fluid-readers", "terrain", "heat", "phase", "freeze-melt", "deoxidizer", "pipes", "door", "sublimation", "falling", "breathing", "airflow",
              "electrolysis", "vent-overpressure", "space-heater", "bottle-emptier", "gas-generator", "germs", "puft",
@@ -683,8 +685,17 @@ def native_observer_passed(manifest: dict, report: dict | None) -> bool:
 def run_limits_error(args) -> str | None:
     """Return the parser error for frame/timeout/long-run limits, or None."""
     long_run = getattr(args, "long_run", False) is True
+    release_run = getattr(args, "release_run", False) is True
+    if release_run and not long_run:
+        return "--release-run requires the explicit --long-run opt-in"
+    if release_run and (args.mode not in RELEASE_RUN_MODES or getattr(args, "scenario", None) or
+                        getattr(args, "keep_open", False) is True or type(getattr(args, "dlc_mask", None)) is not int or
+                        args.dlc_mask not in (0, 1)):
+        return "--release-run requires a supported colony/floor mode, explicit --dlc-mask 0 or 1, no scenarios and automatic cleanup"
     interval = getattr(args, "telemetry_interval_frames", None)
     frames, timeout = (LONG_RUN_FRAME_LIMIT, LONG_RUN_TIMEOUT_LIMIT) if long_run else (FRAME_LIMIT, TIMEOUT_LIMIT)
+    if release_run:
+        frames, timeout = RELEASE_RUN_FRAME_LIMIT, RELEASE_RUN_TIMEOUT_LIMIT
     if type(args.frames) is not int or not 1 <= args.frames <= frames:
         return f"--frames requires 1..{frames}" + ("" if long_run else f"; up to {LONG_RUN_FRAME_LIMIT} requires --long-run")
     if type(args.timeout) is not int or not 30 <= args.timeout <= timeout:
@@ -732,6 +743,8 @@ def colony_configuration(args, name: str, load_fixture: Path | None, inspection_
     if getattr(args, "long_run", False) is True:
         interval = getattr(args, "telemetry_interval_frames", None)
         configuration.update(LongRun=True, TelemetryIntervalFrames=TELEMETRY_INTERVAL_DEFAULT if interval is None else interval)
+        if getattr(args, "release_run", False) is True:
+            configuration["ReleaseRun"] = True
     return configuration
 
 
@@ -1132,7 +1145,8 @@ def playtest(args, state: Path, session: dict) -> int:
                 "native_backend_observer_passed": observer_ok,
                 "native_domain": domain_report, "bounded_native_domain_passed": domain_ok,
                 "tile_hover": hover_report, "tile_hover_passed": hover_ok,
-                "long_run": long_run, "telemetry_stalled": telemetry_stalled,
+                "long_run": long_run, "release_run": getattr(args, "release_run", False) is True,
+                "telemetry_stalled": telemetry_stalled,
                 "telemetry_stall_reason": watch.reason if watch is not None else None,
                 "development_telemetry": telemetry, "development_telemetry_passed": telemetry_ok,
                 "load_save_fixture": {"path": str(load_fixture), "sha256": digest(load_fixture)} if load_fixture else None,
@@ -1180,6 +1194,8 @@ def main() -> int:
     play.add_argument("--long-run", action="store_true",
                       help="Explicit development long run (about 30,000 frames is ten ONI cycles) in "
                            + ", ".join(LONG_RUN_MODES) + "; writes bounded development telemetry")
+    play.add_argument("--release-run", action="store_true",
+                      help="With --long-run and DLC mask 0/1, permit up to 3100000 frames/1209600 seconds for full release/floor windows; other acceptance gates still apply")
     play.add_argument("--telemetry-interval-frames", type=int, metavar="10..10000",
                       help=f"Native frames per development telemetry line (default {TELEMETRY_INTERVAL_DEFAULT}); requires --long-run")
     play.add_argument("--output", type=Path)

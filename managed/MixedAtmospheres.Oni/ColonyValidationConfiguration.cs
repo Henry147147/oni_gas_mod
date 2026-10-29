@@ -79,6 +79,8 @@ namespace MixedAtmospheres.Oni
         // a separate explicit request with its own limits and bounded evidence,
         // never a silent widening of the short fixture controls above.
         public bool LongRun = false;
+        // Explicit release/floor windows retain the short and ten-cycle ceilings.
+        public bool ReleaseRun = false;
         public int TelemetryIntervalFrames = ColonyValidationLimits.DefaultTelemetryIntervalFrames;
     }
 
@@ -87,6 +89,7 @@ namespace MixedAtmospheres.Oni
         internal const int MaximumConfigurationCharacters = 8192;
         internal const int MinimumFrames = 1, MaximumFrames = 10000, MaximumLongRunFrames = 100000;
         internal const int MinimumTimeoutSeconds = 30, MaximumTimeoutSeconds = 7200, MaximumLongRunTimeoutSeconds = 48 * 3600;
+        internal const int MaximumReleaseRunFrames = 3100000, MaximumReleaseRunTimeoutSeconds = 14 * 24 * 3600;
         internal const int DefaultTelemetryIntervalFrames = 300, MinimumTelemetryIntervalFrames = 10, MaximumTelemetryIntervalFrames = 10000;
         internal static readonly string[] Scenarios = { "activity-lifecycle", "spaced-out-worlds", "spaced-out-rocket", "spaced-out-rocket-ports", "spaced-out-input-flush", "spaced-out-rocket-retire", "spaced-out-warp-ports", "spaced-out-rocket-flight", "spaced-out-cargo-gas", "spaced-out-cargo-liquid", "spaced-out-rocket-abandon", "dlc-fluid-readers", "terrain", "heat", "phase", "freeze-melt", "deoxidizer", "pipes",
             "door", "sublimation", "falling", "breathing", "airflow", "electrolysis", "vent-overpressure", "space-heater",
@@ -131,9 +134,16 @@ namespace MixedAtmospheres.Oni
             if (configuration.DlcMask < -1 || configuration.DlcMask > 31)
                 throw new InvalidDataException("DlcMask requires -1 (unspecified) or 0..31.");
             var longRun = configuration.LongRun;
+            var releaseRun = configuration.ReleaseRun;
+            if (releaseRun && (!longRun ||
+                configuration.Mode != "colony-owner" && configuration.Mode != "colony-owner-load" && configuration.Mode != "colony-vanilla" ||
+                configuration.DlcMask != 0 && configuration.DlcMask != 1 || !string.IsNullOrEmpty(configuration.Scenario)))
+                throw new InvalidDataException("ReleaseRun requires LongRun, a supported colony/floor mode, DlcMask 0 or 1 and no scenarios.");
+            var maximumFrames = releaseRun ? MaximumReleaseRunFrames : MaximumLongRunFrames;
+            var maximumTimeout = releaseRun ? MaximumReleaseRunTimeoutSeconds : MaximumLongRunTimeoutSeconds;
             if (configuration.Mode == null || !Modes.Contains(configuration.Mode, StringComparer.Ordinal) ||
-                configuration.CompletedFrames < MinimumFrames || configuration.CompletedFrames > MaximumLongRunFrames ||
-                configuration.TimeoutSeconds < MinimumTimeoutSeconds || configuration.TimeoutSeconds > MaximumLongRunTimeoutSeconds)
+                configuration.CompletedFrames < MinimumFrames || configuration.CompletedFrames > maximumFrames ||
+                configuration.TimeoutSeconds < MinimumTimeoutSeconds || configuration.TimeoutSeconds > maximumTimeout)
                 throw new InvalidDataException("Unsupported colony validation mode or limits.");
             if ((configuration.Mode == "colony-vanilla") != (configuration.Floor.Length != 0 && configuration.Mode != "colony-owner") ||
                 configuration.Floor.Length != 0 && (Array.IndexOf(FloorArenaIds.All, configuration.Floor) < 0 || configuration.Scenario.Length != 0))

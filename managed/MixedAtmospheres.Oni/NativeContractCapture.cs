@@ -81,7 +81,7 @@ namespace MixedAtmospheres.Oni
     [DataContract]
     internal sealed class CapturedContract
     {
-        [DataMember] public string OniBuild = "744825";
+        [DataMember] public string OniBuild = GameBuildCheck.RunningBuild.ToString(System.Globalization.CultureInfo.InvariantCulture);
         [DataMember] public int ElementCount, ElementRecordBytes, ElementTableBytes, DiseaseTableBytes;
         [DataMember] public int VacuumIndex, OxygenIndex, WaterIndex, GraniteIndex, UnobtaniumIndex;
         [DataMember] public List<CapturedElement> Elements = new List<CapturedElement>();

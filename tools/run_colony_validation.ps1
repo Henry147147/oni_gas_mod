@@ -1,3 +1,4 @@
+#requires -Version 5.1
 param(
     [Parameter(Mandatory = $true)][string]$Package,
     [string]$OniUserRoot = "$env:USERPROFILE\Documents\Klei\OxygenNotIncluded",
@@ -31,8 +32,22 @@ param(
     [int]$TimeoutSeconds = 600
 )
 $ErrorActionPreference = 'Stop'
+
+# Windows PowerShell 5.1 runs on .NET Framework, which has no Path.GetRelativePath.
+# Backups must be descendants of this invocation's user root; preserve their
+# literal relative names and refuse sibling/traversal paths before copying.
+function Get-OniRelativeBackupPath {
+    param([string]$Root, [string]$Path)
+    $oniFullPath = [IO.Path]::GetFullPath($Path)
+    $oniRootPrefix = [IO.Path]::GetFullPath($Root).TrimEnd([char[]]@([IO.Path]::DirectorySeparatorChar, [IO.Path]::AltDirectorySeparatorChar)) + [IO.Path]::DirectorySeparatorChar
+    $oniComparison = [StringComparison]::Ordinal
+    if ([Environment]::OSVersion.Platform -eq [PlatformID]::Win32NT) { $oniComparison = [StringComparison]::OrdinalIgnoreCase }
+    if ($oniFullPath.Length -le $oniRootPrefix.Length -or !$oniFullPath.StartsWith($oniRootPrefix, $oniComparison)) { throw 'Backup file must be a descendant of the ONI user root.' }
+    return $oniFullPath.Substring($oniRootPrefix.Length)
+}
+
 if ($ColonyOwner -and ($NativeDomain -or $NativeObserver -or $Presentation -or $TileHover -or $CoupledPresentation -or $IdleReservoirLease -or $PrivateFileProtocol -or $LoadRejection -or $ReuseGeneratedWorld)) { throw 'ColonyOwner uses a fresh ordinary colony or an explicit owner save.' }
-if ($ColonyOwner -and ![Runtime.InteropServices.RuntimeInformation]::IsOSPlatform([Runtime.InteropServices.OSPlatform]::Windows)) { throw 'This runner records Windows OS evidence; use oni_proton_headless.py for WindowsPlayer on Linux.' }
+if ($ColonyOwner -and [Environment]::OSVersion.Platform -ne [PlatformID]::Win32NT) { throw 'This runner records Windows OS evidence; use oni_proton_headless.py for WindowsPlayer on Linux.' }
 if ($ColonyOwner -and $DlcMask -lt 0) { throw 'ColonyOwner requires an explicit DlcMask (0..31).' }
 if ($NativeDomain -and ($NativeObserver -or $Presentation -or $TileHover -or $CoupledPresentation -or $IdleReservoirLease -or $PrivateFileProtocol -or $LoadRejection)) { throw 'A native domain uses its own disposable colony scene.' }
 if ($NativeDomain -in @('actor','water-actor') -and $Frames -lt 80) { throw 'The actor registration/change/removal scene requires at least 80 frames.' }
@@ -48,7 +63,7 @@ if ($LoadSave) {
     $LoadSave = (Resolve-Path -LiteralPath $LoadSave).Path
     if (!(Test-Path -LiteralPath $LoadSave -PathType Leaf)) { throw 'LoadSave must name an existing colony file.' }
 }
-if ($ResaveBeforeResume -and $NativeDomain -ne 'load') { throw 'ResaveBeforeResume requires NativeDomain load.' }
+if ($ResaveBeforeResume -and !($LoadSave -and ($ColonyOwner -or $NativeDomain -eq 'load'))) { throw 'ResaveBeforeResume requires ColonyOwner or NativeDomain load with LoadSave.' }
 if ($ReloadInProcess -and !($ColonyOwner -and $LoadSave) -and ($NativeDomain -ne 'load' -or !$ResaveBeforeResume)) { throw 'ReloadInProcess requires ColonyOwner with LoadSave, or NativeDomain load and ResaveBeforeResume.' }
 if ($VerifySaveIoRecovery -and ($NativeDomain -ne 'save' -or $Frames -lt 16)) { throw 'VerifySaveIoRecovery requires NativeDomain save and at least sixteen frames.' }
 if ($SaveColony -and !$ColonyOwner -and (!$NativeDomain -or $NativeDomain -eq 'load')) { throw 'SaveColony requires a colony owner or an initial native domain scene.' }
@@ -113,7 +128,7 @@ $oniFiles = @((Get-Item -LiteralPath $oniModsPath), (Get-Item -LiteralPath (Join
 if ($oniAppearanceExisted) { $oniFiles += Get-Item -LiteralPath $oniAppearancePath }
 $oniFiles += @(Get-ChildItem -LiteralPath $oniRootPath -File | Where-Object Name -Like 'WorldGen*')
 foreach ($oniFile in $oniFiles) {
-    $oniRelative = [IO.Path]::GetRelativePath($oniRootPath, $oniFile.FullName)
+    $oniRelative = Get-OniRelativeBackupPath -Root $oniRootPath -Path $oniFile.FullName
     $oniBackupFile = Join-Path $oniBackups $oniRelative
     New-Item -ItemType Directory -Path ([IO.Path]::GetDirectoryName($oniBackupFile)) -Force | Out-Null
     Copy-Item -LiteralPath $oniFile.FullName -Destination $oniBackupFile

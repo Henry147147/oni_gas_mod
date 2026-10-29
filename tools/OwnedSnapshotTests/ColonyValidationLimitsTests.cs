@@ -27,7 +27,7 @@ internal static class ColonyValidationLimitsTests
             check(fields.SequenceEqual(new[]{"Mode","LoadSavePath","AutoStartNewColony","ReuseGeneratedWorld","IdleReservoirLeaseOnly",
                 "PrivateFileProtocolAssemblySha256","PrivateOwnedLoadRejection","QuitWhenComplete","QuitFromMainMenu","SaveOnComplete","OverwriteSave","VanillaLoad","SaveBeforeResume",
                 "VerifySaveIoRecovery","VerifyNaturalAutosave","VerifyPersistentActors","VerifyLiveBreathing","VerifyTransientParticles",
-                "SubnormalCarbonParticle","ReloadInProcess","CompletedFrames","TimeoutSeconds","Seed","Cluster","DlcMask","ColonyName","Floor","Speed","Scenario","LongRun","TelemetryIntervalFrames"}));
+                "SubnormalCarbonParticle","ReloadInProcess","CompletedFrames","TimeoutSeconds","Seed","Cluster","DlcMask","ColonyName","Floor","Speed","Scenario","LongRun","ReleaseRun","TelemetryIntervalFrames"}));
             var defaults=Valid(new ColonyValidationConfiguration());
             check(defaults.Mode=="snapshot-copy" && defaults.CompletedFrames==30 && defaults.TimeoutSeconds==600 && defaults.LoadSavePath=="" &&
                 !defaults.LongRun && defaults.TelemetryIntervalFrames==ColonyValidationLimits.DefaultTelemetryIntervalFrames &&
@@ -106,6 +106,22 @@ internal static class ColonyValidationLimitsTests
                 var started=Request(mode,600,600,true);started.AutoStartNewColony=started.QuitWhenComplete=started.ReuseGeneratedWorld=true;
                 check(Valid(started).LongRun);
             }
+        });
+        test("release windows require explicit opt-ins and preserve all ordinary run ceilings",()=> {
+            var release=typeof(ColonyValidationConfiguration).GetField("ReleaseRun");
+            check(release!=null);if(release==null)return;
+            foreach(var mode in new[]{"colony-owner","colony-owner-load","colony-vanilla"})
+            {
+                var value=Request(mode,3100000,1209600,true,3000);value.DlcMask=0;release.SetValue(value,true);
+                check(Valid(value).CompletedFrames==3100000);
+            }
+            foreach(var value in new[]{Request("colony-owner",30,600),Request("native-domain",30000,172800,true),
+                Request("colony-owner",3100001,1209600,true),Request("colony-owner",3100000,1209601,true)})
+            {value.DlcMask=0;release.SetValue(value,true);reject(()=>Valid(value));}
+            var scenario=Request("colony-owner",300000,172800,true);scenario.DlcMask=0;scenario.Scenario="terrain";release.SetValue(scenario,true);reject(()=>Valid(scenario));
+            foreach(var mask in new[]{-1,2,31})
+            {var value=Request("colony-owner",300000,172800,true);value.DlcMask=mask;release.SetValue(value,true);reject(()=>Valid(value));}
+            reject(()=>Valid(Request("colony-owner",300000,172800,true)));
         });
         test("long runs keep frame, timeout and telemetry ceilings and reject unaudited scenes or fixture controls",()=> {
             check(Rejected(Request("native-domain",100001,600,true))==Unsupported);

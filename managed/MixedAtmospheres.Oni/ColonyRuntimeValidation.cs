@@ -58,6 +58,7 @@ namespace MixedAtmospheres.Oni
             public string StartedUtc = System.DateTime.UtcNow.ToString("O");
             public string FinishedUtc = "";
             public bool LongRun;
+            public bool ReleaseRun;
             public int TelemetryIntervalFrames;
             public string DevelopmentTelemetryFile = "";
             public int DevelopmentTelemetryLines;
@@ -135,6 +136,7 @@ namespace MixedAtmospheres.Oni
                 Report.AllCopiesByteIdentical = false;
             }
             Report.LongRun = configuration.LongRun;
+            Report.ReleaseRun = configuration.ReleaseRun;
             if (configuration.LongRun) StartTelemetry();
             WriteReport();
             Debug.Log("[Mixed Atmospheres] Explicit colony validation enabled: " + configuration.Mode +
