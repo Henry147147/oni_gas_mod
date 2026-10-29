@@ -37,7 +37,7 @@ as recorded privately.
 
 | Gate | Required current-candidate evidence | Status |
 | --- | --- | --- |
-| Builds and compatibility | Clean Linux and Windows native/managed builds, test suites, actual game contracts and Mono checks; supported game builds and changed hooks verified; fail-closed negative controls | Fresh Linux native build and 90 CTests pass; complete candidate verification pending |
+| Builds and compatibility | Clean Linux and Windows native/managed builds, test suites, actual game contracts and Mono checks; supported game builds and changed hooks verified; fail-closed negative controls | Fresh Linux native build, 90 CTests and the managed/Python suite pass; complete committed-candidate and Windows verification pending |
 | Numerical physics | All fixed gravity, free-surface, multiphase, vacuum and strong-flow gates, including full-grid runs; 10,000-step closed mass drift ≤ 1e-8 and energy drift ≤ 1e-6, with separate trace and source/sink ledgers | Strong-flow collision refinement and separation remain open; both full Riemann runs reached the fixed timeout before a verdict. Full M2/M3/M5 pending |
 | Game accuracy | Fixed F1–F5 owner and vanilla comparisons, including independent F3/F4 timing truth and solid heat exchange | Open |
 | Gameplay | Base game and Spaced Out! generation and all supported producer, consumer, storage, disease, machine, rocket and inter-asteroid lifecycles; starting colonies reach sustainable life support and endgame without developer intervention | Open |
@@ -71,17 +71,17 @@ tools/run_locked.sh high python3 tools/package_probe.py \
   --native-observer "$RC_NATIVE_BUILD/libmixed_atmospheres_oni.so" \
   --managed-dir "$RC_MANAGED_ARTIFACTS/bin/MixedAtmospheres.Oni/release" \
   --game-dir "$ONI_GAME_DIR" --output "$RC_LINUX_PROBE"
-tools/game_slot.sh whole python3 tools/oni_headless.py run \
+tools/game_slot.sh low python3 tools/oni_headless.py run \
   --game-dir "$ONI_GAME_DIR" --package "$RC_LINUX_PROBE" \
   --dlc-mask 0 --mode colony-owner --scenario freeze-melt \
   --frames 60 --timeout 1200 --gpu-display "$ONI_GPU_DISPLAY" \
   --output "$RC_OUTPUT/base-freeze-melt"
-tools/game_slot.sh whole python3 tools/oni_headless.py run \
+tools/game_slot.sh low python3 tools/oni_headless.py run \
   --game-dir "$ONI_GAME_DIR" --package "$RC_LINUX_PROBE" \
   --dlc-mask 0 --mode colony-owner --scenario airflow \
   --frames 60 --timeout 1200 --gpu-display "$ONI_GPU_DISPLAY" \
   --output "$RC_OUTPUT/base-airflow"
-tools/game_slot.sh whole python3 tools/oni_headless.py run \
+tools/game_slot.sh low python3 tools/oni_headless.py run \
   --game-dir "$ONI_GAME_DIR" --package "$RC_LINUX_PROBE" \
   --dlc-mask 1 --mode colony-owner --scenario spaced-out-worlds \
   --frames 80 --timeout 1200 --gpu-display "$ONI_GPU_DISPLAY" \
@@ -91,7 +91,9 @@ tools/game_slot.sh whole python3 tools/oni_headless.py run \
 These focused controls do not replace the 15 fixed Linux batches and nine
 starting asteroids in `tools/acceptance_suite.py`, the additional supported-DLC
 matrix, or ordinary play. The private JSON ledger records the original batches
-and asteroid names. The suite currently creates a detached worktree; project
+and asteroid names. The LOW slot pins these to cores 0–11; they establish
+functional correctness only and do not measure performance or achieved speed.
+The suite currently creates a detached worktree; project
 policy requires work on `main`, so use the main-only private matrix driver
 instead of that worktree workflow. The old prepared save is a historical
 fixture, not proof that an earlier R&D save is supported.
