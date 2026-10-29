@@ -18,6 +18,12 @@ Region activity chooses Tiers or Always simulate for new colonies. See
 The activity lifecycle, pending cold claim, paused resave and actual-file cold
 readback cohorts pass on Linux for both the base game and nine-world Spaced Out!.
 This does not certify the broader gameplay matrix or Windows OS behavior.
+The production idle byproduct pump and bounded pacing credit are now integrated
+separately. Their combined private base-game probe reaches nominal 3×, while
+the same nine-world Spaced Out! probe reaches 1.955×. Save/readback, queued actor,
+controlled merging and precise-pipe custody controls pass. Representative
+sustained 3× and Windows OS acceptance remain open; see the current
+[performance evidence](performance-acceptance.md#idle-frame-byproducts-and-combined-pacing-2026-10-29).
 The previous profile8 fresh Linux Terra measurement was 1.935× with five
 GCs/15 s. Integrated tiers reach about 2.80× warmed owner/game progress, with
 three GCs in one clean 15 s window. Actual 3×, smooth input and the Windows
@@ -87,7 +93,8 @@ plan's targets are unchanged.
   harness use Terra, seed 147147.
 - **Speed** was measured and reported, not gated, for the private playtest.
   Superseded for release on 2026-10-28: at least 1× with smooth input is
-  required, and features may be cut for speed by the user's choice
+  required by the earlier amendment; the latest request raises release speed
+  to sustained actual 3×. Features may be cut for speed by the user's choice
   ([amendment](completion-plan.md#amendments)).
 - **Platforms:** Linux and Windows x64. Windows OS behaviour and speed need
   the user's PC; Proton results are labelled separately.

@@ -353,8 +353,32 @@ The complete managed/game-contract suite and 439 Python tests pass. Native
 sources are unchanged, retaining the previously verified 89-test binaries.
 Evidence: `receipt-pump/production-port/`, `windows-game-mono-abi/`,
 `windows-pump-managed/` and `pump-production-full-managed.log` under the tier
-artifacts. The pacing-credit production port follows in a separate change;
-the delivered fc0fcc4 Windows ZIP still excludes both experiments.
+artifacts. The delivered fc0fcc4 Windows ZIP still excludes the new pump and
+credit integration; a replacement package follows final validation.
+
+The separate pacing-credit production port is now integrated. Its wrapper
+selects 2 s capacity and `1f/30f` repayment, leaving the original 0.2f argument
+cap, busy fence/epsilon and guard priorities unchanged. The pure helper keeps
+its original defaults and arithmetic from the sealed combined experiment.
+Default-on `MA_COLONY_PACING_CREDIT` has a `0` opt-out; full telemetry requires
+`MA_COLONY_PACING_CREDIT_LOG=1`, while faults always report. The older
+`MA_COLONY_PACING_LOSS_LOG` runs only with credit disabled because its
+loss-only accounting cannot attribute repayment. Session, speed, pause,
+readiness and save boundaries reset credit; it is not checkpoint state.
+
+Permanent pure controls pass the original 17,138 plus 102,908 capacity and
+101,886 repayment assertions. Actual Linux game Mono passes the original 81
+Harmony checks plus 11 configured/production checks in default and explicit-on
+modes, opt-out eight and the disabled negative oracle. Flag combinations
+exercise quiet defaults, explicit credit telemetry and baseline loss telemetry.
+The complete managed/game-contract suite and 439 Python tests pass. Evidence:
+`credit-production-port/` and `credit-production-full-managed.log`. Neither
+solver arithmetic nor checkpoint format/bytes change for identical operations.
+The final Windows adapter verifies 2,588 dependencies with zero differences;
+the actual Windows game Mono/Harmony matrix also passes under Wine, including
+default/on/off, baseline loss logging and the deliberate disabled negative.
+This uses fake game endpoints, not the Windows OS or an active game owner.
+Evidence: `windows-credit-harmony/results.json`.
 
 The private combined real-game controls pass ordinary overwrite/cold resave,
 independent file readback and menu reload. A separate activity cohort passes

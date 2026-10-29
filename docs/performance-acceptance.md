@@ -497,6 +497,16 @@ its exact row, sidecar, job readiness and remaining prefix unchanged. Normal
 publication then delivers and acknowledges that row once. These fixture
 phases preserve the original acceptance bounds and 2 ms publication budget.
 
+The pump and bounded pacing credit are now integrated separately on `main`,
+with production opt-outs `MA_COLONY_BYPRODUCT_PUMP=0` and
+`MA_COLONY_PACING_CREDIT=0`. Credit retains at most 2 s and offers at most
+`1f/30f` extra per eligible call under the unchanged original argument cap
+and busy guard. Permanent accounting, actual-body and game-Mono patch-order
+controls run through `tools/build.py`; the full managed/game-contract suite
+and 439 Python tests pass. These ports do not turn the private 3× starting
+colony measurement into representative release acceptance. Detailed credit
+telemetry is opt-in, and the old loss-only logger requires credit disabled.
+
 Finer matched DLC replay timing finds 222,885 held cells and 859 rebuilt cells;
 64,152 held owned vectors copy 5,067,980 doubles (40.54 MB) per frame. Dense
 setup/loop wall is 1.899/8.738 ms, compared with 10.951 ms enclosing dense/Derived.
@@ -512,6 +522,17 @@ second 32-frame/reversed-order matrix retains all 256 outputs, with warm means
 56.944→59.818 ms. The additional immutable pointer grows each material cell
 104→120 bytes; a layout-preserving alternative is being investigated. These
 are early captured replay windows, not fresh-game or DLC 3× acceptance.
+
+A separate read-only 64-frame memory cohort preserves all 384 old/new-off/
+new-on outputs. DLC source/result union mass-vector capacity settles near
+41.70 MB with sharing versus 82.17 MB without it; sampled frozen references
+are at most three. The overall allocated heap instead rises by about 3.09 MB
+against the instrumented new-off variant, and RSS includes retained allocator
+arenas. Weak-parent destruction controls pass; this bounded window establishes
+neither indefinite memory stability nor a whole-process memory reduction.
+Warm source-owned counts remain roughly 851–994 in DLC, so the slow frames
+are not explained by repeatedly freezing all 64,000 vectors. Evidence:
+`dense-frozen-memory/`; the 56-byte storage prototype remains unadopted.
 
 ### Measurement and test harness first
 

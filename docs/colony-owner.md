@@ -503,9 +503,27 @@ motion rather than stop-go. Pause, the camera and menus use unscaled time and
 stay responsive during those pacing holds. A native-frame fence also waits for
 the preceding owner step before applying the next frame's messages and
 contacts, covering frames posted before managed pacing sees the busy flag.
-It preserves the physical frame order without advancing an extra step or
-dropping game time. The solver uses
+It preserves the physical frame order without advancing an extra step. The solver uses
 predictive step control ([MAC_SOLVER.md](../native/MAC_SOLVER.md)).
+
+Bounded pacing credit retains offered time that the original 0.2 s argument
+cap or the busy fence could not admit, up to 2 s. Later eligible updates can
+repay at most `1f/30f` extra while still respecting the original argument cap,
+busy allowance and epsilon. Pause, speed/session changes, saves, readiness
+guards and exceptions clear credit as appropriate; a later patch's veto or
+intentional truncation is not replayed. This is execution pacing state, not
+checkpoint state. `MA_COLONY_PACING_CREDIT=0` restores the original behavior.
+Detailed accounting is opt-in with `MA_COLONY_PACING_CREDIT_LOG=1`; faults
+always report. The older loss-only observer requires credit disabled because
+it cannot attribute repayments correctly.
+
+Idle Unity frames can also drain an already observed byproduct prefix under
+a separate 2 ms budget. A successful publication's session/frame/sequence
+fence prevents future, callback, job or precise/moving outcomes from crossing
+this path. Shared delivery leases and lifecycle/save guards protect custody.
+`MA_COLONY_BYPRODUCT_PUMP=0` disables it. The original normal-publication
+budget and full settlement remain in place. This changes receipt scheduling
+relative to Unity; it does not establish identical live-world trajectories.
 
 The output arrays for cell views and composition readings are blittable and
 stay pinned only during their synchronous native copy. This avoids Mono's

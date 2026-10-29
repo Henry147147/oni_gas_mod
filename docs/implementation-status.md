@@ -31,6 +31,19 @@ retains original rich/fallback behavior and passes 569,496 controls in each
 standard default/opt-out process. A private Linux comparison halves clean-window
 GC frames and reaches 2.667× warmed speed; Windows OS and sustained 3× remain open.
 
+**Idle receipt delivery, 2026-10-29:** the default-on pump drains only a
+successfully published, sequence-fenced byproduct prefix during idle Unity
+frames. It preserves normal callback delivery, settlement, pause/load guards
+and the original publication budget. Actual-body controls, real game-Mono ABI,
+Windows adapter contract and the full managed/Python suites pass. Bounded
+pacing credit is also integrated with 2 s retention, at most `1f/30f` repayment
+and the original argument cap and busy guards. Permanent pure and actual
+game-Mono patch-order/opt-out controls pass. The private
+combined pump/pacing experiment reaches about 3× in a starting base-game colony
+but only 1.955× in nine-world Spaced Out!. Real save/readback, pending-packet,
+Lead merge/survival and precise-pipe custody controls pass; broader performance
+and Windows OS acceptance remain open. See [scope](performance-acceptance.md#idle-frame-byproducts-and-combined-pacing-2026-10-29).
+
 **Temperature regression, 2026-10-28:** controlled digging in the user's
 uploaded colony reproduced large gas overfill and temperature swings.
 Profile6 / core24 checks pressure intervals before transport and advances

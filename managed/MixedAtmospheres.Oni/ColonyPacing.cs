@@ -32,6 +32,7 @@ namespace MixedAtmospheres.Oni
 
         internal static void Reset()
         {
+            ColonyPacingRetainedLog.Reset();
             ColonyPacingLossLog.Reset();
             ColonyPerformanceLog.FinishRun();
             HeldTicks = UnityFrames = 0; OwnerRate = 0; seenFrames = 0;
@@ -66,6 +67,7 @@ namespace MixedAtmospheres.Oni
             if (!Busy)
             {
                 if (ColonyPacingLossLog.Enabled) ColonyPacingLossLog.Pacing(dt, dt, true, false);
+                if (ColonyPacingRetainedLog.Enabled) ColonyPacingRetainedLog.Pacing(dt, dt, true, false);
                 return true;
             }
             var before = dt;
@@ -73,23 +75,26 @@ namespace MixedAtmospheres.Oni
             if (Mathf.Min(dt, .2f) < allowed)
             {
                 if (ColonyPacingLossLog.Enabled) ColonyPacingLossLog.Pacing(before, dt, true, true);
+                if (ColonyPacingRetainedLog.Enabled) ColonyPacingRetainedLog.Pacing(before, dt, true, true);
                 return true;
             }
             ++HeldTicks;
             if (allowed <= 0)
             {
                 if (ColonyPacingLossLog.Enabled) ColonyPacingLossLog.Pacing(before, 0, false, true);
+                if (ColonyPacingRetainedLog.Enabled) ColonyPacingRetainedLog.Pacing(before, 0, false, true);
                 return false;
             }
             dt = allowed;
             if (ColonyPacingLossLog.Enabled) ColonyPacingLossLog.Pacing(before, dt, true, true);
+            if (ColonyPacingRetainedLog.Enabled) ColonyPacingRetainedLog.Pacing(before, dt, true, true);
             return true;
         }
 
         internal static void Update()
         {
             var framed = ColonyFrameLog.Now;
-            try { UpdateTimed(); } finally { ColonyPacingLossLog.AfterUpdate(); ColonyFrameLog.Add(ColonyFrameLog.Part.Pacing, framed); }
+            try { UpdateTimed(); } finally { ColonyPacingRetainedLog.AfterUpdate(); ColonyPacingLossLog.AfterUpdate(); ColonyFrameLog.Add(ColonyFrameLog.Part.Pacing, framed); }
         }
         private static void UpdateTimed()
         {
@@ -136,7 +141,7 @@ namespace MixedAtmospheres.Oni
     // the original actually ran. All strings are emitted at bounded windows.
     internal static class ColonyPacingLossLog
     {
-        internal static readonly bool Enabled = Environment.GetEnvironmentVariable("MA_COLONY_PACING_LOSS_LOG") == "1";
+        internal static readonly bool Enabled = Environment.GetEnvironmentVariable("MA_COLONY_PACING_LOSS_LOG") == "1" && !ColonyPacingRetainedLog.Enabled;
         private const ulong WindowFrames = 50;
         private static readonly ColonyPacingLoss totals = new ColonyPacingLoss();
         private static ulong session, bucket;

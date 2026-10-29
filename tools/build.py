@@ -54,6 +54,7 @@ def main() -> None:
     run(["dotnet", "run", "--project", "tools/SettingsTests", "-c", "Release"], env)
     run(["dotnet", "run", "--project", "tools/ColonyPerformanceTests", "-c", "Release"], env)
     run(["dotnet", "run", "--project", "tools/ColonyPacingTests", "-c", "Release"], env)
+    run(["dotnet", "run", "--project", "tools/ColonyPacingCreditTests", "-c", "Release"], env)
     run([sys.executable, "tools/ColonyReceiptPumpTests/check.py"], env)
     if args.oni_native_observer:
         run(["dotnet", "run", "--project", "tools/ColonyReceiptPumpInteropTests", "-c", "Release", "--",
@@ -68,6 +69,8 @@ def main() -> None:
     run(["dotnet", "run", "--project", "tools/OwnedReservoirFilePromotionTests", "-c", "Release",
          "--", str(directory / "file-promotion-checks")], env)
     if args.game_dir:
+        run([sys.executable, "tools/ColonyPacingCreditHarmonyTests/check.py", "--game-dir", str(Path(args.game_dir).resolve()),
+             "--build-dir", str(directory / "pacing-credit-harmony")], env)
         run(["dotnet", "build", "managed/MixedAtmospheres.Oni", "-c", "Release", "--nologo",
              "-p:OniGameDir=" + str(Path(args.game_dir).resolve())])
         # The managed game contract for this build: unchanged verifies, synthetic changes are refused

@@ -16,6 +16,17 @@ playtest deferrals remain recorded until their own controls pass.
 
 ## Current repairs
 
+- **Idle delivery and pacing, 2026-10-29:** production now pumps already
+  published byproduct prefixes in idle Unity frames with a separate budget,
+  sequence/session fences and lifecycle/reentry protection. Callback/job
+  receipts remain on normal publication. Permanent actual-body and game-Mono
+  checks pass. The combined private pump/credit experiment reaches nominal
+  3× in fresh base game and 1.955× in Spaced Out!; save/readback, queued actor,
+  controlled Lead merging and precise-pipe custody checks pass. Pacing credit
+  now retains at most 2 s and repays under the original cap/busy guards, with
+  default/on/off and actual game-Mono patch-order controls. Sustained representative 3× and smooth
+  input remain open. Native held-vector sharing improves captured mean times
+  but worsens p95, so it remains private.
 - **3× instrumentation and activity integration, 2026-10-28:** performance diagnostics
   measure independent absolute owner/game clock deltas against monotonic wall
   time, retain pauses and report matched submit-through-managed-publication

@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><OutputType>Exe</OutputType><StartupObject>ProductionWrapperProof</StartupObject><TargetFramework>netstandard2.1</TargetFramework><LangVersion>latest</LangVersion><Nullable>enable</Nullable><ImplicitUsings>enable</ImplicitUsings><TreatWarningsAsErrors>true</TreatWarningsAsErrors></PropertyGroup>
+  <PropertyGroup><CreditPython Condition="'$(CreditPython)' == ''">python3</CreditPython></PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../../managed/MixedAtmospheres.Oni/ColonyPacingRetained.cs" Link="ColonyPacingRetained.cs"/>
+    <Compile Include="../../managed/MixedAtmospheres.Oni/ColonyPacingRetainedLog.cs" Link="ColonyPacingRetainedLog.cs"/>
+    <Compile Include="../../managed/MixedAtmospheres.Oni/ColonyPacingLoss.cs" Link="ColonyPacingLoss.cs"/>
+    <Reference Include="0Harmony"><HintPath>$(OniGameDir)/OxygenNotIncluded_Data/Managed/0Harmony.dll</HintPath></Reference>
+  </ItemGroup>
+  <Target Name="RequireGameHarmony" BeforeTargets="ResolveReferences" Condition="!Exists('$(OniGameDir)/OxygenNotIncluded_Data/Managed/0Harmony.dll')"><Error Text="Supply OniGameDir for the actual installed game Harmony assembly."/></Target>
+  <Target Name="LinkActualLegacyObserver" BeforeTargets="CoreCompile">
+    <Exec Command="&quot;$(CreditPython)&quot; &quot;$(MSBuildThisFileDirectory)extract.py&quot; --root &quot;$(MSBuildThisFileDirectory)../..&quot; --out &quot;$(IntermediateOutputPath)credit-observer&quot;"/>
+    <ItemGroup><Compile Include="$(IntermediateOutputPath)credit-observer/ActualLossObserver.cs"/></ItemGroup>
+  </Target>
+</Project>
