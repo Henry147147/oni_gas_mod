@@ -144,7 +144,13 @@ MacTransportState dense(const MacTransportState &source, const k::State &state,
     for (std::size_t i = first; i < end; ++i) {
       auto &cell = result.cells[i];
       if (!rebuilt.empty() && !rebuilt[i]) {
-        cell = source.cells[i];
+        // Structured bindings also refuse a future unhandled cell field.
+        const auto& [mixture, passives, remainder] = source.cells[i];
+        const auto& [masses, energy] = mixture;
+        cell.mixture.masses = masses.immutable_snapshot_copy();
+        cell.mixture.energy = energy;
+        cell.passive_quantities = passives;
+        cell.energy_remainder_j = remainder;
         result.occupied_volumes_m3[i] = source.occupied_volumes_m3.empty()
             ? (!source.grid.walls[i] && cell.mixture.mass() > 0 ? source.grid.volume_m3() : 0)
             : source.occupied_volumes_m3[i];

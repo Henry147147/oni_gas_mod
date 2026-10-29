@@ -1010,6 +1010,25 @@ and the new inventory-control PASS line differing. The native colony diagnostic
 is timing-only; focused ASan/UBSan/TSan value controls pass. Heat, settling,
 phase and flow checkpoints match on two captured Terra worlds.
 
+Held regional cells also use explicit immutable mass snapshots. Owned vectors
+copy deeply, including when a mutable reference was retained; the first snapshot
+copies the vector into independent const storage, and later snapshots reuse it.
+Mutable access materializes owned storage before writing. No snapshot retains
+its containing world. Tagged owned/zero/frozen alternatives keep storage at
+32 bytes and a material cell at 96 bytes in the verified x64 builds. Normal
+copies of owned arrays retain their value semantics, and checkpoint compaction
+examines visible contents, preserving nonzero and signed-zero bits. Allocation
+precedes alternative replacement; positive-zero assignment now also preserves
+the old contents if interning its zero array fails.
+
+This changes the internal C++ layout, requiring all dependent native libraries
+to be rebuilt together. Solver arithmetic and successful checkpoint bytes and
+formats remain unchanged. The standalone `mass_storage_snapshots` test covers
+342 controls, including all mutation families, retained references, allocation
+failures, ownership transitions, moved-from objects, concurrent copies and
+parent destruction. See the captured and actual-game
+[performance scope](../docs/performance-acceptance.md#idle-frame-byproducts-and-combined-pacing-2026-10-29).
+
 High-lock same-state probes on the newer Terra capture give these medians
 (six samples after three warmups). Earlier operation results remain alive
 during each probe; these are component costs. Whole-lock frame measurements

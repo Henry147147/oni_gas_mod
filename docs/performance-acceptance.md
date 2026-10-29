@@ -615,6 +615,82 @@ base p95 still worsens, although these native replay times remain below a
 tests, sanitizer checks and broader output/platform verification. Evidence:
 `dense-frozen-variant/`.
 
+A fresh full backend built from the tagged variant passes its kernel, owner,
+ABI and replay controls before private game testing. The actual DLC900 probe
+then passes at 2.08992× warmed game progress (149.954392 / 71.751409 s), with
+windows 2.080/2.057/2.098/2.131/2.085× and native owner means around
+50.2–53.0 ms. The preceding rendering-fixed production-native run reaches
+1.94790× with owner means 56.1–63.8 ms. This is a 7.3% observed improvement
+in an ordered comparison with varying gameplay/environment, not precise
+causal attribution or 3× acceptance. Compact admits all 5,021 batches; flags29,
+RTX 5090, worker counts and private cadence30 are retained, with no owner
+fault. Native overrides and the required private environment flag are recorded
+separately in `native32-game-validation/probe-provenance.json`; the clean
+package Git revision alone does not describe those native sources. Base-game,
+sanitizer and broad platform/output checks precede production integration.
+
+The private native32 BASE900 probe also passes at 2.99681× warmed game
+progress (150.021065 / 50.060256 s), against production's 2.99675×. Individual
+windows are 2.999/3.000/2.979/3.005/3.001×. Native owner means fall to
+25.4–28.1 ms from 27.9–29.2; the game-clock result is unchanged within this
+ordered comparison. Separate clean-window p99 values are
+31.34/103.15/102.39 ms and GC counts 1/3/3, versus production's
+34.44/102.96/106.71 ms and 1/2/4. These are per-window observations, not an
+aggregate percentile or causal smoothness gain. No owner fault or dropped
+timing samples occur. A fresh final receipt-pending count is not recorded by
+this overlay/result, so pump counters do not establish an empty queue.
+
+The native32 DLC run averages about 95.67 ms wall per 0.2 s owner frame;
+true 3× needs 66.67 ms. Existing logs put the partial owner timer at
+50.2–53.0 ms: edits 0.5–1.6, heat 5.6–6.2, transfers 7.5–9.3 and broad flow
+35.7–37.0 ms. Flow includes solver advance and blocked-liquid, identity and
+trace postprocessing; it is not a pressure-only timer. Ledger/projection
+6.7–7.0 ms straddles the owner timer end, so these are not a disjoint partition.
+Submit-through-managed-publication averages 88.8–92.7 ms and includes queueing,
+owner work, projection and asynchronous observation.
+
+Late native wait-log call windows report UpdateData 7.31–8.02 ms, next-frame
+wait 9.77–14.55, shadow write 2.44–2.54, capture 1.35–1.42 and game-copy
+3.66–3.80. Their call windows differ from the owner clock and must not be
+added to it. FrameLog reports managed publication 1.782–2.325 ms per Unity
+frame; views, snapshot, overlay, receipts and presentation are nested within
+it. Residual “other” is 11.70–12.76 ms per Unity frame, meaning elapsed frame
+minus the timed mod/blocked work, not necessarily vanilla CPU. Current logs
+do not assign the entire gap to the solver.
+
+The next exact investigations are a matched warm replay splitting broad flow
+into pressure/transport/EOS/postprocessing, independent ledger/projection
+timers, and bounded main-thread sampling of the residual, UpdateData frequency
+and asynchronous handoff. Cold early-frame attribution does not substitute
+for that warm capture. Preserve full owner/physical/receipt bytes and compare
+timing separately; further cadence, timestep, physics or acceptance changes
+are not justified by these measurements.
+
+The final production source removes both experimental switches and adds a
+permanent header-only storage test with 342 controls. Fresh full dependency
+builds pass 90 Linux CTests and 90 Windows x64/Wine CTests, plus the complete
+managed/game-contract suite and 439 Python tests. The exact public storage
+header/test passes ASan/UBSan/leak checks; the frozen full-dependency variant
+also passes kernel, owner, cold-load and captured-state sanitizer controls.
+The final Windows DLL passes actual game-Mono raw/legacy 600-byte status and
+48-byte receipt checks over 10,000 inactive calls without advancing the owner.
+Wine/Mono results do not certify Windows OS gameplay or Mono allocation rates.
+
+The same original 16-check activity cohort passes with the native variant,
+saving a live callback/pending frame at owner frame 33. Paused cold resave
+retains the full before/after owner bytes and one pending frame, rebinds one
+callback with no release and claims the saved frame once; writer owner hash
+is `6c2efced…`. Physical before/after/writer bytes match. Independent ordinary
+cold readback restores that exact complete writer owner image and resumes
+frame 33→113, retaining wrapper14/physical28, one rebound callback, no releases
+and one packet claim without faults or serializer errors. Later continuation
+hashes still differ, so these checks do not repair the existing active-world
+trajectory divergence. Final public old/new comparison retains all 87 existing
+MAC outputs and exit statuses after only the existing `ref_ms`/`prod_ms` masks;
+the seven reference nonzero diagnostic/usage exits are unchanged. Long gates
+were not run. Evidence: `dense-frozen-variant/final-public-mac87-verification.json`
+and the retained comparison manifests.
+
 ### Measurement and test harness first
 
 - Measure both `GameClock` and owner-clock deltas against monotonic wall time

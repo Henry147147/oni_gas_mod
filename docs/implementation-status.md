@@ -50,6 +50,18 @@ but only 1.955× in nine-world Spaced Out!. Real save/readback, pending-packet,
 Lead merge/survival and precise-pipe custody controls pass; broader performance
 and Windows OS acceptance remain open. See [scope](performance-acceptance.md#idle-frame-byproducts-and-combined-pacing-2026-10-29).
 
+**Held native snapshots, 2026-10-29:** explicit immutable mass snapshots avoid
+copying unchanged regional vectors while preserving owned deep copies and
+retained mutable references. Tagged storage reduces the verified x64 material
+cell from 104 to 96 bytes. The selected representation improves captured DLC
+mean/p95, reaches 2.090× in a private real DLC probe versus 1.948× with the
+previous native code, and retains nominal 2.997× base-game progress. These
+ordered comparisons have varying runtime workloads and do not establish
+representative 3×. Fresh Linux and Windows-under-Wine suites pass 90 tests,
+with 342 permanent storage controls, sanitizer checks and all managed/Python
+checks. Successful checkpoint bytes and solver arithmetic are unchanged;
+positive-zero assignment now preserves prior contents if interning fails.
+
 **Temperature regression, 2026-10-28:** controlled digging in the user's
 uploaded colony reproduced large gas overfill and temperature swings.
 Profile6 / core24 checks pressure intervals before transport and advances
@@ -83,10 +95,10 @@ Linux and WindowsPlayer/Proton each pass eight checks and retain identical
 source/cold/menu histories without a live host. Nonempty teardown and containers remain open.
 
 
-Current private Windows candidate: **`fc0fcc4`**. Its DLLs match the Windows
-x64/Wine 89-test build; current Linux activity/save cohorts pass. Windows OS
-speed, smooth input and broader release acceptance remain open. See
-[install instructions and exact provenance](spaced-out-private-playtest.md).
+The [current private Windows candidate](spaced-out-private-playtest.md) lists
+its exact archive, hashes and tested native/managed scope. Current Linux
+activity/save cohorts pass. Windows OS speed, smooth input and broader release
+acceptance remain open.
 
 Spaced Out! update, 2026-10-27: ordinary new colonies now use the cluster
 owner without a development opt-in. Targeted controls pass multi-asteroid

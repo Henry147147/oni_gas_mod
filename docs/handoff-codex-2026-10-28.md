@@ -406,11 +406,30 @@ per captured DLC frame. Two immutable-sharing prototypes retain replay bytes
 but worsen tails. The third uses a 32-byte tagged storage / 96-byte cell and
 passes 339 storage controls plus native/cold/reference tests and 256 exact
 replay outputs. DLC mean/p95 improves 55.258/62.819→45.110/48.859 ms; base
-mean improves 28.120→26.668 but p95 rises 29.674→33.682 ms. It remains private
-while a clean full backend is prepared for actual game tests, followed by
-sanitizers and broad platform/output checks if supported. No native sharing
-prototype is included in the delivered ZIP. Preserve the failed performance
-variants and fixed acceptance bounds. Evidence: `dense-frozen-{copy,memory,descriptor,variant}/`.
+mean improves 28.120→26.668 but p95 rises 29.674→33.682 ms. Actual full-backend
+probes pass at 2.08992× warmed DLC progress versus 1.94790× with the previous
+native code, and 2.99681× base-game progress versus 2.99675×. Those are ordered
+comparisons with varying workloads, not exact causal gains or representative
+3× acceptance. Base-game GC/p99 is broadly similar. Fresh production builds
+with both experimental switches removed pass 90 Linux and 90 Windows/Wine
+tests, 342 permanent storage controls, exact-public storage sanitizers and
+the full managed/game-contract/439 Python suites. Full-dependency variant
+sanitizers and actual Windows game-Mono ABI checks also pass. All 87 public
+MAC programs retain their old numeric output and exit statuses, masking only
+`ref_ms`/`prod_ms`. Seven existing nonzero diagnostic/usage exits remain;
+this does not assert that all diagnostics pass. Long gates were not run.
+
+The native activity cohort passes all 16 original source checks, paused cold
+resave and independent readback. The resave preserves one pending frame and
+full owner bytes, rebinds one callback without release and claims the frame
+once. Readback restores the exact writer owner hash `6c2efced…`. Later world
+continuation still diverges; that separate failure remains open. Solver
+arithmetic and successful checkpoint bytes/formats are unchanged. Positive-zero
+assignment now preserves old contents when zero interning fails. The older
+delivered 05d0c73 ZIP predates this native change; refresh it after committing.
+Preserve failed performance variants and fixed acceptance bounds. Evidence:
+`dense-frozen-{copy,memory,descriptor,variant}/`, `native32-production-full.log`,
+`windows-native32-production/` and `native32-game-validation/`.
 
 The private combined real-game controls pass ordinary overwrite/cold resave,
 independent file readback and menu reload. A separate activity cohort passes

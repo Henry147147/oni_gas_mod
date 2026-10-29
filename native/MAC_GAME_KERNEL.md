@@ -360,11 +360,22 @@ undoes a refused batch. The colony owner passes its frame world this way, so
 only the frame's first edit copies the published state, and its ledger closes
 on the kept totals.
 
-Rejected after measurement: persistent transport scratch (1.3% slower at one
-thread), building dense cells on the pool (3% slower at twelve), and frozen
+Earlier, before region activity tiers, measurements rejected persistent
+transport scratch (1.3% slower at one thread), building dense cells on the pool
+(3% slower at twelve), and frozen
 shared inventories (a state copy is dominated by its cell array, not the
 inventories). Checkpoint formats and bytes, saved settings and physics are
 unchanged; each commit message gives its interleaved A/B measurement.
+
+With activity tiers, the measured DLC bridge copies 40.54 MB of held mass
+vectors per frame. Dense construction now takes explicit immutable snapshots
+for held cells, preserving every mixture/passive/remainder field and occupied
+volume. Rebuilt cells retain their original path. The mass container's tagged
+representation preserves owned deep-copy semantics and uses independent const
+vectors for snapshots; it does not retain old worlds. Two earlier layouts
+worsened native tails and were rejected. The smaller representation improves
+DLC replay mean/p95 and actual game progress while leaving the base-game
+clock result essentially unchanged. See [measurements and limits](../docs/performance-acceptance.md#idle-frame-byproducts-and-combined-pacing-2026-10-29).
 
 
 ## Large pressure and heat components
