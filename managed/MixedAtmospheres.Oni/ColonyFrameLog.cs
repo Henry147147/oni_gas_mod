@@ -26,10 +26,11 @@ namespace MixedAtmospheres.Oni
             Publication, Messages, Pacing, Tick,
             // Publication sub-parts (included in Publication).
             Views, Snapshot, Overlay, Receipts, Actors, Presentation,
-            Count
+            // Independent main-thread idle work; not a publication sub-part.
+            ByproductPump, Count
         }
         private static readonly string[] Names =
-            { "submit", "wait", "native_other", "wait_gc", "publication", "messages", "pacing", "tick", "views", "snapshot", "overlay", "receipts", "actors", "presentation" };
+            { "submit", "wait", "native_other", "wait_gc", "publication", "messages", "pacing", "tick", "views", "snapshot", "overlay", "receipts", "actors", "presentation", "byproduct_pump" };
         // On with MA_FRAME_LOG=1 or the Advanced > Performance preference "Log frame timing".
         private static readonly bool environment = Environment.GetEnvironmentVariable("MA_FRAME_LOG") == "1";
         internal static bool Enabled = environment;
@@ -144,7 +145,7 @@ namespace MixedAtmospheres.Oni
             if (collected != lastCollections) { lastCollections = collected; ++gcFrames; gcFrameTicks += frame; gcWorstTicks = Math.Max(gcWorstTicks, frame); lastHeap = GC.GetTotalMemory(false); }
             else { var heap = GC.GetTotalMemory(false); if (heap > lastHeap) allocated += heap - lastHeap; lastHeap = heap; }
             var ms = 1000.0 / Stopwatch.Frequency;
-            double modTicks = accumulated[(int)Part.Publication] + accumulated[(int)Part.Messages] + accumulated[(int)Part.Pacing] + accumulated[(int)Part.Tick];
+            double modTicks = accumulated[(int)Part.Publication] + accumulated[(int)Part.Messages] + accumulated[(int)Part.Pacing] + accumulated[(int)Part.Tick] + accumulated[(int)Part.ByproductPump];
             double blockedTicks = accumulated[(int)Part.NativeSubmit] + accumulated[(int)Part.NativeWait] + accumulated[(int)Part.NativeOther];
             frames.Add(frame * ms); mod.Add(modTicks * ms); blocked.Add(blockedTicks * ms); other.Add(Math.Max(0, frame - modTicks - blockedTicks) * ms);
             for (var k = 0; k < accumulated.Length; ++k) sums[k] += accumulated[k] * ms;

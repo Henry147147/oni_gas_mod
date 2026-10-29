@@ -200,7 +200,7 @@ namespace MixedAtmospheres.Oni
         // A zero-time native publication can run game scheduler callbacks
         // recursively. Free a retiring grid only after its resource callback
         // has returned to Unity, never from inside that publication.
-        private void LateUpdate()=>ColonyClusterRetirement.PumpDeletes();
+        private void LateUpdate(){ColonyClusterRetirement.PumpDeletes();ColonyOwner.PumpDeferredByproducts();}
         internal static void Ensure()
         {
             if (FindFirstObjectByType<ColonyPacingDriver>() != null) return;

@@ -261,7 +261,7 @@ counting is unsupported. Same-runtime original/current captures match
 texture samples without mismatch, not GPU readback. See `compact-observer/`,
 `linux-compact-observer900/` and [performance scope](performance-acceptance.md#cached-texture-scalars).
 
-**Next:** pin down and test the receipt-budget bypass. Existing publication
+**Receipt-budget investigation:** completed, with the original admission policy retained. Existing publication
 logging in a separate diagnostic run attributes 3.543 of 3.554 s of dispatch
 to 35,970 byproduct calls. Copy/append/ack costs are only 1.75/2.80/3.06 ms
 in total. Five ready counts exceed 1,500, but unbounded long batches also occur
@@ -278,10 +278,9 @@ ineffective, not an empty-queue proof. It is parked, with no actual save or
 lifecycle acceptance claim. The updated diagnostic separately confirms 92
 zero-time unlimited batches below the backlog threshold, 15 stalls over 50 ms,
 and a 129 ms maximum. Actual final frames are 906 in that diagnostic and 908 in
-the candidate. Keep the original production policy. A new private design
-investigates draining only already-published, sequenced byproduct prefixes in
-idle Unity frames without extra physics/publication calls; custody/reentry/save
-proof comes before adoption.
+the candidate. Keep the original production policy. The replacement design drains only already-published, sequenced byproduct
+prefixes in idle Unity frames without extra physics/publication calls. Its
+production integration and custody proofs are recorded below.
 Byproduct counts are receipt deliveries, not newly created objects; the game
 merges before instantiating. See `linux-compact-publication900/` and
 `receipt-budget/` under the artifacts.
@@ -303,10 +302,11 @@ controls pass. Actual-game and save/lifecycle gates are still pending.
 
 The later combined private pump/retention3 run reaches approximately 3× in
 fresh base game: warmed 2.998744× owner / 3.000498× game, with zero dropped warm
-credit and five clean-window GC frames. It is not adopted: real merge/dying
-pickupable, pipe-callback, paused-save/cold-load and lifecycle checks are being
-built. Scheduling receipt delivery changes Unity-time behavior; fake byte/order
-controls do not establish unchanged world trajectories. The fresh completion
+credit and five clean-window GC frames. Subsequent real merge/dying pickupable,
+pipe-callback, paused-save/cold-load and pending-packet lifecycle checks pass.
+Production integration is split into receipt pumping and then pacing credit.
+Scheduling receipt delivery changes Unity-time behavior; byte/order controls
+do not establish unchanged world trajectories. The fresh completion
 sample still has 381 pending receipts at owner frame 900.
 
 The SAME frozen package passes fresh Spaced Out! 900 with Expansion1 active,
@@ -318,11 +318,52 @@ fall back for an unrecorded reason; no compact samples run. The native species
 count is 79 despite the unsampled diagnostic table count 0. Pump delivers 0,
 maximum observed pending 12, fresh frame 900 pending 0 only at that instant.
 There is one GC in each of five clean 15 s windows, no owner fault or dropped
-timing samples. C is orchestrating real game custody controls; B inventories a
-private matched DLC flow/postprocessing/projection split while A builds the
-fixture. Keep physics inputs/bounds and production source unchanged until
-measured changes pass exact-output and lifecycle gates. See
+timing samples. The private native split attributes most flow time to dense
+state construction, including 40.54 MB of held-vector copies per frame. An
+immutable-vector prototype preserves complete replay bytes and lowers warm
+means 11–13%, but repeatedly worsens p95. It remains private while memory,
+sanitizers and a layout-preserving variant are investigated. See
 [combined/base/DLC scope](performance-acceptance.md#idle-frame-byproducts-and-combined-pacing-2026-10-29).
+
+
+### Production receipt pump, 2026-10-29
+
+The default-on idle receipt pump (`MA_COLONY_BYPRODUCT_PUMP=0` to opt out)
+uses a successful publication's session/frame/observed-sequence fence, a shared
+reentry lease and a separate 2 ms idle budget. It stops at callbacks, jobs and
+precise/moving sidecars. Pause, continuation, readiness, retirement and explicit
+settlement scopes prevent idle delivery; resource callbacks enter the step
+barrier so reentrant saves defer. Ordinary publication admission and its
+1,500-receipt override remain unchanged. Pump telemetry is opt-in with
+`MA_COLONY_BYPRODUCT_PUMP_LOG=1`; frame timing counts its work separately.
+Solver arithmetic and checkpoint layouts/bytes do not change for identical
+operations. Receipt scheduling changes Unity-time behavior.
+
+Permanent tests link the actual state/save-barrier sources and compile the
+actual receipt-delivery/pump bodies against deterministic fake endpoints.
+Default/on each pass 1,753 assertions, opt-out passes seven, and the disabled
+negative oracle rejects. Actual Linux game Mono passes 1,751 functional
+assertions in each enabled mode; its unsupported allocation checks are omitted.
+.NET's native ABI loop passes 10,000 iterations with zero warmed allocations.
+Actual Linux and Windows game Mono each pass the raw/legacy 600-byte status,
+48-byte receipt and inactive-clock ABI checks; Windows Mono runs under Wine,
+not Windows OS. The Windows adapter compiles with two existing assembly
+warnings and verifies 2,588 contract dependencies with zero differences.
+The complete managed/game-contract suite and 439 Python tests pass. Native
+sources are unchanged, retaining the previously verified 89-test binaries.
+Evidence: `receipt-pump/production-port/`, `windows-game-mono-abi/`,
+`windows-pump-managed/` and `pump-production-full-managed.log` under the tier
+artifacts. The pacing-credit production port follows in a separate change;
+the delivered fc0fcc4 Windows ZIP still excludes both experiments.
+
+The private combined real-game controls pass ordinary overwrite/cold resave,
+independent file readback and menu reload. A separate activity cohort passes
+all 16 original checks, preserves a pending frame, rebinds one actor without
+release and reads back the exact resave writer owner bytes. The Lead fixture
+checks real normal merging and dying-target survival with disclosed setup
+interventions; the pipe fixture protects a genuine precise job behind a
+byproduct backlog and observes normal publication delivering it exactly once.
+See the detailed scope and limitations in [performance acceptance](performance-acceptance.md#idle-frame-byproducts-and-combined-pacing-2026-10-29).
 
 Nearby searches cost about 0.06 ms in measured replays, all reservoir anchors
 are open and saved precision inventories are empty. The cold first DLC transfer

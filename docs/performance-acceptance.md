@@ -469,6 +469,50 @@ The next native experiment splits flow/postprocessing and ledger/projection in
 a matched private replay, preserving owner/physical/receipt bytes. Evidence:
 `linux-combined-dlc1-900/` and `pump-retention3-run/DLC1-README.md`.
 
+The private combined build subsequently passes ordinary source overwrites at
+owner frames 451/901, paused cold resave, independent file readback and menu
+reload. Save barriers observe 44 pending receipts cumulatively and settle
+before capture. The paused resave preserves the entire owner image and its
+physical bytes; both readbacks restore writer owner hash `593dfec5…`.
+That source has no pending packet/components. A separate current-combined
+activity cohort passes all 16 original lifecycle checks, saves a queued actor
+request at frame 34, preserves one pending frame during paused resave, rebinds
+one actor without release and claims one packet. Independent file readback
+restores writer hash `848703bc…`. Exact active-world continuation remains open;
+later physical hashes differ, as in the older control.
+
+The controlled real Lead fixture also passes after explicit setup failures
+were repaired: genuine native sequences 31/32 reach the pump naturally. Normal
+delivery keeps the same target and one live object; a truly absorbed dying
+head produces two live survivors. Actual/mirror helper outputs match bitwise,
+native rows remain pending until ACK, the remaining prefix stays exact and
+mass survives the next Unity frame. This uses real target relocation and Grid
+list registration, tracked external mirror adjustments and MarkedForMove to
+isolate survival from unrelated landing merges. It establishes controlled
+helper/ACK custody, not natural transport or identical whole-world timing.
+The separate pipe/precise-outcome fixture now passes its original 12 checks
+and a separately enabled backlog phase. Genuine byproducts precede a real
+precise oxygen-pipe job; the pump stops at the protected receipt and leaves
+its exact row, sidecar, job readiness and remaining prefix unchanged. Normal
+publication then delivers and acknowledges that row once. These fixture
+phases preserve the original acceptance bounds and 2 ms publication budget.
+
+Finer matched DLC replay timing finds 222,885 held cells and 859 rebuilt cells;
+64,152 held owned vectors copy 5,067,980 doubles (40.54 MB) per frame. Dense
+setup/loop wall is 1.899/8.738 ms, compared with 10.951 ms enclosing dense/Derived.
+The private immutable-vector snapshot prototype preserves retained mutable
+reference semantics, signed-zero bits and independent data lifetime. A clean
+new-ABI graph passes focused owner/cold controls and 248 storage assertions;
+all 128 old/new replay outputs retain complete owner, physical and receipt
+bytes. Warm means fall 26.726→23.707 ms (base) and 53.791→47.541 ms (DLC),
+about 11% in both. The 28-sample p95s worsen 27.957→30.518 / 56.044→57.981 ms,
+so widened tail, memory/lifetime and sanitizer checks precede adoption. A
+second 32-frame/reversed-order matrix retains all 256 outputs, with warm means
+27.125→23.569 / 53.945→47.326 ms but p95s 28.459→32.318 /
+56.944→59.818 ms. The additional immutable pointer grows each material cell
+104→120 bytes; a layout-preserving alternative is being investigated. These
+are early captured replay windows, not fresh-game or DLC 3× acceptance.
+
 ### Measurement and test harness first
 
 - Measure both `GameClock` and owner-clock deltas against monotonic wall time

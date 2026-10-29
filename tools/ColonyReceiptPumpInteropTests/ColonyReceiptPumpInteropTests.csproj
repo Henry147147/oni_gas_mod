@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework Condition="'$(ReceiptPumpMono)' != 'true'">net10.0</TargetFramework>
+    <TargetFramework Condition="'$(ReceiptPumpMono)' == 'true'">netstandard2.1</TargetFramework>
+    <DefineConstants Condition="'$(ReceiptPumpMono)' == 'true'">$(DefineConstants);GAME_MONO</DefineConstants>
+    <LangVersion>latest</LangVersion><Nullable>enable</Nullable><ImplicitUsings>enable</ImplicitUsings>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks><TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+  <ItemGroup><Compile Include="../../managed/MixedAtmospheres.Oni/ColonyReceiptPumpNative.cs" Link="ColonyReceiptPumpNative.cs"/></ItemGroup>
+</Project>

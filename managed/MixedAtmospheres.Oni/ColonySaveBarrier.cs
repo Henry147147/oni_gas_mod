@@ -29,7 +29,7 @@ namespace MixedAtmospheres.Oni
         internal static ulong LastSettledFrame { get; private set; }
         internal static ulong LastSettledSession { get; private set; }
         internal static void Reset() { Settled = Deferred = BodyHeatChecks = NativePublications = 0; ReceiptsAtSave = 0; LastSettledFrame = LastSettledSession = 0; }
-        internal static object Report() => new { Settled, Deferred, ReceiptsAtSave, BodyHeatChecks, NativePublications, LastSettledFrame, LastSettledSession, LastSynchronization };
+        internal static object Report() => new { Settled, Deferred, ReceiptsAtSave, BodyHeatChecks, NativePublications, LastSettledFrame, LastSettledSession, LastSynchronization, ReceiptPump=ColonyOwner.ReceiptPumpReport() };
 
         internal static void EnterStep() => ++stepping;
         // The game time of the sim step in progress; zero-time steps (saves,
@@ -101,6 +101,7 @@ namespace MixedAtmospheres.Oni
         // further chunk-data batch behind the completed native frame.
         internal static void SettleNativeStartupMessages()
         {
+            using var receiptPumpSuspension=ColonyOwner.SuspendReceiptPump();
             if(stepping!=0)throw new InvalidOperationException("Native storage startup cannot settle inside an unfinished simulation step.");
             if(!Quiescent(out var initial)||initial.State!=1)throw new InvalidOperationException("Native storage startup requires a healthy quiescent owner.");
             for(var round=0;round<64;++round)
@@ -124,6 +125,7 @@ namespace MixedAtmospheres.Oni
         // Returns the settled owner frame.
         internal static ulong Settle()
         {
+            using var receiptPumpSuspension=ColonyOwner.SuspendReceiptPump();
             if (stepping > 0) throw new InvalidOperationException("A colony save cannot settle inside an unfinished simulation step.");
             ColonySavedParticles.RestorePending();
             ColonyPipeSave.TryRestore();
@@ -157,6 +159,7 @@ namespace MixedAtmospheres.Oni
         }
         private static void SettlePipeBodyHeat(ref OniNativeColony.Status status)
         {
+            using var receiptPumpSuspension=ColonyOwner.SuspendReceiptPump();
             var session=status.Session;var frame=status.CompletedFrames;
             for(var round=0;;++round)
             {
@@ -179,6 +182,7 @@ namespace MixedAtmospheres.Oni
         // existing queued-input checkpoint semantics.
         internal static ulong FlushInputs()
         {
+            using var receiptPumpSuspension=ColonyOwner.SuspendReceiptPump();
             if(OniNativeColony.InputFlushVersion()!=1)
                 throw new NotSupportedException("World teardown requires matching native input-boundary support.");
             _=Settle();settledForSave=false;

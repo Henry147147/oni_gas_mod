@@ -11,7 +11,7 @@ namespace MixedAtmospheres.Oni
     // (docs/colony-owner.md). It starts on a new colony at the first
     // completed native frame, publishes the owner's completed frame into the
     // game's data copy and routes mass and heat messages for owned cells.
-    internal static unsafe class ColonyOwner
+    internal static unsafe partial class ColonyOwner
     {
         private const int NewGameFrame = -775326397, PrepareGameData = 1078620451, MassConsumption = 1727657959, MassEmission = 797274363,
             ModifyCell = -1252920804, ModifyCellEnergy = 818320644, Dig = 833038498, CellProperties = -469311643;
@@ -110,6 +110,7 @@ namespace MixedAtmospheres.Oni
 
         internal static void ResetForNewSession()
         {
+            receiptPump.Reset();
             ColonyPresentation.Reset(); ColonyActivity.Reset(); ColonyActors.Reset(); ColonyViewCache.Reset(); ColonyConduits.Reset(); ColonyWorldGerms.Reset(); ColonyNotices.Reset(); ColonyBalance.Reset(); ColonyDlcFluidReaders.Reset();
             current?.Dispose(); current = null;
             if (Active) { var s = OniNativeColony.Status.Empty; _ = OniNativeColony.Stop(ref s); }
@@ -336,6 +337,7 @@ namespace MixedAtmospheres.Oni
             if (!Active && ClusterManager.Instance != null && ColonyOwnerPersistence.TakePending() is var (saved, image)) { restoreAttempted = true; ColonyOwnerPersistence.RestoreOwner(saved, image); }
             if (!Active) { TryStart(source); if (!Active) return pointer; }
             ColonyClusterWorlds.Synchronize(source);
+            var receiptPublicationGeneration=receiptPump.Generation;
             var started = System.Diagnostics.Stopwatch.GetTimestamp();
             var lapStarted = started; var frameLap = started;
             var lapHeap = ColonyFrameLog.Enabled ? GC.GetTotalMemory(false) : 0; var lapCollections = GC.CollectionCount(0);
@@ -366,6 +368,7 @@ namespace MixedAtmospheres.Oni
             ColonyViewCache.Copy(ref output, views);
             Lap("views");
             status = output;
+            var receiptPublicationSession=output.Session;var receiptPublicationFrame=output.CompletedFrames;
             if(worldPassiveControl)ObserveWorldPassives();
             var timedCompletion = false; var matchedCompletion = false; long submittedAt = 0;
             if ((publicationLog || ColonyPerformanceLog.Enabled) && status.CompletedFrames != completionObservedFrame)
@@ -429,7 +432,7 @@ namespace MixedAtmospheres.Oni
                 OwnedCells=ownedNow;
                 copy.AppendEvents<Sim.SubstanceChangeInfo>(SnapshotEventChannel.SubstanceChangeInfo, changes.ToArray());
                 Lap("overlay");
-                DeliverReceipts(copy);
+                var receiptObservedThrough=DeliverReceipts(copy);
                 Lap("receipts");
                 ColonyActivity.ValidatePublication(status);
                 ColonyActors.Publish(copy);
@@ -444,6 +447,8 @@ namespace MixedAtmospheres.Oni
                 MaximumPublicationMilliseconds = Math.Max(MaximumPublicationMilliseconds, PublicationMilliseconds);
                 if (timedCompletion) ColonyPerformanceLog.Published(status.Session, submittedAt, System.Diagnostics.Stopwatch.GetTimestamp(), matchedCompletion);
                 if (laps != null) Debug.Log($"[Mixed Atmospheres] publication frame {status.CompletedFrames} native {source->numFramesProcessed}:{laps}");
+                if(receiptPump.Generation==receiptPublicationGeneration && Active && !ColonyFault.Faulted)
+                    receiptPump.Published(receiptPublicationSession,receiptPublicationFrame,receiptObservedThrough,Time.frameCount);
                 return (IntPtr)copy.Pointer;
             }
             catch { copy.Dispose(); throw; }
@@ -515,13 +520,16 @@ namespace MixedAtmospheres.Oni
         private static double ReceiptBudgetMilliseconds() =>
             double.TryParse(Environment.GetEnvironmentVariable("MA_COLONY_RECEIPT_BUDGET_MS"), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var value) && value >= 0 ? value : 2;
         internal static long DeferredReceiptPublications { get; private set; }
-        private static void DeliverReceipts(OwnedGameDataSnapshot copy)
+        private static ulong DeliverReceipts(OwnedGameDataSnapshot copy)
         {
-            if (ColonyFault.Faulted) return;
-            try { ColonyFault.Inject("receipts"); DeliverReceiptsOrThrow(copy); }
-            catch (Exception error) { ColonyFault.Raise("receipt settlement", error); }
+            if (ColonyFault.Faulted || !receiptPump.TryEnter(out var lease)) return 0;
+            using(lease)
+            {
+                try { ColonyFault.Inject("receipts"); return DeliverReceiptsOrThrow(copy,lease); }
+                catch (Exception error) { ColonyFault.Raise("receipt settlement", error); return 0; }
+            }
         }
-        private static void DeliverReceiptsOrThrow(OwnedGameDataSnapshot copy)
+        private static ulong DeliverReceiptsOrThrow(OwnedGameDataSnapshot copy,ColonyReceiptPumpState.Lease lease)
         {
             var begunAt = System.Diagnostics.Stopwatch.GetTimestamp();
             var begun=publicationLog ? begunAt : 0;
@@ -531,11 +539,12 @@ namespace MixedAtmospheres.Oni
             {
                 if(publicationLog && (copied-begun)*1000.0/System.Diagnostics.Stopwatch.Frequency>.1)
                     Debug.Log(FormattableString.Invariant($"[Mixed Atmospheres] receipt delivery frame {status.CompletedFrames} available 0 delivered 0 copy_ms {(copied-begun)*1000.0/System.Diagnostics.Stopwatch.Frequency:F3}"));
-                return;
+                return 0;
             }
             var consumed = new List<Sim.MassConsumedCallback>(); var emitted = new List<Sim.MassEmittedCallback>();
             var removed = new List<Sim.ConsumedMassInfo>();
             var through = 0UL; var delivered = (int)Math.Min(count, (uint)receipts.Length);
+            var observedThrough=receipts[delivered-1].Sequence;
             var byproducts=0;long byproductTicks=0,maximumByproductTicks=0;
             var receiptCollections=publicationLog ? GC.CollectionCount(0) : 0;
             // Spawning a byproduct is a game object: a burst of them is spread
@@ -545,6 +554,7 @@ namespace MixedAtmospheres.Oni
             var limited = ReceiptBudgetTicks > 0 && delivered <= ReceiptBacklogLimit && stepSeconds > 0;
             for (var k = 0; k < delivered; ++k)
             {
+                if(!receiptPump.Current(lease) || ColonyFault.Faulted)return 0;
                 var r = receipts[k];
                 if (limited && k > 0 && r.Kind == OniNativeColony.Byproduct && System.Diagnostics.Stopwatch.GetTimestamp() - begunAt > ReceiptBudgetTicks)
                 { delivered = k; ++DeferredReceiptPublications; break; }
@@ -573,6 +583,7 @@ namespace MixedAtmospheres.Oni
             copy.AppendEvents<Sim.MassEmittedCallback>(SnapshotEventChannel.MassEmittedCallbacks, emitted.ToArray());
             copy.AppendEvents<Sim.ConsumedMassInfo>(SnapshotEventChannel.RemovedMassEntries, removed.ToArray());
             var appended=publicationLog ? System.Diagnostics.Stopwatch.GetTimestamp() : 0;
+            if(!receiptPump.Current(lease) || ColonyFault.Faulted)return 0;
             OniNativeColony.Check(OniNativeColony.AckReceipts(through));
             var acknowledged=publicationLog ? System.Diagnostics.Stopwatch.GetTimestamp() : 0;
             ColonyPipePorts.Acknowledged(through);
@@ -582,6 +593,7 @@ namespace MixedAtmospheres.Oni
                 var receiptCollectionsAfter=GC.CollectionCount(0);
                 Debug.Log(FormattableString.Invariant($"[Mixed Atmospheres] receipt delivery frame {status.CompletedFrames} available {count} delivered {delivered} copy_ms {(copied-begun)*factor:F3} dispatch_ms {(dispatched-copied)*factor:F3} byproducts {byproducts} byproduct_ms {byproductTicks*factor:F3} append_ms {(appended-dispatched)*factor:F3} ack_ms {(acknowledged-appended)*factor:F3} settle_ms {(finished-acknowledged)*factor:F3} step_s {stepSeconds:R} limited {(limited?1:0)} budget_ms {ReceiptBudgetTicks*factor:F3} byproduct_max_ms {maximumByproductTicks*factor:F3} gc_delta {unchecked(receiptCollectionsAfter-receiptCollections)}"));
             }
+            return observedThrough;
         }
 
         // Mass and heat messages for owned fluid cells go to the owner. Returns
