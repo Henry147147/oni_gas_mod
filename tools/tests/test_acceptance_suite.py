@@ -179,6 +179,24 @@ class GuardTests(unittest.TestCase):
             suite.stage_frozen_save(source, self.root / "other.sav", "0" * 64)
         self.assertEqual(source.read_bytes(), b"frozen")
 
+    def test_fresh_base_source_accepts_current_activity_flags_and_refuses_legacy_flags(self):
+        output = self.root / "fresh"
+        save = output / "colony.sav"
+        save.parent.mkdir()
+        save.write_bytes(save_bytes({"numberOfDuplicants": 3, "sandboxEnabled": False}))
+        result = {"status": "passed-colony-owner", "exit_code": 0, "source_revision": REVISION,
+                  "source_dirty": False, "owner_environment_overrides": False,
+                  "colony_report": {"Duplicants": 3}, "host_saved_file": str(save),
+                  "host_saved_file_sha256": suite.sha256(save),
+                  "colony_owner": {"OwnerConfigFlags": 29, "PipeSave": {"AuditClosed": True},
+                                   "Scenarios": [{"Passed": True}]}}
+        write(output / "result.json", result)
+        self.assertEqual(suite.base_source_save(output, REVISION), save)
+        result["colony_owner"]["OwnerConfigFlags"] = 13
+        write(output / "result.json", result)
+        with self.assertRaises(suite.Refused):
+            suite.base_source_save(output, REVISION)
+
     def test_prepared_autosave_requires_exactly_one_rollover_save(self):
         output = self.root / "prepared"
         write(output / "result.json", {"status": "passed-colony-owner-load", "exit_code": 0, "source_revision": REVISION,
@@ -297,7 +315,7 @@ class CriteriaTests(unittest.TestCase):
     def proton_result(self, **values):
         files = {"a.dll": "0" * 64}
         owner = {"State": 1, "Faulted": False, "Error": "", "RejectedAttempts": 0, "SkippedRelaxations": 0,
-                 "MaximumRelativeMassError": 0.0, "MaximumRelativeEnergyError": 0.0, "OwnerConfigFlags": 13,
+                 "MaximumRelativeMassError": 0.0, "MaximumRelativeEnergyError": 0.0, "OwnerConfigFlags": 29,
                  "Scenarios": [{"Name": f"s{i}", "Finished": True, "Passed": True} for i in range(5)]}
         result = {"exit_code": 0, "observed_player_exit_code": 0, "source_revision": REVISION, "source_dirty": False,
                   "runner_git_revision": REVISION, "runner_git_status": "", "mod_failure_lines": [], "timed_out": False,
@@ -319,6 +337,15 @@ class CriteriaTests(unittest.TestCase):
         self.assertFalse(checks["clean_exact_runner"])
         output, files = self.proton_result(package_manifest={"files": {}})
         self.assertFalse(suite.proton_checks(step, output, REVISION, files)[0]["package_is_bundle"])
+
+    def test_current_proton_owner_rejects_the_legacy_owner_flags(self):
+        output, files = self.proton_result()
+        result = suite.read_json(output / "result.json")
+        self.assertTrue(suite.proton_owner(result, "passed-colony-owner", REVISION, files)["default_config_flags"])
+        for flags in (13, 0, 31, None):
+            with self.subTest(flags=flags):
+                result["colony_owner"]["OwnerConfigFlags"] = flags
+                self.assertFalse(suite.proton_owner(result, "passed-colony-owner", REVISION, files)["default_config_flags"])
 
     def test_settings_must_restore_the_explicit_preset(self):
         step = next(s for s in suite.plan("quick") if s.name == "windows-settings-load")

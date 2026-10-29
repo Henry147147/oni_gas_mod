@@ -899,6 +899,7 @@ internal static unsafe class Program
         NativeDomainReadingTests.Run(Test,Check,Reject);
         ColonyValidationLimitsTests.Run(Test,Check,Reject);
         ColonyBreathAccountingTests.Run(Test,Check);
+        ColonyPausedResavePathTests.Run(Test,Check);
         DevelopmentTelemetryTests.Run(Test,Check,Reject);
         ConfiguredDomainLayoutTests.Run(Test,Check,Reject);
         ConfiguredCheckpointPayloadTests.Run(Test,Check,Reject);

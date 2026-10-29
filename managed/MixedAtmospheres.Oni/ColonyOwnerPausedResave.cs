@@ -68,8 +68,7 @@ namespace MixedAtmospheres.Oni
                 before=Point();beforeImage=ColonyOwner.Checkpoint();beforePhysical=ColonyCheckpointMetadata.PhysicalImage(beforeImage).ToArray();
                 callbacksBefore=ColonyCallbackRequests.Capture()??Array.Empty<byte>();
                 savesBefore=ColonyOwnerPersistence.Saves;
-                savedFile=Path.Combine(ColonyRuntimeValidation.OutputDirectory,"owner-frame-zero-resave.sav");
-                if(File.Exists(savedFile))throw new InvalidOperationException("Paused resave destination already exists.");
+                savedFile=ColonyPausedResavePath.Destination(ColonyRuntimeValidation.OutputDirectory,before!.Session);
                 phase=1;
                 // The game's own deferred entry supplies the Unity lifecycle
                 // boundary. Keep the baseline and pause state while it waits.

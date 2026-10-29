@@ -702,7 +702,7 @@ def proton_owner(result: dict, status: str, revision: str, files: dict) -> dict:
             "zero_skipped_relaxations": owner.get("SkippedRelaxations") == 0,
             "ledgers_close_at_existing_native_bounds": finite(owner.get("MaximumRelativeMassError"), 1e-8)
                 and finite(owner.get("MaximumRelativeEnergyError"), 1e-6),
-            "default_config_flags": owner.get("OwnerConfigFlags") == 13,
+            "default_config_flags": owner.get("OwnerConfigFlags") == 29,
             "all_scenarios_passed": all(s.get("Finished") is True and s.get("Passed") is True
                                         for s in owner.get("Scenarios", []))}
 
@@ -819,7 +819,7 @@ def base_source_save(output: Path, revision: str) -> Path:
             or result.get("source_revision") != revision or result.get("source_dirty") is not False
             or result.get("owner_environment_overrides") is not False):
         raise Refused("Base source did not pass the clean default route")
-    if ((result.get("colony_report") or {}).get("Duplicants") != 3 or owner.get("OwnerConfigFlags") != 13
+    if ((result.get("colony_report") or {}).get("Duplicants") != 3 or owner.get("OwnerConfigFlags") != 29
             or not (owner.get("PipeSave") or {}).get("AuditClosed")
             or not all(s.get("Passed") is True for s in owner.get("Scenarios", []))):
         raise Refused("Base source did not prove three alive, defaults and its checks")

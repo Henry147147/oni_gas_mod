@@ -52,7 +52,8 @@ baseline and pause while the deferred save completes. It requires exact full
 owner bytes before/after, matching physical bytes and game/owner clocks, unchanged
 pending packet watermarks/head/timestep/count/policy, and canonical callback
 requests. `WriterOwnerSha256` identifies the image supplied to the envelope writer;
-it is not disk readback. Cold-load the generated `owner-frame-zero-resave.sav`
+it is not disk readback. Cold-load the path reported by `PausedResave.SavedFile`
+(`owner-frame-zero-resave-<session>.sav`)
 without `--resave-before-resume` and require `RestoredOwner.ImageSha256` to match
 that writer hash, with `Reencoded=true`, to prove actual file readback.
 

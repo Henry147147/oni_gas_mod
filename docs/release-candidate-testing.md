@@ -102,12 +102,78 @@ workload, and include queue/census/receipt work in their frame cost. They do
 not measure managed code, rendering or Windows OS performance. Private results
 are in `native-performance-4638/` and `native-performance-gate-evaluation.json`.
 
+## Follow-up on a714b01
+
+The rebuilt Linux probe uses the verified Ubuntu 22.04-compatible libraries.
+Its actual-game `world-germs` and `breath-particle` rechecks pass. The latter
+retains the whole-owner trace upper-bound limitation above. Current Linux and
+Windows/Wine game Mono checks each resolve 2,588 dependencies with zero
+differences; the Windows native ABI check also passes 10,000 inactive calls.
+Linux, Windows/Wine and Ubuntu 22.04 each pass 90 native tests on the unchanged
+native source. The a714 managed helper passes all 234 owned-snapshot scenarios.
+
+The separate exact-input extended strong-flow executions now give numerical
+failures rather than timeouts. Default selectors stop at collision N128:
+density error refinement is about 0.8602 against the fixed 0.85 bound. Selectors
+1,1,4,4 emit all nine profiles, then fail N256 resting-slab separation velocity:
+0.075869567 against 0.06. Independent partial saved-account reviews check
+59,207 and 3,201,574 assertions respectively; neither is full gate acceptance.
+The original 180-second timeout captures remain unchanged.
+
+The M5 failure has an exact two-operand reproducer. Production fallback enters
+MacClosedWorld's reference reconstruction and projects a subnormal retained
+quantity to about 3.606679215e-322. Its projection residual exceeds the original
+operand bound by about 4.76e9. Every emitted original grid-40 sample line is
+identical in the instrumented diagnostic. This identifies a primary-storage
+range limitation; no operand, physical input, bound or arithmetic was changed.
+Evidence: `m5-primary-diagnostic/`, `m5-primary-minimal/` and `native-gates/`.
+
+A synthetic current-profile flow-only replay attributes about 73% of native
+flow time to pressure, 10% to interface work, 8% to transport and 4% to heat.
+The 1/2/4/8/12-worker probes retain the same final checkpoint digest. These LOW
+slot diagnostics identify work to investigate; they are not release timing or
+byte-identity certification. Hardware `perf` sampling was refused by the host;
+existing solver stage timers supplied this breakdown. The unchanged fixed
+WHOLE performance results above still fail.
+
+A fresh 900-frame Linux Terra probe with the baseline-compatible libraries
+passes without faults or dropped timing samples. Full-run actual game progress
+is 2.966488 times wall time; warmed windows 151–900 measure 2.997010. This is one
+fresh-colony short probe, not sustained representative 3×, mature-colony or
+Windows OS acceptance. Private evidence is `linux-speed-a714/`.
+
+The repeated base batches retain the freeze/melt, airflow and whole-world
+breathing failures. Spaced Out! world/rocket/ports/retirement and actual-flight
+source controls pass and produce saves. The first paused cold resave preserves
+the complete owner and callback boundary, but the subsequent menu reload
+refuses because the diagnostic reuses its destination filename. A WindowsPlayer
+run is healthy in game but its runner refuses the current owner flags 29 while
+expecting retired flags 13. Steam-installed Proton also exposes a runner mount
+ordering defect: the later read-only Steam mount hides its writable tool lock.
+The original failures are retained; the queue is drained between games for
+these repairs.
+
+Paused resaves now choose a session-specific destination and still refuse
+existing files or directories. Proton's writable tool mount follows its
+read-only parents; a real bubblewrap test with synthetic files proves that its
+lock is writable while the remaining Steam/game fixtures stay read-only.
+Current new-colony and Proton acceptance paths require flags 29. The historical
+frozen profile-5 cycle check retains flags 13 and its original criteria. Proton
+also admits the existing paused-resave control for owner loads. Focused tests
+cover the old failures, collision refusal, previous-file preservation and
+invariant session filenames. The full follow-up passes 472 Python tests (four
+actual-Windows-only skips), the complete managed suite and all 237 snapshot,
+persistence and message scenarios. Native source and library hashes remain
+identical to the verified builds. New frozen-package game rechecks follow;
+these harness repairs do not change solver arithmetic, checkpoint payloads,
+physics inputs or acceptance bounds.
+
 ## Gate matrix
 
 | Gate | Required current-candidate evidence | Status |
 | --- | --- | --- |
-| Builds and compatibility | Clean Linux and Windows native/managed builds, test suites, actual game contracts and Mono checks; supported game builds and changed hooks verified; fail-closed negative controls | Fresh Linux native build, 90 CTests and the managed/Python suite pass; complete committed-candidate and Windows verification pending |
-| Numerical physics | All fixed gravity, free-surface, multiphase, vacuum and strong-flow gates, including full-grid runs; 10,000-step closed mass drift ≤ 1e-8 and energy drift ≤ 1e-6, with separate trace and source/sink ledgers | Full M2/M3 pass; M5 grid40 fails primary-storage rounding. Strong-flow remains open; both original captures timed out before a complete verdict |
+| Builds and compatibility | Clean Linux and Windows native/managed builds, test suites, actual game contracts and Mono checks; supported game builds and changed hooks verified; fail-closed negative controls | Linux, Windows/Wine and Ubuntu 22.04 each pass 90 native tests; game Mono contracts pass on both targets. New diagnostic repairs require their committed-package rechecks |
+| Numerical physics | All fixed gravity, free-surface, multiphase, vacuum and strong-flow gates, including full-grid runs; 10,000-step closed mass drift ≤ 1e-8 and energy drift ≤ 1e-6, with separate trace and source/sink ledgers | Full M2/M3 pass; M5 grid40 fails primary-storage rounding. Extended exact-input strong-flow fails collision/default and separation/monotone accuracy; original timeout captures retained |
 | Game accuracy | Fixed F1–F5 owner and vanilla comparisons, including independent F3/F4 timing truth and solid heat exchange | Open |
 | Gameplay | Base game and Spaced Out! generation and all supported producer, consumer, storage, disease, machine, rocket and inter-asteroid lifecycles; starting colonies reach sustainable life support and endgame without developer intervention | Open |
 | Persistence | Corruption/missing-mod refusal, save/load and identical future inputs with complete owner, pipe, scheduling and particle state across source, cold and menu continuation | Full active continuation open |

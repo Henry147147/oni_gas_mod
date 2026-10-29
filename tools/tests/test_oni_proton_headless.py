@@ -4,6 +4,7 @@ import importlib.util
 import json
 import os
 import signal
+import shutil
 from pathlib import Path
 import subprocess
 import sys
@@ -135,6 +136,32 @@ class ProtonIsolationTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 runner.validate_arguments(args)
 
+    def test_new_colony_defaults_require_activity_owner_and_audited_pipes(self):
+        owner = {"OwnerConfigFlags": 29, "PipeSave": {"Active": True, "AuditClosed": True}}
+        self.assertTrue(runner.new_colony_defaults_passed(owner))
+        for flags in (13, 0, 16, 31, None, "29", 29.0, True):
+            with self.subTest(flags=flags):
+                self.assertFalse(runner.new_colony_defaults_passed(dict(owner, OwnerConfigFlags=flags)))
+        for pipes in (None, {}, [], {"Active": False, "AuditClosed": True},
+                      {"Active": True, "AuditClosed": False}, {"Active": 1, "AuditClosed": True}):
+            with self.subTest(pipes=pipes):
+                self.assertFalse(runner.new_colony_defaults_passed(dict(owner, PipeSave=pipes)))
+        self.assertFalse(runner.new_colony_defaults_passed(None))
+
+    def test_owner_load_allows_paused_resave_with_cold_and_menu_reload(self):
+        with tempfile.NamedTemporaryFile(suffix=".sav") as save:
+            args = SimpleNamespace(mode="colony-owner-load", frames=32, load_save=Path(save.name),
+                                   save_colony=False, scenario=None, cluster=None,
+                                   resave_before_resume=True, reload_in_process=False,
+                                   verify_save_io_recovery=False)
+            runner.validate_arguments(args)
+            args.reload_in_process = True
+            runner.validate_arguments(args)
+            args.mode = "colony-owner"
+            args.load_save = None
+            with self.assertRaisesRegex(ValueError, "requires native-load-domain or colony-owner-load"):
+                runner.validate_arguments(args)
+
     def test_inspection_rejects_unbounded_or_menu_holds_before_game_start(self):
         for seconds in (-1, 301, 1.5, True):
             with self.subTest(seconds=seconds), self.assertRaisesRegex(ValueError, "Completed inspection"):
@@ -217,6 +244,43 @@ class ProtonIsolationTests(unittest.TestCase):
         self.assertEqual(mounts[str(home)], ("--bind", str(Path.home())))
         self.assertEqual(mounts[str(output)], ("--bind", str(output)))
         self.assertIn("--die-with-parent", command)
+
+    @unittest.skipUnless(shutil.which("bwrap"), "bubblewrap is needed for mount behavior")
+    def test_steam_installed_proton_lock_is_writable_with_readonly_parent_mounts(self):
+        # /tmp is deliberately writable in the runner, so put this fixture
+        # outside it to exercise the actual nested read-only Steam mount.
+        scratch = Path(__file__).resolve().parents[2] / "artifacts"
+        scratch.mkdir(exist_ok=True)
+        with tempfile.TemporaryDirectory(prefix="proton-mount-test-", dir=scratch) as directory:
+            root = Path(directory)
+            state, home, output = (root / name for name in ("steam", "home", "output"))
+            game = state / "steamapps/common/Game"
+            proton = state / "steamapps/common/Proton"
+            for folder in (game, proton, home, output):
+                folder.mkdir(parents=True, exist_ok=True)
+            sentinel = state / "protected"
+            sentinel.write_text("unchanged")
+            tool = proton / "proton"
+            tool.write_text("""#!/usr/bin/python3
+from pathlib import Path
+import errno
+proton = Path(__file__).parent
+(proton / 'dist.lock').write_text('writable')
+for path in (proton.parents[2] / 'protected', proton.parent / 'Game/protected'):
+    try:
+        path.write_text('changed')
+    except OSError as error:
+        assert error.errno == errno.EROFS, (path, error)
+    else:
+        raise AssertionError('Steam or game became writable')
+""")
+            tool.chmod(0o755)
+            command = runner.sandbox_command(home, state, output, game, proton, [])
+            result = subprocess.run(command, capture_output=True, text=True, timeout=15)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual((proton / "dist.lock").read_text(), "writable")
+            self.assertEqual(sentinel.read_text(), "unchanged")
+            self.assertFalse((game / "protected").exists())
 
     def test_proton_does_not_inherit_desktop_or_native_test_wine_paths(self):
         with mock.patch.dict(os.environ, {"LD_LIBRARY_PATH": "/private/desktop", "WINEPREFIX": "/other/prefix",

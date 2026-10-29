@@ -79,8 +79,10 @@ def sandbox_command(home: Path, state: Path, output: Path, game: Path,
     # disposable profile/evidence and Proton's dist.lock/fixups are writable.
     return ["bwrap", "--die-with-parent", "--ro-bind", "/", "/",
             "--bind", str(home), str(Path.home()), "--bind", str(output), str(output),
-            "--bind", str(proton), str(proton), "--ro-bind", str(state), str(state),
-            "--ro-bind", str(game), str(game), "--bind", "/tmp", "/tmp",
+            "--ro-bind", str(state), str(state), "--ro-bind", str(game), str(game),
+            # A Steam-installed Proton lies inside state. Mount its writable
+            # tool directory after its read-only parents so dist.lock works.
+            "--bind", str(proton), str(proton), "--bind", "/tmp", "/tmp",
             "--bind", "/proc", "/proc", "--dev-bind", "/dev", "/dev",
             "--chdir", str(game), "--setenv", "HOME", str(Path.home()),
             "--setenv", "XDG_CONFIG_HOME", str(home / ".config"),
@@ -135,6 +137,14 @@ def initialize_prefix(command: list[str], output: Path, env: dict) -> None:
             raise RuntimeError("Private Proton prefix initialization failed; inspect its log")
     finally:
         common.stop_process(record)
+
+
+def new_colony_defaults_passed(owner: dict | None) -> bool:
+    if not isinstance(owner, dict):
+        return False
+    pipes = owner.get("PipeSave")
+    return (type(owner.get("OwnerConfigFlags")) is int and owner["OwnerConfigFlags"] == 29 and isinstance(pipes, dict)
+            and pipes.get("Active") is True and pipes.get("AuditClosed") is True)
 
 
 def domain_options(args) -> dict:
@@ -217,8 +227,8 @@ def validate_arguments(args) -> None:
         raise ValueError("A load mode requires --load-save; other scenes cannot use it")
     if args.load_save and not args.load_save.is_file():
         raise ValueError("--load-save must name an existing completed colony save")
-    if args.resave_before_resume and args.mode != "native-load-domain":
-        raise ValueError("--resave-before-resume requires native-load-domain")
+    if args.resave_before_resume and args.mode not in ("native-load-domain", "colony-owner-load"):
+        raise ValueError("--resave-before-resume requires native-load-domain or colony-owner-load")
     if args.reload_in_process and args.mode != "colony-owner-load" and (args.mode != "native-load-domain" or not args.resave_before_resume):
         raise ValueError("--reload-in-process requires colony-owner-load or native-load-domain --resave-before-resume")
     if args.verify_save_io_recovery and (args.mode != "native-save-domain" or args.frames < 16):
@@ -482,8 +492,7 @@ def playtest(args, state: Path, session: dict) -> int:
                 if code == 0:
                     status, code = "failed-dlc-selection", 2
         if args.mode == "colony-owner":
-            pipes = (owner or {}).get("PipeSave") or {}
-            defaults_ok = (owner or {}).get("OwnerConfigFlags") == 13 and pipes.get("Active") is True and pipes.get("AuditClosed") is True
+            defaults_ok = new_colony_defaults_passed(owner)
             result["new_colony_defaults_passed"] = defaults_ok
             if code == 0 and not defaults_ok:
                 status, code = "failed-new-colony-defaults", 2

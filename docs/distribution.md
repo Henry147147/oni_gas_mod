@@ -50,8 +50,27 @@ The managed DLLs must be built twice, once against each platform's game
 assemblies. The packager requires the two builds to be identical apart from
 the build identity that deterministic compilation derives from its inputs: the
 COFF timestamp, the module version ID and the debug directory. It ships the
-Linux-referenced build. On the current sources the two builds differ in
-exactly those 72 bytes.
+Linux-referenced build. Build both with the same symbol options. Portable
+PDB paths of different lengths can shift the PE layout and make this strict
+comparison refuse otherwise equivalent sources. The 2026-10-29 Linux- and
+Windows-referenced builds made with `-p:DebugType=None -p:DebugSymbols=false`
+produce byte-identical complete DLLs for both managed assemblies. The
+comparison and its rejection bounds are unchanged. For example:
+
+```sh
+dotnet build managed/MixedAtmospheres.Oni -c Release \
+  -p:UseSharedCompilation=false -p:DebugType=None -p:DebugSymbols=false \
+  -p:OniGameDir="$ONI_LINUX" --artifacts-path build-managed-linux
+dotnet build managed/MixedAtmospheres.Oni -c Release \
+  -p:UseSharedCompilation=false -p:DebugType=None -p:DebugSymbols=false \
+  -p:OniGameDir="$ONI_WINDOWS" --artifacts-path build-managed-windows
+```
+
+This establishes managed cross-platform equivalence for those recorded inputs;
+it does not establish reproducibility of the entire native build or pass a
+release gate. Private installer bundles assembled twice from the same frozen
+inputs are also byte-identical. Keep those assembly results separate from
+independent clean compilation and actual installation checks.
 
 A release never contains `development.json`, validation requests or reports,
 `game-contract-local`, `private-validation`, the coupled reference libraries,
