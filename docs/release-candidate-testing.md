@@ -72,6 +72,36 @@ its refusal is not evidence of a whole-colony deposition failure. The original
 breathing criterion remains unchanged. Current-candidate game rechecks follow
 the rebuild of these fixes.
 
+The rebuilt `4638bfc` probe passed the original world-germ scenario in game.
+Its new breath diagnostic observed the exact declared parcel and native pool
+retirement, but the fluid endpoint was 0.031249999647146417 kg rather than
+0.03125 kg. That fluid-only comparison remains recorded as failed. The
+diagnostic now checks compatibility with the separately sampled whole-owner
+trace-sink increment, keeping the 1e-10 kg residual tolerance. This increment
+is only an upper bound for the arena's trace loss: it does not attribute trace
+to the arena or establish an exact regional mass/energy ledger. The original
+whole-world breathing gate remains open.
+
+The corrected fully-active native performance suite completed under WHOLE
+locks without owner faults. It fails the fixed cost and disturbance bounds:
+
+| Case | Mean ms / 0.1 simulated s | p95 ms / 0.1 simulated s | Fixed requirement |
+| --- | ---: | ---: | --- |
+| 100k, default | 930.604 | 989.731 | mean ≤ 25 |
+| 100k, cap4000 diagnostic | 847.663 | 910.443 | mean ≤ 25 |
+| 100k, no hydrogen rooms | 401.020 | 443.654 | mean ≤ 25 |
+| 250k, no hydrogen rooms | 2374.710 | 4463.010 | p95 ≤ 62.5 |
+
+The default 100k case spends 1823.598 of its 1861.207 ms frame in native flow;
+the view copy costs 0.347 ms. All three fixed disturbances remain unrecovered
+after their 45-second observation windows, exceeding the required 30 seconds.
+Observed extra peak memory stays below 2 GiB, but these short windows do not
+prove bounded long-run memory. The cases preserve the original fixtures and
+inputs, run profile9 with tiers explicitly disabled for the fully-active
+workload, and include queue/census/receipt work in their frame cost. They do
+not measure managed code, rendering or Windows OS performance. Private results
+are in `native-performance-4638/` and `native-performance-gate-evaluation.json`.
+
 ## Gate matrix
 
 | Gate | Required current-candidate evidence | Status |

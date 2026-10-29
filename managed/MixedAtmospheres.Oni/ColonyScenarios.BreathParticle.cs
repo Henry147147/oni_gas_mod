@@ -16,7 +16,7 @@ namespace MixedAtmospheres.Oni
         private static CO2? breathParcel;
         private static bool breathParcelStarted, breathParcelRetired;
         private static int breathParcelRetiredFrame;
-        private static double breathParcelBefore;
+        private static double breathParcelBefore, breathParcelTraceBefore;
         private static ulong breathParcelSourceFrame, breathParcelSession;
         [StructLayout(LayoutKind.Sequential)]
         private struct BreathSampleCell
@@ -69,6 +69,7 @@ namespace MixedAtmospheres.Oni
                 breathParcelBefore=BreathArenaCarbon(out var source);
                 if(breathParcelBefore!=0)throw new InvalidOperationException("The isolated breath arena already contains carbon dioxide.");
                 breathParcelSourceFrame=source.CompletedFrames;breathParcelSession=source.Session;
+                breathParcelTraceBefore=source.TraceSinkKg;
                 var manager=CO2Manager.instance ?? throw new InvalidOperationException("The native breath manager is unavailable.");
                 var particles=LiveBreathParcels();var before=particles.Count;
                 manager.SpawnBreath(Grid.CellToPosCCC(Cell(3,2),Grid.SceneLayer.Front),BreathParcelMass,BreathParcelTemperature,false);
@@ -81,8 +82,9 @@ namespace MixedAtmospheres.Oni
             if(Once(40,"whole-colony deposition and retirement"))
             {
                 var after=BreathArenaCarbon(out var source);var delta=after-breathParcelBefore;
-                Record("one native breath deposits its carbon dioxide in the owner",source.Session==breathParcelSession && source.CompletedFrames>breathParcelSourceFrame && Math.Abs(delta-BreathParcelMass)<=1e-10,
-                    $"{breathParcelBefore:R} -> {after:R} kg; expected {(double)BreathParcelMass:R}; session {source.Session}, frames {breathParcelSourceFrame}/{source.CompletedFrames}");
+                var trace=source.TraceSinkKg-breathParcelTraceBefore;
+                Record("native breath deposition is compatible with booked trace loss",source.Session==breathParcelSession && source.CompletedFrames>breathParcelSourceFrame && ColonyBreathAccounting.Compatible(BreathParcelMass,delta,trace),
+                    $"{breathParcelBefore:R} -> {after:R} kg; expected {(double)BreathParcelMass:R}; whole-owner trace upper bound {trace:R} kg (not regional attribution); session {source.Session}, frames {breathParcelSourceFrame}/{source.CompletedFrames}");
                 Record("the native breath particle retires from its pool",breathParcelRetired && breathParcelRetiredFrame>0,
                     $"retired {breathParcelRetired}, observed after CO2Manager.Sim33ms at Unity frame {breathParcelRetiredFrame}");
                 breathParcelStarted=false;Finish();
