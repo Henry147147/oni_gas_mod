@@ -353,8 +353,8 @@ The complete managed/game-contract suite and 439 Python tests pass. Native
 sources are unchanged, retaining the previously verified 89-test binaries.
 Evidence: `receipt-pump/production-port/`, `windows-game-mono-abi/`,
 `windows-pump-managed/` and `pump-production-full-managed.log` under the tier
-artifacts. The delivered fc0fcc4 Windows ZIP still excludes the new pump and
-credit integration; a replacement package follows final validation.
+artifacts. The earlier fc0fcc4 Windows ZIP predates pump/credit. The final package is
+listed below and in the private Windows playtest instructions.
 
 The separate pacing-credit production port is now integrated. Its wrapper
 selects 2 s capacity and `1f/30f` repayment, leaving the original 0.2f argument
@@ -382,9 +382,9 @@ Evidence: `windows-credit-harmony/results.json`.
 
 The production-port base-game repeat passes at 2.99675× warmed game progress;
 five windows range 2.960–3.027× and clean-window GC counts are 1/2/4. The
-latest clean Windows private ZIP is `MixedAtmospheres-private-windows-05d0c73.zip`
-in the playtest share, with pump/credit and the bounded collision-cache repair
-included. Windows OS and representative sustained 3× remain open.
+latest clean Windows private ZIP is `MixedAtmospheres-private-windows-b7a41be.zip`
+in the playtest share, with pump/credit, the bounded collision-cache repair and
+immutable native held-mass snapshots included. Windows OS and representative sustained 3× remain open.
 
 The DLC texture diagnostic identifies all 5,543 fallbacks as modulo collisions
 with only 1,606 visible readings in one 4,093-slot cache. A same-binary clean
@@ -425,8 +425,11 @@ full owner bytes, rebinds one callback without release and claims the frame
 once. Readback restores the exact writer owner hash `6c2efced…`. Later world
 continuation still diverges; that separate failure remains open. Solver
 arithmetic and successful checkpoint bytes/formats are unchanged. Positive-zero
-assignment now preserves old contents when zero interning fails. The older
-delivered 05d0c73 ZIP predates this native change; refresh it after committing.
+assignment now preserves old contents when zero interning fails. The final
+clean b7a41be ZIP is delivered with the exact Windows/Wine-tested native DLLs;
+its SHA-256 is `96e7f084800513644e666763e5b6b01d5d20d0cf116e9c09a46aa94a144d1d50`.
+All source/build-input hashes match committed code; the retained build record
+truthfully notes the pre-commit dirty 982e8f source used to compile the DLLs.
 Preserve failed performance variants and fixed acceptance bounds. Evidence:
 `dense-frozen-{copy,memory,descriptor,variant}/`, `native32-production-full.log`,
 `windows-native32-production/` and `native32-game-validation/`.
@@ -446,9 +449,10 @@ spends about 8.1 ms obtaining missing audit totals; the next reuses them in
 0.0005 ms. A parallel fixed-order audit prototype and hook-counter sharding
 remain private/unadopted, with no default throughput claim. Keep large active
 pressure/transport work in scope: active-cell benchmarks cannot benefit from
-sleeping their active cells. The clean private Windows package `MixedAtmospheres-private-windows-fc0fcc4.zip`
-is delivered in `/mnt/data/share/oni/playtest`, with the tested native DLLs and
-2,587/0 Windows managed contract. See [provenance and install](spaced-out-private-playtest.md). Actual Windows OS acceptance,
+sleeping their active cells. The final private Windows package
+`MixedAtmospheres-private-windows-b7a41be.zip` is delivered in
+`/mnt/data/share/oni/playtest`, with the 90-test native DLLs and 2,588/0
+Windows managed contract. See [provenance and install](spaced-out-private-playtest.md). Actual Windows OS acceptance,
 3×, smooth input, full active save continuation, exact storage and the broader
 release matrix remain open. Historical worktree patches below are superseded
 by main.
