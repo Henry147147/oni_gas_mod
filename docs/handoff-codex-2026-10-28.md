@@ -382,9 +382,9 @@ Evidence: `windows-credit-harmony/results.json`.
 
 The production-port base-game repeat passes at 2.99675× warmed game progress;
 five windows range 2.960–3.027× and clean-window GC counts are 1/2/4. The
-latest clean Windows private ZIP is `MixedAtmospheres-private-windows-eb5f408.zip`
-in the playtest share, with pump/credit included. It still predates the next
-cache repair. Windows OS and representative sustained 3× remain open.
+latest clean Windows private ZIP is `MixedAtmospheres-private-windows-05d0c73.zip`
+in the playtest share, with pump/credit and the bounded collision-cache repair
+included. Windows OS and representative sustained 3× remain open.
 
 The DLC texture diagnostic identifies all 5,543 fallbacks as modulo collisions
 with only 1,606 visible readings in one 4,093-slot cache. A same-binary clean

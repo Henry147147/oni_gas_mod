@@ -1,15 +1,15 @@
 # Spaced Out! private Windows playtest
 
 The current engineering ZIP is
-`MixedAtmospheres-private-windows-eb5f408.zip` in the private playtest share
+`MixedAtmospheres-private-windows-05d0c73.zip` in the private playtest share
 (2026-10-29; SHA-256
-`8f0ed9d7ebde7232c20848cfe695a0059540637e926b8802fdf64e7a4053b3e4`).
-Its manifest records clean revision `eb5f408`. It includes profile9/core28
+`e3ee7e68424bcdbbbd6076c3927dbeaff0fea2a4310c117d515837b4f610650a`).
+Its manifest records clean revision `05d0c73`. It includes profile9/core28
 activity tiers, durable pending owner inputs, callback/readiness repairs and
 exact heat/passive-edit optimizations and bounded numeric texture caching. The
 original accepted boil-only and momentum corrections remain. Fenced idle
 byproduct delivery and bounded pacing credit are enabled by default, with
-opt-outs. Private report-cadence, compact-fallback diagnostics and native
+opt-outs. Texture caching remains active across bounded index collisions. Private report-cadence, compact-fallback diagnostics and native
 immutable-vector experiments are excluded.
 
 Linux and Windows x64/Wine each pass all 89 native tests; the four packaged
@@ -50,7 +50,7 @@ the user's part of the playtest.
 
 ## Install
 
-1. Close ONI and extract `MixedAtmospheres-private-windows-eb5f408.zip`.
+1. Close ONI and extract `MixedAtmospheres-private-windows-05d0c73.zip`.
 2. Open PowerShell in the extracted folder and run:
 
    ```powershell
