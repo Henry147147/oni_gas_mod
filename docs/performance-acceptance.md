@@ -350,6 +350,125 @@ actual backlog, save/lifecycle and performance tests. Diagnostic logging adds
 overhead; neither its timing nor receipt counts establish achieved throughput
 or the number of newly created objects.
 
+The follow-up diagnostic confirms 92 zero-time, unlimited publications below
+the backlog threshold (at most 1,442 ready receipts): 1.816 s of dispatch,
+15 calls over 50 ms and a 129.2 ms maximum. Positive budgeted publications
+have a 2.137 ms p95; one 103.4 ms outlier contains a 102.9 ms single byproduct
+call and a collection. Five positive-time backlog overrides cost another
+815 ms. This ends at actual owner frame 906 and remains diagnostic evidence.
+
+The explicit settlement-scope candidate then passes 900 requested frames but
+is **not adopted**. Warm owner speed falls from 2.667 to 2.579× in one ordered
+comparison, GC frames stay at six and late frame p99 rises from 108 to 148 ms.
+Its 920 budgeted publications defer 537 times and hit the unchanged backlog
+override 21 times (maximum copied count 1,600). Two milliseconds per simulation
+publication cannot keep up with this stream. A published pending-count sample
+of zero is stale/ineffective, not proof of an empty queue. Keep the original
+policy while testing capacity across otherwise idle Unity frames. The private
+candidate's 102,350 controls, including byte/order/ack and real barrier wiring
+against a fake backend, do not replace actual save/lifecycle acceptance.
+Evidence: `linux-receipt-diagnostic2/`, `linux-receipt-candidate900/` and
+`receipt-budget/` under the same private artifact folder.
+
+### Further private pacing tests, 2026-10-29
+
+A private run raises retained time capacity from 0.4 to 2 simulated seconds,
+keeping the original 0.2f argument cap, 1f/60f repayment limit and busy fence.
+The original 17,138 controls plus 102,908 capacity controls pass; official game
+Mono/Harmony passes the original 81 plus five configured checks in each mode.
+The actual 900-frame test reaches 2.92756× owner / 2.92797× game progress over
+the warmed span, versus 2.66721/2.66818× in the compact baseline. Its five
+150-frame windows reach 3.014, 2.994, 2.785, 3.018 and 2.845× owner progress.
+That does not establish sustained 3×.
+
+Warm offered/admitted time is 153.6515/149.9982 s, repayment 23.2216 s, and
+owed time grows 0.11198→1.98333 s. The 2 s bound is reached and 1.78196 s is
+dropped. Accounting/exception/overflow/unexpected-addition counters are zero,
+with balance within 8e-15. Clean-window GC frames rise from six to eight.
+This is one ordered comparison with differing game inputs and the original
+pacing-loss logger disabled in favor of retained-credit telemetry; it is not
+a precise causal speedup estimate. Save/load/lifecycle controls remain open,
+and production pacing is unchanged. Evidence: `retention2-run/` and
+`linux-retention2-900/` under the tier-integration artifact folder.
+
+A further private configurable repayment experiment retains the original
+1f/60f default and tests 1f/30f, with the same hard argument cap and busy fence.
+It passes the prior suites plus 101,886 added checks and official Mono/Harmony
+default/configured controls. Proposed credit is recorded separately from
+actual repayment and clipping; a larger proposal is not CPU headroom proof.
+The 1f/30f run reaches 2.95351× owner / 2.95524× game progress. Warm repayment
+is 26.8918 s versus 45.6025 s proposed credit; 872 offers are fully admitted
+and 662 are clipped. It drops 1.13658 s and ends owing 1.08689 s. Accounting
+faults stay zero, but sustained 3× is still unmet. This remains private.
+
+### Idle-frame byproducts and combined pacing, 2026-10-29
+
+A private pump drains only the already-observed byproduct prefix of a
+successful managed publication during otherwise idle Unity frames. Session,
+frame and highest-observed sequence fences exclude newly appended work;
+ordinary callback, precise and pipe outcomes remain publication-only. Shared
+delivery leases prevent reentry, and save/checkpoint/readiness/retirement guards
+hold the pump. The original publication budget/backlog policy stays unchanged.
+This changes Unity-time scheduling, not the fluid solver or its timestep.
+
+The private controls pass 1,752 .NET and 1,750 installed-game Mono assertions
+(two allocation assertions are .NET-only), with a disabled-pump negative
+control. The raw 600-byte status/48-byte receipt layouts and 10,000 warmed
+native interop iterations pass with zero .NET allocations and no clock advance.
+These controls do not establish identical real-world callback timing.
+
+Pump-only 900-frame warm progress is 2.80586× owner / 2.80626× game, versus
+2.66721/2.66818× in the compact baseline. It acknowledges 12,393 byproducts;
+maximum pending observed at pump entry is 1,129. Late frame mean falls
+14.29→12.83 ms and the last clean-window maximum falls 217→128 ms; GC frames
+rise six→eight. This is one ordered comparison with differing game inputs.
+Runs include empty/fence-blocked checks. The snapshot lacks a final pending
+count, and an unincremented stale-stop counter is not evidence of no stale
+leases. Pump time is included once in the new top-level frame-log category;
+receipt time remains nested within publication.
+
+The combined pump plus 2 s retention/1f/30f repayment run reaches approximately
+**3× actual progress** in this fresh base-game cohort: 150 owner seconds over
+50.020943 real seconds, or **2.998744× owner / 3.000498× game**. Its five warm
+windows reach 3.009/2.998/2.975/3.021/2.991× owner progress. Warm dropped credit
+is zero; owed credit falls 0.06549→0.03084 s and peaks at 0.26221 s. Accounting
+faults are zero, with balance within 4.4e-15. The pump acknowledges 9,274
+byproducts; a fresh completion sample at owner frame 900 has **381 pending
+receipts**, not an empty queue. Clean-window GC frames total five, with p99s
+about 29/100/104 ms. No owner fault or critical log error is observed.
+
+Both changes remain private. This is one starting-colony performance cohort,
+not save/load, merge/dying-target, pipe-callback, lifecycle, retirement,
+Windows OS or broad release acceptance. Targeted custody controls are next.
+Evidence under the same private artifact folder:
+`receipt-pump/`, `pump-run/`, `linux-pump900/`, `pump-retention3-run/` and
+`linux-pump-retention3-900/`.
+
+The same frozen combined package also passes a fresh Spaced Out! 900-frame
+run: Expansion1 active, nine worlds, 79 species, 736×304 grid and 65,047 owned
+cells. Warm owner/game speed is **1.95478/1.95592×**, with all five windows
+between 1.940 and 1.974×. It reaches the 2 s credit bound and drops 78.474 s of
+warm offered time; accounting faults remain zero. This is a separate native
+performance limit, not a DLC 3× result.
+
+Warm measured flow is 36.5–38.7 ms, heat 11.7–13.3 ms, transfer/activity/biology
+8.3–9.8 ms and ledger/projection 6.2–6.4 ms; full submit/publication is 94–99 ms.
+The last stage largely follows the partial owner timer, so these are not a
+partition of its 59–61 ms. Flow includes solver advance and postprocessing;
+pressure, transport and cloning are not yet individually attributed. The
+native substep count is lower than the base run's, so the larger stage does
+not establish extra substeps as the cause.
+
+Every DLC texture batch falls back (0 fits/5,856 fallbacks); the rejection
+reason is unrecorded. No scalar samples run, so the diagnostic table-species 0
+does not contradict native 79 species. The pump delivers 0 and sees at most 12
+pending receipts; fresh status at frame 900 has 0 pending at that instant.
+Five clean 15 s windows each have one GC-containing frame; p99 is 119–139 ms.
+There are no dropped timing samples, owner faults or critical log errors.
+The next native experiment splits flow/postprocessing and ledger/projection in
+a matched private replay, preserving owner/physical/receipt bytes. Evidence:
+`linux-combined-dlc1-900/` and `pump-retention3-run/DLC1-README.md`.
+
 ### Measurement and test harness first
 
 - Measure both `GameClock` and owner-clock deltas against monotonic wall time

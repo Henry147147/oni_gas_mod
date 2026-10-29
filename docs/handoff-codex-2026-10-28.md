@@ -269,9 +269,19 @@ below that threshold. Game API inspection confirms ordinary low-dt polling
 calls `StepTheSim(0)`; the old `StepSeconds > 0` budget gate therefore also
 bypasses ordinary polls. New optional logs capture step duration, admission,
 budget, maximum single spawn and collections, without changing policy.
-A private explicit settlement-scope candidate passes 102,336 controls and an
-old-predicate negative control fails as expected. It is not adopted: verify
-actual backlog/throughput, save/startup/retirement and cold restoration first.
+A private explicit settlement-scope candidate passes 102,350 controls and an
+old-predicate negative control fails as expected. Its actual 900-frame run
+regresses warmed owner speed 2.667→2.579×; GC frames stay six and late p99 rises
+108→148 ms. Budgeted 920 / deferred 537 / backlog override 21 / maximum copied 1,600 shows the
+per-publication capacity problem; the published pending-count sample 0 is
+ineffective, not an empty-queue proof. It is parked, with no actual save or
+lifecycle acceptance claim. The updated diagnostic separately confirms 92
+zero-time unlimited batches below the backlog threshold, 15 stalls over 50 ms,
+and a 129 ms maximum. Actual final frames are 906 in that diagnostic and 908 in
+the candidate. Keep the original production policy. A new private design
+investigates draining only already-published, sequenced byproduct prefixes in
+idle Unity frames without extra physics/publication calls; custody/reentry/save
+proof comes before adoption.
 Byproduct counts are receipt deliveries, not newly created objects; the game
 merges before instantiating. See `linux-compact-publication900/` and
 `receipt-budget/` under the artifacts.
@@ -280,8 +290,39 @@ A second private pacing experiment retains a configurable maximum of 2 s,
 leaving the original 0.4 s default, 0.2f argument cap and 1f/60f repayment cap.
 The original 17,138 controls plus 102,908 added checks pass; real Mono/Harmony
 passes 81 original plus five configured checks in each separate bound process.
-No production pacing changes are adopted. An actual clock/input/GC run is still
-needed. See `pacing-retention2/`; preserve the old baseline and its limitations.
+No production pacing changes are adopted. The actual 900-frame run reaches
+2.928× warmed owner/game progress; windows are 3.014/2.994/2.785/3.018/2.845×,
+so sustained 3× remains unmet. Debt reaches 2 s and drops 1.782 s of offered
+warm time; accounting stays clean. GC frames rise from six to eight. The
+original loss logger is disabled in favor of retained accounting, so record
+that observer difference. See `pacing-retention2/`, `retention2-run/` and
+`linux-retention2-900/`; preserve the old baseline and limitations. A further
+private repayment-cap variant tests 1f/30f with original defaults/hard cap/fence
+retained; all prior controls plus 101,886 new assertions and Mono/Harmony
+controls pass. Actual-game and save/lifecycle gates are still pending.
+
+The later combined private pump/retention3 run reaches approximately 3× in
+fresh base game: warmed 2.998744× owner / 3.000498× game, with zero dropped warm
+credit and five clean-window GC frames. It is not adopted: real merge/dying
+pickupable, pipe-callback, paused-save/cold-load and lifecycle checks are being
+built. Scheduling receipt delivery changes Unity-time behavior; fake byte/order
+controls do not establish unchanged world trajectories. The fresh completion
+sample still has 381 pending receipts at owner frame 900.
+
+The SAME frozen package passes fresh Spaced Out! 900 with Expansion1 active,
+nine worlds/79 species, but reaches only 1.95478× owner / 1.95592× game. The 2 s
+credit bound saturates and drops 78.474 s of offered warm time. Flow 36.5–38.7 ms
+is the largest broad native stage; heat 11.7–13.3, stage2 8.3–9.8 and separate
+ledger/projection 6.2–6.4 ms need finer attribution. All 5,856 texture batches
+fall back for an unrecorded reason; no compact samples run. The native species
+count is 79 despite the unsampled diagnostic table count 0. Pump delivers 0,
+maximum observed pending 12, fresh frame 900 pending 0 only at that instant.
+There is one GC in each of five clean 15 s windows, no owner fault or dropped
+timing samples. C is orchestrating real game custody controls; B inventories a
+private matched DLC flow/postprocessing/projection split while A builds the
+fixture. Keep physics inputs/bounds and production source unchanged until
+measured changes pass exact-output and lifecycle gates. See
+[combined/base/DLC scope](performance-acceptance.md#idle-frame-byproducts-and-combined-pacing-2026-10-29).
 
 Nearby searches cost about 0.06 ms in measured replays, all reservoir anchors
 are open and saved precision inventories are empty. The cold first DLC transfer
