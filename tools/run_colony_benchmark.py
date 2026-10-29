@@ -61,8 +61,13 @@ def main() -> int:
     parser.add_argument('--case', action='append', help='Run only these cases of the suite')
     parser.add_argument('--world-dump', type=Path, action='append', default=[], help='Private captured world (repeatable)')
     parser.add_argument('--workers', type=int, default=0, help='0: physical cores (the game default)')
+    parser.add_argument('--profile', type=int, choices=(8, 9), default=9, help='Current profile9, or explicit legacy8 comparison')
+    parser.add_argument('--activity', choices=('tiers', 'always'), help='Default: always for fixed active-cell release suite; tiers for current-profile smoke')
     parser.add_argument('--output', type=Path, help='Result folder (default artifacts/performance/<revision>-<time>)')
     args = parser.parse_args()
+    activity = args.activity or ('always' if args.suite == 'release' or args.profile == 8 else 'tiers')
+    if args.profile == 8 and activity != 'always':
+        parser.error('Legacy profile8 has no activity tiers')
     executable = (args.executable or args.build / 'ma_colony_benchmark').resolve(strict=True)
     revision = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip()
     dirty = bool(subprocess.check_output(['git', 'status', '--porcelain', '--untracked-files=no'], cwd=ROOT, text=True).strip())
@@ -77,11 +82,16 @@ def main() -> int:
     for dump in args.world_dump:
         cases[f'dump-{dump.stem}'] = (['--world-dump', str(dump.resolve(strict=True)), '--frames', '20', '--warmup', '2'], 3600)
     summary = {'revision': revision, 'dirty': dirty, 'host': host(), 'executable': str(executable),
-               'suite': args.suite, 'workers': args.workers, 'cases': {}}
+               'suite': args.suite, 'workers': args.workers, 'configured_profile': args.profile,
+               'activity': activity, 'cases': {}}
     status = 0
     for name, (arguments, timeout) in cases.items():
         result = output / f'{name}.json'
         command = [str(executable), *arguments, '--json', str(result)]
+        if '--world-dump' not in arguments:
+            command += ['--profile', str(args.profile)]
+            if args.profile == 9 and activity == 'always':
+                command += ['--always-simulate']
         if args.workers:
             command += ['--workers', str(args.workers)]
         before = load()

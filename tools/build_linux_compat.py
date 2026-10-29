@@ -44,7 +44,7 @@ def main():
     entries=subprocess.check_output(['git','ls-files','-z','--cached','--others','--exclude-standard'],cwd=ROOT).decode().split('\0')
     # tools/review_gas_diffusion.py is the mac_gas_diffusion_maxwell_stefan CTest oracle.
     exact={'CMakeLists.txt','docs/native-hook-profiles.json','tools/oni_hook_profiles.py','tools/patch_funchook.py','tools/patch_funchook_unix.py','tools/patch_distorm.py',
-        'tools/review_gas_diffusion.py'}
+        'tools/review_gas_diffusion.py','tools/check_colony_benchmark.py'}
     # A tracked file deleted in the working tree is not part of the snapshot
     # being built; it is listed in the manifest rather than silently copied.
     deleted=set(subprocess.check_output(['git','ls-files','-z','--deleted'],cwd=ROOT).decode().split('\0'))-{''}

@@ -246,6 +246,17 @@ Inputs inputs(const Layout& l, std::uint32_t duplicants, std::uint64_t frame) {
     return in;
 }
 
+// Full synthetic actor census: the existing breathing and machine input cells,
+// including idle/refused actors. No new physical inputs or all-cell actors.
+std::vector<std::uint32_t> actor_cells(const Inputs& in) {
+    std::vector<std::uint32_t> out;
+    for (const auto& e : in.transfers) out.push_back(e.public_cell);
+    for (const auto& e : in.heat) out.push_back(e.public_cell);
+    std::sort(out.begin(), out.end());
+    out.erase(std::unique(out.begin(), out.end()), out.end());
+    return out;
+}
+
 struct Summary { double mean = 0, p50 = 0, p95 = 0, maximum = 0; };
 Summary summarize(std::vector<double> values) {
     Summary s;
@@ -270,6 +281,8 @@ struct Options {
     std::uint32_t rooms_x = 8, rooms_y = 13, frames = 60, warmup = 5, workers = 0, duplicants = 32;
     std::uint32_t pressure_iterations = 0; // 0: the default saved cap
     bool events = false;
+    std::uint32_t profile = 9;
+    bool always_simulate = false, explicit_profile = false;
     // Hydrogen under chlorine in every sixth room: fast sound and strong
     // buoyancy (the stiffest pressure systems); --no-hydrogen-rooms uses CO2 over O2.
     bool hydrogen_rooms = true;
@@ -293,7 +306,13 @@ Options parse(int argc, char** argv) {
             else if (p == "250k") { o.rooms_x = 13; o.rooms_y = 20; }
             else if (p == "smoke") { o.rooms_x = 2; o.rooms_y = 2; o.frames = 3; o.warmup = 1; o.duplicants = 4; }
             else throw std::invalid_argument("Unknown preset");
-        } else if (a == "--rooms") { o.rooms_x = static_cast<std::uint32_t>(number(i)); o.rooms_y = static_cast<std::uint32_t>(number(i)); }
+        } else if (a == "--profile") {
+            if (i + 1 >= argc) throw std::invalid_argument("Missing profile");
+            const std::string p = argv[++i];
+            if (p != "8" && p != "9") throw std::invalid_argument("Profile must be 8 or 9");
+            o.profile = p == "9" ? 9U : 8U; o.explicit_profile = true;
+        } else if (a == "--always-simulate") o.always_simulate = true;
+        else if (a == "--rooms") { o.rooms_x = static_cast<std::uint32_t>(number(i)); o.rooms_y = static_cast<std::uint32_t>(number(i)); }
         else if (a == "--frames") o.frames = static_cast<std::uint32_t>(number(i));
         else if (a == "--warmup") o.warmup = static_cast<std::uint32_t>(number(i));
         else if (a == "--workers") o.workers = static_cast<std::uint32_t>(number(i));
@@ -310,6 +329,9 @@ Options parse(int argc, char** argv) {
     }
     if (o.rooms_x < 1 || o.rooms_y < 1 || o.rooms_x > 24 || o.rooms_y > 40 || o.frames < 1 || o.warmup >= o.frames)
         throw std::invalid_argument("Invalid rooms, frames or warmup");
+    if (o.profile == 8 && o.always_simulate) throw std::invalid_argument("Profile 8 already always simulates; omit --always-simulate");
+    if (!o.world_dump.empty() && (o.explicit_profile || o.always_simulate))
+        throw std::invalid_argument("A world dump keeps its saved profile and activity policy");
     return o;
 }
 void emit(const Options& o, const std::string& text) {
@@ -375,7 +397,9 @@ int replay(const Options& o) {
     std::ostringstream out;
     char line[160];
     std::snprintf(line, sizeof line, "%016llx", static_cast<unsigned long long>(hash));
-    out << "{\"mode\": \"world-dump\", \"cells\": " << world.state().cells.size() << ", \"fluid_cells\": " << fluid
+    out << "{\"mode\": \"world-dump\", \"profile_source\": \"checkpoint\", \"profile\": " << static_cast<unsigned>(world.settings().game_profile)
+        << ", \"activity_tiers_enabled\": " << (world.settings().game.activity_tiers ? "true" : "false")
+        << ", \"cells\": " << world.state().cells.size() << ", \"fluid_cells\": " << fluid
         << ", \"frame_seconds\": " << seconds << ", \"workers\": " << options.threads << ", \"frames\": " << o.frames
         << ", \"warmup\": " << o.warmup << ", \"flow_ms\": " << json(warm) << ", \"stages_ms\": {";
     const std::pair<const char*, const std::vector<double>*> parts[] = {{"sparse", &sparse}, {"tick", &tick}, {"eos", &eos},
@@ -404,7 +428,8 @@ int run(const Options& o) {
     MAOniColonyConfig config{};
     config.struct_size = sizeof config;
     config.abi_version = MA_ONI_COLONY_ABI_VERSION;
-    config.flags = MA_ONI_COLONY_PHYSICS_CONDUCTION | MA_ONI_COLONY_GAME_KERNEL | MA_ONI_COLONY_GAME_SURFACE;
+    config.flags = MA_ONI_COLONY_PHYSICS_CONDUCTION | MA_ONI_COLONY_GAME_KERNEL | MA_ONI_COLONY_GAME_SURFACE |
+        (o.profile == 9 ? MA_ONI_COLONY_GAME_ACTIVITY : 0U);
     config.vacuum_index = vacuum;
     config.grid_width = config.width = layout.width;
     config.grid_height = config.height = layout.height;
@@ -416,16 +441,25 @@ int run(const Options& o) {
         options.pressure_maximum_iterations = o.pressure_iterations;
         c::set_options(&options);
     }
+    for (const char* name : {"MA_COLONY_KERNEL3_PROFILE6", "MA_COLONY_KERNEL3_PROFILE7"})
+        if (const char* value = std::getenv(name); value && std::strcmp(value, "1") == 0)
+            throw std::invalid_argument("Unset legacy profile selectors; select --profile 8 or 9 explicitly");
+    if (o.profile == 9) c::set_activity_tiers(0, !o.always_simulate);
     c::start(config, records, layout.cells, 1);
     const double setup_ms = since(setup_start);
     auto status = c::status();
     if (status.state != 1) throw std::runtime_error(std::string("Colony did not start: ") + status.error);
+    MAOniColonyOptions effective{};
+    if (!c::copy_options(effective)) throw std::runtime_error("Missing effective saved game options");
     const auto started = memory();
     const auto cells = layout.width * layout.height;
     std::vector<MAOniColonyCellView> views(cells), previous(cells);
     std::vector<MAOniColonyReceipt> receipts(1U << 16);
     const auto seconds = static_cast<double>(.2f);
-    std::vector<double> frame_ms, owner_ms, copy_ms, changed_fraction, active_cells, flow_ms, transfer_ms, sink_ms, ledger_ms, publish_ms;
+    std::vector<std::uint32_t> previous_actors;
+    std::uint64_t census_sequence = 0;
+    std::vector<double> census_ms;
+    std::vector<double> frame_ms, legacy_frame_ms, owner_ms, copy_ms, changed_fraction, active_cells, flow_ms, transfer_ms, sink_ms, ledger_ms, publish_ms;
     std::vector<std::uint64_t> resident;
     std::vector<Event> events;
     if (o.events)
@@ -446,6 +480,10 @@ int run(const Options& o) {
     while (frame < frame_limit) {
         ++frame;
         const auto in = inputs(layout, o.duplicants, frame);
+        // Acceptance cost includes every native queue, census, owner, copy,
+        // commit check and receipt ACK. Fixture generation above is separate;
+        // event construction below is conservatively included when present.
+        const auto adapter_start = Clock::now();
         if (event_due(frame)) {
             auto& e = events[next_event];
             e.frame = frame;
@@ -463,11 +501,20 @@ int run(const Options& o) {
                 for (auto cell : layout.boil_pool) heat.push_back({cell, 0, 1000. * 4180 * 40, 400});
                 c::queue_heat(heat);
             }
-            event_start = Clock::now();
+            event_start = adapter_start;
             within = 0;
         }
         if (!in.transfers.empty()) c::queue_transfers(in.transfers);
         if (!in.heat.empty()) c::queue_heat(in.heat);
+        if (o.profile == 9) {
+            const auto census_start = Clock::now();
+            auto actors = actor_cells(in);
+            std::vector<std::uint32_t> changed;
+            std::set_symmetric_difference(previous_actors.begin(), previous_actors.end(), actors.begin(), actors.end(), std::back_inserter(changed));
+            census_sequence = c::queue_activity(status.session, seconds, actors, changed);
+            previous_actors = std::move(actors);
+            if (frame > o.warmup) census_ms.push_back(since(census_start));
+        }
         const auto start = Clock::now();
         c::advance(frame, seconds, 2);
         c::wait();
@@ -479,12 +526,19 @@ int run(const Options& o) {
         const double copy = since(copy_start);
         if (status.state != 1) { faulted = true; break; }
         if (status.completed_frames != frame) throw std::runtime_error("The completed frame did not publish");
+        if (o.profile == 9) {
+            MAOniColonyActivityState activity{};
+            if (!c::copy_activity(activity) || activity.session != status.session ||
+                activity.last_committed_sequence != census_sequence || activity.enabled != (o.always_simulate ? 0U : 1U))
+                throw std::runtime_error("The configured activity frame did not commit");
+        }
         const auto count = c::copy_receipts(receipts.data(), static_cast<std::uint32_t>(receipts.size()));
         if (count) {
             const auto last = receipts[std::min<std::size_t>(count, receipts.size()) - 1].sequence;
             c::ack_receipts(last);
             receipts_acked += std::min<std::size_t>(count, receipts.size());
         }
+        const double adapter_ms = since(adapter_start);
         std::size_t active = 0, changed = 0;
         for (std::size_t i = 0; i < cells; ++i) {
             const auto& v = views[i];
@@ -498,7 +552,8 @@ int run(const Options& o) {
         const bool warm = frame > o.warmup;
         if (warm) active_cells.push_back(static_cast<double>(active));
         if (warm && !o.events) {
-            frame_ms.push_back(wall_ms + copy);
+            frame_ms.push_back(adapter_ms);
+            legacy_frame_ms.push_back(wall_ms + copy);
             owner_ms.push_back(status.last_advance_ms);
             copy_ms.push_back(copy);
             changed_fraction.push_back(active ? static_cast<double>(changed) / static_cast<double>(active) : 0);
@@ -512,10 +567,10 @@ int run(const Options& o) {
         if (event_start) {
             auto& e = events[next_event];
             ++e.frames_watched;
-            e.worst_ms = std::max(e.worst_ms, wall_ms + copy);
-            e.frame_ms.push_back(wall_ms + copy);
-            if (wall_ms + copy <= o.budget_ms) {
-                if (within++ == 0) window_start = start;
+            e.worst_ms = std::max(e.worst_ms, adapter_ms);
+            e.frame_ms.push_back(adapter_ms);
+            if (adapter_ms <= o.budget_ms) {
+                if (within++ == 0) window_start = adapter_start;
             } else within = 0;
             if (within >= o.sustain_frames) {
                 e.recovery_s = std::chrono::duration<double>(window_start - *event_start).count();
@@ -529,19 +584,67 @@ int run(const Options& o) {
         if (o.events && next_event == events.size() && !event_start) break;
     }
     const auto final_status = c::status();
+    // Read actual published clocks once, outside the measured frame loop. These
+    // classify the next tick's policy, not historical per-cell evolved time.
+    const auto observation_start = Clock::now();
+    std::uint64_t observed = 0, actor_count = 0, full_rate = 0, remote = 0, paused = 0;
+    MAOniColonyActivityState final_activity{};
+    if (o.profile == 9) {
+        if (!c::copy_activity(final_activity)) throw std::runtime_error("Missing published activity state");
+        std::vector<std::uint32_t> selected;
+        std::vector<MAOniColonyActivityCell> rows;
+        const auto observe = [&] {
+            if (selected.empty()) return;
+            rows.resize(selected.size()); MAOniColonyStatus pinned{};
+            if (!c::sample_activity(final_status.session, final_status.completed_frames, selected, pinned, rows))
+                throw std::runtime_error("Activity publication changed during observation");
+            for (const auto& row : rows) {
+                ++observed; actor_count += row.actors ? 1U : 0U;
+                const auto age = final_status.time_seconds - row.last_activity_s;
+                if (!final_activity.enabled || row.actors || (row.last_activity_s >= 0 && age < ma::experimental::MacGameSettings{}.activity_hold_s)) ++full_rate;
+                else if (row.last_activity_s < 0 || age >= ma::experimental::MacGameSettings{}.activity_pause_s) ++paused;
+                else ++remote;
+            }
+            selected.clear();
+        };
+        for (std::uint32_t i = 0; i < cells; ++i) if (views[i].flags & MA_ONI_COLONY_VIEW_OWNED) {
+            selected.push_back(i); if (selected.size() == 4096) observe();
+        }
+        observe();
+    }
+    const double observation_ms = since(observation_start);
+    std::uint64_t views_hash = 1469598103934665603ULL;
+    for (const auto byte : std::as_bytes(std::span(views))) { views_hash ^= std::to_integer<std::uint8_t>(byte); views_hash *= 1099511628211ULL; }
     const auto peak = memory();
     c::stop();
     std::ostringstream out;
     const auto mean = [](const std::vector<double>& v) { double s = 0; for (double x : v) s += x; return v.empty() ? 0 : s / static_cast<double>(v.size()); };
     const auto frame_summary = summarize(frame_ms);
-    out << "{\"mode\": \"" << (o.events ? "events" : "steady") << "\", \"grid\": [" << layout.width << ", " << layout.height << "]"
-        << ", \"cells\": " << cells << ", \"active_cells_mean\": " << mean(active_cells)
+    out << "{\"mode\": \"" << (o.events ? "events" : "steady") << "\", \"profile\": " << o.profile
+        << ", \"owner_flags\": " << config.flags << ", \"activity_tiers_enabled\": " << (final_activity.enabled ? "true" : "false")
+        << ", \"frame_ms_scope\": \"native queues+census+advance+wait+view-copy+commit-check+receipt-copy/ack; excludes fixture input generation and managed/UI work\""
+        << ", \"fully_active_stress\": " << (o.profile == 8 || o.always_simulate ? "true" : "false")
+        << ", \"native_substeps\": " << final_status.substeps << ", \"census_committed\": " << final_activity.last_committed_sequence
+        << ", \"final_views_fnv\": \"" << std::hex << views_hash << std::dec << "\""
+        << ", \"census_preparation_ms\": " << json(summarize(census_ms))
+        << ", \"activity_observation\": {\"scope\": \"final published clocks; next-tick policy, not historical evolved-cell time\", \"cells\": " << observed
+        << ", \"actor_cells\": " << actor_count << ", \"full_rate\": " << full_rate << ", \"remote\": " << remote << ", \"paused\": " << paused
+        << ", \"outside_frame_timer_ms\": " << observation_ms << "}"
+        << ", \"effective_options\": {\"pressure_cap\": " << effective.pressure_maximum_iterations << ", \"heat_cap\": " << effective.heat_maximum_iterations
+        << ", \"flow_parts\": " << effective.flow_parts << ", \"sharpen_interfaces\": " << effective.sharpen_liquid_interfaces
+        << ", \"maximum_dt_s\": " << effective.maximum_timestep_s << ", \"pressure_relative_tolerance\": " << effective.pressure_relative_tolerance
+        << ", \"trace_threshold_kg\": " << effective.trace_sink_threshold_kg << ", \"liquid_stiffness_ratio\": " << effective.liquid_stiffness_ratio
+        << ", \"gas_heat_mixing\": " << effective.gas_heat_mixing << ", \"interface_detail_fraction\": " << effective.interface_detail_fraction
+        << ", \"phase_relaxation_s\": " << effective.phase_relaxation_time_s << ", \"evaporation_below_boiling\": " << effective.evaporation_below_boiling << "}"
+        << ", \"grid\": [" << layout.width << ", " << layout.height << "]"
+        << ", \"cells\": " << cells << ", \"active_cells_metric\": \"occupied nonvacuum views, not evolved cells\", \"active_cells_mean\": " << mean(active_cells)
         << ", \"active_cells_min\": " << (active_cells.empty() ? 0 : *std::min_element(active_cells.begin(), active_cells.end()))
         << ", \"hydrogen_rooms\": " << (o.hydrogen_rooms ? "true" : "false") << ", \"duplicants\": " << o.duplicants << ", \"workers\": " << ma::experimental::mac_kernel_default_options().threads
         << ", \"frames\": " << frame << ", \"warmup\": " << o.warmup << ", \"frame_seconds\": " << seconds
         << ", \"setup_ms\": " << setup_ms;
     if (!o.events) {
         out << ", \"frame_ms\": " << json(frame_summary) << ", \"owner_ms\": " << json(summarize(owner_ms))
+            << ", \"legacy_advance_wait_copy_ms\": " << json(summarize(legacy_frame_ms))
             << ", \"per_0_1_s_ms\": {\"mean\": " << frame_summary.mean / 2 << ", \"p95\": " << frame_summary.p95 / 2
             << ", \"max\": " << frame_summary.maximum / 2 << "}"
             << ", \"stage_ms\": {\"inputs\": " << json(summarize(transfer_ms)) << ", \"flow\": " << json(summarize(flow_ms))

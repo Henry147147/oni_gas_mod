@@ -4,6 +4,114 @@
 #include <exception>
 #include "../src/oni_catalogue.hpp"
 
+void activity_biology_frame_control() {
+    using namespace ma::oni::colony;
+    constexpr double dt=static_cast<double>(.2f);
+    constexpr float inf=std::numeric_limits<float>::infinity();
+    constexpr std::uint32_t near_cell=8,remote_cell=10,pristine_cell=12;
+    const std::array<std::uint32_t,3> selected{near_cell,remote_cell,pristine_cell};
+    const std::array<std::uint32_t,1> actor{near_cell},remote_touch{remote_cell};
+    MAOniColonyConfig cfg{};cfg.struct_size=sizeof(cfg);cfg.abi_version=1;
+    cfg.flags=MA_ONI_COLONY_GAME_KERNEL|MA_ONI_COLONY_GAME_SURFACE|MA_ONI_COLONY_GAME_ACTIVITY;
+    cfg.vacuum_index=vacuum;cfg.grid_width=cfg.width=7;cfg.grid_height=cfg.height=3;cfg.maximum_timestep_s=static_cast<double>(.1f);
+    auto options=default_options();options.maximum_timestep_s=static_cast<double>(.1f);
+    set_options(&options);set_activity_tiers(0,true);
+    const std::vector<MAOniColonyMaterial> mats{material("Oxygen",11,oxygen,true,.032,1005),material("CarbonDioxide",12,carbon,true,.044,850)};
+    std::vector<MAOniColonyCell> cells(21,MAOniColonyCell{0,MA_ONI_COLONY_SOLID,0,0,0,0});
+    cells[near_cell]={oxygen,MA_ONI_COLONY_FLUID,1,300,1,128};
+    cells[remote_cell]={oxygen,MA_ONI_COLONY_FLUID,1,300,2,1<<30};
+    cells[pristine_cell]={oxygen,MA_ONI_COLONY_FLUID,1,300,1,128};
+    std::array<MAOniColonyDisease,2> diseases{};
+    for(auto& disease:diseases) {
+        disease.struct_size=sizeof(disease);disease.abi_version=1;disease.strength=1;
+        std::fill(std::begin(disease.temperature_range),std::end(disease.temperature_range),inf);
+        std::fill(std::begin(disease.temperature_half_lives),std::end(disease.temperature_half_lives),inf);
+    }
+    std::vector<MAOniColonyDiseaseGrowth> growth(20,MAOniColonyDiseaseGrowth{0,inf,inf,0,0,inf,0,0});
+    growth[oxygen].population_half_life=growth[oxygen].over_population_half_life=-.2f;
+    growth[10+oxygen].population_half_life=growth[10+oxygen].over_population_half_life=.2f;
+    set_diseases(diseases,growth,10);
+    const auto summary=[] {MAOniColonyBiology out{};std::vector<MAOniColonyBiologyAccount> accounts;germ_accounts(out,accounts);return out;};
+    const auto amount=[&](std::uint32_t cell) {
+        MAOniColonyPassiveStamp stamp{};std::vector<MAOniColonyPassiveRow> rows;
+        require(read_passives(0,0,selected,stamp,rows),"Activity biology passive observation failed");
+        for(const auto& row:rows)if(row.public_cell==cell)return row.quantity;
+        return 0.;
+    };
+    const auto tick=[&](std::uint64_t ticket,std::span<const std::uint32_t> actors,std::span<const std::uint32_t> touched={}) {
+        (void)queue_activity(status().session,dt,actors,touched);advance(ticket,dt,2);wait();require(status().state==1,status().error);
+    };
+    const auto dump=[&](const std::string& name,const auto& image) {
+        if(const char* directory=std::getenv("MA_GERM_CLOCK_CONTROL_SAVE_DIR")) {
+            std::filesystem::create_directories(directory);std::ofstream file(std::filesystem::path(directory)/name,std::ios::binary);
+            file.write(reinterpret_cast<const char*>(image.data()),static_cast<std::streamsize>(image.size()));require(file.good(),"Germ clock evidence save failed");
+        }
+    };
+    // Locate the existing wrapper14 field structurally in this queue-free,
+    // two-species fixture. Do not invent a physical checkpoint normalization.
+    const auto counter_offset=[&](const auto& image) {
+        ma::oni::colony::detail::ParcelWireReader r{image};const auto magic=r.raw(8);
+        require(std::string_view(reinterpret_cast<const char*>(magic.data()),magic.size())=="MACOLN01" && r.u32()==14,"Germ clock fixture wrapper changed");
+        (void)r.raw(sizeof(MAOniColonyConfig));const auto species=r.u32();require(species==mats.size(),"Germ clock fixture species changed");
+        (void)r.raw(species*sizeof(MAOniColonyMaterial));auto count=r.u32();(void)r.raw(count);count=r.u32();(void)r.raw(count);
+        require(r.u32()==0,"Germ clock fixture unexpectedly has a reservoir");
+        (void)r.raw((6*species+8)*16+16+14*8); // wide ledgers, trace totals, saved status counters
+        for(unsigned k=0;k<4;++k)require(r.u32()==0,"Germ clock fixture unexpectedly has queued input");
+        (void)r.u64();require(r.u32()==0 && r.u32()==1,"Germ clock fixture job/mode changed");return r.at;
+    };
+    const auto with_counter=[&](auto image,std::uint64_t value) {
+        const auto offset=counter_offset(image);for(unsigned k=0;k<8;++k)image[offset+k]=static_cast<std::uint8_t>(value>>(8*k));
+        const auto digest=ma::oni::hash_memory(image.data(),image.size()-64);std::copy(digest.begin(),digest.end(),image.end()-64);return image;
+    };
+    bool nominal=true,batch=false;unsigned previous_remote_ticks=0;
+    std::vector<std::uint8_t> source,at21;std::uint64_t saved_frames=0,frames21=0;
+    start(cfg,mats,cells,1);
+    for(std::uint64_t frame=1;frame<=28;++frame) {
+        tick(frame,actor,frame==1?std::span<const std::uint32_t>(remote_touch):std::span<const std::uint32_t>{});
+        const auto b=summary();nominal=nominal && b.frames==frame;
+        require(b.mode==1 && amount(near_cell)==std::ldexp(128.,static_cast<int>(frame)) && amount(pristine_cell)==128,
+            "Nominal biology counter changed near growth or untouched culture");
+        const double remote=amount(remote_cell);unsigned ticks=0;
+        while(ticks<=30 && std::ldexp(1.,30-static_cast<int>(ticks))!=remote)++ticks;
+        require(ticks<=30 && ticks>=previous_remote_ticks,"Remote decay changed its exact half-life");
+        batch=batch || ticks>previous_remote_ticks+1;previous_remote_ticks=ticks;
+        require(b.born==amount(near_cell)-128 && b.died==std::ldexp(1.,30)-remote && b.culled==0 && b.moved==0 && b.audit_error==0,
+            "Activity growth/decay accounts changed");
+        const auto image=checkpoint();dump("frame-"+std::to_string(frame)+".owner",image);
+        if(frame==17){source=image;saved_frames=b.frames;}
+        if(frame==21){at21=image;frames21=b.frames;}
+    }
+    require(batch,"Clock regression fixture never exercised a multi-tick remote batch");
+    const auto continued=checkpoint();const auto continued_frames=summary().frames;stop();
+    restore(cfg,mats,source,1);require(checkpoint()==source && summary().frames==saved_frames,"Cold load rewrote saved biology clock");
+    const auto zero=checkpoint();const auto zero_time=status().time_seconds;(void)flush_inputs();
+    require(checkpoint()==zero && summary().frames==saved_frames && status().time_seconds==zero_time,"Zero-time flush advanced biology clock");
+    for(std::uint64_t frame=1;frame<=11;++frame)tick(frame,actor);
+    nominal=nominal && summary().frames-saved_frames==11;
+    require(checkpoint()==continued && summary().frames==continued_frames,"Remote biology cold continuation differs");stop();
+    // Older saves may contain an inflated absolute diagnostic. Keep that exact
+    // baseline; all future deltas use nominal frames, never infer a migration.
+    auto legacy=with_counter(source,saved_frames+1000);restore(cfg,mats,legacy,1);
+    require(checkpoint()==legacy && summary().frames==saved_frames+1000,"Restore silently migrated an old biology counter");
+    for(std::uint64_t frame=1;frame<=4;++frame)tick(frame,actor);
+    nominal=nominal && summary().frames-(saved_frames+1000)==4;
+    require(checkpoint()==with_counter(at21,frames21+1000),"Saved diagnostic baseline changed physical/culture continuation");
+    const auto before=summary().frames;const auto time=status().time_seconds;const auto near=amount(near_cell);
+    const MAOniColonyGermEdit edit{pristine_cell,1,1};queue_germs(std::span(&edit,1));(void)flush_inputs();
+    require(summary().frames==before && status().time_seconds==time && amount(near_cell)==near && amount(pristine_cell)==129,
+        "Zero-time germ edit advanced growth or its diagnostic clock");stop();
+    start(cfg,mats,cells,1);for(std::uint64_t frame=1;frame<=4;++frame)tick(frame,{});
+    nominal=nominal && summary().frames==4;
+    require(amount(near_cell)==128 && amount(remote_cell)==std::ldexp(1.,30) && amount(pristine_cell)==128,"Pristine biology advanced");
+    dump("pristine4.owner",checkpoint());stop();
+    auto legacy_cfg=cfg;legacy_cfg.flags&=~MA_ONI_COLONY_GAME_ACTIVITY;start(legacy_cfg,mats,cells,1);
+    for(std::uint64_t frame=1;frame<=3;++frame){advance(frame,dt,2);wait();require(status().state==1,status().error);}
+    require(summary().frames==3 && amount(near_cell)==1024 && amount(remote_cell)==std::ldexp(1.,27),"Nonadaptive biology clock/arithmetic changed");stop();
+    set_diseases({}, {},0);set_options(nullptr);set_activity_tiers(0,true);
+    require(nominal,"Activity biology frames count remote batch ticks instead of nominal native frames");
+    std::cout<<"PASS activity biology clock: nominal frames, exact near growth/remote decay, pristine hold, zero-time edits, saved baseline and cold deltas\n";
+}
+
 void activity_owner_control() {
     using namespace ma::oni::colony;
     constexpr double dt=static_cast<double>(.2f);
@@ -230,5 +338,6 @@ void activity_owner_control() {
     advance(1,dt,2);wait();
     require(status().state==2 && status().completed_frames==0 && std::string(status().error)==first_fault,"A later native callback replaced the originating adapter fault");stop();
     set_options(nullptr);set_activity_tiers(0,true);
+    activity_biology_frame_control();
     std::cout<<"PASS owner activity: pristine hold, isolated FIFO cuts, two claims/cold continuation, lifecycle touch union, policies, terrain visibility, passive/contact heat, selective biology/conversion/trace, remote clocks, pinned readings, fail closed\n";
 }

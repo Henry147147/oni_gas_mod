@@ -2566,7 +2566,9 @@ MacClosedWorld evolve_germs(Session& s, MacClosedWorld world, std::span<const Ge
                 for(std::size_t i=0;i<active.size();++i)active[i]=ticks[i]>f?1:0;
                 biology::frame(disease_table,st.grid.width,st.grid.height,medium,cells,s.clocks,s.accounts,edits,active);
             }
-            s.biology_frames+=maximum;
+            // Public/saved elapsed frames count native frames, not an unrelated
+            // region's largest remote batch. Per-cell evolution above is unchanged.
+            s.biology_frames+=frames;
         }
     }
     if (!edits.empty()) {

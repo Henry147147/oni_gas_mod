@@ -85,6 +85,7 @@ namespace MixedAtmospheres.Oni
                     case "sublimation": Sublimation(frame, status); break;
                     case "falling": Falling(frame); break;
                     case "breathing": Breathing(frame, status); break;
+                    case "breath-particle": BreathParticle(frame); break;
                     case "airflow": Airflow(frame); break;
                     case "electrolysis": Electrolysis(frame); break;
                     case "vent-overpressure": VentOverpressure(frame); break;

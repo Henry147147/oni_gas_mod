@@ -2474,5 +2474,19 @@ class LongRunTelemetryTests(unittest.TestCase):
             self.assertEqual((result["long_run"], result["development_telemetry"], result["development_telemetry_passed"]), (False, None, False))
 
 
+class CurrentBreathRouteTests(unittest.TestCase):
+    def test_retired_native_particle_fixture_refuses_on_both_platforms(self):
+        for platform in ("linux", "win32"):
+            with self.subTest(platform=platform):
+                reason = runner.unsupported_mode("native-carbon-particle-domain", platform)
+                self.assertIsInstance(reason, str)
+                for detail in ("retired", "nitrogen", "colony-owner", "breath-particle"):
+                    self.assertIn(detail, reason)
+
+    def test_current_whole_colony_particle_route_remains_available(self):
+        self.assertIn("breath-particle", runner.SCENARIOS)
+        self.assertIsNone(runner.unsupported_mode("colony-owner", "linux"))
+
+
 if __name__ == "__main__":
     unittest.main()

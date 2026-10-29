@@ -33,12 +33,51 @@ actual Windows OS update or acceptance test. The Windows
 contract has no Linux platform entry; attempting to verify it as Linux refuses,
 as recorded privately.
 
+## Frozen candidate 1fa31a4
+
+The latest Steam payload passed fresh Linux and Windows native builds and all
+90 CTests on each (Windows under Wine), the complete managed/Python suites,
+and 2,588-dependency checks in each game's own Mono runtime. A separate clean
+Ubuntu 22.04 build passed all 90 tests; both libraries require glibc at most
+2.34. These preflights do not establish Windows OS acceptance. The user chose
+to keep actual Windows checks pending on 2026-10-29.
+
+All 15 original Linux gameplay batches finished: 11 batches and 61 of their
+65 scenarios passed. Freeze/melt, airflow, whole-world breathing CO₂ and the
+world-germ growth comparison failed their unchanged criteria. The separate
+Spaced Out! nine-world control passed. Full M2 and M3 passed every required
+grid. Full M5 failed on grid 40 near its endpoint with a primary-storage
+rounding rejection; the passing coarser grids do not pass M5. Both original
+180-second strong-flow captures timed out without a complete scientific
+verdict. Private details are in `original-matrix-summary.json` and
+`native-gates/` under the evidence directory above. This candidate is rejected
+for release; long runs and progression cannot qualify it.
+
+The germ comparison exposed a diagnostic clock defect: an unrelated region's
+batched ticks inflated the reported elapsed-frame counter. The correction
+counts native frames and leaves per-cell evolution untouched. Twenty-nine
+old/new physical snapshots match exactly; only the evolved wrapper's diagnostic
+counter and checksum differ. Existing saved counters retain their absolute
+baseline; cold reencoding and subsequent nominal-frame deltas are tested.
+No schema, ABI, profile or physical checkpoint version changes.
+
+The benchmark now runs current profile 9, records its committed activity
+census, and uses an explicit always-simulate policy for the unchanged fully
+active release workloads. Its frame timer includes native queues, census,
+advance, publication copy and receipt work. It still excludes managed/UI
+costs. The new whole-colony `breath-particle` diagnostic isolates normal native
+breath deposition and retirement using one coherent arena publication. The
+retired nitrogen-based particle fixture is refused before a headless launch;
+its refusal is not evidence of a whole-colony deposition failure. The original
+breathing criterion remains unchanged. Current-candidate game rechecks follow
+the rebuild of these fixes.
+
 ## Gate matrix
 
 | Gate | Required current-candidate evidence | Status |
 | --- | --- | --- |
 | Builds and compatibility | Clean Linux and Windows native/managed builds, test suites, actual game contracts and Mono checks; supported game builds and changed hooks verified; fail-closed negative controls | Fresh Linux native build, 90 CTests and the managed/Python suite pass; complete committed-candidate and Windows verification pending |
-| Numerical physics | All fixed gravity, free-surface, multiphase, vacuum and strong-flow gates, including full-grid runs; 10,000-step closed mass drift ≤ 1e-8 and energy drift ≤ 1e-6, with separate trace and source/sink ledgers | Strong-flow collision refinement and separation remain open; both full Riemann runs reached the fixed timeout before a verdict. Full M2/M3/M5 pending |
+| Numerical physics | All fixed gravity, free-surface, multiphase, vacuum and strong-flow gates, including full-grid runs; 10,000-step closed mass drift ≤ 1e-8 and energy drift ≤ 1e-6, with separate trace and source/sink ledgers | Full M2/M3 pass; M5 grid40 fails primary-storage rounding. Strong-flow remains open; both original captures timed out before a complete verdict |
 | Game accuracy | Fixed F1–F5 owner and vanilla comparisons, including independent F3/F4 timing truth and solid heat exchange | Open |
 | Gameplay | Base game and Spaced Out! generation and all supported producer, consumer, storage, disease, machine, rocket and inter-asteroid lifecycles; starting colonies reach sustainable life support and endgame without developer intervention | Open |
 | Persistence | Corruption/missing-mod refusal, save/load and identical future inputs with complete owner, pipe, scheduling and particle state across source, cold and menu continuation | Full active continuation open |

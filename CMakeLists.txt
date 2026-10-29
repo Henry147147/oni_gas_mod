@@ -856,7 +856,12 @@ else()
     target_compile_options(ma_colony_benchmark PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror -ffp-contract=off -fno-fast-math)
 endif()
 if(MA_BUILD_TESTS)
-    add_test(NAME colony_benchmark_smoke COMMAND ma_colony_benchmark --preset smoke)
+    set(ma_colony_smoke_command "$<TARGET_FILE:ma_colony_benchmark>" --preset smoke)
+    if(CMAKE_CROSSCOMPILING_EMULATOR)
+        list(PREPEND ma_colony_smoke_command ${CMAKE_CROSSCOMPILING_EMULATOR})
+    endif()
+    add_test(NAME colony_benchmark_smoke COMMAND "${Python3_EXECUTABLE}"
+        "${PROJECT_SOURCE_DIR}/tools/check_colony_benchmark.py" -- ${ma_colony_smoke_command})
 endif()
 
 add_executable(ma_fluid_benchmark native/apps/fluid_benchmark.cpp)
