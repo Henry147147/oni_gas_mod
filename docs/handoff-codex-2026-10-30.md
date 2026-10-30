@@ -83,8 +83,8 @@ continuation is still uncommitted work and is excluded from the clean tested
   cold-start penalties. The allocation reduction does not establish a reliable
   throughput gain; the candidate remains private and unadopted.
 - Runtime continuation is reserved as MACOLP03 tag 6 / MACGRT01 version 1.
-  Native 96/56 captures all 11 cell columns. 403 managed controls pass;
-  26 installed scheduler/event/compaction/lifetime controls
+  Native 96/56 captures all 11 cell columns. 421 managed controls pass under
+  .NET and actual game Mono; 38 installed scheduler/event/compaction/lifetime controls
   cover timed heaps, cleared entries, rescheduling, canonical re-encoding and
   in-place event callback rebinding. V9 source refused ambiguous
   compacted mappings before saving: reverse entries are packed handles, not
@@ -97,6 +97,11 @@ continuation is still uncommitted work and is excluded from the clean tested
   scheduler queues. Their owner identities and detached records must be
   preserved; no rows are dropped. Unity absolute time and derived
   creature-heat writer operands are additional known gaps.
+  Ordinary StateMachineSerializer also skips non-running SMIs entirely; their
+  retained status/context/stack operands need explicit coverage, beyond identity
+  and callback bindings. V14 adds independently bounded candidate/registry/pool
+  witnesses, raw cleanup membership and explicit node-level omissions; its
+  diagnostic source is queued, with detached restore still refused.
   No complete live source or strict cold/menu qualification exists.
 - Original breathing still fails its global net CO2 check. Read-only unchanged-
   B3 traces show all three breathers hold about 16 g newly produced CO2 at the
@@ -140,6 +145,17 @@ pass under actual Mono, and 6,144 real CPU destination comparisons pass with
 forced full fallback. Both target DLLs match and actual Mono contracts pass
 2,589/0. This is byte-correctness evidence, not a whole-game speedup or GPU
 readback claim. Private proof: `compact-channels-v1/`.
+
+The channel methods also pass an isolated actual-Mono timing comparison:
+seven alternating pairs yield median opacity/hazard speedups 2.32877×/7.21132×,
+with equal checksums. This is method throughput, not full-game progress.
+The private remap-plan candidate preserves all 88 output/exit records, 6,182
+Release/sanitized controls and 696 fresh owner images. Seven hot-replay pairs
+are consistently faster (steady median 1.04657×, 1,508.38→1,442.00 ms), while
+the three-pair fresh cohort is mixed and requires further cost review.
+Keep it private until fresh nonregression and target qualification are resolved;
+the hot reproduction still falls far short of real-time. Details are in
+[performance evidence](performance-acceptance.md).
 
 The engine-phase diagnostic preserves all 139 original Unity loop nodes,
 native pointers, conditions and order. Its repeated shared-CPU DLC300 probe

@@ -182,6 +182,24 @@ all 10,124 cells, so an empty-cell-only shortcut cannot remove most work.
 No timestep bound, space law, original gate or source input changes in
 production. Evidence: `late-flow-audit-v1/`.
 
+A private call-local remap-plan optimization now passes the clean 88-program
+output/exit comparison, 6,182 Release and fresh ASan/UBSan controls, all 8,503
+original trial records and 696 complete fresh owner images. Under WHOLE, seven
+alternating hot-replay pairs are faster in every pair: median steady advance
+ratio 1.04657× (range 1.02567–1.05456×), with median times 1,508.38→1,442.00 ms
+per 0.2 simulated seconds. First advances improve 1.03965×. Peak RSS ranges
+overlap. This repeats the original saved parcel; it is not the complete live
+trajectory or actual game speed.
+
+The separate three-pair fresh default-OFF cohort retains every original owner,
+status and independently captured future-state oracle. Its steady advance
+ratios are base cold/menu 0.96072×/0.98335× and DLC 0.98127×/1.10831×, with wide
+paired ranges. That small sample does not establish fresh nonregression or a
+consistent benefit. Adoption remains pending further cost review and target
+qualification. No arithmetic, checkpoint, timestep or acceptance bound changes
+are proposed. Private evidence: `late-flow-audit-v1/all88-86e5eb3/current-replay/`
+under `whole-v1/` and `whole-fresh-v1/`.
+
 A broader private 300-frame DLC functional probe covers 252 managed lifecycle
 and UI rebuild methods, with no scope faults or exceptions. Its 499 warm render
 calls put PropertyTextures.LateUpdate near 3.03 ms and text rebuilds near
@@ -200,6 +218,14 @@ byte-identical and their actual game-Mono dependency checks pass 2,589/0
 6,144 actual CPU destination comparisons, exercising forced full fallback with
 zero mismatches. No whole-game speedup, GPU readback, new solver arithmetic or
 checkpoint change is claimed. Evidence: `compact-channels-v1/`.
+
+An isolated actual-game-Mono method benchmark adds seven alternating pairs per
+channel, after warmup, with equal checksums and zero Unity clock calls. Median
+method speedups are 2.32877× for opacity and 7.21132× for hazard (paired ranges
+2.28803–2.35394× and 7.14449–7.26947×). Each sample makes 1,048,576 calls over
+2,048 valid scalars. These measure the channel methods; they do not establish
+texture-job or whole-game speedups. Evidence: `mono-bench-whole-summary.json`
+in that same private directory.
 
 The private engine-phase probe then brackets 139 original Unity loop nodes
 with timestamp callbacks, verifying their original order, delegates, native
