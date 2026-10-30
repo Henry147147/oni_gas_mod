@@ -114,23 +114,56 @@ current binary has.
 
 ### Version assignment
 
-**Reserved 2026-10-30 immediately after fetching `364ca23`:** physical
-`MACCLS01` version **29** identifies production-kernel conduction admission
+**Implemented 2026-10-30; reserved immediately after fetching `364ca23`:**
+physical `MACCLS01` version **29** identifies production-kernel conduction admission
 which retries independently proved negative-caloric trial endpoints instead
 of entering reference refinement. Uncertain EOS failures retain refinement;
 the primary storage representation and existing operand bounds are unchanged.
 This is a numerical admission law, not a new gate input or wider tolerance.
 
-The reserved layout writes version29, then the unsigned 32-bit earlier
+The layout writes version29, then the unsigned 32-bit earlier
 nongame layout selector (2–19), followed by that layout's existing model,
 settings and state payload and one final checksum. It is canonical only for
 production kernel2 with thermal conduction and the new admission policy.
-Older physical images restore the legacy policy and retain their arithmetic
-and bytes. Game-kernel versions20–28 retain their laws and framing. A new
-owner resolves automatic selection before its settings are saved; the
-automatic selector itself is never persisted. This reservation does not
-enable the policy until its codec, continuation and clean-build controls
-are integrated.
+`MacCaloricTrialPolicy` uses legacy refinement0, proved-negative rejection1
+and automatic2. A fresh owner resolves automatic to1 only for nongame
+production kernel2 with thermal conduction; reference, nonthermal and game
+owners resolve it to0. Automatic is a construction/API request and is never
+persisted. Law29 selects policy1; earlier physical images explicitly restore0
+and retain their original payload bytes. Game-kernel versions20–28 retain
+their laws and framing and cannot be nested inside29.
+
+An explicit reference-to-production execution request selects the current
+production law, including policy1 when conduction is enabled. This also applies
+to an old reference image whose caller explicitly changes its numerical
+implementation. Continuing a saved reference owner under reference preserves0;
+continuing an already-selected kernel2 owner preserves its saved policy0 or1,
+including when the caller repeats a production request. The owner API, direct
+production APIs and low-level kernel entry agree on this transition.
+
+The codec controls cover canonical inner layouts, complete identity, unknown,
+nested, missing and malformed selectors, actual twelve-worker cold continuation
+and repeated reference reconstruction followed by an explicit production
+request, as used by M5. A native-domain control admits and resaves the earlier
+schema6 bytes, then preserves policy0 through a frame and exact cold advance.
+The captured M5 failure advances under the new explicit production selection
+and reencodes as29/layout11; a same-state saved kernel2/policy0 control retains
+its original refusal atomically. The unchanged full M5 numerical cohort passes
+all three prescribed grids; its final codec/dispatch checks are recorded
+separately from that numerical run.
+
+**Reserved 2026-10-30 immediately after a fresh fetch of `d016dd7`:**
+managed `MACOLP03` section tag **6** is `RuntimeContinuation`; its record magic
+is **`MACGRT01`**, record version **1**. The existing outer payload, physical
+MAC images and owner wrapper14 retain their formats. This section records the
+complete future-input runtime boundary: game clock and subtick cadence,
+scheduler group/bucket/entry order and clocks bound to persistent identities,
+native thermal record order and numeric endpoints, and pending managed thermal
+writers. Internal bounded, tagged subrecords must be canonical and validate
+all identities, dimensions and handle bindings before an atomic restore at the
+first positive simulation tick. Unknown/incomplete records refuse; older
+payloads retain their prior encoding and continuation capabilities. This is a
+format reservation, not a completed active-continuation qualification.
 
 **Reserved 2026-10-28 immediately after fetching `f6c6096`:** colony-owner
 `MACOLN01` base wrapper **14** carries profile9's complete activity integration:
