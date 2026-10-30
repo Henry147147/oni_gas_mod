@@ -9,101 +9,98 @@ publish/upload a Workshop release. Read [AGENTS.md](../AGENTS.md),
 
 ## Active follow-up on main
 
-The release goal remains active. `0aefcf1` reserves the next runtime record;
-the fixes below are being qualified in a frozen private integration probe, not
-published as a release. Continue the current work rather than rerunning the
-rejected candidate unchanged.
+The release goal remains active. Continue the fixes below; the older frozen
+candidate remains rejected. All named commits are pushed on main. Runtime
+continuation is still uncommitted work and is excluded from the clean tested
+`dab1bc2` export and the frozen performance/storage packages.
 
-- The exact-storage transfer boundary now fences posted native work, settles
-  earlier heat receipts, prepares both inventories before committing, and
-  installs complete thermal endpoints under a native lease (API3; receipt ABI2
-  remains 48 bytes). Publication uses that same transaction so repeated absolute
-  resets cannot starve a naturally scheduled outlet.
-- The fixed six-scenario base-game storage batch passes on the v5 probe,
-  including its natural 8 kg outlet and both projection retirements. Closed heat
-  passes the original bound: residual about −9.80e−9 J against 4.98e−6 J. The
-  independent contact/receipt and foreign-credit audits pass. The fixed
-  six-scenario Spaced Out! batch also passes, with the same
-  residual against its unchanged 4.98e−6 J bound. Paired heat correction remains
-  opt-in and currently credits
-  registered storage chunks and passive all-owned building contacts only.
-- `da9b381` adds the pinned Windows body/message observer. Actual WindowsPlayer
-  on Proton now passes the original closed-heat bound on both DLC masks, with
-  independent contact and credit-scope audits. Its earlier full batches still
-  fail retirement/source readiness; preserve those failures separately.
-  A later traced retirement has every operational flag true and an empty output,
-  then waits on absolute resets queued by biology's full projection refresh.
-  The managed follow-up publishes cultures alone under the existing edit guard
-  and routes save-time thermal publication through the native lease. It changes
-  no fixture or acceptance bound. Its 76 production-method controls, three
-  behavioral mutation controls, two-target DLL identity and both actual-Mono
-  2,588/0 checks pass. The four corrected Linux/Proton base/DLC batches pass
-  all 24 scenario assertions and the independent heat audits. A strict duration
-  audit finds both DLC windows were only 21 owner frames; those runs do not
-  qualify the declared 22-frame heat gate. The validation-only follow-up
-  measures the source owner counter and holds further positive tick admission
-  at 22; zero-time endpoint settlement remains allowed. Earlier 21/23-frame
-  windows remain failures. Both V8 DLC builds now pass all six scenarios with
-  exactly 22 frames and independent heat/contact/credit audits. Latest base and
-  integrated-native cohorts are queued separately. UI-clock and bypassed-hold
-  mutants are rejected; both actual Mono checks pass 2,589/0. Biology waits for
-  ordinary operational conduit readiness within its existing 30-frame setup
-  cap; no flags are forced. Private probes start at `storage-projection-v3/`.
-  Preserve the copied-contract refusal and missing-edit-scope failures in v1/v2.
-- Native publication now has a 56-byte completed-step/prefix interface, including
-  empty Prepare messages and the inlined Windows Step path. This corrects the
-  earlier interval-entry versus batch-exit comparison. It does not by itself
-  qualify active continuation: all four default cold/menu future-input
-  comparisons still differ at the first resumed frame. Actual traces identify
-  scheduler/cadence and native-record order/parameter differences. A complete
-  runtime continuation record is under construction: MACOLP03 tag 6,
-  MACGRT01 version 1, reserved and pushed after a fresh fetch.
-  There are now 358 focused controls, including coordinated managed/native/
-  cadence rollback and distinct live/historical definitions of the same type.
-  No complete live source capture or strict cold/menu qualification exists yet.
-- The M5 repair rejects independently proved negative-caloric trial endpoints
-  and retries smaller intervals, keeping uncertain EOS refinement and all
-  original bounds/storage. Nongame checkpoint 29 saves that admission law;
-  earlier images retain their prior law and bytes. All 88 clean old/new MAC
-  observations are reviewed, with only new controls and corrected format-test
-  assertions differing. Sixteen historical layouts retain 64 complete cold
-  images per build byte for byte. The full final framed M5 gate passes all
-  three prescribed grids; the
-  finest error is 0.00911666632 and water-mass drift 2.874269236e−17. The repair
-  and its qualification are committed and pushed as `28e7ff6`.
-- The detach-only native heat optimization is integrated independently of the
-  unfinished runtime continuation. It copies shared physical state once before
-  existing heat retries, preserving all admission/refusal/splitting/neighbour
-  choices and successful arithmetic/checkpoint bytes. All 88 clean MAC
-  outputs/exits, 720 focused physical images and actual captured replay
-  checkpoints/statuses match. Seven WHOLE paired repetitions plus warm-up
-  measure about 2.22× base / 3.05× DLC native-owner speedup; these are captured
-  native replay ratios, not actual game 3× or UI acceptance. Clean Linux, Windows/Wine and Ubuntu 22.04
-  each pass 91 native tests (Ubuntu GLIBC maximum 2.34), including the new allocation-failure
-  ownership regression. See [performance evidence](performance-acceptance.md).
-- Review of that retry loop also reproduces a preexisting use-after-free in
-  the nongame kernel: accepted heat replaces the old state, then neighbour
-  fallback reads its cell count. The separate repair captures that scalar
-  before mutation. The same new regression fails under ASan before the repair
-  and passes afterward, along with the complete owner suite and five affected
-  Release checks. All 32 independent default future images and 158 base plus
-  158 DLC full owner/status replay frames remain exact. MAC arithmetic,
-  checkpoint formats and gate bounds do not change. Direct follow-up evidence
-  is Linux Release/ASan; cross-platform combined rebuilds remain separate.
-- The current native/managed/Python and cross-platform checks use the immutable
-  v5 source snapshot. All 90 Linux native checks and 487 Python controls pass
-  (four actual-Windows
-  skips); the standard managed snapshot suite passes 238 scenarios. The explicit native
-  fixture/DAZ-FTZ repeat passes 240/240; fixture environment propagation is
-  corrected in the build driver. Windows/Wine and Ubuntu 22.04 each pass 90 native
-  checks; the latter requires no GLIBC version above 2.34. Keep actual Windows OS
-  checks
-  pending by the user's choice. No sustained 3× or release-ready claim is made.
+- `28e7ff6` closes the full prescribed M5 10/20/40 gate without changing its
+  inputs or bounds. Finest error is 0.00911666632 and water-mass drift
+  2.874269236e−17. Physical checkpoint29 records the new nongame admission law;
+  sixteen historical layouts retain 64 exact cold images per build. Game
+  profiles20–28 retain their prior law.
+- `c7080a7` adds the completed native publication fence and transactional
+  storage thermal endpoints (API3, unchanged 48-byte receipt ABI2).
+  `da9b381` supplies the pinned Windows body observer. `22d3a15` keeps culture
+  projection under its edit guard and routes save publication through the
+  native lease. The real earlier retirement BUSY failure was caused by biology
+  queuing redundant absolute thermal resets. Its 76 production-method controls
+  and three behavioral mutations pass; v1/v2 failures remain archived.
+- `715fc1f` corrects validation timing: the source native counter anchors the
+  declared 22-frame hold, positive tick admission stops at 22, and zero-time
+  settlement remains allowed. Ordinary biology outlet readiness must occur
+  within the original 30-frame setup cap; no operational flags are forced.
+  The frozen integrated base/DLC Linux/WindowsPlayer-on-Proton batches pass
+  all 24 storage scenarios. All four heat windows are exactly 22 owner frames,
+  with independent contact/receipt/credit-scope audits passing and residuals
+  near −1e−8 J against the unchanged approximately 4.98e−6 J bound. Earlier 21/23
+  windows remain failures. UI-counter and bypassed-hold mutants are rejected.
+  Exact storage scheduling and paired heat correction remain development
+  controls; powered and mixed-ownership coupling and default activation are open.
+- `20c4361` detaches shared heat state once before unchanged retries. All88
+  clean MAC outputs/exits, 720 focused physical images and 32 independent default
+  cold/menu future images remain exact. Seven WHOLE paired repetitions plus
+  warm-up measure native-owner speedup about 2.22× base / 3.05× DLC. Including
+  the projection tail bounds those ratios at 2.11–2.13× / 2.81–2.83×; publication
+  and UI remain excluded. Allocation-failure rollback preserves immutable
+  aliases and metadata; allocation order changes, so no same-ordinal OOM claim.
+- `dab1bc2` separately fixes a preexisting nongame heat-retry use-after-free by
+  capturing cell count before state replacement. The new regression reproduces
+  the original ASan failure and passes after repair, as do full owner ASan and
+  five affected Release tests. 32 independent future images plus 158 base and 158
+  DLC complete owner/status replay frames remain exact. Solver arithmetic and
+  successful checkpoint bytes/formats do not change.
+- The clean 1,223-file `dab1bc2` export passes the complete Linux build driver:
+  91 native tests, 489 Python tests (four actual-Windows skips), every managed
+  suite, 239 standard snapshot scenarios and 240 with explicit native caloric
+  fixtures plus DAZ/FTZ. Actual Linux game Mono resolves 2,589 dependencies with
+  zero differences. Windows/Wine and Ubuntu 22.04 each pass91 native tests for
+  detach-only 20c; Ubuntu requires GLIBC at most 2.34. Scalar follow-up direct
+  platform evidence is Linux Release/ASan; do not relabel old cross builds.
+- Fresh uninstrumented WHOLE 900-frame controls on the frozen 20c/managed-fixture
+  composite achieve actual game progress 2.917093× base / 2.335703× DLC. Both keep
+  three duplicants alive, with no pauses, owner faults or dropped samples.
+  Separate four-worker controls reach 2.883547× / 2.090191× and are not adopted.
+  Frame/pacing profiles identify native waits, GC hitches and substantial time
+  outside the mod scopes; those include rendering/waits and are not yet CPU
+  attribution. A read-only Unity clock census is prepared. See
+  [performance evidence](performance-acceptance.md).
+- Pressure-buffer reuse remains private. Its 4,063 independent builder/route
+  controls, all 88 canonical outputs/exits and full replay comparisons pass.
+  Eight known nonzero diagnostics remain unchanged. The corrected retained-
+  prefix driver also compares both variants with real default future images;
+  a valid shifted-frame negative oracle refuses. Small-component paths are
+  frequent even with automatic 12 workers. Seven paired WHOLE measurements
+  are prepared, not yet run or adopted.
+- Runtime continuation is reserved as MACOLP03 tag 6 / MACGRT01 version 1.
+  Native 96/56 captures all 11 cell columns. 365 managed controls and actual
+  game-Mono scheduler controls pass, including timed heap order, cleared
+  entries, rescheduling and canonical re-encoding. V9 source refused ambiguous
+  compacted mappings before saving: reverse entries are packed handles, not
+  bare slots. That WIP repair passes high-generation backend controls. Timed
+  scheduler source/cold integration and same-type live-definition splitting
+  remain open. No complete live source or strict cold/menu qualification exists.
+- Original breathing still fails its global net CO2 check. Read-only unchanged-
+  B3 traces show all three breathers hold about 16 g newly produced CO2 at the
+  eight-second check, below their 20 g puff threshold; original scoped puffs
+  first occur at native 51, after the check at 41. All ten ambient gas-removal
+  sites are in Space zones. A per-breather accounting proposal is being prepared
+  for user review; do not change the fixed criterion without that decision.
+- Original airflow still fails 4.241→4.052 kg. Coherent bulk readings exactly
+  reproduce every original gate value, so this instance is not a mixed-frame
+  measurement. Left gas stays 14.4 kg while the right loses gas into the opened
+  column. Water is present on all upper left boundary cells too, consistent with the
+  whole-face liquid barrier isolating their gas. No phase-selective solver
+  change or new checkpoint version is claimed. Preserve the fixed gate and
+  derive conservative pressure/transport/work coupling before implementation.
 
-Private evidence is in `artifacts/release-ready-2026-10-30/`, especially
-`combined-publication-v5-proof.json`, `storage-publication-v5-base/`,
-`native-compare/REPORT.md`, `continuation-default-v2-high/`, and
-`full-source-v5-manifest.json`. Preserve the original failed cohorts as well.
+Current private evidence is in `artifacts/release-ready-2026-10-30/`:
+`full-committed-dab1bc2/verification.json`,
+`heat-adoption-integrated-v1/{functional-qualification,speed-progress}.json`,
+`heat-profile/{adoption-v1,scalar-bound-v1,transfer-projection-v1}/`,
+`pressure-post-detach/ready.json`, `breathing-custody-base-v4/breath-audit/`,
+`airflow-observer-v1/analysis-linux-b2.json`, and `continuation-runtime/`.
+Raw licensed evidence stays private. Actual Windows OS checks remain deferred.
 
 ## Earlier candidate result
 
@@ -136,50 +133,31 @@ storage reruns are detailed in the candidate report.
 
 ## Resume product work
 
-1. Address the severe normal-reserve base-game slowdown, then qualify
-   sustainable life support and progression. Separate base/DLC controls complete
-   3,000 frames with three healthy duplicants and no pauses or owner faults.
-   Actual game progress is 0.303476× base / 2.154535× DLC; a late base window is
-   0.063×. The original fixed asteroid stability fixtures suppress the normal
-   reserve, so their zero survivors do not establish an ordinary-start defect.
-   These separate short controls do not qualify 100/1,000-cycle survival.
-2. Continue exact storage/bottle/recipe lifecycle work. The reader no-op does
-   not recur in the explicit base-mask control; its cause is still unproved. A
-   separate DLC run reproduces late initial heat registration after complete
-   withdrawal. `3601ff5` waits for native thermal handles before withdrawal and
-   for actual outlet readiness in the original bounded reader fixture. Its
-   independent −1,000 J transfer regression and deliberate broken-readiness
-   mutation are verified, but the live DLC reader still faults on a later
-   positive-capacity heat receipt after drain. Registration readiness is
-   insufficient. Implement a transactional native heat/transfer boundary that
-   settles earlier work and acknowledges the old capacity endpoint before
-   inventory leaves; preserve the massless-heat refusal. The initial guard also
-   blocked insulated biological carriers that have no active thermal callback;
-   the subsequent correction exempts disabled contacts and tests exact insulated
-   withdrawal. Keep the separate closed-storage heat residual as an unwaived
-   failure.
-3. Preserve exact future input scheduling through active cold/menu load.
-   Current heat inputs already differ at resumed frame 35. Native-loop RNG,
-   iteration/displacement/tick restoration alone does not close it. Do not
-   attribute different-input trajectories to solver nondeterminism.
-4. Repair fixed accuracy/physics failures: freeze/melt, airflow, whole-world
-   breathing; M5 retained-constituent storage and strong-flow density/velocity.
-   The exact M5 replay shows incoming parcels contain zero of the failing
-   subnormal constituent, so projection deferral alone is insufficient.
-5. Continue measured speed work. The exact first-EOS allocation move is safe,
-   but does not establish 3×. Late Oceania's 341 accepted substeps versus 23 rejected
-   trials make cost per accepted step and conservative interval admission a
-   priority. The separate base hot autosave (actual owner frame 2,752) takes 232
-accepted steps/35 rejected trials initially, then relaxes to two accepted steps.
-Neither replay includes future live owner inputs. Pressure/transport are hot in
-those states and the synthetic
-   all-active state; conversion/merging/publication dominate fresh DLC bridge
-   work. Grouped dispatch is only a microbenchmark result until solver/game
-   equivalence and speed are measured.
-6. Complete F1–F5 qualification, progression, unsupported-pack live refusal,
-   exact storage/bottle/recipe lifecycles and the long runs after critical
-   correctness/continuation/speed gates close. Full F4 and independent F3/F4
-   dynamic truth are still open. Do not substitute shorter or coarser runs.
+1. Close actual 3× and UI smoothness. Attribute pre-offer Unity clock loss
+   separately from the already accounted pacing debt; measure the prepared
+   pressure reuse pair only with all other CPU jobs held. Do not confuse native
+   capacity or replay speedup with full-game progress. The original 3,000-frame
+   normal-reserve base slowdown (0.303476× overall, 0.063× late) still needs a
+   captured hot suffix including future live owner inputs; a flow-only autosave
+   replay does not reproduce that trajectory.
+2. Complete runtime source capture, then exact cold/menu future-input checks.
+   Preserve full packed native handles, scheduler graphs, same-type definitions,
+   parameters and cadence without constructor/callback side effects or positive
+   startup ticks. Refused source captures do not qualify loads.
+3. Repair airflow with conservative phase-specific boundary physics; do not
+   simply open wet faces or omit liquid from transport while keeping incompatible
+   pressure work. Audit freeze/melt custody and energy: remaining ice plus liquid
+   does not by itself establish mass loss. Keep original inputs and bounds.
+   The breathing criterion change requires a concrete user decision.
+4. Complete powered/mixed heat ownership, default activation, exact storage/
+   bottle/recipe and nonempty teardown lifecycles. Passive private heat and
+   storage success does not certify those broader cases.
+5. Close strong-flow density/resting-velocity failures, full F4 and independent
+   F3/F4 dynamic truth, fixed 100k/250k cost and disturbance recovery. M5 is
+   already closed. Do not substitute smaller or shorter gates.
+6. Qualify sustainable progression and the 100/1,000-cycle runs after critical
+   correctness/continuation/performance closes. Keep actual Windows OS tests
+   pending; do not ask again or publish a Workshop release.
 
 ## Private evidence and tools
 
@@ -210,7 +188,7 @@ manifests and actual-Mono preflights. The final affected storage batches are
 report. The original and corrected-prerequisite `3601ff5` runs remain separate
 evidence. No background acceptance controllers remain after this handoff.
 
-The current private Windows kit is
+The earlier, rejected private Windows kit is
 `/mnt/data/share/oni/playtest/MixedAtmospheres-RC-602b324`
 (`README-Windows.txt`). Actual Windows OS tests remain pending; do not ask again
 or mistake Wine for OS acceptance. Completed one-off native build folders are
@@ -218,7 +196,8 @@ removed after retaining exact tested libraries and test/config logs in
 `native-build-retained/cleanup.json`; current probes keep their packaged
 libraries. Regenerate build folders when needed.
 
-All changes are on main and pushed. A subsequent documentation-only commit does
-not change the tested code revision above. Do not rerun the old frozen/probe
-controllers into existing output directories. The older worktrees are
+The named committed changes are pushed on main; runtime continuation remains
+under construction. Documentation commits do not change the identified tested
+code snapshots. Check current-progress.json for active jobs, and do not rerun
+old frozen/probe controllers into existing output directories. The older worktrees are
 historical, not the current work queue.

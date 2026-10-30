@@ -42,9 +42,41 @@ the following projection tail. The combined ledger/projection stage measures
 about 2.4–2.5 ms base / 6.1–6.2 ms DLC; existing timers cannot split it, so it
 cannot be added wholesale to advance time. After detaching, flow accounts for
 about 52–54% base / 61–62% DLC of advance time, making pressure and transport
-preparation the next measured targets. Private evidence is in
+preparation the next measured targets. Existing timer boundaries also bound
+speedup through projection at about 2.11–2.13× base / 2.81–2.83× DLC; publication
+and UI remain excluded. Stage bins include other work: the transfer bin also
+contains activity/biology, and the flow bin includes post-flow processing.
+Private evidence is in
 `artifacts/release-ready-2026-10-30/heat-profile/actual-timings-whole-v1/` and
 `heat-profile/detach-ready-proof.json`.
+
+## Integrated detach follow-up, 2026-10-30
+
+The frozen native `20c4361` plus guarded storage/strict-fixture managed source
+passes all 24 storage scenarios across native Linux and WindowsPlayer/Proton,
+with all four original 22-frame closed-heat windows and independent contact and
+credit-scope audits passing. The unfinished runtime continuation and later
+scalar lifetime repair are excluded from this particular frozen package.
+
+Two original 900-frame speed-button-3 controls run on WHOLE with all other
+project CPU work held. Actual full-game progress, including paused wall time,
+is **2.917093× base / 2.335703× Spaced Out!**. Both finish with three living
+duplicants, no owner faults or observed pauses, and no dropped submission or
+publication samples. These are different cohorts from the earlier candidate,
+so their difference is not a causal paired speedup measurement. The 3× and
+smoothness requirements remain open, as does the longer normal-reserve gate.
+Separate frame/pacing/publication diagnostics do not replace the uninstrumented
+speed controls. They show about 1.6–2.6 ms mod work and 6–7 ms blocked native
+calls per render frame, with about 18–19 ms left outside those mod scopes. That
+remainder can include game code, rendering and waits; it is not yet attributed
+CPU work. GC-containing frames still produce visible hitches. The DLC retained
+pacing budget reaches its two-second cap and drops offered time without
+accounting errors. A separate execution-only four-worker control reaches only
+2.883547× base / 2.090191× DLC; automatic worker selection is unchanged.
+Projection time increases with fewer workers, while captured pressure work
+already mostly uses one-worker components. Those pressure paths remain the
+focus of the separate private buffer-reuse candidate. Private evidence is in
+`artifacts/release-ready-2026-10-30/heat-adoption-integrated-v1/`.
 
 ## Latest measured candidate, 2026-10-30
 

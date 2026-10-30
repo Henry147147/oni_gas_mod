@@ -48,8 +48,9 @@ endpoint residuals are −6.62e−9 / −8.92e−9 J, within the original approx
 waits for its normal conduit operational callback within the original 30-frame
 setup cap. UI-clock and bypassed-hold mutants are rejected by the extracted
 production-method controls. Both actual game Mono preflights resolve 2,589
-members with zero differences. Latest base-game fixture and integrated native
-checks are queued separately. Earlier failed packages and 21/23-frame windows
+members with zero differences. The frozen detach-native integration also passes all four base/DLC Linux/Proton
+batches (24/24), each with exactly 22 owner frames and independent contact and
+credit-scope audits. Earlier failed packages and 21/23-frame windows
 remain separate evidence.
 
 That immutable source passes 90 native tests on Linux, Windows/Wine and Ubuntu
@@ -70,6 +71,13 @@ retain exact equivalence. Seven WHOLE paired replay repetitions measure about
 unqualified. Pressure-buffer reuse is a separate private candidate under
 canonical-output review. Actual Windows
 OS checks remain pending by the user's choice.
+
+Fresh uninstrumented integrated WHOLE 900-frame controls achieve 2.917093×
+base / 2.335703× DLC actual game progress. Both keep three duplicants alive,
+without owner faults, pauses or dropped timing samples. These runs do not
+qualify sustained 3× or the longer normal-reserve requirement. Frame/pacing
+profiling is separate, and differences from earlier cohorts are not paired
+causal speedups. See [measurements](performance-acceptance.md).
 
 ## Version and scope
 
