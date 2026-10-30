@@ -51,7 +51,7 @@ continuation is still uncommitted work and is excluded from the clean tested
   DLC complete owner/status replay frames remain exact. Solver arithmetic and
   successful checkpoint bytes/formats do not change.
 - The clean 1,223-file `dab1bc2` export passes the complete Linux build driver:
-  91 native tests, 489 Python tests (four actual-Windows skips), every managed
+  91 native tests, 489 Python tests (11 optional/deferred skips), every managed
   suite, 239 standard snapshot scenarios and 240 with explicit native caloric
   fixtures plus DAZ/FTZ. Actual Linux game Mono resolves 2,589 dependencies with
   zero differences. Windows/Wine and Ubuntu 22.04 each pass91 native tests for
@@ -61,6 +61,14 @@ continuation is still uncommitted work and is excluded from the clean tested
   affected native Windows/Wine tests too; its one-off build is removed after
   retaining source proof, logs, cache, XML and executable hashes. This does not
   extend old 91-test Windows/Ubuntu results to a new full suite or Windows OS.
+- The clean 1,227-file `3d8c20f` export passes the full Linux build driver,
+  including all 91 native tests, every managed suite, 239 snapshot scenarios
+  and the new compact-channel/report-writer controls. Repeating the Python
+  suite with the existing PowerShell runtime and exact tested backend closes
+  seven optional-dependency skips: 485 pass and four Windows OS cases remain
+  skipped. Actual Linux game Mono checks 2,589 dependencies with zero differences.
+  All exported source hashes stay fixed. Tested libraries, CTest logs/config
+  and executable hashes are retained; the one-off native build is removed.
 - Fresh uninstrumented WHOLE 900-frame controls on the frozen 20c/managed-fixture
   composite achieve actual game progress 2.917093× base / 2.335703× DLC. Both keep
   three duplicants alive, with no pauses, owner faults or dropped samples.
@@ -101,7 +109,13 @@ continuation is still uncommitted work and is excluded from the clean tested
   retained status/context/stack operands need explicit coverage, beyond identity
   and callback bindings. V14 adds independently bounded candidate/registry/pool
   witnesses, raw cleanup membership and explicit node-level omissions; its
-  diagnostic source is queued, with detached restore still refused.
+  diagnostic source completes with explicit scheduler capture refusal, no owner
+  fault and no save/load. Earlier global/duplicate identity failures are absent.
+  All five Wilt outgoing graphs are complete (13 nodes each) with their own
+  KObjects absent from cleanup registries; Failed Idle graphs still retain live
+  navigation/EventSystem targets and omitted nodes. Neither case permits a
+  blanket retired-object shortcut. Supplemental actor-operand controls are
+  separately passing under actual SDK/Mono; shared live integration is unfinished.
   No complete live source or strict cold/menu qualification exists.
 - Original breathing still fails its global net CO2 check. Read-only unchanged-
   B3 traces show all three breathers hold about 16 g newly produced CO2 at the
@@ -168,6 +182,24 @@ passes. Private evidence: `report-json-fix-v1/`, `unity-loop-profile-v2/`.
 The original failed case remains retained. Neither shared-CPU profile certifies
 actual3× or Windows OS acceptance.
 
+A new actual Windows-game-Mono-on-Wine report test fails during concurrent
+reads: the existing `File.Replace` path briefly removes the destination.
+Private MoveFileEx and FileRenameInfoEx alternatives fail that environment too;
+neither changes main. Keep this reader gate open. The earlier Linux writer-race
+repair and its passing controls remain separate evidence. Actual Windows OS
+checks remain deferred.
+
+The unchanged original freeze/melt batch now has 43 coherent custody observations.
+The source admits all 480 kg; at check42, 368.293808 kg is liquid and
+111.706198 kg is visible ice, with no pending byproducts. Their sum differs
+from 480 kg by 5.4 mg. The liquid decrease matches the owner's conversion
+ledger within about 1e-11 kg. No native freeze input occurs in that window:
+the hidden-liquid conversion path creates the ice. Admitted local heat after
+the source is −12.146388 MJ. This establishes material custody in this trace,
+not a joint native/owner energy closure or a pass of the unchanged >380 kg
+liquid criterion. Investigate thermal/phase behavior next; keep the failed
+gate. Private evidence: `freeze-custody-v1/analysis.json`.
+
 Current private evidence is in `artifacts/release-ready-2026-10-30/`:
 `full-committed-dab1bc2/verification.json`,
 `heat-adoption-integrated-v1/{functional-qualification,speed-progress}.json`,
@@ -222,8 +254,9 @@ storage reruns are detailed in the candidate report.
    startup ticks. Refused source captures do not qualify loads.
 3. Repair airflow with conservative phase-specific boundary physics; do not
    simply open wet faces or omit liquid from transport while keeping incompatible
-   pressure work. Audit freeze/melt custody and energy: remaining ice plus liquid
-   does not by itself establish mass loss. Keep original inputs and bounds.
+   pressure work. Continue the freeze/melt thermal/phase audit from the closed
+   material-custody trace; joint native/owner energy closure remains open.
+   Keep original inputs and bounds.
    The breathing criterion change requires a concrete user decision.
 4. Complete powered/mixed heat ownership, default activation, exact storage/
    bottle/recipe and nonempty teardown lifecycles. Passive private heat and

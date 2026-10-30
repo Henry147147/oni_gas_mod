@@ -247,7 +247,13 @@ I/O/serialization controls pass after repair, including readers, cleanup and
 exception recovery. The same 300-frame game then passes without the report
 error. The build driver includes the permanent regression. This coordinates
 writers within one process; it does not certify cross-process writers or actual
-Windows OS behavior. Evidence: `report-json-fix-v1/qualification.json`.
+Windows OS behavior. A later actual Windows-game-Mono test under Wine fails
+the concurrent-reader phase: `File.Replace` briefly leaves the destination
+missing. Private MoveFileEx and FileRenameInfoEx alternatives also fail there
+(open-reader access denial / unsupported operation); neither is adopted.
+Linux I/O and serialization controls remain passing. Retain this Windows reader
+gate as open, separately from the repaired concurrent-writer collision.
+Evidence: `report-json-fix-v1/{qualification,windows-mono-qualification}.json`.
 
 ## Latest measured candidate, 2026-10-30
 

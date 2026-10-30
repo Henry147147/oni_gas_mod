@@ -9,8 +9,7 @@ namespace MixedAtmospheres.Oni
         private static readonly object writeGate = new object();
         internal static string Serialize(object value) => Serialize(value, Formatting.Indented);
         // World-generation and telemetry callbacks can report concurrently.
-        // Serialize complete writes before reusing the sibling temporary file;
-        // external readers still see an atomic replacement.
+        // Serialize complete writes before reusing the sibling temporary file.
         internal static void WriteAtomic(string path, object value)
         {
             lock (writeGate) WriteAtomicTextLocked(path, Serialize(value));
