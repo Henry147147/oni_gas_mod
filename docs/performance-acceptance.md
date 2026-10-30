@@ -125,6 +125,63 @@ once-per-frame attribution and the owner busy fence. Recovering these gaps
 alone would not establish DLC, late-colony or smoothness acceptance. Evidence:
 `clock-census-v1/analysis.json` and `clock-census-base-v1/`.
 
+A private IL census scans 84,724 managed methods with zero resolution failures
+and finds 392 Unity clock calls. State-machine elapsed time, creature heat
+sampling and mask/suit interactions also use Unity's absolute clock; some
+physical writers read deltaTime directly. Repaying clipped time only through
+SimEveryTick therefore needs a wider consistency audit. Continuation must also
+preserve clock epochs and derived heat-writer operands. No new clock provider
+or pre-offer repayment is adopted.
+
+The release player's recorder API supplies eleven requested metrics. A WHOLE
+Spaced Out! 900-frame diagnostic, with other project CPU jobs held, completes at
+2.317408× with no faults, pauses or dropped samples. Selected-method timers and
+existing frame/credit logs are enabled; this is instrumented attribution, not
+replacement acceptance or a causal speedup comparison. Warm native buckets
+150–899 contain 2,271 render calls:
+
+| Measurement | Mean per render frame |
+| --- | ---: |
+| Unity CPU main-thread frame time | 27.933 ms |
+| Unity CPU render-thread frame time | 1.584 ms |
+| Game.UnsafeSim200ms, including waits/mod publication | 10.968 ms |
+| StateMachineUpdater.RenderEveryTick | 0.841 ms |
+| World.LateUpdate | 0.604 ms |
+| State-machine simulation sub-ticks, selected exclusive time | 0.464 ms |
+| Registered animation updates | 0.054 ms |
+
+Inclusive markers overlap. Method scopes remove only instrumented descendants
+and include waits; recorder values describe the previous completed render frame.
+The table is not an additive CPU partition. About half of main-thread time
+remains outside these methods, motivating a broader lifecycle/UI probe. Four
+warm GC events have maximum recorded GC time 125.2 ms. GPU and two graphics-wait
+metrics have no positive readings; this does not establish zero GPU work.
+The timer stack passes independent interval-union, nesting, exception,
+invalid-order and allocation controls; two deliberate accounting mutations are
+rejected behaviorally. Evidence: `unity-profile-v2/whole-dlc-analysis.json` and
+`stack-negative-proof.json`.
+
+Continuing owner input now substantially reproduces the older normal-reserve
+base hot state. Its upper region has 10,124 fluid cells, including 10,120 Space
+cells. Keeping the original saved queue, space mask and sink but adding no
+future input produces 479/35, 124/24 and then 2/0 accepted/rejected substeps per
+frame. Repeating the exact saved 1.6666667461395264 kg CO2/300 K parcel at the
+original cell before each subsequent owner frame instead sustains 455/26.
+The original live suffix averages about 528/31; other live inputs are absent
+from this controlled reproduction. A Comet exhaust IL/operand match is a source
+hypothesis, not identification of the actual live actor.
+
+All 48 original/instrumented advances retain complete owner, receipt, pre-flow
+world and numerical-status bytes. An independent 8,503-trial audit attributes
+every refusal to the original volume bound. One stable repeated-input frame
+has 518 pressure solves and 1,499 remap microticks visiting millions of active
+cells/faces. Transport/remap takes about 45–54% of measured regional functional
+segments, pressure solves 22–38% and assembly 5–8%; these are diagnostic phase
+shares under shared CPU conditions, not acceptance timings. The plume reaches
+all 10,124 cells, so an empty-cell-only shortcut cannot remove most work.
+No timestep bound, space law, original gate or source input changes in
+production. Evidence: `late-flow-audit-v1/`.
+
 ## Latest measured candidate, 2026-10-30
 
 The [release review](release-candidate-2026-10-30.md) records clean `0af5dfe`

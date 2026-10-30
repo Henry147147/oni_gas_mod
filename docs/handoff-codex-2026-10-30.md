@@ -79,13 +79,20 @@ continuation is still uncommitted work and is excluded from the clean tested
   cold-start penalties. The allocation reduction does not establish a reliable
   throughput gain; the candidate remains private and unadopted.
 - Runtime continuation is reserved as MACOLP03 tag 6 / MACGRT01 version 1.
-  Native 96/56 captures all 11 cell columns. 365 managed controls and actual
-  game-Mono scheduler controls pass, including timed heap order, cleared
-  entries, rescheduling and canonical re-encoding. V9 source refused ambiguous
+  Native 96/56 captures all 11 cell columns. 393 managed controls pass under
+  .NET and actual game Mono; 17 installed scheduler/event/compaction controls
+  cover timed heaps, cleared entries, rescheduling, canonical re-encoding and
+  in-place event callback rebinding. V9 source refused ambiguous
   compacted mappings before saving: reverse entries are packed handles, not
-  bare slots. That WIP repair passes high-generation backend controls. Timed
-  scheduler source/cold integration and same-type live-definition splitting
-  remain open. No complete live source or strict cold/menu qualification exists.
+  bare slots. The repair passes high-generation backend controls and V10
+  captures actual native records at owner 3/34. Managed scheduler capture then
+  fails on a public-only PackHandle lookup. Its corrected readonly helper
+  preserves the actual packed+1 Handle encoding and versions-list state under
+  real compaction controls. V11 gets past that helper but refuses a retained
+  chore whose Unity master is destroyed/null during actor identification; its
+  list/queue provenance is being traced. Unity absolute time and derived
+  creature-heat writer operands are additional known gaps.
+  No complete live source or strict cold/menu qualification exists.
 - Original breathing still fails its global net CO2 check. Read-only unchanged-
   B3 traces show all three breathers hold about 16 g newly produced CO2 at the
   eight-second check, below their 20 g puff threshold; original scoped puffs
@@ -101,6 +108,24 @@ continuation is still uncommitted work and is excluded from the clean tested
   whole-face liquid barrier isolating their gas. No phase-selective solver
   change or new checkpoint version is claimed. Preserve the fixed gate and
   derive conservative pressure/transport/work coupling before implementation.
+
+The private airflow feasibility model passes 21 optimized/sanitized groups.
+Its HF gas-trace aperture is a new closure with a discontinuous dominant-axis
+switch, requiring physical/convergence validation. A tracked-only isolated core
+port has focused state/inertia/pressure/transport controls and exact no-mask
+kernel/closed-world outputs. Marked owner execution and experimental checkpoint
+encoding remain refused; no release law/version or gameplay pass is claimed.
+
+Main-thread attribution now has a WHOLE 900-frame DLC diagnostic: 2.317408×,
+zero faults/pauses/dropped samples. Warm 2,271 render calls average 27.933 ms
+Unity main-thread time, 10.968 ms UnsafeSim200ms including waits/publication,
+0.841 ms state rendering and 0.604 ms World.LateUpdate. The remainder is not
+attributed. A broader lifecycle/UI probe is prepared, not measured. The late
+base slowdown substantially reproduces with exact repeated saved CO2 input:
+455/26 accepted/rejected steps per frame versus 2/0 after input stops. All 48
+owner/receipt/report comparisons and 8,503 trial-account checks pass;
+transport/remap is the largest measured regional share. See performance evidence
+and private `unity-profile-v2/` / `late-flow-audit-v1/`.
 
 Current private evidence is in `artifacts/release-ready-2026-10-30/`:
 `full-committed-dab1bc2/verification.json`,
@@ -147,8 +172,9 @@ storage reruns are detailed in the candidate report.
    consumers before experimenting with bounded missing-time repayment. Do not confuse native
    capacity or replay speedup with full-game progress. The original 3,000-frame
    normal-reserve base slowdown (0.303476× overall, 0.063× late) still needs a
-   captured hot suffix including future live owner inputs; a flow-only autosave
-   replay does not reproduce that trajectory.
+   captured hot suffix including future live owner inputs. Repeated saved CO2
+   input substantially reproduces it; trace that source and transport/remap
+   work without tuning the volume bound or removing gas early.
 2. Complete runtime source capture, then exact cold/menu future-input checks.
    Preserve full packed native handles, scheduler graphs, same-type definitions,
    parameters and cadence without constructor/callback side effects or positive
