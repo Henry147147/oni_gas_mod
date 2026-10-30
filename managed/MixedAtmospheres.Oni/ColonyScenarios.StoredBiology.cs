@@ -46,8 +46,13 @@ namespace MixedAtmospheres.Oni
             }
             if(frame>=8&&step<=8)
             {
-                if(new[]{0,2,3}.Any(i=>!flow.HasConduit(InputCell(biologyReservoirs[i]!))||!flow.HasConduit(OutputCell(biologyReservoirs[i]!))))
-                {Current.Stage="waiting for storage biology topology";if(frame>=30){Record("storage biology topology becomes ready",false,"readiness expired");Finish();}return;}
+                // The original dispenser refreshes its cached operational
+                // flag on its regular updater, after the pipe is connected.
+                // Wait for that callback before pausing the source; retain
+                // the original frame30 readiness bound and every assertion.
+                if(new[]{0,2,3}.Any(i=>!flow.HasConduit(InputCell(biologyReservoirs[i]!))||!flow.HasConduit(OutputCell(biologyReservoirs[i]!))||
+                    !biologyReservoirs[i]!.GetComponent<ConduitDispenser>().IsConnected||!biologyReservoirs[i]!.GetComponent<Operational>().IsOperational))
+                {Current.Stage="waiting for storage biology topology and native outlet readiness";if(frame>=30){Record("storage biology topology becomes ready",false,"readiness expired");Finish();}return;}
                 recorded["storage biology setup delay"]=frame-8;
             }
             if(!biologySourcePending&&!biologySourceReady&&BiologyAt(8,"native cache capture before first owned biological tick"))
@@ -111,7 +116,8 @@ namespace MixedAtmospheres.Oni
                     item==null||item.GetComponent<SimTemperatureTransfer>()==null||!item.GetComponent<SimTemperatureTransfer>().enabled)),"native item insulation; this is not thermal acceptance");
                 ColonyOwnedStorage.StartBiologyControl();biologyInitialTick=ColonyOwnedStorage.StoredBiologyTicks;
                 Record("exact reservoir withdrawal fixtures are operational and connected",new[]{0,2,3}.All(i=>biologyReservoirs[i]!.GetComponent<Operational>().IsOperational&&biologyReservoirs[i]!.GetComponent<ConduitDispenser>().IsConnected),
-                    string.Join("; ",new[]{0,2,3}.Select(i=>$"reservoir {i}: operational {biologyReservoirs[i]!.GetComponent<Operational>().IsOperational}, connected {biologyReservoirs[i]!.GetComponent<ConduitDispenser>().IsConnected}")));
+                    string.Join("; ",new[]{0,2,3}.Select(i=>$"reservoir {i}: operational {biologyReservoirs[i]!.GetComponent<Operational>().IsOperational}, connected {biologyReservoirs[i]!.GetComponent<ConduitDispenser>().IsConnected}, flags ["+
+                        string.Join(", ",biologyReservoirs[i]!.GetComponent<Operational>().Flags.Select(pair=>pair.Key.Name+"="+pair.Value))+"]")));
                 Record("logical storage tags preserve every native disease tag rule",ColonyOwnedStorage.VerifyStoredLogicalTags(out var tags),tags);
                 var exact=biologyReservoirs[0]!.GetComponent<Storage>();var original=biologyReservoirs[1]!.GetComponent<Storage>();
                 Record("original cached material tag threshold and residue match at biological source",ColonyOwnedStorage.CompareStoredNativeCulture(exact,original,0,out var detail),detail);

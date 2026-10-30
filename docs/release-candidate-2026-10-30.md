@@ -36,9 +36,21 @@ follow-up updates cultures under their existing edit guard and uses the thermal
 lease for save publication too. Its 76 focused production-method controls and
 three behavioral mutations pass; both game-target DLLs match and both actual
 Mono checks resolve 2,588 dependencies with zero differences. The corrected
-base-game Proton batch passes all six unchanged scenarios and the independent
-heat audits. The remaining Linux/DLC cohorts are pending. Earlier failed
-packages and scenarios remain separate evidence.
+four Linux/Proton base/DLC batches pass all 24 scenario assertions and the
+independent heat audits. A stricter duration audit finds the DLC windows were
+only 21 owner frames, so those runs do not qualify the declared 22-frame heat
+gate. The validation fixture now anchors its hold to the measured native
+source frame and stops positive tick admission at exactly 22; zero-time
+endpoint settlement remains enabled. Both DLC builds pass all six scenarios
+with exact 22-frame windows (Linux 187→209, Proton 189→211). Their independent
+endpoint residuals are −6.62e−9 / −8.92e−9 J, within the original approximately
+4.98e−6 J operand bound; both contact and foreign-credit audits pass. Biology
+waits for its normal conduit operational callback within the original 30-frame
+setup cap. UI-clock and bypassed-hold mutants are rejected by the extracted
+production-method controls. Both actual game Mono preflights resolve 2,589
+members with zero differences. Latest base-game fixture and integrated native
+checks are queued separately. Earlier failed packages and 21/23-frame windows
+remain separate evidence.
 
 That immutable source passes 90 native tests on Linux, Windows/Wine and Ubuntu
 22.04 separately; the Ubuntu libraries require no GLIBC version above 2.34.
@@ -50,8 +62,13 @@ under Wine resolves all 2,588 contract dependencies with zero differences.
 Strict active continuation and sustained 3× remain open. Complete runtime
 continuation is being implemented under the reserved MACOLP03 tag 6 /
 MACGRT01 version 1; failed source captures do not qualify resumed runs.
-Private heat-retry and pressure-reuse prototypes require complete checkpoint
-and diagnostic equivalence before adoption or isolated timing. Actual Windows
+The detach-only native heat optimization is committed as `20c4361`. Clean
+Linux, Windows/Wine and Ubuntu 22.04 each pass 91 native tests, with GLIBC at
+most 2.34. All 88 MAC outputs/exits and captured owner checkpoint/status hashes
+retain exact equivalence. Seven WHOLE paired replay repetitions measure about
+2.22× base / 3.05× DLC native-owner speedup; actual game speed and UI remain
+unqualified. Pressure-buffer reuse is a separate private candidate under
+canonical-output review. Actual Windows
 OS checks remain pending by the user's choice.
 
 ## Version and scope

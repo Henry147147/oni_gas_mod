@@ -23,6 +23,9 @@ namespace MixedAtmospheres.Oni
         private static StorageJournalAmount storedHeatInitialWork;
         private static double storedHeatScale,storedHeatMass;
         private static int[] storedHeatBodies=Array.Empty<int>();
+        private static ulong storedHeatSourceSession,storedHeatSourceFrame;
+        private static bool storedHeatFinalPending;
+        private static bool storedHeatFenceArmed;
         private static GameObject? heatReservoir;
         private static bool StoredHeatAt(int at,string label)=>Once(at+(recorded.TryGetValue("stored heat setup delay",out var delay)?(int)delay:0),label);
         private static unsafe (PipeAmount Energy,double Scale,double Mass,int[] Bodies,StoredHeatRegion Region) StoredHeatSnapshot(string endpoint)
@@ -110,6 +113,9 @@ namespace MixedAtmospheres.Oni
             if(Once(0,"closed storage heat arena"))
             {
                 heatReservoir=null;storedHeatInitial=PipeAmount.Zero;storedHeatScale=storedHeatMass=0;storedHeatBodies=Array.Empty<int>();
+                storedHeatSourceSession=storedHeatSourceFrame=0;
+                storedHeatFinalPending=false;
+                storedHeatFenceArmed=false;
                 Arena((x,y)=>(SimHashes.Oxygen,1.2f,300f));
             }
             if(Once(4,"clear spawned world actors before construction"))
@@ -137,13 +143,36 @@ namespace MixedAtmospheres.Oni
                 ColonyConduits.SupplyControlInventory(flow,InputCell(heatReservoir!),Liquid(6,2,350,0));
                 ColonyMachinePorts.Consume(heatReservoir!.GetComponent<ConduitConsumer>(),1,flow);
                 Current.Stage="waiting for the closed storage heat source endpoint";
+                // End-of-render capture must not include extra positive owner
+                // frames after the fixed source/final stage was observed.
+                SpeedControlScreen.Instance.Pause(false);
                 Game.Instance.StartCoroutine(CaptureStoredHeatSource());
             }
-            if(StoredHeatAt(30,"closed fluid store and construction-body energy"))
+            // The source coroutine can settle one native publication later
+            // than the UI's nominal stage8. Anchor stage30 to that measured
+            // source so its physical warm hold is always the declared22.
+            if(!storedHeatFinalPending&&storedHeatSourceSession!=0&&StoredHeatFinalDue())
             {
+                storedHeatFinalPending=true;
                 Current.Stage="waiting for the closed storage heat final endpoint";
+                SpeedControlScreen.Instance.Pause(false);
                 Game.Instance.StartCoroutine(FinishStoredHeat());
             }
+        }
+        private static bool StoredHeatFinalDue()
+        {
+            var status=OniNativeColony.Status.Empty;OniNativeColony.Check(OniNativeColony.CopyStatus(ref status));
+            if(status.Session!=storedHeatSourceSession||status.CompletedFrames<storedHeatSourceFrame)
+                throw new InvalidOperationException("Closed stored heat changed its source session or moved backwards.");
+            return status.CompletedFrames-storedHeatSourceFrame>=22;
+        }
+        private static bool StoredHeatWindowValid(ulong session,ulong frame)=>session==storedHeatSourceSession&&
+            frame>=storedHeatSourceFrame&&frame-storedHeatSourceFrame==22;
+        internal static bool StoredHeatMayTick(float seconds)
+        {
+            // Observe every positive game-tick admission, including repeated
+            // ticks within one render frame. Endpoint zero ticks stay allowed.
+            return !(seconds>0&&storedHeatFenceArmed&&StoredHeatFinalDue());
         }
         private static IEnumerator CaptureStoredHeatSource()
         {
@@ -151,12 +180,15 @@ namespace MixedAtmospheres.Oni
             try
             {
                 var source=StoredHeatSnapshot("source");storedHeatInitial=source.Energy;storedHeatScale=source.Scale;storedHeatMass=source.Mass;storedHeatBodies=source.Bodies;
+                storedHeatSourceSession=source.Region.Session;storedHeatSourceFrame=source.Region.Frame;
+                storedHeatFenceArmed=true;
                 storedHeatInitialWork=ColonyOwnedStorage.Heat(heatReservoir!.GetComponent<Storage>());
                 Record("closed fixture starts with only passive registered bodies and insulated walls",storedHeatBodies.Length==3&&
                     ElementLoader.FindElementByHash(SimHashes.Unobtanium).thermalConductivity==0&&ColonyOwnedStorage.Inventory(heatReservoir.GetComponent<Storage>()).Mass==8,
                     $"bodies {storedHeatBodies.Length}, initial total {source.Energy.Value:R}J, region frame {source.Region.Frame}");
             }
-            catch(Exception error){Record("closed stored heat source endpoint settles",false,error.ToString());Finish();}
+            catch(Exception error){storedHeatFenceArmed=false;Record("closed stored heat source endpoint settles",false,error.ToString());Finish();}
+            finally{SpeedControlScreen.Instance.Unpause(false);}
         }
         private static IEnumerator FinishStoredHeat()
         {
@@ -164,6 +196,8 @@ namespace MixedAtmospheres.Oni
             try
             {
                 var final=StoredHeatSnapshot("final");var storage=heatReservoir!.GetComponent<Storage>();
+                Record("closed fixture measures exactly the declared 22 owner frames",StoredHeatWindowValid(final.Region.Session,final.Region.Frame),
+                    $"session {storedHeatSourceSession}->{final.Region.Session}, owner frames {storedHeatSourceFrame}->{final.Region.Frame}");
                 var residual=final.Energy.Minus(storedHeatInitial);var work=ColonyOwnedStorage.Heat(storage).Minus(storedHeatInitialWork);var bound=128*2.2204460492503131e-16*(storedHeatScale+final.Scale+Math.Abs(work.Value));
                 Record("closed fixture retains all fluid mass and registered body identities",Math.Abs(final.Mass-storedHeatMass)<=128*2.2204460492503131e-16*(Math.Abs(final.Mass)+Math.Abs(storedHeatMass))&&storedHeatBodies.SequenceEqual(final.Bodies)&&
                     ColonyOwnedStorage.Inventory(storage).Mass==8&&ColonyOwnedStorage.Audit(storage),$"world mass {storedHeatMass:R}->{final.Mass:R}kg, bodies {final.Bodies.Length}");
@@ -174,6 +208,13 @@ namespace MixedAtmospheres.Oni
                 Finish();
             }
             catch(Exception error){Record("closed stored heat final endpoint settles",false,error.ToString());Finish();}
+            finally{storedHeatFenceArmed=false;SpeedControlScreen.Instance.Unpause(false);}
         }
+    }
+    [HarmonyPatch(typeof(Game),"SimEveryTick")]
+    internal static class ClosedStorageHeatTickFencePatch
+    {
+        [HarmonyPriority(Priority.First+150)]
+        private static bool Prefix(float __0)=>ColonyScenarios.StoredHeatMayTick(__0);
     }
 }

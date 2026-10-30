@@ -6,6 +6,6 @@
   </PropertyGroup>
   <Target Name="ExtractProductionProjectionMethods" BeforeTargets="CoreCompile">
     <Exec Command="&quot;$(ProjectionPython)&quot; &quot;$(MSBuildThisFileDirectory)extract.py&quot; --root &quot;$(MSBuildThisFileDirectory)../..&quot; --out &quot;$(IntermediateOutputPath)projection&quot;"/>
-    <ItemGroup><Compile Include="$(IntermediateOutputPath)projection/Production.cs"/></ItemGroup>
+    <ItemGroup><Compile Include="$(IntermediateOutputPath)projection/Production.cs"/><Compile Include="$(IntermediateOutputPath)projection/HeatClock.cs"/></ItemGroup>
   </Target>
 </Project>

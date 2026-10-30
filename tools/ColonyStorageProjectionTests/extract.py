@@ -26,7 +26,14 @@ def main():
     finish = reader.method(finish, "Finish", "void").replace("private static void Finish", "internal void Finish", 1)
     args.out.mkdir(parents=True, exist_ok=True)
     (args.out / "Production.cs").write_text("using System;using System.Collections.Generic;using System.Linq;using UnityEngine;namespace MixedAtmospheres.Oni {internal static partial class ColonyOwnedStorage {\n" + "\n".join(bodies) + "\ninternal sealed partial class BiologyScope {\n" + finish + "\n}}}\n")
-    (args.out / "source-manifest.json").write_text(json.dumps({name: hashlib.sha256((source / name).read_bytes()).hexdigest() for name in ("ColonyOwnedStorage.cs", "ColonyOwnedStorage.Biology.cs")}, indent=2) + "\n")
+    heat = (source / "ColonyScenarios.StoredHeat.cs").read_text()
+    due = reader.method(heat, "StoredHeatFinalDue", "bool")
+    may_tick = reader.method(heat.replace("internal static bool StoredHeatMayTick(", "private static bool StoredHeatMayTick("), "StoredHeatMayTick", "bool")
+    valid_start = heat.index("        private static bool StoredHeatWindowValid(")
+    valid_end = heat.index(";", valid_start) + 1
+    valid = heat[valid_start:valid_end]
+    (args.out / "HeatClock.cs").write_text("using System;namespace MixedAtmospheres.Oni {internal static partial class ColonyScenarios {\n" + due + "\n" + valid + "\n" + may_tick + "\n}}\n")
+    (args.out / "source-manifest.json").write_text(json.dumps({name: hashlib.sha256((source / name).read_bytes()).hexdigest() for name in ("ColonyOwnedStorage.cs", "ColonyOwnedStorage.Biology.cs", "ColonyScenarios.StoredHeat.cs")}, indent=2) + "\n")
 
 
 if __name__ == "__main__":

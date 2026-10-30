@@ -43,9 +43,12 @@ rejected candidate unchanged.
   qualify the declared 22-frame heat gate. The validation-only follow-up
   measures the source owner counter and holds further positive tick admission
   at 22; zero-time endpoint settlement remains allowed. Earlier 21/23-frame
-  windows remain failures. Biology waits for ordinary operational conduit
-  readiness within its existing 30-frame setup cap; no flags are forced.
-  Private probes start at `storage-projection-v3/`.
+  windows remain failures. Both V8 DLC builds now pass all six scenarios with
+  exactly 22 frames and independent heat/contact/credit audits. Latest base and
+  integrated-native cohorts are queued separately. UI-clock and bypassed-hold
+  mutants are rejected; both actual Mono checks pass 2,589/0. Biology waits for
+  ordinary operational conduit readiness within its existing 30-frame setup
+  cap; no flags are forced. Private probes start at `storage-projection-v3/`.
   Preserve the copied-contract refusal and missing-edit-scope failures in v1/v2.
 - Native publication now has a 56-byte completed-step/prefix interface, including
   empty Prepare messages and the inlined Windows Step path. This corrects the

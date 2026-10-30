@@ -1,6 +1,7 @@
 using MixedAtmospheres.Oni;
 
 ColonyOwnedStorage.RunControls();
+ColonyScenarios.RunClockControls();
 
 namespace UnityEngine
 {
