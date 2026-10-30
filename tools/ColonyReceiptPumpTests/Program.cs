@@ -84,6 +84,26 @@ internal static class Program
  {
   for(var trial=0;trial<50;++trial){var random=new Random(147147+trial);var count=random.Next(5,150);Prime(count);var expected=Records(count);for(var frame=3;OniNativeColony.Pending.Count>0;++frame){Check(frame<300,"no pump progress");Pump(frame);}Check(TestRuntime.Dispatches.SequenceEqual(expected.Select(r=>r.Sequence))&&Wire(TestRuntime.Spawned).SequenceEqual(Wire(expected)),"randomized prefix order/payload bytes");Check(OniNativeColony.Acks.Last()==(ulong)count,"randomized Ack tail");NoAdvance();}
  }
+ static unsafe void NativePublicationControls()
+ {
+  TestRuntime.Reset();var before=ColonySaveBarrier.NativeFrameCounters();
+  // Three intervals can share a single EndFrame; hook deltas are deliberately
+  // unrelated to this prefix. A queued fourth interval is not posted work.
+  ColonyNativeFrames.Current.Queued=4;ColonyNativeFrames.Current.Posted=3;OniNativeObserver.Hooks[8].Entries=99;OniNativeObserver.Hooks[19].Exits=1;
+  var completed=ColonySaveBarrier.WaitNativeFrameAfter(before);Check(completed.Posted==3&&ColonyNativeFrames.Current.Processed==3&&ColonyNativeFrames.Current.Queued==4,"native completion used hook deltas or posted unsubmitted work");
+  var refused=false;try{ColonySaveBarrier.WaitNativeFrameAfter(completed);}catch(InvalidOperationException){refused=true;}Check(refused,"missing expected native post was accepted");
+  ColonyNativeFrames.Current.Session=2;ColonyNativeFrames.Current.Posted=5;refused=false;try{ColonySaveBarrier.WaitNativeFrameAfter(completed);}catch(InvalidOperationException){refused=true;}Check(refused,"a new native session satisfied an old prefix");
+  TestRuntime.Reset();
+  Task.Run(()=>{NativeMessageBoundary.ForwardNativeBatch(DevelopmentTelemetrySampler.NewGameFrameMessage,0,3,null);}).GetAwaiter().GetResult();
+  Check(ColonyNativeFrames.Completions==0,"frame queue waited before Prepare could post it");
+  ColonyNativeFrames.Completing=()=>Check(TestRuntime.NativeMessages.Last().Message==DevelopmentTelemetrySampler.PrepareGameDataMessage&&ColonyNativeFrames.Current.Posted==3,"native fence ran before the actual Prepare or lost another thread's batch");
+  var pointer=NativeMessageBoundary.ForwardNativeUntimed(DevelopmentTelemetrySampler.PrepareGameDataMessage,0,null);
+  Check(pointer==new IntPtr(0x123456)&&ColonyNativeFrames.Completions==1&&ColonyNativeFrames.Current.Processed==3&&TestRuntime.Dispatches.Count==0,"single native publication changed its pointer, skipped completion or dispatched callbacks");
+  NativeMessageBoundary.ForwardNativeBatch(DevelopmentTelemetrySampler.NewGameFrameMessage,0,2,null);
+  ColonyNativeFrames.Completing=null;pointer=NativeMessageBoundary.ForwardNativeBatch(DevelopmentTelemetrySampler.PrepareGameDataMessage,0,1,null);
+  Check(pointer==new IntPtr(0x123456)&&ColonyNativeFrames.Completions==2&&ColonyNativeFrames.Current.Processed==5&&TestRuntime.NativeMessages.Count==4,"batch publication skipped its complete prefix or replayed a native message");
+  ColonyOwner.Active=false;NativeMessageBoundary.ForwardNativeUntimed(DevelopmentTelemetrySampler.PrepareGameDataMessage,0,null);Check(ColonyNativeFrames.Completions==2,"inactive colony waited on owner continuation");
+ }
  static int Main(string[] args){try{
   Check((ColonyOwner.ReceiptPumpReport()!=null)==(Environment.GetEnvironmentVariable("MA_COLONY_BYPRODUCT_PUMP_LOG")=="1"),"pump diagnostics were not opt-in");
   if(args.SequenceEqual(new[]{"--disabled"})||Environment.GetEnvironmentVariable("MA_TEST_RECEIPT_PUMP_DISABLED")=="1")
@@ -92,7 +112,7 @@ internal static class Program
    ColonySaveBarrier.StepSeconds=0;ColonyOwner.CommitTestPublication(18,4);Check(OniNativeColony.Pending.Count==0,"opt-out changed original zero-time full publication");NoAdvance();Console.WriteLine("PASS receipt pump opt-out: "+checks+" assertions; original publication drains, idle pump does not.");return 0;
   }
   if(args.Length!=0)throw new ArgumentException("Unknown receipt pump control argument");
-  StateControls();PrefixControls();GuardControls();ReentryControls();FaultControls();EmptyPumpAllocation();PacketControls();
+  StateControls();PrefixControls();GuardControls();ReentryControls();FaultControls();EmptyPumpAllocation();PacketControls();NativePublicationControls();
   Console.WriteLine("PASS idle receipt pump: "+checks+" assertions; actual delivery, pump and save-barrier bodies with deterministic clock/fake endpoints.");
 #if GAME_MONO
   Console.WriteLine("Game Mono allocation counter unsupported; allocation assertions omitted, functional controls retained.");

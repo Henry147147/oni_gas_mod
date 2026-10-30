@@ -16,7 +16,7 @@ internal sealed class SaveLoader {public static void LoadScene(){}public string 
 internal sealed class Game {
  internal static readonly Game Instance=new();internal static int PositiveCalls,ZeroCalls,DelayedSaves,StepCalls;internal static Action? NativeMessages;
  internal void StartDelayedSave(string name,bool autosave,bool pointer)=>++DelayedSaves;
- public void UnsafeSim200ms(float dt){if(dt>0)++PositiveCalls;else ++ZeroCalls;StepTheSim(dt);++OniNativeObserver.Hooks[8].Entries;NativeMessages?.Invoke();++OniNativeObserver.Hooks[19].Exits;}
+ public void UnsafeSim200ms(float dt){if(dt>0)++PositiveCalls;else ++ZeroCalls;StepTheSim(dt);++ColonyNativeFrames.Current.Queued;ColonyNativeFrames.Current.Posted=ColonyNativeFrames.Current.Queued;++OniNativeObserver.Hooks[8].Entries;NativeMessages?.Invoke();ColonyNativeFrames.Current.Processed=ColonyNativeFrames.Current.Posted;++OniNativeObserver.Hooks[19].Exits;}
  internal static bool Started=true;public bool GameStarted()=>Started;
  public void StepTheSim(float dt){++StepCalls;
   const BindingFlags flags=BindingFlags.Static|BindingFlags.NonPublic;
@@ -28,12 +28,22 @@ internal sealed class Game {
   var result=(Exception?)finalizer.Invoke(null,new object?[]{error});if(result!=null)throw result;
  }
 }
-internal static class Sim {
+internal static unsafe class Sim {
+ internal static IntPtr SIM_HandleMessage(int message,int length,byte* payload)=>Native(message,1);
+ internal static IntPtr SIM_HandleMessages(int message,int length,int count,byte* payload)=>Native(message,count);
+ private static IntPtr Native(int message,int count){TestRuntime.NativeMessages.Add((message,count));if(message==DevelopmentTelemetrySampler.NewGameFrameMessage)ColonyNativeFrames.Current.Queued+=(ulong)count;if(message==DevelopmentTelemetrySampler.PrepareGameDataMessage)ColonyNativeFrames.Current.Posted=ColonyNativeFrames.Current.Queued;return new IntPtr(0x123456);}
  [StructLayout(LayoutKind.Sequential)]internal struct MassConsumedCallback {public int callbackIdx;public ushort elemIdx;public float mass,temperature;public byte diseaseIdx;public int diseaseCount;}
  [StructLayout(LayoutKind.Sequential)]internal struct MassEmittedCallback {public int callbackIdx;public ushort elemIdx;public byte suceeded;public float mass,temperature;public byte diseaseIdx;public int diseaseCount;}
  [StructLayout(LayoutKind.Sequential)]internal struct ConsumedMassInfo {public int Cell;public float Mass;}
 }
 namespace MixedAtmospheres.Oni {
+ internal static class DevelopmentTelemetrySampler {internal const int NewGameFrameMessage=-775326397,PrepareGameDataMessage=1078620451;}
+ internal static class ColonyNativeFrames {
+  internal struct Progress {internal ulong Session,Queued,Posted,Processed;}
+  internal static Progress Current=new(){Session=1};internal static int Completions;internal static Action? Completing;
+  internal static Progress Capture()=>Current;
+  internal static Progress Complete(int timeoutMilliseconds=10000){++Completions;Completing?.Invoke();Current.Processed=Current.Posted;return Current;}
+ }
  internal static class Clock {internal const long Frequency=1000000;internal static long Timestamp;}
  internal enum SnapshotEventChannel {MassConsumedCallbacks,MassEmittedCallbacks,RemovedMassEntries}
  internal sealed class OwnedGameDataSnapshot {
@@ -83,11 +93,12 @@ namespace MixedAtmospheres.Oni {
  }
  internal static class TestRuntime {
   internal static bool PublicationFails;internal static readonly object Element=new();internal static int Copies,RawReads;internal static Action? AfterCopy,BeforeRawRead;internal static readonly Dictionary<ulong,int> Outcomes=new();
+  internal static readonly List<(int Message,int Count)> NativeMessages=new();
   internal static readonly Dictionary<SnapshotEventChannel,List<byte>> Callbacks=new();internal static readonly List<OniNativeColony.Receipt> Spawned=new();internal static readonly List<ulong> Dispatches=new(),Events=new();internal static readonly List<byte> Payloads=new();
   internal static OwnedGameDataSnapshot? LastSnapshot;internal static long WorkTicks=1000,CopyTicks;internal static string FailAt="";internal static Action? DispatchAction;
   internal static void Fail(string phase){if(FailAt==phase){FailAt="";throw new InvalidOperationException("injected "+phase);}}
   internal static void Dispatch(OniNativeColony.Receipt r){Fail("dispatch");Dispatches.Add(r.Sequence);Spawned.Add(r);Payloads.AddRange(BitConverter.GetBytes(r.Sequence));Payloads.AddRange(BitConverter.GetBytes(r.MassKg));Payloads.AddRange(BitConverter.GetBytes(r.TemperatureK));Clock.Timestamp+=WorkTicks;DispatchAction?.Invoke();}
-  internal static void Reset(){ColonyFrameLog.Ticks=0;PublicationFails=false;Copies=RawReads=0;AfterCopy=BeforeRawRead=null;Outcomes.Clear();UnityEngine.Time.frameCount=1;UnityEngine.Time.timeScale=3;SpeedControlScreen.Instance.IsPaused=false;ColonySavedParticles.Pending=ColonyCallbackRequests.Pending=ColonyContinuationProbe.Holding=ColonyLoadRefusal.Refused=ColonyOwnerPausedResave.Holding=ColonyPipeSave.Pending=ColonyPipeRuntime.NativeBindingsPending=ColonyPipeCultureState.NeedsReadyBarrier=false;ColonyOwner.ResetReceiptPump();ColonySaveBarrier.Reset();ColonySaveBarrier.SaveFinished();ColonyOwner.DeferredReceiptPublications=0;ColonyOwner.ReceiptBudgetTicks=2000;ColonyOwner.publicationLog=false;ColonyOwner.Active=true;ColonyFault.Faulted=false;ColonyFault.Failure="";OniNativeColony.Pending.Clear();OniNativeColony.Acks.Clear();OniNativeColony.Current=new(){State=1,Session=1,CompletedFrames=17,Error=""};OniNativeColony.Submitted=OniNativeColony.Deferred=0;OniNativeColony.FlushVersion=1;OniNativeColony.FlushWork=null;Dispatches.Clear();Spawned.Clear();Events.Clear();Payloads.Clear();Callbacks.Clear();LastSnapshot=null;Clock.Timestamp=0;WorkTicks=1000;CopyTicks=0;FailAt="";DispatchAction=null;Game.PositiveCalls=Game.ZeroCalls=Game.DelayedSaves=Game.StepCalls=0;Game.Started=true;Game.NativeMessages=null;ColonyPipeSave.Restore=null;ColonyPipeRuntime.Active=false;ColonyPipeContactHeat.Remaining=0;ColonyRuntimeValidation.Settings=null;ColonyClusterRetirement.Pending=false;ColonyOwnedStorage.RetirementsPending=false;ColonyOwnedStorage.NativeDataDeclarations=0;UnityEngine.Debug.Lines.Clear();}
+  internal static void Reset(){ColonyNativeFrames.Current=new(){Session=1};ColonyNativeFrames.Completing=null;ColonyNativeFrames.Completions=0;NativeMessages.Clear();ColonyFrameLog.Ticks=0;PublicationFails=false;Copies=RawReads=0;AfterCopy=BeforeRawRead=null;Outcomes.Clear();UnityEngine.Time.frameCount=1;UnityEngine.Time.timeScale=3;SpeedControlScreen.Instance.IsPaused=false;ColonySavedParticles.Pending=ColonyCallbackRequests.Pending=ColonyContinuationProbe.Holding=ColonyLoadRefusal.Refused=ColonyOwnerPausedResave.Holding=ColonyPipeSave.Pending=ColonyPipeRuntime.NativeBindingsPending=ColonyPipeCultureState.NeedsReadyBarrier=false;ColonyOwner.ResetReceiptPump();ColonySaveBarrier.Reset();ColonySaveBarrier.SaveFinished();ColonyOwner.DeferredReceiptPublications=0;ColonyOwner.ReceiptBudgetTicks=2000;ColonyOwner.publicationLog=false;ColonyOwner.Active=true;ColonyFault.Faulted=false;ColonyFault.Failure="";OniNativeColony.Pending.Clear();OniNativeColony.Acks.Clear();OniNativeColony.Current=new(){State=1,Session=1,CompletedFrames=17,Error=""};OniNativeColony.Submitted=OniNativeColony.Deferred=0;OniNativeColony.FlushVersion=1;OniNativeColony.FlushWork=null;Dispatches.Clear();Spawned.Clear();Events.Clear();Payloads.Clear();Callbacks.Clear();LastSnapshot=null;Clock.Timestamp=0;WorkTicks=1000;CopyTicks=0;FailAt="";DispatchAction=null;Game.PositiveCalls=Game.ZeroCalls=Game.DelayedSaves=Game.StepCalls=0;Game.Started=true;Game.NativeMessages=null;ColonyPipeSave.Restore=null;ColonyPipeRuntime.Active=false;ColonyPipeContactHeat.Remaining=0;ColonyRuntimeValidation.Settings=null;ColonyClusterRetirement.Pending=false;ColonyOwnedStorage.RetirementsPending=false;ColonyOwnedStorage.NativeDataDeclarations=0;UnityEngine.Debug.Lines.Clear();}
  }
 }
 

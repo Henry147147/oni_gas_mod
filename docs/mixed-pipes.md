@@ -1620,3 +1620,43 @@ schema-2 jobs and passive remainder accounts enforce these same limits.
 Actual sequential MARECP02 observations and a named signed representation
 remainder are required for both injection and extraction. No complete
 world/pipe germ-conservation or output/save acceptance has passed yet.
+
+
+## Fenced storage transfers and native publication (2026-10-30)
+
+The private exact-storage adapter requires native storage API3 while retaining
+receipt ABI2 (48 bytes). A begin/replace/end lease completes all already-posted
+native work, acknowledges its old-capacity receipts, validates the whole new
+endpoint batch, and holds submission plus the complete native-step boundary
+until both physical inventories commit. An unposted declaration defers the
+transfer without moving fluid. Intake prepares the pipe, store and native batch
+before either inventory changes. Withdrawal and same-callback readmission keep
+all mass, represented heat and all-identity germs together.
+
+Heat publication installs its complete temperature/capacity batch through that
+same lease. Queuing another absolute reset at every publication would otherwise
+make a naturally scheduled outlet repeatedly busy. Intermediate native UI mass
+and temperature setters may use only the captured source/published/final bits;
+the finished projection must equal the prepared endpoint exactly.
+
+Native publication exposes a version1, 56-byte progress record. It separately
+tracks queued/posted/processed intervals and posted/completed publication steps,
+including zero-interval Prepare messages and the inlined Windows Step path.
+Both single and batched managed Prepare calls wait for that real boundary.
+This is not an active-continuation qualification: the remaining first-frame
+input differences require the separately reserved runtime record.
+
+Both unchanged six-scenario Linux storage batches pass on the frozen v5 probe
+(base game and Spaced Out!). Their natural outlets discharge 8 kg and retire
+both projections. The 22-frame closed heat fixtures have residual about
+−9.80e−9 J against unchanged bounds near 4.98e−6 J. Independent exact-contact,
+receipt, event-order and foreign-credit audits pass. Earlier failed cohorts
+remain separate evidence in the private `artifacts/release-ready-2026-10-30/`.
+
+Paired native contact counterwork is still private opt-in
+(`MA_ONI_PAIRED_HEAT_CORRECT=1`), with exact storage under the existing native
+schedule control. It corrects registered storage chunks and passive all-owned
+building contacts. Foreign contacts advance the observed cell chain with zero
+counterwork; powered/mixed bodies remain outside the corrected scope. This
+neither enables exact storage for ordinary release play nor closes those broader
+heat, lifecycle, continuation and performance gates.

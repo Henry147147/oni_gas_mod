@@ -7,7 +7,60 @@ publish/upload a Workshop release. Read [AGENTS.md](../AGENTS.md),
 [the candidate report](release-candidate-2026-10-30.md) and
 [the accepted amendments](completion-plan.md#amendments).
 
-## Current result
+## Active follow-up on main
+
+The release goal remains active. `0aefcf1` reserves the next runtime record;
+the fixes below are being qualified in a frozen private integration probe, not
+published as a release. Continue the current work rather than rerunning the
+rejected candidate unchanged.
+
+- The exact-storage transfer boundary now fences posted native work, settles
+  earlier heat receipts, prepares both inventories before committing, and
+  installs complete thermal endpoints under a native lease (API3; receipt ABI2
+  remains 48 bytes). Publication uses that same transaction so repeated absolute
+  resets cannot starve a naturally scheduled outlet.
+- The fixed six-scenario base-game storage batch passes on the v5 probe,
+  including its natural 8 kg outlet and both projection retirements. Closed heat
+  passes the original bound: residual about −9.80e−9 J against 4.98e−6 J. The
+  independent contact/receipt and foreign-credit audits pass. The fixed
+  six-scenario Spaced Out! batch also passes, with the same
+  residual against its unchanged 4.98e−6 J bound. Paired heat correction remains
+  opt-in and currently credits
+  registered storage chunks and passive all-owned building contacts only.
+- Native publication now has a 56-byte completed-step/prefix interface, including
+  empty Prepare messages and the inlined Windows Step path. This corrects the
+  earlier interval-entry versus batch-exit comparison. It does not by itself
+  qualify active continuation: all four default cold/menu future-input
+  comparisons still differ at the first resumed frame. Actual traces identify
+  scheduler/cadence and native-record order/parameter differences. A complete
+  runtime continuation record is under construction: MACOLP03 tag 6,
+  MACGRT01 version 1, reserved and pushed after a fresh fetch.
+- The M5 repair rejects independently proved negative-caloric trial endpoints
+  and retries smaller intervals, keeping uncertain EOS refinement and all
+  original bounds/storage. Nongame checkpoint 29 saves that admission law;
+  earlier images retain their prior law and bytes. All 88 clean old/new MAC
+  observations are reviewed, with only new controls and corrected format-test
+  assertions differing. Sixteen historical layouts retain 64 complete cold
+  images per build byte for byte. The full final framed M5 gate passes all
+  three prescribed grids; the
+  finest error is 0.00911666632 and water-mass drift 2.874269236e−17. The repair
+  and its qualification are committed and pushed as `28e7ff6`.
+- The current native/managed/Python and cross-platform checks use the immutable
+  v5 source snapshot. All 90 Linux native checks and 487 Python controls pass
+  (four actual-Windows
+  skips); the standard managed snapshot suite passes 238 scenarios. The explicit native
+  fixture/DAZ-FTZ repeat passes 240/240; fixture environment propagation is
+  corrected in the build driver. Windows/Wine and Ubuntu 22.04 each pass 90 native
+  checks; the latter requires no GLIBC version above 2.34. Keep actual Windows OS
+  checks
+  pending by the user's choice. No sustained 3× or release-ready claim is made.
+
+Private evidence is in `artifacts/release-ready-2026-10-30/`, especially
+`combined-publication-v5-proof.json`, `storage-publication-v5-base/`,
+`native-compare/REPORT.md`, `continuation-default-v2-high/`, and
+`full-source-v5-manifest.json`. Preserve the original failed cohorts as well.
+
+## Earlier candidate result
 
 The candidate is rejected, not release-ready. ONI public build 24423041 / game
 744825 retains all 2,588 managed dependencies on both targets; no update-hook

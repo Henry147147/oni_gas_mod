@@ -31,7 +31,7 @@ namespace MixedAtmospheres.Oni
                     TargetCapacityBits=targetCapacity.HasValue?(int?)BitConverter.SingleToInt32Bits(targetCapacity.Value):null};
             }
             File.AppendAllText(path,ReportJson.SerializeLine(new{Kind=reason,Sequence=++storageHeatTraceSequence,UnityFrame=Time.frameCount,
-                OwnerFrame=ColonyOwner.Status.CompletedFrames,NativeStarted=frames.Started,NativeEnded=frames.Ended,
+                OwnerFrame=ColonyOwner.Status.CompletedFrames,NativeSession=frames.Session,NativePosted=frames.Posted,
                 Prefab=host.Store.Address.Prefab,Revision=host.Store.Revision,ProjectedRevision=host.ProjectedRevision,
                 Mass=host.Store.Inventory.Mass,Temperature=host.Store.Inventory.Count==0?0:host.Store.Inventory.Temperature(ColonyConduits.Material),
                 Energy=host.Store.Inventory.Energy.Value,ExactEnergy=ExactHeatTraceAmount(host.Store.Inventory.Energy),

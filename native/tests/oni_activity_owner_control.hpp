@@ -256,6 +256,30 @@ void activity_owner_control() {
     write_shadow(native);require(!owns(20),"Bound close did not leave the native cell to ONI");
     element[0][20]=element[1][20]=1;mass[0][20]=mass[1][20]=1000;
     capture_shadow(native,2);advance(2,dt,2);wait();require(status().state==1 && held(8)==0,"Second packet terrain not applied");stop();
+    // Endpoint counterwork joins the containing native packet exactly once,
+    // including a cell whose rounded shadow delta differs from its body pair.
+    start(cfg,mats,cells,1);(void)queue_activity(status().session,dt,{},{});
+    for(unsigned b=0;b<2;++b){element[b][20]=vacuum;mass[b][20]=0;temperature[b][20]=300;}
+    write_shadow(native);
+    const float initial_temperature=temperature[1][20];
+    const auto actual_origin=native_heat_projection(20);
+    require(actual_origin.valid && actual_origin.element==oxygen && actual_origin.mass==mass[1][20] && actual_origin.temperature==initial_temperature,
+        "Paired heat origin did not identify the actual written shadow");
+    temperature[0][20]=301; // A native source-array write is not the original projection.
+    temperature[1][20]=std::nextafter(initial_temperature,400.f);
+    const double represented=static_cast<double>(mass[1][20])*native_specific_heat(element[1][20])*
+        (static_cast<double>(temperature[1][20])-initial_temperature);
+    const NativeHeatAdjustment paired{20,element[1][20],std::bit_cast<std::uint32_t>(mass[1][20]),
+        std::bit_cast<std::uint32_t>(actual_origin.temperature),std::bit_cast<std::uint32_t>(temperature[1][20]),.125-represented};
+    wake_native_cell(20);capture_shadow(native,1,std::span(&paired,1));advance(1,dt,2);wait();
+    require(status().state==1 && status().native_heat_j==.125,"Paired contact counterwork missed its native packet");
+    const auto paired_image=checkpoint();stop();restore(cfg,mats,paired_image,1);
+    require(checkpoint()==paired_image,"Paired contact input changed across exact restore");stop();
+    // A changed capture endpoint cannot credit the earlier physical pair.
+    start(cfg,mats,cells,1);(void)queue_activity(status().session,dt,{},{});write_shadow(native);
+    capture_shadow(native,1,std::span(&paired,1));
+    require(status().state==2 && status().completed_frames==0 && status().native_heat_j==0 &&
+        std::string(status().error).find("stable projection")!=std::string::npos,"Stale paired capture endpoint credited heat");stop();
     // Every post-flow stage shares the same due cells; pristine conversions, traces and germs stay held.
     mats[0].high_target=12;mats[0].high_temperature_k=350;
     cells[8].temperature_k=400;cells[10].disease=1;cells[10].disease_count=1000;cells[12].mass_kg=1e-7f;

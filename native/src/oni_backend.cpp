@@ -1,5 +1,6 @@
 #include "mixed_atmospheres/oni_conduit_contact.h"
 #include "mixed_atmospheres/oni_backend.h"
+#include "mixed_atmospheres/oni_native_frames.h"
 #include "oni_sha256.hpp"
 #include "oni_image_identity.hpp"
 #include "oni_domain.hpp"
@@ -7,6 +8,7 @@
 #include "oni_floor_capture.hpp"
 #include "oni_body_heat_trace.hpp"
 #include "oni_chunk_heat_trace.hpp"
+#include "oni_paired_heat.hpp"
 #include "oni_storage_heat_native.hpp"
 #include "oni_conduit_heat.hpp"
 #include "oni_runtime_trace.hpp"
@@ -59,6 +61,8 @@ static_assert(sizeof(MAOniDomainPublicationInfo) == 64);
 static_assert(sizeof(MAOniDomainPhysics) == 40);
 static_assert(sizeof(MAOniTraceEvent) == 32);
 static_assert(sizeof(MAOniStorageHeatReceipt) == 48);
+static_assert(sizeof(MAOniStorageHeatEndpoint) == 16);
+static_assert(sizeof(MAOniNativeFrameProgress) == 56);
 static_assert(sizeof(MAOniColonyActivityState) == 56 &&
               offsetof(MAOniColonyActivityState, pending_head_seconds) == 40);
 static_assert(sizeof(MAOniColonyActivityCell) == 32);
@@ -112,6 +116,10 @@ std::uintptr_t image_base{};
 std::uint64_t installed_mask{};
 bool installed{}, recovery_required{};
 ma::oni::storage_heat::Monitor storage_heat;
+ma::oni::paired_heat::Observer paired_heat;
+std::atomic<std::uint64_t> native_paired_heat_ticket{0};
+ma::oni::storage_heat::SubmissionFence storage_submissions;
+thread_local unsigned native_submission_depth=0,native_batch_depth=0,native_step_depth=0,native_prepare_depth=0;
 ma::oni::conduit_heat::Monitor conduit_heat;
 ma::oni::runtime_clock::Monitor runtime_clock;
 ma::oni::load_guard::Scope load_guard;
@@ -147,8 +155,8 @@ struct FloorDiagnostics {
 };
 FloorDiagnostics& floor_diagnostics() {static FloorDiagnostics value;return value;}
 // A domain save must exclude native cell processing as well as publication.
-// BeginFrame may wait for the main thread, so acquire only after it returns,
-// at ProcessNextFrame, and release after EndFrame finishes.
+// BeginFrame may wait for the main thread, so acquire only after it returns.
+// Keep the fence through Step's component-list and GameData publication tail.
 thread_local std::unique_lock<std::mutex> worker_frame_fence;
 
 void trace(std::uint32_t hook, bool entering, std::uint32_t bits=0) noexcept {
@@ -214,9 +222,15 @@ template<class Function> Function original(std::uint32_t index) noexcept {
 #define FORWARD(name, index, result, args, invocation) \
     result name args { Call call(index); using Function = result (*) args; return original<Function>(index) invocation; }
 using GameCallback = int (*)(int,void*);
-FORWARD(on_initialize, MA_ONI_INITIALIZE, void, (GameCallback callback), (callback))
+void on_initialize(GameCallback callback) {
+    Call call(MA_ONI_INITIALIZE);storage_submissions.reset();
+    original<void (*)(GameCallback)>(MA_ONI_INITIALIZE)(callback);
+}
 void on_shutdown() {
     Call call(MA_ONI_SHUTDOWN);
+    // A transfer's cached registry pointers must not outlive their SimData.
+    // Shutdown waits for its submission lease before resetting or freeing it.
+    auto submission=storage_submissions.submission();
     storage_heat.reset();
     conduit_heat.reset();
     runtime_clock.reset();
@@ -247,8 +261,28 @@ void on_shutdown() {
         pair_pending.store(false,std::memory_order_release);
     }
 }
-FORWARD(on_message, MA_ONI_MESSAGE, void*, (int id,int size,std::uint8_t* data), (id,size,data))
-FORWARD(on_messages, MA_ONI_MESSAGES, void*, (int id,int size,int count,std::uint8_t* data), (id,size,count,data))
+struct SubmissionCall {
+    std::unique_lock<std::recursive_mutex> gate=storage_submissions.submission();
+    bool preparing;
+    SubmissionCall(int id,int count):preparing(id==1078620451) {
+        ++native_submission_depth;
+        if(preparing)++native_prepare_depth;
+        if(id==-775326397 && count>0)storage_submissions.queued(static_cast<std::uint32_t>(count));
+        if(id==1078620451 && count>0)storage_submissions.posted();
+    }
+    ~SubmissionCall(){if(preparing)--native_prepare_depth;--native_submission_depth;}
+};
+void* on_message(int id,int size,std::uint8_t* data) {
+    Call call(MA_ONI_MESSAGE);SubmissionCall submission(id,native_batch_depth?0:1);
+    return original<void* (*)(int,int,std::uint8_t*)>(MA_ONI_MESSAGE)(id,size,data);
+}
+void* on_messages(int id,int size,int count,std::uint8_t* data) {
+    Call call(MA_ONI_MESSAGES);SubmissionCall submission(id,count);
+    // Linux's batch export calls the single export; Windows may dispatch
+    // directly. Count the outer batch once on either implementation.
+    ++native_batch_depth;struct Release {~Release(){--native_batch_depth;}} release;
+    return original<void* (*)(int,int,int,std::uint8_t*)>(MA_ONI_MESSAGES)(id,size,count,data);
+}
 std::uint8_t* on_begin_save(int* size,int x,int y) {
     Call call(MA_ONI_BEGIN_SAVE);
     std::lock_guard save_lock(native_save_mutex);
@@ -281,6 +315,7 @@ void on_process_frame(void* frame,void* data) {
     if(ma::oni::body_heat_trace::Frame::enabled())body_observation.emplace(ordinal,frame,data);
     if(ma::oni::chunk_heat_trace::Frame::enabled())chunk_observation.emplace(ordinal,frame,data);
     runtime_clock.process(data,seconds,[&]{conduit_heat.process(frame,[&]{storage_heat.process(frame,data,ordinal,[&]{original<void (*)(void*,void*)>(MA_ONI_PROCESS_FRAME)(frame,data);});});});
+    storage_submissions.processed();
 }
 float on_next_frame(void* self,void* data) {
     Call call(MA_ONI_NEXT_FRAME);
@@ -401,6 +436,8 @@ void on_update_data(void* self,void* data) {
     // UpdateData, and what they change there is booked to the owner.
     native_heat_contact_bits.store(std::bit_cast<std::uint32_t>(pending.seconds),std::memory_order_release);
     native_floor_contact_ticket.store(floors.enabled?pending.ticket:0,std::memory_order_release);
+    if(shadowed)paired_heat.begin(data,pending.ticket,counters[MA_ONI_PROCESS_FRAME].entries.load(std::memory_order_relaxed));
+    native_paired_heat_ticket.store(shadowed?pending.ticket:0,std::memory_order_release);
     ma::oni::runtime_trace::Frame::physics_cells(counters[MA_ONI_PROCESS_FRAME].entries.load(std::memory_order_relaxed),2,data,shadowed);
     { wait_log::Scope timed(wait_log::UpdateData); original<void (*)(void*,void*)>(MA_ONI_UPDATE_DATA)(self,data); }
     ma::oni::runtime_trace::Frame::physics_cells(counters[MA_ONI_PROCESS_FRAME].entries.load(std::memory_order_relaxed),3,data,shadowed);
@@ -408,7 +445,10 @@ void on_update_data(void* self,void* data) {
     storage_heat.sample(data,counters[MA_ONI_PROCESS_FRAME].entries.load(std::memory_order_relaxed));
     native_floor_contact_ticket.store(0,std::memory_order_release);
     native_heat_contact_bits.store(0,std::memory_order_release);
-    if (shadowed && native_cells(data,shadow)) { wait_log::Scope timed(wait_log::CaptureShadow); ma::oni::colony::capture_shadow(shadow,pending.ticket); }
+    auto paired=paired_heat.finish(data,pending.ticket);
+    if(paired.failure[0])try {ma::oni::colony::fault_from_adapter(paired.failure.data());}catch(...){}
+    native_paired_heat_ticket.store(0,std::memory_order_release);
+    if (shadowed && native_cells(data,shadow) && !paired.failure[0]) { wait_log::Scope timed(wait_log::CaptureShadow); ma::oni::colony::capture_shadow(shadow,pending.ticket,paired.heat); }
     if (pending.ticket) {
         ma::oni::advance_domain(pending.ticket,pending.seconds,native_thread());
         { wait_log::Scope timed(wait_log::Advance); ma::oni::colony::advance(pending.ticket,pending.seconds,native_thread()); }
@@ -557,8 +597,24 @@ float on_displacement(std::uint16_t element,int a,int b,int c,void* data) {
         owned_cell(Hook,c)) return 0;
     return original<float (*)(std::uint16_t,int,int,int,void*)>(Hook)(element,a,b,c,data);
 }
-FORWARD(on_step, MA_ONI_STEP, void, (void* self,void* data,void* game,const void* previous), (self,data,game,previous))
-FORWARD(on_begin_frame, MA_ONI_BEGIN_FRAME, int, (void* self), (self))
+void on_step(void* self,void* data,void* game,const void* previous) {
+    Call call(MA_ONI_STEP);++native_step_depth;
+    struct Release {
+        ~Release(){if(!--native_step_depth && worker_frame_fence.owns_lock())worker_frame_fence.unlock();}
+    } release;
+    original<void (*)(void*,void*,void*,const void*)>(MA_ONI_STEP)(self,data,game,previous);
+}
+int on_begin_frame(void* self) {
+    Call call(MA_ONI_BEGIN_FRAME);
+    const auto count=original<int (*)(void*)>(MA_ONI_BEGIN_FRAME)(self);
+    // The pinned BeginFrame only moves SimFrameInfo pointer queues under its
+    // own synchronization; it never touches SimData or body/chunk registries.
+    // Acquire afterward, preserving that lock order and excluding the complete
+    // Step, including zero-frame component-list and GameData copies.
+    if(!worker_frame_fence.owns_lock())
+        worker_frame_fence=std::unique_lock<std::mutex>(ma::oni::domain_frame_mutex());
+    return count;
+}
 void on_end_frame(void* self) {
     Call call(MA_ONI_END_FRAME); wait_log::Scope timed(wait_log::EndFrame);
     original<void (*)(void*)>(MA_ONI_END_FRAME)(self);
@@ -568,13 +624,34 @@ void on_end_frame(void* self) {
         if (!worker_frame_fence.owns_lock()) frame_lock=std::unique_lock<std::mutex>(ma::oni::domain_frame_mutex());
         fulfill_paired_capture();
     }
-    if (worker_frame_fence.owns_lock()) worker_frame_fence.unlock();
+    // CopySimDataToGame still follows EndFrame, including for zero intervals.
+    // Windows inlines Step into Main, so its publication binding releases the
+    // worker fence; Linux retains it through the outer Step hook's return.
 }
 FORWARD(on_consumer, MA_ONI_CONSUMER, void, (void* self,float dt,void* data,const void* region), (self,dt,data,region))
 FORWARD(on_emitter, MA_ONI_EMITTER, void, (void* self,float dt,void* data,const void* region), (self,dt,data,region))
 FORWARD(on_emitter_dispatch, MA_ONI_EMITTER_DISPATCH, void, (void* self,float dt,void* data,const void* region), (self,dt,data,region))
-FORWARD(on_building_heat, MA_ONI_BUILDING_HEAT, void, (void* self,float dt,void* data,const void* region), (self,dt,data,region))
 #undef FORWARD
+ma::oni::paired_heat::Cell paired_projection(std::int32_t index) noexcept {
+    const auto state=ma::oni::colony::native_heat_projection(index);
+    return {state.element,std::bit_cast<std::uint32_t>(state.mass),std::bit_cast<std::uint32_t>(state.temperature),state.valid};
+}
+void on_building_heat(void* self,float dt,void* data,const void* region) {
+    Call call(MA_ONI_BUILDING_HEAT);
+    const auto forward=[&](void* view){original<void (*)(void*,float,void*,const void*)>(MA_ONI_BUILDING_HEAT)(view,dt,data,region);};
+    if((!ma::oni::paired_heat::BuildingObserver::enabled() && !ma::oni::paired_heat::Observer::correcting()) || !ma::oni::colony::active() || !self || !data || !region) {forward(self);return;}
+    const auto ticket=native_paired_heat_ticket.load(std::memory_order_acquire);
+    ma::oni::paired_heat::BuildingObserver observation(data,region,ticket,counters[MA_ONI_PROCESS_FRAME].entries.load(std::memory_order_relaxed),&paired_heat);
+#if defined(_WIN32)
+    constexpr auto layout=ma::oni::paired_heat::windows_buildings;
+#else
+    constexpr auto layout=ma::oni::paired_heat::linux_buildings;
+#endif
+    const bool handled=ma::oni::paired_heat::each_building(self,layout,forward,
+        [&](const std::byte* record,std::int32_t handle){observation.before(record,handle,ma::oni::colony::owns,ma::oni::colony::native_specific_heat,paired_projection);},
+        [&](const std::byte* record,std::int32_t handle){observation.after(record,handle);});
+    if(!handled)forward(self);
+}
 
 ma::oni::DomainChunkHeat prepare_chunk_contact(void* accessor,void* chunk,float dt,float scale) {
     ma::oni::DomainChunkHeat result{};
@@ -603,12 +680,31 @@ ma::oni::DomainChunkHeat prepare_chunk_contact(void* accessor,void* chunk,float 
     if (result.handled) std::memcpy(static_cast<std::uint8_t*>(chunk)+4,&result.temperature,4);
     return result;
 }
+ma::oni::paired_heat::Contact observe_chunk_before(void* accessor,void* chunk) noexcept {
+    if(!ma::oni::paired_heat::Observer::observing() || !accessor || !chunk)return {};
+    const ma::oni::body_heat_trace::detail::Preserve preserve;
+    const auto cell=ma::oni::body_heat_trace::detail::read<std::int32_t>(accessor,8);
+    const bool owned=ma::oni::colony::owns(cell);
+    const auto* soa=ma::oni::body_heat_trace::detail::read<const void*>(accessor,0);
+#if defined(_WIN32)
+    constexpr std::size_t element_offset=8;
+#else
+    constexpr std::size_t element_offset=0;
+#endif
+    const auto* elements=soa?ma::oni::body_heat_trace::detail::read<const std::uint16_t*>(soa,element_offset):nullptr;
+    const double cp=owned && elements?ma::oni::colony::native_specific_heat(elements[cell]):0;
+    auto observation=paired_heat.before(accessor,chunk,owned,cp,paired_projection(cell));
+    observation.registered=observation.handle!=-1 && storage_heat.registered(observation.handle);
+    return observation;
+}
 #if defined(_WIN32)
 float on_chunk_heat(float dt,const void* data,const void* handle,void* accessor,float scale,void* chunk) {
     Call call(MA_ONI_CHUNK_HEAT);const auto result=prepare_chunk_contact(accessor,chunk,dt,scale);
     if (result.handled) return result.delta_kj;
+    const auto observation=observe_chunk_before(accessor,chunk);
     using Function=float (*)(float,const void*,const void*,void*,float,void*);
     const auto exchanged=original<Function>(MA_ONI_CHUNK_HEAT)(dt,data,handle,accessor,scale,chunk);
+    paired_heat.after(observation,exchanged);
     if(exchanged!=0 && dt>0 && accessor && ma::oni::colony::active()) {
         std::int32_t cell{};std::memcpy(&cell,static_cast<const std::uint8_t*>(accessor)+8,4);
         ma::oni::colony::wake_native_cell(cell);
@@ -619,7 +715,9 @@ float on_chunk_heat(float dt,const void* data,const void* handle,void* accessor,
 float on_chunk_heat(void* accessor,void* chunk,float dt,float scale) {
     Call call(MA_ONI_CHUNK_HEAT);const auto result=prepare_chunk_contact(accessor,chunk,dt,scale);
     if (result.handled) return result.delta_kj;
+    const auto observation=observe_chunk_before(accessor,chunk);
     const auto exchanged=original<float (*)(void*,void*,float,float)>(MA_ONI_CHUNK_HEAT)(accessor,chunk,dt,scale);
+    paired_heat.after(observation,exchanged);
     if(exchanged!=0 && dt>0 && accessor && ma::oni::colony::active()) {
         std::int32_t cell{};std::memcpy(&cell,static_cast<const std::uint8_t*>(accessor)+8,4);
         ma::oni::colony::wake_native_cell(cell);
@@ -630,10 +728,15 @@ float on_chunk_heat(void* accessor,void* chunk,float dt,float scale) {
 
 void on_copy_to_game(void* self, void* data, void* game, const void* previous, int frames) {
     PublicationCall call; wait_log::Scope timed(wait_log::CopyToGame);
+    struct Finish {
+        void* game;bool copied=false;
+        ~Finish(){if(copied)storage_submissions.copied(game);else storage_submissions.refuse();if(!native_step_depth && worker_frame_fence.owns_lock())worker_frame_fence.unlock();}
+    } finish{game};
     std::unique_lock<std::mutex> frame_lock;
     if (!worker_frame_fence.owns_lock()) frame_lock = std::unique_lock<std::mutex>(ma::oni::domain_frame_mutex());
     using Function = void (*)(void*, void*, void*, const void*, int);
     reinterpret_cast<Function>(publication_originals[0])(self, data, game, previous, frames);
+    finish.copied=true;
     // The native copy has already replaced this GameData. A failed capture
     // must not leave the previous frame cached under the same identity.
     const auto forget = [game]() noexcept {
@@ -648,6 +751,10 @@ void on_copy_to_game(void* self, void* data, void* game, const void* previous, i
 void* on_prepare_game_update(const void* game) {
     PublicationCall call; ma::oni::published_frames::unbind();
     const auto result = reinterpret_cast<void* (*)(const void*)>(publication_originals[1])(game);
+    // Native Start also constructs its initial view here, before its first
+    // worker copy; it does not GameSync/post another Step. Only real Prepare
+    // messages announce the new publication whose other buffer is now running.
+    if(native_prepare_depth)storage_submissions.publication(game);
     try { ma::oni::published_frames::bind(game, result); }
     catch (const std::exception& error) { ma::oni::fault_domain_solid_heat(error.what()); }
     catch (...) { ma::oni::fault_domain_solid_heat("Cannot bind completed native publication"); }
@@ -1721,7 +1828,31 @@ MAOniResult ma_oni_conduit_heat_pending(std::uint32_t* count) {
     return boundary([&] {if(!count)throw Failure(MA_ONI_INVALID_ARGUMENT,"Missing conduit body-energy completion count");*count=conduit_heat.pending();});
 }
 MAOniResult ma_oni_conduit_heat_reset() {return boundary([&] {conduit_heat.reset();});}
-std::uint32_t ma_oni_storage_heat_version() {return ma::oni::storage_heat::Monitor::supported()?2U:0U;}
+std::uint32_t ma_oni_native_frames_version() {return 1U;}
+MAOniResult ma_oni_native_frames_progress(MAOniNativeFrameProgress* output) {
+    return boundary([&] {
+        if(!output || output->struct_size!=sizeof(*output) || output->abi_version!=1)
+            throw Failure(MA_ONI_INVALID_ARGUMENT,"Invalid native frame progress ABI");
+        if(!installed || !image_base || native_submission_depth || native_step_depth)
+            throw Failure(MA_ONI_BUSY,"Native frame progress requires the attached backend outside a native call");
+        const auto p=storage_submissions.progress();
+        *output={sizeof(*output),1,p.session,p.queued,p.posted,p.processed,p.posted_steps,p.completed_steps};
+    });
+}
+MAOniResult ma_oni_native_frames_complete(MAOniNativeFrameProgress* output,std::uint32_t timeout_ms) {
+    return boundary([&] {
+        if(!output || output->struct_size!=sizeof(*output) || output->abi_version!=1 || !timeout_ms || timeout_ms>60000)
+            throw Failure(MA_ONI_INVALID_ARGUMENT,"Invalid native frame completion ABI or timeout");
+        if(!installed || !image_base || native_submission_depth || native_step_depth)
+            throw Failure(MA_ONI_BUSY,"Native frame completion requires the attached backend outside a native call");
+        storage_heat.available(); // A live transfer already owns the domain mutex.
+        auto submission=storage_submissions.acquire(std::chrono::milliseconds(timeout_ms));
+        std::unique_lock frame(ma::oni::domain_frame_mutex());
+        const auto p=storage_submissions.progress();
+        *output={sizeof(*output),1,p.session,p.queued,p.posted,p.processed,p.posted_steps,p.completed_steps};
+    });
+}
+std::uint32_t ma_oni_storage_heat_version() {return ma::oni::storage_heat::Monitor::supported()?3U:0U;}
 MAOniResult ma_oni_storage_heat_register(std::int32_t handle,float temperature,float capacity) {
     return boundary([&] {
         if(!installed || !ma::oni::storage_heat::Monitor::supported() || !ma::oni::colony::active())
@@ -1744,6 +1875,32 @@ MAOniResult ma_oni_storage_heat_copy(MAOniStorageHeatReceipt* output,std::uint32
 }
 MAOniResult ma_oni_storage_heat_ack(std::uint64_t through) {return boundary([&] {storage_heat.ack(through);});}
 MAOniResult ma_oni_storage_heat_reset() {return boundary([&] {storage_heat.reset();});}
+MAOniResult ma_oni_storage_heat_begin(std::uint64_t* token) {
+    return boundary([&] {
+        if(!token)throw Failure(MA_ONI_INVALID_ARGUMENT,"Missing exact storage transfer token output");
+        if(!installed || !image_base || !ma::oni::colony::active() || native_submission_depth || native_step_depth)
+            throw Failure(MA_ONI_BUSY,"Exact storage transfer requires the attached colony outside a native call");
+        storage_heat.available();
+        auto submission=storage_submissions.acquire();
+        std::unique_lock frame(ma::oni::domain_frame_mutex());
+        void* sim{};std::memcpy(&sim,reinterpret_cast<const void*>(image_base+selected->data_rva),sizeof(sim));
+        const auto lease=storage_heat.begin(sim,counters[MA_ONI_PROCESS_FRAME].entries.load(std::memory_order_relaxed),std::move(submission),std::move(frame));
+        if(!lease)throw Failure(MA_ONI_BUSY,"Exact storage transfer awaits its declared native data/removal endpoint");
+        *token=lease;
+    });
+}
+MAOniResult ma_oni_storage_heat_replace(std::uint64_t token,const MAOniStorageHeatEndpoint* values,std::uint32_t count) {
+    return boundary([&] {
+        try {storage_heat.replace(token,values,count);}
+        catch(const std::invalid_argument& error){throw Failure(MA_ONI_INVALID_ARGUMENT,error.what());}
+    });
+}
+MAOniResult ma_oni_storage_heat_end(std::uint64_t token,std::uint32_t commit) {
+    return boundary([&] {
+        try {storage_heat.end(token,commit);}
+        catch(const std::invalid_argument& error){throw Failure(MA_ONI_INVALID_ARGUMENT,error.what());}
+    });
+}
 std::uint32_t ma_oni_domain_chunk_heat_abi_version() { return 1; }
 MAOniResult ma_oni_domain_chunk_heat_status(MAOniDomainChunkHeatStatus* output) {
     return boundary([&] {

@@ -127,6 +127,8 @@ namespace MixedAtmospheres.Oni
             if(contents.Count==0)return true;
             Satisfied.Invoke(consumer,new object[]{true});
             if(!consumer.alwaysConsume&&!consumer.operational.MeetsRequirements(consumer.OperatingRequirement))return true;
+            if(!ColonyOwnedStorage.TryBeginAdmission(consumer.storage,out var admission))return true;
+            using var admissionBoundary=admission;
             var request=Mathf.Min(Rate(consumer)*dt,Space(consumer));
             request=ColonyOwnedStorage.IntakeLimit(consumer.storage,request);
             Discover(contents);
@@ -138,9 +140,8 @@ namespace MixedAtmospheres.Oni
             // the cell's proportions, as a vanilla wrong packet would.
             double take=Math.Min(request,contents.Mass);
             if(wanted.Sign>0)take=Math.Min(take,request*contents.Mass/wanted.Value);
-            var parcel=ColonyConduits.TakeForPort(flow,cell,null,take);
+            var source=ColonyConduits.PrepareTakeForPort(flow,cell,null,take,out var parcel);
             if(parcel.Count==0)return true;
-            consumer.consumedLastTick=true;consumer.lastConsumedElement=ColonyConduits.ElementHash(parcel.Dominant);++Consumed;
             var stored=PipeInventory.Empty;var dumped=parcel;
             foreach(var part in parcel.Parts)
                 if(Stores(part.Id,flow,consumer.capacityTag,any,store))
@@ -148,6 +149,15 @@ namespace MixedAtmospheres.Oni
             var wrong=PipeAmount.Zero;
             foreach(var part in parcel.Parts)
                 if(!any&&!ElementOf(part.Id).HasTag(consumer.capacityTag))wrong=wrong.Plus(part.Amount);
+            var prepared=stored.Count>0?ColonyOwnedStorage.PrepareAdmission(consumer.storage,stored):null;
+            var admitted=prepared!=null?ToStorage.Joined(stored):ToStorage;
+            // Both authoritative inventories and their journal are prepared
+            // before either changes. No game callback runs between commits.
+            if(prepared!=null){prepared.Commit(source);ToStorage=admitted;}else source.Commit();
+            consumer.consumedLastTick=true;consumer.lastConsumedElement=ColonyConduits.ElementHash(parcel.Dominant);++Consumed;
+            source.Publish();
+            if(prepared!=null)prepared.Publish();
+            else if(stored.Count>0)Deliver(consumer.storage,stored,consumer.keepZeroMassObject);
             // Vanilla damages a building for each wrong packet it consumes; a
             // trace of another species in a mixture does not count as one.
             if(!any&&wrong.Value>=ColonySensors.TraceFraction*parcel.Mass)
@@ -155,7 +165,6 @@ namespace MixedAtmospheres.Oni
                 ++DamageEvents;
                 consumer.BoxingTrigger(DoBuildingDamage,new BuildingHP.DamageSourceInfo{damage=1,source=STRINGS.BUILDINGS.DAMAGESOURCES.BAD_INPUT_ELEMENT,popString=STRINGS.UI.GAMEOBJECTEFFECTS.DAMAGE_POPS.WRONG_ELEMENT});
             }
-            if(stored.Count>0)Deliver(consumer.storage,stored,consumer.keepZeroMassObject);
             if(dumped.Count>0)Dump(dumped,flow,cell,Grid.PosToCell(consumer));
             return true;
         }

@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Runtime.InteropServices;
 using HarmonyLib;
 
 namespace MixedAtmospheres.Oni
@@ -67,8 +68,7 @@ namespace MixedAtmospheres.Oni
 
     internal static unsafe class NativeMessageBoundary
     {
-        [ThreadStatic] private static bool nativeFrameQueued;
-        internal static void ResetStoragePublication()=>nativeFrameQueued=false;
+        internal static void ResetStoragePublication() { }
         // Preparing GameData posts the queued native frame. Finish its actual
         // thermal work before managed publication and conduit callbacks can
         // withdraw exact storage. NewGameFrame only queues the frame: waiting
@@ -84,17 +84,25 @@ namespace MixedAtmospheres.Oni
         }
         private static IntPtr ForwardNativeUntimed(int message,int length,byte* payload)
         {
-            if(message==DevelopmentTelemetrySampler.NewGameFrameMessage)
-            {
-                var queued=Sim.SIM_HandleMessage(message,length,payload);nativeFrameQueued=true;return queued;
-            }
-            var finish=message==DevelopmentTelemetrySampler.PrepareGameDataMessage&&nativeFrameQueued;
-            if(message==DevelopmentTelemetrySampler.PrepareGameDataMessage)nativeFrameQueued=false;
-            if(!ColonyOwnedStorage.Enabled||!finish)return Sim.SIM_HandleMessage(message,length,payload);
-            var before=ColonySaveBarrier.NativeFrameCounters();
             var result=Sim.SIM_HandleMessage(message,length,payload);
-            _=ColonySaveBarrier.WaitNativeFrameAfter(before);
+            FinishNativePublication(message);
             return result;
+        }
+        private static IntPtr ForwardNativeBatch(int message,int length,int count,byte* payload)
+        {
+            var result=Sim.SIM_HandleMessages(message,length,count,payload);
+            FinishNativePublication(message);
+            return result;
+        }
+        private static void FinishNativePublication(int message)
+        {
+            // Prepare returns a view into the just-published GameData buffer;
+            // native Step writes the other buffer until the next Prepare.
+            // Waiting changes neither that pointer nor callback dispatch order.
+            // Include batches and frames queued by another managed thread:
+            // the backend owns the actual posted prefix and complete-Step fence.
+            if(message==DevelopmentTelemetrySampler.PrepareGameDataMessage && ColonyOwner.Active)
+                _=ColonyNativeFrames.Complete();
         }
         // An ordinary game, and the colony-owner scenes that check it (no
         // development domain, floor arena or telemetry): only the colony owner
@@ -188,7 +196,7 @@ namespace MixedAtmospheres.Oni
             if (ProbeScope.World == null && Ordinary)
             {
                 if (ColonyRuntimeValidation.Settings != null) ColonyOwner.Count(message, count);
-                return ColonyOwner.TryHandle(message, length, count, payload) ? IntPtr.Zero : Sim.SIM_HandleMessages(message, length, count, payload);
+                return ColonyOwner.TryHandle(message, length, count, payload) ? IntPtr.Zero : ForwardNativeBatch(message, length, count, payload);
             }
             if (ProbeScope.World == null)
             {
@@ -205,11 +213,40 @@ namespace MixedAtmospheres.Oni
                     for (var index = 0; index < count; ++index)
                         NativeSealedDomainValidation.BeforeNativeMutation(message, length, payload + checked(index * length));
                 }
-                return Sim.SIM_HandleMessages(message, length, count, payload);
+                return ForwardNativeBatch(message, length, count, payload);
             }
             // A partial batch followed by a rejection would break atomicity.
             // No batch is accepted until its whole transaction is implemented.
             throw new NotSupportedException("Batch native messages are not implemented in the probe.");
+        }
+    }
+
+    internal static class ColonyNativeFrames
+    {
+        [StructLayout(LayoutKind.Sequential)]
+        internal struct Progress
+        {
+            internal uint Size,Version;
+            internal ulong Session,Queued,Posted,Processed,PostedSteps,CompletedSteps;
+            internal static Progress Empty=>new Progress{Size=56,Version=1};
+        }
+        [DllImport("mixed_atmospheres_oni",EntryPoint="ma_oni_native_frames_progress",CallingConvention=CallingConvention.Cdecl)]
+        private static extern int CaptureNative(ref Progress output);
+        [DllImport("mixed_atmospheres_oni",EntryPoint="ma_oni_native_frames_complete",CallingConvention=CallingConvention.Cdecl)]
+        private static extern int CompleteNative(ref Progress output,uint timeoutMilliseconds);
+        private static Progress Validate(Progress value,bool completed)
+        {
+            if(value.Size!=56 || value.Version!=1 || value.Session==0 || value.Posted>value.Queued || value.Processed>value.Posted ||
+                (completed && (value.Processed!=value.Posted || value.CompletedSteps<value.PostedSteps)))
+                throw new InvalidOperationException("Native frame progress is invalid or incomplete.");
+            return value;
+        }
+        internal static Progress Capture()
+        {var value=Progress.Empty;OniNativeColony.Check(CaptureNative(ref value));return Validate(value,false);}
+        internal static Progress Complete(int timeoutMilliseconds=10000)
+        {
+            if(timeoutMilliseconds<1 || timeoutMilliseconds>60000)throw new ArgumentOutOfRangeException(nameof(timeoutMilliseconds));
+            var value=Progress.Empty;OniNativeColony.Check(CompleteNative(ref value,(uint)timeoutMilliseconds));return Validate(value,true);
         }
     }
 

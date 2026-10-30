@@ -49,9 +49,66 @@ internal static class StorageHeatTests
         Refuse(()=>old.AddHeat(work,Material));
         Console.WriteLine("PASS native registration precedes withdrawal: pending transfer is inert, exact initial contact work travels with mass and germs, and old empty-source heat is refused");
     }
+    private static void PreparedNativeEndpoints()
+    {
+        var store=new OwnedFluidStore(new StoredFluidAddress(7,0),2,PipeInventory.Single(Water,2,300,0,.25));
+        // This is the late segment from a previously posted native frame, not
+        // merely its registration callback. Settle it before making the parcel.
+        store.AddHeat(PipeContactWork.IntoFluid(2,300,299.5f).Negated(),Material);
+        var move=store.PrepareWithdrawalTo(PipeInventory.Empty,double.MaxValue,10,Material);
+        var endpoints=new[]{new StorageThermalEndpoint(17,299.5f,0)};
+        var targets=new StorageThermalTargets(endpoints);
+        endpoints[0]=new StorageThermalEndpoint(17,300,2); // caller cannot alter the prepared batch
+        Check(targets.Matches(17,299.5f,0),"The absolute UI write was not suppressed after the native endpoint had already been installed.");
+        var transition=new StorageThermalTargets(new[]{new StorageThermalEndpoint(17,299.5f,1)},new[]{new StorageThermalEndpoint(17,300,2)},new[]{new StorageThermalEndpoint(17,299.25f,2)});
+        Check(transition.Transition(17,300,1)&&transition.Transition(17,299.5f,2)&&transition.Transition(17,299.25f,1)&&transition.Transition(17,299.5f,1),
+            "A legitimate separate mass/temperature setter tried to queue an intermediate native endpoint.");
+        Refuse(()=>transition.Matches(17,300,1));
+        Refuse(()=>transition.Transition(17,301,1));
+        Refuse(()=>transition.Transition(17,299.5f,3));
+        Refuse(()=>new StorageThermalTargets(new[]{new StorageThermalEndpoint(17,300,1)},Array.Empty<StorageThermalEndpoint>()));
+        var before=Image(store);
+        Refuse(()=>targets.Matches(17,300,2));
+        Refuse(()=>targets.Matches(17,299.5f,BitConverter.Int32BitsToSingle(unchecked((int)0x80000000))));
+        Refuse(()=>new StorageThermalTargets(new[]{new StorageThermalEndpoint(17,300,2),new StorageThermalEndpoint(17,299,2)}));
+        Refuse(()=>new StorageThermalTargets(new[]{default(StorageThermalEndpoint)}));
+        Check(Image(store).SequenceEqual(before)&&!targets.Matches(18,300,2),
+            "A refused or foreign projection changed physical storage or suppressed an unowned native write.");
+        store.Commit(move);
+        Check(store.Inventory.Count==0&&move.Outside.Energy.Minus(new PipeAmount(599000)).Sign==0&&
+            move.Outside.Mass==2&&move.Outside.Germs[0].Amount.Minus(new PipeAmount(.25)).Sign==0&&store.Audit(),
+            "A fenced full withdrawal left native work behind or changed mass, germs or the physical journal.");
+        var reused=new StorageThermalTargets(new[]{new StorageThermalEndpoint(unchecked((int)0x81000011),300,2)});
+        Check(reused.Matches(unchecked((int)0x81000011),300,2)&&!reused.Matches(17,300,2),
+            "A reused native slot was confused with its older handle generation.");
+        Check(System.Runtime.InteropServices.Marshal.SizeOf<StorageThermalEndpoint>()==16,"The native transfer endpoint ABI changed.");
+        Console.WriteLine("PASS fenced storage projection: late work travels with the full parcel; exact installed endpoints suppress only matching native writes; stale, malformed and reused-handle substitutions refuse");
+    }
+    private static void ValidateAdmissionBeforeCommit()
+    {
+        var store=new OwnedFluidStore(new StoredFluidAddress(8,0),2,PipeInventory.Single(Water,2,300));
+        var incoming=PipeInventory.Single(Water,1,280,0,.25);
+        var move=store.PrepareAdmission(incoming,10,Material);var before=Image(store);
+        store.Validate(move);
+        Check(Image(store).SequenceEqual(before),"Admission prevalidation changed the held inventory or journal.");
+        var foreign=new OwnedFluidStore(new StoredFluidAddress(9,0),2,PipeInventory.Empty);
+        Refuse(()=>foreign.Validate(move));
+        Check(foreign.PristineEmpty&&Image(store).SequenceEqual(before),"Foreign admission validation changed a storage owner.");
+        // Earlier native work can invalidate a prepared parcel without moving
+        // source fluid. Validation must catch it before the paired pipe commit.
+        store.AddHeat(new PipeAmount(-1000),Material);var settled=Image(store);
+        Refuse(()=>store.Validate(move));
+        Check(Image(store).SequenceEqual(settled),"A stale admission changed the settled storage endpoint.");
+        move=store.PrepareAdmission(incoming,10,Material);store.Validate(move);store.Commit(move);
+        Check(store.Inventory.Mass==3&&store.Inventory.Energy.Minus(new PipeAmount(879000)).Sign==0&&store.Audit(),
+            "A re-prepared intake lost prior native work, incoming energy or its journal.");
+        Console.WriteLine("PASS storage intake preparation: validation is inert, foreign and heat-stale moves refuse before commit, and re-prepared energy and journals close");
+    }
     internal static void Run()
     {
         RegistrationBeforeWithdrawal();
+        PreparedNativeEndpoints();
+        ValidateAdmissionBeforeCommit();
         var first=new OwnedFluidStore(new StoredFluidAddress(1,0),2,PipeInventory.Single(Water,1,300));
         var second=new OwnedFluidStore(new StoredFluidAddress(2,0),2,PipeInventory.Single(Water,1,300));
         var empty=new OwnedFluidStore(new StoredFluidAddress(3,0),2,PipeInventory.Empty);

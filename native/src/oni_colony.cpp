@@ -2174,7 +2174,25 @@ void observe_oracle(const Catalogue& cat, std::uint32_t cell, const ShadowCell& 
     o.residue = extinct ? 0.f : step.clock.residue;
 }
 }
-void capture_shadow(const NativeCells& n,std::uint64_t native_ticket) noexcept {
+double native_specific_heat(std::uint16_t native_element) noexcept {
+    try {
+        std::shared_ptr<const Published> p;{std::lock_guard lock(publication);p=latest;}
+        if(!p || !p->catalogue || !p->catalogue->has_native(native_element))return 0;
+        return p->catalogue->materials[p->catalogue->species_of_native(native_element)].game.specific_heat_j_per_kg_k;
+    }catch(...){return 0;}
+}
+NativeHeatProjection native_heat_projection(int native_cell) noexcept {
+    if(!owns(native_cell) || !geometry.width)return {};
+    const auto c=static_cast<std::uint32_t>(native_cell),pitch=geometry.grid_width+2;
+    const auto x=c%pitch-1,y=c/pitch-1;
+    if(x<geometry.offset_x || x-geometry.offset_x>=geometry.width || y<geometry.offset_y || y-geometry.offset_y>=geometry.height)return {};
+    const auto i=x-geometry.offset_x+static_cast<std::size_t>(y-geometry.offset_y)*geometry.width;
+    if(i>=shadow.size())return {};
+    const auto& sh=shadow[i];
+    if(!sh.written || retiring[i].load(std::memory_order_relaxed)!=0 || sh.solid_landed || sh.displaced_from!=SIZE_MAX)return {};
+    return {sh.element,sh.mass,sh.temperature,true};
+}
+void capture_shadow(const NativeCells& n,std::uint64_t native_ticket,std::span<const NativeHeatAdjustment> paired_heat) noexcept {
     if (!enabled.load(std::memory_order_acquire) || shadow.size() != owned_count || n.pitch != geometry.grid_width + 2) return;
     std::shared_ptr<const Published> p; { std::lock_guard lock(publication); p = latest; }
     if (!p || !p->catalogue) return;
@@ -2188,6 +2206,40 @@ void capture_shadow(const NativeCells& n,std::uint64_t native_ticket) noexcept {
         }
         const auto& cat = *p->catalogue; const auto vacuum = geometry.vacuum_index;
         const auto heat_capacity = [&](std::uint16_t e) { return cat.materials[cat.species_of_native(e)].game.specific_heat_j_per_kg_k; };
+        for(const auto& adjustment:paired_heat) {
+            const auto c=adjustment.native_cell;
+            bool valid=native_ticket && c>=0 && static_cast<std::uint64_t>(c)<static_cast<std::uint64_t>(n.pitch)*n.rows && owns(c) && std::isfinite(adjustment.joules);
+            std::size_t i=SIZE_MAX;
+            if(valid) {
+                const auto x=static_cast<std::uint32_t>(c)%n.pitch-1,y=static_cast<std::uint32_t>(c)/n.pitch-1;
+                valid=x>=geometry.offset_x && x-geometry.offset_x<geometry.width && y>=geometry.offset_y && y-geometry.offset_y<geometry.height;
+                if(valid)i=x-geometry.offset_x+static_cast<std::size_t>(y-geometry.offset_y)*geometry.width;
+            }
+            if(valid) {
+                const auto& sh=shadow[i];
+                valid=retiring[i].load(std::memory_order_relaxed)==0 && sh.written && !sh.solid_landed && sh.displaced_from==SIZE_MAX &&
+                    sh.element==adjustment.element && std::bit_cast<std::uint32_t>(sh.mass)==adjustment.mass_bits &&
+                    std::bit_cast<std::uint32_t>(sh.temperature)==adjustment.initial_temperature_bits &&
+                    n.element[1][c]==adjustment.element && std::bit_cast<std::uint32_t>(n.mass[1][c])==adjustment.mass_bits &&
+                    std::bit_cast<std::uint32_t>(n.temperature[1][c])==adjustment.final_temperature_bits;
+            }
+            if(!valid) {
+                if(std::getenv("MA_ONI_PAIRED_HEAT_TRACE")) {
+                    const bool native_valid=c>=0 && static_cast<std::uint64_t>(c)<static_cast<std::uint64_t>(n.pitch)*n.rows;
+                    const auto print=[&](const ShadowCell* sh) {
+                        std::fprintf(stderr,"[Mixed Atmospheres] paired capture refusal ticket %llu native-cell %d owner-index %zu owned %u retiring %u written %u landed %u displaced %zu expected %u/%08x/%08x/%08x shadow %u/%08x/%08x final %u/%08x/%08x old %u/%08x/%08x\n",
+                            static_cast<unsigned long long>(native_ticket),c,i,owns(c)?1U:0U,i<owned_count?retiring[i].load(std::memory_order_relaxed):255U,
+                            sh&&sh->written?1U:0U,sh&&sh->solid_landed?1U:0U,sh?sh->displaced_from:SIZE_MAX,
+                            adjustment.element,adjustment.mass_bits,adjustment.initial_temperature_bits,adjustment.final_temperature_bits,
+                            sh?sh->element:0U,sh?std::bit_cast<std::uint32_t>(sh->mass):0U,sh?std::bit_cast<std::uint32_t>(sh->temperature):0U,
+                            native_valid?n.element[1][c]:0U,native_valid?std::bit_cast<std::uint32_t>(n.mass[1][c]):0U,native_valid?std::bit_cast<std::uint32_t>(n.temperature[1][c]):0U,
+                            native_valid?n.element[0][c]:0U,native_valid?std::bit_cast<std::uint32_t>(n.mass[0][c]):0U,native_valid?std::bit_cast<std::uint32_t>(n.temperature[0][c]):0U);
+                    };
+                    print(i<shadow.size()?&shadow[i]:nullptr);
+                }
+                std::lock_guard lock(lifecycle);if(session)fault(*session,"Paired native heat lost its stable projection at capture");return;
+            }
+        }
         std::vector<MAOniColonyHeat> heat; std::vector<MAOniColonyTransfer> moves; std::vector<MAOniColonyTerrain> opened;
         std::vector<Freeze> froze; std::vector<GermEdit> germs; NativeExchange sum; std::vector<std::pair<std::size_t, std::uint32_t>> undone;
         const auto fluid = [&](std::uint16_t e) { return e == vacuum || cat.has_native(e); };
@@ -2319,6 +2371,11 @@ void capture_shadow(const NativeCells& n,std::uint64_t native_ticket) noexcept {
                 if (sh.element != vacuum && sh.mass > 0) take(sh.element, sh.mass, true);
                 if (e != vacuum && m > 0 && t > 0) give(e, m, t);
             }
+        }
+        for(const auto& adjustment:paired_heat) {
+            const auto c=static_cast<std::uint32_t>(adjustment.native_cell);
+            const auto cell=(c%n.pitch-1)+(c/n.pitch-1)*geometry.grid_width;
+            heat.push_back({cell,0,adjustment.joules,0});sum.heat_j+=adjustment.joules;
         }
         std::shared_ptr<NativeArenaFrame> native_arena;
         const bool capture_arena=capture_native_arena.load(std::memory_order_acquire);

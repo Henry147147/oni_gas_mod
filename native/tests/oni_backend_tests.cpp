@@ -1,5 +1,6 @@
 #include "mixed_atmospheres/oni_conduit_contact.h"
 #include "mixed_atmospheres/oni_backend.h"
+#include "mixed_atmospheres/oni_native_frames.h"
 #include "mixed_atmospheres/oni_domain.h"
 #include "mixed_atmospheres/oni_publication.h"
 #include "mixed_atmospheres/oni_colony.h"
@@ -7,6 +8,7 @@
 #include "../src/oni_funchook_storage.hpp"
 #include "../src/oni_body_heat_trace.hpp"
 #include "../src/oni_chunk_heat_trace.hpp"
+#include "../src/oni_paired_heat.hpp"
 #include "../src/oni_storage_heat_native.hpp"
 #include "../src/oni_conduit_heat.hpp"
 #include "../src/oni_runtime_trace.hpp"
@@ -17,6 +19,7 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <future>
 #include <iostream>
 #include <stdexcept>
 #include <string>
@@ -259,6 +262,9 @@ static void chunk_heat_trace_controls() {
     const auto sample=chunk(sim.data(),0x01000000);
     require(sample.valid && sample.cell==123 && sample.temperature_bits==std::bit_cast<std::uint32_t>(300.f) &&
         sample.capacity_bits==std::bit_cast<std::uint32_t>(18.f),"native registered chunk temperature/capacity view");
+    require(ma::oni::paired_heat::chunk_record(sim.data(),0x01000000,ma::oni::chunk_heat_trace::linux_registry)==record.data() &&
+        !ma::oni::paired_heat::chunk_record(sim.data(),0x02000000,ma::oni::chunk_heat_trace::linux_registry),
+        "paired chunk record address lost generation identity");
     require(!chunk(nullptr,0).valid && !chunk(sim.data(),0x02000000).valid && !chunk(sim.data(),0x01000001).valid &&
         !chunk(sim.data(),0x01100000).valid,"native chunk stale generation or missing mapping accepted");
     mapping[0]=-1;require(!chunk(sim.data(),0x01000000).valid,"retired native chunk accepted");
@@ -296,6 +302,207 @@ static void chunk_heat_trace_controls() {
         "native chunk trace lost ordered requests, paired registered values or intervening-energy warning");
     std::cout<<"PASS native chunk observation: actual T/C, ordered absolute updates, intervening-work flags, stale/retired rejection and preserved math/errno\n";
 #endif
+}
+static void paired_heat_observation_controls() {
+#if defined(__linux__)
+    std::array<std::byte,0x600> sim{};std::array<std::byte,44> record{};
+    std::array<std::byte,192> old{},next{};std::array<std::byte,16> accessor{};
+    std::array<std::uint16_t,16> elements{};std::array<float,16> masses{},temperatures0{},temperatures1{};
+    elements[5]=3;masses[5]=1.25f;temperatures0[5]=temperatures1[5]=300.f;
+    std::array<std::int32_t,1> mapping{0};std::array<std::uint8_t,1> generations{1};
+    const auto put=[](auto& target,std::size_t offset,const auto& value){std::memcpy(target.data()+offset,&value,sizeof(value));};
+    put(sim,0,std::int32_t{4});put(sim,4,std::int32_t{4});put(sim,32,old.data());put(sim,40,next.data());
+    put(sim,0x398,record.data());put(sim,0x3a0,record.data()+record.size());
+    put(sim,0x3e0,mapping.data());put(sim,0x3e8,mapping.data()+mapping.size());
+    put(sim,0x3f8,generations.data());put(sim,0x400,generations.data()+generations.size());
+    for(auto* soa:{&old,&next}){put(*soa,0,elements.data());put(*soa,48,masses.data());}
+    put(old,24,temperatures0.data());put(next,24,temperatures1.data());
+    put(accessor,0,next.data());put(accessor,8,std::int32_t{5});
+    put(record,0,std::int32_t{5});put(record,4,std::bit_cast<std::uint32_t>(350.f));put(record,8,std::bit_cast<std::uint32_t>(18.f));
+    char path[]="/tmp/ma-paired-heat-test-XXXXXX";const int descriptor=mkstemp(path);
+    require(descriptor>=0,"paired heat fixture path");(void)close(descriptor);(void)unlink(path);
+    require(setenv("MA_ONI_PAIRED_HEAT_TRACE",path,1)==0,"paired heat fixture opt-in");
+    std::fenv_t initial{};require(std::fegetenv(&initial)==0,"paired heat initial environment");const int initial_errno=errno;
+    ma::oni::paired_heat::Observer observer;
+    for(const auto rounding:{FE_TONEAREST,FE_DOWNWARD,FE_UPWARD,FE_TOWARDZERO}) {
+        require(std::fesetround(rounding)==0,"paired heat rounding control");
+        (void)std::feclearexcept(FE_ALL_EXCEPT);(void)std::feraiseexcept(FE_DIVBYZERO);errno=111;
+        observer.begin(sim.data(),7,9);
+        const auto contact=observer.before(accessor.data(),record.data(),true,1005);
+        require(contact.array==2 && contact.handle==0x01000000 && contact.before[1].valid && contact.specific_heat==1005,
+            "paired heat lost exact updated-array identity or registered handle");
+        temperatures1[5]=301.f;put(record,4,std::bit_cast<std::uint32_t>(349.f));
+        observer.after(contact,1.25f);observer.finish(sim.data(),7);
+        require(errno==111 && std::fegetround()==rounding && std::fetestexcept(FE_ALL_EXCEPT)==FE_DIVBYZERO,
+            "paired heat observer changed caller math or errno");
+        temperatures1[5]=300.f;put(record,4,std::bit_cast<std::uint32_t>(350.f));
+    }
+    (void)std::fesetenv(&initial);errno=initial_errno;
+    auto* output=std::fopen(path,"r");require(output!=nullptr,"paired heat output absent");
+    std::array<char,8192> text{};const auto bytes=std::fread(text.data(),1,text.size()-1,output);(void)std::fclose(output);(void)unlink(path);
+    require(bytes>0 && std::strstr(text.data(),"array_match") && std::strstr(text.data(),"7\t9\t0\t5\t1\t2\t16777216\t") &&
+        std::strstr(text.data(),"\t3\t41900000\t41900000\t43af0000\t43ae8000\t3fa00000\t1005"),
+        "paired heat trace lost native contact endpoints or containing frame");
+    std::cout<<"PASS native paired heat observation: exact array and generation identities, endpoints and preserved math/errno\n";
+#endif
+}
+static void paired_building_invocation_controls() {
+    using namespace ma::oni::paired_heat;
+    for(const auto layout:{linux_buildings,windows_buildings}) {
+        struct Fixture {
+            alignas(16) std::array<std::byte,200> object{};
+            std::array<std::byte,132> records{};
+            std::array<std::int32_t,3> handles{2,0,1};
+            std::array<std::uint64_t,3> results{};
+            std::array<float,3> cells{300.f,300.f,300.f};
+        } whole,split;
+        const auto initialize=[&](Fixture& f) {
+            auto* self=f.object.data()+layout.prefix;
+            relative_write(self,layout.records,f.records.data());relative_write(self,layout.records+8,f.records.data()+f.records.size());
+            relative_write(self,layout.handles,f.handles.data());relative_write(self,layout.handles+8,f.handles.data()+f.handles.size());
+            for(std::size_t i=0;i<3;++i) {
+                relative_write(f.records.data()+44*i,0,i==1?299.f:350.f);
+                relative_write(f.records.data()+44*i,4,std::int32_t(i%2));
+            }
+        };
+        initialize(whole);initialize(split);
+        const auto original=[&](Fixture& f,void* view) {
+            auto* records=relative_read<std::byte*>(view,layout.records);
+            const auto* end=relative_read<std::byte*>(view,layout.records+8);
+            const auto* handles=relative_read<std::int32_t*>(view,layout.handles);
+            // Native resize updates only its own result descriptor. Its
+            // physical output storage remains the real object's allocation.
+            const std::size_t first=layout.result_descriptor==32?8:0;
+            relative_write(view,layout.results+first,f.results.data());
+            relative_write(view,layout.results+first+8,f.results.data()+f.results.size());
+            relative_write(view,layout.results+first+16,f.results.data()+f.results.size());
+            for(std::size_t i=0;records+44*i<end;++i) {
+                auto* record=records+44*i;auto body=relative_read<float>(record,0);
+                const auto cell_index=relative_read<std::int32_t>(record,4);
+                const float delta=(body-f.cells[cell_index])*.125f;
+                f.cells[cell_index]+=delta;body-=delta*.25f;relative_write(record,0,body);
+                f.results[handles[i]]=(std::uint64_t(std::uint32_t(handles[i]))<<32)|std::bit_cast<std::uint32_t>(body);
+            }
+        };
+        original(whole,whole.object.data()+layout.prefix);
+        const auto unchanged=split.object;std::vector<std::int32_t> order;
+        const bool handled=each_building(split.object.data()+layout.prefix,layout,
+            [&](void* view){original(split,view);},[&](const std::byte*,std::int32_t handle){order.push_back(handle);},
+            [&](const std::byte*,std::int32_t handle){require(order.back()==handle,"building invocation changed contact identity");});
+        require(handled && order==std::vector<std::int32_t>({2,0,1}) && whole.records==split.records && whole.cells==split.cells && whole.results==split.results,
+            "per-building invocation changed original arithmetic, overlap order or handle-indexed publication");
+        auto expected=unchanged;
+        std::memcpy(expected.data()+layout.prefix+layout.results,split.object.data()+layout.prefix+layout.results,layout.result_descriptor);
+        require(expected==split.object,"per-building invocation modified real registry descriptors");
+        auto* self=split.object.data()+layout.prefix;
+        relative_write(self,layout.handles+8,split.handles.data()+2);
+        unsigned calls=0;
+        require(!each_building(self,layout,[&](void*){++calls;},[](const std::byte*,std::int32_t){},[](const std::byte*,std::int32_t){}) && !calls,
+            "per-building invocation accepted a malformed handle registry");
+        std::fenv_t initial_environment{};require(std::fegetenv(&initial_environment)==0,"paired building initial environment");
+        const int initial_errno=errno;
+        for(const auto rounding:{FE_TONEAREST,FE_DOWNWARD,FE_UPWARD,FE_TOWARDZERO}) {
+            Fixture environment;initialize(environment);unsigned forwarded=0;
+            require(std::fesetround(rounding)==0,"paired building rounding control");
+            (void)std::feclearexcept(FE_ALL_EXCEPT);errno=123;
+            require(each_building(environment.object.data()+layout.prefix,layout,[&](void*) {
+                require(std::fegetround()==rounding && errno==(forwarded?77:123) &&
+                    std::fetestexcept(FE_ALL_EXCEPT)==(forwarded?FE_INVALID:0),"building observer changed original arithmetic environment");
+                ++forwarded;(void)std::feraiseexcept(FE_INVALID);errno=77;
+            },[](const std::byte*,std::int32_t){(void)std::fesetround(FE_UPWARD);(void)std::feraiseexcept(FE_DIVBYZERO);errno=88;},
+              [](const std::byte*,std::int32_t){(void)std::fesetround(FE_TOWARDZERO);(void)std::feraiseexcept(FE_INEXACT);errno=99;}),
+                "building environment view was refused");
+            require(forwarded==3 && std::fegetround()==rounding && errno==77 && std::fetestexcept(FE_ALL_EXCEPT)==FE_INVALID,
+                "building observer changed native return arithmetic environment");
+        }
+        (void)std::fesetenv(&initial_environment);errno=initial_errno;
+    }
+    std::cout<<"PASS paired building invocation: both ABI views, native resize ownership, overlapping contact order and unchanged real registries\n";
+}
+static void paired_heat_closure_controls() {
+    using namespace ma::oni::paired_heat;
+    const auto state=[](float mass,float temperature,std::uint16_t element=3) {
+        return Cell{element,std::bit_cast<std::uint32_t>(mass),std::bit_cast<std::uint32_t>(temperature),true};
+    };
+    const auto sum=[](const EnergySum& terms){long double value=0;for(std::size_t i=0;i<terms.size();++i)value+=terms.component(i).require_representable();return value;};
+    const auto refused=[](const auto& operation){try {operation();return false;}catch(const std::logic_error&){return true;}};
+    for(const double direction:{-1.,1.})for(const double requested:{.0003,.03125,1.,37.125}) {
+        const float body_before=direction>0?350.f:250.f,body_capacity=18.125f;
+        const auto initial=state(1.2f,300.f);
+        // Independent endpoint publication: each native endpoint rounds to
+        // binary32 using its own capacity. The owner uses catalogue m*Cp.
+        const float cell_capacity=1.2f*1.005f;
+        const float cell_after=static_cast<float>(300.+direction*requested/(1000.*cell_capacity));
+        const float body_after=static_cast<float>(double(body_before)-direction*requested/(1000.*body_capacity));
+        const auto after=state(1.2f,cell_after);constexpr double cp=1005.00011444091796875;
+        const double body_work=1000.*double(body_capacity)*(double(body_after)-body_before);
+        const double native_work=cell_work(initial,after,cp);
+        EnergySum correction;correction.add(-body_work);correction.add(-native_work);
+        ClosureLedger ledger;ledger.begin(71);ledger.record(5,initial,initial,after,cp,correction);
+        const auto completion=ledger.finish(71,true,[&](std::int32_t index){require(index==5,"paired closure moved cell");return after;});
+        long double accounted=static_cast<long double>(body_work)+native_work;
+        for(const auto& h:completion.heat) {
+            require(h.native_cell==5 && h.mass_bits==initial.mass && h.initial_temperature_bits==initial.temperature && h.final_temperature_bits==after.temperature,
+                "paired closure lost exact endpoint operands");accounted+=h.joules;
+        }
+        require(std::abs(accounted)<=1e-15L*(1+std::abs(body_work)+std::abs(native_work)),"paired chunk endpoint closure failed at binary32 ULP");
+        require(refused([&]{(void)ledger.finish(71,true,[&](std::int32_t){return after;});}),"paired closure could be credited twice");
+    }
+    // Two passive bodies overlap one cell; the second consumes precisely the
+    // first body's published endpoint. Mixed-sign contacts retain local work.
+    const auto a=state(1.25f,300.f),b=state(.75f,340.f),c=state(2.f,310.f);
+    const auto aa=state(1.25f,300.001f),bb=state(.75f,339.999f),aaa=state(1.25f,300.002f),cc=state(2.f,309.999f);
+    std::array<BodyCell,2> first{{{5,a,a,aa,true,1005},{6,b,b,bb,true,1005}}};
+    std::array<BodyCell,2> second{{{5,a,aa,aaa,true,1005},{7,c,c,cc,true,1005}}};
+    constexpr double first_body=.123456789,second_body=-.234567891;
+    const auto first_correction=passive_body_corrections(first_body,first),second_correction=passive_body_corrections(second_body,second);
+    long double exact_first=first_body,exact_second=second_body;
+    ClosureLedger ledger;ledger.begin(72);
+    for(std::size_t i=0;i<2;++i){const auto& x=first[i];exact_first+=cell_work(x.before,x.after,x.cp)+sum(first_correction[i]);ledger.record(x.index,x.initial,x.before,x.after,x.cp,first_correction[i]);}
+    for(std::size_t i=0;i<2;++i){const auto& x=second[i];exact_second+=cell_work(x.before,x.after,x.cp)+sum(second_correction[i]);ledger.record(x.index,x.initial,x.before,x.after,x.cp,second_correction[i]);}
+    require(std::abs(exact_first)<1e-15 && std::abs(exact_second)<1e-15,"passive body exact weighted remainder lost represented work");
+    const auto completion=ledger.finish(72,true,[&](std::int32_t index){return index==5?aaa:index==6?bb:cc;});
+    long double closed=first_body+second_body+cell_work(a,aaa,1005)+cell_work(b,bb,1005)+cell_work(c,cc,1005);
+    for(const auto& h:completion.heat)closed+=h.joules;
+    require(std::abs(closed)<1e-15,"overlapping passive body contacts failed closed capture");
+    auto foreign=first;foreign[1].owned=false;
+    require(refused([&]{(void)passive_body_corrections(first_body,foreign);}),"mixed unowned body assigned whole endpoint to owned cell");
+    const std::array<BodyCell,1> no_work{{{5,a,a,a,true,1005}}};
+    require(refused([&]{(void)passive_body_corrections(1.,no_work);}),"unrepresented passive contact chose an arbitrary residual sink");
+    EnergySum one;one.add(1.);
+    for(const unsigned failure:{0,1,2,3,4}) {
+        ClosureLedger refused_ledger;refused_ledger.begin(73);refused_ledger.record(5,a,a,aa,1005,one);
+        if(failure==0)require(refused([&]{(void)refused_ledger.finish(74,true,[&](std::int32_t){return aa;});}),"foreign ticket accepted paired heat");
+        if(failure==1)require(refused([&]{(void)refused_ledger.finish(73,false,[&](std::int32_t){return aa;});}),"reallocated native array accepted paired heat");
+        if(failure==2)require(refused([&]{(void)refused_ledger.finish(73,true,[&](std::int32_t){return state(1.25f,300.003f);});}),"overwritten endpoint accepted paired heat");
+        if(failure==3)require(refused([&]{refused_ledger.record(5,a,a,aaa,1005,one);}),"reordered contact chain accepted paired heat");
+        if(failure==4)require(refused([&]{refused_ledger.record(5,a,aa,state(1.25f,300.002f,4),1005,one);}),"native phase/material change accepted paired heat");
+    }
+    require(refused([&]{(void)cell_work(a,state(1.5f,300.001f),1005);}),"native mass change accepted paired heat");
+    // Foreign native actors retain their original heat credit, but their
+    // actual cell writes must bridge the stored-contact survival chain.
+    const auto origin=state(1,300),stored=state(1,300.01f),foreign1=state(1,300.005f),foreign2=state(1,300.0025f),body=state(1,300.002f);
+    EnergySum stored_counterwork;stored_counterwork.add(10.);stored_counterwork.add(-cell_work(origin,stored,1005));
+    EnergySum body_counterwork;body_counterwork.add(-.5);body_counterwork.add(-cell_work(foreign2,body,1005));
+    const EnergySum no_counterwork;
+    ClosureLedger missing;missing.begin(75);missing.record(9,origin,origin,stored,1005,stored_counterwork);
+    require(refused([&]{missing.record(9,origin,foreign2,body,1005,body_counterwork);}),"unobserved native writes were silently accepted");
+    ClosureLedger bridged;bridged.begin(75);bridged.record(9,origin,origin,stored,1005,stored_counterwork);
+    bridged.record(9,origin,stored,foreign1,1005,no_counterwork);
+    bridged.record(9,origin,foreign1,foreign2,1005,no_counterwork);
+    bridged.record(9,origin,foreign2,body,1005,body_counterwork);
+    const auto bridge=bridged.finish(75,true,[&](std::int32_t){return body;});
+    long double owner_heat=cell_work(origin,body,1005);
+    for(const auto& h:bridge.heat)owner_heat+=h.joules;
+    const long double physical=9.5L+cell_work(stored,foreign1,1005)+cell_work(foreign1,foreign2,1005);
+    require(std::abs(owner_heat-physical)<1e-15L,"zero-counterwork observations changed foreign heat or credited an unowned body");
+    ClosureLedger changed;changed.begin(76);changed.record(9,origin,origin,stored,1005,stored_counterwork);
+    require(refused([&]{changed.unpaired_change(9);}),"unpaired phase/mass change discarded pending counterwork");
+    ClosureLedger empty_change;empty_change.begin(77);empty_change.record(9,origin,origin,stored,1005,no_counterwork);empty_change.unpaired_change(9);
+    require(empty_change.finish(77,true,[&](std::int32_t){return state(2,310,4);}).heat.empty(),"uncorrected foreign mutation created paired credit");
+    ma::oni::storage_heat::Ledger registration;registration.add(0x01000000,300,18);
+    require(registration.registered(0x01000000) && !registration.registered(0x02000000) && !registration.registered(0x01000001),"paired heat storage registration lost generation identity");
+    std::cout<<"PASS paired native closure: both directions/ULPs, overlapping mixed-sign bodies, exact weighted remainder, generation scope and stale/phase/mass/array/ticket refusal\n";
 }
 static void storage_heat_receipt_controls() {
     using ma::oni::storage_heat::Ledger;
@@ -386,6 +593,13 @@ static void storage_heat_native_controls() {
         require(read.valid && read.temperature_bits==std::bit_cast<std::uint32_t>(300.f) && read.capacity_bits==std::bit_cast<std::uint32_t>(18.f),"storage heat registry platform layout");
         require(!chunk_heat_trace::chunk_at(sim.data(),0x02000000,layout).valid,"storage heat platform view accepted a stale generation");
         require(source==sim && body==record,"storage heat registry platform view changed source");
+        auto* writable=storage_heat::writable_chunk_at(sim.data(),0x01000000,layout);
+        require(writable==record.data() && !storage_heat::writable_chunk_at(sim.data(),0x02000000,layout),"storage transfer platform writer accepted a stale generation");
+        const auto replacement_t=std::bit_cast<std::uint32_t>(302.f),replacement_c=std::bit_cast<std::uint32_t>(9.f);
+        std::memcpy(writable+4,&replacement_t,4);std::memcpy(writable+8,&replacement_c,4);
+        auto expected=body;put(expected,4,replacement_t);put(expected,8,replacement_c);
+        require(record==expected && sim==source,"storage transfer platform writer changed fields outside registered T/C");
+        mapping[0]=-1;require(!storage_heat::writable_chunk_at(sim.data(),0x01000000,layout),"storage transfer platform writer accepted a retired compacted record");
     }
     std::array<std::byte,0x600> sim{},frame{};std::array<std::byte,44> body{};
     std::array<std::int32_t,1> mapping{0};std::array<std::uint8_t,1> generations{1};
@@ -448,9 +662,226 @@ static void storage_heat_native_controls() {
     called=false;monitor.process(frame.data(),sim.data(),3,[&]{called=true;});
     bool refused=false;try{(void)monitor.copy(receipts.data(),4);}catch(const std::logic_error&){refused=true;}
     require(called && refused,"unsupported native writer did not preserve original execution and refuse exact heat");
+    refused=false;try{(void)monitor.begin(sim.data(),4);}catch(const std::logic_error&){refused=true;}
+    require(refused,"unsupported native writer permitted a storage transfer lease");
     require(std::fesetenv(&initial)==0,"storage heat environment restoration");errno=initial_errno;
     monitor.reset();require(monitor.copy(receipts.data(),4)==0,"storage native heat teardown left old receipts");
     std::cout<<"PASS storage native heat boundary: both registry layouts, ordered multi-reset processing, immutable messages and sticky refusal of foreign heat writers\n";
+}
+static void native_frame_prefix_controls() {
+    using ma::oni::storage_heat::SubmissionFence;
+    int buffers[2]{};
+    SubmissionFence submissions;submissions.reset();submissions.copied(&buffers[0]);
+    {
+        auto lock=submissions.submission();submissions.queued(3);submissions.posted();submissions.publication(&buffers[0]);submissions.queued();
+    }
+    const auto captured=submissions.progress();
+    require(captured.session==1 && captured.queued==4 && captured.posted==3 && captured.processed==0,
+        "native frame capture lost a queued/unposted prefix");
+    std::mutex domain;int publication_tail=0;
+    std::promise<void> attempting,acquired;auto entered=attempting.get_future();auto prefix_done=acquired.get_future();
+    auto completion=std::async(std::launch::async,[&] {
+        attempting.set_value();auto submission=submissions.acquire();acquired.set_value();
+        std::lock_guard frame(domain);
+        require(publication_tail==17,"native completion crossed an unfinished Step publication tail");
+        return submissions.progress();
+    });
+    entered.wait();submissions.processed();submissions.processed();
+    const bool waited_prefix=prefix_done.wait_for(std::chrono::milliseconds(10))!=std::future_status::ready;
+    // The final ProcessFrame still has UpdateData, EndFrame and GameData-copy
+    // work after it. Completion must retain its submission gate through that
+    // full domain fence, even though the processed prefix is now complete.
+    std::unique_lock tail(domain);submissions.processed();
+    const bool waited_publication=prefix_done.wait_for(std::chrono::milliseconds(10))!=std::future_status::ready;
+    submissions.copied(&buffers[1]);prefix_done.wait();
+    const bool waited_tail=completion.wait_for(std::chrono::milliseconds(10))!=std::future_status::ready;
+    std::promise<void> posting;auto later_entered=posting.get_future();
+    auto later=std::async(std::launch::async,[&] {
+        posting.set_value();auto lock=submissions.submission();submissions.posted();submissions.publication(&buffers[1]);submissions.processed();submissions.copied(&buffers[0]);
+    });
+    later_entered.wait();const bool excluded_later=later.wait_for(std::chrono::milliseconds(10))!=std::future_status::ready;
+    publication_tail=17;tail.unlock();const auto finished=completion.get();later.get();
+    require(waited_prefix,"one native batch completion satisfied a multi-interval prefix");
+    require(waited_publication,"processed intervals satisfied an unfinished native publication");
+    require(waited_tail,"native prefix completion returned before the entire Step tail");
+    require(excluded_later,"native completion released submission before its publication fence");
+    require(finished.session==captured.session && finished.queued==4 && finished.posted==3 && finished.processed==3 &&
+        finished.posted_steps==2 && finished.completed_steps==2,
+        "native completion processed, posted or discarded an unposted interval");
+    const auto old=submissions.progress();submissions.reset();const auto fresh=submissions.progress();
+    require(fresh.session==old.session+1 && fresh.queued==0 && fresh.posted==0 && fresh.processed==0 && fresh.posted_steps==0 && fresh.completed_steps==0,
+        "native initialization reused an earlier frame-prefix session");
+    // Timeout refuses without changing the prefix or manufacturing progress.
+    {auto lock=submissions.submission();submissions.queued();submissions.posted();}
+    bool timed_out=false;try{auto lock=submissions.acquire(std::chrono::milliseconds(1));}catch(const std::logic_error&){timed_out=true;}
+    const auto retained=submissions.progress();
+    require(timed_out && retained.queued==1 && retained.posted==1 && retained.processed==0,
+        "native completion timeout changed pending work");
+    // A Prepare with no NewGameFrame still posts an entire native Step.
+    SubmissionFence empty;empty.copied(&buffers[0]);{auto lock=empty.submission();empty.posted();empty.publication(&buffers[0]);}
+    std::promise<void> empty_attempt;auto empty_entered=empty_attempt.get_future();
+    auto zero=std::async(std::launch::async,[&]{empty_attempt.set_value();auto lock=empty.acquire();return empty.progress();});
+    empty_entered.wait();const bool waited_empty=zero.wait_for(std::chrono::milliseconds(10))!=std::future_status::ready;
+    empty.copied(&buffers[1]);const auto zero_done=zero.get();
+    require(waited_empty && zero_done.queued==0 && zero_done.posted==0 && zero_done.processed==0 && zero_done.posted_steps==2 && zero_done.completed_steps==2,
+        "zero-interval Prepare returned before its complete native Step or advanced an interval");
+    // Setup/load messages can also synchronize the native thread. Preserve
+    // the actual buffer epoch instead of inferring a Prepare/Step count offset.
+    SubmissionFence setup;
+    for(unsigned i=0;i<6;++i)setup.copied(&buffers[i%2]);
+    setup.publication(&buffers[1]);
+    const auto target=setup.progress();
+    require(target.completed_steps==6 && target.posted_steps==7,"native publication guessed an offset across setup GameSync calls");
+    setup.copied(&buffers[0]);
+    {auto lock=setup.acquire();require(setup.progress().completed_steps==7,"completed publication did not accept its actual buffer epoch");}
+    int unknown{};setup.publication(&unknown);bool refused=false;
+    try{(void)setup.progress();}catch(const std::logic_error&){refused=true;}
+    require(refused,"unknown native publication buffer silently satisfied a Step fence");
+    std::cout<<"PASS native posted-prefix fence: batched/empty intervals, untouched unposted suffix, complete Step publication, later-submit exclusion and native-session reset\n";
+}
+static void storage_heat_transfer_controls() {
+    using namespace ma::oni;
+    using storage_heat::Monitor;
+    using storage_heat::SubmissionFence;
+    constexpr std::int32_t handle=0x01000000;
+    const auto bits=[](float value){return std::bit_cast<std::uint32_t>(value);};
+    const auto reject=[](auto&& action){bool refused=false;try{action();}catch(const std::exception&){refused=true;}require(refused,"invalid storage transfer accepted");};
+    struct Fixture {
+        std::array<std::byte,0x600> sim{},frame{};
+        std::array<std::byte,88> records{};
+        std::array<std::int32_t,2> mapping{0,1};
+        std::array<std::uint8_t,2> generations{1,1};
+        static void put(void* target,std::size_t offset,const void* value){std::memcpy(static_cast<std::byte*>(target)+offset,&value,sizeof(value));}
+        static void put(void* target,std::size_t offset,std::uint32_t value){std::memcpy(static_cast<std::byte*>(target)+offset,&value,sizeof(value));}
+        static void put(void* target,std::size_t offset,std::int32_t value){std::memcpy(static_cast<std::byte*>(target)+offset,&value,sizeof(value));}
+        static void put(void* target,std::size_t offset,float value){std::memcpy(static_cast<std::byte*>(target)+offset,&value,sizeof(value));}
+        Fixture() {
+            constexpr auto l=storage_heat::registry_layout;
+            put(sim.data(),l.data,records.data());put(sim.data(),l.data+8,records.data()+records.size());
+            put(sim.data(),l.mapping,mapping.data());put(sim.data(),l.mapping+8,mapping.data()+mapping.size());
+            put(sim.data(),l.generations,generations.data());put(sim.data(),l.generations+8,generations.data()+generations.size());
+            set(0,300,18);set(1,310,7);
+        }
+        void set(std::size_t index,float t,float c) {
+            put(records.data()+44*index,0,std::int32_t{123});put(records.data()+44*index,4,t);put(records.data()+44*index,8,c);
+        }
+        auto read(std::int32_t h=0x01000000) const {return chunk_heat_trace::chunk(sim.data(),h);}
+    } f;
+    // A posted interval has not entered ProcessFrame. Merely taking an idle
+    // domain mutex would admit a transfer too early. Once it enters, retain
+    // the fence through UpdateData and the remainder of Step's publication.
+    int buffers[2]{};
+    SubmissionFence submissions;submissions.copied(&buffers[0]);std::mutex domain;
+    Monitor monitor;monitor.add(handle,300,18);
+    {auto lock=submissions.submission();submissions.queued();submissions.posted();submissions.publication(&buffers[0]);}
+    std::promise<void> allow_process,process_done,allow_sample,sample_done,allow_tail;
+    auto process_allowed=allow_process.get_future();auto sample_allowed=allow_sample.get_future();auto tail_allowed=allow_tail.get_future();
+    auto processing=std::async(std::launch::async,[&] {
+        process_allowed.wait();std::lock_guard frame(domain);
+        f.set(0,299,18);
+        monitor.process(f.frame.data(),f.sim.data(),1,[]{});
+        submissions.processed();process_done.set_value();sample_allowed.wait();
+        f.set(0,298,18);monitor.sample(f.sim.data(),1);sample_done.set_value();tail_allowed.wait();submissions.copied(&buffers[1]);
+    });
+    std::promise<void> trying;auto attempted=trying.get_future();
+    auto transferring=std::async(std::launch::async,[&] {
+        trying.set_value();auto posted=submissions.acquire();std::unique_lock frame(domain);
+        const auto token=monitor.begin(f.sim.data(),1,std::move(posted),std::move(frame));
+        require(token!=0,"completed native work did not admit a storage lease");
+        std::array<MAOniStorageHeatReceipt,4> receipts{};
+        require(monitor.copy(receipts.data(),4)==2 && receipts[0].capacity_kj_k==18 && receipts[0].before_k==300 && receipts[0].after_k==299 &&
+            receipts[1].capacity_kj_k==18 && receipts[1].before_k==299 && receipts[1].after_k==298,
+            "storage transfer missed ProcessFrame or late UpdateData work at the old capacity");
+        const MAOniStorageHeatEndpoint partial{handle,297,9,0};const auto before_ack=f.records;
+        reject([&]{monitor.replace(token,&partial,1);});require(f.records==before_ack,"storage replacement passed unacknowledged old-capacity heat");
+        monitor.ack(receipts[1].sequence);
+        monitor.replace(token,&partial,1);monitor.end(token,1);
+    });
+    attempted.wait();const bool waited_entry=transferring.wait_for(std::chrono::milliseconds(0))!=std::future_status::ready;
+    allow_process.set_value();process_done.get_future().wait();
+    const bool waited_update=transferring.wait_for(std::chrono::milliseconds(0))!=std::future_status::ready;
+    allow_sample.set_value();sample_done.get_future().wait();
+    const bool waited_tail=transferring.wait_for(std::chrono::milliseconds(0))!=std::future_status::ready;
+    allow_tail.set_value();processing.get();transferring.get();
+    require(waited_entry,"storage transfer passed a posted frame before ProcessFrame");
+    require(waited_update,"storage transfer passed before UpdateData sampling");
+    require(waited_tail,"storage transfer passed before the complete Step tail");
+    require(f.read().temperature_bits==bits(297) && f.read().capacity_bits==bits(9) && monitor.copy(nullptr,0)==0,
+        "partial withdrawal left the registered old capacity or lost receipt acknowledgements");
+    // Consecutive callbacks do not queue absolute messages for an endpoint
+    // already applied under the lease. Complete withdrawal then immediate
+    // readmission must therefore be possible without advancing native time.
+    auto token=monitor.begin(f.sim.data(),1);const MAOniStorageHeatEndpoint empty{handle,297,0,0};
+    monitor.replace(token,&empty,1);monitor.end(token,1);
+    f.set(0,296,0);monitor.sample(f.sim.data(),1);
+    require(monitor.copy(nullptr,0)==0,"zero-capacity projection accepted massless physical heat");
+    token=monitor.begin(f.sim.data(),1);const MAOniStorageHeatEndpoint readmitted{handle,301,4,0};
+    monitor.replace(token,&readmitted,1);monitor.end(token,1);
+    f.set(0,302,4);monitor.sample(f.sim.data(),2);
+    std::array<MAOniStorageHeatReceipt,8> receipts{};
+    require(monitor.copy(receipts.data(),8)==1 && receipts[0].capacity_kj_k==4 && receipts[0].before_k==301 && receipts[0].after_k==302,
+        "readmission retained the old capacity endpoint or counted a projection as physical heat");
+    monitor.ack(receipts[0].sequence);
+    // Reject a late invalid endpoint before writing the otherwise valid first
+    // row. A rollback restores projections; real sampled work remains exact.
+    monitor.add(handle+1,310,7);token=monitor.begin(f.sim.data(),2);
+    const auto before=f.records;
+    std::array<MAOniStorageHeatEndpoint,2> invalid{{{handle,303,2,0},{handle+1,304,-1,0}}};
+    reject([&]{monitor.replace(token,invalid.data(),2);});require(f.records==before,"invalid storage replacement partially changed native bodies");
+    invalid[1]={handle,304,1,0};reject([&]{monitor.replace(token,invalid.data(),2);});
+    invalid[1]={0x02000001,304,1,0};reject([&]{monitor.replace(token,invalid.data(),2);});
+    require(f.records==before,"duplicate/stale storage replacement changed an earlier endpoint");
+    reject([&]{monitor.expect(handle,303,2);});reject([&]{monitor.expect_removal(handle);});reject([&]{monitor.reset();});
+    auto wrong_thread=std::async(std::launch::async,[&]{reject([&]{monitor.copy(nullptr,0);});reject([&]{monitor.end(token,1);});});wrong_thread.get();
+    reject([&]{monitor.end(token+1,1);});reject([&]{monitor.end(token,2);});
+    const MAOniStorageHeatEndpoint rolled_back{handle,303,2,0};monitor.replace(token,&rolled_back,1);
+    reject([&]{monitor.replace(token,&rolled_back,1);});monitor.end(token,0);
+    require(f.records==before,"aborted transfer did not restore registered projection endpoints");
+    reject([&]{monitor.end(token,1);});
+    // Unposted declarations cannot be settled by manufacturing a frame. They
+    // defer the transfer without sampling, replacing or discarding anything.
+    monitor.expect(handle,305,3);f.set(0,301,4);const auto pending=f.records;
+    require(monitor.begin(f.sim.data(),3)==0 && f.records==pending && monitor.copy(nullptr,0)==0,
+        "pending native declaration was accepted or changed during transfer deferral");
+#if defined(_WIN32)
+    constexpr std::size_t data_offset=0x310;
+#else
+    constexpr std::size_t data_offset=0x248;
+#endif
+    std::array<std::uint32_t,3> data{static_cast<std::uint32_t>(handle),bits(305),bits(3)};
+    Fixture::put(f.frame.data(),data_offset,data.data());Fixture::put(f.frame.data(),data_offset+8,data.data()+data.size());
+    monitor.process(f.frame.data(),f.sim.data(),3,[&]{f.set(0,305,3);});
+    token=monitor.begin(f.sim.data(),3);require(token!=0,"applied pending declaration did not unblock a transfer");
+    require(monitor.copy(receipts.data(),8)==1 && receipts[0].capacity_kj_k==4 && receipts[0].before_k==302 && receipts[0].after_k==301,
+        "deferred transfer lost real heat before the declared capacity endpoint");
+    monitor.end(token,1);
+    // A recycled compacted slot is a new handle. Retirement itself blocks a
+    // lease, its receipt must be acknowledged, and the old generation can
+    // never replace the newly registered body's endpoint.
+    Fixture recycled;recycled.set(0,300,0);Monitor reused;reused.add(handle,300,0);reused.expect_removal(handle);
+    require(reused.begin(recycled.sim.data(),4)==0,"pending storage retirement admitted a transfer lease");
+#if defined(_WIN32)
+    constexpr std::size_t removal_offset=0x330;
+#else
+    constexpr std::size_t removal_offset=0x260;
+#endif
+    std::array<std::uint32_t,2> removal{static_cast<std::uint32_t>(handle),0};
+    Fixture::put(recycled.frame.data(),removal_offset,removal.data());Fixture::put(recycled.frame.data(),removal_offset+8,removal.data()+removal.size());
+    reused.process(recycled.frame.data(),recycled.sim.data(),4,[&]{recycled.generations[0]=2;});
+    require(reused.copy(receipts.data(),8)==1 && receipts[0].kind==1,"storage transfer retirement omitted its completed native endpoint");
+    reused.ack(receipts[0].sequence);recycled.set(0,300,4);reused.add(0x02000000,300,4);
+    token=reused.begin(recycled.sim.data(),4);const auto recycled_before=recycled.records;
+    reject([&]{reused.replace(token,&empty,1);});require(recycled.records==recycled_before,"retired handle replaced a reused native slot");
+    const MAOniStorageHeatEndpoint new_generation{0x02000000,301,2,0};reused.replace(token,&new_generation,1);reused.end(token,1);
+    require(recycled.read(0x02000000).capacity_bits==bits(2),"new storage generation failed to replace its own native endpoint");
+    // No frame has been posted for this queued interval. The submission gate
+    // must return immediately, while keeping a later submitter excluded.
+    SubmissionFence queued;queued.copied(&buffers[0]);{auto lock=queued.submission();queued.queued();}
+    {auto held=queued.acquire();std::promise<void> started;auto entered=started.get_future();
+        auto later=std::async(std::launch::async,[&]{started.set_value();auto lock=queued.submission();queued.posted();queued.publication(&buffers[0]);queued.processed();queued.copied(&buffers[1]);});
+        entered.wait();require(later.wait_for(std::chrono::milliseconds(0))!=std::future_status::ready,"storage lease did not exclude a subsequent frame submission");
+        held.unlock();later.get();}
+    std::cout<<"PASS exact storage transfer leases: posted-before-entry and late UpdateData fences, partial/full withdrawal, same-callback readmission, deferred declarations, atomic batch refusal, thread/token checks and rollback\n";
 }
 static void conduit_heat_completion_controls() {
     using ma::oni::conduit_heat::Monitor;
@@ -530,9 +961,28 @@ int main() {
         runtime_clock_controls();
         native_load_guard_controls();
         chunk_heat_trace_controls();
+        paired_heat_observation_controls();
+        paired_building_invocation_controls();
+        paired_heat_closure_controls();
         storage_heat_receipt_controls();
         storage_heat_native_controls();
+        native_frame_prefix_controls();
+        storage_heat_transfer_controls();
         conduit_heat_completion_controls();
+        {
+            static_assert(sizeof(MAOniNativeFrameProgress)==56);
+            MAOniNativeFrameProgress progress{56,1,9,13,11,7,5,4};const auto unchanged=progress;
+            require(ma_oni_native_frames_version()==1 && ma_oni_native_frames_progress(nullptr)==MA_ONI_INVALID_ARGUMENT &&
+                ma_oni_native_frames_complete(nullptr,1000)==MA_ONI_INVALID_ARGUMENT &&
+                ma_oni_native_frames_complete(&progress,0)==MA_ONI_INVALID_ARGUMENT &&
+                ma_oni_native_frames_complete(&progress,60001)==MA_ONI_INVALID_ARGUMENT &&
+                ma_oni_native_frames_progress(&progress)==MA_ONI_BUSY && ma_oni_native_frames_complete(&progress,1000)==MA_ONI_BUSY &&
+                std::memcmp(&progress,&unchanged,sizeof(progress))==0,"native frame ABI accepted invalid/inactive work or changed output");
+            progress.abi_version=2;const auto invalid=progress;
+            require(ma_oni_native_frames_progress(&progress)==MA_ONI_INVALID_ARGUMENT &&
+                ma_oni_native_frames_complete(&progress,1000)==MA_ONI_INVALID_ARGUMENT &&
+                std::memcmp(&progress,&invalid,sizeof(progress))==0,"native frame ABI rejection changed progress");
+        }
         require(ma_oni_colony_physical_core_count() >= 1 && ma_oni_colony_physical_core_count() <= 256 &&
                     ma_oni_colony_set_worker_count(30) == MA_ONI_OK &&
                     ma_oni_colony_set_worker_count(257) == MA_ONI_INVALID_ARGUMENT &&
@@ -781,6 +1231,11 @@ int main() {
         require(ma_oni_domain_heat_abi_version()==1 && sizeof(MAOniDomainHeat)==48 && sizeof(MAOniDomainHeatStatus)==56,"heat extension ABI");
         MAOniDomainHeatStatus heat{56,1,0,0,0,0,0,0,0};
         require(ma_oni_domain_heat_status(&heat)==MA_ONI_OK && heat.state==0,"inactive heat status");
+        require(ma_oni_storage_heat_version()==3 && sizeof(MAOniStorageHeatReceipt)==48 && sizeof(MAOniStorageHeatEndpoint)==16,"Native exact storage transfer ABI");
+        std::uint64_t inactive_storage_token=1234;
+        require(ma_oni_storage_heat_begin(&inactive_storage_token)==MA_ONI_BUSY && inactive_storage_token==1234,"Inactive native storage transfer changed its output token");
+        require(ma_oni_storage_heat_begin(nullptr)==MA_ONI_INVALID_ARGUMENT && ma_oni_storage_heat_replace(1,nullptr,1)==MA_ONI_INVALID_ARGUMENT &&
+            ma_oni_storage_heat_end(1,1)==MA_ONI_INVALID_ARGUMENT,"Invalid native storage transfer framing accepted");
         require(ma_oni_domain_chunk_heat_abi_version()==1 && sizeof(MAOniDomainChunkHeatStatus)==112,"Native body heat ABI");
         MAOniDomainChunkHeatStatus chunk_heat{};chunk_heat.struct_size=112;chunk_heat.abi_version=1;
         require(ma_oni_domain_chunk_heat_status(&chunk_heat)==MA_ONI_OK && chunk_heat.state==0 && chunk_heat.contacts==0,"Inactive native body heat status");

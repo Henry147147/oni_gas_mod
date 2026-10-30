@@ -98,14 +98,8 @@ namespace MixedAtmospheres.Oni
         }
         internal static bool Deliver(Storage storage,PipeInventory parcel)
         {
-            if(!Enabled)return false;var phase=ReservoirPhase(storage);if(phase==0)return false;
-            foreach(var part in parcel.Parts)if(ColonyConduits.MaterialPhase(part.Id)!=phase)throw new InvalidOperationException("A reservoir received a foreign fluid phase.");
-            // Completed contact work belongs to the inventory held before
-            // this transfer, including the temperature of anything withdrawn.
-            CreditNativeStorageHeat();
-            var host=BindEmpty(storage,phase);var move=host.Store.PrepareAdmission(parcel,storage.capacityKg,ColonyConduits.Material);
-            if(move.Outside.Count!=0)throw new InvalidOperationException("An exact reservoir intake exceeded its actual capacity.");
-            host.Store.Commit(move);Refresh(host);return true;
+            var prepared=PrepareAdmission(storage,parcel);if(prepared==null)return false;
+            prepared.Commit();prepared.Publish();return true;
         }
         internal static float IntakeLimit(Storage storage,float request)
         {
@@ -122,19 +116,22 @@ namespace MixedAtmospheres.Oni
             if(!dispenser.IsConnected||!flow.HasConduit(cell))return true;
             if(dispenser.elementFilter!=null&&dispenser.elementFilter.Length!=0)
                 throw new InvalidOperationException("A reservoir output unexpectedly acquired a constituent filter.");
-            CreditNativeStorageHeat();
             var host=BindEmpty(dispenser.storage,phase);var held=host.Store.Inventory;
             dispenser.empty=held.Count==0;if(held.Count==0)return true;
+            TraceHeat("outlet-attempt",host);
             if(phase!=(flow.conduitType==ConduitType.Gas?1:2))throw new InvalidOperationException("An exact reservoir output changed fluid phase.");
-            var thermalReady=ThermalProjectionsRegistered(host);
-            var destination=thermalReady?ColonyConduits.ReadSynced(flow,cell):PipeInventory.Empty;
+            if(!TryBeginTransfer(host,out var lease))return true;
+            using var transfer=lease;
+            var destination=ColonyConduits.ReadSynced(flow,cell);
             var capacity=ColonyConduits.PortCapacity(flow);
-            var move=host.Store.PrepareWithdrawalTo(thermalReady,destination,double.MaxValue,capacity,ColonyConduits.Material);
-            if(move==null)return true; // native ConduitUpdate retries after registration
+            var move=host.Store.PrepareWithdrawalTo(destination,double.MaxValue,capacity,ColonyConduits.Material);
             parcel=move.Parcel;dispenser.blocked=parcel.Count==0;if(parcel.Count==0)return true;
-            ColonyConduits.ReceiveExact(flow,cell,parcel);host.Store.Commit(move);Refresh(host);return true;
+            var receive=ColonyConduits.PrepareReceiveExact(flow,cell,parcel);
+            PrepareNativeTransfer(host,move.After);receive.Validate();
+            host.Store.Commit(move);nativeTransfer?.PhysicalCommit();receive.Commit();
+            receive.Publish();Refresh(host,false);CompleteNativeTransfer(host);NotifyStorage(host);return true;
         }
-        private static void Refresh(Host host)
+        private static void Refresh(Host host,bool notify=true)
         {
             if(host.ProjectedRevision==host.Store.Revision)return;
             ++editing;
@@ -177,7 +174,7 @@ namespace MixedAtmospheres.Oni
             }
             finally{--editing;}
             host.ProjectedRevision=host.Store.Revision;
-            host.Storage.Trigger(-1697596308,null);host.Storage.OnStorageChange?.Invoke(null!);
+            if(notify)NotifyStorage(host);
         }
         private static (Host Host,Projection View)? ViewOf(PrimaryElement item)
         {
@@ -214,7 +211,7 @@ namespace MixedAtmospheres.Oni
                     if(body==null||!Sim.IsValidHandle(body.SimHandle))continue;
                     if(view.Handle!=body.SimHandle)throw new InvalidOperationException("An owned storage thermal projection changed its native handle without registration.");
                 }
-                Refresh(host);
+                PublishThermalProjection(host);
                 RetireExhaustedProjections(host);
             }
             ++HeatPublications;
@@ -236,10 +233,10 @@ namespace MixedAtmospheres.Oni
         {if(ViewOf(body.pe).HasValue&&registering>0)--registering;}
         private static long nativeDataDeclarations;
         internal static long NativeDataDeclarations=>System.Threading.Interlocked.Read(ref nativeDataDeclarations);
-        internal static void SentData(int handle,float temperature,float capacity)
+        internal static bool SentData(int handle,float temperature,float capacity)
         {
             System.Threading.Interlocked.Increment(ref nativeDataDeclarations);
-            if(!Enabled)return;
+            if(!Enabled)return true;
             foreach(var host in Hosts.Values)foreach(var view in host.Projections.Values.Concat(host.Retiring))
                 if(view.Handle==handle)
                 {
@@ -247,10 +244,13 @@ namespace MixedAtmospheres.Oni
                     if(capacity<0||float.IsNaN(capacity)||float.IsInfinity(capacity)||!(temperature>0)||float.IsInfinity(temperature))
                         throw new InvalidOperationException("Invalid exact storage thermal projection data.");
                     TraceHeat("sent-before",host,view,temperature,capacity);
-                    OniNativeColony.Check(DeclareStorageHeatData(handle,temperature,capacity));
+                    var suppressed=nativeTransfer!=null&&nativeTransfer.Suppress(handle,temperature,capacity);
+                    if(nativeTransfer!=null&&!suppressed)throw new InvalidOperationException("A storage transfer tried to queue an unprepared native endpoint.");
+                    if(!suppressed)OniNativeColony.Check(DeclareStorageHeatData(handle,temperature,capacity));
                     view.Capacity=capacity;view.Temperature=temperature;
-                    TraceHeat("sent-after",host,view,temperature,capacity);return;
+                    TraceHeat("sent-after",host,view,temperature,capacity);return !suppressed;
                 }
+            return true;
         }
         // Pickupable removes exhausted UI/native carriers during cleanup. The
         // exact store retains any unrepresented trace; a zero view owns no mass
@@ -466,7 +466,7 @@ namespace MixedAtmospheres.Oni
     }
     [HarmonyPatch(typeof(SimMessages),nameof(SimMessages.SetElementChunkData))]
     internal static class ColonyExactStorageBodyDataPatch
-    {private static void Prefix(int __0,float __1,float __2)=>ColonyOwnedStorage.SentData(__0,__1,__2);}
+    {private static bool Prefix(int __0,float __1,float __2)=>ColonyOwnedStorage.SentData(__0,__1,__2);}
     [HarmonyPatch]
     internal static class ColonyExactStorageMassPatch
     {

@@ -1805,11 +1805,15 @@ class PackageTests(unittest.TestCase):
                 runner.verify_package(self.root)
 
     def test_result_revision_comes_from_package_not_checkout(self):
-        fields = runner.revision_fields(runner.verify_package(self.root))
+        with tempfile.TemporaryDirectory() as checkout:
+            subprocess.run(["git", "init", "-q", "--initial-branch=main", checkout], check=True, capture_output=True)
+            subprocess.run(["git", "-C", checkout, "-c", "user.name=Fixture", "-c", "user.email=fixture@invalid",
+                            "commit", "-q", "--allow-empty", "-m", "runner checkout"], check=True, capture_output=True)
+            with mock.patch.object(runner, "ROOT", Path(checkout)):
+                fields = runner.revision_fields(runner.verify_package(self.root))
+            head = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=checkout, text=True).strip()
         self.assertEqual(fields["source_revision"], self.manifest["source_revision"])
         self.assertIs(fields["source_dirty"], True)
-        head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=runner.ROOT, text=True,
-                              capture_output=True).stdout.strip() or None
         self.assertEqual(fields["runner_git_revision"], head)
         self.assertNotEqual(fields["source_revision"], fields["runner_git_revision"])
 

@@ -12,8 +12,8 @@ from pathlib import Path
 import re
 
 
-def method(source: str, name: str) -> str:
-    pattern = re.compile(r"^[ \t]*private static ulong " + re.escape(name) + r"\([^\n]*\)\s*\{", re.M)
+def method(source: str, name: str, returns: str = "ulong") -> str:
+    pattern = re.compile(r"^[ \t]*private static " + re.escape(returns) + " " + re.escape(name) + r"\([^\n]*\)\s*\{", re.M)
     matches = list(pattern.finditer(source))
     if len(matches) != 1:
         raise ValueError(f"Expected one real {name} method, found {len(matches)}")
@@ -74,7 +74,12 @@ internal static ColonyReceiptPumpState TestState=>receiptPump;
     args.out.mkdir(parents=True, exist_ok=True)
     (args.out / "OwnerDelivery.cs").write_text(preamble + clock(delivery) + "\n} }\n")
     (args.out / "PumpRuntime.cs").write_text(clock((source_dir / "ColonyReceiptPump.cs").read_text()))
-    names = ("ColonyOwner.cs", "ColonyReceiptPump.cs", "ColonyReceiptPumpState.cs", "ColonySaveBarrier.cs")
+    boundary = (source_dir / "NativeMessageBoundary.cs").read_text()
+    forwarding = "\n".join(method(boundary, name, "IntPtr").replace("private static", "internal static", 1)
+                            for name in ("ForwardNativeUntimed", "ForwardNativeBatch"))
+    forwarding += "\n" + method(boundary, "FinishNativePublication", "void")
+    (args.out / "NativePublication.cs").write_text("using System;namespace MixedAtmospheres.Oni {internal static unsafe class NativeMessageBoundary {\n" + forwarding + "\n}}\n")
+    names = ("ColonyOwner.cs", "ColonyReceiptPump.cs", "ColonyReceiptPumpState.cs", "ColonySaveBarrier.cs", "NativeMessageBoundary.cs")
     (args.out / "source-manifest.json").write_text(json.dumps({name: hashlib.sha256((source_dir / name).read_bytes()).hexdigest() for name in names}, indent=2) + "\n")
 
 

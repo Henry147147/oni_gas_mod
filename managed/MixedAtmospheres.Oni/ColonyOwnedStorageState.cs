@@ -86,10 +86,14 @@ namespace MixedAtmospheres.Oni
             var transfer=PipeInventory.Transfer(Inventory,destination,maximum,capacity,material);
             return new Move(this,transfer.Source,transfer.Parcel,transfer.Target,false);
         }
-        internal void Commit(Move move)
+        internal void Validate(Move move)
         {
             if(!ReferenceEquals(move.Owner,this)||move.Revision!=Revision||!ReferenceEquals(move.Before,Inventory))
                 throw new InvalidOperationException("Owned storage changed after its transfer was prepared.");
+        }
+        internal void Commit(Move move)
+        {
+            Validate(move);
             // Prepare every allocation before changing either authoritative
             // field; callers commit the paired pipe state on the same thread.
             Inventory=move.After;if(move.Intake)Admitted=move.Journal;else Withdrawn=move.Journal;Revision=move.NextRevision;

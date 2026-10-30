@@ -34,6 +34,12 @@ bool sample_activity(std::uint64_t session,std::uint64_t frame,std::span<const s
     MAOniColonyStatus&,std::span<MAOniColonyActivityCell>);
 // Actual native body/contact heat only; never waits for lifecycle/solver work.
 void wake_native_cell(int native_cell) noexcept;
+// The exact catalogue operand used to account a native shadow heat delta.
+[[nodiscard]] double native_specific_heat(std::uint16_t native_element) noexcept;
+struct NativeHeatProjection {std::uint16_t element;float mass,temperature;bool valid;};
+// Immutable origin written by write_shadow, not a native array which later
+// native operations may already have changed before a contact is observed.
+[[nodiscard]] NativeHeatProjection native_heat_projection(int native_cell) noexcept;
 void set_space_cells(std::span<const std::uint32_t>,bool space);
 std::uint32_t copy_receipts(MAOniColonyReceipt*, std::uint32_t capacity);
 void ack_receipts(std::uint64_t through);
@@ -120,7 +126,13 @@ struct NativeCells {
 // completed cells into both arrays; after it, capture() books every native change as
 // owner heat or transfers.
 void write_shadow(const NativeCells&) noexcept;
-void capture_shadow(const NativeCells&,std::uint64_t native_ticket=0) noexcept;
+struct NativeHeatAdjustment {
+    std::int32_t native_cell;
+    std::uint16_t element;
+    std::uint32_t mass_bits,initial_temperature_bits,final_temperature_bits;
+    double joules;
+};
+void capture_shadow(const NativeCells&,std::uint64_t native_ticket=0,std::span<const NativeHeatAdjustment> paired_heat={}) noexcept;
 // Observe a native solid before its transition/postprocess work. Capture
 // resolves any displaced projection at the end of the containing update.
 void observe_native_solid(const NativeCells&, int source) noexcept;

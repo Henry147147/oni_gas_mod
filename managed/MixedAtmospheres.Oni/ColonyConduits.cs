@@ -13,7 +13,7 @@ namespace MixedAtmospheres.Oni
     // world/storage boundaries and save continuation have been validated.
     internal static class ColonyConduits
     {
-        private sealed class Cell
+        internal sealed class Cell
         {
             internal PipeInventory Inventory;
             internal ConduitFlow.ConduitContents Shadow;
@@ -265,6 +265,12 @@ namespace MixedAtmospheres.Oni
             SyncNative(flow,cell);var source=Ensure(flow,cell);var split=source.Inventory.Split(maximum,Material,species);
             source.Inventory=split.Remaining;if(split.Parcel.Count>0)Publish(flow,cell,MassPublication.Removed);return split.Parcel;
         }
+        internal static PreparedPortChange PrepareTakeForPort(ConduitFlow flow,int cell,int? species,double maximum,out PipeInventory parcel)
+        {
+            if(!Owns(flow,cell)||!flow.HasConduit(cell))throw new InvalidOperationException("Port source is not an owned pipe.");
+            SyncNative(flow,cell);var source=Ensure(flow,cell);var split=source.Inventory.Split(maximum,Material,species);
+            parcel=split.Parcel;return new PreparedPortChange(flow,cell,source,split.Remaining,true);
+        }
         internal static PipeInventory ReceivePortBuffer(ConduitFlow flow,int cell,PipeInventory buffer)
         {
             if(!Owns(flow,cell)||!flow.HasConduit(cell))return buffer;
@@ -292,12 +298,30 @@ namespace MixedAtmospheres.Oni
         internal static double PortCapacity(ConduitFlow flow)=>Flows.TryGetValue(flow,out var state)?state.Capacity:
             throw new InvalidOperationException("An exact machine port has no owned conduit phase.");
         internal static void ReceiveExact(ConduitFlow flow,int cell,PipeInventory incoming)
+        {var change=PrepareReceiveExact(flow,cell,incoming);change.Commit();change.Publish();}
+        internal sealed class PreparedPortChange
+        {
+            private readonly ConduitFlow flow;
+            private readonly int index;
+            private readonly Cell cell;
+            private readonly PipeInventory before,after;
+            private readonly bool removed;
+            private bool committed;
+            internal PreparedPortChange(ConduitFlow flow,int index,Cell cell,PipeInventory after,bool removed=false)
+            {this.flow=flow;this.index=index;this.cell=cell;before=cell.Inventory;this.after=after;this.removed=removed;}
+            internal void Validate()
+            {if(committed||!ReferenceEquals(cell.Inventory,before))throw new InvalidOperationException("An owned pipe changed during its prepared storage transfer.");}
+            internal void Commit(){Validate();cell.Inventory=after;committed=true;}
+            internal void Publish()
+            {if(!committed)throw new InvalidOperationException("An uncommitted pipe transfer cannot publish.");ColonyConduits.Publish(flow,index,removed?MassPublication.Removed:MassPublication.Staged);}
+        }
+        internal static PreparedPortChange PrepareReceiveExact(ConduitFlow flow,int cell,PipeInventory incoming)
         {
             if(!Owns(flow,cell)||!flow.HasConduit(cell))throw new InvalidOperationException("A machine port wrote outside an owned pipe.");
             SyncNative(flow,cell);var target=Ensure(flow,cell);var joined=target.Inventory.Joined(incoming);
             if(joined.Total.Minus(new PipeAmount(Flows[flow].Capacity)).Sign>0)throw new InvalidOperationException("A machine port exceeded its pipe capacity.");
             // Like native AddElement, the new mass is not movable this tick.
-            target.Inventory=joined;Publish(flow,cell);
+            return new PreparedPortChange(flow,cell,target,joined);
         }
         internal static void AdjustGerms(ConduitFlow flow,int cell,int disease,double delta,bool exchange=false)
         {

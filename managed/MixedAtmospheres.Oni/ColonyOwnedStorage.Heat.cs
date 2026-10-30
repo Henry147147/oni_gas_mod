@@ -31,6 +31,12 @@ namespace MixedAtmospheres.Oni
         private static extern int AckStorageHeat(ulong through);
         [DllImport("mixed_atmospheres_oni",EntryPoint="ma_oni_storage_heat_reset",CallingConvention=CallingConvention.Cdecl)]
         private static extern int ResetStorageHeat();
+        [DllImport("mixed_atmospheres_oni",EntryPoint="ma_oni_storage_heat_begin",CallingConvention=CallingConvention.Cdecl)]
+        private static extern int BeginStorageHeat(ref ulong token);
+        [DllImport("mixed_atmospheres_oni",EntryPoint="ma_oni_storage_heat_replace",CallingConvention=CallingConvention.Cdecl)]
+        private static extern int ReplaceStorageHeat(ulong token,[In]StorageThermalEndpoint[] endpoints,uint count);
+        [DllImport("mixed_atmospheres_oni",EntryPoint="ma_oni_storage_heat_end",CallingConvention=CallingConvention.Cdecl)]
+        private static extern int EndStorageHeat(ulong token,uint commit);
         private static readonly NativeStorageHeatReceipt[] storageHeatReceipts=new NativeStorageHeatReceipt[32768];
         private static ulong storageHeatAcknowledged;
         internal static long NativeHeatReceipts {get;private set;}
@@ -41,7 +47,7 @@ namespace MixedAtmospheres.Oni
             try {version=StorageHeatVersion();}
             catch(EntryPointNotFoundException error)
             {throw new NotSupportedException("Exact storage requires a matching native heat receipt bundle.",error);}
-            if(Marshal.SizeOf<NativeStorageHeatReceipt>()!=48||version!=2)
+            if(Marshal.SizeOf<NativeStorageHeatReceipt>()!=48||Marshal.SizeOf<StorageThermalEndpoint>()!=16||version!=3)
                 throw new NotSupportedException("This native bundle has no verified exact-storage heat receipt boundary.");
         }
         private static void ClearStorageHeat()

@@ -28,7 +28,7 @@ namespace MixedAtmospheres.Oni
         internal static long ReceiptsAtSave { get; private set; }
         internal static ulong LastSettledFrame { get; private set; }
         internal static ulong LastSettledSession { get; private set; }
-        internal static void Reset() { Settled = Deferred = BodyHeatChecks = NativePublications = 0; ReceiptsAtSave = 0; LastSettledFrame = LastSettledSession = 0; }
+        internal static void Reset() { Settled = Deferred = BodyHeatChecks = NativePublications = 0; ReceiptsAtSave = 0; LastSettledFrame = LastSettledSession = 0; LastSynchronization = ""; }
         internal static object Report() => new { Settled, Deferred, ReceiptsAtSave, BodyHeatChecks, NativePublications, LastSettledFrame, LastSettledSession, LastSynchronization, ReceiptPump=ColonyOwner.ReceiptPumpReport() };
 
         internal static void EnterStep() => ++stepping;
@@ -68,29 +68,23 @@ namespace MixedAtmospheres.Oni
             return status.ReceiptsPending == 0 && OniNativeColony.Busy() == 0;
         }
 
-        // ONI's sim thread runs native frames in order (next-frame .. end-frame).
-        private const int NextFrameHook = 8, EndFrameHook = 19;
-        private static (ulong Started, ulong Ended) NativeFrames()
-        { var reading = OniNativeObserver.CaptureStatus(); return (reading.Hooks[NextFrameHook].Entries, reading.Hooks[EndFrameHook].Exits); }
+        // The first tuple field is the native initialization session, the
+        // second its posted interval prefix. Hook entries cannot supply this
+        // boundary: NextFrame counts intervals, EndFrame counts entire batches.
+        private static (ulong Session, ulong Posted) NativeFrames()
+        { var reading = ColonyNativeFrames.Capture(); return (reading.Session, reading.Posted); }
         internal static string LastSynchronization { get; private set; } = "";
-        // ONI posts a native frame and its sim thread may run it later: wait
-        // until, counted from `before` (read just before posting), at least one
-        // frame has started and every frame started since has ended. Frames run
-        // in order, so every earlier posted frame (and any positive frame's
-        // hand-off to the owner) is then complete. Counters are compared as
-        // deltas: their absolute values need not match.
-        internal static (ulong Started, ulong Ended) NativeFrameCounters() => NativeFrames();
-        internal static (ulong Started, ulong Ended) WaitNativeFrameAfter((ulong Started, ulong Ended) before, int timeoutMilliseconds = 10000)
+        // Complete exactly the currently posted prefix and Step's publication
+        // tail, without submitting a frame or dispatching any callback. A caller
+        // which posted a zero-time frame must observe its prefix advance in the
+        // same native session; unposted declarations stay queued.
+        internal static (ulong Session, ulong Posted) NativeFrameCounters() => NativeFrames();
+        internal static (ulong Session, ulong Posted) WaitNativeFrameAfter((ulong Session, ulong Posted) before, int timeoutMilliseconds = 10000)
         {
-            var timer = System.Diagnostics.Stopwatch.StartNew();
-            var frames = NativeFrames();
-            while (!(frames.Started > before.Started && frames.Ended - before.Ended >= frames.Started - before.Started))
-            {
-                if (timer.ElapsedMilliseconds > timeoutMilliseconds)
-                    throw new TimeoutException($"ONI's native frame did not end (started/ended {before.Started}/{before.Ended} -> {frames.Started}/{frames.Ended}).");
-                System.Threading.Thread.Sleep(1); frames = NativeFrames();
-            }
-            return frames;
+            var frames = ColonyNativeFrames.Complete(timeoutMilliseconds);
+            if(frames.Session!=before.Session || frames.Posted<=before.Posted)
+                throw new InvalidOperationException($"ONI's expected native frame was not posted in its original session (session/prefix {before.Session}/{before.Posted} -> {frames.Session}/{frames.Posted}).");
+            return (frames.Session,frames.Posted);
         }
 
         // Loaded prefabs can have queued chunk-data messages, and their
@@ -138,7 +132,7 @@ namespace MixedAtmospheres.Oni
             // advances; the game dispatches the owner's completed frame.
             SimTick.Invoke(Game.Instance, new object[] { 0f });
             var after = NativeFrames(); var waited = WaitNativeFrameAfter(before);
-            LastSynchronization = $"native frames started/ended before {before.Started}/{before.Ended}, after zero tick {after.Started}/{after.Ended}, settled {waited.Started}/{waited.Ended} in {timer.Elapsed.TotalMilliseconds:F1} ms";
+            LastSynchronization = $"native session/posted prefix before {before.Session}/{before.Posted}, after zero tick {after.Session}/{after.Posted}, completed {waited.Session}/{waited.Posted} in {timer.Elapsed.TotalMilliseconds:F1} ms";
             UnityEngine.Debug.Log("[Mixed Atmospheres] save barrier: " + LastSynchronization);
             var pending = entry.ReceiptsPending;
             // UnsafeSim200ms publishes while its newly posted native frame

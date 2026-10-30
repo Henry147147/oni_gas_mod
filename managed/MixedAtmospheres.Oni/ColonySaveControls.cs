@@ -193,7 +193,7 @@ namespace MixedAtmospheres.Oni
             baselineOwner=Hash(image);baselinePipes=ColonyPipeSave.CapturedSha256;saveHash=HashFile(path);armed=true;
             Dump(frame,image,null);
         }
-        private static (ulong Started, ulong Ended) framesBeforeHeld;
+        private static (ulong Session, ulong Posted) framesBeforeHeld;
         internal static void Submitted(float seconds)
         {
             if (!armed || !(seconds > 0) || !ColonyOwner.Active) return;

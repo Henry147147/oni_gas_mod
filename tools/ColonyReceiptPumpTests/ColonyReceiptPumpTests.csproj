@@ -17,6 +17,7 @@
     <ItemGroup>
       <Compile Include="$(IntermediateOutputPath)receipt-pump/OwnerDelivery.cs"/>
       <Compile Include="$(IntermediateOutputPath)receipt-pump/PumpRuntime.cs"/>
+      <Compile Include="$(IntermediateOutputPath)receipt-pump/NativePublication.cs"/>
     </ItemGroup>
   </Target>
 </Project>

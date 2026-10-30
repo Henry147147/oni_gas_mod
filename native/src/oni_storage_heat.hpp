@@ -60,6 +60,21 @@ public:
         found->second.retirement_requested=true;
     }
     bool empty() const noexcept {return states_.empty();}
+    bool registered(std::int32_t handle) const noexcept {return states_.find(handle)!=states_.end();}
+    bool ready() const noexcept {
+        return std::all_of(states_.begin(),states_.end(),[](const auto& entry) {
+            const auto& state=entry.second;
+            return state.expected.empty() && !state.applying && !state.retirement_requested && !state.removing;
+        });
+    }
+    Target endpoint(std::int32_t handle) const {
+        const auto found=states_.find(handle);
+        if(found==states_.end())throw std::invalid_argument("Unknown exact storage transfer handle");
+        return found->second.baseline;
+    }
+    // Used only after the complete batch has been checked under the frame
+    // and monitor lease. Map membership cannot change until lease release.
+    void replace(std::int32_t handle,Target value) noexcept {states_.find(handle)->second.baseline=value;}
     template<class Read,class Messages> void before(Read read,Messages messages,std::uint64_t frame) {
         for(auto& [handle,state]:states_) {
             observe(handle,state,read(handle),frame);state.applying=0;
