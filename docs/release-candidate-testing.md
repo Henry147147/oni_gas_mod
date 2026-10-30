@@ -1,5 +1,16 @@
 # Release-candidate testing
 
+**Review completed, 2026-10-30:** the [candidate report](release-candidate-2026-10-30.md)
+records the completed Linux matrix and affected reruns, original failures and
+remaining qualification blocks. Steam public 24423041 / ONI 744825 passes the
+preserved contracts. The candidate is rejected: physics, gameplay, native
+storage heat ordering, continuation and representative 3× remain unresolved.
+Actual Windows OS tests stay pending by user choice. `69e55f8` is the frozen
+broad matrix; `0af5dfe` adds the verified EOS allocation repair and new clock
+controls; `3601ff5` adds a partial storage-registration guard and `602b324` exempts
+insulated carriers after that guard caused a regression. Each cohort has
+its own package evidence. The guard does not close later heat receipts.
+
 This is the working test plan for the first Steam release, not a release claim.
 The current gate status and private evidence paths are in the ignored
 `artifacts/release-candidate-2026-10-29/gate-ledger.json`. A prior result is

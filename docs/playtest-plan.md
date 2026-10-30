@@ -1,5 +1,13 @@
 # Base-game playtest plan
 
+**Current release review, 2026-10-30:** use the [candidate report](release-candidate-2026-10-30.md)
+and [handoff](handoff-codex-2026-10-30.md) for the latest results and next work.
+The updated public game is contract-compatible. All nine fixed asteroid
+stability runs finish; separate normal-reserve base/DLC controls keep three
+duplicants alive through 3,000 frames, but achieve only 0.303476× / 2.154535×.
+Physics, gameplay, storage heat ordering and active continuation still block
+release and qualifying long runs. Actual Windows OS tests remain deferred.
+
 **Release priorities, 2026-10-28:** sustained actual 3× with smooth input and
 UI now blocks release, and the user may remove features to reach it. New
 colonies default to boil-only phase change (no evaporation below the

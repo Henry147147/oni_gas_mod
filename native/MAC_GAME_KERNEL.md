@@ -867,3 +867,27 @@ Linux Release and Windows x64/Wine each pass all 89 native tests; all 87 short
 MAC programs retain existing output and exits apart from the new passive-test
 PASS line. Python and managed/game-contract suites pass too. Evidence:
 `artifacts/tier-integration-2026-10-28/passive-expiring/`.
+
+## First activity-interval EOS allocation, 2026-10-30
+
+The first flow interval moves its EOS table into the accumulated result instead
+of allocating a second full-grid table and copying due rows. Later activity
+intervals keep the existing due-row merge. Held rows are read through the
+existing evolved-cell guard. This changes allocation and ownership only;
+solver arithmetic, checkpoint bytes and versions are unchanged.
+
+Fresh old/new builds retain every output and exit code across all 88
+`ma_mac_*` test/diagnostic commands, masking only existing `ref_ms`/`prod_ms`
+fields. Known failing diagnostic exits remain failures. The actual DLC and
+synthetic 100k replays retain complete final checkpoints at 1/2/4/8/12 workers;
+existing game-kernel controls cover multiple intervals, held/dormant regions,
+wake and cold continuation.
+
+Four interleaved WHOLE runs per implementation reduce mean captured fresh-DLC
+flow from 32.5875 to 24.002 ms, with all eight final checkpoints matching bytes.
+Run-to-run variation is substantial. This flow-only measurement omits future
+owner inputs, projection/publication and UI; it does not establish a whole-game
+3× gain. The unchanged fixed cost/recovery gates still fail. See the
+[release-candidate report](../docs/release-candidate-2026-10-30.md) for the
+integrated runtime checks and the remaining pressure/transport, small accepted
+interval, conversion and publication work.

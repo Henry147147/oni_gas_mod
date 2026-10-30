@@ -1,5 +1,33 @@
 # Performance acceptance measurements
 
+## Latest measured candidate, 2026-10-30
+
+The [release review](release-candidate-2026-10-30.md) records clean `0af5dfe`
+WHOLE runs on the 5900X, with no competing project CPU work. Actual monotonic
+full-game progress, including paused wall time, is:
+
+| Control | Base game | Spaced Out! |
+| --- | ---: | ---: |
+| 900 owner frames, speed button 3 | 2.948404× | 2.134842× |
+| 3,000 frames with normal starting reserve | 0.303476× | 2.154535× |
+
+All four finish with three living duplicants, no pauses or owner faults and no
+dropped submission/publication samples. The base run slows before its natural
+autosave; frames 2,551–2,700 reach just 0.063×, with 1,619 ms mean flow,
+1,663 ms native owner work and 3,179 ms between observed owner completions. A flow-only replay
+of its natural owner-frame-2,752 checkpoint initially takes 232 accepted steps
+and 35 rejected attempts, then relaxes to two accepted steps. It omits future
+owner inputs and publication and does not reproduce that full live trajectory.
+
+Moving the first interval's EOS array reduces one captured fresh-DLC flow
+mean by 26.35% in interleaved WHOLE runs, with complete checkpoint byte equality.
+All 88 clean old/new MAC command outputs and exits match, masking only existing
+timing fields. The fresh full-game runs above show no material gain over the
+previous frozen cohort. The fixed 100k/250k cost and 30-second disturbance
+recovery gates still fail. Small accepted intervals, pressure/transport in hot
+states, and conversion/publication in fresh DLC states remain measured targets;
+there is no sustained representative 3× or Windows OS acceptance yet.
+
 The release performance targets are in the
 [completion plan](completion-plan.md#release-acceptance) (Performance) and its
 2026-10-18 real-time amendment. This page says how each target is measured

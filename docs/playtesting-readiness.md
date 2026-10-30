@@ -1,5 +1,11 @@
 # Playtesting readiness and simulation cost
 
+**Latest review, 2026-10-30:** [release-candidate results](release-candidate-2026-10-30.md)
+supersede the historical status below. The current Steam build passes contract
+preflights, but the candidate remains rejected. Physics, gameplay, exact native
+storage heat/withdrawal ordering, identical-input continuation and sustained
+3× remain unqualified. Actual Windows OS testing is deferred by user choice.
+
 **Current work (2026-10-20):** the [base-game playtest plan](playtest-plan.md)
 replaces the playtest definition and work plan below. This page keeps the gate
 status and measurements as a record.

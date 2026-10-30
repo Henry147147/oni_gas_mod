@@ -1,5 +1,19 @@
 # Implementation status
 
+**Release-candidate evaluation, 2026-10-30:** [the report](release-candidate-2026-10-30.md)
+records public Steam 24423041 / ONI 744825 compatibility, all 15 frozen gameplay
+batches (62/65 scenarios pass), nine asteroid stability runs and affected
+current-code checks. `0af5dfe` removes a redundant first-EOS allocation with
+all 88 MAC outputs/exits and replay bytes unchanged. `3601ff5` prevents
+withdrawal before initial thermal registration; live DLC testing still finds
+later native heat arriving after drain, so exact storage remains incomplete.
+`602b324` corrects the guard for insulated carriers without active contacts.
+Full affected managed/Python/contract suites pass. The 90-test Linux,
+Windows/Wine and Ubuntu 22.04 native results apply to the unchanged native
+code by source/library hashes. Actual 900-frame speeds are 2.948404× base /
+2.134842× DLC; a longer normal-reserve base run slows severely. The candidate
+is not release-ready, and actual Windows OS checks remain pending.
+
 **Region activity integration, 2026-10-28:** new colonies select game
 profile9/core28 with owner wrapper14 (flags29). Activity tiers are the default;
 Always simulate is available for new colonies, and supported older profiles
