@@ -27,6 +27,20 @@ rejected candidate unchanged.
   residual against its unchanged 4.98e−6 J bound. Paired heat correction remains
   opt-in and currently credits
   registered storage chunks and passive all-owned building contacts only.
+- `da9b381` adds the pinned Windows body/message observer. Actual WindowsPlayer
+  on Proton now passes the original closed-heat bound on both DLC masks, with
+  independent contact and credit-scope audits. Its earlier full batches still
+  fail retirement/source readiness; preserve those failures separately.
+  A later traced retirement has every operational flag true and an empty output,
+  then waits on absolute resets queued by biology's full projection refresh.
+  The managed follow-up publishes cultures alone under the existing edit guard
+  and routes save-time thermal publication through the native lease. It changes
+  no fixture or acceptance bound. Its 76 production-method controls, three
+  behavioral mutation controls, two-target DLL identity and both actual-Mono
+  2,588/0 checks pass. The corrected base-game Proton batch passes all six
+  scenarios and the independent heat audits; the other three Linux/Proton
+  cohorts are still being run. Private probes are `storage-projection-v3/`.
+  Preserve the copied-contract refusal and missing-edit-scope failures in v1/v2.
 - Native publication now has a 56-byte completed-step/prefix interface, including
   empty Prepare messages and the inlined Windows Step path. This corrects the
   earlier interval-entry versus batch-exit comparison. It does not by itself
@@ -35,6 +49,9 @@ rejected candidate unchanged.
   scheduler/cadence and native-record order/parameter differences. A complete
   runtime continuation record is under construction: MACOLP03 tag 6,
   MACGRT01 version 1, reserved and pushed after a fresh fetch.
+  There are now 318 focused controls, including coordinated managed/native/
+  cadence rollback and distinct live/historical definitions of the same type.
+  No complete live source capture or strict cold/menu qualification exists yet.
 - The M5 repair rejects independently proved negative-caloric trial endpoints
   and retries smaller intervals, keeping uncertain EOS refinement and all
   original bounds/storage. Nongame checkpoint 29 saves that admission law;

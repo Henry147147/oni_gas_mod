@@ -156,14 +156,7 @@ namespace MixedAtmospheres.Oni
                         projection.Item.SetMassTemperature(view.Mass,view.Temperature);
                         TraceHeat("project-after",host,projection,view.Temperature);
                     }
-                    // Native disease is a view. The exact per-ID populations
-                    // remain in Store.Inventory even when the view is empty.
-                    var primary=projection.Item;
-                    if(primary.DiseaseIdx!=view.Disease||primary.DiseaseCount!=view.Count)
-                    {
-                        if(primary.DiseaseCount>0)primary.ModifyDiseaseCount(-primary.DiseaseCount,"Mixed Atmospheres storage projection");
-                        if(view.Count>0)primary.AddDisease(view.Disease,view.Count,"Mixed Atmospheres storage projection");
-                    }
+                    RefreshCulture(projection.Item,view.Disease,view.Count);
                 }
                 foreach(var pair in host.Projections)
                     if(!active.Contains(pair.Key))
@@ -175,6 +168,31 @@ namespace MixedAtmospheres.Oni
             finally{--editing;}
             host.ProjectedRevision=host.Store.Revision;
             if(notify)NotifyStorage(host);
+        }
+        // Biology changes passives only. Reapplying mass/temperature here
+        // queues absolute native resets outside the thermal lease, which can
+        // make a later outlet wait on work this projection just introduced.
+        // Leave ProjectedRevision pending for the complete thermal publisher.
+        private static void RefreshCultures(Host host)
+        {
+            if(host.ProjectedRevision==host.Store.Revision)return;
+            ++editing;
+            try
+            {
+                foreach(var view in ColonyMachinePorts.NativeItems(host.Store.Inventory))
+                    if(host.Projections.TryGetValue(view.Part.Id,out var projection))
+                        RefreshCulture(projection.Item,view.Disease,view.Count);
+            }
+            finally{--editing;}
+            NotifyStorage(host);
+        }
+        private static void RefreshCulture(PrimaryElement primary,byte disease,int count)
+        {
+            // Native disease is a view. Every exact per-ID population remains
+            // in Store.Inventory, including identities absent from this view.
+            if(primary.DiseaseIdx==disease&&primary.DiseaseCount==count)return;
+            if(primary.DiseaseCount>0)primary.ModifyDiseaseCount(-primary.DiseaseCount,"Mixed Atmospheres storage projection");
+            if(count>0)primary.AddDisease(disease,count,"Mixed Atmospheres storage projection");
         }
         private static (Host Host,Projection View)? ViewOf(PrimaryElement item)
         {
@@ -403,7 +421,9 @@ namespace MixedAtmospheres.Oni
             CreditNativeStorageHeat();
             foreach(var host in Hosts.Values)
             {
-                Refresh(host);
+                PublishThermalProjection(host);
+                if(host.ProjectedRevision!=host.Store.Revision)
+                    throw new InvalidOperationException("Exact storage thermal publication is still waiting for its native endpoint.");
                 if(host.Retiring.Count!=0)throw new InvalidOperationException("Exact storage has native projection retirements still in flight.");
                 var bound=new HashSet<PrimaryElement>(host.Projections.Values.Select(view=>view.Item));
                 if(host.Storage.items.Any(item=>item!=null&&!bound.Contains(item.GetComponent<PrimaryElement>())))

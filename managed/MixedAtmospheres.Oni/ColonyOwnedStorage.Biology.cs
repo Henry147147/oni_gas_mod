@@ -165,7 +165,7 @@ namespace MixedAtmospheres.Oni
                 foreach(var owner in owners)
                     if(!ReferenceEquals(owner.Host.Store.Inventory,owner.Inventory))throw new InvalidOperationException("Owned storage changed during its biology preparation.");
                 foreach(var change in changes)change.Host.Store.CommitCulture(change.Id,change.Step,change.Context);
-                foreach(var owner in owners)Refresh(owner.Host);
+                foreach(var owner in owners)RefreshCultures(owner.Host);
                 ++StoredBiologyTicks;
             }
             internal static BiologyScope Prepare(DiseaseContainers manager,float seconds)

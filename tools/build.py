@@ -53,6 +53,8 @@ def main() -> None:
     run(["dotnet", "run", "--project", "managed/MixedAtmospheres.Tests", "-c", "Release"], env)
     run(["dotnet", "run", "--project", "managed/MixedAtmospheres.Presentation.Tests", "-c", "Release"], env)
     run(["dotnet", "run", "--project", "tools/ColonyConduitTests", "-c", "Release"], env)
+    run(["dotnet", "run", "--project", "tools/ColonyStorageProjectionTests", "-c", "Release",
+         "-p:ProjectionPython=" + sys.executable], env)
     run(["dotnet", "run", "--project", "tools/ColonyWorldLayoutTests", "-c", "Release"], env)
     run(["dotnet", "run", "--project", "tools/SettingsTests", "-c", "Release"], env)
     run(["dotnet", "run", "--project", "tools/ColonyPerformanceTests", "-c", "Release"], env)

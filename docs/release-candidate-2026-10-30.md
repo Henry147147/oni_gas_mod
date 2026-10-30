@@ -13,7 +13,7 @@ candidate's failures; subsequent fixes are qualified separately.
 
 `28e7ff6` fixes M5 trial admission without changing its inputs or bounds. The
 full prescribed 10/20/40 grids pass, with finest error 0.00911666632 and
-water-mass drift 2.874269236e−17. Physical checkpoint 29 records the new law;
+water-mass drift 2.874269236e−17. Nongame physical checkpoint 29 records the new law;
 historical images retain their earlier law and bytes. All 88 clean MAC
 observations and sixteen historical-layout cold continuations are reviewed.
 
@@ -25,6 +25,20 @@ and native retirement. The closed passive-storage heat residual is
 contact, receipt and foreign-credit audits. Exact-storage scheduling and paired
 heat correction remain development controls; powered and mixed-ownership heat
 coupling is not qualified by these results.
+
+The subsequent Windows observer repair (`da9b381`) makes the original
+closed-heat gate observable and passing on both actual WindowsPlayer/Proton
+masks. Independent contact and credit-scope audits also pass. A traced remaining
+withdrawal no-op has every operational flag true and an empty output: biology
+has just queued redundant absolute thermal resets through its full projection
+refresh, so the native lease correctly defers the transfer. The managed
+follow-up updates cultures under their existing edit guard and uses the thermal
+lease for save publication too. Its 76 focused production-method controls and
+three behavioral mutations pass; both game-target DLLs match and both actual
+Mono checks resolve 2,588 dependencies with zero differences. The corrected
+base-game Proton batch passes all six unchanged scenarios and the independent
+heat audits. The remaining Linux/DLC cohorts are pending. Earlier failed
+packages and scenarios remain separate evidence.
 
 That immutable source passes 90 native tests on Linux, Windows/Wine and Ubuntu
 22.04 separately; the Ubuntu libraries require no GLIBC version above 2.34.
