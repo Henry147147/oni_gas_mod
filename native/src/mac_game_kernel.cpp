@@ -593,8 +593,7 @@ MacClosedAdvance MacGameKernelAccess::advance_guarded(
     stages.pressure_attempts += next.pressure_attempts;
     stages.pressure_refinements += next.pressure_refinements;
     state = std::move(next.state);
-    if(activity) {
-      if(last.empty())last.resize(next.eos.size());
+    if(activity && !last.empty()) {
       for(std::size_t i=0;i<due.size();++i)if(due[i]>0)last[i]=next.eos[i];
     } else last = std::move(next.eos);
     last_totals = std::move(next.totals);

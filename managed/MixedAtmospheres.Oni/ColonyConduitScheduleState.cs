@@ -114,6 +114,25 @@ namespace MixedAtmospheres.Oni
                 throw new InvalidDataException("A native schedule requires both gas and liquid clocks.");
             foreach (var flow in Flows) flow.Validate(geometry,PreservePortState);
         }
+        // In-memory controls retain the source's format choice; the on-disk
+        // checkpoint reader still selects its version from the saved schema.
+        internal PipeNativeScheduleState Copied(PipeGeometry geometry)
+        {
+            byte[] bytes;
+            using (var stream = new MemoryStream())
+            {
+                using (var writer = new BinaryWriter(stream)) Write(writer, geometry);
+                bytes = stream.ToArray();
+            }
+            using (var stream = new MemoryStream(bytes))
+            using (var reader = new BinaryReader(stream))
+            {
+                var copy = Read(reader, geometry, PreservePortState);
+                if (stream.Position != stream.Length)
+                    throw new InvalidDataException("Native schedule copy left unread bytes.");
+                return copy;
+            }
+        }
         internal void Write(BinaryWriter w, PipeGeometry geometry)
         {
             Validate(geometry);

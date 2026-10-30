@@ -9,10 +9,10 @@ Tiers (user decision 2026-10-26):
 - ``release``: everything in ``quick`` plus the 30,000-frame ten-cycle run on
   the same frozen save.
 
-The revision is checked out as a detached worktree under
-``artifacts/acceptance/<short>/source`` (with the shared ``local`` symlink);
-the Linux and Windows packages are built, tested and packaged from it, and it
-is the runner checkout for every game. Each game goes through
+The pushed revision must already be the clean main checkout on branch ``main``.
+The suite verifies it before builds and games and never checks out a revision,
+creates another worktree or changes the shared ``local`` directory. Packages
+are built from that checkout. Each game goes through
 ``tools/game_slot.sh low`` with ``--gpu-display``. Run outputs live under
 ``artifacts/acceptance/<short>/runs/<tag>/`` and are never reused; the frozen
 save is copied and hash-checked before and after, never handed to a game.
@@ -134,7 +134,7 @@ class Layout:
     tag: str
 
     @property
-    def source(self) -> Path: return self.base / "source"
+    def source(self) -> Path: return ROOT
     @property
     def packages(self) -> Path: return self.base / "packages"
     @property
@@ -303,6 +303,9 @@ def package_hashes(package: Path, manifest: dict) -> dict:
 
 
 def verify_source(layout: Layout, revision: str) -> None:
+    if (layout.source.resolve() != common_root().resolve()
+            or git("branch", "--show-current", cwd=layout.source) != "main"):
+        raise Refused("Acceptance runs require the main checkout on branch main")
     if git("rev-parse", "HEAD", cwd=layout.source) != revision:
         raise Refused("The runner checkout is not at the accepted revision")
     if git("status", "--porcelain", cwd=layout.source):
@@ -321,18 +324,7 @@ def resolve_revision(revision: str, fetch: bool = True) -> str:
 
 
 def prepare_source(layout: Layout, revision: str) -> None:
-    source = layout.source
-    if source.exists():
-        verify_source(layout, revision)
-    else:
-        source.parent.mkdir(parents=True, exist_ok=True)
-        subprocess.run(["git", "worktree", "add", "-q", "--detach", str(source), revision], cwd=ROOT, check=True)
-    shared = (ROOT / "local").resolve()
-    link = source / "local"
-    if not link.is_symlink():
-        link.symlink_to(shared, target_is_directory=True)
-    elif link.resolve() != shared:
-        raise Refused("The runner checkout's local link points elsewhere")
+    # Inspection only: the user owns checkout changes and local saves/locks.
     verify_source(layout, revision)
 
 
@@ -709,7 +701,7 @@ def proton_owner(result: dict, status: str, revision: str, files: dict) -> dict:
 
 def owner_details(result: dict) -> dict:
     owner = result.get("colony_owner") or {}
-    return {"status": result.get("status"),
+    return {"runner_status": result.get("status"),
             "owner": {key: owner.get(key) for key in ("CompletedFrames", "RejectedAttempts", "SkippedRelaxations",
                                                       "MaximumRelativeMassError", "MaximumRelativeEnergyError",
                                                       "OwnerConfigFlags", "Error")},
@@ -756,7 +748,7 @@ def proton_checks(step: Step, output: Path, revision: str, files: dict) -> tuple
                   "normal_desktop_exit": result.get("observed_player_exit_code") == 0,
                   "no_mod_errors": result.get("mod_failure_lines") == [],
                   "screenshots": all((output / (name + ".png")).is_file() for name in SETTINGS_SHOTS)}
-        return checks, {"status": result.get("status"), "settings": values}
+        return checks, {"runner_status": result.get("status"), "settings": values}
     elif kind in ("proton-spacedout", "proton-spacedout-ui-load"):
         sys.path.insert(0, str(TOOLS))
         import oni_dlc_matrix
@@ -791,7 +783,7 @@ def proton_checks(step: Step, output: Path, revision: str, files: dict) -> tuple
                       and header.get("sandboxEnabled") is False and header.get("numberOfDuplicants") == 3
                       and save.is_file() and sha256(save) == evidence.get("save_sha256"),
                   "screenshots": all((output / ("ordinary-" + name + ".png")).is_file() for name in UI_SHOTS)}
-        return checks, {"status": result.get("status"), "evidence": evidence}
+        return checks, {"runner_status": result.get("status"), "evidence": evidence}
     else:
         raise ValueError("Unknown WindowsPlayer step " + kind)
     return checks, owner_details(result)
@@ -1237,6 +1229,11 @@ def settings_clicks(desktop: Desktop, output: Path, log, wait) -> None:
     wait(lambda: read_json(report).get("Status") == "passed")
     time.sleep(1)
     desktop.shot("advanced-readonly")
+    desktop.shot("solver-readonly")
+    desktop.click(507, 280); time.sleep(.5)
+    desktop.shot("breathing-readonly")
+    desktop.click(637, 280); time.sleep(.5)
+    desktop.shot("performance")
     desktop.key("Escape"); time.sleep(.5)
     desktop.click(1255, 40); time.sleep(.5)
     desktop.click(641, 487); time.sleep(.5)
@@ -1259,25 +1256,41 @@ def ordinary_clicks(desktop: Desktop, log, wait) -> None:
     desktop.click(874, 692); time.sleep(4); shot("worldgen")
     wait(lambda: "Colony owner started:" in log(), 400)
     time.sleep(3); shot("duplicants-owner-active")
+    # The owner-start log precedes Embark. Require an actual initial save,
+    # handling the intro and any settings window which opens before it.
+    saved_before_begin = log().count("Saved to")
+    readonly = "Settings window opened (Advanced, colony settings read-only)"
+    closed_openings = log().count(readonly)
+    readonly_before_begin = closed_openings
+    closed_settings = False
     desktop.click(903, 624); time.sleep(8)
-    desktop.click(637, 449); time.sleep(4); shot("colony-owner-active")
-    # --settings-open reopens the read-only settings window over the colony
-    # shortly after it starts; left open it swallows the pause-menu clicks
-    # (bfb1168 recorded only the embark save). Close it with its own button.
-    try:
-        wait(lambda: "colony settings read-only)" in log(), 30)
-        time.sleep(1)
-        desktop.click(934, 128); time.sleep(1.5); shot("settings-closed")
-    except TimeoutError:
-        desktop.key("Escape"); time.sleep(1)
+    def begun():
+        nonlocal closed_openings, closed_settings
+        text = log()
+        if text.count("Saved to") > saved_before_begin:
+            return True
+        if text.count(readonly) > closed_openings:
+            desktop.click(934, 128); shot("settings-closed")
+            closed_openings = text.count(readonly)
+            closed_settings = True
+        else:
+            desktop.click(637, 449)
+        return False
+    wait(begun, 120)
+    shot("colony-owner-active")
+    # Settings can also open after the initial save. Close them before the
+    # pause menu; an absent settings window requires no Escape toggle.
+    if not closed_settings:
+        try:
+            wait(lambda: log().count(readonly) > readonly_before_begin, 30)
+            desktop.click(934, 128); time.sleep(1.5); shot("settings-closed")
+        except TimeoutError:
+            pass
     desktop.click(1255, 40); time.sleep(1.5); shot("pause")
     desktop.click(641, 263); time.sleep(1.5); shot("save")
     saved = log().count("Saved to")
     desktop.click(641, 389)
-    try:
-        wait(lambda: log().count("Saved to") > saved, 40)
-    except TimeoutError:
-        pass
+    wait(lambda: log().count("Saved to") > saved, 40)
     time.sleep(1); shot("saved")
     desktop.click(1255, 40); time.sleep(1.5)
     desktop.click(641, 487); time.sleep(1.5); shot("quit")

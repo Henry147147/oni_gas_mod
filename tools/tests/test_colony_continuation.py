@@ -95,7 +95,7 @@ class ContinuationTests(unittest.TestCase):
 def journal(start,frames):
     lines=["session 1 restored_frames %d"%start]
     for frame,items in frames:
-        lines.append("frame %d flush 0 seconds 0x1.99999ap-3 ticket %d transfers %d heat 0 terrain 0 freezes 0 germs 0 jobs 0"%(frame,1000+frame,len(items)))
+        lines.append("frame %d flush 0 seconds 0x1.99999ap-3 ticket %d transfers %d heat 0 terrain 0 freezes 0 germs 0 jobs 0"%(frame,1000+frame,sum(item.startswith("T ") for item in items)))
         lines.extend(items)
     return "\n".join(lines)+"\n"
 
@@ -130,6 +130,74 @@ class InputJournalTests(unittest.TestCase):
         source,loaded=pair();loaded["colony_owner"]["Continuation"]["Hashes"][1]="9"*64
         result=continuation.compare(source,loaded,journal(50,[(51,[]),(52,[self.breath%1]),(53,[])]),same)
         self.assertEqual((result["status"],result["attributed_to"]),("mismatch","inputs"))
+
+    def test_activity_sequence_mode_census_touches_and_order_are_compared(self):
+        items = ["A 51 -1", "C 4", "C 8", "D 9"]
+        source = journal(0, [(frame, items) for frame in range(51, 54)])
+        loaded = journal(50, [(frame, items) for frame in range(51, 54)])
+        self.assertIsNone(continuation.compare_inputs(source, loaded, 50, 3))
+        self.assertTrue(continuation.compare(*pair(), source, loaded)["identical_inputs_verified"])
+        mutations = [
+            ["A 52 -1", "C 4", "C 8", "D 9"],
+            ["A 51 0", "C 4", "C 8", "D 9"],
+            ["A 51 -1", "C 5", "C 8", "D 9"],
+            ["A 51 -1", "C 8", "C 4", "D 9"],
+            ["A 51 -1", "C 4", "C 8", "D 10"],
+            ["A 51 -1", "C 4", "C 8"],
+        ]
+        for changed in mutations:
+            with self.subTest(changed=changed):
+                other = journal(50, [(51, changed), (52, items), (53, items)])
+                difference = continuation.compare_inputs(source, other, 50, 3)
+                self.assertEqual(difference["frame"], 51)
+        reordered = journal(50, [(51, mutations[3]), (52, items), (53, items)])
+        self.assertTrue(continuation.compare_inputs(source, reordered, 50, 3)["same_multiset"])
+
+    def test_activity_lifecycle_zero_sequence_and_integer_limits_are_preserved(self):
+        text = ("session 1 restored_frames 0\n"
+                "frame 0 flush 1 seconds 0x0p+0 ticket 0 transfers 0 heat 0 terrain 0 freezes 0 germs 0 jobs 0\n"
+                "A 0 -1\nC 0\nD 4294967295\n"
+                "frame 1 flush 0 seconds 0x1.99999ap-3 ticket 1 transfers 0 heat 0 terrain 0 freezes 0 germs 0 jobs 0\n"
+                "A 18446744073709551615 1\nC 7\n")
+        start, frames = continuation.journal(text)
+        self.assertEqual(start, 0)
+        self.assertEqual(frames[0][1:], ["A 0 -1", "C 0", "D 4294967295"])
+        self.assertEqual(frames[1][1:], ["A 18446744073709551615 1", "C 7"])
+
+    def test_activity_records_refuse_malformed_and_unscoped_cells(self):
+        malformed = [
+            ["A 1"], ["A 1 -1 extra"], ["A -1 -1"], ["A +1 -1"],
+            ["A 1.0 -1"], ["A 18446744073709551616 -1"], ["A 1 2"],
+            ["A 1 -2"], ["A 1 -1", "A 2 -1"], ["C 1"], ["D 1"],
+            ["A 1 -1", "C -1"], ["A 1 -1", "C 4294967296"],
+            ["A 1 -1", "D 1 extra"], ["A 1 -1", "D NaN"],
+            ["A 1 -1", "Q 1"],
+        ]
+        for items in malformed:
+            with self.subTest(items=items), self.assertRaises(ValueError):
+                continuation.journal(journal(0, [(1, items)]))
+
+    def test_checkpoint_observations_do_not_become_inputs_or_hide_state_mismatch(self):
+        activity = ["A 51 -1", "C 4", "D 9"]
+        source_inputs = journal(0, [(51, activity + ["checkpoint 51 " + "a" * 64]), (52, []), (53, [])])
+        loaded_inputs = journal(50, [(51, activity + ["checkpoint 51 " + "b" * 64, "checkpoint 51 " + "b" * 64]), (52, []), (53, [])])
+        self.assertIsNone(continuation.compare_inputs(source_inputs, loaded_inputs, 50, 3))
+        source, loaded = pair()
+        loaded["colony_owner"]["Continuation"]["Hashes"][0] = "9" * 64
+        result = continuation.compare(source, loaded, source_inputs, loaded_inputs)
+        self.assertEqual(result["status"], "continuation-mismatch")
+        self.assertEqual(result["attributed_to"], "continuation")
+        self.assertTrue(result["identical_inputs_verified"])
+
+    def test_checkpoint_observations_reject_malformed_fields(self):
+        for record in ["checkpoint 1", "checkpoint -1 " + "a" * 64,
+                       "checkpoint 18446744073709551616 " + "a" * 64,
+                       "checkpoint 1 " + "a" * 63, "checkpoint 1 " + "q" * 64,
+                       "checkpoint 1 " + "a" * 64 + " extra"]:
+            with self.subTest(record=record), self.assertRaises(ValueError):
+                continuation.journal(journal(0, [(1, [record])]))
+        with self.assertRaises(ValueError):
+            continuation.journal("session 1 restored_frames 0\ncheckpoint 0 " + "a" * 64 + "\n")
 
     def test_journals_must_cover_the_restored_branch(self):
         good=journal(50,[(f,[]) for f in range(51,54)])

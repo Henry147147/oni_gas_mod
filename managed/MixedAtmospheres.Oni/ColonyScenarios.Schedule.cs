@@ -12,8 +12,6 @@ namespace MixedAtmospheres.Oni
         private static bool ScheduleAt(int at,string label)=>Once(at+(recorded.TryGetValue("schedule setup delay",out var delay)?(int)delay:0),label);
         private static byte[] ScheduleBytes(PipeNativeScheduleState state)
         {using(var stream=new MemoryStream()){using(var writer=new BinaryWriter(stream))state.Write(writer,ColonyConduits.Geometry);return stream.ToArray();}}
-        private static PipeNativeScheduleState ScheduleRead(byte[] bytes)
-        {using(var stream=new MemoryStream(bytes))using(var reader=new BinaryReader(stream))return PipeNativeScheduleState.Read(reader,ColonyConduits.Geometry);}
         // A reversible same-boundary diagnostic. No simulation time passes
         // between perturbing and restoring the native scheduling state.
         private static void RunPipeSchedule(ulong ownerFrame)
@@ -50,7 +48,7 @@ namespace MixedAtmospheres.Oni
             }
             if(ScheduleAt(11,"reversible native scheduling roundtrip"))
             {
-                var source=ColonyConduitsSchedule.Capture();var bytes=ScheduleBytes(source);var changed=ScheduleRead(bytes);
+                var source=ColonyConduitsSchedule.Capture();var bytes=ScheduleBytes(source);var changed=source.Copied(ColonyConduits.Geometry);
                 Record("both native clocks and all active empty/nonempty rows are captured",source.Flows.Count==2&&source.Flows.All(f=>f.Cells.Count>1)&&
                     source.Flows.Sum(f=>f.Cells.Count(c=>c.Current.Initial+c.Current.Added-c.Current.Removed>0))>=2,
                     string.Join("; ",source.Flows.Select(f=>$"phase{f.Phase}: {f.Cells.Count} cells, {f.Networks.Count} networks, {f.Updaters.Count} callbacks, elapsed{f.Elapsed:R}")));

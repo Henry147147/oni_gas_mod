@@ -10,11 +10,12 @@ namespace MixedAtmospheres.Oni
     {
         private static GameObject? storageReaderBuilding;
         private static int storageReaderPhase,storageReaderRenderFrame;
+        private static string storageReaderDispenseDetail=string.Empty;
         private static void MixedOwnedStorageReaders(int frame)
         {
             var flow=Game.Instance.liquidConduitFlow;
             if(Once(0,"exact storage inspection arena"))
-            {storageReaderBuilding=null;storageReaderPhase=0;Arena((x,y)=>(SimHashes.Oxygen,1.2f,300f));}
+            {storageReaderBuilding=null;storageReaderPhase=0;storageReaderDispenseDetail=string.Empty;Arena((x,y)=>(SimHashes.Oxygen,1.2f,300f));}
             if(Once(5,"build an exact reservoir for inspection"))
             {
                 storageReaderBuilding=Build(LiquidReservoirConfig.ID,Cell(4,0));
@@ -56,14 +57,23 @@ namespace MixedAtmospheres.Oni
                 Record("repeated exact storage inspection changes no inventory heat or account",ReferenceEquals(before,ColonyOwnedStorage.Inventory(storage))&&
                     heat.Minus(ColonyOwnedStorage.Heat(storage)).Sign==0&&publications==ColonyOwnedStorage.HeatPublications&&ColonyOwnedStorage.Audit(storage),
                     $"100 reads; {before.Mass:R} kg; {before.Count} species; {before.Germs.Length} germ identities; physical publications {publications}");
-                ColonyMachinePorts.Dispense(storageReaderBuilding.GetComponent<ConduitDispenser>());
+                var dispenser=storageReaderBuilding.GetComponent<ConduitDispenser>();
+                var cell=(int)AccessTools.Field(typeof(ConduitDispenser),"utilityCell").GetValue(dispenser);
+                var operational=(Operational)AccessTools.Field(typeof(ConduitDispenser),"operational").GetValue(dispenser);
+                var expectedCell=(int)AccessTools.Method(typeof(ConduitDispenser),"GetOutputCell").Invoke(dispenser,new object[]{flow.conduitType});
+                var pipeObject=Grid.IsValidCell(cell)?Grid.Objects[cell,(int)ObjectLayer.LiquidConduit]:null;
+                var outputBefore=ColonyMachinePorts.FromStorage.Mass;
+                storageReaderDispenseDetail=$"before: ports {ColonyMachinePorts.Enabled}, type {dispenser.conduitType}/{flow.conduitType}, pipe object {pipeObject!=null}, complete {pipeObject!=null&&pipeObject.GetComponent<BuildingComplete>()!=null}, owned {Grid.IsValidCell(cell)&&ColonyConduits.Owns(flow,cell)}, cell {cell}/expected {expectedCell}, conduit {Grid.IsValidCell(cell)&&flow.HasConduit(cell)}, connected {Grid.IsValidCell(cell)&&dispenser.IsConnected}, operational {operational?.IsOperational}, always {dispenser.alwaysDispense}, on {dispenser.isOn}, blocked {dispenser.blocked}, empty {dispenser.empty}; held {before.Mass:R} kg/{before.Count} species";
+                var handled=ColonyMachinePorts.Dispense(dispenser);
+                var after=ColonyOwnedStorage.Inventory(storage);
+                storageReaderDispenseDetail+=$"; after: handled {handled}, blocked {dispenser.blocked}, empty {dispenser.empty}; held {after.Mass:R} kg/{after.Count} species; dispensed {ColonyMachinePorts.FromStorage.Mass-outputBefore:R} kg";
                 storageReaderPhase=2;storageReaderRenderFrame=Time.frameCount;
             }
             if(storageReaderPhase==2&&Time.frameCount>storageReaderRenderFrame)
             {
                 var storage=storageReaderBuilding!.GetComponent<Storage>();var text=MixtureInspection.GetContainerInspectionText(storageReaderBuilding);
                 Record("empty exact storage has an explicit empty reading after physical withdrawal",ColonyOwnedStorage.Inventory(storage).Count==0&&
-                    text.Contains("Stored mixture")&&text.Contains("Empty"),text.Replace('\n','|'));
+                    text.Contains("Stored mixture")&&text.Contains("Empty"),text.Replace('\n','|')+"; "+storageReaderDispenseDetail);
                 Record("storage reader control preserves every pipe account",ColonyConduits.Audit(out var detail),detail);Finish();return;
             }
             if(frame>=80){Record("inspection observes later render frames",false,"render readiness expired");Finish();}

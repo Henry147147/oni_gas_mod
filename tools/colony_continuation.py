@@ -77,7 +77,7 @@ def journal(text):
     header = lines[0].split()
     if len(header) != 4 or header[2] != "restored_frames":
         raise ValueError("Invalid owner input journal header")
-    start = int(header[3]); frames = {}; current = None
+    start = int(header[3]); frames = {}; current = None; activity = False
     for number, line in enumerate(lines[1:], 2):
         parts = line.split()
         if not parts:
@@ -85,15 +85,36 @@ def journal(text):
         if parts[0] == "frame":
             if len(parts) < 8 or parts[2] != "flush" or parts[4] != "seconds":
                 raise ValueError("Invalid journal frame line %d" % number)
-            frame = int(parts[1]); current = frames.setdefault(frame, [])
+            frame = int(parts[1]); current = frames.setdefault(frame, []); activity = False
             current.append("batch flush %s seconds %s %s" % (parts[3], parts[5], " ".join(parts[8:])))
             continue
-        if current is None or parts[0] not in ("T", "P", "W", "H", "R", "F", "G"):
+        if parts[0] == "checkpoint":
+            # Snapshot observations are outputs, not committed inputs. Their
+            # images are compared independently by the continuation records.
+            if (current is None or len(parts) != 3 or not parts[1].isascii()
+                    or not parts[1].isdecimal() or len(parts[1]) > 20
+                    or int(parts[1]) > (1 << 64) - 1 or not digest(parts[2])):
+                raise ValueError("Invalid journal checkpoint line %d" % number)
+            continue
+        if current is None or parts[0] not in ("T", "P", "W", "H", "R", "F", "G", "A", "C", "D"):
             raise ValueError("Invalid journal input line %d" % number)
         if parts[0] == "T":
             if len(parts) != 13 or parts[9] != "job" or parts[11] != "cb":
                 raise ValueError("Invalid journal transfer line %d" % number)
             parts[12] = "-1" if parts[12] == "-1" else "answered"
+        if parts[0] == "A":
+            # The packet sequence is durable, not a session-local callback.
+            # Retain sequence, mode and census order exactly for comparison.
+            if (activity or len(parts) != 3 or not parts[1].isascii()
+                    or not parts[1].isdecimal() or len(parts[1]) > 20
+                    or int(parts[1]) > (1 << 64) - 1 or parts[2] not in ("-1", "0", "1")):
+                raise ValueError("Invalid journal activity line %d" % number)
+            activity = True
+        elif parts[0] in ("C", "D"):
+            if (not activity or len(parts) != 2 or not parts[1].isascii()
+                    or not parts[1].isdecimal() or len(parts[1]) > 10
+                    or int(parts[1]) > (1 << 32) - 1):
+                raise ValueError("Invalid journal activity cell line %d" % number)
         current.append(" ".join(parts))
     return start, frames
 
