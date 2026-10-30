@@ -12,8 +12,37 @@ internal static class StorageHeatTests
     {using var stream=new MemoryStream();using var writer=new BinaryWriter(stream);store.Write(writer);return stream.ToArray();}
     private static void Refuse(Action action)
     {try{action();}catch(Exception error)when(error is InvalidOperationException||error is ArgumentException){return;}throw new Exception("Invalid prepared storage heat was accepted.");}
+    private static void RegistrationBeforeWithdrawal()
+    {
+        var store=new OwnedFluidStore(new StoredFluidAddress(4,0),2,PipeInventory.Single(Water,2,300,0,.25));
+        var initial=Image(store);var destination=PipeInventory.Empty;
+        bool Dispense(bool ready)
+        {
+            var move=store.PrepareWithdrawalTo(ready,destination,double.MaxValue,10,Material);
+            if(move==null)return false;
+            destination=move.Outside;store.Commit(move);return true;
+        }
+        Check(!Dispense(false)&&destination.Count==0&&Image(store).SequenceEqual(initial),
+            "An unregistered projection let fluid escape before its initial native heat could be settled.");
+        // The actual callback's f32 capacity is kJ/K. Two kg at 1000 J/kg/K
+        // cool by exactly half a kelvin before registration is delivered.
+        var work=PipeContactWork.IntoFluid(2,300,299.5f).Negated();
+        Check(work.Minus(new PipeAmount(-1000)).Sign==0,"Registration work oracle disagrees with exact -1000 J.");
+        store.AddHeat(work,Material);
+        Check(Dispense(true)&&store.Inventory.Count==0&&destination.Mass==2&&destination.Temperature(Material)==299.5&&
+            destination.Germs.Length==1&&destination.Germs[0].Amount.Minus(new PipeAmount(.25)).Sign==0&&
+            destination.Energy.Minus(new PipeAmount(599000)).Sign==0&&store.Audit(),
+            "Registered withdrawal lost its mass, late heat, culture or closed physical journal.");
+        // The old ordering really is invalid: heat cannot be assigned to a
+        // source whose complete fluid parcel has already left.
+        var old=new OwnedFluidStore(new StoredFluidAddress(5,0),2,PipeInventory.Single(Water,2,300));
+        old.Commit(old.PrepareWithdrawalTo(PipeInventory.Empty,double.MaxValue,10,Material));
+        Refuse(()=>old.AddHeat(work,Material));
+        Console.WriteLine("PASS native registration precedes withdrawal: pending transfer is inert, exact initial contact work travels with mass and germs, and old empty-source heat is refused");
+    }
     internal static void Run()
     {
+        RegistrationBeforeWithdrawal();
         var first=new OwnedFluidStore(new StoredFluidAddress(1,0),2,PipeInventory.Single(Water,1,300));
         var second=new OwnedFluidStore(new StoredFluidAddress(2,0),2,PipeInventory.Single(Water,1,300));
         var empty=new OwnedFluidStore(new StoredFluidAddress(3,0),2,PipeInventory.Empty);

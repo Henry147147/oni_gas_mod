@@ -74,6 +74,11 @@ namespace MixedAtmospheres.Oni
             var split=Inventory.Split(maximum,material,only,excluding);
             return new Move(this,split.Remaining,split.Parcel,PipeInventory.Empty,false);
         }
+        // A native projection's first registration can contain contact work.
+        // It must be credited while the source fluid is still held; preparing
+        // or committing its withdrawal before that boundary would orphan heat.
+        internal Move? PrepareWithdrawalTo(bool thermalReady,PipeInventory destination,double maximum,double capacity,Func<int,PipeMaterial> material)
+            =>thermalReady?PrepareWithdrawalTo(destination,maximum,capacity,material):null;
         internal Move PrepareWithdrawalTo(PipeInventory destination,double maximum,double capacity,Func<int,PipeMaterial> material)
         {
             var transfer=PipeInventory.Transfer(Inventory,destination,maximum,capacity,material);

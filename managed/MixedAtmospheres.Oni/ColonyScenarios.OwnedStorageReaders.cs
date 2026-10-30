@@ -41,6 +41,16 @@ namespace MixedAtmospheres.Oni
             // newly completed physical inventory on a subsequent render.
             if(storageReaderPhase==1&&Time.frameCount>storageReaderRenderFrame)
             {
+                var readyStorage=storageReaderBuilding!.GetComponent<Storage>();
+                var readyDispenser=storageReaderBuilding.GetComponent<ConduitDispenser>();
+                var readyOperation=(Operational)AccessTools.Field(typeof(ConduitDispenser),"operational").GetValue(readyDispenser);
+                if(!readyDispenser.IsConnected||(!readyDispenser.alwaysDispense&&(readyOperation==null||!readyOperation.IsOperational))||
+                    !ColonyOwnedStorage.ThermalProjectionsRegistered(readyStorage))
+                {
+                    Current.Stage="waiting for native storage and outlet readiness";
+                    if(frame>=80){Record("inspection observes later render frames",false,"native storage/outlet readiness expired");Finish();}
+                    return;
+                }
                 var storage=storageReaderBuilding!.GetComponent<Storage>();var before=ColonyOwnedStorage.Inventory(storage);
                 var heat=ColonyOwnedStorage.Heat(storage);var publications=ColonyOwnedStorage.HeatPublications;
                 var text=MixtureInspection.GetContainerInspectionText(storageReaderBuilding);

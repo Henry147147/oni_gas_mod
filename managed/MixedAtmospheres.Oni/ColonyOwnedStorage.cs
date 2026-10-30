@@ -46,6 +46,10 @@ namespace MixedAtmospheres.Oni
         internal static int RegisteredProjections(Storage storage)=>Hosts.TryGetValue(storage,out var host)?host.Projections.Values.Count(view=>view.Handle!=-1):0;
         internal static int RetiringProjections(Storage storage)=>Hosts.TryGetValue(storage,out var host)?host.Retiring.Count:0;
         internal static bool Audit(Storage storage)=>Hosts.TryGetValue(storage,out var host)&&host.Store.Audit();
+        private static bool ThermalProjectionsRegistered(Host host)=>
+            host.Projections.Values.All(view=>view.InitialCapacity==0||view.Handle!=-1);
+        internal static bool ThermalProjectionsRegistered(Storage storage)=>
+            Hosts.TryGetValue(storage,out var host)&&ThermalProjectionsRegistered(host);
         internal static object Diagnostics()=>new{Enabled,NativeHeatReceipts,NativeRetirements,
             Completed=CompletedHistories.Where(history=>history!=null).Select(history=>new{history!.Phase,AuditClosed=history.Audit(),
                 HeatUnits=history.Heat.Units.ToString(),AdmittedSpecies=history.Admitted.Masses.Count,WithdrawnSpecies=history.Withdrawn.Masses.Count}).ToArray(),
@@ -116,9 +120,11 @@ namespace MixedAtmospheres.Oni
             var host=BindEmpty(dispenser.storage,phase);var held=host.Store.Inventory;
             dispenser.empty=held.Count==0;if(held.Count==0)return true;
             if(phase!=(flow.conduitType==ConduitType.Gas?1:2))throw new InvalidOperationException("An exact reservoir output changed fluid phase.");
-            var destination=ColonyConduits.ReadSynced(flow,cell);
+            var thermalReady=ThermalProjectionsRegistered(host);
+            var destination=thermalReady?ColonyConduits.ReadSynced(flow,cell):PipeInventory.Empty;
             var capacity=ColonyConduits.PortCapacity(flow);
-            var move=host.Store.PrepareWithdrawalTo(destination,double.MaxValue,capacity,ColonyConduits.Material);
+            var move=host.Store.PrepareWithdrawalTo(thermalReady,destination,double.MaxValue,capacity,ColonyConduits.Material);
+            if(move==null)return true; // native ConduitUpdate retries after registration
             parcel=move.Parcel;dispenser.blocked=parcel.Count==0;if(parcel.Count==0)return true;
             ColonyConduits.ReceiveExact(flow,cell,parcel);host.Store.Commit(move);Refresh(host);return true;
         }
