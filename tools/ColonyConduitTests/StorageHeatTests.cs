@@ -22,17 +22,26 @@ internal static class StorageHeatTests
             if(move==null)return false;
             destination=move.Outside;store.Commit(move);return true;
         }
-        Check(!Dispense(false)&&destination.Count==0&&Image(store).SequenceEqual(initial),
+        Check(!Dispense(OwnedFluidStore.NativeProjectionReady(2,true,-1))&&destination.Count==0&&Image(store).SequenceEqual(initial),
             "An unregistered projection let fluid escape before its initial native heat could be settled.");
         // The actual callback's f32 capacity is kJ/K. Two kg at 1000 J/kg/K
         // cool by exactly half a kelvin before registration is delivered.
         var work=PipeContactWork.IntoFluid(2,300,299.5f).Negated();
         Check(work.Minus(new PipeAmount(-1000)).Sign==0,"Registration work oracle disagrees with exact -1000 J.");
         store.AddHeat(work,Material);
-        Check(Dispense(true)&&store.Inventory.Count==0&&destination.Mass==2&&destination.Temperature(Material)==299.5&&
+        Check(Dispense(OwnedFluidStore.NativeProjectionReady(2,true,1))&&store.Inventory.Count==0&&destination.Mass==2&&destination.Temperature(Material)==299.5&&
             destination.Germs.Length==1&&destination.Germs[0].Amount.Minus(new PipeAmount(.25)).Sign==0&&
             destination.Energy.Minus(new PipeAmount(599000)).Sign==0&&store.Audit(),
             "Registered withdrawal lost its mass, late heat, culture or closed physical journal.");
+        var insulated=new OwnedFluidStore(new StoredFluidAddress(6,0),2,PipeInventory.Single(Water,2,300,0,.25));
+        var insulatedMove=insulated.PrepareWithdrawalTo(OwnedFluidStore.NativeProjectionReady(2,false,-1),
+            PipeInventory.Empty,double.MaxValue,10,Material);
+        Check(insulatedMove!=null,"An insulated carrier waited for a native thermal registration that cannot occur.");
+        insulated.Commit(insulatedMove!);
+        Check(insulated.Inventory.Count==0&&insulatedMove!.Outside.Mass==2&&
+            insulatedMove.Outside.Energy.Minus(new PipeAmount(600000)).Sign==0&&
+            insulatedMove.Outside.Germs[0].Amount.Minus(new PipeAmount(.25)).Sign==0&&insulated.Audit(),
+            "Insulated withdrawal lost physical mass, energy, culture or its journal.");
         // The old ordering really is invalid: heat cannot be assigned to a
         // source whose complete fluid parcel has already left.
         var old=new OwnedFluidStore(new StoredFluidAddress(5,0),2,PipeInventory.Single(Water,2,300));

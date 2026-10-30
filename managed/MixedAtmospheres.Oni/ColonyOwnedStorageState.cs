@@ -74,6 +74,8 @@ namespace MixedAtmospheres.Oni
             var split=Inventory.Split(maximum,material,only,excluding);
             return new Move(this,split.Remaining,split.Parcel,PipeInventory.Empty,false);
         }
+        internal static bool NativeProjectionReady(float initialCapacity,bool thermalEnabled,int handle)
+            =>initialCapacity==0||!thermalEnabled||handle!=-1;
         // A native projection's first registration can contain contact work.
         // It must be credited while the source fluid is still held; preparing
         // or committing its withdrawal before that boundary would orphan heat.

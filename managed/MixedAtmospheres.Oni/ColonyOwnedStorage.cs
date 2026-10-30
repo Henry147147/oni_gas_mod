@@ -47,7 +47,13 @@ namespace MixedAtmospheres.Oni
         internal static int RetiringProjections(Storage storage)=>Hosts.TryGetValue(storage,out var host)?host.Retiring.Count:0;
         internal static bool Audit(Storage storage)=>Hosts.TryGetValue(storage,out var host)&&host.Store.Audit();
         private static bool ThermalProjectionsRegistered(Host host)=>
-            host.Projections.Values.All(view=>view.InitialCapacity==0||view.Handle!=-1);
+            host.Projections.Values.All(view=>
+            {
+                // Insulated stored items have a disabled thermal component:
+                // no native contact or registration callback exists to wait for.
+                var thermal=view.Item.GetComponent<SimTemperatureTransfer>();
+                return OwnedFluidStore.NativeProjectionReady(view.InitialCapacity,thermal!=null&&thermal.enabled,view.Handle);
+            });
         internal static bool ThermalProjectionsRegistered(Storage storage)=>
             Hosts.TryGetValue(storage,out var host)&&ThermalProjectionsRegistered(host);
         internal static object Diagnostics()=>new{Enabled,NativeHeatReceipts,NativeRetirements,
