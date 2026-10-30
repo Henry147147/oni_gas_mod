@@ -59,6 +59,31 @@ class ProtonIsolationTests(unittest.TestCase):
         args.native_clock_control=False
         self.assertNotIn("MA_COLONY_NATIVE_CLOCK_CONTROL",runner.owner_environment(env,args))
 
+    def test_storage_heat_control_is_explicit_traced_and_does_not_hold_continuation(self):
+        original={"PATH":"fixture","MA_UNRELATED":"1","MA_ONI_PAIRED_HEAT_CORRECT":"1"}
+        args=SimpleNamespace(mode="colony-owner",storage_heat_control=False)
+        clean=runner.owner_environment(original,args);result={"owner_environment_overrides":False}
+        self.assertNotIn("MA_ONI_PAIRED_HEAT_CORRECT",clean)
+        self.assertIs(runner.storage_heat_environment(clean,args,Path('/fixture/run with spaces'),result),clean)
+        self.assertFalse(result["owner_environment_overrides"])
+        args.storage_heat_control=True
+        active=runner.storage_heat_environment(clean,args,Path('/fixture/run with spaces'),result)
+        self.assertEqual(active["MA_COLONY_NATIVE_SCHEDULE_CONTROL"],"1")
+        self.assertEqual(active["MA_ONI_PAIRED_HEAT_CORRECT"],"1")
+        self.assertFalse(any(name.startswith("MA_COLONY_CONTINUATION_") for name in active))
+        self.assertNotIn("MA_UNRELATED",active)
+        self.assertTrue(result["owner_environment_overrides"])
+        for name,filename in result["storage_heat_control"]["traces"].items():
+            self.assertEqual(active[name],runner.windows_path(Path('/fixture/run with spaces')/filename))
+        self.assertNotIn("MA_COLONY_NATIVE_SCHEDULE_CONTROL",original)
+
+    def test_storage_heat_control_refuses_nonowner_routes_before_mutation(self):
+        for mode in ("menu","native-domain","colony-owner-inactive"):
+            env={"PATH":"fixture"};result={}
+            with self.subTest(mode=mode),self.assertRaises(ValueError):
+                runner.storage_heat_environment(env,SimpleNamespace(mode=mode,storage_heat_control=True),Path('/fixture/run'),result)
+            self.assertEqual(env,{"PATH":"fixture"});self.assertEqual(result,{})
+
     def test_exact_storage_control_refuses_nonowner_and_inactive_routes(self):
         for mode in ("menu","native-domain","colony-owner-inactive"):
             with self.subTest(mode=mode),self.assertRaises(ValueError):

@@ -31,6 +31,7 @@
 static void require(bool condition,const char* message) {
     if (!condition) throw std::runtime_error(message);
 }
+#include "oni_body_heat_trace_controls.hpp"
 static void capture_file_controls() {
     const auto directory=std::filesystem::temp_directory_path()/
         ("ma-capture-file-"+std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
@@ -957,6 +958,7 @@ int main() {
     try {
         capture_file_controls();
         body_heat_trace_controls();
+        body_heat_trace_layout_controls();
         runtime_context_controls();
         runtime_clock_controls();
         native_load_guard_controls();

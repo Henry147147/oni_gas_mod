@@ -6,6 +6,40 @@ continuation and performance requirements still fail. Windows OS acceptance is
 pending by the user's explicit choice. Nothing was published or uploaded to
 Workshop.
 
+## Current follow-up
+
+The release goal remains active. The results below retain the earlier frozen
+candidate's failures; subsequent fixes are qualified separately.
+
+`28e7ff6` fixes M5 trial admission without changing its inputs or bounds. The
+full prescribed 10/20/40 grids pass, with finest error 0.00911666632 and
+water-mass drift 2.874269236e−17. Physical checkpoint 29 records the new law;
+historical images retain their earlier law and bytes. All 88 clean MAC
+observations and sixteen historical-layout cold continuations are reviewed.
+
+`c7080a7` adds the complete native publication fence and transactional storage
+thermal endpoints. Its frozen v5 Linux base-game and Spaced Out! storage
+batches each pass all six fixed scenarios, including natural 8 kg discharge
+and native retirement. The closed passive-storage heat residual is
+−9.80e−9 J against the unchanged approximately 4.98e−6 J bound, with independent
+contact, receipt and foreign-credit audits. Exact-storage scheduling and paired
+heat correction remain development controls; powered and mixed-ownership heat
+coupling is not qualified by these results.
+
+That immutable source passes 90 native tests on Linux, Windows/Wine and Ubuntu
+22.04 separately; the Ubuntu libraries require no GLIBC version above 2.34.
+The Python suite passes 487 tests with four actual-Windows-only skips. The
+explicit native-fixture/DAZ-FTZ managed snapshot repeat passes 240/240. Both
+game-target managed DLLs match byte for byte, and actual Windows game Mono
+under Wine resolves all 2,588 contract dependencies with zero differences.
+
+Strict active continuation and sustained 3× remain open. Complete runtime
+continuation is being implemented under the reserved MACOLP03 tag 6 /
+MACGRT01 version 1; failed source captures do not qualify resumed runs.
+Private heat-retry and pressure-reuse prototypes require complete checkpoint
+and diagnostic equivalence before adoption or isolated timing. Actual Windows
+OS checks remain pending by the user's choice.
+
 ## Version and scope
 
 Steam public build **24423041**, ONI **744825**, was verified through the normal

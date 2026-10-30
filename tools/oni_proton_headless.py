@@ -327,6 +327,7 @@ def playtest(args, state: Path, session: dict) -> int:
             result["exact_storage_control"] = bool(getattr(args,"exact_storage_control",False))
             result["native_clock_control"] = bool(getattr(args,"native_clock_control",False))
         env=owner_fault_environment(env,args,output,result)
+        env=storage_heat_environment(env,args,output,result)
         measured=measurement_environment(getattr(args,"measurement_env",None) or [])
         if measured:
             env.update(measured)
@@ -597,6 +598,23 @@ def owner_fault_environment(env, args, output, result):
     return clean
 
 
+def storage_heat_environment(env, args, output, result):
+    """Explicit paired-contact fixture; keep ordinary and continuation controls separate."""
+    if not getattr(args,"storage_heat_control",False):
+        return env
+    if args.mode not in OWNER_MODES:
+        raise ValueError("Storage heat control requires a colony-owner run")
+    clean=dict(env)
+    clean.update(MA_COLONY_NATIVE_SCHEDULE_CONTROL="1",MA_ONI_PAIRED_HEAT_CORRECT="1")
+    traces={"MA_ONI_STORAGE_HEAT_TRACE":"storage.trace","MA_ONI_BODY_HEAT_TRACE":"body.trace",
+            "MA_ONI_PAIRED_HEAT_TRACE":"chunk.tsv","MA_ONI_PAIRED_BUILDING_HEAT_TRACE":"building.tsv"}
+    for name,filename in traces.items():
+        clean[name]=windows_path(output/filename)
+    result["owner_environment_overrides"]=True
+    result["storage_heat_control"]={"requested":True,"traces":traces}
+    return clean
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--state", type=Path, default=common.DEFAULT_STATE)
@@ -610,6 +628,8 @@ def main() -> int:
                         help="Experimental cluster-owner admission; records a development override, not ordinary DLC acceptance")
     parser.add_argument("--exact-storage-control",action="store_true",
                         help="Development-only exact-storage/scheduling and eight-frame continuation control; records an override")
+    parser.add_argument("--storage-heat-control",action="store_true",
+                        help="Development-only exact-storage and paired passive-contact heat fixture with traces; no continuation hold")
     parser.add_argument("--native-clock-control",action="store_true",
                         help="Development-only native loop continuation; requires --exact-storage-control")
     parser.add_argument("--capture-owner-fault",action="store_true",
