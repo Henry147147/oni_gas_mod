@@ -1981,9 +1981,62 @@ void cluster_boundary_control() {
         "Dynamic cluster boundary mass or energy ledger did not close");
     stop();std::cout<<"PASS cluster boundaries: atomic validation, new vacuum/space, reused cells, no zero-time deletion, exact cold reencoding\n";
 }
+// A successful production-kernel heat edit replaces the state snapshot.
+// Refused edits must still examine neighbours after that replacement.
+void heat_neighbour_bounds_control() {
+    using namespace ma::oni::colony;
+    const std::array mats{material("MadeUpGas", 111, oxygen, true, .032, 1000)};
+    for (const auto flags : {0u, MA_ONI_COLONY_GAME_KERNEL}) {
+        MAOniColonyConfig cfg{};
+        cfg.struct_size = sizeof(cfg); cfg.abi_version = MA_ONI_COLONY_ABI_VERSION;
+        cfg.flags = flags; cfg.vacuum_index = vacuum;
+        cfg.grid_width = cfg.width = 3; cfg.grid_height = cfg.height = 3;
+        cfg.maximum_timestep_s = .1;
+        std::array<MAOniColonyCell, 9> cells;
+        cells.fill({oxygen, MA_ONI_COLONY_FLUID, 1, 300, 0, 0});
+        cells[0] = {0, MA_ONI_COLONY_SOLID, 0, 0, 0, 0};
+        start(cfg, mats, cells, 1);
+        struct Cleanup { ~Cleanup() { refuse_heat(-1); stop(); } } cleanup;
+        std::vector<MAOniColonyReading> before, after;
+        std::vector<MAOniColonyConstituent> parts;
+        (void)readings(before, parts);
+        const MAOniColonyTerrain opening{0, MA_ONI_COLONY_OPEN};
+        queue_terrain(std::span(&opening, 1));
+        const std::array<MAOniColonyHeat, 2> heat{{{4, 0, 10, 1000}, {7, 0, 20, 1000}}};
+        queue_heat(heat);
+        const auto pending = checkpoint();
+        const auto finish = [&] {
+            refuse_heat(7);
+            require(flush_inputs() == 0, "Accepted/refused heat did not settle after topology change");
+            refuse_heat(-1);
+            const auto settled = status();
+            require(settled.state == 1 && settled.completed_frames == 0 && settled.time_seconds == 0 &&
+                    settled.opened_cells == 1 && settled.committed_heat == 2 &&
+                    settled.maximum_relative_mass_error < 1e-12 && settled.maximum_relative_energy_error < 1e-12,
+                    "Heat neighbour fallback changed time, topology, commits or ledgers");
+            (void)readings(after, parts);
+            const auto energy = [](const auto& rows, std::uint32_t cell) {
+                const auto row = std::find_if(rows.begin(), rows.end(), [=](const auto& r) { return r.public_cell == cell; });
+                require(row != rows.end(), "Heat neighbour control lost a fluid reading");
+                return row->internal_energy_j;
+            };
+            require(std::abs(energy(after, 4) - energy(before, 4) - 10) < 1e-8 &&
+                    std::abs(energy(after, 6) - energy(before, 6) - 20) < 1e-8 &&
+                    energy(after, 7) == energy(before, 7),
+                    "Accepted then refused heat changed neighbour order or lost energy");
+            return checkpoint();
+        };
+        const auto expected = finish();
+        stop(); restore(cfg, mats, pending, 1);
+        require(finish() == expected, "Heat neighbour fallback changed cold continuation bytes");
+    }
+    std::cout << "PASS heat neighbour bounds: topology change, accepted/refused order, both kernels, conserved energy, exact cold continuation\n";
+}
+
 #include "oni_activity_owner_control.hpp"
 int main(int argc, char** argv) {
     try {
+        if (argc == 2 && std::strcmp(argv[1], "--heat-neighbour-bounds-only") == 0) { heat_neighbour_bounds_control(); return 0; }
         if (argc == 2 && std::strcmp(argv[1], "--activity-only") == 0) {activity_owner_control();return 0;}
         if (argc == 2 && std::strcmp(argv[1], "--passives-only") == 0) {passive_observation_control();return 0;}
         if (argc == 2 && std::strcmp(argv[1], "--biology-only") == 0) {world_biology_control();unplaced_output_control();return 0;}
@@ -2010,6 +2063,7 @@ int main(int argc, char** argv) {
         if (argc == 2 && std::strcmp(argv[1], "--callback-rebind-only") == 0) { callback_rebind_control(); return 0; }
         if (argc == 2 && std::strcmp(argv[1], "--sample-history-only") == 0) { sample_history_control();native_sample_history_control();region_energy_control();return 0; }
         require(argc == 1, "Usage: ma_oni_colony_tests [--projection-only|--timestep-only|--precise-receipts-only]");
+        heat_neighbour_bounds_control();
         activity_owner_control();
         precise_receipt_control();
         transfer_capture_control();

@@ -2923,6 +2923,7 @@ void run_frame(std::uint64_t ticket,double seconds,std::uint64_t frames,const ch
         std::vector<MAOniColonyHeat> deferred;
         {
             const auto& st0 = world.state(); const auto W = st0.grid.width;
+            const auto cell_count = st0.cells.size();
             std::vector<MacCellHeat> edits; std::vector<std::size_t> source;
             for (std::size_t k = 0; k < heat.size(); ++k) {
                 const auto i = rect_index(s.config, heat[k].public_cell);
@@ -2949,7 +2950,7 @@ void run_frame(std::uint64_t ticket,double seconds,std::uint64_t frames,const ch
             for (std::size_t first = 0; first < edits.size(); first += 4096) apply(apply, first, std::min<std::size_t>(4096, edits.size() - first));
             for (const auto q : refused) {
                 const auto i = edits[q].cell_index; bool placed = false;
-                for (const auto n : {i % W > 0 ? i - 1 : SIZE_MAX, i % W + 1 < W ? i + 1 : SIZE_MAX, i >= W ? i - W : SIZE_MAX, i + W < st0.cells.size() ? i + W : SIZE_MAX}) {
+                for (const auto n : {i % W > 0 ? i - 1 : SIZE_MAX, i % W + 1 < W ? i + 1 : SIZE_MAX, i >= W ? i - W : SIZE_MAX, i + W < cell_count ? i + W : SIZE_MAX}) {
                     if (n == SIZE_MAX || world.state().grid.walls[n] || !(world.state().cells[n].mixture.mass() > 0)) continue;
                     MacCellHeat moved = edits[q]; moved.cell_index = n;
                     try { (void)MacGameKernelAccess::detach_heat_state(world);

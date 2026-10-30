@@ -81,6 +81,15 @@ rejected candidate unchanged.
   native replay ratios, not actual game 3× or UI acceptance. Clean Linux, Windows/Wine and Ubuntu 22.04
   each pass 91 native tests (Ubuntu GLIBC maximum 2.34), including the new allocation-failure
   ownership regression. See [performance evidence](performance-acceptance.md).
+- Review of that retry loop also reproduces a preexisting use-after-free in
+  the nongame kernel: accepted heat replaces the old state, then neighbour
+  fallback reads its cell count. The separate repair captures that scalar
+  before mutation. The same new regression fails under ASan before the repair
+  and passes afterward, along with the complete owner suite and five affected
+  Release checks. All 32 independent default future images and 158 base plus
+  158 DLC full owner/status replay frames remain exact. MAC arithmetic,
+  checkpoint formats and gate bounds do not change. Direct follow-up evidence
+  is Linux Release/ASan; cross-platform combined rebuilds remain separate.
 - The current native/managed/Python and cross-platform checks use the immutable
   v5 source snapshot. All 90 Linux native checks and 487 Python controls pass
   (four actual-Windows
