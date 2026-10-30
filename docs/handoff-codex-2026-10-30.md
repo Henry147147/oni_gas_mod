@@ -83,8 +83,8 @@ continuation is still uncommitted work and is excluded from the clean tested
   cold-start penalties. The allocation reduction does not establish a reliable
   throughput gain; the candidate remains private and unadopted.
 - Runtime continuation is reserved as MACOLP03 tag 6 / MACGRT01 version 1.
-  Native 96/56 captures all 11 cell columns. 396 managed controls pass under
-  .NET and actual game Mono; 17 installed scheduler/event/compaction controls
+  Native 96/56 captures all 11 cell columns. 403 managed controls pass;
+  26 installed scheduler/event/compaction/lifetime controls
   cover timed heaps, cleared entries, rescheduling, canonical re-encoding and
   in-place event callback rebinding. V9 source refused ambiguous
   compacted mappings before saving: reverse entries are packed handles, not
@@ -140,6 +140,17 @@ pass under actual Mono, and 6,144 real CPU destination comparisons pass with
 forced full fallback. Both target DLLs match and actual Mono contracts pass
 2,589/0. This is byte-correctness evidence, not a whole-game speedup or GPU
 readback claim. Private proof: `compact-channels-v1/`.
+
+The engine-phase diagnostic preserves all 139 original Unity loop nodes,
+native pointers, conditions and order. Its repeated shared-CPU DLC300 probe
+passes with zero scope faults; Update/LateUpdate contain most measured time.
+The first run found a real pre-installation report-writer race: world-generation
+and telemetry callbacks collide on one `.tmp` sibling. A bounded process-local
+write/serialization gate fixes the reproduced fault; eight .NET and twelve
+actual-Mono I/O/serialization controls pass, and the same game probe then
+passes. Private evidence: `report-json-fix-v1/`, `unity-loop-profile-v2/`.
+The original failed case remains retained. Neither shared-CPU profile certifies
+actual3× or Windows OS acceptance.
 
 Current private evidence is in `artifacts/release-ready-2026-10-30/`:
 `full-committed-dab1bc2/verification.json`,

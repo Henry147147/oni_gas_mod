@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType><TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable><ImplicitUsings>enable</ImplicitUsings><TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <OniGameDir Condition="'$(OniGameDir)'==''">$(ONI_GAME_DIR)</OniGameDir>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../../managed/MixedAtmospheres.Oni/ReportJson.cs" Link="ReportJson.cs" />
+    <Reference Include="Newtonsoft.Json"><HintPath>$(OniGameDir)/OxygenNotIncluded_Data/Managed/Newtonsoft.Json.dll</HintPath><Private>false</Private></Reference>
+  </ItemGroup>
+</Project>

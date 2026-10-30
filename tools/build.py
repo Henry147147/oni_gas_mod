@@ -102,6 +102,8 @@ def main() -> None:
              "-p:OniGameDir=" + str(game), "--", str(game)], compact_env)
         run(["dotnet", "run", "--project", "tools/OwnedSnapshotTests", "-c", "Release",
              "-p:OniGameDir=" + str(Path(args.game_dir).resolve()), "--", str(Path(args.game_dir).resolve())], env)
+        run(["dotnet", "run", "--project", "tools/ReportJsonTests", "-c", "Release",
+             "-p:OniGameDir=" + str(game), "--", str(game)], env)
         run(["dotnet", "run", "--project", "tools/OwnedReservoirTests", "-c", "Release",
              "-p:OniGameDir=" + str(Path(args.game_dir).resolve()), "--", str(Path(args.game_dir).resolve())])
         run(["dotnet", "run", "--project", "tools/OwnedReservoirMarkerTests", "-c", "Release",

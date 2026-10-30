@@ -201,6 +201,28 @@ byte-identical and their actual game-Mono dependency checks pass 2,589/0
 zero mismatches. No whole-game speedup, GPU readback, new solver arithmetic or
 checkpoint change is claimed. Evidence: `compact-channels-v1/`.
 
+The private engine-phase probe then brackets 139 original Unity loop nodes
+with timestamp callbacks, verifying their original order, delegates, native
+function pointers and conditions before and after installation. Fourteen
+synthetic structure/mutation controls pass; actual Mono resolves 2,600/0
+dependencies. The repeated shared-CPU 300-frame DLC diagnostic completes with
+zero timing-scope faults. Its 500 warm loops concentrate measured wall time in
+script Update/LateUpdate (about 19.00/5.04 ms); frame rendering is about1.77 ms
+and canvas updates1.05 ms. These are functional diagnostic observations,
+including waits, not exclusive acceptance timings or an additive partition.
+Evidence: `unity-loop-profile-v2/functional-analysis.json`.
+
+The first phase run remains failed: during world generation, before the phase
+callbacks installed, concurrent report writers collided on the shared JSON
+temporary file. The production report writer now serializes complete writes
+and object serialization through one process-local gate. The unchanged writer
+reproduces the collision; eight .NET I/O controls and twelve actual-Mono
+I/O/serialization controls pass after repair, including readers, cleanup and
+exception recovery. The same 300-frame game then passes without the report
+error. The build driver includes the permanent regression. This coordinates
+writers within one process; it does not certify cross-process writers or actual
+Windows OS behavior. Evidence: `report-json-fix-v1/qualification.json`.
+
 ## Latest measured candidate, 2026-10-30
 
 The [release review](release-candidate-2026-10-30.md) records clean `0af5dfe`

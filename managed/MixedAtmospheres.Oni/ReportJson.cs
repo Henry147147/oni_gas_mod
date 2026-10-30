@@ -6,13 +6,22 @@ namespace MixedAtmospheres.Oni
 {
     internal static class ReportJson
     {
+        private static readonly object writeGate = new object();
         internal static string Serialize(object value) => Serialize(value, Formatting.Indented);
-        // Reports have one writer and concurrent external readers. Replace a
-        // complete sibling file so a poll never observes a truncated document.
+        // World-generation and telemetry callbacks can report concurrently.
+        // Serialize complete writes before reusing the sibling temporary file;
+        // external readers still see an atomic replacement.
         internal static void WriteAtomic(string path, object value)
-            => WriteAtomicText(path, Serialize(value));
+        {
+            lock (writeGate) WriteAtomicTextLocked(path, Serialize(value));
+        }
 
         internal static void WriteAtomicText(string path, string json)
+        {
+            lock (writeGate) WriteAtomicTextLocked(path, json);
+        }
+
+        private static void WriteAtomicTextLocked(string path, string json)
         {
             var temporary = path + ".tmp";
             try
