@@ -63,15 +63,21 @@ continuation is still uncommitted work and is excluded from the clean tested
   Separate four-worker controls reach 2.883547× / 2.090191× and are not adopted.
   Frame/pacing profiles identify native waits, GC hitches and substantial time
   outside the mod scopes; those include rendering/waits and are not yet CPU
-  attribution. A read-only Unity clock census is prepared. See
+  attribution. A read-only Unity clock census measures two definite pre-offer
+  clamps totaling 1.475919 scaled seconds in the base 900-frame run; existing
+  pacing never receives this time. Its actual diagnostic rate is 2.925807×,
+  with no invalid readings/errors. No clock recovery change is adopted. See
   [performance evidence](performance-acceptance.md).
 - Pressure-buffer reuse remains private. Its 4,063 independent builder/route
   controls, all 88 canonical outputs/exits and full replay comparisons pass.
   Eight known nonzero diagnostics remain unchanged. The corrected retained-
   prefix driver also compares both variants with real default future images;
   a valid shifted-frame negative oracle refuses. Small-component paths are
-  frequent even with automatic 12 workers. Seven paired WHOLE measurements
-  are prepared, not yet run or adopted.
+  frequent even with automatic 12 workers. All 32 WHOLE processes finish with
+  exact owner/status equality. Median steady advance ratios are base cold/menu
+  1.00973×/0.99813× and DLC 1.02456×/0.99068×, with broad paired ranges and some
+  cold-start penalties. The allocation reduction does not establish a reliable
+  throughput gain; the candidate remains private and unadopted.
 - Runtime continuation is reserved as MACOLP03 tag 6 / MACGRT01 version 1.
   Native 96/56 captures all 11 cell columns. 365 managed controls and actual
   game-Mono scheduler controls pass, including timed heap order, cleared
@@ -84,8 +90,10 @@ continuation is still uncommitted work and is excluded from the clean tested
   B3 traces show all three breathers hold about 16 g newly produced CO2 at the
   eight-second check, below their 20 g puff threshold; original scoped puffs
   first occur at native 51, after the check at 41. All ten ambient gas-removal
-  sites are in Space zones. A per-breather accounting proposal is being prepared
-  for user review; do not change the fixed criterion without that decision.
+  sites are in Space zones. A tested per-breather accounting proposal (78
+  compiled assertions) is awaiting the user's explicit decision; do not change
+  the fixed criterion without it. Full-mod integration testing remains required
+  after approval.
 - Original airflow still fails 4.241→4.052 kg. Coherent bulk readings exactly
   reproduce every original gate value, so this instance is not a mixed-frame
   measurement. Left gas stays 14.4 kg while the right loses gas into the opened
@@ -134,8 +142,9 @@ storage reruns are detailed in the candidate report.
 ## Resume product work
 
 1. Close actual 3× and UI smoothness. Attribute pre-offer Unity clock loss
-   separately from the already accounted pacing debt; measure the prepared
-   pressure reuse pair only with all other CPU jobs held. Do not confuse native
+   separately from the already accounted pacing debt; the pressure reuse pair
+   is complete and does not justify adoption. Audit the other game clock
+   consumers before experimenting with bounded missing-time repayment. Do not confuse native
    capacity or replay speedup with full-game progress. The original 3,000-frame
    normal-reserve base slowdown (0.303476× overall, 0.063× late) still needs a
    captured hot suffix including future live owner inputs; a flow-only autosave

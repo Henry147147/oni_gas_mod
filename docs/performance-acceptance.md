@@ -78,6 +78,53 @@ already mostly uses one-worker components. Those pressure paths remain the
 focus of the separate private buffer-reuse candidate. Private evidence is in
 `artifacts/release-ready-2026-10-30/heat-adoption-integrated-v1/`.
 
+## Pressure-buffer and clock follow-up, 2026-10-30
+
+The private integer pressure-buffer reuse candidate completes seven alternating
+WHOLE pairs plus a warm-up pair for each captured base/DLC workload. All 32
+processes preserve every complete owner and numerical-status hash. Both variants
+also retain independent default cold/menu future images; a shifted-frame
+negative oracle refuses. The original integer builder and numeric route are
+unchanged, with a bounded aggregate 32 MiB retention budget and fresh-allocation
+fallback. The candidate passes 4,063 builder/route controls, 100 full replay
+comparisons across 1/2/4/8/12 workers, allocation-failure cleanup and all 88 clean
+canonical output/exit comparisons. The eight known nonzero diagnostics remain
+unchanged.
+
+| Capture / branch | Median native advance ratio | Paired range | Median flow ratio |
+| --- | ---: | ---: | ---: |
+| Base / cold | 1.00973× | 0.97453–1.12516× | 1.02494× |
+| Base / menu | 0.99813× | 0.87725–1.05140× | 1.01114× |
+| Spaced Out! / cold | 1.02456× | 0.92579–1.06339× | 1.04555× |
+| Spaced Out! / menu | 0.99068× | 0.98717–1.00754× | 0.99126× |
+
+These are baseline/candidate paired means over the 78-frame suffix, excluding
+the first restored frame. Cold first-frame median ratios are 0.94344× base /
+0.99252× DLC; menu first-frame ratios are 0.99824× / 0.96364×. Fewer allocations
+therefore do not establish a reliable owner-speed improvement. The candidate
+remains private and unadopted. This is native replay evidence, not actual game
+progress. Evidence: `pressure-post-detach/whole-v1/summary.json` under the same
+private release-ready evidence directory.
+
+A separate read-only WHOLE base-game clock census finishes the original
+900-frame run at 2.925807×. In 2,495 eligible continuous same-speed Game.Update
+calls it records two definite Unity clamp gaps totaling 1.4759190977 scaled
+seconds before pacing receives the input. The conservative binary32 rounding
+allowance is 0.00024551 s across those calls; invalid/error counts are zero.
+The live maximumDeltaTime is 0.3333333433 s; the first observed clipped frame
+offers deltaTime 1.0 s at scale 3 despite unscaledDeltaTime 0.7676832 s. Actual
+Game.Update IL passes deltaTime unchanged to SimEveryTick, whose original
+0.2 s cap is already handled by the retained pacing counter. That counter
+cannot recover the earlier missing input.
+
+Transition, startup and held calls are excluded, making this a lower bound
+rather than a complete wall-clock reconciliation. No clock, global Unity
+setting, pacing law or gate changes are adopted. Any repayment experiment must
+audit all clock consumers and preserve bounded debt, pause/load/save semantics,
+once-per-frame attribution and the owner busy fence. Recovering these gaps
+alone would not establish DLC, late-colony or smoothness acceptance. Evidence:
+`clock-census-v1/analysis.json` and `clock-census-base-v1/`.
+
 ## Latest measured candidate, 2026-10-30
 
 The [release review](release-candidate-2026-10-30.md) records clean `0af5dfe`
