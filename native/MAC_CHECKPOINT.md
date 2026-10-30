@@ -114,6 +114,24 @@ current binary has.
 
 ### Version assignment
 
+**Reserved 2026-10-30 immediately after fetching `364ca23`:** physical
+`MACCLS01` version **29** identifies production-kernel conduction admission
+which retries independently proved negative-caloric trial endpoints instead
+of entering reference refinement. Uncertain EOS failures retain refinement;
+the primary storage representation and existing operand bounds are unchanged.
+This is a numerical admission law, not a new gate input or wider tolerance.
+
+The reserved layout writes version29, then the unsigned 32-bit earlier
+nongame layout selector (2–19), followed by that layout's existing model,
+settings and state payload and one final checksum. It is canonical only for
+production kernel2 with thermal conduction and the new admission policy.
+Older physical images restore the legacy policy and retain their arithmetic
+and bytes. Game-kernel versions20–28 retain their laws and framing. A new
+owner resolves automatic selection before its settings are saved; the
+automatic selector itself is never persisted. This reservation does not
+enable the policy until its codec, continuation and clean-build controls
+are integrated.
+
 **Reserved 2026-10-28 immediately after fetching `f6c6096`:** colony-owner
 `MACOLN01` base wrapper **14** carries profile9's complete activity integration:
 the committed actor census, queued census/touch submissions and policy changes,
