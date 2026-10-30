@@ -57,6 +57,10 @@ continuation is still uncommitted work and is excluded from the clean tested
   zero differences. Windows/Wine and Ubuntu 22.04 each pass91 native tests for
   detach-only 20c; Ubuntu requires GLIBC at most 2.34. Scalar follow-up direct
   platform evidence is Linux Release/ASan; do not relabel old cross builds.
+  A separate clean committed-scalar cross build now passes the five directly
+  affected native Windows/Wine tests too; its one-off build is removed after
+  retaining source proof, logs, cache, XML and executable hashes. This does not
+  extend old 91-test Windows/Ubuntu results to a new full suite or Windows OS.
 - Fresh uninstrumented WHOLE 900-frame controls on the frozen 20c/managed-fixture
   composite achieve actual game progress 2.917093× base / 2.335703× DLC. Both keep
   three duplicants alive, with no pauses, owner faults or dropped samples.
@@ -79,7 +83,7 @@ continuation is still uncommitted work and is excluded from the clean tested
   cold-start penalties. The allocation reduction does not establish a reliable
   throughput gain; the candidate remains private and unadopted.
 - Runtime continuation is reserved as MACOLP03 tag 6 / MACGRT01 version 1.
-  Native 96/56 captures all 11 cell columns. 393 managed controls pass under
+  Native 96/56 captures all 11 cell columns. 396 managed controls pass under
   .NET and actual game Mono; 17 installed scheduler/event/compaction controls
   cover timed heaps, cleared entries, rescheduling, canonical re-encoding and
   in-place event callback rebinding. V9 source refused ambiguous
@@ -88,9 +92,10 @@ continuation is still uncommitted work and is excluded from the clean tested
   captures actual native records at owner 3/34. Managed scheduler capture then
   fails on a public-only PackHandle lookup. Its corrected readonly helper
   preserves the actual packed+1 Handle encoding and versions-list state under
-  real compaction controls. V11 gets past that helper but refuses a retained
-  chore whose Unity master is destroyed/null during actor identification; its
-  list/queue provenance is being traced. Unity absolute time and derived
+  real compaction controls. V12 now reports explicit source refusals for global
+  actors, duplicate controller members and failed/destroyed actors retained in
+  scheduler queues. Their owner identities and detached records must be
+  preserved; no rows are dropped. Unity absolute time and derived
   creature-heat writer operands are additional known gaps.
   No complete live source or strict cold/menu qualification exists.
 - Original breathing still fails its global net CO2 check. Read-only unchanged-
@@ -126,6 +131,15 @@ base slowdown substantially reproduces with exact repeated saved CO2 input:
 owner/receipt/report comparisons and 8,503 trial-account checks pass;
 transport/remap is the largest measured regional share. See performance evidence
 and private `unity-profile-v2/` / `late-flow-audit-v1/`.
+
+The broader functional DLC probe covers 252 managed callbacks with no scope
+faults. Property textures are another measured lead. The small compact-channel
+rendering change avoids discarded colour calculations in pressure/hazard jobs:
+881,866 .NET assertions pass in each cache mode, 879,372 scalar/rich assertions
+pass under actual Mono, and 6,144 real CPU destination comparisons pass with
+forced full fallback. Both target DLLs match and actual Mono contracts pass
+2,589/0. This is byte-correctness evidence, not a whole-game speedup or GPU
+readback claim. Private proof: `compact-channels-v1/`.
 
 Current private evidence is in `artifacts/release-ready-2026-10-30/`:
 `full-committed-dab1bc2/verification.json`,

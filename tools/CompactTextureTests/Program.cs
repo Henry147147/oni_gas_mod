@@ -127,6 +127,7 @@ static partial class Proof
                 foreach (var vis in new[] { 0.0, .1, 1.0 })
                     Check(Opacity(old.GasMassKg, old.GasVolumeCubicMetres, old.GasDensityKgPerCubicMetre, old.ThermodynamicReading.LiquidVolumeCubicMetres, old.HasPhaseVolumeAppearance, 15, 200, vis) == Opacity(value.GasMassKg, value.GasVolumeCubicMetres, value.GasDensityKgPerCubicMetre, value.LiquidVolumeCubicMetres, value.HasPhaseVolumeAppearance, 15, 200, vis), "opacity");
                 Check(Byte(color.R) == Byte(value.Color.R) && Byte(color.G) == Byte(value.Color.G) && Byte(color.B) == Byte(value.Color.B), "texture bytes");
+                ChannelBytes(value, old, x, y);
                 if (ReferenceEquals(model, models[0]))
                     success.Add(test);
             }

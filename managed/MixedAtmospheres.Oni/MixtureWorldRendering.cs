@@ -357,9 +357,8 @@ namespace MixedAtmospheres.Oni
                         if (!Grid.IsActiveWorld(cell)) continue;
                         if (frame.TryGetTextureScalars(cell, x, y, out var scalar))
                         {
-                            var sample = Sample(scalar, parameters);
-                            __0.SetBytes(x, y, sample.Opacity);
-                            VerifyCompactWrite(1, __0, cell, x, y, frame, parameters, sample);
+                            __0.SetBytes(x, y, CompactOpacityByte(scalar, parameters));
+                            if (compactProof) VerifyCompactWrite(1, __0, cell, x, y, frame, parameters, Sample(scalar, parameters));
                             ++written;
                             continue;
                         }
@@ -411,9 +410,8 @@ namespace MixedAtmospheres.Oni
                         if (!Grid.IsActiveWorld(cell)) continue;
                         if (frame.TryGetTextureScalars(cell, x, y, out var scalar))
                         {
-                            var sample = Sample(scalar, parameters);
-                            __0.SetBytes(x, y, sample.Hazard);
-                            VerifyCompactWrite(2, __0, cell, x, y, frame, parameters, sample);
+                            __0.SetBytes(x, y, CompactHazardByte(scalar));
+                            if (compactProof) VerifyCompactWrite(2, __0, cell, x, y, frame, parameters, Sample(scalar, parameters));
                             ++written;
                             continue;
                         }
@@ -473,6 +471,12 @@ namespace MixedAtmospheres.Oni
             return new GasVisualSample(Byte(color.R), Byte(color.G), Byte(color.B), byte.MaxValue,
                 WorldFluidOpacity(reading, parameters), HazardByte(reading), reading.TotalPressurePa);
         }
+        // Single-channel jobs preserve Sample's gas-presence gate without
+        // computing unused colour rounding or the other channel's value.
+        internal static byte CompactOpacityByte(MixtureTextureScalars reading, OpacityParameters parameters)
+            => reading.GasMassKg <= 0 || reading.GasVolumeCubicMetres <= 0 ? (byte)0 : WorldFluidOpacity(reading, parameters);
+        internal static byte CompactHazardByte(MixtureTextureScalars reading)
+            => reading.GasMassKg <= 0 || reading.GasVolumeCubicMetres <= 0 ? (byte)0 : HazardByte(reading);
         internal static byte WorldFluidOpacity(MixtureTextureScalars reading, OpacityParameters parameters)
         {
             var fraction = reading.GasMassKg <= 0 || reading.GasVolumeCubicMetres <= 0 ? 0 :

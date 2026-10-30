@@ -182,6 +182,25 @@ all 10,124 cells, so an empty-cell-only shortcut cannot remove most work.
 No timestep bound, space law, original gate or source input changes in
 production. Evidence: `late-flow-audit-v1/`.
 
+A broader private 300-frame DLC functional probe covers 252 managed lifecycle
+and UI rebuild methods, with no scope faults or exceptions. Its 499 warm render
+calls put PropertyTextures.LateUpdate near 3.03 ms and text rebuilds near
+0.62 ms. Other project work shares the CPU, so these are leads rather than
+exclusive timing acceptance. Evidence: `unity-profile-v3/functional-analysis.json`.
+
+Compact pressure and hazard texture jobs now compute their own channel bytes
+without also calculating discarded colour values. The existing full scalar
+sample remains the byte oracle, and the private destination proof still checks
+it against the independent rich sample and actual CPU writes. Both compact
+cache modes pass 881,866 .NET assertions; the original 12,000-case scalar/rich
+loop passes 879,372 assertions under actual game Mono, including 10,412 valid
+inputs, 4,764 model rejections and five opacity ranges. Both target DLLs are
+byte-identical and their actual game-Mono dependency checks pass 2,589/0
+(Windows Mono runs on Wine, not Windows OS). The frozen DLC proof passes all
+6,144 actual CPU destination comparisons, exercising forced full fallback with
+zero mismatches. No whole-game speedup, GPU readback, new solver arithmetic or
+checkpoint change is claimed. Evidence: `compact-channels-v1/`.
+
 ## Latest measured candidate, 2026-10-30
 
 The [release review](release-candidate-2026-10-30.md) records clean `0af5dfe`
