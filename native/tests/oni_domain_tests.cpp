@@ -22,6 +22,35 @@ void require(bool condition,const char* message) { if (!condition) throw std::ru
 MAOniDomainStatus capture(std::vector<MAOniDomainCell>& cells) {
     MAOniDomainStatus value{}; ma::oni::copy_domain(value,cells.data(),static_cast<std::uint32_t>(cells.size())); return value;
 }
+void caloric_legacy_domain() {
+    using namespace ma::oni;
+    const MAOniDomainConfig config{40,2,1,64,10,10,3,2,0,0};std::vector<MAOniDomainCell> cells(6);
+    shutdown_domain();start_domain(config,1);auto status=capture(cells);
+    const auto current=checkpoint_domain(status.session,0);
+    require(current.size()>16 && current[8]==29 && current[12]==6,
+        "Fresh native conduction owner omitted admission law29/layout6");
+    // Law29 adds only its outer version and the old layout selector. Remove
+    // that selector to recover the complete earlier schema6 payload; the
+    // final checksum must cover the old framing rather than the new prefix.
+    auto legacy=current;legacy[8]=6;legacy.erase(legacy.begin()+12,legacy.begin()+16);
+    std::uint64_t hash=UINT64_C(14695981039346656037);
+    for (std::size_t i=0;i+8<legacy.size();++i) hash=(hash^legacy[i])*UINT64_C(1099511628211);
+    for (unsigned byte=0;byte<8;++byte) legacy[legacy.size()-8+byte]=static_cast<std::uint8_t>(hash>>(8*byte));
+    validate_domain_checkpoint(config,legacy,0);
+    shutdown_domain();start_domain(config,1,legacy,0);status=capture(cells);
+    require(checkpoint_domain(status.session,0)==legacy,"Native domain changed the admitted old schema6 bytes");
+    advance_domain(1,.2,2);status=capture(cells);const auto first=checkpoint_domain(status.session,1);const auto saved_time=status.time_seconds;
+    require(status.state==1 && (first[8]==6 || first[8]==10),
+        "Restored native schema6 owner acquired today's caloric admission policy");
+    advance_domain(2,.2,2);status=capture(cells);const auto expected=checkpoint_domain(status.session,2);
+    shutdown_domain();start_domain(config,1,first,saved_time);status=capture(cells);
+    require(checkpoint_domain(status.session,0)==first,"Native domain changed its continued legacy image on cold restore");
+    advance_domain(1,.2,2);status=capture(cells);
+    require(status.state==1 && checkpoint_domain(status.session,1)==expected,
+        "Native legacy caloric policy0 lost exact cold continuation");
+    shutdown_domain();
+    std::cout<<"PASS native conduction law29/layout6 creation, exact schema6 admission, saved legacy policy0 and cold advance\n";
+}
 void atomic_solid_startup() {
     using namespace ma::oni;
     constexpr int fluid=11+11*66,solid=10+11*66;
@@ -577,6 +606,7 @@ void vacuum_domain() {
 }
 int main(int argc,char** argv) {
     try {
+        if (argc==2 && std::string(argv[1])=="--caloric-legacy") { caloric_legacy_domain();return 0; }
         if (argc==2 && std::string(argv[1])=="--vacuum") { vacuum_domain();return 0; }
         if (argc==2 && std::string(argv[1])=="--vacuum-subcell") { vacuum_subcell_domain();return 0; }
         if (argc==3 && std::string(argv[1])=="--read-checkpoint") {
@@ -590,6 +620,7 @@ int main(int argc,char** argv) {
         static_assert(sizeof(MAOniDomainHeat)==48 && sizeof(MAOniDomainHeatStatus)==56);
         static_assert(sizeof(MAOniDomainTransfer)==64 && sizeof(MAOniDomainReceipt)==88 && sizeof(MAOniDomainTransferStatus)==104);
         static_assert(sizeof(MAOniDomainActor)==80 && sizeof(MAOniDomainActorStatus)==64);
+        caloric_legacy_domain();
         atomic_solid_startup();
         solid_boundary_heat();
         persistent_actors();
@@ -601,8 +632,9 @@ int main(int argc,char** argv) {
         require(ma::oni::domain_active(),"domain did not activate");
         auto initial=capture(cells);
         const auto initial_image=ma::oni::checkpoint_domain(initial.session,0);
-        require(initial_image.size()>12 && initial_image[8]==6 && initial_image[9]==0 && initial_image[10]==0 && initial_image[11]==0,
-            "New native owner did not persist the production kernel with midpoint pressure");
+        require(initial_image.size()>16 && initial_image[8]==29 && initial_image[9]==0 && initial_image[10]==0 && initial_image[11]==0 &&
+            initial_image[12]==6 && initial_image[13]==0 && initial_image[14]==0 && initial_image[15]==0,
+            "New native conduction owner did not persist admission law29 with midpoint layout6");
         require(!ma::oni::suppress_domain_cell(MA_ONI_PRESSURE,-1) && !ma::oni::suppress_domain_cell(MA_ONI_PRESSURE,0),"native exterior was claimed");
         const auto native_cell=[](int x,int y) { return x+1+(y+1)*66; };
         require(ma::oni::suppress_domain_cell(MA_ONI_PRESSURE,native_cell(10,10)),"domain cell not excluded from native pressure");

@@ -75,6 +75,50 @@ internal static class ConfiguredCheckpointPayloadTests
             var phase=Wrapper(room.Mask,Physics.Create(PhysicsVacuum|PhysicsMixture),solverVersion:11);
             reject(()=>NativeDomainCheckpointPayload.Create(Pair(phase,ConfiguredGeometry()),phase));
         });
+        test("version29 numerical admission preserves complete physical bytes through supported native-domain wrappers",()=> {
+            foreach(var scenario in new[]{0U,6U,7U})foreach(var actor in new[]{false,true})foreach(var layout in new[]{6U,10U}) {
+                var geometry=scenario==7?ConfiguredGeometry():LegacyGeometry(scenario);
+                var image=scenario==7?Wrapper(ConfiguredDomainLayout.PillaredRoom().Mask,ConfiguredDomainLayout.ScenePhysics(false),solverVersion:layout,caloric:true):
+                    CaloricSolver(geometry.Width,geometry.Height,layout);
+                if(actor)image=ActorImage(image,geometry,10+10*64);
+                var original=(byte[])image.Clone();
+                var parcel=new NativeTransientParticle(9,10+10*64,0,new[]{10.5f,10.5f,-.5f,0f,-1f,0f,.03125f,333.25f,3f,0f});
+                foreach(var particles in new[]{false,true}) {
+                    var payload=NativeDomainCheckpointPayload.Create(Pair(image,geometry),image,
+                        particles?NativeTransientParticleImage.Create(new[]{parcel},geometry):null);
+                    var bytes=payload.CopyEncodedData();var cold=NativeDomainCheckpointPayload.Parse(bytes);
+                    check(cold.PhysicalImage.SequenceEqual(original)&&cold.CopyEncodedData().SequenceEqual(bytes)&&image.SequenceEqual(original));
+                }
+            }
+            foreach(var layout in new[]{2U,3U,4U,5U,11U,19U,20U,28U,29U,30U,uint.MaxValue}) {
+                var bad=CaloricSolver(3,2,layout);reject(()=>NativeDomainCheckpointPayload.Create(Pair(bad,LegacyGeometry(0)),bad));
+            }
+            var wrongClock=CaloricSolver(3,2,6);D(wrongClock,21,13.4);
+            reject(()=>NativeDomainCheckpointPayload.Create(Pair(wrongClock,LegacyGeometry(0)),wrongClock));
+            var wrongGrid=CaloricSolver(4,2,6);reject(()=>NativeDomainCheckpointPayload.Create(Pair(wrongGrid,LegacyGeometry(0)),wrongGrid));
+            var truncated=CaloricSolver(3,2,6).AsSpan(0,32).ToArray();
+            reject(()=>NativeDomainCheckpointPayload.Create(Pair(truncated,LegacyGeometry(0)),truncated));
+            var hugeIdentity=CaloricSolver(3,2,6);U(hugeIdentity,16,uint.MaxValue);
+            reject(()=>NativeDomainCheckpointPayload.Create(Pair(hugeIdentity,LegacyGeometry(0)),hugeIdentity));
+        });
+        var nativeCaloric=Environment.GetEnvironmentVariable("MA_TEST_CALORIC_FIXTURES");
+        if(!string.IsNullOrEmpty(nativeCaloric))test("native-produced version29 images retain shifted clocks grids and bytes through actor and configured framing",()=> {
+            foreach(var layout in new[]{6U,9U,10U,12U}) {
+                var solver=File.ReadAllBytes(Path.Combine(nativeCaloric,"base"+layout+".mac"));
+                check(BinaryPrimitives.ReadUInt32LittleEndian(solver.AsSpan(8))==29&&BinaryPrimitives.ReadUInt32LittleEndian(solver.AsSpan(12))==layout);
+                var g=ConfiguredGeometry();g.Width=4;g.Height=3;
+                var flags=PhysicsConduction|((layout==9||layout==12)?PhysicsVacuum|PhysicsMixture:0U)|(layout==12?PhysicsUnresolvedGas:0U);
+                var image=Wrapper(new byte[12],Physics.Create(flags),width:4,height:3,solverImage:solver);
+                foreach(var actor in new[]{false,true}) {
+                    var physical=actor?ActorImage(image,g,10+10*64):image;
+                    var pair=Pair(physical,g);pair.PhysicalTime=.002;pair.CompletedFrame=2;
+                    var payload=NativeDomainCheckpointPayload.Create(pair,physical);var bytes=payload.CopyEncodedData();
+                    var cold=NativeDomainCheckpointPayload.Parse(bytes);
+                    check(cold.PhysicalTime==.002&&cold.Geometry.Width==4&&cold.Geometry.Height==3&&
+                        cold.PhysicalImage.SequenceEqual(physical)&&cold.CopyEncodedData().SequenceEqual(bytes));
+                }
+            }
+        });
         test("unresolved gas saves require the explicit flag and version 12, retaining exact-geometry saves",()=> {
             var room=ConfiguredDomainLayout.PillaredRoom();
             var image=Wrapper(room.Mask,ConfiguredDomainLayout.VacuumPhysics,solverVersion:12);
@@ -272,11 +316,18 @@ internal static class ConfiguredCheckpointPayloadTests
         BinaryPrimitives.WriteUInt32LittleEndian(solver.AsSpan(33),width);BinaryPrimitives.WriteUInt32LittleEndian(solver.AsSpan(37),height);
         return solver;
     }
+    private static byte[] CaloricSolver(uint width,uint height,uint layout)
+    {
+        var old=Solver(width,height,layout);var result=new byte[old.Length+4];
+        old.AsSpan(0,8).CopyTo(result);U(result,8,29);U(result,12,layout);
+        old.AsSpan(12).CopyTo(result.AsSpan(16));return result;
+    }
     // The native MADCFG01 layout (oni_configured_domain.hpp).
-    internal static byte[] Wrapper(byte[] mask,Physics physics,int width=7,int height=5,uint solverVersion=2,uint solverWidth=0)
+    internal static byte[] Wrapper(byte[] mask,Physics physics,int width=7,int height=5,uint solverVersion=2,uint solverWidth=0,bool caloric=false,byte[]? solverImage=null)
     {
         var geometry=ConfiguredGeometry();geometry.Width=(uint)width;geometry.Height=(uint)height;
-        var solver=Solver(solverWidth==0 ? (uint)width : solverWidth,(uint)height,solverVersion);
+        var solver=solverImage??(caloric?CaloricSolver(solverWidth==0?(uint)width:solverWidth,(uint)height,solverVersion):
+            Solver(solverWidth==0 ? (uint)width : solverWidth,(uint)height,solverVersion));
         using var stream=new MemoryStream();using var writer=new BinaryWriter(stream);
         writer.Write(Encoding.ASCII.GetBytes("MADCFG01"));writer.Write(1U);writer.Write((uint)mask.Length);
         foreach(var v in new[]{geometry.Size,geometry.Version,geometry.Flags,geometry.GridWidth,geometry.X,geometry.Y,geometry.Width,geometry.Height,geometry.Scenario,geometry.Reserved}) writer.Write(v);

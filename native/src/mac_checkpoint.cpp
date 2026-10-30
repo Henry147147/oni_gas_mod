@@ -41,6 +41,9 @@ constexpr std::uint32_t game_numerics_format_version=17;
 // Version18 saves substep trace removal; earlier settings keep their bytes.
 constexpr std::uint32_t substep_trace_format_version=18;
 constexpr std::uint32_t fast_phase_format_version=19;
+// Version29 selects the proved-negative conduction admission law, then names
+// the unchanged nongame payload layout (2--19) before its model/settings/state.
+constexpr std::uint32_t caloric_trial_format_version=29;
 void check(bool value,const char* message) { if (!value) throw std::invalid_argument(message); }
 std::uint64_t checksum(std::span<const std::uint8_t> bytes) {
     std::uint64_t result=14695981039346656037ULL;
@@ -179,7 +182,13 @@ std::vector<std::uint8_t> MacClosedWorld::checkpoint() const {
     const bool substep_trace=settings_.trace_sink_per_substep || fast_phase;
     const bool game_numerics=settings_.compatible_void_pressure_work || settings_.recover_mixed_eos_endpoint || substep_trace;
     const bool phase=settings_.phase_change!=MacPhaseChange::none, primary=carried || phase || subcell || stepped;
-    out.u32(fast_phase ? fast_phase_format_version : substep_trace ? substep_trace_format_version : game_numerics ? game_numerics_format_version : game_profile ? game_profile_format_version : regional ? regional_format_version : configured_expansion ? gas_expansion_format_version : stepped ? step_control_format_version : subcell ? subcell_void_format_version : phase ? phase_format_version : primary ? primary_format_version : voids ? void_format_version : coupled ? coupled_moment_format_version : moments ? moment_format_version : production ? production_format_version : diffusive ? diffusion_format_version : viscous ? viscous_format_version : legacy_format_version);
+    const auto layout=fast_phase ? fast_phase_format_version : substep_trace ? substep_trace_format_version : game_numerics ? game_numerics_format_version : game_profile ? game_profile_format_version : regional ? regional_format_version : configured_expansion ? gas_expansion_format_version : stepped ? step_control_format_version : subcell ? subcell_void_format_version : phase ? phase_format_version : primary ? primary_format_version : voids ? void_format_version : coupled ? coupled_moment_format_version : moments ? moment_format_version : production ? production_format_version : diffusive ? diffusion_format_version : viscous ? viscous_format_version : legacy_format_version;
+    const bool caloric=settings_.caloric_trial_policy==MacCaloricTrialPolicy::reject_proven_negative;
+    check(settings_.caloric_trial_policy==MacCaloricTrialPolicy::legacy_refinement || caloric,
+        "Unresolved MAC caloric-trial policy cannot be saved");
+    check(!caloric || (production && settings_.thermal_conduction),"Noncanonical MAC caloric-trial policy");
+    out.u32(caloric ? caloric_trial_format_version : layout);
+    if (caloric) out.u32(layout);
     const auto model=identity(registry_,*thermodynamics_); out.count(model.size());
     for (auto value : model) out.byte(value);
     out.number(time_s_); out.u64(revision_);
@@ -243,12 +252,18 @@ MacClosedWorld MacClosedWorld::from_checkpoint(SpeciesRegistry registry,std::sha
     Reader trailer{bytes.last(8)}; check(trailer.u64()==checksum(bytes.first(bytes.size()-8)),"MAC checkpoint checksum differs");
     Reader in{bytes.first(bytes.size()-8)};
     for (auto value : magic) check(in.byte()==static_cast<std::uint8_t>(value),"Unrecognized MAC checkpoint signature");
-    const auto version=in.u32();
+    auto version=in.u32();
+    const bool caloric=version==caloric_trial_format_version;
+    if (caloric) {
+        version=in.u32();
+        check(version>=legacy_format_version && version<=fast_phase_format_version,
+            "Invalid saved MAC caloric payload layout");
+    }
     if(version>=20 && version<=28) {
         const auto model=identity(registry,*eos);check(in.u32()==model.size()&&model.size()<=in.remaining(),"Saved game model size differs");for(auto value:model)check(in.byte()==value,"Saved game registry/EOS identity differs");
         const double time=in.number();const auto revision=in.u64();check(time>=0&&revision>0,"Invalid saved game clock");
         MacTransportState st;st.grid.width=in.u32();st.grid.height=in.u32();st.grid.spacing_m=in.number();st.grid.depth_m=in.number();
-        MacClosedSettings cfg;cfg.numerical_kernel=MacNumericalKernel::game;cfg.game_profile=MacGameProfile::game_kernel;cfg.vacuum=MacVacuumRepresentation::void_phase;cfg.thermal_conduction=true;
+        MacClosedSettings cfg;cfg.caloric_trial_policy=MacCaloricTrialPolicy::legacy_refinement;cfg.numerical_kernel=MacNumericalKernel::game;cfg.game_profile=MacGameProfile::game_kernel;cfg.vacuum=MacVacuumRepresentation::void_phase;cfg.thermal_conduction=true;
         cfg.maximum_timestep_s=in.number();cfg.gravity_m_per_s2=in.number();cfg.thermal_conduction=in.flag();cfg.trace_sink_threshold_kg=in.number();
         cfg.game.liquid_stiffness_ratio=in.number();cfg.game.flow_parts=in.u32();cfg.game.pressure_relative_tolerance=in.number();cfg.game.gas_heat_mixing=in.number();cfg.game.sharpen_liquid_interfaces=in.flag();cfg.game.interface_detail_fraction=in.number();cfg.game.phase_relaxation_time_s=in.number();
         if(version>=21){cfg.game_profile=version==28?MacGameProfile::game_kernel_activity_tiers:version==27?MacGameProfile::game_kernel_carried_momentum:version==26?MacGameProfile::game_kernel_sized_intervals:version>=24?MacGameProfile::game_kernel_bounded_pressure:version==23?MacGameProfile::game_kernel_trace_heat:version==22?MacGameProfile::game_kernel_free_surface:MacGameProfile::game_kernel_positive_liquid;cfg.game.liquid_law=static_cast<MacGameLiquidLaw>(in.u32());cfg.game.pressure_maximum_iterations=in.u32();cfg.game.heat_maximum_iterations=in.u32();}
@@ -299,7 +314,9 @@ MacClosedWorld MacClosedWorld::from_checkpoint(SpeciesRegistry registry,std::sha
     const auto time=in.number(); const auto revision=in.u64(); check(time>=0 && revision>0,"Invalid saved MAC clock/revision");
     MacTransportState state; state.grid.width=in.u32(); state.grid.height=in.u32();
     state.grid.spacing_m=in.number(); state.grid.depth_m=in.number(); state.grid.periodic_x=in.flag(); state.grid.periodic_y=in.flag();
-    MacClosedSettings settings; settings.maximum_timestep_s=in.number(); settings.maximum_outgoing_volume_fraction=in.number();
+    MacClosedSettings settings;
+    settings.caloric_trial_policy=caloric ? MacCaloricTrialPolicy::reject_proven_negative : MacCaloricTrialPolicy::legacy_refinement;
+    settings.maximum_timestep_s=in.number(); settings.maximum_outgoing_volume_fraction=in.number();
     settings.preconditioner=static_cast<PressurePreconditioner>(in.u32()); settings.gravity_m_per_s2=in.number();
     settings.reconstruction=static_cast<MacMaterialReconstruction>(in.u32()); settings.compression_viscosity=static_cast<MacCompressionViscosity>(in.u32());
     settings.momentum_reconstruction=static_cast<MacMomentumReconstruction>(in.u32()); settings.thermal_conduction=in.flag();
@@ -426,6 +443,12 @@ MacClosedWorld MacClosedWorld::from_checkpoint(SpeciesRegistry registry,std::sha
     const bool saved_occupied=!state.occupied_volumes_m3.empty();
     MacClosedWorld result(std::move(registry),std::move(eos),std::move(state),settings,std::move(transport));
     check(saved_occupied==!result.state().occupied_volumes_m3.empty(),"Noncanonical saved MAC occupied volumes");
-    result.time_s_=time; result.revision_=revision; return result;
+    result.time_s_=time; result.revision_=revision;
+    if (caloric) {
+        const auto canonical=result.checkpoint();
+        check(canonical.size()==bytes.size() && std::equal(canonical.begin(),canonical.end(),bytes.begin()),
+            "Noncanonical saved MAC caloric payload layout");
+    }
+    return result;
 }
 }

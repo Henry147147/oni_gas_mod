@@ -73,6 +73,7 @@ inline bool has_primary_energy_remainder(const MacTransportState& state) {
         [](const auto& cell) { return !cell.energy_remainder_j.is_zero(); });
 }
 inline unsigned checkpoint_version(const MacClosedWorld& world,unsigned legacy) {
+    if (world.settings().caloric_trial_policy == MacCaloricTrialPolicy::reject_proven_negative) return 29U;
     return std::any_of(world.state().cells.begin(),world.state().cells.end(),
         [](const auto& cell) { return !cell.energy_remainder_j.is_zero(); }) ? 10U : legacy;
 }

@@ -5,6 +5,7 @@
 #include "mac_kernel_fixture.hpp"
 #include "../src/mac_kernel_heat_entropy.hpp"
 #include <cstdlib>
+#include <iomanip>
 #include <tuple>
 
 using namespace ma::testing;
@@ -66,6 +67,42 @@ void conduction_entropy_control() {
         !quiet.reference_fallback, "conduction diagnostic toggle preserves fields and interval audits");
 }
 
+void conduction_caloric_domain_control() {
+    namespace k = ma::experimental::mac_kernel;
+    // Ordinary public Stefan-profile water/steam operands from a failed heat
+    // trial. The caloric sign is independently reviewed from mass*formation
+    // coefficients; it does not depend on the cached rounded offset.
+    k::Model model;
+    k::Species water; water.registry=0; water.gas=false;
+    water.cv=0x1.058p+12; water.offset=-0x1.05215b97fd828p+24;
+    water.molar_mass=0x1.27298f9b68fcap-6; water.rho0=0x1.f28p+9;
+    water.bulk=0x1.0642acp+31; water.maximum_ratio=2; water.tmin=1; water.tmax=1e6;
+    k::Species steam=water; steam.registry=1; steam.gas=true;
+    steam.cv=0x1.5e9e8a4effe84p+10; steam.offset=-0x1.aa9bfcd5a22c5p+23;
+    steam.rho0=0; steam.bulk=0;
+    model.species={water,steam}; model.liquids={0}; model.gases={1};
+    k::Fields fields; fields.m={0x1.7bce04662ab54p-25,0x1.2f427650e3cd4p-22};
+    const auto stats=k::cell_stats(model,fields,1,0);
+    constexpr double energy=-0x1.2e4ecb9c111p+2, volume=0x1.003911233c732p-21;
+    const auto outcome = [&](double trial, bool retry, const k::Stats& at) {
+        try { (void)k::conduction_endpoint(model,fields,1,0,at,trial,volume,retry); return 0; }
+        catch (const std::domain_error&) { return 1; }
+        catch (const k::EosRefinement&) { return 2; }
+    };
+    const int rejected=outcome(energy,true,stats), legacy=outcome(energy,false,stats), uncertain=outcome(stats.off,true,stats);
+    const double warm=stats.off+300*stats.Cv;
+    const int admitted=outcome(warm,true,stats);
+    auto stale=stats; stale.off=warm+1;
+    const int protected_cache=outcome(warm,true,stale);
+    check(rejected==1 && legacy==2 && uncertain==2 && admitted==0 && protected_cache==2,
+        "conduction proves negative caloric trials and retains uncertain EOS refinement");
+    std::cout<<std::setprecision(17)<<"CALORIC_TRIAL "<<energy<<' '<<volume<<' '<<stats.off<<' '
+        <<stats.Cv<<' '<<rejected<<' '<<legacy<<' '<<uncertain<<' '<<admitted<<'\n';
+    for (std::size_t j=0;j<model.K();++j)
+        std::cout<<"CALORIC_SPECIES "<<j<<' '<<fields.m[j]<<' '<<model.species[j].offset<<' '<<model.species[j].cv<<'\n';
+    std::cout<<"CALORIC_GUARD "<<warm<<' '<<stale.off<<' '<<protected_cache<<'\n';
+}
+
 void regional_control() {
     const auto& s = setup();
     MacTransportState state; state.grid = {64,40,1,1,false,false,std::vector<std::uint8_t>(2560,1)};
@@ -123,7 +160,8 @@ void regional_control() {
         for (std::size_t i = 0; i + 8 < data.size(); ++i) hash = (hash ^ data[i]) * UINT64_C(1099511628211);
         for (unsigned byte = 0; byte < 8; ++byte) data[data.size()-8+byte] = static_cast<std::uint8_t>(hash >> (8*byte));
     };
-    const auto control_offset = static_cast<std::size_t>(151) + u32(image,12);
+    const std::size_t law_prefix = u32(image,8)==29 ? 4 : 0;
+    const auto control_offset = law_prefix + static_cast<std::size_t>(151) + u32(image,12+law_prefix);
     bool rejected = true;
     for (const auto control : {0U,1U,3U}) {
         auto bad = image;
@@ -133,9 +171,11 @@ void regional_control() {
         catch (const std::invalid_argument&) { failed_control = true; }
         rejected = rejected && failed_control;
     }
-    check(u32(image,8) == 15 && u32(image,control_offset) == 2 && restored.checkpoint() == image &&
+    check(u32(image,8) == 29 && u32(image,12) == 15 &&
+        restored.settings().caloric_trial_policy==MacCaloricTrialPolicy::reject_proven_negative &&
+        u32(image,control_offset) == 2 && restored.checkpoint() == image &&
         cold.world.checkpoint() == continued.world.checkpoint() && rejected,
-        "regional version15 canonical selector and cold continuation");
+        "regional layout15 canonical selector and cold continuation");
     auto shut = source.state(); shut.grid.closed_x.assign(shut.momentum_x.size(),0);
     for (std::size_t y = 2; y < 10; ++y) shut.grid.closed_x[shut.grid.x_face(6,y)] = 1;
     const auto closed = advance_mac_kernel(s.registry,*s.eos,shut,settings,0,1./32,256,options);
@@ -346,6 +386,10 @@ int main(int argc, char** argv) {
             conduction_entropy_control();
             return failures == 0 ? 0 : 1;
         }
+        if (argc > 1 && std::string(argv[1]) == "--conduction-caloric-only") {
+            conduction_caloric_domain_control();
+            return failures == 0 ? 0 : 1;
+        }
         std::vector<unsigned> thread_counts{1, 2, 4, 8, 12};
         if (argc > 1 && std::string(argv[1]) == "--quick") thread_counts = {1, 3};
         const auto& s = setup();
@@ -453,7 +497,8 @@ int main(int argc, char** argv) {
             }
             check(all && k.entropy_change_j_per_k >= -k.entropy_allowance_j_per_k, "interval audit covers every quantity");
         }
-        conduction_entropy_control(); regional_control(); caloric_resolution_control(); game_numerics_control();
+        conduction_entropy_control(); conduction_caloric_domain_control();
+        regional_control(); caloric_resolution_control(); game_numerics_control();
         std::cout << (failures == 0 ? "ALL PASS" : "SOME FAILED") << '\n';
         return failures == 0 ? 0 : 1;
     } catch (const std::exception& e) { std::cerr << "FAIL " << e.what() << '\n'; return 1; }

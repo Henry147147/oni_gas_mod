@@ -38,6 +38,9 @@ enum class MacShockHeatRegularization {
 // selectors/range flags; value 1 is the narrower legacy interval port.
 // Value 1 is reserved for the retired interval port and always rejects.
 enum class MacNumericalKernel { reference = 0, retired_interval_audited = 1, production = 2, game = 3 };
+// Saved production conduction admission. Automatic is a construction/API
+// request, resolved before saving; old checkpoints restore legacy refinement.
+enum class MacCaloricTrialPolicy { legacy_refinement = 0, reject_proven_negative = 1, automatic = 2 };
 // Persisted temporal pressure scheme. The moment path preserves pressure work
 // with two Legendre moments; the surrounding split remains second order.
 enum class MacPressureIntegration { discrete_gradient_midpoint = 0, two_moment = 1, two_moment_coupled = 2 };
@@ -112,6 +115,7 @@ struct MacClosedSettings {
     MacShockHeatRegularization shock_heat = MacShockHeatRegularization::pressure_sensed_acoustic;
     MacViscosity viscosity;
     MacNumericalKernel numerical_kernel = MacNumericalKernel::reference;
+    MacCaloricTrialPolicy caloric_trial_policy = MacCaloricTrialPolicy::automatic;
     // Legacy/reference callers retain their trajectories. New game sessions
     // explicitly select physical diffusion; old checkpoints restore disabled.
     // Diffusion composes with either numerical kernel (it wraps each flow interval).
@@ -138,6 +142,10 @@ struct MacClosedSettings {
     // still use the strict reference EOS. Older profiles keep strict trials.
     bool fast_phase_trial_eos = false;
     MacGameSettings game;
+    void resolve_caloric_trial_policy();
+    // An explicit reference-to-production transition chooses today's law.
+    // A saved production owner retains its already resolved admission policy.
+    void select_production();
     void validate() const;
 };
 struct MacClosedSubstep {

@@ -184,7 +184,26 @@ std::optional<StaticEquilibrium> exact_static_equilibrium(const SpeciesRegistry&
     return StaticEquilibrium{body.value()};
 }
 }
+void MacClosedSettings::resolve_caloric_trial_policy() {
+    if (caloric_trial_policy == MacCaloricTrialPolicy::automatic)
+        caloric_trial_policy = numerical_kernel == MacNumericalKernel::production && thermal_conduction ?
+            MacCaloricTrialPolicy::reject_proven_negative : MacCaloricTrialPolicy::legacy_refinement;
+}
+void MacClosedSettings::select_production() {
+    require(numerical_kernel == MacNumericalKernel::reference || numerical_kernel == MacNumericalKernel::production,
+        "Production selection requires a reference or production owner");
+    if (numerical_kernel != MacNumericalKernel::production) {
+        numerical_kernel = MacNumericalKernel::production;
+        caloric_trial_policy = MacCaloricTrialPolicy::automatic;
+    }
+    resolve_caloric_trial_policy();
+}
 void MacClosedSettings::validate() const {
+    require(caloric_trial_policy == MacCaloricTrialPolicy::legacy_refinement ||
+        caloric_trial_policy == MacCaloricTrialPolicy::automatic ||
+        (caloric_trial_policy == MacCaloricTrialPolicy::reject_proven_negative &&
+            numerical_kernel == MacNumericalKernel::production && thermal_conduction),
+        "Invalid MAC caloric-trial policy (proved-negative rejection requires production conduction)");
     if (numerical_kernel==MacNumericalKernel::game) {
         game.validate();
         const bool original = game_profile==MacGameProfile::game_kernel &&
@@ -682,6 +701,7 @@ MacClosedWorld::MacClosedWorld(SpeciesRegistry registry, std::shared_ptr<const F
     MacTransportState state, MacClosedSettings settings,std::shared_ptr<const GasTransportProfile> transport) : registry_(std::move(registry)),
     thermodynamics_(model ? std::make_shared<const FluidThermodynamics>(*model) : nullptr), settings_(settings),transport_(std::move(transport)) {
     require_mac_energy_environment();
+    settings_.resolve_caloric_trial_policy();
     require(thermodynamics_ != nullptr && transport_!=nullptr, "MAC closed owner requires immutable EOS and transport profiles"); settings_.validate();
     require(settings_.vacuum == MacVacuumRepresentation::void_phase || state.occupied_volumes_m3.empty(), "MAC occupied volumes require the void phase");
     require(settings_.phase_change == MacPhaseChange::none || !mac_saturation_pairs(registry_, *thermodynamics_).empty(),
@@ -1051,7 +1071,7 @@ MacClosedAdvance MacClosedWorld::advanced_without_trace_sink(double seconds,std:
     // Persist an explicit production request before any diffusion/certificate
     // path. Restoring then advances the same kernel without a caller policy.
     if (policy == MacExecutionPolicy::production && settings_.numerical_kernel != MacNumericalKernel::production) {
-        auto selected = *this; selected.settings_.numerical_kernel = MacNumericalKernel::production;
+        auto selected = *this; selected.settings_.select_production();
         return selected.advanced(seconds, budget, policy);
     }
     if(settings_.diffusion.mode==MacDiffusionMode::disabled)return advanced_flow(seconds,budget,policy);

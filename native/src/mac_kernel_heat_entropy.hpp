@@ -1,11 +1,15 @@
 #pragma once
-// Private diagnostic helpers; physical heat and interval audits do not use
-// their integral. Keep the actual stored endpoints when a large heat transfer
+// Private conduction endpoint and entropy helpers; physical heat and interval
+// audits do not use the diagnostic integral. Keep the stored endpoints when heat
 // would round (after - before) and lose the colder endpoint.
 #include "mac_kernel_detail.hpp"
 #include <numeric>
 
 namespace ma::experimental::mac_kernel {
+// Read an intermediate mixed-cell heat endpoint. A proved negative caloric
+// trial retries smaller; uncertain EOS boundaries retain reference refinement.
+[[nodiscard]] State conduction_endpoint(const Model&, const Fields&, std::size_t cells,
+    std::size_t cell, const Stats&, double energy, double volume, bool reject_negative_caloric);
 inline double heat_path_energy(double before, double after, double x) {
     DD energy; energy.add((1 - x) * before); energy.add(x * after);
     return energy.value();

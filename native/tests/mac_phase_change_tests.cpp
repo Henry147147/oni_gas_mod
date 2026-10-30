@@ -242,8 +242,8 @@ void relaxes(const Water& s, const char* name, std::vector<double> masses, doubl
 }
 // A small heated column on the production kernel: hot steam over water at
 // saturation beside nitrogen. Sharp-interface boiling evaporates at the
-// interface each substep; water plus steam is conserved, and a version-11
-// checkpoint restores and continues byte for byte.
+// interface each substep; water plus steam is conserved, and current-law and
+// legacy layout-11 checkpoints restore and continue byte for byte.
 void production_column(const Water& s) {
     constexpr double h = 1e-4, volume = h * h, t_sat = 373.15, p0 = 101325;
     MacTransportState st; st.grid = {16, 1, h, 1, false, false, std::vector<std::uint8_t>(16)};
@@ -274,11 +274,35 @@ void production_column(const Water& s) {
     std::cout << "PCCOLUMN evaporated_kg=" << evaporated << " pair_mass_drift=" << drift << '\n';
     check(evaporated > 0 && drift <= 1e-12, "Production boiling did not evaporate or lost water and steam");
     std::uint32_t version = 0; std::memcpy(&version, saved.data() + 8, 4);
-    check(version == 11, "Phase-change owner did not write checkpoint version 11");
+    std::uint32_t layout = 0; std::memcpy(&layout, saved.data() + 12, 4);
+    check(version == 29 && layout == 11 &&
+        world.settings().caloric_trial_policy == MacCaloricTrialPolicy::reject_proven_negative,
+        "Fresh phase-change owner did not write canonical law29/layout11");
     auto restored = MacClosedWorld::from_checkpoint(s.registry, s.eos, saved);
-    check(restored.checkpoint() == saved, "Version-11 checkpoint did not round-trip");
+    check(restored.checkpoint() == saved, "Law29/layout11 checkpoint did not round-trip");
     for (int k = 10; k < 20; ++k) restored = restored.advanced(1e-5, 65536, MacExecutionPolicy::production).world;
     check(restored.checkpoint() == world.checkpoint(), "Restored phase-change owner did not continue byte for byte");
+
+    settings.numerical_kernel = MacNumericalKernel::production;
+    settings.caloric_trial_policy = MacCaloricTrialPolicy::legacy_refinement;
+    MacClosedWorld legacy(s.registry, s.eos, st, settings);
+    const auto legacy_initial = legacy.checkpoint();
+    check(legacy_initial.at(8) == 11 &&
+        MacClosedWorld::from_checkpoint(s.registry, s.eos, legacy_initial).checkpoint() == legacy_initial,
+        "Legacy phase-change checkpoint did not retain its original layout11 bytes");
+    std::vector<std::uint8_t> legacy_saved;
+    for (int k = 0; k < 20; ++k) {
+        legacy = legacy.advanced(1e-5, 65536, MacExecutionPolicy::production).world;
+        if (k == 9) legacy_saved = legacy.checkpoint();
+    }
+    auto legacy_cold = MacClosedWorld::from_checkpoint(s.registry, s.eos, legacy_saved);
+    check(legacy_saved.at(8) == 11 && legacy_cold.checkpoint() == legacy_saved &&
+        legacy_cold.settings().caloric_trial_policy == MacCaloricTrialPolicy::legacy_refinement,
+        "Legacy phase-change cold restore changed its saved policy or layout11 bytes");
+    for (int k = 10; k < 20; ++k) legacy_cold = legacy_cold.advanced(1e-5, 65536, MacExecutionPolicy::production).world;
+    check(legacy_cold.settings().caloric_trial_policy == MacCaloricTrialPolicy::legacy_refinement &&
+        legacy_cold.checkpoint() == legacy.checkpoint(),
+        "Legacy phase-change explicit production continuation changed its saved law or bytes");
 }
 }
 

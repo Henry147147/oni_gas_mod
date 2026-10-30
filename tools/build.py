@@ -47,6 +47,9 @@ def main() -> None:
     variable = "PATH" if os.name == "nt" else "LD_LIBRARY_PATH"
     env[variable] = str(directory) + os.pathsep + env.get(variable, "")
     env["MA_TEST_NATIVE_LIBRARY"] = str(directory / ("mixed_atmospheres.dll" if os.name == "nt" else "libmixed_atmospheres.so"))
+    env["MA_TEST_CALORIC_FIXTURES"] = str(directory / "caloric-fixtures")
+    run([str(directory / ("ma_mac_kernel_checkpoint_tests.exe" if os.name == "nt" else "ma_mac_kernel_checkpoint_tests")),
+         "--write-caloric", env["MA_TEST_CALORIC_FIXTURES"]], env)
     run(["dotnet", "run", "--project", "managed/MixedAtmospheres.Tests", "-c", "Release"], env)
     run(["dotnet", "run", "--project", "managed/MixedAtmospheres.Presentation.Tests", "-c", "Release"], env)
     run(["dotnet", "run", "--project", "tools/ColonyConduitTests", "-c", "Release"], env)

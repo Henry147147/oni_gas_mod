@@ -12,6 +12,30 @@
 #include <numeric>
 
 namespace ma::experimental::mac_kernel {
+State conduction_endpoint(const Model& model, const Fields& fields, std::size_t cells,
+    std::size_t cell, const Stats& stats, double energy, double volume, bool reject_negative_caloric) {
+    State state;
+    if (evaluate_state(model, fields, cells, cell, stats, energy, volume, state)) return state;
+    // A failed nonlinear root or a caloric boundary within its existing EOS
+    // uncertainty still needs the reference. Only a definitely negative trial
+    // is a domain rejection, which the production driver retries smaller.
+    const double caloric = energy - stats.off;
+    if (reject_negative_caloric && caloric < -0x1p-30 * (std::abs(energy) + std::abs(stats.off))) {
+        MacEnergyAccount proof;
+        proof.add(energy);
+        if (!fields.U_remainder.empty()) proof.add(fields.U_remainder[cell]);
+        for (std::size_t k = 0; k < model.K(); ++k)
+            proof.add(MacEnergy::from_double(fields.m[k * cells + cell]).multiplied(-model.species[k].offset));
+        // Range products have at most one significand rounding each. The
+        // original 128-epsilon operand envelope encloses all their errors;
+        // an exact expansion below its negative bound proves U-sum(m*e0)<0.
+        // Elastic energy is nonnegative, so no positive-temperature EOS can
+        // admit this fixed-mass trial. No stored state or bound is repaired.
+        if (proof.terms().sign() < 0 && !proof.within_bound())
+            reject("Production conduction left the positive caloric domain");
+    }
+    throw EosRefinement{};
+}
 void PhysicalAccounts::merge(const PhysicalAccounts& other) {
     accepted_substeps += other.accepted_substeps;
     conduction_stages += other.conduction_stages; conduction_contacts += other.conduction_contacts;
@@ -497,8 +521,8 @@ void stage_conduction(Context& c, Fields& f, double dt, Accounts& acc) {
             const double change = f.U[i] - before;
             const auto temperature = [&](double x) {
                 const double energy = heat_path_energy(before, f.U[i], x);
-                State state;
-                if (!evaluate_state(model, f, N, i, stats(i), energy, material_volume(f, g.V, i), state)) throw EosRefinement{};
+                const auto state = conduction_endpoint(model, f, N, i, stats(i), energy, material_volume(f, g.V, i),
+                    c.settings.caloric_trial_policy == MacCaloricTrialPolicy::reject_proven_negative);
                 return state.T;
             };
             const double after = temperature(1);

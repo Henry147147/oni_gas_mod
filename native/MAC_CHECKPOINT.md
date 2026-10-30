@@ -148,9 +148,9 @@ request, as used by M5. A native-domain control admits and resaves the earlier
 schema6 bytes, then preserves policy0 through a frame and exact cold advance.
 The captured M5 failure advances under the new explicit production selection
 and reencodes as29/layout11; a same-state saved kernel2/policy0 control retains
-its original refusal atomically. The unchanged full M5 numerical cohort passes
-all three prescribed grids; its final codec/dispatch checks are recorded
-separately from that numerical run.
+its original refusal atomically. Full M5 on the final saved-policy/codec
+candidate passes all three prescribed grids (10,20,40), with unchanged inputs
+and bounds and output identical to the earlier numerical cohort.
 
 **Reserved 2026-10-30 immediately after a fresh fetch of `d016dd7`:**
 managed `MACOLP03` section tag **6** is `RuntimeContinuation`; its record magic

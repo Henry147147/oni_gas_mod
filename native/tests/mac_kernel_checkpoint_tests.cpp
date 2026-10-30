@@ -19,9 +19,10 @@ void seal(std::vector<std::uint8_t>& bytes) {
     put(bytes, bytes.size() - 8, hash, 8);
 }
 std::size_t kernel_offset(const std::vector<std::uint8_t>& bytes) {
+    const std::size_t law_prefix = bytes.at(8)==29 ? 4 : 0;
     std::size_t model_bytes = 0;
-    for (std::size_t i = 0; i < 4; ++i) model_bytes |= static_cast<std::size_t>(bytes.at(12 + i)) << (8 * i);
-    return 16 + model_bytes + 103;
+    for (std::size_t i = 0; i < 4; ++i) model_bytes |= static_cast<std::size_t>(bytes.at(12 + law_prefix + i)) << (8 * i);
+    return law_prefix + 16 + model_bytes + 103;
 }
 void rejects(const std::vector<std::uint8_t>& bytes) {
     const auto& s = setup(); bool rejected = false;
@@ -72,10 +73,128 @@ void continuation(Scene scene, MacDiffusionSettings diffusion, PressurePrecondit
     std::cout << "PASS production continuation " << scene.name << " diffusion=" << static_cast<unsigned>(diffusion.mode)
         << " preconditioner=" << static_cast<unsigned>(preconditioner) << '\n';
 }
+void caloric_policy_checkpoint() {
+    const auto& s=setup(); auto scene=conduction(19,17);
+    scene.settings.numerical_kernel=MacNumericalKernel::production;
+    const MacClosedWorld current(s.registry,s.eos,scene.state,scene.settings);
+    auto legacy_settings=scene.settings; legacy_settings.caloric_trial_policy=MacCaloricTrialPolicy::legacy_refinement;
+    const MacClosedWorld legacy(s.registry,s.eos,scene.state,legacy_settings);
+    const auto image=current.checkpoint(),old_image=legacy.checkpoint();
+    check(current.settings().caloric_trial_policy==MacCaloricTrialPolicy::reject_proven_negative &&
+        image[8]==29 && image[12]==6 && old_image[8]==6 && image.size()==old_image.size()+4,
+        "Automatic production conduction did not select the saved admission law");
+    auto wrapped=old_image;
+    wrapped.insert(wrapped.begin()+12,4,0); put(wrapped,8,29,4); put(wrapped,12,6,4); seal(wrapped);
+    check(wrapped==image,"Caloric admission law changed its legacy payload or complete identity");
+    const auto cold=MacClosedWorld::from_checkpoint(s.registry,s.eos,image);
+    const auto old_cold=MacClosedWorld::from_checkpoint(s.registry,s.eos,old_image);
+    check(cold.checkpoint()==image && cold.settings().caloric_trial_policy==MacCaloricTrialPolicy::reject_proven_negative &&
+        old_cold.checkpoint()==old_image && old_cold.settings().caloric_trial_policy==MacCaloricTrialPolicy::legacy_refinement,
+        "Caloric admission law was not restored independently of construction defaults");
+    const auto next=current.advanced(.002),resumed=cold.advanced(.002);
+    const auto old_next=legacy.advanced(.002),old_resumed=old_cold.advanced(.002,4096,MacExecutionPolicy::production);
+    check(next.world.checkpoint()==resumed.world.checkpoint() &&
+        old_next.world.checkpoint()==old_resumed.world.checkpoint() &&
+        old_resumed.world.settings().caloric_trial_policy==MacCaloricTrialPolicy::legacy_refinement &&
+        fingerprint(next.world.state())==fingerprint(old_next.world.state()),
+        "New or legacy production conduction changed its cold continuation or ordinary physical state");
+    // A reference checkpoint continues reference with its original bytes. An
+    // explicit API request to switch kernels selects today's production law,
+    // including after the post-vent reconstruction used by the fixed M5 gate.
+    auto reference_settings=scene.settings; reference_settings.numerical_kernel=MacNumericalKernel::reference;
+    MacClosedWorld reference(s.registry,s.eos,scene.state,reference_settings);
+    const auto reference_image=reference.checkpoint();
+    const auto reference_cold=MacClosedWorld::from_checkpoint(s.registry,s.eos,reference_image);
+    check(reference_image[8]==2 && reference.settings().caloric_trial_policy==MacCaloricTrialPolicy::legacy_refinement &&
+        reference_cold.checkpoint()==reference_image &&
+        reference.advanced(.002).world.checkpoint()==reference_cold.advanced(.002).world.checkpoint(),
+        "Reference construction or saved-kernel continuation acquired a production admission law");
+    const auto switched=reference_cold.advanced(.002,4096,MacExecutionPolicy::production);
+    const auto direct=advance_mac_production(reference_cold,.002,4096,{});
+    check(switched.world.settings().numerical_kernel==MacNumericalKernel::production &&
+        switched.world.settings().caloric_trial_policy==MacCaloricTrialPolicy::reject_proven_negative &&
+        switched.world.checkpoint()==direct.world.checkpoint(),
+        "Explicit production APIs disagreed about selecting the current conduction law");
+    for (unsigned vent=0;vent<2;++vent) {
+        auto changed=reference.advanced(.002,4096,MacExecutionPolicy::production);
+        check(changed.world.checkpoint()[8]==29 && changed.world.settings().caloric_trial_policy==MacCaloricTrialPolicy::reject_proven_negative,
+            "Post-vent reference reconstruction lost the explicit production law");
+        reference=MacClosedWorld(s.registry,s.eos,changed.world.state(),reference_settings);
+    }
+    auto nonthermal=scene.settings; nonthermal.thermal_conduction=false;
+    const MacClosedWorld plain(s.registry,s.eos,scene.state,nonthermal);
+    check(plain.checkpoint()[8]==6 && plain.settings().caloric_trial_policy==MacCaloricTrialPolicy::legacy_refinement,
+        "Nonthermal production construction changed its physical checkpoint law");
+    for (const auto policy : {static_cast<MacCaloricTrialPolicy>(3),static_cast<MacCaloricTrialPolicy>(UINT32_MAX)}) {
+        auto bad=scene.settings;bad.caloric_trial_policy=policy;bool failed=false;
+        try{(void)MacClosedWorld(s.registry,s.eos,scene.state,bad);}catch(const std::invalid_argument&){failed=true;}
+        check(failed,"Unknown caloric-trial policy was admitted");
+    }
+    for (const auto kernel : {MacNumericalKernel::reference,MacNumericalKernel::game}) {
+        auto bad=scene.settings;bad.numerical_kernel=kernel;bad.caloric_trial_policy=MacCaloricTrialPolicy::reject_proven_negative;bool failed=false;
+        try{bad.validate();}catch(const std::invalid_argument&){failed=true;}
+        check(failed,"A nonproduction kernel admitted production caloric rejection");
+    }
+    auto bad_nonthermal=nonthermal;bad_nonthermal.caloric_trial_policy=MacCaloricTrialPolicy::reject_proven_negative;
+    bool failed=false;try{bad_nonthermal.validate();}catch(const std::invalid_argument&){failed=true;}
+    check(failed,"A nonthermal owner admitted a saved caloric rejection law");
+    for (const auto layout : {0U,1U,2U,4U,20U,28U,29U,30U,UINT32_MAX}) {
+        auto corrupt=image;put(corrupt,12,layout,4);seal(corrupt);rejects(corrupt);
+    }
+    auto missing=image;missing.erase(missing.begin()+12,missing.begin()+16);seal(missing);rejects(missing);
+    auto no_heat=image;no_heat.at(kernel_offset(image)-21)=0;seal(no_heat);rejects(no_heat);
+    for (const auto kernel : {0U,1U,3U,UINT32_MAX}) {
+        auto corrupt=image;put(corrupt,kernel_offset(image),kernel,4);seal(corrupt);rejects(corrupt);
+    }
+    auto foreign=s.eos->reference().materials();foreign.front().provenance+=" changed";
+    const auto foreign_eos=std::make_shared<const FluidThermodynamics>(s.registry,s.eos->reference().profile_version(),std::move(foreign));
+    failed=false;try{(void)MacClosedWorld::from_checkpoint(s.registry,foreign_eos,image);}catch(const std::invalid_argument&){failed=true;}
+    check(failed && current.checkpoint()==image,"Caloric law accepted a foreign model or changed a rejected source");
+    for (const std::size_t length : {std::size_t{0},std::size_t{11},std::size_t{12},std::size_t{15},image.size()-1})
+        rejects(std::vector<std::uint8_t>(image.begin(),image.begin()+static_cast<std::ptrdiff_t>(length)));
+    auto large=conduction(193,173);large.settings.numerical_kernel=MacNumericalKernel::production;
+    const MacClosedWorld threaded(s.registry,s.eos,large.state,large.settings);
+    const auto previous=mac_kernel_default_options();auto options=previous;options.threads=1;set_mac_kernel_default_options(options);
+    const auto first=threaded.advanced(.002);const auto first_image=first.world.checkpoint();
+    const auto expected=first.world.advanced(.002);
+    options.threads=12;set_mac_kernel_default_options(options);
+    const auto threaded_cold=MacClosedWorld::from_checkpoint(s.registry,s.eos,first_image).advanced(.002);
+    check(last_mac_production_report().threads_used==12 && threaded_cold.world.checkpoint()==expected.world.checkpoint() &&
+        threaded.checkpoint()[8]==29,"Caloric law lost complete cold continuation across worker counts");
+    set_mac_kernel_default_options(previous);
+    std::cout<<"PASS saved caloric law29, unchanged legacy payloads, explicit kernel transitions, cold workers and malformed guards\n";
+}
+void write_caloric_images(const std::filesystem::path& directory) {
+    const auto& s=setup();std::filesystem::create_directories(directory);
+    for (const unsigned layout : {6U,9U,10U,12U}) {
+        auto scene=wave(4,3,0);scene.settings.numerical_kernel=MacNumericalKernel::production;scene.settings.thermal_conduction=true;
+        if (layout==9 || layout==12) scene.settings.vacuum=MacVacuumRepresentation::void_phase;
+        if (layout==12) scene.settings.subcell_void=MacSubcellVoidPolicy::expand_unresolved_gas;
+        if (layout==10) scene.state.cells.front().energy_remainder_j.projected=std::ldexp(scene.state.cells.front().mixture.energy,-56);
+        const MacClosedWorld initial(s.registry,s.eos,scene.state,scene.settings);
+        const auto source=initial.advanced(.002,4096,MacExecutionPolicy::production).world;
+        const auto image=source.checkpoint();
+        check(image.at(8)==29 && image.at(12)==layout &&
+            MacClosedWorld::from_checkpoint(s.registry,s.eos,image).checkpoint()==image,
+            "Caloric semantic fixture did not retain its declared canonical payload layout");
+        std::ofstream out(directory/("base"+std::to_string(layout)+".mac"),std::ios::binary);
+        out.write(reinterpret_cast<const char*>(image.data()),static_cast<std::streamsize>(image.size()));
+        check(static_cast<bool>(out),"Cannot write caloric semantic fixture");
+        std::cout<<"CALORIC_IMAGE base"<<layout<<".mac "<<source.state().grid.width<<' '<<source.state().grid.height<<' '
+            <<source.time_s()<<' '<<source.revision()<<' '<<layout<<' '
+            <<static_cast<unsigned>(source.settings().caloric_trial_policy)<<'\n';
+    }
+}
 }
 int main(int argc, char** argv) {
     try {
         const auto& s = setup();
+        if (argc == 2 && std::string(argv[1]) == "--caloric-only") {
+            caloric_policy_checkpoint();return 0;
+        }
+        if (argc == 3 && std::string(argv[1]) == "--write-caloric") {
+            write_caloric_images(argv[2]);return 0;
+        }
         // The comparison harness checks every byte against images written by
         // the pre-retirement version-2/3/4/5 writer.
         if (argc == 3 && std::string(argv[1]) == "--write-legacy") {
@@ -89,6 +208,7 @@ int main(int argc, char** argv) {
             return 0;
         }
         check(argc == 1, "Unknown production checkpoint test arguments");
+        caloric_policy_checkpoint();
         for (const auto preconditioner : {PressurePreconditioner::automatic, PressurePreconditioner::jacobi}) {
             for (auto scene : {wave(19, 17), room(24, 16), liquid(8, 8), mixed(12, 12), vacuum(16, 8)})
                 continuation(std::move(scene), MacDiffusionSettings::disabled(), preconditioner);

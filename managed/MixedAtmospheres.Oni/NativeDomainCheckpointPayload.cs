@@ -69,6 +69,17 @@ namespace MixedAtmospheres.Oni
             Require(physical.Length>=32 && physical.Slice(0,8).SequenceEqual(System.Text.Encoding.ASCII.GetBytes("MACCLS01")),
                 "Unsupported physical checkpoint format for this scenario.");
             var solverVersion=BinaryPrimitives.ReadUInt32LittleEndian(physical.Slice(8));
+            var policyPrefix=solverVersion==29U?4:0;
+            if(policyPrefix!=0)
+            {
+                Require(physical.Length>=36,"Numerical-admission checkpoint prefix is truncated.");
+                solverVersion=BinaryPrimitives.ReadUInt32LittleEndian(physical.Slice(12));
+                // This adapter admits only its supported earlier layouts. The
+                // complete native reader also validates kernel2, conduction,
+                // the selected law and the physical image before activation.
+                Require(solverVersion==6U||solverVersion==9U||solverVersion==10U||solverVersion==12U,
+                    "Unsupported numerical-admission layout for this native domain.");
+            }
             var legacyVersion=configured ? (image!.Physics.Flags&PhysicsViscosity)!=0 ? 3U : 2U : geometry.Scenario==6 ? 3U : 2U;
             // Versions 5 (gas diffusion) and 6 (production kernel) retain this
             // metadata prefix. Version 10 also carries primary-U remainders; full
@@ -80,7 +91,7 @@ namespace MixedAtmospheres.Oni
             var unresolved=configured && (image!.Physics.Flags&PhysicsUnresolvedGas)!=0;
             Require(unresolved ? solverVersion==12U : solverVersion==legacyVersion || solverVersion==5U || solverVersion==6U || solverVersion==10U ||
                 solverVersion==9U && configured && (image!.Physics.Flags&PhysicsVacuum)!=0,"Unsupported physical checkpoint format for this scenario.");
-            var identity=BinaryPrimitives.ReadUInt32LittleEndian(physical.Slice(12)); var clock=16L+identity;
+            var identity=BinaryPrimitives.ReadUInt32LittleEndian(physical.Slice(12+policyPrefix)); var clock=16L+policyPrefix+identity;
             Require(clock+42<=physical.Length-8,"Physical checkpoint metadata is truncated.");
             var offset=checked((int)clock);
             Require(BitConverter.Int64BitsToDouble(BinaryPrimitives.ReadInt64LittleEndian(physical.Slice(offset)))==time &&

@@ -25,9 +25,9 @@ struct MacKernelAccess {
     static double time(const MacClosedWorld& w) { return w.time_s_; }
     static std::uint64_t revision(const MacClosedWorld& w) { return w.revision_; }
     static void stamp(MacClosedWorld& w, double time, std::uint64_t revision) {
-        w.time_s_ = time; w.revision_ = revision; w.settings_.numerical_kernel = MacNumericalKernel::production;
+        w.time_s_ = time; w.revision_ = revision; w.settings_.select_production();
     }
-    static void select_production(MacClosedWorld& w) { w.settings_.numerical_kernel = MacNumericalKernel::production; }
+    static void select_production(MacClosedWorld& w) { w.settings_.select_production(); }
     // The retained reference implementation for the same flow interval
     // (range flags): bypass dispatch but retain interval auditing and the
     // caller's numerical-kernel setting. Flow only, like the kernel: gas
@@ -832,12 +832,13 @@ bool mac_kernel_normal_range(const MacTransportState& state) {
 MacKernelAdvance advance_mac_kernel(const SpeciesRegistry& registry, const FluidThermodynamics& eos, const MacTransportState& state,
     const MacClosedSettings& settings, double start_time, double seconds, std::size_t budget, const MacKernelOptions& options) {
     mac_kernel::failed_flow_attempts = 0;
-    mac_kernel::require(settings.diffusion.mode == MacDiffusionMode::disabled,
+    auto selected = settings; selected.select_production();
+    mac_kernel::require(selected.diffusion.mode == MacDiffusionMode::disabled,
         "The production kernel advances flow only; MacExecutionPolicy::production composes gas diffusion");
     MacKernelAdvance result{state, {}};
-    if (settings.step_control == MacStepControl::regional_predictive)
-        result.report = mac_kernel::run_regional(registry,eos,state,settings,start_time,seconds,budget,options,result.state);
-    else result.report = mac_kernel::run_interval(registry, eos, state, settings, start_time, seconds, budget, options, result.state);
+    if (selected.step_control == MacStepControl::regional_predictive)
+        result.report = mac_kernel::run_regional(registry,eos,state,selected,start_time,seconds,budget,options,result.state);
+    else result.report = mac_kernel::run_interval(registry, eos, state, selected, start_time, seconds, budget, options, result.state);
     return result;
 }
 const MacKernelReport& last_mac_production_report() { return mac_kernel::last_report(); }
@@ -847,6 +848,10 @@ MacClosedAdvance advance_mac_production(const MacClosedWorld& world, double seco
     return advance_mac_production_flow(world, seconds, budget, options);
 }
 MacClosedAdvance advance_mac_production_flow(const MacClosedWorld& world, double seconds, std::size_t budget, const MacKernelOptions& options) {
+    if (world.settings().numerical_kernel != MacNumericalKernel::production) {
+        auto selected = world; MacKernelAccess::select_production(selected);
+        return advance_mac_production_flow(selected, seconds, budget, options);
+    }
     mac_kernel::failed_flow_attempts = 0;
     mac_kernel::last_report() = {};
     const auto revision = MacKernelAccess::revision(world);

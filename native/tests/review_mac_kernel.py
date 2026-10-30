@@ -201,7 +201,82 @@ def review(data):
         check(abs(dec(ds_bound) - actual_bound) <= dec(32 * EPS) * actual_bound, 'Reported entropy allowance differs')
 
 
+def review_caloric(data):
+    trial, species, guard = data
+    check(trial is not None and guard is not None and set(species) == {0, 1}, 'Missing caloric trial operands')
+    energy, volume, cached_offset, cached_capacity, rejected, legacy, uncertain, admitted = trial
+    check(volume > 0 and all(mass > 0 and cv > 0 for mass, _, cv in species.values()),
+          'Invalid caloric constituent or volume')
+    offset = sum((mass * e0 for mass, e0, _ in species.values()), F(0))
+    capacity = sum((mass * cv for mass, _, cv in species.values()), F(0))
+    caloric = energy - offset
+    scale = abs(energy) + sum((abs(mass * e0) for mass, e0, _ in species.values()), F(0))
+    check(caloric < -128 * EPS * scale, 'Trial does not prove negative caloric energy')
+    check(abs(offset - cached_offset) <= 128 * EPS * scale,
+          'Caloric cached offset differs from independent constituent products')
+    check(abs(capacity - cached_capacity) <= 128 * EPS * capacity,
+          'Caloric cached capacity differs from independent constituent products')
+    check(energy - cached_offset < -F(1, 2**30) * (abs(energy) + abs(cached_offset)),
+          'Captured trial lies inside the existing EOS uncertainty region')
+    # Positive temperature requires positive Cv*T and nonnegative elastic
+    # energy. Negative U-sum(m*e0) therefore rules it out independently of
+    # the nonlinear pressure root and the implementation's error envelope.
+    check((rejected, legacy, uncertain, admitted) == (1, 2, 2, 0),
+          'Negative, legacy, uncertain or ordinary conduction admission changed')
+    warm_energy = F(float(cached_offset + 300 * cached_capacity))
+    check(warm_energy - offset > 0, 'Ordinary positive caloric control is invalid')
+    warm, stale_offset, guarded = guard
+    check(warm == warm_energy and stale_offset == warm + 1 and warm - offset > 0 and warm < stale_offset and guarded == 2,
+          'Conduction domain proof trusted a contradictory cached offset')
+
+
+def caloric_main(path):
+    raw = Path(path).read_bytes()
+    check(len(raw) < 16384, 'Caloric capture cap')
+    trial, species, guard, passed = None, {}, None, False
+    for line in raw.decode('ascii').splitlines():
+        row = line.split()
+        check(bool(row), 'Empty caloric record')
+        if row[0] == 'CALORIC_TRIAL':
+            check(len(row) == 9 and trial is None, 'Caloric trial shape/duplicate')
+            trial = (*map(number, row[1:5]), *map(int, row[5:]))
+        elif row[0] == 'CALORIC_SPECIES':
+            check(len(row) == 5, 'Caloric species shape')
+            unique(species, int(row[1]), tuple(map(number, row[2:])))
+        elif row[0] == 'CALORIC_GUARD':
+            check(len(row) == 4 and guard is None, 'Caloric guard shape/duplicate')
+            guard = number(row[1]), number(row[2]), int(row[3])
+        else:
+            check(line == 'PASS conduction proves negative caloric trials and retains uncertain EOS refinement' and not passed,
+                  'Missing/failed caloric native control')
+            passed = True
+    check(passed, 'Missing caloric native verdict')
+    data = trial, species, guard
+    review_caloric(data)
+    saved = CHECKS
+    for kind in ('energy', 'offset', 'capacity', 'rejection', 'legacy', 'uncertain', 'admitted', 'mass', 'formation', 'missing', 'guard'):
+        bad = copy.deepcopy(data)
+        if kind in ('mass', 'formation', 'missing'):
+            if kind == 'missing': del bad[1][1]
+            else:
+                row = list(bad[1][0]); row[0 if kind == 'mass' else 1] *= 2; bad[1][0] = tuple(row)
+        elif kind == 'guard': bad = bad[0], bad[1], (bad[2][0], bad[2][1], 1)
+        else:
+            row = list(bad[0]); at = dict(energy=0, offset=2, capacity=3, rejection=4, legacy=5, uncertain=6, admitted=7)[kind]
+            row[at] += 1; bad = tuple(row), bad[1], bad[2]
+        rejected = False
+        try: review_caloric(bad)
+        except ValueError: rejected = True
+        check(rejected, 'Altered caloric evidence accepted: ' + kind)
+    print(json.dumps(dict(Passed=True, SavedChecks=saved, CorruptionsRejected=11,
+        SavedSha256=hashlib.sha256(raw).hexdigest(), NativeProcessLaunched=False,
+        Scope='Exact constituent caloric-domain proof and preserved EOS refinement; no full M5 acceptance')))
+
+
 def main():
+    if len(sys.argv) == 3 and sys.argv[1] == '--caloric':
+        caloric_main(sys.argv[2])
+        return
     raw = Path(sys.argv[1]).read_bytes(); check(len(raw) < 2 * 1024 * 1024, 'Saved pipe cap')
     with localcontext() as context:
         context.prec = 100; data = parse(raw); review(data); saved = CHECKS

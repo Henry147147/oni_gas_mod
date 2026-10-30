@@ -1,6 +1,7 @@
 #include "../src/oni_domain.hpp"
 #include "../src/oni_frame_inputs.hpp"
 #include "mixed_atmospheres/mac_closed_world.hpp"
+#include <cstring>
 #include <iostream>
 #include <limits>
 
@@ -114,6 +115,7 @@ void saved_kernel_transition() {
     start_domain(config,1);auto status=capture();
     const auto initial=ma::experimental::MacClosedWorld::from_checkpoint(registry,eos,snapshot_domain(status.session,0));shutdown_domain();
     auto settings=initial.settings();settings.numerical_kernel=ma::experimental::MacNumericalKernel::reference;
+    settings.caloric_trial_policy=ma::experimental::MacCaloricTrialPolicy::legacy_refinement;
     const ma::experimental::MacClosedWorld reference(registry,eos,initial.state(),settings);const auto source=reference.checkpoint();
     require(source[8]==2 && advance_domain_checkpoint(source,0)==source,"Historical source image did not remain version 2");
     const auto expected=reference.advanced(.002,4096,ma::experimental::MacExecutionPolicy::exact_equilibrium).world.checkpoint();
@@ -124,7 +126,12 @@ void saved_kernel_transition() {
     require(snapshot_domain(status.session,0)==source,"Loading a historical image changed it before the first live frame");
     advance_domain(1,.002,2);status=capture();
     const auto actual=snapshot_domain(status.session,1),journal=copy_domain_frame_inputs(status.session,1);
-    require((actual[8]==6 || actual[8]==10) && actual!=expected && frame_inputs::decode(journal).flags==frame_inputs::production_advance &&
+    std::uint32_t version=0,layout=0;std::memcpy(&version,actual.data()+8,4);std::memcpy(&layout,actual.data()+12,4);
+    const auto production=ma::experimental::MacClosedWorld::from_checkpoint(registry,eos,actual);
+    require(version==29 && (layout==6 || layout==10) &&
+        production.settings().numerical_kernel==ma::experimental::MacNumericalKernel::production &&
+        production.settings().caloric_trial_policy==ma::experimental::MacCaloricTrialPolicy::reject_proven_negative &&
+        production.checkpoint()==actual && actual!=expected && frame_inputs::decode(journal).flags==frame_inputs::production_advance &&
         advance_domain_snapshot_with_inputs(source,journal)==actual,"Live migration to production did not replay exactly");
     auto missing=frame_inputs::decode(journal);missing.flags=0;
     require(advance_domain_snapshot_with_inputs(source,frame_inputs::encode(missing))==expected,
