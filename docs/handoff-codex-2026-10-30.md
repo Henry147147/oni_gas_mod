@@ -37,9 +37,15 @@ rejected candidate unchanged.
   and routes save-time thermal publication through the native lease. It changes
   no fixture or acceptance bound. Its 76 production-method controls, three
   behavioral mutation controls, two-target DLL identity and both actual-Mono
-  2,588/0 checks pass. The corrected base-game Proton batch passes all six
-  scenarios and the independent heat audits; the other three Linux/Proton
-  cohorts are still being run. Private probes are `storage-projection-v3/`.
+  2,588/0 checks pass. The four corrected Linux/Proton base/DLC batches pass
+  all 24 scenario assertions and the independent heat audits. A strict duration
+  audit finds both DLC windows were only 21 owner frames; those runs do not
+  qualify the declared 22-frame heat gate. The validation-only follow-up
+  measures the source owner counter and holds further positive tick admission
+  at 22; zero-time endpoint settlement remains allowed. Earlier 21/23-frame
+  windows remain failures. Biology waits for ordinary operational conduit
+  readiness within its existing 30-frame setup cap; no flags are forced.
+  Private probes start at `storage-projection-v3/`.
   Preserve the copied-contract refusal and missing-edit-scope failures in v1/v2.
 - Native publication now has a 56-byte completed-step/prefix interface, including
   empty Prepare messages and the inlined Windows Step path. This corrects the
@@ -49,7 +55,7 @@ rejected candidate unchanged.
   scheduler/cadence and native-record order/parameter differences. A complete
   runtime continuation record is under construction: MACOLP03 tag 6,
   MACGRT01 version 1, reserved and pushed after a fresh fetch.
-  There are now 318 focused controls, including coordinated managed/native/
+  There are now 358 focused controls, including coordinated managed/native/
   cadence rollback and distinct live/historical definitions of the same type.
   No complete live source capture or strict cold/menu qualification exists yet.
 - The M5 repair rejects independently proved negative-caloric trial endpoints
@@ -62,6 +68,16 @@ rejected candidate unchanged.
   three prescribed grids; the
   finest error is 0.00911666632 and water-mass drift 2.874269236e−17. The repair
   and its qualification are committed and pushed as `28e7ff6`.
+- The detach-only native heat optimization is integrated independently of the
+  unfinished runtime continuation. It copies shared physical state once before
+  existing heat retries, preserving all admission/refusal/splitting/neighbour
+  choices and successful arithmetic/checkpoint bytes. All 88 clean MAC
+  outputs/exits, 720 focused physical images and actual captured replay
+  checkpoints/statuses match. Seven WHOLE paired repetitions plus warm-up
+  measure about 2.22× base / 3.05× DLC native-owner speedup; these are captured
+  native replay ratios, not actual game 3× or UI acceptance. Clean Linux, Windows/Wine and Ubuntu 22.04
+  each pass 91 native tests (Ubuntu GLIBC maximum 2.34), including the new allocation-failure
+  ownership regression. See [performance evidence](performance-acceptance.md).
 - The current native/managed/Python and cross-platform checks use the immutable
   v5 source snapshot. All 90 Linux native checks and 487 Python controls pass
   (four actual-Windows

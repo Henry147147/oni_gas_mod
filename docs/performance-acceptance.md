@@ -1,5 +1,51 @@
 # Performance acceptance measurements
 
+## Native heat-copy replay, 2026-10-30
+
+The native owner copies shared physical state once before the
+heat retry loop. Each original admission, split, refusal, neighbour attempt and
+deferred input remains in place. The captured base/DLC suffixes each contain
+79 frames from the v5 storage probes. The replay checks their already-retained
+heat prefixes before submitting new work; an earlier driver duplicated those
+prefixes and is retained as invalid evidence.
+
+Seven alternating paired runs plus one warm-up pair per world used WHOLE with
+the other project jobs held. Each process runs cold and menu owner-restoration
+branches. The primary metric is the median paired ratio of mean native-owner
+advance time over the suffix, excluding its first restored frame.
+
+| Capture / branch | Native-owner speedup | Paired range | Heat-stage speedup |
+| --- | ---: | ---: | ---: |
+| Base / cold | 2.216× | 2.137–2.364× | 4.771× |
+| Base / menu | 2.226× | 2.072–2.340× | 4.767× |
+| Spaced Out! / cold | 3.054× | 2.844–3.095× | 14.164× |
+| Spaced Out! / menu | 3.059× | 2.609–3.167× | 14.019× |
+
+All 32 processes complete, with every baseline/candidate complete owner and
+numerical-status hash matching. The original 90 native tests, all 88 canonical MAC
+outputs/exits (only existing `ref_ms`/`prod_ms` masked), 720 focused checkpoint
+images and exact report/FPU/error comparisons pass their equivalence checks.
+The eight known nonzero diagnostic exits remain unchanged. Allocation-failure
+controls preserve prior physical state, metadata, caches and immutable aliases;
+the allocation order changes, so there is no same-allocation-ordinal OOM claim.
+The adopted source adds a permanent ownership/failure regression: clean Linux, Windows/Wine
+and Ubuntu 22.04 each pass 91 native tests; Ubuntu requires GLIBC at most 2.34. Default captured game inputs also
+retain all 32 independently captured cold/menu future images byte for byte.
+
+These are native replay speedups with captured inputs. Actual game progress,
+UI responsiveness and strict active game reload remain separate open gates.
+The replay-generated future images are compared between implementations, not
+to independently captured uninterrupted game images. The detach-only change is
+integrated separately from runtime-continuation work; no secondary heat
+optimization is included. The advance timer includes ledger work and excludes
+the following projection tail. The combined ledger/projection stage measures
+about 2.4–2.5 ms base / 6.1–6.2 ms DLC; existing timers cannot split it, so it
+cannot be added wholesale to advance time. After detaching, flow accounts for
+about 52–54% base / 61–62% DLC of advance time, making pressure and transport
+preparation the next measured targets. Private evidence is in
+`artifacts/release-ready-2026-10-30/heat-profile/actual-timings-whole-v1/` and
+`heat-profile/detach-ready-proof.json`.
+
 ## Latest measured candidate, 2026-10-30
 
 The [release review](release-candidate-2026-10-30.md) records clean `0af5dfe`

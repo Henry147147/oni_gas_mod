@@ -2937,6 +2937,7 @@ void run_frame(std::uint64_t ticket,double seconds,std::uint64_t frames,const ch
                 const bool control = std::any_of(edits.begin() + static_cast<std::ptrdiff_t>(from), edits.begin() + static_cast<std::ptrdiff_t>(from + count),
                     [&](const MacCellHeat& e) { return e.cell_index == hook; });
                 if (!control) try {
+                    (void)MacGameKernelAccess::detach_heat_state(world);
                     world = std::move(world).with_cell_heat(std::span(edits.data() + from, count));
                     if(activity)for(std::size_t q=from;q<from+count;++q)if(heat[source[q]].reserved==0)touched[edits[q].cell_index]=1;
                     return;
@@ -2951,7 +2952,8 @@ void run_frame(std::uint64_t ticket,double seconds,std::uint64_t frames,const ch
                 for (const auto n : {i % W > 0 ? i - 1 : SIZE_MAX, i % W + 1 < W ? i + 1 : SIZE_MAX, i >= W ? i - W : SIZE_MAX, i + W < st0.cells.size() ? i + W : SIZE_MAX}) {
                     if (n == SIZE_MAX || world.state().grid.walls[n] || !(world.state().cells[n].mixture.mass() > 0)) continue;
                     MacCellHeat moved = edits[q]; moved.cell_index = n;
-                    try { world = std::move(world).with_cell_heat(std::span(&moved, 1));
+                    try { (void)MacGameKernelAccess::detach_heat_state(world);
+                        world = std::move(world).with_cell_heat(std::span(&moved, 1));
                         if(activity && heat[source[q]].reserved==0){touched[i]=1;touched[n]=1;}
                         placed = true; break; } catch (const std::exception&) {}
                 }

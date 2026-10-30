@@ -1358,6 +1358,18 @@ transferred_totals(const MacClosedWorld &source, const k::Totals &old_totals,
   return now;
 }
 } // namespace
+bool MacGameKernelAccess::detach_heat_state(MacClosedWorld &source) {
+  if (source.settings_.numerical_kernel != MacNumericalKernel::game ||
+      source.state_snapshot_.use_count() == 1)
+    return false;
+  // Complete the copy before assigning its pointer: failure leaves every
+  // source field and the immutable Session/Published state untouched.
+  // This must be mutable storage, matching replace_state(), since the
+  // unique heat path subsequently edits it through the existing journal.
+  auto detached = std::make_shared<MacTransportState>(*source.state_snapshot_);
+  source.state_snapshot_ = std::move(detached);
+  return true;
+}
 MacClosedWorld MacGameKernelAccess::heat(const MacClosedWorld &source,
                                          std::span<const MacCellHeat> edits) {
   auto next = source.state();
