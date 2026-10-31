@@ -152,8 +152,15 @@ public:
       bool isolated;
     };
     DoubleDouble wall_x, wall_y, wall_ops_x, wall_ops_y;
+    // Call-local capacities only. Tick zero visits every scheduled face, so
+    // subsequent active/affected/dual lists are subsets. No buffer survives
+    // this advance, and every logical dual entry is assigned before use.
+    std::vector<Face> active;
+    std::vector<std::size_t> affected;
+    std::vector<std::pair<bool,std::size_t>> dual_faces;
+    std::vector<DualUpdate> dual_storage;
     for (std::size_t tick = 0; tick < (std::size_t(1) << maximum); ++tick) {
-      std::vector<Face> active;
+      active.clear();
       for (unsigned lev = 0; lev <= maximum; ++lev)
         if (tick % (std::size_t(1) << (maximum - lev)) == 0)
           active.insert(active.end(), groups[lev].begin(), groups[lev].end());
@@ -176,7 +183,7 @@ public:
         }
       ++stamp;
       ++result.microticks;
-      std::vector<std::size_t> affected;
+      affected.clear();
       const auto affect = [&](std::size_t i) {
         if (cell_stamp[i] != stamp) {
           cell_stamp[i] = stamp;
@@ -193,7 +200,14 @@ public:
         affect(l[face.index]);
         affect(r[face.index]);
       }
-      std::sort(affected.begin(), affected.end());
+      // affect() stamps each unique cell once. In a dense event, scanning
+      // those stamps emits exactly the original ascending-ID order without
+      // a comparison sort. Sparse events retain the original algorithm; the
+      // dense branch visits fewer than four grid slots per affected cell.
+      if(affected.size()>g.N/4) {
+        std::size_t at=0;
+        for(std::size_t i=0;i<g.N;++i)if(cell_stamp[i]==stamp)affected[at++]=i;
+      } else std::sort(affected.begin(), affected.end());
       if (updates_storage.size() < affected.size())
         updates_storage.resize(affected.size());
       std::span<CellUpdate> updated(updates_storage.data(), affected.size());
@@ -293,7 +307,7 @@ public:
           fill_cell(position);
       for (const auto &entry : updated)
         next_mass[entry.i] = entry.mass;
-      std::vector<std::pair<bool, std::size_t>> dual_faces;
+      dual_faces.clear();
       dual_faces.reserve(affected.size() * 4);
       const auto select = [&](bool x, std::size_t f) {
         auto &seen = x ? x_stamp : y_stamp;
@@ -308,7 +322,8 @@ public:
         select(false, g.bottom_face(i));
         select(false, g.top_face(i));
       }
-      std::vector<DualUpdate> dual(dual_faces.size());
+      if(dual_storage.size()<dual_faces.size())dual_storage.resize(dual_faces.size());
+      std::span<DualUpdate> dual(dual_storage.data(),dual_faces.size());
       const auto gather = [&](std::size_t position) {
         const auto [x, f] = dual_faces[position];
         const auto &left = x ? g.xl : g.yl, &right = x ? g.xr : g.yr;

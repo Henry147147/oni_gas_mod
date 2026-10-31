@@ -8,10 +8,10 @@ few that your task touches, starting here.
 
 ## Where things stand
 
-- [docs/handoff-codex-2026-10-30.md](docs/handoff-codex-2026-10-30.md): **resume
-  here** — the updated-game release review, verified allocation work, remaining
-  storage/physics/continuation failures and measured speed priorities. The older
-  2026-10-28 handoff is historical; continue on `main`.
+- [docs/handoff-codex-2026-10-31.md](docs/handoff-codex-2026-10-31.md): **resume
+  here** — exact remap integration, clean release verification, current runtime
+  and airflow work, new custody/platform findings and the next speed checks.
+  Earlier handoffs remain historical; continue on `main`.
 - [docs/playtest-plan.md](docs/playtest-plan.md): **the current work**, the full
   base game on one asteroid, playable on Linux. Start here.
 - [docs/completion-plan.md](docs/completion-plan.md): the accepted plan. Its
