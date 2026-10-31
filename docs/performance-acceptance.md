@@ -1,5 +1,62 @@
 # Performance acceptance measurements
 
+## Actual renderer/report follow-up, 2026-10-31
+
+The clean committed `3d8c20f` package completes the original900-frame speed3
+base-game and Spaced Out! controls with all other project CPU jobs held. It
+includes compact renderer channels and serialized report writers, excludes
+runtime-continuation WIP and private instrumentation, and predates the remap
+integration in `4174d6c`. Each game uses its own WHOLE game slot. Original
+automatic workers, inputs, clocks and Unity settings are unchanged.
+
+| Full owner0–900 window | Game seconds | Wall seconds | Actual game rate | Actual owner rate |
+| --- | ---: | ---: | ---: | ---: |
+| Base game |180.020626|61.796534|2.913118×|2.912785×|
+| Spaced Out! |180.020634|76.936349|2.339865×|2.339596×|
+
+Both finish with three duplicants, no owner fault, no observed pause and zero
+dropped submission/publication samples. Their rates are close to the earlier
+separate20c/managed-fixture controls,2.917093×/2.335703×. Different cohorts do
+not establish a causal comparison. The renderer's isolated method gains do
+not establish a whole-game speedup, and neither current full window meets3×.
+Smooth input, normal-reserve performance, sustainable progression and actual
+Windows acceptance remain open.
+
+The primary immutable result samples end at900. The ordinary shutdown logs
+also retain partial901–911 base /901–907 DLC telemetry; those later windows
+are recorded separately and do not replace the fixed0–900 observation.
+Private package/source proofs, commands, results and analysis are in
+`artifacts/release-ready-2026-10-30/actual-speed-3d8c20f-v1/`, with the two
+original game outputs alongside it.
+
+## Velocity-cache feasibility, 2026-10-31
+
+A separate private64-entry cache reuses immutable old face velocities within
+each original128-face worker block/microtick. It preserves lazy first-use
+validation and introduces no persistent state. It passes6182 Release and
+targeted ASan/UBSan/errno controls,24 full hot owner/receipt/pre-flow/status
+frames,348 fresh cold/menu frames and a valid shifted-reference negative.
+
+Against the adopted remap baseline, seven isolated hot pairs plus one warm-up
+pair give median steady native advance ratio1.014323× (5/7 faster,
+range0.980210–1.076161×). The first restored advance is slower: median
+ratio0.967028×, only1/7 faster. Eight balanced fresh pairs plus one warm-up,
+36 processes total, retain every original owner/status and independent future
+image, but give the following steady-advance ratios:
+
+| Default-OFF captured case | Cold | Native menu restore |
+| --- | ---: | ---: |
+| Base game |0.999331×|0.994748×|
+| Spaced Out! |0.965330×|1.016068×|
+
+These baseline/candidate ratios do not establish a useful general gain. The
+small mixed hot gain, first-advance cost and fresh DLC-cold cost do not justify
+adoption. The cache stays private; broader all88/Windows qualification remains
+unrun. Source-operation counts alone do not predict processor cost. Both hot
+and fresh plans used WHOLE with all other project CPU jobs explicitly held;
+neither measures actual game speed. Evidence is under
+`artifacts/release-ready-2026-10-30/face-cache-prototype-v1/whole-{hot,fresh}-v1/`.
+
 ## Native heat-copy replay, 2026-10-30
 
 The native owner copies shared physical state once before the

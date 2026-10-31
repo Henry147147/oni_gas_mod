@@ -44,14 +44,20 @@ claim fresh speedup, equivalence or actual3× from this change.
   is removed after retaining libraries, CTest logs/config and executable hashes.
 - Committed compact pressure/hazard channels retain exact bytes. Actual Mono
   method benchmarks improve2.32877×/7.21132×; these are not game speedups.
-  A frozen exact3d900-frame base/DLC whole-game package and checked runner are
-  prepared, not queued. The earlier2.91709×/2.33570× measurements use the full
-  owner0–900 window, not a warmed-only interval. Keep the same comparison scope.
+  The frozen exact3d900-frame base/DLC WHOLE checks now pass functionally at
+  actual game2.913118×/2.339865× (owner2.912785×/2.339596×), with three
+  duplicants, no faults/observed pauses/dropped samples. These full0–900 rates
+  are close to the earlier2.91709×/2.33570× controls; different cohorts do not
+  establish a causal comparison. Neither meets3×. The package predates the
+  remap integration; normal-reserve/smoothness/Windows remain separate.
 - A separate private64-entry, worker-block-local velocity cache passes6182
   literal-original Release and targeted ASan/UBSan controls plus24 complete
   hot owner/receipt/pre-flow/status frames and348 fresh cold/menu frames.
-  Independent default-OFF future images remain exact. It is not adopted or
-  timed; all88, Windows and further qualification remain required.
+  Independent default-OFF future images remain exact. Isolated hot7-pair
+  steady ratio1.014323× is mixed; first-advance ratio0.967028× is slower.
+  Balanced fresh8-pair base cold/menu ratios0.999331/0.994748 and DLC
+  0.965330/1.016068 do not establish a useful general gain. It is not adopted;
+  broader all88/Windows qualification stays unrun. CPU HOLD ended00:55:22 UTC.
 - The pool probe's fresh replays have zero inner/residual selections or serial
   probes (six unknown/ten too-small decisions each). Alternating slow frames
   still occur on the outer-only route. Do not attribute these new observations
@@ -94,9 +100,10 @@ claim fresh speedup, equivalence or actual3× from this change.
    statement and frozen targeted cross-platform proofs. Keep unrelated runtime
    WIP intact. Do not expand diagnostic masks or claim the known nonzero
    physics diagnostics passed.
-2. Coordinate all worker CPU holds before the prepared uninstrumented whole
-   game900-frame base/DLC checks. Each game uses its own `game_slot.sh whole`
-   call; do not hold an outer CPU lock around it. Restore workers after END.
+2. The uninstrumented clean3d whole-game900-frame checks are complete; the
+   separate cache is not adopted and all worker CPU holds have ended.
+   Future timing requires explicit worker holds; each game uses its own
+   `game_slot.sh whole` call without an outer CPU lock.
 3. Continue the separate cache replay/cost work and evidence-led pool analysis;
    no speculative scheduler tuning. Complete runtime shared-root/event work
    and a qualified clock/heat policy before another live restore cohort.
@@ -115,10 +122,12 @@ continuation crosses midnight:
 - `remap-plan-adoption-v1/` — clean integration source/build/CTest.
 - `late-flow-audit-v1/ADOPTION-READY.json`, `remap-plan-adoption.patch`,
   `all88-86e5eb3/current-replay/whole{,-fresh-v2}/` and `windows-v1/`.
-- `face-cache-prototype-v1/` — root's separate cache prototype.
-- `actual-speed-3d8c20f-v1/` — checked whole-game plan; no game queued yet.
+- `face-cache-prototype-v1/` — root's separate cache prototype and completed
+  hot/fresh measurements; not adopted. `face-cache-broad-v1/` stays unrun.
+- `actual-speed-3d8c20f-v1/` — completed whole-game plan, results and analysis.
 - `full-committed-3d8c20f/{verification,python-expanded,cleanup}.json`.
-- `freeze-custody-v1/{analysis.json,NEXT-AUDIT.md}` and original case output.
+- `freeze-custody-v1/{analysis.json,NEXT-AUDIT.md}` and original case output;
+  `freeze-energy-v1/` prepares exact carried-parcel energy replay/audit.
 - `report-json-fix-v1/windows-mono-qualification*.json` — retain failures.
 - `continuation-runtime/`, `airflow-core-port-v1/` and `current-progress.json`.
 
