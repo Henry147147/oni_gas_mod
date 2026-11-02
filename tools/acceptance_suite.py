@@ -250,8 +250,9 @@ def clean_env(extra: dict | None = None) -> dict:
     return env
 
 
-def git(*arguments: str, cwd: Path = ROOT) -> str:
-    return subprocess.check_output(["git", *arguments], cwd=cwd, text=True).strip()
+def git(*arguments: str, cwd: Path | None = None) -> str:
+    # ROOT is resolved per call so an isolated test checkout can stand in for it.
+    return subprocess.check_output(["git", *arguments], cwd=ROOT if cwd is None else cwd, text=True).strip()
 
 
 def common_root() -> Path:

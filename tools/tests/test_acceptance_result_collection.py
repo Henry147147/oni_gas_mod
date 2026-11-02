@@ -1,5 +1,5 @@
 """No-game regressions for actual release collector results and dependencies."""
-import contextlib, io, json, sys, tempfile, unittest
+import contextlib, io, json, subprocess, sys, tempfile, unittest
 from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
@@ -12,6 +12,17 @@ class ResultCollectionTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.root = Path(self.temp.name)
+        # The suite records its own tool checkout's revision. Give it a real,
+        # isolated checkout: an exported runner has none, and one nested inside
+        # another repository would silently report that repository's HEAD.
+        checkout = self.root / 'tool-checkout'
+        subprocess.run(['git', 'init', '-q', str(checkout)], check=True, capture_output=True)
+        subprocess.run(['git', '-C', str(checkout), '-c', 'user.name=Fixture', '-c', 'user.email=fixture@invalid', '-c', 'commit.gpgsign=false',
+                        'commit', '-q', '--allow-empty', '-m', 'tool checkout'], check=True, capture_output=True)
+        self.tool_revision = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=checkout, text=True).strip()
+        root = mock.patch.object(suite, 'ROOT', checkout)
+        root.start()
+        self.addCleanup(root.stop)
 
     def tearDown(self):
         self.temp.cleanup()
@@ -29,7 +40,10 @@ class ResultCollectionTests(unittest.TestCase):
     def runner(self, steps):
         layout = SimpleNamespace(source=Path.cwd(), runs=self.root / 'runs', summary=self.root / 'summary.json', tag='dry')
         infra = SimpleNamespace(gpu_display=':99', proton=self.root / 'proton', linux_game=self.root / 'linux', windows_game=self.root / 'windows')
-        return suite.Suite(REVISION, 'release', ('windows',), layout, infra, steps, keep_going=True)
+        run = suite.Suite(REVISION, 'release', ('windows',), layout, infra, steps, keep_going=True)
+        self.assertEqual(run.summary['tool_revision'], self.tool_revision)
+        self.assertEqual(run.summary['tool_changes'], [])
+        return run
 
     def test_settings_results_are_collected_and_passing_source_unlocks_load(self):
         source = suite.Step('windows-settings-source', 'windows', 'proton-settings', (), {'stage': 'source'})
