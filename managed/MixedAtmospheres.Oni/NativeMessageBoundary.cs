@@ -101,7 +101,13 @@ namespace MixedAtmospheres.Oni
             // Waiting changes neither that pointer nor callback dispatch order.
             // Include batches and frames queued by another managed thread:
             // the backend owns the actual posted prefix and complete-Step fence.
-            if(message==DevelopmentTelemetrySampler.PrepareGameDataMessage && ColonyOwner.Active)
+            // Only exact storage needs this wait: its heat credit and conduit
+            // withdrawals must see the posted Step's thermal work. Ordinary
+            // games keep ONI's main-thread/native-Step overlap; their readers
+            // take the owner's completed frame, receipts carry their own
+            // publication fence, saves and lifecycle settlement complete native
+            // work explicitly, and paired heat runs inside native Step.
+            if(message==DevelopmentTelemetrySampler.PrepareGameDataMessage && ColonyOwner.Active && ColonyOwnedStorage.Enabled)
                 _=ColonyNativeFrames.Complete();
         }
         // An ordinary game, and the colony-owner scenes that check it (no

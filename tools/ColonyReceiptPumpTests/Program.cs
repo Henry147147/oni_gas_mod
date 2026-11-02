@@ -93,7 +93,7 @@ internal static class Program
   var completed=ColonySaveBarrier.WaitNativeFrameAfter(before);Check(completed.Posted==3&&ColonyNativeFrames.Current.Processed==3&&ColonyNativeFrames.Current.Queued==4,"native completion used hook deltas or posted unsubmitted work");
   var refused=false;try{ColonySaveBarrier.WaitNativeFrameAfter(completed);}catch(InvalidOperationException){refused=true;}Check(refused,"missing expected native post was accepted");
   ColonyNativeFrames.Current.Session=2;ColonyNativeFrames.Current.Posted=5;refused=false;try{ColonySaveBarrier.WaitNativeFrameAfter(completed);}catch(InvalidOperationException){refused=true;}Check(refused,"a new native session satisfied an old prefix");
-  TestRuntime.Reset();
+  TestRuntime.Reset();ColonyOwnedStorage.Enabled=true;
   Task.Run(()=>{NativeMessageBoundary.ForwardNativeBatch(DevelopmentTelemetrySampler.NewGameFrameMessage,0,3,null);}).GetAwaiter().GetResult();
   Check(ColonyNativeFrames.Completions==0,"frame queue waited before Prepare could post it");
   ColonyNativeFrames.Completing=()=>Check(TestRuntime.NativeMessages.Last().Message==DevelopmentTelemetrySampler.PrepareGameDataMessage&&ColonyNativeFrames.Current.Posted==3,"native fence ran before the actual Prepare or lost another thread's batch");
@@ -103,6 +103,11 @@ internal static class Program
   ColonyNativeFrames.Completing=null;pointer=NativeMessageBoundary.ForwardNativeBatch(DevelopmentTelemetrySampler.PrepareGameDataMessage,0,1,null);
   Check(pointer==new IntPtr(0x123456)&&ColonyNativeFrames.Completions==2&&ColonyNativeFrames.Current.Processed==5&&TestRuntime.NativeMessages.Count==4,"batch publication skipped its complete prefix or replayed a native message");
   ColonyOwner.Active=false;NativeMessageBoundary.ForwardNativeUntimed(DevelopmentTelemetrySampler.PrepareGameDataMessage,0,null);Check(ColonyNativeFrames.Completions==2,"inactive colony waited on owner continuation");
+  // Ordinary colony (exact storage off): Prepare returns at once and keeps
+  // the main thread overlapping the native Step it just posted.
+  ColonyOwner.Active=true;ColonyOwnedStorage.Enabled=false;var messages=TestRuntime.NativeMessages.Count;
+  pointer=NativeMessageBoundary.ForwardNativeUntimed(DevelopmentTelemetrySampler.PrepareGameDataMessage,0,null);var batched=NativeMessageBoundary.ForwardNativeBatch(DevelopmentTelemetrySampler.PrepareGameDataMessage,0,1,null);
+  Check(pointer==new IntPtr(0x123456)&&batched==pointer&&ColonyNativeFrames.Completions==2&&TestRuntime.NativeMessages.Count==messages+2,"ordinary colony blocked on native Step or skipped its publication");
  }
  static int Main(string[] args){try{
   Check((ColonyOwner.ReceiptPumpReport()!=null)==(Environment.GetEnvironmentVariable("MA_COLONY_BYPRODUCT_PUMP_LOG")=="1"),"pump diagnostics were not opt-in");

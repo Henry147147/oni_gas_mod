@@ -1642,9 +1642,13 @@ the finished projection must equal the prepared endpoint exactly.
 Native publication exposes a version1, 56-byte progress record. It separately
 tracks queued/posted/processed intervals and posted/completed publication steps,
 including zero-interval Prepare messages and the inlined Windows Step path.
-Both single and batched managed Prepare calls wait for that real boundary.
-This is not an active-continuation qualification: the remaining first-frame
-input differences require the separately reserved runtime record.
+Both single and batched managed Prepare calls wait for that real boundary
+while exact storage is enabled. Ordinary colony-owner games do not wait there:
+they keep ONI's overlap of main-thread work with the native Step it just
+posted, as before this fence (saves, lifecycle settlement and storage leases
+still complete native work explicitly). This is not an active-continuation
+qualification: the remaining first-frame input differences require the
+separately reserved runtime record.
 
 Both unchanged six-scenario Linux storage batches pass on the frozen v5 probe
 (base game and Spaced Out!). Their natural outlets discharge 8 kg and retire
