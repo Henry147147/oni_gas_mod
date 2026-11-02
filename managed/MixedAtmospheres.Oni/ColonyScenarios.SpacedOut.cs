@@ -25,6 +25,9 @@ namespace MixedAtmospheres.Oni
                 case "spaced-out-sublimation-station": SoSublimation(frame); return true;
                 case "spaced-out-centrifuge": SoCentrifuge(frame); return true;
                 case "spaced-out-sludge-press": SoSludgePress(frame); return true;
+                case "spaced-out-landers": SoLanders(frame); return true;
+                case "spaced-out-poi-harvest": SoPoiHarvest(frame); return true;
+                case "spaced-out-rail-gun": SoRailGun(frame); return true;
                 case "spaced-out-intakes": SoIntakes(frame); return true;
                 case "spaced-out-dehydrator": SoDehydrator(frame); return true;
                 default: return false;
@@ -437,5 +440,158 @@ namespace MixedAtmospheres.Oni
                 Finish();
             }
         }
+
+        // ---- landers, space harvesting and the rail gun
+
+        // A scout lander (carrying gas and liquid cargo) and a landing pod
+        // descend through owned vacuum, each in its own compartment, emitting
+        // exhaust on the way; the lander's cargo is jettisoned on landing.
+        private static GameObject? soScout, soPod;
+        private static void SoLanders(int frame)
+        {
+            const int h = 24;
+            if (Once(0, "arena"))
+            {
+                RequireSpacedOut();
+                Arena((x, y) => x == 4 ? (SimHashes.Unobtanium, 20000f, 300f) : y == 0 ? (SimHashes.Granite, 1000f, 300f) : (SimHashes.Vacuum, 0f, 0f), 9, h);
+            }
+            double Left(SimHashes e) => Enumerable.Range(0, 4).Sum(x => Enumerable.Range(0, h).Sum(y => SpeciesMass(Cell(x, y), e)));
+            double Right(SimHashes e) => Enumerable.Range(5, 4).Sum(x => Enumerable.Range(0, h).Sum(y => SpeciesMass(Cell(x, y), e)));
+            if (Once(6, "land"))
+            {
+                recorded["scout co2"] = Left(SimHashes.CarbonDioxide); recorded["pod co2"] = Right(SimHashes.CarbonDioxide);
+                soScout = GameUtil.KInstantiate(Assets.GetPrefab(ScoutLanderConfig.ID), Grid.CellToPosCBC(Cell(2, 1), Grid.SceneLayer.Front), Grid.SceneLayer.Front);
+                soScout.SetActive(true);
+                var storage = soScout.GetComponent<Storage>();
+                storage.AddGasChunk(SimHashes.Oxygen, .75f, 300, byte.MaxValue, 0, false, true);
+                storage.AddLiquid(SimHashes.Water, .75f, 300, byte.MaxValue, 0, false, true);
+                storage.AddLiquid(SimHashes.DirtyWater, .25f, 300, byte.MaxValue, 0, false, true);
+                soPod = GameUtil.KInstantiate(Assets.GetPrefab(LandingPodConfig.ID), Grid.CellToPosCBC(Cell(7, 1), Grid.SceneLayer.Front), Grid.SceneLayer.Front);
+                soPod.SetActive(true);
+            }
+            if (Once(8, "descent height"))
+            {
+                soScout!.GetSMI<CargoLander.StatesInstance>().flightAnimOffset = h - 4;
+                AccessTools.Field(typeof(PodLander), "flightAnimOffset").SetValue(soPod!.GetComponent<PodLander>(), (float)h - 4);
+            }
+            if (Once(120, "check"))
+            {
+                var scout = soScout!.GetSMI<CargoLander.StatesInstance>();
+                var landed = scout.GetCurrentState()?.name ?? "?";
+                Record("the lander landed", landed.StartsWith("grounded") || landed == "land", $"lander state {landed}, offset {scout.flightAnimOffset:G3}");
+                Record("the lander's exhaust reached the owner", Left(SimHashes.CarbonDioxide) - recorded["scout co2"] > 1, $"+{Left(SimHashes.CarbonDioxide) - recorded["scout co2"]:G4} kg carbon dioxide");
+                Record("the pod's exhaust reached the owner", Right(SimHashes.CarbonDioxide) - recorded["pod co2"] > 1, $"+{Right(SimHashes.CarbonDioxide) - recorded["pod co2"]:G4} kg carbon dioxide");
+                var oxygen = Left(SimHashes.Oxygen); var water = Left(SimHashes.Water) + Left(SimHashes.Steam); var dirty = Left(SimHashes.DirtyWater);
+                Record("the jettisoned cargo reached the owner", Math.Abs(oxygen - .75) < 1e-3 && Math.Abs(water - .75) < 1e-3 && Math.Abs(dirty - .25) < 1e-3,
+                    $"oxygen {oxygen:R}, water and steam {water:R}, polluted water {dirty:R} kg; lander still holds {soScout!.GetComponent<Storage>().MassStored():G4} kg");
+                LedgersClosed("landers");
+                Finish();
+            }
+        }
+
+        // Gas and liquid mined from a space point of interest land in real
+        // cargo bays through the game's hex-cell inventory, as the bays'
+        // collectors extract them in flight.
+        private static void SoPoiHarvest(int frame)
+        {
+            if (Once(0, "rocket site"))
+            {
+                RequireSpacedOut(); pendingShift = 12 - 11; clusterLaunchPad = clusterEngine = clusterCapsule = null;
+                Arena((x, y) => (SimHashes.Vacuum, 0f, 0f), 10, 24);
+            }
+            if (Once(8, "launch pad")) clusterLaunchPad = Build(LaunchPadConfig.ID, Cell(4, 0));
+            if (Once(12, "engine")) clusterEngine = AddRocketModule(clusterLaunchPad!, CO2EngineConfig.ID, true);
+            if (Once(16, "bays")) { soGasBay = AddRocketModule(clusterEngine!, GasCargoBaySmallConfig.ID, false); soLiquidBay = AddRocketModule(soGasBay!, LiquidCargoBaySmallConfig.ID, false); }
+            if (Once(22, "harvest"))
+            {
+                var craft = clusterEngine!.GetComponent<RocketModuleCluster>().CraftInterface.GetComponent<Clustercraft>();
+                var inventory = ClusterGrid.Instance.AddOrGetHexCellInventory(craft.Location);
+                soGasBay!.GetComponent<TreeFilterable>().UpdateFilters(new HashSet<Tag> { SimHashes.Oxygen.CreateTag(), SimHashes.CarbonDioxide.CreateTag() });
+                soLiquidBay!.GetComponent<TreeFilterable>().UpdateFilters(new HashSet<Tag> { SimHashes.Water.CreateTag(), SimHashes.DirtyWater.CreateTag() });
+                var gasStorage = soGasBay!.GetComponent<Storage>(); var liquidStorage = soLiquidBay.GetComponent<Storage>();
+                foreach (var (element, mass, storage) in new[] { (SimHashes.Oxygen, .75f, gasStorage), (SimHashes.CarbonDioxide, .25f, gasStorage),
+                    (SimHashes.Water, .75f, liquidStorage), (SimHashes.DirtyWater, .25f, liquidStorage) })
+                {
+                    var tag = element.CreateTag();
+                    inventory.AddItem(ElementLoader.FindElementByHash(element), mass);
+                    var taken = inventory.ExtractAndStoreItemMass(tag, mass, storage);
+                    Record("bay stored mined " + element, Math.Abs(taken - mass) < 1e-6 && Math.Abs(ClusterStoredMass(storage, element) - mass) < 1e-4,
+                        $"extracted {taken:R} of {mass:R} kg; bay holds {ClusterStoredMass(storage, element):R} kg");
+                }
+            }
+            if (Once(60, "check"))
+            {
+                Record("the bays keep their harvest", ClusterStoredMass(soGasBay!.GetComponent<Storage>(), SimHashes.Oxygen) > .74 && ClusterStoredMass(soLiquidBay!.GetComponent<Storage>(), SimHashes.Water) > .74,
+                    $"gas bay {soGasBay!.GetComponent<Storage>().MassStored():R} kg, liquid bay {soLiquidBay!.GetComponent<Storage>().MassStored():R} kg");
+                Record("pipe accounts exact", ColonyConduits.Audit(out var detail), detail);
+                LedgersClosed("harvest");
+                Finish();
+            }
+        }
+        private static GameObject? soGasBay, soLiquidBay;
+
+        // A rail gun takes mixed gas and liquid through its secondary input
+        // ports into its storage, and a payload opener releases a payload's
+        // gas and liquid through its secondary output ports.
+        private static GameObject? soRailGun, soOpener;
+        private static void SoRailGun(int frame)
+        {
+            const int w = 30, h = 10;
+            if (Once(0, "arena"))
+            {
+                RequireSpacedOut(); pendingShift = w + 2 - 11;
+                Arena((x, y) => y == 0 ? (SimHashes.Granite, 1000f, 300f) : (SimHashes.Vacuum, 0f, 0f), w, h);
+            }
+            if (Once(6, "build"))
+            {
+                recorded["mass"] = SiteMass();
+                soRailGun = Build(RailGunConfig.ID, Cell(5, 1));
+                soOpener = Build(RailGunPayloadOpenerConfig.ID, Cell(20, 1));
+            }
+            if (Once(8, "ports"))
+            {
+                var gun = soRailGun!.GetComponent<RailGun>(); var opener = soOpener!.GetComponent<RailGunPayloadOpener>();
+                soGunGas = Grid.OffsetCell(Grid.PosToCell(soRailGun), gun.gasPortInfo.offset); soGunLiquid = Grid.OffsetCell(Grid.PosToCell(soRailGun), gun.liquidPortInfo.offset);
+                soOpenGas = Grid.OffsetCell(Grid.PosToCell(soOpener), opener.gasPortInfo.offset); soOpenLiquid = Grid.OffsetCell(Grid.PosToCell(soOpener), opener.liquidPortInfo.offset);
+                Pipe(Game.Instance.gasConduitSystem, GasConduitConfig.ID, new List<int> { soGunGas }, new List<int> { soOpenGas });
+                Pipe(Game.Instance.liquidConduitSystem, LiquidConduitConfig.ID, new List<int> { soGunLiquid }, new List<int> { soOpenLiquid });
+                Debug.Log($"[Mixed Atmospheres] rail gun ports gas {soGunGas} liquid {soGunLiquid}; opener gas {soOpenGas} liquid {soOpenLiquid}");
+            }
+            if (Once(14, "feed"))
+            {
+                var gas = Game.Instance.gasConduitFlow; var liquid = Game.Instance.liquidConduitFlow;
+                ColonyConduits.Seed(gas, soGunGas, SimHashes.Oxygen, .375f, 300, byte.MaxValue, 0);
+                ColonyConduits.Seed(gas, soGunGas, SimHashes.CarbonDioxide, .125f, 300, byte.MaxValue, 0);
+                ColonyConduits.Seed(liquid, soGunLiquid, SimHashes.Water, .75f, 300, byte.MaxValue, 0);
+                ColonyConduits.Seed(liquid, soGunLiquid, SimHashes.DirtyWater, .25f, 300, byte.MaxValue, 0);
+            }
+            if (Once(80, "gun check"))
+            {
+                var storage = soRailGun!.GetComponent<RailGun>().resourceStorage;
+                var o2 = ClusterStoredMass(storage, SimHashes.Oxygen); var co2 = ClusterStoredMass(storage, SimHashes.CarbonDioxide);
+                var water = ClusterStoredMass(storage, SimHashes.Water); var dirty = ClusterStoredMass(storage, SimHashes.DirtyWater);
+                Record("the rail gun stored both gases and both liquids", Math.Abs(o2 - .375) < 1e-4 && Math.Abs(co2 - .125) < 1e-4 && Math.Abs(water - .75) < 1e-4 && Math.Abs(dirty - .25) < 1e-4,
+                    $"oxygen {o2:R}, carbon dioxide {co2:R}, water {water:R}, polluted water {dirty:R} kg; {MachineState(soRailGun)}");
+                // A payload as the gun would have launched it, holding the same mixtures.
+                var payload = Util.KInstantiate(Assets.GetPrefab("RailGunPayload"), Grid.CellToPosCBC(Cell(18, 4), Grid.SceneLayer.Front));
+                payload.SetActive(true);
+                var held = payload.GetComponent<Storage>();
+                held.AddGasChunk(SimHashes.Oxygen, .375f, 300, byte.MaxValue, 0, false, true); held.AddGasChunk(SimHashes.CarbonDioxide, .125f, 300, byte.MaxValue, 0, false, true);
+                held.AddLiquid(SimHashes.Water, .75f, 300, byte.MaxValue, 0, false, true); held.AddLiquid(SimHashes.DirtyWater, .25f, 300, byte.MaxValue, 0, false, true);
+                soOpener!.GetComponent<RailGunPayloadOpener>().payloadStorage.Store(payload, true, true);
+            }
+            if (Once(260, "opener check"))
+            {
+                var opener = soOpener!.GetComponent<RailGunPayloadOpener>();
+                var gas = ColonyConduits.ReadSynced(Game.Instance.gasConduitFlow, soOpenGas); var liquid = ColonyConduits.ReadSynced(Game.Instance.liquidConduitFlow, soOpenLiquid);
+                var held = opener.resourceStorage.MassStored();
+                Record("the opener released the payload's gas and liquid to its ports", gas.Mass > .4 || liquid.Mass > .9 || held < .01,
+                    $"output pipes hold gas {gas.Mass:G4} kg, liquid {liquid.Mass:G4} kg; opener storage {held:G4} kg, payloads waiting {opener.payloadStorage.items.Count}; {MachineState(soOpener)}");
+                Record("rail gun pipe accounts exact", ColonyConduits.Audit(out var detail), detail);
+                LedgersClosed("rail gun");
+                Finish();
+            }
+        }
+        private static int soGunGas, soGunLiquid, soOpenGas, soOpenLiquid;
     }
 }

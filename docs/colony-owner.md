@@ -1419,6 +1419,19 @@ setting their powered flag (harness only).
 | `hazards` | Duplicants in hot air, dense air and water are scalded, get popped eardrums and hold their breath. |
 | `germ-exposure` | A duplicant breathing air carrying slimelung is exposed. |
 | `fault-containment` | A throw injected into each per-frame owner and pipe path is contained without stopping the game's step; a last, real one faults the owner once: it and its pipes freeze, a heater built afterwards still gets power and saving is refused. Run it last in a batch. |
+| `spaced-out-radiation` | Spaced Out!: a radiation lamp burning uranium ore in owned polluted oxygen fills `Grid.Radiation` of owned cells (none behind the lamp), a radiation sensor switches on, and germs seeded identically in every cell die faster where it is irradiated; no fluid mass is created or lost. |
+| `spaced-out-hep` | Spaced Out!: a radbolt flies through owned oxygen into a granite wall; its path gets radiation sickness, its remaining payload arrives as hot fallout and the oxygen is intact. |
+| `spaced-out-reactor` | Spaced Out!: the research reactor takes coolant water through its conduit, reacts and radiates; over-hot coolant vents into the owner and dumped spent-fuel nuclear waste reaches it. |
+| `spaced-out-reactor-meltdown` | The reactor's fuel past 3000 K melts down: nuclear waste falls on the owner with the ledgers closed. Run last (the reactor keeps erupting). |
+| `spaced-out-engine-exhaust` | Each Spaced Out! cluster engine (CO2, sugar, hydrogen, kerosene, small kerosene, steam, biodiesel) on a launch pad in a sealed vacuum compartment, put into its burning state, exhausts its element into the owner. |
+| `spaced-out-landers` | A scout lander and a landing pod descend through owned vacuum, exhausting carbon dioxide; the lander's gas and liquid cargo is jettisoned into the owner on landing. |
+| `spaced-out-poi-harvest` | Oxygen, carbon dioxide, water and polluted water mined into a space hex's inventory are extracted into real gas and liquid cargo bays with exact quantities and exact pipe accounts. |
+| `spaced-out-rail-gun` | A rail gun takes mixed gas and liquid through its secondary input ports into its storage, and a payload opener releases a payload's gas and liquid through its secondary output ports. |
+| `spaced-out-sublimation-station` | A sublimation station turns toxic sand into polluted oxygen for the owner, and a nuclear waste chunk sublimates liquid waste into it. |
+| `spaced-out-centrifuge` | A uranium centrifuge separates ore; its molten uranium leaves through the liquid pipe and vent into the owner. |
+| `spaced-out-sludge-press` | A sludge press (its duplicant work completed by the scenario) splits mud into dirt and water, and toxic mud into toxic sand and polluted water; the liquids reach the owner through its pipe. |
+| `spaced-out-intakes` | A mixed gas pipe feeds an enclosed telescope and a lead suit locker (oxygen kept, the carbon dioxide dumped into the owner); a mixed liquid pipe feeds a decontamination shower, which keeps both. |
+| `spaced-out-dehydrator` | A food dehydrator's byproduct water, dropped as when emptied, falls into owned cells. |
 
 ### Floor arenas
 
