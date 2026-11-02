@@ -20,7 +20,7 @@ namespace MixedAtmospheres.Oni
         // solve shorten them where needed (docs/colony-owner.md#pacing).
         // Two steps exactly cover the native binary32 0.2 s frame.
         internal const double MaximumTimestepSeconds = .1f;
-        // New colonies run game profile 9 (core28 with region activity and the default boil-only
+        // New colonies run game profile 10 (core30: region activity, layered vertical remap, boil-only
         // phase rule or with evaporation below boiling), the user's playtest
         // choice (docs/completion-plan.md#amendments); players cannot select
         // older solvers. Development floor runs alone still select the

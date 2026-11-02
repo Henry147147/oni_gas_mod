@@ -4,6 +4,7 @@
 #include "region.hpp"
 #include "sparse.hpp"
 #include "liquid_boundary.hpp"
+#include "height_flux.hpp"
 namespace ma::experimental::game_kernel {
 struct PatchResult {
   SparseMass masses;
@@ -40,6 +41,34 @@ class PatchTransport {
   std::vector<Inventory> cells_storage;
   std::vector<PassiveInventory> passive_storage;
   std::vector<CellUpdate> updates_storage;
+  // Profile 10: a donor's phases leave a vertical face in their gravity
+  // order. Fractions are of each phase's content; energies are the phases'
+  // own EOS energies. Entries are rewritten for every donor before use.
+  struct LayeredPhase {
+    std::uint64_t identity = 0;
+    double up = 0, down = 0, keep = 0;
+  };
+  struct LayeredDonor {
+    bool on = false;
+    double horizontal = 0, mass = 0, up_mass = 0, down_mass = 0,
+           up_energy = 0, down_energy = 0, keep_energy = 0;
+    std::vector<LayeredPhase> phases;
+    double fraction(std::uint64_t identity, int which) const {
+      for (const auto &p : phases)
+        if (p.identity == identity)
+          return which > 0 ? p.up : which < 0 ? p.down : p.keep;
+      throw std::runtime_error("Layered remap phase is missing");
+    }
+  };
+  std::vector<LayeredDonor> layered_storage;
+  static std::size_t phase_index(const Geometry &geo, std::uint64_t identity) {
+    for (std::size_t q = 0; q < geo.phases.size(); ++q)
+      if (geo.phases[q].identity == identity)
+        return q;
+    throw std::runtime_error("Layered remap phase is missing");
+  }
+  std::vector<std::uint32_t> layered_stamp;
+  std::vector<Geometry> layered_geometry;
   // Runs job(block) over the grid's fixed row blocks, on the pool if any.
   void blocks(const std::function<void(std::size_t)> &job) {
     if (executor)
@@ -47,6 +76,154 @@ class PatchTransport {
     else
       for (std::size_t block = 0; block < g.blocks; ++block)
         job(block);
+  }
+
+  // Profile 10 layered vertical remap of one donor for one event. A cell
+  // holding gas and liquid keeps its phases in gravity order: horizontal
+  // faces sweep every phase in proportion, the top face draws the uppermost
+  // phases first (gas, then lighter liquids) and the bottom face the lowest
+  // (the heaviest liquid first). Phase volumes and energies are the donor's
+  // own EOS reading; the retained energy is the remainder, so U is exact.
+  void layer_donor(std::size_t d, const std::vector<std::pair<std::uint32_t, double>> &inventory,
+                   double energy, const std::vector<double> &dx,
+                   const std::vector<double> &dy,
+                   const std::vector<Species> &species, double gravity) {
+    auto &out = layered_storage[d];
+    out.on = false;
+    out.phases.clear();
+    const double qh = std::max(0., -dx[g.left_face(d)]) +
+                      std::max(0., dx[g.right_face(d)]);
+    const double qu = std::max(0., dy[g.top_face(d)]),
+                 qd = std::max(0., -dy[g.bottom_face(d)]);
+    if (!(qu > 0 || qd > 0))
+      return;
+    bool gas = false, liquid = false;
+    for (const auto &[key, value] : inventory) {
+      (species[key].gas ? gas : liquid) = true;
+      (void)value;
+    }
+    if (!gas || !liquid)
+      return;
+    Eos eos;
+    if (try_evaluate_selected(
+            eos, species, inventory.size(),
+            [&](std::size_t a) { return inventory[a].first; },
+            [&](std::size_t a) { return inventory[a].second; }, energy, g.V))
+      return;
+    if (!(eos.gas_volume > 0))
+      return;
+    auto &geo = layered_geometry[d];
+    geometry_into(geo, species, inventory, energy, g.V, gravity, &eos);
+    const auto n = geo.phases.size();
+    double total = 0;
+    for (const auto &p : geo.phases) {
+      if (!(p.volume > 0))
+        return;
+      total += p.volume;
+    }
+    // Phase order is bottom (heaviest) to top (gas). Volumes are scaled to
+    // fill the cell exactly, so the sweeps never exceed what a phase holds.
+    const double scale = g.V / total;
+    if (!(qh + qu + qd < g.V))
+      return;
+    out.horizontal = qh / g.V;
+    out.mass = 0;
+    for (const auto &[key, value] : inventory)
+      out.mass += value;
+    // Two complete allocations: `layered` sweeps the bottom face from the
+    // heaviest phase up; `proportional` sweeps it in proportion (its exports
+    // never exceed a proportional sweep's mass). Where the layered one would
+    // export more than the interval's 0.39 outgoing mass bound the dual
+    // remap relies on, the donor uses the convex combination that meets it.
+    std::array<std::vector<LayeredPhase>, 2> allocation;
+    std::array<double, 2> exported{};
+    for (const bool bottom_layered : {true, false}) {
+      auto &phases = allocation[bottom_layered ? 0 : 1];
+      const double keep = 1 - (bottom_layered ? qh : qh + qd) / g.V;
+      phases.resize(n);
+      for (std::size_t p = 0; p < n; ++p)
+        phases[p] = {geo.phases[p].identity, 0, bottom_layered ? 0 : qd / g.V, keep};
+      // The top face takes whole phases from the top until its volume is met.
+      double remaining = qu;
+      for (std::size_t q = n; q-- > 0 && remaining > 0;) {
+        auto &phase = phases[q];
+        const double available = phase.keep * geo.phases[q].volume * scale;
+        if (remaining >= available) {
+          phase.up = phase.keep;
+          remaining -= available;
+        } else {
+          phase.up = remaining / (geo.phases[q].volume * scale);
+          remaining = 0;
+        }
+        phase.keep -= phase.up;
+      }
+      if (bottom_layered) {
+        remaining = qd;
+        for (std::size_t q = 0; q < n && remaining > 0; ++q) {
+          auto &phase = phases[q];
+          const double available = phase.keep * geo.phases[q].volume * scale;
+          if (remaining >= available) {
+            phase.down = phase.keep;
+            remaining -= available;
+          } else {
+            phase.down = remaining / (geo.phases[q].volume * scale);
+            remaining = 0;
+          }
+          phase.keep -= phase.down;
+        }
+      }
+      auto &sum = exported[bottom_layered ? 0 : 1];
+      sum = out.horizontal * out.mass;
+      for (std::size_t q = 0; q < n; ++q)
+        sum += (phases[q].up + phases[q].down) * geo.phases[q].mass;
+    }
+    const double bound = .39 * out.mass;
+    const double theta =
+        exported[0] <= bound ? 1
+        : exported[1] >= bound ? 0
+                               : (bound - exported[1]) / (exported[0] - exported[1]);
+    out.phases.resize(n);
+    for (std::size_t q = 0; q < n; ++q) {
+      const auto &a = allocation[0][q], &b = allocation[1][q];
+      auto &phase = out.phases[q];
+      phase.identity = a.identity;
+      if (theta == 1)
+        phase = a;
+      else if (theta == 0)
+        phase = b;
+      else {
+        phase.up = theta * a.up + (1 - theta) * b.up;
+        phase.down = theta * a.down + (1 - theta) * b.down;
+        // The retained share is the remainder, so no phase is over-drawn.
+        phase.keep = std::max(0., 1 - out.horizontal - phase.up - phase.down);
+      }
+    }
+    out.up_mass = out.down_mass = out.up_energy = out.down_energy = 0;
+    for (std::size_t q = 0; q < n; ++q) {
+      out.up_mass += out.phases[q].up * geo.phases[q].mass;
+      out.down_mass += out.phases[q].down * geo.phases[q].mass;
+      out.up_energy += out.phases[q].up * geo.phases[q].energy;
+      out.down_energy += out.phases[q].down * geo.phases[q].energy;
+    }
+    // Horizontal receivers take fraction * U, as for any donor.
+    double horizontal_energy = 0;
+    if (dx[g.left_face(d)] < 0)
+      horizontal_energy += -dx[g.left_face(d)] / g.V * energy;
+    if (dx[g.right_face(d)] > 0)
+      horizontal_energy += dx[g.right_face(d)] / g.V * energy;
+    out.keep_energy = energy - horizontal_energy - out.up_energy - out.down_energy;
+    // The remainder carries any EOS closure residual. A donor whose retained
+    // inventory would be left without positive thermal energy keeps the
+    // proportional sweep instead.
+    double retained_offset = 0;
+    for (const auto &[key, value] : inventory)
+      retained_offset += value *
+                         out.phases[phase_index(geo, phase_group(species, key))].keep *
+                         species[key].offset;
+    const double retained_mass = out.mass * (1 - out.horizontal) - out.up_mass - out.down_mass;
+    if (retained_mass > 0 && !(out.keep_energy - retained_offset > 0))
+      return;
+    out.on = true;
   }
 
 public:
@@ -63,9 +240,11 @@ public:
           double gravity, bool auditing = true,
           const SparsePassive *initial_passives = nullptr,
           RegionAudit *regions = nullptr,
-          const LiquidBoundary *boundary = nullptr) {
+          const LiquidBoundary *boundary = nullptr,
+          const std::vector<Species> *layered_species = nullptr) {
     namespace k = ma::experimental::mac_kernel;
     PatchResult result;
+    const bool layered = layered_species && gravity > 0;
     result.energy = std::move(energy);
     result.jx = jx;
     result.jy = jy;
@@ -79,6 +258,11 @@ public:
     auto &cells = cells_storage;
     std::vector<double> mass(g.N), next_mass(g.N), fx(g.NX), fy(g.NY), dx(g.NX),
         dy(g.NY);
+    if (layered) {
+      layered_storage.resize(g.N);
+      layered_stamp.assign(g.N, 0);
+      layered_geometry.resize(g.N);
+    }
     std::vector<unsigned> level(g.N);
     if (g.px || g.py)
       throw std::runtime_error(
@@ -200,6 +384,30 @@ public:
         affect(l[face.index]);
         affect(r[face.index]);
       }
+      if (layered) {
+        // Donors of this event's vertical faces: their phase allocation and
+        // actual vertical mass fluxes, before any cell changes.
+        const auto donor_of = [&](const Face &face) {
+          return face.q > 0 ? g.yl[face.index] : g.yr[face.index];
+        };
+        for (const auto &face : active)
+          if (!face.x) {
+            const auto d = donor_of(face);
+            if (layered_stamp[d] != stamp) {
+              layered_stamp[d] = stamp;
+              layer_donor(d, cells[d], result.energy[d], dx, dy,
+                          *layered_species, gravity);
+            }
+          }
+        // The dual momentum remap and the potential work use the mass
+        // that actually crosses each face.
+        for (const auto &face : active)
+          if (!face.x) {
+            const auto &donor = layered_storage[donor_of(face)];
+            if (donor.on)
+              fy[face.index] = face.q > 0 ? donor.up_mass : -donor.down_mass;
+          }
+      }
       // affect() stamps each unique cell once. In a dense event, scanning
       // those stamps emits exactly the original ascending-ID order without
       // a comparison sort. Sparse events retain the original algorithm; the
@@ -234,6 +442,33 @@ public:
         update.inventory.clear();
         update.passives.clear();
         update.energy = update.mass = 0;
+        // Profile 10: which contributions come from a layered donor, and in
+        // which direction (+1 up through its top face, -1 down, 0 retained).
+        std::array<const LayeredDonor *, 5> split{};
+        std::array<int, 5> direction{};
+        std::array<double, 5> passive_fraction{};
+        for (unsigned a = 0; a < 5; ++a)
+          passive_fraction[a] = c[a].fraction;
+        if (layered) {
+          const auto mark = [&](unsigned a, int which) {
+            if (!c[a].fraction || layered_stamp[c[a].cell] != stamp)
+              return;
+            const auto &donor = layered_storage[c[a].cell];
+            if (!donor.on)
+              return;
+            split[a] = &donor;
+            direction[a] = which;
+            passive_fraction[a] =
+                which > 0 ? donor.up_mass / donor.mass
+                : which < 0 ? donor.down_mass / donor.mass
+                            : std::max(0., 1 - donor.horizontal -
+                                               (donor.up_mass + donor.down_mass) /
+                                                   donor.mass);
+          };
+          mark(0, 0);
+          mark(3, 1);
+          mark(4, -1);
+        }
         std::array<std::size_t, 5> pos{};
         for (;;) {
           auto key = std::numeric_limits<std::uint32_t>::max();
@@ -245,11 +480,21 @@ public:
           double value = 0;
           for (unsigned a = 0; a < 5; ++a)
             if (c[a].fraction && pos[a] < cells[c[a].cell].size() &&
-                cells[c[a].cell][pos[a]].first == key)
-              value += c[a].fraction * cells[c[a].cell][pos[a]++].second;
-          if (!(value > 0))
+                cells[c[a].cell][pos[a]].first == key) {
+              const double fraction =
+                  split[a] ? split[a]->fraction(
+                                 phase_group(*layered_species, key),
+                                 direction[a])
+                           : c[a].fraction;
+              value += fraction * cells[c[a].cell][pos[a]++].second;
+            }
+          if (!(value > 0)) {
+            // A layered donor can send all of one phase through a face.
+            if (layered && value == 0)
+              continue;
             throw std::runtime_error(
                 "Private local material lost a constituent");
+          }
           update.inventory.emplace_back(key, value);
           update.mass += value;
         }
@@ -275,16 +520,28 @@ public:
               if (c[a].fraction &&
                   passive_pos[a] < passive_cells[c[a].cell].size() &&
                   passive_cells[c[a].cell][passive_pos[a]].first == key)
-                value += c[a].fraction *
+                value += passive_fraction[a] *
                          passive_cells[c[a].cell][passive_pos[a]++].second;
-            if (!(value > 0))
+            if (!(value > 0)) {
+              if (layered && value == 0 && update.mass > 0)
+                continue;
               throw std::runtime_error("Private local passive lost positivity");
+            }
             update.passives.emplace_back(key, value);
           }
         }
-        for (const auto &entry : c)
-          if (entry.fraction)
-            update.energy += entry.fraction * result.energy[entry.cell];
+        if (!layered) {
+          for (const auto &entry : c)
+            if (entry.fraction)
+              update.energy += entry.fraction * result.energy[entry.cell];
+        } else
+          for (unsigned a = 0; a < 5; ++a)
+            if (c[a].fraction)
+              update.energy +=
+                  split[a] ? (direction[a] > 0   ? split[a]->up_energy
+                              : direction[a] < 0 ? split[a]->down_energy
+                                                 : split[a]->keep_energy)
+                           : c[a].fraction * result.energy[c[a].cell];
       };
       if (executor && affected.size() >= 1024) {
         const auto blocks = (affected.size() + 127) / 128;

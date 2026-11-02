@@ -8,6 +8,17 @@ still require separate authorization.
 
 Amendments:
 
+- **Profile 10 adopted, delegated decision 2026-11-02:** new colonies create
+  game profile 10 (physical checkpoint 30), profile 9 plus the
+  [layered vertical remap](../native/MAC_GAME_KERNEL.md#suspended-liquid-and-the-layered-vertical-remap):
+  a cell holding gas and liquid sends gas first through its top face and
+  liquid first through its bottom face, so liquid is no longer carried up by
+  gas and left hanging in the air. This removes an unphysical defect under the
+  user's "feel real" test and passes the unchanged `freeze-melt` and
+  `airflow` gates. Saved colonies keep their saved profile. The `phase`
+  scenario's check and inputs stay unchanged; it now fails (its pass relied on
+  that mist) and is diagnosed separately. Speed is re-measured for the 3× gate.
+
 - **Review decisions, 2026-11-02 (the user confirmed 3× and delegated the
   rest to Claude's judgment):**
   1. *3× is the release gate.* The user confirmed the amendment below: the

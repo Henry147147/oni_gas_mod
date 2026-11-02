@@ -215,7 +215,7 @@ void MacClosedSettings::validate() const {
             game_profile==MacGameProfile::game_kernel_bounded_pressure ||
             game_profile==MacGameProfile::game_kernel_sized_intervals ||
             game_profile==MacGameProfile::game_kernel_carried_momentum ||
-            game_profile==MacGameProfile::game_kernel_activity_tiers) &&
+            mac_game_activity_profile(game_profile)) &&
             game.liquid_law==MacGameLiquidLaw::positive_segments;
         require((original || positive) && vacuum==MacVacuumRepresentation::void_phase &&
             step_control==MacStepControl::doubling && subcell_void==MacSubcellVoidPolicy::exact_geometry &&
@@ -233,12 +233,12 @@ void MacClosedSettings::validate() const {
         require(game.phase_rule==MacPhaseRule::equilibrium || game_profile==MacGameProfile::game_kernel_bounded_pressure ||
             game_profile==MacGameProfile::game_kernel_sized_intervals ||
             game_profile==MacGameProfile::game_kernel_carried_momentum ||
-            game_profile==MacGameProfile::game_kernel_activity_tiers,
-            "The boil-only phase rule requires game profile6-9");
-        require(game_profile==MacGameProfile::game_kernel_activity_tiers ||
+            mac_game_activity_profile(game_profile),
+            "The boil-only phase rule requires game profile6-10");
+        require(mac_game_activity_profile(game_profile) ||
             (!game.activity_tiers && game.activity_hold_s==2 && game.activity_pause_s==60),
-            "Game activity options require experimental profile9");
-        require(game_profile!=MacGameProfile::game_kernel_activity_tiers ||
+            "Game activity options require experimental profile9 or 10");
+        require(!mac_game_activity_profile(game_profile) ||
             maximum_timestep_s<=static_cast<double>(.2f),
             "Game activity active intervals must be at most 0.2 seconds");
         return;
@@ -253,7 +253,7 @@ void MacClosedSettings::validate() const {
         game_profile!=MacGameProfile::game_kernel_bounded_pressure &&
         game_profile!=MacGameProfile::game_kernel_sized_intervals &&
         game_profile!=MacGameProfile::game_kernel_carried_momentum &&
-        game_profile!=MacGameProfile::game_kernel_activity_tiers,"Game profile requires numerical kernel3");
+        !mac_game_activity_profile(game_profile),"Game profile requires numerical kernel3");
     viscosity.validate();
     diffusion.validate();
     require(game_profile == MacGameProfile::base_game_floor ||
@@ -719,7 +719,7 @@ MacClosedWorld::MacClosedWorld(SpeciesRegistry registry, std::shared_ptr<const F
     validate_momentum(topology.x, inertia.x, mac_field_values(state.momentum_x, state.full_momentum_x));
     validate_momentum(topology.y, inertia.y, mac_field_values(state.momentum_y, state.full_momentum_y));
     replace_state(std::move(state));
-    if(settings_.game_profile==MacGameProfile::game_kernel_activity_tiers)
+    if(mac_game_activity_profile(settings_.game_profile))
         game_activity_=std::make_shared<const std::vector<MacGameActivityCell>>(state_snapshot_->cells.size());
 }
 MacClosedWorld::MacClosedWorld(Derived, const MacClosedWorld& from, MacTransportState state) : registry_(from.registry_),

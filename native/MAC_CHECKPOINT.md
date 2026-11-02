@@ -120,7 +120,9 @@ remap ([MAC_GAME_KERNEL.md](MAC_GAME_KERNEL.md#suspended-liquid-and-the-layered-
 It keeps version 28's layout, including the activity-tier policy and per-cell
 activity state; only the version word differs. Versions 20–28 keep their
 arithmetic and bytes. Delegated user decision 2026-11-02: new colonies create
-profile 10.
+profile 10. *Implemented 2026-11-02:* the writer emits 30 for profile 10 and
+the reader restores 30 with version 28's activity fields and state; the
+managed metadata reader treats 30 like 28 (owner wrapper 14 required).
 
 **Implemented 2026-10-30; reserved immediately after fetching `364ca23`:**
 physical `MACCLS01` version **29** identifies production-kernel conduction admission

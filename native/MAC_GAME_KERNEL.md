@@ -146,7 +146,9 @@ mist stays in them for the whole run. In `freeze-melt` about 52 kg of water
 hangs in the air at the check and freezes over the 40 K block
 ([evaluation](../docs/freeze-melt-evaluation.md)). Mass and energy stay closed.
 
-**Candidate profile 10 (not adopted; user decision).** A cell holding gas and
+**Profile 10 / checkpoint 30 (adopted for new colonies, delegated decision
+2026-11-02).** New colonies create it; saves keep their profile, and
+`MA_COLONY_KERNEL3_PROFILE9=1` still creates profile 9 for its controls. A cell holding gas and
 liquid keeps its phases in gravity order during the remap. Horizontal faces
 sweep every phase in proportion; a top face draws whole phases from the top
 (gas, then lighter liquids) until its volume is met; a bottom face draws from
@@ -160,7 +162,7 @@ bottom sweep just enough to meet it (its top face stays layered). A donor
 whose retained part would lack positive thermal energy keeps the proportional
 sweep. Profile 10 keeps profile 9's activity tiers and their saved state.
 
-Measured with the candidate (private evidence and the candidate patch under
+Measured before adoption (private evidence under
 `artifacts/physics/` in the physics worktree; in-game runs are the fixed
 acceptance batches, profile 10 selected with `MA_COLONY_KERNEL3_LAYERED=1`;
 its clean build passes all 91 CTests):
@@ -182,9 +184,49 @@ then holds it at its dew point (about 363 K at the arena's 70 kPa): gas
 conducts slowly and the symmetric hot layer does not overturn. Profile 9
 passes because water lifted from the pool into the steam row (0.27 kg per cell
 in an offline replica) absorbs that heat; the check therefore depends on the
-defect. The violent synthetic tank is slower because its sharper free surface
-keeps sloshing (about 1.8 times the pressure iterations); the captured worlds
-are not slower. The candidate is kept as a patch, unmerged.
+defect ([below](#the-phase-scenario-under-profile-10)). The violent synthetic
+tank is slower because its sharper free surface keeps sloshing (about 1.8
+times the pressure iterations); the captured worlds are not slower.
+`mac_game_layered_control.hpp` (in `ma_mac_game_kernel_tests`) keeps freshly
+placed water out of the air on profile 10 where profile 9 lifts 25.8 kg,
+closes mass, U+K+G and passives, and continues checkpoint 30 exactly cold and
+on 12 workers.
+
+### The `phase` scenario under profile 10
+
+The check and inputs are unchanged. An offline replica of the arena (same
+kernel settings and water/steam/oxygen catalogue pair) reproduces the hold
+and separates its causes:
+
+- *Pressure equalizes at once.* Within the first frame oxygen fills the 3 kPa
+  steam row (0.72 kg per cell); the whole arena settles at about 70 kPa. The
+  row does not stay a vacuum layer.
+- *Latent heat is booked to the condensing cell.* Boil-only condensation
+  converts at the cell's fixed U, so each cell heats by its own condensate.
+  With only 0.72 kg of oxygen and no liquid there (about 480 J/K), the first
+  6 g of condensate raise the row to its dew point at 70 kPa (about 363 K) and
+  condensation stops. Mass and energy stay closed.
+- *Conduction is physical and slow.* Gas conducts with its own conductivity
+  (oxygen 0.024 W/(m K)): about 1 W across the 37 K difference to each
+  neighbouring row, so cooling the row takes hours. Eddy mixing applies only to
+  moving gas. The arena's unobtanium walls do not conduct in ONI, and the
+  granite floor lies under the pool at the pool's temperature. ONI's own exchange is far faster: the
+  vanilla F4 rooms lose half their 70 K difference in 1.6 s against a
+  physical lower bound of about 26 s ([floor](../docs/base-game-floor.md)).
+- *The hot layer is buoyantly unstable but symmetric.* Hot, light gas lies
+  under the colder top row, and every column is identical, so it cannot
+  overturn. Raising one top-row cell's start temperature by 1 K breaks the
+  symmetry: convection mixes the steam into cooler air and only 0.0017 kg of
+  0.16 kg is left after 160 frames (0.11 kg unperturbed; profile 9 condenses
+  all of it by frame 64 because lifted pool water absorbs the heat). A 0.01 K
+  perturbation leaves 0.0061 kg.
+
+No booking or transport defect was found. The hold is the model's physics in
+an exactly symmetric, adiabatic arena; in ONI, which has no latent heat, the
+steam would condense at once. Options for the user: keep it and record
+`phase` as a known fixture artifact; revise the fixture (user decision); or
+add a law, such as ONI-rate gas-to-gas heat exchange or mixing across
+unstable stratification, as a further profile.
 
 ## Open acceptance work
 

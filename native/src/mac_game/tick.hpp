@@ -85,11 +85,11 @@ public:
        unsigned heat_iterations = 200, bool surface_closure = false,
        bool trace_before_heat = false, bool bound_pressure_volume = false,
        bool size_intervals = false, bool carry_moved_momentum = false,
-       double bound_mass_floor = 0)
+       double bound_mass_floor = 0, bool layered_remap = false)
       : grid(source), species(table),
         flow(source, table, threads, false, pressure_tolerance, gravity_source, pressure_iterations,
              surface_closure, bound_pressure_volume,
-             bound_pressure_volume ? bound_mass_floor : 0),
+             bound_pressure_volume ? bound_mass_floor : 0, layered_remap),
         heat(source, table, threads, heat_mixing, &flow.worker_pool(), heat_iterations),
         phase(source, std::move(table), std::move(pairs), threads,
               &flow.worker_pool()),

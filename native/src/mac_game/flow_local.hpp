@@ -32,6 +32,9 @@ class Flow {
   // Profile 8: the net swept-volume bound applies only where the cell or a
   // neighbour flowing into it holds at least this mass (kg); 0 bounds all cells.
   double bound_mass_floor = 0;
+  // Profile 10: vertical faces remap a gas/liquid donor's phases in gravity
+  // order (patch.hpp, layer_donor).
+  bool layered_remap = false;
   PatchTransport patch;
   // Capacity of the previous pressure result, lent to the next solve.
   Pressure pressure_storage;
@@ -84,7 +87,7 @@ public:
        unsigned threads, bool auditing = true, double pressure_tolerance = 1e-8,
        unsigned gravity_source = 0, unsigned pressure_iterations = 200,
        bool surface_closure = false, bool bound_pressure_volume = false,
-       double bound_mass = 0)
+       double bound_mass = 0, bool layered = false)
       : source(grid), g(source), topology(g), species(std::move(table)),
         eos_pool(
             static_cast<unsigned>(std::min<std::size_t>(threads, g.blocks))),
@@ -93,7 +96,8 @@ public:
                  surface_closure),
         gravity_rule(gravity_source), audit_mode(auditing),
         bounded_pressure_volume(bound_pressure_volume),
-        bound_mass_floor(bound_mass), patch(grid, &eos_pool, &topology) {}
+        bound_mass_floor(bound_mass), layered_remap(layered),
+        patch(grid, &eos_pool, &topology) {}
   ma::experimental::mac_kernel::Pool &worker_pool() const { return eos_pool; }
   const auto &region_topology() const { return topology; }
   const auto &kernel_grid() const { return g; }
@@ -339,7 +343,8 @@ public:
     auto remap =
         patch.advance(initial.masses, std::move(work), projected.jx,
                       projected.jy, projected.qx, projected.qy, gravity,
-                      audit_mode, &initial.passives, regions, boundary);
+                      audit_mode, &initial.passives, regions, boundary,
+                      layered_remap ? &species : nullptr);
     result.subcycles = remap.microticks;
     result.transport_cells = remap.cell_updates;
     result.transport_faces = remap.face_updates;

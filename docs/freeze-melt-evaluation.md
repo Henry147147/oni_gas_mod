@@ -4,7 +4,7 @@
 
 The refreeze is driven by real heat flow, but the water that freezes is
 in the wrong place. The fixed gate (fill/source/check 2/2/42, >380 kg owned
-water) is unchanged and still fails on the default profile 9.
+water) is unchanged; it fails on profile 9 and passes on profile 10.
 
 **Energy.** The 2026-10-31 audit below closes the fluid region's U+K+G with
 the journal heat and the departing parcels to 2e-8 J; the 16 t granite block
@@ -44,13 +44,13 @@ results differ between revisions that change solver arithmetic or the source
 timing (337.9–423.2 kg), and slightly between batches (365.2 kg alone,
 368.3 kg in base-b1), because the splash is sensitive to its inputs.
 
-**Options (user decision).** See
+**Fix.** See
 [the game kernel](../native/MAC_GAME_KERNEL.md#suspended-liquid-and-the-layered-vertical-remap).
 A layered vertical remap that draws gas first through a top face and liquid
 first through a bottom face keeps placed water out of the air. With it the
 unchanged gate passes in game (429 kg, 47.7 kg of ice on the block), and so
-does `airflow`; `phase` then fails. It would be a new game profile, so it is
-not adopted.
+does `airflow`; `phase` then fails. It was adopted as game profile 10 for new
+colonies (delegated decision 2026-11-02).
 
 ## Original audit, 2026-10-31
 

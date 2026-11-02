@@ -114,7 +114,8 @@ otherwise stop every later step without telling the player.
 ## Region activity tiers
 
 New managed colonies request `MA_ONI_COLONY_GAME_ACTIVITY` (flag 16, alongside
-`GAME_KERNEL|GAME_SURFACE`), selecting profile9 / physical checkpoint28.
+`GAME_KERNEL|GAME_SURFACE`), selecting profile10 / physical checkpoint30
+(profile9 / checkpoint28 before 2026-11-02, or with `MA_COLONY_KERNEL3_PROFILE9=1`).
 Native callers that retain flags13 continue to select profile8. Old saved
 profiles retain their pipeline and checkpoint bytes. **Always simulate** is a
 saved profile9 policy: it runs the profile8 physical pipeline every frame.
@@ -499,11 +500,12 @@ flow and interface operations. Only accepted flow, conversions and trace
 removal are booked; closing momentum is reported as wall impulse. Dry paths
 still pass gas.
 
-The `airflow` scenario's gas check fails (diagnosed 2026-11-02) because the
-fill lifts water from the pool into the air rows to the
-left of the tiles (167, 19 and 0.45 kg one frame after the fill) and it never
-settles, so every marked face on that side touches liquid and stays closed;
-the left gas never moves (14.4 kg throughout). See
+Under profile 9 the `airflow` scenario's gas check fails because the fill
+lifts water from the pool into the air rows left of the tiles (167, 19 and
+0.45 kg one frame after the fill) and it never settles, so every marked face
+on that side touches liquid and stays closed (the left gas stays 14.4 kg).
+Profile 10, the new-colony default since 2026-11-02, keeps that water in the
+pool and the check passes; see
 [suspended liquid](../native/MAC_GAME_KERNEL.md#suspended-liquid-and-the-layered-vertical-remap).
 
 Wrappers8–11 retain the earlier mask computed once before external edits,

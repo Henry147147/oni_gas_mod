@@ -8,7 +8,7 @@ std::span<const MacGameActivityCell> MacClosedWorld::game_activity() const noexc
 }
 MacClosedWorld MacClosedWorld::with_game_activity(std::span<const std::uint8_t> touched,
     std::span<const std::uint8_t> actors) const {
-  if (settings_.game_profile != MacGameProfile::game_kernel_activity_tiers)
+  if (!mac_game_activity_profile(settings_.game_profile))
     throw std::invalid_argument("Game activity needs experimental profile9");
   const auto N = state().cells.size();
   const auto valid = [&](auto mask) {
@@ -49,7 +49,7 @@ MacClosedWorld MacClosedWorld::with_game_activity(std::span<const std::uint8_t> 
   return out;
 }
 MacClosedWorld MacClosedWorld::with_game_activity_tiers(bool enabled) const {
-  if(settings_.game_profile!=MacGameProfile::game_kernel_activity_tiers)
+  if(!mac_game_activity_profile(settings_.game_profile))
     throw std::invalid_argument("Game activity needs experimental profile9");
   if(settings_.game.activity_tiers==enabled)return *this;
   auto cells=std::vector<MacGameActivityCell>(game_activity().begin(),game_activity().end());
@@ -64,7 +64,7 @@ std::vector<double> MacClosedWorld::game_activity_steps(double seconds) const {
     throw std::invalid_argument("Invalid game activity interval");
   const auto& g=state().grid;
   std::vector<double> total(g.walls.size());
-  if(settings_.game_profile!=MacGameProfile::game_kernel_activity_tiers) {
+  if(!mac_game_activity_profile(settings_.game_profile)) {
     for(std::size_t i=0;i<total.size();++i)if(!g.walls[i])total[i]=seconds;
     return total;
   }

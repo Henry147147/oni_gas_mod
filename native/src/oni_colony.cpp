@@ -532,7 +532,12 @@ MacClosedSettings settings_of(const MAOniColonyConfig& c, const MAOniColonyOptio
             game.game.heat_maximum_iterations=800;
         }
         if(c.flags&MA_ONI_COLONY_GAME_ACTIVITY) {
-            game.game_profile=MacGameProfile::game_kernel_activity_tiers;
+            // New colonies create profile10, profile9 with the layered vertical
+            // remap (delegated user decision 2026-11-02); saves restore their
+            // own profile. MA_COLONY_KERNEL3_PROFILE9=1 still creates profile9
+            // for the controls written for it.
+            game.game_profile=selected("MA_COLONY_KERNEL3_PROFILE9")?MacGameProfile::game_kernel_activity_tiers:
+                MacGameProfile::game_kernel_layered_remap;
             game.game.activity_tiers=next_activity_tiers;
         }
         // Profiles 6-8 save the adopted gas heat mixing (docs/base-game-floor.md,
@@ -795,7 +800,7 @@ void activate(std::unique_ptr<Session> next, std::uint64_t thread) {
     publish(*next);
     session = std::move(next);
     live_parcel_session.store(session->status.session,std::memory_order_release);
-    activity_owner.store(session->world->settings().game_profile==MacGameProfile::game_kernel_activity_tiers,std::memory_order_release);
+    activity_owner.store(mac_game_activity_profile(session->world->settings().game_profile),std::memory_order_release);
     enabled.store(true, std::memory_order_release);
 }
 
@@ -1420,7 +1425,7 @@ bool sample_activity(std::uint64_t expected_session,std::uint64_t expected_frame
     std::shared_ptr<const Published> p;{std::lock_guard lock(publication);p=latest;}
     require(p && p->world,"No colony owner is active");
     if(expected_session && (expected_session!=p->status.session || expected_frame!=p->status.completed_frames))return false;
-    if(p->world->settings().game_profile!=MacGameProfile::game_kernel_activity_tiers)
+    if(!mac_game_activity_profile(p->world->settings().game_profile))
         throw std::domain_error("The published colony has no activity tiers");
     const auto activity=p->world->game_activity();
     for(const auto cell:cells)require(rect_index(p->config,cell)<activity.size(),"Activity observation is outside its world");
@@ -1881,7 +1886,7 @@ bool copy_activity(MAOniColonyActivityState& out) {
     std::scoped_lock lock(inputs,publication);
     require(latest && latest->world,"No colony owner is active");
     MAOniColonyActivityState value{};value.struct_size=sizeof(value);value.abi_version=1;value.session=latest->status.session;
-    if(latest->world->settings().game_profile==MacGameProfile::game_kernel_activity_tiers) {
+    if(mac_game_activity_profile(latest->world->settings().game_profile)) {
         value.last_committed_sequence=latest->activity_sequence;value.next_submission_sequence=accepted_activity_sequence+1;
         value.enabled=requested_activity_tiers?1U:0U;
         for(const auto& p:pending_activity)if(!p.claimed) {
@@ -2854,7 +2859,7 @@ void run_frame(std::uint64_t ticket,double seconds,std::uint64_t frames,const ch
             if(world.settings().game.activity_tiers!=*activity->mode)s.biology_pending_s.assign(world.state().cells.size(),0);
             world=world.with_game_activity_tiers(*activity->mode);
         }
-        const bool adaptive=world.settings().game_profile==MacGameProfile::game_kernel_activity_tiers && world.settings().game.activity_tiers;
+        const bool adaptive=mac_game_activity_profile(world.settings().game_profile) && world.settings().game.activity_tiers;
         require(!adaptive || flush_only || seconds==static_cast<double>(.2f),"Activity owner requires exactly one 0.2 s native frame");
         std::vector<std::uint8_t> touched(world.state().cells.size());
         struct TouchScope { ~TouchScope(){external_activity_touched=nullptr;} } touch_scope;
@@ -4175,7 +4180,7 @@ void restore(const MAOniColonyConfig& config, std::span<const MAOniColonyMateria
     next->world = std::make_shared<const MacClosedWorld>(MacClosedWorld::from_checkpoint(next->catalogue->registry, next->catalogue->eos,
         r.bytes.subspan(r.at, static_cast<std::size_t>(physical))));
     require(((config.flags&MA_ONI_COLONY_GAME_KERNEL)!=0)==(next->world->settings().numerical_kernel==MacNumericalKernel::game),"Saved core kernel differs from saved colony flags");
-    require(((config.flags&MA_ONI_COLONY_GAME_ACTIVITY)!=0)==(next->world->settings().game_profile==MacGameProfile::game_kernel_activity_tiers),
+    require(((config.flags&MA_ONI_COLONY_GAME_ACTIVITY)!=0)==mac_game_activity_profile(next->world->settings().game_profile),
         "Saved activity core differs from owner integration");
     if(version==14) {
         const bool effective=restored_mode.value_or(next->world->settings().game.activity_tiers);
