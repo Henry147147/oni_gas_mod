@@ -2323,9 +2323,9 @@ namespace MixedAtmospheres.Oni
         private static void Arena(Func<int, int, (SimHashes element, float mass, float temperature)> inside, int width = Width, int height = Height)
         {
             fillWidth = width; fillHeight = height;
-            // A large arena slides right past natural gas pockets: closing its border displaces
+            // A large arena slides right past natural hydrogen pockets: closing its border displaces
             // their gas into an arena that is still vacuum, a rarefaction the flow solver does
-            // not survive for a hydrogen pocket beside the printing pod (docs/dlc-compatibility.md).
+            // not survive beside the printing pod (docs/dlc-compatibility.md).
             if (width * height >= 200)
             {
                 var slid = 0;
@@ -2334,12 +2334,12 @@ namespace MixedAtmospheres.Oni
                     for (var y = -2; y <= height + 1; ++y) for (var x = -2; x <= width + 1; ++x)
                     {
                         var c = Grid.XYToCell(x0 + x, y0 + y);
-                        if (Grid.IsValidCell(c) && !Grid.Solid[c] && Grid.Mass[c] > 0.01f) return true;
+                        if (Grid.IsValidCell(c) && !Grid.Solid[c] && Grid.Mass[c] > 0.01f && Grid.Element[c].id == SimHashes.Hydrogen) return true;
                     }
                     return false;
                 }
                 while (Pocket() && slid < 70 && x0 + width + 3 < Grid.WidthInCells) { ++x0; ++slid; }
-                if (slid > 0) { pendingShift += slid; Debug.Log($"[Mixed Atmospheres] arena {Current.Name} slid {slid} cells right of natural gas pockets"); }
+                if (slid > 0) { pendingShift += slid; Debug.Log($"[Mixed Atmospheres] arena {Current.Name} slid {slid} cells right of natural hydrogen pockets"); }
             }
             // What the arena replaces, for a fault or an odd result (elements by cell count, mass and the temperature range).
             {
