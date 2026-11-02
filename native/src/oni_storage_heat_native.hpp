@@ -188,6 +188,8 @@ public:
         return false;
 #endif
     }
+    // Exact storage has registered stores (their heat follows completed owner work).
+    bool active() const noexcept {return active_.load(std::memory_order_acquire);}
     void reset(){check_thread();std::lock_guard lock(mutex_);no_lease();ledger_=Ledger{};failure_.fill(0);active_.store(false,std::memory_order_release);}
     void add(std::int32_t handle,float t,float c){check_thread();std::lock_guard lock(mutex_);check();no_lease();ledger_.add(handle,t,c);active_.store(true,std::memory_order_release);}
     void expect(std::int32_t handle,float t,float c){check_thread();std::lock_guard lock(mutex_);check();no_lease();ledger_.expect(handle,t,c);}

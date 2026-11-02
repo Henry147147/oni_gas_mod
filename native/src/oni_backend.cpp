@@ -306,6 +306,10 @@ void on_process_frame(void* frame,void* data) {
     // returns its duration. SimFrameInfo carries elapsedSeconds at offset 0
     // in both inspected native builds.
     float seconds{};if(frame) std::memcpy(&seconds,frame,sizeof(seconds));
+    // A positive frame applies its messages and native physics only after
+    // the preceding owner tick (see on_next_frame); zero-time frames apply
+    // messages that an activity owner's next frame claims.
+    if (seconds != 0 && ma::oni::colony::active()) { wait_log::Scope settled(wait_log::NextFrameWait); ma::oni::colony::wait(); }
     native_heat_contact_bits.store(std::bit_cast<std::uint32_t>(seconds),std::memory_order_release);
     std::optional<ma::oni::body_heat_trace::Frame> body_observation;
     std::optional<ma::oni::chunk_heat_trace::Frame> chunk_observation;
@@ -326,7 +330,14 @@ float on_next_frame(void* self,void* data) {
     // Settle the previous owner tick before ProcessNextFrame applies this
     // frame's messages as well as its native heat/solid work. Waiting only at
     // shadow publication would let new inputs leak into the preceding tick.
-    if (ma::oni::colony::active()) { wait_log::Scope timed(wait_log::NextFrameWait); ma::oni::colony::wait(); }
+    // An activity owner already claimed that tick's inputs when it was
+    // submitted, so the zero-time frames ONI posts every Unity frame while it
+    // runs need not wait here: that wait blocked the game thread's next
+    // PrepareGameData for the whole owner step. Positive frames still settle
+    // in on_process_frame before their messages and native physics, and the
+    // shadow write settles again. Exact storage keeps the full fence.
+    if (ma::oni::colony::active() && (!ma::oni::colony::claims_inputs_at_submission() || storage_heat.active()))
+        { wait_log::Scope timed(wait_log::NextFrameWait); ma::oni::colony::wait(); }
     const float dt = original<float (*)(void*,void*)>(MA_ONI_NEXT_FRAME)(self,data);
     // Zero-time frames process messages without entering UpdateData. Their
     // completed clock view is needed by the startup/restore barrier too.

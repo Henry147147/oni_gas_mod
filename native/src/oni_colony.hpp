@@ -18,6 +18,10 @@ void fault_from_adapter(const char* reason);
 void fault_native(const char* reason) noexcept;
 [[nodiscard]] bool active() noexcept;
 [[nodiscard]] bool busy() noexcept;
+// True when the owner claims each frame's inputs at submission (activity
+// tiers), so messages applied by a later zero-time native frame cannot reach
+// a frame that is still running.
+[[nodiscard]] bool claims_inputs_at_submission() noexcept;
 [[nodiscard]] MAOniColonyStatus status();
 [[nodiscard]] MAOniColonyParcelContext parcel_context();
 void copy(MAOniColonyStatus&, MAOniColonyCellView*, std::uint32_t capacity);

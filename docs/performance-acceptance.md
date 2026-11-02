@@ -1,5 +1,35 @@
 # Performance acceptance measurements
 
+## Grown-colony slowdown, 2026-11-02
+
+The 0.063× late window of the normal-reserve base control has two causes.
+
+1. **A blocked game thread doubled every slow frame.** ONI posts a zero-time
+   native frame every Unity frame. Its `NextFrame` hook waited for the running
+   owner step, so the game thread's next `PrepareGameData` blocked for the whole
+   step (up to 3.3 s), input froze, the blocked wall time did not become game
+   time, and the clock only then moved on to the next 200 ms tick: the interval
+   between owner frames was about 1.9× the owner time. Activity-tier owners
+   claim their inputs at submission, so those frames now pass; positive frames
+   still settle before their messages and shadow (exact storage keeps the full
+   fence). Loading the natural cycle-2 autosave (owner frame 2752) under WHOLE,
+   frames 2762–2812, with diagnostic logs on in both runs:
+
+   | Build | Owner progress / wall s | Owner mean | Interval mean | Longest main-thread block |
+   | --- | ---: | ---: | ---: | ---: |
+   | `722c0a3` | 0.0701× | 1512 ms | 2851 ms | 3279 ms |
+   | Narrowed fence | 0.1006× | 1958 ms | 1989 ms | 0.06 ms |
+
+   The interval now equals the owner time (1.015×, was 1.89×); the live comet
+   inputs differ between runs, so owner times differ. No solver arithmetic,
+   checkpoint byte or input order changes.
+2. **Comet exhaust in open sky.** The upper region is 10,120 Space cells. A
+   comet emits 1.67 kg CO₂ (50 kg/s × 1/30 s) into a Space cell each 33 ms
+   sub-tick, and the parcel expands into vacuum across the region for the whole
+   0.2 s frame (about 455 accepted substeps) before the Space sink removes it.
+   Flow is about 97% of the 1.5–2 s owner frame. This is physics, so the remedy is a
+   user decision (see the speed report options).
+
 ## Actual renderer/report follow-up, 2026-10-31
 
 The clean committed `3d8c20f` package completes the original900-frame speed 3

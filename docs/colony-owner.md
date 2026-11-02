@@ -501,9 +501,17 @@ runs at the player's speed or 95% of the owner's measured rate (game seconds
 per second of solving, smoothed), whichever is slower, so play runs in slow
 motion rather than stop-go. Pause, the camera and menus use unscaled time and
 stay responsive during those pacing holds. A native-frame fence also waits for
-the preceding owner step before applying the next frame's messages and
-contacts, covering frames posted before managed pacing sees the busy flag.
-It preserves the physical frame order without advancing an extra step. The solver uses
+the preceding owner step before a positive frame applies its messages,
+contacts and shadow, covering frames posted before managed pacing sees the
+busy flag. It preserves the physical frame order without advancing an extra
+step. ONI also posts a zero-time native frame every Unity frame; with activity
+tiers the owner has already claimed its frame's inputs at submission, so those
+frames no longer wait for the running step (without tiers, or with exact
+storage, they still do). Waiting there had blocked the game thread's next
+`PrepareGameData` for the whole owner step: input froze, the blocked wall time
+did not become game time (frame time is capped), and the game clock only
+moved on to the next 200 ms tick afterwards, so slow frames took about twice
+the owner time. The solver uses
 predictive step control ([MAC_SOLVER.md](../native/MAC_SOLVER.md)).
 
 Bounded pacing credit retains offered time that the original 0.2 s argument

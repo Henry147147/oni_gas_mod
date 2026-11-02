@@ -1213,6 +1213,7 @@ MacClosedWorld convert_identities(Session& s, MacClosedWorld world, double secon
 
 bool active() noexcept { return enabled.load(std::memory_order_acquire); }
 bool busy() noexcept { return solver.busy.load(std::memory_order_acquire); }
+bool claims_inputs_at_submission() noexcept { return activity_owner.load(std::memory_order_acquire); }
 void wait() noexcept { solver.settle(false); }
 bool needs_shadow_refresh() noexcept {
     std::lock_guard lock(publication);
