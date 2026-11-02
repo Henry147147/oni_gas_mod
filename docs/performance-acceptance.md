@@ -28,7 +28,28 @@ The 0.063× late window of the normal-reserve base control has two causes.
    sub-tick, and the parcel expands into vacuum across the region for the whole
    0.2 s frame (about 455 accepted substeps) before the Space sink removes it.
    Flow is about 97% of the 1.5–2 s owner frame. This is physics, so the remedy is a
-   user decision (see the speed report options).
+   user decision. A private, default-off prototype also empties due Space cells
+   **before** flow, so a parcel placed in open sky leaves at once instead of
+   first expanding: on the same save (narrowed fence, frames 2753–2816) owner
+   time falls from 1810 to 34 ms and the interval from 1835 to 67 ms (0.106× →
+   about 3× once loaded; 1.783× including the load). Gas reaching Space from a
+   base breach still expands for its frame before the existing sink. Not adopted.
+
+**Spaced Out! (fresh, 600 frames, WHOLE):** the narrowed fence changes nothing
+here (2.232× → 2.209×; owner 44–50 ms). Per owner frame the critical path is
+native pre-owner work (write shadow 2.6, ONI `UpdateData` 7.4, capture 1.3 ms),
+the owner (median 44 ms: flow 28–36, first state copy 4.1, heat apply 1.8,
+activity census/steps/germs 6.6, conversions 1.3 ms), projection 7.2 ms, then up
+to one Unity frame until the next tick: median submit-to-handoff 29.5 ms above
+the owner time, interval median about 74 ms, mean 84–94 ms with occasional
+100+ ms frames. 3× needs 66.7 ms.
+
+Preparing that first state copy on the idle solver thread between frames
+keeps every checkpoint byte (native control, 5 of 6 frames from the copy) and
+trims owner time about 2 ms, but alternating WHOLE runs do not show a game-speed
+gain (2.376×/2.356× without, 2.277×/2.405× with); it is not adopted. Other
+agents' unlocked builds raised the machine load to about 48 during part of this
+session, so a fresh base pair from that window is discarded.
 
 ## Actual renderer/report follow-up, 2026-10-31
 
