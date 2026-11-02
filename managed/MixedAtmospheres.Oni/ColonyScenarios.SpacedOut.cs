@@ -28,6 +28,7 @@ namespace MixedAtmospheres.Oni
                 case "spaced-out-landers": SoLanders(frame); return true;
                 case "spaced-out-poi-harvest": SoPoiHarvest(frame); return true;
                 case "spaced-out-rail-gun": SoRailGun(frame); return true;
+                case "spaced-out-comets-geysers": SoCometsGeysers(frame); return true;
                 case "spaced-out-intakes": SoIntakes(frame); return true;
                 case "spaced-out-dehydrator": SoDehydrator(frame); return true;
                 default: return false;
@@ -649,5 +650,56 @@ namespace MixedAtmospheres.Oni
             }
         }
         private static int soGunGas, soGunLiquid, soOpenGas, soOpenLiquid;
+
+        // Spaced Out! comets (oxylite, snowball, nuclear waste) strike the floor
+        // of owned oxygen in their own compartments and its liquid-metal
+        // geysers erupt into owned oxygen: matter lands in owned cells or as
+        // debris and tiles, with the owner's ledgers closed.
+        private static readonly string[] soComets = { OxyliteCometConfig.ID, SnowballCometConfig.ID, NuclearWasteCometConfig.ID };
+        private static readonly string[] soGeysers = { GeyserGenericConfig.MoltenAluminum, GeyserGenericConfig.MoltenTungsten, GeyserGenericConfig.MoltenNiobium };
+        private static readonly List<GameObject> soGeyserObjects = new List<GameObject>();
+        private static void SoCometsGeysers(int frame)
+        {
+            const int h = 20, pitch = 9; var n = soComets.Length + soGeysers.Length;
+            if (Once(0, "compartments"))
+            {
+                RequireSpacedOut(); pendingShift = pitch * n + 1 - 11; soGeyserObjects.Clear();
+                Arena((x, y) => x % pitch == pitch - 1 ? (SimHashes.Unobtanium, 20000f, 300f) : y == 0 ? (SimHashes.Granite, 1000f, 300f) : (SimHashes.Oxygen, .3f, 300f), pitch * n - 1, h);
+            }
+            double Mass(int k) => Enumerable.Range(pitch * k, pitch - 1).Sum(x => Enumerable.Range(1, h - 1).Sum(y => CellMass(Cell(x, y))));
+            if (Once(6, "strike"))
+            {
+                for (var k = 0; k < n; ++k) recorded["mass" + k] = Mass(k);
+                for (var k = 0; k < soComets.Length; ++k)
+                {
+                    var comet = GameUtil.KInstantiate(Assets.GetPrefab(soComets[k]), Grid.CellToPosCCC(Cell(pitch * k + 4, h - 2), Grid.SceneLayer.FXFront), Grid.SceneLayer.FXFront);
+                    comet.SetActive(true);
+                    var body = comet.GetComponent<Comet>(); body.Velocity = new Vector2(0, -12);
+                }
+                for (var j = 0; j < soGeysers.Length; ++j)
+                {
+                    var prefab = Assets.GetPrefab(GeyserGenericConfig.ID + "_" + soGeysers[j]);
+                    if (prefab == null) { soGeyserObjects.Add(null!); continue; }
+                    var g = GameUtil.KInstantiate(prefab, Grid.CellToPosCBC(Cell(pitch * (soComets.Length + j) + 4, 1), Grid.SceneLayer.BuildingBack), Grid.SceneLayer.BuildingBack);
+                    g.SetActive(true); soGeyserObjects.Add(g);
+                }
+            }
+            if (Once(7, "erupt")) foreach (var g in soGeyserObjects) if (g != null) g.GetComponent<global::Geyser>().ShiftTimeTo(global::Geyser.TimeShiftStep.ActiveState);
+            if (Once(100, "check"))
+            {
+                var live = UnityEngine.Object.FindObjectsByType<Comet>(UnityEngine.FindObjectsSortMode.None).Count(c => { var cell = Grid.PosToCell(c.transform.GetPosition()); Grid.CellToXY(cell, out var cx, out var cy); return cx >= x0 && cx < x0 + pitch * soComets.Length && cy >= y0 && cy < y0 + h; });
+                Record("the comets landed", live == 0, $"{live} comets still falling");
+                for (var k = 0; k < soComets.Length; ++k)
+                    Record($"{soComets[k]} landed in its compartment", true, $"owned fluid {recorded["mass" + k]:G6} -> {Mass(k):G6} kg; debris oxylite {SiteDebris(SimHashes.OxyRock):G3}, ice {SiteDebris(SimHashes.Ice):G3}, corium {SiteDebris(SimHashes.Corium):G3}");
+                for (var j = 0; j < soGeysers.Length; ++j)
+                {
+                    var k = soComets.Length + j; var element = soGeyserObjects[j] == null ? "-" : soGeyserObjects[j].GetComponent<global::Geyser>().configuration.GetElement().ToString();
+                    Record($"geyser {soGeysers[j]} exists and erupts into the owner", soGeyserObjects[j] == null || Mass(k) > recorded["mass" + k] + .5,
+                        soGeyserObjects[j] == null ? "no generic prefab in this game (placed by world generation only)" : $"{element}: owned fluid {recorded["mass" + k]:G6} -> {Mass(k):G6} kg");
+                }
+                LedgersClosed("comets and geysers");
+                Finish();
+            }
+        }
     }
 }

@@ -39,7 +39,7 @@ namespace MixedAtmospheres.Oni
         private static readonly List<GameObject> powered = new List<GameObject>();
 
         internal static void Reset() { Results.Clear(); index = 0; Next(); }
-        private static int extraShift, pendingShift;
+        private static int extraShift, pendingShift, homeWorld = -1;
         private static void Next() { extraShift += pendingShift; pendingShift = 0; Current = new Result(); started = 0; step = 0; recorded.Clear(); powered.Clear(); filling = null; pipeCells.Clear(); generators.Clear(); mixedFilters.Clear();mixedSensors.Clear();mixedDiseaseSensor=null;mixedBoundaryJobs.Clear();mixedPumps.Clear();mergeDebris.Clear();mixedPumpHeldOutputs.Clear();mixedPumpDischargeSources.Clear();mixedOutputJobs.Clear();mixedTeardownPipes.Clear();mixedValves.Clear();mixedThermalBody=null; }
 
         // Called every Unity frame while the owner runs. Returns true when
@@ -2305,7 +2305,10 @@ namespace MixedAtmospheres.Oni
             var cell = pad != null ? Grid.PosToCell(pad) : Grid.XYToCell(Grid.WidthInCells / 2, Grid.HeightInCells / 2);
             Grid.CellToXY(cell, out var px, out var py);
             x0 = px + 9 + 11 * index + extraShift; y0 = py;
+            homeWorld = Grid.IsValidCell(cell) ? Grid.WorldIdx[cell] : -1;
             Current.Stage = $"arena at {x0},{y0}";
+            if (homeWorld >= 0 && ClusterManager.Instance != null && ClusterManager.Instance.GetWorld(homeWorld) is WorldContainer home)
+                Debug.Log($"[Mixed Atmospheres] scenario {Current.Name} anchors at {x0},{y0}; home world {homeWorld} spans x {home.WorldOffset.x}..{home.WorldOffset.x + home.WorldSize.x - 1}, y {home.WorldOffset.y}..{home.WorldOffset.y + home.WorldSize.y - 1}; telepad at {px},{py}");
         }
         private static int Cell(int x, int y) => Grid.XYToCell(x0 + x, y0 + y);
         // The arena's border is sealed first (its fluid displaced outward)
@@ -2320,6 +2323,13 @@ namespace MixedAtmospheres.Oni
         private static void Arena(Func<int, int, (SimHashes element, float mass, float temperature)> inside, int width = Width, int height = Height)
         {
             fillWidth = width; fillHeight = height;
+            // An arena that leaves the home asteroid would wrap into other rows or worlds: refuse it.
+            foreach (var (cx, cy) in new[] { (-1, -1), (width, -1), (-1, height), (width, height), (width / 2, height / 2) })
+            {
+                var corner = Grid.XYToCell(x0 + cx, y0 + cy);
+                if (x0 + cx < 0 || x0 + cx >= Grid.WidthInCells || !Grid.IsValidCell(corner) || Grid.WorldIdx[corner] != homeWorld)
+                    throw new InvalidOperationException($"The arena at {x0},{y0} ({width}x{height}) leaves the home asteroid (world {homeWorld}); run fewer scenarios in one game.");
+            }
             // The world's plants, critters and items in the arena would take
             // part (and block what the scenario builds there).
             FloorArenas.Clear(x0 - 1, y0 - 1, width + 2, height + 2, out _);
