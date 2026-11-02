@@ -129,6 +129,61 @@ ordered phase buffer. Six whole-lock offline AB/BA runs on the captured Terra
 world measured 105.587 to 103.057ms per tick (2.40%); all six30-tick terminal
 images matched. Refreshed profile3 and in-game evidence is recorded below.
 
+## Suspended liquid and the layered vertical remap
+
+**Defect (profiles 2-9).** The donor-cell remap moves every constituent of a
+donor in proportion to the swept volume. A cell holding gas and liquid keeps
+its liquid at the bottom in reality, but gas leaving through its top face
+carries the cell's liquid fraction with it. Once lifted, liquid stays: one
+velocity per face cannot let it fall through the gas, layering exchanges only
+liquid phases, and interface sharpening is weak for small fractions and moves
+liquid toward the fuller neighbour, which above a misty layer is upward.
+Placed liquid makes this common: ONI's element replacement and melting leave
+liquid-only cells with vacuum headspace, and the gas that rushes in and back
+out lifts the liquid. In the `airflow` arena one frame after the fill, the
+990 kg water cells have spread 167, 19 and 0.45 kg into the three air rows;
+mist stays in them for the whole run. In `freeze-melt` about 52 kg of water
+hangs in the air at the check and freezes over the 40 K block
+([evaluation](../docs/freeze-melt-evaluation.md)). Mass and energy stay closed.
+
+**Candidate profile 10 (not adopted; user decision).** A cell holding gas and
+liquid keeps its phases in gravity order during the remap. Horizontal faces
+sweep every phase in proportion; a top face draws whole phases from the top
+(gas, then lighter liquids) until its volume is met; a bottom face draws from
+the bottom (heaviest liquid first). Phase volumes and energies come from the
+donor's own EOS reading and the retained energy is the remainder, so species,
+U+K+G and passives stay exact (passives move with the mass share). The dual
+momentum remap and the potential work use the mass that actually crosses.
+Where draining the heaviest phase first would export more than the
+interval's 0.39 outgoing mass bound, the donor blends toward a proportional
+bottom sweep just enough to meet it (its top face stays layered). A donor
+whose retained part would lack positive thermal energy keeps the proportional
+sweep. Profile 10 keeps profile 9's activity tiers and their saved state.
+
+Measured with the candidate (private evidence under `artifacts/physics/` in
+the physics worktree; in-game runs are the fixed base batches 1 and 2):
+
+| Check | Profile 9 | Profile 10 |
+| --- | --- | --- |
+| Offline 8 x 6 `airflow` fill, liquid in the air rows after 1 / 20 frames | 132 / 6.5 kg per column | exactly 0 / 0 |
+| `freeze-melt` owned water at the check (>380 kg) | 368.3 kg, fails | 429 kg, passes |
+| `airflow` right-side gas (increase >0.05 kg) | 4.241 -> 4.052 kg, fails | 9.249 -> 9.836 kg, passes; no water crosses |
+| `phase` (boil-only steam condenses as it mixes into the air) | passes | fails: 0.0497 of 0.1304 kg steam left |
+| Other scenarios of batches 1 and 2 | pass | pass |
+| Flow-only replays of three captured 2026-10-22 worlds, restarted under each profile, 100 frames, 12 workers | 38.8 / 51.6 / 50.7 ms | 34.5 / 48.9 / 47.8 ms |
+| Their liquid in gas cells holding under 50 kg of it, after 100 frames | 10.2 / 7.1 / 7.1 t (from 2.5-2.8 t) | 2.8 / 1.9 / 1.7 t |
+| Offline 128 x 64 tank of collapsing 990 kg cells, flow time per frame | 1 | about 1.7-1.8 times |
+
+`phase` places a 3 kPa row of pure steam between 1 atm air rows. The inrush
+heats that row to about 356 K, and the latent heat of the first condensate
+then holds it at its dew point (about 363 K at the arena's 70 kPa): gas
+conducts slowly and the symmetric hot layer does not overturn. Profile 9
+passes because water lifted from the pool into the steam row (0.27 kg per cell
+in an offline replica) absorbs that heat; the check therefore depends on the
+defect. The violent synthetic tank is slower because its sharper free surface
+keeps sloshing (about 1.8 times the pressure iterations); the captured worlds
+are not slower. The candidate is kept as a patch, unmerged.
+
 ## Open acceptance work
 
 No private-playtest-ready or performance pass is claimed. The coupled material

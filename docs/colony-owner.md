@@ -486,6 +486,13 @@ flow and interface operations. Only accepted flow, conversions and trace
 removal are booked; closing momentum is reported as wall impulse. Dry paths
 still pass gas.
 
+The `airflow` scenario's gas check fails (diagnosed 2026-11-02) because the
+fill lifts water from the pool into the air rows to the
+left of the tiles (167, 19 and 0.45 kg one frame after the fill) and it never
+settles, so every marked face on that side touches liquid and stays closed;
+the left gas never moves (14.4 kg throughout). See
+[suspended liquid](../native/MAC_GAME_KERNEL.md#suspended-liquid-and-the-layered-vertical-remap).
+
 Wrappers8–11 retain the earlier mask computed once before external edits,
 including its moving-front limitation. Both laws expel direct-source liquid
 and condensate from marked cells into an open neighbour holding the most
