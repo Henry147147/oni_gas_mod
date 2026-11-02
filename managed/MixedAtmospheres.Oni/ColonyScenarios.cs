@@ -514,6 +514,7 @@ namespace MixedAtmospheres.Oni
             {
                 recorded["extracted"] = status.ExtractedKg; recorded["co2"] = OwnedMass(SimHashes.CarbonDioxide); recorded["oxygen"] = OwnedMass(SimHashes.Oxygen);
                 foreach (var minion in Components.LiveMinionIdentities.Items) breath.Lookup(minion.gameObject).SetValue(100);
+                BeginBreathingProduction(status);
             }
             if (Once(40, "check"))
             {
@@ -521,7 +522,9 @@ namespace MixedAtmospheres.Oni
                 var lowest = minions.Count == 0 ? 0 : minions.Min(m => breath.Lookup(m.gameObject).value);
                 Record("every duplicant kept its breath", minions.Count > 0 && lowest > 90, $"{minions.Count} duplicants, lowest breath {lowest:F1}");
                 Record("oxygen was taken from the owner", status.ExtractedKg > recorded["extracted"] + .1, $"{status.ExtractedKg - recorded["extracted"]:G4} kg extracted");
-                Record("carbon dioxide was exhaled into the owner", OwnedMass(SimHashes.CarbonDioxide) > recorded["co2"], $"{OwnedMass(SimHashes.CarbonDioxide) - recorded["co2"]:G4} kg");
+                var production = EndBreathingProduction(status);
+                var globalNetCo2 = OwnedMass(SimHashes.CarbonDioxide) - recorded["co2"];
+                Record("each original duplicant produced carbon dioxide", production.EverySourcePositive, BreathingProductionDetail(production, globalNetCo2));
                 Finish();
             }
         }

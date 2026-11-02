@@ -65,6 +65,7 @@ def main() -> None:
         run(["dotnet", "run", "--project", "tools/ColonyReceiptPumpInteropTests", "-c", "Release", "--",
              str(directory / ("mixed_atmospheres_oni.dll" if os.name == "nt" else "libmixed_atmospheres_oni.so"))], env)
     run(["dotnet", "run", "--project", "tools/ColonyActivityTests", "-c", "Release"], env)
+    run(["dotnet", "run", "--project", "tools/ColonyBreathingProductionTests", "-c", "Release"], env)
     run(["dotnet", "run", "--project", "tools/ReadingEquivalenceTests", "-c", "Release"], env)
     run(["dotnet", "run", "--project", "tools/DistributionTests", "-c", "Release"], env)
     run(["dotnet", "run", "--project", "tools/OwnedReservoirCheckpointTests", "-c", "Release"], env)
