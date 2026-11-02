@@ -134,7 +134,7 @@ BOUNDARY = [MANAGED + "NativeMessageBoundary.cs", "native/src/oni_backend.cpp", 
 SPACED_OUT_SYSTEMS: dict[str, tuple[list[str], tuple[str, ...]]] = {
     # Entries with no fluid interaction of their own: cluster map entities, artifacts, props, previews, seeds, food, research,
     # logic, HEP logistics and solid-only hardware. They need the cluster's worlds owned and published.
-    "spaced-out-native": (CLUSTER, ("spaced-out-worlds",)),
+    "spaced-out-native": (CLUSTER, ("spaced-out-worlds", "spaced-out-vacuum-pocket")),
     # Fallout, NuclearWaste and MoltenUranium join the owner's catalogue like every enabled game gas and liquid.
     "spaced-out-materials": ([*CLUSTER, "native/src/oni_catalogue.cpp"], ("spaced-out-worlds",)),
     "rocket-modules": ([*CLUSTER, *RETIREMENT], ("spaced-out-rocket", "spaced-out-input-flush", "spaced-out-rocket-retire",
@@ -148,16 +148,17 @@ SPACED_OUT_SYSTEMS: dict[str, tuple[list[str], tuple[str, ...]]] = {
     "rail-gun": (PORTS, ("spaced-out-rail-gun",)),
     "radiation": ([*BOUNDARY, "native/src/oni_world_biology.cpp"], ("spaced-out-radiation",)),
     "hep-particles": (BOUNDARY, ("spaced-out-hep",)),
-    "reactor": ([*MACHINES, *BOUNDARY], ("spaced-out-reactor",)),
+    "reactor": ([*MACHINES, *BOUNDARY], ("spaced-out-reactor", "spaced-out-reactor-meltdown")),
     "uranium-centrifuge": (MACHINES, ("spaced-out-centrifuge",)),
     "sludge-press": (MACHINES, ("spaced-out-sludge-press",)),
     "sublimation-station": (MACHINES, ("spaced-out-sublimation-station",)),
     "spaced-out-critters": (ACTORS, ("spaced-out-critters",)),
     "spaced-out-plants": (ACTORS, ("spaced-out-plants",)),
 }
-# Passing in the Linux harness (Terra, seed 147147) on the current owner.
+# Passing in the Linux harness (Terra, seed 147147) on the current owner. `phase` fails under
+# the profile-10 default (2026-11-02) and stays out until it passes again.
 PASSED_SCENARIOS: set[str] = {
-    "terrain", "door", "airflow", "falling", "heat", "phase", "freeze-melt", "deoxidizer", "sublimation", "breathing",
+    "terrain", "door", "airflow", "falling", "heat", "freeze-melt", "deoxidizer", "sublimation", "breathing",
     "electrolysis", "vent-overpressure", "space-heater", "bottle-emptier", "germs", "puft", "plant", "wheezewort",
     "life-support", "oxyfern", "debris-heat", "building-melt", "rocket-exhaust", "meteor", "sensor", "pacu",
     "liquid-pump", "pipes", "mask-station", "polymer-press", "gas-generator", "geyser", "filter",
@@ -167,6 +168,10 @@ PASSED_SCENARIOS: set[str] = {
     # (docs/dlc-compatibility.md; docs/spaced-out-private-playtest.md; docs/release-candidate-2026-10-30.md).
     "spaced-out-worlds", "spaced-out-rocket", "spaced-out-rocket-ports", "spaced-out-input-flush", "spaced-out-rocket-retire",
     "spaced-out-warp-ports", "spaced-out-rocket-flight", "spaced-out-cargo-gas", "spaced-out-cargo-liquid", "spaced-out-rocket-abandon",
+    # Spaced Out! fluid systems, private Steam install, 2026-11-02 (docs/dlc-compatibility.md#spaced-out-fluid-systems).
+    "spaced-out-radiation", "spaced-out-hep", "spaced-out-reactor", "spaced-out-reactor-meltdown", "spaced-out-landers",
+    "spaced-out-poi-harvest", "spaced-out-comets-geysers", "spaced-out-engine-exhaust", "spaced-out-rail-gun",
+    "spaced-out-sublimation-station", "spaced-out-intakes", "spaced-out-centrifuge", "spaced-out-sludge-press", "spaced-out-dehydrator",
 }
 # Systems checked by whole-colony runs rather than one scenario.
 RUN_SYSTEMS: dict[str, dict] = {
