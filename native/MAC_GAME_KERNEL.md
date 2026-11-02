@@ -160,8 +160,10 @@ bottom sweep just enough to meet it (its top face stays layered). A donor
 whose retained part would lack positive thermal energy keeps the proportional
 sweep. Profile 10 keeps profile 9's activity tiers and their saved state.
 
-Measured with the candidate (private evidence under `artifacts/physics/` in
-the physics worktree; in-game runs are the fixed base batches 1 and 2):
+Measured with the candidate (private evidence and the candidate patch under
+`artifacts/physics/` in the physics worktree; in-game runs are the fixed
+acceptance batches, profile 10 selected with `MA_COLONY_KERNEL3_LAYERED=1`;
+its clean build passes all 91 CTests):
 
 | Check | Profile 9 | Profile 10 |
 | --- | --- | --- |
@@ -169,7 +171,7 @@ the physics worktree; in-game runs are the fixed base batches 1 and 2):
 | `freeze-melt` owned water at the check (>380 kg) | 368.3 kg, fails | 429 kg, passes |
 | `airflow` right-side gas (increase >0.05 kg) | 4.241 -> 4.052 kg, fails | 9.249 -> 9.836 kg, passes; no water crosses |
 | `phase` (boil-only steam condenses as it mixes into the air) | passes | fails: 0.0497 of 0.1304 kg steam left |
-| Other scenarios of batches 1 and 2 | pass | pass |
+| The other 27 scenarios of base batches 1, 2 and 6-9 | pass | pass |
 | Flow-only replays of three captured 2026-10-22 worlds, restarted under each profile, 100 frames, 12 workers | 38.8 / 51.6 / 50.7 ms | 34.5 / 48.9 / 47.8 ms |
 | Their liquid in gas cells holding under 50 kg of it, after 100 frames | 10.2 / 7.1 / 7.1 t (from 2.5-2.8 t) | 2.8 / 1.9 / 1.7 t |
 | Offline 128 x 64 tank of collapsing 990 kg cells, flow time per frame | 1 | about 1.7-1.8 times |
