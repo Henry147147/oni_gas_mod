@@ -22,6 +22,8 @@ def main():
     bodies.append(reader.method(guarded, "Reject", "void").replace("private static", "internal static", 1))
     quiescent = storage.replace("internal static void RequireQuiescent()", "private static void RequireQuiescent()")
     bodies.append(reader.method(quiescent, "RequireQuiescent", "void"))
+    admission = storage.replace("internal static bool ThermalPublicationPending()", "private static bool ThermalPublicationPending()")
+    bodies.append(reader.method(admission, "ThermalPublicationPending", "bool"))
     finish = biology.replace("internal void Finish(bool success)", "private static void Finish(bool success)")
     finish = reader.method(finish, "Finish", "void").replace("private static void Finish", "internal void Finish", 1)
     args.out.mkdir(parents=True, exist_ok=True)

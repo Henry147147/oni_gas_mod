@@ -70,6 +70,23 @@ internal static class Program
   }
   Prime();var pending=Wire(OniNativeColony.Pending);var acknowledged=OniNativeColony.Acks.Count;TestRuntime.BeforeRawRead=()=>{if(TestRuntime.RawReads==2)OniNativeColony.Current.State=2;};Pump(3);Check(OniNativeColony.Acks.Count==acknowledged&&Wire(OniNativeColony.Pending).SequenceEqual(pending),"native fault before Ack changed pending prefix");NoAdvance();
  }
+ static void ThermalSaveControls()
+ {
+  TestRuntime.Reset();ColonyOwnedStorage.ThermalPendingChecks=2;
+  for(var attempt=1;attempt<=2;++attempt)
+  {Check(!ColonySaveBarrier.BeforeFileSave("save",false,true)&&Game.DelayedSaves==attempt&&Game.ZeroCalls==attempt&&ColonySaveBarrier.Deferred==attempt,"pending thermal projection did not retry through a settled delayed save");ColonySaveBarrier.SaveFinished();}
+  Check(ColonySaveBarrier.BeforeFileSave("save",false,true)&&Game.DelayedSaves==2&&ColonyOwnedStorage.ThermalChecks==3,"published thermal projection still deferred the save");ColonySaveBarrier.SaveFinished();
+  ColonyOwnedStorage.ThermalPendingChecks=int.MaxValue;var deferred=0;
+  while(!ColonySaveBarrier.BeforeFileSave("save",false,true)){ColonySaveBarrier.SaveFinished();Check(++deferred<=ColonySaveBarrier.ThermalSaveRetries,"thermal save retry was unbounded");}
+  ColonySaveBarrier.SaveFinished();Check(deferred==ColonySaveBarrier.ThermalSaveRetries,"thermal save stopped retrying early");
+  Check(!ColonySaveBarrier.BeforeFileSave("save",false,true),"a later save lost its thermal retry budget");ColonySaveBarrier.SaveFinished();
+  TestRuntime.Reset();ColonyOwnedStorage.RetirementsPending=true;ColonyOwnedStorage.ThermalPendingChecks=1;
+  Check(!ColonySaveBarrier.BeforeFileSave("save",false,true)&&ColonyOwnedStorage.ThermalChecks==0&&Game.DelayedSaves==1,"retirement deferral changed order or consumed a thermal retry");ColonySaveBarrier.SaveFinished();
+  TestRuntime.Reset();ColonyOwnedStorage.ThermalPendingChecks=1;ColonySaveBarrier.EnterStep();
+  try{Check(!ColonySaveBarrier.BeforeFileSave("save",false,true)&&ColonyOwnedStorage.ThermalChecks==0&&Game.ZeroCalls==0,"thermal publication ran inside an unfinished step");}finally{ColonySaveBarrier.ExitStep();}
+  TestRuntime.Reset();ColonyOwner.Active=false;ColonyOwnedStorage.ThermalPendingChecks=1;
+  Check(ColonySaveBarrier.BeforeFileSave("save",false,true)&&ColonyOwnedStorage.ThermalChecks==0,"inactive colony consulted exact storage");
+ }
  static void EmptyPumpAllocation()
  {
   Prime(5);Pump(3);Check(OniNativeColony.Pending.Count==0,"empty pump fixture");
@@ -117,7 +134,7 @@ internal static class Program
    ColonySaveBarrier.StepSeconds=0;ColonyOwner.CommitTestPublication(18,4);Check(OniNativeColony.Pending.Count==0,"opt-out changed original zero-time full publication");NoAdvance();Console.WriteLine("PASS receipt pump opt-out: "+checks+" assertions; original publication drains, idle pump does not.");return 0;
   }
   if(args.Length!=0)throw new ArgumentException("Unknown receipt pump control argument");
-  StateControls();PrefixControls();GuardControls();ReentryControls();FaultControls();EmptyPumpAllocation();PacketControls();NativePublicationControls();
+  StateControls();PrefixControls();GuardControls();ReentryControls();FaultControls();ThermalSaveControls();EmptyPumpAllocation();PacketControls();NativePublicationControls();
   Console.WriteLine("PASS idle receipt pump: "+checks+" assertions; actual delivery, pump and save-barrier bodies with deterministic clock/fake endpoints.");
 #if GAME_MONO
   Console.WriteLine("Game Mono allocation counter unsupported; allocation assertions omitted, functional controls retained.");

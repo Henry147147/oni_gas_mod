@@ -82,6 +82,13 @@ namespace MixedAtmospheres.Oni
                 Check(failed.Store.Revision==1&&failed.Projections[7].Item.DiseaseCount==10&&StoredBiologyTicks==0&&Notifications==0&&failedScope.headers[0].Marker==17,"failed biology committed or did not restore native header");
                 var missing=Prime();Refuse(()=>new BiologyScope(missing,missing:true).Finish(true));Check(missing.Store.Revision==1&&StoredBiologyTicks==0,"missing native carrier committed biology");
                 var untouched=Prime();RefreshCultures(untouched);Check(Notifications==0&&untouched.Projections[7].Item.DiseaseCount==10,"unchanged source republished cultures");
+                // Save admission retries (ColonySaveBarrier) while the leased
+                // publisher cannot yet install a pending thermal projection.
+                var admission=Prime();++admission.Store.Revision;
+                Check(ThermalPublicationPending()&&Publications==1&&admission.ProjectedRevision==1&&admission.Projections[7].Item.ThermalWrites==0,"save admission hid a pending thermal projection or bypassed its lease");
+                PublishReady=true;Check(!ThermalPublicationPending()&&Publications==2&&admission.ProjectedRevision==admission.Store.Revision,"save admission skipped the leased thermal publisher");
+                admission=Prime();++admission.Store.Revision;Enabled=false;
+                try{Check(!ThermalPublicationPending()&&Publications==0,"disabled exact storage delayed a save");}finally{Enabled=true;}
                 var retired=Prime();retired.Retiring.Add(new());Refuse(RequireQuiescent);
                 var foreign=Prime();foreign.Storage.items.Add(new());Refuse(RequireQuiescent);
                 var throwing=Prime();throwing.Store.Revision=2;throwing.Store.Inventory.Views=new(){new(new(7),2,13)};
@@ -104,6 +111,6 @@ namespace MixedAtmospheres.Oni
         private static int ReservoirPhase(Storage storage)=>2;
         private static void Check(bool value,string error){++Assertions;if(!value)throw new Exception(error);}
         private static void Refuse(Action action){try{action();}catch(InvalidOperationException){++Assertions;return;}catch(NotSupportedException){++Assertions;return;}throw new Exception("Unsafe storage projection accepted");}
-        internal static void RunControls(){BiologyScope.Controls();Console.WriteLine("PASS "+Assertions+" storage projection controls: real biology completion and save admission, exact culture/header work, pending thermal publication, BUSY refusal, retirement and foreign-carrier guards");}
+        internal static void RunControls(){BiologyScope.Controls();Console.WriteLine("PASS "+Assertions+" storage projection controls: real biology completion and save admission, exact culture/header work, pending thermal publication and save-admission retry, BUSY refusal, retirement and foreign-carrier guards");}
     }
 }

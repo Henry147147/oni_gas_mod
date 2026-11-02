@@ -1650,6 +1650,12 @@ still complete native work explicitly). This is not an active-continuation
 qualification: the remaining first-frame input differences require the
 separately reserved runtime record.
 
+Saving right after a stored-biology tick can find a thermal projection the
+leased publisher cannot install yet (a carrier awaiting native registration
+or a BUSY lease). The save barrier then retries through ONI's delayed-save
+entry, each attempt settling a zero-time native frame, at most 16 times; after
+that the save point reports the unfinished endpoint as before.
+
 Both unchanged six-scenario Linux storage batches pass on the frozen v5 probe
 (base game and Spaced Out!). Their natural outlets discharge 8 kg and retire
 both projections. The 22-frame closed heat fixtures have residual about

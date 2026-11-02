@@ -413,6 +413,16 @@ namespace MixedAtmospheres.Oni
             Credit(host,view,ReadTemperature(view.Handle));
             OniNativeColony.Check(RegisterStorageHeat(view.Handle,view.Temperature,view.Capacity));
         }
+        // Save admission, before the file opens: install every pending thermal
+        // projection (a stored-biology tick leaves its revision pending) through
+        // its lease. True while one still awaits its carrier's native
+        // registration or a BUSY lease; later native frames admit it.
+        internal static bool ThermalPublicationPending()
+        {
+            if(!Enabled)return false;
+            foreach(var host in Hosts.Values.ToArray())PublishThermalProjection(host);
+            return Hosts.Values.Any(host=>host.ProjectedRevision!=host.Store.Revision);
+        }
         // Save point: every reservoir holding native items is an exact store,
         // and each store's native items are exactly its current projections.
         internal static void RequireQuiescent()

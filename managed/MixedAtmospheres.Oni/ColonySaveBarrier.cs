@@ -28,7 +28,7 @@ namespace MixedAtmospheres.Oni
         internal static long ReceiptsAtSave { get; private set; }
         internal static ulong LastSettledFrame { get; private set; }
         internal static ulong LastSettledSession { get; private set; }
-        internal static void Reset() { Settled = Deferred = BodyHeatChecks = NativePublications = 0; ReceiptsAtSave = 0; LastSettledFrame = LastSettledSession = 0; LastSynchronization = ""; }
+        internal static void Reset() { Settled = Deferred = BodyHeatChecks = NativePublications = 0; ReceiptsAtSave = 0; LastSettledFrame = LastSettledSession = 0; LastSynchronization = ""; thermalRetries = 0; }
         internal static object Report() => new { Settled, Deferred, ReceiptsAtSave, BodyHeatChecks, NativePublications, LastSettledFrame, LastSettledSession, LastSynchronization, ReceiptPump=ColonyOwner.ReceiptPumpReport() };
 
         internal static void EnterStep() => ++stepping;
@@ -56,8 +56,21 @@ namespace MixedAtmospheres.Oni
                 // boundary; let the ordinary delayed-save entry retry it.
                 ++Deferred;Game.Instance.StartDelayedSave(filename,isAutoSave,updateSavePointer);return false;
             }
+            // A stored-biology tick leaves its thermal projection to the leased
+            // publisher. A carrier still awaiting native registration, or a
+            // BUSY lease, is admitted by the zero-time native frame each later
+            // barrier posts: retry through the delayed-save entry, at most
+            // ThermalSaveRetries times. The save point then reports the
+            // unfinished endpoint instead of deferring forever.
+            if(thermalRetries<ThermalSaveRetries&&ColonyOwnedStorage.ThermalPublicationPending())
+            {
+                ++thermalRetries;++Deferred;Game.Instance.StartDelayedSave(filename,isAutoSave,updateSavePointer);return false;
+            }
+            thermalRetries=0;
             return true;
         }
+        internal const int ThermalSaveRetries=16;
+        private static int thermalRetries;
 
         // Quiescent: worker idle, every receipt delivered, owner running.
         internal static bool Quiescent(out OniNativeColony.Status status)
