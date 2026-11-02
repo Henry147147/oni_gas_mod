@@ -5,6 +5,8 @@
 #include <chrono>
 #include <condition_variable>
 #include <functional>
+#include <mutex>
+#include <stdexcept>
 #include <thread>
 #include <vector>
 
@@ -73,6 +75,32 @@ public:
         return gate;
     }
 };
+// The native worker holds the domain frame fence from BeginFrame (or
+// NextFrame) through its GameData copy; on Windows Step is inlined into Main,
+// so that copy is the only release. A main-thread reader never waits on the
+// fence without bound: if a pass ever ended without publishing, the worker
+// would keep the fence while it waits for the next GameSync, which only the
+// blocked main thread can post. Refuse after the timeout instead of hanging.
+inline std::unique_lock<std::mutex> lock_frame_for(std::mutex& frame,std::chrono::milliseconds timeout) {
+    const auto deadline=std::chrono::steady_clock::now()+timeout;
+    std::unique_lock<std::mutex> lock(frame,std::try_to_lock);
+    for(unsigned spin=0;!lock.owns_lock();++spin) {
+        if(std::chrono::steady_clock::now()>=deadline)throw std::logic_error("Timed out waiting for the native frame fence");
+        if(spin<64)std::this_thread::yield();else std::this_thread::sleep_for(std::chrono::microseconds(100));
+        (void)lock.try_lock();
+    }
+    return lock;
+}
+// BeginFrame may wait for main-thread work, so it never runs under the fence.
+// A fence still held from a pass that did not reach its GameData copy is
+// released first; the fence is taken again once BeginFrame returns. On the
+// normal path the fence is not held on entry and nothing changes.
+template<class Begin> auto fenced_begin_frame(std::unique_lock<std::mutex>& fence,std::mutex& frame,Begin&& begin) {
+    if(fence.owns_lock())fence.unlock();
+    auto result=begin();
+    if(!fence.owns_lock())fence=std::unique_lock<std::mutex>(frame);
+    return result;
+}
 // Both registry views validate generations, mapping and vector bounds before
 // returning a record. No pointer survives the domain-frame lease; compaction,
 // removal, reallocation and native shutdown are excluded for its duration.

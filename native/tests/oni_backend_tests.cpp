@@ -740,6 +740,40 @@ static void native_frame_prefix_controls() {
     require(refused,"unknown native publication buffer silently satisfied a Step fence");
     std::cout<<"PASS native posted-prefix fence: batched/empty intervals, untouched unposted suffix, complete Step publication, later-submit exclusion and native-session reset\n";
 }
+// A worker pass whose BeginFrame is not followed by a GameData copy keeps
+// the domain frame fence (Windows inlines Step, so the copy is the only
+// release). A main-thread reader then refuses after its timeout instead of
+// hanging, and the next BeginFrame, which may wait for the main thread,
+// first releases the stale fence.
+static void frame_fence_controls() {
+    using ma::oni::storage_heat::fenced_begin_frame;using ma::oni::storage_heat::lock_frame_for;
+    std::mutex frame;
+    std::promise<void> held,go,in_begin,main_done;
+    auto held_future=held.get_future();auto go_future=go.get_future();auto in_begin_future=in_begin.get_future();auto main_done_future=main_done.get_future();
+    auto worker=std::async(std::launch::async,[&] {
+        std::unique_lock<std::mutex> fence;
+        const auto first=fenced_begin_frame(fence,frame,[]{return 0;});
+        const bool first_held=fence.owns_lock();
+        held.set_value();go_future.wait();
+        const auto second=fenced_begin_frame(fence,frame,[&]{in_begin.set_value();main_done_future.wait();return 1;});
+        const bool second_held=fence.owns_lock();fence.unlock();
+        return first==0 && first_held && second==1 && second_held;
+    });
+    held_future.wait();
+    bool refused=false;
+    try{auto lock=lock_frame_for(frame,std::chrono::milliseconds(20));}catch(const std::logic_error&){refused=true;}
+    go.set_value();
+    const bool entered=in_begin_future.wait_for(std::chrono::seconds(10))==std::future_status::ready;
+    bool acquired=false;
+    if(entered)try{auto lock=lock_frame_for(frame,std::chrono::seconds(10));acquired=lock.owns_lock();}catch(const std::logic_error&){}
+    main_done.set_value();
+    const bool worker_ok=worker.get();
+    require(refused,"a main-thread frame reader waited without bound on a stale worker fence");
+    require(entered && acquired,"BeginFrame kept a stale frame fence while waiting for the main thread");
+    require(worker_ok,"fenced BeginFrame lost its result or did not retake the fence afterward");
+    {auto lock=lock_frame_for(frame,std::chrono::milliseconds(0));require(lock.owns_lock(),"an idle frame fence was refused");}
+    std::cout<<"PASS native frame fence: stale fence released at BeginFrame, bounded main-thread wait\n";
+}
 static void storage_heat_transfer_controls() {
     using namespace ma::oni;
     using storage_heat::Monitor;
@@ -969,6 +1003,7 @@ int main() {
         storage_heat_receipt_controls();
         storage_heat_native_controls();
         native_frame_prefix_controls();
+        frame_fence_controls();
         storage_heat_transfer_controls();
         conduit_heat_completion_controls();
         {

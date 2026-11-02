@@ -608,14 +608,13 @@ void on_step(void* self,void* data,void* game,const void* previous) {
 }
 int on_begin_frame(void* self) {
     Call call(MA_ONI_BEGIN_FRAME);
-    const auto count=original<int (*)(void*)>(MA_ONI_BEGIN_FRAME)(self);
     // The pinned BeginFrame only moves SimFrameInfo pointer queues under its
     // own synchronization; it never touches SimData or body/chunk registries.
     // Acquire afterward, preserving that lock order and excluding the complete
-    // Step, including zero-frame component-list and GameData copies.
-    if(!worker_frame_fence.owns_lock())
-        worker_frame_fence=std::unique_lock<std::mutex>(ma::oni::domain_frame_mutex());
-    return count;
+    // Step, including zero-frame component-list and GameData copies. A fence
+    // left by a pass without a GameData copy is released before BeginFrame.
+    return ma::oni::storage_heat::fenced_begin_frame(worker_frame_fence,ma::oni::domain_frame_mutex(),
+        [&]{return original<int (*)(void*)>(MA_ONI_BEGIN_FRAME)(self);});
 }
 void on_end_frame(void* self) {
     Call call(MA_ONI_END_FRAME); wait_log::Scope timed(wait_log::EndFrame);
@@ -1848,8 +1847,10 @@ MAOniResult ma_oni_native_frames_complete(MAOniNativeFrameProgress* output,std::
         if(!installed || !image_base || native_submission_depth || native_step_depth)
             throw Failure(MA_ONI_BUSY,"Native frame completion requires the attached backend outside a native call");
         storage_heat.available(); // A live transfer already owns the domain mutex.
+        const auto deadline=std::chrono::steady_clock::now()+std::chrono::milliseconds(timeout_ms);
         auto submission=storage_submissions.acquire(std::chrono::milliseconds(timeout_ms));
-        std::unique_lock frame(ma::oni::domain_frame_mutex());
+        auto frame=ma::oni::storage_heat::lock_frame_for(ma::oni::domain_frame_mutex(),
+            std::chrono::duration_cast<std::chrono::milliseconds>(deadline-std::chrono::steady_clock::now()));
         const auto p=storage_submissions.progress();
         *output={sizeof(*output),1,p.session,p.queued,p.posted,p.processed,p.posted_steps,p.completed_steps};
     });
@@ -1884,7 +1885,7 @@ MAOniResult ma_oni_storage_heat_begin(std::uint64_t* token) {
             throw Failure(MA_ONI_BUSY,"Exact storage transfer requires the attached colony outside a native call");
         storage_heat.available();
         auto submission=storage_submissions.acquire();
-        std::unique_lock frame(ma::oni::domain_frame_mutex());
+        auto frame=ma::oni::storage_heat::lock_frame_for(ma::oni::domain_frame_mutex(),std::chrono::seconds(10));
         void* sim{};std::memcpy(&sim,reinterpret_cast<const void*>(image_base+selected->data_rva),sizeof(sim));
         const auto lease=storage_heat.begin(sim,counters[MA_ONI_PROCESS_FRAME].entries.load(std::memory_order_relaxed),std::move(submission),std::move(frame));
         if(!lease)throw Failure(MA_ONI_BUSY,"Exact storage transfer awaits its declared native data/removal endpoint");
