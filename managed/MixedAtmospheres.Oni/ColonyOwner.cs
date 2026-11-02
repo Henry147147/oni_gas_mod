@@ -447,13 +447,19 @@ namespace MixedAtmospheres.Oni
                 MaximumPublicationMilliseconds = Math.Max(MaximumPublicationMilliseconds, PublicationMilliseconds);
                 if (timedCompletion) ColonyPerformanceLog.Published(status.Session, submittedAt, System.Diagnostics.Stopwatch.GetTimestamp(), matchedCompletion);
                 if (laps != null) Debug.Log($"[Mixed Atmospheres] publication frame {status.CompletedFrames} native {source->numFramesProcessed}:{laps}");
-                if(receiptPump.Generation==receiptPublicationGeneration && Active && !ColonyFault.Faulted)
-                    receiptPump.Published(receiptPublicationSession,receiptPublicationFrame,receiptObservedThrough,Time.frameCount);
+                ArmReceiptPump(receiptPublicationGeneration,receiptPublicationSession,receiptPublicationFrame,receiptObservedThrough);
                 return (IntPtr)copy.Pointer;
             }
             catch { copy.Dispose(); throw; }
         }
 
+        // Only a completed publication whose receipt epoch, owner and fault
+        // state survived it fences the idle byproduct pump.
+        private static void ArmReceiptPump(ulong generation,ulong session,ulong frame,ulong observedThrough)
+        {
+            if(receiptPump.Generation==generation && Active && !ColonyFault.Faulted)
+                receiptPump.Published(session,frame,observedThrough,Time.frameCount);
+        }
         private static void ObserveWorldPassives()
         {
             if(status.Session==passiveSession && status.CompletedFrames==passiveFrame)return;
@@ -554,7 +560,9 @@ namespace MixedAtmospheres.Oni
             var limited = ReceiptBudgetTicks > 0 && delivered <= ReceiptBacklogLimit && stepSeconds > 0;
             for (var k = 0; k < delivered; ++k)
             {
-                if(!receiptPump.Current(lease) || ColonyFault.Faulted)return 0;
+                // A fault latches: this session never delivers these receipts again.
+                if(ColonyFault.Faulted)return 0;
+                if(!receiptPump.Current(lease))break;
                 var r = receipts[k];
                 if (limited && k > 0 && r.Kind == OniNativeColony.Byproduct && System.Diagnostics.Stopwatch.GetTimestamp() - begunAt > ReceiptBudgetTicks)
                 { delivered = k; ++DeferredReceiptPublications; break; }
@@ -579,11 +587,18 @@ namespace MixedAtmospheres.Oni
                         mass = r.MassKg, temperature = r.TemperatureK, diseaseIdx = OniNativeColony.DiseaseIdx(r.Disease), diseaseCount = r.DiseaseCount });
             }
             var dispatched=publicationLog ? System.Diagnostics.Stopwatch.GetTimestamp() : 0;
+            if(ColonyFault.Faulted)return 0;
+            // A lifecycle reset during a spawn ended the lease. Its debris and
+            // collected callbacks already belong to this prefix: settle it exactly
+            // as below while its own session still holds it unacknowledged, so a
+            // surviving session cannot deliver (and spawn) it again.
+            var leased=receiptPump.Current(lease);
+            if(!leased && (through==0 || ReceiptPrefixHead(status.Session)!=receipts[0].Sequence))return 0;
             copy.AppendEvents<Sim.MassConsumedCallback>(SnapshotEventChannel.MassConsumedCallbacks, consumed.ToArray());
             copy.AppendEvents<Sim.MassEmittedCallback>(SnapshotEventChannel.MassEmittedCallbacks, emitted.ToArray());
             copy.AppendEvents<Sim.ConsumedMassInfo>(SnapshotEventChannel.RemovedMassEntries, removed.ToArray());
             var appended=publicationLog ? System.Diagnostics.Stopwatch.GetTimestamp() : 0;
-            if(!receiptPump.Current(lease) || ColonyFault.Faulted)return 0;
+            if(ColonyFault.Faulted || leased && !receiptPump.Current(lease))return 0;
             OniNativeColony.Check(OniNativeColony.AckReceipts(through));
             var acknowledged=publicationLog ? System.Diagnostics.Stopwatch.GetTimestamp() : 0;
             ColonyPipePorts.Acknowledged(through);
@@ -593,7 +608,7 @@ namespace MixedAtmospheres.Oni
                 var receiptCollectionsAfter=GC.CollectionCount(0);
                 Debug.Log(FormattableString.Invariant($"[Mixed Atmospheres] receipt delivery frame {status.CompletedFrames} available {count} delivered {delivered} copy_ms {(copied-begun)*factor:F3} dispatch_ms {(dispatched-copied)*factor:F3} byproducts {byproducts} byproduct_ms {byproductTicks*factor:F3} append_ms {(appended-dispatched)*factor:F3} ack_ms {(acknowledged-appended)*factor:F3} settle_ms {(finished-acknowledged)*factor:F3} step_s {stepSeconds:R} limited {(limited?1:0)} budget_ms {ReceiptBudgetTicks*factor:F3} byproduct_max_ms {maximumByproductTicks*factor:F3} gc_delta {unchecked(receiptCollectionsAfter-receiptCollections)}"));
             }
-            return observedThrough;
+            return leased ? observedThrough : 0;
         }
 
         // Mass and heat messages for owned fluid cells go to the owner. Returns

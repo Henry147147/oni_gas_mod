@@ -59,6 +59,7 @@ def main() -> None:
     owner = (source_dir / "ColonyOwner.cs").read_text()
     delivery = method(owner, "DeliverReceipts").replace("private static ulong", "internal static ulong", 1)
     delivery += "\n" + method(owner, "DeliverReceiptsOrThrow")
+    delivery += "\n" + method(owner, "ArmReceiptPump", "void")
     if "delivered <= ReceiptBacklogLimit && stepSeconds > 0" not in delivery:
         raise ValueError("Original publication admission policy changed; review its tests explicitly")
     preamble = """using System;using System.Collections.Generic;using UnityEngine;
@@ -68,7 +69,7 @@ internal static OniNativeColony.Receipt[] receipts=new OniNativeColony.Receipt[4
 internal static void InvalidateLifecycleReadings(){}
 internal static void SpawnByproduct(in OniNativeColony.Receipt r){TestRuntime.Dispatch(r);}
 private static bool InRect(int cell,out int index){index=cell;return Grid.IsValidCell(cell);}
-internal static void CommitTestPublication(ulong frame,int unityFrame){status=OniNativeColony.Current;status.CompletedFrames=frame;var epoch=receiptPump.Generation;var copy=new OwnedGameDataSnapshot();var observed=DeliverReceipts(copy);TestRuntime.LastSnapshot=copy;if(!TestRuntime.PublicationFails&&epoch==receiptPump.Generation&&!ColonyFault.Faulted)receiptPump.Published(status.Session,frame,observed,unityFrame);}
+internal static void CommitTestPublication(ulong frame,int unityFrame){Time.frameCount=unityFrame;status=OniNativeColony.Current;status.CompletedFrames=frame;var epoch=receiptPump.Generation;var copy=new OwnedGameDataSnapshot();var observed=DeliverReceipts(copy);TestRuntime.LastSnapshot=copy;if(!TestRuntime.PublicationFails)ArmReceiptPump(epoch,status.Session,frame,observed);}
 internal static ColonyReceiptPumpState TestState=>receiptPump;
 """
     args.out.mkdir(parents=True, exist_ok=True)

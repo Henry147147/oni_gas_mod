@@ -18,6 +18,14 @@ namespace MixedAtmospheres.Oni
             Time.timeScale>0 && !ColonyOwnerPausedResave.Holding && !ColonyContinuationProbe.Holding &&
             !ColonyCallbackRequests.Pending && !ColonySavedParticles.Pending && !ColonyPipeSave.Pending &&
             !ColonyPipeRuntime.NativeBindingsPending && !ColonyPipeCultureState.NeedsReadyBarrier && !ColonyClusterRetirement.Pending;
+        // The first unacknowledged receipt of `session`, or 0 when the native
+        // session was replaced or holds none.
+        private static ulong ReceiptPrefixHead(ulong session)
+        {
+            if(ColonyReceiptPumpNative.Read().Session!=session)return 0;
+            OniNativeColony.Check(OniNativeColony.CopyReceipts(pumpReceipts,1,out var available));
+            return available==0?0:pumpReceipts[0].Sequence;
+        }
         internal static void PumpDeferredByproducts()
         {
             if(!receiptPumpEnabled || !PumpGuards() || !ColonySaveBarrier.CanRunLifecycle)return;
@@ -37,9 +45,10 @@ namespace MixedAtmospheres.Oni
                     var count=(int)Math.Min(available,(uint)pumpReceipts.Length);var through=0UL;var delivered=0;
                     for(var k=0;k<count;++k)
                     {
-                        if(!receiptPump.Current(lease))return;
+                        // A lease reset or fault inside a spawn stops the batch;
+                        // the debris spawned so far is still acknowledged below.
+                        if(!receiptPump.Current(lease) || ColonyFault.Faulted)break;
                         if(!PumpGuards() || receiptPump.Suspended || receiptPump.PublicationSerial!=publication){++receiptPump.GuardStops;break;}
-                        if(ColonyFault.Faulted)return;
                         if(delivered>0 && System.Diagnostics.Stopwatch.GetTimestamp()-begun>ReceiptPumpBudgetTicks)
                         {++receiptPump.BudgetStops;break;}
                         var r=pumpReceipts[k];
@@ -51,14 +60,19 @@ namespace MixedAtmospheres.Oni
                         {++receiptPump.AmbiguousStops;break;}
                         SpawnByproduct(r);through=r.Sequence;++delivered;
                     }
-                    if(through==0 || !receiptPump.Current(lease) || ColonyFault.Faulted)return;
-                    // No callback code runs between this check and Ack. Native
-                    // append only extends the tail; lifecycle/session changes
-                    // are on this same game thread and invalidate the lease.
-                    native=ColonyReceiptPumpNative.Read();
-                    if(native.State!=1 || native.Session!=session)return;
+                    if(through==0)return;
+                    // Debris exists for every receipt through `through`: always
+                    // acknowledge exactly that prefix while its own native session
+                    // still holds it, even after a fault (a native fault does not
+                    // stop ordinary publications from delivering receipts) or a
+                    // lease reset. No callback code runs between this check and
+                    // Ack; native append only extends the tail. Without the lease,
+                    // a nested delivery may already have settled part of it.
+                    var leased=receiptPump.Current(lease);
+                    if(leased && ColonyReceiptPumpNative.Read().Session!=session)return;
+                    if(!leased){var head=ReceiptPrefixHead(session);if(head==0 || head>through)return;}
                     OniNativeColony.Check(OniNativeColony.AckReceipts(through));
-                    receiptPump.Delivered+=delivered;
+                    if(leased)receiptPump.Delivered+=delivered;
                 }
                 catch(Exception error)
                 {

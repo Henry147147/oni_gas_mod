@@ -521,6 +521,10 @@ Idle Unity frames can also drain an already observed byproduct prefix under
 a separate 2 ms budget. A successful publication's session/frame/sequence
 fence prevents future, callback, job or precise/moving outcomes from crossing
 this path. Shared delivery leases and lifecycle/save guards protect custody.
+A batch stopped by a fault or lease reset still acknowledges exactly the
+debris it spawned while that native session holds it, so a surviving session
+never spawns it twice (an ordinary publication settles its processed prefix
+the same way; a latched managed fault never delivers again).
 `MA_COLONY_BYPRODUCT_PUMP=0` disables it. The original normal-publication
 budget and full settlement remain in place. This changes receipt scheduling
 relative to Unity; it does not establish identical live-world trajectories.

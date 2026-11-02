@@ -68,7 +68,43 @@ internal static class Program
   foreach(var phase in new[]{"status","copy","outcome","dispatch","ack"}){
    Prime();var before=Wire(OniNativeColony.Pending);var acks=OniNativeColony.Acks.Count;TestRuntime.FailAt=phase;Pump(3);Check(ColonyFault.Faulted&&OniNativeColony.Acks.Count==acks&&Wire(OniNativeColony.Pending).SequenceEqual(before),"fault before Ack changed custody: "+phase);var sent=TestRuntime.Dispatches.Count;Pump(4);Check(TestRuntime.Dispatches.Count==sent,"faulted pump retried Spawn: "+phase);NoAdvance();
   }
-  Prime();var pending=Wire(OniNativeColony.Pending);var acknowledged=OniNativeColony.Acks.Count;TestRuntime.BeforeRawRead=()=>{if(TestRuntime.RawReads==2)OniNativeColony.Current.State=2;};Pump(3);Check(OniNativeColony.Acks.Count==acknowledged&&Wire(OniNativeColony.Pending).SequenceEqual(pending),"native fault before Ack changed pending prefix");NoAdvance();
+  // A native fault does not stop ordinary publications from delivering the
+  // session's receipts, so debris already spawned must be acknowledged.
+  Prime();var expected=Records(20);TestRuntime.BeforeRawRead=()=>{if(TestRuntime.RawReads==2)OniNativeColony.Current.State=2;};Pump(3);
+  Check(OniNativeColony.Acks.Last()==6&&Wire(OniNativeColony.Pending).SequenceEqual(Wire(expected.Skip(6))),"native fault before Ack left spawned debris deliverable or consumed its unspawned tail");
+  ColonySaveBarrier.StepSeconds=0;ColonyOwner.CommitTestPublication(18,4);
+  Check(OniNativeColony.Pending.Count==0&&TestRuntime.Dispatches.SequenceEqual(expected.Select(r=>r.Sequence)),"native-faulted session spawned acknowledged debris again");NoAdvance();
+ }
+ // Spawned debris is acknowledged exactly once on every early exit whose own
+ // native session survives; a replaced session or latched fault is untouched.
+ static void CustodyControls()
+ {
+  var expected=Records(20);
+  Prime();TestRuntime.DispatchAction=()=>{TestRuntime.DispatchAction=null;ColonyOwner.ResetReceiptPump();};Pump(3);
+  Check(OniNativeColony.Acks.Last()==4&&OniNativeColony.Pending[0].Sequence==5&&!ColonyFault.Faulted&&ColonyOwner.TestState.Delivered==0,"lease reset after Spawn left its debris deliverable or credited a new pump state");
+  ColonySaveBarrier.StepSeconds=0;ColonyOwner.CommitTestPublication(18,4);
+  Check(OniNativeColony.Pending.Count==0&&TestRuntime.Dispatches.SequenceEqual(expected.Select(r=>r.Sequence)),"surviving session spawned pump debris twice");NoAdvance();
+  Prime();TestRuntime.DispatchAction=()=>{TestRuntime.DispatchAction=null;ColonyFault.Raise("spawn",new InvalidOperationException("contained"));};Pump(3);
+  Check(ColonyFault.Faulted&&OniNativeColony.Acks.Last()==4&&OniNativeColony.Pending[0].Sequence==5,"fault after Spawn left its debris unacknowledged");NoAdvance();
+  // Ordinary publication: a lifecycle reset inside a spawn settles the whole
+  // processed prefix, including callbacks collected before that spawn.
+  TestRuntime.Reset();ColonySaveBarrier.StepSeconds=0;var mixed=Records(6);mixed[0].Kind=OniNativeColony.Extract;OniNativeColony.Pending.AddRange(mixed);
+  TestRuntime.DispatchAction=()=>{TestRuntime.DispatchAction=null;ColonyOwner.ResetReceiptPump();};ColonyOwner.CommitTestPublication(17,1);
+  Check(OniNativeColony.Acks.SequenceEqual(new ulong[]{2})&&OniNativeColony.Pending[0].Sequence==3&&TestRuntime.Callbacks[SnapshotEventChannel.MassConsumedCallbacks].Count==19&&!ColonyFault.Faulted&&!ColonyOwner.TestState.Armed,"lease reset during publication lost its collected callback or left spawned debris deliverable");
+  ColonyOwner.CommitTestPublication(18,2);
+  Check(OniNativeColony.Pending.Count==0&&TestRuntime.Dispatches.SequenceEqual(mixed.Skip(1).Select(r=>r.Sequence))&&TestRuntime.Callbacks[SnapshotEventChannel.MassConsumedCallbacks].Count==19,"surviving session delivered a settled publication prefix twice");
+  TestRuntime.Reset();ColonySaveBarrier.StepSeconds=0;OniNativeColony.Pending.AddRange(Records(5));var replacement=Records(2,1,1);
+  TestRuntime.DispatchAction=()=>{TestRuntime.DispatchAction=null;ColonyOwner.ResetReceiptPump();OniNativeColony.Current.Session=2;OniNativeColony.Pending.Clear();OniNativeColony.Pending.AddRange(replacement);};
+  ColonyOwner.CommitTestPublication(17,1);
+  Check(OniNativeColony.Acks.Count==0&&Wire(OniNativeColony.Pending).SequenceEqual(Wire(replacement))&&TestRuntime.LastSnapshot!.Bytes.Count==0&&!ColonyFault.Faulted,"publication settled an old prefix into a replaced session");
+  TestRuntime.Reset();ColonySaveBarrier.StepSeconds=0;OniNativeColony.Pending.AddRange(Records(5));
+  TestRuntime.DispatchAction=()=>{TestRuntime.DispatchAction=null;ColonyFault.Raise("spawn",new InvalidOperationException("contained"));};ColonyOwner.CommitTestPublication(17,1);
+  var spawned=TestRuntime.Dispatches.Count;ColonyOwner.CommitTestPublication(17,2);Pump(3);
+  Check(spawned==1&&TestRuntime.Dispatches.Count==1&&OniNativeColony.Acks.Count==0,"latched fault redelivered its publication prefix");
+  // Production arming: a publication whose owner stopped does not fence the pump.
+  TestRuntime.Reset();ColonySaveBarrier.StepSeconds=.2f;ColonyOwner.CommitTestPublication(17,1);OniNativeColony.Current.CompletedFrames=18;OniNativeColony.Pending.AddRange(Records(20));
+  TestRuntime.DispatchAction=()=>{TestRuntime.DispatchAction=null;ColonyOwner.Active=false;};ColonyOwner.CommitTestPublication(18,2);
+  Check(!ColonyOwner.TestState.Armed,"publication armed the idle pump after its owner stopped");
  }
  static void ThermalSaveControls()
  {
@@ -134,8 +170,8 @@ internal static class Program
    ColonySaveBarrier.StepSeconds=0;ColonyOwner.CommitTestPublication(18,4);Check(OniNativeColony.Pending.Count==0,"opt-out changed original zero-time full publication");NoAdvance();Console.WriteLine("PASS receipt pump opt-out: "+checks+" assertions; original publication drains, idle pump does not.");return 0;
   }
   if(args.Length!=0)throw new ArgumentException("Unknown receipt pump control argument");
-  StateControls();PrefixControls();GuardControls();ReentryControls();FaultControls();ThermalSaveControls();EmptyPumpAllocation();PacketControls();NativePublicationControls();
-  Console.WriteLine("PASS idle receipt pump: "+checks+" assertions; actual delivery, pump and save-barrier bodies with deterministic clock/fake endpoints.");
+  StateControls();PrefixControls();GuardControls();ReentryControls();FaultControls();CustodyControls();ThermalSaveControls();EmptyPumpAllocation();PacketControls();NativePublicationControls();
+  Console.WriteLine("PASS idle receipt pump: "+checks+" assertions; actual delivery, arming, pump, native-publication and save-barrier bodies with deterministic clock/fake endpoints.");
 #if GAME_MONO
   Console.WriteLine("Game Mono allocation counter unsupported; allocation assertions omitted, functional controls retained.");
 #endif
