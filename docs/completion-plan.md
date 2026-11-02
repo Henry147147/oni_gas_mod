@@ -8,6 +8,12 @@ still require separate authorization.
 
 Amendments:
 
+- **Pre-flow open-sky sink adopted for profile 10, delegated decision
+  2026-11-02.** Due Space cells are also emptied before flow (booked to the
+  space-sink ledger), so comet exhaust in open sky no longer expands across
+  the vacuum each frame; saved profile-9 and older colonies are unchanged.
+  See [performance acceptance](performance-acceptance.md#grown-colony-slowdown-2026-11-02).
+
 - **Profile 10 adopted, delegated decision 2026-11-02:** new colonies create
   game profile 10 (physical checkpoint 30), profile 9 plus the
   [layered vertical remap](../native/MAC_GAME_KERNEL.md#suspended-liquid-and-the-layered-vertical-remap):

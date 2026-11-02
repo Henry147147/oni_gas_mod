@@ -78,6 +78,12 @@ play.
   faults the owner. `MA_COLONY_LEDGER_LOG=1` reports on stderr each frame
   that raises the worst species' mass drift above 1e-12.
 - **Open sky.** Whatever reaches a Space cell leaves through the sink, booked.
+  The sink empties each due Space cell after flow; from profile 10 it also
+  empties them before flow, so material placed in open sky (comet exhaust,
+  emitters in space) leaves at once instead of first expanding across the
+  vacuum for a whole frame (delegated decision 2026-11-02). Saved profile-9
+  and older colonies keep the after-flow sink only; `MA_COLONY_SPACE_PRESINK=1`
+  forces the earlier sink there for diagnostics.
 - **Trace sink** ([base-game floor](base-game-floor.md)). A colony started with
   `MA_ONI_COLONY_GAME_FLOOR` runs the saved game-floor profile: constituents
   below its threshold (1e-11 kg per cell, the smallest passing tested decade)

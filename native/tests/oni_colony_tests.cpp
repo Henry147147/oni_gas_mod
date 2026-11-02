@@ -593,6 +593,54 @@ void shadow_handoff_control() {
     require(checkpoint()==image,"Shadow synchronization advanced an additional physical frame");
     stop();std::cout<<"PASS native shadow handoff: preceding owner frame completed, both arrays current, no extra physical frame\n";
 }
+// Open sky is a sink. From profile 10 a due Space cell also gives up its
+// material before flow, so a parcel emitted into open sky (comet exhaust)
+// leaves at once, booked to the space-sink ledger, instead of first expanding
+// into the neighbouring air. Profile 9 keeps its saved behaviour.
+void open_sky_presink_control() {
+    using namespace ma::oni::colony;
+    const auto run=[&](bool profile9) {
+#if defined(_WIN32)
+        require(_putenv_s("MA_COLONY_KERNEL3_PROFILE9",profile9?"1":"0")==0,"Cannot select the profile");
+#else
+        require(setenv("MA_COLONY_KERNEL3_PROFILE9",profile9?"1":"0",1)==0,"Cannot select the profile");
+#endif
+        constexpr std::uint32_t width=6,height=4;
+        MAOniColonyConfig cfg{};cfg.struct_size=sizeof(cfg);cfg.abi_version=MA_ONI_COLONY_ABI_VERSION;cfg.vacuum_index=vacuum;
+        cfg.flags=MA_ONI_COLONY_GAME_KERNEL|MA_ONI_COLONY_GAME_SURFACE|MA_ONI_COLONY_GAME_ACTIVITY;
+        cfg.grid_width=cfg.width=width;cfg.grid_height=cfg.height=height;cfg.maximum_timestep_s=.1;
+        std::vector<MAOniColonyMaterial> mats{material("Oxygen",11,oxygen,true,.032,1000),material("CarbonDioxide",12,carbon,true,.044,850)};
+        std::vector<MAOniColonyCell> cells(width*height,MAOniColonyCell{0,MA_ONI_COLONY_SOLID,0,0,0,0});
+        for(std::uint32_t y=1;y+1<height;++y)for(std::uint32_t x=1;x+1<width;++x)
+            cells[x+y*width]=x<3?MAOniColonyCell{oxygen,MA_ONI_COLONY_FLUID,1,300,0,0}:MAOniColonyCell{0,MA_ONI_COLONY_SPACE,0,0,0,0};
+        set_diseases({},{},0);start(cfg,mats,cells,1);
+        double injected=0;
+        for(std::uint64_t frame=1;frame<=4;++frame) {
+            const MAOniColonyTransfer exhaust{3+width,carbon,MA_ONI_COLONY_INJECT,0,-1,0,1.0/30*50,300,0};
+            queue_transfers(std::span(&exhaust,1));injected+=exhaust.mass_kg;
+            (void)queue_activity(status().session,static_cast<double>(.2f),{},{});
+            advance(frame,static_cast<double>(.2f),2);wait();
+            if(status().state!=1)throw std::runtime_error("open-sky control faulted: "+std::string(status().error));
+        }
+        // Carbon dioxide that reached the room (the non-space cells).
+        const std::array<std::uint32_t,4> room{1+width,2+width,1+2*width,2+2*width};
+        MAOniColonyStatus sampled{};std::vector<MAOniColonySampleCell> rows;std::vector<MAOniColonySamplePart> parts;
+        sample(room,sampled,rows,parts);double reached=0;
+        for(const auto& part:parts)if(part.native_index==carbon)reached+=part.mass_kg;
+        const auto end=status();stop();
+        require(end.maximum_relative_mass_error<=1e-12 && end.maximum_relative_energy_error<=1e-12,"open-sky control ledger did not close");
+        return std::pair{reached,injected};
+    };
+    const auto [profile10,injected]=run(false);const auto [profile9,same]=run(true);
+#if defined(_WIN32)
+    require(_putenv_s("MA_COLONY_KERNEL3_PROFILE9","")==0,"Cannot restore the profile selector");
+#else
+    require(unsetenv("MA_COLONY_KERNEL3_PROFILE9")==0,"Cannot restore the profile selector");
+#endif
+    require(injected==same && profile10==0,"profile 10 let carbon dioxide emitted into open sky reach the room");
+    require(profile9>0,"profile 9 no longer lets an open-sky parcel expand into the room before its sink");
+    std::cout<<"PASS open-sky sink: of "<<injected<<" kg emitted into open sky, profile 10 let 0 kg and profile 9 "<<profile9<<" kg reach the room\n";
+}
 void moving_job_control() {
     using namespace ma::oni::colony;
     using namespace ma::oni::colony::detail;
@@ -2094,6 +2142,7 @@ int main(int argc, char** argv) {
         unplaced_output_control();
         quiet_game_cell_control();
         shadow_handoff_control();
+        open_sky_presink_control();
         moving_job_control();
         tiny_injection_neighbour_control();
         airflow_boundary_control();

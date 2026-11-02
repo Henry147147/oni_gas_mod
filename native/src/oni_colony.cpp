@@ -3398,6 +3398,30 @@ void run_frame(std::uint64_t ticket,double seconds,std::uint64_t frames,const ch
             }
         }
         std::uint64_t substeps=0,rejected_attempts=0;
+        // Open sky is a sink: each due space cell gives up all its material
+        // (booked to the space-sink ledger) after flow, and from profile 10
+        // also before it, so a parcel placed in open sky (comet exhaust)
+        // leaves at once instead of first expanding across the vacuum for a
+        // whole frame (delegated decision 2026-11-02). Saved profile-9 and
+        // older colonies keep their saved behaviour; MA_COLONY_SPACE_PRESINK=1
+        // forces it there for diagnostics only.
+        const auto sink_space=[&] {
+            std::vector<MacFluidTransfer> sink;
+            for (std::size_t i = 0; i < s.space.size(); ++i) if (s.space[i] && (due.empty() || due[i]>0)) {
+                const auto& m = world.state().cells[i].mixture;
+                for (std::size_t k = 0; k < m.masses.size(); ++k) if (m.masses[k] > 0) sink.push_back({i, k, false, m.masses[k], 0});
+            }
+            for (std::size_t first = 0; first < sink.size(); first += 4096) {
+                const std::span<const MacFluidTransfer> batch(sink.data() + first, std::min<std::size_t>(4096, sink.size() - first));
+                auto result = external_transfers(std::move(world),batch, MacFluidTransferTopology::occupied_mixture);
+                world = std::move(result.world);
+                for (const auto& parcel : result.parcels) { L.sunk[parcel.species_index] += parcel.mass_kg; L.energy_sunk += parcel_energy(parcel); s.status.space_sink_kg += parcel.mass_kg; }
+            }
+        };
+        static const bool forced_presink=[]{const char* v=std::getenv("MA_COLONY_SPACE_PRESINK");return v && v[0]=='1' && v[1]==0;}();
+        if(!flush_only && (forced_presink || world.settings().game_profile>=MacGameProfile::game_kernel_layered_remap)) {
+            step("open-sky sink"); sink_space();
+        }
         if(!flush_only) {
         // The profile's trace sink before the flow is the flow's own (advanced()
         // applies it at both ends of its interval).
@@ -3518,17 +3542,7 @@ void run_frame(std::uint64_t ticket,double seconds,std::uint64_t frames,const ch
         world = sink_traces(s, std::move(world),due);
         lap(3); step("space sink");
         // Open sky: whatever reaches a space cell leaves through the sink.
-        std::vector<MacFluidTransfer> sink;
-        for (std::size_t i = 0; i < s.space.size(); ++i) if (s.space[i] && (due.empty() || due[i]>0)) {
-            const auto& m = world.state().cells[i].mixture;
-            for (std::size_t k = 0; k < m.masses.size(); ++k) if (m.masses[k] > 0) sink.push_back({i, k, false, m.masses[k], 0});
-        }
-        for (std::size_t first = 0; first < sink.size(); first += 4096) {
-            const std::span<const MacFluidTransfer> batch(sink.data() + first, std::min<std::size_t>(4096, sink.size() - first));
-            auto result = external_transfers(std::move(world),batch, MacFluidTransferTopology::occupied_mixture);
-            world = std::move(result.world);
-            for (const auto& parcel : result.parcels) { L.sunk[parcel.species_index] += parcel.mass_kg; L.energy_sunk += parcel_energy(parcel); s.status.space_sink_kg += parcel.mass_kg; }
-        }
+        sink_space();
         }
         lap(4); step("ledger");
         // Ledgers close: every species and U+K+G against the booked flows.
