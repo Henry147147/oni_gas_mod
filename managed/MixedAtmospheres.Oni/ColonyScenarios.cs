@@ -2323,6 +2323,42 @@ namespace MixedAtmospheres.Oni
         private static void Arena(Func<int, int, (SimHashes element, float mass, float temperature)> inside, int width = Width, int height = Height)
         {
             fillWidth = width; fillHeight = height;
+            // A large arena slides right past natural gas pockets: closing its border displaces
+            // their gas into an arena that is still vacuum, a rarefaction the flow solver does
+            // not survive for a hydrogen pocket beside the printing pod (docs/dlc-compatibility.md).
+            if (width * height >= 200)
+            {
+                var slid = 0;
+                bool Pocket()
+                {
+                    for (var y = -2; y <= height + 1; ++y) for (var x = -2; x <= width + 1; ++x)
+                    {
+                        var c = Grid.XYToCell(x0 + x, y0 + y);
+                        if (Grid.IsValidCell(c) && !Grid.Solid[c] && Grid.Mass[c] > 0.01f) return true;
+                    }
+                    return false;
+                }
+                while (Pocket() && slid < 70 && x0 + width + 3 < Grid.WidthInCells) { ++x0; ++slid; }
+                if (slid > 0) { pendingShift += slid; Debug.Log($"[Mixed Atmospheres] arena {Current.Name} slid {slid} cells right of natural gas pockets"); }
+            }
+            // What the arena replaces, for a fault or an odd result (elements by cell count, mass and the temperature range).
+            {
+                var seen = new Dictionary<string, (int cells, double mass, float low, float high)>();
+                for (var y = -1; y <= height; ++y) for (var x = -1; x <= width; ++x)
+                {
+                    var c = Grid.XYToCell(x0 + x, y0 + y); if (!Grid.IsValidCell(c)) continue;
+                    var name = Grid.Element[c].id.ToString(); seen.TryGetValue(name, out var v);
+                    seen[name] = (v.cells + 1, v.mass + Grid.Mass[c], v.cells == 0 ? Grid.Temperature[c] : Math.Min(v.low, Grid.Temperature[c]), v.cells == 0 ? Grid.Temperature[c] : Math.Max(v.high, Grid.Temperature[c]));
+                }
+                var pockets = new List<string>();
+                for (var y = -1; y <= height; ++y) for (var x = -1; x <= width; ++x)
+                {
+                    var c = Grid.XYToCell(x0 + x, y0 + y);
+                    if (Grid.IsValidCell(c) && !Grid.Solid[c] && Grid.Mass[c] > 0) pockets.Add($"({x},{y}) {Grid.Element[c].id} {Grid.Mass[c]:G4} kg {Grid.Temperature[c]:F0} K owned {ColonyOwner.OwnsFluidCell(c)}");
+                }
+                Debug.Log($"[Mixed Atmospheres] arena {Current.Name} fluid cells: {string.Join("; ", pockets)}; species 58 is {(ColonyOwner.Materials.Length > 58 ? ColonyOwner.Materials[58].Id : "-")}");
+                Debug.Log($"[Mixed Atmospheres] arena {Current.Name} at {x0},{y0} {width}x{height} replaces: " + string.Join("; ", seen.Select(e => $"{e.Key} {e.Value.cells} cells {e.Value.mass:G5} kg {e.Value.low:F0}..{e.Value.high:F0} K")));
+            }
             // An arena that leaves the home asteroid would wrap into other rows or worlds: refuse it.
             foreach (var (cx, cy) in new[] { (-1, -1), (width, -1), (-1, height), (width, height), (width / 2, height / 2) })
             {

@@ -126,7 +126,7 @@ public:
               state.energy[i], g.V);
         } catch (const std::exception &e) {
           errors[block] =
-              "Private flow EOS cell " + std::to_string(i) + ": " + e.what();
+              "Private flow EOS cell " + std::to_string(i) + " (" + std::to_string(i % g.W) + "," + std::to_string(i / g.W) + " of " + std::to_string(g.W) + "x" + std::to_string(g.N / g.W) + "): " + e.what();
           break;
         }
       }
@@ -175,7 +175,7 @@ public:
               after.energy[i], g.V);
         } catch (const std::exception &e) {
           errors[block] =
-              "Private flow EOS cell " + std::to_string(i) + ": " + e.what();
+              "Private flow EOS cell " + std::to_string(i) + " (" + std::to_string(i % g.W) + "," + std::to_string(i / g.W) + " of " + std::to_string(g.W) + "x" + std::to_string(g.N / g.W) + "): " + e.what();
           break;
         }
       }

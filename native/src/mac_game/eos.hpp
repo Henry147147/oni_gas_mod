@@ -1,4 +1,6 @@
 #pragma once
+#include <sstream>
+#include <string_view>
 #include <algorithm>
 #include "liquid.hpp"
 #include <cmath>
@@ -131,8 +133,25 @@ inline Eos evaluate_selected(std::span<const Species> species,
                              double energy, double volume) {
   Eos result;
   if (const auto error = try_evaluate_selected(result, species, count, key,
-                                               mass, energy, volume))
-    throw std::runtime_error(error);
+                                               mass, energy, volume)) {
+    if (std::string_view(error) != "Prototype EOS outside its thermal/pressure domain")
+      throw std::runtime_error(error);
+    // Name the offending state: the temperature against the species' common
+    // domain, the pressure and every species' mass.
+    double minimum = 0, maximum = 1e300;
+    std::ostringstream detail;
+    detail << error << " [T " << result.temperature << " K, P " << result.pressure << " Pa, U " << energy
+           << " J, V " << volume << " m3, species";
+    for (std::size_t a = 0; a < count; ++a) {
+      const auto k = key(a);
+      if (!(mass(a) > 0)) continue;
+      minimum = std::max(minimum, species[k].minimum_temperature);
+      maximum = std::min(maximum, species[k].maximum_temperature);
+      detail << ' ' << k << (species[k].gas ? "g " : "l ") << mass(a);
+    }
+    detail << "; domain " << minimum << ".." << maximum << " K]";
+    throw std::runtime_error(detail.str());
+  }
   return result;
 }
 inline Eos evaluate(std::span<const Species> species,

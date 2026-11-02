@@ -393,6 +393,28 @@ uses the actual prefab footprint offsets and the real station site's power
 coordinates. Mixture inputs, readiness limits,16-frame observations and
 quantity bounds are unchanged. Cargo gameplay/save/load remains unaccepted.
 
+### Spaced Out! fluid systems
+
+The `spaced-out-*` scenarios of [colony-owner.md](colony-owner.md#scenarios) run the
+DLC's fluid-touching systems through the game's own mechanisms in a real
+Spaced Out! colony (Linux, the private Steam install, `--dlc-mask 1`, harness
+run ids in `artifacts/` of the `so-scenarios` worktree), each with the owner's
+mass and energy ledgers closed (relative errors at most 3e-16 / 3e-16). The
+home asteroid is 160 cells wide with the printing pod at x 72, so one game
+holds about 80 cells of arenas to its right; `Arena` now refuses one that
+leaves the asteroid (earlier results taken beyond the edge were discarded).
+
+| Scenario | Result (bundle `0bf4268`, run) |
+| --- | --- |
+| `spaced-out-radiation` | PASS (`run-i1`). The lamp fills owned cells with 428-643 rads (none behind it), the sensor switches, uranium is burnt, no fluid mass changes. **Bug found and fixed:** germs in irradiated owned cells did not die (ONI's native simulation takes radiation x kill rate germs a tick: measured 1000 slimelung germs at 91.7 rads fall by 229, see the legacy-mode run `run-e1`). The owner now does the same inside its tick; the owner reproduces the game's decay to 0.6 germs a step, control cells keep their ordinary rule and the germ accounts close. |
+| `spaced-out-hep` | PASS (`run-i1`). Two radbolts meeting in owned oxygen leave their summed payload (0.1994 kg) as hot fallout that condenses to nuclear waste; the oxygen is intact and the path holds radiation sickness. A bolt striking a solid wall adds its fallout to the solid cell, which ONI's own simulation handles (nothing reaches the owner), recorded not asserted. |
+| `spaced-out-reactor` | PASS (`run-i1`). 110 kg of coolant arrives through the conduit, the reactor radiates 6000-11700 rads in range, its over-hot coolant vents (110 kg water and steam reach the owner) and dumped spent-fuel waste (147.6 kg nuclear waste) reaches it. |
+| `spaced-out-reactor-meltdown` | see the open items below |
+| `spaced-out-engine-exhaust` | see the open items below |
+| `spaced-out-landers` | PASS (`run-i1`). The scout lander lands and both it and the landing pod emit carbon dioxide into the owner on the way (8.1 and 4.1 kg). The lander's gas and liquid cargo is not a game mechanism (its storage drops ordinary items) and is not tested. |
+| `spaced-out-poi-harvest` | PASS (`run-i1`). Oxygen, carbon dioxide, water and polluted water extracted from a space hex inventory arrive in real gas and liquid cargo bays with exact quantities and exact pipe accounts. The collector's in-flight timing is not run (the extraction call is the game's own). |
+| `spaced-out-comets-geysers` | PASS (`run-j3`). Oxylite, snowball and nuclear-waste comets land, molten aluminium, tungsten and niobium geysers erupt into owned oxygen (+174, +6.4 and +5086 kg), ledgers closed. |
+
 The 2026-10-26 request covers Spaced Out!, Frosty, Bionic, Prehistoric and
 Aquatic: every one of their 32 selections on Linux and Windows x64. This
 extends the [base-game playtest](playtest-plan.md); it does not certify the
