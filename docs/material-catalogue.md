@@ -23,6 +23,36 @@ Temperatures are admitted from 1 K to 100,000 K. Liquids may compress to twice
 their zero-pressure density. Formation enthalpies are zero except for the
 vapour of a saturation pair.
 
+### Hydrogen expansion below 1 K (open, 2026-11-02)
+
+These two choices make hydrogen an ideal gas with γ = 1 + R/(M cv) = 1 +
+8249/2400 = 4.44, beyond any physical gas (at most 5/3). Carbon gas (1.98)
+also exceeds 5/3; every other base-game and Spaced Out! gas lies between 1.005
+and 1.52 (oxygen).
+An isentropic expansion cools as ρ^(γ−1) = ρ^3.44, so a hydrogen pocket that
+spreads into vacuum to a 29th of its density cools from 319 K to below the
+1 K floor. The Spaced Out! `spaced-out-rail-gun` arena does this
+deterministically: closing cells beside a natural pocket (seven cells of
+0.1128 kg at 319 K and a 3.857 kg chlorine cell) pushes it into vacuum, and at
+owner frame 3 a cell holds 1.9 g at 0.95 K and the owner faults ("EOS outside
+its thermal/pressure domain").
+
+A private replay of the exact pre-fault world (`MA_COLONY_FAULT_DUMP`)
+reproduces the fault offline under the saved profile 9 and, with the saved
+image relabelled, under profile 10. A traced interval sequence shows ordinary
+pressure work, no lost or misbooked energy: the pocket loses thermal energy at
+each expansion step exactly as its EOS requires. The backward-Euler pressure
+of the first 0.1 s interval collapses to 0.5 Pa (a 22% expansion takes a
+γ = 4.44 gas almost to zero pressure), so later steps are short and violent.
+Real hydrogen (γ 1.41) would end near 80 K.
+
+Every fix changes the material model or its saved EOS identity (the 1 K floor
+is part of that identity), so it needs a decision: give hydrogen a physical
+heat capacity or molar mass (changes its heat content or pressure against the
+game), lower the temperature floor for gases (then the cold hydrogen condenses
+and freezes through its game transitions), or both. A fault from a legitimate
+deep expansion is release-blocking either way.
+
 ## Saturation pairs
 
 A liquid whose boiling target is a gas that condenses back to it (water and
