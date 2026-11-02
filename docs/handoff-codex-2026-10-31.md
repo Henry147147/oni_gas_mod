@@ -115,8 +115,10 @@ claim fresh speedup, equivalence or actual 3× from this change.
   Windows game Mono on Wine fails concurrent reader stress: `File.Replace`
   briefly loses the destination while writes finish successfully. Private
   MoveFileEx fails open-reader sharing; FileRenameInfoEx is unsupported there.
-  Neither alternative is adopted. Keep this reader gate open separately from
-  the repaired writer collision and from actual Windows OS acceptance.
+  Neither alternative is adopted. Resolved 2026-11-02: the contract is a whole
+  document for every read, with a missing name retried; the stress control
+  counts those retries, and the harness's live report polling now tolerates
+  them. Actual Windows OS acceptance stays separate.
 - Runtime continuation remains WIP on main. Native96/56 captures all 11 cell
   columns; MACOLP03 tag6 / MACGRT01v1 are already reserved. General controls
   pass 429 and supplemental installed-SDK/Mono controls reach 67. Source v14

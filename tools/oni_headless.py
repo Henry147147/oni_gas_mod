@@ -1047,8 +1047,8 @@ def playtest(args, state: Path, session: dict) -> int:
                             inspection_started, inspected = completed_inspection(current_report, inspection_seconds, inspection_started, time.monotonic())
                             if inspected:
                                 break
-                    except json.JSONDecodeError:
-                        pass  # Unity may currently be writing the report.
+                    except (OSError, json.JSONDecodeError):
+                        pass  # Unity may be replacing the report; on Wine its name is briefly absent.
                 if time.monotonic() >= deadline:
                     timed_out = True
                     break

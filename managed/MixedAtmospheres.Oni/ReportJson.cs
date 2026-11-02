@@ -10,6 +10,8 @@ namespace MixedAtmospheres.Oni
         internal static string Serialize(object value) => Serialize(value, Formatting.Indented);
         // World-generation and telemetry callbacks can report concurrently.
         // Serialize complete writes before reusing the sibling temporary file.
+        // Readers always see a whole document; under Wine File.Replace leaves
+        // the name briefly absent, so external readers retry a missing file.
         internal static void WriteAtomic(string path, object value)
         {
             lock (writeGate) WriteAtomicTextLocked(path, Serialize(value));
