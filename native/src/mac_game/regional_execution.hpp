@@ -1,4 +1,5 @@
 #pragma once
+#include "mixed_atmospheres/mac_energy.hpp"
 #include <algorithm>
 #include <cmath>
 #include <compare>
@@ -43,10 +44,13 @@ struct RegionExecutionDecision {
 // allocation and worker arithmetic-environment checks). Always join before a
 // failure escapes the calling thread. Infrastructure failures retain the pool's
 // precedence; numerical region errors are ordered by the caller afterward.
+// The coordinator is a fresh thread: like every kernel worker it checks its
+// arithmetic environment before it runs region arithmetic (Pool::run also
+// executes blocks on its calling thread).
 template<class Main,class Residual>
 void run_regional_pair(Main&& main,Residual&& residual) {
   std::exception_ptr residual_error,main_error;
-  std::thread coordinator([&]{try{residual();}catch(...){residual_error=std::current_exception();}});
+  std::thread coordinator([&]{try{ma::experimental::require_mac_energy_environment();residual();}catch(...){residual_error=std::current_exception();}});
   try{main();}catch(...){main_error=std::current_exception();}
   coordinator.join();
   if(residual_error)std::rethrow_exception(residual_error);
