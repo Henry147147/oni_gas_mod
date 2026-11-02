@@ -1,10 +1,15 @@
 #!/usr/bin/env python3
-"""Base-game playtest checklist over the coverage inventory (docs/playtest-plan.md).
+"""Playtest checklist over the coverage inventory (docs/playtest-plan.md).
 
-`apply` marks every inventory entry in or out of the playtest from the
-base-game Linux registry (docs/runtime-identities-linux-base.json), assigns
-each in-scope entry to a gameplay system, and copies that system's status from
-SYSTEMS below. `status` prints the checklist. Identities only; no game data.
+`apply` marks every inventory entry in or out of the playtest, assigns each
+in-scope entry to a gameplay system, and copies that system's status from
+SYSTEMS below. The default `release` scope is the base game (the Linux registry
+docs/runtime-identities-linux-base.json) plus Spaced Out! (the Windows registry
+docs/runtime-identities.json, captured with EXPANSION1_ID loaded); `--scope
+base` reproduces the earlier base-game-only checklist. Entries stay out only by
+a recorded disposition (refused pack, ONI's light model kept, disabled element;
+see OUT_DISPOSITIONS). `status` prints the checklist and `scenarios` the
+in-game scenarios each system still needs. Identities only; no game data.
 """
 from __future__ import annotations
 
@@ -18,6 +23,7 @@ import sys
 ROOT = Path(__file__).resolve().parents[1]
 INVENTORY = ROOT / "docs/coverage-inventory.json"
 BASE = ROOT / "docs/runtime-identities-linux-base.json"
+SPACED_OUT = ROOT / "docs/runtime-identities.json"
 PRIVATE_STATUS = ROOT / "docs/private-playtest-status.json"
 PRIVATE_REQUIREMENTS = frozenset((
     "mixed-pipes-and-ports", "heat-and-all-germ-identities", "conserved-gameplay-transactions",
@@ -25,13 +31,36 @@ PRIVATE_REQUIREMENTS = frozenset((
     "ordinary-player-build", "ten-cycle-acceptance-and-package",
     "configuration-and-presets", "windows-player-acceptance", "spaced-out-cluster-playtest"))
 
-# Systems out of this playtest, with the reason recorded on their entries.
-OUT_SYSTEMS = {
+# Systems out of the base-game scope, with the reason recorded on their entries
+# (`--scope base` only; the release scope implements radiation and the DLC
+# classes below).
+BASE_OUT_SYSTEMS = {
     "dlc-only": "only DLC content reaches this call site",
     "bionics": "Bionic Booster Pack content; packs follow the playtest",
     "radiation": "Spaced Out! radiation; not in the base game",
     "light": "the playtest keeps ONI's light model; fluid light absorption is a later physics item",
 }
+# Why an entry stays out of the release scope. Every out entry names exactly
+# one of these (`playtest_disposition`) next to its reason. None of them is a
+# claim of implementation: a refused pack leaves its colonies on ONI's own
+# simulation (docs/dlc-compatibility.md), ONI's light model is kept by
+# decision, and a disabled element never exists in a loaded game.
+OUT_DISPOSITIONS = ("refused-pack", "kept-vanilla", "disabled-element")
+REFUSED_PACKS = {
+    "Frosty": "The Frosty Planet Pack (DLC2_ID)", "Bionic": "The Bionic Booster Pack (DLC3_ID)",
+    "Prehistoric": "The Prehistoric Planet Pack (DLC4_ID)", "Aquatic": "The Aquatic Planet Pack (DLC5_ID)"}
+REFUSAL = "refused pack: a colony with it active stays on ONI's own simulation and shows a notice"
+LIGHT_REASON = ("kept vanilla by decision (2026-11-02): the release keeps ONI's own light model; ONI gases and liquids never "
+                "absorb light, so vanilla behaviour is unchanged and there is no physics to implement")
+DISABLED_REASON = ("disabled element (isDisabled in the game's element data): it cannot spawn in any loaded world, and the owner's "
+                   "catalogue skips disabled elements by design (ColonyOwner.BuildCatalogue)")
+# Elements whose game data sets isDisabled (identity list read once from the
+# Windows copy's elements/*.yaml; re-derive when the game build changes).
+DISABLED_ELEMENTS = frozenset((
+    "Aerogel", "Brick", "CarbonFibre", "Cement", "CementMix", "Electrum", "Helium", "LiquidHelium", "MoltenSyngas",
+    "PhosphateNodules", "Propane", "SandCement", "Slabs", "SolidSyngas", "Syngas", "Yellowcake"))
+# Fluids that exist only with Spaced Out! (dlcId EXPANSION1_ID in the element data).
+SPACED_OUT_FLUIDS = frozenset(("Fallout", "MoltenUranium", "NuclearWaste"))
 
 # Implemented systems: the adapter sources and the in-game check that shows
 # the system working with closed ledgers. A system missing here is open.
@@ -91,6 +120,41 @@ SCENARIO_SYSTEMS: dict[str, tuple[list[str], tuple[str, ...]]] = {
     "building-melting": (OWNER, ("building-melt",)),
     "particles": (OWNER, ("falling", "bottle-emptier")),
 }
+# Spaced Out! systems (release scope). Each lists the adapter sources and the
+# in-game scenarios (managed/MixedAtmospheres.Oni/ColonyScenarios*.cs, recorded
+# in docs/dlc-compatibility.md) that show it working; it flips to implemented
+# when every one is in PASSED_SCENARIOS. Names without a scenario in the
+# managed project yet are the scenarios still to be written (SPACED_OUT_TODO).
+MANAGED = "managed/MixedAtmospheres.Oni/"
+CLUSTER = [MANAGED + "ColonyClusterWorlds.cs", MANAGED + "ColonyOwner.cs", "native/src/oni_colony.cpp"]
+RETIREMENT = [MANAGED + "ColonyClusterRetirement.cs", MANAGED + "ColonyClusterRetirementInventory.cs", MANAGED + "ColonyClusterDebris.cs",
+              "native/src/oni_colony.cpp"]
+PORTS = [MANAGED + "ColonyConduitsPorts.cs", MANAGED + "ColonyConduitsMachinePorts.cs"]
+BOUNDARY = [MANAGED + "NativeMessageBoundary.cs", "native/src/oni_backend.cpp", "native/src/oni_colony.cpp"]
+SPACED_OUT_SYSTEMS: dict[str, tuple[list[str], tuple[str, ...]]] = {
+    # Entries with no fluid interaction of their own: cluster map entities, artifacts, props, previews, seeds, food, research,
+    # logic, HEP logistics and solid-only hardware. They need the cluster's worlds owned and published.
+    "spaced-out-native": (CLUSTER, ("spaced-out-worlds",)),
+    # Fallout, NuclearWaste and MoltenUranium join the owner's catalogue like every enabled game gas and liquid.
+    "spaced-out-materials": ([*CLUSTER, "native/src/oni_catalogue.cpp"], ("spaced-out-worlds",)),
+    "rocket-modules": ([*CLUSTER, *RETIREMENT], ("spaced-out-rocket", "spaced-out-input-flush", "spaced-out-rocket-retire",
+                                                 "spaced-out-rocket-flight", "spaced-out-rocket-abandon")),
+    "rocket-ports": (PORTS, ("spaced-out-rocket-ports",)),
+    "rocket-cargo": ([*PORTS, MANAGED + "ColonyOwnedStorage.cs"], ("spaced-out-cargo-gas", "spaced-out-cargo-liquid")),
+    "warp-ports": (PORTS, ("spaced-out-warp-ports",)),
+    "rocket-engines": (BOUNDARY, ("spaced-out-rocket-flight", "spaced-out-engine-exhaust")),
+    "rocket-landers": (BOUNDARY, ("spaced-out-landers",)),
+    "poi-harvest": ([MANAGED + "ColonyOwnedStorage.cs", MANAGED + "ColonyConduitsPumps.cs"], ("spaced-out-poi-harvest",)),
+    "rail-gun": (PORTS, ("spaced-out-rail-gun",)),
+    "radiation": ([*BOUNDARY, "native/src/oni_world_biology.cpp"], ("spaced-out-radiation",)),
+    "hep-particles": (BOUNDARY, ("spaced-out-hep",)),
+    "reactor": ([*MACHINES, *BOUNDARY], ("spaced-out-reactor",)),
+    "uranium-centrifuge": (MACHINES, ("spaced-out-centrifuge",)),
+    "sludge-press": (MACHINES, ("spaced-out-sludge-press",)),
+    "sublimation-station": (MACHINES, ("spaced-out-sublimation-station",)),
+    "spaced-out-critters": (ACTORS, ("spaced-out-critters",)),
+    "spaced-out-plants": (ACTORS, ("spaced-out-plants",)),
+}
 # Passing in the Linux harness (Terra, seed 147147) on the current owner.
 PASSED_SCENARIOS: set[str] = {
     "terrain", "door", "airflow", "falling", "heat", "phase", "freeze-melt", "deoxidizer", "sublimation", "breathing",
@@ -99,6 +163,10 @@ PASSED_SCENARIOS: set[str] = {
     "liquid-pump", "pipes", "mask-station", "polymer-press", "gas-generator", "geyser", "filter",
     "skimmer", "terrarium", "deodorizer", "rust-deoxidizer", "coal-generator", "electrolyzer-blocked", "hazards", "suit",
     "germ-exposure", "germ-oracle",
+    # Spaced Out!: WindowsPlayer under Proton on the recorded revisions, source plus cold/menu loads
+    # (docs/dlc-compatibility.md; docs/spaced-out-private-playtest.md; docs/release-candidate-2026-10-30.md).
+    "spaced-out-worlds", "spaced-out-rocket", "spaced-out-rocket-ports", "spaced-out-input-flush", "spaced-out-rocket-retire",
+    "spaced-out-warp-ports", "spaced-out-rocket-flight", "spaced-out-cargo-gas", "spaced-out-cargo-liquid", "spaced-out-rocket-abandon",
 }
 # Systems checked by whole-colony runs rather than one scenario.
 RUN_SYSTEMS: dict[str, dict] = {
@@ -124,10 +192,27 @@ RUN_EVIDENCE: dict[str, dict] = {
 PASSED_RUNS: set[str] = {"colony-save", "backwalls"}
 SYSTEMS.update(RUN_SYSTEMS)
 SYSTEMS.update({name: entry for name, entry in RUN_EVIDENCE.items() if name in PASSED_RUNS})
-for _system, (_files, _scenarios) in SCENARIO_SYSTEMS.items():
-    if set(_scenarios) <= PASSED_SCENARIOS:
-        SYSTEMS[_system] = {"implementation": _files, "check": "in-game scenarios " + ", ".join(f"`{name}`" for name in _scenarios) +
-                            " (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"}
+SCENARIO_SYSTEMS.update(SPACED_OUT_SYSTEMS)
+
+
+SYSTEM_NOTES = {
+    "spaced-out-native": "; these entries need no fluid adapter: they read the published cells of the owned worlds",
+    "spaced-out-materials": "; the owner's catalogue is built from every enabled game gas and liquid at start (docs/material-catalogue.md)",
+}
+
+
+def scenario_systems(passed: set[str]) -> dict[str, dict]:
+    """The scenario-checked systems whose scenarios all pass: sources and check, by system."""
+    done = {}
+    for system, (files, scenarios) in SCENARIO_SYSTEMS.items():
+        if set(scenarios) <= passed:
+            record = "docs/dlc-compatibility.md" if system in SPACED_OUT_SYSTEMS else "docs/colony-owner.md#scenarios"
+            done[system] = {"implementation": files, "check": "in-game scenarios " + ", ".join(f"`{name}`" for name in scenarios) +
+                            f" ({record}) pass with the owner's ledgers closed" + SYSTEM_NOTES.get(system, "")}
+    return done
+
+
+SYSTEMS.update(scenario_systems(PASSED_SCENARIOS))
 FLUID_PHASES = ("gas", "liquid")
 
 # Prefab component -> system, first match wins. Prefabs matching nothing
@@ -205,10 +290,28 @@ SIM_MESSAGE_SYSTEMS = {
     "NewGameFrame": "frame-publication", "SetDebugProperties": "frame-publication", "SetSavedOptionValue": "colony-save",
     "SetBackwallData": "backwalls",
 }
-# Managed call sites by declaring class. DLC-only classes are out.
+# Managed call sites by declaring class whose content needs a DLC. With the base
+# scope they stay out as one group; the release scope names each class below.
 DLC_CLASSES = {"BionicMassOxygenAbsorbChore", "ClustercraftInteriorDoorConfig", "GunkMonitor", "HighEnergyParticle", "PodLander",
                "Reactor", "RocketEngineCluster", "SelfChargingElectrobank", "Electrobank", "CargoLander", "IceKettle",
                "BeeForageStates", "SpaceTreeSeededComet"}
+# Release scope: the Spaced Out! classes (EXPANSION1_ID in the prefab configs; the same SimMessages wrappers the owner already
+# takes for every caller, each needing its own in-game evidence) and the classes that only a refused pack reaches (the
+# prefab configs require DLC2_ID, DLC3_ID or DLC5_ID, and none is in either runtime registry).
+SPACED_OUT_CLASSES = {
+    "reactor": {"Reactor"},
+    "rocket-modules": {"ClustercraftInteriorDoorConfig"},
+    "rocket-landers": {"PodLander", "CargoLander"},
+    "rocket-engines": {"RocketEngineCluster"},
+    "hep-particles": {"HighEnergyParticle"},
+    "spaced-out-critters": {"BeeForageStates"},
+    "spaced-out-plants": {"CritterTrapPlant"},
+}
+REFUSED_CLASSES = {
+    "Bionic": {"BionicMassOxygenAbsorbChore", "GunkMonitor", "Electrobank", "SelfChargingElectrobank"},
+    "Frosty": {"IceKettle", "SpaceTreeSeededComet", "GeothermalVent"},
+    "Aquatic": {"BaseSquidConfig", "BreathingGeyser"},
+}
 CLASS_SYSTEMS = {
     "duplicants": {"CO2Manager", "GasBreatherFromWorldProvider", "VomitChore", "FartChore", "Flatulence", "PeeChore", "UglyCryChore", "Stinky"},
     "disease": {"DecompositionMonitor", "SlimeSickness"},
@@ -237,25 +340,113 @@ CLASS_SYSTEMS = {
 }
 
 
-def system_of(entry: dict, base: dict, materials: dict) -> str:
+# Release scope: umbrella gameplay systems whose description reaches Spaced Out! parts also wait for those systems.
+UMBRELLA_REQUIRES = {
+    "rockets": ("rocket-modules", "rocket-ports", "rocket-cargo", "warp-ports", "rocket-engines", "rocket-landers", "poi-harvest", "rail-gun"),
+    "generators": ("reactor",),
+    "plants": ("spaced-out-plants",),
+    "critters": ("spaced-out-critters",),
+    "refineries": ("sludge-press", "uranium-centrifuge", "sublimation-station"),
+    "cluster-import": ("spaced-out-native", "spaced-out-materials"),
+}
+# Spaced Out! prefab components that decide a system, first match wins (release scope, prefabs the base game lacks).
+HEP_BUILDINGS = {"HighEnergyParticle", "HighEnergyParticleSpawner", "ManualHighEnergyParticleSpawner", "DevHEPSpawner"}
+ROCKET_MODULE_COMPONENTS = {"RocketModuleCluster", "ReorderableBuilding", "Clustercraft", "PassengerRocketModule", "ClustercraftExteriorDoor",
+                            "ClustercraftInteriorDoor", "NavTeleporter", "LaunchableRocketCluster", "CraftModuleInterface"}
+RECIPE_FABRICATOR_SYSTEMS = {"SludgePress": "sludge-press", "UraniumCentrifuge": "uranium-centrifuge",
+                             "ManualHighEnergyParticleSpawner": "hep-particles"}
+SOLID_CONDUITS = {"SolidConduitConsumer", "SolidConduitDispenser"}
+
+
+def spaced_out_prefab_system(name: str, components: set[str]) -> str | None:
+    """The system of a Spaced Out! prefab by its real components, or None when only the base rules apply."""
+    c = components
+    if "BuildingUnderConstruction" in c: return "terrain-construction"
+    if c & {"BuildingPreview", "EntityPreview"}: return "spaced-out-native"
+    if name == "SublimationStation": return "sublimation-station"
+    if name == "SludgePress": return "sludge-press"
+    if "UraniumCentrifuge" in c: return "uranium-centrifuge"
+    if "Reactor" in c: return "reactor"
+    if c & HEP_BUILDINGS: return "hep-particles"
+    if c & {"Bee", "Staterpillar", "StaterpillarGenerator"} or name.startswith(("BeeHive", "StaterpillarGas", "StaterpillarLiquid")):
+        return "spaced-out-critters"
+    if c & {"RailGun", "RailGunPayloadOpener"} or name == "RailGunPayload": return "rail-gun"
+    if c & {"WarpConduitSender", "WarpConduitReceiver"}: return "warp-ports"
+    if c & {"HarvestablePOIClusterGridEntity", "HarvestablePOIConfigurator", "StarmapHexCellInventory"} or name == "NoseconeHarvest":
+        return "poi-harvest"
+    if c & {"PodLander", "CargoLander"} or name in ("LandingPod", "PioneerLander", "ScoutLander"): return "rocket-landers"
+    if "PassengerRocketModule" in c: return "rocket-modules"  # habitats; their cabin ports are required too (requirements)
+    if c & {"RocketConduitSender", "RocketConduitReceiver", "RocketConduitStorageAccess"}:
+        return "spaced-out-native" if c & SOLID_CONDUITS else "rocket-ports"
+    if name.startswith("ModularLaunchpadPort"):
+        return "rocket-cargo" if name.startswith(("ModularLaunchpadPortGas", "ModularLaunchpadPortLiquid")) else "spaced-out-native"
+    if c & {"CargoBayCluster", "SpecialCargoBayClusterReceptacle", "ArtifactModule", "LaunchPad"} or name == "OrbitalCargoModule":
+        return "rocket-cargo"
+    if c & {"RocketEngineCluster", "FuelTank", "OxidizerTank"}: return "rocket-engines"
+    if c & {"RadiationLight", "LogicRadiationSensor", "RadiationEmitter"}: return "radiation"
+    if "SubstanceChunk" in c: return "chunks"  # a dropped fluid chunk (Fallout, molten uranium, liquid waste): the chunk path
+    if c & {"CritterTrapPlant"} or {"ElementConsumer", "PressureVulnerable"} <= c: return "spaced-out-plants"
+    if name in ("DebrisPayload", "RocketWallTile") or c & ROCKET_MODULE_COMPONENTS: return "rocket-modules"
+    return None
+
+
+def prefab_system(name: str, components: set[str], from_base: bool, release: bool) -> str:
+    if release and not from_base:
+        system = spaced_out_prefab_system(name, components)
+        if system: return system
+    for names, system in COMPONENT_SYSTEMS:
+        if components & set(names): return system
+    return "spaced-out-native" if release and not from_base else "native"
+
+
+def refused(pack: str) -> str:
+    return f"out:refused-pack:{pack}"
+
+
+def system_of(entry: dict, base: dict, materials: dict, release: dict | None = None) -> str:
+    """The playtest system of an entry. `release` (id -> Spaced Out! registry entry) selects the release scope;
+    a result starting `out:` is a disposition, not a system."""
     kind, fact = entry["kind"], entry["fact"]
-    if kind == "gameplay-system": return entry["id"].split("/", 1)[1]
+    full = {**(release or {}), **base}
+    if kind == "gameplay-system":
+        name = entry["id"].split("/", 1)[1]
+        if release is None: return name
+        return {"bionics": refused("Bionic"), "light": "out:kept-vanilla"}.get(name, name)
     if kind == "material":
-        phase = materials.get(fact["name"])
+        name = fact["name"]
+        if release is not None:
+            if name in DISABLED_ELEMENTS: return "out:disabled-element"
+            if name in SPACED_OUT_FLUIDS: return "spaced-out-materials"
+        phase = materials.get(name)
         return "material-catalogue" if phase in FLUID_PHASES or phase == "vacuum" else "cell-transitions"
-    if kind == "prefab-converter": return "element-converters"
+    if kind == "prefab-converter":
+        if release is None or entry["id"] in base: return "element-converters"
+        identity = full[entry["id"]]["fact"]["prefab_identity"]
+        owner = full[identity]["fact"]
+        system = prefab_system(owner["prefab"], {n.rsplit(".", 1)[-1] for n in owner["components"]}, identity in base, True)
+        return "element-converters" if system in ("spaced-out-native", "native", "terrain-construction") else system
     if kind == "recipe":
-        tags = set(base[entry["id"]]["fact"]["input_tags"]) | set(base[entry["id"]]["fact"]["output_tags"])
-        return "refineries" if any(materials.get(tag) in FLUID_PHASES for tag in tags) else "native"
+        recipe = full[entry["id"]]["fact"]
+        if release is not None:
+            for fabricator in recipe.get("fabricators", []):
+                if fabricator in RECIPE_FABRICATOR_SYSTEMS and entry["id"] not in base: return RECIPE_FABRICATOR_SYSTEMS[fabricator]
+        tags = set(recipe["input_tags"]) | set(recipe["output_tags"])
+        if any(materials.get(tag) in FLUID_PHASES for tag in tags): return "refineries"
+        return "spaced-out-native" if release is not None and entry["id"] not in base else "native"
     if kind == "prefab":
-        components = {name.rsplit(".", 1)[-1] for name in base[entry["id"]]["fact"]["components"]}
-        for names, system in COMPONENT_SYSTEMS:
-            if components & set(names): return system
-        return "native"
+        identity = full[entry["id"]]["fact"]
+        in_base = entry["id"] in base
+        names = {n.rsplit(".", 1)[-1] for n in (base[entry["id"]] if in_base else full[entry["id"]])["fact"]["components"]}
+        return prefab_system(identity["prefab"], names, in_base, release is not None)
     if kind == "snapshot-channel": return "frame-publication"
     if kind == "managed-callsite":
         owner = fact["method"].split("+", 1)[0].split(".", 1)[0]
-        if owner in DLC_CLASSES: return "dlc-only"
+        if release is not None:
+            for pack, classes in REFUSED_CLASSES.items():
+                if owner in classes: return refused(pack)
+            for system, classes in SPACED_OUT_CLASSES.items():
+                if owner in classes: return system
+        elif owner in DLC_CLASSES: return "dlc-only"
         method = fact["method"].rsplit(".", 1)[-1]
         if owner == "SimMessages": return SIM_MESSAGE_SYSTEMS[method]
         if owner == "Sim": return "colony-save" if method in ("Load", "LoadWorld", "Save") else "frame-publication"
@@ -268,10 +459,26 @@ def system_of(entry: dict, base: dict, materials: dict) -> str:
     raise ValueError(f"No playtest system for {entry['id']}")
 
 
-def apply(inventory: dict, base_identities: dict) -> None:
+def requirements(entry: dict, system: str, base: dict, release: dict | None) -> list[str]:
+    """Further systems the entry also needs, in release scope: the Spaced Out! parts of an umbrella system, and radiation for a
+    prefab that Spaced Out! gives a radiation emitter (the base registry's copy has none)."""
+    if release is None: return []
+    extra = list(UMBRELLA_REQUIRES.get(system, ())) if entry["kind"] == "gameplay-system" else []
+    if entry["kind"] == "prefab":
+        components = {n.rsplit(".", 1)[-1] for n in (release.get(entry["id"]) or base[entry["id"]])["fact"]["components"]}
+        if "RadiationEmitter" in components: extra.append("radiation")
+        if "RocketConduitSender" in components and not components & SOLID_CONDUITS: extra.append("rocket-ports")
+    return [name for name in extra if name != system]
+
+
+def apply(inventory: dict, base_identities: dict, spaced_out_identities: dict | None = None) -> None:
+    """Mark every entry. With `spaced_out_identities` this is the release scope (base game plus Spaced Out!)."""
+    release = None if spaced_out_identities is None else {item["id"]: item for item in spaced_out_identities["entries"]}
     base = {item["id"]: item for item in base_identities["entries"]}
     materials = {item["name"]: item["phase"] for item in base_identities.get("materials", [])}
     if not materials: raise ValueError("The base-game identities lack the loaded material list")
+    if release is not None:
+        materials.update({entry["fact"]["name"]: entry["fact"]["phase"] for entry in inventory["entries"] if entry["kind"] == "material"})
     present = {entry["id"] for entry in inventory["entries"]}
     adapters = {"prefab": ("PrefabFluidAdapters", "callsite-transaction"), "prefab-converter": ("ElementConverterAdapter", "conversion"),
                 "recipe": ("RecipeAdapters", "conversion")}
@@ -281,34 +488,72 @@ def apply(inventory: dict, base_identities: dict) -> None:
         inventory["entries"].append({"id": item["id"], "kind": item["kind"], "owner": "custom-fluid/native-nonfluid", "adapter": adapter,
                                      "acceptance": acceptance, "status": "unimplemented", "fact": {"runtime_identity": item["id"]}})
     inventory["entries"].sort(key=lambda item: item["id"])
+    inventory["playtest_scope"] = "base" if release is None else "release"
     for entry in inventory["entries"]:
-        for key in ("playtest", "playtest_system", "playtest_reason", "implementation", "playtest_check"): entry.pop(key, None)
+        for key in ("playtest", "playtest_system", "playtest_reason", "playtest_disposition", "playtest_pack", "playtest_requires",
+                    "implementation", "playtest_check"): entry.pop(key, None)
         kind = entry["kind"]
         reason = ""
-        if kind in ("prefab", "prefab-converter", "recipe") and entry["id"] not in base:
-            reason = "not in the base-game registry"
-        elif kind == "material" and entry["fact"]["name"] not in materials:
-            reason = "not a loaded base-game material"
-        system = "" if reason else system_of(entry, base, materials)
-        if system in OUT_SYSTEMS: reason = OUT_SYSTEMS[system]
+        if release is None:
+            if kind in ("prefab", "prefab-converter", "recipe") and entry["id"] not in base:
+                reason = "not in the base-game registry"
+            elif kind == "material" and entry["fact"]["name"] not in materials:
+                reason = "not a loaded base-game material"
+        elif kind in ("prefab", "prefab-converter", "recipe") and entry["id"] not in base and entry["id"] not in release:
+            raise ValueError(f"{entry['id']} is in neither runtime registry")
+        system = "" if reason else system_of(entry, base, materials, release)
+        if system.startswith("out:"):
+            _, disposition, *pack = system.split(":")
+            entry["playtest"] = "out"; entry["playtest_disposition"] = disposition; entry["status"] = "unimplemented"
+            if disposition == "refused-pack":
+                entry["playtest_pack"] = pack[0]
+                entry["playtest_reason"] = f"{REFUSAL} ({REFUSED_PACKS[pack[0]]}; not installed here)"
+            else:
+                entry["playtest_reason"] = LIGHT_REASON if disposition == "kept-vanilla" else DISABLED_REASON
+            continue
+        if release is None and system in BASE_OUT_SYSTEMS: reason = BASE_OUT_SYSTEMS[system]
         if reason:
             entry["playtest"] = "out"; entry["playtest_reason"] = reason; entry["status"] = "unimplemented"
             continue
         entry["playtest"] = "in"; entry["playtest_system"] = system
-        done = SYSTEMS.get(system)
-        entry["status"] = "implemented" if done else "unimplemented"
-        if done: entry["implementation"] = done["implementation"]; entry["playtest_check"] = done["check"]
+        needs = requirements(entry, system, base, release)
+        if needs: entry["playtest_requires"] = needs
+        every = [system, *needs]
+        entry["status"] = "implemented" if all(name in SYSTEMS for name in every) else "unimplemented"
+        if entry["status"] == "implemented":
+            entry["implementation"] = list(dict.fromkeys(path for name in every for path in SYSTEMS[name]["implementation"]))
+            entry["playtest_check"] = SYSTEMS[system]["check"] + ("; also " + ", ".join(needs) if needs else "")
+
+
+def scenario_requirements() -> dict[str, dict]:
+    """Per scenario-checked system: its scenarios, those passing, and those without a case in the managed project yet."""
+    source = "\n".join(path.read_text(encoding="utf-8") for path in (ROOT / "managed/MixedAtmospheres.Oni").glob("ColonyScenarios*.cs"))
+    return {system: {"scenarios": list(names), "passing": [name for name in names if name in PASSED_SCENARIOS],
+                     "missing": [name for name in names if name not in PASSED_SCENARIOS],
+                     "written": all(f'case "{name}"' in source for name in names if name not in PASSED_SCENARIOS)}
+            for system, (_files, names) in SCENARIO_SYSTEMS.items()}
 
 
 def status(inventory: dict) -> dict:
     scope = Counter(entry.get("playtest", "unmarked") for entry in inventory["entries"])
     systems: dict[str, Counter] = defaultdict(Counter)
     for entry in inventory["entries"]:
-        if entry.get("playtest") == "in": systems[entry["playtest_system"]][entry["status"]] += 1
-    open_systems = sorted(name for name, counts in systems.items() if counts["unimplemented"])
-    return {"in": scope["in"], "out": scope["out"], "unmarked": scope["unmarked"],
-            "implemented": sum(counts["implemented"] for counts in systems.values()),
-            "systems": {name: dict(counts) for name, counts in sorted(systems.items())}, "open_systems": open_systems}
+        if entry.get("playtest") != "in": continue
+        systems[entry["playtest_system"]][entry["status"]] += 1
+        # A system an entry also needs is counted open for it when the entry is open and that system is not done.
+        for name in entry.get("playtest_requires", []):
+            systems[name]["implemented" if entry["status"] == "implemented" or name in SYSTEMS else "unimplemented"] += 1
+    for entry in inventory["entries"]:
+        # Open only for the system that is not done: an entry waiting on a required system leaves its own system closed.
+        if entry.get("playtest") == "in" and entry.get("playtest_requires") and entry["status"] != "implemented" and entry["playtest_system"] in SYSTEMS:
+            systems[entry["playtest_system"]]["unimplemented"] -= 1; systems[entry["playtest_system"]]["implemented"] += 1
+    open_systems = sorted(name for name, counts in systems.items() if counts["unimplemented"] > 0)
+    out = Counter(entry.get("playtest_disposition", "base-scope") for entry in inventory["entries"] if entry.get("playtest") == "out")
+    return {"scope": inventory.get("playtest_scope", "base"), "in": scope["in"], "out": scope["out"], "unmarked": scope["unmarked"],
+            "implemented": sum(entry["status"] == "implemented" for entry in inventory["entries"] if entry.get("playtest") == "in"),
+            "out_by_disposition": dict(sorted(out.items())),
+            "systems": {name: {key: value for key, value in counts.items() if value} for name, counts in sorted(systems.items())},
+            "open_systems": open_systems}
 
 
 def readiness(inventory: dict, acceptance: dict) -> dict:
@@ -338,11 +583,17 @@ def readiness(inventory: dict, acceptance: dict) -> dict:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("action", choices=("apply", "status", "gate"))
+    parser.add_argument("action", choices=("apply", "status", "gate", "scenarios"))
+    parser.add_argument("--scope", choices=("release", "base"), default="release",
+                        help="apply: release is the base game plus Spaced Out! (default); base is the base game alone")
     args = parser.parse_args()
     inventory = json.loads(INVENTORY.read_text(encoding="utf-8"))
+    if args.action == "scenarios":
+        print(json.dumps({name: item for name, item in scenario_requirements().items() if item["missing"]}, indent=1))
+        return 0
     if args.action == "apply":
-        apply(inventory, json.loads(BASE.read_text(encoding="utf-8")))
+        apply(inventory, json.loads(BASE.read_text(encoding="utf-8")),
+              json.loads(SPACED_OUT.read_text(encoding="utf-8")) if args.scope == "release" else None)
         inventory["source_hashes"]["runtime_identities_linux_base"] = hashlib.sha256(BASE.read_bytes()).hexdigest()
         INVENTORY.write_text(json.dumps(inventory, indent=2) + "\n", encoding="utf-8")
     report = readiness(inventory, json.loads(PRIVATE_STATUS.read_text(encoding="utf-8")))

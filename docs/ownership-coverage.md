@@ -10,27 +10,101 @@ enabled production importer.
 
 ## Playtest checklist
 
-The [base-game playtest](playtest-plan.md) scopes this inventory with
-`tools/playtest_checklist.py`: `apply` marks every entry in or out from the
-base-game Linux registry (`runtime-identities-linux-base.json`, captured in game
-with no DLC loaded), assigns each in-scope entry to one gameplay system, and
-copies the system's status from the script's table of implemented systems with
-their sources and in-game check; `status` prints implementation coverage plus
-the separate [private-playtest acceptance blockers](private-playtest-release.md).
-`gate` fails until both are complete. Broad system checks do not certify every
-recipe, the final mixed-pipe path or a releasable package. Out-of-scope
-entries name their reason (DLC content, Spaced Out! radiation, ONI's unchanged
-light model). Entries without fluid interaction (`native`) need no adapter.
+The release scope of the [playtest](playtest-plan.md) is the base game plus
+Spaced Out! (completion plan amendments; the first release covers both).
+`tools/playtest_checklist.py apply` marks every entry in or out from two
+runtime registries: `runtime-identities-linux-base.json` (the base game, captured
+in game with no DLC) and `runtime-identities.json` (the Windows capture with
+`EXPANSION1_ID` loaded). It assigns each in-scope entry to one gameplay system
+by its real components, copies the system's status from the script's table of
+implemented systems with their sources and in-game check, and lists any further
+system the entry needs (`playtest_requires`). `apply --scope base` reproduces the
+earlier base-game-only checklist. `status` prints implementation coverage plus
+the separate [private-playtest acceptance blockers](private-playtest-release.md);
+`scenarios` prints the in-game scenarios each system still needs. `gate` fails
+until both are complete. Broad system checks do not certify every recipe, the
+final mixed-pipe path or a releasable package. Entries without fluid interaction
+(`native`, `spaced-out-native`) need no adapter.
+
+Only three recorded dispositions keep an entry out of the release scope, and
+none of them is a claim of implementation (`playtest_disposition`, validated by
+`coverage_inventory.py validate`; their status stays `unimplemented`):
+
+- **`refused-pack`** (12 entries, `playtest_pack` names the pack): content of
+  the Frosty, Bionic, Prehistoric and Aquatic packs, which are not installed
+  here and which the mod refuses. A colony with such a pack active stays on
+  ONI's own simulation and shows a notice (`GameplayPacks.ActiveUnsupported`,
+  checked at colony start, owner restore and save load; the pure decisions are
+  covered by `tools/DistributionTests` and the checklist tests assert both
+  guards). Entries: the Bionic gameplay system, the call sites of
+  `BionicMassOxygenAbsorbChore`, `GunkMonitor`, `Electrobank` and
+  `SelfChargingElectrobank` (Bionic); `IceKettle`, `SpaceTreeSeededComet` and
+  `GeothermalVent` (Frosty); `BaseSquidConfig` and `BreathingGeyser` (Aquatic).
+  The last three were counted under base systems before; their prefab configs
+  require `DLC2_ID`/`DLC5_ID` and appear in neither registry.
+- **`kept-vanilla`** (the light system): decision of 2026-11-02, the release
+  keeps ONI's own light model. In ONI gases and liquids never absorb light, so
+  vanilla behaviour is unchanged and there is no physics to implement.
+- **`disabled-element`** (16 materials: Aerogel, Brick, CarbonFibre, Cement,
+  CementMix, Electrum, Helium, LiquidHelium, MoltenSyngas, PhosphateNodules,
+  Propane, SandCement, Slabs, SolidSyngas, Syngas, Yellowcake): their element
+  data sets `isDisabled`, so they never spawn in a loaded world, and the owner's
+  catalogue skips disabled elements by design (`ColonyOwner.BuildCatalogue`).
+
+### Spaced Out! systems
+
+The owner takes `SimMessages` wrappers (`AddRemoveSubstance`, `EmitMass`,
+`ReplaceAndDisplaceElement`, ...) and `Storage.AddElement`/`AddGasChunk`/
+`AddLiquid` for every caller, so Spaced Out! callers reach the same adapters as
+base-game ones; each system below still needs its own in-game evidence before it
+counts. Messages the owner does not handle (the radiation messages) pass to ONI's
+native simulation, which reads the shadow of the owner's cells. A system is
+implemented when all its scenarios are in `PASSED_SCENARIOS`; scenarios marked
+(passing) are recorded results in [DLC compatibility](dlc-compatibility.md)
+(WindowsPlayer under Proton). Entries by system are in the inventory.
+
+| System | Spaced Out! content and its fluid contact | In-game scenarios |
+| --- | --- | --- |
+| `spaced-out-native` | Cluster-map entities, artifacts and props, food, seeds, eggs, pills, research and logic buildings, HEP logistics (ports, storage, redirectors, batteries), duplicant teleporters, solid-only launch-pad and rocket conduits, previews, element chunks. No fluid contact beyond cell reads and native heat | `spaced-out-worlds` (passing) |
+| `spaced-out-materials` | Fallout (gas), NuclearWaste and MoltenUranium (liquids): enabled game fluids joining the owner's catalogue | `spaced-out-worlds` (passing) |
+| `rocket-modules` | `RocketModuleCluster`, `ReorderableBuilding`, `Clustercraft`, habitats (`PassengerRocketModule`, exterior/interior doors, `NavTeleporter`), `RocketWallTile`, `DebrisPayload`: sealed cabins as owned worlds, retirement (landed and airborne) and slot reuse | `spaced-out-rocket`, `-input-flush`, `-rocket-retire`, `-rocket-flight`, `-rocket-abandon` (all passing) |
+| `rocket-ports` | `RocketConduitSender`/`Receiver`/`StorageAccess` and the rocket-interior gas and liquid input/output ports | `spaced-out-rocket-ports` (passing) |
+| `rocket-cargo` | `CargoBayCluster`, special/artifact/orbital cargo bays, `LaunchPad` and the modular launch-pad gas and liquid ports and unloaders | `spaced-out-cargo-gas`, `-cargo-liquid` (passing) |
+| `warp-ports` | `WarpConduitSender`/`Receiver`: pipes between asteroids | `spaced-out-warp-ports` (passing) |
+| `rocket-engines` | `RocketEngineCluster` (`DoBurn` emits exhaust with `EmitMass`), fuel and oxidizer tanks fed by `ConduitConsumer`, the HEP engine | `spaced-out-rocket-flight` (passing), `spaced-out-engine-exhaust` (to write: every exhaust-emitting cluster engine at launch, tank fill by pipe) |
+| `rocket-landers` | `PodLander` and `CargoLander` (`LandingUpdate` emits mass on landing): the landing pod and the pioneer and scout landers | `spaced-out-landers` (to write) |
+| `poi-harvest` | `HarvestablePOIClusterGridEntity`/`Configurator`, `StarmapHexCellInventory` and the harvest nosecone: gas and liquid POIs (helium, chlorine, gas giant, ocean) reach cargo bays through `Storage.AddElement` | `spaced-out-poi-harvest` (to write) |
+| `rail-gun` | `RailGun` (gas and liquid input ports), `RailGunPayload`, `RailGunPayloadOpener` (gas and liquid output ports) | `spaced-out-rail-gun` (to write) |
+| `radiation` | `RadiationEmitter` (radiation light, and Spaced Out! gives the shine bug, wheezewort, bees and engines emitters too), `LogicRadiationSensor`, the six radiation native messages and the four radiation `SimMessages` wrappers; the radiation grid is ONI's native transport over the shadow cells | `spaced-out-radiation` (to write) |
+| `hep-particles` | `HighEnergyParticle` (`EmitRemainingPayload` emits Fallout with germs at impact), the spawners and their recipes | `spaced-out-hep` (to write) |
+| `reactor` | `Reactor`: water coolant by pipe, `TransferCoolant`, coolant dumped at the vent cell, meltdown emits NuclearWaste with germs, waste storage | `spaced-out-reactor` (to write) |
+| `uranium-centrifuge` | `UraniumCentrifuge`: molten uranium out through the liquid dispenser | `spaced-out-centrifuge` (to write) |
+| `sludge-press` | `SludgePress` and its recipes: mud and toxic mud into dirt or toxic sand and (dirty) water through the liquid dispenser | `spaced-out-sludge-press` (to write) |
+| `sublimation-station` | `SublimationStation`: toxic sand to polluted oxygen by an `ElementConverter` | `spaced-out-sublimation-station` (to write) |
+| `spaced-out-critters` | Beetas and hive (`ElementConsumer` of carbon dioxide, radiation, `BeeForageStates` mining), staterpillars and their gas and liquid connectors (`GasAndLiquidConsumerMonitor`, `ConduitDispenser`) | `spaced-out-critters` (to write) |
+| `spaced-out-plants` | `CritterTrapPlant` (vents hydrogen), the filter plant (`ElementConsumer`, irrigation): Spaced Out! plants that consume or vent fluids | `spaced-out-plants` (to write) |
+
+Spaced Out! prefabs that reuse base components keep their base system:
+the wall toilet, decontamination shower, enclosed telescope and lead suit locker
+(`conduits`), lead suit and marker (`suits-masks`), the comets and molten-metal
+geysers (`meteors`, `geysers`), the divergent critters (`critters`), and
+under-construction prefabs (`terrain-construction`). Base-game prefabs that
+Spaced Out! gives a `RadiationEmitter` also need `radiation`; the umbrella
+systems `rockets`, `generators`, `plants`, `critters`, `refineries` and
+`cluster-import` wait for the Spaced Out! systems named in their descriptions.
 
 ## Executable inventory
 
-`coverage-inventory.json` contains 3,074 entries: 212 material identities,
+`coverage-inventory.json` contains 3,130 entries: 212 material identities,
 62 native messages, 16 native imports, 31 native-hook responsibilities, 47
 snapshot/event/texture channels, 215 observed call sites, 39 gameplay systems,
-2,143 prefab registrations, 34 prefab converters and 275 recipe registrations.
+2,197 prefab registrations, 36 prefab converters and 275 recipe registrations
+(the Spaced Out! capture plus the base-game entries it lacks).
 Every entry names its intended owner, adapter and acceptance requirement.
 Adapter names with `unimplemented` status are planned responsibilities, not
-existing code; today every entry is `unimplemented`.
+existing code. The playtest checklist above marks an entry `implemented` once its
+system has passed its in-game checks; the per-configuration acceptance evidence
+below is separate and still empty.
 
 The two [publication bindings](native-domain-publication.md) are included among
 the native-hook responsibilities. They leave the observer's 29 public hook

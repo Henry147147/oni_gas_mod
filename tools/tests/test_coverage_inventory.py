@@ -74,6 +74,20 @@ class CoverageTests(unittest.TestCase):
             entry["implementation"] = paths
             with self.assertRaises(ValueError): coverage.validate(self.inventory)
 
+    def test_out_of_scope_dispositions_cannot_be_implemented_or_unexplained(self):
+        out = [entry for entry in self.inventory["entries"] if entry.get("playtest_disposition")]
+        self.assertEqual({entry["playtest_disposition"] for entry in out}, {"refused-pack", "kept-vanilla", "disabled-element"})
+        refused = next(entry for entry in out if entry["playtest_disposition"] == "refused-pack")
+        for change in ({"status": "implemented", "implementation": ["native/src/oni_catalogue.cpp"]}, {"playtest_pack": "Spaced Out!"},
+                       {"playtest_pack": None}, {"playtest_disposition": "waived"}):
+            candidate = copy.deepcopy(self.inventory)
+            entry = next(item for item in candidate["entries"] if item["id"] == refused["id"])
+            entry.update(change)
+            with self.assertRaisesRegex(ValueError, "disposition"): coverage.validate(candidate)
+        candidate = copy.deepcopy(self.inventory)
+        next(item for item in candidate["entries"] if item["id"] == refused["id"]).pop("playtest_disposition")
+        with self.assertRaisesRegex(ValueError, "disposition"): coverage.validate(candidate)
+
     def test_standalone_or_wrong_binary_evidence_cannot_pass(self):
         entry = self.inventory["entries"][0]
         for change in ({"kind": "standalone"}, {"assembly_sha256": "b" * 64}, {"artifact_sha256": "z" * 64},

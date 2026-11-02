@@ -19,7 +19,8 @@ CONTRACT = ROOT / "docs/interop-contract.json"
 POLICY = ROOT / "docs/coverage-policy.json"
 RUNTIME = ROOT / "docs/runtime-identities.json"
 # Base-game Linux registry (docs/playtest-plan.md): identities absent from the
-# Windows capture join the inventory; it also scopes the playtest checklist.
+# Windows capture join the inventory; with the Spaced Out! capture above it
+# scopes the playtest checklist (tools/playtest_checklist.py).
 RUNTIME_BASE = ROOT / "docs/runtime-identities-linux-base.json"
 NATIVE_HOOKS = ROOT / "docs/native-hook-profiles.json"
 PACKS = ("Spaced Out!", "Frosty", "Bionic", "Prehistoric", "Aquatic")
@@ -177,6 +178,16 @@ def validate(inventory: dict, contract_path: Path = CONTRACT, policy_path: Path 
                 (entry["playtest"] == "out") != bool(entry.get("playtest_reason")) or
                 (entry["playtest"] == "in") != bool(entry.get("playtest_system"))):
             raise ValueError(f"Invalid playtest scope: {identity}")
+        # An out entry of the release scope names why (a refused pack, ONI's light model kept, a disabled element);
+        # none of them is ever implemented, and only a refused pack names which pack.
+        from playtest_checklist import OUT_DISPOSITIONS, REFUSED_PACKS
+        disposition = entry.get("playtest_disposition")
+        if disposition is not None or (entry.get("playtest") == "out" and inventory.get("playtest_scope") == "release"):
+            if (entry.get("playtest") != "out" or disposition not in OUT_DISPOSITIONS or entry["status"] != "unimplemented" or
+                    (disposition == "refused-pack") != (entry.get("playtest_pack") in REFUSED_PACKS)):
+                raise ValueError(f"Invalid out-of-scope disposition: {identity}")
+        if not all(isinstance(name, str) and name for name in entry.get("playtest_requires", [])):
+            raise ValueError(f"Invalid playtest requirements: {identity}")
         if entry["status"] == "implemented":
             paths = entry.get("implementation", [])
             if not paths: raise ValueError(f"Implemented entry has no source references: {identity}")
