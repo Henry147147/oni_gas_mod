@@ -114,6 +114,14 @@ current binary has.
 
 ### Version assignment
 
+**Reserved 2026-11-02 immediately after fetching `a1bbf3c`:** physical
+`MACCLS01` version **30** identifies game profile **10**, the layered vertical
+remap ([MAC_GAME_KERNEL.md](MAC_GAME_KERNEL.md#suspended-liquid-and-the-layered-vertical-remap)).
+It keeps version 28's layout, including the activity-tier policy and per-cell
+activity state; only the version word differs. Versions 20–28 keep their
+arithmetic and bytes. Delegated user decision 2026-11-02: new colonies create
+profile 10.
+
 **Implemented 2026-10-30; reserved immediately after fetching `364ca23`:**
 physical `MACCLS01` version **29** identifies production-kernel conduction admission
 which retries independently proved negative-caloric trial endpoints instead
