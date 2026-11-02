@@ -1471,6 +1471,8 @@ The home asteroid of a Spaced Out! colony is 160 cells wide with the printing po
 | `spaced-out-vacuum-pocket` | Five cells of hydrogen (0.1128 kg at 319 K) at the edge of a 30 × 9 vacuum: the owner keeps running, the hydrogen is conserved and the ledgers close. Reproduces the flow-solver fault found beside the printing pod; kept out of batches until it is fixed. |
 | `spaced-out-intakes` | A mixed gas pipe feeds an enclosed telescope and a lead suit locker (oxygen kept, the carbon dioxide dumped into the owner); a mixed liquid pipe feeds a decontamination shower, which keeps both. |
 | `spaced-out-dehydrator` | A food dehydrator's byproduct water, dropped as when emptied, falls into owned cells. |
+| `spaced-out-critters` | Spaced Out!: a Beeta in carbon dioxide falls asleep and its element consumer takes the gas from the owner (receipts equal the owner's loss); a gas Staterpillar absorbs the arena's carbon dioxide into its storage and its connector pushes it through a pipe to a vent, and a liquid Staterpillar does the same with a pool's water; owner, pipe, creature and vent keep every kilogram. |
+| `spaced-out-plants` | Spaced Out!: the swamp harvest, worm, super worm, filter, cylindrica, wine cups, toe and critter trap plants read normal pressure and a safe atmosphere in owned oxygen, a wrong atmosphere in hydrogen and (the pressure-sensitive ones) low pressure in thin air; the filter plant's consumer takes oxygen from the owner and a digesting critter trap plant vents its hydrogen into it. |
 
 ### Floor arenas
 
