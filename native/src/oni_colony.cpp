@@ -2701,8 +2701,9 @@ void resolve_rebinds(std::span<const MAOniColonyCallbackRebind> values) {
     for (std::size_t o=0;o<values.size();++o) {
         const auto index=awaiting_rebind[o]; require(index<pending_transfers.size(),"Restored request left the queue");
         auto& t=pending_transfers[index]; const auto& v=values[o];
-        // Receipts answer nonnegative callbacks and actor handles only.
-        require(v.bind<=1 && (v.bind==0 || v.callback>=0),"Invalid callback rebind");
+        // Receipts answer every callback but -1 (no callback) and actor handles. ONI's handles
+        // carry a version in the top byte, so a slot reused 128 times is a negative integer.
+        require(v.bind<=1 && (v.bind==0 || v.callback!=-1),"Invalid callback rebind");
         if (v.bind) { t.callback=v.callback; continue; }
         ++released_rebinds;
         if ((t.kind&~MA_ONI_COLONY_CONSUMER)==MA_ONI_COLONY_INJECT) { t.callback=-1; t.kind&=~MA_ONI_COLONY_CONSUMER; }
@@ -3278,7 +3279,7 @@ void run_frame(std::uint64_t ticket,double seconds,std::uint64_t frames,const ch
                     (parcel.injected ? s.status.injected_kg : s.status.extracted_kg) += parcel.mass_kg;
                 }
                 ++s.status.committed_transfers;
-                if (p.source->callback < 0 && !job_tokens.contains(static_cast<std::size_t>(p.source-transfers.data()))) continue;
+                if (p.source->callback == -1 && !job_tokens.contains(static_cast<std::size_t>(p.source-transfers.data()))) continue;
                 const auto kind = p.source->kind & ~MA_ONI_COLONY_CONSUMER;
                 const bool phase = kind == MA_ONI_COLONY_EXTRACT_GAS || kind == MA_ONI_COLONY_EXTRACT_LIQUID;
                 if (!phase) {
@@ -3864,7 +3865,7 @@ std::vector<std::uint8_t> checkpoint() {
             auto t=pending_transfers[i];
             if (const auto job=pending_job_tokens.find(i); job!=pending_job_tokens.end())
                 saved_jobs.push_back({static_cast<std::uint32_t>(transfers.size()),job->second,pipe_jobs.at(job->second).passives,pipe_jobs.at(job->second).moving_wire});
-            if (t.callback >= 0 || (t.kind & MA_ONI_COLONY_CONSUMER) != 0 || awaiting[i]) {
+            if (t.callback != -1 || (t.kind & MA_ONI_COLONY_CONSUMER) != 0 || awaiting[i]) {
                 require(answered_requests.size()<INT32_MAX,"Too many callback-owned requests");
                 MAOniColonyCallbackRecord record{sizeof(MAOniColonyCallbackRecord),1,t.callback,t.kind,t.public_cell,t.native_index,awaiting[i]?1U:0U,0};
                 t.callback=static_cast<std::int32_t>(answered_requests.size()); answered_requests.push_back(record);

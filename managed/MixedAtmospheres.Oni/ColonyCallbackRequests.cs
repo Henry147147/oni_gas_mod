@@ -134,7 +134,7 @@ namespace MixedAtmospheres.Oni
                 var actor = ColonyActors.IdentityOf(record.Callback);
                 return actor == null ? new ColonyCallbackEntry { Kind = Released } : new ColonyCallbackEntry { Kind = Actor, Target = actor };
             }
-            if (record.Callback < 0) return new ColonyCallbackEntry { Kind = Released };
+            if (record.Callback == -1) return new ColonyCallbackEntry { Kind = Released }; // -1 is the only "no callback"; handle versions make others negative
             try
             {
                 if ((record.Kind & ~OniNativeColony.ConsumerFlag) == OniNativeColony.Inject)

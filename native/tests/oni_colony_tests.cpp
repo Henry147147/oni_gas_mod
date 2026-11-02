@@ -1208,7 +1208,7 @@ void callback_rebind_control() {
         require(rejected && callback_rebind_state().first==4,"invalid rebinding was admitted");
     };
     rejects({{171,1},{172,1},{new_handle,1}});
-    rejects({{171,1},{-5,1},{new_handle,1},{173,1}});
+    rejects({{171,1},{-1,1},{new_handle,1},{173,1}});
     rejects({{171,2},{172,1},{new_handle,1},{173,1}});
     rebind_callbacks(std::vector<MAOniColonyCallbackRebind>{{171,1},{172,1},{new_handle,1},{173,1}});
     require(callback_rebind_state()==std::pair<std::uint32_t,std::uint64_t>{0,0},"bound requests still await");
@@ -1246,6 +1246,36 @@ void callback_rebind_control() {
     auto wrong_ordinal=pending; const auto at=std::search(wrong_ordinal.begin(),wrong_ordinal.end(),pattern.begin(),pattern.end());
     require(at!=wrong_ordinal.end(),"saved breath request not found"); *(at+16)=2; refuses(wrong_ordinal,"out-of-order callback ordinal restored");
     std::cout<<"PASS callback-owned requests: wrapper13 framing, awaiting saves, exact rebound continuation, release as the previous policy, refusal of corrupt ordinals\n";
+}
+// ONI's callback handles carry a version in their top byte: a slot reused 128 times
+// has a negative index, which is still a request somebody waits for (only -1 is none).
+void wrapped_handle_control() {
+    using namespace ma::oni::colony;
+    std::vector<MAOniColonyMaterial> mats{material("Oxygen",11,oxygen,true,.016,1000)};
+    MAOniColonyConfig cfg{}; cfg.struct_size=sizeof(cfg); cfg.abi_version=MA_ONI_COLONY_ABI_VERSION;
+    cfg.vacuum_index=vacuum; cfg.grid_width=cfg.width=3; cfg.grid_height=cfg.height=3; cfg.maximum_timestep_s=.1;
+    std::vector<MAOniColonyCell> cells(9,MAOniColonyCell{0,MA_ONI_COLONY_SOLID,0,0,0,0});
+    cells[4]={oxygen,MA_ONI_COLONY_FLUID,1.2f,300,0,0};
+    start(cfg,mats,cells,1);
+    const std::int32_t wrapped=static_cast<std::int32_t>(0x80000005u);
+    std::array<MAOniColonyTransfer,4> edits{};
+    for (auto& e : edits) { e.public_cell=4; e.native_index=oxygen; e.temperature_k=300; e.radius=1; }
+    edits[0].kind=MA_ONI_COLONY_EXTRACT; edits[0].mass_kg=.01; edits[0].callback=5;
+    edits[1].kind=MA_ONI_COLONY_EXTRACT; edits[1].mass_kg=.01; edits[1].callback=wrapped;
+    edits[2].kind=MA_ONI_COLONY_INJECT; edits[2].mass_kg=.01; edits[2].callback=std::numeric_limits<std::int32_t>::min();
+    edits[3].kind=MA_ONI_COLONY_EXTRACT; edits[3].mass_kg=.01; edits[3].callback=-1;
+    queue_transfers(std::span(edits));
+    const auto pending=checkpoint(); (void)pending;
+    advance(1,.2,2); wait(); require(status().state==1,"wrapped-handle advance faulted");
+    std::vector<MAOniColonyReceipt> receipts(16); const auto count=copy_receipts(receipts.data(),16); receipts.resize(count);
+    const auto answered=[&](std::int32_t callback) { return std::any_of(receipts.begin(),receipts.end(),[&](const auto& r){return r.callback==callback;}); };
+    require(answered(5),"an ordinary callback lost its receipt");
+    require(answered(wrapped),"a version-wrapped (negative) consume handle got no receipt");
+    require(answered(std::numeric_limits<std::int32_t>::min()),"a version-wrapped (negative) emit handle got no receipt");
+    require(!answered(-1),"an unanswered request produced a receipt");
+    if (count) ack_receipts(receipts.back().sequence);
+    stop();
+    std::cout<<"PASS wrapped callback handles: negative (versioned) consume and emit handles are answered, only -1 is none\n";
 }
 void sample_history_control() {
     using namespace ma::oni::colony;
@@ -2120,6 +2150,7 @@ int main(int argc, char** argv) {
         if (argc == 2 && std::strcmp(argv[1], "--falling-solid-only") == 0) { falling_solid_control(); return 0; }
         if (argc == 2 && std::strcmp(argv[1], "--sample-only") == 0) { sample_control(); return 0; }
         if (argc == 2 && std::strcmp(argv[1], "--view-cache-only") == 0) { view_cache_control(); return 0; }
+        if (argc == 2 && std::strcmp(argv[1], "--wrapped-handle-only") == 0) { wrapped_handle_control(); return 0; }
         if (argc == 2 && std::strcmp(argv[1], "--actor-batch-only") == 0) { actor_batch_control(); return 0; }
         if (argc == 2 && std::strcmp(argv[1], "--callback-rebind-only") == 0) { callback_rebind_control(); return 0; }
         if (argc == 2 && std::strcmp(argv[1], "--sample-history-only") == 0) { sample_history_control();native_sample_history_control();region_energy_control();return 0; }
@@ -2127,6 +2158,7 @@ int main(int argc, char** argv) {
         heat_neighbour_bounds_control();
         activity_owner_control();
         precise_receipt_control();
+        wrapped_handle_control();
         transfer_capture_control();
         floor_capture_control();
         falling_solid_control();
