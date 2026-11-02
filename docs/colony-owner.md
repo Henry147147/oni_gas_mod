@@ -1460,6 +1460,7 @@ setting their powered flag (harness only).
 | `spaced-out-sublimation-station` | A sublimation station turns toxic sand into polluted oxygen for the owner, and a nuclear waste chunk sublimates liquid waste into it. |
 | `spaced-out-centrifuge` | A uranium centrifuge separates ore; its molten uranium leaves through the liquid pipe and vent into the owner. |
 | `spaced-out-sludge-press` | A sludge press (its duplicant work completed by the scenario) splits mud into dirt and water, and toxic mud into toxic sand and polluted water; the liquids reach the owner through its pipe. |
+| `spaced-out-vacuum-pocket` | Five cells of hydrogen (0.1128 kg at 319 K) at the edge of a 30 × 9 vacuum: the owner keeps running, the hydrogen is conserved and the ledgers close. Reproduces the flow-solver fault found beside the printing pod; kept out of batches until it is fixed. |
 | `spaced-out-intakes` | A mixed gas pipe feeds an enclosed telescope and a lead suit locker (oxygen kept, the carbon dioxide dumped into the owner); a mixed liquid pipe feeds a decontamination shower, which keeps both. |
 | `spaced-out-dehydrator` | A food dehydrator's byproduct water, dropped as when emptied, falls into owned cells. |
 

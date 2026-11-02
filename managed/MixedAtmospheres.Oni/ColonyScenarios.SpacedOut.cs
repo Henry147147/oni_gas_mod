@@ -29,6 +29,7 @@ namespace MixedAtmospheres.Oni
                 case "spaced-out-poi-harvest": SoPoiHarvest(frame); return true;
                 case "spaced-out-rail-gun": SoRailGun(frame); return true;
                 case "spaced-out-comets-geysers": SoCometsGeysers(frame); return true;
+                case "spaced-out-vacuum-pocket": SoVacuumPocket(frame); return true;
                 case "spaced-out-intakes": SoIntakes(frame); return true;
                 case "spaced-out-dehydrator": SoDehydrator(frame); return true;
                 default: return false;
@@ -698,6 +699,31 @@ namespace MixedAtmospheres.Oni
                         soGeyserObjects[j] == null ? "no generic prefab in this game (placed by world generation only)" : $"{element}: owned fluid {recorded["mass" + k]:G6} -> {Mass(k):G6} kg");
                 }
                 LedgersClosed("comets and geysers");
+                Finish();
+            }
+        }
+
+        // The trigger of the owner fault found by the first rail-gun run (a
+        // natural hydrogen pocket whose cells are displaced into vacuum when an
+        // arena's border closes; docs/dlc-compatibility.md): five cells of
+        // hydrogen, 0.1128 kg at 319 K each, beside a large vacuum. The owner
+        // must keep running and keep its ledgers closed. Kept out of batches
+        // until the flow solver's vacuum expansion of light gas is fixed.
+        private static void SoVacuumPocket(int frame)
+        {
+            if (Once(0, "vacuum arena")) { RequireSpacedOut(); Arena((x, y) => y == 0 ? (SimHashes.Granite, 1000f, 300f) : (SimHashes.Vacuum, 0f, 0f), 30, 10); }
+            if (Once(6, "hydrogen pocket"))
+            {
+                recorded["mass"] = ArenaSpecies(SimHashes.Hydrogen);
+                for (var y = 1; y <= 5; ++y)
+                    SimMessages.AddRemoveSubstance(Cell(29, y), SimHashes.Hydrogen, CellEventLogger.Instance.OxygenModifierSimUpdate, .1128f, 319, byte.MaxValue, 0);
+            }
+            if (Once(80, "check"))
+            {
+                var kept = Enumerable.Range(0, 30).Sum(x => Enumerable.Range(0, 10).Sum(y => SpeciesMass(Cell(x, y), SimHashes.Hydrogen)));
+                Record("the owner keeps running as the hydrogen expands into vacuum", ColonyOwner.Status.State == 1, $"owner state {ColonyOwner.Status.State}; {ColonyOwner.Status.Error}");
+                Record("the expanding hydrogen is conserved", Math.Abs(kept - 5 * .1128) < 1e-4, $"{kept:R} of {5 * .1128:R} kg");
+                LedgersClosed("vacuum pocket");
                 Finish();
             }
         }
