@@ -421,6 +421,8 @@ leaves the asteroid (earlier results taken beyond the edge were discarded).
 | `spaced-out-landers` | PASS (`run-i1`, `0bf4268`). The scout lander lands and both it and the landing pod emit carbon dioxide into the owner on the way (8.1 and 4.1 kg). The lander's gas and liquid cargo is not a game mechanism (its storage drops ordinary items) and is not tested. |
 | `spaced-out-poi-harvest` | PASS (`run-i1`, `0bf4268`). Oxygen, carbon dioxide, water and polluted water extracted from a space hex inventory arrive in real gas and liquid cargo bays with exact quantities and exact pipe accounts. The collector's in-flight timing is not run (the extraction call is the game's own). |
 | `spaced-out-comets-geysers` | PASS (`run-j3`, `0bf4268`). Oxylite, snowball and nuclear-waste comets land, molten aluminium, tungsten and niobium geysers erupt into owned oxygen (+174, +6.4 and +5086 kg), ledgers closed. |
+| `spaced-out-critters` | PASS (`run-b1`, bundle `4ae7ccf` + scenario source of `db284e4`). A Beeta put in carbon dioxide sleeps after 5 s of exposure and its element consumer takes 1.9 kg from the owner (the consumed-mass events equal the loss). A gas Staterpillar absorbs the arena's carbon dioxide into its storage through the game's `GasAndLiquidConsumerMonitor` mass-consume path and its connector (built and enabled by the creature's own `SpawnConnectorBuilding`/`EnableConnector`) pushes it through a pipe to a vent (2 kg in the pipe at the peak); a liquid Staterpillar does the same with a pool's water (up to 30 kg stored, 17.8 kg in the pipe). Owner, pipe, creature and vent hold every kilogram again once the creatures are quiet (16.08 -> 16.08 kg carbon dioxide, 2970 -> 2970 kg water). **Bug found and fixed:** see below. |
+| `spaced-out-plants` | PASS (`run-b1`, same bundle). Eight Spaced Out! plants (swamp harvest, worm, super worm, filter, cylindrica, wine cups, critter trap, toe) read normal pressure and a safe atmosphere in owned oxygen, a wrong atmosphere in hydrogen and, the seven pressure-sensitive ones, low pressure in thin oxygen; the filter plant's element consumer takes 0.147 kg of oxygen from the owner (88 consumed-mass events) and a digesting critter trap plant vents 0.72 kg of hydrogen into it. |
 
 **Fault found, open (physics owner):** a 30 x 10 arena carved beside the printing
 pod (the first rail-gun run, `run-m1`) closes its border over a natural
@@ -433,11 +435,39 @@ arenas now slide right past hydrogen pockets; `spaced-out-vacuum-pocket`
 reproduces the trigger and runs again once the solver is fixed. The EOS fault
 message now names the cell's state.
 
+**Critters and plants: what touches fluids.** Read from the game's assemblies:
+the Beeta's `ElementConsumer` (carbon dioxide, 0.1 kg/s, radius 3, enabled only
+asleep, `storeOnConsume` off), the gas and liquid Staterpillars
+(`GasAndLiquidConsumerMonitor` consuming unbreathable gas or any liquid into
+their `Storage`, drained by the connector's `ConduitDispenser` into a pipe), the
+filter plant's `ElementConsumer` (oxygen, 1/120 kg/s), the critter trap plant's
+hydrogen vented with `AddRemoveSubstance`, and the `PressureVulnerable` reading
+of every plant (the toe plant dies above 283 K and the cylindrica below 288 K, so
+the scenario keeps the toe plant in a 265 K chamber of its own). The Beeta hive,
+the divergent beetle and worm eat and make solids only (uranium ore, sulfur,
+sucrose, mud); the hive's radiation is `spaced-out-radiation`'s system, and the
+Beeta's mining of uranium ore is a solid cell edit with no fluid. The wild
+Staterpillar's connector exists only while it sleeps at night (the idle
+`ConduitSleepMonitor` destroys it otherwise), so the scenario spawns it with the
+creature's own methods once the creature's monitors have started.
+
+**Bug found by `spaced-out-critters`, fixed.** ONI keeps a version in the top byte
+of a callback handle, so a slot reused 128 times has a negative index. The owner
+treated every negative callback as "none", so a consume or emit request with
+such a handle took (or placed) its mass but produced no receipt: about one
+Staterpillar request in fifty lost 0.1 kg of gas or 2 kg of water for good
+(intermittent: 6 of 11 runs failed; the trace pairs each request's handle with its
+callback and the unanswered ones were exactly the negative handles). Only -1 is
+no callback now (receipt settlement, saved callback-owned requests, rebind
+check, saved-request description); `oni_colony_tests` has a new control that
+fails without the change. Solver arithmetic is unchanged; checkpoint bytes are
+unchanged unless a request with a versioned handle is pending at a save (it was
+refused at restore before).
+
 Not covered by a scenario of its own: the research-centre converter (consumes
 solids only), the wall toilet (needs a duplicant), the cargo-lander's cargo
 (not a game mechanism), the cluster-telescope and rocket interior door beyond
-the existing rocket controls, the critters and plants (second scenario agent)
-and the fluid-touching DLC prefabs that only read published cells.
+the existing rocket controls, and the fluid-touching DLC prefabs that only read published cells.
 
 The 2026-10-26 request covers Spaced Out!, Frosty, Bionic, Prehistoric and
 Aquatic: every one of their 32 selections on Linux and Windows x64. This
