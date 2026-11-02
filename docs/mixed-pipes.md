@@ -59,7 +59,7 @@ worker's pipe scenarios on mixed pipes. Passing in game on profile 4:
 earlier explicit controls cover pumps, valves, vents, filters, readers,
 teardown, biology and body heat. `mixed-pipe-retire` and
 `mixed-pipe-readers` pass together on core22: **3/3 and 4/4**, respectively,
-at frame71. The saved native scheduling gate remains open.
+at frame 71. The saved native scheduling gate remains open.
 
 ## Machine ports
 
@@ -100,7 +100,7 @@ projection cold rebinding are complete. The `mixed-pipe-owned-storage` actual
 reservoir control tests individual withdrawals, physical trace/passive return
 and native thermal contact; this is a focused transfer control, not full
 storage/save acceptance. The first actual game control passed 8/8 at sampled
-frame31 on core23: each limited draw returned 1.5 kg water and 0.5 kg polluted
+frame 31 on core23: each limited draw returned 1.5 kg water and 0.5 kg polluted
 water; the 1e-240 kg trace and three fractional/tiny germ identities returned
 physically; two native bodies exchanged -6025.932168995496 J with the store.
 Store and pipe audits closed, with no storage-boundary quantities. This
@@ -227,7 +227,7 @@ so native `RequireOutputs` admits real held storage. At destruction the gas
 pump holds 1 kg and the liquid pump 20 kg: all gas reaches the world, all
 liquid becomes chunks, no pump/spill/job remains and every pipe account
 closes. The shared readers/retirement run has owner mass/energy errors
-3.32e-16/8.57e-16 and an ordinary schema4 save at durable frame72.
+3.32e-16/8.57e-16 and an ordinary schema4 save at durable frame 72.
 
 Fixed `mixed-pipe-heat-machines` control (liquid conditioner, conduction
 panel bridge, a 380 K liquid pipe and a 360 K steam/oxygen gas pipe) passes
@@ -299,7 +299,7 @@ schema bytes, and reject duplicate or incomplete context coverage. These are
 codec controls, not in-game continuation acceptance.
 
 Actual core23/profile5 source `codex-resume-pipe-biology-zero-source-v1`
-saves at frame12 with two prefab-built, occupied pipes whose native allocation
+saves at frame 12 with two prefab-built, occupied pipes whose native allocation
 mass is still zero. Fresh-process and menu reload each advance 15 frames on
 the same immutable bundle: both restore two contexts, correct both cold
 allocation masses/caches, and verify every saved native context bit after
@@ -448,8 +448,8 @@ recipe ownership. The complete exact-storage writer remains development-only.
 
 The same frozen `release-storage-probe-startup-v2` bundle passes the original
 eight-check `mixed-pipe-owned-storage` source and both cold/menu loads of its
-nonempty frame20 save. Its eight-frame complete comparison still fails: owner
-and pipe/storage hashes first differ at frame21; particle hashes match. The
+nonempty frame 20 save. Its eight-frame complete comparison still fails: owner
+and pipe/storage hashes first differ at frame 21; particle hashes match. The
 first committed owner inputs also differ there (3,867 source records versus
 3,870 restored records, different multisets). This does not establish exact
 active continuation or isolate the pipe difference's cause. An earlier
@@ -485,11 +485,11 @@ still leaves native projection retirements in flight; the held continuation
 probe likewise waits at the same owner frame before capturing.
 
 Frozen bundle `release-active-outlet-probe-cleanup` passes all five source
-checks and both cold/menu loads of its frame31 save. Each restored branch
+checks and both cold/menu loads of its frame 31 save. Each restored branch
 discharges the complete 8 kg, retires and acknowledges both bodies, retains
 no native items and closes the exact store/pipe accounts. The source has no
 storage-boundary mass, energy or germ adjustments. Complete continuation still
-differs at frame32 in both owner and pipe images. This is functional lifecycle
+differs at frame 32 in both owner and pipe images. This is functional lifecycle
 acceptance for the bounded fixture, not the full deterministic-release gate.
 The same fixture also passes all five checks without held continuation frames
 (`release-active-outlet-unheld-cleanup`).
@@ -528,7 +528,7 @@ advancing the settled owner session/frame.
 menu reloads in `release-conduit-completion-load-wire` both pass. All 24 held
 storage sections (eight source, eight cold, eight menu) have the same hash,
 retaining -12389.31653945474 J and the complete empty store's history. Complete
-world/pipe continuation still first differs at frame41 from its frame40 save.
+world/pipe continuation still first differs at frame 41 from its frame 40 save.
 The native observer's Linux and Windows vectors, nonconsuming failure paths,
 request ordering/multiplicity and original arithmetic environment have focused
 controls; all 89 Linux and 89 Windows/Wine native tests pass. This closes the
@@ -558,7 +558,7 @@ frames. The counter now counts timed contacts; zero-time callbacks continue
 settling all represented and retained heat with unchanged arithmetic.
 `release-contact-counter-source` / `load` now have byte-identical complete
 pipe images for all eight frames in both cold and menu sessions. The owner
-still first differs at frame40 from the frame39 save; its committed native
+still first differs at frame 40 from the frame 39 save; its committed native
 inputs differ there too (3,845 versus 3,853 records, different multisets).
 Particles match. No image section or acceptance comparison is normalized or
 omitted, and complete colony continuation remains unverified.
@@ -598,7 +598,7 @@ evidence. This closes empty-host retirement only.
 WindowsPlayer/Proton passes the same eight checks and cold/menu reloads
 (`release-retired-storage-windows-source` / `windows-load`). Each platform's
 eight complete pipe images also match source/cold/menu byte for byte. The
-Linux whole-owner image still first differs at frame42 from the frame41 save;
+Linux whole-owner image still first differs at frame 42 from the frame 41 save;
 full colony continuation and actual Windows OS acceptance remain open.
 
 `MA_COLONY_CONTINUATION_FRAMES=N` still records a held completed owner image
@@ -1361,7 +1361,7 @@ Harmony cannot patch inside the .NET 10 runner (removed BinaryFormatter API).
 ## Represented body contact work (explicit thermal acceptance)
 
 `MA_COLONY_PIPE_CONTACT_HEAT=1` selects the pending managed contact correction
-only in the existing thermal fixture. The original setup, stage600 endpoint,
+only in the existing thermal fixture. The original setup, stage 600 endpoint,
 temperature limits and endpoint heat bound stay fixed. Native replay version1
 captures registered inputs before the physical update; every post-call carrier
 temperature must match its replayed bits before settlement. Each contact
@@ -1375,8 +1375,8 @@ This is conditional on a live unique body registration and an unchanged fluid
 inventory during the native call; unsupported identities, phase transitions
 or carrier mismatches fail explicitly. Phase/component-storage integration,
 pending native body save state and production activation remain gated. The
-actual601-frame acceptance will use the parent's frozen2569 native bundle;
-existing4/5 failures remain recorded until the unchanged heat check passes.
+actual601-frame acceptance will use the parent's frozen 2569 native bundle;
+existing 4/5 failures remain recorded until the unchanged heat check passes.
 
 The coupled run passes **5/5 at 601 frames** with that original bound:
 body -90674.695667621563 J, mixture/booked +90674.695667621563 J, residual
@@ -1396,7 +1396,7 @@ production activation remain open.
 
 Before measuring `mixed-pipe-all-germs`, fix the setup: the same 8x6 oxygen
 arena, isolated gas conduits at (1,3), (3,3), (5,3), (6,3), and liquid at
-(3,4), constructed at stage5. At stage10 activate owned pipes and seed:
+(3,4), constructed at stage 5. At stage 10 activate owned pipes and seed:
 
 - gas (1,3): 0.5 kg O2/280 K, 16777219 food germs;
 - gas (3,3): 0.25 kg O2 + 0.25 kg polluted O2/293.15 K;
@@ -1427,40 +1427,40 @@ deleted through a projected dominant germ. Count/mass scaling was considered
 but rejected before adoption because absolute under-population death would
 change under that scaling.
 
-At stage80 require at least20 independent original-native comparisons with zero
-count/ID/residue mismatches, at least20 native cadence ticks and40 expected-mode
+At stage 80 require at least 20 independent original-native comparisons with zero
+count/ID/residue mismatches, at least 20 native cadence ticks and 40 expected-mode
 updates, a measured biological change for each database ID, wide food count
 above int.MaxValue and below1e30, positive slimelung below1e-240, hot-cell
 extinction and exact all-ID/mass/heat audit closure. Also compare the expected
 material RHS against the original public equation for every database ID, four
-materials, masses0/0.5/5 kg and counts1/1000/1000000: error at most
+materials, masses 0/0.5/5 kg and counts 1/1000/1000000: error at most
 max(1e-9,1.3e-7*abs(native RHS)). Stage80/hostcap110 stay fixed. Full runtime
 persistence, biology in component storage/particles and production activation
 remain gated; this control does not claim those acceptances.
 
-The first actual run passes **9/9 at81 frames**: 70 native cadence ticks,
+The first actual run passes **9/9 at 81 frames**: 70 native cadence ticks,
 70 independent original-native single-culture matches, all four database IDs,
 144 public material-RHS checks (maximum absolute difference 0.0002784729,
 within the fixed relative bound), 700 expected-population updates and exact
-per-ID/mass/U audits. Wide food ends at9.6817040902771413e29 and minority
-slimelung at1.4164164042483473e-241. All four IDs have measured deaths; the
+per-ID/mass/U audits. Wide food ends at 9.6817040902771413e29 and minority
+slimelung at 1.4164164042483473e-241. All four IDs have measured deaths; the
 hot integer culture extinguishes. Fresh pipe cultures retain native captured
-mass0, so this run has no births; the separate positive-mass native oracle
+mass 0, so this run has no births; the separate positive-mass native oracle
 above covers that branch. No native fault, sink zero, M/E4.501e-16/3.694e-17,
 cleanup verified. LOW owner mean/p95/max183.936/225.821/325.855ms, observed
 276.310/324.904/4613.815ms (81/80samples, no gaps), diagnostic only.
 
-The follow-up also passes9/9 with the activation boundary pin enabled under
+The follow-up also passes 9/9 with the activation boundary pin enabled under
 Mono. Game.StepTheSim runs disease before gas/liquid flow updates; the preceding
 conduit jobs return only after the native JobManager worker wait (or inline
 serial completion). Five inspected method-body hashes pin this supported
 synchronous boundary before any row masking is enabled. Independent original
-count/ID/residue comparisons stay70/70; all biological totals above are
-unchanged. Optional `MA_COLONY_PIPE_BIOLOGY_TIMING=1` reports capture6.381119ms
-and commit0.462489ms mean per native tick for five cells, including fixture
+count/ID/residue comparisons stay 70/70; all biological totals above are
+unchanged. Optional `MA_COLONY_PIPE_BIOLOGY_TIMING=1` reports capture 6.381119ms
+and commit 0.462489ms mean per native tick for five cells, including fixture
 oracle work and cold compilation. This is a profiling baseline, not a speed
-gain. Timers are disabled by default. Follow-up owner189.181/224.234/260.564ms,
-observed271.504/339.701/3236.779ms (81/80samples, no gaps),
+gain. Timers are disabled by default. Follow-up owner 189.181/224.234/260.564ms,
+observed 271.504/339.701/3236.779ms (81/80samples, no gaps),
 M/E4.100e-16/4.828e-17, sink zero, no fault and verified cleanup. Release,
 nine pure groups, eleven installed-declaration/direct groups,216snapshot and
 326Python checks (four skips) pass before rebase.

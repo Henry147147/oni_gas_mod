@@ -2,14 +2,14 @@
 
 ## Actual renderer/report follow-up, 2026-10-31
 
-The clean committed `3d8c20f` package completes the original900-frame speed3
+The clean committed `3d8c20f` package completes the original900-frame speed 3
 base-game and Spaced Out! controls with all other project CPU jobs held. It
 includes compact renderer channels and serialized report writers, excludes
 runtime-continuation WIP and private instrumentation, and predates the remap
 integration in `4174d6c`. Each game uses its own WHOLE game slot. Original
 automatic workers, inputs, clocks and Unity settings are unchanged.
 
-| Full owner0–900 window | Game seconds | Wall seconds | Actual game rate | Actual owner rate |
+| Full owner 0–900 window | Game seconds | Wall seconds | Actual game rate | Actual owner rate |
 | --- | ---: | ---: | ---: | ---: |
 | Base game |180.020626|61.796534|2.913118×|2.912785×|
 | Spaced Out! |180.020634|76.936349|2.339865×|2.339596×|
@@ -18,13 +18,13 @@ Both finish with three duplicants, no owner fault, no observed pause and zero
 dropped submission/publication samples. Their rates are close to the earlier
 separate20c/managed-fixture controls,2.917093×/2.335703×. Different cohorts do
 not establish a causal comparison. The renderer's isolated method gains do
-not establish a whole-game speedup, and neither current full window meets3×.
+not establish a whole-game speedup, and neither current full window meets 3×.
 Smooth input, normal-reserve performance, sustainable progression and actual
 Windows acceptance remain open.
 
-The primary immutable result samples end at900. The ordinary shutdown logs
-also retain partial901–911 base /901–907 DLC telemetry; those later windows
-are recorded separately and do not replace the fixed0–900 observation.
+The primary immutable result samples end at 900. The ordinary shutdown logs
+also retain partial 901–911 base /901–907 DLC telemetry; those later windows
+are recorded separately and do not replace the fixed 0–900 observation.
 Private package/source proofs, commands, results and analysis are in
 `artifacts/release-ready-2026-10-30/actual-speed-3d8c20f-v1/`, with the two
 original game outputs alongside it.
@@ -33,14 +33,14 @@ original game outputs alongside it.
 
 A separate private64-entry cache reuses immutable old face velocities within
 each original128-face worker block/microtick. It preserves lazy first-use
-validation and introduces no persistent state. It passes6182 Release and
+validation and introduces no persistent state. It passes 6182 Release and
 targeted ASan/UBSan/errno controls,24 full hot owner/receipt/pre-flow/status
 frames,348 fresh cold/menu frames and a valid shifted-reference negative.
 
 Against the adopted remap baseline, seven isolated hot pairs plus one warm-up
-pair give median steady native advance ratio1.014323× (5/7 faster,
-range0.980210–1.076161×). The first restored advance is slower: median
-ratio0.967028×, only1/7 faster. Eight balanced fresh pairs plus one warm-up,
+pair give median steady native advance ratio 1.014323× (5/7 faster,
+range 0.980210–1.076161×). The first restored advance is slower: median
+ratio 0.967028×, only 1/7 faster. Eight balanced fresh pairs plus one warm-up,
 36 processes total, retain every original owner/status and independent future
 image, but give the following steady-advance ratios:
 
@@ -51,7 +51,7 @@ image, but give the following steady-advance ratios:
 
 These baseline/candidate ratios do not establish a useful general gain. The
 small mixed hot gain, first-advance cost and fresh DLC-cold cost do not justify
-adoption. The cache stays private; broader all88/Windows qualification remains
+adoption. The cache stays private; broader all 88/Windows qualification remains
 unrun. Source-operation counts alone do not predict processor cost. Both hot
 and fresh plans used WHOLE with all other project CPU jobs explicitly held;
 neither measures actual game speed. Evidence is under
@@ -290,8 +290,8 @@ function pointers and conditions before and after installation. Fourteen
 synthetic structure/mutation controls pass; actual Mono resolves 2,600/0
 dependencies. The repeated shared-CPU 300-frame DLC diagnostic completes with
 zero timing-scope faults. Its 500 warm loops concentrate measured wall time in
-script Update/LateUpdate (about 19.00/5.04 ms); frame rendering is about1.77 ms
-and canvas updates1.05 ms. These are functional diagnostic observations,
+script Update/LateUpdate (about 19.00/5.04 ms); frame rendering is about 1.77 ms
+and canvas updates 1.05 ms. These are functional diagnostic observations,
 including waits, not exclusive acceptance timings or an additive partition.
 Evidence: `unity-loop-profile-v2/functional-analysis.json`.
 
@@ -372,8 +372,8 @@ memory and publication backlog together.
 | Current profile8 case on the 5900X | Mean / p95 | Timing scope |
 | --- | --- | --- |
 | Fresh Linux Terra, 180 frames at normal speed | 66.2 / 85.6 ms | Status timer **before** projection/publication; the run achieved about 1× |
-| Fresh Spaced Out! replay, frames4–43 | 583 / 707 ms | `advance()` plus `wait()` through owner completion |
-| Uploaded colony's twelve-dig replay, frames505–584 | 860 / 932 ms | Same complete owner observer |
+| Fresh Spaced Out! replay, frames 4–43 | 583 / 707 ms | `advance()` plus `wait()` through owner completion |
+| Uploaded colony's twelve-dig replay, frames 505–584 | 860 / 932 ms | Same complete owner observer |
 
 The replays were contended. On those measured conditions, 66.7 ms would
 require about 8.7×/12.9× lower mean cost; this is not a hardware conversion or
@@ -383,9 +383,9 @@ developed base. Profile8's earlier 23.7% improvement is already in this baseline
 ### Linux ultra probe after the first implementation
 
 A frozen private profile8 package with the transfer optimization and new
-diagnostics completes the fresh base-game Terra validation at frame450 without
+diagnostics completes the fresh base-game Terra validation at frame 450 without
 an owner fault or mod-log error. It runs on the 5900X/NVIDIA Linux host with
-12 workers, ultra selected and the whole-machine CPU lock. Startup frames1–150
+12 workers, ultra selected and the whole-machine CPU lock. Startup frames 1–150
 and the two cleanup frames are excluded from the warmed windows below.
 
 | Owner frames | Owner / game seconds per real second | Partial owner mean / p95 | Submit → managed publication mean / p95 | Average FPS |
@@ -402,7 +402,7 @@ averages 51.4/50.9 ms, before full adapter/native handoff and UI work.
 Publication latency includes queueing and observation, so subtracting the
 partial owner timer does not isolate adapter CPU cost.
 
-The bounded report (frames0–450) retains 90.000001 owner seconds and
+The bounded report (frames 0–450) retains 90.000001 owner seconds and
 89.901379 game seconds over 49.101678 monotonic wall seconds: 1.833×/1.831×,
 including startup, with no observed pause. The warmed windows remain below
 actual 3×. This fresh Terra run does not certify developed colonies, Spaced
@@ -436,7 +436,7 @@ The fresh replay's selected region costs 416 ms while a competing region
 costs 450 ms. Making only the selected region infinitely fast would improve
 the complete owner by at most about 1.6% in this window. The digging replay's
 selected region costs 714 ms versus 167 ms for the next region, so sharing idle
-workers helps. Giving it 8 or 12 inner workers is worse than4 and raises summed
+workers helps. Giving it 8 or 12 inner workers is worse than 4 and raises summed
 process CPU time sharply. Cell count alone selects the wrong region in both
 scenes; a production scheduler needs observed cost, dominance, a bounded worker
 budget and a serial fallback when activity/topology changes.
@@ -534,7 +534,7 @@ comparison (one added heat-control PASS line).
 
 The heat-only frozen package then passes an actual 450-frame Linux Terra ultra
 run with the same seed/settings/logging and unchanged r7 managed libraries.
-Warmed frames151–450 reach 2.7469× owner / 2.7470× game progress, below the
+Warmed frames 151–450 reach 2.7469× owner / 2.7470× game progress, below the
 earlier traced 2.818× run. Heat costs 8.2/8.1 ms in its two warmed windows, but
 transfers cost 10.3/10.5 ms rather than 4.8/6.8 ms. This is one fresh-game
 comparison with differing runtime inputs, so it establishes neither a total
@@ -678,7 +678,7 @@ unchanged from the verified 89-test passive candidate.
 Private evidence: `compact-observer/`, `linux-compact-observer900/` and
 `texture-shortcut/` under the same artifact folder.
 
-A separate publication-logging diagnostic ends at actual owner frame903. Across
+A separate publication-logging diagnostic ends at actual owner frame 903. Across
 932 nonempty publications, 35,970 byproduct calls consume 3.543 of 3.554 s of
 dispatch, while receipt copy/append/ack total only 1.75/2.80/3.06 ms. Five ready
 counts exceed the 1,500 bypass threshold, but long unbounded batches also occur
@@ -848,7 +848,7 @@ colony measurement into representative release acceptance. Detailed credit
 telemetry is opt-in, and the old loss-only logger requires credit disabled.
 
 A fresh final production-port base-game probe passes to owner frame 900 with
-flags29/tiers, unset pump/credit flags (both default on), workers12 and RTX 5090
+flags29/tiers, unset pump/credit flags (both default on), workers 12 and RTX 5090
 rendering on display `:99`. The private report-cadence30 observer remains the
 only reporting change; compact admission diagnostics are off. Warm frames
 151–900 achieve 150.021073 game seconds / 50.061325 wall seconds = **2.99675×**.
@@ -969,7 +969,7 @@ separately in `native32-game-validation/probe-provenance.json`; the clean
 package Git revision alone does not describe those native sources. Base-game,
 sanitizer and broad platform/output checks precede production integration.
 
-The private native32 BASE900 probe also passes at 2.99681× warmed game
+The private native 32 BASE900 probe also passes at 2.99681× warmed game
 progress (150.021065 / 50.060256 s), against production's 2.99675×. Individual
 windows are 2.999/3.000/2.979/3.005/3.001×. Native owner means fall to
 25.4–28.1 ms from 27.9–29.2; the game-clock result is unchanged within this
@@ -980,7 +980,7 @@ aggregate percentile or causal smoothness gain. No owner fault or dropped
 timing samples occur. A fresh final receipt-pending count is not recorded by
 this overlay/result, so pump counters do not establish an empty queue.
 
-The native32 DLC run averages about 95.67 ms wall per 0.2 s owner frame;
+The native 32 DLC run averages about 95.67 ms wall per 0.2 s owner frame;
 true 3× needs 66.67 ms. Existing logs put the partial owner timer at
 50.2–53.0 ms: edits 0.5–1.6, heat 5.6–6.2, transfers 7.5–9.3 and broad flow
 35.7–37.0 ms. Flow includes solver advance and blocked-liquid, identity and

@@ -49,11 +49,12 @@ mixed, miscible liquids mix, pressure is physical, gas expands into vacuum and
 boiling depends on pressure. ONI keeps the solids, buildings, duplicants,
 critters and plants; every gas and liquid on the asteroid belongs to the mod.
 
-**Status: private base-game playtest build, Linux only.** It is not released
-and is not on the Workshop. The scope is the base game on one starting
-asteroid ([playtest plan](docs/playtest-plan.md)); Spaced Out!, the gameplay
-packs, Windows and real-time speed come later. What works and what is open is
-in [implementation status](docs/implementation-status.md).
+**Status: private playtest build for Windows x64 and Linux.** It is not
+released and is not on the Workshop. It covers the base game and Spaced Out!
+([playtest plan](docs/playtest-plan.md)); the other gameplay packs are refused
+with a notice. The release gate is sustained 3× game speed with smooth input,
+which is not met yet. What works and what is open is in
+[implementation status](docs/implementation-status.md).
 
 ## Playing
 

@@ -2,7 +2,7 @@
 
 Selector3 and game-profile family2 are explicitly opt-in for private in-game
 validation. New colonies request flag4 (normally flags5 with conduction), and
-the managed selector requires capability1. Old saves retain their own profile;
+the managed selector requires capability 1. Old saves retain their own profile;
 there is no implicit conversion. Physics gates and the reference keep their
 existing implementations and settings.
 
@@ -60,7 +60,7 @@ worker-independent and cold continuation, heat/parcel/wall energy, full passive
 observations and malformed images. A separate native-owner control exercises
 flag5, door opening, heat, publication and exact saved continuation.
 The first corrected whole-lock Terra60 at requested fast speed completed with flags5,120flow halves, no
-rejections/faults/skipped phase, M/E1.67e-16/7.10e-16 and trace1.183e-7kg /
+rejections/faults/skipped phase, M/E1.67e-16/7.10e-16 and trace 1.183e-7kg /
 0.12784J. Owner mean/p95/max210.27/226.40/275.22ms; observed spacing
 266.07/404.87/766.01ms. The first diagnostic had omitted trace receipt counts;
 core and owner regressions now require those counts and actual sink booking.
@@ -71,12 +71,12 @@ This is basic execution/conservation evidence, not a floor or performance pass.
 
 Caching material-profile indexes, sharing an unchanged settled face-mask state
 (with the same revision increment), and moving tick arrays change no solver
-arithmetic or checkpoint bytes. Clean Release85CTest and all100 applicable MAC
+arithmetic or checkpoint bytes. Clean Release85CTest and all 100 applicable MAC
 outputs (99 legacy invocations plus the new kernel control) match the parent,
-apart from timing fields. Actual core20 twelve-tick images match at1/4/8/12
+apart from timing fields. Actual core20 twelve-tick images match at 1/4/8/12
 workers, and native-owner continuation controls pass at each count.
 
-Clean whole-lock Terra60, requested fast2, identical managed assemblies and
+Clean whole-lock Terra60, requested fast 2, identical managed assemblies and
 12workers; mean/p95/max in milliseconds:
 
 | Metric | Before | After |
@@ -87,11 +87,11 @@ Clean whole-lock Terra60, requested fast2, identical managed assemblies and
 | Trace sink kg/J |1.17480e-7/0.127785|1.18098e-7/0.127624|
 
 Both complete60frames,120flow halves, zero rejections/faults/skipped phase.
-Measured owner mean falls9.47%, observed mean6.86%; this does not meet2x.
+Measured owner mean falls 9.47%, observed mean 6.86%; this does not meet2x.
 The user's vLLM workload shares the GPU outside CPU locks, so these runs do
 not establish isolated causal speed gains or final GPU performance acceptance.
 The owner timer ends before projection/publication. Whole-lock offline AB/BA
-repeats pinned to physical cores give104.130/103.042ms per tick (~1%); the
+repeats pinned to physical cores give 104.130/103.042ms per tick (~1%); the
 larger gain is in owner edits/readings. Fixed floor errors are unchanged by
 this exact step; their acceptance remains open.
 
@@ -102,16 +102,16 @@ owner ledger audit and core20 physical bytes are unchanged.
 ## Whole-asteroid reliability
 
 The unchanged `f329bff` diagnostic bundle fails both new LOW-lock checks.
-Oceania completes2/60 frames in two runs, then its post-transport EOS rejects
-a liquid strain. Completed-frame mass/energy errors are1.52e-16/3.16e-17 and
-1.95e-16/2.17e-17; trace sinks are8.85e-10kg/0.001013J and
-9.02e-10kg/0.001019J. Volcanea completes0/60: a pressure component exhausts
+Oceania completes 2/60 frames in two runs, then its post-transport EOS rejects
+a liquid strain. Completed-frame mass/energy errors are 1.52e-16/3.16e-17 and
+1.95e-16/2.17e-17; trace sinks are 8.85e-10kg/0.001013J and
+9.02e-10kg/0.001019J. Volcanea completes 0/60: a pressure component exhausts
 the200-iteration cap. All runs exit and the game process is verified gone.
 These failures block whole-asteroid acceptance for profile2. The profile3
 checks below clear these particular failures; private-release acceptance stays open.
 
 Exact captured inputs reproduce both failures offline. A private400-iteration
-cap clears60 Volcanea ticks with global/region audits and sink1.06714e-7kg /
+cap clears 60 Volcanea ticks with global/region audits and sink1.06714e-7kg /
 0.139128J; this is not an in-game or saved-profile acceptance. Oceania still
 fails after experimental post-transport trace booking through the1mg ceiling.
 Neither experiment is adopted. Raising stiffness alone also fails the captured
@@ -121,12 +121,12 @@ and do not continue an old save under different settings.
 A separate passive-free isolated-cell control exposed an export crash: an
 absent sparse passive column has no offsets. Export now skips that column.
 The focused control advances a quiet cell, repeats after a refused parcel,
-and compares requested1/12-worker cold continuation. Existing successful
+and compares requested 1/12-worker cold continuation. Existing successful
 solver arithmetic and checkpoint bytes are unchanged.
 
 An initial exact liquid-stage prototype reused existing EOS values and an
 ordered phase buffer. Six whole-lock offline AB/BA runs on the captured Terra
-world measured105.587 to103.057ms per tick (2.40%); all six30-tick terminal
+world measured 105.587 to 103.057ms per tick (2.40%); all six30-tick terminal
 images matched. Refreshed profile3 and in-game evidence is recorded below.
 
 ## Open acceptance work
@@ -155,18 +155,18 @@ and pressure-dependent phase equilibrium all use that same law.
 | Positive-segment liquid law | Progressively stiffens large compressions; pressure/elastic U and high-pressure boiling differ from the original linear model. No mass clipping or feature removal. Low-pressure branch is unchanged. | Resolved-reference error and affected floor metrics remain open. |
 | Pressure/heat caps400/800 | Permits more work on difficult components; original tolerances and converged early exits remain. | Conservation/worker controls and three new-colony60-frame smokes pass; floor and long-run acceptance remain open. |
 
-Synthetic controls cover2000 mixture closures, volume/U
+Synthetic controls cover 2000 mixture closures, volume/U
 continuity and elastic pressure work. Fresh-world offline60-tick replays at
-requested1/12 workers give identical physical images on Oceania, Volcanea and
-Terra, with global/region audits. Sinks are4.04869e-7kg/0.149010J,
-1.05911e-7kg/0.135045J and1.04212e-7kg/0.117171J respectively. The original
+requested 1/12 workers give identical physical images on Oceania, Volcanea and
+Terra, with global/region audits. Sinks are 4.04869e-7kg/0.149010J,
+1.05911e-7kg/0.135045J and 1.04212e-7kg/0.117171J respectively. The original
 1e-11kg threshold is retained; no experimental post-transport sink is used.
 These initialize each own-EOS world at the original masses/J/temperatures,
 recomputing its initial U. They are neither old-save continuation nor in-game
 acceptance.
 
 An immutable integrated bundle completes actual Oceania60 and Volcanea60,
-requested fast2 under the LOW lock, with120flow halves and zero faults,
+requested fast 2 under the LOW lock, with120flow halves and zero faults,
 rejections or skipped relaxations. Frame1 images verify core21, profile3,
 positive law and saved pressure/heat caps400/800.
 
@@ -176,7 +176,7 @@ positive law and saved pressure/heat caps400/800.
 | Volcanea |269.067/319.556/335.748|318.367/528.619/914.984|2.36e-16/3.90e-16|1.10156e-7/0.141078|
 
 Clean WHOLE-lock Terra60, same native/managed bundle, changes only the new
-colony profile selector. At requested fast2:
+colony profile selector. At requested fast 2:
 
 | Metric | Profile2/core20 | Profile3/core21 |
 | --- | --- | --- |
@@ -191,7 +191,7 @@ The shared GPU workload remains active, so timings are diagnostic. Actual
 spacing does not hold2x. All99 legacy diagnostic outputs/exits stay unchanged
 apart from timings; the game control adds one PASS line. Clean Release86CTest
 passes. Existing parcel control output and actual core20 twelve-tick bytes
-stay identical. New core21 offline60-tick images match across1/12 workers and
+stay identical. New core21 offline60-tick images match across 1/12 workers and
 cold restore halfway through each of the three asteroid inputs.
 
 The same clean comparison at requested normal1x gives:
@@ -216,11 +216,11 @@ map per cell, preserving key and accumulation order. Solver arithmetic, saved
 settings and checkpoint bytes are unchanged. Clean parent/candidate Release
 builds retain all99legacy diagnostic outputs/exits apart from timings, plus
 unchanged game/parcel control outputs;86CTest passes. Requested1/12-worker controls and
-three captured core21 worlds at60ticks with cold restore at30 match the parent
+three captured core21 worlds at60ticks with cold restore at 30 match the parent
 images exactly. Six alternating WHOLE/pin0..11 offline30-tick runs measure
-102.438748 to99.745524ms per tick (2.63%); their six terminal images are equal.
+102.438748 to 99.745524ms per tick (2.63%); their six terminal images are equal.
 
-Clean WHOLE-lock Terra60 at requested fast2, identical managed assemblies:
+Clean WHOLE-lock Terra60 at requested fast 2, identical managed assemblies:
 
 | Metric | Parent | Exact reuse |
 | --- | --- | --- |
@@ -234,23 +234,23 @@ verified process exit. Owner mean changes+0.21%, observed mean-1.99%; no clear
 whole-owner gain is established under shared GPU load. The user will arrange
 a quiet GPU window later. No2x or floor acceptance follows.
 
-A separate allocator-only diagnostic increases glibc tcache_count7 to65535:
-101.330 to99.916ms offline, but peak RSS rises142275 to176149KiB. Its six
+A separate allocator-only diagnostic increases glibc tcache_count7 to 65535:
+101.330 to 99.916ms offline, but peak RSS rises 142275 to176149KiB. Its six
 terminal images match; this host setting remains unselected and has no game
 performance evidence.
 
 ## Further profile3 reliability controls
 
-The immutable original core21 bundle passes all10 existing evaporation, door
+The immutable original core21 bundle passes all 10 existing evaporation, door
 and freeze/melt checks over139frames, with zero faults,
-rejections or skipped phase. Maximum mass/energy errors3.600e-16/1.292e-15,
+rejections or skipped phase. Maximum mass/energy errors 3.600e-16/1.292e-15,
 trace sink2.48880e-7kg/0.263928J. LOW-lock diagnostic owner mean/p95/max is
-222.231/270.107/306.018ms, observed269.025/349.752/839.975ms. All139samples
+222.231/270.107/306.018ms, observed 269.025/349.752/839.975ms. All139samples
 and138intervals are present, package hashes are unchanged and cleanup verified.
 This establishes phase/terrain smoke coverage, not the frozen accuracy floor.
 
 Fresh own-EOS initializations from three older failure shapes each complete
-60offline ticks, warm1worker and12workers with cold restore at30; each pair's
+60offline ticks, warm1worker and12workers with cold restore at 30; each pair's
 full checkpoint bytes match and global/region audits close:
 
 | Captured shape | Trace sink kg/J | Maximum absolute energy residual J |
@@ -283,14 +283,14 @@ neighbour, so U+K+G, momentum and region audits close as before. New colonies
 originally selected it with `MA_COLONY_KERNEL3=1 MA_COLONY_KERNEL3_SURFACE=1`;
 it also saves
 the adopted gas heat mixing8 (user decision 2026-10-24, floor F1 split).
-Profiles2 and3 are unchanged.
+Profiles2 and 3 are unchanged.
 
 A focused control keeps a resting gas-free surface at rest (profile3 control
 still shows the free fall), turns stranded momentum into heat with closed
 U+K+G, and checks checkpoint22 cold round trip and 1/12-worker continuation;
 the owner control creates core22 with saved mixing8 and restores it without the
 selector. All99 legacy outputs/exits, the parcel output and three captured
-worlds' core21 sixty-tick images (cold restore at30) match the clean parent;
+worlds' core21 sixty-tick images (cold restore at 30) match the clean parent;
 core22 images match at 1 and 12 workers. Floor results are in
 [base-game-floor.md](../docs/base-game-floor.md).
 
@@ -302,21 +302,21 @@ heat flux could exhaust sensible U before the end-of-tick trace sink ran.
 Family5 books the existing sub-threshold trace sink before conduction as well,
 refreshes the remaining cells' EOS and then solves heat. The saved threshold
 stays1e-11 kg per constituent per cell; all removed mass, U+K+G, J and passives
-remain in the sink. The surface selectors now create23 with saved mixing8.
+remain in the sink. The surface selectors now create 23 with saved mixing8.
 Old profiles20–22 retain their policy and checkpoint bytes.
 
-Clean parent/candidate Linux Release builds pass86/86CTest; all99 legacy
+Clean parent/candidate Linux Release builds pass 86/86CTest; all 99 legacy
 diagnostic outputs/exits match (timings excluded), and the parcel output is
 unchanged. A generated hot-gas front exercises the new ordering with closed
 energy and both passive identities, exact cold continuation, and an unchanged
-no-trace control. The old Oceania failure still reproduces under22; a scratch
-replay explicitly selecting23 completes60 ticks with byte-identical1/12-worker
-and cold30 endpoints. This is diagnostic replay evidence. Fresh selected-profile
+no-trace control. The old Oceania failure still reproduces under 22; a scratch
+replay explicitly selecting 23 completes 60 ticks with byte-identical1/12-worker
+and cold 30 endpoints. This is diagnostic replay evidence. Fresh selected-profile
 game checks, the floor and long-colony acceptance remain open.
 
-The subsequent fluid-only Oceania stress probe reaches923 ticks, then SaltWater
+The subsequent fluid-only Oceania stress probe reaches 923 ticks, then SaltWater
 falls below its supported temperature range. It first crosses its low identity
-transition at tick193, but that standalone driver omits the owner's
+transition at tick 193, but that standalone driver omits the owner's
 SaltWater-to-Brine conversion and solid byproduct. This result establishes a
 limit of that diagnostic, not an integrated-owner failure; an actual game run
 with conversion and freezing remains required.
@@ -456,7 +456,7 @@ unrun as required. Existing diagnostic failures stay recorded.
 
 The WindowsPlayer/Proton regression uses the uploaded colony's unchanged
 physical state and an identical private helper for twelve actual native digs.
-Across frames504–584, the watched cell stays at 32.338–34.561°C,
+Across frames 504–584, the watched cell stays at 32.338–34.561°C,
 1.6462–1.6818 kg and 249.852–254.394 kPa; the earlier policy reaches
 −78.636°C, 15.364 kg and 2.173 MPa. All twelve inputs match exactly.
 Maximum relative mass/energy errors are 8.48e-16/3.53e-15.
@@ -471,7 +471,7 @@ cell stays at 19.266–22.697°C. On the development host's assigned cores it
 averages 1.37 s per 0.2 s frame (p95 2.01 s); the other CPU slot was active.
 These measurements establish no real-time or Windows OS performance pass.
 Completed-frame32 writing and ordinary cold/menu loading pass: both loads
-restore Fast and advance twelve frames to44, with mass/energy errors
+restore Fast and advance twelve frames to 44, with mass/energy errors
 2.63e-16/3.52e-14 and verified menu return. Focused AddressSanitizer/UBSan
 pressure, regional and worker/continuation controls pass. The complete
 instrumented game-kernel executable stops earlier at the unchanged account
@@ -481,26 +481,26 @@ changed. The compact private comparison is
 `artifacts/windows-temperature-flux-comparison.json`.
 
 Checkpoint24 retains version23's field layout and identifies the new arithmetic.
-The core reader preserves versions20–23 and their original policies. Ordinary
+The core reader preserves versions 20–23 and their original policies. Ordinary
 mod loading refuses those R&D saves with instructions to start a new colony;
 there is no supported save migration. A private same-state version23-to-24
 copy is used only to compare the affected colony under the two policies.
 
 ### Performance follow-up
 
-A shared executor for regions of at least4,096 cells was measured and rejected.
-On the same saved frame32 physical state, eight advances repeated three times
+A shared executor for regions of at least 4,096 cells was measured and rejected.
+On the same saved frame 32 physical state, eight advances repeated three times
 were byte-identical to the accepted code, but mean advance time increased
-from1.4423 to1.9311 s (+33.9%). The accepted implementation and private ZIP
+from 1.4423 to 1.9311 s (+33.9%). The accepted implementation and private ZIP
 retain the previous executor ownership. The paired evidence is
 `artifacts/temperature-pooled-physical-benchmark/summary.json`.
 
 An observational profile of the accepted code also retains all eight checkpoint
 images exactly. A 2,846-cell remote magma region accounts for most work:
-6,066 of7,953 retries, all caused by the net-volume limit. Two cells contain
+6,066 of 7,953 retries, all caused by the net-volume limit. Two cells contain
 magma/rock-gas mixtures with substantial canonical momentum. Over eight
-advances that region spends4.66 s in pressure,3.60 s in transport,1.03 s in
-EOS work and1.29 s in audits; heat costs only3.5 ms. The report is
+advances that region spends 4.66 s in pressure,3.60 s in transport,1.03 s in
+EOS work and 1.29 s in audits; heat costs only 3.5 ms. The report is
 `artifacts/temperature-accepted-region-profile/summary.json`.
 This is a same-state physical-kernel benchmark without owner-level inputs or
 conversions; it is not a whole-game performance acceptance run. No timestep,
@@ -532,12 +532,12 @@ and a rock-gas cell above it holding 2.7e-7 kg, the face momentum was
 bound then admits at most 3.3e-4 s, and fixed halving and doubling settled
 on alternating 1.95e-4 s accepted and 3.9e-4 s rejected trials.
 
-An owner replay of the same fresh colony from frame3 with its recorded
+An owner replay of the same fresh colony from frame 3 with its recorded
 inputs shows how that velocity forms. Interface sharpening moves about 11%
 of the cell's magma per tick into its fuller neighbour, and its equal-volume
 parcels leave face momentum unchanged (layering has the same rule), so the
-face kept J while its inertia fell from 345 to 1.7 kg: −4.8 m/s at frame3,
-−24 at frame10, −1,690 at frame32. The kinetic energy came from internal
+face kept J while its inertia fell from 345 to 1.7 kg: −4.8 m/s at frame 3,
+−24 at frame 10, −1,690 at frame 32. The kinetic energy came from internal
 energy; the cell cooled from 1,722 K to 1,345 K. The rock-gas cell above is
 not exactly empty, so the free-surface closure does not close the face, and
 its trace mass carries almost nothing, so pressure cannot build to stop it.
@@ -585,7 +585,7 @@ lock, three interleaved repeats of eight 0.2 s advances, no owner inputs):
 | Fresh replay frame 60 | 0.591 / 1.498 | 0.541 / 1.331 | 0.337 / 0.750 |
 
 The fresh replay states come from the owner replay above (Spaced Out!
-colony, recorded inputs from frame3, profile6). Concurrent builds on the
+colony, recorded inputs from frame 3, profile6). Concurrent builds on the
 other CPU half made these runs slower than unloaded ones; the comparison
 within each row is interleaved.
 
@@ -600,12 +600,12 @@ selector1) on the fresh frame-60 state.
 
 The overfill regression was replayed offline through the colony owner with
 the recorded inputs of the twelve-dig Proton run (the uploaded colony's
-unchanged physical state, frames505–584, twelve workers). Profile6
+unchanged physical state, frames 505–584, twelve workers). Profile6
 reproduces the recorded in-game bounds of the watched cell: 32.340–34.560°C,
 1.6462–1.6818 kg and 249.85–254.39 kPa. Profile7 stays within
 32.350–34.520°C, 1.6492–1.6818 kg and 249.75–254.39 kPa, while the mean
 owner frame falls from 2.94 to 1.49 s. An owner replay of the fresh
-Spaced Out! colony (frames4–43) averages 1.31 s per frame with profile6 and
+Spaced Out! colony (frames 4–43) averages 1.31 s per frame with profile6 and
 1.16 s with profile7; the magma face still forms there (up to −2,081 m/s).
 Without interface sharpening it never forms (at most −70 m/s) and the same
 replay averages 1.05 s; that is a measurement of the cause, not a setting
@@ -654,8 +654,8 @@ their arithmetic and checkpoint bytes. Development controls can request
 profile6 or profile7 explicitly through `MA_COLONY_KERNEL3_PROFILE6=1` or
 `MA_COLONY_KERNEL3_PROFILE7=1`.
 
-The fresh Spaced Out! owner replay, from the unchanged frame3 state with its
-recorded inputs through frame43, keeps the watched magma face at (308,219)
+The fresh Spaced Out! owner replay, from the unchanged frame 3 state with its
+recorded inputs through frame 43, keeps the watched magma face at (308,219)
 between -24.84 and +5.04 m/s instead of profile7's -2,080.92 m/s. The cell
 stays at 1,720.91–1,722.52 K; the paired profile7 replay reaches
 1,153.34–1,764.94 K. The same observer, original physical fields and recorded

@@ -8,6 +8,36 @@ still require separate authorization.
 
 Amendments:
 
+- **Review decisions, 2026-11-02 (the user confirmed 3× and delegated the
+  rest to Claude's judgment):**
+  1. *3× is the release gate.* The user confirmed the amendment below: the
+     1× floor is superseded by sustained actual 3×.
+  2. *Breathing gate: per-breather production criterion approved.* The
+     whole-world B3 check that net gaseous CO₂ rises within the 8 s window
+     cannot pass with vanilla breathing: duplicants hold CO₂ until a 0.02 kg
+     puff (about 16 g held at the check) and ten Space-zone removal sites
+     dominate the global delta (−0.91 kg). The criterion becomes the
+     [breathing-gate proposal](../artifacts/release-ready-2026-10-30/breathing-gate-proposal-v1/PROPOSAL.md):
+     each source duplicant produced CO₂ (held change plus scoped puffs).
+     Stages, inputs, duration and the breath and oxygen-extraction checks are
+     unchanged; the global delta stays a reported diagnostic. Native
+     deposition stays the job of the `breath-particle` diagnostic, whose
+     bound is tightened back to the arena (it no longer accepts the whole
+     colony's trace loss).
+  3. *Freeze/melt observable proposal rejected.* The late >380 kg liquid
+     check at frame 42 is what bounds refreezing (480 kg total, so at most
+     100 kg may be ice); 111.7 kg refroze. Observing the bound at any frame
+     would turn a sustained-melt check into a peak-melt check. The gate stays
+     as fixed and failing until the energy audit shows whether the refreeze
+     is physically correct; no fusion heat or rate tuning to fit it.
+  4. *Retained pacing credit kept.* Credit is capped at 0.4 game seconds,
+     repaid at most 1/60 s per call (at most twice the chosen speed, briefly)
+     and never admits more time than ONI offered. It is execution pacing, not
+     physics, so it does not conflict with "readers never disagree".
+  5. *Feature cuts for speed* stay the user's choice per item (amendment
+     below); options must be measured and presented with gameplay effect.
+  6. *Licence, public release and Workshop upload* remain the user's.
+
 - **3× release speed, 2026-10-28 (latest user request):** target sustained
   actual 3 game seconds per wall-clock second with smooth input on the user's
   Windows PC in representative base-game and Spaced Out! colonies. Continue

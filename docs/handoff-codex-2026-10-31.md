@@ -2,14 +2,54 @@
 
 The active goal is release readiness. Continue on `main`; the mod is still not
 release-ready. Actual Windows OS testing is explicitly deferred: do not ask
-again or publish a Workshop release. The breathing criterion proposal still
-requires the user's decision. Fixed inputs, grids and bounds remain unchanged.
+again or publish a Workshop release. Fixed inputs, grids and bounds remain
+unchanged except by the decisions below.
 The [previous handoff](handoff-codex-2026-10-30.md) records the broader failures.
+
+## Review and fixes, 2026-11-02 (Claude)
+
+The user asked Claude to review Codex's 10-28–10-31 work, confirmed **3× as
+the release gate**, and delegated the pending decisions; they are recorded in
+the [completion plan amendments](completion-plan.md). Breathing: the
+per-breather production criterion is adopted and passes in game; the
+breath-particle diagnostic pairs each loss with the trace sink booked in the
+same interval instead of the whole colony's cumulative sink. Freeze/melt: the
+any-frame observable proposal is rejected; the >380 kg deadline check stays.
+Retained pacing credit is kept. Licence and Workshop upload stay the user's.
+
+An independent clean rebuild of `51e8879` reproduced 91/91 CTests, every
+managed suite, 239 snapshot scenarios, the 2589-entry game contract, the
+`patch.hpp` hash and identical all-88 outputs for the remap change. Fixes now
+on main (no solver arithmetic or checkpoint byte changes):
+
+- Saves no longer race an activity frame popped between settle and the locks
+  (reproduced ~300 unrestorable saves per control run before the fix); the
+  activity back-pressure wait exits on stop.
+- The per-Prepare native Step wait runs only under exact storage; ordinary
+  games keep main/native overlap (A-B-B-A 900-frame base: 2.935× → 2.969×,
+  weak evidence, still under 3×).
+- Frame-fence waits are bounded and a stale Windows frame lock is released at
+  the next BeginFrame; a paired-heat fault that cannot be recorded fails closed.
+- Saves retry (bounded) while exact-storage thermal publication is pending;
+  spawned byproducts are acknowledged on surviving early exits (no duplicate
+  debris); the regional coordinator thread checks the FP environment; phase
+  relaxation reads pair masses through the cell after copy-on-write detach.
+- Pacing and receipt-fence tests now run production code; result-collection
+  Python tests no longer depend on the enclosing repository's HEAD.
+
+**Runtime continuation WIP (still uncommitted):** its writer was on by default
+while `Ready()` refuses record 6, so committing it would have made every
+ordinary save unloadable or failing. Claude changed `WriterEnabled` to opt-in
+(`MA_COLONY_RUNTIME_CONTINUATION=1`) and applies the new record-declaration
+settle condition only when the writer is enabled. Keep both until record 6 is
+qualified. `tools/ColonyRuntimeContinuationTests` does not compile: `Timed.cs`
+now needs `UpdateTables`, `EventState`, `EventDiscovery` and `ActorGraph`, and
+the last needs game types (`KMonoBehaviour`) the test stubs lack.
 
 ## Current integration
 
 The exact remap-plan optimization passes a clean Linux Release full build and
-all91 CTests, using1228 pinned source files with runtime WIP excluded. It
+all 91 CTests, using 1228 pinned source files with runtime WIP excluded. It
 reuses four call-local buffers and emits dense
 affected-cell IDs from the existing stamps in their original ascending order.
 The production header SHA256 is
@@ -17,7 +57,7 @@ The production header SHA256 is
 FP expressions/reductions/order and identical-input checkpoint bytes are
 unchanged; allocation-failure positions can differ. No version is reserved.
 
-Both clean Linux and Windows/Wine comparisons retain all88 numerical outputs
+Both clean Linux and Windows/Wine comparisons retain all 88 numerical outputs
 and exits, including eight known nonzero diagnostics; only existing
 `ref_ms`/`prod_ms` fields differ. Targeted6182 Release/ASan/UBSan/errno controls,
 full owner/receipt/pre-flow/status replay and independent cold/menu future
@@ -28,43 +68,43 @@ descending-order mutants fail behaviorally; valid canonical sums can be
 order-independent. The measured math header is unchanged by adding the test.
 
 Seven isolated hot-replay pairs improve median steady native advance
-1508.38→1442.00 ms (ratio1.04657, all seven faster). This repeats the original
+1508.38→1442.00 ms (ratio 1.04657, all seven faster). This repeats the original
 saved CO2 parcel, not the complete live trajectory. Balanced fresh8-pair
 results are base cold/menu0.98623/0.99890 and DLC1.01060/0.99504, with mixed
 signs and broad ranges. A small base-cold cost remains unresolved; do not
-claim fresh speedup, equivalence or actual3× from this change.
+claim fresh speedup, equivalence or actual 3× from this change.
 
 ## Verified and open
 
-- Clean committed `3d8c20f` passes91 native tests, every managed suite and239
-  snapshot scenarios. Explicit PowerShell/backend Python coverage passes485
+- Clean committed `3d8c20f` passes 91 native tests, every managed suite and 239
+  snapshot scenarios. Explicit PowerShell/backend Python coverage passes 485
   with four actual-Windows-only skips; the initial run's other seven skips are
   closed separately. All1227 source hashes remain fixed. Actual Linux game
-  Mono checks2589 dependencies with zero differences. The one-off native build
+  Mono checks 2589 dependencies with zero differences. The one-off native build
   is removed after retaining libraries, CTest logs/config and executable hashes.
 - Committed compact pressure/hazard channels retain exact bytes. Actual Mono
-  method benchmarks improve2.32877×/7.21132×; these are not game speedups.
+  method benchmarks improve 2.32877×/7.21132×; these are not game speedups.
   The frozen exact3d900-frame base/DLC WHOLE checks now pass functionally at
-  actual game2.913118×/2.339865× (owner2.912785×/2.339596×), with three
-  duplicants, no faults/observed pauses/dropped samples. These full0–900 rates
-  are close to the earlier2.91709×/2.33570× controls; different cohorts do not
-  establish a causal comparison. Neither meets3×. The package predates the
+  actual game 2.913118×/2.339865× (owner 2.912785×/2.339596×), with three
+  duplicants, no faults/observed pauses/dropped samples. These full 0–900 rates
+  are close to the earlier 2.91709×/2.33570× controls; different cohorts do not
+  establish a causal comparison. Neither meets 3×. The package predates the
   remap integration; normal-reserve/smoothness/Windows remain separate.
-- A separate private64-entry, worker-block-local velocity cache passes6182
-  literal-original Release and targeted ASan/UBSan controls plus24 complete
-  hot owner/receipt/pre-flow/status frames and348 fresh cold/menu frames.
+- A separate private64-entry, worker-block-local velocity cache passes 6182
+  literal-original Release and targeted ASan/UBSan controls plus 24 complete
+  hot owner/receipt/pre-flow/status frames and 348 fresh cold/menu frames.
   Independent default-OFF future images remain exact. Isolated hot7-pair
-  steady ratio1.014323× is mixed; first-advance ratio0.967028× is slower.
-  Balanced fresh8-pair base cold/menu ratios0.999331/0.994748 and DLC
+  steady ratio 1.014323× is mixed; first-advance ratio 0.967028× is slower.
+  Balanced fresh8-pair base cold/menu ratios 0.999331/0.994748 and DLC
   0.965330/1.016068 do not establish a useful general gain. It is not adopted;
-  broader all88/Windows qualification stays unrun. CPU HOLD ended00:55:22 UTC.
+  broader all 88/Windows qualification stays unrun. CPU HOLD ended 00:55:22 UTC.
 - The pool probe's fresh replays have zero inner/residual selections or serial
   probes (six unknown/ten too-small decisions each). Alternating slow frames
   still occur on the outer-only route. Do not attribute these new observations
   to inner selection, or infer choices in earlier unlogged runs. Registered
   pool CPU-time data is being reviewed; no parking/selector change is adopted.
-- The unchanged freeze/melt batch has43 coherent observations. At check42,
-  liquid368.293808 kg plus visible ice111.706198 kg accounts for480 kg within
+- The unchanged freeze/melt batch has 43 coherent observations. At check 42,
+  liquid 368.293808 kg plus visible ice 111.706198 kg accounts for 480 kg within
   5.4 mg; no product is pending. Water loss matches the conversion ledger to
   about1e-11 kg. Hidden-liquid owner conversion produces the ice; no native
   freeze input occurs in that window. Local post-source heat is−12.146388 MJ.
@@ -77,16 +117,16 @@ claim fresh speedup, equivalence or actual3× from this change.
   MoveFileEx fails open-reader sharing; FileRenameInfoEx is unsupported there.
   Neither alternative is adopted. Keep this reader gate open separately from
   the repaired writer collision and from actual Windows OS acceptance.
-- Runtime continuation remains WIP on main. Native96/56 captures all11 cell
+- Runtime continuation remains WIP on main. Native96/56 captures all 11 cell
   columns; MACOLP03 tag6 / MACGRT01v1 are already reserved. General controls
-  pass429 and supplemental installed-SDK/Mono controls reach67. Source v14
+  pass 429 and supplemental installed-SDK/Mono controls reach 67. Source v14
   explicitly refuses retained retired scheduler graphs, with no owner fault
   and no save/load. Five Wilt outgoing graphs are complete/cleaned; Failed
   Idle retains live navigation/EventSystem references. Full shared graph/event
   and static-dispatcher installation, lifetime/inbound proof, Unity time and
-  derived heat operands remain open. Ready() must refuse unqualified record6;
+  derived heat operands remain open. Ready() must refuse unqualified record 6;
   helper controls do not qualify live continuation.
-- The private airflow core reaches22 optimized/sanitized component groups,
+- The private airflow core reaches 22 optimized/sanitized component groups,
   retaining historical no-mask outputs. A missing aperture/inertia view in
   recursive positive-pressure correction is fixed; the unchanged high-speed
   fixture now passes. Typed heat/mask/trace receipts separate physical packet
@@ -111,8 +151,8 @@ claim fresh speedup, equivalence or actual3× from this change.
    Continue the freeze/melt energy audit; its material custody is now measured.
 5. Remaining physics/accuracy, powered/mixed heat, default activation, exact
    storage/bottle/recipe teardown and sustainable progression gates remain as
-   recorded in the previous handoff. Full F4 is20000 simulated seconds; do not
-   substitute a shorter duration. Actual sustained3× remains unproven.
+   recorded in the previous handoff. Full F4 is 20000 simulated seconds; do not
+   substitute a shorter duration. Actual sustained 3× remains unproven.
 
 ## Private evidence and ownership
 

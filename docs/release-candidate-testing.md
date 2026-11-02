@@ -58,7 +58,8 @@ All 15 original Linux gameplay batches finished: 11 batches and 61 of their
 world-germ growth comparison failed their unchanged criteria. The separate
 Spaced Out! nine-world control passed. Full M2 and M3 passed every required
 grid. Full M5 failed on grid 40 near its endpoint with a primary-storage
-rounding rejection; the passing coarser grids do not pass M5. Both original
+rounding rejection; the passing coarser grids do not pass M5. (Later: `28e7ff6`
+persists proven-negative caloric retries and full M5 passes at every grid.) Both original
 180-second strong-flow captures timed out without a complete scientific
 verdict. Private details are in `original-matrix-summary.json` and
 `native-gates/` under the evidence directory above. This candidate is rejected
@@ -249,8 +250,8 @@ physics inputs or acceptance bounds.
 
 | Gate | Required current-candidate evidence | Status |
 | --- | --- | --- |
-| Builds and compatibility | Clean Linux and Windows native/managed builds, test suites, actual game contracts and Mono checks; supported game builds and changed hooks verified; fail-closed negative controls | Linux, Windows/Wine and Ubuntu 22.04 each pass 90 native tests; game Mono contracts pass on both targets. New diagnostic repairs require their committed-package rechecks |
-| Numerical physics | All fixed gravity, free-surface, multiphase, vacuum and strong-flow gates, including full-grid runs; 10,000-step closed mass drift ≤ 1e-8 and energy drift ≤ 1e-6, with separate trace and source/sink ledgers | Full M2/M3 pass; M5 grid40 fails primary-storage rounding. Extended exact-input strong-flow fails collision/default and separation/monotone accuracy; original timeout captures retained |
+| Builds and compatibility | Clean Linux and Windows native/managed builds, test suites, actual game contracts and Mono checks; supported game builds and changed hooks verified; fail-closed negative controls | Linux passes all 91 native tests at `51e8879` (independently rebuilt 2026-11-02); Windows/Wine and Ubuntu 22.04 last passed 90 at `c7080a7`; game Mono contracts pass on both targets. New diagnostic repairs require their committed-package rechecks |
+| Numerical physics | All fixed gravity, free-surface, multiphase, vacuum and strong-flow gates, including full-grid runs; 10,000-step closed mass drift ≤ 1e-8 and energy drift ≤ 1e-6, with separate trace and source/sink ledgers | Full M2/M3 pass; full M5 passes at every grid since `28e7ff6`. Extended exact-input strong-flow fails collision/default and separation/monotone accuracy; original timeout captures retained |
 | Game accuracy | Fixed F1–F5 owner and vanilla comparisons, including independent F3/F4 timing truth and solid heat exchange | Open |
 | Gameplay | Base game and Spaced Out! generation and all supported producer, consumer, storage, disease, machine, rocket and inter-asteroid lifecycles; starting colonies reach sustainable life support and endgame without developer intervention | Open |
 | Persistence | Corruption/missing-mod refusal, save/load and identical future inputs with complete owner, pipe, scheduling and particle state across source, cold and menu continuation | Full active continuation open |

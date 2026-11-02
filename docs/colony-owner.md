@@ -159,7 +159,7 @@ or idle pause discards held evolution time rather than catching up.
 
 Owner wrapper14 saves logical sequence watermarks, each queued census and its
 input cuts, pending policy, lifecycle census/touch union, contact touches and
-per-cell biological fractions. Callback wrapper13 may enclose base14. On
+per-cell biological fractions. Callback wrapper13 may enclose base 14. On
 restore, saved positive packets are exposed as unclaimed. The adapter validates
 the exact saved timestep, claims each packet in order, skips its already-saved
 actor input generation/census, and resubmits the native frame. A lifecycle
@@ -354,7 +354,7 @@ choosing a new winner for equal-count ties. Non-disease identities do not compet
 for that projection. An advanced publication is retried, rather than compared
 against an older view. Reports expose `WorldPassiveComparisons`,
 `WorldPassiveRows` and `WorldPassiveBusy`; the control is off during timing runs.
-An actual fresh profile3/core21 base run passes32 observations/32 rows with
+An actual fresh profile3/core21 base run passes 32 observations/32 rows with
 zero stale reads, alongside the existing four base checks and an ordinary save.
 This verifies live ABI/projection agreement, without accepting full world
 minority biology.
@@ -654,7 +654,7 @@ controls pass as part of 217 snapshot tests. A real flags5/core20 control checks
 55,345,152 indices with no mismatch over40frames, no gaps or faults, closed
 ledgers and verified cleanup.
 
-A subsequent WHOLE-lock Terra60 pair uses one immutable package and seed147147,
+A subsequent WHOLE-lock Terra60 pair uses one immutable package and seed 147147,
 changing only that cache bypass. Native instrumentation and index comparisons
 are off; managed publication laps are deliberately on. Each run has60owner
 samples/59intervals with no gaps, faults, retries or skipped relaxation;
@@ -665,14 +665,14 @@ fallback count remains unavailable. Package hashes match before and after.
 | Original calculation | 204.891 / 226.328 / 262.522 | 250.482 / 361.558 / 765.871 | 6.940e-16 / 7.551e-16 | 1.22055e-7 / 0.1270655 |
 | Cached geometry | 198.195 / 219.398 / 248.868 | 244.009 / 300.531 / 786.563 | 3.750e-16 / 7.183e-16 | 1.19237e-7 / 0.1278435 |
 
-In frames10–59 overlay cost per publication is0.941660→0.845575ms (10.20%
+In frames 10–59 overlay cost per publication is 0.941660→0.845575ms (10.20%
 lower in this pair). Publication counts differ432→379, while snapshot cost
-per publication stays1.04175→1.05300ms and receipts cost8.585→8.523ms per owner.
+per publication stays 1.04175→1.05300ms and receipts cost 8.585→8.523ms per owner.
 One baseline view-copy lap stalls153ms; its cause is not yet attributed.
-A separate mapping-only .NET10 six-pair AB/BA control gives0.262992→0.129417ms
-for98,304cells with identical destinations. The live pair is potentially GPU
+A separate mapping-only .NET10 six-pair AB/BA control gives 0.262992→0.129417ms
+for 98,304cells with identical destinations. The live pair is potentially GPU
 contended by vLLM and includes managed instrumentation; its whole-frame means
-are diagnostic observations, not an isolated gain or2× acceptance.
+are diagnostic observations, not an isolated gain or 2× acceptance.
 
 For the unexplained long view-copy laps,
 `MA_COLONY_VIEW_TIMING_LOG=1` separately records backend mutex wait and native
@@ -894,9 +894,9 @@ resuming. Ordinary saves omit section5 and retain their prior bytes.
 `release-native-clock-source-v2` passes the seven-check drained-reservoir
 control. Cold and menu loading in `release-native-clock-load-v2` restore every
 saved counter; the independent native trace records both zero-time restores
-from tick0 to saved tick40 before positive time. All eight complete pipe
+from tick 0 to saved tick 40 before positive time. All eight complete pipe
 images remain byte-identical across source/cold/menu. The owner still first
-differs at frame41: breathing and solid-heat inputs remain different. The
+differs at frame 41: breathing and solid-heat inputs remain different. The
 earlier load lacking zero-time capture is retained as a failed control.
 
 WindowsPlayer/Proton also passes all seven checks and cold/menu loading
@@ -990,7 +990,7 @@ this observation is not a continuation pass. Both native suites pass 89 tests,
 and the focused observer executable passes AddressSanitizer/UBSan.
 
 `MA_ONI_RUNTIME_ACTORS=1` adds a private `.actors` file to that trace. At
-phases2/3 it records the ordered native chunk and building thermal registries
+phases 2/3 it records the ordered native chunk and building thermal registries
 as raw 44-byte records. Both pinned platform layouts reject truncated vectors;
 the observer retains no native pointers and changes no records. Linux and
 Windows/Wine native suites each pass 89 tests. The Linux source/cold/menu
@@ -1253,7 +1253,7 @@ After allocations succeed, transfers and durable metadata commit under one
 input lock, so a worker cannot take ordinary actor A before its intervening
 pump job and later actor B are queued. Replaying a batch containing jobs
 rejects without duplicating ordinary actors. The single-job idempotent API
-and owner8 persistence rules are unchanged. Controls compare live ordering,
+and owner 8 persistence rules are unchanged. Controls compare live ordering,
 receipts and checkpoints with the existing enqueue sequence, compare cold
 continuation under the existing transient-callback policy, reject malformed
 or repeated batches without mutation, and race 50 three-request batches

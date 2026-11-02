@@ -97,13 +97,13 @@ playtest deferrals remain recorded until their own controls pass.
   inputs and stages remain unchanged. An earlier repaired run observed no
   pending work and is retained as inconclusive, not a passing regression.
   The exact-storage prototype remains gated on the other lifecycle controls.
-- **Filter fixture readiness:** the same candidate also failed batch10 because
+- **Filter fixture readiness:** the same candidate also failed batch 10 because
   its filter and sensor inputs stayed empty; the later germ check then threw
   on an empty sequence. Wait for all actual native filter/sensor conduits to
   register before seeding, then retain the original 8-frame check intervals,
   mixture quantities and bounds. The repaired five-scenario batch passes all
   76 checks, including boundary transfers, output, demolition and valve rates.
-- **Pump-rate observation:** the old candidate's batch11 moves the expected
+- **Pump-rate observation:** the old candidate's batch 11 moves the expected
   mixtures and passes its mass/account checks, but reads zero for both native
   pump rate accumulators. Sampling now waits for the native accumulator window.
   Immutable `d252486` Linux `linux-b11` passes vents, biology, all germs, pumps
@@ -179,7 +179,7 @@ playtest deferrals remain recorded until their own controls pass.
 | Smooth input and UI | Readings allocate 64–68% less in fixed-JIT .NET controls and match the parent across 60,000 cells plus 528 edge cases. Event appends/prepends now omit temporary arrays; native reading copies use pinned publications. The integrated ultra Terra probe has one clean 15 s window with 3 GCs and frame p99 95 ms; native UpdateData remains about 14 ms. Advanced → Performance → Log frame timing enables Windows diagnostics. The one-GC/15 s goal and actual Windows smoothness remain open. |
 | [Compatibility and packaging](windows-validation.md) | Complete current-bundle gameplay, natural autosave, cold/menu load and UI checks; resolve portable Linux ABI validation; retain separate evidence for Proton and actual Windows OS. |
 | [Long regressions and release](completion-plan.md#release-acceptance) | Complete the base-game and Spaced Out! mode and all-content colony regressions, player documentation and human playtesting. Workshop publication remains a separate authorized action. |
-| Game-update resilience | The mod and its saves are pinned to ONI build 744825 (whole-file hashes, fixed hook addresses, save envelopes). Verify each build by what the mod actually depends on, fail closed with a clear message, load saves across supported builds, and provide a re-targeting tool for new builds. |
+| Game-update resilience | Implemented ([design](game-update-resilience.md)): packages carry a `game-contract.json` of what the mod actually depends on (2589 dependencies, verified against public build 744825 on 2026-10-29), fail closed with a clear message, load saves across supported builds, and `tools/retarget_oni.py` re-targets new builds. Each new Klei build still needs a contract check before release. |
 | Release package and identity | One reproducible Workshop-shaped folder with both platforms' native libraries and no installer; final static ID and version that keep existing private saves and presets working; nothing written into the mod folder in ordinary play; clean refusal on unsupported operating systems; an accurate Steam description. |
 | Licence and publication | The user chooses the licence later. Workshop upload needs the user's authorization. |
 

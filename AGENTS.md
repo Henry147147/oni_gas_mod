@@ -52,7 +52,7 @@ few that your task touches, starting here.
 ```sh
 cmake -S . -B build-production -DCMAKE_BUILD_TYPE=Release -DMA_BUILD_ONI_NATIVE_BACKEND=ON
 cmake --build build-production -j 8
-ctest --test-dir build-production -j 8          # about 75 tests, a few minutes
+ctest --test-dir build-production -j 8          # about 90 tests, a few minutes
 python3 tools/build.py                           # full native + managed + Python suites
 ```
 

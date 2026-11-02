@@ -268,7 +268,7 @@ The `1ccbe75` actual source now passes retirement and slot reuse: it recovers
 closes the removed cells and reuses the same world-9 rectangle. The new cabin
 contains none of the former CO2/liquids and retains its new 0.125/0.0625 kg gas
 source. The source ends at frame 87 with relative mass/energy errors
-2.37e-16/5.56e-16. Fresh-process and menu loads reach frame96 and reencode the
+2.37e-16/5.56e-16. Fresh-process and menu loads reach frame 96 and reencode the
 same wrapper12/core23 image exactly (`8608173e…f4db3`). The menu path verifies
 teardown, the actual main menu and a second load into a new owner session. These are
 WindowsPlayer/Proton development controls, not ordinary activation or Windows OS
@@ -285,17 +285,17 @@ accounts closed. No transfer callback is invoked manually. The scenario builds
 against the installed SDK; its actual game/save/load checks remain unrun.
 
 The `8d49e53` game attempt reaches a healthy owner but fails discovery at
-frame54: only one spawned sender is found, and the game warns of missing
+frame 54: only one spawned sender is found, and the game warns of missing
 partners. No fluid transfer or load pass is taken from it. The repeat records
 the actual generated hardware and runs the teleporter scenario independently
 of the destructive central-cell ownership probes, retaining both-direction
 requirements and the declared mixtures/windows/bounds.
 
 The independent `b19998e` attempt confirms all four generated endpoint records
-in worlds0/2, then exposes a physical heat fault at owner frame2. Its `9dcb158`
+in worlds0/2, then exposes a physical heat fault at owner frame 2. Its `9dcb158`
 diagnostic repeat captures the same failure. Offline initial EOS checks pass,
 but conduction leaves negative thermal energy in two roughly1e-11 kg gas
-pockets. A converged global relative residual of about0.001 J overwhelms their
+pockets. A converged global relative residual of about 0.001 J overwhelms their
 few microjoules of heat; the conservative face reconstruction reveals it.
 
 The repair refines the same implicit heat equation from its local residual
@@ -303,16 +303,16 @@ only when the first conservative update has nonpositive thermal energy. Each
 face still carries one shared flux; the original solve and all corrections
 share each component's saved iteration cap and unchanged tolerances. No
 energy is clamped or created. One correction advances the exact private
-capture from0.40000000596 to0.60000000894 seconds. A separate synthetic
-24x16 control has61 invalid cells under the old solve; the repair leaves all
-temperatures in the initial range, closes energy to1.93e-18 relative, matches
-workers1/12 and refuses an insufficient total iteration budget atomically.
+capture from 0.40000000596 to 0.60000000894 seconds. A separate synthetic
+24x16 control has 61 invalid cells under the old solve; the repair leaves all
+temperatures in the initial range, closes energy to 1.93e-18 relative, matches
+workers 1/12 and refuses an insufficient total iteration budget atomically.
 The ordinary finite heat path and checkpoint format remain unchanged. Clean
 `1ccbe75`/`6c91161` builds retain every comparable `ma_mac_*` physical output
-and exit code across85 executables; only validation timings differ, and the
+and exit code across 85 executables; only validation timings differ, and the
 long Riemann gate remains unrun. The fresh Windows build passes the kernel
 regression under Wine. Its actual teleporter run passes the former heat fault,
-then reaches the hardware check at frame31 with a healthy owner.
+then reaches the hardware check at frame 31 with a healthy owner.
 
 That run finds only the starting world's active endpoints. All four generation
 records exist in worlds0/2; the linked asteroid is still undiscovered, so its
@@ -322,14 +322,14 @@ spawns, as arrival would. It keeps their generated positions, both directions
 and all physical inputs/bounds. The installed Windows SDK build passes; the
 replacement game result remains required.
 
-The corrected `dc39f60` teleporter source passes all11 checks at frame23:
+The corrected `dc39f60` teleporter source passes all 11 checks at frame 23:
 both gas and liquid routes in each direction between worlds0/2 deliver the
-full0.75/0.25 kg mixture and drain their actual input/shared stores. Pipe
-accounts are exact. Cold and menu loads reach frame32 and reencode the same
+full 0.75/0.25 kg mixture and drain their actual input/shared stores. Pipe
+accounts are exact. Cold and menu loads reach frame 32 and reencode the same
 wrapper12/core23 image (`39b4d723…c3f0da`), with verified teardown/new session.
-Maximum relative mass/energy errors across the controls are3.80e-16/2.81e-16.
+Maximum relative mass/energy errors across the controls are 3.80e-16/2.81e-16.
 Native DLLs retain `6c91161` provenance; all are Proton development controls.
-Full CI at `dc39f60` passes386 Python tests (eight skipped),86 native CTests
+Full CI at `dc39f60` passes 386 Python tests (eight skipped),86 native CTests
 and every managed suite.
 
 ### Rocket flight
@@ -344,10 +344,10 @@ crew or obstruction checks. The scenario compiles against both installed SDKs;
 its game and in-flight save/load checks remain unrun.
 
 The `2b291d5` actual flight source passes all four checks and saves at owner
-frame170. The native craft reaches a different hex in `InFlight`; its cabin
+frame 170. The native craft reaches a different hex in `InFlight`; its cabin
 keeps 0.25 kg oxygen and 0.125 kg carbon dioxide to rounding, with exact pipe
-accounts. Maximum relative mass/energy errors are6.84e-16/1.06e-15. The
-fresh-process and menu loads of that airborne source both reach frame178 and
+accounts. Maximum relative mass/energy errors are 6.84e-16/1.06e-15. The
+fresh-process and menu loads of that airborne source both reach frame 178 and
 reencode the same owner image (`74a69fba…cccfd53`). The menu path verifies
 teardown and a new owner session. This proves saved-owner restoration, not
 byte-exact active flight continuation. Native DLLs retain their exact
@@ -373,7 +373,7 @@ entry points; their game and persistence checks remain unrun.
 
 The first `6c91161` airborne control retires the physical interior with closed
 owner/pipe ledgers and recovers its oxygen and both liquids, but fails CO2
-recovery (43.375 versus83.708335876464844 kg including native fuel). Native
+recovery (43.375 versus 83.708335876464844 kg including native fuel). Native
 debris spawn also reports a cluster-map exception: the held unregister leaves
 a destroyed Unity world in the list read by `FloatyAsteroidAnimation`. IDs are
 now reserved independently of that list, and the owner retains its pending
@@ -514,6 +514,8 @@ ceiling. The current-host diagnostic package is not a portable release.
 No ABI pass was recorded and no solver arithmetic was changed to hide this
 failure. Native Windows compilation and actual Windows OS runs remain separate
 checks; compiling the managed adapter against Windows assemblies proves neither.
+(Later: `e7775db` replaced the solver's `hypot@GLIBC_2.35` import; the Ubuntu 22.04 build
+now passes its ABI check with requirements of GLIBC 2.34 or lower.)
 
 Ordinary Spaced Out! activation now uses the same cluster layout, capability
 checks and lifecycle adapters as the targeted controls. The new ordinary

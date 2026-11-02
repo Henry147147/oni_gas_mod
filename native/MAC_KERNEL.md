@@ -352,10 +352,10 @@ through the interval and regional audits. Retained momentum scales with face
 inertia. The threshold remains 1e-11 kg in the game selector.
 
 The preceding private prototype clears three cold-restored intervals from
-both long-run captures: sink totals 1.731e-7 kg / 1.885 J at frame1621 and
-8.027e-8 kg / 0.5924 J at frame3319. Volcanea/Oceania/filter totals are
+both long-run captures: sink totals 1.731e-7 kg / 1.885 J at frame 1621 and
+8.027e-8 kg / 0.5924 J at frame 3319. Volcanea/Oceania/filter totals are
 2.840e-9/6.222e-9/1.293e-8 kg and 0.001827/0.002617/0.05535 J. Relative
-mass/energy errors stay below 1.7e-16/1.2e-17. The full frame1621 endpoint is
+mass/energy errors stay below 1.7e-16/1.2e-17. The full frame 1621 endpoint is
 byte-identical with one/twelve workers. These are preliminary flow controls,
 not a ten-cycle or floor pass; thousands of substeps still limit pace.
 The focused synthetic control checks internal removal in two disconnected
@@ -363,7 +363,7 @@ regions, every ledger, cold/thread identity, old-profile identity and rollback.
 
 The saved policy passes fresh whole-lock Terra60 runs with the same pinned
 managed DLLs and GPU rendering as the preceding profile17 baseline. The
-threshold stays 1e-11 kg; only the removal time changes. Profile18's frame50
+threshold stays 1e-11 kg; only the removal time changes. Profile18's frame 50
 dump confirms the saved selector. No faults or skipped relaxations occur.
 
 | Speed | Owner mean / p95 / max ms, profile17 → 18 | Observed mean / p95 / max ms, profile17 → 18 |
@@ -377,7 +377,7 @@ dump confirms the saved selector. No faults or skipped relaxations occur.
 | normal | 3.05e-16 / 5.06e-17 | 5.467e-08 / 0.01982 |
 
 The fast row is a rerun without a dump. The earlier 179.6/274.5 ms fast
-means included a frame50 checkpoint write inside the flow timer and are
+means included a frame 50 checkpoint write inside the flow timer and are
 superseded here; the normal row never wrote a dump.
 Observed statistics include the initial UI pause. Neither run meets the fast
 clock target. Floor comparisons and the fresh-base long run remain pending;
@@ -396,16 +396,16 @@ The [accepted selector-3 design](../docs/game-kernel-spec.md) now has an
 Profiles18/19 retain their existing paths and new colonies keep the prior
 default. The initial dense owner bridge passed a whole-lock Terra60 with
 closed trace/physical ledgers and zero faults/retries/skipped phase, but is
-slower initially:210.27ms owner and266.07ms observed mean. An exact cache/copy
-step now improves a clean paired run from214.42/256.71ms owner/observed to
+slower initially:210.27ms owner and 266.07ms observed mean. An exact cache/copy
+step now improves a clean paired run from 214.42/256.71ms owner/observed to
 194.11/239.11ms (9.47%/6.86%), with unchanged checkpoint bytes and closed
 ledgers. Full evidence is in the backend note. It has not passed the fixed
 floor or performance acceptance.
-The last Codex whole-lock profile18 Terra60 measured owner168.6 ms and
-observed257.7 ms mean, versus443/569 ms at the accuracy-floor brief's starting
+The last Codex whole-lock profile18 Terra60 measured owner 168.6 ms and
+observed 257.7 ms mean, versus 443/569 ms at the accuracy-floor brief's starting
 revision. Those improvements precede selector3; the fast clock is not met.
 
-The private prototype couples closed-form per-cell EOS, two fixed0.1 s flow
+The private prototype couples closed-form per-cell EOS, two fixed 0.1 s flow
 halves, one fluid heat solve, fixed-U latent phase relaxation, the1e-11 kg
 trace sink, full64-bit passives, density layering and bounded liquid-interface
 compression. A direct geometric liquid remap was rejected after excessive
@@ -414,7 +414,7 @@ books its actual kinetic/gravitational work; local scalar limiting avoids
 draining thermal energy. Gas and bulk material transport remain donor-cell,
 so the design's limited-linear/FCT transport is not complete.
 
-Matched whole-lock, pinned0–11, twelve-worker,60-tick offline Terra runs:
+Matched whole-lock, pinned 0–11, twelve-worker,60-tick offline Terra runs:
 
 | Exact change | Before mean ms | After mean ms | Evidence |
 | --- | --- | --- | --- |
@@ -423,21 +423,21 @@ Matched whole-lock, pinned0–11, twelve-worker,60-tick offline Terra runs:
 | One shared worker pool, with region audits and entropy diagnostics |98.30 /98.27 |89.95 /88.32 | Physical/passive/entropy/sink bytes unchanged |
 | Reuse transport vector capacities, after heat-layout caching |88.60 /88.95 |83.23 /83.00 | Physical/passive/entropy/sink bytes unchanged |
 
-The interface change removes17.5% of prototype time; its work falls from32.2–32.5
-to12.5–12.9 ms. After-change p95 is92.2–95.1 ms, max98.6–107.1 ms. These
+The interface change removes 17.5% of prototype time; its work falls from 32.2–32.5
+to 12.5–12.9 ms. After-change p95 is 92.2–95.1 ms, max 98.6–107.1 ms. These
 partial offline ticks omit owner edits/publication and do not establish a
-game-frame speedup. The latest capacity-reuse change removes6.4%: transport
-falls from18.7–19.4 to14.3–14.4 ms, after-change p95 is86.6–88.7 ms and
-max105.8–112.1 ms. Warm/cold-object continuation also agrees. Heat-layout
-caching saves about0.7 ms in that stage, with no established whole-tick gain;
+game-frame speedup. The latest capacity-reuse change removes 6.4%: transport
+falls from 18.7–19.4 to 14.3–14.4 ms, after-change p95 is 86.6–88.7 ms and
+max 105.8–112.1 ms. Warm/cold-object continuation also agrees. Heat-layout
+caching saves about 0.7 ms in that stage, with no established whole-tick gain;
 pressure-layout caching was slower and rejected. The numerical changes
 against the reference remain unquantified; no floor pass is claimed.
 
 One/twelve-worker60-tick primary and passive images agree byte-for-byte.
 Global species/energy/momentum/passive relative residuals are below
-9.4e-17/1.6e-17/2.9e-18/2.8e-17; trace totals are1.1761e-7 kg /0.12743 J.
-Once-per-tick audits also close in all1,306 connected fluid regions, with
-maximum relative residual below2.5e-16. A sealed two-room wind control checks
+9.4e-17/1.6e-17/2.9e-18/2.8e-17; trace totals are 1.1761e-7 kg /0.12743 J.
+Once-per-tick audits also close in all 1,306 connected fluid regions, with
+maximum relative residual below 2.5e-16. A sealed two-room wind control checks
 separate wall-impact heat, trace/passive receipts and detects an artificial
 cross-wall heat transfer whose global total closes. Cold-object continuation
 passes six ticks; an actual saved checkpoint codec is still absent.
@@ -447,8 +447,8 @@ unresolved flow error: Terra60 totals -70.46 MJ/K, of which flow contributes
 -70.54 MJ/K. A zero-gravity diagnostic removes the loss; gravity stays enabled.
 Upwind body-force and conservative velocity-filter trials did not repair it
 and remain unselected. Frozen F1 starts now come directly from the protocol,
-rather than from post-opening game captures. The strict8× reference advances
-past its former full-range parcel fault, but resolved event times and the16×
+rather than from post-opening game captures. The strict 8× reference advances
+past its former full-range parcel fault, but resolved event times and the 16×
 uncertainty control remain open. A standalone finite-body heat component passes
 analytic/shared-heat/worker controls; the native contact model and its coupling
 are not integrated.

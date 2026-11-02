@@ -54,7 +54,7 @@ continuation is still uncommitted work and is excluded from the clean tested
   91 native tests, 489 Python tests (11 optional/deferred skips), every managed
   suite, 239 standard snapshot scenarios and 240 with explicit native caloric
   fixtures plus DAZ/FTZ. Actual Linux game Mono resolves 2,589 dependencies with
-  zero differences. Windows/Wine and Ubuntu 22.04 each pass91 native tests for
+  zero differences. Windows/Wine and Ubuntu 22.04 each pass 91 native tests for
   detach-only 20c; Ubuntu requires GLIBC at most 2.34. Scalar follow-up direct
   platform evidence is Linux Release/ASan; do not relabel old cross builds.
   A separate clean committed-scalar cross build now passes the five directly
@@ -180,7 +180,7 @@ write/serialization gate fixes the reproduced fault; eight .NET and twelve
 actual-Mono I/O/serialization controls pass, and the same game probe then
 passes. Private evidence: `report-json-fix-v1/`, `unity-loop-profile-v2/`.
 The original failed case remains retained. Neither shared-CPU profile certifies
-actual3× or Windows OS acceptance.
+actual 3× or Windows OS acceptance.
 
 A new actual Windows-game-Mono-on-Wine report test fails during concurrent
 reads: the existing `File.Replace` path briefly removes the destination.
@@ -190,7 +190,7 @@ repair and its passing controls remain separate evidence. Actual Windows OS
 checks remain deferred.
 
 The unchanged original freeze/melt batch now has 43 coherent custody observations.
-The source admits all 480 kg; at check42, 368.293808 kg is liquid and
+The source admits all 480 kg; at check 42, 368.293808 kg is liquid and
 111.706198 kg is visible ice, with no pending byproducts. Their sum differs
 from 480 kg by 5.4 mg. The liquid decrease matches the owner's conversion
 ledger within about 1e-11 kg. No native freeze input occurs in that window:

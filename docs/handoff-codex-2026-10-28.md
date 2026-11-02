@@ -43,7 +43,7 @@ The preserved work below has now been recovered onto `main`:
   `ref_ms`/`prod_ms` timing fields. Long gates were not included.
   The Python and managed suites pass too. The extended managed run exposed
   an already-stale checkpoint26 metadata expectation; it now checks saved
-  law/caps for 26/27 and keeps the unknown28 control, and all remaining checks
+  law/caps for 26/27 and keeps the unknown 28 control, and all remaining checks
   pass after that repair.
 - **D predates today's changes.** Immutable `16da60c` (profile6,
   equilibrium phase rule) also fails freeze/melt at 357.9 kg and airflow at
@@ -60,7 +60,7 @@ The preserved work below has now been recovered onto `main`:
   worker equality and exact cold continuation. Always simulate retains profile8
   physical fields bit for bit. Malformed clocks and non-progressing or excessive
   schedules reject. New colonies remain profile8; normal game loading refuses
-  experimental28 saves until the full owner pipeline is integrated.
+  experimental 28 saves until the full owner pipeline is integrated.
 - **Throughput measurement is repaired.** Independent absolute owner/game clock
   deltas use monotonic wall time, including pauses and skipped completions.
   Matched submit-through-managed-publication latency is separate from the
@@ -80,7 +80,7 @@ The preserved work below has now been recovered onto `main`:
   PASS lines differ after masking existing `ref_ms`/`prod_ms` fields. Long
   gates were not run. Evidence: `artifacts/region-tiers-2026-10-28/`.
 - **Actual Linux speed is measured, still below 3×.** The frozen private
-  profile8 Terra run passes at frame450. Warmed frames151–450 achieve
+  profile8 Terra run passes at frame 450. Warmed frames 151–450 achieve
   1.938× owner / 1.935× game progress, versus partial capacity estimates near
   3.2×. Owner work averages 65 ms, submit-through-publication 109–115 ms.
   Two clean 15 s windows each have five GCs and frame p99 123/120 ms. There
@@ -206,7 +206,7 @@ under the same artifact folder. Do not repeat the old sign-in question.
 ### Passive-edit optimization and longer speed probes
 
 The higher “transfers” time is chiefly biology in the actual base-game
-frames151–200 capture: 7.410 ms, including 4.268 ms cloning the passive-edit
+frames 151–200 capture: 7.410 ms, including 4.268 ms cloning the passive-edit
 state. Census/scheduling cost 0.978/0.927 ms; transfer application only 0.252 ms.
 The owner now releases its previous activity snapshot after its last history
 read, then consumes the unique game state through an expiring passive-edit
@@ -312,7 +312,7 @@ sample still has 381 pending receipts at owner frame 900.
 The SAME frozen package passes fresh Spaced Out! 900 with Expansion1 active,
 nine worlds/79 species, but reaches only 1.95478× owner / 1.95592× game. The 2 s
 credit bound saturates and drops 78.474 s of offered warm time. Flow 36.5–38.7 ms
-is the largest broad native stage; heat 11.7–13.3, stage2 8.3–9.8 and separate
+is the largest broad native stage; heat 11.7–13.3, stage 2 8.3–9.8 and separate
 ledger/projection 6.2–6.4 ms need finer attribution. All 5,856 texture batches
 fall back for an unrecorded reason; no compact samples run. The native species
 count is 79 despite the unsampled diagnostic table count 0. Pump delivers 0,

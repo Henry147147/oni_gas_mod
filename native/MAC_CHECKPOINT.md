@@ -125,19 +125,19 @@ The layout writes version29, then the unsigned 32-bit earlier
 nongame layout selector (2–19), followed by that layout's existing model,
 settings and state payload and one final checksum. It is canonical only for
 production kernel2 with thermal conduction and the new admission policy.
-`MacCaloricTrialPolicy` uses legacy refinement0, proved-negative rejection1
-and automatic2. A fresh owner resolves automatic to1 only for nongame
+`MacCaloricTrialPolicy` uses legacy refinement 0, proved-negative rejection 1
+and automatic 2. A fresh owner resolves automatic to 1 only for nongame
 production kernel2 with thermal conduction; reference, nonthermal and game
-owners resolve it to0. Automatic is a construction/API request and is never
-persisted. Law29 selects policy1; earlier physical images explicitly restore0
-and retain their original payload bytes. Game-kernel versions20–28 retain
-their laws and framing and cannot be nested inside29.
+owners resolve it to 0. Automatic is a construction/API request and is never
+persisted. Law29 selects policy1; earlier physical images explicitly restore 0
+and retain their original payload bytes. Game-kernel versions 20–28 retain
+their laws and framing and cannot be nested inside 29.
 
 An explicit reference-to-production execution request selects the current
 production law, including policy1 when conduction is enabled. This also applies
 to an old reference image whose caller explicitly changes its numerical
-implementation. Continuing a saved reference owner under reference preserves0;
-continuing an already-selected kernel2 owner preserves its saved policy0 or1,
+implementation. Continuing a saved reference owner under reference preserves 0;
+continuing an already-selected kernel2 owner preserves its saved policy0 or 1,
 including when the caller repeats a production request. The owner API, direct
 production APIs and low-level kernel entry agree on this transition.
 
@@ -147,7 +147,7 @@ and repeated reference reconstruction followed by an explicit production
 request, as used by M5. A native-domain control admits and resaves the earlier
 schema6 bytes, then preserves policy0 through a frame and exact cold advance.
 The captured M5 failure advances under the new explicit production selection
-and reencodes as29/layout11; a same-state saved kernel2/policy0 control retains
+and reencodes as 29/layout11; a same-state saved kernel2/policy0 control retains
 its original refusal atomically. Full M5 on the final saved-policy/codec
 candidate passes all three prescribed grids (10,20,40), with unchanged inputs
 and bounds and output identical to the earlier numerical cohort.
@@ -169,7 +169,7 @@ format reservation, not a completed active-continuation qualification.
 `MACOLN01` base wrapper **14** carries profile9's complete activity integration:
 the committed actor census, queued census/touch submissions and policy changes,
 their durable sequence, and regional biology scheduling state. Callback wrapper13
-may enclose base14. Earlier owners retain their framing and bytes. Physical
+may enclose base 14. Earlier owners retain their framing and bytes. Physical
 `MACCLS01` version28 is already assigned to profile9 and retains its layout.
 *Implemented 2026-10-28:* the version12 prefix, including germ clocks/accounts
 and precision inventory, is unchanged. Before the physical-image length,
@@ -211,7 +211,7 @@ the accepted physical advance alone commits cadence updates.
 
 The flag is false for **Always simulate**, which retains profile8 physical
 trajectories. True enables the adopted cadence. Integrated owner wrappers must
-be version14 and set `GAME_ACTIVITY`; older owner wrappers carrying physical28
+be version14 and set `GAME_ACTIVITY`; older owner wrappers carrying physical 28
 are rejected. The full owner constrains adaptive frames to exactly 0.2f seconds
 and pairs ordered actor/input snapshots with native tickets; its biology and
 post-flow stages consume the same per-cell due time. The standalone aggregate
@@ -274,14 +274,14 @@ swept-volume change of each cell during a pressure interval to the existing
 0.4-cell numerical fraction. A rejected pressure trial commits no work,
 transport or momentum; the interval is subdivided and pressure is solved again.
 The layout remains that of version23; the version identifies the changed
-arithmetic. Profiles2–5 / versions20–23 retain their equations, bytes and
+arithmetic. Profiles2–5 / versions 20–23 retain their equations, bytes and
 continuation. This reservation does not enable the policy or claim validation.
 
 Version **23 is game profile5** (2026-10-24), confirmed after
 a fresh fetch of `c57532a`. It retains version22's layout and identifies an
 additional booked trace prune before conduction, with refreshed EOS data after
 removal. Versions20–22 keep their saved arithmetic and bytes. The surface
-creation selectors now choose23 with saved gas heat mixing8; existing22
+creation selectors now choose 23 with saved gas heat mixing8; existing 22
 saves retain profile4. Positive transported-trace, cold/worker and clean
 legacy controls pass. Floor and full-colony acceptance remain open.
 
@@ -291,18 +291,18 @@ after fetching `946b6de`. Its bytes follow version21 exactly
 implies profile family4, whose kernel never carries material out of an empty
 cell. This was selected with `MA_COLONY_KERNEL3=1` and
 `MA_COLONY_KERNEL3_SURFACE=1`, saving gas heat mixing8 in the existing field;
-those creation selectors now choose23. Restoring22 retains its policy.
-Versions20 and21 keep their bytes, profiles and continuation.
+those creation selectors now choose 23. Restoring22 retains its policy.
+Versions20 and 21 keep their bytes, profiles and continuation.
 
 Version **21 is the positive-volume game profile** (2026-10-23), claimed
 immediately after fetching `2569eab`. It retains core20's layout, inserting
 three u32 fields after phase-relaxation time and before saturation pairs:
 liquid-law selector, pressure iteration cap and heat iteration cap. Version21
-implies profile family3 and requires positive-segment law1; caps are1..65536.
+implies profile family3 and requires positive-segment law1; caps are 1..65536.
 Core20 implies family2, linear law0 and both caps200, retaining its exact bytes
 and continuation. Unknown/noncanonical selectors or caps reject.
 
-New colonies select21 only with both the existing kernel3 selector and
+New colonies select 21 only with both the existing kernel3 selector and
 `MA_COLONY_KERNEL3_POSITIVE=1`. Restore uses the saved profile independently
 of that creation selector. Default colonies and physics gates are unchanged.
 Old dumps remain valid under their own profiles; new-profile captures must be
