@@ -14,6 +14,8 @@ void start(const MAOniColonyConfig&, std::span<const MAOniColonyMaterial>, std::
 void restore(const MAOniColonyConfig&, std::span<const MAOniColonyMaterial>, std::span<const std::uint8_t>, std::uint64_t thread);
 void stop() noexcept;
 void fault_from_adapter(const char* reason);
+// Native worker form: never throws; an unrecorded fault refuses the next frame.
+void fault_native(const char* reason) noexcept;
 [[nodiscard]] bool active() noexcept;
 [[nodiscard]] bool busy() noexcept;
 [[nodiscard]] MAOniColonyStatus status();

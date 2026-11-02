@@ -376,6 +376,15 @@ void activity_owner_control() {
         require(images.size()>=16 && status().state==1 && status().completed_frames==frames,"Racing saves disturbed the native frames or never raced");stop();
         for(const auto& image:images){restore(cfg,mats,image,1);stop();}
     }
+    // A native worker's adapter fault never throws and is never lost; one
+    // raised with no owner cannot refuse the next colony's frames.
+    fault_native("paired heat failed without an owner");
+    start(cfg,mats,cells,1);(void)queue_activity(status().session,dt,{},{});advance(1,dt,2);wait();
+    require(status().state==1 && status().completed_frames==1,"An ownerless native fault refused the next colony");
+    (void)queue_activity(status().session,dt,{},{});fault_native("paired heat failed");
+    const auto native_fault=std::string(status().error);advance(2,dt,2);wait();
+    require(status().state==2 && status().completed_frames==1 && native_fault.find("Adapter: paired heat failed")!=std::string::npos &&
+        std::string(status().error)==native_fault,"A native adapter fault was lost or replaced by a later frame");stop();
     set_options(nullptr);set_activity_tiers(0,true);
     activity_biology_frame_control();
     std::cout<<"PASS owner activity: pristine hold, isolated FIFO cuts, two claims/cold continuation, lifecycle touch union, policies, terrain visibility, passive/contact heat, selective biology/conversion/trace, remote clocks, pinned readings, fail closed\n";

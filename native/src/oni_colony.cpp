@@ -304,6 +304,9 @@ InputBatch native_activity_inputs;
 std::vector<std::uint32_t> native_activity_touches;
 std::uint64_t native_activity_ticket=0;
 std::atomic<bool> native_activity_wake_all{false},native_activity_capture_failed{false};
+// A native worker's adapter failure that could not be recorded as a fault.
+// Every later frame refuses (and faults the owner) until the next colony.
+std::atomic<bool> unrecorded_native_fault{false};
 void release_unbound_rebinds();
 InputCuts activity_flush_cuts() { // inputs held
     const auto cut=pending_activity.empty()?InputCuts{}:pending_activity.back().cuts;
@@ -780,7 +783,7 @@ void activate(std::unique_ptr<Session> next, std::uint64_t thread) {
       pending_activity.clear();lifecycle_activity.reset();pending_activity_mode.reset();
       activity_session=next->status.session;accepted_activity_sequence=next->activity_sequence;
       requested_activity_tiers=next->world->settings().game.activity_tiers;
-      native_activity_inputs={};native_activity_touches.clear();native_activity_ticket=0;native_activity_wake_all.store(false,std::memory_order_relaxed);native_activity_capture_failed.store(false,std::memory_order_relaxed);
+      native_activity_inputs={};native_activity_touches.clear();native_activity_ticket=0;native_activity_wake_all.store(false,std::memory_order_relaxed);native_activity_capture_failed.store(false,std::memory_order_relaxed);unrecorded_native_fault.store(false,std::memory_order_relaxed);
       pending_native_arena.reset();pending_native_arena_captures=0;
       precise_receipts.clear(); precise_receipts_enabled = false;
       pipe_jobs.clear(); pending_job_tokens.clear(); receipt_jobs.clear(); accepted_job_token=0;
@@ -1296,7 +1299,15 @@ void fault_from_adapter(const char* reason) {
     if (!reason || !*reason) throw std::invalid_argument("A colony fault needs a reason");
     std::lock_guard lock(lifecycle);
     if (!session) throw std::invalid_argument("No colony owner is active");
-    if (session->status.state == 1) fault(*session, (std::string("Adapter: ") + reason).c_str());
+    char why[512]{}; std::snprintf(why, sizeof why, "Adapter: %s", reason); // no allocation can lose the fault
+    if (session->status.state == 1) fault(*session, why);
+}
+// Native worker form: fail closed. If the fault cannot be recorded here, the
+// owner refuses its next frame, faulting there, instead of losing the frame.
+void fault_native(const char* reason) noexcept {
+    try { fault_from_adapter(reason && *reason ? reason : "Unnamed native adapter failure"); return; }
+    catch (...) {}
+    unrecorded_native_fault.store(true, std::memory_order_release);
 }
 
 MAOniColonyStatus status() {
@@ -2470,6 +2481,7 @@ bool suppress(std::uint32_t /*hook*/, int native_cell) noexcept {
 void advance(std::uint64_t ticket, double seconds, std::uint64_t thread) noexcept {
     if (!enabled.load(std::memory_order_acquire)) return;
     try {
+        if (unrecorded_native_fault.load(std::memory_order_acquire)) throw std::runtime_error("a native adapter failure could not be recorded");
         { std::lock_guard lock(publication); if (!latest || latest->status.state != 1) return; }
         std::unique_lock l(solver.m);
 #if defined(_WIN32)

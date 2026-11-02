@@ -446,7 +446,9 @@ void on_update_data(void* self,void* data) {
     native_floor_contact_ticket.store(0,std::memory_order_release);
     native_heat_contact_bits.store(0,std::memory_order_release);
     auto paired=paired_heat.finish(data,pending.ticket);
-    if(paired.failure[0])try {ma::oni::colony::fault_from_adapter(paired.failure.data());}catch(...){}
+    // Fail closed: the frame's native changes are not captured after a
+    // paired-heat failure, so the owner must fault (or refuse its next frame).
+    if(paired.failure[0])ma::oni::colony::fault_native(paired.failure.data());
     native_paired_heat_ticket.store(0,std::memory_order_release);
     if (shadowed && native_cells(data,shadow) && !paired.failure[0]) { wait_log::Scope timed(wait_log::CaptureShadow); ma::oni::colony::capture_shadow(shadow,pending.ticket,paired.heat); }
     if (pending.ticket) {
