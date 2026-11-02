@@ -6,6 +6,7 @@
 #include <limits>
 #include <optional>
 #include <stdexcept>
+#include <utility>
 
 namespace ma::experimental {
 namespace {
@@ -193,14 +194,14 @@ static MacPhaseChangeAdvance advance_cells(const SpeciesRegistry& registry, cons
     const auto advance_cell = [&](std::size_t i, Partial& part) {
         if (g.walls[i] || (!selected.empty() && !selected[i])) return;
         auto& cell = result.state.cells[i].mixture;
-        // Pair updates keep owned arrays at their original size. An implicit
-        // zero array has no phase mass to update, so this view stays valid.
-        const std::vector<double>& pair_masses = cell.masses;
+        // Read masses through the cell each time, without detaching: shared
+        // (frozen or implicit zero) storage detaches at its first write, so a
+        // reference held across pairs could name the old, stale array.
         auto& report = part.report; auto& entropy = part.entropy; auto& allowance = part.allowance;
         for (const auto& entry : prepared) {
             const auto& pair = entry.pair;
             const auto liquid_profile = entry.liquid, vapour_profile = entry.vapour;
-            const double ml = pair_masses[pair.liquid], mv = pair_masses[pair.vapour];
+            const double ml = std::as_const(cell.masses)[pair.liquid], mv = std::as_const(cell.masses)[pair.vapour];
             if (ml == 0 && mv == 0) continue;
             // Void phase (MAC_VACUUM.md, "Phase change"): a partly filled cell
             // holding the pair's liquid relaxes at its grid volume, its gas first
@@ -237,7 +238,7 @@ static MacPhaseChangeAdvance advance_cells(const SpeciesRegistry& registry, cons
                 before.partial_volumes_m3[vapour_profile] >= mac_interface_vapour_fraction * before.gas_volume_m3) {
                 bool only = true;
                 for (std::size_t k = 0; k < registry.size(); ++k)
-                    if (k != pair.liquid && registry[k].phase == Phase::liquid && cell.masses[k] != 0) only = false;
+                    if (k != pair.liquid && registry[k].phase == Phase::liquid && std::as_const(cell.masses)[k] != 0) only = false;
                 if (only) continue;
             }
             // Departure from equilibrium after moving `moved` kg from liquid to
