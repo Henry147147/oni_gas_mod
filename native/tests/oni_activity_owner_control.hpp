@@ -361,6 +361,21 @@ void activity_owner_control() {
     fault_from_adapter("activity census setup failed");const auto first_fault=std::string(status().error);
     advance(1,dt,2);wait();
     require(status().state==2 && status().completed_frames==0 && std::string(status().error)==first_fault,"A later native callback replaced the originating adapter fault");stop();
+    // A save racing native frames: a frame that takes its packet between the
+    // save's settle and its locks must not leave the saved committed
+    // sequence, pending packets and queues disagreeing (every save restores).
+    {
+        constexpr std::uint64_t frames=400;
+        start(cfg,mats,cells,1);for(std::uint64_t k=0;k<frames;++k)(void)queue_activity(status().session,dt,{},{});
+        std::atomic<bool> done{false};
+        // Each frame is handed over as the solver goes idle, when a save's settle returns.
+        std::thread submitter([&]{for(std::uint64_t ticket=1;ticket<=frames;++ticket){advance(ticket,dt,2);while(busy())std::this_thread::yield();}done.store(true);});
+        std::vector<std::vector<std::uint8_t>> images;std::exception_ptr save_error;
+        try{while(!done.load())images.push_back(checkpoint());}catch(...){save_error=std::current_exception();}
+        submitter.join();wait();if(save_error)std::rethrow_exception(save_error);
+        require(images.size()>=16 && status().state==1 && status().completed_frames==frames,"Racing saves disturbed the native frames or never raced");stop();
+        for(const auto& image:images){restore(cfg,mats,image,1);stop();}
+    }
     set_options(nullptr);set_activity_tiers(0,true);
     activity_biology_frame_control();
     std::cout<<"PASS owner activity: pristine hold, isolated FIFO cuts, two claims/cold continuation, lifecycle touch union, policies, terrain visibility, passive/contact heat, selective biology/conversion/trace, remote clocks, pinned readings, fail closed\n";

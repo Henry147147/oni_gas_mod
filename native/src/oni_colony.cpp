@@ -2486,8 +2486,10 @@ void advance(std::uint64_t ticket, double seconds, std::uint64_t thread) noexcep
         if (solver.quit) return;
 #endif
         if(activity_owner.load(std::memory_order_acquire) && seconds>0 && !why) {
-            solver.idle.wait(l,[&]{return solver.quit || solver.activity_waiting_seconds+seconds<=10;});
-            if(solver.quit)return;
+            // stop() clears `enabled` and discards waiting work: a frame
+            // released by that settle must not take a packet during shutdown.
+            solver.idle.wait(l,[&]{return !enabled.load(std::memory_order_acquire) || solver.quit || solver.activity_waiting_seconds+seconds<=10;});
+            if(!enabled.load(std::memory_order_acquire) || solver.quit)return;
             auto task=std::make_shared<ActivityTask>();task->ticket=ticket;
             {std::lock_guard q(inputs);release_unbound_rebinds();
                 require(!native_activity_capture_failed.load(std::memory_order_relaxed),"Native activity capture could not retain its terrain input");
@@ -3776,15 +3778,27 @@ constexpr std::uint32_t checkpoint_version = 14;
 constexpr std::uint32_t callback_wrapper_version = 13;
 }
 std::vector<std::uint8_t> checkpoint() {
-    solver.settle(false);
-    std::lock_guard lock(lifecycle);
+    // Keep the queue and selected wrapper framing one coherent save snapshot.
+    // A native frame can take its activity packet and that packet's input
+    // prefix after the settle and before these locks. Its frame then waits
+    // for `lifecycle`, uncommitted: the committed sequence, the pending
+    // packets and the queues would disagree. Settle again until no packet is
+    // between the queue and its commit. (The solver cannot be settled while
+    // holding `lifecycle`: its frame takes that lock.)
+    std::unique_lock<std::mutex> lock,input_snapshot;
+    for(unsigned attempt=0;;++attempt) {
+        solver.settle(false);
+        lock=std::unique_lock(lifecycle);input_snapshot=std::unique_lock(inputs);
+        if(!session || session->status.state!=1 || !(session->config.flags&MA_ONI_COLONY_GAME_ACTIVITY) ||
+            accepted_activity_sequence-session->activity_sequence==pending_activity.size())break;
+        input_snapshot.unlock();lock.unlock();
+        require(attempt<1024,"Native activity frames kept landing during the save; fence them first");
+    }
     require(session != nullptr, "No colony owner is active");
     require(session->status.state == 1, "A faulted colony owner cannot be saved");
     require(retiring_count.load(std::memory_order_relaxed)==0,"Finish native rocket grid cleanup before saving");
     const ArithmeticScope arithmetic;
     const auto& s = *session; Writer w;
-    // Keep the queue and selected wrapper framing one coherent save snapshot.
-    std::unique_lock input_snapshot(inputs);
     const std::uint32_t saved_version=(s.config.flags&MA_ONI_COLONY_GAME_ACTIVITY)?14:s.conservative_liquid_boundary?12:s.precision_used?11:s.germ_mode==1?10:moving_protocol_used?9:8;
     // Inputs queued for the next step are in flight at the save. A request
     // answering a game callback (a breath, a consumer, an emitter callback)
