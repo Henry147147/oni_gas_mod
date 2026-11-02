@@ -322,6 +322,19 @@ and accounts are saved (owner version 10). Saves from before keep the legacy
 mode: native code evolves the shown identity on the shadow and the change is
 booked to the owner.
 
+**Radiation** (Spaced Out!, `ColonyRadiationGerms`): the game's native
+simulation takes radiation × the disease's kill rate germs from every cell each
+0.2 s tick (measured in the legacy mode with `spaced-out-radiation`: 1000
+slimelung germs, kill rate 2.5, in 91.7 rads fall by 229 a tick; a cell holding
+fewer germs than the kill empties). The owner's evolution has no radiation
+input, so each published frame the managed side reads the irradiated owned
+cells' germs (`ma_oni_colony_read_passives`) and queues, per cell and
+identity, a negative edit of radiation × kill rate clamped to the germs held
+(the germ accounts book it as edited out and stay exact). The radiation field
+is the native simulation's own (`Grid.Radiation`); the owner neither feeds
+nor changes it. Solver arithmetic and checkpoint bytes are unchanged; the edits
+use the existing durable germ-edit queue.
+
 The world rules are written from the game's measured behaviour. The explicit
 oracle control (`MA_COLONY_GERM_ORACLE=1`, scenario `germ-oracle`) keeps a new
 colony in the legacy mode and predicts every native step of a sealed

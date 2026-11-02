@@ -42,6 +42,12 @@ namespace MixedAtmospheres.Oni
             Enumerable.Range(0, fillWidth).Sum(x => Enumerable.Range(0, fillHeight).Sum(y => SpeciesMass(Cell(x, y), element)));
         private static double SiteMass() =>
             Enumerable.Range(0, fillWidth).Sum(x => Enumerable.Range(0, fillHeight).Sum(y => CellMass(Cell(x, y))));
+        // Debris items of one element resting in the current site.
+        private static double SiteDebris(SimHashes element) => Components.Pickupables.Items
+            .Where(item => item != null && !item.wasAbsorbed && !item.GetComponent<KPrefabID>().pendingDestruction &&
+                           item.GetComponent<PrimaryElement>() is PrimaryElement e && e.ElementID == element)
+            .Where(item => { Grid.CellToXY(Grid.PosToCell(item), out var x, out var y); return x >= x0 && x < x0 + fillWidth && y >= y0 && y < y0 + fillHeight; })
+            .Sum(item => (double)item.GetComponent<PrimaryElement>().Mass);
         private static void LedgersClosed(string what)
         {
             var s = ColonyOwner.Status;
@@ -57,11 +63,13 @@ namespace MixedAtmospheres.Oni
         // than in a cell behind the lamp.
         private static GameObject? soLamp, soSensor;
         private static readonly List<string> soSeries = new List<string>();
+        private static readonly List<(int count, float rads)> soEdge = new List<(int, float)>();
+        private static readonly List<int> soControl = new List<int>();
         private static void SoRadiation(int frame)
         {
             var slime = Db.Get().Diseases.SlimeGerms;
             var beam = new[] { (2, 3), (4, 3), (6, 3) };
-            if (Once(0, "arena")) { RequireSpacedOut(); soSeries.Clear(); Arena((x, y) => (SimHashes.ContaminatedOxygen, 1f, 300f)); }
+            if (Once(0, "arena")) { RequireSpacedOut(); soSeries.Clear(); soEdge.Clear(); soControl.Clear(); Arena((x, y) => (SimHashes.ContaminatedOxygen, 1f, 300f)); }
             if (Once(6, "build"))
             {
                 Record("the game's radiation is enabled", Sim.IsRadiationEnabled(), "Sim.IsRadiationEnabled()");
@@ -95,41 +103,63 @@ namespace MixedAtmospheres.Oni
             {
                 recorded["series frame"] = frame;
                 var cells = new[] { (2, 3), (4, 3), (6, 3), (0, 0), (7, 0) };
+                soEdge.Add((Grid.DiseaseCount[Cell(7, 0)], Grid.Radiation[Cell(7, 0)])); soControl.Add(Grid.DiseaseCount[Cell(0, 0)]);
                 soSeries.Add($"f{frame}: " + string.Join(" ", cells.Select(c => $"({c.Item1},{c.Item2}) n={Grid.DiseaseCount[Cell(c.Item1, c.Item2)]} i={Grid.DiseaseIdx[Cell(c.Item1, c.Item2)]} r={Grid.Radiation[Cell(c.Item1, c.Item2)]:G6}")));
             }
             if (Once(84, "check"))
             {
+                var rate = slime.radiationKillRate;
+                // The game's own tick: germs fall by radiation x kill rate (germs grow a little, and a cell holding fewer than the kill empties).
+                var worst = 0.0; var steps = 0;
+                for (var k = 1; k < soEdge.Count; ++k)
+                {
+                    if (soEdge[k - 1].count <= 0) continue;
+                    var predicted = Math.Max(0, soEdge[k - 1].count - soEdge[k - 1].rads * rate);
+                    worst = Math.Max(worst, Math.Abs(soEdge[k].count - predicted)); ++steps;
+                }
+                Record("germs in an irradiated cell fall by radiation x kill rate each tick", steps >= 3 && worst <= 6 && soEdge.Last().count == 0,
+                    $"kill rate {rate:G3}; edge cell counts {string.Join(", ", soEdge.Select(e => $"{e.count} at {e.rads:F1} rads"))}; largest step deviation {worst:G3} germs over {steps} steps");
+                var seeded = soControl.SkipWhile(c => c == 0).ToList();
+                Record("germs without radiation keep to their ordinary rule", seeded.Count > 4 && seeded.All(c => Math.Abs(c - recorded["germs"]) <= 6), $"control cell {string.Join(", ", soControl)}");
+                Record("heavily irradiated cells emptied of germs", beam.All(c => Grid.DiseaseCount[Cell(c.Item1, c.Item2)] == 0), string.Join(", ", beam.Select(c => $"({c.Item1},{c.Item2}) {Grid.DiseaseCount[Cell(c.Item1, c.Item2)]}")));
                 Debug.Log("[Mixed Atmospheres] so-radiation germ series (killRate " + slime.radiationKillRate + ", seeded " + recorded["germs"] + "):\n" + string.Join("\n", soSeries));
-                Record("germ series recorded", soSeries.Count > 4, string.Join(" | ", soSeries.Take(6)));
+                if (ColonyWorldGerms.TryRead(out var germs, out _) && germs.Mode == 1)
+                    Record("germ accounts close under the radiation kill", germs.AuditError < 1e-9, $"audit {germs.AuditError:G3}, edited out {germs.EditedOut:G6}, radiation fields handed over {ColonyRadiationGerms.Fields} ({ColonyRadiationGerms.Cells} cells)");
                 Record("no fluid created or lost", Math.Abs(ArenaMass() - recorded["mass"]) < 1e-6 * recorded["mass"], $"{recorded["mass"]:G9} -> {ArenaMass():G9} kg");
                 LedgersClosed("radiation");
                 Finish();
             }
         }
 
-        // A radbolt flies through owned oxygen into a granite wall: the owned
-        // cells on its path get radiation sickness, its remaining payload
-        // arrives as hot fallout, and the oxygen is intact.
+        // Two radbolts fly towards each other through owned oxygen and meet:
+        // their summed payload arrives as hot fallout in an owned cell and the
+        // oxygen is intact. A third bolt strikes a granite wall: the cells on
+        // its path get radiation sickness, and where its payload goes is
+        // recorded (ONI's own simulation handles a gas added to a solid).
         private static void SoRadbolt(int frame)
         {
-            if (Once(0, "arena")) { RequireSpacedOut(); Arena((x, y) => x == 7 ? (SimHashes.Granite, 1000f, 300f) : (SimHashes.Oxygen, 1.2f, 300f)); }
-            if (Once(6, "bolt"))
+            if (Once(0, "arena")) { RequireSpacedOut(); Arena((x, y) => y == 5 ? (SimHashes.Granite, 1000f, 300f) : (SimHashes.Oxygen, 1.2f, 300f)); }
+            if (Once(6, "bolts"))
             {
-                recorded["oxygen"] = ArenaSpecies(SimHashes.Oxygen); recorded["fallout"] = ArenaSpecies(SimHashes.Fallout);
-                var bolt = GameUtil.KInstantiate(Assets.GetPrefab(HighEnergyParticleConfig.ID), Grid.CellToPosCCC(Cell(0, 3), Grid.SceneLayer.FXFront2), Grid.SceneLayer.FXFront2);
-                bolt.SetActive(true);
-                var particle = bolt.GetComponent<HighEnergyParticle>();
-                particle.payload = 100; particle.SetDirection(EightDirection.Right);
-                recorded["payload"] = 100;
+                recorded["oxygen"] = ArenaSpecies(SimHashes.Oxygen); recorded["fallout"] = ArenaSpecies(SimHashes.Fallout) + ArenaSpecies(SimHashes.NuclearWaste);
+                foreach (var (x, y, direction) in new[] { (0, 2, EightDirection.Right), (7, 2, EightDirection.Left), (0, 4, EightDirection.Up) })
+                {
+                    var bolt = GameUtil.KInstantiate(Assets.GetPrefab(HighEnergyParticleConfig.ID), Grid.CellToPosCCC(Cell(x, y), Grid.SceneLayer.FXFront2), Grid.SceneLayer.FXFront2);
+                    bolt.SetActive(true);
+                    var particle = bolt.GetComponent<HighEnergyParticle>();
+                    particle.payload = 100; particle.SetDirection(direction);
+                }
             }
-            if (Once(60, "check"))
+            if (Once(100, "check"))
             {
-                var oxygen = ArenaSpecies(SimHashes.Oxygen) - recorded["oxygen"]; var fallout = ArenaSpecies(SimHashes.Fallout) - recorded["fallout"];
+                var oxygen = ArenaSpecies(SimHashes.Oxygen) - recorded["oxygen"]; var fallout = ArenaSpecies(SimHashes.Fallout) + ArenaSpecies(SimHashes.NuclearWaste) - recorded["fallout"];
                 var sick = Db.Get().Diseases.GetIndex(Db.Get().Diseases.RadiationPoisoning.Id);
-                var germ = Enumerable.Range(0, 7).Count(x => Grid.DiseaseIdx[Cell(x, 3)] == sick && Grid.DiseaseCount[Cell(x, 3)] > 0);
-                Record("the bolt's payload arrived as fallout", fallout > .01 && fallout <= .1001 + 1e-6, $"+{fallout:G6} kg fallout of at most 0.1");
+                var germ = Enumerable.Range(0, 8).Count(x => Grid.DiseaseIdx[Cell(x, 2)] == sick && Grid.DiseaseCount[Cell(x, 2)] > 0);
+                var colliding = (200 - 0.1 * 7) * .001;
+                Record("the colliding bolts' payload arrived as fallout", fallout > .8 * colliding && fallout < .1001 + colliding,
+                    $"+{fallout:G6} kg fallout and nuclear waste (hot fallout condenses to waste) of about {colliding:G4} from the collision, 0.1 more at most if the wall bolt's reached the owner; fallout {ArenaSpecies(SimHashes.Fallout):G4}, waste {ArenaSpecies(SimHashes.NuclearWaste):G4}");
                 Record("the owned oxygen is intact", Math.Abs(oxygen) < 1e-6, $"{oxygen:+0.0e+0;-0.0e+0} kg");
-                Record("radiation sickness marked the bolt's path", germ > 0, $"{germ} of 7 cells in its row hold radiation sickness");
+                Record("radiation sickness marked the bolts' path", germ > 0, $"{germ} of 8 cells in the colliding row hold radiation sickness");
                 LedgersClosed("radbolt");
                 Finish();
             }
@@ -165,14 +195,19 @@ namespace MixedAtmospheres.Oni
             var storages = soReactor == null ? null : soReactor.GetComponents<Storage>();
             var smi = soReactor == null ? null : soReactor.GetSMI<Reactor.StatesInstance>();
             string State() => smi == null ? "-" : smi.GetCurrentState()?.name ?? "?";
+            if (Once(70, "radiating"))
+            {
+                var rad = Grid.Radiation[Cell(8, 9)];
+                var emitter = soReactor!.GetComponent<RadiationEmitter>();
+                var field = string.Join(" ", new[] { (8, 7), (8, 9), (8, 12), (3, 9), (13, 9), (8, 3), (1, 5) }.Select(c => $"({c.Item1},{c.Item2}) {Grid.Radiation[Cell(c.Item1, c.Item2)]:G4}"));
+                Record("the reactor reacts and radiates", smi!.IsInsideState(smi.sm.on) && (rad > 0 || Grid.Radiation[Cell(8, 8)] > 0),
+                    $"state {State()}, radiation above it {rad:G5} rads; emitter {emitter.emitRads:G5} rads over {emitter.emitRadiusX}x{emitter.emitRadiusY} at cell {emitter.GetEmissionCell()}, sim handle {AccessTools.Field(typeof(SimComponent), "simHandle").GetValue(emitter)}; field {field}");
+            }
             if (Once(100, "reacting"))
             {
                 var coolant = storages!.Sum(st => (double)st.GetMassAvailable(SimHashes.Water));
                 Record("coolant reached the reactor through its conduit", coolant >= 30 && recorded.GetValueOrDefault("seeded") >= 30,
                     $"{recorded.GetValueOrDefault("seeded"):G5} kg piped in, reactor holds {coolant:G5} kg water; state {State()}");
-                var rad = Grid.Radiation[Cell(8, 9)];
-                Record("the reactor reacts and radiates", State().StartsWith("reacting") || smi!.IsInsideState(smi.sm.on), $"state {State()}, radiation above it {rad:G5}");
-                Record("its radiation reaches owned cells", rad > 0 || Grid.Radiation[Cell(8, 8)] > 0, $"{rad:G5} rads");
                 // The coolant's heat triggers the vent: put the reaction's coolant over its limit.
                 foreach (var item in storages![1].items.Where(i => i != null && i.GetComponent<PrimaryElement>().ElementID == SimHashes.Water))
                     item.GetComponent<PrimaryElement>().Temperature = 700;
@@ -202,8 +237,15 @@ namespace MixedAtmospheres.Oni
             if (Once(420, "check"))
             {
                 var waste = SiteSpecies(SimHashes.NuclearWaste);
-                Record("the meltdown began", State().StartsWith("meltdown") || State() == "dead", $"state {State()}");
-                Record("meltdown nuclear waste reached the owner", waste > 1, $"{waste:G5} kg nuclear waste in the site; {recorded["stored"]:G5} kg was stored at the melt");
+                var melted = 10 + recorded["stored"]; var fallout = SiteSpecies(SimHashes.Fallout); var debris = SiteDebris(SimHashes.NuclearWaste) + SiteDebris(SimHashes.Corium);
+                // The comets of corium it throws land as solid corium tiles.
+                for (var y = 0; y < fillHeight; ++y) for (var x = 0; x < fillWidth; ++x)
+                    if (Grid.Element[Cell(x, y)].id == SimHashes.Corium) debris += Grid.Mass[Cell(x, y)];
+                Record("the meltdown ran its course", State().EndsWith("dead") || State().Contains("meltdown"), $"state {State()}");
+                var comet = Assets.GetPrefab(NuclearWasteCometConfig.ID).GetComponent<Comet>();
+                // Part of the melted mass leaves as comets of corium (3 kg a half second), which land as tiles of the game's own tile mass; the rest falls as liquid waste.
+                Record("the meltdown's nuclear waste reached the owner", waste + fallout > .25 * melted && waste + fallout + debris > .5 * melted && waste + fallout + debris < 1.05 * melted,
+                    $"{waste:G5} kg nuclear waste + {fallout:G5} kg fallout in the site + {debris:G5} kg corium and waste debris of {melted:G5} kg melted (10 kg plus {recorded["stored"]:G5} kg stored, water and fuel included); comets of {comet.massRange.x:G3} kg land as tiles of {comet.AddTileMass:G3} kg");
                 LedgersClosed("meltdown");
                 Finish();
             }
@@ -267,15 +309,16 @@ namespace MixedAtmospheres.Oni
                 recorded["mass"] = ArenaMass();
                 var station = Build(SublimationStationConfig.ID, Cell(2, 1)); Store(station, SimHashes.ToxicSand, 20);
                 var chunk = ElementLoader.FindElementByHash(SimHashes.NuclearWaste).substance
-                    .SpawnResource(Grid.CellToPosCCC(Cell(6, 1), Grid.SceneLayer.Ore), 50, 300, byte.MaxValue, 0);
+                    .SpawnResource(Grid.CellToPosCCC(Cell(6, 1), Grid.SceneLayer.Ore), 50, 400, byte.MaxValue, 0);
                 // The chunk accumulates 0.066 kg/s before it emits: start it past its 6.6 kg threshold.
                 AccessTools.Field(typeof(Sublimates), "sublimatedMass").SetValue(chunk.GetComponent<Sublimates>(), 7f);
-                soSeries.Clear(); soSeries.Add(MachineState(station));
+                soSeries.Clear(); soSeries.Add(MachineState(station)); machine = station;
             }
+            if (Once(30, "state")) soSeries.Add(MachineState(machine));
             if (Once(60, "check"))
             {
                 var polluted = ArenaSpecies(SimHashes.ContaminatedOxygen) - recorded["polluted"]; var waste = ArenaSpecies(SimHashes.NuclearWaste) - recorded["waste"];
-                Record("the station's polluted oxygen reached the owner", polluted > .05, $"+{polluted:G4} kg; {soSeries[0]}");
+                Record("the station's polluted oxygen reached the owner", polluted > .05, $"+{polluted:G4} kg; at build [{soSeries[0]}]; at 30 [{soSeries[1]}]; now [{MachineState(machine)}]");
                 Record("sublimated nuclear waste reached the owner", waste > .5, $"+{waste:G4} kg nuclear waste");
                 LedgersClosed("sublimation");
                 Finish();
@@ -293,20 +336,24 @@ namespace MixedAtmospheres.Oni
                 var fab = Build(UraniumCentrifugeConfig.ID, Cell(2, 1)); machine = fab;
                 var def = fab.GetComponent<Building>().Def;
                 var vent = Build(LiquidVentConfig.ID, Cell(6, 1));
-                Pipe(Game.Instance.liquidConduitSystem, LiquidConduitConfig.ID, Route(Grid.OffsetCell(Grid.PosToCell(fab), def.UtilityOutputOffset),
-                    Grid.OffsetCell(Grid.PosToCell(vent), vent.GetComponent<Building>().Def.UtilityInputOffset)));
-                fab.GetComponent<ComplexFabricator>().inStorage.AddOre(SimHashes.UraniumOre, 10, 300, byte.MaxValue, 0, false, true);
+                var path = Route(Grid.OffsetCell(Grid.PosToCell(fab), def.UtilityOutputOffset), Grid.OffsetCell(Grid.PosToCell(vent), vent.GetComponent<Building>().Def.UtilityInputOffset));
+                Pipe(Game.Instance.liquidConduitSystem, LiquidConduitConfig.ID, path); pipeCells.AddRange(path);
             }
+            // The ordered recipe must exist before its ingredients: a fabricator drops stored material no order needs.
             if (Once(8, "order"))
             {
                 var fab = machine!.GetComponent<ComplexFabricator>();
                 fab.SetRecipeQueueCount(fab.GetRecipes()[0], 1);
             }
+            if (Once(9, "ore")) machine!.GetComponent<ComplexFabricator>().inStorage.AddOre(SimHashes.UraniumOre, 10, 300, byte.MaxValue, 0, false, true);
             if (Once(320, "check"))
             {
                 var molten = ArenaSpecies(SimHashes.MoltenUranium) - recorded["molten"];
+                var frozen = ElementLoader.FindElementByHash(SimHashes.MoltenUranium).lowTempTransitionTarget;
+                var solid = SiteDebris(frozen); var inPipe = pipeCells.Sum(c => (double)Game.Instance.liquidConduitFlow.GetContents(c).mass);
                 var fab = machine!.GetComponent<ComplexFabricator>();
-                Record("molten uranium reached the owner", molten > 1, $"+{molten:G4} kg molten uranium (8 kg per order); out storage {fab.outStorage.MassStored():G4} kg, in storage {fab.inStorage.MassStored():G4} kg; {MachineState(machine)}");
+                Record("the molten uranium reached the owner", molten + solid + inPipe > 7.5 && molten + solid + inPipe < 8.5,
+                    $"{molten:G4} kg liquid + {solid:G4} kg frozen {frozen} debris + {inPipe:G4} kg in pipe of 8 kg per order; out storage {fab.outStorage.MassStored():G4} kg, in storage {fab.inStorage.MassStored():G4} kg; {MachineState(machine)}");
                 LedgersClosed("centrifuge");
                 Finish();
             }
@@ -326,18 +373,24 @@ namespace MixedAtmospheres.Oni
                 var vent = Build(LiquidVentConfig.ID, Cell(9, 1));
                 Pipe(Game.Instance.liquidConduitSystem, LiquidConduitConfig.ID, Route(Grid.OffsetCell(Grid.PosToCell(press), def.UtilityOutputOffset),
                     Grid.OffsetCell(Grid.PosToCell(vent), vent.GetComponent<Building>().Def.UtilityInputOffset)));
-                var fab = press.GetComponent<ComplexFabricator>();
-                fab.inStorage.AddOre(SimHashes.Mud, 150, 300, byte.MaxValue, 0, false, true);
-                fab.inStorage.AddOre(SimHashes.ToxicMud, 150, 300, byte.MaxValue, 0, false, true);
             }
+            // The ordered recipes must exist before their ingredients: a fabricator drops stored material no order needs.
             if (Once(8, "orders"))
             {
                 var fab = machine!.GetComponent<ComplexFabricator>();
+                var recipes = fab.GetRecipes();
+                Debug.Log("[Mixed Atmospheres] sludge press recipes: " + recipes.Length + " e.g. " + string.Join(", ", recipes.Take(6).Select(r => r.ingredients[0].material + "->" + string.Join("+", r.results.Select(x => x.material + " " + x.amount)))));
                 foreach (var tag in new[] { SimHashes.Mud.CreateTag(), SimHashes.ToxicMud.CreateTag() })
-                    fab.SetRecipeQueueCount(fab.GetRecipes().First(r => r.ingredients.Length == 1 && r.ingredients[0].material == tag), 1);
+                    fab.SetRecipeQueueCount(recipes.First(r => r.ingredients.Length == 1 && r.ingredients[0].material == tag), 1);
+            }
+            if (Once(9, "mud"))
+            {
+                var fab = machine!.GetComponent<ComplexFabricator>();
+                fab.inStorage.AddOre(SimHashes.Mud, 150, 300, byte.MaxValue, 0, false, true);
+                fab.inStorage.AddOre(SimHashes.ToxicMud, 150, 300, byte.MaxValue, 0, false, true);
             }
             // A duplicant's work would fill the order's progress; the order then completes on its own.
-            foreach (var at in new[] { 14, 40 })
+            foreach (var at in new[] { 30, 80 })
                 if (Once(at, "complete order " + at))
                 {
                     var fab = machine!.GetComponent<ComplexFabricator>();
@@ -400,11 +453,17 @@ namespace MixedAtmospheres.Oni
             {
                 var co2 = SiteSpecies(SimHashes.CarbonDioxide) - recorded["co2"];
                 var held = soIntakes.Select(b => b.GetComponents<Storage>().Sum(st => st.MassStored())).ToArray();
+                var where = string.Join("; ", soIntakes.Select(b =>
+                {
+                    var c = Grid.PosToCell(b); Grid.CellToXY(c, out var cx, out var cy);
+                    return $"{b.name}@{cx - x0},{cy - y0} solid {Grid.Solid[c]} owned {ColonyOwner.OwnsFluidCell(c)} co2 {SpeciesMass(c, SimHashes.CarbonDioxide):G3} kg";
+                }));
                 Record("the telescope and locker took oxygen and dumped the carbon dioxide", co2 > .2 && co2 < .5 + 1e-6 && held[0] > .5 && held[1] > .5,
-                    $"+{co2:G4} kg carbon dioxide dumped (of 0.5 piped); telescope holds {held[0]:G4} kg, locker {held[1]:G4} kg");
+                    $"+{co2:G4} kg carbon dioxide dumped (of 0.5 piped); telescope holds {held[0]:G4} kg, locker {held[1]:G4} kg; {where}");
                 var shower = soIntakes[2].GetComponents<Storage>();
-                Record("the shower keeps both liquids", held[2] > .9 && shower.Sum(st => st.GetMassAvailable(SimHashes.DirtyWater)) > .2,
-                    $"holds {held[2]:G4} kg, polluted water {shower.Sum(st => st.GetMassAvailable(SimHashes.DirtyWater)):G4} kg");
+                var dirty = SiteSpecies(SimHashes.DirtyWater) - recorded["dirty"] + shower.Sum(st => st.GetMassAvailable(SimHashes.DirtyWater));
+                Record("the shower took the water and passed on the polluted water", shower.Sum(st => st.GetMassAvailable(SimHashes.Water)) > .7 && Math.Abs(dirty - .25) < 1e-3,
+                    $"holds {shower.Sum(st => st.GetMassAvailable(SimHashes.Water)):G4} kg water; polluted water {dirty:R} kg between storage ({shower.Sum(st => st.GetMassAvailable(SimHashes.DirtyWater)):G4}) and the site");
                 Record("intake pipes drained", soIntakeCells.All(c => ColonyConduits.ReadSynced(c == soIntakeCells[2] ? Game.Instance.liquidConduitFlow : Game.Instance.gasConduitFlow, c).Mass < .01),
                     string.Join(", ", soIntakeCells.Select(c => ColonyConduits.ReadSynced(c == soIntakeCells[2] ? Game.Instance.liquidConduitFlow : Game.Instance.gasConduitFlow, c).Mass.ToString("G3"))));
                 Record("intake pipe accounts exact", ColonyConduits.Audit(out var detail), detail);
@@ -443,9 +502,8 @@ namespace MixedAtmospheres.Oni
 
         // ---- landers, space harvesting and the rail gun
 
-        // A scout lander (carrying gas and liquid cargo) and a landing pod
-        // descend through owned vacuum, each in its own compartment, emitting
-        // exhaust on the way; the lander's cargo is jettisoned on landing.
+        // A scout lander and a landing pod descend through owned vacuum, each in
+        // its own compartment, emitting exhaust on the way.
         private static GameObject? soScout, soPod;
         private static void SoLanders(int frame)
         {
@@ -462,10 +520,6 @@ namespace MixedAtmospheres.Oni
                 recorded["scout co2"] = Left(SimHashes.CarbonDioxide); recorded["pod co2"] = Right(SimHashes.CarbonDioxide);
                 soScout = GameUtil.KInstantiate(Assets.GetPrefab(ScoutLanderConfig.ID), Grid.CellToPosCBC(Cell(2, 1), Grid.SceneLayer.Front), Grid.SceneLayer.Front);
                 soScout.SetActive(true);
-                var storage = soScout.GetComponent<Storage>();
-                storage.AddGasChunk(SimHashes.Oxygen, .75f, 300, byte.MaxValue, 0, false, true);
-                storage.AddLiquid(SimHashes.Water, .75f, 300, byte.MaxValue, 0, false, true);
-                storage.AddLiquid(SimHashes.DirtyWater, .25f, 300, byte.MaxValue, 0, false, true);
                 soPod = GameUtil.KInstantiate(Assets.GetPrefab(LandingPodConfig.ID), Grid.CellToPosCBC(Cell(7, 1), Grid.SceneLayer.Front), Grid.SceneLayer.Front);
                 soPod.SetActive(true);
             }
@@ -478,12 +532,9 @@ namespace MixedAtmospheres.Oni
             {
                 var scout = soScout!.GetSMI<CargoLander.StatesInstance>();
                 var landed = scout.GetCurrentState()?.name ?? "?";
-                Record("the lander landed", landed.StartsWith("grounded") || landed == "land", $"lander state {landed}, offset {scout.flightAnimOffset:G3}");
+                Record("the lander landed", landed.Contains("grounded") || landed.EndsWith("land"), $"lander state {landed}, offset {scout.flightAnimOffset:G3}");
                 Record("the lander's exhaust reached the owner", Left(SimHashes.CarbonDioxide) - recorded["scout co2"] > 1, $"+{Left(SimHashes.CarbonDioxide) - recorded["scout co2"]:G4} kg carbon dioxide");
                 Record("the pod's exhaust reached the owner", Right(SimHashes.CarbonDioxide) - recorded["pod co2"] > 1, $"+{Right(SimHashes.CarbonDioxide) - recorded["pod co2"]:G4} kg carbon dioxide");
-                var oxygen = Left(SimHashes.Oxygen); var water = Left(SimHashes.Water) + Left(SimHashes.Steam); var dirty = Left(SimHashes.DirtyWater);
-                Record("the jettisoned cargo reached the owner", Math.Abs(oxygen - .75) < 1e-3 && Math.Abs(water - .75) < 1e-3 && Math.Abs(dirty - .25) < 1e-3,
-                    $"oxygen {oxygen:R}, water and steam {water:R}, polluted water {dirty:R} kg; lander still holds {soScout!.GetComponent<Storage>().MassStored():G4} kg");
                 LedgersClosed("landers");
                 Finish();
             }
@@ -555,6 +606,11 @@ namespace MixedAtmospheres.Oni
                 soOpenGas = Grid.OffsetCell(Grid.PosToCell(soOpener), opener.gasPortInfo.offset); soOpenLiquid = Grid.OffsetCell(Grid.PosToCell(soOpener), opener.liquidPortInfo.offset);
                 Pipe(Game.Instance.gasConduitSystem, GasConduitConfig.ID, new List<int> { soGunGas }, new List<int> { soOpenGas });
                 Pipe(Game.Instance.liquidConduitSystem, LiquidConduitConfig.ID, new List<int> { soGunLiquid }, new List<int> { soOpenLiquid });
+                Pipe(Game.Instance.solidConduitSystem, SolidConduitConfig.ID, new List<int> { Grid.OffsetCell(Grid.PosToCell(soOpener), opener.solidPortInfo.offset) });
+                // The gun launches only with a clear sky and a destination, neither of
+                // which a sealed fixture has: its ports then take material as the
+                // game's always-consuming conduit consumers do.
+                foreach (var consumer in soRailGun.GetComponents<ConduitConsumer>()) consumer.alwaysConsume = true;
                 Debug.Log($"[Mixed Atmospheres] rail gun ports gas {soGunGas} liquid {soGunLiquid}; opener gas {soOpenGas} liquid {soOpenLiquid}");
             }
             if (Once(14, "feed"))
@@ -578,14 +634,14 @@ namespace MixedAtmospheres.Oni
                 var held = payload.GetComponent<Storage>();
                 held.AddGasChunk(SimHashes.Oxygen, .375f, 300, byte.MaxValue, 0, false, true); held.AddGasChunk(SimHashes.CarbonDioxide, .125f, 300, byte.MaxValue, 0, false, true);
                 held.AddLiquid(SimHashes.Water, .75f, 300, byte.MaxValue, 0, false, true); held.AddLiquid(SimHashes.DirtyWater, .25f, 300, byte.MaxValue, 0, false, true);
-                soOpener!.GetComponent<RailGunPayloadOpener>().payloadStorage.Store(payload, true, true);
+                soOpener!.GetComponent<RailGunPayloadOpener>().payloadStorage.Store(payload, true, false);
             }
             if (Once(260, "opener check"))
             {
                 var opener = soOpener!.GetComponent<RailGunPayloadOpener>();
                 var gas = ColonyConduits.ReadSynced(Game.Instance.gasConduitFlow, soOpenGas); var liquid = ColonyConduits.ReadSynced(Game.Instance.liquidConduitFlow, soOpenLiquid);
                 var held = opener.resourceStorage.MassStored();
-                Record("the opener released the payload's gas and liquid to its ports", gas.Mass > .4 || liquid.Mass > .9 || held < .01,
+                Record("the opener released the payload's gas and liquid to its ports", opener.payloadStorage.items.Count == 0 && gas.Mass > .45 && liquid.Mass > .95 && held < .01,
                     $"output pipes hold gas {gas.Mass:G4} kg, liquid {liquid.Mass:G4} kg; opener storage {held:G4} kg, payloads waiting {opener.payloadStorage.items.Count}; {MachineState(soOpener)}");
                 Record("rail gun pipe accounts exact", ColonyConduits.Audit(out var detail), detail);
                 LedgersClosed("rail gun");

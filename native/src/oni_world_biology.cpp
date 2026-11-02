@@ -45,6 +45,7 @@ void validate(const Table& t) {
     const auto finite = [](float v) { return !std::isnan(v); };
     for (const auto& d : t.diseases) {
         require(std::isfinite(d.strength), "Invalid disease strength");
+        require(std::isfinite(d.radiation_kill_rate) && d.radiation_kill_rate >= 0, "Invalid disease radiation kill rate");
         // The game's idempotent temperature rule uses +infinity for all
         // eight fields (for example, a disease with no environmental effect).
         // Its multiplier is exactly one; mixed/noncanonical infinite bounds
@@ -99,6 +100,8 @@ Step grow(const Table& table, std::size_t disease, const Medium& m, double popul
             material = static_cast<float>(blend);
         }
         total = total + material;
+        const float kill = m.radiation > 0 ? m.radiation * table.diseases.at(disease).radiation_kill_rate : 0.0f;
+        if (kill > 0) total = total - kill;
         if (std::isfinite(total) && total >= -2147483648.0f && total < 2147483648.0f) {
             const auto change = static_cast<std::int32_t>(total);
             const float residue = total - static_cast<float>(change);
@@ -111,6 +114,7 @@ Step grow(const Table& table, std::size_t disease, const Medium& m, double popul
     double material = 0;
     for (const auto& p : m.parts) material += (p.mass_kg / m.mass_kg) * expected_material(table.at(disease, p.element), population, mass);
     double change = material + population * (static_cast<double>(temperature_rate) - 1.0) + static_cast<double>(clock.residue);
+    if (m.radiation > 0) change -= static_cast<double>(m.radiation * table.diseases.at(disease).radiation_kill_rate);
     if (change < 0 && population + change <= 0) change = -population;
     return {population + change, change, Clock{expected_mode, clock.ticks, 0}};
 }

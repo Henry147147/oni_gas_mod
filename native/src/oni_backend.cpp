@@ -1467,7 +1467,7 @@ MAOniResult ma_oni_colony_copy_options(MAOniColonyOptions* output) {
         *output=value;
     });
 }
-std::uint32_t ma_oni_colony_world_biology_version() { return 1; }
+std::uint32_t ma_oni_colony_world_biology_version() { return 2; }
 MAOniResult ma_oni_colony_set_diseases(const MAOniColonyDisease* diseases,std::uint32_t disease_count,
     const MAOniColonyDiseaseGrowth* growth,std::uint32_t element_count) {
     return boundary([&] {
@@ -1485,6 +1485,13 @@ MAOniResult ma_oni_colony_queue_germs(const MAOniColonyGermEdit* edits,std::uint
         static_assert(sizeof(MAOniColonyGermEdit)==16);
         if(!edits || !count)throw Failure(MA_ONI_INVALID_ARGUMENT,"Invalid germ edit buffer");
         try {ma::oni::colony::queue_germs(std::span(edits,count));}
+        catch(const std::invalid_argument& error) {throw Failure(MA_ONI_INVALID_ARGUMENT,error.what());}
+    });
+}
+MAOniResult ma_oni_colony_set_radiation(const std::uint32_t* cells,const float* rads,std::uint32_t count) {
+    return boundary([&] {
+        if(count && (!cells || !rads))throw Failure(MA_ONI_INVALID_ARGUMENT,"Invalid radiation field buffers");
+        try {ma::oni::colony::set_radiation(std::span(cells,count),std::span(rads,count));}
         catch(const std::invalid_argument& error) {throw Failure(MA_ONI_INVALID_ARGUMENT,error.what());}
     });
 }

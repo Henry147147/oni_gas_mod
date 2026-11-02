@@ -20,6 +20,7 @@ namespace ma::oni::colony::biology {
 // the half-life at each bound.
 struct Disease {
     float strength = 0;
+    float radiation_kill_rate = 0; // germs per rad per frame
     std::array<float, 4> range{}, half_lives{};
 };
 // One disease in one element.
@@ -66,6 +67,7 @@ struct Medium {
     std::uint32_t element = 0;
     float temperature_k = 0;
     double mass_kg = 0;
+    float radiation = 0; // rads in the cell this frame
     std::vector<Part> parts;
 };
 struct Culture { std::uint64_t identity = 0; double quantity = 0; };

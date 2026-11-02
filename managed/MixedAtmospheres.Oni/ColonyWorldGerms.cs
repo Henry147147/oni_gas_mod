@@ -20,7 +20,7 @@ namespace MixedAtmospheres.Oni
         {
             public uint Size, Version; public float Strength;
             public float Range0, Range1, Range2, Range3, HalfLife0, HalfLife1, HalfLife2, HalfLife3;
-            public uint Reserved;
+            public float RadiationKillRate;
         }
         [StructLayout(LayoutKind.Sequential)]
         internal struct Growth
@@ -51,6 +51,8 @@ namespace MixedAtmospheres.Oni
         private static extern int SetDiseases([In] Disease[] diseases, uint count, [In] Growth[] growth, uint elements);
         [DllImport(Library, EntryPoint = "ma_oni_colony_queue_germs", CallingConvention = CallingConvention.Cdecl)]
         private static extern int QueueGerms([In] GermEdit[] edits, uint count);
+        [DllImport(Library, EntryPoint = "ma_oni_colony_set_radiation", CallingConvention = CallingConvention.Cdecl)]
+        internal static extern int SetRadiation([In] uint[] cells, [In] float[] rads, uint count);
         [DllImport(Library, EntryPoint = "ma_oni_colony_biology", CallingConvention = CallingConvention.Cdecl)]
         private static extern int Biology(ref Summary summary, [Out] Account[]? accounts, uint capacity, out uint count);
 
@@ -68,7 +70,7 @@ namespace MixedAtmospheres.Oni
         {
             Supported = false; ConfigureFailure = "";
             MixtureInspection.SetCellGermReader(Describe);
-            try { if (Version() != 1) { ConfigureFailure = "native world germ capability differs"; return; } }
+            try { if (Version() != 2) { ConfigureFailure = "native world germ capability differs"; return; } }
             catch (EntryPointNotFoundException) { ConfigureFailure = "native library has no world germ evolution"; return; }
             if (Marshal.SizeOf<Disease>() != 48 || Marshal.SizeOf<Growth>() != 32 || Marshal.SizeOf<GermEdit>() != 16 ||
                 Marshal.SizeOf<Summary>() != 312 || Marshal.SizeOf<Account>() != 64)
@@ -88,7 +90,8 @@ namespace MixedAtmospheres.Oni
                         Size = 48, Version = 1, Strength = d.strength,
                         Range0 = d.temperatureRange.minViable, Range1 = d.temperatureRange.minGrowth, Range2 = d.temperatureRange.maxGrowth, Range3 = d.temperatureRange.maxViable,
                         HalfLife0 = d.temperatureHalfLives.minViable, HalfLife1 = d.temperatureHalfLives.minGrowth,
-                        HalfLife2 = d.temperatureHalfLives.maxGrowth, HalfLife3 = d.temperatureHalfLives.maxViable
+                        HalfLife2 = d.temperatureHalfLives.maxGrowth, HalfLife3 = d.temperatureHalfLives.maxViable,
+                        RadiationKillRate = d.radiationKillRate
                     });
                     for (var e = 0; e < elements; ++e)
                     {

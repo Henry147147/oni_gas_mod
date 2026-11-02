@@ -248,6 +248,7 @@ struct ShadowCell { std::uint16_t element = 0, before = 0; bool written = false,
 // emitters and consumers, cell edits), applied at the start of the next step.
 struct GermEdit { std::uint32_t public_cell, germ; double change; };
 std::vector<GermEdit> pending_germs; // under inputs
+std::unordered_map<std::size_t, float> radiation_field; // rect index -> rads; under inputs; not saved
 // World germ evolution (docs/colony-owner.md#germs): the game's disease table
 // (lifecycle lock), and the running session's mode for the native worker.
 biology::Table disease_table;
@@ -779,7 +780,7 @@ void activate(std::unique_ptr<Session> next, std::uint64_t thread) {
     owned = std::make_unique<std::atomic<std::uint8_t>[]>(owned_count);
     retiring=std::make_unique<std::atomic<std::uint8_t>[]>(owned_count);retiring_count=0;prepared_retirement.reset();
     for (std::size_t i = 0; i < owned_count; ++i) owned[i].store(next->world->state().grid.walls[i] ? 0 : 1, std::memory_order_relaxed);
-    { std::lock_guard lock(inputs); pending_transfers.clear(); pending_heat.clear(); pending_terrain.clear(); pending_freezes.clear(); pending_germs.clear(); receipts.clear();
+    { std::lock_guard lock(inputs); pending_transfers.clear(); pending_heat.clear(); pending_terrain.clear(); pending_freezes.clear(); pending_germs.clear(); radiation_field.clear(); receipts.clear();
       pending_activity.clear();lifecycle_activity.reset();pending_activity_mode.reset();
       activity_session=next->status.session;accepted_activity_sequence=next->activity_sequence;
       requested_activity_tiers=next->world->settings().game.activity_tiers;
@@ -1792,8 +1793,8 @@ void set_diseases(std::span<const MAOniColonyDisease> diseases, std::span<const 
     require(growth.size() == diseases.size() * elements, "World disease growth table size differs");
     biology::Table table; table.elements = elements;
     for (const auto& d : diseases) {
-        require(d.struct_size == sizeof(d) && d.abi_version == 1 && d.reserved == 0, "Invalid disease record");
-        biology::Disease rules; rules.strength = d.strength;
+        require(d.struct_size == sizeof(d) && d.abi_version == 1, "Invalid disease record");
+        biology::Disease rules; rules.strength = d.strength; rules.radiation_kill_rate = d.radiation_kill_rate;
         for (int k = 0; k < 4; ++k) { rules.range[k] = d.temperature_range[k]; rules.half_lives[k] = d.temperature_half_lives[k]; }
         table.diseases.push_back(rules);
     }
@@ -1912,6 +1913,17 @@ void queue_germs(std::span<const MAOniColonyGermEdit> edits) {
     std::lock_guard lock(inputs);
     require(pending_germs.size() + edits.size() <= 1u << 20, "Too many queued colony germ edits");
     for (const auto& e : edits) if (e.change != 0) pending_germs.push_back({e.public_cell, e.disease, e.change});
+}
+void set_radiation(std::span<const std::uint32_t> cells, std::span<const float> rads) {
+    require(active(), "No colony owner is active");
+    require(cells.size() == rads.size() && cells.size() <= 1u << 22, "Invalid colony radiation field");
+    std::unordered_map<std::size_t, float> field; field.reserve(cells.size());
+    for (std::size_t k = 0; k < cells.size(); ++k) {
+        require(std::isfinite(rads[k]) && rads[k] > 0, "Invalid colony radiation value");
+        field[rect_index(geometry, cells[k])] = rads[k];
+    }
+    std::lock_guard lock(inputs);
+    radiation_field = std::move(field);
 }
 void germ_accounts(MAOniColonyBiology& out, std::vector<MAOniColonyBiologyAccount>& accounts) {
     std::shared_ptr<const Published> p; { std::lock_guard lock(publication); p = latest; }
@@ -2596,6 +2608,7 @@ MacClosedWorld evolve_germs(Session& s, MacClosedWorld world, std::span<const Ge
     }
     std::shared_ptr<const Published> p; { std::lock_guard lock(publication); p = latest; }
     if (frames > 0 && !disease_table.empty() && p && p->views.size() == st.cells.size()) {
+        std::unordered_map<std::size_t, float> radiation; { std::lock_guard lock(inputs); radiation = radiation_field; }
         std::unordered_map<std::size_t, biology::Medium> media;
         const std::function<const biology::Medium&(std::size_t)> medium = [&](std::size_t i) -> const biology::Medium& {
             auto [it, inserted] = media.try_emplace(i);
@@ -2603,6 +2616,7 @@ MacClosedWorld evolve_germs(Session& s, MacClosedWorld world, std::span<const Ge
             if (!inserted || st.grid.walls[i]) return m;
             const auto& mixture = st.cells[i].mixture; const auto& v = p->views[i];
             m.open = true; m.mass_kg = mixture.mass(); m.temperature_k = v.temperature_k; m.element = v.element_index;
+            if (const auto r = radiation.find(i); r != radiation.end()) m.radiation = r->second;
             if(!due.empty() && m.mass_kg>0) {
                 const auto reading=world.cell_reading(i);m.temperature_k=static_cast<float>(std::clamp(reading.temperature_k,1.,9999.));
                 double gas=0,best_gas=0,best_liquid=0;std::size_t gas_k=0,liquid_k=0;

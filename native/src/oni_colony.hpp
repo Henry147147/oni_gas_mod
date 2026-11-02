@@ -69,6 +69,7 @@ void set_worker_count(unsigned);
 void set_options(const MAOniColonyOptions*);
 bool copy_options(MAOniColonyOptions&);
 void queue_germs(std::span<const MAOniColonyGermEdit>);
+void set_radiation(std::span<const std::uint32_t> cells, std::span<const float> rads);
 void germ_accounts(MAOniColonyBiology&, std::vector<MAOniColonyBiologyAccount>&);
 [[nodiscard]] std::vector<std::uint8_t> checkpoint();
 // Callback-owned requests across a save (oni_colony.h, owner wrapper 13).

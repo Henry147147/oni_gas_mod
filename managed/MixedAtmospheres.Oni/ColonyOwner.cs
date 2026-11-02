@@ -111,7 +111,7 @@ namespace MixedAtmospheres.Oni
         internal static void ResetForNewSession()
         {
             receiptPump.Reset();
-            ColonyPresentation.Reset(); ColonyActivity.Reset(); ColonyActors.Reset(); ColonyViewCache.Reset(); ColonyConduits.Reset(); ColonyWorldGerms.Reset(); ColonyNotices.Reset(); ColonyBalance.Reset(); ColonyDlcFluidReaders.Reset();
+            ColonyPresentation.Reset(); ColonyActivity.Reset(); ColonyActors.Reset(); ColonyViewCache.Reset(); ColonyConduits.Reset(); ColonyWorldGerms.Reset(); ColonyRadiationGerms.Reset(); ColonyNotices.Reset(); ColonyBalance.Reset(); ColonyDlcFluidReaders.Reset();
             current?.Dispose(); current = null;
             if (Active) { var s = OniNativeColony.Status.Empty; _ = OniNativeColony.Stop(ref s); }
             ColonyPacing.Reset(); ColonyOwnerPersistence.Reset(); ModSettingsRuntime.Reset();
@@ -230,7 +230,7 @@ namespace MixedAtmospheres.Oni
                         throw new NotSupportedException("Fluid element " + element.id + " has no catalogue entry.");
                 }
                 var started = System.Diagnostics.Stopwatch.StartNew();
-                ColonyWorldGerms.Configure();
+                ColonyWorldGerms.Configure(); ColonyRadiationGerms.Configure();
                 var output = OniNativeColony.Status.Empty;
                 _ = ModSettingsRuntime.BeforeStart(config.Flags); // the player's colony settings (docs/settings.md)
                 ColonyStartingAir.Capture(source,
@@ -306,7 +306,7 @@ namespace MixedAtmospheres.Oni
             config = saved; materials = catalogue;
             x0 = (int)config.OffsetX; y0 = (int)config.OffsetY; width = (int)config.Width; height = (int)config.Height;
             publicationCells=ColonyPublicationMap.Create(Grid.WidthInCells,Grid.HeightInCells,x0,y0,width,height);
-            ColonyWorldGerms.Configure();
+            ColonyWorldGerms.Configure(); ColonyRadiationGerms.Configure();
             var output = OniNativeColony.Status.Empty;
             OniNativeColony.Check(OniNativeColony.Restore(ref config, materials, (uint)materials.Length, image, (uint)image.Length, ref output));
             ModSettingsRuntime.Restored(); // the settings this colony recorded (docs/settings.md)
@@ -400,6 +400,8 @@ namespace MixedAtmospheres.Oni
                 var diseases = copy.CellBuffer<byte>(nameof(Sim.GameDataUpdate.diseaseIdx));
                 var germs = copy.CellBuffer<int>(nameof(Sim.GameDataUpdate.diseaseCount));
                 var changes = new List<Sim.SubstanceChangeInfo>();
+                var radiated = new List<(uint cell, float rads)>();
+                var radiation = ColonyRadiationGerms.Enabled ? copy.CellBuffer<float>(nameof(Sim.GameDataUpdate.radiation)) : default;
                 var ownedNow=0;
                 for (var i = 0; i < views.Length; ++i)
                 {
@@ -422,6 +424,7 @@ namespace MixedAtmospheres.Oni
                             changes.Add(new Sim.SubstanceChangeInfo { cellIdx = global, newElemIdx = elements[global] });
                         continue;
                     }
+                    if (radiation.Length != 0 && radiation[global] > 0 && view.MassKg > 0) radiated.Add(((uint)global, radiation[global]));
                     var element = (ushort)view.ElementIndex;
                     masses[global] = view.MassKg; temperatures[global] = view.MassKg > 0 ? view.TemperatureK : 0;
                     diseases[global] = OniNativeColony.DiseaseIdx(view.Disease); germs[global] = view.Disease != 0 ? view.DiseaseCount : 0;
@@ -430,6 +433,7 @@ namespace MixedAtmospheres.Oni
                     elements[global] = element;
                 }
                 OwnedCells=ownedNow;
+                ColonyRadiationGerms.Apply(radiated);
                 copy.AppendEvents<Sim.SubstanceChangeInfo>(SnapshotEventChannel.SubstanceChangeInfo, changes.ToArray());
                 Lap("overlay");
                 var receiptObservedThrough=DeliverReceipts(copy);

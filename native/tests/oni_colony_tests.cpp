@@ -1687,6 +1687,19 @@ void world_biology_control() {
     count = 3; clock = {}; int frames = 0;
     while (count > 0 && frames < 100) { const auto step = bio::grow(table, 0, big, count, clock); count = step.population; clock = step.clock; ++frames; }
     require(count == 0 && frames >= 29 && frames <= 31, "under-population death");
+    // Radiation: the game takes radiation x kill rate germs a tick on top of
+    // the ordinary change (measured in the game: 1000 germs, 91.67 rads, kill
+    // rate 2.5 fall by 229 a tick); a cell holding fewer germs empties.
+    {
+        auto killing = table; killing.diseases[1].radiation_kill_rate = 2.5f;
+        bio::Medium lit = air; lit.radiation = 91.67f;
+        const auto plain = bio::grow(killing, 1, air, 1000, {}), burned = bio::grow(killing, 1, lit, 1000, {});
+        require(std::abs((plain.change - burned.change) - 91.67 * 2.5) <= 1.0 && burned.population < plain.population, "radiation kill of a whole-germ culture");
+        require(bio::grow(killing, 1, lit, 200, {}).population == 0, "radiation empties a small culture");
+        const auto expected_plain = bio::grow(killing, 1, air, 1000.5, {}), expected_burned = bio::grow(killing, 1, lit, 1000.5, {});
+        require(std::abs((expected_plain.change - expected_burned.change) - static_cast<double>(91.67f * 2.5f)) <= 1e-9, "radiation kill of an expected culture");
+        require(bio::grow(killing, 0, lit, 1000, {}).change == bio::grow(killing, 0, air, 1000, {}).change, "a disease without a kill rate ignores radiation");
+    }
     // Expected (non-integer) cultures follow the same rule in binary64; a
     // half-oxygen, half-carbon-dioxide medium changes at half the rate.
     bio::Medium mixed = air; mixed.parts = {{oxygen, .5}, {carbon, .5}};

@@ -352,13 +352,14 @@ MA_ONI_API MAOniResult ma_oni_colony_read_passives(uint64_t expected_session,uin
  * then evolves every disease identity in every owned cell itself (saved owner
  * version 10), and the native simulation no longer evolves germs there. A
  * restored colony keeps its saved evolution mode. Diffusion scales above 2,
- * negative rates or NaN bounds are refused. Version 1. */
+ * negative rates or NaN bounds are refused. Version 2 adds the radiation kill
+ * rate and ma_oni_colony_set_radiation. */
 typedef struct MAOniColonyDisease {
     uint32_t struct_size, abi_version;
     float strength;
     float temperature_range[4];      /* minimum viable, minimum growth, maximum growth, maximum viable (K) */
     float temperature_half_lives[4]; /* half-life at each bound (s); infinity: no change */
-    uint32_t reserved;
+    float radiation_kill_rate;       /* germs killed per rad per 0.2 s tick (0: none; was reserved, 0) */
 } MAOniColonyDisease;
 typedef struct MAOniColonyDiseaseGrowth {
     float under_population_death_rate, population_half_life, over_population_half_life, diffusion_scale;
@@ -367,6 +368,13 @@ typedef struct MAOniColonyDiseaseGrowth {
     uint32_t minimum_diffusion_ticks;
 } MAOniColonyDiseaseGrowth;
 MA_ONI_API uint32_t ma_oni_colony_world_biology_version(void);
+/* The radiation (rads) of owned cells, as the game's own simulation computed it
+ * for the latest published frame: each following 0.2 s tick of world evolution
+ * takes radiation x the disease's kill rate germs from each listed cell (a
+ * cell holding fewer empties). Replaces the previous list; an empty list
+ * clears it. Cells are public cells inside the owned rectangle; rads are
+ * finite and positive. The field is an environment sample: it is not saved. */
+MA_ONI_API MAOniResult ma_oni_colony_set_radiation(const uint32_t* public_cells, const float* rads, uint32_t count);
 MA_ONI_API MAOniResult ma_oni_colony_set_diseases(const MAOniColonyDisease*, uint32_t disease_count,
     const MAOniColonyDiseaseGrowth*, uint32_t element_count);
 /* Saved profile-6 options (docs/settings.md). A new colony created with
