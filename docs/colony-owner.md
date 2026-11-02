@@ -1405,6 +1405,8 @@ frames and records its checks in `colony-owner.json`; the run fails on a failed
 check or an owner fault. Scenario buildings are built instantly and powered by
 setting their powered flag (harness only).
 
+The home asteroid of a Spaced Out! colony is 160 cells wide with the printing pod at x 72, so one game holds about 80 cells of arenas to its right: `Arena` refuses one that leaves the asteroid (split long Spaced Out! lists across games) and slides a large one (200 cells or more) right past natural hydrogen pockets, whose displaced gas the flow solver does not yet survive (see [the open fault](dlc-compatibility.md#spaced-out-fluid-systems)).
+
 | Scenario | Checks |
 | --- | --- |
 | `terrain` | Digging a granite column lets gas reach the vacuum beyond it; a built tile closes its cell; both conserve the gas. |
