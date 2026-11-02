@@ -3,7 +3,7 @@ using System.Runtime.CompilerServices;
 using HarmonyLib;
 using MixedAtmospheres.Oni;
 
-namespace UnityEngine { public static class Debug {public static int Messages,Errors,LossMessages;public static void Log(string message){++Messages;if(message.Contains("pacing loss session"))++LossMessages;}public static void LogError(string message){++Errors;}} }
+namespace UnityEngine { public static class Mathf {public static float Min(float a,float b)=>a<b?a:b;} public static class Debug {public static int Messages,Errors,LossMessages;public static void Log(string message){++Messages;if(message.Contains("pacing loss session"))++LossMessages;}public static void LogError(string message){++Errors;}} }
 public sealed class SpeedControlScreen
 {public static SpeedControlScreen Instance=new();public bool IsPaused;public int Mode=2;public int GetSpeed()=>Mode;}
 public sealed class SaveLoader
@@ -35,15 +35,22 @@ static class Guards
     [HarmonyPriority(Priority.First)]static bool Prefix(ref float __0)
     {if(Guards.FirstZero||ColonyCallbackRequests.Pending||ColonyOwnerPausedResave.Holding)__0=0;return !Guards.FirstVeto&&!ColonyLoadRefusal.Refused&&!ColonyContinuationProbe.Holding;}
 }
-[HarmonyPatch(typeof(Game),nameof(Game.SimEveryTick))]static class PacingGuard
+// The busy fence is production ColonyPacingTickPatch -> ColonyPacing.BeforeTick
+// (extract.py). Only the game state it reads is supplied here: a busy owner and
+// a sub-tick position that leaves exactly Guards.Allowance before the 200 ms tick.
+namespace MixedAtmospheres.Oni
 {
-    static bool Prefix(ref float __0)
+    internal static partial class ColonyPacing
     {
-        var before=__0;var run=!Guards.Busy||Math.Min(__0,.2f)<Guards.Allowance;
-        if(!run&&Guards.Allowance>0){__0=Guards.Allowance;run=true;}
-        if(ColonyPacingLossLog.Enabled)ColonyPacingLossLog.Pacing(before,run?__0:0,run,Guards.Busy);
-        ColonyPacingRetainedLog.Pacing(before,run?__0:0,run,Guards.Busy);return run;
+        internal static bool Enabled=true;
+        internal static long HeldTicks{get;private set;}
+        private static readonly bool publicationLog=false;
+        internal static long tickTicks,tickCalls;
+        private static int subTick(Game game)=>Guards.Allowance<=0?12:11;
+        private static float simDt(Game game)=>Guards.Allowance<=0?-1e-4f:1f/60f-1e-4f-Guards.Allowance;
     }
+    internal static class OniNativeColony {internal static int Busy()=>Guards.Busy?1:0;}
+    internal static class ColonyFrameLog {internal enum Part{Tick} internal static readonly bool Enabled=false;internal static long Now=>0;internal static void Add(Part part,long begun){}}
 }
 [HarmonyPatch(typeof(Game),nameof(Game.SimEveryTick))]static class LaterGuard
 {

@@ -10,6 +10,6 @@
   <Target Name="RequireGameHarmony" BeforeTargets="ResolveReferences" Condition="!Exists('$(OniGameDir)/OxygenNotIncluded_Data/Managed/0Harmony.dll')"><Error Text="Supply OniGameDir for the actual installed game Harmony assembly."/></Target>
   <Target Name="LinkActualLegacyObserver" BeforeTargets="CoreCompile">
     <Exec Command="&quot;$(CreditPython)&quot; &quot;$(MSBuildThisFileDirectory)extract.py&quot; --root &quot;$(MSBuildThisFileDirectory)../..&quot; --out &quot;$(IntermediateOutputPath)credit-observer&quot;"/>
-    <ItemGroup><Compile Include="$(IntermediateOutputPath)credit-observer/ActualLossObserver.cs"/></ItemGroup>
+    <ItemGroup><Compile Include="$(IntermediateOutputPath)credit-observer/ActualLossObserver.cs"/><Compile Include="$(IntermediateOutputPath)credit-observer/ActualPacingFence.cs"/></ItemGroup>
   </Target>
 </Project>
