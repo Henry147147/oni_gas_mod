@@ -39,7 +39,8 @@ namespace MixedAtmospheres.Oni
         private static readonly List<GameObject> powered = new List<GameObject>();
 
         internal static void Reset() { Results.Clear(); index = 0; Next(); }
-        private static void Next() { Current = new Result(); started = 0; step = 0; recorded.Clear(); powered.Clear(); filling = null; pipeCells.Clear(); generators.Clear(); mixedFilters.Clear();mixedSensors.Clear();mixedDiseaseSensor=null;mixedBoundaryJobs.Clear();mixedPumps.Clear();mergeDebris.Clear();mixedPumpHeldOutputs.Clear();mixedPumpDischargeSources.Clear();mixedOutputJobs.Clear();mixedTeardownPipes.Clear();mixedValves.Clear();mixedThermalBody=null; }
+        private static int extraShift, pendingShift;
+        private static void Next() { extraShift += pendingShift; pendingShift = 0; Current = new Result(); started = 0; step = 0; recorded.Clear(); powered.Clear(); filling = null; pipeCells.Clear(); generators.Clear(); mixedFilters.Clear();mixedSensors.Clear();mixedDiseaseSensor=null;mixedBoundaryJobs.Clear();mixedPumps.Clear();mergeDebris.Clear();mixedPumpHeldOutputs.Clear();mixedPumpDischargeSources.Clear();mixedOutputJobs.Clear();mixedTeardownPipes.Clear();mixedValves.Clear();mixedThermalBody=null; }
 
         // Called every Unity frame while the owner runs. Returns true when
         // every scenario of the list is done.
@@ -158,7 +159,7 @@ namespace MixedAtmospheres.Oni
                     case "pacu": Pacu(frame); break;
                     case "liquid-pump": LiquidPump(frame); break;
                     case "base": Base(frame, status); break;
-                    default: throw new InvalidOperationException("Unknown colony scenario " + name);
+                    default: if (!SpacedOutScenario(name, frame)) throw new InvalidOperationException("Unknown colony scenario " + name); break;
                 }
             }
             catch (Exception error)
@@ -2303,7 +2304,7 @@ namespace MixedAtmospheres.Oni
             var pad = GameUtil.GetActiveTelepad();
             var cell = pad != null ? Grid.PosToCell(pad) : Grid.XYToCell(Grid.WidthInCells / 2, Grid.HeightInCells / 2);
             Grid.CellToXY(cell, out var px, out var py);
-            x0 = px + 9 + 11 * index; y0 = py;
+            x0 = px + 9 + 11 * index + extraShift; y0 = py;
             Current.Stage = $"arena at {x0},{y0}";
         }
         private static int Cell(int x, int y) => Grid.XYToCell(x0 + x, y0 + y);
@@ -2315,16 +2316,18 @@ namespace MixedAtmospheres.Oni
         // the owner closes a cell the frame after the game places its solid,
         // so a wall placed with the fill would let fill gas cross it first.
         private static Func<int, int, (SimHashes element, float mass, float temperature)>? filling;
-        private static void Arena(Func<int, int, (SimHashes element, float mass, float temperature)> inside)
+        private static int fillWidth = Width, fillHeight = Height;
+        private static void Arena(Func<int, int, (SimHashes element, float mass, float temperature)> inside, int width = Width, int height = Height)
         {
+            fillWidth = width; fillHeight = height;
             // The world's plants, critters and items in the arena would take
             // part (and block what the scenario builds there).
-            FloorArenas.Clear(x0 - 1, y0 - 1, Width + 2, Height + 2, out _);
+            FloorArenas.Clear(x0 - 1, y0 - 1, width + 2, height + 2, out _);
             var tool = CellEventLogger.Instance.SandBoxTool;
-            for (var y = -1; y <= Height; ++y)
-                for (var x = -1; x <= Width; ++x)
+            for (var y = -1; y <= height; ++y)
+                for (var x = -1; x <= width; ++x)
                 {
-                    var border = x == -1 || y == -1 || x == Width || y == Height;
+                    var border = x == -1 || y == -1 || x == width || y == height;
                     if (border) { SimMessages.ReplaceElement(Cell(x, y), SimHashes.Unobtanium, tool, 20000, 300); continue; }
                     var (element, mass, temperature) = inside(x, y);
                     if (IsSolid(element)) SimMessages.ReplaceElement(Cell(x, y), element, tool, mass, temperature);
@@ -2336,8 +2339,8 @@ namespace MixedAtmospheres.Oni
         {
             if (filling == null || ColonyFrame() < 2) return;
             var tool = CellEventLogger.Instance.SandBoxTool;
-            for (var y = 0; y < Height; ++y)
-                for (var x = 0; x < Width; ++x)
+            for (var y = 0; y < fillHeight; ++y)
+                for (var x = 0; x < fillWidth; ++x)
                 {
                     var (element, mass, temperature) = filling(x, y);
                     if (!IsSolid(element)) SimMessages.ReplaceElement(Cell(x, y), element, tool, mass, temperature);
