@@ -1386,7 +1386,7 @@ setting their powered flag (harness only).
 | `door` | A manual airlock between oxygen and vacuum seals when closed, passes gas when opened and displaces its cells' gas when closed again (a pneumatic door does not block gas in ONI). |
 | `sublimation` | Oxylite dropped in thin oxygen releases oxygen into the owner. |
 | `falling` | A sand tile placed over gas falls: its cell reopens, it lands and closes a floor cell, and the gas is kept. |
-| `breathing` | The colony's duplicants keep full breath; oxygen is taken from the owner and carbon dioxide exhaled into it. |
+| `breathing` | The colony's duplicants keep full breath (above 90), oxygen is taken from the owner (more than 0.1 kg), and every original duplicant produces carbon dioxide: for each, final held CO₂ minus source held CO₂ plus the mass of its own original puffs inside the window is positive ([criterion changed by delegated user decision 2026-11-02](release-candidate-testing.md#breathing-criterion-decision-2026-11-02)). The whole-world net CO₂ change stays reported in the detail, no longer asserted. |
 | `airflow` | A column of airflow tiles between water under air and thinner air passes the air but no water. |
 | `electrolysis` | An electrolyzer splits stored water into oxygen and hydrogen that reach the owner. |
 | `vent-overpressure` | A pump feeds a vent into air above the vent's limit: the vent stays shut and the pipe holds the gas. |

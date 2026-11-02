@@ -87,11 +87,11 @@ The rebuilt `4638bfc` probe passed the original world-germ scenario in game.
 Its new breath diagnostic observed the exact declared parcel and native pool
 retirement, but the fluid endpoint was 0.031249999647146417 kg rather than
 0.03125 kg. That fluid-only comparison remains recorded as failed. The
-diagnostic now checks compatibility with the separately sampled whole-owner
-trace-sink increment, keeping the 1e-10 kg residual tolerance. This increment
-is only an upper bound for the arena's trace loss: it does not attribute trace
-to the arena or establish an exact regional mass/energy ledger. The original
-whole-world breathing gate remains open.
+diagnostic then compared against the separately sampled whole-owner
+trace-sink increment (superseded by the
+[per-interval pairing](#breath-particle-bound-2026-11-02) below). The original
+whole-world breathing gate is replaced by the
+[2026-11-02 production criterion](#breathing-criterion-decision-2026-11-02).
 
 The corrected fully-active native performance suite completed under WHOLE
 locks without owner faults. It fails the fixed cost and disturbance bounds:
@@ -113,11 +113,77 @@ workload, and include queue/census/receipt work in their frame cost. They do
 not measure managed code, rendering or Windows OS performance. Private results
 are in `native-performance-4638/` and `native-performance-gate-evaluation.json`.
 
+## Breathing criterion decision (2026-11-02)
+
+The original B3 check, "carbon dioxide was exhaled into the owner" (the
+whole-world gaseous CO₂ mass after the 40-frame window above the mass at its
+start), failed in every Linux run (V4: −0.912073 kg). Its premise is not
+met by vanilla breathing: a duplicant holds the CO₂ it makes until the held
+amount reaches the 0.02 kg puff threshold, and in the 8 s window the three
+source duplicants had only grown from 0.0003 to 0.0163 kg each, so no
+original puff occurred before native frame 51. Meanwhile ten gas-removal
+sites, all classified as Space, dominated the whole-world delta. A whole-world
+net change therefore cannot tell working breathing from broken breathing.
+
+The user delegated gate decisions to the orchestrator, which on 2026-11-02
+approved the private proposal (`breathing-gate-proposal-v1`). The assertion is
+replaced by **each original duplicant produced carbon dioxide**: for every
+source duplicant, `produced = final held CO₂ − source held CO₂ + original
+scoped puff mass > 0`, with the source and check at stages 0 and 40 and the
+same physical inputs, duration and solver. Kept unchanged: every duplicant's
+breath above 90 and more than 0.1 kg of oxygen taken from the owner. The old
+whole-world net CO₂ delta is still recorded in the check's detail as a
+diagnostic and is not asserted. Only successful original `SpawnBreath` calls
+inside the retained duplicants' own `OxygenBreather.Sim200ms` scope are
+credited; the observer hooks are installed only when validation includes
+`breathing` and write no gameplay state. The helper is
+`ColonyBreathingCo2Accounting.cs` with 68 compiled assertions in
+`tools/ColonyBreathingProductionTests` (run by `tools/build.py`); 10 more
+check the private V4 evidence when given its files. Particle deposition and
+retirement stay with the separate `breath-particle` diagnostic. This is a
+production check, not proof of stoichiometry or regional carbon conservation.
+
+In game (Linux base game, source `a14c692` plus the particle change below,
+`--scenario breathing --frames 60`): all three checks pass. Three duplicants
+kept breath 100.0, 189.8 kg of oxygen was extracted, and each of the three
+sources (IDs 53, 55, 57) held 0.0003 kg at the source and 0.0159000065 kg at
+the check with no original puff in the window, so each produced
+0.0156000065 kg (positive). The old whole-world net CO₂ delta was recorded
+as −0.91207296 kg, the same as the failed original runs, and is no longer
+asserted. Private evidence: `breath-gate-integration-v1/breathing-1/`.
+
+## Breath-particle bound (2026-11-02)
+
+a714b01 accepted any endpoint shortfall up to the whole colony's cumulative
+trace-sink increment. That check was nearly vacuous. `breath-particle` now
+samples the arena's CO₂ (all 48 cells) together with the whole-owner trace
+sink on every completed owner frame after the spawn
+(`ColonyBreathAccounting`). The exact declared parcel must appear once and
+never exceed its mass; afterwards the arena's CO₂ may not rise, and each
+interval's loss must not exceed the trace sink booked in that same interval.
+Compatibility requires the paired sink to stay below the parcel mass and the
+parcel to be present at the end. The residual 1e-10 kg slack is gone (summation
+noise 1e-15 kg per interval only). The owner still books the sink as one
+whole-owner scalar, with no per-region or per-species term, so this is an
+interval bound and not an attribution; a native per-species trace-sink term
+would be needed for exact attribution. The a714b01 run's shortfall was
+0.03125 − 0.031249999647146417 = 3.5285e-10 kg against a whole-owner sink of
+2.7e-9 kg.
+
+In game (Linux base game, `--scenario breath-particle --frames 60`) the new
+check passes with the exact declared parcel (0.03125 kg, 310 K), deposition to
+0.031249999716371539 kg, and native pool retirement. The arena lost
+2.8363e-10 kg in 21 of 34 owner-frame intervals; each loss was within the trace
+sink booked in its own interval (those intervals booked 1.2477e-9 kg, of
+1.9841e-9 kg for all 34). Private evidence:
+`breath-gate-integration-v1/breath-particle-1/`.
+
 ## Follow-up on a714b01
 
 The rebuilt Linux probe uses the verified Ubuntu 22.04-compatible libraries.
 Its actual-game `world-germs` and `breath-particle` rechecks pass. The latter
-retains the whole-owner trace upper-bound limitation above. Current Linux and
+used the whole-owner cumulative trace upper bound that the
+[2026-11-02 pairing](#breath-particle-bound-2026-11-02) replaces. Current Linux and
 Windows/Wine game Mono checks each resolve 2,588 dependencies with zero
 differences; the Windows native ABI check also passes 10,000 inactive calls.
 Linux, Windows/Wine and Ubuntu 22.04 each pass 90 native tests on the unchanged

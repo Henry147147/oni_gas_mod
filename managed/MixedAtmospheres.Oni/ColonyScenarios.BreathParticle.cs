@@ -16,8 +16,9 @@ namespace MixedAtmospheres.Oni
         private static CO2? breathParcel;
         private static bool breathParcelStarted, breathParcelRetired;
         private static int breathParcelRetiredFrame;
-        private static double breathParcelBefore, breathParcelTraceBefore;
+        private static double breathParcelBefore;
         private static ulong breathParcelSourceFrame, breathParcelSession;
+        private static ColonyBreathAccounting? breathAccounting;
         [StructLayout(LayoutKind.Sequential)]
         private struct BreathSampleCell
         { internal uint PublicCell, First, Count, Flags; internal double Temperature; }
@@ -61,7 +62,7 @@ namespace MixedAtmospheres.Oni
         {
             if(Once(0,"sealed oxygen arena"))
             {
-                breathParcel=null;breathParcelStarted=breathParcelRetired=false;breathParcelRetiredFrame=-1;
+                breathParcel=null;breathAccounting=null;breathParcelStarted=breathParcelRetired=false;breathParcelRetiredFrame=-1;
                 Arena((x,y)=>(SimHashes.Oxygen,1f,300f));
             }
             if(Once(6,"native breath parcel"))
@@ -69,7 +70,7 @@ namespace MixedAtmospheres.Oni
                 breathParcelBefore=BreathArenaCarbon(out var source);
                 if(breathParcelBefore!=0)throw new InvalidOperationException("The isolated breath arena already contains carbon dioxide.");
                 breathParcelSourceFrame=source.CompletedFrames;breathParcelSession=source.Session;
-                breathParcelTraceBefore=source.TraceSinkKg;
+                breathAccounting=new ColonyBreathAccounting(source.Session,source.CompletedFrames,BreathParcelMass,breathParcelBefore,source.TraceSinkKg);
                 var manager=CO2Manager.instance ?? throw new InvalidOperationException("The native breath manager is unavailable.");
                 var particles=LiveBreathParcels();var before=particles.Count;
                 manager.SpawnBreath(Grid.CellToPosCCC(Cell(3,2),Grid.SceneLayer.Front),BreathParcelMass,BreathParcelTemperature,false);
@@ -79,12 +80,20 @@ namespace MixedAtmospheres.Oni
                     $"{breathParcel.mass:R} kg, {breathParcel.temperature:R} K");
                 breathParcelStarted=true;
             }
+            // Every completed owner frame after the spawn: the arena's carbon
+            // dioxide beside the whole-owner trace sink of the same interval.
+            if(breathParcelStarted && breathAccounting!=null && ColonyFrame()>=6 && ColonyFrame()<40)
+            {
+                var carbon=BreathArenaCarbon(out var sampled);
+                breathAccounting.Observe(sampled.Session,sampled.CompletedFrames,carbon,sampled.TraceSinkKg);
+            }
             if(Once(40,"whole-colony deposition and retirement"))
             {
-                var after=BreathArenaCarbon(out var source);var delta=after-breathParcelBefore;
-                var trace=source.TraceSinkKg-breathParcelTraceBefore;
-                Record("native breath deposition is compatible with booked trace loss",source.Session==breathParcelSession && source.CompletedFrames>breathParcelSourceFrame && ColonyBreathAccounting.Compatible(BreathParcelMass,delta,trace),
-                    $"{breathParcelBefore:R} -> {after:R} kg; expected {(double)BreathParcelMass:R}; whole-owner trace upper bound {trace:R} kg (not regional attribution); session {source.Session}, frames {breathParcelSourceFrame}/{source.CompletedFrames}");
+                var after=BreathArenaCarbon(out var source);
+                var accounting=breathAccounting ?? throw new InvalidOperationException("The breath accounting was not started.");
+                accounting.Observe(source.Session,source.CompletedFrames,after,source.TraceSinkKg);
+                Record("native breath deposition is compatible with booked trace loss",source.Session==breathParcelSession && source.CompletedFrames>breathParcelSourceFrame && accounting.Compatible,
+                    $"{breathParcelBefore:R} -> {accounting.ArenaKg:R} kg; expected {(double)BreathParcelMass:R}; arena loss {accounting.LostKg:R} kg in {accounting.LossIntervals} of {accounting.Intervals} owner-frame intervals, each paid by the whole-owner trace sink booked in the same interval (paired {accounting.PairedTraceKg:R} kg of {accounting.TotalTraceKg:R} kg; not regional or per-species attribution); valid {accounting.Valid} {accounting.Error}; session {source.Session}, frames {breathParcelSourceFrame}/{source.CompletedFrames}");
                 Record("the native breath particle retires from its pool",breathParcelRetired && breathParcelRetiredFrame>0,
                     $"retired {breathParcelRetired}, observed after CO2Manager.Sim33ms at Unity frame {breathParcelRetiredFrame}");
                 breathParcelStarted=false;Finish();
