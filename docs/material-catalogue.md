@@ -19,39 +19,42 @@ liquid (`native/src/oni_catalogue.cpp`). The catalogue joins two sources:
 | Liquid full-cell mass | The zero-pressure density in kg/m³: a cell holds that mass at zero pressure. |
 | Transitions | Boiling and condensation temperatures anchor saturation pairs; other transitions become audited conversions. |
 
-Temperatures are admitted from 1 K to 100,000 K. Liquids may compress to twice
+Temperatures are admitted from 1 K to 100,000 K (the game kernel admits gases
+at any positive temperature, below). Liquids may compress to twice
 their zero-pressure density. Formation enthalpies are zero except for the
 vapour of a saturation pair.
 
-### Hydrogen expansion below 1 K (open, 2026-11-02)
+### Hydrogen expansion below 1 K (fixed 2026-11-02)
 
 These two choices make hydrogen an ideal gas with γ = 1 + R/(M cv) = 1 +
 8249/2400 = 4.44, beyond any physical gas (at most 5/3). Carbon gas (1.98)
 also exceeds 5/3; every other base-game and Spaced Out! gas lies between 1.005
-and 1.52 (oxygen).
-An isentropic expansion cools as ρ^(γ−1) = ρ^3.44, so a hydrogen pocket that
-spreads into vacuum to a 29th of its density cools from 319 K to below the
-1 K floor. The Spaced Out! `spaced-out-rail-gun` arena does this
-deterministically: closing cells beside a natural pocket (seven cells of
-0.1128 kg at 319 K and a 3.857 kg chlorine cell) pushes it into vacuum, and at
-owner frame 3 a cell holds 1.9 g at 0.95 K and the owner faults ("EOS outside
-its thermal/pressure domain").
+and 1.52 (oxygen). The game's values are kept (delegated decision 2026-11-02:
+they set hydrogen's gameplay heat behaviour). An isentropic expansion cools as
+ρ^(γ−1) = ρ^3.44, so a hydrogen pocket that spreads into vacuum to a 29th of
+its density cools from 319 K below 1 K. The Spaced Out! `spaced-out-rail-gun`
+arena did this deterministically: closing cells beside a natural pocket (seven
+cells of 0.1128 kg at 319 K and a 3.857 kg chlorine cell) pushed it into
+vacuum, and at owner frame 3 a cell held 1.9 g at 0.95 K, below the
+catalogue's 1 K floor, and the owner faulted ("EOS outside its
+thermal/pressure domain").
 
-A private replay of the exact pre-fault world (`MA_COLONY_FAULT_DUMP`)
-reproduces the fault offline under the saved profile 9 and, with the saved
-image relabelled, under profile 10. A traced interval sequence shows ordinary
-pressure work, no lost or misbooked energy: the pocket loses thermal energy at
-each expansion step exactly as its EOS requires. The backward-Euler pressure
-of the first 0.1 s interval collapses to 0.5 Pa (a 22% expansion takes a
-γ = 4.44 gas almost to zero pressure), so later steps are short and violent.
-Real hydrogen (γ 1.41) would end near 80 K.
-
-Every fix changes the material model or its saved EOS identity (the 1 K floor
-is part of that identity), so it needs a decision: give hydrogen a physical
-heat capacity or molar mass (changes its heat content or pressure against the
-game), lower the temperature floor for gases (then the cold hydrogen condenses
-and freezes through its game transitions), or both. A fault from a legitimate
-deep expansion is release-blocking either way.
+This was not lost or misbooked energy. A traced replay of the exact pre-fault
+world (`MA_COLONY_FAULT_DUMP`) shows ordinary pressure work, with each step
+cooling the pocket less than its isentrope; the cell's internal energy
+(−856.8 J) is negative only through hydrogen's formation offset, and its
+thermal part is positive (+4.5 J). The game kernel now admits an ideal gas at
+any positive temperature (`mac_game_kernel.cpp`, `table`); positive thermal
+energy still guards every reading, and liquids keep the 1 K floor. The saved
+reference material, and so the EOS identity and checkpoint bytes, are
+unchanged. A trajectory whose gases stay at or above 1 K computes exactly as
+before, except that an EOS trial search may now accept a candidate gas state
+below 1 K that it used to reject; the change applies to every game profile,
+saved ones included. The exact
+pre-fault world now advances 60 frames under its saved profile 9 and under
+profile 10; `mac_game_cold_gas_control.hpp` expands a γ 4.44 gas below 1 K
+under both. Very cold hydrogen then condenses and freezes through its game
+transitions like any other cold hydrogen.
 
 ## Saturation pairs
 

@@ -35,7 +35,12 @@ std::vector<k::Species> table(const SpeciesRegistry &registry,
     s.entropy_offset = m.entropy_offset_j_per_kg_k;
     s.rho0 = m.zero_pressure_density_kg_per_m3;
     s.stiffness = m.reference_bulk_modulus_pa * ratio;
-    s.minimum_temperature = m.minimum_temperature_k;
+    // An ideal gas is admitted at any positive temperature: a light gas
+    // expanding into vacuum can cool below the catalogue's 1 K floor along
+    // its own isentrope (hydrogen's game data give it gamma 4.44). Positive
+    // thermal energy still guards the reading. Liquids keep the floor. The
+    // reference material, and so the saved EOS identity, is unchanged.
+    s.minimum_temperature = s.gas ? 0 : m.minimum_temperature_k;
     s.maximum_temperature = m.maximum_temperature_k;
     s.conductivity = registry[key].conductivity;
   }
