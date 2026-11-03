@@ -173,12 +173,26 @@ public:
   }
   // Books sign * (masses, U, G, K, J, passives) of every region, and, when
   // `totals` is given, sums the whole state's audit totals in the same pass.
+  //
+  // `booked` (one flag per region, optional): book only these regions; a
+  // region a regional interval leaves unstepped books the same entries with
+  // both signs, which cancel. `block_sums` (with `totals`): each block's
+  // totals partial, kept for a later capture; `reuse` (one flag per block)
+  // takes a block's partial from `block_sums` instead of summing it again,
+  // for a block whose cells and faces are those that partial summed; with no
+  // `totals` it skips the block (it must hold no booked region).
   void capture(const State &state, double gravity, double sign,
                Totals *totals = nullptr,
-               ma::experimental::mac_kernel::Pool *pool = nullptr) {
+               ma::experimental::mac_kernel::Pool *pool = nullptr,
+               std::span<const std::uint8_t> booked = {},
+               std::vector<Totals> *block_sums = nullptr,
+               std::span<const std::uint8_t> reuse = {}) {
     namespace k = ma::experimental::mac_kernel;
     std::vector<RegionPartial> parts(grid.blocks, RegionPartial(topology));
     std::vector<Totals> sums(totals ? grid.blocks : 0);
+    const auto books = [&](std::size_t cell) {
+      return booked.empty() || booked[topology.labels[cell]] != 0;
+    };
     const auto inventory = [&](k::Index i) {
       double total = 0;
       if (i != k::none)
@@ -189,6 +203,10 @@ public:
     };
     blocks(pool, [&](std::size_t block) {
       auto &part = parts[block];
+      if (!reuse.empty() && reuse[block]) {
+        if (totals) sums[block] = (*block_sums)[block];
+        return;
+      }
       Totals *sum = totals ? &sums[block] : nullptr;
       if (sum)
         sum->species.resize(species_count);
@@ -199,14 +217,14 @@ public:
              a < state.masses.offsets[i + 1]; ++a) {
           const double m = state.masses.mass[a];
           mass += m;
-          if (!grid.wall[i])
+          if (!grid.wall[i] && books(i))
             part.mass(i, state.masses.species[a], sign * m);
           if (sum)
             sum->species[state.masses.species[a]].add(m);
         }
         const double potential =
             mass * gravity * (static_cast<double>(i / grid.W) + .5) * grid.h;
-        if (!grid.wall[i]) {
+        if (!grid.wall[i] && books(i)) {
           part.energy(i, sign * state.energy[i]);
           part.energy(i, sign * potential);
         }
@@ -219,7 +237,7 @@ public:
         if (!state.passives.mass.empty())
           for (std::size_t a = state.passives.offsets[i];
                a < state.passives.offsets[i + 1]; ++a) {
-            if (!grid.wall[i])
+            if (!grid.wall[i] && books(i))
               part.passive(i, state.passives.species[a],
                            sign * state.passives.mass[a]);
             if (sum)
@@ -236,8 +254,10 @@ public:
             if (!(inertia > 0))
               throw std::runtime_error("Private region J without inertia");
             const double kinetic = .5 * j[f] * (j[f] / inertia);
-            part.energy(i, sign * kinetic);
-            part.momentum(i, x, sign * j[f]);
+            if (books(i)) {
+              part.energy(i, sign * kinetic);
+              part.momentum(i, x, sign * j[f]);
+            }
             if (sum) {
               sum->energy.add(kinetic);
               sum->energy_operands.add(kinetic);
@@ -253,9 +273,12 @@ public:
       merge(part);
     if (!totals)
       return;
+    if (block_sums)
+      *block_sums = std::move(sums);
+    const auto &partials = block_sums ? *block_sums : sums;
     *totals = {};
     totals->species.resize(species_count);
-    for (const auto &sum : sums) {
+    for (const auto &sum : partials) {
       for (std::size_t key = 0; key < species_count; ++key)
         merge(totals->species[key], sum.species[key]);
       for (auto [into, part] :

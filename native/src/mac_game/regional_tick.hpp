@@ -135,13 +135,20 @@ public:
   // result's) and writes the readings of the cells it steps into `readings`
   // (one per cell) instead of returning a whole-grid eos. Other cells'
   // readings are left as they are. Values are advance()'s.
+  // `continues`: `initial` is the state this tick's previous advance_into
+  // returned, unchanged (the next interval of one advance); its audit totals
+  // are then that call's, not summed again.
   TickResult advance_into(State&& initial,std::vector<Eos>& readings,double dt,double gravity,double threshold,
                           std::span<const std::uint8_t> blocked={},std::size_t budget=65536,
-                          std::span<const double> due={}) {
+                          std::span<const double> due={},bool continues=false) {
     if(readings.size()!=grid.N)throw std::invalid_argument("Game readings coverage differs");
+    if(!continues || !carried_valid || carried_gravity!=gravity)carried_valid=false;
     return advance_impl(initial,&initial,&readings,dt,gravity,threshold,blocked,budget,due);
   }
 private:
+  // The last advance_into's audit totals of its result, by row block.
+  bool carried_valid=false;double carried_gravity=0;
+  Totals carried_totals;std::vector<Totals> carried_block_sums;
   TickResult advance_impl(const State& initial,State* consumed,std::vector<Eos>* readings,double dt,double gravity,double threshold,
                           std::span<const std::uint8_t> blocked,std::size_t budget,std::span<const double> due) {
     if(!due.empty() && due.size()!=grid.N)throw std::invalid_argument("Game activity step coverage differs");
@@ -177,7 +184,26 @@ private:
     attempt_depth=refinement_depth=0;
     setup_ms=lap();
     RegionAudit audit(grid,topology,species_count);Totals before;
-    audit.capture(initial,gravity,1,&before,&pool);
+    // The audit books only the regions this interval steps: an unstepped
+    // region keeps every value, so its entries in the two captures cancel.
+    // A row block whose cells (and the row below its first, for its y
+    // faces) are all unstepped is unchanged, and the second capture takes
+    // its totals partial from the first.
+    std::vector<std::uint8_t> stepped(regions.size()),unchanged(grid.blocks,1);
+    for(std::size_t id=0;id<regions.size();++id)stepped[id]=steps[id]>0;
+    for(std::size_t block=0;block<grid.blocks;++block) {
+      const auto y0=grid.block_row_begin(block),y1=grid.block_row_end(block);
+      for(std::size_t i=(y0>0?y0-1:0)*grid.W;i<y1*grid.W && unchanged[block];++i)
+        if(!grid.wall[i] && stepped[topology.labels[i]])unchanged[block]=0;
+    }
+    std::vector<Totals> block_sums;
+    const bool carried=consumed && carried_valid;carried_valid=false;
+    if(carried) {
+      // The same state the last call summed: its totals and partials, and
+      // bookings for the stepped regions alone.
+      before=std::move(carried_totals);block_sums=std::move(carried_block_sums);
+      audit.capture(initial,gravity,1,nullptr,&pool,stepped,nullptr,unchanged);
+    } else audit.capture(initial,gravity,1,&before,&pool,stepped,&block_sums);
     capture_ms=lap();
     std::vector<TickResult> results(regions.size());std::vector<std::exception_ptr> errors(regions.size());
     std::vector<double> region_ms(regions.size());
@@ -283,7 +309,7 @@ private:
     }
     out.state.masses.offsets.push_back(out.state.masses.mass.size());out.state.passives.offsets.push_back(out.state.passives.mass.size());
     rebuild_ms=lap();
-    Totals after;audit.capture(out.state,gravity,-1,&after,&pool);out.region_error=audit.finish();
+    Totals after;audit.capture(out.state,gravity,-1,&after,&pool,stepped,&block_sums,unchanged);out.region_error=audit.finish();
     capture_ms+=lap();
     out.sink_species.resize(species_count);out.conversion_species.resize(species_count);
     for(std::size_t key=0;key<species_count;++key) {out.sink_species[key]=sinks[key].value();out.conversion_species[key]=conversion[key].value();out.sink_kg+=out.sink_species[key];}
@@ -304,6 +330,7 @@ private:
     out.momentum_error=std::max(mx.operands.value()?std::abs(mx.residual.value())/mx.operands.value():0,my.operands.value()?std::abs(my.residual.value())/my.operands.value():0);
     out.totals=std::move(after);out.sink_j=removed_energy.value();
     execution_history->committed(execution_work,region_ms,execution);
+    if(consumed) {carried_totals=out.totals;carried_block_sums=std::move(block_sums);carried_gravity=gravity;carried_valid=true;}
     out.regional_setup_ms=setup_ms+lap();out.regional_capture_ms=capture_ms;out.regional_run_ms=run_ms;
     out.regional_merge_ms=merge_ms;out.regional_rebuild_ms=rebuild_ms;
     return out;
