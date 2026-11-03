@@ -672,6 +672,54 @@ void prepared_world_control() {
     require(used>=5,"the prepared state copy was not used");
     std::cout<<"PASS prepared world: "<<used<<" frames from the idle-time state copy, all checkpoint bytes equal\n";
 }
+// Copy-on-write cell chunks: a run whose world copies share unchanged cell
+// chunks and a run whose copies are all deep must give the same checkpoint
+// bytes, views and readings every frame, through heat, transfers, terrain
+// closes/opens (ownership changes) and a checkpoint/restore.
+void shared_cell_chunks_control() {
+    using namespace ma::oni::colony;
+    using Store = ma::experimental::MacChunkStore<ma::experimental::MacMaterialCell>;
+    constexpr std::uint32_t width=64,height=48;
+    MAOniColonyConfig cfg{};cfg.struct_size=sizeof(cfg);cfg.abi_version=MA_ONI_COLONY_ABI_VERSION;cfg.vacuum_index=vacuum;
+    cfg.flags=MA_ONI_COLONY_GAME_KERNEL|MA_ONI_COLONY_GAME_SURFACE|MA_ONI_COLONY_GAME_ACTIVITY;
+    cfg.grid_width=cfg.width=width;cfg.grid_height=cfg.height=height;cfg.maximum_timestep_s=.1;
+    std::vector<MAOniColonyMaterial> mats{material("Oxygen",11,oxygen,true,.032,1000),material("CarbonDioxide",12,carbon,true,.044,850)};
+    std::vector<MAOniColonyCell> cells(width*height,MAOniColonyCell{0,MA_ONI_COLONY_SOLID,0,0,0,0});
+    for(std::uint32_t y=1;y+1<height;++y)for(std::uint32_t x=1;x+1<width;++x)
+        if(x!=32)cells[x+y*width]={x<32?oxygen:carbon,MA_ONI_COLONY_FLUID,1.0f+.002f*static_cast<float>(x+y),290.f+.1f*static_cast<float>(y),0,0};
+    const auto run=[&](bool sharing) {
+        Store::sharing().store(sharing);
+        set_diseases({},{},0);start(cfg,mats,cells,1);
+        std::vector<std::vector<std::uint8_t>> frames;
+        const auto record=[&] {
+            std::vector<MAOniColonyCellView> views(width*height);MAOniColonyStatus st{};copy(st,views.data(),static_cast<std::uint32_t>(views.size()));
+            std::vector<MAOniColonyReading> readings;std::vector<MAOniColonyConstituent> parts;(void)ma::oni::colony::readings(readings,parts);
+            std::vector<std::uint8_t> bytes(views.size()*sizeof(views[0])+readings.size()*sizeof(readings[0])+parts.size()*sizeof(parts[0]));
+            auto* at=bytes.data();
+            std::memcpy(at,views.data(),views.size()*sizeof(views[0]));at+=views.size()*sizeof(views[0]);
+            std::memcpy(at,readings.data(),readings.size()*sizeof(readings[0]));at+=readings.size()*sizeof(readings[0]);
+            std::memcpy(at,parts.data(),parts.size()*sizeof(parts[0]));
+            frames.push_back(std::move(bytes));frames.push_back(checkpoint());
+        };
+        for(std::uint64_t frame=1;frame<=8;++frame) {
+            const MAOniColonyHeat heat{5+5*width,0,25.0*static_cast<double>(frame),1000};queue_heat(std::span(&heat,1));
+            const MAOniColonyTransfer puff{40+20*width,carbon,MA_ONI_COLONY_INJECT,0,-1,0,.02,305,0};queue_transfers(std::span(&puff,1));
+            if(frame==3) {const MAOniColonyTerrain open{32+10*width,MA_ONI_COLONY_OPEN};queue_terrain(std::span(&open,1));}
+            if(frame==6) {const MAOniColonyTerrain close{20+30*width,MA_ONI_COLONY_CLOSE};queue_terrain(std::span(&close,1));}
+            (void)queue_activity(status().session,static_cast<double>(.2f),{},{});
+            advance(frame,static_cast<double>(.2f),2);wait();
+            if(status().state!=1)throw std::runtime_error("shared-chunk control faulted: "+std::string(status().error));
+            record();
+            if(frame==4){const auto image=checkpoint();stop();restore(cfg,mats,image,1);record();}
+        }
+        stop();return frames;
+    };
+    const auto before=Store::copied_chunks().load();
+    const auto shared=run(true);const auto copied=Store::copied_chunks().load()-before;
+    const auto deep=run(false);Store::sharing().store(true);
+    require(shared==deep,"shared cell chunks changed checkpoint bytes, views or readings");
+    std::cout<<"PASS shared cell chunks: "<<shared.size()/2<<" frames of views, readings and checkpoints equal with and without sharing ("<<copied<<" chunk copies)\n";
+}
 void moving_job_control() {
     using namespace ma::oni::colony;
     using namespace ma::oni::colony::detail;
@@ -2217,6 +2265,7 @@ int main(int argc, char** argv) {
         unplaced_output_control();
         quiet_game_cell_control();
         shadow_handoff_control();
+        shared_cell_chunks_control();
         open_sky_presink_control();
         prepared_world_control();
         moving_job_control();

@@ -5,6 +5,7 @@
 #include "mac_primary.hpp"
 #include "mac_fields.hpp"
 #include "mac_momentum_limiter.hpp"
+#include "mac_cell_store.hpp"
 #include <array>
 #include <cstdint>
 #include <span>
@@ -40,7 +41,9 @@ struct MacMaterialCell {
 };
 struct MacTransportState {
     MacGrid grid;
-    std::vector<MacMaterialCell> cells;
+    // Shared copy-on-write chunks (mac_cell_store.hpp): copies of a state
+    // share unchanged cells; values and order are those of a vector.
+    MacChunkStore<MacMaterialCell> cells;
     // Normal face momentum, never reconstructed from cell momentum. These
     // doubles are explicit projections when the corresponding full field exists.
     std::vector<double> momentum_x, momentum_y;

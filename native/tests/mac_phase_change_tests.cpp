@@ -157,10 +157,11 @@ void cold_phase_flow_control(bool fast = false) {
     check(serial.condensed_kg > 0 && world.checkpoint() == held,
         "Cold phase flow did not condense atomically");
     long double total = 0;
-    for (const auto& cell : serial.world.state().cells) {
+    for (std::size_t i = 0; i < serial.world.state().cells.size(); ++i) {
+        const auto& cell = serial.world.state().cells[i];
         total += cell.mixture.masses[s.water] + cell.mixture.masses[s.steam];
         if (cell.mixture.mass() > 0)
-            check(eos->evaluate(cell.mixture, mac_material_volume(serial.world.state(), &cell - serial.world.state().cells.data())).temperature_k >= 270,
+            check(eos->evaluate(cell.mixture, mac_material_volume(serial.world.state(), i)).temperature_k >= 270,
                 "Cold phase recovery left the unchanged EOS domain");
     }
     check(std::abs(total - .8L) < 1e-14L, "Cold phase flow lost pair mass");
