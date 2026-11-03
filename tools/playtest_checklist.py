@@ -155,8 +155,8 @@ SPACED_OUT_SYSTEMS: dict[str, tuple[list[str], tuple[str, ...]]] = {
     "spaced-out-critters": (ACTORS, ("spaced-out-critters",)),
     "spaced-out-plants": (ACTORS, ("spaced-out-plants",)),
 }
-# Passing in the Linux harness (Terra, seed 147147) on the current owner; all 66 base
-# scenarios pass on the profile-11 default (61a2aa8, 2026-11-03).
+# Passing in the Linux harness (Terra, seed 147147) on the current owner; all 65 base
+# scenarios pass on the profile-11 default (c7cf809, 2026-11-03).
 PASSED_SCENARIOS: set[str] = {
     "terrain", "door", "airflow", "falling", "heat", "phase", "freeze-melt", "deoxidizer", "sublimation", "breathing",
     "electrolysis", "vent-overpressure", "space-heater", "bottle-emptier", "germs", "puft", "plant", "wheezewort",
