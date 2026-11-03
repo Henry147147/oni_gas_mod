@@ -262,7 +262,9 @@ struct ShadowCell { std::uint16_t element = 0, before = 0; bool written = false,
 // emitters and consumers, cell edits), applied at the start of the next step.
 struct GermEdit { std::uint32_t public_cell, germ; double change; };
 std::vector<GermEdit> pending_germs; // under inputs
-std::unordered_map<std::size_t, float> radiation_field; // rect index -> rads; under inputs; not saved
+// rect index -> rads; under inputs; not saved. Each field is immutable once
+// set, so a frame takes the pointer instead of copying the map.
+std::shared_ptr<const std::unordered_map<std::size_t, float>> radiation_field = std::make_shared<const std::unordered_map<std::size_t, float>>();
 // World germ evolution (docs/colony-owner.md#germs): the game's disease table
 // (lifecycle lock), and the running session's mode for the native worker.
 biology::Table disease_table;
@@ -709,6 +711,8 @@ bool same_projection_inputs(const Session& s, const MacClosedWorld& w, const Pub
         p.config.offset_y == s.config.offset_y && p.config.width == s.config.width && p.config.grid_width == s.config.grid_width;
 }
 std::atomic<std::uint64_t> projection_blocks_reused{0}, projection_cells_reused{0};
+// Stage log only: refused flow trials since the process started (count, ms).
+std::pair<std::size_t, double> refused_totals{0, 0.};
 // MA_COLONY_PROJECTION_FRESH=1 (diagnostic) projects every block afresh;
 // results must not depend on it.
 std::atomic<bool> projection_reuse_enabled{[] { const char* value = std::getenv("MA_COLONY_PROJECTION_FRESH"); return !(value && std::strcmp(value, "1") == 0); }()};
@@ -920,7 +924,7 @@ void activate(std::unique_ptr<Session> next, std::uint64_t thread) {
     owned = std::make_unique<std::atomic<std::uint8_t>[]>(owned_count);
     retiring=std::make_unique<std::atomic<std::uint8_t>[]>(owned_count);retiring_count=0;prepared_retirement.reset();
     for (std::size_t i = 0; i < owned_count; ++i) owned[i].store(next->world->state().grid.walls[i] ? 0 : 1, std::memory_order_relaxed);
-    { std::lock_guard lock(inputs); pending_transfers.clear(); pending_heat.clear(); pending_terrain.clear(); pending_freezes.clear(); pending_germs.clear(); radiation_field.clear(); receipts.clear();
+    { std::lock_guard lock(inputs); pending_transfers.clear(); pending_heat.clear(); pending_terrain.clear(); pending_freezes.clear(); pending_germs.clear(); radiation_field = std::make_shared<const std::unordered_map<std::size_t, float>>(); receipts.clear();
       pending_activity.clear();lifecycle_activity.reset();pending_activity_mode.reset();
       activity_session=next->status.session;accepted_activity_sequence=next->activity_sequence;
       requested_activity_tiers=next->world->settings().game.activity_tiers;
@@ -2089,8 +2093,9 @@ void set_radiation(std::span<const std::uint32_t> cells, std::span<const float> 
         require(std::isfinite(rads[k]) && rads[k] > 0, "Invalid colony radiation value");
         field[rect_index(geometry, cells[k])] = rads[k];
     }
+    auto shared = std::make_shared<const std::unordered_map<std::size_t, float>>(std::move(field));
     std::lock_guard lock(inputs);
-    radiation_field = std::move(field);
+    radiation_field = std::move(shared);
 }
 std::array<std::uint64_t, 4> rejection_counts() { return ma::experimental::game_kernel::reject_log::counts(); }
 void germ_accounts(MAOniColonyBiology& out, std::vector<MAOniColonyBiologyAccount>& accounts) {
@@ -2813,7 +2818,8 @@ MacClosedWorld evolve_germs(Session& s, MacClosedWorld world, std::span<const Ge
     }
     std::shared_ptr<const Published> p; { std::lock_guard lock(publication); p = latest; }
     if (frames > 0 && !disease_table.empty() && p && p->views.size() == st.cells.size()) {
-        std::unordered_map<std::size_t, float> radiation; { std::lock_guard lock(inputs); radiation = radiation_field; }
+        std::shared_ptr<const std::unordered_map<std::size_t, float>> field; { std::lock_guard lock(inputs); field = radiation_field; }
+        const auto& radiation = *field;
         std::unordered_map<std::size_t, biology::Medium> media;
         const std::function<const biology::Medium&(std::size_t)> medium = [&](std::size_t i) -> const biology::Medium& {
             auto [it, inserted] = media.try_emplace(i);
@@ -3746,6 +3752,7 @@ void run_frame(std::uint64_t ticket,double seconds,std::uint64_t frames,const ch
         }
         s.status.evaporated_kg += advanced.evaporated_kg; s.status.condensed_kg += advanced.condensed_kg;
         world = std::move(advanced.world);
+        if (stage_log) { const auto& g = MacGameKernelAccess::last_stages(); refused_totals.first += g.pressure_refinements; refused_totals.second += g.refused_trial_ms; }
         // Phase change (the production kernel has none): each cell holding a
         // liquid/vapour pair relaxes toward saturation at fixed U and volume.
         step("phase change");
@@ -3856,8 +3863,10 @@ void run_frame(std::uint64_t ticket,double seconds,std::uint64_t frames,const ch
             std::snprintf(item, sizeof item, "; projection reused %zu/%zu blocks and %zu cells (setup %.2f cells %.2f join %.2f)", projection.reused_blocks, projection.blocks,
                           projection.reused_cells, projection.setup_ms, projection.cells_ms, projection.join_ms); line += item;
             const auto& g = MacGameKernelAccess::last_stages();
-            std::snprintf(item, sizeof item, "; flow sparse %.2f tick %.2f dense %.2f (regional setup %.2f capture %.2f run %.2f merge %.2f rebuild %.2f)",
-                          g.sparse_ms, g.tick_ms, g.dense_ms, g.regional_setup_ms, g.regional_capture_ms, g.regional_run_ms, g.regional_merge_ms, g.regional_rebuild_ms); line += item;
+            std::snprintf(item, sizeof item, "; flow sparse %.2f tick %.2f dense %.2f (regional setup %.2f capture %.2f run %.2f merge %.2f rebuild %.2f; refinements %zu refused %.2f ms)",
+                          g.sparse_ms, g.tick_ms, g.dense_ms, g.regional_setup_ms, g.regional_capture_ms, g.regional_run_ms, g.regional_merge_ms, g.regional_rebuild_ms,
+                          g.pressure_refinements, g.refused_trial_ms); line += item;
+            std::snprintf(item, sizeof item, "; run refinements %zu refused %.1f ms", refused_totals.first, refused_totals.second); line += item;
             std::fprintf(stderr, "%s\n", line.c_str()); std::fflush(stderr);
         }
         if(activity && !flush_only)s.activity_sequence=activity->packet.sequence;
