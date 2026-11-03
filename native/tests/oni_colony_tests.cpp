@@ -593,21 +593,22 @@ void shadow_handoff_control() {
     require(checkpoint()==image,"Shadow synchronization advanced an additional physical frame");
     stop();std::cout<<"PASS native shadow handoff: preceding owner frame completed, both arrays current, no extra physical frame\n";
 }
-// Open sky is a sink. From profile 10 a due Space cell also gives up its
-// material before flow, so a parcel emitted into open sky (comet exhaust)
-// leaves at once, booked to the space-sink ledger, instead of first expanding
-// into the neighbouring air. Profile 9 keeps its saved behaviour.
+// Open sky is a sink. With activity tiers (profiles 9 and 10) a due Space
+// cell also gives up its material before flow, so a parcel emitted into open
+// sky (comet exhaust) leaves at once, booked to the space-sink ledger, instead
+// of first expanding into the neighbouring air. Profile 8 keeps its saved
+// after-flow sink only.
 void open_sky_presink_control() {
     using namespace ma::oni::colony;
-    const auto run=[&](bool profile9) {
+    const auto run=[&](int profile) {
 #if defined(_WIN32)
-        require(_putenv_s("MA_COLONY_KERNEL3_PROFILE9",profile9?"1":"0")==0,"Cannot select the profile");
+        require(_putenv_s("MA_COLONY_KERNEL3_PROFILE9",profile==9?"1":"0")==0,"Cannot select the profile");
 #else
-        require(setenv("MA_COLONY_KERNEL3_PROFILE9",profile9?"1":"0",1)==0,"Cannot select the profile");
+        require(setenv("MA_COLONY_KERNEL3_PROFILE9",profile==9?"1":"0",1)==0,"Cannot select the profile");
 #endif
         constexpr std::uint32_t width=6,height=4;
         MAOniColonyConfig cfg{};cfg.struct_size=sizeof(cfg);cfg.abi_version=MA_ONI_COLONY_ABI_VERSION;cfg.vacuum_index=vacuum;
-        cfg.flags=MA_ONI_COLONY_GAME_KERNEL|MA_ONI_COLONY_GAME_SURFACE|MA_ONI_COLONY_GAME_ACTIVITY;
+        cfg.flags=MA_ONI_COLONY_GAME_KERNEL|MA_ONI_COLONY_GAME_SURFACE|(profile>=9?MA_ONI_COLONY_GAME_ACTIVITY:0U);
         cfg.grid_width=cfg.width=width;cfg.grid_height=cfg.height=height;cfg.maximum_timestep_s=.1;
         std::vector<MAOniColonyMaterial> mats{material("Oxygen",11,oxygen,true,.032,1000),material("CarbonDioxide",12,carbon,true,.044,850)};
         std::vector<MAOniColonyCell> cells(width*height,MAOniColonyCell{0,MA_ONI_COLONY_SOLID,0,0,0,0});
@@ -618,7 +619,7 @@ void open_sky_presink_control() {
         for(std::uint64_t frame=1;frame<=4;++frame) {
             const MAOniColonyTransfer exhaust{3+width,carbon,MA_ONI_COLONY_INJECT,0,-1,0,1.0/30*50,300,0};
             queue_transfers(std::span(&exhaust,1));injected+=exhaust.mass_kg;
-            (void)queue_activity(status().session,static_cast<double>(.2f),{},{});
+            if(profile>=9)(void)queue_activity(status().session,static_cast<double>(.2f),{},{});
             advance(frame,static_cast<double>(.2f),2);wait();
             if(status().state!=1)throw std::runtime_error("open-sky control faulted: "+std::string(status().error));
         }
@@ -631,15 +632,15 @@ void open_sky_presink_control() {
         require(end.maximum_relative_mass_error<=1e-12 && end.maximum_relative_energy_error<=1e-12,"open-sky control ledger did not close");
         return std::pair{reached,injected};
     };
-    const auto [profile10,injected]=run(false);const auto [profile9,same]=run(true);
+    const auto [profile10,injected]=run(10);const auto [profile9,same]=run(9);const auto [profile8,again]=run(8);
 #if defined(_WIN32)
     require(_putenv_s("MA_COLONY_KERNEL3_PROFILE9","")==0,"Cannot restore the profile selector");
 #else
     require(unsetenv("MA_COLONY_KERNEL3_PROFILE9")==0,"Cannot restore the profile selector");
 #endif
-    require(injected==same && profile10==0,"profile 10 let carbon dioxide emitted into open sky reach the room");
-    require(profile9>0,"profile 9 no longer lets an open-sky parcel expand into the room before its sink");
-    std::cout<<"PASS open-sky sink: of "<<injected<<" kg emitted into open sky, profile 10 let 0 kg and profile 9 "<<profile9<<" kg reach the room\n";
+    require(injected==same && injected==again && profile10==0 && profile9==0,"an activity profile let carbon dioxide emitted into open sky reach the room");
+    require(profile8>0,"profile 8 no longer lets an open-sky parcel expand into the room before its sink");
+    std::cout<<"PASS open-sky sink: of "<<injected<<" kg emitted into open sky, profiles 10 and 9 let 0 kg and profile 8 "<<profile8<<" kg reach the room\n";
 }
 void moving_job_control() {
     using namespace ma::oni::colony;

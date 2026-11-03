@@ -9,9 +9,12 @@ still require separate authorization.
 Amendments:
 
 - **Pre-flow open-sky sink adopted for profile 10, delegated decision
-  2026-11-02.** Due Space cells are also emptied before flow (booked to the
-  space-sink ledger), so comet exhaust in open sky no longer expands across
-  the vacuum each frame; saved profile-9 and older colonies are unchanged.
+  2026-11-02; extended to profile 9, delegated decision 2026-11-03.** Due
+  Space cells are also emptied before flow (booked to the space-sink ledger)
+  in every game activity profile (9 and 10), so comet exhaust in open sky no
+  longer expands across the vacuum each frame and saved grown colonies do not
+  collapse. Profile-9 space-cell arithmetic changes; older profiles are
+  unchanged.
   See [performance acceptance](performance-acceptance.md#grown-colony-slowdown-2026-11-02).
 
 - **Profile 10 adopted, delegated decision 2026-11-02:** new colonies create

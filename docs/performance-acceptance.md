@@ -34,9 +34,12 @@ The 0.063× late window of the normal-reserve base control has two causes.
    time falls from 1810 to 34 ms and the interval from 1835 to 67 ms (0.106× →
    about 3× once loaded; 1.783× including the load). Gas reaching Space from a
    base breach still expands for its frame before the existing sink. **Adopted
-   for profile 10** (delegated decision 2026-11-02); saved profile-9 colonies
-   keep the after-flow sink only (`MA_COLONY_SPACE_PRESINK=1` forces it for
-   diagnostics).
+   for profile 10** (delegated decision 2026-11-02) **and extended to profile 9**
+   (2026-11-03) so saved grown colonies do not collapse; older profiles keep the
+   after-flow sink only (`MA_COLONY_SPACE_PRESINK=1` forces it for diagnostics).
+   On main with that change the same cycle-2 save (profile 9) loads and runs
+   frames 2753–2816 at 1.773× including its load frame (owner 34.7 ms, interval
+   70.6 ms), against about 0.3× without it.
 
 **Spaced Out! (fresh, 600 frames, WHOLE):** the narrowed fence changes nothing
 here (2.232× → 2.209×; owner 44–50 ms). Per owner frame the critical path is

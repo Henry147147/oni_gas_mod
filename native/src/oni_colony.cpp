@@ -3411,12 +3411,12 @@ void run_frame(std::uint64_t ticket,double seconds,std::uint64_t frames,const ch
         }
         std::uint64_t substeps=0,rejected_attempts=0;
         // Open sky is a sink: each due space cell gives up all its material
-        // (booked to the space-sink ledger) after flow, and from profile 10
-        // also before it, so a parcel placed in open sky (comet exhaust)
-        // leaves at once instead of first expanding across the vacuum for a
-        // whole frame (delegated decision 2026-11-02). Saved profile-9 and
-        // older colonies keep their saved behaviour; MA_COLONY_SPACE_PRESINK=1
-        // forces it there for diagnostics only.
+        // (booked to the space-sink ledger) after flow, and with region
+        // activity tiers (profiles 9 and 10) also before it, so a parcel
+        // placed in open sky (comet exhaust) leaves at once instead of first
+        // expanding across the vacuum for a whole frame (delegated decisions
+        // 2026-11-02/03). Older profiles keep the after-flow sink only;
+        // MA_COLONY_SPACE_PRESINK=1 forces it there for diagnostics.
         const auto sink_space=[&] {
             std::vector<MacFluidTransfer> sink;
             for (std::size_t i = 0; i < s.space.size(); ++i) if (s.space[i] && (due.empty() || due[i]>0)) {
@@ -3431,7 +3431,7 @@ void run_frame(std::uint64_t ticket,double seconds,std::uint64_t frames,const ch
             }
         };
         static const bool forced_presink=[]{const char* v=std::getenv("MA_COLONY_SPACE_PRESINK");return v && v[0]=='1' && v[1]==0;}();
-        if(!flush_only && (forced_presink || world.settings().game_profile>=MacGameProfile::game_kernel_layered_remap)) {
+        if(!flush_only && (forced_presink || mac_game_activity_profile(world.settings().game_profile))) {
             step("open-sky sink"); sink_space();
         }
         if(!flush_only) {
