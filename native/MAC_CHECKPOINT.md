@@ -114,6 +114,12 @@ current binary has.
 
 ### Version assignment
 
+**Reserved 2026-11-03 immediately after fetching `e6dc573`:** physical
+`MACCLS01` version **31** identifies game profile **11**, profile 10 plus the
+sub-grid convective adjustment of buoyantly unstable gas layers
+([MAC_GAME_KERNEL.md](MAC_GAME_KERNEL.md)). It keeps version 28's layout; only
+the version word differs. Versions 20–30 keep their arithmetic and bytes.
+
 **Reserved 2026-11-02 immediately after fetching `a1bbf3c`:** physical
 `MACCLS01` version **30** identifies game profile **10**, the layered vertical
 remap ([MAC_GAME_KERNEL.md](MAC_GAME_KERNEL.md#suspended-liquid-and-the-layered-vertical-remap)).
