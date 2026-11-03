@@ -247,6 +247,15 @@ Measured on the 744825 installations:
     `base-package-85`, `base-trace-144`) has a valid envelope and is refused
     with "This save contains removed nitrogen content. Start a new colony with
     this R&D build."; the save file is left unchanged.
+  - In-game check, 2026-11-03 (package from `2ae0865`, Linux, `--mode
+    colony-owner-load`): each of `base-core21-d964`, `base-trace-144`,
+    `base-package-85` and `base-floor-108/111/116/118/121/125` was refused at the
+    menu ("Colony save refused before loading: This colony was saved by a Mixed
+    Atmospheres build that this one cannot continue, so it was not loaded. The
+    save has not been changed. This save contains removed nitrogen content.
+    Start a new colony with this R&D build."). The game exited normally, no
+    owner started, no exception or crash appears in the log, and every save
+    file's SHA-256 is unchanged. `base-defaults-p5-v1` was refused the same way.
   - The envelope's format and framing are unchanged. Saves written under 744825
     are byte-identical to before; a later build writes its own build number into
     the existing field.

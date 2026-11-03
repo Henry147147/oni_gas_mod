@@ -45,7 +45,7 @@ GAME_SLOT = TOOLS / "game_slot.sh"
 RUN_LOCKED = TOOLS / "run_locked.sh"
 
 FROZEN_SAVE = Path("local/saves/base-defaults-p10-v1.sav")
-FROZEN_SAVE_SHA256 = "6ed39fbbc2df97a0e83326f60ad2bc21da6f81c003dd50d596bb71164be6ebf2"
+FROZEN_SAVE_SHA256 = "fc79e8f1da57eefcdde50514eaba10358fb1f830d8b20671431a26ecd8cf2608"
 VALIDATION = "mods/Dev/MixedAtmospheres.IntegrationProbe/game-contract-local/colony-validation"
 LINUX_PROFILE = "home/.config/unity3d/Klei/Oxygen Not Included"
 PROTON_PROFILE = "compatdata/pfx/drive_c/users/steamuser/Documents/Klei/OxygenNotIncluded"
@@ -620,7 +620,7 @@ def cycle_checks(rc: int, output: Path, frames: int, hashes: dict, package: Path
                 for p in sorted({Path(x) for x in autosaves}) if p.is_file() and p.stat().st_size > 0]
     after = package_hashes(package, manifest)
     profile = owner.get("RestoredOwner") or {}
-    family = 5 if profile.get("PhysicalVersion") == 23 else None
+    family = 10 if profile.get("PhysicalVersion") == 30 else None  # game profile 10 = core30
     checks = {
         "harness_pass": rc == 0,
         "all_three_alive": colony.get("Duplicants") == 3,
@@ -632,8 +632,8 @@ def cycle_checks(rc: int, output: Path, frames: int, hashes: dict, package: Path
         "new_frames": owner.get("CompletedFrames", 0) - colony.get("RestoredFrame", 0) >= frames,
         "natural_autosave_log_present": bool(autosaves),
         "natural_autosave_files_present": bool(existing),
-        "default_config_flags": owner.get("OwnerConfigFlags") == 13,
-        "saved_default_profile_five": family == 5 and profile.get("LiquidLaw") == 1
+        "default_config_flags": owner.get("OwnerConfigFlags") == 29,
+        "saved_default_profile_ten": family == 10 and profile.get("LiquidLaw") == 1
             and profile.get("PressureIterationCap") == 400 and profile.get("HeatIterationCap") == 800
             and profile.get("GasHeatMixing") == 8,
         "frozen_package_unchanged": after == hashes and sha256(package / "package-manifest.json") == manifest_sha,
@@ -655,9 +655,11 @@ def cycle_checks(rc: int, output: Path, frames: int, hashes: dict, package: Path
     checks["all_samples_three_alive"] = bool(games) and all(x.get("Duplicants") == 3 for x in games)
     checks["actual_game_cycles"] = delta is not None and delta >= frames // 3000
     checks["telemetry_sequences_complete"] = len(lines) >= 2 and [x.get("Sequence") for x in lines] == list(range(1, len(lines) + 1))
-    perf = [tuple(map(int, x)) for x in re.findall(r"perf frames (\d+)-(\d+):", text)]
+    # The log line reads "perf frames A-B session N partial P:"; a partial window is the shorter last one.
+    windows = [tuple(map(int, x)) for x in re.findall(r"perf frames (\d+)-(\d+) session \d+ partial (\d):", text)]
+    perf = [(a, b) for a, b, _ in windows]
     gaps = [{"previous": list(a), "next": list(b)} for a, b in zip(perf, perf[1:]) if b[0] != a[1] + 1]
-    checks["performance_windows_complete"] = bool(perf) and not gaps and all(b - a + 1 == 150 for a, b in perf)
+    checks["performance_windows_complete"] = bool(perf) and not gaps and all(b - a + 1 == 150 for a, b, partial in windows if not partial)
     details = {"natural_autosaves": autosaves, "existing_natural_autosaves": existing, "game_cycles": cycles,
                "game_cycle_delta": delta,
                "game_time_in_cycles": [games[0].get("TimeInCycles"), games[-1].get("TimeInCycles")] if games else [],

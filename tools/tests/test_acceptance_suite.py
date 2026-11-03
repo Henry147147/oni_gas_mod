@@ -250,8 +250,8 @@ class CriteriaTests(unittest.TestCase):
         validation = output / suite.LINUX_PROFILE / suite.VALIDATION
         owner_report = {"State": 1, "Faulted": False, "Error": "", "RejectedAttempts": 0, "SkippedRelaxations": 0,
                         "MaximumRelativeMassError": 1e-15, "MaximumRelativeEnergyError": 1e-14,
-                        "CompletedFrames": 33 + frames, "OwnerConfigFlags": 13,
-                        "RestoredOwner": {"PhysicalVersion": 23, "LiquidLaw": 1, "PressureIterationCap": 400,
+                        "CompletedFrames": 33 + frames, "OwnerConfigFlags": 29,
+                        "RestoredOwner": {"PhysicalVersion": 30, "LiquidLaw": 1, "PressureIterationCap": 400,
                                           "HeatIterationCap": 800, "GasHeatMixing": 8.0}}
         owner_report.update(owner or {})
         write(validation / "colony-owner.json", owner_report)
@@ -263,7 +263,7 @@ class CriteriaTests(unittest.TestCase):
         autosave = output / "home/auto_save/x.sav"
         autosave.parent.mkdir(parents=True)
         autosave.write_bytes(b"save")
-        windows = "".join(f"perf frames {a}-{a + 149}: x\n" for a in range(34, 34 + frames, 150))
+        windows = "".join(f"perf frames {a}-{a + 149} session 1 partial 0: x\n" for a in range(34, 34 + frames, 150))
         (output / "Player.log").write_text(f"Saved to [{autosave}]\n" + windows)
         package = self.root / "package"
         package.mkdir(exist_ok=True)
