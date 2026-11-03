@@ -2762,13 +2762,39 @@ MacClosedWorld sink_traces(Session& s, MacClosedWorld world,std::span<const doub
 // frame of the game's world rules per native frame, all applied as one ordered
 // passive edit. Media come from the publication this world produced.
 MacClosedWorld evolve_germs(Session& s, MacClosedWorld world, std::span<const GermEdit> queued, std::uint64_t frames,std::span<const double> due={}) {
+    // MA_COLONY_STAGE_LOG=1: every tenth frame, this stage's parts (stderr).
+    const bool part_log = stage_logging_enabled() && (s.status.completed_frames + 1) % 10 == 0;
+    std::string parts_line; auto part_mark = std::chrono::steady_clock::now();
+    const auto part = [&](const char* name) {
+        if (!part_log) return;
+        const auto now = std::chrono::steady_clock::now(); char item[64];
+        std::snprintf(item, sizeof item, " %s %.2f", name, std::chrono::duration<double, std::milli>(now - part_mark).count());
+        parts_line += item; part_mark = now;
+    };
     const auto& st = world.state(); const auto& cat = *s.catalogue;
+    // The germ cells of a state, in cell order: found per block on the pool,
+    // then booked serially in the order of a plain cell loop.
+    const auto germs_of = [](const MacTransportState& state, const auto& book) {
+        constexpr std::size_t block_size = 4096;
+        const auto blocks = (state.cells.size() + block_size - 1) / block_size;
+        std::vector<std::vector<std::size_t>> found(blocks);
+        const auto options = mac_kernel_default_options();
+        const auto threads = static_cast<unsigned>(std::min<std::size_t>(options.threads, std::max<std::size_t>(1, blocks / options.minimum_blocks_per_thread)));
+        if (blocks > 0) mac_kernel::pool_for(threads).run(blocks, [&](std::size_t block) {
+            for (std::size_t i = block * block_size; i < std::min(state.cells.size(), (block + 1) * block_size); ++i) {
+                if (state.grid.walls[i]) continue;
+                for (const auto& q : state.cells[i].passive_quantities)
+                    if (biology::disease_identity(q.identity)) { found[block].push_back(i); break; }
+            }
+        });
+        for (const auto& list : found) for (const auto i : list) book(i, state.cells[i].passive_quantities);
+    };
     biology::Cells cells; std::map<std::uint64_t, long double> before;
-    for (std::size_t i = 0; i < st.cells.size(); ++i) {
-        if (st.grid.walls[i]) continue;
-        for (const auto& q : st.cells[i].passive_quantities)
+    germs_of(st, [&](std::size_t i, const PassiveQuantities& passives) {
+        for (const auto& q : passives)
             if (biology::disease_identity(q.identity)) { cells[i].push_back({q.identity, q.quantity}); before[q.identity] += q.quantity; }
-    }
+    });
+    part("scan");
     const auto previous = s.accounts;
     const auto held_in = [&](std::size_t i, std::uint64_t identity) {
         const auto found = cells.find(i); if (found == cells.end()) return 0.0;
@@ -2827,10 +2853,12 @@ MacClosedWorld evolve_germs(Session& s, MacClosedWorld world, std::span<const Ge
                 maximum=std::max(maximum,ticks[i]);
             }
             std::vector<std::uint8_t> active(st.cells.size());
+            part("ticks");
             for(unsigned f=0;f<maximum;++f) {
                 for(std::size_t i=0;i<active.size();++i)active[i]=ticks[i]>f?1:0;
                 biology::frame(disease_table,st.grid.width,st.grid.height,medium,cells,s.clocks,s.accounts,edits,active);
             }
+            part("frames");
             // Public/saved elapsed frames count native frames, not an unrelated
             // region's largest remote batch. Per-cell evolution above is unchanged.
             s.biology_frames+=frames;
@@ -2841,17 +2869,16 @@ MacClosedWorld evolve_germs(Session& s, MacClosedWorld world, std::span<const Ge
         for (const auto& e : edits) passive.push_back({e.cell, e.identity, e.change});
         world = std::move(world).with_passive_edits(passive);
     }
+    part("edits");
     // Audit: per identity, the world holds what it held plus the stage's
     // booked edits, births, deaths and culled germs (diffusion only moves).
     std::map<std::uint64_t, long double> after; std::uint64_t germ_cells = 0;
     const auto& now = world.state();
-    for (std::size_t i = 0; i < now.cells.size(); ++i) {
-        if (now.grid.walls[i]) continue;
-        bool any = false;
-        for (const auto& q : now.cells[i].passive_quantities)
-            if (biology::disease_identity(q.identity)) { after[q.identity] += q.quantity; any = true; }
-        germ_cells += any ? 1 : 0;
-    }
+    germs_of(now, [&](std::size_t, const PassiveQuantities& passives) {
+        for (const auto& q : passives)
+            if (biology::disease_identity(q.identity)) after[q.identity] += q.quantity;
+        ++germ_cells;
+    });
     std::map<std::uint64_t, double> held;
     for (const auto& [identity, a] : s.accounts) {
         const auto old = previous.find(identity);
@@ -2864,6 +2891,9 @@ MacClosedWorld evolve_germs(Session& s, MacClosedWorld world, std::span<const Ge
         held[identity] = static_cast<double>(actual);
     }
     s.germs_held = std::move(held); s.germ_cells = germ_cells;
+    part("audit");
+    if (part_log) { std::fprintf(stderr, "[Mixed Atmospheres] germ evolution frame %llu: germ cells %zu edits %zu cultures %zu;%s\n",
+        static_cast<unsigned long long>(s.status.completed_frames + 1), cells.size(), edits.size(), s.clocks.size(), parts_line.c_str()); std::fflush(stderr); }
     return world;
 }
 // Resolve the restored callback-owned requests, under inputs: bind each to
