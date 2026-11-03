@@ -1411,7 +1411,7 @@ frames and records its checks in `colony-owner.json`; the run fails on a failed
 check or an owner fault. Scenario buildings are built instantly and powered by
 setting their powered flag (harness only).
 
-The home asteroid of a Spaced Out! colony is 160 cells wide with the printing pod at x 72, so one game holds about 80 cells of arenas to its right: `Arena` refuses one that leaves the asteroid (split long Spaced Out! lists across games) and slides a large one (200 cells or more) right past natural hydrogen pockets (the flow solver now survives their displaced gas, see [the fixed fault](dlc-compatibility.md#spaced-out-fluid-systems)).
+The home asteroid of a Spaced Out! colony is 160 cells wide with the printing pod at x 72, so one game holds about 80 cells of arenas to its right: `Arena` refuses one that leaves the asteroid (split long Spaced Out! lists across games; the 78-cell engine-exhaust arena takes a game alone) and no longer slides large arenas past natural hydrogen pockets (the flow solver survives their displaced gas, see [the fixed fault](dlc-compatibility.md#spaced-out-fluid-systems)).
 
 | Scenario | Checks |
 | --- | --- |
@@ -1460,7 +1460,7 @@ The home asteroid of a Spaced Out! colony is 160 cells wide with the printing po
 | `spaced-out-radiation` | Spaced Out!: a radiation lamp burning uranium ore in owned polluted oxygen fills `Grid.Radiation` of owned cells (none behind the lamp), a radiation sensor switches on, and germs seeded identically in every cell die faster where it is irradiated; no fluid mass is created or lost. |
 | `spaced-out-hep` | Spaced Out!: a radbolt flies through owned oxygen into a granite wall; its path gets radiation sickness, its remaining payload arrives as hot fallout and the oxygen is intact. |
 | `spaced-out-reactor` | Spaced Out!: the research reactor takes coolant water through its conduit, reacts and radiates; over-hot coolant vents into the owner and dumped spent-fuel nuclear waste reaches it. |
-| `spaced-out-reactor-meltdown` | The reactor's fuel past 3000 K melts down: nuclear waste falls on the owner with the ledgers closed. Run last (the reactor keeps erupting). |
+| `spaced-out-reactor-meltdown` | The reactor's fuel past 3000 K melts down. The whole site (owned fluid, native tiles, loose items, storage, pipe) is balanced from the moment the storage empties: every comet lands, the site gets back at least the share of the melted mass that ONI's own simulation returns (49%; the game destroys its 1 kg comet bodies) and nothing leaves afterwards; ledgers closed. Also runs under ONI's own simulation (`--mode colony-vanilla --scenario spaced-out-reactor-meltdown`, the only vanilla scenario) for that comparison. Run last (the reactor keeps erupting). |
 | `spaced-out-engine-exhaust` | Each Spaced Out! cluster engine (CO2, sugar, hydrogen, kerosene, small kerosene, steam, biodiesel) on a launch pad in a sealed vacuum compartment, put into its burning state, exhausts its element into the owner. |
 | `spaced-out-landers` | A scout lander and a landing pod descend through owned vacuum, exhausting carbon dioxide; the lander's gas and liquid cargo is jettisoned into the owner on landing. |
 | `spaced-out-poi-harvest` | Oxygen, carbon dioxide, water and polluted water mined into a space hex's inventory are extracted into real gas and liquid cargo bays with exact quantities and exact pipe accounts. |

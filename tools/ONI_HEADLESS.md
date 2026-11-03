@@ -250,6 +250,10 @@ second, and a frame's interval exceeds its solver time by about 40 ms (frames
 
 ## Floor arenas
 
+`run --mode colony-vanilla --scenario spaced-out-reactor-meltdown --dlc-mask 1` runs that one system scenario under
+ONI's own simulation (ticks of 0.2 s of game time stand in for owner frames; no owner ledgers) as the vanilla control of the
+mod's meltdown accounting. No other scenario runs in colony-vanilla.
+
 `run --mode colony-vanilla --floor f1` runs a fixed comparison arena of
 [docs/base-game-floor.md](../docs/base-game-floor.md) under ONI's own
 simulation (the colony owner never starts); `--mode colony-owner --floor f1`
