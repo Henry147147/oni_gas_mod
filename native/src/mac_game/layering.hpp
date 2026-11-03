@@ -1,5 +1,6 @@
 #pragma once
 #include "flow_local.hpp"
+#include <sstream>
 #include "totals.hpp"
 namespace ma::experimental::game_kernel {
 struct LayerResult {
@@ -335,6 +336,41 @@ layer(const ma::experimental::MacGrid &source,
   const auto m = [](const std::vector<double> &values, k::Index i) {
     return i == k::none ? 0 : values[i];
   };
+  // A cell this stage leaves without positive thermal energy is named with
+  // what moved through it (the fault would otherwise surface a step later in
+  // the EOS with only the final state).
+  const auto audit_touched = [&]() {
+    if (!convective)
+      return;
+    for (std::size_t i = 0; i < g.N; ++i) {
+      if (out_start[i] == out_start[i + 1] && in_start[i] == in_start[i + 1])
+        continue;
+      double offset = 0, mass_sum = 0;
+      for (auto a = out.state.masses.offsets[i]; a < out.state.masses.offsets[i + 1]; ++a) {
+        offset += out.state.masses.mass[a] * species[out.state.masses.species[a]].offset;
+        mass_sum += out.state.masses.mass[a];
+      }
+      if (mass_sum == 0 || out.state.energy[i] - offset > 0)
+        continue;
+      double was_offset = 0;
+      for (auto a = initial.masses.offsets[i]; a < initial.masses.offsets[i + 1]; ++a)
+        was_offset += initial.masses.mass[a] * species[initial.masses.species[a]].offset;
+      std::ostringstream text;
+      text.precision(4);
+      text << "Layering cell " << i << " no thermal U " << initial.energy[i] << ">" << out.state.energy[i]
+           << " off " << was_offset << ">" << offset << " T " << eos[i].temperature << " m " << old_mass[i]
+           << ">" << new_mass[i] << ";";
+      for (auto n = out_start[i]; n < out_start[i + 1]; ++n) {
+        const auto &p = parcels[outgoing[n]];
+        text << " out>" << p.to << " " << p.mass << "kg " << p.energy << "J;";
+      }
+      for (auto n = in_start[i]; n < in_start[i + 1]; ++n) {
+        const auto &p = parcels[incoming[n]];
+        text << " in<" << p.from << " " << p.mass << "kg " << p.energy << "J T" << eos[p.from].temperature << ";";
+      }
+      throw std::runtime_error(text.str());
+    }
+  };
   if (carry_momentum) {
     // Profile 8: each parcel keeps the velocities of the faces it leaves.
     // Its half on each face of its source cell moves to the face on the same
@@ -410,6 +446,7 @@ layer(const ma::experimental::MacGrid &source,
     out.wall_y = wall_y.value();
     out.wall_ops_x = ops_x.value();
     out.wall_ops_y = ops_y.value();
+    audit_touched();
     return out;
   }
   // Face J keeps its value; where an endpoint's mass changed, the K change
@@ -448,6 +485,7 @@ layer(const ma::experimental::MacGrid &source,
   };
   faces(true, moved_x);
   faces(false, moved_y);
+  audit_touched();
   return out;
 }
 } // namespace ma::experimental::game_kernel

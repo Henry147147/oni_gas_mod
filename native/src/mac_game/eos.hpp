@@ -134,14 +134,15 @@ inline Eos evaluate_selected(std::span<const Species> species,
   Eos result;
   if (const auto error = try_evaluate_selected(result, species, count, key,
                                                mass, energy, volume)) {
-    if (std::string_view(error) != "Prototype EOS outside its thermal/pressure domain")
+    if (std::string_view(error) != "Prototype EOS outside its thermal/pressure domain" &&
+        std::string_view(error) != "Prototype has no positive thermal energy")
       throw std::runtime_error(error);
     // Name the offending state: the temperature against the species' common
     // domain, the pressure and every species' mass.
     double minimum = 0, maximum = 1e300;
     std::ostringstream detail;
     detail << error << " [T " << result.temperature << " K, P " << result.pressure << " Pa, U " << energy
-           << " J, V " << volume << " m3, species";
+           << " J, V " << volume << " m3, species offset " << result.offset << " J, species";
     for (std::size_t a = 0; a < count; ++a) {
       const auto k = key(a);
       if (!(mass(a) > 0)) continue;
