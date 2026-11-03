@@ -168,6 +168,10 @@ struct Session {
     // A frame starts from it only while `world` is still `prepared_source`.
     std::shared_ptr<const MacClosedWorld> prepared_source;
     std::optional<MacClosedWorld> prepared;
+    // The cell chunks the last frame's heat edits wrote: the prepared copy
+    // owns copies of them already, so the next frame's heat (mostly the same
+    // buildings) does not copy them while ONI waits.
+    std::vector<std::uint8_t> heat_chunks;
     Ledger ledger;
     MAOniColonyStatus status{};
     // World germ evolution (docs/colony-owner.md#germs), saved from owner
@@ -1364,7 +1368,7 @@ void prepare_next_world() noexcept {
     try {
         const ArithmeticScope arithmetic;
         MacClosedWorld copy = *s.world;
-        if (!MacGameKernelAccess::detach_heat_state(copy)) return; // only the game kernel shares state this way
+        if (!MacGameKernelAccess::detach_heat_state(copy, s.heat_chunks)) return; // only the game kernel shares state this way
         s.prepared.emplace(std::move(copy)); s.prepared_source = s.world;
     } catch (...) { s.prepared.reset(); s.prepared_source.reset(); }
 }
@@ -3165,6 +3169,10 @@ void run_frame(std::uint64_t ticket,double seconds,std::uint64_t frames,const ch
                 self(self, from, count / 2); self(self, from + count / 2, count - count / 2);
             };
             for (std::size_t first = 0; first < edits.size(); first += 4096) apply(apply, first, std::min<std::size_t>(4096, edits.size() - first));
+            if (!flush_only) {
+                s.heat_chunks.assign((cell_count >> MacChunkStore<MacMaterialCell>::chunk_shift) + 1, 0);
+                for (const auto& e : edits) s.heat_chunks[e.cell_index >> MacChunkStore<MacMaterialCell>::chunk_shift] = 1;
+            }
             for (const auto q : refused) {
                 const auto i = edits[q].cell_index; bool placed = false;
                 for (const auto n : {i % W > 0 ? i - 1 : SIZE_MAX, i % W + 1 < W ? i + 1 : SIZE_MAX, i >= W ? i - W : SIZE_MAX, i + W < cell_count ? i + W : SIZE_MAX}) {

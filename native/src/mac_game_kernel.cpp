@@ -1422,7 +1422,7 @@ transferred_totals(const MacClosedWorld &source, const k::Totals &old_totals,
   return now;
 }
 } // namespace
-bool MacGameKernelAccess::detach_heat_state(MacClosedWorld &source) {
+bool MacGameKernelAccess::detach_heat_state(MacClosedWorld &source, std::span<const std::uint8_t> owned_chunks) {
   if (source.settings_.numerical_kernel != MacNumericalKernel::game ||
       source.state_snapshot_.use_count() == 1)
     return false;
@@ -1431,6 +1431,8 @@ bool MacGameKernelAccess::detach_heat_state(MacClosedWorld &source) {
   // This must be mutable storage, matching replace_state(), since the
   // unique heat path subsequently edits it through the existing journal.
   auto detached = std::make_shared<MacTransportState>(*source.state_snapshot_);
+  for (std::size_t k = 0; k < owned_chunks.size() && k < detached->cells.chunk_count(); ++k)
+    if (owned_chunks[k]) detached->cells.own_chunk(k);
   source.state_snapshot_ = std::move(detached);
   return true;
 }

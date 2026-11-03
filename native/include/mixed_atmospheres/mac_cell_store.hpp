@@ -162,6 +162,9 @@ public:
         return true;
     }
 
+    // Give this store its own copy of chunk k now (as a first write would),
+    // so a later write to it does not copy. Values are unchanged.
+    void own_chunk(std::size_t k) { if (!mine_[k].load(std::memory_order_acquire)) detach(k); }
     // Chunk identity: two stores hold the same values in chunk k when they
     // share it. Nothing else may be inferred from these pointers.
     [[nodiscard]] std::size_t chunk_count() const noexcept { return owners_.size(); }

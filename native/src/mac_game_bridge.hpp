@@ -22,7 +22,14 @@ struct MacGameKernelAccess {
   static MacTraceSink trace(const MacClosedWorld &, std::span<const std::uint8_t> eligible = {});
   // PRIVATE execution-only preparation for the owner heat retry loop.
   // Copy only shared physical state, leaving revision/time/totals/metadata intact.
-  static bool detach_heat_state(MacClosedWorld &);
+  // owned_chunks (one flag per cell chunk, optional): chunks to copy now
+  // rather than at their first write.
+  static bool detach_heat_state(MacClosedWorld &, std::span<const std::uint8_t> owned_chunks = {});
+  // Diagnostics: the stage times of this thread's last game advance.
+  static MacClosedAdvanceReport::GameStages &last_stages() noexcept {
+    thread_local MacClosedAdvanceReport::GameStages stages;
+    return stages;
+  }
   // PRIVATE test observations; inline, immutable, no extra object fields.
   static const void* heat_totals_identity(const MacClosedWorld &source) noexcept { return source.game_totals_.get(); }
   static const void* heat_activity_identity(const MacClosedWorld &source) noexcept { return source.game_activity_.get(); }
