@@ -124,6 +124,10 @@ struct Published {
     // The presentation's readings, in cell order, made with the views.
     std::vector<MAOniColonyReading> readings;
     std::vector<MAOniColonyConstituent> parts;
+    // Where each 1024-cell block's readings and parts start (blocks + 1
+    // entries), for the next projection's reuse of unchanged blocks.
+    std::vector<std::uint32_t> block_readings, block_parts;
+    bool refused_reading = false; // a control refused a reading in this projection
     std::shared_ptr<const MacClosedWorld> world;
     std::shared_ptr<const Catalogue> catalogue;
     std::shared_ptr<const NativeArenaFrame> native_arena;
@@ -659,13 +663,61 @@ struct Projection {
     std::vector<MAOniColonyCellView> views;
     std::vector<MAOniColonyReading> readings;
     std::vector<MAOniColonyConstituent> parts;
+    std::vector<std::uint32_t> block_readings, block_parts;
+    bool refused_reading = false;
+    std::size_t blocks = 0, reused_blocks = 0, reused_cells = 0;
+    double setup_ms = 0, cells_ms = 0, join_ms = 0; // diagnostics (stage log)
 };
+// The fields a cell's view and reading are made from, bit for bit: its
+// energy, species masses and passive quantities.
+bool same_projected_cell(const MacMaterialCell& a, const MacMaterialCell& b) noexcept {
+    const auto bits = [](double x, double y) { return std::memcmp(&x, &y, sizeof x) == 0; };
+    if (!bits(a.mixture.energy, b.mixture.energy)) return false;
+    const auto& x = a.mixture.masses; const auto& y = b.mixture.masses;
+    if (x.size() != y.size()) return false;
+    if (!x.implicit_zero() && !y.implicit_zero()) {
+        const auto& u = static_cast<const std::vector<double>&>(x); const auto& v = static_cast<const std::vector<double>&>(y);
+        if (std::memcmp(u.data(), v.data(), u.size() * sizeof(double)) != 0) return false;
+    } else for (std::size_t k = 0; k < x.size(); ++k) if (!bits(x[k], y[k])) return false;
+    if (a.passive_quantities.size() != b.passive_quantities.size()) return false;
+    for (std::size_t q = 0; q < a.passive_quantities.size(); ++q)
+        if (a.passive_quantities[q].identity != b.passive_quantities[q].identity ||
+            !bits(a.passive_quantities[q].quantity, b.passive_quantities[q].quantity)) return false;
+    return true;
+}
+// A block of the previous publication can stand for this projection's when
+// everything its views and readings are made from is the same: the cells
+// (one shared copy-on-write chunk, so equal values), walls, occupied volumes,
+// the reading's EOS and settings, and the session's geometry. A world's
+// species registry is its catalogue's (every owner world is built from the
+// session catalogue's registry, and derived worlds copy it), so the same
+// catalogue means the same registry.
+bool same_projection_inputs(const Session& s, const MacClosedWorld& w, const Published& p) {
+    if (!p.world || p.catalogue != s.catalogue || p.status.session != s.status.session || p.refused_reading) return false;
+    const auto& a = p.world->state(); const auto& b = w.state();
+    const auto& x = p.world->settings(); const auto& y = w.settings();
+    return p.world->registry().size() == w.registry().size() && &p.world->thermodynamics() == &w.thermodynamics() &&
+        x.numerical_kernel == y.numerical_kernel && x.game.liquid_stiffness_ratio == y.game.liquid_stiffness_ratio &&
+        x.game.liquid_law == y.game.liquid_law && a.grid.width == b.grid.width && a.grid.height == b.grid.height &&
+        a.grid.spacing_m == b.grid.spacing_m && a.cells.size() == b.cells.size() && p.views.size() == b.cells.size() &&
+        a.occupied_volumes_m3.size() == b.occupied_volumes_m3.size() &&
+        p.config.vacuum_index == s.config.vacuum_index && p.config.offset_x == s.config.offset_x &&
+        p.config.offset_y == s.config.offset_y && p.config.width == s.config.width && p.config.grid_width == s.config.grid_width;
+}
+std::atomic<std::uint64_t> projection_blocks_reused{0}, projection_cells_reused{0};
+// MA_COLONY_PROJECTION_FRESH=1 (diagnostic) projects every block afresh;
+// results must not depend on it.
+std::atomic<bool> projection_reuse_enabled{[] { const char* value = std::getenv("MA_COLONY_PROJECTION_FRESH"); return !(value && std::strcmp(value, "1") == 0); }()};
+bool projection_reuse() { return projection_reuse_enabled.load(std::memory_order_relaxed); }
 // The views ONI sees and the presentation's readings, from one reference EOS
 // evaluation per cell on the solver thread; the game thread only copies them.
 Projection project(const Session& s, const MacClosedWorld& w) {
+    auto mark = std::chrono::steady_clock::now();
+    const auto lap_ms = [&mark] { const auto now = std::chrono::steady_clock::now(); const double ms = std::chrono::duration<double, std::milli>(now - mark).count(); mark = now; return ms; };
     const auto& st = w.state(); const auto& registry = w.registry(); const auto& c = *s.catalogue;
     Projection out; out.views.resize(st.cells.size()); auto& views = out.views;
     constexpr std::size_t block_size = 1024;
+    static_assert(block_size == MacChunkStore<MacMaterialCell>::chunk_size, "A projection block is one cell chunk");
     const auto blocks = (st.cells.size() + block_size - 1) / block_size;
     std::vector<std::vector<MAOniColonyReading>> block_readings(blocks);
     std::vector<std::vector<MAOniColonyConstituent>> block_parts(blocks);
@@ -673,16 +725,69 @@ Projection project(const Session& s, const MacClosedWorld& w) {
     // for this frame (the owner's state is unchanged; only its reading waits).
     std::shared_ptr<const Published> previous; { std::lock_guard lock(publication); previous = latest; }
     const bool fallback = previous && previous->views.size() == views.size();
+    out.refused_reading = refused_reading.load(std::memory_order_relaxed) != SIZE_MAX;
+    const bool reuse = projection_reuse() && !out.refused_reading && previous &&
+        previous->block_readings.size() == blocks + 1 && same_projection_inputs(s, w, *previous);
+    std::vector<std::uint8_t> reused(blocks);
+    // Reuse a block whose inputs equal the previous publication's.
+    const auto reuse_block = [&](std::size_t block) {
+        const auto& ps = previous->world->state();
+        if (ps.cells.chunk_identity(block) != st.cells.chunk_identity(block)) return false;
+        const auto first = block * block_size, last = std::min(st.cells.size(), first + block_size);
+        if (!std::equal(st.grid.walls.begin() + static_cast<std::ptrdiff_t>(first), st.grid.walls.begin() + static_cast<std::ptrdiff_t>(last),
+                        ps.grid.walls.begin() + static_cast<std::ptrdiff_t>(first))) return false;
+        if (!st.occupied_volumes_m3.empty() &&
+            std::memcmp(st.occupied_volumes_m3.data() + first, ps.occupied_volumes_m3.data() + first, (last - first) * sizeof(double)) != 0) return false;
+        std::copy(previous->views.begin() + static_cast<std::ptrdiff_t>(first), previous->views.begin() + static_cast<std::ptrdiff_t>(last),
+                  views.begin() + static_cast<std::ptrdiff_t>(first));
+        const auto part_start = previous->block_parts[block];
+        block_parts[block].assign(previous->parts.begin() + part_start, previous->parts.begin() + previous->block_parts[block + 1]);
+        auto& readings = block_readings[block];
+        readings.assign(previous->readings.begin() + previous->block_readings[block], previous->readings.begin() + previous->block_readings[block + 1]);
+        for (auto& r : readings) r.first_constituent -= part_start;
+        reused[block] = 1;
+        return true;
+    };
+    // In a block that changed, a cell whose inputs equal its previous ones
+    // (bit for bit) takes its previous view and reading. `at` walks the
+    // previous block's readings, which are in cell order.
+    std::vector<std::uint32_t> reused_cells(blocks);
+    const auto reuse_cell = [&](std::size_t i, std::size_t block, std::size_t& at) {
+        const auto& ps = previous->world->state();
+        if (ps.grid.walls[i] != st.grid.walls[i]) return false;
+        if (!st.occupied_volumes_m3.empty() &&
+            std::memcmp(&st.occupied_volumes_m3[i], &ps.occupied_volumes_m3[i], sizeof(double)) != 0) return false;
+        // Same stamp: the same value, unread (mac_cell_store.hpp).
+        if (ps.cells.cell_stamp(i) != st.cells.cell_stamp(i) && !same_projected_cell(ps.cells[i], st.cells[i])) return false;
+        views[i] = previous->views[i];
+        const auto cell = static_cast<std::uint32_t>((geometry.offset_x + i % geometry.width) + (geometry.offset_y + i / geometry.width) * geometry.grid_width);
+        const auto end = previous->block_readings[block + 1];
+        while (at < end && previous->readings[at].public_cell < cell) ++at;
+        if (at < end && previous->readings[at].public_cell == cell) {
+            auto r = previous->readings[at];
+            auto& parts = block_parts[block];
+            const auto from = previous->parts.begin() + r.first_constituent;
+            r.first_constituent = static_cast<std::uint32_t>(parts.size());
+            parts.insert(parts.end(), from, from + r.constituents);
+            block_readings[block].push_back(r);
+        }
+        ++reused_cells[block];
+        return true;
+    };
     const auto project_cell = [&](std::size_t i, std::size_t block) {
         auto& v = views[i];
         if (st.grid.walls[i]) return;
         v.flags = MA_ONI_COLONY_VIEW_OWNED; v.element_index = s.config.vacuum_index;
         const auto& m = st.cells[i].mixture;
         if (!(m.mass() > 0)) return;
-        std::optional<experimental::ReferenceEquilibriumState> evaluated;
+        // One reading per worker thread, its storage reused cell to cell.
+        thread_local experimental::ReferenceEquilibriumState scratch;
+        const experimental::ReferenceEquilibriumState* evaluated = nullptr;
         try {
             if (i == refused_reading.load(std::memory_order_relaxed)) throw std::runtime_error("Reading refused (control)");
-            evaluated.emplace(w.settings().numerical_kernel==MacNumericalKernel::game?w.cell_reading(i):evaluate_cell(w.thermodynamics(), m, mac_material_volume(st, i)));
+            if (w.settings().numerical_kernel==MacNumericalKernel::game) w.cell_presentation(i, scratch);
+            else scratch = evaluate_cell(w.thermodynamics(), m, mac_material_volume(st, i));
+            evaluated = &scratch;
         }
         catch (const std::exception&) { if (w.settings().numerical_kernel==MacNumericalKernel::game || !fallback) throw; v = previous->views[i]; return; }
         if (!std::isfinite(evaluated->temperature_k)) { if (!fallback) throw std::runtime_error("A cell reads a non-finite temperature"); v = previous->views[i]; return; }
@@ -722,23 +827,37 @@ Projection project(const Session& s, const MacClosedWorld& w) {
     const auto options = mac_kernel_default_options();
     const auto threads = static_cast<unsigned>(std::min<std::size_t>(options.threads,
         std::max<std::size_t>(1, blocks / options.minimum_blocks_per_thread)));
+    out.setup_ms = lap_ms();
     mac_kernel::pool_for(threads).run(blocks, [&](std::size_t block) {
-        for (std::size_t i = block * block_size; i < std::min(st.cells.size(), (block + 1) * block_size); ++i) project_cell(i, block);
+        if (reuse && reuse_block(block)) return;
+        std::size_t at = reuse ? previous->block_readings[block] : 0;
+        for (std::size_t i = block * block_size; i < std::min(st.cells.size(), (block + 1) * block_size); ++i)
+            if (!reuse || !reuse_cell(i, block, at)) project_cell(i, block);
     });
+    out.cells_ms = lap_ms();
     std::size_t reading_count = 0, part_count = 0;
     for (std::size_t b = 0; b < blocks; ++b) { reading_count += block_readings[b].size(); part_count += block_parts[b].size(); }
     out.readings.reserve(reading_count); out.parts.reserve(part_count);
+    out.block_readings.reserve(blocks + 1); out.block_parts.reserve(blocks + 1);
     for (std::size_t b = 0; b < blocks; ++b) {
         const auto offset = static_cast<std::uint32_t>(out.parts.size());
+        out.block_readings.push_back(static_cast<std::uint32_t>(out.readings.size())); out.block_parts.push_back(offset);
         for (auto r : block_readings[b]) { r.first_constituent += offset; out.readings.push_back(r); }
         out.parts.insert(out.parts.end(), block_parts[b].begin(), block_parts[b].end());
     }
+    out.block_readings.push_back(static_cast<std::uint32_t>(out.readings.size())); out.block_parts.push_back(static_cast<std::uint32_t>(out.parts.size()));
+    out.blocks = blocks; for (const auto r : reused) out.reused_blocks += r;
+    for (const auto n : reused_cells) out.reused_cells += n;
+    projection_blocks_reused.fetch_add(out.reused_blocks, std::memory_order_relaxed);
+    projection_cells_reused.fetch_add(out.reused_cells, std::memory_order_relaxed);
+    out.join_ms = lap_ms();
     return out;
 }
 std::shared_ptr<Published> make_publication(const Session& s, Projection projection, bool same_frame_edit=false) {
     auto p = std::make_shared<Published>();
     p->same_frame_edit=same_frame_edit;
     p->config=s.config; p->status = s.status; p->activity_sequence=s.activity_sequence; p->views = std::move(projection.views); p->readings = std::move(projection.readings); p->parts = std::move(projection.parts);
+    p->block_readings = std::move(projection.block_readings); p->block_parts = std::move(projection.block_parts); p->refused_reading = projection.refused_reading;
     p->world = s.world; p->catalogue = s.catalogue; p->precision=s.precision;
     p->native_arena=s.native_arena;p->native_arena_owner_frames=s.native_arena_owner_frames;
     auto& b = p->biology; b.struct_size = sizeof(b); b.abi_version = 1; b.mode = s.germ_mode;
@@ -1471,6 +1590,9 @@ bool sample_activity(std::uint64_t expected_session,std::uint64_t expected_frame
     }
     status=p->status;return true;
 }
+std::uint64_t reused_projection_blocks() noexcept { return projection_blocks_reused.load(std::memory_order_relaxed); }
+std::uint64_t reused_projection_cells() noexcept { return projection_cells_reused.load(std::memory_order_relaxed); }
+void set_projection_reuse(bool enabled) noexcept { projection_reuse_enabled.store(enabled, std::memory_order_relaxed); }
 std::uint64_t readings(std::vector<MAOniColonyReading>& out,std::vector<MAOniColonyConstituent>& parts) {
     const auto p=reading_snapshot();out.assign(p.readings.begin(),p.readings.end());parts.assign(p.parts.begin(),p.parts.end());return p.frame;
 }
@@ -2855,10 +2977,14 @@ void run_frame(std::uint64_t ticket,double seconds,std::uint64_t frames,const ch
     // MA_COLONY_STAGE_LOG=1: every tenth frame, each stage's wall time (stderr).
     const bool stage_log = stage_logging_enabled();
     std::vector<std::pair<const char*, double>> steps; auto step_mark = std::chrono::steady_clock::now();
+    // With the stage log, each stage's cell chunk copies (first writes).
+    std::vector<std::uint64_t> step_copies; auto copies_mark = MacChunkStore<MacMaterialCell>::copied_chunks().load(std::memory_order_relaxed);
     const auto step = [&](const char* next) {
         if (stage_log) {
             const auto now = std::chrono::steady_clock::now();
             steps.emplace_back(doing, std::chrono::duration<double, std::milli>(now - step_mark).count()); step_mark = now;
+            const auto copies = MacChunkStore<MacMaterialCell>::copied_chunks().load(std::memory_order_relaxed);
+            step_copies.push_back(copies - copies_mark); copies_mark = copies;
         }
         doing = next;
     };
@@ -3431,6 +3557,7 @@ void run_frame(std::uint64_t ticket,double seconds,std::uint64_t frames,const ch
         external_activity_touched=nullptr;
         std::vector<double> due;
         if(activity) {
+            step("activity census");
             // Keep the prior activity span alive through clock resets, then
             // release its physical-state alias before biology edits.
             {
@@ -3450,7 +3577,9 @@ void run_frame(std::uint64_t ticket,double seconds,std::uint64_t frames,const ch
                 }
             }
             if(adaptive) {
+                step("activity steps");
                 if(!flush_only)due=world.game_activity_steps(seconds);
+                step("germ evolution");
                 if(s.germ_mode==1)world=evolve_germs(s,std::move(world),germ_edits,frames,due);
             }
         }
@@ -3679,7 +3808,11 @@ void run_frame(std::uint64_t ticket,double seconds,std::uint64_t frames,const ch
         if (!flush_only && stage_log && s.status.completed_frames % 10 == 0) {
             std::string line = "[Mixed Atmospheres] stages frame " + std::to_string(s.status.completed_frames) + ":";
             char item[128];
-            for (const auto& [name, ms] : steps) { std::snprintf(item, sizeof item, " %s %.1f", name, ms); line += item; }
+            for (std::size_t n = 0; n < steps.size(); ++n) {
+                if (step_copies[n]) std::snprintf(item, sizeof item, " %s %.1f (%llu copies)", steps[n].first, steps[n].second, static_cast<unsigned long long>(step_copies[n]));
+                else std::snprintf(item, sizeof item, " %s %.1f", steps[n].first, steps[n].second);
+                line += item;
+            }
             std::snprintf(item, sizeof item, "; heat %zu transfers %zu terrain %zu germs %zu", heat.size(), transfers.size(), terrain.size(), germ_edits.size()); line += item;
             std::fprintf(stderr, "%s\n", line.c_str()); std::fflush(stderr);
         }

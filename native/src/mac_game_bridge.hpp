@@ -7,6 +7,10 @@ struct MacGameKernelAccess {
   static void validate(const MacClosedWorld &, MacTransportState &);
   static ReferenceEquilibriumState reading(const MacClosedWorld &,
                                            const MacMaterialCell &);
+  // reading() into out's storage; a presentation reading leaves out the
+  // entropy and specific energies (zero and empty), every other field equal.
+  static void reading_into(const MacClosedWorld &, const MacMaterialCell &,
+                           ReferenceEquilibriumState &out, bool presentation);
   static void initialize(const SpeciesRegistry &, const FluidThermodynamics &,
                          MacTransportState &, std::span<const double>,
                          const MacClosedSettings &);

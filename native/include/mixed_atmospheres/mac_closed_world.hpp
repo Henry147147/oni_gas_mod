@@ -397,6 +397,10 @@ public:
         std::shared_ptr<const FluidThermodynamics>, MacTransportState,
         std::span<const double> temperatures, MacClosedSettings);
     [[nodiscard]] ReferenceEquilibriumState cell_reading(std::size_t cell) const;
+    // cell_reading() into out's storage, for presentation: with the game
+    // kernel the entropy and specific energies are left out (zero and empty);
+    // every other field is cell_reading()'s.
+    void cell_presentation(std::size_t cell, ReferenceEquilibriumState& out) const;
     [[nodiscard]] const MacTransportState& state() const noexcept { return *state_snapshot_; }
     [[nodiscard]] const SpeciesRegistry& registry() const noexcept { return registry_; }
     [[nodiscard]] const FluidThermodynamics& thermodynamics() const noexcept { return *thermodynamics_; }

@@ -291,6 +291,14 @@ void MacGameSettings::validate() const {
 ReferenceEquilibriumState
 MacGameKernelAccess::reading(const MacClosedWorld &world,
                              const MacMaterialCell &cell) {
+  ReferenceEquilibriumState out;
+  reading_into(world, cell, out, false);
+  return out;
+}
+void MacGameKernelAccess::reading_into(const MacClosedWorld &world,
+                                       const MacMaterialCell &cell,
+                                       ReferenceEquilibriumState &out,
+                                       bool presentation) {
   struct Cache {
     std::shared_ptr<const FluidThermodynamics> eos;
     double ratio = 0;
@@ -318,7 +326,12 @@ MacGameKernelAccess::reading(const MacClosedWorld &world,
   const auto &species = cache.species;
   const auto e = k::evaluate(species, cell.mixture.masses, cell.mixture.energy,
                              world.state().grid.volume_m3());
-  ReferenceEquilibriumState out;
+  // Start from a default state, keeping out's vector storage.
+  auto partial = std::move(out.partial_volumes_m3);
+  auto specific = std::move(out.specific_internal_energies_j_per_kg);
+  out = ReferenceEquilibriumState{};
+  out.partial_volumes_m3 = std::move(partial);
+  out.specific_internal_energies_j_per_kg = std::move(specific);
   out.temperature_k = e.temperature;
   out.mechanical_pressure_pa = e.pressure;
   out.gas_pressure_pa = e.nR > 0 ? e.pressure : 0;
@@ -334,8 +347,9 @@ MacGameKernelAccess::reading(const MacClosedWorld &world,
       out.equilibrium_heat_capacity_at_cell_volume_j_per_k = e.capacity;
   out.has_gas = e.nR > 0;
   out.has_vacuum = out.vacuum_volume_m3 > 0;
-  out.partial_volumes_m3.resize(species.size());
-  out.specific_internal_energies_j_per_kg.resize(species.size());
+  out.partial_volumes_m3.assign(species.size(), 0.);
+  if (presentation) out.specific_internal_energies_j_per_kg.clear();
+  else out.specific_internal_energies_j_per_kg.assign(species.size(), 0.);
   std::size_t profile = 0;
   for (const auto key : cache.profile_keys) {
     const auto &s = species[key];
@@ -344,13 +358,19 @@ MacGameKernelAccess::reading(const MacClosedWorld &world,
         mass == 0 ? 0
         : s.gas   ? mass * k::R / s.molar_mass * e.temperature / e.pressure
                   : mass / s.rho0 * k::liquid_volume_fraction(s,e.pressure);
-    out.specific_internal_energies_j_per_kg[profile] =
-        s.offset + s.cv * e.temperature +
-        (s.gas ? 0 : k::liquid_specific_elastic(s,e.pressure));
+    if (!presentation)
+      out.specific_internal_energies_j_per_kg[profile] =
+          s.offset + s.cv * e.temperature +
+          (s.gas ? 0 : k::liquid_specific_elastic(s,e.pressure));
     ++profile;
   }
-  out.entropy_j_per_k = k::entropy(species, cell.mixture.masses, e);
-  return out;
+  if (!presentation) out.entropy_j_per_k = k::entropy(species, cell.mixture.masses, e);
+}
+void MacClosedWorld::cell_presentation(std::size_t cell, ReferenceEquilibriumState &out) const {
+  if (settings_.numerical_kernel == MacNumericalKernel::game)
+    MacGameKernelAccess::reading_into(*this, state().cells.at(cell), out, true);
+  else
+    out = thermodynamics_->evaluate(state().cells.at(cell).mixture, mac_material_volume(state(), cell));
 }
 ReferenceEquilibriumState MacClosedWorld::cell_reading(std::size_t cell) const {
   if (settings_.numerical_kernel == MacNumericalKernel::game)

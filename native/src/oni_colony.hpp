@@ -95,6 +95,13 @@ void queue_replay_activity_native(std::uint64_t session,std::uint64_t ticket,
 std::uint32_t species(MAOniColonySpecies* out, std::uint32_t capacity);
 // Readings and constituents of the latest completed frame; returns the frame.
 std::uint64_t readings(std::vector<MAOniColonyReading>&, std::vector<MAOniColonyConstituent>&);
+// Diagnostics: projection blocks, and cells of changed blocks, taken
+// unchanged from the previous publication.
+std::uint64_t reused_projection_blocks() noexcept;
+std::uint64_t reused_projection_cells() noexcept;
+// Control switch (MA_COLONY_PROJECTION_FRESH=1 starts it off): false projects
+// every cell afresh. Results must not depend on it.
+void set_projection_reuse(bool) noexcept;
 struct ReadingSnapshot {
     std::shared_ptr<const void> lifetime;
     std::span<const MAOniColonyReading> readings;

@@ -18,6 +18,7 @@
 #include "../src/mac_game/heat_mix.hpp"
 #include "mixed_atmospheres/mac_kernel.hpp"
 #include <array>
+#include <cstring>
 #include <bit>
 #include <limits>
 #include <random>
@@ -486,6 +487,29 @@ int main() {
     threads.threads = 1;
     set_mac_kernel_default_options(threads);
     auto first = world.advanced(.2);
+    {
+      // The owner's projection reading: cell_reading()'s fields, minus the
+      // entropy and specific energies, into one reused buffer.
+      ReferenceEquilibriumState presented;
+      for (std::size_t i = 0; i < state.cells.size(); ++i) {
+        const auto full = first.world.cell_reading(i);
+        first.world.cell_presentation(i, presented);
+        const auto same = [](double a, double b) { return std::memcmp(&a, &b, sizeof a) == 0; };
+        bool equal = same(full.temperature_k, presented.temperature_k) &&
+            same(full.mechanical_pressure_pa, presented.mechanical_pressure_pa) &&
+            same(full.gas_pressure_pa, presented.gas_pressure_pa) &&
+            same(full.gas_volume_m3, presented.gas_volume_m3) &&
+            same(full.liquid_volume_m3, presented.liquid_volume_m3) &&
+            same(full.vacuum_volume_m3, presented.vacuum_volume_m3) &&
+            same(full.thermal_energy_j, presented.thermal_energy_j) &&
+            full.has_gas == presented.has_gas && full.has_vacuum == presented.has_vacuum &&
+            full.partial_volumes_m3.size() == presented.partial_volumes_m3.size() &&
+            presented.specific_internal_energies_j_per_kg.empty() && presented.entropy_j_per_k == 0;
+        for (std::size_t k = 0; equal && k < full.partial_volumes_m3.size(); ++k)
+          equal = same(full.partial_volumes_m3[k], presented.partial_volumes_m3[k]);
+        require(equal, "Game presentation reading differs from the cell reading");
+      }
+    }
     require(first.report.energy_bound_j >=
                 1e-12L * std::abs(energy(world)) &&
                 std::abs(first.report.energy_residual_j) <=

@@ -673,22 +673,26 @@ void prepared_world_control() {
     std::cout<<"PASS prepared world: "<<used<<" frames from the idle-time state copy, all checkpoint bytes equal\n";
 }
 // Copy-on-write cell chunks: a run whose world copies share unchanged cell
-// chunks and a run whose copies are all deep must give the same checkpoint
-// bytes, views and readings every frame, through heat, transfers, terrain
-// closes/opens (ownership changes) and a checkpoint/restore.
+// chunks (and whose projection reuses unchanged chunks' and cells' views and
+// readings) and a run whose copies are all deep and whose projection is all
+// fresh must give the same checkpoint bytes,
+// views and readings every frame, through heat, transfers, terrain
+// closes/opens (ownership changes) and a checkpoint/restore. Three chunks: a
+// busy room, a solid band and a quiet sealed room.
 void shared_cell_chunks_control() {
     using namespace ma::oni::colony;
     using Store = ma::experimental::MacChunkStore<ma::experimental::MacMaterialCell>;
-    constexpr std::uint32_t width=64,height=48;
+    constexpr std::uint32_t width=32,height=96;
     MAOniColonyConfig cfg{};cfg.struct_size=sizeof(cfg);cfg.abi_version=MA_ONI_COLONY_ABI_VERSION;cfg.vacuum_index=vacuum;
     cfg.flags=MA_ONI_COLONY_GAME_KERNEL|MA_ONI_COLONY_GAME_SURFACE|MA_ONI_COLONY_GAME_ACTIVITY;
     cfg.grid_width=cfg.width=width;cfg.grid_height=cfg.height=height;cfg.maximum_timestep_s=.1;
     std::vector<MAOniColonyMaterial> mats{material("Oxygen",11,oxygen,true,.032,1000),material("CarbonDioxide",12,carbon,true,.044,850)};
     std::vector<MAOniColonyCell> cells(width*height,MAOniColonyCell{0,MA_ONI_COLONY_SOLID,0,0,0,0});
-    for(std::uint32_t y=1;y+1<height;++y)for(std::uint32_t x=1;x+1<width;++x)
-        if(x!=32)cells[x+y*width]={x<32?oxygen:carbon,MA_ONI_COLONY_FLUID,1.0f+.002f*static_cast<float>(x+y),290.f+.1f*static_cast<float>(y),0,0};
+    for(std::uint32_t y=1;y<31;++y)for(std::uint32_t x=1;x+1<width;++x)
+        if(x!=16)cells[x+y*width]={x<16?oxygen:carbon,MA_ONI_COLONY_FLUID,1.0f+.002f*static_cast<float>(x+y),290.f+.1f*static_cast<float>(y),0,0};
+    for(std::uint32_t y=65;y+1<height;++y)for(std::uint32_t x=1;x+1<width;++x)cells[x+y*width]={oxygen,MA_ONI_COLONY_FLUID,1.0f,290.f,0,0};
     const auto run=[&](bool sharing) {
-        Store::sharing().store(sharing);
+        Store::sharing().store(sharing);set_projection_reuse(sharing);
         set_diseases({},{},0);start(cfg,mats,cells,1);
         std::vector<std::vector<std::uint8_t>> frames;
         const auto record=[&] {
@@ -701,24 +705,28 @@ void shared_cell_chunks_control() {
             std::memcpy(at,parts.data(),parts.size()*sizeof(parts[0]));
             frames.push_back(std::move(bytes));frames.push_back(checkpoint());
         };
-        for(std::uint64_t frame=1;frame<=8;++frame) {
+        // 24 frames: the quiet room turns remote after the 2 s activity hold.
+        for(std::uint64_t frame=1;frame<=24;++frame) {
             const MAOniColonyHeat heat{5+5*width,0,25.0*static_cast<double>(frame),1000};queue_heat(std::span(&heat,1));
-            const MAOniColonyTransfer puff{40+20*width,carbon,MA_ONI_COLONY_INJECT,0,-1,0,.02,305,0};queue_transfers(std::span(&puff,1));
-            if(frame==3) {const MAOniColonyTerrain open{32+10*width,MA_ONI_COLONY_OPEN};queue_terrain(std::span(&open,1));}
-            if(frame==6) {const MAOniColonyTerrain close{20+30*width,MA_ONI_COLONY_CLOSE};queue_terrain(std::span(&close,1));}
+            const MAOniColonyTransfer puff{24+20*width,carbon,MA_ONI_COLONY_INJECT,0,-1,0,.02,305,0};queue_transfers(std::span(&puff,1));
+            if(frame==3) {const MAOniColonyTerrain open{16+10*width,MA_ONI_COLONY_OPEN};queue_terrain(std::span(&open,1));}
+            if(frame==6) {const MAOniColonyTerrain close{8+20*width,MA_ONI_COLONY_CLOSE};queue_terrain(std::span(&close,1));}
             (void)queue_activity(status().session,static_cast<double>(.2f),{},{});
             advance(frame,static_cast<double>(.2f),2);wait();
             if(status().state!=1)throw std::runtime_error("shared-chunk control faulted: "+std::string(status().error));
             record();
-            if(frame==4){const auto image=checkpoint();stop();restore(cfg,mats,image,1);record();}
+            if(frame==16){const auto image=checkpoint();stop();restore(cfg,mats,image,1);record();}
         }
         stop();return frames;
     };
-    const auto before=Store::copied_chunks().load();
-    const auto shared=run(true);const auto copied=Store::copied_chunks().load()-before;
-    const auto deep=run(false);Store::sharing().store(true);
+    const auto before=Store::copied_chunks().load();const auto reused_before=reused_projection_blocks();const auto cells_before=reused_projection_cells();
+    const auto shared=run(true);const auto copied=Store::copied_chunks().load()-before;const auto reused=reused_projection_blocks()-reused_before;
+    const auto reused_cells=reused_projection_cells()-cells_before;
+    const auto deep=run(false);Store::sharing().store(true);set_projection_reuse(true);
+    require(reused>0 && reused_cells>0,"shared cell chunks: no projection block or cell was reused");
     require(shared==deep,"shared cell chunks changed checkpoint bytes, views or readings");
-    std::cout<<"PASS shared cell chunks: "<<shared.size()/2<<" frames of views, readings and checkpoints equal with and without sharing ("<<copied<<" chunk copies)\n";
+    std::cout<<"PASS shared cell chunks: "<<shared.size()/2<<" frames of views, readings and checkpoints equal with and without sharing ("
+             <<copied<<" chunk copies, "<<reused<<" projection blocks and "<<reused_cells<<" cells reused)\n";
 }
 void moving_job_control() {
     using namespace ma::oni::colony;

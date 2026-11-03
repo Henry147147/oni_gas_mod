@@ -74,7 +74,7 @@ public:
     MacChunkStore(const MacChunkStore& other) : owners_(other.owners_), size_(other.size_) {
         if (!sharing().load(std::memory_order_relaxed)) {
             // Control: every copy owns its own chunks, as a vector would.
-            for (auto& chunk : owners_) { auto copy = std::make_shared<Chunk>(*chunk); copy->reserve(chunk_size); chunk = std::move(copy); }
+            for (auto& chunk : owners_) chunk = copy_of(*chunk);
             rebuild_views();
             for (std::size_t k = 0; k < views_; ++k) mine_[k].store(true, std::memory_order_relaxed);
             return;
@@ -105,12 +105,14 @@ public:
     void reserve(size_type) {}
 
     const T& operator[](size_type i) const noexcept {
-        return pointers_[i >> chunk_shift].load(std::memory_order_acquire)->data()[i & chunk_mask];
+        return pointers_[i >> chunk_shift].load(std::memory_order_acquire)->values.data()[i & chunk_mask];
     }
     T& operator[](size_type i) {
         const auto k = i >> chunk_shift;
         if (!mine_[k].load(std::memory_order_acquire)) detach(k);
-        return pointers_[k].load(std::memory_order_relaxed)->data()[i & chunk_mask];
+        auto* chunk = pointers_[k].load(std::memory_order_relaxed);
+        chunk->stamps[i & chunk_mask] = chunk->serial;
+        return chunk->values.data()[i & chunk_mask];
     }
     const T& at(size_type i) const { if (i >= size_) throw std::out_of_range("MacChunkStore::at"); return (*this)[i]; }
     T& at(size_type i) { if (i >= size_) throw std::out_of_range("MacChunkStore::at"); return (*this)[i]; }
@@ -133,8 +135,9 @@ public:
         if ((size_ & chunk_mask) == 0) append_chunk();
         const auto k = owners_.size() - 1;
         if (!mine_[k].load(std::memory_order_relaxed)) detach(k);
-        auto& chunk = *owners_[k];
+        auto& chunk = owners_[k]->values;
         chunk.emplace_back(std::forward<Args>(args)...);
+        owners_[k]->stamps.push_back(owners_[k]->serial);
         ++size_;
         return chunk.back();
     }
@@ -165,9 +168,35 @@ public:
     [[nodiscard]] const void* chunk_identity(std::size_t k) const noexcept {
         return pointers_[k].load(std::memory_order_acquire);
     }
+    // Chunk serial: unique in the process to each chunk's contents since it
+    // was sealed. A chunk gets a new serial whenever it is created, copied or
+    // claimed for writing, and seal() makes the next write to any chunk claim
+    // it again; so after seal(), chunk k holds the values it held then for as
+    // long as its serial is unchanged, in this store or any other.
+    [[nodiscard]] std::uint64_t chunk_serial(std::size_t k) const noexcept {
+        return pointers_[k].load(std::memory_order_acquire)->serial;
+    }
+    void seal() const noexcept { share_all(); }
+    // Cell stamp: the serial of the chunk that last gave cell i out for
+    // writing (mutable access). Copies keep stamps, and a chunk gives cells
+    // out under one serial only until it is copied or sealed; so two stores
+    // whose cell i has the same stamp hold the same value there.
+    [[nodiscard]] std::uint64_t cell_stamp(size_type i) const noexcept {
+        return pointers_[i >> chunk_shift].load(std::memory_order_acquire)->stamps[i & chunk_mask];
+    }
 
 private:
-    using Chunk = std::vector<T>;
+    struct Chunk { std::uint64_t serial = 0; std::vector<T> values; std::vector<std::uint64_t> stamps; };
+    static std::uint64_t next_serial() noexcept { static std::atomic<std::uint64_t> n{0}; return n.fetch_add(1, std::memory_order_relaxed) + 1; }
+    static std::shared_ptr<Chunk> copy_of(const Chunk& chunk) {
+        auto copy = std::make_shared<Chunk>();
+        copy->values.reserve(chunk_size);
+        copy->values = chunk.values;
+        copy->stamps.reserve(chunk_size);
+        copy->stamps = chunk.stamps;
+        copy->serial = next_serial();
+        return copy;
+    }
     std::vector<std::shared_ptr<Chunk>> owners_;
     size_type size_ = 0;
     std::unique_ptr<std::atomic<Chunk*>[]> pointers_;
@@ -198,16 +227,16 @@ private:
         if (mine_[k].load(std::memory_order_relaxed)) return;
         if (owners_[k].use_count() != 1) {
             copied_chunks().fetch_add(1, std::memory_order_relaxed);
-            auto copy = std::make_shared<Chunk>(*owners_[k]);
-            copy->reserve(chunk_size);
-            owners_[k] = std::move(copy);
+            owners_[k] = copy_of(*owners_[k]);
             pointers_[k].store(owners_[k].get(), std::memory_order_release);
-        }
+        } else owners_[k]->serial = next_serial(); // claimed: its values may change
         mine_[k].store(true, std::memory_order_release);
     }
     void append_chunk() {
         auto chunk = std::make_shared<Chunk>();
-        chunk->reserve(chunk_size);
+        chunk->values.reserve(chunk_size);
+        chunk->stamps.reserve(chunk_size);
+        chunk->serial = next_serial();
         owners_.push_back(std::move(chunk));
         const auto old_pointers = std::move(pointers_);
         const auto old_mine = std::move(mine_);
@@ -227,7 +256,8 @@ private:
             if (chunks && (count & chunk_mask)) {
                 const auto k = chunks - 1;
                 if (!mine_[k].load(std::memory_order_relaxed)) detach(k);
-                owners_[k]->resize(count & chunk_mask);
+                owners_[k]->values.resize(count & chunk_mask);
+                owners_[k]->stamps.resize(count & chunk_mask);
             }
             size_ = count;
             // Keep the surviving chunks' sharing state.
