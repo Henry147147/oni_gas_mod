@@ -173,6 +173,8 @@ PASSED_SCENARIOS: set[str] = {
     "spaced-out-poi-harvest", "spaced-out-comets-geysers", "spaced-out-engine-exhaust", "spaced-out-rail-gun",
     "spaced-out-sublimation-station", "spaced-out-intakes", "spaced-out-centrifuge", "spaced-out-sludge-press", "spaced-out-dehydrator",
     "spaced-out-critters", "spaced-out-plants",
+    # All 25 rerun on profile 10 at 7e4cb03, 2026-11-03; the hydrogen-pocket fault is fixed (5a4155d).
+    "spaced-out-vacuum-pocket",
 }
 # Systems checked by whole-colony runs rather than one scenario.
 RUN_SYSTEMS: dict[str, dict] = {
