@@ -46,7 +46,7 @@ GAME_SLOT = TOOLS / "game_slot.sh"
 RUN_LOCKED = TOOLS / "run_locked.sh"
 
 FROZEN_SAVE = Path("local/saves/base-defaults-p11-v1.sav")
-FROZEN_SAVE_SHA256 = "6ebe687db2fcfd0b84b52b6f81401db054684003ce7fa182381503fbbf4611a6"
+FROZEN_SAVE_SHA256 = "92630e515cef64ba42f8954cd1c2234ea1fe7f14ab0643e8f0cb2a7877299fad"
 VALIDATION = "mods/Dev/MixedAtmospheres.IntegrationProbe/game-contract-local/colony-validation"
 LINUX_PROFILE = "home/.config/unity3d/Klei/Oxygen Not Included"
 PROTON_PROFILE = "compatdata/pfx/drive_c/users/steamuser/Documents/Klei/OxygenNotIncluded"
@@ -287,6 +287,13 @@ def save_header(data: bytes) -> tuple[int, dict]:
     """ONI save prefix: build, header length, header version, compression; then JSON game info."""
     build, length, _, _ = struct.unpack_from("<IiIi", data)
     return build, json.loads(data[16:16 + length])
+
+
+def require_base_game_save(header: dict) -> None:
+    """The frozen save is a base-game colony; one that needs Spaced Out! cannot load on a base-game install."""
+    content = [x for x in (header.get("dlcIds") or []) if x]
+    if content or header.get("dlcId"):
+        raise Refused(f"The frozen save needs DLC content {content or [header.get('dlcId')]}; make it with --dlc-mask 0")
 
 
 def embedded_header(data: bytes) -> dict:
@@ -543,7 +550,10 @@ def build_windows(layout: Layout, revision: str, infra: Infra) -> tuple[dict, di
 def linux_command(step: Step, package: Path, output: Path, infra: Infra, load: Path | None = None) -> list[str]:
     command = [sys.executable, "tools/oni_headless.py", "run", "--package", str(package)]
     if step.kind == "cycle":
-        return command + ["--mode", "colony-owner-load", "--load-save", str(load), "--long-run",
+        # The frozen save is a base-game colony: pin the content so the run does not depend on which
+        # game install the harness defaults to (a Spaced Out!-enabled install would otherwise be the
+        # one the save was made on or refuse it).
+        return command + ["--dlc-mask", "0", "--mode", "colony-owner-load", "--load-save", str(load), "--long-run",
                           "--frames", str(step.options["frames"]), "--timeout", str(LONG_RUN_TIMEOUT),
                           "--gpu-display", infra.gpu_display, "--output", str(output)]
     command += ["--mode", "colony-owner", "--gpu-display", infra.gpu_display, "--timeout", str(LINUX_TIMEOUT),
@@ -1032,6 +1042,7 @@ class Suite:
             checks, details = linux_checks(rc, output)
             return checks, {**common, "returncode": rc, **details}
         source = ROOT / FROZEN_SAVE
+        require_base_game_save(save_header(source.read_bytes())[1])
         copy = stage_frozen_save(source, self.layout.runs / (step.name + "-input.sav"))
         manifest_sha = sha256(package / "package-manifest.json")
         hashes = package_hashes(package, manifest)

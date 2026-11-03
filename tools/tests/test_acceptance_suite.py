@@ -103,9 +103,16 @@ class CommandTests(unittest.TestCase):
         self.assertEqual(asteroid[asteroid.index("--cluster") + 1:asteroid.index("--cluster") + 4], ["Oasis", "--frames", "3000"])
         cycle = suite.linux_command(steps["linux-ten-cycle"], package, out, self.infra, load=Path("/copy.sav"))
         for flag, value in (("--mode", "colony-owner-load"), ("--load-save", "/copy.sav"), ("--frames", "30000"),
-                            ("--timeout", "172800")):
+                            ("--timeout", "172800"), ("--dlc-mask", "0")):
             self.assertEqual(cycle[cycle.index(flag) + 1], value)
         self.assertIn("--long-run", cycle)
+
+    def test_frozen_save_must_be_a_base_game_colony(self):
+        for header in ({}, {"dlcIds": [""]}, {"dlcId": None, "dlcIds": []}):
+            suite.require_base_game_save(header)
+        for header in ({"dlcIds": ["EXPANSION1_ID"]}, {"dlcId": "EXPANSION1_ID", "dlcIds": [""]}):
+            with self.assertRaises(suite.Refused):
+                suite.require_base_game_save(header)
 
     def test_windows_wrappers_and_arguments(self):
         steps = {s.name: s for s in suite.plan("quick")}
