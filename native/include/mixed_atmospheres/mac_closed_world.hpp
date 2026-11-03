@@ -74,15 +74,18 @@ enum class MacStepControl { doubling = 0, predictive = 1, regional_predictive = 
 // Family 8 adds momentum-carrying sharpening and layering and a 1 mg mass
 // floor on the bound (user decision 2026-10-28). Family 9 adds region
 // activity tiers; family 10 keeps family 9 and remaps a gas/liquid cell's
-// phases through its vertical faces in gravity order (MAC_GAME_KERNEL.md).
+// phases through its vertical faces in gravity order (MAC_GAME_KERNEL.md);
+// family 11 adds the sub-grid convective adjustment of unstable gas layers.
 enum class MacGameProfile { legacy = 0, base_game_floor = 1, game_kernel = 2,
     game_kernel_positive_liquid = 3, game_kernel_free_surface = 4,
     game_kernel_trace_heat = 5, game_kernel_bounded_pressure = 6, game_kernel_sized_intervals = 7,
-    game_kernel_carried_momentum = 8, game_kernel_activity_tiers = 9, game_kernel_layered_remap = 10 };
+    game_kernel_carried_momentum = 8, game_kernel_activity_tiers = 9, game_kernel_layered_remap = 10,
+    game_kernel_convective = 11 };
 // Profiles 9 and 10 share region activity tiers and their saved state.
 constexpr bool mac_game_activity_profile(MacGameProfile profile) noexcept {
     return profile == MacGameProfile::game_kernel_activity_tiers ||
-           profile == MacGameProfile::game_kernel_layered_remap;
+           profile == MacGameProfile::game_kernel_layered_remap ||
+           profile == MacGameProfile::game_kernel_convective;
 }
 enum class MacGameLiquidLaw { linear = 0, positive_segments = 1 };
 // Saved settings of the opt-in diagnostic game kernel; never selected by gates.

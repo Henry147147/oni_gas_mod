@@ -8,6 +8,15 @@ still require separate authorization.
 
 Amendments:
 
+- **Profile 11 convective adjustment adopted, delegated decision 2026-11-03:**
+  new colonies create game profile 11 (physical checkpoint 31), profile 10
+  plus a [sub-grid convective adjustment](../native/MAC_GAME_KERNEL.md#convective-adjustment-profile-11--checkpoint-31):
+  buoyantly unstable gas layers (lighter gas below denser gas) overturn by an
+  exact, energy-conserving exchange at the free-convection speed, which the
+  discrete solver cannot do on its own when columns are identical. The
+  `phase` scenario passes with its check and inputs unchanged; ONI-rate
+  gas-to-gas heat exchange was not needed. Saved colonies keep their profile.
+
 - **Pre-flow open-sky sink adopted for profile 10, delegated decision
   2026-11-02; extended to profile 9, delegated decision 2026-11-03.** Due
   Space cells are also emptied before flow (booked to the space-sink ledger)

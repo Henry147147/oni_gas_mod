@@ -67,6 +67,8 @@ class Tick {
   // Profile 8: sharpening and layering carry the momentum of the material
   // they move (and the flow's net-volume bound has a mass floor).
   bool carry_momentum = false;
+  // Profile 11: layering also overturns buoyantly unstable gas layers.
+  bool convective = false;
   SurfaceScratch surface_scratch;
   static double ms(std::chrono::steady_clock::time_point start) {
     return std::chrono::duration<double, std::milli>(
@@ -85,7 +87,8 @@ public:
        unsigned heat_iterations = 200, bool surface_closure = false,
        bool trace_before_heat = false, bool bound_pressure_volume = false,
        bool size_intervals = false, bool carry_moved_momentum = false,
-       double bound_mass_floor = 0, bool layered_remap = false)
+       double bound_mass_floor = 0, bool layered_remap = false,
+       bool convective_adjustment = false)
       : grid(source), species(table),
         flow(source, table, threads, false, pressure_tolerance, gravity_source, pressure_iterations,
              surface_closure, bound_pressure_volume,
@@ -100,7 +103,8 @@ public:
         prune_before_heat(trace_before_heat),
         bounded_pressure_volume(bound_pressure_volume),
         sized_intervals(bound_pressure_volume && size_intervals),
-        carry_momentum(carry_moved_momentum) {}
+        carry_momentum(carry_moved_momentum),
+        convective(convective_adjustment) {}
   [[nodiscard]] unsigned threads_used() const noexcept {
     return flow.worker_pool().size();
   }
@@ -320,7 +324,7 @@ public:
     auto stage_start = std::chrono::steady_clock::now();
     auto layered = layer(grid, species, out.state, out.eos, dt, gravity,
                          &flow.kernel_grid(), &flow.worker_pool(),
-                         carry_momentum, &regions);
+                         carry_momentum, &regions, convective);
     wall_x += layered.wall_x;
     wall_y += layered.wall_y;
     wall_ops_x += layered.wall_ops_x;

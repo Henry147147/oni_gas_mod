@@ -120,8 +120,9 @@ otherwise stop every later step without telling the player.
 ## Region activity tiers
 
 New managed colonies request `MA_ONI_COLONY_GAME_ACTIVITY` (flag 16, alongside
-`GAME_KERNEL|GAME_SURFACE`), selecting profile10 / physical checkpoint30
-(profile9 / checkpoint28 before 2026-11-02, or with `MA_COLONY_KERNEL3_PROFILE9=1`).
+`GAME_KERNEL|GAME_SURFACE`), selecting profile11 / physical checkpoint31 (profile10 / checkpoint30 on
+2026-11-02, profile9 / checkpoint28 before; `MA_COLONY_KERNEL3_PROFILE10=1` or
+`MA_COLONY_KERNEL3_PROFILE9=1` selects those).
 Native callers that retain flags13 continue to select profile8. Old saved
 profiles retain their pipeline and checkpoint bytes. **Always simulate** is a
 saved profile9 policy: it runs the profile8 physical pipeline every frame.

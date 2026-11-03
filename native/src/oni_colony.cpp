@@ -540,12 +540,15 @@ MacClosedSettings settings_of(const MAOniColonyConfig& c, const MAOniColonyOptio
             game.game.heat_maximum_iterations=800;
         }
         if(c.flags&MA_ONI_COLONY_GAME_ACTIVITY) {
-            // New colonies create profile10, profile9 with the layered vertical
-            // remap (delegated user decision 2026-11-02); saves restore their
-            // own profile. MA_COLONY_KERNEL3_PROFILE9=1 still creates profile9
-            // for the controls written for it.
+            // New colonies create profile11: profile9 with the layered vertical
+            // remap (profile10, 2026-11-02) and the convective adjustment of
+            // unstable gas layers (delegated decision 2026-11-03). Saves
+            // restore their own profile. MA_COLONY_KERNEL3_PROFILE9=1 or
+            // MA_COLONY_KERNEL3_PROFILE10=1 still creates those profiles for
+            // the controls written for them.
             game.game_profile=selected("MA_COLONY_KERNEL3_PROFILE9")?MacGameProfile::game_kernel_activity_tiers:
-                MacGameProfile::game_kernel_layered_remap;
+                selected("MA_COLONY_KERNEL3_PROFILE10")?MacGameProfile::game_kernel_layered_remap:
+                MacGameProfile::game_kernel_convective;
             game.game.activity_tiers=next_activity_tiers;
         }
         // Profiles 6-8 save the adopted gas heat mixing (docs/base-game-floor.md,

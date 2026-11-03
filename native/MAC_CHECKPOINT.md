@@ -119,6 +119,8 @@ current binary has.
 sub-grid convective adjustment of buoyantly unstable gas layers
 ([MAC_GAME_KERNEL.md](MAC_GAME_KERNEL.md)). It keeps version 28's layout; only
 the version word differs. Versions 20–30 keep their arithmetic and bytes.
+*Implemented 2026-11-03* and adopted for new colonies; the managed metadata
+reader treats 31 like 28 (owner wrapper 14 required).
 
 **Reserved 2026-11-02 immediately after fetching `a1bbf3c`:** physical
 `MACCLS01` version **30** identifies game profile **10**, the layered vertical

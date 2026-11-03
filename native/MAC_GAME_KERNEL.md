@@ -222,12 +222,45 @@ and separates its causes:
   all of it by frame 64 because lifted pool water absorbs the heat). A 0.01 K
   perturbation leaves 0.0061 kg.
 
-No booking or transport defect was found. The hold is the model's physics in
-an exactly symmetric, adiabatic arena; in ONI, which has no latent heat, the
-steam would condense at once. Options for the user: keep it and record
-`phase` as a known fixture artifact; revise the fixture (user decision); or
-add a law, such as ONI-rate gas-to-gas heat exchange or mixing across
-unstable stratification, as a further profile.
+No booking or transport defect was found. The hold is the discrete
+solver's: real gas with a hot layer under cold gas overturns within seconds
+at metre scale (an enormous Rayleigh number), but identical columns cannot
+break the symmetry. Profile 11 below adds the missing sub-grid convection.
+
+## Convective adjustment, profile 11 / checkpoint 31
+
+**Adopted for new colonies (delegated decision 2026-11-03).** Profile 11 is
+profile 10 plus a sub-grid convective adjustment in the layering stage
+(`layering.hpp`). Across each open vertical face, where the gas of the lower
+cell is less dense than the gas of the cell above (gas mass over gas volume),
+the stratification is buoyantly unstable: the two cells swap equal volumes of
+their gas, a share `min(0.25, 1 - exp(-dt w / h))` of the smaller gas volume,
+with the free-convection speed `w = sqrt(g h (rho_up - rho_low) / rho_mean)`.
+Each share carries its species at its donor's temperature (its own EOS
+energy) and its mass share of passives; liquid stays. The released potential
+energy is heat, as in liquid layering, and momentum follows the parcels as on
+profile 8, so species, U+K+G, passives and momentum are exact. A stable or
+neutral face exchanges nothing, so a still, hydrostatic atmosphere advances as
+on profile 10. No random perturbation or new tunable is involved: the cap is
+layering's. `MA_COLONY_KERNEL3_PROFILE10=1` (or `PROFILE9=1`) still creates
+the earlier profiles; saves keep theirs.
+
+Measured:
+
+| Check | Profile 10 | Profile 11 |
+| --- | --- | --- |
+| In-game `phase` (air steam at the check, at most 1e-3 of its start) | 0.0470 of 0.1304 kg, fails | 6.6e-7 of 0.1082 kg, passes |
+| In-game `freeze-melt` (>380 kg) | 425.7 kg | 428.7 kg |
+| All 15 fixed base batches as the new-colony default | 65 of 66 scenarios pass (`phase` fails) | all 66 pass, `airflow` included |
+| Offline symmetric arena, steam left at frame 64 | 0.110 kg | 0.0244 kg (the warm top layer is then stable at its dew point) |
+| `mac_game_convective_control.hpp`: hot row under cold row after 25 ticks | 60.0 K difference kept | 4.8 K; a stable box advances bit-identically to profile 10 |
+| Flow-only replays of three captured worlds, interleaved A/B/A/B, 100 frames, 12 workers (ms per frame) | 40.5, 34.4 / 47.8, 48.5 / 48.7, 47.9 | 36.5, 34.9 / 50.3, 47.7 / 48.7, 47.5 |
+
+The flow cost is unchanged within run-to-run noise. ONI-rate gas-to-gas heat
+exchange (1000 times the geometric-mean conductivity, the wiki's vanilla
+rule) was also prototyped: alone it left 0.053 kg in the offline arena at
+frame 64, and with the adjustment 0.0023 kg, so it was not needed and is not
+adopted.
 
 ## Open acceptance work
 

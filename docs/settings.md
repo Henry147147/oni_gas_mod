@@ -55,13 +55,14 @@ region policy), the integrated owner checkpoint (region delivery and lifecycle
 state), and MACOLP03 section 3 (breathing). Preferences live in the user's
 config and are not stored in colony saves.
 
-New colonies use game profile 10 (core30, owner wrapper14; profile 9 plus the
-layered vertical remap, 2026-11-02) with mixed pipes and either phase rule.
-Supported colonies created earlier retain their saved game profile 6
-(core24/25), 7 (core26), 8 (core27) or 9 (core28). See the
+New colonies use game profile 11 (core31, owner wrapper14; profile 9 plus the
+layered vertical remap of 2026-11-02 and the convective adjustment of
+2026-11-03) with mixed pipes and either phase rule. Supported colonies created
+earlier retain their saved game profile 6 (core24/25), 7 (core26), 8 (core27),
+9 (core28) or 10 (core30). See the
 [game kernel](../native/MAC_GAME_KERNEL.md) for the profile history.
 No setting selects the production kernel, the game-floor profile, an older
-game-kernel profile or single-element packet pipes; profile 10's saved
+game-kernel profile or single-element packet pipes; profile 11's saved
 tunables vary within
 the ranges below. A value outside the measured one
 is marked **experimental** in the window. The native library refuses values

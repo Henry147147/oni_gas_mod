@@ -46,6 +46,8 @@ constexpr std::uint32_t fast_phase_format_version=19;
 constexpr std::uint32_t caloric_trial_format_version=29;
 // Game profile10 (layered vertical remap); versions 20-28 are profiles 2-9.
 constexpr std::uint32_t game_layered_format_version=30;
+// Game profile11 (convective adjustment): version 28's layout as well.
+constexpr std::uint32_t game_convective_format_version=31;
 void check(bool value,const char* message) { if (!value) throw std::invalid_argument(message); }
 std::uint64_t checksum(std::span<const std::uint8_t> bytes) {
     std::uint64_t result=14695981039346656037ULL;
@@ -128,6 +130,7 @@ std::vector<std::uint8_t> MacClosedWorld::checkpoint() const {
         settings_.validate();
         const bool activity=mac_game_activity_profile(settings_.game_profile);
         const bool layered=settings_.game_profile==MacGameProfile::game_kernel_layered_remap;
+        const bool convective=settings_.game_profile==MacGameProfile::game_kernel_convective;
         const bool carried=activity || settings_.game_profile==MacGameProfile::game_kernel_carried_momentum;
         const bool sized=carried || settings_.game_profile==MacGameProfile::game_kernel_sized_intervals;
         const bool bounded=sized || settings_.game_profile==MacGameProfile::game_kernel_bounded_pressure;
@@ -135,7 +138,7 @@ std::vector<std::uint8_t> MacClosedWorld::checkpoint() const {
         const bool surface=settings_.game_profile==MacGameProfile::game_kernel_free_surface;
         const bool positive=trace_heat || surface || settings_.game_profile==MacGameProfile::game_kernel_positive_liquid;
         const bool boil_only=settings_.game.phase_rule==MacPhaseRule::boil_only;
-        out.u32(layered?30:activity?28:carried?27:sized?26:boil_only?25:bounded?24:trace_heat?23:surface?22:positive?21:20);const auto model=identity(registry_,*thermodynamics_);out.count(model.size());for(auto b:model)out.byte(b);
+        out.u32(convective?31:layered?30:activity?28:carried?27:sized?26:boil_only?25:bounded?24:trace_heat?23:surface?22:positive?21:20);const auto model=identity(registry_,*thermodynamics_);out.count(model.size());for(auto b:model)out.byte(b);
         out.number(time_s_);out.u64(revision_);const auto& st=state();const auto& g=st.grid;
         out.count(g.width);out.count(g.height);out.number(g.spacing_m);out.number(g.depth_m);
         out.number(settings_.maximum_timestep_s);out.number(settings_.gravity_m_per_s2);out.byte(settings_.thermal_conduction?1:0);out.number(settings_.trace_sink_threshold_kg);
@@ -263,15 +266,15 @@ MacClosedWorld MacClosedWorld::from_checkpoint(SpeciesRegistry registry,std::sha
             "Invalid saved MAC caloric payload layout");
     }
     // Version 30 is profile10: version28's layout under its own identity.
-    if((version>=20 && version<=28) || version==game_layered_format_version) {
-        const bool activity_version=version==28 || version==game_layered_format_version;
+    if((version>=20 && version<=28) || version==game_layered_format_version || version==game_convective_format_version) {
+        const bool activity_version=version==28 || version==game_layered_format_version || version==game_convective_format_version;
         const auto model=identity(registry,*eos);check(in.u32()==model.size()&&model.size()<=in.remaining(),"Saved game model size differs");for(auto value:model)check(in.byte()==value,"Saved game registry/EOS identity differs");
         const double time=in.number();const auto revision=in.u64();check(time>=0&&revision>0,"Invalid saved game clock");
         MacTransportState st;st.grid.width=in.u32();st.grid.height=in.u32();st.grid.spacing_m=in.number();st.grid.depth_m=in.number();
         MacClosedSettings cfg;cfg.caloric_trial_policy=MacCaloricTrialPolicy::legacy_refinement;cfg.numerical_kernel=MacNumericalKernel::game;cfg.game_profile=MacGameProfile::game_kernel;cfg.vacuum=MacVacuumRepresentation::void_phase;cfg.thermal_conduction=true;
         cfg.maximum_timestep_s=in.number();cfg.gravity_m_per_s2=in.number();cfg.thermal_conduction=in.flag();cfg.trace_sink_threshold_kg=in.number();
         cfg.game.liquid_stiffness_ratio=in.number();cfg.game.flow_parts=in.u32();cfg.game.pressure_relative_tolerance=in.number();cfg.game.gas_heat_mixing=in.number();cfg.game.sharpen_liquid_interfaces=in.flag();cfg.game.interface_detail_fraction=in.number();cfg.game.phase_relaxation_time_s=in.number();
-        if(version>=21){cfg.game_profile=version==game_layered_format_version?MacGameProfile::game_kernel_layered_remap:version==28?MacGameProfile::game_kernel_activity_tiers:version==27?MacGameProfile::game_kernel_carried_momentum:version==26?MacGameProfile::game_kernel_sized_intervals:version>=24?MacGameProfile::game_kernel_bounded_pressure:version==23?MacGameProfile::game_kernel_trace_heat:version==22?MacGameProfile::game_kernel_free_surface:MacGameProfile::game_kernel_positive_liquid;cfg.game.liquid_law=static_cast<MacGameLiquidLaw>(in.u32());cfg.game.pressure_maximum_iterations=in.u32();cfg.game.heat_maximum_iterations=in.u32();}
+        if(version>=21){cfg.game_profile=version==game_convective_format_version?MacGameProfile::game_kernel_convective:version==game_layered_format_version?MacGameProfile::game_kernel_layered_remap:version==28?MacGameProfile::game_kernel_activity_tiers:version==27?MacGameProfile::game_kernel_carried_momentum:version==26?MacGameProfile::game_kernel_sized_intervals:version>=24?MacGameProfile::game_kernel_bounded_pressure:version==23?MacGameProfile::game_kernel_trace_heat:version==22?MacGameProfile::game_kernel_free_surface:MacGameProfile::game_kernel_positive_liquid;cfg.game.liquid_law=static_cast<MacGameLiquidLaw>(in.u32());cfg.game.pressure_maximum_iterations=in.u32();cfg.game.heat_maximum_iterations=in.u32();}
         // Version25 is profile6 with the boil-only rule, its canonical value1;
         // versions 26/27 are profiles 7/8 with either rule.
         if(version==25){check(in.u32()==static_cast<std::uint32_t>(MacPhaseRule::boil_only),"Noncanonical saved game phase rule");cfg.game.phase_rule=MacPhaseRule::boil_only;}

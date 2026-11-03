@@ -480,7 +480,7 @@ MacClosedAdvance MacGameKernelAccess::advance_guarded(
     MacGrid grid;
     MacGameSettings settings;
     unsigned threads = 0;
-    bool conduction = true, closure = false, trace_heat = false, bounded = false, sized = false, carried = false, layered = false;
+    bool conduction = true, closure = false, trace_heat = false, bounded = false, sized = false, carried = false, layered = false, convective = false;
     std::unique_ptr<k::Tick> tick;
     std::unique_ptr<k::RegionalTick> regional;
     std::shared_ptr<k::RegionalExecutionHistory> regional_execution;
@@ -493,7 +493,8 @@ MacClosedAdvance MacGameKernelAccess::advance_guarded(
   // and a 1 mg floor on the net swept-volume bound.
   const bool activity = mac_game_activity_profile(source.settings_.game_profile);
   // Profile 10 adds the layered vertical remap to profile 9.
-  const bool layered = source.settings_.game_profile == MacGameProfile::game_kernel_layered_remap;
+  const bool convective = source.settings_.game_profile == MacGameProfile::game_kernel_convective;
+  const bool layered = convective || source.settings_.game_profile == MacGameProfile::game_kernel_layered_remap;
   const bool carried = activity || source.settings_.game_profile == MacGameProfile::game_kernel_carried_momentum;
   const bool sized = carried || source.settings_.game_profile == MacGameProfile::game_kernel_sized_intervals;
   const bool bounded = sized || source.settings_.game_profile == MacGameProfile::game_kernel_bounded_pressure;
@@ -504,7 +505,7 @@ MacClosedAdvance MacGameKernelAccess::advance_guarded(
       source.settings_.game_profile == MacGameProfile::game_kernel_free_surface;
   if ((bounded ? !cache.regional : !cache.tick) || cache.eos != source.thermodynamics_ ||
       cache.threads != threads || cache.closure != closure ||
-      cache.trace_heat != trace_heat || cache.bounded != bounded || cache.sized != sized || cache.carried != carried || cache.layered != layered ||
+      cache.trace_heat != trace_heat || cache.bounded != bounded || cache.sized != sized || cache.carried != carried || cache.layered != layered || cache.convective != convective ||
       cache.conduction != source.settings_.thermal_conduction ||
       !same_grid(cache.grid, source.state().grid) ||
       !same_settings(cache.settings, cfg)) {
@@ -518,7 +519,7 @@ MacClosedAdvance MacGameKernelAccess::advance_guarded(
       if(!cache.regional_execution || cache.eos!=source.thermodynamics_ || cache.threads!=threads)
         cache.regional_execution=std::make_shared<k::RegionalExecutionHistory>();
       cache.regional=std::make_unique<k::RegionalTick>(source.state().grid,species,pairs,threads,cfg,source.settings_.thermal_conduction,sized,
-                                                       carried,carried?1e-6:0.,cache.regional_execution,layered);
+                                                       carried,carried?1e-6:0.,cache.regional_execution,layered,convective);
       cache.tick.reset();
     } else {
     cache.tick = std::make_unique<k::Tick>(
@@ -541,6 +542,7 @@ MacClosedAdvance MacGameKernelAccess::advance_guarded(
     cache.sized = sized;
     cache.carried = carried;
     cache.layered = layered;
+    cache.convective = convective;
   }
   MacClosedAdvance result{source, {}};
   result.report.game_threads_used = bounded?cache.regional->threads_used():cache.tick->threads_used();

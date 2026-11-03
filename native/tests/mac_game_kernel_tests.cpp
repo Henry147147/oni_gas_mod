@@ -10,6 +10,7 @@
 #include "mac_game_patch_plan_control.hpp"
 #include "mac_game_layered_control.hpp"
 #include "mac_game_cold_gas_control.hpp"
+#include "mac_game_convective_control.hpp"
 #include "../src/mac_hypot.hpp"
 #include "../src/mac_game/account.hpp"
 #include "../src/mac_game/entropy.hpp"
@@ -705,6 +706,7 @@ int main() {
     ma::testing::surface_game::run();
     ma::testing::layered_game::run();
     ma::testing::cold_gas_game::run();
+    ma::testing::convective_game::run();
     ma::testing::mac_game_patch_plan_control();
     std::cout
         << "PASS diagnostic game kernel own-EOS import/readings, sparse "

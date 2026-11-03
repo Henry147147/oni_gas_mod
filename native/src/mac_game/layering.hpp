@@ -19,7 +19,8 @@ layer(const ma::experimental::MacGrid &source,
       const std::vector<Eos> &eos, double dt, double gravity,
       const ma::experimental::mac_kernel::Grid *cached_grid = nullptr,
       ma::experimental::mac_kernel::Pool *executor = nullptr,
-      bool carry_momentum = false, RegionAudit *audit = nullptr) {
+      bool carry_momentum = false, RegionAudit *audit = nullptr,
+      bool convective = false) {
   namespace k = ma::experimental::mac_kernel;
   k::Grid built;
   if (!cached_grid)
@@ -127,6 +128,67 @@ layer(const ma::experimental::MacGrid &source,
     add_parcel(lower, upper, l);
     add_parcel(upper, lower, h);
     ++out.faces;
+  }
+  if (convective) {
+    // Profile 11 sub-grid convective adjustment. Where the gas of a cell is
+    // less dense than the gas of the cell above it, the stratification is
+    // buoyantly unstable and real gas overturns within seconds; the
+    // discrete solver can hold such a layer indefinitely when the columns
+    // are identical. The two cells swap equal volumes of their gas (any
+    // liquid stays), each share carrying its own EOS energy and passives;
+    // the released potential energy is heat (below), so species, U+K+G and
+    // passives are exact. The share is set by the free-convection speed
+    // w = sqrt(g h (rho_up - rho_low) / rho_mean) over one cell height,
+    // capped like layering. A stable or neutral face exchanges nothing.
+    std::vector<double> gas_mass(g.N);
+    blocks([&](std::size_t block) {
+      for (auto [i, end] = block_cells(block); i < end; ++i)
+        for (std::size_t a = initial.masses.offsets[i];
+             a < initial.masses.offsets[i + 1]; ++a)
+          if (species[initial.masses.species[a]].gas)
+            gas_mass[i] += initial.masses.mass[a];
+    });
+    const auto gas_density = [&](std::size_t i) {
+      return !g.wall[i] && gas_mass[i] > 0 && eos[i].gas_volume > 0
+                 ? gas_mass[i] / eos[i].gas_volume
+                 : 0.;
+    };
+    const double h = source.spacing_m;
+    for (std::size_t f = 0; f < g.NY; ++f) {
+      const auto lower = gravity > 0 ? g.yl[f] : g.yr[f],
+                 upper = gravity > 0 ? g.yr[f] : g.yl[f];
+      if (lower == k::none || upper == k::none || g.closed(true, f))
+        continue;
+      const double low = gas_density(lower), high = gas_density(upper);
+      if (!(low > 0) || !(low < high))
+        continue;
+      const double speed =
+          std::sqrt(std::abs(gravity) * h * (high - low) / (.5 * (high + low)));
+      const double share = std::min(.25, -std::expm1(-dt * speed / h));
+      const double volume =
+          share * std::min(eos[lower].gas_volume, eos[upper].gas_volume);
+      if (!(volume > 0))
+        continue;
+      const auto add_gas = [&](std::size_t from, std::size_t to) {
+        Parcel parcel{from, to, {}};
+        const double taken = volume / eos[from].gas_volume;
+        for (std::size_t a = initial.masses.offsets[from];
+             a < initial.masses.offsets[from + 1]; ++a) {
+          const auto key = initial.masses.species[a];
+          const auto &s = species[key];
+          if (!s.gas)
+            continue;
+          const double moved = initial.masses.mass[a] * taken;
+          parcel.species.emplace_back(key, moved);
+          parcel.mass += moved;
+          parcel.energy += moved * (s.offset + s.cv * eos[from].temperature);
+        }
+        parcels.push_back(std::move(parcel));
+      };
+      add_gas(lower, upper);
+      add_gas(upper, lower);
+      ++out.faces;
+    }
   }
   if (parcels.empty())
     return out;
