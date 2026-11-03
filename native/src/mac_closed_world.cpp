@@ -726,8 +726,10 @@ MacClosedWorld::MacClosedWorld(Derived, const MacClosedWorld& from, MacTransport
     thermodynamics_(from.thermodynamics_), game_activity_(from.game_activity_), settings_(from.settings_), transport_(from.transport_), time_s_(from.time_s_),
     revision_(from.revision_ + 1) {
     bool partial = false;
+    // Read-only: a const view keeps shared cell chunks shared.
+    const auto& cells = std::as_const(state).cells;
     for (std::size_t i = 0; i < state.occupied_volumes_m3.size() && !partial; ++i)
-        partial = state.cells[i].mixture.mass() > 0 && state.occupied_volumes_m3[i] < state.grid.volume_m3();
+        partial = cells[i].mixture.mass() > 0 && state.occupied_volumes_m3[i] < state.grid.volume_m3();
     if (!partial) state.occupied_volumes_m3.clear();
     replace_state(std::move(state));
 }

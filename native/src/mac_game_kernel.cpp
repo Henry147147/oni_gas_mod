@@ -141,10 +141,42 @@ MacTransportState dense(const MacTransportState &source, const k::State &state,
                         std::span<const std::uint8_t> rebuilt = {}) {
   MacTransportState result;
   result.grid = source.grid;
-  result.cells.resize(state.energy.size());
   result.momentum_x = state.jx;
   result.momentum_y = state.jy;
   result.occupied_volumes_m3.resize(state.energy.size());
+  if (!rebuilt.empty() && source.cells.size() == state.energy.size()) {
+    // Cells the interval did not rebuild keep their source values: share
+    // the source's cell chunks and rewrite only the rebuilt cells (their
+    // chunks alone are copied). Values are those of the full rebuild below.
+    result.cells = source.cells;
+    const auto &before = std::as_const(source).cells;
+    for (std::size_t i = 0; i < state.energy.size(); ++i) {
+      if (!rebuilt[i]) {
+        result.occupied_volumes_m3[i] = source.occupied_volumes_m3.empty()
+            ? (!source.grid.walls[i] && before[i].mixture.mass() > 0 ? source.grid.volume_m3() : 0)
+            : source.occupied_volumes_m3[i];
+        continue;
+      }
+      auto &cell = result.cells[i];
+      cell = MacMaterialCell{MixtureInventory(0), {}, {}};
+      cell.mixture = MixtureInventory(species);
+      cell.mixture.energy = state.energy[i];
+      for (std::size_t a = state.masses.offsets[i];
+           a < state.masses.offsets[i + 1]; ++a)
+        cell.mixture.masses[state.masses.species[a]] = state.masses.mass[a];
+      if (!state.passives.mass.empty())
+        for (std::size_t a = state.passives.offsets[i];
+             a < state.passives.offsets[i + 1]; ++a)
+          cell.passive_quantities.push_back(
+              {state.passives.species[a], state.passives.mass[a]});
+      result.occupied_volumes_m3[i] = readings[i].mass == 0 ? 0
+                                      : readings[i].nR > 0
+                                          ? result.grid.volume_m3()
+                                          : readings[i].liquid_volume;
+    }
+    return result;
+  }
+  result.cells.resize(state.energy.size());
   chunks(pool, state.energy.size(), [&](std::size_t, std::size_t first, std::size_t end) {
     for (std::size_t i = first; i < end; ++i) {
       auto &cell = result.cells[i];
@@ -1154,8 +1186,10 @@ heated_totals(const k::Totals *kept, const EditJournal &journal,
 // derived constructor): none unless an occupied cell is partly filled.
 void canonical_volumes(MacTransportState &state) {
   bool partial = false;
+  // Read-only: a const view keeps shared cell chunks shared.
+  const auto &cells = std::as_const(state).cells;
   for (std::size_t i = 0; i < state.occupied_volumes_m3.size() && !partial; ++i)
-    partial = state.cells[i].mixture.mass() > 0 &&
+    partial = cells[i].mixture.mass() > 0 &&
               state.occupied_volumes_m3[i] < state.grid.volume_m3();
   if (!partial)
     state.occupied_volumes_m3.clear();
