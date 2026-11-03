@@ -417,22 +417,22 @@ leaves the asteroid (earlier results taken beyond the edge were discarded).
 | `spaced-out-sludge-press` | PASS (`run-p3`). The scenario completes the duplicant's work; mud gives 90 kg water, toxic mud 50 kg polluted water through the press's pipe into the owner. A fabricator drops stored material no queued order needs, so orders are queued before the ingredients. |
 | `spaced-out-intakes` | PASS (`run-p2`). A mixed gas pipe feeds the enclosed telescope and lead suit locker (0.75 kg oxygen each; the 0.5 kg carbon dioxide is dumped into the owner), a mixed liquid pipe feeds the decontamination shower (0.75 kg water kept; its 0.25 kg polluted water dropped to the owner), pipe accounts exact. |
 | `spaced-out-dehydrator` | PASS (`run-p3`). A food dehydrator's 6 kg byproduct water, dropped as when emptied, reaches the owner. |
-| `spaced-out-vacuum-pocket` | not run yet (kept out of batches until the fault below is fixed). |
+| `spaced-out-vacuum-pocket` | PASS (`run-m1`, `06d6f23`). The 30 x 10 vacuum arena is placed (without sliding) where closing its border displaces natural hydrogen (13 cells within two cells of it at 81,122, the pocket of the original fault) and the owner runs on with the hydrogen conserved and ledgers closed (1.5e-17 / 2.6e-17), after the 5a4155d fix. |
 | `spaced-out-landers` | PASS (`run-i1`, `0bf4268`). The scout lander lands and both it and the landing pod emit carbon dioxide into the owner on the way (8.1 and 4.1 kg). The lander's gas and liquid cargo is not a game mechanism (its storage drops ordinary items) and is not tested. |
 | `spaced-out-poi-harvest` | PASS (`run-i1`, `0bf4268`). Oxygen, carbon dioxide, water and polluted water extracted from a space hex inventory arrive in real gas and liquid cargo bays with exact quantities and exact pipe accounts. The collector's in-flight timing is not run (the extraction call is the game's own). |
 | `spaced-out-comets-geysers` | PASS (`run-j3`, `0bf4268`). Oxylite, snowball and nuclear-waste comets land, molten aluminium, tungsten and niobium geysers erupt into owned oxygen (+174, +6.4 and +5086 kg), ledgers closed. |
 | `spaced-out-critters` | PASS (`run-b1`, bundle `4ae7ccf` + scenario source of `db284e4`). A Beeta put in carbon dioxide sleeps after 5 s of exposure and its element consumer takes 1.9 kg from the owner (the consumed-mass events equal the loss). A gas Staterpillar absorbs the arena's carbon dioxide into its storage through the game's `GasAndLiquidConsumerMonitor` mass-consume path and its connector (built and enabled by the creature's own `SpawnConnectorBuilding`/`EnableConnector`) pushes it through a pipe to a vent (2 kg in the pipe at the peak); a liquid Staterpillar does the same with a pool's water (up to 30 kg stored, 17.8 kg in the pipe). Owner, pipe, creature and vent hold every kilogram again once the creatures are quiet (16.08 -> 16.08 kg carbon dioxide, 2970 -> 2970 kg water). **Bug found and fixed:** see below. |
 | `spaced-out-plants` | PASS (`run-b1`, same bundle). Eight Spaced Out! plants (swamp harvest, worm, super worm, filter, cylindrica, wine cups, critter trap, toe) read normal pressure and a safe atmosphere in owned oxygen, a wrong atmosphere in hydrogen and, the seven pressure-sensitive ones, low pressure in thin oxygen; the filter plant's element consumer takes 0.147 kg of oxygen from the owner (88 consumed-mass events) and a digesting critter trap plant vents 0.72 kg of hydrogen into it. |
 
-**Fault found, open (physics owner):** a 30 x 10 arena carved beside the printing
+**Fault found, fixed in `5a4155d`:** a 30 x 10 arena carved beside the printing
 pod (the first rail-gun run, `run-m1`) closes its border over a natural
 hydrogen pocket (seven cells of 0.1128 kg at 319 K); the displaced gas
 expands into the still-vacuum interior and the flow solver faults at owner
 frame 3: `Private flow EOS cell 89 (29,2 of 30x9): ... [T 0.954 K, P 15.3 Pa,
 U -856.8 J, species Hydrogen 0.0019454 kg; domain 1..1e9 K]` (a rarefaction of
 light gas into vacuum leaves a cell with negative thermal energy). Large
-arenas now slide right past hydrogen pockets; `spaced-out-vacuum-pocket`
-reproduces the trigger and runs again once the solver is fixed. The EOS fault
+arenas still slide right past hydrogen pockets; `spaced-out-vacuum-pocket`
+reproduces the trigger without sliding and now passes. The EOS fault
 message now names the cell's state.
 
 **Critters and plants: what touches fluids.** Read from the game's assemblies:

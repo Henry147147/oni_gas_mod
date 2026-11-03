@@ -2322,24 +2322,27 @@ namespace MixedAtmospheres.Oni
         // so a wall placed with the fill would let fill gas cross it first.
         private static Func<int, int, (SimHashes element, float mass, float temperature)>? filling;
         private static int fillWidth = Width, fillHeight = Height;
-        private static void Arena(Func<int, int, (SimHashes element, float mass, float temperature)> inside, int width = Width, int height = Height)
+        // Cells of natural hydrogen (more than 10 g) in and within two cells of a width x height arena at the current anchor.
+        private static int NaturalHydrogen(int width, int height)
+        {
+            var n = 0;
+            for (var y = -2; y <= height + 1; ++y) for (var x = -2; x <= width + 1; ++x)
+            {
+                var c = Grid.XYToCell(x0 + x, y0 + y);
+                if (Grid.IsValidCell(c) && !Grid.Solid[c] && Grid.Mass[c] > 0.01f && Grid.Element[c].id == SimHashes.Hydrogen) ++n;
+            }
+            return n;
+        }
+        private static void Arena(Func<int, int, (SimHashes element, float mass, float temperature)> inside, int width = Width, int height = Height, bool slide = true)
         {
             fillWidth = width; fillHeight = height;
             // A large arena slides right past natural hydrogen pockets: closing its border displaces
             // their gas into an arena that is still vacuum, a rarefaction the flow solver does
             // not survive beside the printing pod (docs/dlc-compatibility.md).
-            if (width * height >= 200)
+            if (slide && width * height >= 200)
             {
                 var slid = 0;
-                bool Pocket()
-                {
-                    for (var y = -2; y <= height + 1; ++y) for (var x = -2; x <= width + 1; ++x)
-                    {
-                        var c = Grid.XYToCell(x0 + x, y0 + y);
-                        if (Grid.IsValidCell(c) && !Grid.Solid[c] && Grid.Mass[c] > 0.01f && Grid.Element[c].id == SimHashes.Hydrogen) return true;
-                    }
-                    return false;
-                }
+                bool Pocket() => NaturalHydrogen(width, height) > 0;
                 while (Pocket() && slid < 70 && x0 + width + 3 < Grid.WidthInCells) { ++x0; ++slid; }
                 if (slid > 0) { pendingShift += slid; Debug.Log($"[Mixed Atmospheres] arena {Current.Name} slid {slid} cells right of natural hydrogen pockets"); }
             }

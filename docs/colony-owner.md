@@ -1411,7 +1411,7 @@ frames and records its checks in `colony-owner.json`; the run fails on a failed
 check or an owner fault. Scenario buildings are built instantly and powered by
 setting their powered flag (harness only).
 
-The home asteroid of a Spaced Out! colony is 160 cells wide with the printing pod at x 72, so one game holds about 80 cells of arenas to its right: `Arena` refuses one that leaves the asteroid (split long Spaced Out! lists across games) and slides a large one (200 cells or more) right past natural hydrogen pockets, whose displaced gas the flow solver does not yet survive (see [the open fault](dlc-compatibility.md#spaced-out-fluid-systems)).
+The home asteroid of a Spaced Out! colony is 160 cells wide with the printing pod at x 72, so one game holds about 80 cells of arenas to its right: `Arena` refuses one that leaves the asteroid (split long Spaced Out! lists across games) and slides a large one (200 cells or more) right past natural hydrogen pockets (the flow solver now survives their displaced gas, see [the fixed fault](dlc-compatibility.md#spaced-out-fluid-systems)).
 
 | Scenario | Checks |
 | --- | --- |
@@ -1468,7 +1468,7 @@ The home asteroid of a Spaced Out! colony is 160 cells wide with the printing po
 | `spaced-out-sublimation-station` | A sublimation station turns toxic sand into polluted oxygen for the owner, and a nuclear waste chunk sublimates liquid waste into it. |
 | `spaced-out-centrifuge` | A uranium centrifuge separates ore; its molten uranium leaves through the liquid pipe and vent into the owner. |
 | `spaced-out-sludge-press` | A sludge press (its duplicant work completed by the scenario) splits mud into dirt and water, and toxic mud into toxic sand and polluted water; the liquids reach the owner through its pipe. |
-| `spaced-out-vacuum-pocket` | Five cells of hydrogen (0.1128 kg at 319 K) at the edge of a 30 × 9 vacuum: the owner keeps running, the hydrogen is conserved and the ledgers close. Reproduces the flow-solver fault found beside the printing pod; kept out of batches until it is fixed. |
+| `spaced-out-vacuum-pocket` | Five cells of hydrogen (0.1128 kg at 319 K) at the edge of a 30 × 10 vacuum: the owner keeps running, the hydrogen is conserved and the ledgers close. Placed without sliding at the natural hydrogen pocket beside the printing pod (13 cells, as in the flow-solver fault found there, fixed in `5a4155d`); it asserts that pocket exists and that the owner keeps running. |
 | `spaced-out-intakes` | A mixed gas pipe feeds an enclosed telescope and a lead suit locker (oxygen kept, the carbon dioxide dumped into the owner); a mixed liquid pipe feeds a decontamination shower, which keeps both. |
 | `spaced-out-dehydrator` | A food dehydrator's byproduct water, dropped as when emptied, falls into owned cells. |
 | `spaced-out-critters` | Spaced Out!: a Beeta in carbon dioxide falls asleep and its element consumer takes the gas from the owner (receipts equal the owner's loss); a gas Staterpillar absorbs the arena's carbon dioxide into its storage and its connector pushes it through a pipe to a vent, and a liquid Staterpillar does the same with a pool's water; owner, pipe, creature and vent keep every kilogram. |

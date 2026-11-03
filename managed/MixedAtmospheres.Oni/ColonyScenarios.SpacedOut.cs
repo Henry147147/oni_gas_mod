@@ -236,8 +236,11 @@ namespace MixedAtmospheres.Oni
                     item.GetComponent<PrimaryElement>().Temperature = 3100;
                 recorded["stored"] = storages.Sum(st => (double)st.MassStored());
             }
+            // Trace every comet of the meltdown (mass at first sight, last position) to account for where it lands.
+            if (frame >= 106 && frame <= 420) SoMeltdownTrace();
             if (Once(420, "check"))
             {
+                SoMeltdownReport();
                 var waste = SiteSpecies(SimHashes.NuclearWaste);
                 var melted = 10 + recorded["stored"]; var fallout = SiteSpecies(SimHashes.Fallout); var debris = SiteDebris(SimHashes.NuclearWaste) + SiteDebris(SimHashes.Corium);
                 // The comets of corium it throws land as solid corium tiles.
@@ -251,6 +254,61 @@ namespace MixedAtmospheres.Oni
                 LedgersClosed("meltdown");
                 Finish();
             }
+        }
+
+        private sealed class MeltComet { public string Prefab = ""; public SimHashes Element; public float Mass, Temperature; public int LastCell; public int FirstFrame; }
+        private static readonly Dictionary<int, MeltComet> meltComets = new Dictionary<int, MeltComet>();
+        private static void SoMeltdownTrace()
+        {
+            foreach (var c in UnityEngine.Object.FindObjectsByType<Comet>(UnityEngine.FindObjectsSortMode.None))
+            {
+                var id = c.GetInstanceID(); var cell = Grid.PosToCell(c.transform.GetPosition());
+                if (!meltComets.TryGetValue(id, out var m))
+                {
+                    var pe = c.GetComponent<PrimaryElement>();
+                    meltComets[id] = m = new MeltComet { Prefab = c.GetComponent<KPrefabID>().PrefabTag.Name, Element = pe != null ? pe.ElementID : SimHashes.Vacuum, Mass = pe != null ? pe.Mass : -1, Temperature = pe != null ? pe.Temperature : 0, FirstFrame = ColonyFrame() };
+                }
+                m.LastCell = cell;
+            }
+        }
+        // Where the mass of the meltdown ended: comets by landing place, solid tiles of corium and debris of waste and corium anywhere near.
+        private static void SoMeltdownReport()
+        {
+            var inside = 0.0; var outside = 0.0; var inN = 0; var outN = 0; var lines = new List<string>();
+            foreach (var m in meltComets.Values)
+            {
+                Grid.CellToXY(m.LastCell, out var cx, out var cy);
+                var site = cx >= x0 && cx < x0 + fillWidth && cy >= y0 && cy < y0 + fillHeight;
+                if (site) { inside += m.Mass; ++inN; } else { outside += m.Mass; ++outN; }
+            }
+            var byPrefab = string.Join(", ", meltComets.Values.GroupBy(m => m.Prefab + "/" + m.Element).Select(g => $"{g.Key} x{g.Count()} {g.Sum(m => m.Mass):G5} kg (each {g.Average(m => m.Mass):G4})"));
+            var xs = meltComets.Values.Select(m => { Grid.CellToXY(m.LastCell, out var cx, out var cy); return (cx - x0, cy - y0); }).ToList();
+            var landing = xs.Count == 0 ? "none" : $"x {xs.Min(p => p.Item1)}..{xs.Max(p => p.Item1)}, y {xs.Min(p => p.Item2)}..{xs.Max(p => p.Item2)} relative to the site";
+            Record("meltdown comet trace (information)", true, $"{meltComets.Count} comets seen, {inN} last seen in the site ({inside:G5} kg) and {outN} outside ({outside:G5} kg); {byPrefab}; last positions {landing}");
+            // Solid corium and waste cells in a wide window around the site.
+            double siteSolid = 0, nearSolid = 0; var cells = new List<string>();
+            for (var y = y0 - 5; y < y0 + fillHeight + 80; ++y) for (var x = x0 - 30; x < x0 + fillWidth + 30; ++x)
+            {
+                var c = Grid.XYToCell(x, y); if (!Grid.IsValidCell(c)) continue;
+                var id = Grid.Element[c].id; if (id != SimHashes.Corium && id != SimHashes.NuclearWaste && id != SimHashes.Fallout) continue;
+                var inSite = x >= x0 && x < x0 + fillWidth && y >= y0 && y < y0 + fillHeight;
+                if (Grid.Solid[c]) { if (inSite) siteSolid += Grid.Mass[c]; nearSolid += Grid.Mass[c]; if (cells.Count < 12) cells.Add($"({x - x0},{y - y0}) {id} {Grid.Mass[c]:G4} kg {Grid.Temperature[c]:F0} K"); }
+            }
+            double debrisAll = 0; var debrisBy = new Dictionary<string, (int n, double kg)>();
+            foreach (var item in Components.Pickupables.Items)
+            {
+                if (item == null || item.wasAbsorbed) continue;
+                var pe = item.GetComponent<PrimaryElement>(); if (pe == null) continue;
+                if (pe.ElementID != SimHashes.Corium && pe.ElementID != SimHashes.NuclearWaste) continue;
+                Grid.CellToXY(Grid.PosToCell(item), out var ix, out var iy);
+                var key = (ix >= x0 && ix < x0 + fillWidth && iy >= y0 && iy < y0 + fillHeight ? "site " : "elsewhere ") + pe.ElementID;
+                debrisBy.TryGetValue(key, out var v); debrisBy[key] = (v.n + 1, v.kg + pe.Mass); debrisAll += pe.Mass;
+            }
+            Record("meltdown solid and debris trace (information)", true,
+                $"solid corium/waste/fallout tiles in the window: {siteSolid:G5} kg in the site, {nearSolid:G5} kg in all [{string.Join("; ", cells)}]; debris {string.Join(", ", debrisBy.Select(e => $"{e.Key} x{e.Value.n} {e.Value.kg:G5} kg"))}");
+            var prefab = Assets.GetPrefab(NuclearWasteCometConfig.ID).GetComponent<Comet>();
+            Record("meltdown comet prefab fields (information)", true, string.Join(", ", typeof(Comet).GetFields(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)
+                .Where(f => f.FieldType.IsPrimitive || f.FieldType.IsEnum || f.FieldType == typeof(Vector2)).Select(f => $"{f.Name}={f.GetValue(prefab)}")));
         }
 
         // ---- cluster rocket engines
@@ -711,10 +769,22 @@ namespace MixedAtmospheres.Oni
         // until the flow solver's vacuum expansion of light gas is fixed.
         private static void SoVacuumPocket(int frame)
         {
-            if (Once(0, "vacuum arena")) { RequireSpacedOut(); Arena((x, y) => y == 0 ? (SimHashes.Granite, 1000f, 300f) : (SimHashes.Vacuum, 0f, 0f), 30, 10); }
+            if (Once(0, "vacuum arena"))
+            {
+                RequireSpacedOut();
+                // Closing the border of an arena beside a natural hydrogen pocket displaces the gas into the arena,
+                // which is still vacuum: place the 30 x 10 arena where that happens (the first anchor to the right of
+                // the printing pod with natural hydrogen at its border) and never slide it away.
+                const int w = 30, h = 10;
+                var found = NaturalHydrogen(w, h);
+                for (var shift = 0; found == 0 && shift < 70 && x0 + w + 3 < Grid.WidthInCells; ++shift) { ++x0; ++pendingShift; found = NaturalHydrogen(w, h); }
+                recorded["natural"] = found;
+                Arena((x, y) => y == 0 ? (SimHashes.Granite, 1000f, 300f) : (SimHashes.Vacuum, 0f, 0f), w, h, slide: false);
+                Record("the arena closes over a natural hydrogen pocket", found > 0, $"{found} cells of natural hydrogen within two cells of the arena at {x0},{y0}");
+            }
             if (Once(6, "hydrogen pocket"))
             {
-                recorded["mass"] = ArenaSpecies(SimHashes.Hydrogen);
+                recorded["mass"] = Enumerable.Range(0, 30).Sum(x => Enumerable.Range(0, 10).Sum(y => SpeciesMass(Cell(x, y), SimHashes.Hydrogen)));
                 for (var y = 1; y <= 5; ++y)
                     SimMessages.AddRemoveSubstance(Cell(29, y), SimHashes.Hydrogen, CellEventLogger.Instance.OxygenModifierSimUpdate, .1128f, 319, byte.MaxValue, 0);
             }
@@ -722,7 +792,7 @@ namespace MixedAtmospheres.Oni
             {
                 var kept = Enumerable.Range(0, 30).Sum(x => Enumerable.Range(0, 10).Sum(y => SpeciesMass(Cell(x, y), SimHashes.Hydrogen)));
                 Record("the owner keeps running as the hydrogen expands into vacuum", ColonyOwner.Status.State == 1, $"owner state {ColonyOwner.Status.State}; {ColonyOwner.Status.Error}");
-                Record("the expanding hydrogen is conserved", Math.Abs(kept - 5 * .1128) < 1e-4, $"{kept:R} of {5 * .1128:R} kg");
+                Record("the expanding hydrogen is conserved", Math.Abs(kept - recorded["mass"] - 5 * .1128) < 1e-4, $"{kept:R} kg of {recorded["mass"]:R} kg already there plus {5 * .1128:R} kg added");
                 LedgersClosed("vacuum pocket");
                 Finish();
             }
