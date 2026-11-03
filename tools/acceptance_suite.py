@@ -9,7 +9,8 @@ Tiers (user decision 2026-10-26):
 - ``release``: everything in ``quick`` plus the 30,000-frame ten-cycle run on
   the same frozen save.
 
-The pushed revision must already be the clean main checkout on branch ``main``.
+The pushed revision must already be checked out, clean, in the runner checkout: the main checkout
+or any worktree, at a HEAD that is on ``origin/main``.
 The suite verifies it before builds and games and never checks out a revision,
 creates another worktree or changes the shared ``local`` directory. Packages
 are built from that checkout. Each game goes through
@@ -322,11 +323,14 @@ def package_hashes(package: Path, manifest: dict) -> dict:
 
 
 def verify_source(layout: Layout, revision: str) -> None:
-    if (layout.source.resolve() != common_root().resolve()
-            or git("branch", "--show-current", cwd=layout.source) != "main"):
-        raise Refused("Acceptance runs require the main checkout on branch main")
+    """The runner checkout may be the main checkout or any worktree, if it is clean and exactly at the
+    accepted revision, which must already be on origin/main (inspection only: nothing is checked out)."""
     if git("rev-parse", "HEAD", cwd=layout.source) != revision:
         raise Refused("The runner checkout is not at the accepted revision")
+    try:
+        git("merge-base", "--is-ancestor", "HEAD", "origin/main", cwd=layout.source)
+    except subprocess.CalledProcessError:
+        raise Refused("The runner checkout's HEAD is not on origin/main") from None
     if git("status", "--porcelain", cwd=layout.source):
         raise Refused("The runner checkout must stay clean")
 

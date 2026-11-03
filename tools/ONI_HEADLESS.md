@@ -475,6 +475,8 @@ negative/non-finite-pressure counts must each be 0, and the swept-volume
 refinement count is recorded in the step details (it replaced
 `zero_rejected_attempts`, delegated decision 2026-11-03).
 
+The runner checkout is the checkout the command runs in: the main checkout or any worktree, clean and at exactly the pushed revision, which must be on `origin/main` (nothing is checked out or changed in it).
+
 Outputs go to `artifacts/acceptance/<short>/runs/<tag>/` (default tag
 `<tier>-vN`, the next free number) and are never reused; one
 `summary.json` records every step's checks and `tier_passed`. The frozen save

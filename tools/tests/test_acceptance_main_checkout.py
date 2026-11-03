@@ -1,4 +1,4 @@
-"""Acceptance must inspect main without changing checkouts, saves or locks."""
+"""Acceptance must inspect the runner checkout without changing checkouts, saves or locks."""
 from pathlib import Path
 import sys
 import tempfile
@@ -25,17 +25,18 @@ class MainCheckoutTests(unittest.TestCase):
         self.addCleanup(self.root_patch.stop)
         self.layout = suite.Layout(self.root / "artifacts", "test")
 
-    def inspect(self, branch="main", revision=REVISION, dirty="", source=None):
+    def inspect(self, revision=REVISION, dirty="", on_origin=True, source=None):
         def git(*arguments, **kwargs):
-            if arguments == ("branch", "--show-current"):
-                return branch
             if arguments == ("rev-parse", "HEAD"):
                 return revision
+            if arguments == ("merge-base", "--is-ancestor", "HEAD", "origin/main"):
+                if not on_origin:
+                    raise suite.subprocess.CalledProcessError(1, "git")
+                return ""
             if arguments == ("status", "--porcelain"):
                 return dirty
             raise AssertionError(arguments)
-        with mock.patch.object(suite, "common_root", return_value=self.root), \
-                mock.patch.object(suite, "git", side_effect=git), \
+        with mock.patch.object(suite, "git", side_effect=git), \
                 mock.patch.object(suite.subprocess, "run") as mutate:
             try:
                 suite.prepare_source(source or self.layout, REVISION)
@@ -44,24 +45,22 @@ class MainCheckoutTests(unittest.TestCase):
                 self.assertFalse(self.local.is_symlink())
                 self.assertEqual((self.local / "sentinel").read_bytes(), b"preserve saves and locks")
 
-    def test_clean_main_is_used_without_worktree_or_local_mutation(self):
+    def test_clean_checkout_at_origin_main_is_used_without_worktree_or_local_mutation(self):
         self.assertEqual(self.layout.source, self.root)
         self.inspect()
         self.assertFalse(self.layout.base.exists())
 
-    def test_wrong_branch_revision_or_dirty_main_refuses_without_mutation(self):
+    def test_any_worktree_is_accepted_whatever_its_branch(self):
+        # A detached worktree is not the main checkout: only revision, origin/main and cleanliness matter.
+        self.inspect(source=SimpleNamespace(source=self.root / "worktrees" / "saveload"))
+
+    def test_wrong_revision_unpushed_head_or_local_changes_refuse_without_mutation(self):
         for values in [
-            {"branch": "feature"}, {"branch": ""},
-            {"revision": "b" * 40}, {"dirty": " M native/src/mac_game_kernel.cpp"},
+            {"revision": "b" * 40}, {"on_origin": False},
+            {"dirty": " M native/src/mac_game_kernel.cpp"}, {"dirty": "?? scratch.txt"},
         ]:
             with self.subTest(values=values), self.assertRaises(suite.Refused):
                 self.inspect(**values)
-
-    def test_other_checkout_is_refused_even_with_same_revision_and_branch(self):
-        other = self.root / "other-checkout"
-        other.mkdir()
-        with self.assertRaises(suite.Refused):
-            self.inspect(source=SimpleNamespace(source=other))
 
 
 if __name__ == "__main__":
