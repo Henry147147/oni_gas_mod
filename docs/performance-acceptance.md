@@ -1,5 +1,34 @@
 # Performance acceptance measurements
 
+## Copy-on-write cells and owner reuse, 2026-11-03
+
+Exact changes on main `29b49c4`..`61f6f16` (all 88 `ma_mac_*` programs
+identical from clean builds, checkpoint bytes unchanged): cells in shared
+copy-on-write chunks of 1024 with chunk serials and cell stamps
+(`mac_cell_store.hpp`); flow rebuilds and converts only changed cells and
+hands its state on; the projection reuses unchanged blocks and cells; the
+prepared copy pre-copies the last frame's heat chunks; registries, flow-built
+masses and the radiation field are shared instead of copied. Profile 11,
+Linux harness, RTX 5090 display, speed 3; steady = the 150-frame windows after
+the first (which holds the start-up hitch):
+
+| Run | Owner ms (before → now) | Steady game/real by window | Whole run |
+| --- | --- | --- | --- |
+| Pinned V9 Spaced Out! world, 600 frames (×2) | 41 → 26-31 | 3.000 2.994 2.991; 2.810 3.156 2.999 | 2.898, 2.873 |
+| Base world, new colony, 600 frames (×2) | 15-18 | 3.001 3.000 3.000; 3.001 3.001 2.998 | 2.955, 2.952 |
+| Cycle-2 base save (`base-cycle2.sav`, profile 10), frames 2903-3418 | 30 → 22-30 | 2.973 2.881 3.088 3.013 (was 2.749) | 2.816 |
+| Frozen save `base-defaults-p11-v1`, 660 frames | 17-18 | 3.000 3.010 3.000 | 2.822 |
+
+The pinned world's stages at frame 500 went: flow 28.8 → 15.8 ms (world-dump
+replay 21-22 → 12.5 ms, byte-identical image), heat 7.5 → 1.9 (chunk copies
+moved to idle time), projection 7.1 → 2.5, germ evolution 4.5 → 1.7. Steady
+windows sit at the speed-3 cap; the remaining time per 200 ms tick is the game
+thread (`MA_COLONY_NATIVE_WAIT_LOG=1`: write_shadow 1.4, UpdateData 8.0,
+capture_shadow 1.2, copy_to_game 4.0 ms) plus the owner frame, which the
+pacing holds the next tick for. Refused flow trials (swept-volume
+refinements) cost 1.0 ms over 600 frames on the pinned world (74 trials,
+stage log `run refinements`): not a measurable target there.
+
 ## Rejected attempts of the game kernel (2026-11-03)
 
 **What they are.** For game profiles 9-11 `rejected_attempts` is not a failed
