@@ -1,4 +1,5 @@
 import importlib.util
+import os
 from pathlib import Path
 import tempfile
 import unittest
@@ -31,6 +32,23 @@ def native_pe():
     struct.pack_into("<IIII", data, 152 + 240 + 8, 512, 4096, 512, 512)
     struct.pack_into("<I", data, 512 + 20, 1)
     return bytes(data)
+
+
+class StaleManagedTests(unittest.TestCase):
+    def test_sources_newer_than_the_built_adapter_are_found(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory); (root / "bin/Release").mkdir(parents=True); (root / "obj").mkdir()
+            dll = root / "bin/Release/Adapter.dll"; dll.write_bytes(b"x")
+            old, new, ignored, build = root / "Old.cs", root / "New.cs", root / "obj/Gen.cs", root / "bin/Release/Built.cs"
+            for path in (old, new, ignored, build):
+                path.write_text("//")
+            stamp = dll.stat().st_mtime_ns
+            os.utime(old, ns=(stamp - 10**9, stamp - 10**9))
+            for path in (new, ignored, build):
+                os.utime(path, ns=(stamp + 10**9, stamp + 10**9))
+            self.assertEqual(PACKAGE.stale_managed_sources(dll, [root]), [new])
+            os.utime(new, ns=(stamp - 10**9, stamp - 10**9))
+            self.assertEqual(PACKAGE.stale_managed_sources(dll, [root]), [])
 
 
 class NativeSnapshotTests(unittest.TestCase):

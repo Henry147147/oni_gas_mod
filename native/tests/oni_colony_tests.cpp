@@ -1836,6 +1836,18 @@ void world_biology_control() {
     ticket = 0; run(15);
     require(checkpoint() == continued, "restored world germs did not continue byte for byte");
     stop();
+    // The disease table is registered before restore. A world-germ save is refused without it (never loaded as a
+    // germless world) and loads, byte for byte as before, once the table is back.
+    set_diseases({}, {}, 0);
+    bool refused_without_table = false;
+    try { restore(cfg, mats, image, 1); }
+    catch (const std::invalid_argument& error) { refused_without_table = std::string_view(error.what()).find("disease table") != std::string_view::npos; }
+    require(refused_without_table, "world-germ save restored without the disease table");
+    set_diseases(diseases, growth, elements);
+    restore(cfg, mats, image, 1);
+    ticket = 0; run(15);
+    require(checkpoint() == continued, "world-germ save did not restore once the disease table was registered");
+    stop();
     // Without a disease table, new colonies keep the legacy mode and version 8.
     set_diseases({}, {}, 0);
     start(cfg, mats, cells, 1); run(2);

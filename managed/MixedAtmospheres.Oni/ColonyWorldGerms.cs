@@ -57,6 +57,8 @@ namespace MixedAtmospheres.Oni
         private static extern int Biology(ref Summary summary, [Out] Account[]? accounts, uint capacity, out uint count);
 
         internal static bool Supported { get; private set; }
+        // The native world biology capability this managed code was written for.
+        internal const uint RequiredNativeVersion = 2;
         internal static string ConfigureFailure { get; private set; } = "";
         internal static long RoutedEdits { get; private set; }
 
@@ -70,7 +72,16 @@ namespace MixedAtmospheres.Oni
         {
             Supported = false; ConfigureFailure = "";
             MixtureInspection.SetCellGermReader(Describe);
-            try { if (Version() != 2) { ConfigureFailure = "native world germ capability differs"; return; } }
+            try
+            {
+                var native = Version();
+                if (native != RequiredNativeVersion)
+                {
+                    ConfigureFailure = "native world germ capability " + native + " differs from the " + RequiredNativeVersion +
+                        " this mod build needs: the managed and native files are from different builds";
+                    return;
+                }
+            }
             catch (EntryPointNotFoundException) { ConfigureFailure = "native library has no world germ evolution"; return; }
             if (Marshal.SizeOf<Disease>() != 48 || Marshal.SizeOf<Growth>() != 32 || Marshal.SizeOf<GermEdit>() != 16 ||
                 Marshal.SizeOf<Summary>() != 312 || Marshal.SizeOf<Account>() != 64)

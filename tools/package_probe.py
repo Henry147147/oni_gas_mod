@@ -109,6 +109,23 @@ def observer_build_root(observer: Path) -> Path:
     return candidates[0]
 
 
+def stale_managed_sources(dll: Path, roots: list[Path]) -> list[Path]:
+    """Managed sources (not bin/obj) modified after the built adapter DLL.
+
+    A managed DLL older than its sources can pair with a newer native library
+    that it no longer matches; for example a pre-radiation-germ adapter with the
+    capability-2 native refused every saved world-germ colony ("needs the
+    game's disease table"). The packager refuses the pair instead.
+    """
+    built = dll.stat().st_mtime_ns
+    newer = []
+    for root in roots:
+        for path in root.rglob("*"):
+            if path.suffix in (".cs", ".csproj") and not {"bin", "obj"} & set(path.relative_to(root).parts) and path.stat().st_mtime_ns > built:
+                newer.append(path)
+    return sorted(newer)
+
+
 def source_state() -> tuple[str, bool, list[str]]:
     """Return the source tree revision, dirty flag and short status at packaging time.
 
@@ -152,6 +169,8 @@ def main() -> None:
                         "(default: ONI_GAME_DIR_WINDOWS/ONI_GAME_DIR_LINUX/ONI_GAME_DIR or the team's share copy)")
     parser.add_argument("--no-game-contract", action="store_true",
                         help="Omit game-contract.json: the mod then accepts only the exact inspected 744825 assemblies")
+    parser.add_argument("--allow-stale-managed", action="store_true",
+                        help="Package a repository managed build older than its sources (the pair may mismatch the native library)")
     parser.add_argument("--private-file-protocol-validator", type=Path,
                         help="Optional normal-source Windows Mono fixture DLL; never a save/load permission")
     args = parser.parse_args()
@@ -189,6 +208,11 @@ def main() -> None:
     for file in files:
         if not file.is_file():
             parser.error(f"Build first; missing {file}")
+    if not args.allow_stale_managed and managed.is_relative_to(ROOT / "managed"):
+        newer = stale_managed_sources(files[0], [ROOT / "managed/MixedAtmospheres.Oni", ROOT / "managed/MixedAtmospheres.Core"])
+        if newer:
+            parser.error(f"The managed adapter build is older than {len(newer)} source file(s), first {newer[0].relative_to(ROOT)}: "
+                         "run `dotnet build managed/MixedAtmospheres.Oni -c Release` first")
     try:
         revision, dirty, status = source_state()
     except (OSError, subprocess.CalledProcessError) as error:

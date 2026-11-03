@@ -53,8 +53,15 @@ the whole run, 2.9–3.0× in every 150-frame window, with three duplicants
 alive. Its world drew different story traits from the 0.30× run and booked no
 open-sky mass, so it does not repeat the comet case; that case rests on the
 forced-sink measurement above and the native control. The cycle-2 save from
-`0af5dfe` no longer loads on current main ("This save evolves world germs and
-needs the game's disease table"), so it cannot be re-measured there.
+`0af5dfe` was refused on the speed packages built after `7a1f72b` ("This save
+evolves world germs and needs the game's disease table"). The cause was
+packaging, not main: those packages paired a managed DLL built before the
+radiation germ kill (it requires native world-biology capability 1) with a
+native library built after it (capability 2), so `ColonyWorldGerms.Configure`
+declined, never registered the disease table, and the germ save was refused.
+A package built from one tree (`dotnet build` of the managed adapter, then
+`package_probe.py`) loads the save on `9276f92`; rebuild the managed adapter
+before packaging. The restore error now names the unavailable germ rules.
 
 Profile 9 against 10 in game (same `09b5e60` package, `MA_COLONY_KERNEL3_PROFILE9=1`
 for 9, 600 fresh frames, WHOLE; worlds draw different story traits per run):

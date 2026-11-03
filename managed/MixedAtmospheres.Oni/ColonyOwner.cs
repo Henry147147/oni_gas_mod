@@ -308,7 +308,12 @@ namespace MixedAtmospheres.Oni
             publicationCells=ColonyPublicationMap.Create(Grid.WidthInCells,Grid.HeightInCells,x0,y0,width,height);
             ColonyWorldGerms.Configure(); ColonyRadiationGerms.Configure();
             var output = OniNativeColony.Status.Empty;
-            OniNativeColony.Check(OniNativeColony.Restore(ref config, materials, (uint)materials.Length, image, (uint)image.Length, ref output));
+            try { OniNativeColony.Check(OniNativeColony.Restore(ref config, materials, (uint)materials.Length, image, (uint)image.Length, ref output)); }
+            catch (InvalidOperationException error) when (!ColonyWorldGerms.Supported && ColonyWorldGerms.ConfigureFailure.Length != 0)
+            {
+                // A save that evolves world germs needs the disease table; say why it is missing.
+                throw new InvalidOperationException(error.Message + " (world germ rules unavailable: " + ColonyWorldGerms.ConfigureFailure + ")", error);
+            }
             ModSettingsRuntime.Restored(); // the settings this colony recorded (docs/settings.md)
             status = output; views = new OniNativeColony.CellView[width * height]; considered = true; Active = true; ColonyActivity.Started(config.Flags, status.Session); ColonyPacingDriver.Ensure(); ConfigurePresentation();
             ColonyClusterWorlds.Initialize(DlcManager.IsExpansion1Active()?CaptureWorldLayout():null);
