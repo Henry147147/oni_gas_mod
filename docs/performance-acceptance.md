@@ -78,6 +78,19 @@ cap, owner 27 / 29 ms). The same Spaced Out! runs reached 2.36–2.38× on the
 cost Spaced Out! roughly 10–15%; the per-stage log puts the extra time in the
 first-edit stages and the transfers/activity bucket, not in flow alone.
 
+**Flow profile on the pinned world** (owner dump before frame 450, 223,744
+grid cells, 50,879 fluid, profile 10; `ma_colony_benchmark --world-dump`, 12
+workers on the high cores, 12 frames, 2 warm-up; final image hash unchanged
+in every variant): flow 22–28 ms per frame, of which sparse conversion
+4.0–4.8 ms, the region ticks 6.7–8.4 ms and the dense rebuild 7.7–10.5 ms.
+Only about 700 cells are rebuilt per frame; the dense step still constructs all
+223,744 cells (setup 3–12 ms, copy loop 3.5–9 ms), and the ticks' own stages sum
+to about 2.8 ms. Building dense cells on the pool, constructing them in place,
+pre-sizing the regional merge, and glibc mmap/trim thresholds each stayed
+within the ±2 ms run-to-run spread (trim threshold alone doubled flow time);
+none is adopted. Most of the remaining flow time is format conversion between
+the owner's per-cell world and the kernel's sparse fields.
+
 Reusing unchanged 1,024-cell projection blocks keeps every view, reading and
 checkpoint byte (native control) but finds almost no unchanged block in fresh
 Spaced Out! (projection 7.2–7.5 ms either way); not adopted.
