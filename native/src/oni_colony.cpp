@@ -2076,43 +2076,54 @@ void write_shadow(const NativeCells& n) noexcept {
         }
     }
     try { shadow.assign(owned_count, ShadowCell{}); solid_displacements.clear(); } catch (...) { return; }
-    std::vector<MAOniColonyTerrain> closes;
-    for (std::size_t i = 0; i < owned_count; ++i) {
-        const std::size_t c = (geometry.offset_x + i % geometry.width + 1) + (geometry.offset_y + i / geometry.width + 1) * static_cast<std::size_t>(n.pitch);
-        const auto present = n.element[0][c];
-        shadow[i].before = present;
-        if(retiring[i].load(std::memory_order_relaxed)==2) {
-            for(int b=0;b<2;++b) {
-                n.element[b][c]=static_cast<std::uint16_t>(vacuum);n.mass[b][c]=n.temperature[b][c]=0;
-                if(n.disease[b]&&n.disease_count[b]){n.disease[b][c]=255;n.disease_count[b][c]=0;}
+    // Cells are independent: blocks run in parallel and their closes join in
+    // cell order, so the queued terrain is the same as a serial pass.
+    constexpr std::size_t block_size = 4096;
+    const auto blocks = (owned_count + block_size - 1) / block_size;
+    std::vector<std::vector<MAOniColonyTerrain>> block_closes;
+    try { block_closes.resize(blocks); } catch (...) { return; }
+    const auto options = mac_kernel_default_options();
+    const auto threads = static_cast<unsigned>(std::max<std::size_t>(1, std::min<std::size_t>(options.threads, blocks)));
+    mac_kernel::pool_for(threads).run(blocks, [&](std::size_t block) {
+      for (std::size_t i = block * block_size; i < std::min(owned_count, (block + 1) * block_size); ++i) {
+            const std::size_t c = (geometry.offset_x + i % geometry.width + 1) + (geometry.offset_y + i / geometry.width + 1) * static_cast<std::size_t>(n.pitch);
+            const auto present = n.element[0][c];
+            shadow[i].before = present;
+            if(retiring[i].load(std::memory_order_relaxed)==2) {
+                for(int b=0;b<2;++b) {
+                    n.element[b][c]=static_cast<std::uint16_t>(vacuum);n.mass[b][c]=n.temperature[b][c]=0;
+                    if(n.disease[b]&&n.disease_count[b]){n.disease[b][c]=255;n.disease_count[b][c]=0;}
+                }
+                continue;
             }
-            continue;
-        }
-        if (owned[i].load(std::memory_order_relaxed) != 1) continue;
-        // A solid native placed in an owned cell (landing sand, a tile) stays
-        // native, and the owner closes the cell at its next step.
-        if (present != vacuum && !cat.has_native(present)) {
-            std::uint8_t open = 1;
-            if (owned[i].compare_exchange_strong(open, 2, std::memory_order_relaxed))
-                closes.push_back({static_cast<std::uint32_t>((geometry.offset_x + i % geometry.width) + (geometry.offset_y + i / geometry.width) * geometry.grid_width), MA_ONI_COLONY_CLOSE});
-            continue;
-        }
-        // A trace (under a milligram) is vacuum to ONI's native code: its heat
-        // exchange would give so little mass extreme temperatures. The owner
-        // keeps it; readers use the owner's own view.
-        const auto& v = p->views[i]; const bool empty = !(v.mass_kg >= 1e-6f);
-        auto& sh = shadow[i];
-        sh.element = static_cast<std::uint16_t>(empty ? vacuum : v.element_index); sh.written = true;
-        sh.mass = empty ? 0.f : v.mass_kg; sh.temperature = empty ? 0.f : v.temperature_k;
-        for (int b = 0; b < 2; ++b) { n.element[b][c] = sh.element; n.mass[b][c] = sh.mass; n.temperature[b][c] = sh.temperature; }
-        if (n.disease[0] && n.disease[1] && n.disease_count[0] && n.disease_count[1]) {
-            // The owner evolves world germs itself (mode 1): native code sees
-            // none, so only its emitters add germs to the shadow.
-            sh.germ = empty || biology_mode.load(std::memory_order_relaxed) == 1 ? 0 : v.disease; sh.germs = sh.germ ? v.disease_count : 0;
-            const auto idx = static_cast<std::uint8_t>(sh.germ ? sh.germ - 1 : 255);
-            for (int b = 0; b < 2; ++b) { n.disease[b][c] = idx; n.disease_count[b][c] = sh.germs; }
-        }
-    }
+            if (owned[i].load(std::memory_order_relaxed) != 1) continue;
+            // A solid native placed in an owned cell (landing sand, a tile) stays
+            // native, and the owner closes the cell at its next step.
+            if (present != vacuum && !cat.has_native(present)) {
+                std::uint8_t open = 1;
+                if (owned[i].compare_exchange_strong(open, 2, std::memory_order_relaxed))
+                    block_closes[block].push_back({static_cast<std::uint32_t>((geometry.offset_x + i % geometry.width) + (geometry.offset_y + i / geometry.width) * geometry.grid_width), MA_ONI_COLONY_CLOSE});
+                continue;
+            }
+            // A trace (under a milligram) is vacuum to ONI's native code: its heat
+            // exchange would give so little mass extreme temperatures. The owner
+            // keeps it; readers use the owner's own view.
+            const auto& v = p->views[i]; const bool empty = !(v.mass_kg >= 1e-6f);
+            auto& sh = shadow[i];
+            sh.element = static_cast<std::uint16_t>(empty ? vacuum : v.element_index); sh.written = true;
+            sh.mass = empty ? 0.f : v.mass_kg; sh.temperature = empty ? 0.f : v.temperature_k;
+            for (int b = 0; b < 2; ++b) { n.element[b][c] = sh.element; n.mass[b][c] = sh.mass; n.temperature[b][c] = sh.temperature; }
+            if (n.disease[0] && n.disease[1] && n.disease_count[0] && n.disease_count[1]) {
+                // The owner evolves world germs itself (mode 1): native code sees
+                // none, so only its emitters add germs to the shadow.
+                sh.germ = empty || biology_mode.load(std::memory_order_relaxed) == 1 ? 0 : v.disease; sh.germs = sh.germ ? v.disease_count : 0;
+                const auto idx = static_cast<std::uint8_t>(sh.germ ? sh.germ - 1 : 255);
+                for (int b = 0; b < 2; ++b) { n.disease[b][c] = idx; n.disease_count[b][c] = sh.germs; }
+            }
+      }
+    });
+    std::vector<MAOniColonyTerrain> closes;
+    for (auto& part : block_closes) closes.insert(closes.end(), part.begin(), part.end());
     if (!closes.empty()) {
         std::lock_guard q(inputs);
         try {
