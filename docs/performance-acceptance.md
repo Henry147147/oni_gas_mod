@@ -39,7 +39,10 @@ The 0.063× late window of the normal-reserve base control has two causes.
    after-flow sink only (`MA_COLONY_SPACE_PRESINK=1` forces it for diagnostics).
    On main with that change the same cycle-2 save (profile 9) loads and runs
    frames 2753–2816 at 1.773× including its load frame (owner 34.7 ms, interval
-   70.6 ms), against about 0.3× without it.
+   70.6 ms), against about 0.3× without it. Excluding the load window, the
+   steady state over frames 2903–3419 (516 frames, 103.5 game seconds, main at
+   `868d0d5`) is **2.749×**; one 150-frame window drops to 2.27× (flow 34.6 ms),
+   the others run 2.92–3.12×.
 
 **Spaced Out! (fresh, 600 frames, WHOLE):** the narrowed fence changes nothing
 here (2.232× → 2.209×; owner 44–50 ms). Per owner frame the critical path is
