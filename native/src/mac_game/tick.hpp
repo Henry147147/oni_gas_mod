@@ -21,6 +21,13 @@ struct TickResult {
   std::size_t pressure_iterations = 0, pressure_corrections = 0;
   std::size_t pressure_attempts = 0, pressure_refinements = 0,
               flow_substeps = 0;
+  // Execution diagnostic: time in flow trials a pressure refinement refused.
+  double refused_trial_ms = 0;
+  // Execution diagnostics of a regional tick (wall ms): planning, the two
+  // audit captures, the region runs, merging their results, and rebuilding
+  // the sparse cell lists.
+  double regional_setup_ms = 0, regional_capture_ms = 0, regional_run_ms = 0,
+         regional_merge_ms = 0, regional_rebuild_ms = 0;
   std::vector<double> sink_species, conversion_species;
   std::vector<std::pair<std::uint64_t, double>> sink_passive_quantities;
   double sink_internal = 0, sink_kinetic = 0, sink_potential = 0, sink_px = 0,
@@ -247,6 +254,7 @@ public:
           if (bounded_pressure_volume && out.pressure_attempts >= pressure_budget)
             throw std::runtime_error("Game interval exceeds its pressure attempt budget");
           ++out.pressure_attempts;
+          const auto trial_start = std::chrono::steady_clock::now();
           advanced = flow.advance(out.state, trial, gravity, &regions,
                                   liquid_blocked.empty() ? nullptr : &boundary,
                                   std::move(out.eos));
@@ -255,6 +263,7 @@ public:
           if (reject_log::level())
             reject_log::record(advanced.reject_reason, advanced.reject_cell, advanced.pressure_volume_change / .4, trial);
           ++out.pressure_refinements;
+          out.refused_trial_ms += ms(trial_start);
           out.pressure_ms += advanced.pressure_ms;
           out.eos_ms += advanced.eos_ms;
           out.pressure_iterations += advanced.pressure_iterations;

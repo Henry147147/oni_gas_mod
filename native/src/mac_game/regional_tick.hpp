@@ -129,7 +129,25 @@ public:
   TickResult advance(const State& initial,double dt,double gravity,double threshold,
                      std::span<const std::uint8_t> blocked={},std::size_t budget=65536,
                      std::span<const double> due={}) {
+    return advance_impl(initial,nullptr,nullptr,dt,gravity,threshold,blocked,budget,due);
+  }
+  // advance() that takes `initial` (its energy and face momenta become the
+  // result's) and writes the readings of the cells it steps into `readings`
+  // (one per cell) instead of returning a whole-grid eos. Other cells'
+  // readings are left as they are. Values are advance()'s.
+  TickResult advance_into(State&& initial,std::vector<Eos>& readings,double dt,double gravity,double threshold,
+                          std::span<const std::uint8_t> blocked={},std::size_t budget=65536,
+                          std::span<const double> due={}) {
+    if(readings.size()!=grid.N)throw std::invalid_argument("Game readings coverage differs");
+    return advance_impl(initial,&initial,&readings,dt,gravity,threshold,blocked,budget,due);
+  }
+private:
+  TickResult advance_impl(const State& initial,State* consumed,std::vector<Eos>* readings,double dt,double gravity,double threshold,
+                          std::span<const std::uint8_t> blocked,std::size_t budget,std::span<const double> due) {
     if(!due.empty() && due.size()!=grid.N)throw std::invalid_argument("Game activity step coverage differs");
+    auto mark=std::chrono::steady_clock::now();
+    const auto lap=[&mark]{const auto now=std::chrono::steady_clock::now();const double ms=std::chrono::duration<double,std::milli>(now-mark).count();mark=now;return ms;};
+    double setup_ms=0,capture_ms=0,run_ms=0,merge_ms=0,rebuild_ms=0;
     std::vector<double> steps(regions.size(),dt);
     for(std::size_t id=0;id<regions.size();++id) {
       const auto& r=regions[id];
@@ -157,8 +175,10 @@ public:
       }
     }
     attempt_depth=refinement_depth=0;
+    setup_ms=lap();
     RegionAudit audit(grid,topology,species_count);Totals before;
     audit.capture(initial,gravity,1,&before,&pool);
+    capture_ms=lap();
     std::vector<TickResult> results(regions.size());std::vector<std::exception_ptr> errors(regions.size());
     std::vector<double> region_ms(regions.size());
     const auto run_region=[&](std::size_t id) {
@@ -190,8 +210,16 @@ public:
         residual_pool->run(regions.size()-1,[&](std::size_t block){run_region(block<selected?block:block+1);});
       });
     } else pool.run(regions.size(),run_region);
+    run_ms=lap();
     for(const auto& error:errors)if(error)std::rethrow_exception(error);
-    TickResult out;out.state.energy=initial.energy;out.state.jx=initial.jx;out.state.jy=initial.jy;out.eos.resize(grid.N);
+    // The region runs have read `initial`; a consumed state's energy and face
+    // momenta become the result's, and the rebuild below reads only its
+    // masses and passives.
+    TickResult out;
+    if(consumed) {out.state.energy=std::move(consumed->energy);out.state.jx=std::move(consumed->jx);out.state.jy=std::move(consumed->jy);}
+    else {out.state.energy=initial.energy;out.state.jx=initial.jx;out.state.jy=initial.jy;}
+    if(!readings)out.eos.resize(grid.N);
+    auto& eos=readings?*readings:out.eos;
     std::vector<DoubleDouble> sinks(species_count),conversion(species_count);
     std::map<std::uint64_t,DoubleDouble> passive_sinks;
     DoubleDouble sink_u,sink_k,sink_g,sink_x,sink_y,wall_x,wall_y,body_y;
@@ -221,7 +249,7 @@ public:
       MA_REGIONAL_SUM(flow_ms);MA_REGIONAL_SUM(heat_ms);MA_REGIONAL_SUM(phase_ms);MA_REGIONAL_SUM(trace_audit_ms);
       MA_REGIONAL_SUM(interface_ms);MA_REGIONAL_SUM(layering_ms);MA_REGIONAL_SUM(pressure_ms);MA_REGIONAL_SUM(transport_ms);MA_REGIONAL_SUM(eos_ms);
       MA_REGIONAL_SUM(pressure_iterations);MA_REGIONAL_SUM(pressure_corrections);
-      MA_REGIONAL_SUM(pressure_attempts);MA_REGIONAL_SUM(pressure_refinements);
+      MA_REGIONAL_SUM(pressure_attempts);MA_REGIONAL_SUM(pressure_refinements);MA_REGIONAL_SUM(refused_trial_ms);
       MA_REGIONAL_SUM(trace_constituents);MA_REGIONAL_SUM(trace_cells);MA_REGIONAL_SUM(microevents);
       MA_REGIONAL_SUM(interface_faces);MA_REGIONAL_SUM(limited_faces);MA_REGIONAL_SUM(interface_clusters);
       MA_REGIONAL_SUM(evaporated);MA_REGIONAL_SUM(condensed);MA_REGIONAL_SUM(entropy_change);MA_REGIONAL_SUM(trace_entropy);MA_REGIONAL_SUM(phase_entropy_change);MA_REGIONAL_SUM(entropy_ms);
@@ -231,7 +259,7 @@ public:
       out.largest_interface_cluster=std::max(out.largest_interface_cluster,next.largest_interface_cluster);
       out.mass_error=std::max(out.mass_error,next.mass_error);out.passive_error=std::max(out.passive_error,next.passive_error);
       for(std::size_t i=0;i<r.box.walls.size();++i)if(!r.box.walls[i]) {
-        const auto g=global_cell(r,i);out.state.energy[g]=next.state.energy[i];out.eos[g]=next.eos[i];
+        const auto g=global_cell(r,i);out.state.energy[g]=next.state.energy[i];eos[g]=next.eos[i];
       }
       for(const bool x:{true,false}) {
         const auto& field=x?next.state.jx:next.state.jy;auto& global=x?out.state.jx:out.state.jy;
@@ -239,6 +267,11 @@ public:
         for(std::size_t f=0;f<field.size();++f) {const auto g=global_face(r,x,f);if(belongs(left[g],id)||belongs(right[g],id))global[g]=field[f];}
       }
     }
+    merge_ms=lap();
+    // Capacity only (the lists' contents are unchanged): about the initial sizes.
+    out.state.masses.offsets.reserve(grid.N+1);out.state.passives.offsets.reserve(grid.N+1);
+    out.state.masses.species.reserve(initial.masses.species.size()+64);out.state.masses.mass.reserve(initial.masses.mass.size()+64);
+    out.state.passives.species.reserve(initial.passives.species.size());out.state.passives.mass.reserve(initial.passives.mass.size());
     for(std::size_t i=0;i<grid.N;++i) {
       out.state.masses.offsets.push_back(out.state.masses.mass.size());out.state.passives.offsets.push_back(out.state.passives.mass.size());
       if(grid.wall[i])continue;
@@ -249,7 +282,9 @@ public:
       if(!state.passives.offsets.empty())for(auto a=state.passives.offsets[source_cell];a<state.passives.offsets[source_cell+1];++a) {out.state.passives.species.push_back(state.passives.species[a]);out.state.passives.mass.push_back(state.passives.mass[a]);}
     }
     out.state.masses.offsets.push_back(out.state.masses.mass.size());out.state.passives.offsets.push_back(out.state.passives.mass.size());
+    rebuild_ms=lap();
     Totals after;audit.capture(out.state,gravity,-1,&after,&pool);out.region_error=audit.finish();
+    capture_ms+=lap();
     out.sink_species.resize(species_count);out.conversion_species.resize(species_count);
     for(std::size_t key=0;key<species_count;++key) {out.sink_species[key]=sinks[key].value();out.conversion_species[key]=conversion[key].value();out.sink_kg+=out.sink_species[key];}
     for(const auto& [identity,value]:passive_sinks)out.sink_passive_quantities.emplace_back(identity,value.value());
@@ -268,7 +303,10 @@ public:
     out.energy_error=energy.operands.value()?std::abs(energy.residual.value())/energy.operands.value():0;
     out.momentum_error=std::max(mx.operands.value()?std::abs(mx.residual.value())/mx.operands.value():0,my.operands.value()?std::abs(my.residual.value())/my.operands.value():0);
     out.totals=std::move(after);out.sink_j=removed_energy.value();
-    execution_history->committed(execution_work,region_ms,execution);return out;
+    execution_history->committed(execution_work,region_ms,execution);
+    out.regional_setup_ms=setup_ms+lap();out.regional_capture_ms=capture_ms;out.regional_run_ms=run_ms;
+    out.regional_merge_ms=merge_ms;out.regional_rebuild_ms=rebuild_ms;
+    return out;
   }
 };
 } // namespace ma::experimental::game_kernel

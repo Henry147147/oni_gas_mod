@@ -3822,6 +3822,11 @@ void run_frame(std::uint64_t ticket,double seconds,std::uint64_t frames,const ch
                 line += item;
             }
             std::snprintf(item, sizeof item, "; heat %zu transfers %zu terrain %zu germs %zu", heat.size(), transfers.size(), terrain.size(), germ_edits.size()); line += item;
+            std::snprintf(item, sizeof item, "; projection reused %zu/%zu blocks and %zu cells (setup %.2f cells %.2f join %.2f)", projection.reused_blocks, projection.blocks,
+                          projection.reused_cells, projection.setup_ms, projection.cells_ms, projection.join_ms); line += item;
+            const auto& g = MacGameKernelAccess::last_stages();
+            std::snprintf(item, sizeof item, "; flow sparse %.2f tick %.2f dense %.2f (regional setup %.2f capture %.2f run %.2f merge %.2f rebuild %.2f)",
+                          g.sparse_ms, g.tick_ms, g.dense_ms, g.regional_setup_ms, g.regional_capture_ms, g.regional_run_ms, g.regional_merge_ms, g.regional_rebuild_ms); line += item;
             std::fprintf(stderr, "%s\n", line.c_str()); std::fflush(stderr);
         }
         if(activity && !flush_only)s.activity_sequence=activity->packet.sequence;

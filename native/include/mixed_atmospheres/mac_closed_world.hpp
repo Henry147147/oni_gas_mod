@@ -249,6 +249,10 @@ struct MacClosedAdvanceReport {
         double layering_ms = 0, interface_ms = 0, heat_ms = 0, phase_ms = 0, entropy_ms = 0, audit_ms = 0;
         std::size_t pressure_iterations = 0, pressure_corrections = 0;
         std::size_t pressure_attempts = 0, pressure_refinements = 0;
+        double refused_trial_ms = 0; // flow trials a pressure refinement refused
+        // Regional tick wall time: planning and audit sums, the audit
+        // captures, region runs, merging and rebuilding the sparse lists.
+        double regional_setup_ms = 0, regional_capture_ms = 0, regional_run_ms = 0, regional_merge_ms = 0, regional_rebuild_ms = 0;
     } game_stages;
     MacDiffusionReport diffusion;
     std::size_t interval_kernel_intervals = 0, interval_reference_fallbacks = 0;

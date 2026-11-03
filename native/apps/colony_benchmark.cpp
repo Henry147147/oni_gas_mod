@@ -376,7 +376,7 @@ int replay(const Options& o) {
     std::size_t fluid = 0;
     for (std::size_t i = 0; i < world.state().cells.size(); ++i)
         if (!world.state().grid.walls[i] && world.state().cells[i].mixture.mass() > 0) ++fluid;
-    std::vector<double> times, sparse, tick, eos, pressure, transport, layering, interface, heat, phase, audit, dense, iterations;
+    std::vector<double> times, sparse, tick, eos, pressure, transport, layering, interface, heat, phase, audit, dense, iterations, attempts, refinements, refused, r_setup, r_capture, r_run, r_merge, r_rebuild;
     for (std::uint32_t n = 0; n < o.frames; ++n) {
         const auto start = Clock::now();
         auto advanced = world.advanced(seconds, 65536, MacExecutionPolicy::production);
@@ -386,7 +386,10 @@ int replay(const Options& o) {
         for (const auto& [out, value] : {std::pair{&sparse, g.sparse_ms}, {&tick, g.tick_ms}, {&eos, g.eos_ms}, {&pressure, g.pressure_ms},
                                   {&transport, g.transport_ms}, {&layering, g.layering_ms}, {&interface, g.interface_ms},
                                   {&heat, g.heat_ms}, {&phase, g.phase_ms}, {&audit, g.audit_ms}, {&dense, g.dense_ms},
-                                  {&iterations, static_cast<double>(g.pressure_iterations)}})
+                                  {&iterations, static_cast<double>(g.pressure_iterations)},
+                                  {&attempts, static_cast<double>(g.pressure_attempts)}, {&refinements, static_cast<double>(g.pressure_refinements)},
+                                  {&refused, g.refused_trial_ms}, {&r_setup, g.regional_setup_ms}, {&r_capture, g.regional_capture_ms},
+                                  {&r_run, g.regional_run_ms}, {&r_merge, g.regional_merge_ms}, {&r_rebuild, g.regional_rebuild_ms}})
             out->push_back(value);
     }
     const auto warm_part = [&](const std::vector<double>& v) { return summarize(std::vector<double>(v.begin() + o.warmup, v.end())); };
@@ -404,7 +407,9 @@ int replay(const Options& o) {
         << ", \"warmup\": " << o.warmup << ", \"flow_ms\": " << json(warm) << ", \"stages_ms\": {";
     const std::pair<const char*, const std::vector<double>*> parts[] = {{"sparse", &sparse}, {"tick", &tick}, {"eos", &eos},
         {"pressure", &pressure}, {"transport", &transport}, {"layering", &layering}, {"interface", &interface}, {"heat", &heat},
-        {"phase", &phase}, {"audit_and_other", &audit}, {"dense", &dense}, {"pressure_iterations", &iterations}};
+        {"phase", &phase}, {"audit_and_other", &audit}, {"dense", &dense}, {"pressure_iterations", &iterations},
+        {"pressure_attempts", &attempts}, {"pressure_refinements", &refinements}, {"refused_trial", &refused},
+        {"regional_setup", &r_setup}, {"regional_capture", &r_capture}, {"regional_run", &r_run}, {"regional_merge", &r_merge}, {"regional_rebuild", &r_rebuild}};
     for (std::size_t n = 0; n < std::size(parts); ++n) out << (n ? ", " : "") << "\"" << parts[n].first << "\": " << json(warm_part(*parts[n].second));
     out << "}, \"final_image_fnv\": \"" << line << "\"}";
     emit(o, out.str());

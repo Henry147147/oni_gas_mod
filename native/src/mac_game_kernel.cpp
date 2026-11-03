@@ -63,6 +63,115 @@ void chunks(mac_kernel::Pool *pool, std::size_t cells,
 }
 // Dense cells to sparse fields: per-chunk counts, then each chunk fills its
 // own slices.
+// sparse()'s lists for each cell chunk, kept by chunk serial and cell stamp:
+// a chunk whose serial is unchanged, or a cell whose stamp is, holds the values
+// its lists were made from (the store is sealed when they are made), so they
+// are its lists again (mac_cell_store.hpp).
+struct SparseChunk {
+  std::uint64_t serial = 0;
+  std::vector<std::uint64_t> stamps; // per cell
+  std::vector<double> energy;
+  std::vector<std::size_t> mass_ends, passive_ends; // per cell, local
+  std::vector<std::uint32_t> species;
+  std::vector<double> mass;
+  std::vector<std::uint64_t> passive_species;
+  std::vector<double> passive_mass;
+};
+struct SparseCache { std::vector<SparseChunk> chunks; };
+static_assert(conversion_chunk == MacChunkStore<MacMaterialCell>::chunk_size,
+              "A sparse conversion chunk is one cell chunk");
+// sparse() for the game advance: chunks unchanged since the last call reuse
+// their lists; others are read once. The result is sparse()'s.
+k::State sparse_cached(const MacTransportState &state, SparseCache &cache,
+                       mac_kernel::Pool *pool) {
+  const auto N = state.cells.size();
+  require(state.full_momentum_x.empty() && state.full_momentum_y.empty(),
+          "Game kernel requires binary64 canonical momentum");
+  const auto count = (N + conversion_chunk - 1) / conversion_chunk;
+  require(state.cells.chunk_count() == count, "Game cell chunks differ");
+  std::vector<SparseChunk> next(count);
+  if (cache.chunks.size() != count) cache.chunks.assign(count, {});
+  chunks(pool, N, [&](std::size_t chunk, std::size_t first, std::size_t end) {
+    const auto serial = state.cells.chunk_serial(chunk);
+    auto &entry = next[chunk];
+    auto &old = cache.chunks[chunk];
+    if (old.serial == serial) { entry = std::move(old); return; }
+    const bool cells_known = old.serial != 0 && old.stamps.size() == end - first;
+    entry.serial = serial;
+    entry.stamps.reserve(end - first); entry.energy.reserve(end - first);
+    entry.mass_ends.reserve(end - first); entry.passive_ends.reserve(end - first);
+    for (std::size_t i = first; i < end; ++i) {
+      const auto stamp = state.cells.cell_stamp(i);
+      entry.stamps.push_back(stamp);
+      if (cells_known && old.stamps[i - first] == stamp) {
+        // An unchanged cell: its lists as they were.
+        const auto n = i - first;
+        const auto mass_from = n ? old.mass_ends[n - 1] : 0, passive_from = n ? old.passive_ends[n - 1] : 0;
+        entry.energy.push_back(old.energy[n]);
+        entry.species.insert(entry.species.end(), old.species.begin() + static_cast<std::ptrdiff_t>(mass_from),
+                             old.species.begin() + static_cast<std::ptrdiff_t>(old.mass_ends[n]));
+        entry.mass.insert(entry.mass.end(), old.mass.begin() + static_cast<std::ptrdiff_t>(mass_from),
+                          old.mass.begin() + static_cast<std::ptrdiff_t>(old.mass_ends[n]));
+        entry.mass_ends.push_back(entry.mass.size());
+        entry.passive_species.insert(entry.passive_species.end(), old.passive_species.begin() + static_cast<std::ptrdiff_t>(passive_from),
+                                     old.passive_species.begin() + static_cast<std::ptrdiff_t>(old.passive_ends[n]));
+        entry.passive_mass.insert(entry.passive_mass.end(), old.passive_mass.begin() + static_cast<std::ptrdiff_t>(passive_from),
+                                  old.passive_mass.begin() + static_cast<std::ptrdiff_t>(old.passive_ends[n]));
+        entry.passive_ends.push_back(entry.passive_mass.size());
+        continue;
+      }
+      const auto &cell = state.cells[i];
+      require(cell.energy_remainder_j.is_zero(),
+              "Game kernel requires binary64 primary energy");
+      entry.energy.push_back(cell.mixture.energy);
+      if (!cell.mixture.masses.implicit_zero()) {
+        std::uint32_t key = 0;
+        for (const double mass : static_cast<const std::vector<double> &>(cell.mixture.masses)) {
+          if (mass > 0) { entry.species.push_back(key); entry.mass.push_back(mass); }
+          ++key;
+        }
+      }
+      entry.mass_ends.push_back(entry.mass.size());
+      for (const auto &q : cell.passive_quantities) {
+        entry.passive_species.push_back(q.identity);
+        entry.passive_mass.push_back(q.quantity);
+      }
+      entry.passive_ends.push_back(entry.passive_mass.size());
+    }
+  });
+  // From here on a write to any of these chunks gives it a new serial.
+  state.cells.seal();
+  std::vector<std::size_t> mass_start(count + 1), passive_start(count + 1);
+  for (std::size_t chunk = 0; chunk < count; ++chunk) {
+    mass_start[chunk + 1] = mass_start[chunk] + next[chunk].mass.size();
+    passive_start[chunk + 1] = passive_start[chunk] + next[chunk].passive_mass.size();
+  }
+  k::State result;
+  result.energy.resize(N);
+  result.jx = state.momentum_x;
+  result.jy = state.momentum_y;
+  result.masses.offsets.resize(N + 1);
+  result.masses.species.resize(mass_start.back());
+  result.masses.mass.resize(mass_start.back());
+  result.passives.offsets.resize(N + 1);
+  result.passives.species.resize(passive_start.back());
+  result.passives.mass.resize(passive_start.back());
+  result.masses.offsets[0] = result.passives.offsets[0] = 0;
+  chunks(pool, N, [&](std::size_t chunk, std::size_t first, std::size_t end) {
+    const auto &entry = next[chunk];
+    std::copy(entry.energy.begin(), entry.energy.end(), result.energy.begin() + static_cast<std::ptrdiff_t>(first));
+    std::copy(entry.species.begin(), entry.species.end(), result.masses.species.begin() + static_cast<std::ptrdiff_t>(mass_start[chunk]));
+    std::copy(entry.mass.begin(), entry.mass.end(), result.masses.mass.begin() + static_cast<std::ptrdiff_t>(mass_start[chunk]));
+    std::copy(entry.passive_species.begin(), entry.passive_species.end(), result.passives.species.begin() + static_cast<std::ptrdiff_t>(passive_start[chunk]));
+    std::copy(entry.passive_mass.begin(), entry.passive_mass.end(), result.passives.mass.begin() + static_cast<std::ptrdiff_t>(passive_start[chunk]));
+    for (std::size_t i = first; i < end; ++i) {
+      result.masses.offsets[i + 1] = mass_start[chunk] + entry.mass_ends[i - first];
+      result.passives.offsets[i + 1] = passive_start[chunk] + entry.passive_ends[i - first];
+    }
+  });
+  cache.chunks = std::move(next);
+  return result;
+}
 k::State sparse(const MacTransportState &state, mac_kernel::Pool *pool = nullptr) {
   const auto N = state.cells.size();
   k::State result;
@@ -134,15 +243,16 @@ k::State sparse(const MacTransportState &state, mac_kernel::Pool *pool = nullptr
 // Sparse fields back to dense cells. The advance builds them serially: on
 // the pool, the cells' allocations in worker arenas made 12-thread frames
 // about 3% slower.
-MacTransportState dense(const MacTransportState &source, const k::State &state,
+// Takes `state`'s face momenta (its other fields are only read).
+MacTransportState dense(const MacTransportState &source, k::State &state,
                         std::size_t species,
                         const std::vector<k::Eos> &readings,
                         mac_kernel::Pool *pool = nullptr,
                         std::span<const std::uint8_t> rebuilt = {}) {
   MacTransportState result;
   result.grid = source.grid;
-  result.momentum_x = state.jx;
-  result.momentum_y = state.jy;
+  result.momentum_x = std::move(state.jx);
+  result.momentum_y = std::move(state.jy);
   result.occupied_volumes_m3.resize(state.energy.size());
   if (!rebuilt.empty() && source.cells.size() == state.energy.size()) {
     // Cells the interval did not rebuild keep their source values: share
@@ -536,6 +646,7 @@ MacClosedAdvance MacGameKernelAccess::advance_guarded(
     std::unique_ptr<k::Tick> tick;
     std::unique_ptr<k::RegionalTick> regional;
     std::shared_ptr<k::RegionalExecutionHistory> regional_execution;
+    SparseCache sparse;
   };
   thread_local Cache cache;
   const auto &cfg = source.settings_.game;
@@ -604,7 +715,7 @@ MacClosedAdvance MacGameKernelAccess::advance_guarded(
     return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
   };
   auto stamp = std::chrono::steady_clock::now();
-  auto state = sparse(source.state(), &execution_pool);
+  auto state = sparse_cached(source.state(), cache.sparse, &execution_pool);
   stages.sparse_ms = since(stamp);
   double elapsed = 0;
   MacEnergySum energy_residual, energy_bound;
@@ -633,7 +744,16 @@ MacClosedAdvance MacGameKernelAccess::advance_guarded(
         activity_state,cfg,source.time_s_+elapsed,dt):std::vector<double>{};
     if(activity)for(std::size_t i=0;i<due.size();++i)if(due[i]>0)evolved[i]=1;
     stamp = std::chrono::steady_clock::now();
-    auto next = bounded?
+    // With activity the regional tick takes the interval's state and writes
+    // the stepped cells' readings into `last` itself: the same values as
+    // copying its whole-grid readings at the due cells (a due cell is a cell
+    // of a stepped region; the first interval's other readings are default).
+    const bool into = bounded && activity;
+    if (into && last.empty()) last.assign(source.state().cells.size(), k::Eos{});
+    auto next = into?
+        cache.regional->advance_into(std::move(state),last,dt,source.settings_.gravity_m_per_s2,
+                               source.settings_.trace_sink_threshold_kg,liquid_blocked,budget-result.report.attempts,due):
+      bounded?
         cache.regional->advance(state,dt,source.settings_.gravity_m_per_s2,
                                source.settings_.trace_sink_threshold_kg,liquid_blocked,budget-result.report.attempts,due):
         cache.tick->advance(state, dt, source.settings_.gravity_m_per_s2,
@@ -654,8 +774,13 @@ MacClosedAdvance MacGameKernelAccess::advance_guarded(
     stages.pressure_corrections += next.pressure_corrections;
     stages.pressure_attempts += next.pressure_attempts;
     stages.pressure_refinements += next.pressure_refinements;
+    stages.refused_trial_ms += next.refused_trial_ms;
+    stages.regional_setup_ms += next.regional_setup_ms; stages.regional_capture_ms += next.regional_capture_ms;
+    stages.regional_run_ms += next.regional_run_ms; stages.regional_merge_ms += next.regional_merge_ms;
+    stages.regional_rebuild_ms += next.regional_rebuild_ms;
     state = std::move(next.state);
-    if(activity && !last.empty()) {
+    if(into) {}
+    else if(activity && !last.empty()) {
       for(std::size_t i=0;i<due.size();++i)if(due[i]>0)last[i]=next.eos[i];
     } else last = std::move(next.eos);
     last_totals = std::move(next.totals);
@@ -688,6 +813,7 @@ MacClosedAdvance MacGameKernelAccess::advance_guarded(
   result.world = source.derived(
       dense(source.state(), state, source.registry_.size(), last, nullptr, evolved));
   stages.dense_ms = since(stamp);
+  last_stages() = stages;
   result.world.game_totals_ =
       std::make_shared<const k::Totals>(std::move(last_totals));
   result.world.time_s_ = source.time_s_ + seconds;
