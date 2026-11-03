@@ -27,7 +27,10 @@ internal static class ColonyValidationLimitsTests
             check(fields.SequenceEqual(new[]{"Mode","LoadSavePath","AutoStartNewColony","ReuseGeneratedWorld","IdleReservoirLeaseOnly",
                 "PrivateFileProtocolAssemblySha256","PrivateOwnedLoadRejection","QuitWhenComplete","QuitFromMainMenu","SaveOnComplete","OverwriteSave","VanillaLoad","SaveBeforeResume",
                 "VerifySaveIoRecovery","VerifyNaturalAutosave","VerifyPersistentActors","VerifyLiveBreathing","VerifyTransientParticles",
-                "SubnormalCarbonParticle","ReloadInProcess","CompletedFrames","TimeoutSeconds","Seed","Cluster","DlcMask","ColonyName","Floor","Speed","Scenario","LongRun","ReleaseRun","TelemetryIntervalFrames"}));
+                "SubnormalCarbonParticle","ReloadInProcess","CompletedFrames","TimeoutSeconds","Seed","Cluster","StoryTraits","Mixing","DlcMask","ColonyName","Floor","Speed","Scenario","LongRun","ReleaseRun","TelemetryIntervalFrames"}));
+            check(Valid(new ColonyValidationConfiguration{Mode="colony-owner",StoryTraits="V9",Mixing="0"}).StoryTraits=="V9");
+            check(Rejected(new ColonyValidationConfiguration{Mode="colony-owner",StoryTraits="v9"}).Contains("world-coordinate"));
+            check(Rejected(new ColonyValidationConfiguration{Mode="snapshot-copy",Mixing="0"}).Contains("world-coordinate"));
             var defaults=Valid(new ColonyValidationConfiguration());
             check(defaults.Mode=="snapshot-copy" && defaults.CompletedFrames==30 && defaults.TimeoutSeconds==600 && defaults.LoadSavePath=="" &&
                 !defaults.LongRun && defaults.TelemetryIntervalFrames==ColonyValidationLimits.DefaultTelemetryIntervalFrames &&

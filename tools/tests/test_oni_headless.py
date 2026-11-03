@@ -38,6 +38,29 @@ class ScenarioContractTests(unittest.TestCase):
         self.assertEqual(runner.scenario_list("spaced-out-worlds"), "spaced-out-worlds")
 
 
+class PinnedWorldTests(unittest.TestCase):
+    def test_story_traits_and_mixing_reach_the_colony_request_only_when_given(self):
+        args = argparse.Namespace(mode="colony-owner", frames=30, timeout=600, keep_open=False, scenario=None,
+                                  cluster=None, story_traits="V9", mixing="0")
+        configuration = runner.colony_configuration(args, "name", None, 0)
+        self.assertEqual((configuration["StoryTraits"], configuration["Mixing"], configuration["Seed"]), ("V9", "0", "147147"))
+        args.story_traits = args.mixing = None
+        configuration = runner.colony_configuration(args, "name", None, 0)
+        self.assertNotIn("StoryTraits", configuration); self.assertNotIn("Mixing", configuration)
+    def test_world_codes_are_base36_and_need_a_fresh_owned_colony(self):
+        self.assertEqual(runner.world_code("V9"), "V9")
+        for bad in ("", "v9", "V-9", "0" * 17):
+            with self.assertRaises(argparse.ArgumentTypeError): runner.world_code(bad)
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            args = ["oni_headless.py", "--state", str(root / "state"), "run", "--package", str(root / "package"),
+                    "--mode", "native-domain", "--story-traits", "V9"]
+            with mock.patch.object(sys, "argv", args), mock.patch.object(runner, "locked_command") as launch, \
+                 contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+                runner.main()
+            launch.assert_not_called()
+
+
 class PausedOwnerResaveCliTests(unittest.TestCase):
     def test_resave_accepts_both_load_paths_before_any_game_launch(self):
         with tempfile.TemporaryDirectory() as tmp:

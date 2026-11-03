@@ -718,6 +718,13 @@ def run_limits_error(args) -> str | None:
     return None
 
 
+def world_code(value: str) -> str:
+    """One world-coordinate field: ONI's base-36 digits only."""
+    if not value or len(value) > 16 or any(c not in "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ" for c in value):
+        raise argparse.ArgumentTypeError("a world-coordinate code is 1..16 characters of 0-9 and A-Z")
+    return value
+
+
 def colony_configuration(args, name: str, load_fixture: Path | None, inspection_seconds: int) -> dict:
     """The private colony-validation.json request; short runs keep their original keys."""
     configuration = {
@@ -737,6 +744,8 @@ def colony_configuration(args, name: str, load_fixture: Path | None, inspection_
         **({"ReloadInProcess": True} if getattr(args, "reload_in_process", False) else {}),
         **({"Scenario": args.scenario} if getattr(args, "scenario", None) else {}),
         **({"Cluster": "clusters/" + args.cluster} if isinstance(getattr(args, "cluster", None), str) else {}),
+        **({"StoryTraits": args.story_traits} if isinstance(getattr(args, "story_traits", None), str) else {}),
+        **({"Mixing": args.mixing} if isinstance(getattr(args, "mixing", None), str) else {}),
         **({"OverwriteSave": True} if getattr(args, "overwrite_save", False) is True else {}),
         **({"VanillaLoad": True} if getattr(args, "vanilla_load", False) is True else {}),
         **({"Speed": args.speed} if isinstance(getattr(args, "speed", None), int) else {}),
@@ -1224,6 +1233,10 @@ def main() -> int:
     play.add_argument("--load-save", type=Path, help="Completed private colony save for native-load-domain")
     play.add_argument("--vanilla-load", action="store_true", help="colony-owner-load: hand the save to ONI's own loader, which must refuse it")
     play.add_argument("--overwrite-save", action="store_true", help="colony-owner --save-colony: save halfway and again at the end to the same file")
+    play.add_argument("--story-traits", type=world_code, metavar="CODE",
+                      help="colony-owner only: pin the story-trait code (4th world-coordinate field, e.g. V9) so timing runs compare one world")
+    play.add_argument("--mixing", type=world_code, metavar="CODE",
+                      help="colony-owner only: pin the mixing code (5th world-coordinate field, e.g. 0)")
     play.add_argument("--cluster", choices=BASE_CLUSTERS,
                       help="colony-owner only: the base-game starting asteroid's cluster layout (default Terra, SandstoneDefault)")
     play.add_argument("--floor", choices=FLOOR_ARENAS,
@@ -1268,6 +1281,8 @@ def main() -> int:
         parser.error("--save-colony requires an owner colony or an initial native domain scene")
     if args.command == "run" and isinstance(getattr(args, "cluster", None), str) and args.mode != "colony-owner":
         parser.error("--cluster needs --mode colony-owner")
+    if args.command == "run" and (isinstance(getattr(args, "story_traits", None), str) or isinstance(getattr(args, "mixing", None), str)) and args.mode != "colony-owner":
+        parser.error("--story-traits and --mixing need --mode colony-owner")
     if args.command == "run" and getattr(args, "scenario", None) and args.mode != "colony-owner":
         parser.error("--scenario needs --mode colony-owner")
     if args.command == "run" and ((args.mode == "colony-vanilla") != (getattr(args, "floor", None) is not None and args.mode != "colony-owner") or

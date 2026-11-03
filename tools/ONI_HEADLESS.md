@@ -221,6 +221,15 @@ observed duration; it does not attest any image or hover result. The
 `tile-hover` scene requires reviewing each actual PNG before publishing its
 receipt ([procedure](../docs/mixture-presentation.md#tile-hover-acceptance-procedure)).
 
+## Pinned worlds for timing comparisons
+
+New colonies use seed 147147, but ONI draws the story traits (and world
+mixing) anew for each launch, so two fresh runs can generate different worlds
+(`SNDST-C-147147-0-D9-0` against `...-V9-0`). Timing A/B runs pin them:
+`--story-traits V9 --mixing 0` (the 4th and 5th world-coordinate fields,
+colony-owner only). The game logs `Validation world coordinate:` and
+`WORLDGEN START seed=...`; both show the pinned coordinate.
+
 ## GPU display
 
 By default the game renders with Mesa's software rasteriser on the Xvfb

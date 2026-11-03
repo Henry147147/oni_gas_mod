@@ -847,7 +847,10 @@ namespace MixedAtmospheres.Oni
                     if (!string.IsNullOrEmpty(config.Cluster))
                         CustomGameSettings.Instance.SetQualitySetting(Klei.CustomSettings.CustomGameSettingConfigs.ClusterLayout, config.Cluster);
                     CustomGameSettings.Instance.SetQualitySetting(Klei.CustomSettings.CustomGameSettingConfigs.WorldgenSeed, config.Seed);
+                    if (!string.IsNullOrEmpty(config.StoryTraits)) CustomGameSettings.Instance.ParseAndApplyStoryTraitSettingsCode(config.StoryTraits);
+                    if (!string.IsNullOrEmpty(config.Mixing)) CustomGameSettings.Instance.ParseAndApplyMixingSettingsCode(config.Mixing);
                     CustomGameSettings.Instance.SetQualitySetting(Klei.CustomSettings.CustomGameSettingConfigs.SaveToCloud, "Disabled");
+                    UnityEngine.Debug.Log("[Mixed Atmospheres] Validation world coordinate: " + CustomGameSettings.Instance.GetSettingsCoordinate());
                     Invoke(destination, "LaunchClicked"); return;
                 }
                 var minions = Resources.FindObjectsOfTypeAll<MinionSelectScreen>()

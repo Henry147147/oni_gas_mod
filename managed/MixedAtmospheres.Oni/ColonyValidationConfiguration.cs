@@ -64,6 +64,12 @@ namespace MixedAtmospheres.Oni
         public string Seed = "147147";
         // A starting cluster layout ("clusters/<name>"); empty keeps the game's default (Terra).
         public string Cluster = "";
+        // Pinned story-trait and mixing codes (the 4th and 5th fields of the
+        // world coordinate, e.g. "V9" and "0"); empty keeps the game's
+        // per-launch random story traits. With the fixed seed and cluster this
+        // generates the same world every run, for timing comparisons.
+        public string StoryTraits = "";
+        public string Mixing = "";
         // -1 keeps the existing discovery controls; 0..31 asserts exact content
         // before world generation/load. It never overrides Steam entitlements.
         public int DlcMask = -1;
@@ -148,6 +154,10 @@ namespace MixedAtmospheres.Oni
             if ((configuration.Mode == "colony-vanilla") != (configuration.Floor.Length != 0 && configuration.Mode != "colony-owner") ||
                 configuration.Floor.Length != 0 && (Array.IndexOf(FloorArenaIds.All, configuration.Floor) < 0 || configuration.Scenario.Length != 0))
                 throw new InvalidDataException("colony-vanilla runs one floor arena (f1..f5); colony-owner may run one instead of scenarios.");
+            static bool Code(string value) => value != null && value.Length <= 16 && value.All(c => c >= '0' && c <= '9' || c >= 'A' && c <= 'Z');
+            if (!Code(configuration.StoryTraits) || !Code(configuration.Mixing) ||
+                (configuration.StoryTraits.Length != 0 || configuration.Mixing.Length != 0) && configuration.Mode != "colony-owner")
+                throw new InvalidDataException("StoryTraits and Mixing are world-coordinate codes (0-9, A-Z) for a new colony-owner world.");
             if (configuration.Speed < 1 || configuration.Speed > 3)
                 throw new InvalidDataException("Speed is 1 (normal), 2 (fast) or 3 (ultra).");
             if (!longRun && configuration.SaveBeforeResume && (configuration.Mode != "native-load-domain" && configuration.Mode != "colony-owner-load" || configuration.VanillaLoad))
