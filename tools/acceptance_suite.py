@@ -44,8 +44,8 @@ TOOLS = ROOT / "tools"
 GAME_SLOT = TOOLS / "game_slot.sh"
 RUN_LOCKED = TOOLS / "run_locked.sh"
 
-FROZEN_SAVE = Path("local/saves/base-defaults-p5-v1.sav")
-FROZEN_SAVE_SHA256 = "0da56203653f39a57c63e53781a4af578f89edc6cf6f5153b455cfc5a0f0d378"
+FROZEN_SAVE = Path("local/saves/base-defaults-p10-v1.sav")
+FROZEN_SAVE_SHA256 = "6ed39fbbc2df97a0e83326f60ad2bc21da6f81c003dd50d596bb71164be6ebf2"
 VALIDATION = "mods/Dev/MixedAtmospheres.IntegrationProbe/game-contract-local/colony-validation"
 LINUX_PROFILE = "home/.config/unity3d/Klei/Oxygen Not Included"
 PROTON_PROFILE = "compatdata/pfx/drive_c/users/steamuser/Documents/Klei/OxygenNotIncluded"

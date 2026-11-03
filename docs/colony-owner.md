@@ -1262,7 +1262,8 @@ from config flags.
 Under validation the restored owner is re-checkpointed immediately and must
 reproduce the saved image byte for byte; a same-process menu reload must
 restore the same profile and image hash. The fresh core21 base save
-(`base-core21-d964`, frame 32) passes a cold load and a menu reload in one
+(`base-core21-d964`, frame 32; since the 2026-10-27 nitrogen removal this save is refused at load, see
+[game-update-resilience.md](game-update-resilience.md#saves-across-builds)) passed a cold load and a menu reload in one
 process: both sessions restore core21, law 1, caps 400/800, identical image
 hashes and re-encodings, and continue 30 frames each; the source hash is
 unchanged.
@@ -1528,7 +1529,7 @@ unchanged. Earlier per-cell owner samples remain provisional until rerun.
 ## Diagnostics
 
 Bounded prepared-colony replay, 2026-10-23: the immutable `b36ed23` native pair
-with the pinned managed output path restored `base-trace-144` unchanged at
+with the pinned managed output path restored `base-trace-144` (refused since the 2026-10-27 nitrogen removal) unchanged at
 owner frame 32 (saved physical profile 18). It completed 4,351 further frames,
 to counter 4,383, then the flow watchdog exceeded eight seconds before frame
 4,384. The run stopped at that first severe stall; its complete private

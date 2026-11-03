@@ -9,6 +9,8 @@
     <!-- Mixture saves across game builds (docs/game-update-resilience.md#saves-across-builds). -->
     <Compile Include="../../managed/MixedAtmospheres.Oni/ColonySaveEnvelope.cs" Link="ColonySaveEnvelope.cs" />
     <Compile Include="../../managed/MixedAtmospheres.Oni/ColonySaveReadback.cs" Link="ColonySaveReadback.cs" />
+    <Compile Include="../../managed/MixedAtmospheres.Oni/ColonySavePayload.cs" Link="ColonySavePayload.cs" />
+    <Compile Include="../../managed/MixedAtmospheres.Oni/ColonyCheckpointMetadata.cs" Link="ColonyCheckpointMetadata.cs" />
     <Compile Include="../../managed/MixedAtmospheres.Oni/OwnedReservoirLoadHeaderV1.cs" Link="OwnedReservoirLoadHeaderV1.cs" />
     <Compile Include="../../managed/MixedAtmospheres.Oni/OwnedReservoirSavedTemplates.cs" Link="OwnedReservoirSavedTemplates.cs" />
     <Compile Include="../../managed/MixedAtmospheres.Oni/OwnedReservoirSavedInflation.cs" Link="OwnedReservoirSavedInflation.cs" />

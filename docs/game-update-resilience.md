@@ -236,9 +236,17 @@ Measured on the 744825 installations:
   - Synthetic envelopes saved at 744825 load under 744826.
   - Newer, older-than-supported, catalogue-changed and model-changed envelopes
     are refused with their reason.
-  - Two real envelopes are accepted byte for byte by a later build: the prepared
-    base-game save `local/saves/base-defaults-p5-v1.sav` and a `bfb1168` Spaced
-    Out! manual save.
+  - Real envelopes are accepted byte for byte by a later build: every prepared
+    base-game save in `local/saves` and a `bfb1168` Spaced Out! manual save.
+    That is the envelope only (framing, build, catalogue, material model);
+    whether the colony inside is still playable is a separate content decision.
+  - Content decisions are pinned against the real saves too. The frozen
+    `base-defaults-p10-v1` is accepted. Every base-game save prepared before the
+    nitrogen removal (2026-10-27 amendment: `base-core21-d964`,
+    `base-defaults-p5-v1`, `base-floor-108/111/116/118/121/125`,
+    `base-package-85`, `base-trace-144`) has a valid envelope and is refused
+    with "This save contains removed nitrogen content. Start a new colony with
+    this R&D build."; the save file is left unchanged.
   - The envelope's format and framing are unchanged. Saves written under 744825
     are byte-identical to before; a later build writes its own build number into
     the existing field.

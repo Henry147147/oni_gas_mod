@@ -466,7 +466,7 @@ python3 tools/acceptance_suite.py run <revision> --tier release --only linux-ten
 
 | Tier | Steps |
 | --- | --- |
-| `quick` | 15 Linux scenario batches; the nine base-game asteroids at 3,000 frames; a 3,000-frame run on a copy of the frozen `local/saves/base-defaults-p5-v1.sav`; WindowsPlayer under Proton: eight batches, contact, base save, prepared cycle (3,132 frames) and its natural-autosave cold/menu load, Precise + Strict settings save/load, ordinary Spaced Out! source/cold/menu, and an ordinary clicked Spaced Out! New Game with a manual save and its fresh load |
+| `quick` | 15 Linux scenario batches; the nine base-game asteroids at 3,000 frames; a 3,000-frame run on a copy of the frozen `local/saves/base-defaults-p10-v1.sav` (a frame-32 three-duplicant base-game colony made from `2ae0865` with `oni_headless.py run --mode colony-owner --scenario base --frames 32 --save-colony`; the earlier `base-defaults-p5-v1` predates the nitrogen removal and is refused); WindowsPlayer under Proton: eight batches, contact, base save, prepared cycle (3,132 frames) and its natural-autosave cold/menu load, Precise + Strict settings save/load, ordinary Spaced Out! source/cold/menu, and an ordinary clicked Spaced Out! New Game with a manual save and its fresh load |
 | `release` | `quick` plus the 30,000-frame ten-cycle run on the same frozen save |
 
 Outputs go to `artifacts/acceptance/<short>/runs/<tag>/` (default tag

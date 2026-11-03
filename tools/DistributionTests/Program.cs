@@ -95,15 +95,18 @@ static class Program
         Check(Refused(() => ColonySaveEnvelope.Parse(Saved(first), first + 1, 3, catalog), "game build 744825"), "exact-build parsing is unchanged");
     }
 
-    // Real envelopes from private colony saves (skipped where absent): the
-    // prepared base-game save and a bfb1168 Spaced Out! manual save.
+    // Real envelopes from private colony saves (skipped where absent): every prepared
+    // base-game save in local/saves and a bfb1168 Spaced Out! manual save. The envelope
+    // (framing, build, catalogue) is independent of whether the content is still accepted.
     private static int RealEnvelopes()
     {
         var root = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../.."));
         var saves = (Environment.GetEnvironmentVariable("MA_TEST_MIXTURE_SAVES") ?? "").Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries).ToList();
         if (saves.Count == 0)
-            saves.AddRange(new[] { Path.Combine(root, "local/saves/base-defaults-p5-v1.sav"),
-                Path.Combine(root, "../../archive/oni-agents/claude-team/spacedout-ordinary-bfb1168/artifacts/spacedout-ordinary-classic-manual-save-cold/input-colony.sav") });
+        {
+            if (Directory.Exists(Path.Combine(root, "local/saves"))) saves.AddRange(Directory.GetFiles(Path.Combine(root, "local/saves"), "*.sav").OrderBy(p => p));
+            saves.Add(Path.Combine(root, "../../archive/oni-agents/claude-team/spacedout-ordinary-bfb1168/artifacts/spacedout-ordinary-classic-manual-save-cold/input-colony.sav"));
+        }
         var checkedSaves = 0;
         foreach (var path in saves.Where(File.Exists))
         {
@@ -123,10 +126,52 @@ static class Program
         return checkedSaves;
     }
 
+    // The content decision the game makes at load (ColonyOwnerPersistence.ValidateCurrentContent), engine-free.
+    private static string? Refusal(byte[] sim)
+    {
+        try
+        {
+            var envelope = ColonySaveEnvelope.Parse(sim, ColonySaveEnvelope.FirstSupportedBuild, BitConverter.ToInt32(sim, 12), BitConverter.ToInt32(sim, 16), sim.AsSpan(28, 32).ToArray());
+            var owner = ColonySavePayload.Decode(envelope.CustomData).Owner;
+            ColonyCheckpointMetadata.RefuseRemovedNitrogen(owner); ColonyCheckpointMetadata.RefuseUnboundedPressure(owner); ColonyCheckpointMetadata.RefuseExperimentalActivity(owner);
+            return null;
+        }
+        catch (Exception error) { return error.Message; }
+    }
+
+    // Prepared base-game saves in local/saves (skipped where absent). Those made before the nitrogen
+    // removal (2026-10-27, docs/completion-plan.md amendments) have a valid envelope but their content is
+    // refused with an explanation; the current frozen save (base-defaults-p10-v1, made from main by
+    // tools/acceptance_suite.py's source) must be accepted.
+    private static int PreparedContent()
+    {
+        var root = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../.."));
+        var directory = Path.Combine(root, "local/saves");
+        if (!Directory.Exists(directory)) return 0;
+        var count = 0;
+        foreach (var path in Directory.GetFiles(directory, "*.sav").OrderBy(p => p))
+        {
+            var name = Path.GetFileNameWithoutExtension(path);
+            var sim = ColonySaveReadback.SimSection(File.ReadAllBytes(path));
+            if (sim == null || !ColonySaveEnvelope.HasMagic(sim)) continue;
+            var refusal = Refusal(sim);
+            if (name == "base-defaults-p10-v1") Check(refusal == null, "the current frozen save is accepted: " + refusal);
+            else if (name.StartsWith("base-core21-") || name.StartsWith("base-defaults-p5-") || name.StartsWith("base-floor-") ||
+                     name.StartsWith("base-package-") || name.StartsWith("base-trace-"))
+                Check(refusal != null && refusal.Contains("removed nitrogen content") && refusal.Contains("Start a new colony"),
+                    "a pre-nitrogen-removal save is refused with an explanation: " + name);
+            else continue;
+            ++count;
+        }
+        return count;
+    }
+
     private static int Main()
     {
         Platforms(); Packs(); Duplicates(); SyntheticEnvelopes();
         var real = RealEnvelopes();
+        var content = PreparedContent();
+        Console.WriteLine(content == 0 ? "Prepared base saves: none available, skipped." : $"Prepared base saves: {content} content decisions pinned.");
         Console.WriteLine(real == 0 ? "Real mixture saves: none available, skipped." : $"Real mixture saves: {real} envelopes accepted across builds.");
         Console.WriteLine($"Distribution refusal controls passed ({checks} checks).");
         return 0;
