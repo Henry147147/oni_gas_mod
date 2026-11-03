@@ -8,6 +8,21 @@ still require separate authorization.
 
 Amendments:
 
+- **Persistence continuation gate read as owner replay, delegated decision
+  2026-11-03:** ONI does not repeat itself from one save: two cold loads of
+  the same save diverge at frame 44 once duplicants move with real-time
+  rendering, so the game cannot supply identical future inputs. The
+  persistence gate's "identical future inputs" continuation check is met by
+  replaying the saved owner with the inputs the uninterrupted game recorded
+  (`tools/colony_continuation.py --replay`). It must match byte for byte after
+  cold and menu loads on actual base and Spaced Out! saves, with every load
+  restoring the saved owner and pipe images exactly. Codex's record-6 runtime
+  continuation was cut, never on `main`, and its section tag 6 / `MACGRT01` is
+  retired. See [continuation evidence](colony-owner.md#continuation-evidence).
+  Exact owned storage beyond reservoirs (91 buildings, 74 recipes, 32
+  converters, carried bottles, mopping and demolition) is a feature-scope
+  question and stays the user's.
+
 - **Rejected-attempts bound split by criterion, delegated decision
   2026-11-03:** the acceptance suite's `zero_rejected_attempts` was set when the
   frozen save ran on game profile 5, where a rejection meant a failed step.
