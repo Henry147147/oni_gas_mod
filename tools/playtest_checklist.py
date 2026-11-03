@@ -155,10 +155,10 @@ SPACED_OUT_SYSTEMS: dict[str, tuple[list[str], tuple[str, ...]]] = {
     "spaced-out-critters": (ACTORS, ("spaced-out-critters",)),
     "spaced-out-plants": (ACTORS, ("spaced-out-plants",)),
 }
-# Passing in the Linux harness (Terra, seed 147147) on the current owner. `phase` fails under
-# the profile-10 default (2026-11-02) and stays out until it passes again.
+# Passing in the Linux harness (Terra, seed 147147) on the current owner; all 66 base
+# scenarios pass on the profile-11 default (61a2aa8, 2026-11-03).
 PASSED_SCENARIOS: set[str] = {
-    "terrain", "door", "airflow", "falling", "heat", "freeze-melt", "deoxidizer", "sublimation", "breathing",
+    "terrain", "door", "airflow", "falling", "heat", "phase", "freeze-melt", "deoxidizer", "sublimation", "breathing",
     "electrolysis", "vent-overpressure", "space-heater", "bottle-emptier", "germs", "puft", "plant", "wheezewort",
     "life-support", "oxyfern", "debris-heat", "building-melt", "rocket-exhaust", "meteor", "sensor", "pacu",
     "liquid-pump", "pipes", "mask-station", "polymer-press", "gas-generator", "geyser", "filter",
