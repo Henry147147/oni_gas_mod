@@ -205,4 +205,45 @@ class InputJournalTests(unittest.TestCase):
             with self.subTest(bad=bad[:30]),self.assertRaises(ValueError):continuation.compare_inputs(good,bad,50,3)
         with self.assertRaises(ValueError):continuation.compare(*pair(),good,None)
 
+    def replay_fixture(self,directory,owner=b"saved owner"):
+        import hashlib
+        images=Path(directory)/"images";journals=Path(directory)/"journal";images.mkdir();journals.mkdir()
+        (images/"uninterrupted-0-50.owner").write_bytes(owner)
+        for frame in (51,52,53):(images/("uninterrupted-0-%d.owner"%frame)).write_bytes(b"x")
+        (journals/"inputs-1.txt").write_text("session 1 restored_frames 0\n");(journals/"diseases-1.bin").write_bytes(b"d")
+        source,_=pair();source["colony_owner"]["Continuation"]["BaselineOwnerSha256"]=hashlib.sha256(b"saved owner").hexdigest()
+        return source,images,journals
+
+    def test_replay_runs_cold_and_menu_on_the_saved_baseline(self):
+        import subprocess,tempfile
+        calls=[]
+        def run(command,**kwargs):
+            calls.append(command)
+            return subprocess.CompletedProcess(command,0,"PASS cold replay: 3 frames equal\nPASS menu replay: 3 frames equal\n","")
+        with tempfile.TemporaryDirectory() as directory:
+            source,images,journals=self.replay_fixture(directory)
+            result=continuation.replay("replay",source,images,journals,run)
+            self.assertEqual(result["status"],"passed")
+            self.assertEqual(calls,[["replay",str(images/"uninterrupted-0-50.owner"),str(journals/"inputs-1.txt"),
+                                     str(journals/"diseases-1.bin"),str(images/"uninterrupted-0"),"3","--menu"]])
+            for stdout,code in (("PASS cold replay: 3 frames\n",0),("PASS cold replay: 3 frames\nPASS menu replay: 2 frames\n",0),
+                                ("PASS cold replay: 3 frames\nPASS menu replay: 3 frames\n",1)):
+                with self.subTest(stdout=stdout,code=code):
+                    failed=continuation.replay("replay",source,images,journals,lambda c,**k:subprocess.CompletedProcess(c,code,stdout,"REPLAY FAIL"))
+                    self.assertEqual(failed["status"],"failed")
+
+    def test_replay_refuses_another_baseline_or_missing_images(self):
+        import tempfile
+        never=lambda *a,**k:self.fail("replay ran")
+        with tempfile.TemporaryDirectory() as directory:
+            source,images,journals=self.replay_fixture(directory)
+            (images/"uninterrupted-0-50.owner").write_bytes(b"other")
+            with self.assertRaises(ValueError):continuation.replay("replay",source,images,journals,never)
+        with tempfile.TemporaryDirectory() as directory:
+            source,images,journals=self.replay_fixture(directory);(images/"uninterrupted-0-52.owner").unlink()
+            with self.assertRaises(ValueError):continuation.replay("replay",source,images,journals,never)
+        with tempfile.TemporaryDirectory() as directory:
+            source,images,journals=self.replay_fixture(directory);(journals/"inputs-2.txt").write_text("")
+            with self.assertRaises(ValueError):continuation.replay("replay",source,images,journals,never)
+
 if __name__=="__main__":unittest.main()

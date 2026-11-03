@@ -4,11 +4,15 @@
 This checks a bounded owner/pipe/particle prefix. With both branches' owner
 input journals (MA_COLONY_INPUT_JOURNAL_DIR) it also finds the first frame
 whose committed inputs differ: a state may differ only from that frame on.
-Other native/managed actor state remains a separate release requirement.
+With --replay it restores the source's saved owner image cold and after a menu
+stop and feeds it the source's own inputs, which must reproduce every held
+owner image byte for byte. Other native/managed actor state remains separate.
 """
 import argparse
+import hashlib
 import json
 import re
+import subprocess
 from pathlib import Path
 
 
@@ -177,20 +181,67 @@ def compare(source, loaded, source_inputs=None, loaded_inputs=None):
     return result
 
 
+def replay(binary, source, images, journal_dir, run=subprocess.run):
+    """Owner continuation under the uninterrupted branch's own inputs.
+
+    The source run's saved owner image (MA_COLONY_CONTINUATION_DUMP writes it
+    at the save frame) must be the baseline every restored branch reencoded.
+    ma_oni_colony_replay restores it cold and after an in-process menu stop,
+    feeds it the source journal and requires each held frame's owner image
+    byte for byte. This isolates the mod's restored state from the game's
+    own future inputs, which a load does not reproduce.
+    """
+    record = observation(source, "uninterrupted")
+    baseline, count = record["RestoredFrame"], record["Frames"]
+    images, journal_dir = Path(images), Path(journal_dir)
+    saved = sorted(images.glob("uninterrupted-*-%d.owner" % baseline))
+    if len(saved) != 1:
+        raise ValueError("Replay needs exactly one saved owner image at frame %d" % baseline)
+    prefix = str(saved[0])[:-len("-%d.owner" % baseline)]
+    for frame in range(baseline + 1, baseline + count + 1):
+        if not Path("%s-%d.owner" % (prefix, frame)).is_file():
+            raise ValueError("Replay misses the uninterrupted owner image at frame %d" % frame)
+    if hashlib.sha256(saved[0].read_bytes()).hexdigest() != record["BaselineOwnerSha256"]:
+        raise ValueError("The saved owner image is not the continuation baseline")
+    journals, diseases = sorted(journal_dir.glob("inputs-*.txt")), sorted(journal_dir.glob("diseases-*.bin"))
+    if len(journals) != 1 or len(diseases) != 1:
+        raise ValueError("Replay needs the source session's single input journal and disease table")
+    command = [str(binary), str(saved[0]), str(journals[0]), str(diseases[0]), prefix, str(count), "--menu"]
+    completed = run(command, capture_output=True, text=True, check=False)
+    cold = completed.returncode == 0 and "PASS cold replay: %d frames" % count in completed.stdout
+    menu = completed.returncode == 0 and "PASS menu replay: %d frames" % count in completed.stdout
+    lines = (completed.stdout + completed.stderr).strip().splitlines()
+    return {"status": "passed" if cold and menu else "failed", "cold": cold, "menu": menu, "frames": count,
+            "baseline_frame": baseline, "output": lines[-4:],
+            "scope": "owner image under the uninterrupted branch's inputs; pipe and particle images are compared only in game"}
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--source", type=Path, required=True, help="Uninterrupted headless result.json")
     parser.add_argument("--loaded", type=Path, required=True, help="Cold-load or menu-load result.json")
     parser.add_argument("--source-inputs", type=Path, help="Uninterrupted branch's owner input journal (inputs-<session>.txt)")
     parser.add_argument("--loaded-inputs", type=Path, help="Restored session's owner input journal")
+    parser.add_argument("--replay", type=Path, help="ma_oni_colony_replay: also replay the saved owner under the source's inputs")
+    parser.add_argument("--source-images", type=Path, help="Source run's continuation-images directory (with --replay)")
+    parser.add_argument("--source-journal-dir", type=Path, help="Source run's MA_COLONY_INPUT_JOURNAL_DIR (with --replay)")
     args = parser.parse_args()
+    if (args.replay is None) != (args.source_images is None) or (args.replay is None) != (args.source_journal_dir is None):
+        parser.error("--replay needs --source-images and --source-journal-dir")
     try:
-        result = compare(json.loads(args.source.read_text()), json.loads(args.loaded.read_text()),
+        source = json.loads(args.source.read_text())
+        result = compare(source, json.loads(args.loaded.read_text()),
                          args.source_inputs.read_text() if args.source_inputs else None,
                          args.loaded_inputs.read_text() if args.loaded_inputs else None)
+        if args.replay is not None:
+            result["owner_replay"] = replay(args.replay, source, args.source_images, args.source_journal_dir)
     except (OSError, ValueError, KeyError, TypeError) as error:
         parser.error(str(error))
     print(json.dumps(result, indent=2))
+    # The game's own inputs differ after a load; owner continuation under the
+    # uninterrupted inputs is reported separately and fails the run on its own.
+    if result.get("owner_replay", {}).get("status") == "failed":
+        return 2
     return 0 if result["status"] == "matched" else 1
 
 
