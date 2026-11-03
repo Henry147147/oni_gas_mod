@@ -2333,19 +2333,9 @@ namespace MixedAtmospheres.Oni
             }
             return n;
         }
-        private static void Arena(Func<int, int, (SimHashes element, float mass, float temperature)> inside, int width = Width, int height = Height, bool slide = true)
+        private static void Arena(Func<int, int, (SimHashes element, float mass, float temperature)> inside, int width = Width, int height = Height)
         {
             fillWidth = width; fillHeight = height;
-            // A large arena slides right past natural hydrogen pockets: closing its border displaces
-            // their gas into an arena that is still vacuum, a rarefaction the flow solver does
-            // not survive beside the printing pod (docs/dlc-compatibility.md).
-            if (slide && width * height >= 200)
-            {
-                var slid = 0;
-                bool Pocket() => NaturalHydrogen(width, height) > 0;
-                while (Pocket() && slid < 70 && x0 + width + 3 < Grid.WidthInCells) { ++x0; ++slid; }
-                if (slid > 0) { pendingShift += slid; Debug.Log($"[Mixed Atmospheres] arena {Current.Name} slid {slid} cells right of natural hydrogen pockets"); }
-            }
             // What the arena replaces, for a fault or an odd result (elements by cell count, mass and the temperature range).
             {
                 var seen = new Dictionary<string, (int cells, double mass, float low, float high)>();
@@ -2457,12 +2447,14 @@ namespace MixedAtmospheres.Oni
         }
         private static double CellMass(int cell)
         {
+            if (Vanilla) return Grid.Solid[cell] ? 0 : Grid.Mass[cell];
             var count = ColonyOwner.Composition(cell, out _, out var masses);
             double total = 0; for (var k = 0; k < count; ++k) total += masses[k];
             return total;
         }
         private static double SpeciesMass(int cell, SimHashes element)
         {
+            if (Vanilla) return !Grid.Solid[cell] && Grid.Element[cell].id == element ? Grid.Mass[cell] : 0;
             var count = ColonyOwner.Composition(cell, out var indices, out var masses);
             for (var k = 0; k < count; ++k) if (ElementLoader.elements[(int)indices[k]].id == element) return masses[k];
             return 0;
@@ -2489,7 +2481,10 @@ namespace MixedAtmospheres.Oni
             if (step > frame || ColonyFrame() < frame) return false;
             step = frame + 1; Current.Stage = stage; return true;
         }
-        private static int ColonyFrame() => (int)(ColonyOwner.Status.CompletedFrames - started);
+        // Game ticks of 0.2 s counted in ONI's own simulation when the owner is off (colony-vanilla scenarios).
+        internal static ulong VanillaFrames;
+        internal static bool Vanilla => !ColonyOwner.Active;
+        private static int ColonyFrame() => (int)((Vanilla ? VanillaFrames : ColonyOwner.Status.CompletedFrames) - started);
         private static void Record(string name, bool passed, string detail) => Current.Checks.Add(new Check { Name = name, Passed = passed, Detail = detail });
         private static void Finish()
         {

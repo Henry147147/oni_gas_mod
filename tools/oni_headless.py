@@ -1283,11 +1283,14 @@ def main() -> int:
         parser.error("--cluster needs --mode colony-owner")
     if args.command == "run" and (isinstance(getattr(args, "story_traits", None), str) or isinstance(getattr(args, "mixing", None), str)) and args.mode != "colony-owner":
         parser.error("--story-traits and --mixing need --mode colony-owner")
-    if args.command == "run" and getattr(args, "scenario", None) and args.mode != "colony-owner":
-        parser.error("--scenario needs --mode colony-owner")
-    if args.command == "run" and ((args.mode == "colony-vanilla") != (getattr(args, "floor", None) is not None and args.mode != "colony-owner") or
-                                  getattr(args, "floor", None) and getattr(args, "scenario", None)):
-        parser.error("--mode colony-vanilla needs --floor; --floor needs colony-vanilla or colony-owner, without --scenario")
+    if args.command == "run" and getattr(args, "scenario", None) and args.mode not in ("colony-owner", "colony-vanilla"):
+        parser.error("--scenario needs --mode colony-owner (or colony-vanilla with spaced-out-reactor-meltdown)")
+    if args.command == "run" and args.mode == "colony-vanilla" and getattr(args, "scenario", None) and args.scenario != "spaced-out-reactor-meltdown":
+        parser.error("--mode colony-vanilla runs only the scenario spaced-out-reactor-meltdown")
+    if args.command == "run":
+        has_floor, has_scenario = getattr(args, "floor", None) is not None, bool(getattr(args, "scenario", None))
+        if (args.mode == "colony-vanilla" and has_floor == has_scenario) or (has_floor and has_scenario) or (has_floor and args.mode not in ("colony-vanilla", "colony-owner")):
+            parser.error("--mode colony-vanilla needs --floor or a scenario; --floor needs colony-vanilla or colony-owner, without --scenario")
     if args.command == "run" and (bool(args.load_save) != (args.mode in ("native-load-domain", "colony-owner-load")) or (args.load_save and not args.load_save.is_file())):
         parser.error("native-load-domain requires --load-save pointing to a completed colony save; other modes cannot use it")
     state.mkdir(parents=True, exist_ok=True, mode=0o700)

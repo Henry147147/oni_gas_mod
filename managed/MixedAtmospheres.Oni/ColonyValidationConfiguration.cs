@@ -151,9 +151,10 @@ namespace MixedAtmospheres.Oni
                 configuration.CompletedFrames < MinimumFrames || configuration.CompletedFrames > maximumFrames ||
                 configuration.TimeoutSeconds < MinimumTimeoutSeconds || configuration.TimeoutSeconds > maximumTimeout)
                 throw new InvalidDataException("Unsupported colony validation mode or limits.");
-            if ((configuration.Mode == "colony-vanilla") != (configuration.Floor.Length != 0 && configuration.Mode != "colony-owner") ||
+            if (configuration.Mode == "colony-vanilla" ? (configuration.Floor.Length != 0) == (configuration.Scenario.Length != 0) :
+                    configuration.Floor.Length != 0 && configuration.Mode != "colony-owner" ||
                 configuration.Floor.Length != 0 && (Array.IndexOf(FloorArenaIds.All, configuration.Floor) < 0 || configuration.Scenario.Length != 0))
-                throw new InvalidDataException("colony-vanilla runs one floor arena (f1..f5); colony-owner may run one instead of scenarios.");
+                throw new InvalidDataException("colony-vanilla runs one floor arena (f1..f5) or one vanilla-capable scenario; colony-owner may run one arena instead of scenarios.");
             static bool Code(string value) => value != null && value.Length <= 16 && value.All(c => c >= '0' && c <= '9' || c >= 'A' && c <= 'Z');
             if (!Code(configuration.StoryTraits) || !Code(configuration.Mixing) ||
                 (configuration.StoryTraits.Length != 0 || configuration.Mixing.Length != 0) && configuration.Mode != "colony-owner")
@@ -167,8 +168,9 @@ namespace MixedAtmospheres.Oni
             if (configuration.OverwriteSave && (configuration.Mode != "colony-owner" && configuration.Mode != "colony-owner-load" || !configuration.SaveOnComplete))
                 throw new InvalidDataException("OverwriteSave needs an owner colony and SaveOnComplete.");
             if (!string.IsNullOrEmpty(configuration.Scenario) &&
-                (configuration.Mode != "colony-owner" || configuration.Scenario.Split(',').Any(name => !Scenarios.Contains(name, StringComparer.Ordinal))))
-                throw new InvalidDataException("A colony scenario needs the colony-owner mode and one of: " + string.Join(", ", Scenarios) + ".");
+                (configuration.Mode != "colony-owner" && configuration.Mode != "colony-vanilla" || configuration.Scenario.Split(',').Any(name => !Scenarios.Contains(name, StringComparer.Ordinal)) ||
+                 configuration.Mode == "colony-vanilla" && configuration.Scenario != "spaced-out-reactor-meltdown"))
+                throw new InvalidDataException("A colony scenario needs the colony-owner mode (colony-vanilla runs only spaced-out-reactor-meltdown) and one of: " + string.Join(", ", Scenarios) + ".");
             if (!longRun && (configuration.CompletedFrames > MaximumFrames || configuration.TimeoutSeconds > MaximumTimeoutSeconds))
                 throw new InvalidDataException("More than " + MaximumFrames + " frames or " + MaximumTimeoutSeconds +
                     " seconds requires the explicit LongRun opt-in.");

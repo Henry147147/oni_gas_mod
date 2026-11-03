@@ -52,6 +52,7 @@ namespace MixedAtmospheres.Oni
             .Sum(item => (double)item.GetComponent<PrimaryElement>().Mass);
         private static void LedgersClosed(string what)
         {
+            if (Vanilla) return; // ONI's own simulation has no owner ledgers
             var s = ColonyOwner.Status;
             Record(what + " keeps closed owner ledgers", s.State == 1 && s.MaximumRelativeMassError <= 1e-12 && s.MaximumRelativeEnergyError <= 1e-12,
                 $"mass {s.MaximumRelativeMassError:R}, energy {s.MaximumRelativeEnergyError:R}");
@@ -237,7 +238,7 @@ namespace MixedAtmospheres.Oni
                 recorded["stored"] = storages.Sum(st => (double)st.MassStored());
             }
             // Trace every comet of the meltdown (mass at first sight, last position) to account for where it lands.
-            if (frame >= 106 && frame <= 420) SoMeltdownTrace();
+            if (frame >= 100 && frame <= 420) SoMeltdownTrace(frame, storages, flow);
             if (Once(420, "check"))
             {
                 SoMeltdownReport();
@@ -249,8 +250,26 @@ namespace MixedAtmospheres.Oni
                 Record("the meltdown ran its course", State().EndsWith("dead") || State().Contains("meltdown"), $"state {State()}");
                 var comet = Assets.GetPrefab(NuclearWasteCometConfig.ID).GetComponent<Comet>();
                 // Part of the melted mass leaves as comets of corium (3 kg a half second), which land as tiles of the game's own tile mass; the rest falls as liquid waste.
-                Record("the meltdown's nuclear waste reached the owner", waste + fallout > .25 * melted && waste + fallout + debris > .5 * melted && waste + fallout + debris < 1.05 * melted,
+                Record("the meltdown's nuclear waste reached the site", waste + fallout > .25 * melted && waste + fallout + debris > .5 * melted && waste + fallout + debris < 1.05 * melted,
                     $"{waste:G5} kg nuclear waste + {fallout:G5} kg fallout in the site + {debris:G5} kg corium and waste debris of {melted:G5} kg melted (10 kg plus {recorded["stored"]:G5} kg stored, water and fuel included); comets of {comet.massRange.x:G3} kg land as tiles of {comet.AddTileMass:G3} kg");
+                // Full accounting. The game's meltdown destroys the 1 kg bodies of its comets (a comet deposits an
+                // explosion mass of 0 and a tile mass of 0, both in the owner's run and in ONI's own simulation:
+                // run `--mode colony-vanilla --scenario spaced-out-reactor-meltdown`), so the mass the site gets
+                // back is what the game puts into cells and items. Everything it did put there must be in the
+                // site: the whole mass (fluid, native solids, loose items, storage, pipe) is conserved from the
+                // moment the storage empties to the end apart from that deposit, nothing leaves afterwards, no
+                // comet is left in flight, and the site gets back at least as large a share of the melted mass
+                // as ONI's own simulation did in the same scenario (49%, run-r2: its fallout stays a gas and its hot corium tiles shrink).
+                var end = SoMeltdownBalance(storages, flow); var endTotal = end.fluid + end.solid + end.items + end.stored + end.pipe;
+                var emptied = meltEmptied > 0 ? meltEmptied : recorded["stored"]; var meltedAtEmpty = emptied + 10;
+                var returned = endTotal - meltDropTotal; var share = returned / meltedAtEmpty;
+                var flying = UnityEngine.Object.FindObjectsByType<Comet>(UnityEngine.FindObjectsSortMode.None).Length;
+                Record("the meltdown's mass is accounted in full", !double.IsNaN(meltDropTotal) && flying == 0 && (Vanilla || share >= .49 && share <= 1 + 1e-9),
+                    $"storage emptied at {emptied:G6} kg (+10 kg of the game's meltdown bonus); site {meltDropTotal:F4} kg then, {endTotal:F4} kg at the end: {returned:G5} kg back = {share:P1} of {meltedAtEmpty:G6} kg (ONI's own simulation got 49% back); {flying} comets in flight{(Vanilla ? " (ONI's own simulation: recorded, not asserted)" : "")}; the rest is the game's own: {meltComets.Count} comet bodies of 1 kg destroyed on impact");
+                // Nothing leaves once the comets have landed: the last samples of the series equal each other.
+                var tail = meltTotals.Skip(Math.Max(0, meltTotals.Count - 5)).ToList();
+                if (!Vanilla)
+                    Record("the site loses no mass after the comets land", tail.Count == 5 && tail.Max() - tail.Min() <= 1e-6 * endTotal, $"last five samples {string.Join(", ", tail.Select(t => t.ToString("F6")))} kg");
                 LedgersClosed("meltdown");
                 Finish();
             }
@@ -258,8 +277,43 @@ namespace MixedAtmospheres.Oni
 
         private sealed class MeltComet { public string Prefab = ""; public SimHashes Element; public float Mass, Temperature; public int LastCell; public int FirstFrame; }
         private static readonly Dictionary<int, MeltComet> meltComets = new Dictionary<int, MeltComet>();
-        private static void SoMeltdownTrace()
+        private static readonly List<string> meltSeries = new List<string>();
+        private static readonly List<double> meltTotals = new List<double>();
+        private static int meltSeriesFrame = -100;
+        // Every mass in the site at once: owned fluid, native solid cells inside, loose items, the reactor's storage and its input pipe.
+        // The arena's granite floor is left out (a comet can break a floor tile, which the game turns into half its mass of debris, as in ONI's own simulation).
+        private static (double fluid, double solid, double items, double stored, double pipe) SoMeltdownBalance(Storage[]? storages, ConduitFlow flow)
         {
+            double solid = 0;
+            for (var y = 0; y < fillHeight; ++y) for (var x = 0; x < fillWidth; ++x) { var c = Cell(x, y); if (Grid.Solid[c] && Grid.Element[c].id != SimHashes.Granite) solid += Grid.Mass[c]; }
+            double items = 0;
+            foreach (var item in Components.Pickupables.Items)
+            {
+                if (item == null || item.wasAbsorbed || item.storage != null || item.GetComponent<KPrefabID>().pendingDestruction) continue;
+                Grid.CellToXY(Grid.PosToCell(item), out var ix, out var iy);
+                var pe = item.GetComponent<PrimaryElement>();
+                if (pe.ElementID != SimHashes.Granite && ix >= x0 && ix < x0 + fillWidth && iy >= y0 && iy < y0 + fillHeight) items += pe.Mass;
+            }
+            var stored = storages == null ? 0 : storages.Sum(st => (double)st.MassStored());
+            var pipe = flow.HasConduit(soReactorInput) ? flow.GetContents(soReactorInput).mass : 0;
+            return (SiteMass(), solid, items, stored, pipe);
+        }
+        // The reactor's storage at the last call, and the site's whole mass the moment the meltdown emptied it (before any comet lands).
+        private static double meltPrevStored = -1, meltEmptied = -1, meltDropTotal = double.NaN;
+        private static void SoMeltdownTrace(int frame, Storage[]? storages, ConduitFlow flow)
+        {
+            var nowStored = storages == null ? 0 : storages.Sum(st => (double)st.MassStored());
+            if (meltEmptied < 0 && meltPrevStored > 1 && nowStored == 0)
+            {
+                var b0 = SoMeltdownBalance(storages, flow); meltEmptied = meltPrevStored; meltDropTotal = b0.fluid + b0.solid + b0.items + b0.stored + b0.pipe;
+            }
+            meltPrevStored = nowStored;
+            if (frame >= meltSeriesFrame + 10)
+            {
+                meltSeriesFrame = frame; var b = SoMeltdownBalance(storages, flow);
+                meltTotals.Add(b.fluid + b.solid + b.items + b.stored + b.pipe);
+                meltSeries.Add($"{frame}: fluid {b.fluid:F2} solid {b.solid:F2} items {b.items:F2} stored {b.stored:F2} pipe {b.pipe:F2} total {b.fluid + b.solid + b.items + b.stored + b.pipe:F2} comets {meltComets.Count}");
+            }
             foreach (var c in UnityEngine.Object.FindObjectsByType<Comet>(UnityEngine.FindObjectsSortMode.None))
             {
                 var id = c.GetInstanceID(); var cell = Grid.PosToCell(c.transform.GetPosition());
@@ -284,6 +338,7 @@ namespace MixedAtmospheres.Oni
             var byPrefab = string.Join(", ", meltComets.Values.GroupBy(m => m.Prefab + "/" + m.Element).Select(g => $"{g.Key} x{g.Count()} {g.Sum(m => m.Mass):G5} kg (each {g.Average(m => m.Mass):G4})"));
             var xs = meltComets.Values.Select(m => { Grid.CellToXY(m.LastCell, out var cx, out var cy); return (cx - x0, cy - y0); }).ToList();
             var landing = xs.Count == 0 ? "none" : $"x {xs.Min(p => p.Item1)}..{xs.Max(p => p.Item1)}, y {xs.Min(p => p.Item2)}..{xs.Max(p => p.Item2)} relative to the site";
+            Record("meltdown mass balance series (information)", true, string.Join(" | ", meltSeries));
             Record("meltdown comet trace (information)", true, $"{meltComets.Count} comets seen, {inN} last seen in the site ({inside:G5} kg) and {outN} outside ({outside:G5} kg); {byPrefab}; last positions {landing}");
             // Solid corium and waste cells in a wide window around the site.
             double siteSolid = 0, nearSolid = 0; var cells = new List<string>();
@@ -774,12 +829,12 @@ namespace MixedAtmospheres.Oni
                 RequireSpacedOut();
                 // Closing the border of an arena beside a natural hydrogen pocket displaces the gas into the arena,
                 // which is still vacuum: place the 30 x 10 arena where that happens (the first anchor to the right of
-                // the printing pod with natural hydrogen at its border) and never slide it away.
+                // the printing pod with natural hydrogen at its border).
                 const int w = 30, h = 10;
                 var found = NaturalHydrogen(w, h);
                 for (var shift = 0; found == 0 && shift < 70 && x0 + w + 3 < Grid.WidthInCells; ++shift) { ++x0; ++pendingShift; found = NaturalHydrogen(w, h); }
                 recorded["natural"] = found;
-                Arena((x, y) => y == 0 ? (SimHashes.Granite, 1000f, 300f) : (SimHashes.Vacuum, 0f, 0f), w, h, slide: false);
+                Arena((x, y) => y == 0 ? (SimHashes.Granite, 1000f, 300f) : (SimHashes.Vacuum, 0f, 0f), w, h);
                 Record("the arena closes over a natural hydrogen pocket", found > 0, $"{found} cells of natural hydrogen within two cells of the arena at {x0},{y0}");
             }
             if (Once(6, "hydrogen pocket"))

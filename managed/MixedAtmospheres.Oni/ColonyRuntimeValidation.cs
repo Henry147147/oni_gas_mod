@@ -586,7 +586,19 @@ namespace MixedAtmospheres.Oni
             Report.PhysicsOwner = "ONI native simulation (colony owner off)";
             Report.Duplicants = Components.LiveMinionIdentities.Count;
             if (SpeedControlScreen.Instance != null && SpeedControlScreen.Instance.IsPaused) SpeedControlScreen.Instance.Unpause(false);
-            if (!FloorArenas.Update()) { if (Time.frameCount % 60 == 0) WriteReport(); return; }
+            if (configuration!.Scenario.Length != 0)
+            {
+                // A system scenario under ONI's own simulation (the vanilla control of a mod scenario): ticks of 0.2 s of game time stand in for owner frames.
+                var status = OniNativeColony.Status.Empty;
+                ColonyScenarios.VanillaFrames = GameClock.Instance == null ? 0UL : (ulong)(GameClock.Instance.GetTime() / 0.2f) + 1UL;
+                status.CompletedFrames = ColonyScenarios.VanillaFrames;
+                if (!ColonyScenarios.Update(configuration.Scenario, status)) { if (Time.frameCount % 60 == 0) WriteReport(); return; }
+                ReportJson.WriteAtomic(Path.Combine(OutputDirectory, "colony-owner.json"), new { Vanilla = true, Scenarios = ColonyScenarios.Results });
+                if (!ColonyScenarios.AllPassed)
+                    throw new InvalidOperationException("Vanilla scenarios failed: " + string.Join("; ", ColonyScenarios.Results.Where(r => !r.Passed)
+                        .Select(r => r.Name + ": " + string.Join(", ", r.Checks.Where(check => !check.Passed).Select(check => check.Name + " (" + check.Detail + ")")))));
+            }
+            else if (!FloorArenas.Update()) { if (Time.frameCount % 60 == 0) WriteReport(); return; }
             Report.Status = "passed"; Report.Stage = "completed";
             Report.ActiveDlcIds = SaveLoader.Instance.GameInfo.dlcIds.ToArray();
             Report.FinishedUtc = System.DateTime.UtcNow.ToString("O");
