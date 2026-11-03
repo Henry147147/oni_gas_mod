@@ -112,6 +112,13 @@ public:
     MassStorage& operator=(std::initializer_list<double> values) { assign(values); return *this; }
     operator const Vector&() const noexcept { return read(); }
     [[nodiscard]] bool implicit_zero() const noexcept { return storage_.index() == 1; }
+    // A frozen storage of `values` (as immutable_snapshot_copy() of an owned
+    // vector, without its copy): copies share it, the first write owns bytes.
+    [[nodiscard]] static MassStorage frozen(Vector&& values) {
+        MassStorage result;
+        if (!values.empty()) result.storage_.emplace<FrozenShared>(FrozenShared{std::make_shared<const Vector>(std::move(values))});
+        return result;
+    }
     // Existing mutable references to an owned source cannot affect this copy.
     [[nodiscard]] MassStorage immutable_snapshot_copy() const {
         MassStorage result;

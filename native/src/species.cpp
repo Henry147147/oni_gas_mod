@@ -45,7 +45,7 @@ std::size_t SpeciesRegistry::add(SpeciesDefinition definition) {
     if (definition.id.empty() || definition.id.size() > 256) throw std::invalid_argument("Invalid species ID");
     if (definition.phase != Phase::gas && definition.phase != Phase::liquid && definition.phase != Phase::solid)
         throw std::invalid_argument("Invalid species phase");
-    for (const auto& item : species_) {
+    for (const auto& item : all()) {
         if (item.id == definition.id) throw std::invalid_argument("Duplicate species ID: " + definition.id);
     }
     if (!definition.explicit_molar_mass) definition.molar_mass = molecular_mass(definition.atoms);
@@ -62,16 +62,18 @@ std::size_t SpeciesRegistry::add(SpeciesDefinition definition) {
         (definition.phase != Phase::gas && definition.density <= 0) ||
         definition.max_mole_fraction < 0 || definition.max_mole_fraction > 1)
         throw std::invalid_argument("Invalid species properties: " + definition.id);
-    species_.push_back(std::move(definition));
-    return species_.size() - 1;
+    auto& species = own();
+    species.push_back(std::move(definition));
+    return species.size() - 1;
 }
 
 std::size_t SpeciesRegistry::index(std::string_view id) const {
-    for (std::size_t i = 0; i < species_.size(); ++i) if (species_[i].id == id) return i;
+    const auto& species = all();
+    for (std::size_t i = 0; i < species.size(); ++i) if (species[i].id == id) return i;
     throw std::out_of_range("Unknown species: " + std::string(id));
 }
 
-const SpeciesDefinition& SpeciesRegistry::operator[](std::size_t i) const { return species_.at(i); }
+const SpeciesDefinition& SpeciesRegistry::operator[](std::size_t i) const { return all().at(i); }
 
 SpeciesRegistry SpeciesRegistry::standard() {
     SpeciesRegistry r;
@@ -99,7 +101,7 @@ SpeciesRegistry SpeciesRegistry::standard() {
     // Match phase reference enthalpies at the measured transition point. The
     // constant-cp extrapolation is a reference model, not a cryogenic EOS table.
     const auto align = [&](const char* condensed, const char* warm, double t, double latent) {
-        auto& c = r.species_.at(r.index(condensed));
+        auto& c = r.own().at(r.index(condensed));
         const auto& w = r[r.index(warm)];
         c.formation_enthalpy = (w.enthalpy(t) - latent - c.cp * (t - reference_temperature)) * c.molar_mass;
     };

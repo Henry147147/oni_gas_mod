@@ -610,7 +610,7 @@ MacClosedWorld MacClosedWorld::with_passive_edits(std::span<const MacPassiveEdit
     MacClosedWorld result(Derived{},*this,state_snapshot_);
     bool partial=false;
     for(std::size_t i=0;i<before.occupied_volumes_m3.size() && !partial;++i)
-        partial=before.cells[i].mixture.mass()>0 && before.occupied_volumes_m3[i]<before.grid.volume_m3();
+        partial=before.occupied_volumes_m3[i]<before.grid.volume_m3() && before.cells[i].mixture.mass()>0;
     auto& next=const_cast<MacTransportState&>(*state_snapshot_);
     static_assert(noexcept(std::declval<PassiveQuantities&>().swap(std::declval<PassiveQuantities&>())));
     static_assert(std::is_nothrow_move_constructible_v<MacClosedWorld>);

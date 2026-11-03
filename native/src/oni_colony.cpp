@@ -3606,6 +3606,7 @@ void run_frame(std::uint64_t ticket,double seconds,std::uint64_t frames,const ch
                 const auto next_census=census.game_activity();
                 const bool same_actors=std::equal(previous.begin(),previous.end(),next_census.begin(),[](const auto& a,const auto& b){return a.actors==b.actors;});
                 if(!flush_only || !same_actors || std::any_of(touched.begin(),touched.end(),[](auto value){return value!=0;}))world=std::move(census);
+                step("activity clocks");
                 if(adaptive) {
                     if(s.biology_pending_s.empty())s.biology_pending_s.assign(touched.size(),0);
                     const auto current=world.game_activity();

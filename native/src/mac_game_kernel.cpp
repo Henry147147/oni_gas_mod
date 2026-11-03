@@ -271,9 +271,16 @@ MacTransportState dense(const MacTransportState &source, k::State &state,
       cell = MacMaterialCell{MixtureInventory(0), {}, {}};
       cell.mixture = MixtureInventory(species);
       cell.mixture.energy = state.energy[i];
-      for (std::size_t a = state.masses.offsets[i];
-           a < state.masses.offsets[i + 1]; ++a)
-        cell.mixture.masses[state.masses.species[a]] = state.masses.mass[a];
+      // The masses the full rebuild writes, held frozen so that later copies
+      // of this cell's chunk share them; a cell with no constituent keeps
+      // the shared zeros, as there.
+      if (state.masses.offsets[i] < state.masses.offsets[i + 1]) {
+        std::vector<double> masses(species, 0.0);
+        for (std::size_t a = state.masses.offsets[i];
+             a < state.masses.offsets[i + 1]; ++a)
+          masses[state.masses.species[a]] = state.masses.mass[a];
+        cell.mixture.masses = MassStorage::frozen(std::move(masses));
+      }
       if (!state.passives.mass.empty())
         for (std::size_t a = state.passives.offsets[i];
              a < state.passives.offsets[i + 1]; ++a)
@@ -1335,8 +1342,8 @@ void canonical_volumes(MacTransportState &state) {
   // Read-only: a const view keeps shared cell chunks shared.
   const auto &cells = std::as_const(state).cells;
   for (std::size_t i = 0; i < state.occupied_volumes_m3.size() && !partial; ++i)
-    partial = cells[i].mixture.mass() > 0 &&
-              state.occupied_volumes_m3[i] < state.grid.volume_m3();
+    partial = state.occupied_volumes_m3[i] < state.grid.volume_m3() &&
+              cells[i].mixture.mass() > 0;
   if (!partial)
     state.occupied_volumes_m3.clear();
 }

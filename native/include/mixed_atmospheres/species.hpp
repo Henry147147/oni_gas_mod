@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <map>
+#include <memory>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -36,16 +37,27 @@ struct SpeciesDefinition {
     [[nodiscard]] double enthalpy(double temperature) const;        // J/kg
 };
 
+// Copies share one immutable definition list until one of them adds a
+// species (copy on write), so copying a registry is a pointer copy.
 class SpeciesRegistry {
 public:
     std::size_t add(SpeciesDefinition definition);
     [[nodiscard]] std::size_t index(std::string_view id) const;
     [[nodiscard]] const SpeciesDefinition& operator[](std::size_t index) const;
-    [[nodiscard]] std::size_t size() const noexcept { return species_.size(); }
-    [[nodiscard]] const std::vector<SpeciesDefinition>& all() const noexcept { return species_; }
+    [[nodiscard]] std::size_t size() const noexcept { return all().size(); }
+    [[nodiscard]] const std::vector<SpeciesDefinition>& all() const noexcept {
+        static const std::vector<SpeciesDefinition> none;
+        return species_ ? *species_ : none;
+    }
     [[nodiscard]] static SpeciesRegistry standard();
 private:
-    std::vector<SpeciesDefinition> species_;
+    std::shared_ptr<std::vector<SpeciesDefinition>> species_;
+    // The definitions for writing: this registry's own list.
+    std::vector<SpeciesDefinition>& own() {
+        if (!species_) species_ = std::make_shared<std::vector<SpeciesDefinition>>();
+        else if (species_.use_count() != 1) species_ = std::make_shared<std::vector<SpeciesDefinition>>(*species_);
+        return *species_;
+    }
 };
 
 [[nodiscard]] double molecular_mass(const Composition& atoms);

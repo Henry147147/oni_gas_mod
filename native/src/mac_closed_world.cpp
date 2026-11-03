@@ -712,7 +712,7 @@ MacClosedWorld::MacClosedWorld(SpeciesRegistry registry, std::shared_ptr<const F
     // A void-phase state whose occupied cells are all filled has no occupied volumes.
     bool partial = false;
     for (std::size_t i = 0; i < state.occupied_volumes_m3.size(); ++i)
-        partial = partial || (state.cells[i].mixture.mass() > 0 && state.occupied_volumes_m3[i] < state.grid.volume_m3());
+        partial = partial || (state.occupied_volumes_m3[i] < state.grid.volume_m3() && std::as_const(state).cells[i].mixture.mass() > 0);
     if (!partial) state.occupied_volumes_m3.clear();
     require_diffusion_scope(registry_,state,settings_.diffusion);
     require(settings_.gravity_m_per_s2 == 0 || !state.grid.periodic_y, "Constant MAC gravity requires nonperiodic vertical boundaries");
@@ -729,7 +729,7 @@ MacClosedWorld::MacClosedWorld(Derived, const MacClosedWorld& from, MacTransport
     // Read-only: a const view keeps shared cell chunks shared.
     const auto& cells = std::as_const(state).cells;
     for (std::size_t i = 0; i < state.occupied_volumes_m3.size() && !partial; ++i)
-        partial = cells[i].mixture.mass() > 0 && state.occupied_volumes_m3[i] < state.grid.volume_m3();
+        partial = state.occupied_volumes_m3[i] < state.grid.volume_m3() && cells[i].mixture.mass() > 0;
     if (!partial) state.occupied_volumes_m3.clear();
     replace_state(std::move(state));
 }
