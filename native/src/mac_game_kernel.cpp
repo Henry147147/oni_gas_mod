@@ -1131,9 +1131,13 @@ public:
     return at == faces_.end() ? (x ? state.momentum_x : state.momentum_y)[f]
                               : at->second;
   }
-  void undo(MacTransportState &state) const {
-    for (const auto &[i, cell] : cells_)
-      state.cells[i] = cell;
+  // Restores every recorded value without allocating: a recorded cell is
+  // swapped back (a cell whose chunk was never made writable was never
+  // written), so the restore cannot fail on the way.
+  void undo(MacTransportState &state) {
+    for (auto &[i, cell] : cells_)
+      if (state.cells.writable(i))
+        std::swap(state.cells[i], cell);
     for (const auto &[face, j] : faces_)
       (face.first ? state.momentum_x : state.momentum_y)[face.second] = j;
     if (volumes_empty_ && *volumes_empty_)

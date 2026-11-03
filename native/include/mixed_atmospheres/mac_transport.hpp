@@ -39,6 +39,17 @@ struct MacMaterialCell {
     PassiveQuantities passive_quantities;
     MacStoredRemainder energy_remainder_j{};
 };
+// A chunk copy holds each cell's masses as an immutable shared snapshot
+// (MassStorage::immutable_snapshot_copy: the same values and shared-zero
+// form), so copies of the copy share them instead of copying them.
+inline MacMaterialCell mac_chunk_copy(const MacMaterialCell& cell) {
+    const auto& [mixture, passives, remainder] = cell;
+    const auto& [masses, energy] = mixture;
+    MacMaterialCell out{MixtureInventory(0), passives, remainder};
+    out.mixture.masses = masses.immutable_snapshot_copy();
+    out.mixture.energy = energy;
+    return out;
+}
 struct MacTransportState {
     MacGrid grid;
     // Shared copy-on-write chunks (mac_cell_store.hpp): copies of a state

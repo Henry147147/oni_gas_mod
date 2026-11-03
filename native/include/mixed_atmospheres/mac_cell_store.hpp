@@ -10,6 +10,9 @@
 #include <vector>
 
 namespace ma::experimental {
+// How a chunk copy copies one value (found by argument-dependent lookup; a
+// type may copy into a cheaper representation of the same value).
+template <class T> T mac_chunk_copy(const T& value) { return value; }
 // The cells of a MacTransportState: a vector-like sequence stored in fixed
 // chunks of 1024 cells that copies of the state share until one of them
 // writes. A copy shares every chunk; the first mutable access to a cell in a
@@ -180,6 +183,10 @@ public:
         return pointers_[k].load(std::memory_order_acquire)->serial;
     }
     void seal() const noexcept { share_all(); }
+    // Whether cell i's chunk is this store's own (mutable access gives it out
+    // without copying); a cell of a chunk that is not has not been written
+    // since the store last shared or sealed it.
+    [[nodiscard]] bool writable(size_type i) const noexcept { return mine_[i >> chunk_shift].load(std::memory_order_acquire); }
     // Cell stamp: the serial of the chunk that last gave cell i out for
     // writing (mutable access). Copies keep stamps, and a chunk gives cells
     // out under one serial only until it is copied or sealed; so two stores
@@ -194,7 +201,7 @@ private:
     static std::shared_ptr<Chunk> copy_of(const Chunk& chunk) {
         auto copy = std::make_shared<Chunk>();
         copy->values.reserve(chunk_size);
-        copy->values = chunk.values;
+        for (const auto& value : chunk.values) copy->values.push_back(mac_chunk_copy(value));
         copy->stamps.reserve(chunk_size);
         copy->stamps = chunk.stamps;
         copy->serial = next_serial();
