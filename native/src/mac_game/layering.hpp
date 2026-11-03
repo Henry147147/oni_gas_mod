@@ -141,6 +141,14 @@ layer(const ma::experimental::MacGrid &source,
     // passives are exact. The share is set by the free-convection speed
     // w = sqrt(g h (rho_up - rho_low) / rho_mean) over one cell height,
     // capped like layering. A stable or neutral face exchanges nothing.
+    // The adjustment stands in for buoyant overturning that the resolved
+    // flow does not produce, so it applies only to quiescent cells: where
+    // the resolved speed on any face of either cell exceeds w, the resolved
+    // flow already carries the mixing and the face exchanges nothing. This
+    // also bounds the face kinetic energy the carried parcel momentum can
+    // book to a cell (at most about w^2 per kilogram), which a cell's
+    // thermal energy always covers; without it a parcel carried at a
+    // plume's speed into a near-vacuum cell overdrew that cell's U.
     std::vector<double> gas_mass(g.N);
     blocks([&](std::size_t block) {
       for (auto [i, end] = block_cells(block); i < end; ++i)
@@ -165,6 +173,24 @@ layer(const ma::experimental::MacGrid &source,
         continue;
       const double speed =
           std::sqrt(std::abs(gravity) * h * (high - low) / (.5 * (high + low)));
+      const auto face_speed = [&](bool x, std::size_t face) {
+        const double j = (x ? initial.jx : initial.jy)[face];
+        if (j == 0)
+          return 0.;
+        const auto l = (x ? g.xl : g.yl)[face], r = (x ? g.xr : g.yr)[face];
+        const double inertia = .5 * ((l == k::none ? 0 : old_mass[l]) +
+                                     (r == k::none ? 0 : old_mass[r]));
+        return inertia > 0 ? std::abs(j / inertia)
+                           : std::numeric_limits<double>::infinity();
+      };
+      bool quiescent = true;
+      for (const auto cell : {lower, upper})
+        quiescent = quiescent && face_speed(true, g.left_face(cell)) <= speed &&
+                    face_speed(true, g.right_face(cell)) <= speed &&
+                    face_speed(false, g.bottom_face(cell)) <= speed &&
+                    face_speed(false, g.top_face(cell)) <= speed;
+      if (!quiescent)
+        continue;
       const double share = std::min(.25, -std::expm1(-dt * speed / h));
       const double volume =
           share * std::min(eos[lower].gas_volume, eos[upper].gas_volume);

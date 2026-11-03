@@ -174,7 +174,7 @@ its clean build passes all 91 CTests):
 | `airflow` right-side gas (increase >0.05 kg) | 4.241 -> 4.052 kg, fails | 9.249 -> 9.836 kg, passes; no water crosses |
 | `phase` (boil-only steam condenses as it mixes into the air) | passes | fails: 0.0497 of 0.1304 kg steam left |
 | The other 27 scenarios of base batches 1, 2 and 6-9 | pass | pass |
-| All 15 fixed base batches on the adopted default (`a95c134` package, 2026-11-02/03) | — | 65 of 66 scenarios pass; only `phase` fails |
+| All 15 fixed base batches on the adopted default (`a95c134` package, 2026-11-02/03) | — | 64 of 65 scenarios pass; only `phase` fails |
 | Flow-only replays of three captured 2026-10-22 worlds, restarted under each profile, 100 frames, 12 workers | 38.8 / 51.6 / 50.7 ms | 34.5 / 48.9 / 47.8 ms |
 | Their liquid in gas cells holding under 50 kg of it, after 100 frames | 10.2 / 7.1 / 7.1 t (from 2.5-2.8 t) | 2.8 / 1.9 / 1.7 t |
 | Offline 128 x 64 tank of collapsing 990 kg cells, flow time per frame | 1 | about 1.7-1.8 times |
@@ -251,7 +251,7 @@ Measured:
 | --- | --- | --- |
 | In-game `phase` (air steam at the check, at most 1e-3 of its start) | 0.0470 of 0.1304 kg, fails | 6.6e-7 of 0.1082 kg, passes |
 | In-game `freeze-melt` (>380 kg) | 425.7 kg | 428.7 kg |
-| All 15 fixed base batches as the new-colony default | 65 of 66 scenarios pass (`phase` fails) | all 66 pass, `airflow` included |
+| All 15 fixed base batches as the new-colony default | 64 of 65 scenarios pass (`phase` fails) | all 65 pass, `airflow` included, and again with the quiescence gate |
 | Offline symmetric arena, steam left at frame 64 | 0.110 kg | 0.0244 kg (the warm top layer is then stable at its dew point) |
 | `mac_game_convective_control.hpp`: hot row under cold row after 25 ticks | 60.0 K difference kept | 4.8 K; a stable box advances bit-identically to profile 10 |
 | Flow-only replays of three captured worlds, interleaved A/B/A/B, 100 frames, 12 workers (ms per frame) | 40.5, 34.4 / 47.8, 48.5 / 48.7, 47.9 | 36.5, 34.9 / 50.3, 47.7 / 48.7, 47.5 |
@@ -261,6 +261,21 @@ exchange (1000 times the geometric-mean conductivity, the wiki's vanilla
 rule) was also prototyped: alone it left 0.053 kg in the offline arena at
 frame 64, and with the adjustment 0.0023 kg, so it was not needed and is not
 adopted.
+
+The adjustment stands in for overturning the resolved flow does not produce,
+so it applies only to quiescent cells: a face exchanges nothing when the
+resolved speed `|J| / I` on any face of either cell exceeds its `w`. Without
+this gate a Spaced Out! launch faulted: a parcel carried at the plume's speed
+(hundreds of m/s) into a near-vacuum cell (4e-11 kg) booked a face kinetic
+energy debt larger than the receiving cells' whole thermal energy. With it
+the debt is bounded by about `w^2` per kilogram moved, which thermal energy
+covers. `mac_game_plume_control.hpp` reproduces the launch cell (4e-11 kg at
+95 K below 4.3e-9 kg at 119 K): beside a 1500 m/s face it is left alone
+(before the gate it faulted with the in-game message), and the same column at
+rest still overturns. Still atmospheres, the `phase` and `airflow` scenarios
+and profile 11's controls are unaffected; the gate changes profile-11
+arithmetic only where a face moves faster than `w`. Profiles 9 and 10 and the
+checkpoint format are unchanged.
 
 ## Open acceptance work
 
