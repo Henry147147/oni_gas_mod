@@ -47,6 +47,28 @@ to one Unity frame until the next tick: median submit-to-handoff 29.5 ms above
 the owner time, interval median about 74 ms, mean 84–94 ms with occasional
 100+ ms frames. 3× needs 66.7 ms.
 
+**After adoption (`09b5e60`, profile 10, WHOLE lock):** a fresh 3,000-frame
+normal-reserve base colony (`MA_COLONY_STARTING_RESERVE=1`) holds 2.985× over
+the whole run, 2.9–3.0× in every 150-frame window, with three duplicants
+alive. Its world drew different story traits from the 0.30× run and booked no
+open-sky mass, so it does not repeat the comet case; that case rests on the
+forced-sink measurement above and the native control. The cycle-2 save from
+`0af5dfe` no longer loads on current main ("This save evolves world germs and
+needs the game's disease table"), so it cannot be re-measured there.
+
+Profile 9 against 10 in game (same `09b5e60` package, `MA_COLONY_KERNEL3_PROFILE9=1`
+for 9, 600 fresh frames, WHOLE; worlds draw different story traits per run):
+Spaced Out! profile 9 2.118×/2.084× (owner about 52 ms), profile 10
+1.987×/2.002× (owner 54–62 ms); base 2.955× / 2.951× (both at the 3× speed
+cap, owner 27 / 29 ms). The same Spaced Out! runs reached 2.36–2.38× on the
+`722c0a3`-based package, so commits since then (with profile 10 about 5% of it)
+cost Spaced Out! roughly 10–15%; the per-stage log puts the extra time in the
+first-edit stages and the transfers/activity bucket, not in flow alone.
+
+Reusing unchanged 1,024-cell projection blocks keeps every view, reading and
+checkpoint byte (native control) but finds almost no unchanged block in fresh
+Spaced Out! (projection 7.2–7.5 ms either way); not adopted.
+
 Preparing that first state copy on the idle solver thread between frames
 keeps every checkpoint byte (native control, 5 of 6 frames from the copy) and
 trims owner time about 2 ms, but alternating WHOLE runs do not show a game-speed
