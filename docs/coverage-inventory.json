@@ -2150,7 +2150,7 @@
       "owner": "custom-fluid",
       "adapter": "GameplayTransactionAdapters",
       "acceptance": "callsite-transaction",
-      "status": "unimplemented",
+      "status": "implemented",
       "fact": {
         "method": "CritterTrapPlant+StatesInstance.VentGas",
         "offset": 110,
@@ -2158,7 +2158,12 @@
         "target": "SimMessages.AddRemoveSubstance"
       },
       "playtest": "in",
-      "playtest_system": "spaced-out-plants"
+      "playtest_system": "spaced-out-plants",
+      "implementation": [
+        "managed/MixedAtmospheres.Oni/ColonyActors.cs",
+        "native/src/oni_colony.cpp"
+      ],
+      "playtest_check": "in-game scenarios `spaced-out-plants` (docs/dlc-compatibility.md) pass with the owner's ledgers closed"
     },
     {
       "id": "callsite/563f1a89d1481e692a99",
@@ -4815,7 +4820,7 @@
       "owner": "custom-fluid",
       "adapter": "GameplayTransactionAdapters",
       "acceptance": "callsite-transaction",
-      "status": "unimplemented",
+      "status": "implemented",
       "fact": {
         "method": "BeeForageStates.MineTarget",
         "offset": 99,
@@ -4823,7 +4828,12 @@
         "target": "SimMessages.ConsumeMass"
       },
       "playtest": "in",
-      "playtest_system": "spaced-out-critters"
+      "playtest_system": "spaced-out-critters",
+      "implementation": [
+        "managed/MixedAtmospheres.Oni/ColonyActors.cs",
+        "native/src/oni_colony.cpp"
+      ],
+      "playtest_check": "in-game scenarios `spaced-out-critters` (docs/dlc-compatibility.md) pass with the owner's ledgers closed"
     },
     {
       "id": "callsite/de51671604ac1673a504",
@@ -14231,7 +14241,7 @@
       "owner": "custom-fluid/native-nonfluid",
       "adapter": "PrefabFluidAdapters",
       "acceptance": "callsite-transaction",
-      "status": "unimplemented",
+      "status": "implemented",
       "fact": {
         "runtime_identity": "prefab/Bee/0"
       },
@@ -14239,7 +14249,15 @@
       "playtest_system": "spaced-out-critters",
       "playtest_requires": [
         "radiation"
-      ]
+      ],
+      "implementation": [
+        "managed/MixedAtmospheres.Oni/ColonyActors.cs",
+        "native/src/oni_colony.cpp",
+        "managed/MixedAtmospheres.Oni/NativeMessageBoundary.cs",
+        "native/src/oni_backend.cpp",
+        "native/src/oni_world_biology.cpp"
+      ],
+      "playtest_check": "in-game scenarios `spaced-out-critters` (docs/dlc-compatibility.md) pass with the owner's ledgers closed; also radiation"
     },
     {
       "id": "prefab/BeeBaby/0",
@@ -14247,7 +14265,7 @@
       "owner": "custom-fluid/native-nonfluid",
       "adapter": "PrefabFluidAdapters",
       "acceptance": "callsite-transaction",
-      "status": "unimplemented",
+      "status": "implemented",
       "fact": {
         "runtime_identity": "prefab/BeeBaby/0"
       },
@@ -14255,7 +14273,15 @@
       "playtest_system": "spaced-out-critters",
       "playtest_requires": [
         "radiation"
-      ]
+      ],
+      "implementation": [
+        "managed/MixedAtmospheres.Oni/ColonyActors.cs",
+        "native/src/oni_colony.cpp",
+        "managed/MixedAtmospheres.Oni/NativeMessageBoundary.cs",
+        "native/src/oni_backend.cpp",
+        "native/src/oni_world_biology.cpp"
+      ],
+      "playtest_check": "in-game scenarios `spaced-out-critters` (docs/dlc-compatibility.md) pass with the owner's ledgers closed; also radiation"
     },
     {
       "id": "prefab/BeeHive/0",
@@ -14263,7 +14289,7 @@
       "owner": "custom-fluid/native-nonfluid",
       "adapter": "PrefabFluidAdapters",
       "acceptance": "callsite-transaction",
-      "status": "unimplemented",
+      "status": "implemented",
       "fact": {
         "runtime_identity": "prefab/BeeHive/0"
       },
@@ -14271,7 +14297,15 @@
       "playtest_system": "spaced-out-critters",
       "playtest_requires": [
         "radiation"
-      ]
+      ],
+      "implementation": [
+        "managed/MixedAtmospheres.Oni/ColonyActors.cs",
+        "native/src/oni_colony.cpp",
+        "managed/MixedAtmospheres.Oni/NativeMessageBoundary.cs",
+        "native/src/oni_backend.cpp",
+        "native/src/oni_world_biology.cpp"
+      ],
+      "playtest_check": "in-game scenarios `spaced-out-critters` (docs/dlc-compatibility.md) pass with the owner's ledgers closed; also radiation"
     },
     {
       "id": "prefab/BerryPie/0",
@@ -19005,12 +19039,17 @@
       "owner": "custom-fluid/native-nonfluid",
       "adapter": "PrefabFluidAdapters",
       "acceptance": "callsite-transaction",
-      "status": "unimplemented",
+      "status": "implemented",
       "fact": {
         "runtime_identity": "prefab/CritterTrapPlant/0"
       },
       "playtest": "in",
-      "playtest_system": "spaced-out-plants"
+      "playtest_system": "spaced-out-plants",
+      "implementation": [
+        "managed/MixedAtmospheres.Oni/ColonyActors.cs",
+        "native/src/oni_colony.cpp"
+      ],
+      "playtest_check": "in-game scenarios `spaced-out-plants` (docs/dlc-compatibility.md) pass with the owner's ledgers closed"
     },
     {
       "id": "prefab/CritterTrapPlantSeed/0",
@@ -21797,12 +21836,17 @@
       "owner": "custom-fluid/native-nonfluid",
       "adapter": "PrefabFluidAdapters",
       "acceptance": "callsite-transaction",
-      "status": "unimplemented",
+      "status": "implemented",
       "fact": {
         "runtime_identity": "prefab/FilterPlant/0"
       },
       "playtest": "in",
-      "playtest_system": "spaced-out-plants"
+      "playtest_system": "spaced-out-plants",
+      "implementation": [
+        "managed/MixedAtmospheres.Oni/ColonyActors.cs",
+        "native/src/oni_colony.cpp"
+      ],
+      "playtest_check": "in-game scenarios `spaced-out-plants` (docs/dlc-compatibility.md) pass with the owner's ledgers closed"
     },
     {
       "id": "prefab/FilterPlantSeed/0",
@@ -45825,12 +45869,17 @@
       "owner": "custom-fluid/native-nonfluid",
       "adapter": "PrefabFluidAdapters",
       "acceptance": "callsite-transaction",
-      "status": "unimplemented",
+      "status": "implemented",
       "fact": {
         "runtime_identity": "prefab/Staterpillar/0"
       },
       "playtest": "in",
-      "playtest_system": "spaced-out-critters"
+      "playtest_system": "spaced-out-critters",
+      "implementation": [
+        "managed/MixedAtmospheres.Oni/ColonyActors.cs",
+        "native/src/oni_colony.cpp"
+      ],
+      "playtest_check": "in-game scenarios `spaced-out-critters` (docs/dlc-compatibility.md) pass with the owner's ledgers closed"
     },
     {
       "id": "prefab/StaterpillarBaby/0",
@@ -45838,12 +45887,17 @@
       "owner": "custom-fluid/native-nonfluid",
       "adapter": "PrefabFluidAdapters",
       "acceptance": "callsite-transaction",
-      "status": "unimplemented",
+      "status": "implemented",
       "fact": {
         "runtime_identity": "prefab/StaterpillarBaby/0"
       },
       "playtest": "in",
-      "playtest_system": "spaced-out-critters"
+      "playtest_system": "spaced-out-critters",
+      "implementation": [
+        "managed/MixedAtmospheres.Oni/ColonyActors.cs",
+        "native/src/oni_colony.cpp"
+      ],
+      "playtest_check": "in-game scenarios `spaced-out-critters` (docs/dlc-compatibility.md) pass with the owner's ledgers closed"
     },
     {
       "id": "prefab/StaterpillarEgg/0",
@@ -45864,12 +45918,17 @@
       "owner": "custom-fluid/native-nonfluid",
       "adapter": "PrefabFluidAdapters",
       "acceptance": "callsite-transaction",
-      "status": "unimplemented",
+      "status": "implemented",
       "fact": {
         "runtime_identity": "prefab/StaterpillarGas/0"
       },
       "playtest": "in",
-      "playtest_system": "spaced-out-critters"
+      "playtest_system": "spaced-out-critters",
+      "implementation": [
+        "managed/MixedAtmospheres.Oni/ColonyActors.cs",
+        "native/src/oni_colony.cpp"
+      ],
+      "playtest_check": "in-game scenarios `spaced-out-critters` (docs/dlc-compatibility.md) pass with the owner's ledgers closed"
     },
     {
       "id": "prefab/StaterpillarGasBaby/0",
@@ -45877,12 +45936,17 @@
       "owner": "custom-fluid/native-nonfluid",
       "adapter": "PrefabFluidAdapters",
       "acceptance": "callsite-transaction",
-      "status": "unimplemented",
+      "status": "implemented",
       "fact": {
         "runtime_identity": "prefab/StaterpillarGasBaby/0"
       },
       "playtest": "in",
-      "playtest_system": "spaced-out-critters"
+      "playtest_system": "spaced-out-critters",
+      "implementation": [
+        "managed/MixedAtmospheres.Oni/ColonyActors.cs",
+        "native/src/oni_colony.cpp"
+      ],
+      "playtest_check": "in-game scenarios `spaced-out-critters` (docs/dlc-compatibility.md) pass with the owner's ledgers closed"
     },
     {
       "id": "prefab/StaterpillarGasConnector/0",
@@ -45890,12 +45954,17 @@
       "owner": "custom-fluid/native-nonfluid",
       "adapter": "PrefabFluidAdapters",
       "acceptance": "callsite-transaction",
-      "status": "unimplemented",
+      "status": "implemented",
       "fact": {
         "runtime_identity": "prefab/StaterpillarGasConnector/0"
       },
       "playtest": "in",
-      "playtest_system": "spaced-out-critters"
+      "playtest_system": "spaced-out-critters",
+      "implementation": [
+        "managed/MixedAtmospheres.Oni/ColonyActors.cs",
+        "native/src/oni_colony.cpp"
+      ],
+      "playtest_check": "in-game scenarios `spaced-out-critters` (docs/dlc-compatibility.md) pass with the owner's ledgers closed"
     },
     {
       "id": "prefab/StaterpillarGasConnectorPreview/0",
@@ -45934,12 +46003,17 @@
       "owner": "custom-fluid/native-nonfluid",
       "adapter": "PrefabFluidAdapters",
       "acceptance": "callsite-transaction",
-      "status": "unimplemented",
+      "status": "implemented",
       "fact": {
         "runtime_identity": "prefab/StaterpillarGasEgg/0"
       },
       "playtest": "in",
-      "playtest_system": "spaced-out-critters"
+      "playtest_system": "spaced-out-critters",
+      "implementation": [
+        "managed/MixedAtmospheres.Oni/ColonyActors.cs",
+        "native/src/oni_colony.cpp"
+      ],
+      "playtest_check": "in-game scenarios `spaced-out-critters` (docs/dlc-compatibility.md) pass with the owner's ledgers closed"
     },
     {
       "id": "prefab/StaterpillarGenerator/0",
@@ -45947,12 +46021,17 @@
       "owner": "custom-fluid/native-nonfluid",
       "adapter": "PrefabFluidAdapters",
       "acceptance": "callsite-transaction",
-      "status": "unimplemented",
+      "status": "implemented",
       "fact": {
         "runtime_identity": "prefab/StaterpillarGenerator/0"
       },
       "playtest": "in",
-      "playtest_system": "spaced-out-critters"
+      "playtest_system": "spaced-out-critters",
+      "implementation": [
+        "managed/MixedAtmospheres.Oni/ColonyActors.cs",
+        "native/src/oni_colony.cpp"
+      ],
+      "playtest_check": "in-game scenarios `spaced-out-critters` (docs/dlc-compatibility.md) pass with the owner's ledgers closed"
     },
     {
       "id": "prefab/StaterpillarGeneratorPreview/0",
@@ -45991,12 +46070,17 @@
       "owner": "custom-fluid/native-nonfluid",
       "adapter": "PrefabFluidAdapters",
       "acceptance": "callsite-transaction",
-      "status": "unimplemented",
+      "status": "implemented",
       "fact": {
         "runtime_identity": "prefab/StaterpillarLiquid/0"
       },
       "playtest": "in",
-      "playtest_system": "spaced-out-critters"
+      "playtest_system": "spaced-out-critters",
+      "implementation": [
+        "managed/MixedAtmospheres.Oni/ColonyActors.cs",
+        "native/src/oni_colony.cpp"
+      ],
+      "playtest_check": "in-game scenarios `spaced-out-critters` (docs/dlc-compatibility.md) pass with the owner's ledgers closed"
     },
     {
       "id": "prefab/StaterpillarLiquidBaby/0",
@@ -46004,12 +46088,17 @@
       "owner": "custom-fluid/native-nonfluid",
       "adapter": "PrefabFluidAdapters",
       "acceptance": "callsite-transaction",
-      "status": "unimplemented",
+      "status": "implemented",
       "fact": {
         "runtime_identity": "prefab/StaterpillarLiquidBaby/0"
       },
       "playtest": "in",
-      "playtest_system": "spaced-out-critters"
+      "playtest_system": "spaced-out-critters",
+      "implementation": [
+        "managed/MixedAtmospheres.Oni/ColonyActors.cs",
+        "native/src/oni_colony.cpp"
+      ],
+      "playtest_check": "in-game scenarios `spaced-out-critters` (docs/dlc-compatibility.md) pass with the owner's ledgers closed"
     },
     {
       "id": "prefab/StaterpillarLiquidConnector/0",
@@ -46017,12 +46106,17 @@
       "owner": "custom-fluid/native-nonfluid",
       "adapter": "PrefabFluidAdapters",
       "acceptance": "callsite-transaction",
-      "status": "unimplemented",
+      "status": "implemented",
       "fact": {
         "runtime_identity": "prefab/StaterpillarLiquidConnector/0"
       },
       "playtest": "in",
-      "playtest_system": "spaced-out-critters"
+      "playtest_system": "spaced-out-critters",
+      "implementation": [
+        "managed/MixedAtmospheres.Oni/ColonyActors.cs",
+        "native/src/oni_colony.cpp"
+      ],
+      "playtest_check": "in-game scenarios `spaced-out-critters` (docs/dlc-compatibility.md) pass with the owner's ledgers closed"
     },
     {
       "id": "prefab/StaterpillarLiquidConnectorPreview/0",
@@ -46061,12 +46155,17 @@
       "owner": "custom-fluid/native-nonfluid",
       "adapter": "PrefabFluidAdapters",
       "acceptance": "callsite-transaction",
-      "status": "unimplemented",
+      "status": "implemented",
       "fact": {
         "runtime_identity": "prefab/StaterpillarLiquidEgg/0"
       },
       "playtest": "in",
-      "playtest_system": "spaced-out-critters"
+      "playtest_system": "spaced-out-critters",
+      "implementation": [
+        "managed/MixedAtmospheres.Oni/ColonyActors.cs",
+        "native/src/oni_colony.cpp"
+      ],
+      "playtest_check": "in-game scenarios `spaced-out-critters` (docs/dlc-compatibility.md) pass with the owner's ledgers closed"
     },
     {
       "id": "prefab/Steam/0",
@@ -56993,7 +57092,7 @@
       "owner": "custom-fluid",
       "adapter": "CritterAdapter",
       "acceptance": "biology",
-      "status": "unimplemented",
+      "status": "implemented",
       "fact": {
         "description": "All critter intake, breathing, excretion and transformations."
       },
@@ -57001,7 +57100,12 @@
       "playtest_system": "critters",
       "playtest_requires": [
         "spaced-out-critters"
-      ]
+      ],
+      "implementation": [
+        "managed/MixedAtmospheres.Oni/ColonyActors.cs",
+        "native/src/oni_colony.cpp"
+      ],
+      "playtest_check": "in-game scenarios `puft` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed; also spaced-out-critters"
     },
     {
       "id": "system/disease",
@@ -57324,7 +57428,7 @@
       "owner": "custom-fluid",
       "adapter": "PlantAdapter",
       "acceptance": "biology",
-      "status": "unimplemented",
+      "status": "implemented",
       "fact": {
         "description": "Plant intake, irrigation, transpiration and all DLC plant conversions."
       },
@@ -57332,7 +57436,12 @@
       "playtest_system": "plants",
       "playtest_requires": [
         "spaced-out-plants"
-      ]
+      ],
+      "implementation": [
+        "managed/MixedAtmospheres.Oni/ColonyActors.cs",
+        "native/src/oni_colony.cpp"
+      ],
+      "playtest_check": "in-game scenarios `plant`, `oxyfern` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed; also spaced-out-plants"
     },
     {
       "id": "system/pressure-damage",

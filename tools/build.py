@@ -48,6 +48,8 @@ def main() -> None:
     env[variable] = str(directory) + os.pathsep + env.get(variable, "")
     env["MA_TEST_NATIVE_LIBRARY"] = str(directory / ("mixed_atmospheres.dll" if os.name == "nt" else "libmixed_atmospheres.so"))
     env["MA_TEST_CALORIC_FIXTURES"] = str(directory / "caloric-fixtures")
+    # The fixture writer is excluded from the default build target.
+    run(["cmake", "--build", str(directory), "--parallel", "8", "--target", "ma_mac_kernel_checkpoint_tests"])
     run([str(directory / ("ma_mac_kernel_checkpoint_tests.exe" if os.name == "nt" else "ma_mac_kernel_checkpoint_tests")),
          "--write-caloric", env["MA_TEST_CALORIC_FIXTURES"]], env)
     run(["dotnet", "run", "--project", "managed/MixedAtmospheres.Tests", "-c", "Release"], env)

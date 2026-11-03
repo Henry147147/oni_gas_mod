@@ -172,6 +172,7 @@ PASSED_SCENARIOS: set[str] = {
     "spaced-out-radiation", "spaced-out-hep", "spaced-out-reactor", "spaced-out-reactor-meltdown", "spaced-out-landers",
     "spaced-out-poi-harvest", "spaced-out-comets-geysers", "spaced-out-engine-exhaust", "spaced-out-rail-gun",
     "spaced-out-sublimation-station", "spaced-out-intakes", "spaced-out-centrifuge", "spaced-out-sludge-press", "spaced-out-dehydrator",
+    "spaced-out-critters", "spaced-out-plants",
 }
 # Systems checked by whole-colony runs rather than one scenario.
 RUN_SYSTEMS: dict[str, dict] = {
