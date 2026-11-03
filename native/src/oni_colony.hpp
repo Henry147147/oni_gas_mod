@@ -22,6 +22,10 @@ void fault_native(const char* reason) noexcept;
 // tiers), so messages applied by a later zero-time native frame cannot reach
 // a frame that is still running.
 [[nodiscard]] bool claims_inputs_at_submission() noexcept;
+// Controls: the idle-time private state copy a frame starts from (on by
+// default) and how many frames used one.
+void set_world_preparation(bool enabled) noexcept;
+[[nodiscard]] std::uint64_t prepared_world_frames() noexcept;
 [[nodiscard]] MAOniColonyStatus status();
 [[nodiscard]] MAOniColonyParcelContext parcel_context();
 void copy(MAOniColonyStatus&, MAOniColonyCellView*, std::uint32_t capacity);

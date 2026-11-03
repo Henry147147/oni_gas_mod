@@ -642,6 +642,36 @@ void open_sky_presink_control() {
     require(profile8>0,"profile 8 no longer lets an open-sky parcel expand into the room before its sink");
     std::cout<<"PASS open-sky sink: of "<<injected<<" kg emitted into open sky, profiles 10 and 9 let 0 kg and profile 8 "<<profile8<<" kg reach the room\n";
 }
+// A frame that starts from the idle-time private copy of the published
+// state (instead of copying it at its first in-place edit) must leave every
+// checkpoint byte as before.
+void prepared_world_control() {
+    using namespace ma::oni::colony;
+    MAOniColonyConfig cfg{};cfg.struct_size=sizeof(cfg);cfg.abi_version=MA_ONI_COLONY_ABI_VERSION;
+    cfg.flags=MA_ONI_COLONY_GAME_KERNEL;cfg.vacuum_index=vacuum;
+    cfg.grid_width=cfg.width=5;cfg.grid_height=cfg.height=4;cfg.maximum_timestep_s=.1;
+    std::vector<MAOniColonyMaterial> mats{material("Oxygen",11,oxygen,true,.032,1000)};
+    std::vector<MAOniColonyCell> cells(20,MAOniColonyCell{0,MA_ONI_COLONY_SOLID,0,0,0,0});
+    for(const std::uint32_t i:{6u,7u,8u,11u,12u,13u})cells[i]={oxygen,MA_ONI_COLONY_FLUID,1,300,0,0};
+    const auto run=[&](bool prepare) {
+        set_world_preparation(prepare);
+        start(cfg,mats,cells,1);
+        std::vector<std::vector<std::uint8_t>> images;
+        for(std::uint64_t frame=1;frame<=6;++frame) {
+            const MAOniColonyHeat heat{7,0,40.0*static_cast<double>(frame),1000};queue_heat(std::span(&heat,1));
+            const std::array<MAOniColonyTransfer,2> moves{MAOniColonyTransfer{6,oxygen,MA_ONI_COLONY_INJECT,0,-1,0,.05*static_cast<double>(frame),320,0},
+                MAOniColonyTransfer{13,oxygen,MA_ONI_COLONY_EXTRACT,0,-1,0,.02,0,0}};
+            queue_transfers(moves);advance(frame,.2,2);wait();
+            require(status().state==1,"prepared-world control faulted");images.push_back(checkpoint());
+        }
+        stop();return images;
+    };
+    const auto before=prepared_world_frames();const auto prepared=run(true);const auto used=prepared_world_frames()-before;
+    const auto copied=run(false);set_world_preparation(true);
+    require(prepared==copied,"a frame started from the prepared state copy changed checkpoint bytes");
+    require(used>=5,"the prepared state copy was not used");
+    std::cout<<"PASS prepared world: "<<used<<" frames from the idle-time state copy, all checkpoint bytes equal\n";
+}
 void moving_job_control() {
     using namespace ma::oni::colony;
     using namespace ma::oni::colony::detail;
@@ -2188,6 +2218,7 @@ int main(int argc, char** argv) {
         quiet_game_cell_control();
         shadow_handoff_control();
         open_sky_presink_control();
+        prepared_world_control();
         moving_job_control();
         tiny_injection_neighbour_control();
         airflow_boundary_control();

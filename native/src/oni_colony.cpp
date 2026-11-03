@@ -158,6 +158,11 @@ struct Session {
     bool conservative_liquid_boundary=false; // saved by owner wrapper 12
     std::vector<MacSaturationPair> pairs; // liquid/vapour pairs that boil and condense
     std::shared_ptr<const MacClosedWorld> world;
+    // A private, byte-identical copy of `world` with its own state, made
+    // while the solver thread waits for the next frame (prepare_next_world).
+    // A frame starts from it only while `world` is still `prepared_source`.
+    std::shared_ptr<const MacClosedWorld> prepared_source;
+    std::optional<MacClosedWorld> prepared;
     Ledger ledger;
     MAOniColonyStatus status{};
     // World germ evolution (docs/colony-owner.md#germs), saved from owner
@@ -362,6 +367,7 @@ NativeExchange exchanged; // under inputs
 // time; pacing in the mod normally holds the game clock instead.
 void run_frame(std::uint64_t ticket, double seconds, std::uint64_t frames, const char* refusal, std::uint64_t thread,
     bool flush_only=false,std::shared_ptr<ActivityTask> activity={}) noexcept;
+void prepare_next_world() noexcept;
 struct Solver {
     std::mutex m; std::condition_variable wake, idle;
     std::thread thread;
@@ -401,6 +407,8 @@ struct Solver {
             running = false;
             if (seconds == 0 && !command && activity_work.empty()) busy.store(false, std::memory_order_release);
             idle.notify_all();
+            // Idle until the next frame: prepare its private state copy.
+            if (!quit && seconds == 0 && !refusal && !command && activity_work.empty()) { l.unlock(); prepare_next_world(); l.lock(); }
         }
     }
     // Waits until no step runs or waits; `discard` drops waiting work first.
@@ -1216,6 +1224,29 @@ MacClosedWorld convert_identities(Session& s, MacClosedWorld world, double secon
     }
     return world;
 }
+
+// Runs on the solver thread between frames. Nothing holds `lifecycle` while
+// it waits for the solver (a frame takes that lock), so this cannot deadlock;
+// a lifecycle call or frame arriving meanwhile waits at most for one copy.
+namespace {
+std::atomic<bool> world_preparation{true};
+std::atomic<std::uint64_t> prepared_world_uses{0};
+void prepare_next_world() noexcept {
+    if (!world_preparation.load(std::memory_order_relaxed)) return;
+    std::lock_guard lock(lifecycle);
+    if (!session || session->status.state != 1 || !session->world || session->prepared_source == session->world) return;
+    auto& s = *session;
+    s.prepared.reset(); s.prepared_source.reset();
+    try {
+        const ArithmeticScope arithmetic;
+        MacClosedWorld copy = *s.world;
+        if (!MacGameKernelAccess::detach_heat_state(copy)) return; // only the game kernel shares state this way
+        s.prepared.emplace(std::move(copy)); s.prepared_source = s.world;
+    } catch (...) { s.prepared.reset(); s.prepared_source.reset(); }
+}
+}
+void set_world_preparation(bool enabled) noexcept { world_preparation.store(enabled, std::memory_order_relaxed); }
+std::uint64_t prepared_world_frames() noexcept { return prepared_world_uses.load(std::memory_order_relaxed); }
 
 bool active() noexcept { return enabled.load(std::memory_order_acquire); }
 bool busy() noexcept { return solver.busy.load(std::memory_order_acquire); }
@@ -2866,7 +2897,15 @@ void run_frame(std::uint64_t ticket,double seconds,std::uint64_t frames,const ch
               else job_passives.emplace(index,job.passives);
           } }
         journal_inputs(s,ticket,seconds,frames,flush_only,transfers,heat,terrain,freezes,germ_edits,job_tokens,activity.get());
-        auto world = *s.world;
+        // The frame's first in-place edit detaches the state the published
+        // world shares; an identical copy prepared while the owner was idle
+        // saves that copy on the frame's critical path.
+        auto world = [&] {
+            std::optional<MacClosedWorld> prepared; prepared.swap(s.prepared);
+            const bool current = prepared && s.prepared_source == s.world; s.prepared_source.reset();
+            if (current) prepared_world_uses.fetch_add(1, std::memory_order_relaxed);
+            return current ? std::move(*prepared) : *s.world;
+        }();
         if(activity && activity->mode) {
             if(world.settings().game.activity_tiers!=*activity->mode)s.biology_pending_s.assign(world.state().cells.size(),0);
             world=world.with_game_activity_tiers(*activity->mode);
@@ -3699,7 +3738,7 @@ std::pair<std::uint64_t,std::uint32_t> prepare_retirement(std::uint32_t origin,s
         require(retiring[i].load(std::memory_order_relaxed)==0,"Rocket cells are already retiring");selected[i]=1;
     }
     {std::lock_guard p(publication);next->before=latest;}
-    next->candidate=std::make_unique<Session>(*session);auto& s=*next->candidate;
+    next->candidate=std::make_unique<Session>(*session);auto& s=*next->candidate;s.prepared.reset();s.prepared_source.reset();
     auto world=*s.world;const auto& cat=*s.catalogue;std::array<detail::RetirementInventory,2> inventories;
     std::vector<MacFluidTransfer> edits;
     for(const auto i:next->cells) {

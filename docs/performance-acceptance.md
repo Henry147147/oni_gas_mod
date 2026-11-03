@@ -80,9 +80,16 @@ checkpoint byte (native control) but finds almost no unchanged block in fresh
 Spaced Out! (projection 7.2–7.5 ms either way); not adopted.
 
 Preparing that first state copy on the idle solver thread between frames
-keeps every checkpoint byte (native control, 5 of 6 frames from the copy) and
-trims owner time about 2 ms, but alternating WHOLE runs do not show a game-speed
-gain (2.376×/2.356× without, 2.277×/2.405× with); it is not adopted. Other
+keeps every checkpoint byte (native control, 5 of 6 frames from the copy). On
+random worlds the gain was hidden by world-to-world spread; on the pinned
+world (`--story-traits V9 --mixing 0`, 600 frames, WHOLE) the owner's first
+edit stage falls from about 6 to 1.8 ms and owner time from 43–47 to 39 ms:
+2.495×/2.395× against 2.135×/2.266×/2.287× without. Adopted. The parallel
+native shadow (`2ae0865`) cut `write_shadow` from 2.6 to 1.2 ms per frame.
+A dense germ-medium cache showed no stage gain and is not adopted. On the
+pinned world, profile 9 at `3009148` (2.230×/2.178×), profile 9 at current
+main (2.027×/2.224×) and profile 10 (2.135×/2.266×) agree within the
+run-to-run spread: the apparent 10–15% regression was world variation. Other
 agents' unlocked builds raised the machine load to about 48 during part of this
 session, so a fresh base pair from that window is discarded.
 
