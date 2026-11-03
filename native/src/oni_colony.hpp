@@ -2,6 +2,7 @@
 // Colony owner internals (docs/colony-owner.md). The C ABI in oni_colony.h
 // forwards here; the native detours call active/suppress/advance.
 #include "mixed_atmospheres/oni_colony.h"
+#include <array>
 #include <cstdint>
 #include <span>
 #include <vector>
@@ -75,6 +76,9 @@ bool copy_options(MAOniColonyOptions&);
 void queue_germs(std::span<const MAOniColonyGermEdit>);
 void set_radiation(std::span<const std::uint32_t> cells, std::span<const float> rads);
 void germ_accounts(MAOniColonyBiology&, std::vector<MAOniColonyBiologyAccount>&);
+// Game-kernel pressure refinements of this session by criterion (diagnostic; never saved):
+// pressure solve failure, unconverged pressure, negative or non-finite pressure, swept volume above 0.4 cell.
+[[nodiscard]] std::array<std::uint64_t, 4> rejection_counts();
 [[nodiscard]] std::vector<std::uint8_t> checkpoint();
 // Callback-owned requests across a save (oni_colony.h, owner wrapper 13).
 [[nodiscard]] std::vector<MAOniColonyCallbackRecord> checkpoint_callbacks();

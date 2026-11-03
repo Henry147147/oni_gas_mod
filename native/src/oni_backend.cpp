@@ -1495,6 +1495,14 @@ MAOniResult ma_oni_colony_set_radiation(const std::uint32_t* cells,const float* 
         catch(const std::invalid_argument& error) {throw Failure(MA_ONI_INVALID_ARGUMENT,error.what());}
     });
 }
+std::uint32_t ma_oni_colony_rejection_counts_version() { return 1; }
+MAOniResult ma_oni_colony_rejection_counts(std::uint64_t out[4]) {
+    return boundary([&] {
+        if(!out)throw Failure(MA_ONI_INVALID_ARGUMENT,"Invalid rejection count buffer");
+        const auto counts=ma::oni::colony::rejection_counts();
+        for(std::size_t i=0;i<4;++i)out[i]=counts[i];
+    });
+}
 MAOniResult ma_oni_colony_biology(MAOniColonyBiology* output,MAOniColonyBiologyAccount* accounts,std::uint32_t capacity,std::uint32_t* count) {
     return boundary([&] {
         static_assert(sizeof(MAOniColonyBiology)==312 && sizeof(MAOniColonyBiologyAccount)==64);

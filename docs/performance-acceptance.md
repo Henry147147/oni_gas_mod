@@ -46,8 +46,20 @@ archived private drivers"). It was set when the frozen save ran on game profile 
 (physical version 23, the older kernel, whose counter is that kernel's own
 step retries): every recorded ten-cycle run had `RejectedAttempts` 0 (`376bddd`, `cb59116`, `dde2a09`). No document gives a
 reason beyond "a clean owner has none". Profiles 9-11 count refinements, so the
-bound has not been meaningful since the game kernel was adopted. It is unchanged
-here; a user decision is needed.
+bound has not been meaningful since the game kernel was adopted. Decision (delegated, 2026-11-03,
+[completion-plan amendment](completion-plan.md)): the bound now applies to the
+failure criteria only. The suite checks `zero_failed_pressure_attempts` (the
+pressure-solve failure, unconverged-pressure and negative or non-finite-pressure
+counts, each 0, from the owner report's `RejectionCriteria`) and records the
+swept-volume refinement count as a number. The counters
+(`ma_oni_colony_rejection_counts`, reset when a session starts or restores,
+never saved) count events over all regions for this session only, so they can
+exceed or fall short of `RejectedAttempts`, which keeps the deepest region's
+count and is saved with the colony. The 3,000-frame run on `base-defaults-p11-v1`
+with the new check passes all 19 checks: 0 pressure-solve failures, 0 unconverged
+pressure solves, 0 negative or non-finite pressures, and 38 swept-volume
+refinements this session (`RejectedAttempts` 55 including the frames before the
+save).
 
 ## Grown-colony slowdown, 2026-11-02
 

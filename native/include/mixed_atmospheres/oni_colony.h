@@ -442,6 +442,13 @@ typedef struct MAOniColonyBiologyAccount {
     uint64_t identity;
     double born, died, culled, moved, edited_in, edited_out, held;
 } MAOniColonyBiologyAccount;
+/* Game-kernel pressure refinements ("rejected attempts") of the running session by criterion, a
+ * diagnostic that is never saved: out[0] component pressure solve failure, out[1] unconverged
+ * pressure, out[2] negative or non-finite pressure, out[3] a cell's net swept volume above 0.4
+ * cell. Failures (0-2) are errors of the step; swept volume is ordinary adaptive time stepping.
+ * Counts events over all regions, so they can exceed rejected_attempts (the deepest region). */
+MA_ONI_API uint32_t ma_oni_colony_rejection_counts_version(void);
+MA_ONI_API MAOniResult ma_oni_colony_rejection_counts(uint64_t out[4]);
 MA_ONI_API MAOniResult ma_oni_colony_biology(MAOniColonyBiology*, MAOniColonyBiologyAccount* accounts, uint32_t capacity, uint32_t* count);
 /* Size query with a null buffer; the image describes the latest completed frame. */
 MA_ONI_API MAOniResult ma_oni_colony_checkpoint(uint8_t* buffer, uint32_t capacity, uint32_t* bytes);

@@ -470,6 +470,7 @@ namespace MixedAtmospheres.Oni
                 PublicationCellMapComparisons = ColonyOwner.CellMapComparisons,
                 ColonyOwner.WorldPassiveComparisons,ColonyOwner.WorldPassiveRows,ColonyOwner.WorldPassiveBusy,
                 WorldGerms = ColonyWorldGerms.Report(),
+                RejectionCriteria = ColonyRejections.Report(),
                 BalanceLedgers = ColonyBalance.Report(),
                 EmitterSources = ColonyActors.SourceKg,
                 OwnerConfigFlags = ColonyOwner.Config.Flags, OwnerMaximumTimestepSeconds = ColonyOwner.Config.MaximumTimestepSeconds,

@@ -4,6 +4,7 @@
 // happened, with the owner-grid cell and the trial interval; =2 also prints
 // every event. Nothing here is read by the solver, saved or audited, so
 // arithmetic and checkpoint bytes are unchanged whether it is on or off.
+#include <array>
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
@@ -40,6 +41,20 @@ inline int level() noexcept {
   static const int value = [] { const char* e = std::getenv("MA_COLONY_REJECT_LOG"); return e ? std::atoi(e) : 0; }();
   return value;
 }
+// Always-on per-criterion event counts (one relaxed increment per refinement, which is
+// rare); the owner resets them when a session starts or restores and reports them
+// beside rejected_attempts (ma_oni_colony_rejection_counts). Diagnostic only.
+inline std::array<std::atomic<std::uint64_t>, 4>& counters() {
+  static std::array<std::atomic<std::uint64_t>, 4> value{};
+  return value;
+}
+inline void count(Reason reason) noexcept { counters()[static_cast<std::size_t>(reason)].fetch_add(1, std::memory_order_relaxed); }
+inline std::array<std::uint64_t, 4> counts() noexcept {
+  std::array<std::uint64_t, 4> out{};
+  for (std::size_t i = 0; i < 4; ++i) out[i] = counters()[i].load(std::memory_order_relaxed);
+  return out;
+}
+inline void reset_counts() noexcept { for (auto& c : counters()) c.store(0, std::memory_order_relaxed); }
 inline std::mutex& guard() { static std::mutex value; return value; }
 inline std::vector<Event>& pending() { static std::vector<Event> value; return value; }
 inline void record(Reason reason, std::size_t local_cell, double ratio, double trial_dt) {

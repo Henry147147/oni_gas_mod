@@ -248,9 +248,11 @@ class CriteriaTests(unittest.TestCase):
         self.runs = getattr(self, "runs", 0) + 1
         output = self.root / f"run{self.runs}"
         validation = output / suite.LINUX_PROFILE / suite.VALIDATION
-        owner_report = {"State": 1, "Faulted": False, "Error": "", "RejectedAttempts": 0, "SkippedRelaxations": 0,
+        owner_report = {"State": 1, "Faulted": False, "Error": "", "RejectedAttempts": 56, "SkippedRelaxations": 0,
                         "MaximumRelativeMassError": 1e-15, "MaximumRelativeEnergyError": 1e-14,
                         "CompletedFrames": 33 + frames, "OwnerConfigFlags": 29,
+                        "RejectionCriteria": {"Available": True, "PressureSolveFailures": 0, "UnconvergedPressure": 0,
+                                              "NegativeOrNonFinitePressure": 0, "SweptVolumeRefinements": 56},
                         "RestoredOwner": {"PhysicalVersion": 31, "LiquidLaw": 1, "PressureIterationCap": 400,
                                           "HeatIterationCap": 800, "GasHeatMixing": 8.0}}
         owner_report.update(owner or {})
@@ -291,7 +293,18 @@ class CriteriaTests(unittest.TestCase):
         self.assertFalse(checks["new_frames"])
 
     def test_any_rejected_attempt_invincibility_or_death_fails(self):
-        self.assertFalse(self.cycle_run(owner={"RejectedAttempts": 1})[0]["zero_rejected_attempts"])
+        # Swept-volume refinements are recorded, not a check; any failure criterion fails (delegated decision 2026-11-03).
+        checks, details = self.cycle_run()
+        self.assertTrue(checks["zero_failed_pressure_attempts"])
+        self.assertEqual(details["rejection_criteria"]["SweptVolumeRefinements"], 56)
+        self.assertNotIn("zero_rejected_attempts", checks)
+        for name in ("PressureSolveFailures", "UnconvergedPressure", "NegativeOrNonFinitePressure"):
+            criteria = {"Available": True, "PressureSolveFailures": 0, "UnconvergedPressure": 0,
+                        "NegativeOrNonFinitePressure": 0, "SweptVolumeRefinements": 3, name: 1}
+            self.assertFalse(self.cycle_run(owner={"RejectionCriteria": criteria})[0]["zero_failed_pressure_attempts"], name)
+        # A package that cannot report the criteria cannot prove the bound.
+        self.assertFalse(self.cycle_run(owner={"RejectionCriteria": {"Available": False}})[0]["zero_failed_pressure_attempts"])
+        self.assertFalse(self.cycle_run(owner={"RejectionCriteria": None})[0]["zero_failed_pressure_attempts"])
         self.assertFalse(self.cycle_run(owner={"MaximumRelativeEnergyError": 2e-6})[0]["ledgers_close_at_existing_native_bounds"])
         games = [{"Started": True, "Cycle": 1, "Duplicants": 3, "DebugInvincible": True},
                  {"Started": True, "Cycle": 2, "Duplicants": 2, "DebugInvincible": False}]
@@ -314,8 +327,10 @@ class CriteriaTests(unittest.TestCase):
 
     def proton_result(self, **values):
         files = {"a.dll": "0" * 64}
-        owner = {"State": 1, "Faulted": False, "Error": "", "RejectedAttempts": 0, "SkippedRelaxations": 0,
+        owner = {"State": 1, "Faulted": False, "Error": "", "RejectedAttempts": 12, "SkippedRelaxations": 0,
                  "MaximumRelativeMassError": 0.0, "MaximumRelativeEnergyError": 0.0, "OwnerConfigFlags": 29,
+                 "RejectionCriteria": {"Available": True, "PressureSolveFailures": 0, "UnconvergedPressure": 0,
+                                       "NegativeOrNonFinitePressure": 0, "SweptVolumeRefinements": 12},
                  "Scenarios": [{"Name": f"s{i}", "Finished": True, "Passed": True} for i in range(5)]}
         result = {"exit_code": 0, "observed_player_exit_code": 0, "source_revision": REVISION, "source_dirty": False,
                   "runner_git_revision": REVISION, "runner_git_status": "", "mod_failure_lines": [], "timed_out": False,
@@ -337,6 +352,16 @@ class CriteriaTests(unittest.TestCase):
         self.assertFalse(checks["clean_exact_runner"])
         output, files = self.proton_result(package_manifest={"files": {}})
         self.assertFalse(suite.proton_checks(step, output, REVISION, files)[0]["package_is_bundle"])
+
+    def test_windows_owner_bound_applies_to_failure_criteria_only(self):
+        output, files = self.proton_result()
+        result = suite.read_json(output / "result.json")
+        checks = suite.proton_owner(result, "passed-colony-owner", REVISION, files)
+        self.assertTrue(checks["zero_failed_pressure_attempts"])
+        self.assertNotIn("zero_rejected_attempts", checks)
+        self.assertEqual(suite.owner_details(result)["rejection_criteria"]["SweptVolumeRefinements"], 12)
+        result["colony_owner"]["RejectionCriteria"]["UnconvergedPressure"] = 1
+        self.assertFalse(suite.proton_owner(result, "passed-colony-owner", REVISION, files)["zero_failed_pressure_attempts"])
 
     def test_current_proton_owner_rejects_the_legacy_owner_flags(self):
         output, files = self.proton_result()

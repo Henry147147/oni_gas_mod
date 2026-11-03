@@ -260,6 +260,24 @@ def common_root() -> Path:
     return Path(git("rev-parse", "--path-format=absolute", "--git-common-dir")).parent
 
 
+# Rejected-attempts bound split by criterion (completion-plan amendment, delegated decision
+# 2026-11-03). Under game profiles 9-11 a "rejected attempt" is a pressure refinement; a net
+# swept volume above 0.4 cell is ordinary adaptive time stepping and is recorded, not checked.
+# The three failure criteria must each be zero.
+PRESSURE_FAILURE_COUNTERS = ("PressureSolveFailures", "UnconvergedPressure", "NegativeOrNonFinitePressure")
+
+
+def zero_failed_pressure_attempts(owner: dict) -> bool:
+    criteria = owner.get("RejectionCriteria") or {}
+    return criteria.get("Available") is True and all(criteria.get(name) == 0 for name in PRESSURE_FAILURE_COUNTERS)
+
+
+def rejection_details(owner: dict) -> dict:
+    criteria = owner.get("RejectionCriteria") or {}
+    return {name: criteria.get(name) for name in (*PRESSURE_FAILURE_COUNTERS, "SweptVolumeRefinements")}
+
+
+
 def finite(value, bound: float) -> bool:
     return type(value) in (int, float) and math.isfinite(value) and 0 <= value <= bound
 
@@ -601,6 +619,7 @@ def linux_checks(rc: int, output: Path) -> tuple[dict, dict]:
                    "State", "Faulted", "CompletedFrames", "RejectedAttempts", "SkippedRelaxations",
                    "MaximumRelativeMassError", "MaximumRelativeEnergyError", "TraceSinkKg", "TraceSinkJoules",
                    "Error", "OwnerConfigFlags", "Saves", "Loads")},
+               "rejection_criteria": rejection_details(owner),
                "scenarios": [{"Name": s.get("Name"), "Finished": s.get("Finished"), "Passed": s.get("Passed"),
                               "failed_checks": [{"Name": c.get("Name"), "Detail": c.get("Detail")}
                                                 for c in s.get("Checks") or [] if c.get("Passed") is not True]}
@@ -625,7 +644,7 @@ def cycle_checks(rc: int, output: Path, frames: int, hashes: dict, package: Path
         "harness_pass": rc == 0,
         "all_three_alive": colony.get("Duplicants") == 3,
         "owner_healthy": owner.get("State") == 1 and owner.get("Faulted") is False and owner.get("Error") == "",
-        "zero_rejected_attempts": owner.get("RejectedAttempts") == 0,
+        "zero_failed_pressure_attempts": zero_failed_pressure_attempts(owner),
         "zero_skipped_relaxations": owner.get("SkippedRelaxations") == 0,
         "ledgers_close_at_existing_native_bounds": finite(owner.get("MaximumRelativeMassError"), 1e-8)
             and finite(owner.get("MaximumRelativeEnergyError"), 1e-6),
@@ -668,6 +687,7 @@ def cycle_checks(rc: int, output: Path, frames: int, hashes: dict, package: Path
                                                          "SkippedRelaxations", "MaximumRelativeMassError",
                                                          "MaximumRelativeEnergyError", "TraceSinkKg", "TraceSinkJoules",
                                                          "OwnerConfigFlags", "Error")},
+               "rejection_criteria": rejection_details(owner),
                "restored_frame": colony.get("RestoredFrame"), "duplicants": colony.get("Duplicants"),
                "performance_windows": {"count": len(perf), "first": list(perf[0]) if perf else None,
                                        "last": list(perf[-1]) if perf else None, "gaps": gaps}}
@@ -693,7 +713,7 @@ def proton_owner(result: dict, status: str, revision: str, files: dict) -> dict:
             "status": result.get("status") == status,
             "no_ma_environment_overrides": result.get("owner_environment_overrides") is False,
             "owner_healthy": owner.get("State") == 1 and owner.get("Faulted") is False and owner.get("Error") == "",
-            "zero_rejected_attempts": owner.get("RejectedAttempts") == 0,
+            "zero_failed_pressure_attempts": zero_failed_pressure_attempts(owner),
             "zero_skipped_relaxations": owner.get("SkippedRelaxations") == 0,
             "ledgers_close_at_existing_native_bounds": finite(owner.get("MaximumRelativeMassError"), 1e-8)
                 and finite(owner.get("MaximumRelativeEnergyError"), 1e-6),
@@ -708,6 +728,7 @@ def owner_details(result: dict) -> dict:
             "owner": {key: owner.get(key) for key in ("CompletedFrames", "RejectedAttempts", "SkippedRelaxations",
                                                       "MaximumRelativeMassError", "MaximumRelativeEnergyError",
                                                       "OwnerConfigFlags", "Error")},
+            "rejection_criteria": rejection_details(owner),
             "scenarios": [{"Name": s.get("Name"), "Finished": s.get("Finished"), "Passed": s.get("Passed"),
                            "failed_checks": [{"Name": c.get("Name"), "Detail": c.get("Detail")}
                                              for c in s.get("Checks") or [] if c.get("Passed") is not True]}

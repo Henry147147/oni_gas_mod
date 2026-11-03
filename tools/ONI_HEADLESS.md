@@ -469,6 +469,12 @@ python3 tools/acceptance_suite.py run <revision> --tier release --only linux-ten
 | `quick` | 15 Linux scenario batches; the nine base-game asteroids at 3,000 frames; a 3,000-frame run on a copy of the frozen `local/saves/base-defaults-p11-v1.sav` (a frame-31, three-duplicant, normal-reserve base-game colony on game profile 11, made from `61a2aa8` plus the off-by-default reject log with `MA_COLONY_STARTING_RESERVE=1 oni_headless.py run --mode colony-owner --scenario base --frames 32 --save-colony`, taking the run's `colony-owner.sav`; without the starting reserve its duplicants suffocate in the first cycle. `base-defaults-p5-v1` predates the nitrogen removal and is refused; `base-defaults-p10-v1` is the profile-10 predecessor); WindowsPlayer under Proton: eight batches, contact, base save, prepared cycle (3,132 frames) and its natural-autosave cold/menu load, Precise + Strict settings save/load, ordinary Spaced Out! source/cold/menu, and an ordinary clicked Spaced Out! New Game with a manual save and its fresh load |
 | `release` | `quick` plus the 30,000-frame ten-cycle run on the same frozen save |
 
+The owner checks include `zero_failed_pressure_attempts`: the owner report's
+`RejectionCriteria` pressure-solve-failure, unconverged-pressure and
+negative/non-finite-pressure counts must each be 0, and the swept-volume
+refinement count is recorded in the step details (it replaced
+`zero_rejected_attempts`, delegated decision 2026-11-03).
+
 Outputs go to `artifacts/acceptance/<short>/runs/<tag>/` (default tag
 `<tier>-vN`, the next free number) and are never reused; one
 `summary.json` records every step's checks and `tier_passed`. The frozen save

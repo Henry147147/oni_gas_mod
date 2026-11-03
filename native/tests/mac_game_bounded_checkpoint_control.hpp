@@ -135,7 +135,9 @@ inline void bounded_pressure_checkpoint_control() {
     const auto cold=MacClosedWorld::from_checkpoint(f.registry,f.eos,image);
     check(cold.checkpoint()==image && cold.settings().game_profile==profile,
           "Saved game pressure policy changed on restore");
+    game_kernel::reject_log::reset_counts();
     const auto first=source.advanced(.2);
+    const auto criteria=game_kernel::reject_log::counts();
     check(first.world.checkpoint()==cold.advanced(.2).world.checkpoint(),
           "Saved game pressure policy changed cold continuation");
     if(sized) {
@@ -172,6 +174,11 @@ inline void bounded_pressure_checkpoint_control() {
           first.report.rejected_attempts==first.report.game_stages.pressure_refinements &&
           first.report.substeps+first.report.rejected_attempts==first.report.attempts,
           "Bounded pressure work omitted accepted/rejected attempts");
+    // The per-criterion diagnostic accounts for every refinement of that advance, and a failure
+    // criterion (solve failure, unconverged, negative pressure) is not what these trials hit.
+    check(criteria[0]+criteria[1]+criteria[2]+criteria[3]==first.report.game_stages.pressure_refinements &&
+          criteria[3]>0 && criteria[0]==0 && criteria[1]==0 && criteria[2]==0,
+          "Rejection criteria do not account for the pressure refinements");
     bool refused=false;
     try{(void)source.advanced(.2,1);}catch(const std::exception& error){refused=std::string(error.what()).find("budget")!=std::string::npos;}
     check(refused && source.checkpoint()==image,"Pressure budget changed or advanced the source");

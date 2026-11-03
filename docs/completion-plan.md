@@ -8,6 +8,19 @@ still require separate authorization.
 
 Amendments:
 
+- **Rejected-attempts bound split by criterion, delegated decision
+  2026-11-03:** the acceptance suite's `zero_rejected_attempts` was set when the
+  frozen save ran on game profile 5, where a rejection meant a failed step.
+  Under profiles 9-11 the game kernel's rejected attempts are pressure
+  refinements, and a cell's net swept volume above 0.4 cell is ordinary
+  adaptive time stepping. The zero bound now applies to the failure criteria
+  only: `zero_failed_pressure_attempts` requires the pressure-solve failure,
+  unconverged-pressure and negative or non-finite-pressure counts each to be 0
+  (a package that cannot report them fails). The swept-volume refinement count
+  is recorded, not checked. The owner reports the four counts as
+  `RejectionCriteria` in `colony-owner.json` (diagnostic only; no arithmetic or
+  checkpoint byte changes). See [performance-acceptance.md](performance-acceptance.md#rejected-attempts-of-the-game-kernel-2026-11-03).
+
 - **Profile 11 convective adjustment adopted, delegated decision 2026-11-03:**
   new colonies create game profile 11 (physical checkpoint 31), profile 10
   plus a [sub-grid convective adjustment](../native/MAC_GAME_KERNEL.md#convective-adjustment-profile-11--checkpoint-31):

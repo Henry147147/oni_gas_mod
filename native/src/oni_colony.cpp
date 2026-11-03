@@ -811,6 +811,7 @@ void activate(std::unique_ptr<Session> next, std::uint64_t thread) {
     biology_mode.store(next->germ_mode, std::memory_order_relaxed);
     publish(*next);
     session = std::move(next);
+    ma::experimental::game_kernel::reject_log::reset_counts();
     live_parcel_session.store(session->status.session,std::memory_order_release);
     activity_owner.store(mac_game_activity_profile(session->world->settings().game_profile),std::memory_order_release);
     enabled.store(true, std::memory_order_release);
@@ -1965,6 +1966,7 @@ void set_radiation(std::span<const std::uint32_t> cells, std::span<const float> 
     std::lock_guard lock(inputs);
     radiation_field = std::move(field);
 }
+std::array<std::uint64_t, 4> rejection_counts() { return ma::experimental::game_kernel::reject_log::counts(); }
 void germ_accounts(MAOniColonyBiology& out, std::vector<MAOniColonyBiologyAccount>& accounts) {
     std::shared_ptr<const Published> p; { std::lock_guard lock(publication); p = latest; }
     require(p != nullptr, "No colony owner is active");
