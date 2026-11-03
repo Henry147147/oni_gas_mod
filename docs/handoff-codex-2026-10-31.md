@@ -37,14 +37,15 @@ on main (no solver arithmetic or checkpoint byte changes):
 - Pacing and receipt-fence tests now run production code; result-collection
   Python tests no longer depend on the enclosing repository's HEAD.
 
-**Runtime continuation WIP (still uncommitted):** its writer was on by default
-while `Ready()` refuses record 6, so committing it would have made every
-ordinary save unloadable or failing. Claude changed `WriterEnabled` to opt-in
-(`MA_COLONY_RUNTIME_CONTINUATION=1`) and applies the new record-declaration
-settle condition only when the writer is enabled. Keep both until record 6 is
-qualified. `tools/ColonyRuntimeContinuationTests` does not compile: `Timed.cs`
-now needs `UpdateTables`, `EventState`, `EventDiscovery` and `ActorGraph`, and
-the last needs game types (`KMonoBehaviour`) the test stubs lack.
+**Runtime continuation (closed 2026-11-03, Claude):** the record-6 WIP was
+cut, never committed. Every one of its fourteen in-game source captures failed
+before a load, and it could not become exact in any case: two cold loads of
+one save diverge from each other once the game runs freely, because duplicant
+movement follows real-time render frames. The rebased patch is kept privately
+in `artifacts/continuation/`. MACOLP03 tag 6 / `MACGRT01` stay retired
+unwritten ([checkpoint formats](../native/MAC_CHECKPOINT.md)). What is
+established instead is continuation of the mod's own state under identical
+inputs, in actual colonies ([evidence](colony-owner.md#continuation-evidence)).
 
 ## Current integration
 
@@ -119,15 +120,7 @@ claim fresh speedup, equivalence or actual 3× from this change.
   document for every read, with a missing name retried; the stress control
   counts those retries, and the harness's live report polling now tolerates
   them. Actual Windows OS acceptance stays separate.
-- Runtime continuation remains WIP on main. Native96/56 captures all 11 cell
-  columns; MACOLP03 tag6 / MACGRT01v1 are already reserved. General controls
-  pass 429 and supplemental installed-SDK/Mono controls reach 67. Source v14
-  explicitly refuses retained retired scheduler graphs, with no owner fault
-  and no save/load. Five Wilt outgoing graphs are complete/cleaned; Failed
-  Idle retains live navigation/EventSystem references. Full shared graph/event
-  and static-dispatcher installation, lifetime/inbound proof, Unity time and
-  derived heat operands remain open. Ready() must refuse unqualified record 6;
-  helper controls do not qualify live continuation.
+- Runtime continuation: superseded by the 2026-11-03 note above.
 - The private airflow core reaches 22 optimized/sanitized component groups,
   retaining historical no-mask outputs. A missing aperture/inertia view in
   recursive positive-pressure correction is fixed; the unchanged high-speed
@@ -147,14 +140,25 @@ claim fresh speedup, equivalence or actual 3× from this change.
    Future timing requires explicit worker holds; each game uses its own
    `game_slot.sh whole` call without an outer CPU lock.
 3. Continue the separate cache replay/cost work and evidence-led pool analysis;
-   no speculative scheduler tuning. Complete runtime shared-root/event work
-   and a qualified clock/heat policy before another live restore cohort.
+   no speculative scheduler tuning. Runtime continuation is closed (above).
 4. Complete the conservative airflow owner path, then run the original gate.
    Continue the freeze/melt energy audit; its material custody is now measured.
 5. Remaining physics/accuracy, powered/mixed heat, default activation, exact
    storage/bottle/recipe teardown and sustainable progression gates remain as
    recorded in the previous handoff. Full F4 is 20000 simulated seconds; do not
    substitute a shorter duration. Actual sustained 3× remains unproven.
+6. Exact storage scope (assessed 2026-11-03, Claude; awaiting the user's
+   decision). Ordinary colonies already store fluids as ONI items, one per
+   species, and book every mass, energy and germ-identity difference at that
+   boundary to the machine ports' `StorageBoundary` ledger, which saves with
+   the pipes. The exact adapter keeps a mixture's heat and germs inside a
+   store, but covers only gas and liquid reservoirs, under a development
+   control, and refuses nonempty teardown. Extending it to the rest means an
+   adapter, a save record and in-game qualification for each of: 91 base-game
+   prefabs that combine `Storage` with fluid input or output, 74 fabricator
+   recipes with fluid inputs or outputs, 32 element converters, loose bottles
+   and canisters that duplicants carry, mop and pitcher-pump pickups, and the
+   demolition of every one of them.
 
 ## Private evidence and ownership
 

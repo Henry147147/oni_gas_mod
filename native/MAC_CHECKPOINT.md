@@ -182,6 +182,11 @@ all identities, dimensions and handle bindings before an atomic restore at the
 first positive simulation tick. Unknown/incomplete records refuse; older
 payloads retain their prior encoding and continuation capabilities. This is a
 format reservation, not a completed active-continuation qualification.
+*Retired unwritten 2026-11-03:* no build on main ever wrote tag 6, and readers
+keep refusing it as an unknown section. The record cannot be made exact
+because ONI's own future inputs depend on wall-clock rendering, not only on
+saved state ([colony owner saves](../docs/colony-owner.md#continuation-evidence)).
+Do not reuse tag 6 or `MACGRT01` for another record.
 
 **Reserved 2026-10-28 immediately after fetching `f6c6096`:** colony-owner
 `MACOLN01` base wrapper **14** carries profile9's complete activity integration:

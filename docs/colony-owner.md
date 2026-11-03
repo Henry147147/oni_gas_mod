@@ -1215,6 +1215,35 @@ a breath, a consumer and unanswered and answered injections, saves it with
 those requests in flight, and replays it cold and after a menu restore; the
 negative control, releasing the in-flight requests as the previous policy
 did, must diverge at the first resumed frame.
+`tools/colony_continuation.py --replay ma_oni_colony_replay --source-images
+DIR --source-journal-dir DIR` runs that replay on a source run's own saved
+owner (it must hash to the continuation baseline that every load reencodes)
+and reports it as `owner_replay`, separately from the in-game comparison.
+
+<a id="continuation-evidence"></a>**Continuation evidence (2026-11-03).**
+Under identical inputs the restored owner continues byte for byte in actual
+colonies. The saved owners of `activity-lifecycle` base and Spaced Out!
+sources, from both `69e55f8` and `ee28999` (profile 11), each replay cold
+and after a menu stop through all eight held frames. In game, a loaded colony
+does not receive identical inputs. On `ee28999` the base source saves at
+owner frame 34; two cold loads and a menu reload of that save, and a cold
+load and a menu reload of the Spaced Out! save, all reencode the saved owner
+and pipe images exactly. Each loaded owner first differs at frame 35,
+attributed to inputs: a few passive heat exchanges between buildings and
+their cells (the printing pod, the scenario's gas filter) that ONI's native
+simulation computes from building and chunk temperatures it does not save
+exactly. Every other input of that frame is identical, and pipe and particle
+images match the uninterrupted branch through all eight held frames.
+ONI itself is not reproducible from one save. The two base cold loads agree
+on every image and every input through frame 43; at frame 44, once the game
+runs freely, their duplicants exhale at different cells. The menu reload's
+inputs depart from the cold loads' at frame 36 (base) and frame 56 (Spaced
+Out!). Duplicant movement follows real-time render frames, so no saved record
+can make a loaded game's own inputs equal the uninterrupted game's.
+The earlier plan to also save that game state (MACOLP03 tag 6, `MACGRT01`:
+scheduler graphs, chores, state machines, timed events and ONI's native
+thermal registries) was abandoned unwritten: fourteen in-game source
+captures failed before any load, and no part of it reached main.
 
 The owner steps one frame ahead of what the game has seen, so at a save its
 last completed frame still has receipts the game has not received.
