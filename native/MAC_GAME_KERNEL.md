@@ -174,6 +174,7 @@ its clean build passes all 91 CTests):
 | `airflow` right-side gas (increase >0.05 kg) | 4.241 -> 4.052 kg, fails | 9.249 -> 9.836 kg, passes; no water crosses |
 | `phase` (boil-only steam condenses as it mixes into the air) | passes | fails: 0.0497 of 0.1304 kg steam left |
 | The other 27 scenarios of base batches 1, 2 and 6-9 | pass | pass |
+| All 15 fixed base batches on the adopted default (`a95c134` package, 2026-11-02/03) | — | 65 of 66 scenarios pass; only `phase` fails |
 | Flow-only replays of three captured 2026-10-22 worlds, restarted under each profile, 100 frames, 12 workers | 38.8 / 51.6 / 50.7 ms | 34.5 / 48.9 / 47.8 ms |
 | Their liquid in gas cells holding under 50 kg of it, after 100 frames | 10.2 / 7.1 / 7.1 t (from 2.5-2.8 t) | 2.8 / 1.9 / 1.7 t |
 | Offline 128 x 64 tank of collapsing 990 kg cells, flow time per frame | 1 | about 1.7-1.8 times |

@@ -52,7 +52,9 @@ before, except that an EOS trial search may now accept a candidate gas state
 below 1 K that it used to reject; the change applies to every game profile,
 saved ones included. The exact
 pre-fault world now advances 60 frames under its saved profile 9 and under
-profile 10; `mac_game_cold_gas_control.hpp` expands a γ 4.44 gas below 1 K
+profile 10, and the original rail-gun scenario (the `0bf4268` managed build
+with the fixed native libraries) passes in game on profiles 10 and 9 instead
+of faulting at frame 3; `mac_game_cold_gas_control.hpp` expands a γ 4.44 gas below 1 K
 under both. Very cold hydrogen then condenses and freezes through its game
 transitions like any other cold hydrogen.
 
