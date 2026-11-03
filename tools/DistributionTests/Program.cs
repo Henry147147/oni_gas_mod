@@ -141,7 +141,7 @@ static class Program
 
     // Prepared base-game saves in local/saves (skipped where absent). Those made before the nitrogen
     // removal (2026-10-27, docs/completion-plan.md amendments) have a valid envelope but their content is
-    // refused with an explanation; the current frozen save (base-defaults-p10-v1, made from main by
+    // refused with an explanation; the profile-10 and profile-11 frozen saves (base-defaults-p10-v1 and -p11-v1, made from main by
     // tools/acceptance_suite.py's source) must be accepted.
     private static int PreparedContent()
     {
@@ -155,7 +155,7 @@ static class Program
             var sim = ColonySaveReadback.SimSection(File.ReadAllBytes(path));
             if (sim == null || !ColonySaveEnvelope.HasMagic(sim)) continue;
             var refusal = Refusal(sim);
-            if (name == "base-defaults-p10-v1") Check(refusal == null, "the current frozen save is accepted: " + refusal);
+            if (name == "base-defaults-p10-v1" || name == "base-defaults-p11-v1") Check(refusal == null, "a current frozen save is accepted: " + refusal);
             else if (name.StartsWith("base-core21-") || name.StartsWith("base-defaults-p5-") || name.StartsWith("base-floor-") ||
                      name.StartsWith("base-package-") || name.StartsWith("base-trace-"))
                 Check(refusal != null && refusal.Contains("removed nitrogen content") && refusal.Contains("Start a new colony"),

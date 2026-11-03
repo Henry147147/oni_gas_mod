@@ -1611,6 +1611,15 @@ Environment variables of the game process (the harness passes them through):
   never finishes is caught).
 - `MA_COLONY_STAGE_LOG=1`: every tenth owner frame, each stage's wall time and
   the frame's edit counts (in the run's `Player.log`).
+- `MA_COLONY_REJECT_LOG=1` (`=2` also one line per event): the game kernel's
+  "rejected attempts" are pressure refinements of the flow stage (the counter is
+  the deepest region's refinement count per kernel advance). This logs, per
+  advance, how many were caused by each criterion (component pressure solve
+  failure, unconverged pressure, negative or non-finite pressure, or a cell's net
+  swept volume above 0.4 cell), the worst offending owner-grid cell with its
+  swept-volume ratio and the rejected trial interval. Events are recorded only
+  while it is set; it changes no arithmetic, timestep or saved byte
+  (`native/src/mac_game/reject_log.hpp`).
 - `MA_COLONY_PACING_LOSS_LOG=1`: bounded aggregates for each 50 owner-frame
   window, including its first/last target frame. Records raw positive offered
   time, the existing 0.2 s cap loss, final admitted time, busy pacing loss and

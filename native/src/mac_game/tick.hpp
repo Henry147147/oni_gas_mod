@@ -251,6 +251,8 @@ public:
                                   liquid_blocked.empty() ? nullptr : &boundary,
                                   std::move(out.eos));
           if (!advanced.pressure_refinement_requested) break;
+          if (reject_log::level())
+            reject_log::record(advanced.reject_reason, advanced.reject_cell, advanced.pressure_volume_change / .4, trial);
           ++out.pressure_refinements;
           out.pressure_ms += advanced.pressure_ms;
           out.eos_ms += advanced.eos_ms;

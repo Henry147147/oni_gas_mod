@@ -1,5 +1,54 @@
 # Performance acceptance measurements
 
+## Rejected attempts of the game kernel (2026-11-03)
+
+**What they are.** For game profiles 9-11 `rejected_attempts` is not a failed
+timestep. Each is one pressure refinement of the flow stage
+(`native/src/mac_game/flow_local.hpp`, `tick.hpp`): a trial interval is thrown
+away before any work, transport or ledger entry and retried shorter. A kernel
+advance reports the deepest region's refinement count. The four criteria are
+a component pressure solve failure, an unconverged pressure solve, negative or
+non-finite pressure after the one-pass nonnegative correction, and a cell's net
+swept volume above 0.4 cell. `MA_COLONY_REJECT_LOG=1` (`=2` per event;
+`docs/colony-owner.md`) logs the criterion, frame, owner-grid cell, ratio and
+rejected interval. It changes no arithmetic, timestep or saved byte.
+
+**Causes.** In every run below all rejections were the swept-volume criterion;
+solve failures, unconverged solves and negative pressures were zero. The
+ratio is the largest net swept volume over 0.4 cell: from just above 1 (a front
+barely over the limit) to 139 (profile 11, frame 489, owner cell 192,117).
+
+**Counts**, 3,000 frames, all rejections in the swept-volume criterion:
+
+| Run | Rejected attempts | Substeps |
+| --- | --- | --- |
+| Frozen save `base-defaults-p11-v1` loaded (profile 11), clean env | 56 | |
+| Same save, `MA_COLONY_REJECT_LOG=1` | 51 (34 logged events, 18 frames, all in frames 189-421, owner cells x 107-112, y 162-171) | |
+| Frozen save `base-defaults-p10-v1` loaded (profile 10) | 77 | |
+| Fresh colony, pinned world (`--story-traits V9 --mixing 0`, starting reserve), profile 11 | 7,819 | 30,346 |
+| Same world, `MA_COLONY_KERNEL3_PROFILE10=1` | 5,723 | 22,507 |
+| Same world, `MA_COLONY_KERNEL3_PROFILE9=1` | 1,109 | 26,306 |
+
+Run-to-run counts on one save differ (56 and 51) because duplicant actions and
+frame timing differ; the log itself changes nothing. In the pinned world 70% of
+the profile-11 worst cells (855 of 1,216 advances with a rejection) and 70% of
+profile 10's (759 of 1,090) lie in x 100-130, y 170-200, the start room; profile
+9 has none there, and its worst cells sit on the top rows (y 300+) and at
+(103,332). Why profiles 10 and 11 reject more in the start room was not isolated: the
+logs show only that the 0.4-cell swept-volume bound trips there with ratios up
+to 139 at the full 0.1 s trial interval and is met after halving.
+
+**History of the zero bound.** `zero_rejected_attempts` was in the archived
+Codex ten-cycle driver `codex-ten-cycle.py` (2026-10-25), copied into the later
+Claude and Codex final-acceptance drivers, and moved unchanged into
+`tools/acceptance_suite.py` by `c668182` (2026-10-27, "checks are those of the
+archived private drivers"). It was set when the frozen save ran on game profile 5
+(physical version 23, the older kernel, whose counter is that kernel's own
+step retries): every recorded ten-cycle run had `RejectedAttempts` 0 (`376bddd`, `cb59116`, `dde2a09`). No document gives a
+reason beyond "a clean owner has none". Profiles 9-11 count refinements, so the
+bound has not been meaningful since the game kernel was adopted. It is unchanged
+here; a user decision is needed.
+
 ## Grown-colony slowdown, 2026-11-02
 
 The 0.063× late window of the normal-reserve base control has two causes.

@@ -169,6 +169,7 @@ public:
         std::vector<std::uint8_t> local_blocked;
         if(!blocked.empty()) {local_blocked.resize(r.box.walls.size());for(std::size_t i=0;i<local_blocked.size();++i)local_blocked[i]=blocked[global_cell(r,i)];}
         try {
+          if(reject_log::level())reject_log::region={r.x,r.y,static_cast<std::size_t>(r.box.width),static_cast<std::size_t>(source.width)};
           auto& tick=execution.parallel_region==id?*parallel_tick:*r.tick;
           results[id]=tick.advance(state,steps[id],gravity,threshold,local_blocked,budget);
         }

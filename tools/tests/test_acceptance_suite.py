@@ -251,7 +251,7 @@ class CriteriaTests(unittest.TestCase):
         owner_report = {"State": 1, "Faulted": False, "Error": "", "RejectedAttempts": 0, "SkippedRelaxations": 0,
                         "MaximumRelativeMassError": 1e-15, "MaximumRelativeEnergyError": 1e-14,
                         "CompletedFrames": 33 + frames, "OwnerConfigFlags": 29,
-                        "RestoredOwner": {"PhysicalVersion": 30, "LiquidLaw": 1, "PressureIterationCap": 400,
+                        "RestoredOwner": {"PhysicalVersion": 31, "LiquidLaw": 1, "PressureIterationCap": 400,
                                           "HeatIterationCap": 800, "GasHeatMixing": 8.0}}
         owner_report.update(owner or {})
         write(validation / "colony-owner.json", owner_report)

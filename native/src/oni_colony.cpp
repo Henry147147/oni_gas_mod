@@ -3,6 +3,7 @@
 #include "oni_windows_lifecycle_trace.hpp"
 #include "mac_kernel_detail.hpp"
 #include "mac_phase_flow.hpp"
+#include "mac_game/reject_log.hpp"
 #include "mac_game_bridge.hpp"
 #include "oni_catalogue.hpp"
 #include "oni_colony_import.hpp"
@@ -3547,6 +3548,28 @@ void run_frame(std::uint64_t ticket,double seconds,std::uint64_t frames,const ch
         stop_watchdog();
         auto advanced = std::move(*flowed);
         substeps=advanced.substeps;rejected_attempts=advanced.rejected_attempts;
+        if(ma::experimental::game_kernel::reject_log::level()) {
+            // MA_COLONY_REJECT_LOG: why this advance's pressure refinements happened (diagnostic only).
+            namespace rl=ma::experimental::game_kernel::reject_log;
+            const auto events=rl::drain();
+            if(!events.empty()) {
+                const auto width=std::max<std::size_t>(1,world.state().grid.width);
+                std::array<std::size_t,4> counts{};const rl::Event* worst=nullptr;
+                for(const auto& e:events) {
+                    ++counts[static_cast<std::size_t>(e.reason)];
+                    if(rl::level()>=2)
+                        std::fprintf(stderr,"[Mixed Atmospheres] reject frame %llu: %s cell %zu (x %zu y %zu) ratio %.4g dt %.6g\n",
+                            static_cast<unsigned long long>(s.status.completed_frames+1),rl::name(e.reason),e.cell,
+                            e.cell==rl::no_cell?0:e.cell%width,e.cell==rl::no_cell?0:e.cell/width,e.ratio,e.trial_dt);
+                    if(e.reason==rl::Reason::swept_volume && (!worst || e.ratio>worst->ratio))worst=&e;
+                }
+                std::fprintf(stderr,"[Mixed Atmospheres] reject frame %llu: events %zu (kernel rejected_attempts %llu, substeps %llu) solve_failure %zu not_converged %zu negative_pressure %zu swept_volume %zu",
+                    static_cast<unsigned long long>(s.status.completed_frames+1),events.size(),static_cast<unsigned long long>(rejected_attempts),
+                    static_cast<unsigned long long>(substeps),counts[0],counts[1],counts[2],counts[3]);
+                if(worst)std::fprintf(stderr,"; worst swept ratio %.4g at cell %zu (x %zu y %zu) dt %.6g",worst->ratio,worst->cell,worst->cell%width,worst->cell/width,worst->trial_dt);
+                std::fprintf(stderr,"\n");
+            }
+        }
         book_trace(s, advanced.trace_sink);
         for (std::size_t k = 0; k < advanced.converted.size(); ++k) {
             L.converted[k] += advanced.converted[k]; L.converted_gross[k] += advanced.converted_gross[k];

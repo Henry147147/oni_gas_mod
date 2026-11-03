@@ -2,6 +2,7 @@
 #include "patch.hpp"
 #include "pressure_be.hpp"
 #include "region.hpp"
+#include "reject_log.hpp"
 #include <bit>
 #include <chrono>
 #include <limits>
@@ -18,6 +19,9 @@ struct FlowReport {
   // transport or ledger entry. Its unchanged EOS storage returns to the caller.
   bool pressure_refinement_requested = false;
   double pressure_volume_change = 0;
+  // Why the refinement was requested (diagnostic, reject_log.hpp); no_cell where not applicable.
+  reject_log::Reason reject_reason = reject_log::Reason::swept_volume;
+  std::size_t reject_cell = reject_log::no_cell;
 };
 class Flow {
   ma::experimental::MacGrid source;
@@ -204,6 +208,7 @@ public:
       if (!bounded_pressure_volume) throw;
       result.pressure_ms = milliseconds(start);
       result.pressure_refinement_requested = true;
+      result.reject_reason = reject_log::Reason::pressure_solve_failure;
       result.eos = std::move(eos);
       return result;
     }
@@ -218,6 +223,7 @@ public:
     if (!projected.converged) {
       if (!bounded_pressure_volume)
         throw std::runtime_error("Private flow pressure did not converge");
+      result.reject_reason = reject_log::Reason::pressure_not_converged;
       request_refinement();
       return result;
     }
@@ -229,6 +235,10 @@ public:
     if (bounded_pressure_volume) {
       if (negative_pressure || std::any_of(projected.p.begin(), projected.p.end(),
                                           [](double p) { return !std::isfinite(p); })) {
+        result.reject_reason = reject_log::Reason::negative_or_nonfinite_pressure;
+        if (reject_log::level())
+          for (std::size_t i = 0; i < projected.p.size(); ++i)
+            if (projected.p[i] < 0 || !std::isfinite(projected.p[i])) { result.reject_cell = i; break; }
         request_refinement();
         return result;
       }
@@ -274,6 +284,31 @@ public:
       // The one-pass nonnegative pressure correction can also need a finer
       // interval; neither condition may reach work or transport unchanged.
       if (largest > .4 * g.V) {
+        result.reject_reason = reject_log::Reason::swept_volume;
+        if (reject_log::level()) {
+          // Diagnostic rescan (same bound as above) for the offending cell.
+          double worst = -1;
+          for (std::size_t i = 0; i < g.N; ++i) {
+            if (g.wall[i]) continue;
+            const double divergence = projected.qx[g.right_face(i)] - projected.qx[g.left_face(i)] +
+                                      projected.qy[g.top_face(i)] - projected.qy[g.bottom_face(i)];
+            const double magnitude = std::isfinite(divergence) ? std::abs(divergence) : std::numeric_limits<double>::infinity();
+            if (bound_mass_floor > 0) {
+              double held = eos[i].mass;
+              const auto inflow = [&](bool x, std::size_t f, bool upper) {
+                const double q = (x ? projected.qx : projected.qy)[f];
+                const auto other = upper ? (x ? g.xr : g.yr)[f] : (x ? g.xl : g.yl)[f];
+                if (other != k::none && (upper ? q < 0 : q > 0)) held = std::max(held, eos[other].mass);
+              };
+              inflow(true, g.left_face(i), false);
+              inflow(true, g.right_face(i), true);
+              inflow(false, g.bottom_face(i), false);
+              inflow(false, g.top_face(i), true);
+              if (held < bound_mass_floor) continue;
+            }
+            if (magnitude > worst) { worst = magnitude; result.reject_cell = i; }
+          }
+        }
         request_refinement();
         return result;
       }

@@ -44,8 +44,8 @@ TOOLS = ROOT / "tools"
 GAME_SLOT = TOOLS / "game_slot.sh"
 RUN_LOCKED = TOOLS / "run_locked.sh"
 
-FROZEN_SAVE = Path("local/saves/base-defaults-p10-v1.sav")
-FROZEN_SAVE_SHA256 = "fc79e8f1da57eefcdde50514eaba10358fb1f830d8b20671431a26ecd8cf2608"
+FROZEN_SAVE = Path("local/saves/base-defaults-p11-v1.sav")
+FROZEN_SAVE_SHA256 = "6ebe687db2fcfd0b84b52b6f81401db054684003ce7fa182381503fbbf4611a6"
 VALIDATION = "mods/Dev/MixedAtmospheres.IntegrationProbe/game-contract-local/colony-validation"
 LINUX_PROFILE = "home/.config/unity3d/Klei/Oxygen Not Included"
 PROTON_PROFILE = "compatdata/pfx/drive_c/users/steamuser/Documents/Klei/OxygenNotIncluded"
@@ -620,7 +620,7 @@ def cycle_checks(rc: int, output: Path, frames: int, hashes: dict, package: Path
                 for p in sorted({Path(x) for x in autosaves}) if p.is_file() and p.stat().st_size > 0]
     after = package_hashes(package, manifest)
     profile = owner.get("RestoredOwner") or {}
-    family = 10 if profile.get("PhysicalVersion") == 30 else None  # game profile 10 = core30
+    family = 11 if profile.get("PhysicalVersion") == 31 else None  # game profile 11 = core31
     checks = {
         "harness_pass": rc == 0,
         "all_three_alive": colony.get("Duplicants") == 3,
@@ -633,7 +633,7 @@ def cycle_checks(rc: int, output: Path, frames: int, hashes: dict, package: Path
         "natural_autosave_log_present": bool(autosaves),
         "natural_autosave_files_present": bool(existing),
         "default_config_flags": owner.get("OwnerConfigFlags") == 29,
-        "saved_default_profile_ten": family == 10 and profile.get("LiquidLaw") == 1
+        "saved_default_profile_eleven": family == 11 and profile.get("LiquidLaw") == 1
             and profile.get("PressureIterationCap") == 400 and profile.get("HeatIterationCap") == 800
             and profile.get("GasHeatMixing") == 8,
         "frozen_package_unchanged": after == hashes and sha256(package / "package-manifest.json") == manifest_sha,
