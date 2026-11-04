@@ -1470,6 +1470,43 @@ lookup), and the 250,000-cell, 32-duplicant Spaced Out! colony need the game
 harness and a prepared private save. The managed presentation benchmark is in
 [mixture presentation](mixture-presentation.md#performance).
 
+## Full-colony benchmarks
+
+The long-run benchmarks above play a small three-duplicant colony. To ask
+whether 3x holds on a full colony, two harness scenarios build one on the
+pinned seed (147147, story traits V9, no mixing) in a single deterministic
+build, then let it run:
+
+- `full-colony-base` (base game, Terra): three stacked halls and a lower one
+  joined by ladder shafts, tunnels into the neighbouring biomes, four sealed
+  vaults (a hot steam vent with a pump and steam turbine, a natural gas vent
+  feeding a natural gas generator, a 235 K carbon dioxide room with
+  wheezeworts, and two stirred pools), piped and powered machines (oxygen,
+  water, food, power, refining, filters, valves, reservoirs), 18
+  duplicants, plants and critters.
+- `full-colony-spacedout` (Spaced Out!): the same base on the starting
+  asteroid with 14 duplicants, and a compact one (no upper hall or vaults,
+  6 more duplicants) on a second asteroid.
+
+The build is harness-only: buildings appear instantly and machines get an
+initial stock, but nothing is invincible, free or refilled afterwards.
+`tools/full_colony_benchmark.py` runs it: `build` plays the scenario and
+keeps its save, `settle` loads that save and plays at least three cycles at
+speed 3 with the ordinary cycle autosaves, and `publish` copies the settled
+save to the private `local/saves/<name>.sav` with `<name>.json` beside it
+(SHA-256, cycle, duplicant, cell, building and conduit counts, revision and
+the run's measured windows). Run `build` and `settle` through
+`tools/game_slot.sh`. The windows are diagnostics of one run on a shared
+machine, not acceptance numbers; timings belong to a locked run.
+
+First base run (2026-11-04, 102a6d9 with the scenarios uncommitted): the
+build ran at 1.5x; the settle (frames 422-10,023, cycles 1-4) averaged
+0.55x, starting near 1.4x and falling to 0.4-0.6x. The owner's
+`transfers` stage grew from 30 to 300 ms a frame with the held precision
+inventory (sub-ulp gas admissions, `oni_precision_inventory.hpp`): 1,368
+parcels after the build, 12,079 at the cycle 2 autosave and 16,158 at
+cycle 4, from 14 sources. Each frame retries every held parcel.
+
 ## Current measurements
 
 Ryzen 9 5900X, `tools/run_locked.sh high` (12 logical CPUs, cores 12–23,

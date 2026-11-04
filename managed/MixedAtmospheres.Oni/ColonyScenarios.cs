@@ -162,6 +162,8 @@ namespace MixedAtmospheres.Oni
                     case "pacu": Pacu(frame); break;
                     case "liquid-pump": LiquidPump(frame); break;
                     case "base": Base(frame, status); break;
+                    case "full-colony-base": FullColonyBase(frame, status); break;
+                    case "full-colony-spacedout": FullColonySpacedOut(frame, status); break;
                     default: if (!SpacedOutScenario(name, frame)) throw new InvalidOperationException("Unknown colony scenario " + name); break;
                 }
             }

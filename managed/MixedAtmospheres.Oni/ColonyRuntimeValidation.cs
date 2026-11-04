@@ -530,6 +530,8 @@ namespace MixedAtmospheres.Oni
                 return;
             }
             if (configuration.SaveOnComplete && Report.ColonySavePath.Length == 0) { SaveColony(); Report.ColonySaveFrame = ColonyOwnerPersistence.LastSavedFrame; }
+            if (System.Environment.GetEnvironmentVariable("MA_COLONY_CENSUS") == "1")
+                ReportJson.WriteAtomic(Path.Combine(OutputDirectory, "colony-census.json"), ColonyScenarios.Census(status));
             Report.Status = "passed"; Report.Stage = "completed";
             Report.ActiveDlcIds = SaveLoader.Instance.GameInfo.dlcIds.ToArray();
             Report.FinishedUtc = System.DateTime.UtcNow.ToString("O");
