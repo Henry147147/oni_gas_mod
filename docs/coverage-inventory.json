@@ -2916,7 +2916,7 @@
         "managed/MixedAtmospheres.Oni/ColonyOwner.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `bottle-emptier` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `bottle-emptier`, `storage-ledger` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "callsite/830ab4e18a5e0025007e",
@@ -15187,7 +15187,7 @@
         "managed/MixedAtmospheres.Oni/ColonyOwner.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `bottle-emptier` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `bottle-emptier`, `storage-ledger` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "prefab/BottleEmptierConduitGas/0",
@@ -15315,7 +15315,7 @@
         "managed/MixedAtmospheres.Oni/ColonyOwner.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `bottle-emptier` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `bottle-emptier`, `storage-ledger` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "prefab/BottleEmptierGasPreview/0",
@@ -19585,7 +19585,7 @@
         "managed/MixedAtmospheres.Oni/ColonyOwner.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `bottle-emptier` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `bottle-emptier`, `storage-ledger` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "prefab/CreatureFeederPreview/0",
@@ -23051,7 +23051,7 @@
         "managed/MixedAtmospheres.Oni/ColonyOwner.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `bottle-emptier` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `bottle-emptier`, `storage-ledger` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "prefab/FishFeederBot/0",
@@ -48206,7 +48206,7 @@
         "managed/MixedAtmospheres.Oni/ColonyOwner.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `bottle-emptier` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `bottle-emptier`, `storage-ledger` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "prefab/StorageLockerPreview/0",
@@ -59686,7 +59686,7 @@
         "managed/MixedAtmospheres.Oni/ColonyOwner.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `bottle-emptier` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `bottle-emptier`, `storage-ledger` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "system/sublimation",

@@ -102,7 +102,7 @@ SCENARIO_SYSTEMS: dict[str, tuple[list[str], tuple[str, ...]]] = {
     "emitters-consumers": (ACTORS, ("life-support", "wheezewort", "oxyfern")),
     "sublimation": (SHADOW, ("sublimation",)),
     "duplicants": (ACTORS, ("breathing", "hazards", "germ-exposure")),
-    "storage": (OWNER, ("bottle-emptier",)),
+    "storage": (OWNER, ("bottle-emptier", "storage-ledger")),
     "suits-masks": (ACTORS, ("mask-station", "suit")),
     "disease": ([*OWNER, *SHADOW[1:], "native/src/oni_world_biology.cpp", "managed/MixedAtmospheres.Oni/ColonyWorldGerms.cs"],
                 ("germs", "germ-oracle", "germ-exposure")),
@@ -161,7 +161,7 @@ PASSED_SCENARIOS: set[str] = {
     "terrain", "door", "airflow", "falling", "heat", "phase", "freeze-melt", "deoxidizer", "sublimation", "breathing",
     "electrolysis", "vent-overpressure", "space-heater", "bottle-emptier", "germs", "puft", "plant", "wheezewort",
     "life-support", "oxyfern", "debris-heat", "building-melt", "rocket-exhaust", "meteor", "sensor", "pacu",
-    "liquid-pump", "pipes", "mask-station", "polymer-press", "gas-generator", "geyser", "filter",
+    "liquid-pump", "pipes", "mask-station", "polymer-press", "gas-generator", "geyser", "filter", "storage-ledger",
     "skimmer", "terrarium", "deodorizer", "rust-deoxidizer", "coal-generator", "electrolyzer-blocked", "hazards", "suit",
     "germ-exposure", "germ-oracle",
     # Spaced Out!: WindowsPlayer under Proton on the recorded revisions, source plus cold/menu loads
