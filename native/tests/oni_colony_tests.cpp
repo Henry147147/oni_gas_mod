@@ -1972,6 +1972,42 @@ void pipe_trace_heat_control() {
     }
     std::cout << "PASS pipe trace heat: an unresolvable gas trace stays in its water cell; a resolvable one leaves with its heat\n";
 }
+// An injection the planned cell cannot represent (a 1e-24 kg water drip
+// into a full water cell) is retried in a neighbouring open cell. In the
+// Spaced Out! full colony it landed in a gas cell that a consumer emptied in
+// the same frame, leaving the water beside nothing ("Prototype has no
+// positive thermal energy", frame 216). A retry never lands in a cell this
+// frame's plans take from.
+void relocated_trace_control() {
+    using namespace ma::oni::colony;
+    std::vector<MAOniColonyMaterial> mats{material("Oxygen", 11, oxygen, true, .032, 1005), material("Water", 13, water, false, .018, 4180, 1000)};
+    MAOniColonyConfig cfg{}; cfg.struct_size = sizeof(cfg); cfg.abi_version = MA_ONI_COLONY_ABI_VERSION;
+    cfg.flags = MA_ONI_COLONY_GAME_KERNEL | MA_ONI_COLONY_GAME_SURFACE; cfg.vacuum_index = vacuum;
+    cfg.grid_width = cfg.width = 4; cfg.grid_height = cfg.height = 3; cfg.maximum_timestep_s = .1; cfg.gravity_m_per_s2 = 9.8;
+    for (unsigned trial = 0; trial < 24; ++trial) {
+        std::vector<MAOniColonyCell> cells(12, MAOniColonyCell{0, MA_ONI_COLONY_SOLID, 0, 0, 0, 0});
+        cells[5] = {water, MA_ONI_COLONY_FLUID, 990, 300, 0, 0};
+        cells[9] = {oxygen, MA_ONI_COLONY_FLUID, .00266f * (1 + static_cast<float>(trial) / 5.f), 290.f + static_cast<float>(trial), 0, 0};
+        start(cfg, mats, cells, 1);
+        advance(1, .2, 2); wait(); require(status().state == 1, status().error);
+        // What the gas cell holds when the consumer plans.
+        std::array<std::uint32_t, 4> ids{}; std::array<double, 4> held{};
+        const auto parts = composition(9, ids.data(), held.data(), 4);
+        double gas = 0; for (std::uint32_t k = 0; k < parts; ++k) { require(ids[k] == oxygen, "gas cell holds more than oxygen"); gas += held[k]; }
+        const auto before = status();
+        const std::array<MAOniColonyTransfer, 2> frame{{{5, water, MA_ONI_COLONY_INJECT, 0, -1, 0, 1e-24, 300, 0},
+            {9, oxygen, MA_ONI_COLONY_EXTRACT, 0, 7, 0, 1, 0, 0}}};
+        queue_transfers(frame); advance(2, 1e-6, 2); wait();
+        const auto st = status(); require(st.state == 1, st.error);
+        MAOniColonyReceipt receipt{}; require(copy_receipts(&receipt, 1) == 1 && receipt.callback == 7, "consumer lost its receipt");
+        require(st.extracted_kg - before.extracted_kg == gas && st.maximum_relative_mass_error < 1e-12 && st.maximum_relative_energy_error < 1e-12,
+            "the consumer did not take its cell's gas, or conservation broke");
+        ack_receipts(receipt.sequence);
+        const auto image = checkpoint(); stop(); restore(cfg, mats, image, 1);
+        require(checkpoint() == image, "relocated trace cold resave differs"); stop();
+    }
+    std::cout << "PASS relocated trace: an unrepresentable drip is never retried in a cell the frame empties\n";
+}
 // A machine's output with no open cell within two (callback -1) waits in the
 // reservoir instead of being lost; a callback-bearing emission is refused.
 void unplaced_output_control() {
@@ -2463,6 +2499,7 @@ int main(int argc, char** argv) {
         if (argc == 2 && std::strcmp(argv[1], "--pipe-jobs-only") == 0) { moving_job_control(); pipe_job_control(); return 0; }
         if (argc == 2 && std::strcmp(argv[1], "--shared-cell-trace-only") == 0) { shared_cell_trace_control(); return 0; }
         if (argc == 2 && std::strcmp(argv[1], "--pipe-trace-heat-only") == 0) { pipe_trace_heat_control(); return 0; }
+        if (argc == 2 && std::strcmp(argv[1], "--relocated-trace-only") == 0) { relocated_trace_control(); return 0; }
         if (argc == 2 && std::strcmp(argv[1], "--precision-inventory-only") == 0) { precision_inventory_control();precision_canonical_control(); return 0; }
         if (argc == 2 && std::strcmp(argv[1], "--airflow-boundary-only") == 0) { airflow_boundary_control(); return 0; }
         if (argc == 2 && std::strcmp(argv[1], "--tiny-injection-only") == 0) { tiny_injection_neighbour_control(); return 0; }
@@ -2519,6 +2556,7 @@ int main(int argc, char** argv) {
         trace_sink_control();
         shared_cell_trace_control();
         pipe_trace_heat_control();
+        relocated_trace_control();
         std::vector<MAOniColonyMaterial> materials{material("Oxygen", 11, oxygen, true, .016, 1000), material("CarbonDioxide", 12, carbon, true, .044, 850),
             material("Water", 13, water, false, .018, 4000, 1000), material("Steam", 14, steam, true, .018, 4000),
             material("SaltWater", 15, brine, false, .021, 4100, 1100)};

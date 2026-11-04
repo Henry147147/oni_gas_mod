@@ -54,6 +54,7 @@
 #include <string>
 #include <thread>
 #include <unordered_map>
+#include <unordered_set>
 #include <xmmintrin.h>
 
 static_assert(sizeof(MAOniColonySpecies) == 40 && sizeof(MAOniColonyReading) == 64 && sizeof(MAOniColonyConstituent) == 24);
@@ -3286,9 +3287,11 @@ void run_frame(std::uint64_t ticket,double seconds,std::uint64_t frames,const ch
         // plan see what earlier ones leave in a cell they share.
         std::unordered_map<std::size_t, std::vector<std::pair<std::size_t, double>>> planned;
         std::vector<std::uint8_t> sky_verdict; // comet exhaust: 0 unknown, 1 open to the sky, 2 sealed
+        std::unordered_set<std::size_t> extracting; // cells this frame's plans take from
         const auto plan_edit = [&](const MacFluidTransfer& edit) {
             // A planned edit ends the cell's vacuum: earlier verdicts lapse.
             if (!sky_verdict.empty() && sky_verdict[edit.cell_index]) std::fill(sky_verdict.begin(), sky_verdict.end(), std::uint8_t{0});
+            if (!edit.inject) extracting.insert(edit.cell_index);
             auto& net = planned[edit.cell_index];
             auto at = std::find_if(net.begin(), net.end(), [&](const auto& n) { return n.first == edit.species_index; });
             if (at == net.end()) at = net.insert(net.end(), {edit.species_index, 0.});
@@ -3476,6 +3479,15 @@ void run_frame(std::uint64_t ticket,double seconds,std::uint64_t frames,const ch
         for (const auto& p : plans)
             if (job_tokens.contains(static_cast<std::size_t>(p.source-transfers.data())))
                 for (std::size_t e=p.first;e<p.first+p.count;++e) edits[e].observe_passives=true;
+        // Cells this frame's plans take everything from (judged on the
+        // frame-start state the plans read).
+        std::unordered_set<std::size_t> emptied;
+        for (const auto cell : extracting) {
+            const auto& m = world.state().cells[cell].mixture;
+            std::vector<double> left(m.masses.begin(), m.masses.end());
+            for (const auto& [q, change] : planned.at(cell)) left[q] += change;
+            if (std::all_of(left.begin(), left.end(), [](double x) { return x <= 0; })) emptied.insert(cell);
+        }
         std::vector<MacFluidParcel> parcels; parcels.reserve(edits.size());
         for (std::size_t first = 0; first < edits.size(); first += 4096) {
             const std::span<const MacFluidTransfer> batch(edits.data() + first, std::min<std::size_t>(4096, edits.size() - first));
@@ -3507,7 +3519,10 @@ void run_frame(std::uint64_t ticket,double seconds,std::uint64_t frames,const ch
                         require(plan != plans.end(), "Injection has no source plan");
                         bool placed = false, all_mass_refusals=true;
                         for (const auto cell : nearby(world.state(), rect_index(s.config, plan->source->public_cell), 2)) {
-                            if (cell == e.cell_index) continue;
+                            // Not into a cell this frame's plans empty: they
+                            // never saw this trace, and would leave it beside
+                            // nothing.
+                            if (cell == e.cell_index || emptied.contains(cell)) continue;
                             auto candidate = e; candidate.cell_index = cell;
                             try {
                                 auto one = external_transfers(std::move(world),std::span(&candidate, 1), MacFluidTransferTopology::occupied_mixture);
