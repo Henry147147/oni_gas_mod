@@ -84,6 +84,23 @@ play.
   expanding across the vacuum for a whole frame (delegated decisions
   2026-11-02/03). Older profiles keep the after-flow sink only;
   `MA_COLONY_SPACE_PRESINK=1` forces the earlier sink there for diagnostics.
+  Comet exhaust in sky-connected vacuum sinks at once, user decision
+  2026-11-04: in the game activity profiles (9-11), a comet's exhaust parcel
+  whose target cell holds no mass, is not a Space cell and is joined through
+  vacuum cells (no mass, not solid, not an airflow tile, not edited earlier in
+  the frame) to a Space cell is booked as injected and space-sunk at once
+  (`L.sunk`, `L.energy_sunk`, `space_sink_kg`); nothing enters the world.
+  Exhaust in gas, or in vacuum sealed from the sky, is injected as before.
+  The game marks comet exhaust itself: `Comet.Sim33ms` is the only caller of
+  `SimMessages.EmitMass` in its own body, and an emission made while it runs
+  carries `MA_ONI_COLONY_COMET_EXHAUST` (`ColonyCometExhaust.cs`); other
+  emitters are never marked. The connectivity search runs only for marked
+  parcels, a bounded flood fill over vacuum (65,536 cells; an unfinished
+  search keeps the parcel), and its verdict is shared by every cell it
+  visited that frame. Saves hold no flag: a marked parcel still queued at a
+  save is saved, and after a load injected, as a plain injection, so
+  checkpoint bytes are unchanged. The stage log prints `open-sky exhaust frame
+  N: parcels P kg M` for each frame that sinks some.
 - **Trace sink** ([base-game floor](base-game-floor.md)). A colony started with
   `MA_ONI_COLONY_GAME_FLOOR` runs the saved game-floor profile: constituents
   below its threshold (1e-11 kg per cell, the smallest passing tested decade)

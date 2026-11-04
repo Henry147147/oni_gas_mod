@@ -133,6 +133,12 @@ typedef struct MAOniColonyCellView {
 /* Flag on an extraction kind: the callback is an element consumer's handle;
  * receipts keep the flag. */
 #define MA_ONI_COLONY_CONSUMER 0x100U
+/* Flag on an injection without a callback: a comet's exhaust. With a game
+ * activity profile (9-11), exhaust whose cell is vacuum (no mass), not open
+ * sky itself, and joined through vacuum cells to open sky leaves through the
+ * space sink at once: booked as injected and space-sunk, nothing enters the
+ * world (docs/colony-owner.md#open-sky). Saves keep it as a plain injection. */
+#define MA_ONI_COLONY_COMET_EXHAUST 0x200U
 /* Receipt only: a solid byproduct of a conversion for the game to spawn as
  * debris at public_cell; callback holds the element hash. */
 #define MA_ONI_COLONY_BYPRODUCT 5U

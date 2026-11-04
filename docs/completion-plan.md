@@ -8,6 +8,16 @@ still require separate authorization.
 
 Amendments:
 
+- **Comet exhaust in sky-connected vacuum sinks at once, user decision
+  2026-11-04:** in the game activity profiles (9-11), a comet's exhaust that
+  lands in a vacuum cell (not a Space cell) joined through vacuum to open sky
+  is booked straight to the space sink instead of first expanding across the
+  surface vacuum; exhaust in gas or in vacuum sealed from the sky is injected
+  as before. Only the input routing of comet exhaust changes; older profiles
+  and checkpoint bytes are unchanged. See
+  [colony owner](colony-owner.md) ("Open sky") and
+  [performance acceptance](performance-acceptance.md#long-colony-headroom-2026-11-04).
+
 - **Storage beyond reservoirs stays vanilla, with mass and energy
   bookkeeping, user decision 2026-11-04:**
   - The user chose ONI's own storage behaviour for everything beyond the reservoirs: buildings,

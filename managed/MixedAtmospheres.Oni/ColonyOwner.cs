@@ -670,8 +670,11 @@ namespace MixedAtmospheres.Oni
                     var cell = BinaryPrimitives.ReadInt32LittleEndian(data);
                     // cell, callback, mass, temperature, germs, element, disease
                     var germs = BinaryPrimitives.ReadInt32LittleEndian(data.Slice(16)); var germ = germs > 0 ? OniNativeColony.Germ(data[22]) : 0u;
+                    var callback = BinaryPrimitives.ReadInt32LittleEndian(data.Slice(4));
+                    // A comet's exhaust (ColonyCometExhaust): the owner may sink it at once.
+                    var exhaust = callback == -1 && ColonyCometExhaust.Emitting ? OniNativeColony.CometExhaustFlag : 0u;
                     list.Add(new OniNativeColony.Transfer { PublicCell = (uint)cell, NativeIndex = BinaryPrimitives.ReadUInt16LittleEndian(data.Slice(20)),
-                        Kind = OniNativeColony.Inject, Callback = BinaryPrimitives.ReadInt32LittleEndian(data.Slice(4)),
+                        Kind = OniNativeColony.Inject | exhaust, Callback = callback,
                         MassKg = BitConverter.Int32BitsToSingle(BinaryPrimitives.ReadInt32LittleEndian(data.Slice(8))),
                         TemperatureK = BitConverter.Int32BitsToSingle(BinaryPrimitives.ReadInt32LittleEndian(data.Slice(12))),
                         Disease = germ, DiseaseCount = germ != 0 ? germs : 0 });

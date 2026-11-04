@@ -54,10 +54,32 @@ puff expands across the surface vacuum, one connected 12,544-cell region. The
 limiting cell is a front holding about 3 µg, just above the 1e-6 kg floor.
 Replay variants (not adopted; each is a physics or profile change):
 floor 1e-5/1e-4/1e-3 kg → frame mean 1.06/0.79/0.44 s; exempting the sky rows
-from the bound → about 40% fewer attempts. The substep count is physics, but
-each substep sweeps the whole region (about 1.3 ms pressure, 2 ms transport)
-although only about 1,000 cells hold gas; an exact restriction of the
-substep's work to the cells that hold or receive mass is under way.
+from the bound → about 40% fewer attempts. The substep count is physics.
+An exact restriction of each substep to the cells that hold mass would gain
+little: the trace puff reaches all 10,114 fluid cells of the region by
+substep 248 of 526 (mean 8,005 occupied cells in the first frame, 8,975 over
+three), and the work already scales with the occupied cells (pressure solve
+on active cells, remap microticks on affected cells). Only the whole-box
+passes, about 1.3-1.7 of 4-4.5 ms per substep, could shrink, by at most their
+unoccupied share: 10-13%. Running the region on 4-12 inner threads (exact,
+hash unchanged) gave 5-15%, within noise.
+
+**Comet exhaust in sky-connected vacuum sinks at once, user decision
+2026-11-04.** In the game activity profiles (9-11) a comet's exhaust parcel
+landing in vacuum joined through vacuum to a Space cell is booked as injected
+and space-sunk at once and never enters the world
+([colony owner](colony-owner.md), "Open sky"). Same cycle-4 load, 2,700
+frames (8760-11464), speed 3, base game, Linux harness, RTX 5090 display:
+
+| Build | Windows 11011-11460 owner_ms (mean / max) | Whole run game/real |
+| --- | --- | --- |
+| Before (`g-c4-slow`, `g-c4-hitch`) | 89-232 / 2,624-3,458 | 2.248, 2.208 |
+| Exhaust sunk at once | 32.0-33.6 / 56.7-62.1 | 2.947 |
+
+All other windows stay at 23.8-25.9 ms mean. No stage line reached 250 ms
+(largest flow stage 36 ms). The stage log booked 31 exhaust parcels (51.67 kg)
+in 17 frames between 11107 and 11463; the ledgers closed (mass 4.9e-15,
+energy 3.0e-15). The `meteor` and `spaced-out-comets-geysers` scenarios pass.
 
 ## Copy-on-write cells and owner reuse, 2026-11-03
 

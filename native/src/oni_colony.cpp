@@ -1821,8 +1821,12 @@ void sample_native_frame(std::uint64_t expected_session,std::uint64_t frame,std:
 
 namespace {
 void validate_transfer(const MAOniColonyTransfer& e) {
-        const auto kind = e.kind & ~MA_ONI_COLONY_CONSUMER;
-        require(kind >= MA_ONI_COLONY_INJECT && kind <= MA_ONI_COLONY_EXTRACT_LIQUID && (kind != MA_ONI_COLONY_INJECT || kind == e.kind) &&
+        const auto kind = e.kind & ~(MA_ONI_COLONY_CONSUMER | MA_ONI_COLONY_COMET_EXHAUST);
+        // Comet exhaust marks a plain injection that no one is told about.
+        const bool exhaust = (e.kind & MA_ONI_COLONY_COMET_EXHAUST) != 0;
+        require(kind >= MA_ONI_COLONY_INJECT && kind <= MA_ONI_COLONY_EXTRACT_LIQUID &&
+            (kind != MA_ONI_COLONY_INJECT || kind == (e.kind & ~MA_ONI_COLONY_COMET_EXHAUST)) &&
+            (!exhaust || (kind == MA_ONI_COLONY_INJECT && e.callback == -1)) &&
             e.disease <= 256 && e.radius <= 64 && std::isfinite(e.disease_count) && e.disease_count >= 0 && (e.disease != 0 || e.disease_count == 0) &&
             std::isfinite(e.mass_kg) && e.mass_kg >= 0 && std::isfinite(e.temperature_k) && e.temperature_k >= 0, "Invalid colony transfer");
         (void)rect_index(geometry, e.public_cell);
@@ -3281,12 +3285,51 @@ void run_frame(std::uint64_t ticket,double seconds,std::uint64_t frames,const ch
         // order. Each cell's planned net change per constituent lets a later
         // plan see what earlier ones leave in a cell they share.
         std::unordered_map<std::size_t, std::vector<std::pair<std::size_t, double>>> planned;
+        std::vector<std::uint8_t> sky_verdict; // comet exhaust: 0 unknown, 1 open to the sky, 2 sealed
         const auto plan_edit = [&](const MacFluidTransfer& edit) {
+            // A planned edit ends the cell's vacuum: earlier verdicts lapse.
+            if (!sky_verdict.empty() && sky_verdict[edit.cell_index]) std::fill(sky_verdict.begin(), sky_verdict.end(), std::uint8_t{0});
             auto& net = planned[edit.cell_index];
             auto at = std::find_if(net.begin(), net.end(), [&](const auto& n) { return n.first == edit.species_index; });
             if (at == net.end()) at = net.insert(net.end(), {edit.species_index, 0.});
             at->second += edit.inject ? edit.mass_kg : -edit.mass_kg;
             edits.push_back(edit);
+        };
+        // Game activity profiles: comet exhaust whose cell is vacuum joined
+        // through vacuum to open sky leaves through the space sink. A cell is
+        // vacuum when it holds no mass at the frame's start and no earlier
+        // plan of this frame edits it; a blocking (airflow) cell never joins.
+        // Each search is bounded and only frames with exhaust run one; its
+        // verdict holds for every cell it visited (one vacuum component).
+        const bool exhaust_to_sky = mac_game_activity_profile(world.settings().game_profile);
+        std::size_t exhaust_sunk = 0; double exhaust_sunk_kg = 0;
+        std::vector<std::size_t> sky_search;
+        const auto open_sky_vacuum = [&](std::size_t start_cell) {
+            const auto& st = world.state(); const auto& walls = st.grid.walls;
+            const std::size_t W = s.config.width, H = s.config.height;
+            const auto vacuum = [&](std::size_t i) {
+                return !walls[i] && !s.blocking[i] && !planned.contains(i) && st.cells[i].mixture.mass() == 0;
+            };
+            if (s.space[start_cell] || !vacuum(start_cell)) return false;
+            if (sky_verdict.empty()) sky_verdict.assign(st.cells.size(), 0);
+            if (sky_verdict[start_cell]) return sky_verdict[start_cell] == 1;
+            constexpr std::size_t limit = 1u << 16;
+            sky_search.assign(1, start_cell); sky_verdict[start_cell] = 3; // 3: queued in this search
+            bool open = false;
+            for (std::size_t at = 0; at < sky_search.size() && !open && sky_search.size() <= limit; ++at) {
+                const auto i = sky_search[at]; const auto x = i % W, y = i / W;
+                for (const auto n : {x > 0 ? i - 1 : SIZE_MAX, x + 1 < W ? i + 1 : SIZE_MAX, y > 0 ? i - W : SIZE_MAX, y + 1 < H ? i + W : SIZE_MAX}) {
+                    if (n == SIZE_MAX || walls[n] || s.blocking[n]) continue;
+                    if (s.space[n]) { open = true; break; }
+                    if (sky_verdict[n] == 1) { open = true; break; }
+                    if (sky_verdict[n] || !vacuum(n)) continue;
+                    sky_verdict[n] = 3; sky_search.push_back(n);
+                }
+            }
+            // An unfinished search keeps its cells unknown and the exhaust.
+            const bool finished = open || sky_search.size() <= limit;
+            for (const auto i : sky_search) sky_verdict[i] = finished ? (open ? 1 : 2) : 0;
+            return finished && open;
         };
         // A pipe receives an extraction at the temperature its exact energy
         // gives. A cell that stays occupied changes its energy only in steps
@@ -3339,7 +3382,7 @@ void run_frame(std::uint64_t ticket,double seconds,std::uint64_t frames,const ch
             if(moving_jobs.contains(static_cast<std::size_t>(&t-transfers.data())))continue;
             const auto centre = rect_index(s.config, t.public_cell);
             const auto& st = world.state();
-            const auto kind = t.kind & ~MA_ONI_COLONY_CONSUMER;
+            const auto kind = t.kind & ~(MA_ONI_COLONY_CONSUMER | MA_ONI_COLONY_COMET_EXHAUST);
             const bool precise = job_tokens.contains(static_cast<std::size_t>(&t - transfers.data()));
             if (kind == MA_ONI_COLONY_EXTRACT_GAS || kind == MA_ONI_COLONY_EXTRACT_LIQUID) {
                 // A phase's mixture (a pump or an any-gas consumer): the cells'
@@ -3380,6 +3423,20 @@ void run_frame(std::uint64_t ticket,double seconds,std::uint64_t frames,const ch
                     plans.push_back({edits.size(), 0, &t}); continue;
                 }
                 if (order.empty() || !(t.mass_kg > 0) || !(t.temperature_k > 0)) { plans.push_back({edits.size(), 0, &t}); continue; }
+                if ((t.kind & MA_ONI_COLONY_COMET_EXHAUST) && exhaust_to_sky && open_sky_vacuum(order.front())) {
+                    // Comet exhaust in vacuum open to the sky leaves through
+                    // the space sink at once (user decision 2026-11-04): booked
+                    // as injected and space-sunk alike; nothing enters the world.
+                    const auto& material = cat.eos->reference().materials()[k];
+                    const long double energy = static_cast<long double>(t.mass_kg) *
+                        (static_cast<long double>(material.energy_offset_j_per_kg) + static_cast<long double>(material.cv_j_per_kg_k) * t.temperature_k) +
+                        mac_energy_long_double(detail::precision_potential(world, order.front(), t.mass_kg));
+                    require(std::isfinite(energy), "Comet exhaust energy is not finite");
+                    L.injected[k] += t.mass_kg; L.energy_in += energy; s.status.injected_kg += t.mass_kg;
+                    L.sunk[k] += t.mass_kg; L.energy_sunk += energy; s.status.space_sink_kg += t.mass_kg;
+                    ++exhaust_sunk; exhaust_sunk_kg += t.mass_kg;
+                    plans.push_back({edits.size(), 0, &t}); continue;
+                }
                 plans.push_back({edits.size(), 1, &t}); plan_edit({order.front(), k, true, t.mass_kg, t.temperature_k});
                 const auto input=job_passives.find(static_cast<std::size_t>(&t-transfers.data()));
                 if (input!=job_passives.end()) edits.back().passives=input->second;
@@ -3413,6 +3470,9 @@ void run_frame(std::uint64_t ticket,double seconds,std::uint64_t frames,const ch
                 plans.push_back({first, edits.size() - first, &t});
             }
         }
+        if (stage_log && exhaust_sunk)
+            std::fprintf(stderr, "[Mixed Atmospheres] open-sky exhaust frame %llu: parcels %zu kg %.9g\n",
+                static_cast<unsigned long long>(s.status.completed_frames + 1), exhaust_sunk, exhaust_sunk_kg);
         for (const auto& p : plans)
             if (job_tokens.contains(static_cast<std::size_t>(p.source-transfers.data())))
                 for (std::size_t e=p.first;e<p.first+p.count;++e) edits[e].observe_passives=true;
@@ -4187,6 +4247,9 @@ std::vector<std::uint8_t> checkpoint() {
         for (const auto index : awaiting_rebind) awaiting[index]=true;
         for (std::size_t i=0;i<pending_transfers.size();++i) {
             auto t=pending_transfers[i];
+            // The saved format has no exhaust flag: a queued comet exhaust
+            // parcel is saved, and after a load injected, as before.
+            t.kind&=~MA_ONI_COLONY_COMET_EXHAUST;
             if (const auto job=pending_job_tokens.find(i); job!=pending_job_tokens.end())
                 saved_jobs.push_back({static_cast<std::uint32_t>(transfers.size()),job->second,pipe_jobs.at(job->second).passives,pipe_jobs.at(job->second).moving_wire});
             if (t.callback != -1 || (t.kind & MA_ONI_COLONY_CONSUMER) != 0 || awaiting[i]) {

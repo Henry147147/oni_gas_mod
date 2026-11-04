@@ -642,6 +642,78 @@ void open_sky_presink_control() {
     require(profile8>0,"profile 8 no longer lets an open-sky parcel expand into the room before its sink");
     std::cout<<"PASS open-sky sink: of "<<injected<<" kg emitted into open sky, profiles 10 and 9 let 0 kg and profile 8 "<<profile8<<" kg reach the room\n";
 }
+// Comet exhaust (user decision 2026-11-04): with a game activity profile, a
+// parcel marked MA_ONI_COLONY_COMET_EXHAUST whose cell is vacuum joined through
+// vacuum to open sky leaves through the space sink at once, booked as injected
+// and space-sunk, and never enters the world. Exhaust in sealed vacuum, in a
+// gas cell, or in vacuum cut from the sky by gas, stays exactly as a plain
+// injection (identical checkpoint bytes), as does every case in profile 8.
+// Saves keep a queued exhaust parcel as a plain injection.
+void comet_exhaust_sky_control() {
+    using namespace ma::oni::colony;
+    constexpr std::uint32_t width=9,height=6;
+    const auto at=[](std::uint32_t x,std::uint32_t y){return x+y*width;};
+    enum class Layout { sky, sealed, gas, cut };
+    struct Outcome { std::vector<std::uint8_t> image, queued; MAOniColonyStatus status; double room_carbon; };
+    const double exhaust_kg=1.0/30*50;
+    const auto run=[&](int profile,Layout layout,bool flagged) {
+#if defined(_WIN32)
+        require(_putenv_s("MA_COLONY_KERNEL3_PROFILE9",profile==9?"1":"0")==0,"Cannot select the profile");
+#else
+        require(setenv("MA_COLONY_KERNEL3_PROFILE9",profile==9?"1":"0",1)==0,"Cannot select the profile");
+#endif
+        MAOniColonyConfig cfg{};cfg.struct_size=sizeof(cfg);cfg.abi_version=MA_ONI_COLONY_ABI_VERSION;cfg.vacuum_index=vacuum;
+        cfg.flags=MA_ONI_COLONY_GAME_KERNEL|MA_ONI_COLONY_GAME_SURFACE|(profile>=9?MA_ONI_COLONY_GAME_ACTIVITY:0U);
+        cfg.grid_width=cfg.width=width;cfg.grid_height=cfg.height=height;cfg.maximum_timestep_s=.1;cfg.gravity_m_per_s2=9.81;
+        std::vector<MAOniColonyMaterial> mats{material("Oxygen",11,oxygen,true,.032,1000),material("CarbonDioxide",12,carbon,true,.044,850)};
+        // Left: a 3x3 vacuum room under three open-sky cells. A wall. Right: a sealed 3x4 vacuum room.
+        std::vector<MAOniColonyCell> cells(width*height,MAOniColonyCell{0,MA_ONI_COLONY_SOLID,0,0,0,0});
+        for(std::uint32_t x=1;x<=3;++x) {
+            for(std::uint32_t y=1;y<=3;++y)cells[at(x,y)]={vacuum,MA_ONI_COLONY_FLUID,0,0,0,0};
+            cells[at(x,4)]={0,MA_ONI_COLONY_SPACE,0,0,0,0};
+        }
+        for(std::uint32_t x=5;x<=7;++x)for(std::uint32_t y=1;y<=4;++y)cells[at(x,y)]={vacuum,MA_ONI_COLONY_FLUID,0,0,0,0};
+        if(layout==Layout::gas)cells[at(2,1)]={oxygen,MA_ONI_COLONY_FLUID,1,300,0,0};
+        if(layout==Layout::cut)for(std::uint32_t x=1;x<=3;++x)cells[at(x,2)]={oxygen,MA_ONI_COLONY_FLUID,1,300,0,0};
+        set_diseases({},{},0);start(cfg,mats,cells,1);
+        const std::uint32_t target=layout==Layout::sealed?at(6,1):at(2,1);
+        const MAOniColonyTransfer exhaust{target,carbon,MA_ONI_COLONY_INJECT|(flagged?MA_ONI_COLONY_COMET_EXHAUST:0U),0,-1,0,exhaust_kg,300,0};
+        queue_transfers(std::span(&exhaust,1));
+        Outcome out;out.queued=checkpoint();
+        if(profile>=9)(void)queue_activity(status().session,static_cast<double>(.2f),{},{});
+        advance(1,static_cast<double>(.2f),2);wait();
+        if(status().state!=1)throw std::runtime_error("comet exhaust control faulted: "+std::string(status().error));
+        std::vector<std::uint32_t> room;
+        for(std::uint32_t i=0;i<width*height;++i)if(cells[i].kind==MA_ONI_COLONY_FLUID)room.push_back(i);
+        MAOniColonyStatus sampled{};std::vector<MAOniColonySampleCell> rows;std::vector<MAOniColonySamplePart> parts;
+        sample(room,sampled,rows,parts);out.room_carbon=0;
+        for(const auto& part:parts)if(part.native_index==carbon)out.room_carbon+=part.mass_kg;
+        out.status=status();out.image=checkpoint();stop();
+        require(out.status.maximum_relative_mass_error<=1e-12 && out.status.maximum_relative_energy_error<=1e-12,"comet exhaust control ledger did not close");
+        return out;
+    };
+    for(const int profile:{11,9}) {
+        const auto sunk=run(profile,Layout::sky,true),plain=run(profile,Layout::sky,false);
+        require(sunk.room_carbon==0 && sunk.status.space_sink_kg==exhaust_kg && sunk.status.injected_kg==exhaust_kg,
+            "comet exhaust in vacuum open to the sky did not leave through the space sink at once");
+        require(plain.room_carbon>0,"a plain injection in the same cell no longer expands before its sink");
+        require(sunk.queued==plain.queued,"a queued comet exhaust parcel changed the saved bytes");
+        for(const auto layout:{Layout::sealed,Layout::gas,Layout::cut}) {
+            const auto kept=run(profile,layout,true),same=run(profile,layout,false);
+            require(kept.image==same.image && kept.room_carbon>0,"comet exhaust that is not in vacuum open to the sky was not kept as a plain injection");
+        }
+    }
+    {
+        const auto old=run(8,Layout::sky,true),same=run(8,Layout::sky,false);
+        require(old.image==same.image && old.room_carbon>0,"profile 8 changed its routing of comet exhaust");
+    }
+#if defined(_WIN32)
+    require(_putenv_s("MA_COLONY_KERNEL3_PROFILE9","")==0,"Cannot restore the profile selector");
+#else
+    require(unsetenv("MA_COLONY_KERNEL3_PROFILE9")==0,"Cannot restore the profile selector");
+#endif
+    std::cout<<"PASS comet exhaust: "<<exhaust_kg<<" kg in sky-open vacuum sunk at once (profiles 11 and 9); sealed, gas and gas-cut cells and profile 8 keep it\n";
+}
 // A frame that starts from the idle-time private copy of the published
 // state (instead of copying it at its first in-place edit) must leave every
 // checkpoint byte as before.
@@ -2397,6 +2469,7 @@ int main(int argc, char** argv) {
         if (argc == 2 && std::strcmp(argv[1], "--parcel-wire-only") == 0) { parcel_wire_control(); parcel_outcome_control(); return 0; }
         if (argc == 2 && std::strcmp(argv[1], "--falling-solid-only") == 0) { falling_solid_control(); return 0; }
         if (argc == 2 && std::strcmp(argv[1], "--sample-only") == 0) { sample_control(); return 0; }
+        if (argc == 2 && std::strcmp(argv[1], "--comet-exhaust-only") == 0) { comet_exhaust_sky_control(); return 0; }
         if (argc == 2 && std::strcmp(argv[1], "--view-cache-only") == 0) { view_cache_control(); return 0; }
         if (argc == 2 && std::strcmp(argv[1], "--wrapped-handle-only") == 0) { wrapped_handle_control(); return 0; }
         if (argc == 2 && std::strcmp(argv[1], "--actor-batch-only") == 0) { actor_batch_control(); return 0; }
@@ -2424,6 +2497,7 @@ int main(int argc, char** argv) {
         shadow_handoff_control();
         shared_cell_chunks_control();
         open_sky_presink_control();
+        comet_exhaust_sky_control();
         prepared_world_control();
         moving_job_control();
         tiny_injection_neighbour_control();
