@@ -33,9 +33,22 @@ cycle 3), single flow steps take 1.7-2.8 s, in the regional run (`regional ...
 run 2770 ms`). This happens on roughly one frame in fifteen for about 300
 frames and drops those windows to 0.87×. A world dump taken at the start of
 frame 11195 replays at normal cost (flow mean 18.8 ms, max 69 ms over 10
-frames), so the slow step needs the dump of the slow frame itself
-(`MA_COLONY_SLOW_DUMP=<seconds>`). The stage log now also prints every frame
-slower than 250 ms.
+frames). The stage log now also prints every frame slower than 250 ms.
+
+The watchdog dump of a slow step itself (`MA_COLONY_SLOW_DUMP=1`) replays at
+2.4-2.7 s with 434 pressure attempts (normal frames about 108). It is the
+comet-exhaust case again, in a cell the pre-flow open-sky sink does not cover:
+a meteor shower's comet leaves 1.667 kg CO₂ in a vacuum cell just above the
+ground (x 140, y 344) that is not a Space-zone cell, and during the frame the
+puff expands across the surface vacuum, one connected 12,544-cell region. The
+0.4-cell swept-volume bound then holds substeps near 0.35 ms; almost every
+limiting cell is a front holding about 3 µg, just above the 1e-6 kg floor.
+Replay variants (not adopted; each is a physics or profile change):
+floor 1e-5/1e-4/1e-3 kg → frame mean 1.06/0.79/0.44 s; exempting the sky rows
+from the bound → about 40% fewer attempts. The substep count is physics, but
+each substep sweeps the whole region (about 1.3 ms pressure, 2 ms transport)
+although only about 1,000 cells hold gas; an exact restriction of the
+substep's work to the cells that hold or receive mass is under way.
 
 ## Copy-on-write cells and owner reuse, 2026-11-03
 
