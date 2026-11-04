@@ -1,16 +1,16 @@
 {
   "scope": "linux-windows-spaced-out-private-playtest",
   "requirements": [
-    {"id": "mixed-pipes-and-ports", "status": "open", "evidence": "docs/mixed-pipes.md"},
+    {"id": "mixed-pipes-and-ports", "status": "passed", "evidence": "docs/private-playtest-release.md", "scope": "Same-bundle sweep: 15 Linux gameplay batches and the WindowsPlayer batches under Proton on 258134c (run rc1)."},
     {"id": "heat-and-all-germ-identities", "status": "deferred", "evidence": "docs/mixed-pipes.md", "decision": "docs/completion-plan.md", "scope": "Exact owned-storage schema 5 heat and biology only. Current world and mixed-pipe heat/biology remain required gameplay checks."},
-    {"id": "conserved-gameplay-transactions", "status": "open", "evidence": "docs/colony-owner.md"},
+    {"id": "conserved-gameplay-transactions", "status": "passed", "evidence": "docs/private-playtest-release.md", "scope": "Same-bundle sweep: every gameplay batch passes with ledgers closed at the existing native bounds on 258134c (run rc1)."},
     {"id": "exact-in-flight-saves", "status": "deferred", "evidence": "docs/mixed-pipes.md", "decision": "docs/completion-plan.md", "scope": "Byte-exact active continuation and schema 5 only. Ordinary saves, natural autosaves and cold/menu loading remain required."},
-    {"id": "whole-asteroid-reliability", "status": "open", "evidence": "docs/colony-owner.md"},
+    {"id": "whole-asteroid-reliability", "status": "passed", "evidence": "docs/private-playtest-release.md", "scope": "All nine base-game starting asteroids at 3,000 frames plus the ten-cycle run with three living duplicants on 258134c (run rc1)."},
     {"id": "selected-profile-accuracy", "status": "deferred", "evidence": "docs/base-game-floor.md", "decision": "docs/completion-plan.md", "scope": "Remaining floor proofs, including F3 levelling and F4 conduction. Fixed physics gate inputs and bounds remain unchanged."},
-    {"id": "ordinary-player-build", "status": "open", "evidence": "docs/playtest-plan.md"},
-    {"id": "ten-cycle-acceptance-and-package", "status": "open", "evidence": "docs/colony-owner.md"},
-    {"id": "configuration-and-presets", "status": "open", "evidence": "docs/settings.md"},
-    {"id": "windows-player-acceptance", "status": "open", "evidence": "docs/windows-validation.md"},
+    {"id": "ordinary-player-build", "status": "passed", "evidence": "docs/private-playtest-release.md", "scope": "Linux and Windows builds (86 Wine CTests) and the tested Windows ZIP from 258134c, delivered privately as RC1."},
+    {"id": "ten-cycle-acceptance-and-package", "status": "passed", "evidence": "docs/private-playtest-release.md", "scope": "30,031 owner frames (cycles 1-11) on the frozen save without invincibility: all three alive in every sample, no owner fault, ledgers closed, ten natural autosave files; the same ZIP is RC1."},
+    {"id": "configuration-and-presets", "status": "passed", "evidence": "docs/private-playtest-release.md", "scope": "WindowsPlayer Precise + Strict preset save and cold restore (windows-settings-source/-load) on 258134c (run rc1)."},
+    {"id": "windows-player-acceptance", "status": "passed", "evidence": "docs/private-playtest-release.md", "scope": "WindowsPlayer under Proton on 258134c (run rc1): batches, contact, base cycle, natural-autosave cold load, settings, Spaced Out! source/cold/menu and clicked New Game. Windows OS itself is checked by the private playtest on the user's PC."},
     {"id": "spaced-out-cluster-playtest", "status": "passed", "evidence": "docs/spaced-out-private-playtest.md"}
   ]
 }

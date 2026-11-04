@@ -5,6 +5,40 @@
 
 # Private Linux and Windows playtest completion
 
+## RC1 258134c, 2026-11-04
+
+Release candidate 1 is `258134c` (profile 11, checkpoint v31, copy-on-write
+cell chunks). `tools/acceptance_suite.py run 258134c --tier release --tag rc1`
+passed all 47 steps on one bundle (`tier_passed=True`, no failures, nothing
+skipped):
+
+- **Builds:** the Linux build and the Windows MinGW cross-build, with 86 Wine CTests and the
+  package ZIP.
+- **Gameplay:** all 15 Linux gameplay batches, and the WindowsPlayer batches b2, b3, b4, b6,
+  b7, b10, b11, b12 and contact under Proton.
+- **Asteroids:** all nine base-game starting asteroids at 3,000 frames each.
+- **One cycle:** the one-cycle run on the frozen save `base-defaults-p11-v1`.
+- **Ten cycles:** 30,031 owner frames, from cycle 1 to cycle 11, at normal speed without
+  invincibility. All three duplicants were alive in every sample, the owner never faulted,
+  no pressure attempt failed and no relaxation was skipped. Ledgers closed at the existing
+  native bounds (maximum relative mass error 4.9e-15), and ten natural autosave files were
+  written. The game clock held 1.00× in every cycle; the single low interval was 0.36×, in
+  cycle 3.
+- **WindowsPlayer:** the base cycle (3,132 frames), a cold load of a natural autosave,
+  Precise + Strict presets saved and restored, and Spaced Out! ordinary start, save, cold
+  load and menu load, plus a clicked New Game, a manual save and a fresh load.
+
+The exact tested Windows ZIP is delivered privately as
+`/mnt/data/share/oni/playtest/MixedAtmospheres-RC1-258134c` (SHA-256 `06246552…`).
+`playtest_checklist.py gate` now reports `private_playtest_ready: true`. The
+three deferrals stand: exact owned-storage heat and biology, byte-exact
+in-flight saves, and the remaining accuracy floor.
+
+Windows OS behaviour and speed are checked by the private playtest on the
+user's PC; Proton is not that check. Speed at 3× (steady windows on the Linux
+harness, profile 11) is in [performance acceptance](performance-acceptance.md).
+No public release or Workshop upload is authorized.
+
 Spaced Out! update, 2026-10-27: the private Windows candidate **`bfb1168`**
 supports ordinary new Spaced Out! colonies. Its normal Classic New Game,
 UI-created save, manual Save/Save and Quit, and fresh-process reload pass the

@@ -1,5 +1,17 @@
 # Feature completion work
 
+**Update, 2026-11-04:** RC1 `258134c` passes the full private release tier,
+all 47 steps including the ten-cycle run, and is delivered privately
+([record](private-playtest-release.md#rc1-258134c-2026-11-04)). On the Linux
+harness, profile 11 holds the 3× cap in steady windows. That covers the pinned
+Spaced Out! world V9 (2.99–3.00×), new base colonies and the frozen save; the
+cycle-2 save measures 2.88–3.09× ([numbers](performance-acceptance.md)).
+Long-running-world speed work continues past 3×. Still open:
+
+- Windows OS acceptance on the user's PC.
+- Exact owned storage beyond reservoirs (a feature-scope decision for the user).
+- Licence and Workshop publication.
+
 **Current goal, 2026-10-28:** a Steam-ready first release covering the base
 game and Spaced Out! ([amendment](completion-plan.md#amendments)). The user's
 0.85× Windows playtest with stuttering input failed acceptance; the latest
