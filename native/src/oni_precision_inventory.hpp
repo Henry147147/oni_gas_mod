@@ -136,6 +136,8 @@ inline bool release_precision_parcel(experimental::MacClosedWorld& world,Precisi
             world=std::move(result.world);held.mass_kg=remaining;held.energy_j=std::move(*canonical);return true;
         }
         if(held.energy_j.sign()==0)return false;
+        // A cell holding nothing cannot take heat.
+        if(world.state().cells[cell].mixture.mass()==0)continue;
         // A primary energy write can round either way. Keep the signed
         // difference, committing only a strict reduction of its exact size.
         try {

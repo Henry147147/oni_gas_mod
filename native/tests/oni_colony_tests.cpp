@@ -1167,6 +1167,34 @@ void precision_canonical_control() {
     require(exercised>0,"no coalesced expansion needed canonical form");
     std::cout<<"PASS precision canonical: "<<exercised<<" of 64 coalesced held expansions needed canonical form; all saved and restored byte for byte\n";
 }
+// A held energy-only correction retries its source's neighbourhood. A cell
+// there that holds nothing cannot take heat: with_cell_heat into vacuum
+// threw "Empty prototype cell retains energy" past the release's refusal
+// handling and faulted the Spaced Out! full colony (frame 222).
+void precision_heat_vacuum_control() {
+    using namespace ma::oni::colony::detail;using namespace ma::experimental;
+    ma::SpeciesRegistry registry;ma::SpeciesDefinition gas;gas.id="precision-vacuum";gas.name=gas.id;
+    gas.phase=ma::Phase::gas;gas.atoms={{"O",2}};gas.explicit_molar_mass=true;gas.molar_mass=.032;gas.cp=1000+ma::gas_constant/.032;
+    gas.formation_enthalpy=gas.cp*ma::reference_temperature*gas.molar_mass;registry.add(gas);
+    ma::experimental::ReferenceMaterial m;m.id=gas.id;m.phase=ReferencePhase::ideal_gas;
+    m.molar_mass_kg_per_mol=.032;m.cv_j_per_kg_k=gas.cv();m.energy_offset_j_per_kg=gas.internal_energy(0);
+    m.minimum_temperature_k=1;m.maximum_temperature_k=1e6;m.provenance="Explicit precision vacuum control";
+    auto eos=std::make_shared<const ma::FluidThermodynamics>(registry,"precision-vacuum-v1",std::vector{m});
+    MacTransportState state;state.grid={2,1,1,1,false,false,{0,0}};state.cells.resize(2,MacMaterialCell{ma::MixtureInventory(1),{}});
+    state.cells[1].mixture.masses[0]=0x1p-20;state.momentum_x.resize(3);state.momentum_y.resize(4);
+    MacClosedSettings settings;settings.numerical_kernel=MacNumericalKernel::game;settings.game_profile=MacGameProfile::game_kernel;
+    settings.vacuum=MacVacuumRepresentation::void_phase;
+    const std::array temperatures{300.,300.};
+    auto world=MacClosedWorld::game_colony(registry,eos,std::move(state),temperatures,settings);
+    const auto before=world.state().cells[1].mixture.energy;
+    PrecisionParcel held{0,0,2,0,0,300,{}};held.energy_j.add(before*0x1p-40);const auto correction=held.energy_j;
+    const std::array<std::size_t,2> destinations{0,1};
+    require(release_precision_parcel(world,held,0,0,destinations),"held heat skipped its occupied recipient");
+    require(world.state().cells[0].mixture.mass()==0 && world.state().cells[0].mixture.energy==0,"held heat entered an empty cell");
+    MacEnergySum balance=correction;balance.add(before);balance.add(-world.state().cells[1].mixture.energy);add_precision_sum(balance,held.energy_j,-1);
+    require(balance.sign()==0,"held heat release did not close exactly");
+    std::cout<<"PASS precision heat vacuum: held heat skips an empty neighbour and closes in an occupied one\n";
+}
 void pipe_job_control() {
     using namespace ma::oni::colony;
     std::vector<MAOniColonyMaterial> mats{material("Oxygen",11,oxygen,true,.016,1000),material("CarbonDioxide",12,carbon,true,.044,850)};
@@ -2500,7 +2528,7 @@ int main(int argc, char** argv) {
         if (argc == 2 && std::strcmp(argv[1], "--shared-cell-trace-only") == 0) { shared_cell_trace_control(); return 0; }
         if (argc == 2 && std::strcmp(argv[1], "--pipe-trace-heat-only") == 0) { pipe_trace_heat_control(); return 0; }
         if (argc == 2 && std::strcmp(argv[1], "--relocated-trace-only") == 0) { relocated_trace_control(); return 0; }
-        if (argc == 2 && std::strcmp(argv[1], "--precision-inventory-only") == 0) { precision_inventory_control();precision_canonical_control(); return 0; }
+        if (argc == 2 && std::strcmp(argv[1], "--precision-inventory-only") == 0) { precision_inventory_control();precision_canonical_control();precision_heat_vacuum_control(); return 0; }
         if (argc == 2 && std::strcmp(argv[1], "--airflow-boundary-only") == 0) { airflow_boundary_control(); return 0; }
         if (argc == 2 && std::strcmp(argv[1], "--tiny-injection-only") == 0) { tiny_injection_neighbour_control(); return 0; }
         if (argc == 2 && std::strcmp(argv[1], "--parcel-wire-only") == 0) { parcel_wire_control(); parcel_outcome_control(); return 0; }
@@ -2541,6 +2569,7 @@ int main(int argc, char** argv) {
         airflow_boundary_control();
         precision_inventory_control();
         precision_canonical_control();
+        precision_heat_vacuum_control();
         pipe_job_control();
         sample_control();
         view_cache_control();
