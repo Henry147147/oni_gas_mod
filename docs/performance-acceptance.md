@@ -27,6 +27,15 @@ the pinned Spaced Out! world nothing waits on the owner; the game thread
 itself (UpdateData 8, copy to game 4, shadow 2.6 ms plus ONI's own work) bounds
 it at about 3.4×.
 
+The lower first window after loading a save (about 2.33× here, and the
+"start-up hitch" in whole-run figures) is the post-load pause, not slow
+frames: that window reports `pause_observed 1` with the same mean tick interval
+as steady play (66.8 ms against 66.7-68.0 ms). A development-only run that
+skipped the per-call hook counters (about 290,000 native hook calls per
+UpdateData on the 256×384 base world: post-process and state-transition once
+per cell, pressure 55,000, temperature 31,000) left UpdateData at 12.8-13.4 ms,
+so that time is ONI's own per-cell work, not hook overhead.
+
 One stall remains in the long base colony: shortly after loading the cycle-4
 autosave (frames about 11160-11460, the same moment the ten-cycle run hit in
 cycle 3), single flow steps take 1.7-2.8 s, in the regional run (`regional ...
