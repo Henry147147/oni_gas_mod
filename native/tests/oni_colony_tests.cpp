@@ -1850,6 +1850,56 @@ void shared_cell_trace_control() {
     }
     std::cout << "PASS shared-cell trace: 24 cells emptied by two same-frame consumers kept no orphan trace\n";
 }
+// A pipe receives an extraction at the temperature its exact energy gives.
+// A trace of gas in a full water cell is below the cell energy's ulp: taken,
+// it left with mass but 0 J (in game "Invalid pipe temperature -61.8 K" for
+// a 3.5e-18 kg liquid trace from a gas cell). The pump leaves such a trace,
+// mass and energy together; a resolvable one still leaves with its heat.
+void pipe_trace_heat_control() {
+    using namespace ma::oni::colony;
+    std::vector<MAOniColonyMaterial> mats{material("HeavyGas", 11, oxygen, true, 1., 10), material("Water", 13, water, false, .018, 4000, 1000)};
+    MAOniColonyConfig cfg{}; cfg.struct_size = sizeof(cfg); cfg.abi_version = MA_ONI_COLONY_ABI_VERSION;
+    cfg.flags = MA_ONI_COLONY_GAME_KERNEL | MA_ONI_COLONY_GAME_SURFACE; cfg.vacuum_index = vacuum;
+    cfg.grid_width = cfg.width = 3; cfg.grid_height = cfg.height = 3; cfg.maximum_timestep_s = .1; cfg.gravity_m_per_s2 = 9.8;
+    std::vector<MAOniColonyCell> cells(9, MAOniColonyCell{0, MA_ONI_COLONY_SOLID, 0, 0, 0, 0});
+    cells[4] = {water, MA_ONI_COLONY_FLUID, 1000, 300, 0, 0};
+    for (const double trace : {2e-11, 1e-6}) {
+        start(cfg, mats, cells, 1); enable_precise_receipts(true);
+        // One pipe job drips the gas in at 300 K, a second pumps the cell's gas.
+        const auto outcome = [&](std::uint64_t frame, const MAOniColonyTransfer& job) {
+            (void)queue_pipe_job(frame, job, {}); advance(frame, .2, 2); wait();
+            require(status().state == 1, status().error);
+            MAOniColonyReceipt receipt{}; require(copy_receipts(&receipt, 1) == 1 && receipt_job(receipt.sequence) == frame, "pipe trace job lost its outcome");
+            std::vector<std::uint8_t> wire(copy_precise_receipt(receipt.sequence, nullptr, 0));
+            copy_precise_receipt(receipt.sequence, wire.data(), static_cast<std::uint32_t>(wire.size()));
+            ack_receipts(receipt.sequence);
+            return std::pair{receipt, wire};
+        };
+        const auto [dripped, drip_wire] = outcome(1, {4, oxygen, MA_ONI_COLONY_INJECT, 0, -1, 0, trace, 300, 0});
+        require(status().injected_kg == trace && status().trace_sink_kg == 0, "gas trace did not stay in the water cell");
+        ReceiptReader d{drip_wire}; require(d.header(dripped.sequence, 1) == 1, "drip parcel count");
+        require(d.integer(4) == oxygen && d.integer(4) == 4 && d.integer(4) == 1 && d.f64() == trace && d.f64() == 300, "drip parcel identity");
+        const double dripped_energy = d.f64();
+        const auto [receipt, wire] = outcome(2, {4, vacuum, MA_ONI_COLONY_EXTRACT_GAS, 0, -1, 0, 1, 0, 0});
+        const auto st = status();
+        ReceiptReader r{wire}; const auto parcels = r.header(receipt.sequence, 2);
+        const bool resolvable = trace > 1e-9;
+        if (!resolvable) {
+            require(parcels == 0 && receipt.mass_kg == 0 && st.extracted_kg == 0, "pipe took a trace whose heat cannot leave the cell");
+        } else {
+            require(parcels == 1 && st.extracted_kg == trace, "pipe left a trace whose heat can leave the cell");
+            require(r.integer(4) == oxygen && r.integer(4) == 4 && r.integer(4) == 0 && r.f64() == trace, "pipe trace parcel identity");
+            const double temperature = r.f64(), energy = r.f64();
+            // It leaves with the heat it brought, to the cell energy's ulp.
+            require(std::abs(temperature - 300) < 1e-3 && std::abs(energy - dripped_energy) <= 1e-3 * std::abs(dripped_energy),
+                "resolvable pipe trace left without its heat");
+        }
+        require(st.maximum_relative_mass_error < 1e-12 && st.maximum_relative_energy_error < 1e-12, "pipe trace broke conservation");
+        const auto image = checkpoint(); stop(); restore(cfg, mats, image, 1);
+        require(checkpoint() == image, "pipe trace cold resave differs"); stop();
+    }
+    std::cout << "PASS pipe trace heat: an unresolvable gas trace stays in its water cell; a resolvable one leaves with its heat\n";
+}
 // A machine's output with no open cell within two (callback -1) waits in the
 // reservoir instead of being lost; a callback-bearing emission is refused.
 void unplaced_output_control() {
@@ -2340,6 +2390,7 @@ int main(int argc, char** argv) {
         if (argc == 2 && std::strcmp(argv[1], "--release-capture-only") == 0) { release_capture_control();exact_release_control(); return 0; }
         if (argc == 2 && std::strcmp(argv[1], "--pipe-jobs-only") == 0) { moving_job_control(); pipe_job_control(); return 0; }
         if (argc == 2 && std::strcmp(argv[1], "--shared-cell-trace-only") == 0) { shared_cell_trace_control(); return 0; }
+        if (argc == 2 && std::strcmp(argv[1], "--pipe-trace-heat-only") == 0) { pipe_trace_heat_control(); return 0; }
         if (argc == 2 && std::strcmp(argv[1], "--precision-inventory-only") == 0) { precision_inventory_control();precision_canonical_control(); return 0; }
         if (argc == 2 && std::strcmp(argv[1], "--airflow-boundary-only") == 0) { airflow_boundary_control(); return 0; }
         if (argc == 2 && std::strcmp(argv[1], "--tiny-injection-only") == 0) { tiny_injection_neighbour_control(); return 0; }
@@ -2393,6 +2444,7 @@ int main(int argc, char** argv) {
         flooded_pocket_control();
         trace_sink_control();
         shared_cell_trace_control();
+        pipe_trace_heat_control();
         std::vector<MAOniColonyMaterial> materials{material("Oxygen", 11, oxygen, true, .016, 1000), material("CarbonDioxide", 12, carbon, true, .044, 850),
             material("Water", 13, water, false, .018, 4000, 1000), material("Steam", 14, steam, true, .018, 4000),
             material("SaltWater", 15, brine, false, .021, 4100, 1100)};

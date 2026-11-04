@@ -93,6 +93,13 @@ static class PortSettlementTests
         Reject(()=>PipePortSaveBoundary.Validate(State(5),Native));
         PipePortSaveBoundary.Validate(State(5),token=>new(token<5?3u:0u,0));
         Reject(()=>PipePortSaveBoundary.Validate(State(5,Job(2),Job(3),Job(4)),token=>token==3?new PipeNativeJobState(2,7):Native(token)));
+        // An extraction that brings a trace's mass without its heat (in game a
+        // 2^-58 kg liquid trace from a gas cell, 0 J) has no pipe temperature.
+        // The native owner leaves such a trace in its cell; were one committed,
+        // settlement must still refuse it, naming the job, and never invent heat.
+        var heatless=Parcel(false,2,Math.Pow(2,-58),0);
+        try{PipePortSettlement.Calculate(new PipePortJob(1,1,35,2,35,0,4,2,1,0,PipeInventory.Empty),new[]{Receipt(1,heatless)},Material);throw new Exception("Heatless trace extraction settled");}
+        catch(InvalidOperationException error){Check(error.Message.Contains("Invalid pipe temperature")&&error.Message.Contains("job kind 4")&&error.Message.Contains("committed 3.469446951953614E-18 kg, 0 J"),"Heatless trace refusal does not name its job: "+error.Message);}
         Console.WriteLine("PASS pipe committed settlement: grouped outcomes, actual U and tiny/huge passive remainders, durable reservations, exact mechanics and sealed native suffix adversaries");
     }
 }

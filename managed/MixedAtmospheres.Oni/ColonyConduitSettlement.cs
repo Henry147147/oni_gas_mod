@@ -170,7 +170,12 @@ namespace MixedAtmospheres.Oni
                 foreach(var id in germs.Keys.Union(observed.Keys))
                 {germs.TryGetValue(id,out var credited);observed.TryGetValue(id,out var actual);Add(remainders,id,actual.Minus(credited));}
             }
-            if(inventory.Count>0)inventory.Temperature(material);
+            try{if(inventory.Count>0)inventory.Temperature(material);}
+            catch(InvalidOperationException error)
+            {
+                throw new InvalidOperationException($"{error.Message} [job kind {job.Kind} species {job.NativeIndex} cell {job.WorldCell} requested {job.RequestedMass:R} kg; reserved {job.Reserved.Total.Value:R} kg, {job.Reserved.Energy.Value:R} J; " +
+                    $"committed {total.Value:R} kg, {energy.Value:R} J in {parcels.Count} parcels]",error);
+            }
             var result=new PipePortSettlement(inventory,heat,remainders.Select(p=>new PipePassiveBalance(p.Key,p.Value)));
             result.WorldInventory=PipeInventory.Conserved(masses.Select(p=>new PipePart(p.Key,p.Value)).ToArray(),energy,Array.Empty<PipePart>());
             result.WorldPassives=observed.Where(p=>p.Value.Sign!=0).Select(p=>new PipePassiveBalance(p.Key,p.Value)).ToArray();

@@ -3288,18 +3288,32 @@ void run_frame(std::uint64_t ticket,double seconds,std::uint64_t frames,const ch
             at->second += edit.inject ? edit.mass_kg : -edit.mass_kg;
             edits.push_back(edit);
         };
+        // A pipe receives an extraction at the temperature its exact energy
+        // gives. A cell that stays occupied changes its energy only in steps
+        // of the energy's ulp, so a take whose thermal energy is within 2^10
+        // such steps would reach the pipe more than 2^-11 off the cell's
+        // temperature, or with no thermal energy at all (a 3.5e-18 kg liquid
+        // trace from a gas cell arrived with 0 J, "Invalid pipe temperature
+        // -61.8 K"). Such a take stays in the cell, mass and energy together.
+        const auto& extraction_materials = cat.eos->reference().materials();
+        const auto resolved = [&](std::size_t cell, std::size_t k, double x) {
+            const double u = std::abs(world.state().cells[cell].mixture.energy);
+            const double ulp = std::nextafter(u, std::numeric_limits<double>::infinity()) - u;
+            return x * extraction_materials[k].cv_j_per_kg_k * world.cell_reading(cell).temperature_k >= 0x1p10 * ulp;
+        };
         // One cell's removals, smallest constituent first. A cell that would
         // keep less than the plan's binary32 quantum (rounding-sized traces of
         // any phase) gives those up too: a trace left beside nothing would
         // keep only rounding residue of the cell's energy.
-        const auto remove = [&](std::size_t cell, std::vector<std::pair<std::size_t, double>> take, double quantum) {
+        const auto remove = [&](std::size_t cell, std::vector<std::pair<std::size_t, double>> take, double quantum, bool precise) {
             const auto& m = world.state().cells[cell].mixture;
             const auto shared = planned.find(cell);
             if (shared == planned.end()) {
                 double kept = m.mass(); for (const auto& [k, x] : take) kept -= x;
-                if (kept < quantum)
+                if (kept < quantum) {
                     for (std::size_t q = 0; q < m.masses.size(); ++q)
                         if (m.masses[q] > 0 && std::none_of(take.begin(), take.end(), [&](const auto& t) { return t.first == q; })) take.push_back({q, m.masses[q]});
+                } else if (precise) std::erase_if(take, [&](const auto& t) { return t.second > 0 && !resolved(cell, t.first, t.second); });
                 std::stable_sort(take.begin(), take.end(), [&](const auto& a, const auto& b) { return m.masses[a.first] < m.masses[b.first]; });
                 for (const auto& [k, x] : take) if (x > 0) plan_edit({cell, k, false, x, 0});
                 return;
@@ -3316,7 +3330,7 @@ void run_frame(std::uint64_t ticket,double seconds,std::uint64_t frames,const ch
                 for (auto& [k, x] : take) x = std::max(x, left[k]);
                 for (std::size_t q = 0; q < left.size(); ++q)
                     if (left[q] > 0 && std::none_of(take.begin(), take.end(), [&](const auto& t) { return t.first == q; })) take.push_back({q, left[q]});
-            }
+            } else if (precise) std::erase_if(take, [&](const auto& t) { return t.second > 0 && !resolved(cell, t.first, std::min(t.second, left[t.first])); });
             std::stable_sort(take.begin(), take.end(), [&](const auto& a, const auto& b) {
                 return empties ? left[a.first] < left[b.first] : m.masses[a.first] < m.masses[b.first]; });
             for (const auto& [k, x] : take) if (x > 0) plan_edit({cell, k, false, x, 0});
@@ -3326,6 +3340,7 @@ void run_frame(std::uint64_t ticket,double seconds,std::uint64_t frames,const ch
             const auto centre = rect_index(s.config, t.public_cell);
             const auto& st = world.state();
             const auto kind = t.kind & ~MA_ONI_COLONY_CONSUMER;
+            const bool precise = job_tokens.contains(static_cast<std::size_t>(&t - transfers.data()));
             if (kind == MA_ONI_COLONY_EXTRACT_GAS || kind == MA_ONI_COLONY_EXTRACT_LIQUID) {
                 // A phase's mixture (a pump or an any-gas consumer): the cells'
                 // totals of that phase, nearest first, each cell's share split
@@ -3346,7 +3361,7 @@ void run_frame(std::uint64_t ticket,double seconds,std::uint64_t frames,const ch
                     std::vector<std::pair<std::size_t, double>> take;
                     for (std::size_t k = 0; k < cat.materials.size(); ++k)
                         if (cat.materials[k].game.gas == gas && m.masses[k] > 0) take.push_back({k, whole ? m.masses[k] : a.mass * (m.masses[k] / available[a.cell])});
-                    remove(a.cell, std::move(take), quantum);
+                    remove(a.cell, std::move(take), quantum, precise);
                 }
                 plans.push_back({first, edits.size() - first, &t});
                 continue;
@@ -3379,8 +3394,9 @@ void run_frame(std::uint64_t ticket,double seconds,std::uint64_t frames,const ch
                 for (const auto& a : plan.allocations) {
                     const auto& m = st.cells[a.cell].mixture;
                     if (available[a.cell] - a.mass >= quantum) {
-                        // A cell earlier plans share is judged on what they leave.
-                        if (planned.contains(a.cell)) remove(a.cell, {{k, a.mass}}, quantum);
+                        // A cell earlier plans share is judged on what they
+                        // leave; a pipe's take, on whether its heat can leave.
+                        if (planned.contains(a.cell) || precise) remove(a.cell, {{k, a.mass}}, quantum, precise);
                         else plan_edit({a.cell, k, false, a.mass, 0});
                         continue;
                     }
@@ -3392,7 +3408,7 @@ void run_frame(std::uint64_t ticket,double seconds,std::uint64_t frames,const ch
                     if (rest < quantum)
                         for (std::size_t q = 0; q < cat.materials.size(); ++q)
                             if (q != k && cat.materials[q].game.gas == cat.materials[k].game.gas && m.masses[q] > 0) take.push_back({q, m.masses[q]});
-                    remove(a.cell, std::move(take), quantum);
+                    remove(a.cell, std::move(take), quantum, precise);
                 }
                 plans.push_back({first, edits.size() - first, &t});
             }
