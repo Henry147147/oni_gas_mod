@@ -21,6 +21,15 @@ namespace MixedAtmospheres.Oni
         private static bool scaled;
         private static float playerScale = 1;
         private static readonly bool publicationLog = Environment.GetEnvironmentVariable("MA_COLONY_PUBLICATION_LOG") == "1";
+        // Development diagnostic, off unless set: MA_COLONY_DEV_SPEED=<x> (2 to
+        // 20) makes the player's fastest speed x times real time instead of
+        // the game's, to measure how far the owner and game could run. It is
+        // never set by a release package or the acceptance suite.
+        private static readonly float devSpeed = ParseDevSpeed(Environment.GetEnvironmentVariable("MA_COLONY_DEV_SPEED"));
+        private static float ParseDevSpeed(string value)
+        {
+            return float.TryParse(value, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var x) && x >= 2 && x <= 20 ? x : 0;
+        }
         private static long updateTicks, tickTicks, updateCalls, tickCalls, maximumUpdateTicks, loggedHeldTicks;
         private static ulong loggedFrame = ulong.MaxValue;
         private static readonly AccessTools.FieldRef<Game, int> subTick = AccessTools.FieldRefAccess<Game, int>("simSubTick");
@@ -131,7 +140,7 @@ namespace MixedAtmospheres.Oni
             }
             var speed = SpeedControlScreen.Instance;
             if (speed == null || speed.IsPaused || OwnerRate == 0) return;
-            playerScale = speed.GetSpeed() switch { 0 => normalSpeed(speed), 1 => fastSpeed(speed), _ => ultraSpeed(speed) };
+            playerScale = speed.GetSpeed() switch { 0 => normalSpeed(speed), 1 => fastSpeed(speed), _ => devSpeed > 0 ? devSpeed : ultraSpeed(speed) };
             var target = Mathf.Clamp((float)(.95 * OwnerRate), .01f, playerScale);
             if (Mathf.Abs(Time.timeScale - target) > 1e-3f * target) { Time.timeScale = target; scaled = true; }
         }

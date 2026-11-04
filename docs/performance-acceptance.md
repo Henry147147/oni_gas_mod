@@ -1,5 +1,42 @@
 # Performance acceptance measurements
 
+## Long-colony headroom, 2026-11-04
+
+ONI caps speed 3 at 3× real time, so a steady 3.00× hides the slack. The
+development-only override `MA_COLONY_DEV_SPEED=<x>` (2 to 20, read once, never
+set by a package or the acceptance suite) lets the pacing target x× instead of
+the game's speed-3 scale; `MA_COLONY_NATIVE_WAIT_LOG=1` prints where the game
+thread waits. Natural autosaves of the RC1 ten-cycle run (`258134c` +
+`7c87744`, `f9eeffa`), Linux harness, RTX 5090 display, 660 frames, windows
+after the first (owner ms / interval ms / game per real):
+
+| Save | Speed 3 | Dev 10× | Game-thread wait on the owner at 10× |
+| --- | --- | --- | --- |
+| Cycle 5 | 23-25 / 67 / 2.99-3.02 | 22 / 45-49 / 4.35-4.69 | 18.3 ms per tick |
+| Cycle 8 | 23 / 67-68 / 2.98-3.02 | 22 / 46-60 / 3.84-4.60 | 19.7 ms |
+| Cycle 11 | 22 / 67-68 / 2.99-3.01 | 22 / 46-49 / 4.41-4.61 | 19.9 ms |
+| Pinned V9 Spaced Out!, new colony | (2.99-3.00, above) | 24-28 / 57-61 / 3.29-3.53 | 0.0 ms |
+
+So the long base colony runs at about 4.5× uncapped, and the owner is not the
+limit by itself (22 ms per 200 ms tick would allow 9×). At 10× the game
+thread waits about 19 ms of the owner's 22 ms: the owner frame runs almost
+in series with the game thread's own work (about 28 ms: UpdateData 13-14,
+shadow write/capture 1.7, copy to game 1.5, the rest ONI's). Overlapping the
+two is the largest remaining lever (bounded near 28 ms per tick, about 7×). On
+the pinned Spaced Out! world nothing waits on the owner; the game thread
+itself (UpdateData 8, copy to game 4, shadow 2.6 ms plus ONI's own work) bounds
+it at about 3.4×.
+
+One stall remains in the long base colony: shortly after loading the cycle-4
+autosave (frames about 11160-11460, the same moment the ten-cycle run hit in
+cycle 3), single flow steps take 1.7-2.8 s, in the regional run (`regional ...
+run 2770 ms`). This happens on roughly one frame in fifteen for about 300
+frames and drops those windows to 0.87×. A world dump taken at the start of
+frame 11195 replays at normal cost (flow mean 18.8 ms, max 69 ms over 10
+frames), so the slow step needs the dump of the slow frame itself
+(`MA_COLONY_SLOW_DUMP=<seconds>`). The stage log now also prints every frame
+slower than 250 ms.
+
 ## Copy-on-write cells and owner reuse, 2026-11-03
 
 Exact changes on main `29b49c4`..`61f6f16` (all 88 `ma_mac_*` programs

@@ -3851,7 +3851,8 @@ void run_frame(std::uint64_t ticket,double seconds,std::uint64_t frames,const ch
         auto projection = project(s, *s.world);
         lap(5); if(!flush_only)std::copy(std::begin(stage), std::end(stage), s.status.stage_ms);
         step("publication");
-        if (!flush_only && stage_log && s.status.completed_frames % 10 == 0) {
+        // Also any frame slower than 250 ms, whatever its number.
+        if (!flush_only && stage_log && (s.status.completed_frames % 10 == 0 || s.status.last_advance_ms > 250)) {
             std::string line = "[Mixed Atmospheres] stages frame " + std::to_string(s.status.completed_frames) + ":";
             char item[128];
             for (std::size_t n = 0; n < steps.size(); ++n) {
