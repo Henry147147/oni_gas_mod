@@ -1333,6 +1333,10 @@ MacClosedWorld convert_identities(Session& s, MacClosedWorld world, double secon
             r.public_cell = static_cast<std::uint32_t>((s.config.offset_x + products[q].cell % s.config.width) +
                 (s.config.offset_y + products[q].cell / s.config.width) * s.config.grid_width);
             r.mass_kg = static_cast<float>(products[q].byproduct_kg); r.temperature_k = static_cast<float>(temperature[q]);
+            // A conversion whose whole mass leaves as the solid (a hidden liquid
+            // freezing) has no product to keep its germs: they ride the debris as
+            // the one disease of ONI's item. Otherwise the product keeps them.
+            if (!(products[q].mass > 0)) { const auto germ = dominant_germ(parcel.passives); r.disease = germ.first; r.disease_count = germ.second; }
             receipts.push_back(r);
         }
     }

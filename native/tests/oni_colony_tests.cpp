@@ -2625,6 +2625,27 @@ int main(int argc, char** argv) {
             require(after.maximum_relative_mass_error < 1e-12 && after.maximum_relative_energy_error < 1e-9, "freezing ledgers close");
             ma::oni::colony::stop();
         }
+        // The germs of that hidden liquid ride the debris (ONI's one item disease):
+        // they are neither lost with the liquid nor kept by the cell.
+        {
+            ma::oni::colony::restore(config, materials, image, 1);
+            const MAOniColonyTransfer cold{public_cell(11, 6), water, MA_ONI_COLONY_INJECT, 0, -1, 3, 5, 150, 4000};
+            ma::oni::colony::queue_transfers(std::span(&cold, 1));
+            for (std::uint64_t frame = 5; frame <= 8; ++frame) { ma::oni::colony::advance(frame, .2, 2); ma::oni::colony::wait(); }
+            const auto after = ma::oni::colony::status();
+            std::vector<MAOniColonyReceipt> got(16); const auto n = ma::oni::colony::copy_receipts(got.data(), 16);
+            double ice = 0, germs = 0; bool other = false;
+            for (std::uint32_t q = 0; q < n; ++q) if (got[q].kind == MA_ONI_COLONY_BYPRODUCT && got[q].callback == 99) {
+                ice += got[q].mass_kg; germs += got[q].disease_count; other = other || (got[q].disease_count > 0 && got[q].disease != 3);
+            }
+            std::cout << "frozen " << ice << " kg of 5 kg with " << germs << " of 4000 germs\n";
+            require(after.state == 1 && ice > 2 && ice <= 5.0001 && !other, "hidden cold water with germs freezes into debris");
+            // The cell's germs travel with all of its mass (the gas above the puddle
+            // carries its share away), so the debris holds some of them, never more.
+            require(germs > 0 && germs <= 4000.5, "the debris carries the germs of the liquid it came from, once");
+            require(after.maximum_relative_mass_error < 1e-12 && after.maximum_relative_energy_error < 1e-9, "freezing with germs closes the ledgers");
+            ma::oni::colony::stop();
+        }
         // A liquid trace below binary64's normal range (a rounding product
         // of the kernel) leaves the cell's reading as it was.
         {

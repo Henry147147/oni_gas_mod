@@ -500,7 +500,8 @@ namespace MixedAtmospheres.Oni
             if (element == null || !(r.MassKg > 0)) return;
             if (ColonyFrameLog.Enabled) ColonyFrameLog.CountByproduct(element.id.ToString(), r.MassKg);
             var cell = (int)r.PublicCell;
-            element.substance.SpawnResource(Grid.CellToPosCCC(cell, Grid.SceneLayer.Ore), r.MassKg, r.TemperatureK, byte.MaxValue, 0,
+            // A debris item carries one disease (ONI's own item disease): the receipt's germs, if any.
+            element.substance.SpawnResource(Grid.CellToPosCCC(cell, Grid.SceneLayer.Ore), r.MassKg, r.TemperatureK, OniNativeColony.DiseaseIdx(r.Disease), r.Disease != 0 ? r.DiseaseCount : 0,
                 prevent_merge: MergeTargetIsDying(cell, element.tag, r.MassKg));
         }
         // Substance.SpawnResource adds the mass to the first same-element item in
