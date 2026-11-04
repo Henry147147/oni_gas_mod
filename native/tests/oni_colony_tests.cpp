@@ -1811,6 +1811,45 @@ void trace_sink_control() {
 }
 }
 
+// Two consumers planned against the same frame-start cell can empty its gas
+// together, though neither alone would. A trace of another phase left beside
+// nothing holds only rounding residue of the cell's energy (the Spaced Out!
+// full colony faulted: "Prototype has no positive thermal energy" holding
+// 4.4e-22 kg water). The last extraction takes such traces with it.
+void shared_cell_trace_control() {
+    using namespace ma::oni::colony;
+    std::vector<MAOniColonyMaterial> mats{material("Oxygen", 11, oxygen, true, .032, 1005), material("Water", 13, water, false, .018, 4180, 1000)};
+    for (unsigned trial = 0; trial < 24; ++trial) {
+        MAOniColonyConfig cfg{}; cfg.struct_size = sizeof(cfg); cfg.abi_version = MA_ONI_COLONY_ABI_VERSION;
+        cfg.flags = MA_ONI_COLONY_GAME_KERNEL | MA_ONI_COLONY_GAME_SURFACE; cfg.vacuum_index = vacuum;
+        cfg.grid_width = cfg.width = 3; cfg.grid_height = cfg.height = 3; cfg.maximum_timestep_s = .1; cfg.gravity_m_per_s2 = 9.8;
+        std::vector<MAOniColonyCell> cells(9, MAOniColonyCell{0, MA_ONI_COLONY_SOLID, 0, 0, 0, 0});
+        const float gas = .00317f * (1 + static_cast<float>(trial) / 7.f);
+        cells[4] = {oxygen, MA_ONI_COLONY_FLUID, gas, 290.f + static_cast<float>(trial), 0, 0};
+        start(cfg, mats, cells, 1);
+        // A machine drips a trace of water into the cell (the flow's trace
+        // sink would take it at the end of the frame), and two consumers
+        // each ask for 60% of the cell's gas: together they empty it.
+        const double trace = std::ldexp(1 + trial / 32., -71);
+        const std::array<MAOniColonyTransfer, 3> frame{{{4, water, MA_ONI_COLONY_INJECT, 0, -1, 0, trace, 300, 0},
+            {4, oxygen, MA_ONI_COLONY_EXTRACT, 0, 7, 0, .6 * gas, 0, 0}, {4, oxygen, MA_ONI_COLONY_EXTRACT, 0, 8, 0, .6 * gas, 0, 0}}};
+        queue_transfers(frame); advance(1, 1e-6, 2); wait();
+        const auto st = status();
+        require(st.state == 1, st.error);
+        std::array<MAOniColonyReceipt, 4> receipts{}; const auto n = copy_receipts(receipts.data(), 4);
+        require(n == 2 && receipts[0].callback == 7 && receipts[1].callback == 8, "shared-cell consumers lost their receipts");
+        // Everything left with the consumers, the trace with the emptying one.
+        std::vector<MAOniColonyReading> left; std::vector<MAOniColonyConstituent> parts; readings(left, parts);
+        require(parts.empty() && st.injected_kg == trace && st.extracted_kg == trace + static_cast<double>(gas) && st.trace_sink_kg == 0 &&
+            st.maximum_relative_mass_error < 1e-12 && st.maximum_relative_energy_error < 1e-12,
+            "shared-cell extraction left an orphan trace or broke conservation");
+        ack_receipts(receipts[1].sequence);
+        const auto image = checkpoint(); stop(); restore(cfg, mats, image, 1);
+        require(checkpoint() == image, "shared-cell extraction cold resave differs");
+        stop();
+    }
+    std::cout << "PASS shared-cell trace: 24 cells emptied by two same-frame consumers kept no orphan trace\n";
+}
 // A machine's output with no open cell within two (callback -1) waits in the
 // reservoir instead of being lost; a callback-bearing emission is refused.
 void unplaced_output_control() {
@@ -2300,6 +2339,7 @@ int main(int argc, char** argv) {
         if (argc == 2 && std::strcmp(argv[1], "--transfer-capture-only") == 0) { transfer_capture_control(); return 0; }
         if (argc == 2 && std::strcmp(argv[1], "--release-capture-only") == 0) { release_capture_control();exact_release_control(); return 0; }
         if (argc == 2 && std::strcmp(argv[1], "--pipe-jobs-only") == 0) { moving_job_control(); pipe_job_control(); return 0; }
+        if (argc == 2 && std::strcmp(argv[1], "--shared-cell-trace-only") == 0) { shared_cell_trace_control(); return 0; }
         if (argc == 2 && std::strcmp(argv[1], "--precision-inventory-only") == 0) { precision_inventory_control();precision_canonical_control(); return 0; }
         if (argc == 2 && std::strcmp(argv[1], "--airflow-boundary-only") == 0) { airflow_boundary_control(); return 0; }
         if (argc == 2 && std::strcmp(argv[1], "--tiny-injection-only") == 0) { tiny_injection_neighbour_control(); return 0; }
@@ -2352,6 +2392,7 @@ int main(int argc, char** argv) {
         projection_control();
         flooded_pocket_control();
         trace_sink_control();
+        shared_cell_trace_control();
         std::vector<MAOniColonyMaterial> materials{material("Oxygen", 11, oxygen, true, .016, 1000), material("CarbonDioxide", 12, carbon, true, .044, 850),
             material("Water", 13, water, false, .018, 4000, 1000), material("Steam", 14, steam, true, .018, 4000),
             material("SaltWater", 15, brine, false, .021, 4100, 1100)};

@@ -3277,18 +3277,49 @@ void run_frame(std::uint64_t ticket,double seconds,std::uint64_t frames,const ch
         // Transfers: plan against the current state, then commit in batches.
         std::vector<MacFluidTransfer> edits; struct Pending { std::size_t first, count; const MAOniColonyTransfer* source; };
         std::vector<Pending> plans;
+        // Every plan reads the frame-start state, and edits commit in plan
+        // order. Each cell's planned net change per constituent lets a later
+        // plan see what earlier ones leave in a cell they share.
+        std::unordered_map<std::size_t, std::vector<std::pair<std::size_t, double>>> planned;
+        const auto plan_edit = [&](const MacFluidTransfer& edit) {
+            auto& net = planned[edit.cell_index];
+            auto at = std::find_if(net.begin(), net.end(), [&](const auto& n) { return n.first == edit.species_index; });
+            if (at == net.end()) at = net.insert(net.end(), {edit.species_index, 0.});
+            at->second += edit.inject ? edit.mass_kg : -edit.mass_kg;
+            edits.push_back(edit);
+        };
         // One cell's removals, smallest constituent first. A cell that would
         // keep less than the plan's binary32 quantum (rounding-sized traces of
         // any phase) gives those up too: a trace left beside nothing would
         // keep only rounding residue of the cell's energy.
         const auto remove = [&](std::size_t cell, std::vector<std::pair<std::size_t, double>> take, double quantum) {
             const auto& m = world.state().cells[cell].mixture;
-            double kept = m.mass(); for (const auto& [k, x] : take) kept -= x;
-            if (kept < quantum)
-                for (std::size_t q = 0; q < m.masses.size(); ++q)
-                    if (m.masses[q] > 0 && std::none_of(take.begin(), take.end(), [&](const auto& t) { return t.first == q; })) take.push_back({q, m.masses[q]});
-            std::stable_sort(take.begin(), take.end(), [&](const auto& a, const auto& b) { return m.masses[a.first] < m.masses[b.first]; });
-            for (const auto& [k, x] : take) if (x > 0) edits.push_back({cell, k, false, x, 0});
+            const auto shared = planned.find(cell);
+            if (shared == planned.end()) {
+                double kept = m.mass(); for (const auto& [k, x] : take) kept -= x;
+                if (kept < quantum)
+                    for (std::size_t q = 0; q < m.masses.size(); ++q)
+                        if (m.masses[q] > 0 && std::none_of(take.begin(), take.end(), [&](const auto& t) { return t.first == q; })) take.push_back({q, m.masses[q]});
+                std::stable_sort(take.begin(), take.end(), [&](const auto& a, const auto& b) { return m.masses[a.first] < m.masses[b.first]; });
+                for (const auto& [k, x] : take) if (x > 0) plan_edit({cell, k, false, x, 0});
+                return;
+            }
+            // Earlier plans this frame already take from the cell. Judge what
+            // they and this one leave together; if that is under the quantum,
+            // every constituent left leaves whole with this plan.
+            std::vector<double> left(m.masses.begin(), m.masses.end());
+            for (const auto& [q, change] : shared->second) left[q] = std::max(0., left[q] + change);
+            double kept = 0; for (const double x : left) kept += x;
+            for (const auto& [k, x] : take) kept -= std::min(x, left[k]);
+            const bool empties = kept < quantum;
+            if (empties) {
+                for (auto& [k, x] : take) x = std::max(x, left[k]);
+                for (std::size_t q = 0; q < left.size(); ++q)
+                    if (left[q] > 0 && std::none_of(take.begin(), take.end(), [&](const auto& t) { return t.first == q; })) take.push_back({q, left[q]});
+            }
+            std::stable_sort(take.begin(), take.end(), [&](const auto& a, const auto& b) {
+                return empties ? left[a.first] < left[b.first] : m.masses[a.first] < m.masses[b.first]; });
+            for (const auto& [k, x] : take) if (x > 0) plan_edit({cell, k, false, x, 0});
         };
         for (const auto& t : transfers) {
             if(moving_jobs.contains(static_cast<std::size_t>(&t-transfers.data())))continue;
@@ -3334,7 +3365,7 @@ void run_frame(std::uint64_t ticket,double seconds,std::uint64_t frames,const ch
                     plans.push_back({edits.size(), 0, &t}); continue;
                 }
                 if (order.empty() || !(t.mass_kg > 0) || !(t.temperature_k > 0)) { plans.push_back({edits.size(), 0, &t}); continue; }
-                plans.push_back({edits.size(), 1, &t}); edits.push_back({order.front(), k, true, t.mass_kg, t.temperature_k});
+                plans.push_back({edits.size(), 1, &t}); plan_edit({order.front(), k, true, t.mass_kg, t.temperature_k});
                 const auto input=job_passives.find(static_cast<std::size_t>(&t-transfers.data()));
                 if (input!=job_passives.end()) edits.back().passives=input->second;
                 else if (t.disease != 0 && t.disease_count >= 1) edits.back().passives = {{t.disease, t.disease_count}};
@@ -3347,7 +3378,12 @@ void run_frame(std::uint64_t ticket,double seconds,std::uint64_t frames,const ch
                 const auto first = edits.size();
                 for (const auto& a : plan.allocations) {
                     const auto& m = st.cells[a.cell].mixture;
-                    if (available[a.cell] - a.mass >= quantum) { edits.push_back({a.cell, k, false, a.mass, 0}); continue; }
+                    if (available[a.cell] - a.mass >= quantum) {
+                        // A cell earlier plans share is judged on what they leave.
+                        if (planned.contains(a.cell)) remove(a.cell, {{k, a.mass}}, quantum);
+                        else plan_edit({a.cell, k, false, a.mass, 0});
+                        continue;
+                    }
                     // The constituent leaves whole; what its phase keeps below
                     // the quantum (rounding residue) leaves with it.
                     std::vector<std::pair<std::size_t, double>> take{{k, m.masses[k]}};
