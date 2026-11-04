@@ -8,6 +8,19 @@ still require separate authorization.
 
 Amendments:
 
+- **Storage beyond reservoirs stays vanilla, with mass and energy
+  bookkeeping, user decision 2026-11-04:**
+  - The user chose ONI's own storage behaviour for everything beyond the reservoirs: buildings,
+    recipes, converters, carried bottles, mopping and demolition. The mod doesn't own those
+    contents or take their heat and germs over.
+  - Every transfer between the owner's cells and ONI storage must still be booked in the
+    owner's mass and energy ledgers, so the world's account closes. Each such crossing counts:
+    consumers, emitters, pumps, bottles, mopping, emptiers, demolition drops and phase products.
+  - The exact owned-storage writer (schema 5/6) is no longer a release requirement. It stays
+    development-only and off by default.
+  - Mixed pipes and the reservoir controls are unchanged.
+  - This replaces the open owned-storage scope question in the persistence amendment below.
+
 - **Persistence continuation gate read as owner replay, delegated decision
   2026-11-03:** ONI does not repeat itself from one save: two cold loads of
   the same save diverge at frame 44 once duplicants move with real-time
