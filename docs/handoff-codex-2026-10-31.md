@@ -147,8 +147,9 @@ claim fresh speedup, equivalence or actual 3× from this change.
    storage/bottle/recipe teardown and sustainable progression gates remain as
    recorded in the previous handoff. Full F4 is 20000 simulated seconds; do not
    substitute a shorter duration. Actual sustained 3× remains unproven.
-6. Exact storage scope (assessed 2026-11-03, Claude; awaiting the user's
-   decision). Ordinary colonies already store fluids as ONI items, one per
+6. Exact storage scope (assessed 2026-11-03, Claude). **Decided 2026-11-04:** storage
+   beyond the reservoirs stays ONI's, crossings booked; see
+   [storage crossings](colony-owner.md#storage-crossings). The assessment follows. Ordinary colonies already store fluids as ONI items, one per
    species, and book every mass, energy and germ-identity difference at that
    boundary to the machine ports' `StorageBoundary` ledger, which saves with
    the pipes. The exact adapter keeps a mixture's heat and germs inside a

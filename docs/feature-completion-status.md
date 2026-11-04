@@ -152,7 +152,7 @@ playtest deferrals remain recorded until their own controls pass.
   The fixed Linux and WindowsPlayer/Proton demolition/save controls pass eight
   checks each; each platform's 24 source/cold/menu storage sections are
   byte-identical, with no live host.
-  Nonempty demolition, containers and recipe mutations remain required.
+  Nonempty demolition, containers and recipe mutations stay ONI's own since 2026-11-04, with their crossings booked ([storage crossings](colony-owner.md#storage-crossings)).
 - **World continuation context:** read-only source/cold/menu diagnostics show
   native RNG/tick state resets before resuming, different managed breather
   bucket phase and partial-step offsets, and five differing projected solid

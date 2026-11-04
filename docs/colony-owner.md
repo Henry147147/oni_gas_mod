@@ -403,6 +403,61 @@ balance ledger (`BalanceLedgers` in the report). Energies use the catalogue's
 caloric model (c·T plus formation offset; c·T for solids). The owner books the
 fluids it receives exactly in its own ledgers either way.
 
+## Storage crossings
+
+Storage beyond the reservoirs is ONI's own (user decision 2026-11-04,
+[completion plan](completion-plan.md)): buildings, recipes, converters, carried
+bottles, mopping and demolition keep vanilla contents, heat and germs. The mod
+owns none of them. What it owes is the crossing: every kilogram, joule and germ
+that passes between an owned cell and ONI storage or items is booked where it
+crosses. All of ONI's fluid-bearing calls end in a few native messages, which the
+owner takes (`ModifyCell`, `MassEmission`, `MassConsumption`; the coverage
+inventory lists every call site), so each crossing commits as an owner transfer
+and lands in the ledgers named below. The exact owned-storage writer (pipe
+schemas 5 to 7) is development-only: `MA_COLONY_NATIVE_SCHEDULE_CONTROL=1` is the
+only switch, no packaged file sets it and a source test pins that
+(`tools/tests/test_owned_storage_development_only.py`).
+
+Ledger names: *injected* and *extracted* are the owner's per-species mass terms
+(`InjectedKg`, `ExtractedKg` in the status) with their energy terms
+(`energy_in`, `energy_out`, the caloric model: c·T plus formation offset); the
+native shadow counts what it saw (`NativeMassInKg`, `NativeMassOutKg`,
+`NativeHeatJoules`) and the changes become injected/extracted/heat inputs of the
+next step. `ReleasedKg` and the reservoir term hold an addition that found no
+room; `ConvertedKg` counts conversions gross.
+
+| Path (ONI code) | Mass | Energy | Germs |
+| --- | --- | --- | --- |
+| Element consumers: pumps into vanilla storage, scrubbers, mask stations, critter and plant consumers (`MassConsumption`) | extracted; the receipt returns the same binary32 mass as ONI's consumed-mass event | `energy_out`; the item gets the receipt temperature (the cell's) | proportional share leaves; the receipt carries the most numerous identity and its count into ONI's item disease |
+| Element emitters, geysers, plants (`MassEmission`) | injected, also per source (`EmitterSources`) | `energy_in` at the emitted temperature | the message's one identity |
+| Duplicant and critter breathing (`ConsumeMass`; exhaled gas lands through `ModifyMass`) | extracted at the breath; injected when the exhaled parcel lands (in flight it is ONI's, as particles) | both ends as above | as consumers and emitters |
+| Pumps feeding mixed pipes (`ColonyPipePorts`) | extracted, then the pipe's `ToStorage`/`FromStorage` accounts; `StorageBoundary` books pipe side minus what ONI's storage shows | `StorageBoundary` joules | `StorageBoundary` germ identities |
+| Canister filler and emptier on a mixed pipe | `ToStorage` / `FromStorage`, `StorageBoundary` | `StorageBoundary` | `StorageBoundary` |
+| Gas canister emptier into the world (`BottleEmptier.Emit`, `ModifyCell`) | injected | `energy_in` at the stored temperature | the stored item's disease |
+| Liquid emptier, converter liquid outputs (`FallingWater`, `BubbleManager`) | injected when the particle or bubble lands; in flight it is ONI's | as above | the particle's disease |
+| Mopping (`Moppable`, `ConsumeMass` radius 1, the shown liquid) | extracted; the receipt makes the chunk | `energy_out`; chunk at the cell's temperature | the chunk's disease from the receipt |
+| Bottle filled at the pitcher pump (`WorkSession`, `ConsumeMass` radius 2) | extracted per liquid | as mopping | as mopping |
+| Recipes and converters with world outputs (electrolyzer, water sieve, refineries, generators) | injected; stored inputs and outputs are ONI's; a blocked output reserves (`ColonyMachines`) | `energy_in`; the machine's own imbalance in `BalanceLedgers` | the output's disease |
+| Demolition (`Storage.DropAll`): gas `Dumpable.Dump`; liquid a chunk | gas injected; the chunk stays ONI's until mopped, released or emptied | gas `energy_in` | gas: the item's disease; chunk: ONI's |
+| Liquid chunk released (`SubstanceChunk.OnRelease`) | injected, item destroyed | `energy_in` | the chunk's disease |
+| Debris melting (`DoOreMeltTransition`, `DoMelt`) and sublimating (`Sublimates.Emit`) | injected, item destroyed or reduced | `energy_in` at the item's temperature | the item's disease |
+| Native tiles melting or sublimating; items freezing or melting under native heat | shadow: `NativeMassInKg`/`NativeMassOutKg`, then injected/extracted | `NativeHeatJoules` for exchange without mass change | native cell's germ, booked as germ edits |
+| Frozen liquid (owner freezes a hidden liquid) | extracted, the game spawns debris at the cell's temperature | `energy_out` | the debris carries the receipt's most numerous identity (fixed 2026-11-04; the freeze lost them before) |
+| Conversion byproduct (salt from boiling brine) | extracted gross (`ConvertedKg`); the product is injected back; the solid leaves as a receipt and becomes debris | `energy_out` of the converted mass, `energy_in` of the product | the product keeps the germs; the solid carries none |
+| Addition with no open cell within two (callback −1) | held in the reservoir (`ReservoirKg`), released later (`ReleasedKg`) | held at its temperature | not kept (open) |
+
+Known limits, all inside ONI's own model: an ONI item holds one disease, so
+the other germ identities of a multi-germ parcel and fractions of a germ do not
+reach it; a consumer receipt whose target ONI has destroyed before delivery
+(a cancelled mop, a dead critter) lands nowhere, as the native simulation also
+dropped it; the pitcher pump's stored placeholder chunks are ONI's bookkeeping,
+not mass. Mopping reaches only a liquid the owner shows to ONI: a puddle under air
+is hidden (the shown liquid needs half a cell, or a cell without gas), so the mop
+tool finds none there; this is presentation, not a crossing, and is open. Addition into
+a reservoir loses its germs (see the last row above). The `storage-ledger` scenario drives the mop, pitcher-pump bottle,
+demolition, chunk-release and gas-emptier paths and compares the owner's side with
+ONI's.
+
 ## Sensors
 
 The mod's Gas Share Sensor (`GasShareSensor.cs`) compares one gas's mole share
@@ -1478,6 +1533,7 @@ The home asteroid of a Spaced Out! colony is 160 cells wide with the printing po
 | `meteor` | A rock meteor falls through the arena's air and strikes its floor with the owner's ledgers closed. |
 | `sensor` | A gas element sensor set to carbon dioxide switches on in a cell where carbon dioxide is a minority (the cell shows oxygen). |
 | `filter` | A pump sends oxygen and carbon dioxide through a carbon dioxide filter: its filtered port carries only carbon dioxide, its output only oxygen. |
+| `storage-ledger` | Storage beyond the reservoirs stays ONI's, every crossing is booked: a mopped puddle becomes a chunk, a pitcher-pump bottle takes its share of a pool, a demolished storage vents its gas into the owner and drops its liquid as a chunk, a released chunk and a gas canister emptier return their contents. Each time the owner's mass equals what ONI's items gained or lost, germs follow the item's disease, and a chunk or bottle has the temperature of what left. |
 | `pacu` | A pacu in an owned pool stays in its water. |
 | `liquid-pump` | A liquid pump in a pool sends its water through a pipe into a reservoir; pump, pipe and reservoir hold what the owner lost. |
 | `world-germs` | Slimelung and food poisoning in one polluted-oxygen cell each follow their own rule and spread; slimelung beyond a wall in oxygen follows its rule; the germ accounts close (owner mode). |

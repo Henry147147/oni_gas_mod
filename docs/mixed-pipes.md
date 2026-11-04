@@ -51,7 +51,10 @@ New colonies start mixed pipes and save their pipe runtime by default from
 2026-10-25 (user decision, [completion plan](completion-plan.md)); test runs
 opt out with `MA_COLONY_MIXED_PIPES=0` or `MA_COLONY_PIPE_SAVES=0` (the
 `mixed-pipe-save-guard` control needs the latter). Exact owned storage stays
-explicit. The default `base` colony on profile 5 passes 4/4 and writes its
+explicit and development-only: since the user decision of 2026-11-04 storage beyond
+the reservoirs is ONI's own, with every crossing booked ([storage
+crossings](colony-owner.md#storage-crossings)); reservoir controls and mixed pipes
+are unchanged. The default `base` colony on profile 5 passes 4/4 and writes its
 ordinary save. Earlier, default-on waited for the pipe save round trip (saves
 worker: MACOLP03 section 1, cold and menu reload) and the gameplay
 worker's pipe scenarios on mixed pipes. Passing in game on profile 4:
@@ -108,7 +111,7 @@ measures thermal service, not coupled world/store heat closure. Package
 `codex-resume-owned-storage-proto-v1` and artifact
 `codex-resume-owned-storage-control-v1` are private focused evidence. Broad
 machine recipes, loose bottles and teardown
-still require exact adapters.
+need no exact adapters (decision 2026-11-04): they stay ONI's, booked at the crossing.
 
 The closed `mixed-storage-heat` fixture includes the sealed world region's
 U+K+G, exact stored U and every construction body's actual native registered
@@ -416,8 +419,8 @@ waits for the first positive-time barrier, after component `OnSpawn` and
 conduit updater registration. `GameStarted` alone is too early: the actual
 cold load exposed a tracked reservoir whose storage had not spawned yet.
 Zero-time conduit updates remain held while those bindings are pending.
-The loaded image selects this mode; changing the environment does not migrate
-a save. Before binding, zero-time native frames settle prefab chunk-data
+Development only, not a release requirement (2026-11-04). The loaded image selects
+this mode; changing the environment does not migrate a save. Before binding, zero-time native frames settle prefab chunk-data
 messages and registration callbacks, without changing the owner session or
 completed frame. This prevents a queued startup write from being mistaken for
 a later exact-storage mutation.

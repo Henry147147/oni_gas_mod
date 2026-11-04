@@ -31,8 +31,9 @@ skipped):
 The exact tested Windows ZIP is delivered privately as
 `/mnt/data/share/oni/playtest/MixedAtmospheres-RC1-258134c` (SHA-256 `06246552…`).
 `playtest_checklist.py gate` now reports `private_playtest_ready: true`. The
-three deferrals stand: exact owned-storage heat and biology, byte-exact
-in-flight saves, and the remaining accuracy floor.
+two deferrals stand: byte-exact in-flight saves and the remaining accuracy
+floor. Exact owned-storage heat and biology is dropped as a requirement (user
+decision 2026-11-04, [storage crossings](colony-owner.md#storage-crossings)).
 
 Windows OS behaviour and speed are checked by the private playtest on the
 user's PC; Proton is not that check. Speed at 3× (steady windows on the Linux
@@ -64,9 +65,10 @@ The current target includes Windows x64. WindowsPlayer is exercised under
 Proton here; Windows OS behaviour and speed require the user's PC. Configuration
 and WindowsPlayer acceptance are now explicit checklist items. The final default
 gameplay sweep, asteroid sweep, ten-cycle autosave run and immutable Windows
-bundle are still pending. Exact owned-storage heat/biology, byte-exact active
+bundle are still pending. Byte-exact active
 continuation and the remaining accuracy floor are deferred by the 2026-10-25
-user amendment; they remain public-release work.
+user amendment; they remain public-release work. Exact owned-storage
+heat/biology is no longer required (2026-11-04).
 
 `python3 tools/playtest_checklist.py status` lists historical adapter coverage.
 Its 2,584 implemented entries are system-level implementation records, not
@@ -78,7 +80,7 @@ physics gates, frozen arenas, bounds or the user's decisions.
 | Completion item | Current evidence and remaining work |
 | --- | --- |
 | Mixed gas/liquid pipes and ports | On by default with profile5/core23 (flags13), including saves. Pumps, vents, full-inventory filtering, boundaries, valves, machine ports, thermal contacts, cold pipes and readers have current Linux/WindowsPlayer coverage. The final complete same-bundle sweep remains open. |
-| Exact owned-storage heat and biology | Deferred for the first playtest under the user amendment. This concerns schema5; current world and mixed-pipe heat/biology are still required. WindowsPlayer all-ID biology passes9/9, the native germ oracle makes247 exact comparisons, and conduit heat replay matches1,032 actual Windows carrier results with zero residual. |
+| Exact owned-storage heat and biology | Passed by decision (2026-11-04): storage beyond the reservoirs stays ONI's and its crossings are booked ([storage crossings](colony-owner.md#storage-crossings)). Current world and mixed-pipe heat/biology stay required. WindowsPlayer all-ID biology passes9/9, the native germ oracle makes247 exact comparisons, and conduit heat replay matches1,032 actual Windows carrier results with zero residual. |
 | Conserved gameplay transactions | The current default sweep is in progress. Known fixture defects include unconnected refinery output, cumulative pipe counters used as case-local values, and a warm-ice source staged before its measurement baseline. Corrections must retain the original physical inputs and bounds; none of these observations waives final acceptance. |
 | Byte-exact active continuation | Deferred by the user; ordinary saves, natural autosaves and cold/menu loading remain required. WindowsPlayer cold load restores Precise + Strict settings despite a global Default preset. Same-process two-load lifecycle checks pass with restored owner images; these do not prove byte-exact active continuation. |
 | Whole-asteroid reliability | Historical imports cover all nine base-game starting asteroids. The final profile5 nine-asteroid sweep and prepared ten-cycle run with three living duplicants, closed ledgers and natural autosaves remain pending. |
