@@ -3416,6 +3416,7 @@ void run_frame(std::uint64_t ticket,double seconds,std::uint64_t frames,const ch
                                     (s.config.offset_y+e.cell_index/s.config.width)*s.config.grid_width);
                                 detail::PrecisionParcel entry{plan->source->public_cell,anchor,2,cat.materials[e.species_index].game.native_index,e.mass_kg,e.temperature_k,{}};
                                 entry.energy_j.add(held.internal_energy_j);entry.energy_j.add(held.potential_energy);
+                                if(auto canonical=detail::canonical_precision_sum(entry.energy_j))entry.energy_j=std::move(*canonical);
                                 // Bound durable allocation before claiming a receipt.
                                 auto candidate=s.precision;bool merged=false;
                                 for(auto& prior:candidate) {
@@ -3424,7 +3425,9 @@ void run_frame(std::uint64_t ticket,double seconds,std::uint64_t frames,const ch
                                     const double mass=prior.mass_kg+entry.mass_kg;if(!std::isfinite(mass))continue;
                                     MacEnergySum check;check.add(prior.mass_kg);check.add(entry.mass_kg);check.add(-mass);
                                     if(check.sign()!=0)continue; // Never round a coalesced mass.
-                                    prior.mass_kg=mass;detail::add_precision_sum(prior.energy_j,entry.energy_j);merged=true;break;
+                                    auto energy=prior.energy_j;detail::add_precision_sum(energy,entry.energy_j);
+                                    auto canonical=detail::canonical_precision_sum(std::move(energy));if(!canonical)continue;
+                                    prior.mass_kg=mass;prior.energy_j=std::move(*canonical);merged=true;break;
                                 }
                                 if(!merged)candidate.push_back(entry);
                                 try { (void)detail::encode_precision_inventory(candidate); }

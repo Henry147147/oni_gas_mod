@@ -1037,6 +1037,64 @@ void precision_inventory_control() {
     }
     std::cout<<"PASS precision inventory: actual native sub-ULP ownership, exact receipt energy, wrapper12 cold continuation, original radius and internal late release\n";
 }
+// Coalescing two held parcels can grow an exact energy expansion that a
+// reader, adding the saved terms back in order, rebuilds differently (the b5
+// full-colony save was refused on load as "Noncanonical precision inventory").
+// The writer must hold and save only expansions that reproduce themselves.
+void precision_canonical_control() {
+    using namespace ma::oni::colony;using namespace ma::oni::colony::detail;using namespace ma::experimental;
+    const std::array mats{material("MadeUpGas",111,oxygen,true,.032,1005)};
+    MAOniColonyConfig cfg{};cfg.struct_size=sizeof(cfg);cfg.abi_version=1;
+    cfg.flags=MA_ONI_COLONY_GAME_KERNEL|MA_ONI_COLONY_GAME_SURFACE;cfg.vacuum_index=vacuum;
+    cfg.grid_width=cfg.width=5;cfg.grid_height=cfg.height=5;cfg.maximum_timestep_s=.1;cfg.gravity_m_per_s2=9.8;
+    std::array<MAOniColonyCell,25> cells{};for(auto& cell:cells)cell={oxygen,MA_ONI_COLONY_FLUID,.6f,300,0,0};
+    cells[12]={0,MA_ONI_COLONY_SOLID,0,0,0,0};
+    unsigned exercised=0;
+    // One held admission, as the owner books it.
+    const auto admit=[&](std::uint64_t frame,const MAOniColonyTransfer& injection) {
+        (void)queue_pipe_job(frame,injection,{});advance(frame,.2,2);wait();
+        require(status().state==1,"canonical precision admission faulted");
+        MAOniColonyReceipt receipt{};require(copy_receipts(&receipt,1)==1,"canonical precision admission lost its receipt");
+        ack_receipts(receipt.sequence);
+        return decode_precision_inventory(precision_inventory());
+    };
+    for(unsigned trial=0;trial<64;++trial) {
+        // Far below the recipient's ULP, even after coalescing: both stay held.
+        // Equal temperatures coalesce; different masses make different terms.
+        const double temperature=300+trial*.3711,mass=std::ldexp(1+(trial%16)/16.,-58-static_cast<int>(trial%5));
+        const MAOniColonyTransfer first{12,oxygen,MA_ONI_COLONY_INJECT,2,-1,0,mass,temperature,0};
+        auto second=first;second.mass_kg=mass*(1+(trial%7+1)/8.);
+        start(cfg,mats,cells,1);enable_precise_receipts(true);
+        const auto alone=admit(1,second);stop();
+        require(alone.size()==1 && alone[0].mass_kg==second.mass_kg,"second tiny admission was not held");
+        start(cfg,mats,cells,1);enable_precise_receipts(true);
+        const auto single=admit(1,first);
+        require(single.size()==1 && single[0].mass_kg==first.mass_kg,"first tiny admission was not held");
+        // The coalesced sum as plain term-by-term growth would hold it.
+        auto grown=single[0].energy_j;add_precision_sum(grown,alone[0].energy_j);
+        if(!canonical_precision_form(grown)) {
+            ++exercised;
+            PrecisionParcel raw=single[0];raw.mass_kg+=second.mass_kg;raw.energy_j=grown;
+            bool refused=false;try{(void)encode_precision_inventory(std::span(&raw,1));}catch(const std::invalid_argument&){refused=true;}
+            require(refused,"precision writer saved an expansion its reader rebuilds differently");
+            // The same terms, written verbatim, stay refused on load.
+            ParcelWireWriter wire;wire.raw("MAPREC01");wire.u32(1);wire.u32(raw.source);wire.u32(raw.anchor);wire.u32(raw.radius);
+            wire.u32(raw.native_index);wire.f64(raw.mass_kg);wire.f64(raw.temperature_k);wire.sum(raw.energy_j);
+            refused=false;try{(void)decode_precision_inventory(wire.bytes);}catch(const std::invalid_argument&){refused=true;}
+            require(refused,"precision reader accepted a noncanonical expansion");
+        }
+        const auto held=admit(2,second);
+        require(held.size()==1 && held[0].mass_kg==first.mass_kg+second.mass_kg,"tiny admissions did not coalesce into one held parcel");
+        auto difference=grown;add_precision_sum(difference,held[0].energy_j,-1);
+        require(difference.sign()==0 && canonical_precision_form(held[0].energy_j),"coalesced held energy is not the exact canonical sum");
+        const auto wire=precision_inventory(),saved=checkpoint();stop();
+        restore(cfg,mats,saved,1);
+        require(status().state==1 && checkpoint()==saved && precision_inventory()==wire,"coalesced precision inventory did not restore byte for byte");
+        stop();
+    }
+    require(exercised>0,"no coalesced expansion needed canonical form");
+    std::cout<<"PASS precision canonical: "<<exercised<<" of 64 coalesced held expansions needed canonical form; all saved and restored byte for byte\n";
+}
 void pipe_job_control() {
     using namespace ma::oni::colony;
     std::vector<MAOniColonyMaterial> mats{material("Oxygen",11,oxygen,true,.016,1000),material("CarbonDioxide",12,carbon,true,.044,850)};
@@ -2242,7 +2300,7 @@ int main(int argc, char** argv) {
         if (argc == 2 && std::strcmp(argv[1], "--transfer-capture-only") == 0) { transfer_capture_control(); return 0; }
         if (argc == 2 && std::strcmp(argv[1], "--release-capture-only") == 0) { release_capture_control();exact_release_control(); return 0; }
         if (argc == 2 && std::strcmp(argv[1], "--pipe-jobs-only") == 0) { moving_job_control(); pipe_job_control(); return 0; }
-        if (argc == 2 && std::strcmp(argv[1], "--precision-inventory-only") == 0) { precision_inventory_control(); return 0; }
+        if (argc == 2 && std::strcmp(argv[1], "--precision-inventory-only") == 0) { precision_inventory_control();precision_canonical_control(); return 0; }
         if (argc == 2 && std::strcmp(argv[1], "--airflow-boundary-only") == 0) { airflow_boundary_control(); return 0; }
         if (argc == 2 && std::strcmp(argv[1], "--tiny-injection-only") == 0) { tiny_injection_neighbour_control(); return 0; }
         if (argc == 2 && std::strcmp(argv[1], "--parcel-wire-only") == 0) { parcel_wire_control(); parcel_outcome_control(); return 0; }
@@ -2280,6 +2338,7 @@ int main(int argc, char** argv) {
         tiny_injection_neighbour_control();
         airflow_boundary_control();
         precision_inventory_control();
+        precision_canonical_control();
         pipe_job_control();
         sample_control();
         view_cache_control();

@@ -6,6 +6,7 @@
 #include "mixed_atmospheres/mac_closed_world.hpp"
 #include <algorithm>
 #include <limits>
+#include <optional>
 
 namespace ma::oni::colony::detail {
 struct PrecisionParcel {
@@ -15,6 +16,32 @@ struct PrecisionParcel {
 };
 inline void add_precision_sum(experimental::MacEnergySum& to,const experimental::MacEnergySum& from,int sign=1) {
     for(std::size_t i=0;i<from.size();++i)to.add(sign>0?from.component(i):from.component(i).negated());
+}
+inline bool same_precision_sum(const experimental::MacEnergySum& a,const experimental::MacEnergySum& b) {
+    if(a.size()!=b.size())return false;
+    for(std::size_t i=0;i<a.size();++i) {
+        const auto x=a.component(i),y=b.component(i);
+        if(x.mantissa()!=y.mantissa() || !(x.exponent()==y.exponent()))return false;
+    }
+    return true;
+}
+// The wire's canonical expansion is the one a reader rebuilds by adding the
+// saved components in order, so it must reproduce itself under that rebuild.
+// Growing a sum term by term (coalescing, retried releases) is exact but can
+// leave a tail of an ulp or more beside its neighbour, or terms one rebuild
+// merges. Each rebuild is error-free, so the represented energy never
+// changes; repeat it until the expansion is a fixed point.
+inline std::optional<experimental::MacEnergySum> canonical_precision_sum(experimental::MacEnergySum sum) {
+    for(int pass=0;pass<64;++pass) {
+        experimental::MacEnergySum next;add_precision_sum(next,sum);
+        if(same_precision_sum(next,sum))return sum;
+        sum=std::move(next);
+    }
+    return std::nullopt;
+}
+inline bool canonical_precision_form(const experimental::MacEnergySum& sum) {
+    experimental::MacEnergySum rebuilt;add_precision_sum(rebuilt,sum);
+    return same_precision_sum(rebuilt,sum);
 }
 inline long double precision_value(const experimental::MacEnergySum& sum) {
     long double value=0;
@@ -32,6 +59,8 @@ inline void validate_precision_parcel(const PrecisionParcel& p) {
         !std::signbit(p.mass_kg) && std::isfinite(p.temperature_k) && p.temperature_k>0 &&
         (p.mass_kg>0 || p.energy_j.sign()!=0),"Invalid precision parcel");
     (void)precision_value(p.energy_j);
+    // A writer never saves an expansion its reader would rebuild differently.
+    ParcelWireReader::require(canonical_precision_form(p.energy_j),"Noncanonical precision energy");
 }
 inline std::vector<std::uint8_t> encode_precision_inventory(std::span<const PrecisionParcel> entries) {
     ParcelWireWriter w;w.raw("MAPREC01");
@@ -103,7 +132,8 @@ inline bool release_precision_parcel(experimental::MacClosedWorld& world,Precisi
             auto jx=credit.grid.momentum_x,jy=credit.grid.momentum_y;
             jx.add(credit.wall_impulse_x.negated());jy.add(credit.wall_impulse_y.negated());
             if(jx.sign()!=0 || jy.sign()!=0)continue;
-            world=std::move(result.world);held.mass_kg=remaining;held.energy_j=std::move(energy);return true;
+            auto canonical=canonical_precision_sum(std::move(energy));if(!canonical)continue;
+            world=std::move(result.world);held.mass_kg=remaining;held.energy_j=std::move(*canonical);return true;
         }
         if(held.energy_j.sign()==0)return false;
         // A primary energy write can round either way. Keep the signed
@@ -120,7 +150,8 @@ inline bool release_precision_parcel(experimental::MacClosedWorld& world,Precisi
             auto reduction=held.energy_j;if(reduction.sign()<0){MacEnergySum positive;add_precision_sum(positive,reduction,-1);reduction=std::move(positive);}
             add_precision_sum(reduction,remaining,remaining.sign()<0?1:-1);
             if(delta.sign()==0 || reduction.sign()<=0)continue;
-            world=std::move(result);held.energy_j=std::move(remaining);return true;
+            auto canonical=canonical_precision_sum(std::move(remaining));if(!canonical)continue;
+            world=std::move(result);held.energy_j=std::move(*canonical);return true;
         } catch(const std::invalid_argument&) { /* Immutable refusal; retain every term. */ }
         catch(const std::domain_error&) { /* Recipient cannot accept this energy yet. */ }
     }
