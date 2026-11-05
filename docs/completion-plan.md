@@ -8,6 +8,24 @@ still require separate authorization.
 
 Amendments:
 
+- **User decisions 2026-11-05 toward the 3x gate:**
+  - **Overlapped (post-ahead) pacing adopted:** the game may post the next
+    tick while the owner computes the current one, so the game's readers see
+    owner state one frame (0.2 s of game time) later, at a fixed,
+    deterministic lag. This supersedes the 2026-11-02 choice to keep the
+    serial pacing.
+  - **Microgram byproduct debris is batched:** the tiny freeze/phase-change
+    debris ONI would spawn as thousands of separate items is combined, by the
+    best measured method, instead of spawned one by one.
+  - **Existing saves are not a consideration before the Steam release:**
+    while prototyping, a change need not keep colonies saved by earlier
+    builds loading or behaving as they did; benchmark and frozen saves may be
+    rebuilt on the current profile. Checks pinned to a frozen save stay fixed
+    until that save is deliberately rebuilt.
+  - **Prototype the native frame alongside the owner:** ONI's own per-tick
+    cell update runs concurrently with the owner frame, reading the last
+    completed owner state; measured and proposed before adoption.
+
 - **Profile 12 thin-gas drag adopted, user decision 2026-11-05:** new
   colonies create game profile 12 (physical checkpoint 32), profile 11 plus
   an implicit [drag on thin gas](../native/MAC_GAME_KERNEL.md#thin-gas-drag-profile-12--checkpoint-32):
