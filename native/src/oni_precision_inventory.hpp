@@ -93,9 +93,22 @@ inline experimental::MacEnergy precision_potential(const experimental::MacClosed
     return experimental::MacEnergy::from_double(mass).multiplied(world.settings().gravity_m_per_s2)
         .multiplied((static_cast<double>(anchor/world.state().grid.width)+.5)*world.state().grid.spacing_m);
 }
+// The encoded size of one entry in encode_precision_inventory, without the
+// eight-byte signature and four-byte count.
+inline std::size_t precision_wire_bytes(const PrecisionParcel& p) {
+    std::size_t bytes=4*4+8+8+4;
+    for(std::size_t i=0;i<p.energy_j.size();++i)bytes+=8+4+p.energy_j.component(i).exponent().to_string().size();
+    return bytes;
+}
+// Diagnostics (stage log): the core edits retries attempted and accepted.
+struct PrecisionRetryCounts { std::size_t moving=0,moving_accepted=0,heat=0,heat_accepted=0; };
+inline thread_local PrecisionRetryCounts precision_retry_counts;
+// A successful retry: the next world and what the parcel then holds.
+struct PrecisionRelease { experimental::MacClosedWorld world; double mass_kg=0; experimental::MacEnergySum energy_j; };
 // A successful retry is an INTERNAL ownership move. Its exact grid credits
 // debit this balance; callers must not book another external injection.
-inline bool release_precision_parcel(experimental::MacClosedWorld& world,PrecisionParcel& held,
+// Neither the world nor the parcel changes here; a refusal copies nothing.
+inline std::optional<PrecisionRelease> try_release_precision_parcel(const experimental::MacClosedWorld& world,const PrecisionParcel& held,
     std::size_t species,std::size_t anchor,std::span<const std::size_t> destinations) {
     using namespace experimental;
     for(const auto cell:destinations) {
@@ -109,6 +122,13 @@ inline bool release_precision_parcel(experimental::MacClosedWorld& world,Precisi
             MacEnergySum excess;excess.add(added);excess.add(-old);excess.add(-held.mass_kg);
             if(excess.sign()>0)added=std::nextafter(added,old);
             if(added<=old)continue;
+            // The core admits a constituent only near-whole: its rounding
+            // remainder may be at most 2^-24 of the parcel. A held parcel
+            // sits here because it is far below that against its own cell,
+            // so most retries fail this exact rule; checking it first
+            // spares the core's state copy and changes no outcome.
+            const double actual=added-old;
+            if(!(actual>0 && actual<=held.mass_kg) || (held.mass_kg-actual)/held.mass_kg>0x1p-24)continue;
             MacMovingParcel request;request.cell_index=cell;request.species_index=species;request.mass_kg=held.mass_kg;
             request.potential_energy_j=precision_potential(world,anchor,held.mass_kg);
             // The signed primary-write correction is NOT a material
@@ -117,8 +137,10 @@ inline bool release_precision_parcel(experimental::MacClosedWorld& world,Precisi
             const auto& material=world.thermodynamics().reference().materials()[species];
             request.internal_energy_j=MacEnergy::from_double(held.mass_kg*
                 (material.energy_offset_j_per_kg+material.cv_j_per_kg_k*held.temperature_k));
+            ++precision_retry_counts.moving;
             auto result=world.with_moving_parcels(std::span(&request,1));
             if(!result.accepted())continue;
+            ++precision_retry_counts.moving_accepted;
             const auto& credit=result.receipts.front();
             // The core's near-whole admission makes this subtraction exact
             // (Sterbenz). Verify it against the authoritative mass expansion.
@@ -133,9 +155,9 @@ inline bool release_precision_parcel(experimental::MacClosedWorld& world,Precisi
             jx.add(credit.wall_impulse_x.negated());jy.add(credit.wall_impulse_y.negated());
             if(jx.sign()!=0 || jy.sign()!=0)continue;
             auto canonical=canonical_precision_sum(std::move(energy));if(!canonical)continue;
-            world=std::move(result.world);held.mass_kg=remaining;held.energy_j=std::move(*canonical);return true;
+            return PrecisionRelease{std::move(result.world),remaining,std::move(*canonical)};
         }
-        if(held.energy_j.sign()==0)return false;
+        if(held.energy_j.sign()==0)return std::nullopt;
         // A cell holding nothing cannot take heat.
         if(world.state().cells[cell].mixture.mass()==0)continue;
         // A primary energy write can round either way. Keep the signed
@@ -146,17 +168,25 @@ inline bool release_precision_parcel(experimental::MacClosedWorld& world,Precisi
             const double old=world.state().cells[cell].mixture.energy;
             if(old+amount==old)continue;
             const MacCellHeat heat{cell,amount,std::numeric_limits<double>::max()};
+            ++precision_retry_counts.heat;
             auto result=world.with_cell_heat(std::span(&heat,1));
+            ++precision_retry_counts.heat_accepted;
             MacEnergySum delta;delta.add(result.state().cells[cell].mixture.energy);delta.add(-world.state().cells[cell].mixture.energy);
             auto remaining=held.energy_j;add_precision_sum(remaining,delta,-1);
             auto reduction=held.energy_j;if(reduction.sign()<0){MacEnergySum positive;add_precision_sum(positive,reduction,-1);reduction=std::move(positive);}
             add_precision_sum(reduction,remaining,remaining.sign()<0?1:-1);
             if(delta.sign()==0 || reduction.sign()<=0)continue;
             auto canonical=canonical_precision_sum(std::move(remaining));if(!canonical)continue;
-            world=std::move(result);held.energy_j=std::move(*canonical);return true;
+            return PrecisionRelease{std::move(result),held.mass_kg,std::move(*canonical)};
         } catch(const std::invalid_argument&) { /* Immutable refusal; retain every term. */ }
         catch(const std::domain_error&) { /* Recipient cannot accept this energy yet. */ }
     }
-    return false;
+    return std::nullopt;
+}
+inline bool release_precision_parcel(experimental::MacClosedWorld& world,PrecisionParcel& held,
+    std::size_t species,std::size_t anchor,std::span<const std::size_t> destinations) {
+    auto released=try_release_precision_parcel(world,held,species,anchor,destinations);
+    if(!released)return false;
+    world=std::move(released->world);held.mass_kg=released->mass_kg;held.energy_j=std::move(released->energy_j);return true;
 }
 }

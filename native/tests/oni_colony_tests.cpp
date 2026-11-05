@@ -1091,6 +1091,7 @@ void precision_inventory_control() {
         require(parcel.energy_j.sign()==(temperature==300?1:-1),"controlled primary rounding sign was not exercised");
         const auto encoded=encode_precision_inventory(std::span(&parcel,1));
         require(encode_precision_inventory(decode_precision_inventory(encoded))==encoded,"signed precision correction codec changed operands");
+        require(encoded.size()==12+precision_wire_bytes(parcel),"precision entry size disagrees with its encoding");
         if(partial) {
             require(parcel.mass_kg>0 && parcel.mass_kg<original_parcel.mass_kg*0x1p-24,"controlled partial mass not exercised");
             const MacFluidTransfer empty{0,0,false,1,0};world=world.with_fluid_transfers(std::span(&empty,1),MacFluidTransferTopology::occupied_mixture).world;
@@ -1194,6 +1195,50 @@ void precision_heat_vacuum_control() {
     MacEnergySum balance=correction;balance.add(before);balance.add(-world.state().cells[1].mixture.energy);add_precision_sum(balance,held.energy_j,-1);
     require(balance.sign()==0,"held heat release did not close exactly");
     std::cout<<"PASS precision heat vacuum: held heat skips an empty neighbour and closes in an occupied one\n";
+}
+// A held mass retry first applies the core's own scalar admission, then calls
+// the core only for a parcel that admission lets through. The rule must be
+// the core's exactly: every parcel it skips is one the core refuses, and the
+// core is reached for every parcel it can accept. Parcel sizes span the
+// held range (below one ulp of the recipient) through whole admission.
+void precision_admission_control() {
+    using namespace ma::oni::colony::detail;using namespace ma::experimental;
+    ma::SpeciesRegistry registry;ma::SpeciesDefinition gas;gas.id="precision-admission";gas.name=gas.id;
+    gas.phase=ma::Phase::gas;gas.atoms={{"O",2}};gas.explicit_molar_mass=true;gas.molar_mass=.032;gas.cp=1000+ma::gas_constant/.032;
+    gas.formation_enthalpy=gas.cp*ma::reference_temperature*gas.molar_mass;registry.add(gas);
+    ma::experimental::ReferenceMaterial m;m.id=gas.id;m.phase=ReferencePhase::ideal_gas;
+    m.molar_mass_kg_per_mol=.032;m.cv_j_per_kg_k=gas.cv();m.energy_offset_j_per_kg=gas.internal_energy(0);
+    m.minimum_temperature_k=1;m.maximum_temperature_k=1e6;m.provenance="Explicit precision admission control";
+    auto eos=std::make_shared<const ma::FluidThermodynamics>(registry,"precision-admission-v1",std::vector{m});
+    std::size_t skipped=0,called=0,accepted=0;
+    for(const double recipient:{.25,.6,1.7}) {
+        MacTransportState state;state.grid={1,1,1,1,false,false,{0}};state.cells.resize(1,MacMaterialCell{ma::MixtureInventory(1),{}});
+        state.cells[0].mixture.masses[0]=recipient;state.momentum_x.resize(2);state.momentum_y.resize(2);
+        MacClosedSettings settings;settings.numerical_kernel=MacNumericalKernel::game;settings.game_profile=MacGameProfile::game_kernel;
+        settings.vacuum=MacVacuumRepresentation::void_phase;
+        const double temperature=300;
+        const auto world=MacClosedWorld::game_colony(registry,eos,std::move(state),std::span(&temperature,1),settings);
+        const double ulp=std::nextafter(recipient,2.)-recipient;
+        for(int e=-3;e<=30;++e) for(const double f:{1.,1.0000001,1.3,1.5,1.9999999}) {
+            PrecisionParcel held{0,0,2,0,std::ldexp(ulp*f,e),temperature,{}};
+            held.energy_j.add(held.mass_kg*(m.energy_offset_j_per_kg+m.cv_j_per_kg_k*temperature));
+            const std::array<std::size_t,1> destination{0};
+            precision_retry_counts={};
+            const auto released=try_release_precision_parcel(world,held,0,0,destination);
+            MacMovingParcel request;request.cell_index=0;request.species_index=0;request.mass_kg=held.mass_kg;
+            request.potential_energy_j=precision_potential(world,0,held.mass_kg);
+            request.internal_energy_j=MacEnergy::from_double(held.mass_kg*(m.energy_offset_j_per_kg+m.cv_j_per_kg_k*temperature));
+            const bool core=world.with_moving_parcels(std::span(&request,1)).accepted();
+            if(precision_retry_counts.moving==0) {
+                ++skipped;require(!core && !released,"precision retry skipped a parcel the core accepts");
+            } else {
+                ++called;require(precision_retry_counts.moving_accepted==(core?1u:0u),"precision retry and core disagree");
+                if(core)++accepted;
+            }
+        }
+    }
+    require(skipped>0 && accepted>0,"precision admission control did not exercise both sides");
+    std::cout<<"PASS precision admission: "<<skipped<<" retries skipped (all refused by the core), "<<called<<" reached it, "<<accepted<<" accepted\n";
 }
 void pipe_job_control() {
     using namespace ma::oni::colony;
@@ -2528,7 +2573,7 @@ int main(int argc, char** argv) {
         if (argc == 2 && std::strcmp(argv[1], "--shared-cell-trace-only") == 0) { shared_cell_trace_control(); return 0; }
         if (argc == 2 && std::strcmp(argv[1], "--pipe-trace-heat-only") == 0) { pipe_trace_heat_control(); return 0; }
         if (argc == 2 && std::strcmp(argv[1], "--relocated-trace-only") == 0) { relocated_trace_control(); return 0; }
-        if (argc == 2 && std::strcmp(argv[1], "--precision-inventory-only") == 0) { precision_inventory_control();precision_canonical_control();precision_heat_vacuum_control(); return 0; }
+        if (argc == 2 && std::strcmp(argv[1], "--precision-inventory-only") == 0) { precision_inventory_control();precision_canonical_control();precision_heat_vacuum_control();precision_admission_control(); return 0; }
         if (argc == 2 && std::strcmp(argv[1], "--airflow-boundary-only") == 0) { airflow_boundary_control(); return 0; }
         if (argc == 2 && std::strcmp(argv[1], "--tiny-injection-only") == 0) { tiny_injection_neighbour_control(); return 0; }
         if (argc == 2 && std::strcmp(argv[1], "--parcel-wire-only") == 0) { parcel_wire_control(); parcel_outcome_control(); return 0; }
@@ -2570,6 +2615,7 @@ int main(int argc, char** argv) {
         precision_inventory_control();
         precision_canonical_control();
         precision_heat_vacuum_control();
+        precision_admission_control();
         pipe_job_control();
         sample_control();
         view_cache_control();

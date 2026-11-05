@@ -949,13 +949,19 @@ void activate(std::unique_ptr<Session> next, std::uint64_t thread) {
 std::vector<std::size_t> nearby(const MacTransportState& st, std::size_t centre, std::uint32_t radius) {
     const auto w = st.grid.width, h = st.grid.height; std::vector<std::size_t> order;
     if (st.grid.walls[centre] == 0) order.push_back(centre);
-    std::vector<std::pair<std::size_t, std::uint32_t>> queue{{centre, 0}}; std::vector<std::uint8_t> seen(st.cells.size()); seen[centre] = 1;
+    // One zeroed mark per grid cell, kept between calls: only the cells this
+    // search marks are cleared again, so a search costs its neighbourhood,
+    // not the grid.
+    thread_local std::vector<std::uint8_t> seen; thread_local std::vector<std::size_t> marked;
+    if (seen.size() < st.cells.size()) seen.resize(st.cells.size(), 0);
+    struct Clear { ~Clear() { for (const auto i : marked) seen[i] = 0; marked.clear(); } } clear;
+    std::vector<std::pair<std::size_t, std::uint32_t>> queue{{centre, 0}}; seen[centre] = 1; marked.push_back(centre);
     for (std::size_t q = 0; q < queue.size(); ++q) {
         const auto [i, d] = queue[q]; if (d == radius) continue;
         const auto x = i % w, y = i / w;
         for (const auto n : {x > 0 ? i - 1 : SIZE_MAX, x + 1 < w ? i + 1 : SIZE_MAX, y > 0 ? i - w : SIZE_MAX, y + 1 < h ? i + w : SIZE_MAX}) {
             if (n == SIZE_MAX || seen[n]) continue;
-            seen[n] = 1;
+            seen[n] = 1; marked.push_back(n);
             if (st.grid.walls[n]) continue;
             order.push_back(n); queue.emplace_back(n, d + 1);
         }
@@ -3279,6 +3285,16 @@ void run_frame(std::uint64_t ticket,double seconds,std::uint64_t frames,const ch
             }
         }
         step("transfers");
+        // MA_COLONY_STAGE_LOG=1: every tenth frame, the transfer stage's parts.
+        const bool transfer_log = stage_log && (s.status.completed_frames + 1) % 10 == 0;
+        auto transfer_mark = std::chrono::steady_clock::now(); std::string transfer_parts;
+        const auto transfer_part = [&](const char* name) {
+            if (!transfer_log) return;
+            const auto now = std::chrono::steady_clock::now(); char item[64];
+            std::snprintf(item, sizeof item, " %s %.2f", name, std::chrono::duration<double, std::milli>(now - transfer_mark).count());
+            transfer_parts += item; transfer_mark = now;
+        };
+        std::size_t transfer_singles = 0, transfer_failed_batches = 0, transfer_held = 0, precision_released = 0;
         // Transfers: plan against the current state, then commit in batches.
         std::vector<MacFluidTransfer> edits; struct Pending { std::size_t first, count; const MAOniColonyTransfer* source; };
         std::vector<Pending> plans;
@@ -3489,6 +3505,7 @@ void run_frame(std::uint64_t ticket,double seconds,std::uint64_t frames,const ch
             if (std::all_of(left.begin(), left.end(), [](double x) { return x <= 0; })) emptied.insert(cell);
         }
         std::vector<MacFluidParcel> parcels; parcels.reserve(edits.size());
+        transfer_part("plan");
         for (std::size_t first = 0; first < edits.size(); first += 4096) {
             const std::span<const MacFluidTransfer> batch(edits.data() + first, std::min<std::size_t>(4096, edits.size() - first));
             try {
@@ -3499,6 +3516,7 @@ void run_frame(std::uint64_t ticket,double seconds,std::uint64_t frames,const ch
                 // One by one: an edit too small to change its cell in binary64
                 // (a few nanograms on a full liquid cell) is dropped as a zero
                 // parcel; any other failing edit faults, naming its cell.
+                ++transfer_failed_batches; transfer_singles += batch.size();
                 for (const auto& e : batch) {
                     std::string failure;
                     try {
@@ -3549,8 +3567,10 @@ void run_frame(std::uint64_t ticket,double seconds,std::uint64_t frames,const ch
                                 entry.energy_j.add(held.internal_energy_j);entry.energy_j.add(held.potential_energy);
                                 if(auto canonical=detail::canonical_precision_sum(entry.energy_j))entry.energy_j=std::move(*canonical);
                                 // Bound durable allocation before claiming a receipt.
-                                auto candidate=s.precision;bool merged=false;
-                                for(auto& prior:candidate) {
+                                // The first entry it coalesces with, or a new one.
+                                std::size_t merged=s.precision.size();detail::PrecisionParcel changed;
+                                for(std::size_t q=0;q<s.precision.size();++q) {
+                                    const auto& prior=s.precision[q];
                                     if(prior.source!=entry.source || prior.anchor!=entry.anchor || prior.radius!=entry.radius ||
                                         prior.native_index!=entry.native_index || prior.temperature_k!=entry.temperature_k)continue;
                                     const double mass=prior.mass_kg+entry.mass_kg;if(!std::isfinite(mass))continue;
@@ -3558,13 +3578,23 @@ void run_frame(std::uint64_t ticket,double seconds,std::uint64_t frames,const ch
                                     if(check.sign()!=0)continue; // Never round a coalesced mass.
                                     auto energy=prior.energy_j;detail::add_precision_sum(energy,entry.energy_j);
                                     auto canonical=detail::canonical_precision_sum(std::move(energy));if(!canonical)continue;
-                                    prior.mass_kg=mass;prior.energy_j=std::move(*canonical);merged=true;break;
+                                    changed=prior;changed.mass_kg=mass;changed.energy_j=std::move(*canonical);merged=q;break;
                                 }
-                                if(!merged)candidate.push_back(entry);
-                                try { (void)detail::encode_precision_inventory(candidate); }
-                                catch(const std::invalid_argument&) { candidate.clear(); }
-                                if(!candidate.empty()) {
-                                    s.precision=std::move(candidate);s.precision_used=true;parcels.push_back(held);continue;
+                                if(merged==s.precision.size())changed=entry;
+                                // The inventory must still encode. Every other entry
+                                // already did (each change is checked here or by its
+                                // release, and loads are decoded), so only the changed
+                                // entry and the total size can refuse.
+                                bool fits=true;
+                                try {
+                                    std::size_t bytes=detail::encode_precision_inventory(std::span(&changed,1)).size();
+                                    for(std::size_t q=0;q<s.precision.size();++q)if(q!=merged)bytes+=detail::precision_wire_bytes(s.precision[q]);
+                                    detail::ParcelWireReader::require(bytes<=detail::maximum_parcel_wire_bytes,"Moving parcel wire is too large");
+                                } catch(const std::invalid_argument&) { fits=false; }
+                                if(fits) {
+                                    ++transfer_held;
+                                    if(merged<s.precision.size())s.precision[merged]=std::move(changed);else s.precision.push_back(std::move(changed));
+                                    s.precision_used=true;parcels.push_back(held);continue;
                                 }
                             }
                         }
@@ -3590,6 +3620,7 @@ void run_frame(std::uint64_t ticket,double seconds,std::uint64_t frames,const ch
                 }
             }
         }
+        transfer_part("commit");
         if (!plans.empty()) {
             std::lock_guard q(inputs);
             const auto receipt = [&](const MAOniColonyTransfer& t, std::uint32_t native_index, long double mass, long double heat_capacity_t,
@@ -3651,25 +3682,43 @@ void run_frame(std::uint64_t ticket,double seconds,std::uint64_t frames,const ch
                 else for (const auto& [k, entry] : by_species) receipt(*p.source, cat.materials[k].game.native_index, entry.first, entry.second, germs_of[k], p, k);
             }
         }
+        transfer_part("receipts");
+        const auto precision_held = s.precision.size(); detail::precision_retry_counts = {};
         // Retry held precision inventory after external edits have made their
         // recipients available, before flow. This does not create new input.
+        // A source's destinations depend only on the walls, which releases
+        // never change: search once per source and radius. A refused retry
+        // leaves the world and the parcel untouched, so nothing is copied.
+        std::map<std::pair<std::uint32_t, std::uint32_t>, std::vector<std::size_t>> precision_destinations;
         for(auto& held:s.precision) {
-            const auto destinations=nearby(world.state(),rect_index(s.config,held.source),held.radius);
-            const auto before_world=world;const auto before_held=held;
-            if(detail::release_precision_parcel(world,held,cat.species_of_native(held.native_index),
-                rect_index(s.config,held.anchor),destinations)) {
-                try {
-                    auto durable=s.precision;
-                    std::erase_if(durable,[](const auto& p){return p.mass_kg==0 && p.energy_j.sign()==0;});
-                    (void)detail::encode_precision_inventory(durable);
-                } catch(const std::invalid_argument&) { world=before_world;held=before_held; }
-                if(activity && held.mass_kg!=before_held.mass_kg) {
-                    touched[rect_index(s.config,held.source)]=1;touched[rect_index(s.config,held.anchor)]=1;
-                    for(const auto cell:destinations)if(world.state().cells[cell].mixture.masses!=before_world.state().cells[cell].mixture.masses)touched[cell]=1;
-                }
+            auto [found,fresh]=precision_destinations.try_emplace({held.source,held.radius});
+            if(fresh)found->second=nearby(world.state(),rect_index(s.config,held.source),held.radius);
+            const auto& destinations=found->second;
+            auto released=detail::try_release_precision_parcel(world,held,cat.species_of_native(held.native_index),
+                rect_index(s.config,held.anchor),destinations);
+            if(!released)continue;
+            ++precision_released;
+            const auto before_held=held;
+            held.mass_kg=released->mass_kg;held.energy_j=std::move(released->energy_j);
+            try {
+                auto durable=s.precision;
+                std::erase_if(durable,[](const auto& p){return p.mass_kg==0 && p.energy_j.sign()==0;});
+                (void)detail::encode_precision_inventory(durable);
+            } catch(const std::invalid_argument&) { held=before_held; continue; }
+            if(activity && held.mass_kg!=before_held.mass_kg) {
+                touched[rect_index(s.config,held.source)]=1;touched[rect_index(s.config,held.anchor)]=1;
+                for(const auto cell:destinations)if(released->world.state().cells[cell].mixture.masses!=world.state().cells[cell].mixture.masses)touched[cell]=1;
             }
+            world=std::move(released->world);
         }
         std::erase_if(s.precision,[](const auto& held){return held.mass_kg==0 && held.energy_j.sign()==0;});
+        transfer_part("precision");
+        if (transfer_log)
+            std::fprintf(stderr, "[Mixed Atmospheres] transfers frame %llu:%s edits %zu plans %zu failed_batches %zu singles %zu held_new %zu precision %zu released %zu moving %zu/%zu heat %zu/%zu\n",
+                static_cast<unsigned long long>(s.status.completed_frames + 1), transfer_parts.c_str(), edits.size(), plans.size(),
+                transfer_failed_batches, transfer_singles, transfer_held, precision_held, precision_released,
+                detail::precision_retry_counts.moving_accepted, detail::precision_retry_counts.moving,
+                detail::precision_retry_counts.heat_accepted, detail::precision_retry_counts.heat);
         const auto moving_started=std::chrono::steady_clock::now();
         std::size_t moving_items=0,moving_accepted=0,moving_refused=0;
         if(!moving_jobs.empty())step("moving parcels");

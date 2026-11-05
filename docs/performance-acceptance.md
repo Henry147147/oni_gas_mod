@@ -1,5 +1,44 @@
 # Performance acceptance measurements
 
+## Full-colony speed, 2026-11-05
+
+The full-colony base save (`local/saves/full-colony-base-v1.sav`: 18
+duplicants, 790 buildings, 32,701 owned cells, 16,158 held precision
+parcels at cycle 4) ran at about 0.5x: the owner frame was 320-340 ms, of
+which 250-270 ms was the precision-inventory retry inside `transfers`.
+`MA_COLONY_STAGE_LOG=1` now prints that stage's parts every tenth frame
+(`transfers frame N: plan .. commit .. receipts .. precision ..`, with the
+held count and the core retries attempted and accepted). Each frame about
+3,150 retries reached `MacClosedWorld::with_moving_parcels`, which copies
+the colony state, and every one was refused: the core admits a constituent
+only near-whole (its rounding remainder at most 2^-24 of the parcel), and a
+held parcel is held because it is far below that against its own cell. The
+retry's scalar pre-check now applies that same rule before calling the
+core. Also from the earlier worker's draft: a refused retry copies nothing,
+each source's destination search runs once per frame, the neighbourhood
+search clears only the cells it marked, and holding a new parcel sizes the
+inventory without re-encoding it.
+
+Linux harness, RTX 5090 display, whole game slot, load of the save at
+speed 3, windows after the first (owner ms / interval ms / game per real):
+
+| build | owner ms | interval ms | game/real |
+|---|---|---|---|
+| `f036519` (before) | 295-322 | 347-400 | 0.52 |
+| this change | 64-68 | 128-135 | 1.48-1.57 |
+
+The precision part fell from 250-270 ms to about 2 ms; flow (about 42-47
+ms, regional run about 27-32 ms) is now the largest owner stage, and the
+interval is about twice the owner frame, so the game thread also limits.
+Exactness: `ma_oni_colony_tests` gains `precision_admission_control` (every
+skipped retry is one the core refuses; every parcel the core accepts still
+reaches it). A 64-frame replay of this save's owner under one journaled
+input sequence (`MA_COLONY_INPUT_JOURNAL_DIR`), cold and after a menu
+restore, gives byte-identical owner images on `f036519` and on this change.
+
+The held inventory still grows (by about 2,000 parcels a cycle over the settle) toward
+its 65,536-entry bound; the per-parcel cost is now a few scalar checks.
+
 ## Long-colony headroom, 2026-11-04
 
 ONI caps speed 3 at 3× real time, so a steady 3.00× hides the slack. The
