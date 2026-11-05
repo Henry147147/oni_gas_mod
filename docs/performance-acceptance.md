@@ -48,6 +48,25 @@ each plan's search cells now serves them all (planning 1-3 ms). A 25-frame
 replay of that save's owner under one journal is byte-identical on
 `f036519` and on this change.
 
+What remains on that save is physics in one region. Temporary (uncommitted)
+per-region timers on a world dump of frame 4140 show the regional run is
+one region's serial run: the region in the box at owner x 244, y 101
+(128x52, 5,086 fluid cells) takes 535-855 ms a frame with 208-319 pressure
+attempts. Every other region is far cheaper (the next, 1,548 cells at x 284,
+y 44, 58-146 ms; all others under 36 ms). Both regions are caves that
+the colony's digging opened onto sealed vacuum pockets which the owner's
+space sink empties every frame (269 and 556 cells; ONI vents gas in
+Space-zone cells). Thin gas (0.1-3 g per cell) streams into them at a few
+hundred m/s, and the 0.4-cell swept-volume bound sets almost every
+accepted substep: 511 of about 1,400 accepted substeps over three replayed
+frames were limited by one cell, the mouth of a one-cell shaft at (320, 113)
+holding 1e-5 kg of steam. The in-game reject log shows the same picture
+(worst swept ratios 110-155 at the full 0.1 s trial, the same cell every
+frame). Replay variants of the bound's 1e-6 kg mass floor (a profile
+change, not adopted): 1e-4 kg -> flow mean 576 ms (627 at 1e-6), 1e-3 kg
+-> 412 ms. At 1e-3 the region needs only 37-47 attempts, but each costs
+more (transport subcycles at the leak speed), so it still takes 290-480 ms.
+
 ## Long-colony headroom, 2026-11-04
 
 ONI caps speed 3 at 3× real time, so a steady 3.00× hides the slack. The
