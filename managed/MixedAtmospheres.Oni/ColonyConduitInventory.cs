@@ -33,15 +33,17 @@ namespace MixedAtmospheres.Oni
     // The atoms (increasing magnitude, non-overlapping, never zero) of an
     // expansion of up to two are held inline: the common sums allocate
     // nothing. Every operation runs the same arithmetic on the same atoms in
-    // the same order as when each expansion was its own array.
+    // the same order as when each expansion was its own array; intermediate
+    // expansions are worked in one scratch buffer, so a long result is
+    // allocated once.
     internal readonly struct PipeAmount
     {
         private readonly double low, high; // count 1: low; count 2: low, high
         private readonly double[]? many;   // count 3 or more
         private readonly int count;
         internal static PipeAmount Zero => default;
-        // Expansions this long are worked on the stack; longer ones on the heap.
-        private const int StackAtoms = 16;
+        // Scratch expansions up to this many atoms live on the stack.
+        private const int StackAtoms = 128;
         internal PipeAmount(double value)
         {
             if (double.IsNaN(value) || double.IsInfinity(value)) throw new ArgumentOutOfRangeException(nameof(value));
@@ -95,9 +97,28 @@ namespace MixedAtmospheres.Oni
             }
             return high;
         }
-        internal PipeAmount Plus(PipeAmount other) => RawPlus(other, false).Canonical();
-        // This expansion grown by each atom of the other (negated when
-        // subtracting; negation is exact), each by one exact two-sum pass.
+        internal PipeAmount Plus(PipeAmount other) => Sum(other, false);
+        internal PipeAmount Minus(PipeAmount other) => Sum(other, true);
+        // The canonical exact sum (difference when subtracting; negation is
+        // exact): this expansion grown by each atom of the other, then
+        // normalized, as RawPlus followed by Canonical.
+        private PipeAmount Sum(PipeAmount other, bool negate)
+        {
+            if (other.count == 0) return Canonical();
+            if (count == 0) return (negate ? other.Negated() : other).Canonical();
+            if (count == 1 && other.count == 1) return RawPlus(other, negate).Canonical();
+            var capacity = count + other.count;
+            Span<double> atoms = capacity <= StackAtoms ? stackalloc double[capacity] : new double[capacity];
+            var length = CopyTo(atoms);
+            for (var i = 0; i < other.count; ++i)
+            {
+                var value = other.At(i);
+                length = Grow(atoms, length, negate ? -value : value);
+            }
+            return Canonical(atoms, length);
+        }
+        // This expansion grown by each atom of the other, each by one exact
+        // two-sum pass (no normalization).
         private PipeAmount RawPlus(PipeAmount other, bool negate)
         {
             if (other.count == 0) return this;
@@ -110,7 +131,7 @@ namespace MixedAtmospheres.Oni
                 return error == 0 ? new PipeAmount(total) : new PipeAmount(error, total);
             }
             var capacity = count + other.count;
-            Span<double> atoms = capacity <= StackAtoms ? stackalloc double[StackAtoms] : new double[capacity];
+            Span<double> atoms = capacity <= StackAtoms ? stackalloc double[capacity] : new double[capacity];
             var length = CopyTo(atoms);
             for (var i = 0; i < other.count; ++i)
             {
@@ -118,6 +139,22 @@ namespace MixedAtmospheres.Oni
                 length = Grow(atoms, length, negate ? -value : value);
             }
             return From(atoms.Slice(0, length));
+        }
+        // atoms[0, length) plus one nonzero finite value, exactly as RawPlus
+        // of a one-atom amount (room for length + 1).
+        private static int Add(Span<double> atoms, int length, double value)
+        {
+            if (length == 0) { atoms[0] = value; return 1; }
+            if (length == 1)
+            {
+                var a = atoms[0]; var b = value; var total = a + b;
+                if (double.IsInfinity(total)) throw new InvalidOperationException("Pipe account overflow.");
+                var virtualB = total - a; var error = (a - (total - virtualB)) + (b - virtualB);
+                if (error != 0) { atoms[0] = error; atoms[1] = total; return 2; }
+                if (total != 0) { atoms[0] = total; return 1; }
+                return 0;
+            }
+            return Grow(atoms, length, value);
         }
         // Grows atoms[0, length) by value in place (room for length + 1).
         // Each error is written at or below the item just read.
@@ -142,33 +179,39 @@ namespace MixedAtmospheres.Oni
             // TwoSum already produced a canonical expansion when its leading
             // atom is the correctly rounded total. Avoid rebuilding that pair.
             if (count == 2 && Value == high) return this;
-            // Peel the correctly rounded value off the remainder until none is
-            // left; the peeled values, smallest first, are the expansion.
-            Span<double> remaining = count + 1 <= StackAtoms ? stackalloc double[StackAtoms] : new double[count + StackAtoms];
-            Span<double> descending = stackalloc double[StackAtoms];
-            var length = CopyTo(remaining); var produced = 0;
+            Span<double> atoms = count <= StackAtoms ? stackalloc double[count] : new double[count];
+            return Peel(atoms, CopyTo(atoms));
+        }
+        // Canonical of the expansion atoms[0, length) (the buffer is consumed).
+        private static PipeAmount Canonical(Span<double> atoms, int length)
+        {
+            if (length < 2) return From(atoms.Slice(0, length));
+            if (length == 2 && ValueOf(atoms.Slice(0, 2)) == atoms[1]) return new PipeAmount(atoms[0], atoms[1]);
+            return Peel(atoms, length);
+        }
+        // Peel the correctly rounded value off the remainder until none is
+        // left; the peeled values, smallest first, are the expansion. Each
+        // peeled value is the correct rounding of the remainder's exact value
+        // (ValueOf), so the result depends on that value alone: when the top
+        // atom is itself the rounded value, the atoms below it are the exact
+        // remainder and the subtraction pass is skipped.
+        private static PipeAmount Peel(Span<double> source, int length)
+        {
+            var room = length + 8;
+            Span<double> remaining = room <= StackAtoms ? stackalloc double[room] : new double[room];
+            Span<double> descending = room <= StackAtoms ? stackalloc double[room] : new double[room];
+            source.Slice(0, length).CopyTo(remaining); var produced = 0;
             while (length != 0 && Math.Sign(remaining[length - 1]) != 0)
             {
                 var top = ValueOf(remaining.Slice(0, length));
                 if (produced == descending.Length) descending = Larger(descending, produced);
                 descending[produced++] = top;
                 var subtracted = new PipeAmount(-top);
-                if (subtracted.count != 0)
+                if (BitConverter.DoubleToInt64Bits(top) == BitConverter.DoubleToInt64Bits(remaining[length - 1])) --length;
+                else if (subtracted.count != 0)
                 {
-                    if (length == 1)
-                    {
-                        var a = remaining[0]; var b = subtracted.low; var total = a + b;
-                        if (double.IsInfinity(total)) throw new InvalidOperationException("Pipe account overflow.");
-                        var virtualB = total - a; var error = (a - (total - virtualB)) + (b - virtualB);
-                        if (error != 0) { remaining[0] = error; remaining[1] = total; length = 2; }
-                        else if (total != 0) remaining[0] = total;
-                        else length = 0;
-                    }
-                    else
-                    {
-                        if (length == remaining.Length) remaining = Larger(remaining, length);
-                        length = Grow(remaining, length, subtracted.low);
-                    }
+                    if (length == remaining.Length) remaining = Larger(remaining, length);
+                    length = Add(remaining, length, subtracted.low);
                 }
                 if (produced > 4096) throw new InvalidOperationException("Pipe expansion normalization failed.");
             }
@@ -184,7 +227,6 @@ namespace MixedAtmospheres.Oni
             atoms.Slice(0, length).CopyTo(larger);
             return larger;
         }
-        internal PipeAmount Minus(PipeAmount other) => RawPlus(other, true).Canonical();
         internal PipeAmount Negated()
         {
             if (count == 0) return this;
@@ -201,20 +243,31 @@ namespace MixedAtmospheres.Oni
             if (double.IsNaN(factor) || double.IsInfinity(factor)) throw new ArgumentOutOfRangeException(nameof(factor));
             if (factor == 0 || count == 0) return Zero;
             if (factor == 1) return this;
-            var result = Zero;
+            if (count == 1) return new PipeAmount(low * factor);
             // Each rounded product still defines exactly the same shared
             // flux. Sum them exactly first; normalize its representation once.
-            for (var i = 0; i < count; ++i) result = result.RawPlus(new PipeAmount(At(i) * factor), false);
-            return result.Canonical();
+            Span<double> atoms = count < StackAtoms ? stackalloc double[count + 1] : new double[count + 1];
+            var length = 0;
+            for (var i = 0; i < count; ++i)
+            {
+                var product = new PipeAmount(At(i) * factor);
+                if (product.count != 0) length = Add(atoms, length, product.low);
+            }
+            return Canonical(atoms, length);
         }
         internal PipeAmount WeightedPopulation(double mass,double total)
         {
             if(mass<0||double.IsNaN(mass)||double.IsInfinity(mass)||!(total>0)||double.IsInfinity(total))
                 throw new ArgumentOutOfRangeException("Invalid stored-population mixture weights.");
             if(count==0)return Zero;
-            var result=Zero;
-            for(var i=0;i<count;++i)result=result.RawPlus(new PipeAmount(StoragePopulationWeight.Product(At(i),mass,total)),false);
-            return result.Canonical();
+            Span<double> atoms = count < StackAtoms ? stackalloc double[count + 1] : new double[count + 1];
+            var length = 0;
+            for(var i=0;i<count;++i)
+            {
+                var product=new PipeAmount(StoragePopulationWeight.Product(At(i),mass,total));
+                if(product.count!=0)length=Add(atoms,length,product.low);
+            }
+            return Canonical(atoms, length);
         }
         internal void Write(BinaryWriter writer)
         {
