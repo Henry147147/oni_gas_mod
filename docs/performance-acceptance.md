@@ -2,6 +2,11 @@
 
 ## Thin-gas drag, a proposed game-profile option (2026-11-05)
 
+**Adopted (user decision 2026-11-05) with the mild setting, 1 g and 10 ms,
+as game profile 12 / checkpoint 32 for new colonies**
+([game kernel](../native/MAC_GAME_KERNEL.md#thin-gas-drag-profile-12--checkpoint-32)).
+The measurements below were taken with the uncommitted prototype.
+
 The Spaced Out! full colony's flow cost is thin gas (milligrams to a few
 grams per cell) expanding into vacuum caves at hundreds of m/s: a cell's
 acceleration into vacuum does not depend on its density, so a trace front

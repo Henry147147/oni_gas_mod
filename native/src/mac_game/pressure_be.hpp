@@ -7,6 +7,9 @@ namespace ma::experimental::game_kernel {
 namespace kernel = ma::experimental::mac_kernel;
 struct Pressure {
   std::vector<double> p, jx, jy, qx, qy, damping_x, damping_y, body_impulses_y;
+  // Profile 12: momentum each open face gave to the thin-gas drag this
+  // interval (an external load). Empty without the drag.
+  std::vector<double> drag_x, drag_y;
   // Faces closed for this interval: one side empty and the predicted
   // momentum would carry material out of that empty cell.
   std::vector<std::uint8_t> blocked_x, blocked_y;
@@ -30,6 +33,10 @@ class PressureSolver {
   double relative_tolerance = 1e-8;
   unsigned gravity_rule = 0, maximum_iterations = 200;
   bool close_empty_inflow = false;
+  // Profile 12 thin-gas drag: a face whose inertia I (half its two cells'
+  // mass) is below thin_mass feels an implicit drag on its momentum at the
+  // rate (1/thin_time)(thin_mass/I - 1), zero at the threshold. 0 disables it.
+  double thin_mass = 0, thin_time = 0;
   kernel::Context context;
   // Component structure of the last solve, and of the last corrected solve
   // (cells held at zero pressure); see solve_components_cached.
@@ -39,7 +46,8 @@ class PressureSolver {
   struct Scratch {
     kernel::LinearSystem system;
     std::vector<double> rhs, increment_rhs, inertia_x, inertia_y, base_x,
-        base_y, predicted_x, predicted_y, coefficient_x, coefficient_y;
+        base_y, predicted_x, predicted_y, coefficient_x, coefficient_y,
+        gamma_x, gamma_y;
     std::vector<std::uint8_t> open_x, open_y;
     // Wall and body impulse totals of one row block.
     struct Loads {
@@ -54,7 +62,8 @@ public:
                      ma::PressurePreconditioner::automatic,
                  double tolerance = 1e-8, unsigned gravity_source = 0,
                  kernel::Pool *executor = nullptr, unsigned maximum = 200,
-                 bool surface_closure = false)
+                 bool surface_closure = false, double thin_gas_mass = 0,
+                 double thin_gas_time = 0)
       : source(g), grid(source),
         owned_pool(executor
                        ? nullptr
@@ -62,7 +71,8 @@ public:
                              std::min<std::size_t>(threads, grid.blocks)))),
         pool(executor ? *executor : *owned_pool), relative_tolerance(tolerance),
         gravity_rule(gravity_source), maximum_iterations(maximum),
-        close_empty_inflow(surface_closure), context{workspace,
+        close_empty_inflow(surface_closure), thin_mass(thin_gas_mass),
+        thin_time(thin_gas_time), context{workspace,
                                               source,
                                               model,
                                               grid,
@@ -77,6 +87,9 @@ public:
     if (threads == 0 || !std::isfinite(relative_tolerance) ||
         relative_tolerance <= 0 || gravity_rule > 1 || maximum == 0 || maximum > 65536)
       throw std::runtime_error("Invalid pressure worker count/tolerance");
+    if (!std::isfinite(thin_mass) || thin_mass < 0 || !std::isfinite(thin_time) ||
+        thin_time < 0 || (thin_mass > 0) != (thin_time > 0))
+      throw std::runtime_error("Invalid thin-gas drag");
     options.threads = threads;
     settings.preconditioner = preconditioner;
   }
@@ -108,6 +121,9 @@ public:
     for (auto *v : {&system.wy, &w.inertia_y, &w.base_y, &w.predicted_y,
                     &w.coefficient_y})
       v->resize(g.NY);
+    const bool thin = thin_mass > 0;
+    w.gamma_x.assign(thin ? g.NX : 0, 0.);
+    w.gamma_y.assign(thin ? g.NY : 0, 0.);
     w.open_x.resize(g.NX);
     w.open_y.resize(g.NY);
     Pressure result = std::move(storage);
@@ -121,6 +137,8 @@ public:
       v->resize(g.NY);
     result.blocked_x.resize(g.NX);
     result.blocked_y.resize(g.NY);
+    result.drag_x.assign(thin ? g.NX : 0, 0.);
+    result.drag_y.assign(thin ? g.NY : 0, 0.);
     const auto x_faces = [&](std::size_t y0, std::size_t y1) {
       return std::pair{y0 * g.XW, y1 * g.XW};
     };
@@ -198,8 +216,16 @@ public:
       }
       if (!x)
         result.body_impulses_y[f] = body;
-      const double base = dt * g.A * (old + body) / inertia;
-      const double coefficient = dt * dt * g.A * g.A / inertia;
+      // Thin-gas drag, implicit: J(1 + gamma) = old + body + pressure
+      // impulse, so the face enters the system with inertia I(1 + gamma).
+      double effective = inertia;
+      if (thin && inertia < thin_mass) {
+        const double gamma = dt / thin_time * (thin_mass / inertia - 1);
+        (x ? w.gamma_x : w.gamma_y)[f] = gamma;
+        effective = inertia * (1 + gamma);
+      }
+      const double base = dt * g.A * (old + body) / effective;
+      const double coefficient = dt * dt * g.A * g.A / effective;
       const double pl = system.active[l] ? states[l].pressure : 0,
                    pr = system.active[r] ? states[r].pressure : 0;
       (x ? w.base_x : w.base_y)[f] = base;
@@ -304,9 +330,23 @@ public:
       const double body = x ? 0 : result.body_impulses_y[f];
       loads.body_y.add(body);
       next = old + dt * g.A * (result.p[l] - result.p[r]) + body;
+      const double gamma = thin ? (x ? w.gamma_x : w.gamma_y)[f] : 0;
+      if (gamma > 0) {
+        // The drag takes gamma J of momentum, an external load, and its
+        // kinetic work gamma J^2 / I becomes local heat with the damping.
+        next /= 1 + gamma;
+        const double taken = gamma * next;
+        auto &wall = x ? loads.wall_x : loads.wall_y;
+        auto &scale = x ? loads.wall_scale_x : loads.wall_scale_y;
+        wall.add(-taken);
+        scale.add(std::abs(taken));
+        (x ? result.drag_x : result.drag_y)[f] = taken;
+      }
       swept = dt * g.A * next / inertia;
       const double impulse = next - old;
       damping = .5 * impulse * (impulse / inertia);
+      if (gamma > 0)
+        damping += gamma * next * (next / inertia);
     };
     context.exec.rows([&](std::size_t y0, std::size_t y1, std::size_t block) {
       auto &loads = w.loads[block];

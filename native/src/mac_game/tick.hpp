@@ -95,11 +95,13 @@ public:
        bool trace_before_heat = false, bool bound_pressure_volume = false,
        bool size_intervals = false, bool carry_moved_momentum = false,
        double bound_mass_floor = 0, bool layered_remap = false,
-       bool convective_adjustment = false)
+       bool convective_adjustment = false, double thin_gas_mass = 0,
+       double thin_gas_time = 0)
       : grid(source), species(table),
         flow(source, table, threads, false, pressure_tolerance, gravity_source, pressure_iterations,
              surface_closure, bound_pressure_volume,
-             bound_pressure_volume ? bound_mass_floor : 0, layered_remap),
+             bound_pressure_volume ? bound_mass_floor : 0, layered_remap,
+             thin_gas_mass, thin_gas_time),
         heat(source, table, threads, heat_mixing, &flow.worker_pool(), heat_iterations),
         phase(source, std::move(table), std::move(pairs), threads,
               &flow.worker_pool()),

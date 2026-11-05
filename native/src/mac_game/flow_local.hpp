@@ -91,13 +91,14 @@ public:
        unsigned threads, bool auditing = true, double pressure_tolerance = 1e-8,
        unsigned gravity_source = 0, unsigned pressure_iterations = 200,
        bool surface_closure = false, bool bound_pressure_volume = false,
-       double bound_mass = 0, bool layered = false)
+       double bound_mass = 0, bool layered = false, double thin_mass = 0,
+       double thin_time = 0)
       : source(grid), g(source), topology(g), species(std::move(table)),
         eos_pool(
             static_cast<unsigned>(std::min<std::size_t>(threads, g.blocks))),
         pressure(grid, threads, ma::PressurePreconditioner::incomplete_cholesky,
                  pressure_tolerance, gravity_source, &eos_pool, pressure_iterations,
-                 surface_closure),
+                 surface_closure, thin_mass, thin_time),
         gravity_rule(gravity_source), audit_mode(auditing),
         bounded_pressure_volume(bound_pressure_volume),
         bound_mass_floor(bound_mass), layered_remap(layered),
@@ -410,12 +411,18 @@ public:
               regions->momentum(r, x, dt * g.A * projected.p[r]);
             if (blocked[f] && old[f] != 0)
               regions->momentum(l, x, -old[f]);
-          } else if (!x)
-            regions->momentum(l, false,
-                              gravity_rule == 0
-                                  ? -gravity * dt * .5 *
-                                        (eos[l].mass + eos[r].mass)
-                                  : projected.body_impulses_y[f]);
+          } else {
+            if (!x)
+              regions->momentum(l, false,
+                                gravity_rule == 0
+                                    ? -gravity * dt * .5 *
+                                          (eos[l].mass + eos[r].mass)
+                                    : projected.body_impulses_y[f]);
+            // Profile 12: the thin-gas drag's load on this open face.
+            const auto &drag = x ? projected.drag_x : projected.drag_y;
+            if (!drag.empty() && drag[f] != 0)
+              regions->momentum(l, x, -drag[f]);
+          }
         }
       };
       book(true, g.xl, g.xr);

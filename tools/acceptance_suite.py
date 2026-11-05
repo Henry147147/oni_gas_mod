@@ -653,7 +653,7 @@ def cycle_checks(rc: int, output: Path, frames: int, hashes: dict, package: Path
                 for p in sorted({Path(x) for x in autosaves}) if p.is_file() and p.stat().st_size > 0]
     after = package_hashes(package, manifest)
     profile = owner.get("RestoredOwner") or {}
-    family = 11 if profile.get("PhysicalVersion") == 31 else None  # game profile 11 = core31
+    family = {31: 11, 32: 12}.get(profile.get("PhysicalVersion"))  # game profiles 11/12 = core31/32
     checks = {
         "harness_pass": rc == 0,
         "all_three_alive": colony.get("Duplicants") == 3,

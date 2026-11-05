@@ -277,6 +277,38 @@ and profile 11's controls are unaffected; the gate changes profile-11
 arithmetic only where a face moves faster than `w`. Profiles 9 and 10 and the
 checkpoint format are unchanged.
 
+## Thin-gas drag, profile 12 / checkpoint 32
+
+**Adopted for new colonies (user decision 2026-11-05).** Profile 12 is
+profile 11 plus an implicit drag on thin gas in the pressure step
+(`pressure_be.hpp`). A face whose inertia I (half the mass of its two cells)
+is below `m_thin = 1 g` feels a drag on its momentum J at the rate
+`(1/tau)(m_thin/I - 1)`, `tau = 10 ms`: zero at the threshold and growing as
+the gas thins. In the backward-Euler step the face enters the pressure system
+with inertia `I(1 + gamma)`, `gamma = (dt/tau)(m_thin/I - 1)`, and its new
+momentum is `(J_old + pressure impulse + body impulse)/(1 + gamma)`, so the
+swept volumes stay those of the solved pressures. The kinetic work the drag
+removes, `gamma J^2/I`, is added to the step's existing damping heat in the
+face's cells, and the momentum it removes is booked as an external load like
+a wall's (the region audits book it on the face's cell). Species, U+K+G and
+passives are exact.
+
+Why: a cell's acceleration into vacuum does not depend on its density, so
+milligram traces raced across vacuum caves at hundreds of m/s, and the
+0.4-cell swept-volume bound and the transport subcycles followed them. On
+the Spaced Out! full colony one such region cost 535-855 ms a frame. With the
+drag, thin gas seeps (its velocity about proportional to the pressure
+difference). Faces at or above 1 g are untouched, so air of ordinary density
+advances exactly as on profile 11. Saves keep their profile;
+`MA_COLONY_KERNEL3_PROFILE11=1` (or 10, 9) still creates the earlier
+profiles. Measurements and the other settings tried:
+[performance acceptance](../docs/performance-acceptance.md#thin-gas-drag-a-proposed-game-profile-option-2026-11-05).
+`mac_game_thin_drag_control.hpp`: thin oxygen (0.2 g a cell) beside vacuum
+puts 0.24 instead of 0.54 g past column 12 after 1 s in 28 instead of 79
+flow intervals, with closed mass and U+K+G; air of ordinary density is
+bit-identical to profile 11; checkpoint 32 continues exactly cold and on 12
+workers.
+
 ## Open acceptance work
 
 No private-playtest-ready or performance pass is claimed. The coupled material

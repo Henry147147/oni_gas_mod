@@ -51,7 +51,7 @@ namespace MixedAtmospheres.Oni
         internal static void RefuseExperimentalActivity(ReadOnlySpan<byte> image)
         {
             var profile = Profile(image);
-            if((profile.PhysicalVersion==28 || profile.PhysicalVersion==30 || profile.PhysicalVersion==31) && profile.OwnerVersion!=14)
+            if((profile.PhysicalVersion==28 || profile.PhysicalVersion==30 || profile.PhysicalVersion==31 || profile.PhysicalVersion==32) && profile.OwnerVersion!=14)
                 throw new NotSupportedException("This save uses experimental region activity tiers. " +
                     "It lacks the integrated owner frame and lifecycle records required by this build.");
         }
@@ -67,7 +67,7 @@ namespace MixedAtmospheres.Oni
         // (linear law 0, caps 200/200), 21–27 (saved law and caps at the
         // same offsets; 22/23/24 imply profile families 4/5/6, 25 is
         // profile 6 with boil-only phase change, 26/27 are profiles 7/8 with
-        // either phase rule, 28/30/31 are profiles 9/10/11) report the game kernel;
+        // either phase rule, 28/30/31/32 are profiles 9/10/11/12) report the game kernel;
         // older physical versions report zero law/caps.
         internal static uint OwnerVersion(ReadOnlySpan<byte> image) { CountersOffset(image,out var version); return version; }
         internal static uint CallbackRequestCount(ReadOnlySpan<byte> image)
@@ -84,8 +84,8 @@ namespace MixedAtmospheres.Oni
             var at=PhysicalOffset(image,out var version,out var length);
             var body=image.Slice(at,length);
             var p=8;var physicalVersion=U32(body,ref p);
-            // Versions 30 and 31 (profiles 10 and 11) keep version 28's layout.
-            var activity=physicalVersion==28 || physicalVersion==30 || physicalVersion==31;
+            // Versions 30, 31 and 32 (profiles 10, 11 and 12) keep version 28's layout.
+            var activity=physicalVersion==28 || physicalVersion==30 || physicalVersion==31 || physicalVersion==32;
             if(physicalVersion<20 || physicalVersion>28 && !activity || activity && version!=14) return new ColonyPhysicalProfile(version,physicalVersion,0,0,0);
             var model=U32(body,ref p);Skip(body,ref p,model);
             // time, revision, width/height, spacing/depth, timestep, gravity,

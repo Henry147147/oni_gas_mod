@@ -53,7 +53,7 @@ internal static class ActivityCheckpointChecks
         {
             var image=File.ReadAllBytes(Path.Combine(directory,name));var original=(byte[])image.Clone();
             var profile=ColonyCheckpointMetadata.Profile(image);
-            if(profile.OwnerVersion!=14 || profile.PhysicalVersion!=28 && profile.PhysicalVersion!=30 && profile.PhysicalVersion!=31 || profile.PressureIterationCap<400 || profile.HeatIterationCap<800)
+            if(profile.OwnerVersion!=14 || profile.PhysicalVersion!=28 && profile.PhysicalVersion!=30 && profile.PhysicalVersion!=31 && profile.PhysicalVersion!=32 || profile.PressureIterationCap<400 || profile.HeatIterationCap<800)
                 throw new Exception("Native activity checkpoint metadata differs: " + name);
             ++checks;
             ColonyCheckpointMetadata.RefuseExperimentalActivity(image);++checks;

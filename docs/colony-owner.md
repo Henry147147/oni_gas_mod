@@ -85,7 +85,7 @@ play.
   2026-11-02/03). Older profiles keep the after-flow sink only;
   `MA_COLONY_SPACE_PRESINK=1` forces the earlier sink there for diagnostics.
   Comet exhaust in sky-connected vacuum sinks at once, user decision
-  2026-11-04: in the game activity profiles (9-11), a comet's exhaust parcel
+  2026-11-04: in the game activity profiles (9-12), a comet's exhaust parcel
   whose target cell holds no mass, is not a Space cell and is joined through
   vacuum cells (no mass, not solid, not an airflow tile, not edited earlier in
   the frame) to a Space cell is booked as injected and space-sunk at once
@@ -137,9 +137,9 @@ otherwise stop every later step without telling the player.
 ## Region activity tiers
 
 New managed colonies request `MA_ONI_COLONY_GAME_ACTIVITY` (flag 16, alongside
-`GAME_KERNEL|GAME_SURFACE`), selecting profile11 / physical checkpoint31 (profile10 / checkpoint30 on
-2026-11-02, profile9 / checkpoint28 before; `MA_COLONY_KERNEL3_PROFILE10=1` or
-`MA_COLONY_KERNEL3_PROFILE9=1` selects those).
+`GAME_KERNEL|GAME_SURFACE`), selecting profile12 / physical checkpoint32 (profile11 / checkpoint31 on
+2026-11-03, profile10 / checkpoint30 on 2026-11-02, profile9 / checkpoint28 before;
+`MA_COLONY_KERNEL3_PROFILE11=1`, `PROFILE10=1` or `PROFILE9=1` selects those).
 Native callers that retain flags13 continue to select profile8. Old saved
 profiles retain their pipeline and checkpoint bytes. **Always simulate** is a
 saved profile9 policy: it runs the profile8 physical pipeline every frame.

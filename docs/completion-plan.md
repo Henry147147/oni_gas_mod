@@ -8,8 +8,17 @@ still require separate authorization.
 
 Amendments:
 
+- **Profile 12 thin-gas drag adopted, user decision 2026-11-05:** new
+  colonies create game profile 12 (physical checkpoint 32), profile 11 plus
+  an implicit [drag on thin gas](../native/MAC_GAME_KERNEL.md#thin-gas-drag-profile-12--checkpoint-32):
+  faces lighter than 1 g feel a drag with a 10 ms time constant that grows as
+  the gas thins, so traces seep into vacuum instead of racing across it at
+  hundreds of m/s. Mass and energy stay exact; denser gas is untouched. The
+  user chose the mild setting (1 g, 10 ms) of the measured options. Saved
+  colonies keep their profile.
+
 - **Comet exhaust in sky-connected vacuum sinks at once, user decision
-  2026-11-04:** in the game activity profiles (9-11), a comet's exhaust that
+  2026-11-04:** in the game activity profiles (9-12), a comet's exhaust that
   lands in a vacuum cell (not a Space cell) joined through vacuum to open sky
   is booked straight to the space sink instead of first expanding across the
   surface vacuum; exhaust in gas or in vacuum sealed from the sky is injected
@@ -49,7 +58,7 @@ Amendments:
 - **Rejected-attempts bound split by criterion, delegated decision
   2026-11-03:** the acceptance suite's `zero_rejected_attempts` was set when the
   frozen save ran on game profile 5, where a rejection meant a failed step.
-  Under profiles 9-11 the game kernel's rejected attempts are pressure
+  Under profiles 9-12 the game kernel's rejected attempts are pressure
   refinements, and a cell's net swept volume above 0.4 cell is ordinary
   adaptive time stepping. The zero bound now applies to the failure criteria
   only: `zero_failed_pressure_attempts` requires the pressure-solve failure,

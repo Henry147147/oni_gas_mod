@@ -30,6 +30,7 @@ class RegionalTick {
   bool execution_conduction=false,execution_sized=false,execution_carried=false;
   double execution_floor=0;
   bool execution_layered=false,execution_convective=false;
+  double execution_thin_mass=0,execution_thin_time=0;
   std::shared_ptr<RegionalExecutionHistory> execution_history;
   std::unique_ptr<Tick> parallel_tick;
   std::optional<std::size_t> parallel_region;
@@ -40,7 +41,8 @@ class RegionalTick {
       cfg.gas_heat_mixing,cfg.sharpen_liquid_interfaces,cfg.interface_detail_fraction,
       cfg.pressure_relative_tolerance,0,false,0,2,cfg.phase_relaxation_time_s,
       execution_conduction,cfg.pressure_maximum_iterations,cfg.heat_maximum_iterations,true,true,true,
-      execution_sized,execution_carried,execution_floor,execution_layered,execution_convective);
+      execution_sized,execution_carried,execution_floor,execution_layered,execution_convective,
+      execution_thin_mass,execution_thin_time);
   }
   static Topology wall_topology(MacGrid source) {
     source.closed_x.clear();source.closed_y.clear();
@@ -91,12 +93,13 @@ public:
                const MacGameSettings& cfg,bool conduction,bool sized_intervals=false,
                bool carry_momentum=false,double bound_mass_floor=0,
                std::shared_ptr<RegionalExecutionHistory> history={},bool layered_remap=false,
-               bool convective=false)
+               bool convective=false,double thin_gas_mass=0,double thin_gas_time=0)
     :source(g),grid(g),pool(static_cast<unsigned>(std::min<std::size_t>(threads,grid.blocks))),
      topology(wall_topology(g)),species_count(species.size()),regions(topology.count),
      execution_keys(regions.size()),execution_species(std::move(species)),execution_pairs(std::move(pairs)),
      execution_settings(cfg),execution_conduction(conduction),execution_sized(sized_intervals),
      execution_carried(carry_momentum),execution_floor(bound_mass_floor),execution_layered(layered_remap),execution_convective(convective),
+     execution_thin_mass(thin_gas_mass),execution_thin_time(thin_gas_time),
      execution_history(history?std::move(history):std::make_shared<RegionalExecutionHistory>()) {
     std::vector<std::size_t> right(regions.size()),top(regions.size());
     for(auto& r:regions){r.x=g.width;r.y=g.height;}

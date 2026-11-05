@@ -119,7 +119,9 @@ current binary has.
 thin-gas drag (user decision 2026-11-05: faces lighter than 1 g feel an
 implicit drag with a 10 ms time constant; [MAC_GAME_KERNEL.md](MAC_GAME_KERNEL.md)).
 It keeps version 28's layout; only the version word differs. Versions 20–31
-keep their arithmetic and bytes.
+keep their arithmetic and bytes. *Implemented 2026-11-05* and adopted for new
+colonies; the managed metadata reader treats 32 like 28 (owner wrapper 14
+required).
 
 **Reserved 2026-11-03 immediately after fetching `e6dc573`:** physical
 `MACCLS01` version **31** identifies game profile **11**, profile 10 plus the
