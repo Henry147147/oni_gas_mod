@@ -1,5 +1,69 @@
 # Performance acceptance measurements
 
+## Thin-gas drag, a proposed game-profile option (2026-11-05)
+
+The Spaced Out! full colony's flow cost is thin gas (milligrams to a few
+grams per cell) expanding into vacuum caves at hundreds of m/s: a cell's
+acceleration into vacuum does not depend on its density, so a trace front
+races like a dense one, and the swept-volume bound and the transport's
+subcycles follow it. Raising the bound's mass floor alone cut flow only
+about 35% (below).
+
+**Prototype (uncommitted, `artifacts/fullcolony-speed/thin-gas-drag.patch`).**
+A face whose inertia I (half the mass of its two cells) is below a
+threshold m_thin feels an implicit drag on its momentum J at the rate
+(1/tau)(m_thin/I - 1): zero at the threshold, growing as the gas thins. In
+the backward-Euler pressure step the face enters the linear system with
+inertia I(1 + gamma), gamma = (dt/tau)(m_thin/I - 1), and its new momentum
+is (J_old + pressure impulse + body impulse)/(1 + gamma). The kinetic work
+the drag removes, gamma J^2/I, joins the step's existing damping heat in
+the face's cells, and the momentum it removes is booked as an external
+load (like a wall). Mass and energy stay exact; thin gas seeps (velocity
+about proportional to the pressure difference) instead of jetting. Faces
+at or above m_thin are untouched: with the prototype disabled the world-dump
+image hash equals the parent's, and with it enabled every cell holding
+more than 0.1 kg stays bit-identical over a 2 s replay of the Spaced Out!
+dump.
+
+Spaced Out! world dump (frame 4140), locked cores; flow per 0.2 s frame,
+and after 2 s without inputs the gas that entered the 28,627 initially
+empty cells (and how many of them hold more than 1 mg):
+
+| m_thin, tau | Flow ms | Pressure attempts | Into vacuum after 2 s | Gas moved differently |
+| --- | --- | --- | --- | --- |
+| off | 580-651 | 433 | 1.108 kg (3,620 cells) | |
+| 1 g, 100 ms | 117 | 272 | 1.094 kg (2,411) | 0.0010% |
+| 1 g, 10 ms | 72 | 245 | 1.081 kg (886) | 0.0016% |
+| 3 g, 100 ms | 84 | 253 | 1.096 kg (1,405) | 0.0024% |
+| 3 g, 10 ms | 78 | 239 | 0.983 kg (796) | 0.0047% |
+| 10 g, 100 ms | 62 | 239 | 0.907 kg (879) | 0.0082% |
+| 10 g, 1 ms | 64 | 232 | 0.569 kg (327) | 0.0103% |
+| 30 g, 10 ms | 53 | 234 | 0.661 kg (374) | 0.0096% |
+
+"Gas moved differently" is the summed per-cell mass difference from the
+unchanged physics, over the world's 15,283 kg of gas. In game (Linux
+harness, speed 3, the Spaced Out! save, windows after the first):
+
+| Build | Owner ms (flow, transfers) | Interval ms | Game/real |
+| --- | --- | --- | --- |
+| main (`c238db1`-era) | 845-857 (656-667, 168-189) | 973-1006 | 0.20 |
+| drag 1 g, 10 ms | 186-190 (146-148, 30-34) | about 516 | 0.39 |
+| drag 10 g, 1 ms | 109-116 (83-85, 19-24) | 354-402 | 0.50-0.57 |
+
+The in-game ledgers closed (relative mass error 4.5e-15, energy 7e-16), with
+no fault. In game the transfer edits also fell, from about 2,500-3,300 a
+frame to about 500. With the drag on, the interval is no longer the
+owner's: the game ran at 5-6 fps, and the game thread's native calls took
+only about 19 ms a tick (UpdateData 12, copy to game 3.3, shadows 2.5).
+On the base full colony the drag changes the owner frame by nothing
+measurable (owner replay of 38 journaled frames: 71.3 ms off, 70.5-72.0 ms
+on); its state differs only where thin gas flows.
+
+Adopting it would be a new game profile (a saved setting, so a new
+checkpoint version), with the in-game scenario batches rerun on it. The
+MAC gates (V vacuum front among them) run the reference and production
+paths, not the game kernel, so they are unaffected.
+
 ## Full-colony speed, 2026-11-05
 
 The full-colony base save (`local/saves/full-colony-base-v1.sav`: 18
