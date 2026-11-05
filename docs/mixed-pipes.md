@@ -946,6 +946,17 @@ mean/p95/max 189.865/272.293/400.121 ms, observed
 271.873/383.998/3078.944 ms (71/70 samples, no gaps), instrumentation off.
 Concurrent-HIGH/startup caveats remain; this is a behavior regression check.
 
+Since 2026-11-05 an expansion of up to two atoms is held inline, and sums,
+differences and products work in one scratch buffer, allocating only a
+result of three or more atoms; normalization skips its subtraction pass when
+the top atom already is the correctly rounded value (the canonical expansion
+depends only on the exact value). Each pipe inventory remembers its
+temperature for the pipe catalogue until the catalogue changes, and the pipe
+scans step between allocated cells. `PipeAmountStorageTests` keeps the
+previous array implementation as an oracle: every operation must give the
+same atoms, readout, sign and failure. The full-colony measurements are in
+[performance acceptance](performance-acceptance.md#game-thread-pipe-and-publication-work-2026-11-05).
+
 Full production activation and mixed saves remain off. Finite-body mixed-Cv
 equilibrium, deterministic germ growth/death, foreign-phase cleanup returns,
 phase teardown and saved component scheduling still need acceptance controls.

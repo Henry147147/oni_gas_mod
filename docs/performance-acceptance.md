@@ -1,5 +1,112 @@
 # Performance acceptance measurements
 
+## Game-thread pipe and publication work, 2026-11-05
+
+After the precision-retry fix the base full colony (`full-colony-base-v1`)
+ran at about 1.5x with a tick interval near twice the owner frame: the game
+thread's own work and its garbage collections were half of every tick. Six
+exact changes (nothing the game or the owner sees changes) cut it:
+
+1. Exact pipe sums (`PipeAmount`) kept every expansion as its own array, and
+   each addition, product and normalization built new arrays and a list: a
+   30-atom germ population allocated about 17 KB per add-and-scale. Up to two
+   atoms now live inline and the operations work in stack buffers.
+2. The pipe scans (thermal and phase boundaries, biology, contact heat, save,
+   audit) walked the whole grid for both phases; a bitset of allocated cells
+   now steps between them. Biology reads each conduit temperature with a
+   direct call instead of reflection with a boxed handle.
+3. A pipe inventory is immutable; its temperature (an exact sum over its
+   constituents) was recomputed several times per cell per tick and is now
+   remembered for the pipe catalogue until the catalogue changes.
+4. Biology capture boxes a cell's temperature handle once, keys native rows by
+   the handle's own equality, allocates no closure for a germ-free cell, and
+   keeps a germ-free cell's culture-free state object.
+5. Sums, differences and products normalize in one scratch buffer and allocate
+   only a result of three or more atoms; normalization skips the subtraction
+   pass when the top atom is already the correctly rounded value.
+6. The publication overlay reads the game's element tables once and each view
+   by reference; its substance changes and irradiated cells go into reused
+   buffers that their consumers copy.
+
+Linux harness, RTX 5090 display, whole game slot, load of the save at speed 3,
+900 frames, development allocation probe on (main-thread time with no
+collection inside, and heap growth, of `Game.StepTheSim` and the pipe and
+publication entry points), windows after the load. Per 0.2 s tick:
+
+| Build | StepTheSim ms / MB | Pipe biology | Pipe heat | Pipe flow | Publication | Collections per 15 s (mean pause, share of wall time) | MB per frame | Tick interval ms |
+|---|---|---|---|---|---|---|---|---|
+| `5a10e27` (before) | 17.7 / 9.2 | 5.3 / 4.6 | 3.1 / 1.7 | 3.0 / 1.6 | 5.0 / 0.9 | 14-17 (193 ms, 19.7%) | 9.0 | 124-132 |
+| 1 inline atoms | 12.8 / 1.9 | 3.5 / 0.9 | 2.2 / 0.3 | 1.2 / 0.2 | 4.7 / 0.2 | 4 (195 ms, 5.2%) | 1.7 | 118-123 |
+| 2 cell scans | 11.4 / 2.0 | 3.0 / 0.9 | 1.4 / 0.3 | 1.3 / 0.3 | 4.6 / 0.2 | 3-5 (5.6%) | 1.8 | 108-128 |
+| 3 temperatures | 9.4 / 1.4 | 2.3 / 0.7 | 0.8 / 0.2 | 0.7 / 0.1 | 4.4 / 0.2 | 4-5 (5.4%) | 1.6 | 111-122 |
+| 4 biology capture | 9.3 / 1.4 | 2.1 / 0.6 | 0.9 / 0.2 | 0.7 / 0.1 | 4.4 / 0.2 | 4-5 (5.2%) | 1.5 | 107-116 |
+| 5 fused sums | 7.6 / 0.5 | 1.3 / 0.1 | 0.6 / 0.1 | 0.5 / 0.03 | 4.2 / 0.1 | 3-4 (172 ms, 3.9%) | 0.6 | 110-118 |
+| 6 overlay | 7.7 / 0.5 | 1.4 / 0.1 | 0.6 / 0.1 | 0.6 / 0.03 | 4.1 / 0.1 | 3-4 (4.0%) | 0.6 | 111-120 |
+
+The colony has only 76 occupied pipe cells (about 22 with germs): long exact
+expansions (germ populations, energies, the exchange accounts) carried the
+cost. Step 5 was measured against step 4 with the same probe (9.0 ms / 1.3 MB,
+5.1%). The overlay costs 0.95 ms before and 0.79 ms after per base publication
+(98,304 cells); on the Spaced Out! full colony (`full-colony-spacedout-v1`,
+223,744 cells, radiation on) 4.2 and 2.9 ms, and that save's allocation fell
+from 2.0-2.3 to 0.3-0.4 MB per frame. Its collections (5-7 per 15 s, heap
+about 2 GB) did not fall with it, and the owner frame (about 830 ms) still
+sets that colony's speed.
+
+Without the probe (the stage and wait logs only), the same load, windows
+after the first; the change set measured on `5a10e27`:
+
+| Build | Owner ms | Tick interval ms | Game per real | Whole run | Unity frames |
+|---|---|---|---|---|---|
+| `5a10e27` (three runs) | 62-67 | 119-131 | 1.53-1.68 | 1.551-1.556 | 2,499-2,553 |
+| six changes (two runs) | 62-69 | 106-117 | 1.73-1.92 | 1.763-1.770 | 3,590-3,631 |
+
+The Spaced Out! full colony stays owner-bound (owner frame 820-830 ms): 150
+frames gave 0.208 and 0.213 game per real, at 25 and 33 frames per second.
+
+**Exactness.** `ColonyConduitTests` compares the production `PipeAmount` with
+the previous array implementation (kept as the test oracle `LegacyPipeAmount`)
+over about 985,000 random operations (sums, differences, negation, products,
+population weights, saved images, long expansions up to 39 atoms, half-ulp
+ties around powers of two): every result has the same atoms, readout bits and
+sign, and the 23,707 failures the same exception and message.
+`RememberedTemperatureTests` checks remembered temperatures against fresh ones
+across a catalogue change and that failures recur. A private control build
+(not committed; `artifacts/3x-research/exactness-control-v3.patch`) ran the
+replaced code beside the new code in game on the same state and counted
+mismatches: the allocated-cell scan against a full array scan every tick,
+every remembered temperature against a fresh computation, the original
+biology capture against the new one (every update's row, native data, culture
+keys and clock bits, inventory and change bytes) and the original overlay loop
+on copies of the same publication buffers (all cell buffers, substance changes
+and radiated cells). Zero mismatches in 1,505 base ticks (111,462 biology
+updates, 32,878 with germs; 554,230 remembered temperatures; 650
+publications), 123 Spaced Out! ticks (900 publications, all irradiated) and
+the `mixed-pipe-biology`/`all-germs`/`pumps`/`thermal`/`gas-vents`,
+`mixed-pipes` and `mixed-pipe-colony`/`catalogue`/`pitcher-pump`/
+`storage-ledger` batches. The pipe scenario batches of the Linux acceptance
+suite (6, 7 and 9-13) pass before and after. A same-input in-game byte
+comparison is not available: two runs of one build already differ (scenario
+details, as for a loaded colony's inputs), so the controls above compare in
+the same process.
+
+What remains on the game thread per tick (after): publication about 4 ms, of
+which receipts about 2 ms (byproduct debris: several thousand microgram ice
+spawns per 15 s, budgeted at 2 ms a publication, the rest by the idle pump),
+the snapshot copy about 0.9 and the overlay 0.8 ms a publication; pipe
+work about 2.6 ms; ONI's
+own native frame (UpdateData about 14 ms) and its other updates. The owner
+frame (62-68 ms) and the game thread's chain run in series, so the interval
+stays about owner + 50 ms. The research prototype that overlaps them
+(pipelined pacing, `artifacts/3x-research/all-prototypes.patch`, private and
+not adopted) on this change set gives 2.08-2.20 game per real at speed 3
+(whole run 2.06) and 2.11-2.25 uncapped (`MA_COLONY_DEV_SPEED=10`; whole run
+2.11), against 1.88-2.11 (whole 1.91) on `4ac93b9`. Its chain is then the
+native frame before the owner starts (15-16 ms) plus the owner frame (about
+70 ms wall), and the next frame waits about 50 ms for the owner: with the
+overlap the owner, not the game thread, sets the pace, so 3x needs the owner
+frame plus that native frame under about 67 ms.
+
 ## Thin-gas drag, a proposed game-profile option (2026-11-05)
 
 **Adopted (user decision 2026-11-05) with the mild setting, 1 g and 10 ms,
