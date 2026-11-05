@@ -728,8 +728,15 @@ MacClosedWorld::MacClosedWorld(Derived, const MacClosedWorld& from, MacTransport
     bool partial = false;
     // Read-only: a const view keeps shared cell chunks shared.
     const auto& cells = std::as_const(state).cells;
-    for (std::size_t i = 0; i < state.occupied_volumes_m3.size() && !partial; ++i)
-        partial = state.occupied_volumes_m3[i] < state.grid.volume_m3() && cells[i].mixture.mass() > 0;
+    // Only whether any occupied cell is partly filled matters, so the search
+    // starts at the last cell it found instead of at cell 0 (same result).
+    thread_local std::size_t hint = 0;
+    const auto n = state.occupied_volumes_m3.size();
+    const std::size_t start = hint < n ? hint : 0;
+    for (std::size_t k = 0; k < n && !partial; ++k) {
+        const auto i = start + k < n ? start + k : start + k - n;
+        if (state.occupied_volumes_m3[i] < state.grid.volume_m3() && cells[i].mixture.mass() > 0) { partial = true; hint = i; }
+    }
     if (!partial) state.occupied_volumes_m3.clear();
     replace_state(std::move(state));
 }

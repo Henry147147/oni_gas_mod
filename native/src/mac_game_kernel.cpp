@@ -1354,9 +1354,24 @@ void canonical_volumes(MacTransportState &state) {
   bool partial = false;
   // Read-only: a const view keeps shared cell chunks shared.
   const auto &cells = std::as_const(state).cells;
-  for (std::size_t i = 0; i < state.occupied_volumes_m3.size() && !partial; ++i)
-    partial = state.occupied_volumes_m3[i] < state.grid.volume_m3() &&
-              cells[i].mixture.mass() > 0;
+  const auto n = state.occupied_volumes_m3.size();
+  const double full = state.grid.volume_m3();
+  const auto partly = [&](std::size_t i) {
+    return state.occupied_volumes_m3[i] < full && cells[i].mixture.mass() > 0;
+  };
+  // Only whether any occupied cell is partly filled matters, not which, so
+  // the search may start anywhere: it starts at the last cell it found, which
+  // a run of single edits (the owner's one-by-one transfer path) usually
+  // leaves partly filled, instead of rescanning the grid from cell 0.
+  thread_local std::size_t hint = 0;
+  const std::size_t start = hint < n ? hint : 0;
+  for (std::size_t k = 0; k < n && !partial; ++k) {
+    const auto i = start + k < n ? start + k : start + k - n;
+    if (partly(i)) {
+      partial = true;
+      hint = i;
+    }
+  }
   if (!partial)
     state.occupied_volumes_m3.clear();
 }
