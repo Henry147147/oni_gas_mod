@@ -29,14 +29,14 @@ namespace MixedAtmospheres.Oni
         internal static bool Enabled => ColonyWorldGerms.Supported && anyKiller && Sim.IsRadiationEnabled();
 
         // The irradiated owned cells (public cell, rads) of one published frame.
-        internal static void Apply(List<(uint cell, float rads)> cells)
+        // The first count entries of cells/rads; the native owner copies them.
+        internal static void Apply(uint[] cells, float[] rads, int count)
         {
             if (!Enabled) return;
-            if (cells.Count == 0 && !sentField) return;
-            var ids = new uint[cells.Count]; var rads = new float[cells.Count];
-            for (var i = 0; i < ids.Length; ++i) { ids[i] = cells[i].cell; rads[i] = cells[i].rads; }
-            OniNativeColony.Check(ColonyWorldGerms.SetRadiation(ids, rads, (uint)ids.Length));
-            sentField = ids.Length != 0; ++Fields; Cells += ids.Length;
+            if (count == 0 && !sentField) return;
+            if (count < 0 || count > cells.Length || count > rads.Length) throw new ArgumentOutOfRangeException(nameof(count));
+            OniNativeColony.Check(ColonyWorldGerms.SetRadiation(cells, rads, (uint)count));
+            sentField = count != 0; ++Fields; Cells += count;
         }
     }
 }

@@ -79,6 +79,10 @@ namespace MixedAtmospheres.Oni
         private static bool considered, restoreAttempted;
         private static int x0, y0, width, height;
         private static int[] publicationCells=Array.Empty<int>();
+        // Publication scratch, reused (main thread): a frame's substance changes
+        // and irradiated owned cells, which their consumers copy.
+        private static Sim.SubstanceChangeInfo[] substanceChanges=new Sim.SubstanceChangeInfo[256];
+        private static uint[] irradiatedCells=new uint[256];private static float[] irradiatedRads=new float[256];
         private static readonly bool uncachedCellMap=Environment.GetEnvironmentVariable("MA_COLONY_UNCACHED_CELL_MAP")=="1";
         private static readonly bool cellMapControl=Environment.GetEnvironmentVariable("MA_COLONY_CELL_MAP_CONTROL")=="1";
         internal static long CellMapComparisons { get; private set; }
@@ -404,42 +408,64 @@ namespace MixedAtmospheres.Oni
                 var elements = copy.CellBuffer<ushort>(nameof(Sim.GameDataUpdate.elementIdx));
                 var diseases = copy.CellBuffer<byte>(nameof(Sim.GameDataUpdate.diseaseIdx));
                 var germs = copy.CellBuffer<int>(nameof(Sim.GameDataUpdate.diseaseCount));
-                var changes = new List<Sim.SubstanceChangeInfo>();
-                var radiated = new List<(uint cell, float rads)>();
+                var changeCount=0;var irradiatedCount=0;
                 var radiation = ColonyRadiationGerms.Enabled ? copy.CellBuffer<float>(nameof(Sim.GameDataUpdate.radiation)) : default;
                 var ownedNow=0;
+                // The loop reads the game's element tables once: nothing in it
+                // changes them (main thread).
+                var gridElements=Grid.Element;var catalogue=ElementLoader.elements;var cellMap=publicationCells;
+                var mapped=!uncachedCellMap&&!cellMapControl;
                 for (var i = 0; i < views.Length; ++i)
                 {
-                    var view = views[i];
-                    if((view.Flags&OniNativeColony.ViewOwned)!=0)++ownedNow;
-                    var global = uncachedCellMap ? (x0+i%width)+(y0+i/width)*Grid.WidthInCells : publicationCells[i];
-                    if(cellMapControl)
+                    ref readonly var view = ref views[i];
+                    var owned=(view.Flags&OniNativeColony.ViewOwned)!=0;
+                    if(owned)++ownedNow;
+                    int global;
+                    if(mapped)global=cellMap[i];
+                    else
                     {
-                        if(global!=(x0+i%width)+(y0+i/width)*Grid.WidthInCells)
-                            throw new InvalidOperationException("Cached owner publication cell differs from current geometry.");
-                        ++CellMapComparisons;
+                        global = uncachedCellMap ? (x0+i%width)+(y0+i/width)*Grid.WidthInCells : cellMap[i];
+                        if(cellMapControl)
+                        {
+                            if(global!=(x0+i%width)+(y0+i/width)*Grid.WidthInCells)
+                                throw new InvalidOperationException("Cached owner publication cell differs from current geometry.");
+                            ++CellMapComparisons;
+                        }
                     }
                     // A cell the owner does not publish shows native's cell, as
                     // does one a solid has just replaced (the owner displaces its
                     // fluid at its next step). ONI's Grid.Element follows only
                     // substance-change events, so a cell the owner left gets one.
-                    if ((view.Flags & OniNativeColony.ViewOwned) == 0 || ElementLoader.elements[elements[global]].IsSolid)
+                    var published=elements[global];
+                    if (!owned || catalogue[published].IsSolid)
                     {
-                        if (Grid.Element[global] != null && Grid.Element[global].idx != elements[global])
-                            changes.Add(new Sim.SubstanceChangeInfo { cellIdx = global, newElemIdx = elements[global] });
+                        var shown=gridElements[global];
+                        if (shown != null && shown.idx != published)
+                        {
+                            if(changeCount==substanceChanges.Length)Array.Resize(ref substanceChanges,changeCount*2);
+                            substanceChanges[changeCount++]=new Sim.SubstanceChangeInfo { cellIdx = global, newElemIdx = published };
+                        }
                         continue;
                     }
-                    if (radiation.Length != 0 && radiation[global] > 0 && view.MassKg > 0) radiated.Add(((uint)global, radiation[global]));
+                    var mass=view.MassKg;
+                    if (radiation.Length != 0 && radiation[global] > 0 && mass > 0)
+                    {
+                        if(irradiatedCount==irradiatedCells.Length){Array.Resize(ref irradiatedCells,irradiatedCount*2);Array.Resize(ref irradiatedRads,irradiatedCount*2);}
+                        irradiatedCells[irradiatedCount]=(uint)global;irradiatedRads[irradiatedCount++]=radiation[global];
+                    }
                     var element = (ushort)view.ElementIndex;
-                    masses[global] = view.MassKg; temperatures[global] = view.MassKg > 0 ? view.TemperatureK : 0;
+                    masses[global] = mass; temperatures[global] = mass > 0 ? view.TemperatureK : 0;
                     diseases[global] = OniNativeColony.DiseaseIdx(view.Disease); germs[global] = view.Disease != 0 ? view.DiseaseCount : 0;
-                    if (elements[global] != element || Grid.Element[global].idx != element)
-                        changes.Add(new Sim.SubstanceChangeInfo { cellIdx = global, newElemIdx = element });
+                    if (published != element || gridElements[global].idx != element)
+                    {
+                        if(changeCount==substanceChanges.Length)Array.Resize(ref substanceChanges,changeCount*2);
+                        substanceChanges[changeCount++]=new Sim.SubstanceChangeInfo { cellIdx = global, newElemIdx = element };
+                    }
                     elements[global] = element;
                 }
                 OwnedCells=ownedNow;
-                ColonyRadiationGerms.Apply(radiated);
-                copy.AppendEvents<Sim.SubstanceChangeInfo>(SnapshotEventChannel.SubstanceChangeInfo, changes.ToArray());
+                ColonyRadiationGerms.Apply(irradiatedCells,irradiatedRads,irradiatedCount);
+                copy.AppendEvents<Sim.SubstanceChangeInfo>(SnapshotEventChannel.SubstanceChangeInfo, new ReadOnlySpan<Sim.SubstanceChangeInfo>(substanceChanges,0,changeCount));
                 Lap("overlay");
                 var receiptObservedThrough=DeliverReceipts(copy);
                 Lap("receipts");
