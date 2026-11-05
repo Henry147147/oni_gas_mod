@@ -253,6 +253,7 @@ namespace MixedAtmospheres.Oni
             }
             var cells=checked((int)(config.GridWidth*config.GridHeight));
             Flows.Add(Game.Instance.gasConduitFlow,new Flow(cells,Game.Instance.gasConduitFlow));Flows.Add(Game.Instance.liquidConduitFlow,new Flow(cells,Game.Instance.liquidConduitFlow));
+            PipeInventory.RememberTemperatures(MaterialLookup);
         }
         internal static void Reset()
         {
@@ -263,11 +264,14 @@ namespace MixedAtmospheres.Oni
             ColonyPipeBiology.Reset();
             ColonyPipeContactHeat.Reset();
             ColonyValveControl.Reset();
-            PhaseEvents=0;Active=false;Flows.Clear();Materials.Clear();NativeElements.Clear();NativeIndices.Clear();DiseaseExchange.Clear();initial=supplied=removed=PipeInventory.Empty;heat=default;projecting=0;controlSeeding=false;transferScope=null;
+            PhaseEvents=0;Active=false;Flows.Clear();Materials.Clear();PipeInventory.RememberTemperatures(null);NativeElements.Clear();NativeIndices.Clear();DiseaseExchange.Clear();initial=supplied=removed=PipeInventory.Empty;heat=default;projecting=0;controlSeeding=false;transferScope=null;
             flowing=false;lock(Visibility)Visibility.Clear();
             ColonyMachinePorts.Reset();ColonyPipeSpecialEdges.Reset();ColonyPipePorts.Reset();MixtureInspection.SetPipeReader(null);
         }
         internal static PipeMaterial Material(int id) => Materials.TryGetValue(id,out var value)?value:throw new InvalidOperationException("Unknown mixed pipe material: "+id);
+        // The catalogue as one delegate: PipeInventory remembers temperatures
+        // computed with it until the catalogue changes (Initialize, Reset).
+        private static readonly Func<int,PipeMaterial> MaterialLookup=Material;
         internal static PipeMaterial MaterialOf(SimHashes element)=>Material(NativeIndices[element]);
         internal static SimHashes ElementHash(int ordinal)=>NativeElements[ordinal];
         internal static bool HasRoom(ConduitFlow flow,int cell)=>TryRead(flow,cell,out var inventory)&&flow.HasConduit(cell)&&
@@ -277,7 +281,7 @@ namespace MixedAtmospheres.Oni
             if(!Owns(flow,source)||!Owns(flow,target)||source==target||!flow.HasConduit(source)||!flow.HasConduit(target))return PipeInventory.Empty;
             SyncNative(flow,source);SyncNative(flow,target);
             var from=Ensure(flow,source);var to=Ensure(flow,target);
-            var moved=PipeInventory.Transfer(from.Inventory,to.Inventory,Math.Min(maximum,(double)Flows[flow].Capacity),Flows[flow].Capacity,Material,selected,excluding);
+            var moved=PipeInventory.Transfer(from.Inventory,to.Inventory,Math.Min(maximum,(double)Flows[flow].Capacity),Flows[flow].Capacity,MaterialLookup,selected,excluding);
             from.Inventory=moved.Source;to.Inventory=moved.Target;
             if(moved.Parcel.Count>0){Publish(flow,source,MassPublication.Removed);Publish(flow,target,(float)moved.Parcel.Mass>0?MassPublication.Added:MassPublication.Staged);}
             return moved.Parcel;
@@ -295,20 +299,20 @@ namespace MixedAtmospheres.Oni
         internal static PipeInventory TakeForPort(ConduitFlow flow,int cell,int? species,double maximum)
         {
             if(!Owns(flow,cell)||!flow.HasConduit(cell))throw new InvalidOperationException("Port source is not an owned pipe.");
-            SyncNative(flow,cell);var source=Ensure(flow,cell);var split=source.Inventory.Split(maximum,Material,species);
+            SyncNative(flow,cell);var source=Ensure(flow,cell);var split=source.Inventory.Split(maximum,MaterialLookup,species);
             source.Inventory=split.Remaining;if(split.Parcel.Count>0)Publish(flow,cell,MassPublication.Removed);return split.Parcel;
         }
         internal static PreparedPortChange PrepareTakeForPort(ConduitFlow flow,int cell,int? species,double maximum,out PipeInventory parcel)
         {
             if(!Owns(flow,cell)||!flow.HasConduit(cell))throw new InvalidOperationException("Port source is not an owned pipe.");
-            SyncNative(flow,cell);var source=Ensure(flow,cell);var split=source.Inventory.Split(maximum,Material,species);
+            SyncNative(flow,cell);var source=Ensure(flow,cell);var split=source.Inventory.Split(maximum,MaterialLookup,species);
             parcel=split.Parcel;return new PreparedPortChange(flow,cell,source,split.Remaining,true);
         }
         internal static PipeInventory ReceivePortBuffer(ConduitFlow flow,int cell,PipeInventory buffer)
         {
             if(!Owns(flow,cell)||!flow.HasConduit(cell))return buffer;
             SyncNative(flow,cell);var target=Ensure(flow,cell);
-            var moved=PipeInventory.Transfer(buffer,target.Inventory,double.MaxValue,Flows[flow].Capacity,Material);
+            var moved=PipeInventory.Transfer(buffer,target.Inventory,double.MaxValue,Flows[flow].Capacity,MaterialLookup);
             target.Inventory=moved.Target;if(moved.Parcel.Count>0)Publish(flow,cell,MassPublication.Added);return moved.Source;
         }
         // Machine ports: the synced authoritative cell, the float mass a
@@ -372,7 +376,7 @@ namespace MixedAtmospheres.Oni
             if(!Owns(flow,source)||!Owns(flow,target)||source==target||!flow.HasConduit(source)||!flow.HasConduit(target))return PipeInventory.Empty;
             SyncNative(flow,source);SyncNative(flow,target);
             var from=Ensure(flow,source);var to=Ensure(flow,target);
-            var moved=PipeInventory.Transfer(from.Inventory,to.Inventory,Math.Min(maximum,(double)Flows[flow].Capacity),Flows[flow].Capacity,Material);
+            var moved=PipeInventory.Transfer(from.Inventory,to.Inventory,Math.Min(maximum,(double)Flows[flow].Capacity),Flows[flow].Capacity,MaterialLookup);
             from.Inventory=moved.Source;to.Inventory=moved.Target;
             if(moved.Parcel.Count>0){Publish(flow,source,MassPublication.Removed);Publish(flow,target);}
             return moved.Parcel;
@@ -449,7 +453,7 @@ namespace MixedAtmospheres.Oni
             // ONI's native pipes refuse a temperature outside (0, 10000] K; an
             // inventory projecting one is a fault, never a native crash.
             double temperature;
-            try{temperature=cell.Inventory.Temperature(Material);}
+            try{temperature=cell.Inventory.Temperature(MaterialLookup);}
             catch(InvalidOperationException error){throw new InvalidOperationException(error.Message+" "+cell.Describe(),error);}
             if(!(temperature<=PipeInventory.MaximumTemperature))
                 throw new InvalidOperationException($"Pipe temperature {temperature:R} K exceeds {PipeInventory.MaximumTemperature} K: energy {cell.Inventory.Energy.Value:R} J, mass {cell.Inventory.Mass:R} kg; {cell.Describe()}.");
@@ -626,7 +630,7 @@ namespace MixedAtmospheres.Oni
         }
         internal static int PhaseEvent(PipeInventory inventory,double threshold)
         {
-            var temperature=inventory.Temperature(Material);
+            var temperature=inventory.Temperature(MaterialLookup);
             foreach(var part in inventory.Parts)
             {
                 if(!(part.Mass>threshold))continue;
@@ -669,7 +673,7 @@ namespace MixedAtmospheres.Oni
             if(!Owns(flow,source)||!Owns(flow,target))return;
             if(source==target)return;
             var from=Ensure(flow,source);var to=Ensure(flow,target);
-            var transfer=PipeInventory.Transfer(from.Inventory,to.Inventory,amount,Flows[flow].Capacity,Material);
+            var transfer=PipeInventory.Transfer(from.Inventory,to.Inventory,amount,Flows[flow].Capacity,MaterialLookup);
             if(transfer.Parcel.Mass!=amount)throw new InvalidOperationException("Native pipe move exceeded owned inventory/capacity.");
             from.Inventory=transfer.Source;to.Inventory=transfer.Target;
         }
@@ -740,12 +744,12 @@ namespace MixedAtmospheres.Oni
             SyncNative(flow,cell);
             var current=Ensure(flow,cell);
             var incoming=PipeInventory.Single(MaterialOf(element),mass,temperature,disease,germs);
-            var transfer=PipeInventory.Transfer(incoming,current.Inventory,mass,Flows[flow].Capacity,Material);
+            var transfer=PipeInventory.Transfer(incoming,current.Inventory,mass,Flows[flow].Capacity,MaterialLookup);
             // The native caller removes this same float. Retain a port request
             // remainder at the source rather than returning a rounded-up flux.
             var accepted=(float)transfer.Parcel.Mass;
             if(accepted>transfer.Parcel.Mass)accepted=BitConverter.Int32BitsToSingle(BitConverter.SingleToInt32Bits(accepted)-1);
-            transfer=PipeInventory.Transfer(incoming,current.Inventory,accepted,Flows[flow].Capacity,Material);
+            transfer=PipeInventory.Transfer(incoming,current.Inventory,accepted,Flows[flow].Capacity,MaterialLookup);
             current.Inventory=transfer.Target;lock(Accounts)supplied=supplied.Joined(transfer.Parcel);
             Publish(flow,cell,MassPublication.Added);result=accepted;return true;
         }
@@ -755,7 +759,7 @@ namespace MixedAtmospheres.Oni
             if(transferScope is var scope&&scope!=null&&scope.Flow==flow&&scope.Target>=0)
             {
                 if(scope.Source!=cell||mass!=scope.Amount)throw new InvalidOperationException("Native pipe edge removed a different staged source/amount.");
-                var parcel=Ensure(flow,cell).Inventory.Split(mass,Material).Parcel;
+                var parcel=Ensure(flow,cell).Inventory.Split(mass,MaterialLookup).Parcel;
                 Move(flow,cell,scope.Target,mass);Publish(flow,cell,MassPublication.Removed);Publish(flow,scope.Target,MassPublication.Added);scope.Target=-1;
                 var shadow=new Cell(parcel,default);result=Project(shadow,default);return true;
             }

@@ -333,9 +333,29 @@ namespace MixedAtmospheres.Oni
             if(double.IsNaN(minimum)||minimum<0||minimum>1)throw new ArgumentOutOfRangeException(nameof(minimum));
             var mass=SpeciesMass(id);return mass>0&&mass>=minimum*Mass;
         }
+        // The one material catalogue whose temperatures are remembered, and its
+        // generation: a remembered value is used only for the same catalogue
+        // delegate and generation (ColonyConduits renews it whenever its
+        // catalogue changes). The inventory is immutable, so the value is the
+        // one Temperature would compute again; a failure is never remembered.
+        private static Func<int, PipeMaterial>? rememberedMaterial;
+        private static int rememberedGeneration;
+        internal static void RememberTemperatures(Func<int, PipeMaterial>? material)
+        { rememberedMaterial = material; System.Threading.Interlocked.Increment(ref rememberedGeneration); }
+        private double temperatureValue;
+        private int temperatureGeneration; // 0: none
         internal double Temperature(Func<int, PipeMaterial> material)
         {
             if (parts.Length == 0) return 0;
+            if (!ReferenceEquals(material, rememberedMaterial)) return ComputeTemperature(material);
+            var generation = System.Threading.Volatile.Read(ref rememberedGeneration);
+            if (System.Threading.Volatile.Read(ref temperatureGeneration) == generation) return temperatureValue;
+            var temperature = ComputeTemperature(material);
+            temperatureValue = temperature; System.Threading.Volatile.Write(ref temperatureGeneration, generation);
+            return temperature;
+        }
+        private double ComputeTemperature(Func<int, PipeMaterial> material)
+        {
             var capacity = PipeAmount.Zero; var offsets = PipeAmount.Zero;
             foreach (var part in parts)
             {
