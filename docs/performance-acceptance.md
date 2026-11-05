@@ -39,6 +39,15 @@ restore, gives byte-identical owner images on `f036519` and on this change.
 The held inventory still grows (by about 2,000 parcels a cycle over the settle) toward
 its 65,536-entry bound; the per-parcel cost is now a few scalar checks.
 
+On the Spaced Out! full-colony save (`full-colony-spacedout-v1`: 14
+duplicants on the start asteroid plus a second colony, 67,522 owned cells,
+cycle 2) the owner frame was about 850 ms (0.2x): flow 655-670 ms,
+transfers 170-190 ms. Its transfer plans (about 2,200-3,000 a frame) each
+zeroed a grid-sized source buffer, 45-55 ms a frame; one buffer zeroed at
+each plan's search cells now serves them all (planning 1-3 ms). A 25-frame
+replay of that save's owner under one journal is byte-identical on
+`f036519` and on this change.
+
 ## Long-colony headroom, 2026-11-04
 
 ONI caps speed 3 at 3× real time, so a steady 3.00× hides the slack. The

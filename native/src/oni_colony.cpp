@@ -3397,6 +3397,16 @@ void run_frame(std::uint64_t ticket,double seconds,std::uint64_t frames,const ch
                 return empties ? left[a.first] < left[b.first] : m.masses[a.first] < m.masses[b.first]; });
             for (const auto& [k, x] : take) if (x > 0) plan_edit({cell, k, false, x, 0});
         };
+        // Each extraction's per-cell source masses. The allocation reads only
+        // the cells of its search order, so one grid-sized buffer serves every
+        // plan, zeroed at just those cells first (a fresh zeroed grid per
+        // plan cost about 20 us on a large map, 55 ms a frame for 2,600 plans).
+        std::vector<double> available_buffer;
+        const auto sources = [&](const std::vector<std::size_t>& order) -> std::vector<double>& {
+            if (available_buffer.size() != world.state().cells.size()) available_buffer.assign(world.state().cells.size(), 0.);
+            for (const auto i : order) available_buffer[i] = 0.;
+            return available_buffer;
+        };
         for (const auto& t : transfers) {
             if(moving_jobs.contains(static_cast<std::size_t>(&t-transfers.data())))continue;
             const auto centre = rect_index(s.config, t.public_cell);
@@ -3409,7 +3419,7 @@ void run_frame(std::uint64_t ticket,double seconds,std::uint64_t frames,const ch
                 // over its constituents by mass.
                 const bool gas = kind == MA_ONI_COLONY_EXTRACT_GAS;
                 const auto order = nearby(st, centre, t.radius);
-                std::vector<double> available(st.cells.size());
+                auto& available = sources(order);
                 for (const auto i : order) for (std::size_t k = 0; k < cat.materials.size(); ++k)
                     if (cat.materials[k].game.gas == gas) available[i] += st.cells[i].mixture.masses[k];
                 const auto plan = radial::allocate_order(available, order, static_cast<double>(static_cast<float>(t.mass_kg)));
@@ -3462,7 +3472,7 @@ void run_frame(std::uint64_t ticket,double seconds,std::uint64_t frames,const ch
                 else if (t.disease != 0 && t.disease_count >= 1) edits.back().passives = {{t.disease, t.disease_count}};
             } else {
                 const auto order = nearby(st, centre, t.radius);
-                std::vector<double> available(st.cells.size());
+                auto& available = sources(order);
                 for (const auto i : order) available[i] = st.cells[i].mixture.masses[k];
                 const auto plan = radial::allocate_order(available, order, static_cast<double>(static_cast<float>(t.mass_kg)));
                 const double quantum = std::ldexp(1.0, plan.quantum_exponent);
