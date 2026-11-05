@@ -78,6 +78,7 @@ namespace MixedAtmospheres.Oni
             internal static Scope Capture(ConduitDiseaseManager manager,float seconds)
             {
                 var rows=(List<ConduitDiseaseManager.Data>)Rows.GetValue(manager);
+                var temperatures=(ConduitTemperatureManager)Temperature.GetValue(manager);
                 var byHandle=new Dictionary<object,int>();
                 for(var row=0;row<rows.Count;++row)
                 {object key=rows[row].temperatureHandle;if(byHandle.ContainsKey(key))byHandle[key]=-1;else byHandle.Add(key,row);}
@@ -97,7 +98,7 @@ namespace MixedAtmospheres.Oni
                     if(!States.TryGetValue((sample.Flow,sample.Cell),out var state)||!state.TemperatureHandle.Equals(data.temperatureHandle)||!ReferenceEquals(state.PipeIdentity,pipe))state=new CellState(data.temperatureHandle,pipe);
                     var after=new CellState(data.temperatureHandle,pipe);var inventory=sample.Inventory;var changes=new List<PipePart>();var supported=true;
                     ColonyPipeBiologyOracle.Advance(manager,sample.Flow,sample.Cell,data,seconds);
-                    var temperature=(float)GetTemperature.Invoke(Temperature.GetValue(manager),new object[]{data.temperatureHandle});
+                    var temperature=temperatures.GetTemperature(data.temperatureHandle);
                     foreach(var germ in sample.Inventory.Germs)
                     {
                         if(germ.Id<0||germ.Id>=byte.MaxValue||germ.Id>=Db.Get().Diseases.Count){supported=false;break;}
@@ -140,7 +141,6 @@ namespace MixedAtmospheres.Oni
         }
         private static readonly FieldInfo Rows=AccessTools.Field(typeof(ConduitDiseaseManager),"data");
         private static readonly FieldInfo Temperature=AccessTools.Field(typeof(ConduitDiseaseManager),"temperatureManager");
-        private static readonly MethodInfo GetTemperature=AccessTools.Method(AccessTools.TypeByName("ConduitTemperatureManager"),"GetTemperature");
         private static readonly Dictionary<(ConduitFlow,int),CellState> States=new Dictionary<(ConduitFlow,int),CellState>();
         private static readonly Dictionary<(ConduitFlow,int),Dictionary<int,Culture>> Restored=new Dictionary<(ConduitFlow,int),Dictionary<int,Culture>>();
         private static readonly SortedDictionary<int,PipeAmount> Births=new SortedDictionary<int,PipeAmount>(),Deaths=new SortedDictionary<int,PipeAmount>();

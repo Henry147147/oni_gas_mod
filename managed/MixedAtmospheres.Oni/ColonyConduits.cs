@@ -27,7 +27,40 @@ namespace MixedAtmospheres.Oni
         {
             internal readonly Cell?[] Cells;
             internal readonly float Capacity;
-            internal Flow(int count,ConduitFlow flow) { Cells=new Cell?[count];Capacity=(float)AccessTools.Field(typeof(ConduitFlow),"MaxMass").GetValue(flow); }
+            // One bit per allocated entry of Cells (entries are never cleared).
+            // Scans step from one allocated cell to the next in index order,
+            // reading the bits live as a full scan reads the array.
+            private readonly long[] allocated;
+            internal Flow(int count,ConduitFlow flow) { Cells=new Cell?[count];allocated=new long[(count+63)>>6];Capacity=(float)AccessTools.Field(typeof(ConduitFlow),"MaxMass").GetValue(flow); }
+            // Job workers allocate cells concurrently (ConduitFlow.UpdateConduit).
+            internal void Allocate(int index,Cell cell)
+            {
+                Cells[index]=cell;var bit=1L<<(index&63);
+                for(var seen=System.Threading.Volatile.Read(ref allocated[index>>6]);(seen&bit)==0;)
+                {
+                    var previous=System.Threading.Interlocked.CompareExchange(ref allocated[index>>6],seen|bit,seen);
+                    if(previous==seen)break;seen=previous;
+                }
+            }
+            // The first allocated index at or above start, or -1.
+            internal int Next(int start)
+            {
+                if(start>=Cells.Length)return -1;
+                var w=start>>6;var word=allocated[w]&(-1L<<(start&63));
+                while(word==0){if(++w==allocated.Length)return -1;word=allocated[w];}
+                return (w<<6)+LowestBit(word);
+            }
+            private static int LowestBit(long word)
+            {
+                var index=0;var bits=(ulong)word;
+                if((bits&0xffffffffUL)==0){index+=32;bits>>=32;}
+                if((bits&0xffffUL)==0){index+=16;bits>>=16;}
+                if((bits&0xffUL)==0){index+=8;bits>>=8;}
+                if((bits&0xfUL)==0){index+=4;bits>>=4;}
+                if((bits&0x3UL)==0){index+=2;bits>>=2;}
+                if((bits&0x1UL)==0)++index;
+                return index;
+            }
         }
         private static readonly Dictionary<ConduitFlow,Flow> Flows=new Dictionary<ConduitFlow,Flow>();
         private static readonly Dictionary<int,PipeMaterial> Materials=new Dictionary<int,PipeMaterial>();
@@ -148,7 +181,7 @@ namespace MixedAtmospheres.Oni
             if(!Active)throw new InvalidOperationException("No mixed pipes to capture.");
             var cells=new List<PipeCellImage>();
             foreach(var flow in Flows)
-                for(var i=0;i<flow.Value.Cells.Length;++i)
+                for(var i=flow.Value.Next(0);i>=0;i=flow.Value.Next(i+1))
                     if(flow.Value.Cells[i] is Cell cell&&flow.Key.HasConduit(i))
                     {
                         SyncNative(flow.Key,i);Publish(flow.Key,i);
@@ -179,7 +212,7 @@ namespace MixedAtmospheres.Oni
                     var native=ReadRaw(flow,item.Cell);var cell=new Cell(item.Inventory,default);var expected=Project(cell,native,true);
                     if(!SameContents(native,expected))
                         throw new System.IO.InvalidDataException($"Restored conduit {item.Cell} differs from its saved mixture: native {native.element}/{native.mass:R}/{native.temperature:R}/{native.diseaseIdx}/{native.diseaseCount}, saved {expected.element}/{expected.mass:R}/{expected.temperature:R}/{expected.diseaseIdx}/{expected.diseaseCount}.");
-                    cell.Shadow=native;Flows[flow].Cells[item.Cell]=cell;saved.Add((flow,item.Cell));
+                    cell.Shadow=native;Flows[flow].Allocate(item.Cell,cell);saved.Add((flow,item.Cell));
                 }
                 var config=ColonyOwner.Config;
                 foreach(var flow in Flows.Keys)
@@ -355,7 +388,7 @@ namespace MixedAtmospheres.Oni
         {
             var held=PipeInventory.Empty;var cells=0;
             foreach(var flow in Flows)
-                for(var i=0;i<flow.Value.Cells.Length;++i)
+                for(var i=flow.Value.Next(0);i>=0;i=flow.Value.Next(i+1))
                     if(flow.Value.Cells[i] is Cell cell)
                     {
                         held=held.Joined(cell.Inventory);if(cell.Inventory.Count>0)++cells;
@@ -392,7 +425,7 @@ namespace MixedAtmospheres.Oni
             var state=Flows[flow];var current=state.Cells[cell];if(current!=null)return current;
             var native=ReadRaw(flow,cell);
             var inventory=native.mass>0?PipeInventory.Single(MaterialOf(native.element),native.mass,native.temperature,native.diseaseIdx,native.diseaseCount):PipeInventory.Empty;
-            current=new Cell(inventory,native);state.Cells[cell]=current;
+            current=new Cell(inventory,native);state.Allocate(cell,current);
             lock(Accounts) initial=initial.Joined(inventory);
             return current;
         }
@@ -436,7 +469,7 @@ namespace MixedAtmospheres.Oni
         internal static IEnumerable<(ConduitFlow Flow,int Cell,PipeInventory Inventory)> BiologicalCells()
         {
             foreach(var flow in Flows)
-                for(var index=0;index<flow.Value.Cells.Length;++index)
+                for(var index=flow.Value.Next(0);index>=0;index=flow.Value.Next(index+1))
                     if(flow.Value.Cells[index] is Cell cell&&cell.Inventory.Count>0&&flow.Key.HasConduit(index))
                     {SyncNative(flow.Key,index);yield return(flow.Key,index,cell.Inventory);}
         }
@@ -483,7 +516,7 @@ namespace MixedAtmospheres.Oni
             ValidateNativeProjection(flow,index,contents);
             var cell=Flows[flow].Cells[index]??new Cell(PipeInventory.Empty,default);
             ++projecting;try{SetNative(flow,index,contents);}finally{--projecting;}
-            cell.Shadow=contents;Flows[flow].Cells[index]=cell;
+            cell.Shadow=contents;Flows[flow].Allocate(index,cell);
         }
         internal static void ReadNative(ConduitFlow flow,int index,ref ConduitFlow.ConduitContents result)
         {
@@ -555,7 +588,7 @@ namespace MixedAtmospheres.Oni
             ColonyFault.Inject("pipe-heat");
             if(!Active)return;
             foreach(var flow in Flows)
-                for(var i=0;i<flow.Value.Cells.Length;++i)
+                for(var i=flow.Value.Next(0);i>=0;i=flow.Value.Next(i+1))
                     if(flow.Value.Cells[i] is Cell cell&&cell.Inventory.Count>0&&flow.Key.HasConduit(i))SyncNative(flow.Key,i);
             ColonyPipeTeardown.Tick(ColonyOwner.Status.CompletedFrames);
         }
@@ -574,7 +607,7 @@ namespace MixedAtmospheres.Oni
             foreach(var flow in Flows)
             {
                 var threshold=.1*flow.Value.Capacity;
-                for(var i=0;i<flow.Value.Cells.Length;++i)
+                for(var i=flow.Value.Next(0);i>=0;i=flow.Value.Next(i+1))
                 {
                     if(!(flow.Value.Cells[i] is Cell cell)||cell.Inventory.Count==0||!flow.Key.HasConduit(i))continue;
                     int kind;
@@ -607,7 +640,7 @@ namespace MixedAtmospheres.Oni
         internal static IEnumerable<(ConduitFlow Flow,int Cell,PipeInventory Inventory,ConduitFlow.ConduitContents Native,ConduitFlow.ConduitContents Shadow)> ThermalProbeSamples()
         {
             foreach(var flow in Flows)
-                for(var i=0;i<flow.Value.Cells.Length;++i)
+                for(var i=flow.Value.Next(0);i>=0;i=flow.Value.Next(i+1))
                     if(flow.Value.Cells[i] is Cell cell&&cell.Inventory.Count>0&&flow.Key.HasConduit(i))
                         yield return(flow.Key,i,cell.Inventory,ReadRaw(flow.Key,i),cell.Shadow);
         }
