@@ -1,5 +1,57 @@
 # Performance acceptance measurements
 
+## Spaced Out! full colony on profile 12, 2026-11-06
+
+`full-colony-spacedout-v1` was built before profile 12 and restores profile
+11, so it loads without the thin-gas drag (about 0.2×). It was rebuilt with
+the same layout on `779d49f` (`tools/full_colony_benchmark.py` build, settle
+two cycles, publish) as `local/saves/full-colony-spacedout-v2.sav`: profile
+12, cycle 3, 14 duplicants, 1,147 buildings, 67,857 owned cells. Its settle
+run averaged 0.98× (steady windows 1.04-1.10×; other builds shared the
+machine).
+
+Timed loads of v2, Linux harness, RTX 5090 display, whole game slot, speed 3,
+450 frames, windows after the first:
+
+| Run | Owner ms | Flow ms | Interval ms | Game per real | Unity fps |
+| --- | --- | --- | --- | --- | --- |
+| `779d49f` | 166-170 | 145-149 | 187-191 | 1.05-1.06 | 31-35 |
+| same, game-thread probe | 169-172 | 148-150 | 190-195 | 1.02-1.05 | 34-36 |
+
+The owner sets the pace: ONI's native frame waits about 135 ms a tick for the
+owner frame before it, and the part before its handoff takes 15 ms
+(`UpdateData` 12 ms). Garbage collection runs 1-3 times per 15 s at 170-220 ms
+each; the slowest frames are 250-570 ms.
+
+**Where the owner frame goes.** One flow region, the second asteroid's
+compact base (1,548 cells, box 85×54 at 284,44), is the regional critical
+path: 124-148 ms a frame, 63-65 substeps, about 80 attempts and 2,000-2,200
+pressure iterations (the next region, 5,076 cells above it, takes about 61 ms
+in parallel; ordinary regions take two substeps). Every refinement is the net
+swept-volume bound; no pressure solve fails. Each frame's first 0.1 s trial
+exceeds the bound 130-150 times at (337,75), the top corner of hall 1, and a
+0.7 ms retry still exceeds it 1.4-1.5 times. The base's halls open into the
+asteroid's near-vacuum caves (0.1-0.2 g of steam a cell beyond a one-cell gap
+at 319,112): hall 1 holds about 2 g of oxygen a cell (about 150 Pa), and from
+about owner frame 1,100 the base's duplicants are at breath 0 in unbreathable
+air. The benchmark's second base is therefore vented, not a sealed colony;
+its leak flow is what costs the owner.
+
+**Thin-gas drag threshold, measured, not adopted.** A private build (not
+committed) let an environment variable replace profile 12's drag mass; same
+save and run length, 10 ms time constant:
+
+| Drag mass | Game per real | Owner ms | Flow ms | Compact-base region |
+| --- | --- | --- | --- | --- |
+| 1 g (adopted) | 1.06 | 168 | 147 | 128 ms, 65 substeps |
+| 3 g | 1.19 | 144 | 123 | 103 ms, 53 substeps |
+| 10 g | 1.37 | 123 | 101 | 76 ms, 43 substeps |
+
+All three passed with closed ledgers (relative mass error 5e-15, energy
+2e-15). The hall's faces carry about 1.9 g, just above the adopted 1 g
+threshold, but even 10 g leaves 43 substeps, so the drag is not the whole
+cause. The user chose 1 g on 2026-11-05; changing it is the user's decision.
+
 ## Overlapped pacing, 2026-11-06
 
 The user adopted overlapped ("post-ahead") pacing on 2026-11-05
