@@ -336,6 +336,14 @@ several; there is no competition between them):
   by mass) follows the expected population in binary64 until it dies out.
   A culture left below one germ dies, as the game keeps whole germs.
 
+The frames run in a flat form (`biology::Evolution`): the cultures and the
+clocks sit in arrays sorted by (cell, identity), a cell's medium is read once
+per call (in parallel on the pool, before the first frame, from the activity
+tiers' widest mask) and every sum is taken in the order the plain per-cell
+rules take it, so the cultures, clocks, accounts, edits and saved bytes are
+bit-identical to those rules. The CTest `oni_biology_equivalence` keeps the
+plain map-based rules verbatim and compares every bit on random worlds.
+
 Births, deaths, culled sub-germ cultures, diffused germs and game edits are
 booked per identity (`ma_oni_colony_biology`); each stage checks that the
 world holds what the accounts expect. Native code sees no germs on owned cells,

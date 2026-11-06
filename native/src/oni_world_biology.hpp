@@ -85,7 +85,10 @@ struct Step { double population = 0, change = 0; Clock clock{}; };
 [[nodiscard]] float diffusion_scale(const Table&, std::size_t disease, std::uint32_t element, double count, std::uint8_t ticks);
 
 using Cells = std::map<std::size_t, std::vector<Culture>>; // cell -> cultures sorted by identity
-using Clocks = std::map<std::pair<std::size_t, std::uint64_t>, Clock>;
+// The clocks of the cultures, sorted by (cell, identity) with distinct keys:
+// the order they are saved in.
+struct ClockEntry { std::size_t cell = 0; std::uint64_t identity = 0; Clock clock{}; };
+using Clocks = std::vector<ClockEntry>;
 struct Account { long double born = 0, died = 0, culled = 0, moved = 0, edited_in = 0, edited_out = 0; };
 using Accounts = std::map<std::uint64_t, Account>;
 struct Edit { std::size_t cell = 0; std::uint64_t identity = 0; double change = 0; };
@@ -104,4 +107,78 @@ bool apply(Cells&, const Edit&, bool cell_has_mass);
 // cultures, clocks and accounts to match.
 void frame(const Table&, std::size_t width, std::size_t height, const std::function<const Medium&(std::size_t)>& medium,
     Cells&, Clocks&, Accounts&, std::vector<Edit>&, std::span<const std::uint8_t> active={});
+
+// The same frame over flat arrays, which is what the owner runs (frame() above
+// converts the cultures to this form and back): the cultures of every cell
+// sorted by (cell, identity), the clocks, and a medium that is filled once per
+// cell and kept for a whole series of frames. Every result, the order of the
+// edits and the order of every floating-point addition equal the map-based
+// frame()'s.
+struct Entry { std::size_t cell = 0; std::uint64_t identity = 0; double quantity = 0; };
+using Field = std::vector<Entry>; // sorted by (cell, identity), identities distinct
+
+[[nodiscard]] Field to_field(const Cells&);
+[[nodiscard]] Cells to_cells(const Field&);
+// The quantity of an identity in a cell (zero when it holds none).
+[[nodiscard]] double quantity_in(const Field&, std::size_t cell, std::uint64_t identity) noexcept;
+// apply() on the flat form, with the same rules.
+bool apply(Field&, const Edit&, bool cell_has_mass);
+
+// What a cell offers its germs for one series of frames: Medium with its
+// constituents held in the Evolution's own list.
+struct Fluid {
+    bool open = false;
+    std::uint8_t state = 0;
+    std::uint32_t element = 0;
+    float temperature_k = 0;
+    double mass_kg = 0;
+    float radiation = 0;
+    std::uint32_t first_part = 0, parts = 0;
+};
+
+// Scratch and cache for flat frames; owner sessions keep one so its buffers
+// are reused. Copying it yields an empty one (it holds nothing durable).
+class Evolution {
+public:
+    Evolution() = default;
+    Evolution(const Evolution&) {}
+    Evolution& operator=(const Evolution&) { return *this; }
+    // Fills a cell's fluid the first time the series needs it: sets the fields
+    // and appends the constituents (the cell's parts, in order) to the list.
+    using Fill = std::function<void(std::size_t cell, Fluid&, std::vector<Part>&)>;
+    // Runs job(block) for every block, on any threads and in any order.
+    using Runner = std::function<void(std::size_t blocks, const std::function<void(std::size_t)>& job)>;
+    // Starts a series of frames over a grid whose media do not change. With a
+    // runner, prefill() fills cells on it, so Fill must then be safe to call
+    // from several threads at once (it still fills each cell once).
+    void begin(const Table&, std::size_t width, std::size_t height, Fill, Runner = {});
+    // Fills now, on the runner, the media the frames will ask for: the cells
+    // of the field that are active and their active neighbours. Optional (a
+    // frame fills any cell it needs); the result does not depend on it.
+    void prefill(const Field&, std::span<const std::uint8_t> active = {});
+    void frame(Field&, Clocks&, Accounts&, std::vector<Edit>&, std::span<const std::uint8_t> active={});
+    // Per-cell frame counts and the active mask of a series, kept here only to reuse their storage.
+    std::vector<std::uint8_t> tick_counts, active_mask;
+    std::vector<std::size_t> counting_cells;
+private:
+    struct Slot { std::uint32_t fluid_stamp = 0, fluid = 0, queue_stamp = 0, frame_stamp = 0, first = 0, end = 0; };
+    struct Contribution { std::size_t cell = 0; std::uint64_t identity = 0; double change = 0; std::size_t sequence = 0; };
+    Fluid fluid_of(std::size_t cell);
+    const Table* table = nullptr;
+    std::size_t width = 0, height = 0;
+    Fill fill;
+    Runner run;
+    std::vector<Slot> slots;
+    std::uint32_t series_stamp = 0, frame_stamp = 0;
+    std::vector<Fluid> fluids;
+    std::vector<Part> parts;
+    std::vector<std::size_t> wanted;
+    std::vector<Fluid> made;
+    std::vector<std::vector<Part>> made_parts;
+    std::vector<std::uint32_t> clock_of, next_clock_of;
+    std::vector<double> moved;
+    std::vector<Contribution> fresh;
+    Field next;
+    Clocks next_clocks, kept_clocks;
+};
 }

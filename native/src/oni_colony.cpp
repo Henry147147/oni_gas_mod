@@ -181,6 +181,7 @@ struct Session {
     std::uint32_t germ_mode = 0;
     biology::Clocks clocks;
     biology::Accounts accounts;
+    biology::Evolution evolution; // scratch of the germ frames, never serialized
     std::uint64_t biology_frames = 0;
     std::uint64_t activity_sequence = 0;
     std::vector<double> biology_pending_s;
@@ -872,7 +873,7 @@ std::shared_ptr<Published> make_publication(const Session& s, Projection project
     p->native_arena=s.native_arena;p->native_arena_owner_frames=s.native_arena_owner_frames;
     auto& b = p->biology; b.struct_size = sizeof(b); b.abi_version = 1; b.mode = s.germ_mode;
     b.frames = s.biology_frames; b.cultures = s.clocks.size(); b.germ_cells = s.germ_cells; b.audit_error = s.biology_error;
-    for (const auto& [key, clock] : s.clocks) if (clock.mode == biology::expected_mode) ++b.expected_cultures;
+    for (const auto& held : s.clocks) if (held.clock.mode == biology::expected_mode) ++b.expected_cultures;
     for (const auto& [identity, a] : s.accounts) {
         const auto held = s.germs_held.find(identity);
         p->germ_accounts.push_back({identity, static_cast<double>(a.born), static_cast<double>(a.died), static_cast<double>(a.culled),
@@ -2810,17 +2811,17 @@ MacClosedWorld evolve_germs(Session& s, MacClosedWorld world, std::span<const Ge
         });
         for (const auto& list : found) for (const auto i : list) book(i, state.cells[i].passive_quantities);
     };
-    biology::Cells cells; std::map<std::uint64_t, long double> before;
+    // The germ cultures as flat (cell, identity) entries, and what the world
+    // holds per identity (disease identities are 1..256).
+    biology::Field cells; cells.reserve(s.germ_cells + s.germ_cells / 2 + 64);
+    std::array<long double, 257> before{};
     germs_of(st, [&](std::size_t i, const PassiveQuantities& passives) {
         for (const auto& q : passives)
-            if (biology::disease_identity(q.identity)) { cells[i].push_back({q.identity, q.quantity}); before[q.identity] += q.quantity; }
+            if (biology::disease_identity(q.identity)) { cells.push_back({i, q.identity, q.quantity}); before[q.identity] += q.quantity; }
     });
     part("scan");
     const auto previous = s.accounts;
-    const auto held_in = [&](std::size_t i, std::uint64_t identity) {
-        const auto found = cells.find(i); if (found == cells.end()) return 0.0;
-        for (const auto& c : found->second) if (c.identity == identity) return c.quantity;
-        return 0.0; };
+    const auto held_in = [&](std::size_t i, std::uint64_t identity) { return biology::quantity_in(cells, i, identity); };
     std::vector<biology::Edit> edits;
     for (const auto& g : queued) {
         const auto i = rect_index(s.config, g.public_cell);
@@ -2836,49 +2837,84 @@ MacClosedWorld evolve_germs(Session& s, MacClosedWorld world, std::span<const Ge
     if (frames > 0 && !disease_table.empty() && p && p->views.size() == st.cells.size()) {
         std::shared_ptr<const std::unordered_map<std::size_t, float>> field; { std::lock_guard lock(inputs); field = radiation_field; }
         const auto& radiation = *field;
-        std::unordered_map<std::size_t, biology::Medium> media;
-        const std::function<const biology::Medium&(std::size_t)> medium = [&](std::size_t i) -> const biology::Medium& {
-            auto [it, inserted] = media.try_emplace(i);
-            auto& m = it->second;
-            if (!inserted || st.grid.walls[i]) return m;
+        // A cell's medium is read once per call, when the first frame needs it
+        // (cell_presentation gives cell_reading's temperature and liquid volume
+        // without the entropy and specific energies, which are not used here).
+        const biology::Evolution::Fill medium = [&](std::size_t i, biology::Fluid& m, std::vector<biology::Part>& parts) {
+            thread_local experimental::ReferenceEquilibriumState reading; // filled on several threads
+            if (st.grid.walls[i]) return;
             const auto& mixture = st.cells[i].mixture; const auto& v = p->views[i];
-            m.open = true; m.mass_kg = mixture.mass(); m.temperature_k = v.temperature_k; m.element = v.element_index;
+            // One pass over the species: the cell's mass (the sum of its positive entries in species order, which is
+            // mixture.mass()), its constituents, and with activity tiers its heaviest gas and liquid.
+            const std::vector<double>& masses = mixture.masses;
+            const bool pick = !due.empty();
+            double total = 0, gas = 0, best_gas = 0, best_liquid = 0; std::size_t gas_k = 0, liquid_k = 0;
+            for (std::size_t k = 0; k < masses.size(); ++k) {
+                const double mass = masses[k];
+                if (!(mass > 0)) continue;
+                total += mass;
+                const auto& game = cat.materials[k].game;
+                parts.push_back({game.native_index, mass});
+                if (!pick) continue;
+                if (game.gas) { gas += mass; if (mass > best_gas) { best_gas = mass; gas_k = k; } }
+                else if (mass > best_liquid) { best_liquid = mass; liquid_k = k; }
+            }
+            m.open = true; m.mass_kg = total; m.temperature_k = v.temperature_k; m.element = v.element_index;
             if (const auto r = radiation.find(i); r != radiation.end()) m.radiation = r->second;
-            if(!due.empty() && m.mass_kg>0) {
-                const auto reading=world.cell_reading(i);m.temperature_k=static_cast<float>(std::clamp(reading.temperature_k,1.,9999.));
-                double gas=0,best_gas=0,best_liquid=0;std::size_t gas_k=0,liquid_k=0;
-                for(std::size_t k=0;k<mixture.masses.size();++k) {
-                    const double mass=mixture.masses[k];
-                    if(cat.materials[k].game.gas){gas+=mass;if(mass>best_gas){best_gas=mass;gas_k=k;}}
-                    else if(mass>best_liquid){best_liquid=mass;liquid_k=k;}
-                }
+            if (pick && m.mass_kg > 0) {
+                world.cell_presentation(i, reading);m.temperature_k=static_cast<float>(std::clamp(reading.temperature_k,1.,9999.));
                 m.element=cat.materials[reading.liquid_volume_m3>=.5*st.grid.volume_m3() || gas==0?liquid_k:gas_k].game.native_index;
             }
-            for (std::size_t k = 0; k < mixture.masses.size(); ++k)
-                if (mixture.masses[k] > 0) m.parts.push_back({cat.materials[k].game.native_index, mixture.masses[k]});
             if (m.mass_kg > 0 && cat.has_native(m.element)) m.state = cat.materials[cat.species_of_native(m.element)].game.gas ? 1 : 2;
-            return m;
         };
+        // The media are filled on the pool (each is read-only work on the world and the same
+        // on any thread); the frames below then find them all.
+        const biology::Evolution::Runner runner = [](std::size_t blocks, const std::function<void(std::size_t)>& job) {
+            const auto options = mac_kernel_default_options();
+            const auto threads = static_cast<unsigned>(std::min<std::size_t>(options.threads, std::max<std::size_t>(1, blocks / options.minimum_blocks_per_thread)));
+            mac_kernel::pool_for(threads).run(blocks, job);
+        };
+        s.evolution.begin(disease_table, st.grid.width, st.grid.height, medium, runner);
         if(due.empty()) {
+            s.evolution.prefill(cells);
             for (std::uint64_t f = 0; f < frames; ++f)
-                biology::frame(disease_table, st.grid.width, st.grid.height, medium, cells, s.clocks, s.accounts, edits);
+                s.evolution.frame(cells, s.clocks, s.accounts, edits);
             s.biology_frames += frames;
         } else {
             if(s.biology_pending_s.empty())s.biology_pending_s.assign(st.cells.size(),0);
-            std::vector<unsigned> ticks(st.cells.size());unsigned maximum=0;
-            for(std::size_t i=0;i<due.size();++i) {
-                s.biology_pending_s[i]+=due[i];
-                while(s.biology_pending_s[i]>=static_cast<double>(biology::frame_seconds)) {
-                    require(ticks[i]<8,"Activity biology interval exceeds one remote event");
-                    s.biology_pending_s[i]-=static_cast<double>(biology::frame_seconds);++ticks[i];
+            // The per-cell frame counts and the active mask live in the evolution's scratch (reused between calls).
+            auto& ticks=s.evolution.tick_counts;ticks.assign(st.cells.size(),0);unsigned maximum=0;
+            auto& counting=s.evolution.counting_cells;counting.clear();
+            auto* pending=s.biology_pending_s.data();
+            // A chunk of cells first adds the elapsed time (and notes whether any cell reached a whole frame), then only a
+            // chunk that did counts its frames; each cell's sums and subtractions are the same ones in the same order.
+            constexpr std::size_t chunk=256;constexpr double whole_frame=static_cast<double>(biology::frame_seconds);
+            for(std::size_t base=0;base<due.size();base+=chunk) {
+                const auto end=std::min(due.size(),base+chunk);
+                bool reached=false;
+                for(std::size_t i=base;i<end;++i) {pending[i]+=due[i];reached|=pending[i]>=whole_frame;}
+                if(!reached)continue;
+                for(std::size_t i=base;i<end;++i) {
+                    while(pending[i]>=whole_frame) {
+                        require(ticks[i]<8,"Activity biology interval exceeds one remote event");
+                        pending[i]-=whole_frame;++ticks[i];
+                    }
+                    if(ticks[i]>0)counting.push_back(i);
+                    maximum=std::max<unsigned>(maximum,ticks[i]);
                 }
-                maximum=std::max(maximum,ticks[i]);
             }
-            std::vector<std::uint8_t> active(st.cells.size());
+            // Frame f runs the cells that count more than f frames: all of them first, then each frame drops those that stop.
+            auto& active=s.evolution.active_mask;active.assign(st.cells.size(),0);
             part("ticks");
             for(unsigned f=0;f<maximum;++f) {
-                for(std::size_t i=0;i<active.size();++i)active[i]=ticks[i]>f?1:0;
-                biology::frame(disease_table,st.grid.width,st.grid.height,medium,cells,s.clocks,s.accounts,edits,active);
+                if(f==0)for(const auto i:counting)active[i]=1;
+                else for(const auto i:counting)if(static_cast<unsigned>(ticks[i])==f)active[i]=0;
+                if(f==0) {
+                    // The first frame has the widest mask: every medium the frames ask for is read now, on the pool.
+                    s.evolution.prefill(cells,active);
+                    part("prefill");
+                }
+                s.evolution.frame(cells,s.clocks,s.accounts,edits,active);
             }
             part("frames");
             // Public/saved elapsed frames count native frames, not an unrelated
@@ -2894,7 +2930,7 @@ MacClosedWorld evolve_germs(Session& s, MacClosedWorld world, std::span<const Ge
     part("edits");
     // Audit: per identity, the world holds what it held plus the stage's
     // booked edits, births, deaths and culled germs (diffusion only moves).
-    std::map<std::uint64_t, long double> after; std::uint64_t germ_cells = 0;
+    std::array<long double, 257> after{}; std::uint64_t germ_cells = 0;
     const auto& now = world.state();
     germs_of(now, [&](std::size_t, const PassiveQuantities& passives) {
         for (const auto& q : passives)
@@ -2903,6 +2939,7 @@ MacClosedWorld evolve_germs(Session& s, MacClosedWorld world, std::span<const Ge
     });
     std::map<std::uint64_t, double> held;
     for (const auto& [identity, a] : s.accounts) {
+        require(identity < before.size(), "A germ account names an unknown identity");
         const auto old = previous.find(identity);
         const biology::Account o = old == previous.end() ? biology::Account{} : old->second;
         const long double expected = before[identity] + (a.edited_in - o.edited_in) - (a.edited_out - o.edited_out) +
@@ -2914,8 +2951,11 @@ MacClosedWorld evolve_germs(Session& s, MacClosedWorld world, std::span<const Ge
     }
     s.germs_held = std::move(held); s.germ_cells = germ_cells;
     part("audit");
-    if (part_log) { std::fprintf(stderr, "[Mixed Atmospheres] germ evolution frame %llu: germ cells %zu edits %zu cultures %zu;%s\n",
-        static_cast<unsigned long long>(s.status.completed_frames + 1), cells.size(), edits.size(), s.clocks.size(), parts_line.c_str()); std::fflush(stderr); }
+    if (part_log) {
+        std::size_t occupied = 0;
+        for (std::size_t e = 0; e < cells.size(); ++e) if (e == 0 || cells[e].cell != cells[e - 1].cell) ++occupied;
+        std::fprintf(stderr, "[Mixed Atmospheres] germ evolution frame %llu: germ cells %zu edits %zu cultures %zu;%s\n",
+        static_cast<unsigned long long>(s.status.completed_frames + 1), occupied, edits.size(), s.clocks.size(), parts_line.c_str()); std::fflush(stderr); }
     return world;
 }
 // Resolve the restored callback-owned requests, under inputs: bind each to
@@ -4189,7 +4229,7 @@ std::pair<std::uint64_t,std::uint32_t> prepare_retirement(std::uint32_t origin,s
         s.ledger.extracted[k]+=held.mass_kg;s.ledger.energy_out+=detail::precision_value(held.energy_j);s.status.extracted_kg+=held.mass_kg;
     }
     std::erase_if(s.precision,[&](const auto& p){return selected[rect_index(s.config,p.anchor)]!=0;});
-    std::erase_if(s.clocks,[&](const auto& pair){return selected[pair.first.first]!=0;});
+    std::erase_if(s.clocks,[&](const auto& held){return selected[held.cell]!=0;});
     if(s.germ_mode==1)world=evolve_germs(s,std::move(world),{},0);
     s.world=std::make_shared<const MacClosedWorld>(std::move(world));audit_retirement(s);
     detail::ParcelWireWriter wire;wire.raw("MARET001");wire.u64(s.status.session);wire.u64(s.status.completed_frames);
@@ -4374,8 +4414,8 @@ std::vector<std::uint8_t> checkpoint() {
     if (saved_version >= 10) {
         w.u32(s.germ_mode); w.u64(s.biology_frames);
         w.u32(static_cast<std::uint32_t>(s.clocks.size()));
-        for (const auto& [key, clock] : s.clocks) {
-            w.u32(static_cast<std::uint32_t>(key.first)); w.u64(key.second); w.u8(clock.mode); w.u8(clock.ticks); w.f32(clock.residue);
+        for (const auto& held : s.clocks) {
+            w.u32(static_cast<std::uint32_t>(held.cell)); w.u64(held.identity); w.u8(held.clock.mode); w.u8(held.clock.ticks); w.f32(held.clock.residue);
         }
         w.u32(static_cast<std::uint32_t>(pending_germs.size()));
         for (const auto& g : pending_germs) { w.u32(g.public_cell); w.u32(g.germ); w.f64(g.change); }
@@ -4571,6 +4611,7 @@ void restore(const MAOniColonyConfig& config, std::span<const MAOniColonyMateria
         require(next->germ_mode==0 || !disease_table.empty(), "This save evolves world germs and needs the game's disease table");
         next->biology_frames = r.u64();
         const auto clocks = r.u32(); require(clocks <= (r.bytes.size() - r.at) / 18, "Invalid saved germ clock count");
+        next->clocks.reserve(clocks);
         std::pair<std::size_t, std::uint64_t> previous_key{0, 0};
         for (std::uint32_t k = 0; k < clocks; ++k) {
             const std::size_t cell = r.u32(); const auto identity = r.u64();
@@ -4579,7 +4620,7 @@ void restore(const MAOniColonyConfig& config, std::span<const MAOniColonyMateria
             require(cell < cells && biology::disease_identity(identity) && (k == 0 || key > previous_key) && clock.mode <= biology::expected_mode &&
                 clock.ticks <= biology::maximum_ticks && std::isfinite(clock.residue) && std::abs(clock.residue) < 1 &&
                 (clock.mode == biology::native_mode || clock.residue == 0), "Invalid saved germ clock");
-            next->clocks.emplace(key, clock); previous_key = key;
+            next->clocks.push_back({cell, identity, clock}); previous_key = key;
         }
         const auto germs = r.u32(); require(germs <= 1u << 20 && germs <= (r.bytes.size() - r.at) / 16, "Invalid saved germ edit count");
         for (std::uint32_t k = 0; k < germs; ++k) {
