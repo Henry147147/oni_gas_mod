@@ -3,9 +3,13 @@
 **Update, 2026-11-06:** a beta for wider playtesting needs sustained 1× on
 the full-colony saves; 3× stays the speed goal
 ([amendment](completion-plan.md#amendments)). The base full colony runs about
-2.1× on the Linux harness with overlapped pacing; the Spaced Out! full colony
-last measured 0.39× (before the pipe, publication and pacing work) and is the
-speed work that blocks the beta.
+2.2× on the Linux harness with overlapped pacing, and the Spaced Out! full
+colony, rebuilt on profile 12 (`full-colony-spacedout-v2`), 1.05×; both
+still need measuring on the user's Windows PC
+([numbers](performance-acceptance.md#spaced-out-full-colony-on-profile-12-2026-11-06)).
+The two-platform release folder builds reproducibly and passes in-game smoke
+runs ([dry run](distribution.md)); the licence, a preview image and the
+upload remain the user's.
 
 **Update, 2026-11-04:** RC1 `258134c` passes the full private release tier,
 all 47 steps including the ten-cycle run, and is delivered privately
