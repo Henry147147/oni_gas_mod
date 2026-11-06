@@ -243,6 +243,9 @@ MA_ONI_API MAOniResult ma_oni_colony_copy_activity(MAOniColonyActivityState*);
 MA_ONI_API MAOniResult ma_oni_colony_sample_activity(uint64_t session,uint64_t frame,
     const uint32_t* cells,uint32_t count,MAOniColonyStatus*,MAOniColonyActivityCell*);
 MA_ONI_API MAOniResult ma_oni_colony_copy_receipts(MAOniColonyReceipt*, uint32_t capacity, uint32_t* count);
+/* Every unacknowledged receipt, ignoring the readers' pinned frame
+ * (ma_oni_colony_show_frame): a census, never a delivery. */
+MA_ONI_API MAOniResult ma_oni_colony_copy_pending_receipts(MAOniColonyReceipt*, uint32_t capacity, uint32_t* count);
 MA_ONI_API MAOniResult ma_oni_colony_ack_receipts(uint64_t through_sequence);
 /* Byproduct batches (docs/colony-owner.md#byproduct-batches): solid
  * byproducts of one cell and element gather, already extracted, until they
@@ -575,6 +578,30 @@ MA_ONI_API MAOniResult ma_oni_colony_liquid_density(const MAOniColonyMaterial*, 
     double pressure_pa, double* density_kg_per_m3);
 /* 1 while the solver thread is advancing or has a frame waiting. */
 MA_ONI_API uint32_t ma_oni_colony_busy(void);
+/* Overlapped pacing (docs/colony-owner.md#pacing), version 1.
+ * overlapped: 1 when the running owner may be handed its next frame while it
+ * computes the current one: an activity owner without exact storage heat.
+ * awaiting_handoff: 1 while such an owner is healthy and the activity frame
+ * `sequence` (the last positive frame the game posted) has not been handed
+ * to the solver; the game holds its next 200 ms tick, and its zero-time
+ * native frames, until it is.
+ * Game-thread readers (status, copy, copy_changed, composition, readings,
+ * read_passives, sample_activity, copy_receipts) see one publication.
+ * follow_frames(session, 1) makes it the latest; (session, 0) pins it at the
+ * latest. show_frame pins it to the publication the activity frame
+ * `sequence` started from and never moves it back; *found is 0 when that
+ * frame is not among the recent handoffs (the readers stay). While pinned,
+ * copy_receipts returns only receipts of frames up to the pinned one. */
+MA_ONI_API uint32_t ma_oni_colony_pacing_version(void);
+MA_ONI_API uint32_t ma_oni_colony_overlapped(void);
+MA_ONI_API uint32_t ma_oni_colony_awaiting_handoff(uint64_t sequence);
+MA_ONI_API MAOniResult ma_oni_colony_follow_frames(uint64_t session, uint32_t follow);
+MA_ONI_API MAOniResult ma_oni_colony_show_frame(uint64_t session, uint64_t sequence, uint32_t* found);
+/* The cell ownership changes (opens, closes; freezes as closes) the native
+ * frame that handed activity frame `sequence` captured for it, for the
+ * adapter's message routing: copies up to `capacity`, *count is their number
+ * (0 when the frame is not among the recent handoffs). */
+MA_ONI_API MAOniResult ma_oni_colony_handoff_terrain(uint64_t session, uint64_t sequence, MAOniColonyTerrain*, uint32_t capacity, uint32_t* count);
 
 #ifdef __cplusplus
 }

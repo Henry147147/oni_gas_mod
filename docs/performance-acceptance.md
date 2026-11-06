@@ -1,5 +1,112 @@
 # Performance acceptance measurements
 
+## Overlapped pacing, 2026-11-06
+
+The user adopted overlapped ("post-ahead") pacing on 2026-11-05
+([colony owner](colony-owner.md#overlapped-pacing)): the game posts its next
+tick once the owner has been handed the previous one, and every game-thread
+reader sees owner frame T-2 at the tick that posts T (serial pacing: T-1).
+Before it each tick was serial: ONI's native frame (about 17 ms before the
+handoff: messages, shadow, `UpdateData` 14-15 ms, capture), then the owner
+frame (about 63 ms), then the game thread noticing the completion and posting
+the next tick (the rest of a roughly 110-130 ms interval). Now the game
+thread's work runs beside the owner, and the interval is the owner frame plus
+the native frame before its handoff.
+
+Linux harness, RTX 5090 display, whole game slot, load of
+`full-colony-base-v1` at speed 3, 900 frames, stage and native-wait logs on
+unless noted, windows after the first (other agents' builds shared the
+machine; `main-1` overlapped one):
+
+| Run | Owner ms | Interval ms | Game per real | Whole run | Submit to publication ms | Unity fps | Heat stage ms |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `f0ff869` serial, run 1 (a build beside it) | 73-80 | 134-154 | 1.33-1.50 | 1.40 | 142 | 24-30 | 5.0 |
+| `f0ff869` serial, run 2 | 63-76 | 106-130 | 1.55-1.88 | 1.70 | 119 | 33-37 | 4.6 |
+| `f0ff869` serial, run 3 | 64-69 | 114-136 | 1.49-1.75 | 1.56 | 126 | 23-31 | 4.1 |
+| overlapped (committed package), run 1 | 62-68 | 87-94 | 2.12-2.30 | 2.13 | 190 | 27-36 | 4.4 |
+| overlapped, run 2, no logs (contended: owner 72-77 ms) | 72-77 | 104-112 | 1.79-1.92 | 1.80 | 226 | 23-29 | 5.4 |
+| overlapped, run 3, no logs | 61-67 | 88-94 | 2.13-2.29 | 2.12 | 190 | 24-30 | 4.4 |
+| overlapped (an earlier package, same pacing), run 1 | 61-65 | 88-94 | 2.14-2.28 | 2.14 | 189 | 23-30 | 4.1 |
+| same, run 2 | 61-73 | 87-102 | 1.96-2.28 | 2.09 | 195 | 24-27 | 4.4 |
+| same, run 3, no logs | 61-64 | 87-93 | 2.16-2.29 | 2.12 | 189 | 26-32 | 4.4 |
+| overlapped, rebased onto `2095964` (batched debris, flat germ frames), no logs | 59-62 | 85-89 | 2.25-2.34 | 2.20 | 181 | 29-36 | 4.2 |
+
+"Submit to publication" is the real time from posting a tick to the
+publication that shows its owner frame: the readers' lag in real time.
+Overlapped, the native frame waits on ONI's worker for the owner frame before
+it (41-48 ms a tick) and hands its own frame about 16-18 ms later; the next
+tick follows at once, so the owner frame plus that part of the native frame
+is the interval (88-95 ms). 3x needs that chain under about 67 ms (the clock
+runs at 95% of the owner's measured rate). The research prototype's pacing
+(timing-dependent readers, `artifacts/3x-research/all-prototypes.patch`) gave
+2.08-2.20 on the same tree.
+
+The heat stage did not grow (4.0-4.4 ms against 4.1-5.0 serial; no chunk
+copies in the stage log, flow 58-59 copies in both): the solver is still idle
+while the native frame before each handoff runs, and prepares the next
+frame's private world copy then. Retired handoff publications are freed on
+the game thread (`show_frame`), not on the native frame that hands the next
+frame, which had cost 1.9 ms on the chain (`advance` 1.86 to 0.01 ms).
+
+Correctness: the owner's frames, inputs and checkpoint bytes are serial
+pacing's (`ma_oni_colony_tests` `overlapped_pacing_control`: three owner
+timings end on the serial run's owner image). All 15 Linux scenario batches
+of `tools/acceptance_suite.py` (`LINUX_BATCHES`) pass on the committed
+package, rebased onto batched byproduct debris (`2095964`): 66 of 66
+scenarios, relative mass error at most 2.9e-15 and energy error at most
+1.0e-16; `tools/build.py` and the 93 native tests pass. The first packages failed
+`phase`, `door`, `airflow`, `debris-heat` and `building-melt`: message
+routing then trusted the lagged view of which cells the owner holds (an
+arena's replacement of a freshly opened cell skipped its clear), which
+replacements, digs and `ColonyRouting` now fix; the arenas' fluid fill and the
+building-melt baseline then needed the one-frame shift described in the
+colony owner page. No check, bound or gate input changed.
+
+### Native frame beside the owner, a proposal (2026-11-06)
+
+User decision 2026-11-05: prototype ONI's own native frame running
+concurrently with the owner frame, against the last completed owner state.
+Not adopted; the patch is private (`artifacts/3x-research/alongside-update.patch`,
+`MA_COLONY_ALONGSIDE=1`, on top of overlapped pacing). A positive native
+frame N no longer waits for owner frame N-1: it waits only until the solver
+has started every handed frame, writes the owner state owner frame N-1
+started from (owner frame N-2) into its shadow, runs `UpdateData` beside owner
+frame N-1, and hands frame N, which the solver starts when N-1 ends. Readers
+then see owner frame T-3 at tick T.
+
+| Run | Owner ms | Interval ms | Game per real | Whole run | Submit to publication ms | Unity fps | Heat stage ms |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| native frame beside the owner, run 1 | 64-71 | 74-78 | 2.58-2.69 | 2.53 | 233 | 24-27 | 5.6 |
+| native frame beside the owner, run 2 | 63-68 | 70-75 | 2.65-2.84 | 2.59 | 226 | 23-26 | 5.5 |
+
+The owner frames now run nearly back to back (interval = owner + 9-10 ms);
+the clock (95% of the owner's measured rate, `scale` 2.6-2.8) and the owner
+frame set the pace. Its costs, measured on the same load (900 frames):
+
+- **What goes stale.** Native heat exchange with owned cells (buildings,
+  tiles, items, pipes, bodies, chunks: about 3,500 edits a frame) is computed
+  on the shadow of owner frame N-2 and booked to frame N, which starts from
+  N-1. 12.8% of those edits (about 450 a frame, 2.6e5 J) hit a cell whose mass
+  had changed by more than 0.1% in between; energy stays exact (joules are
+  booked), but the temperature step is that of the older mass. No edit hit a
+  cell that had emptied. Native mass edits (3 in 900 frames) and freezes (none
+  on this colony; the freeze/melt scenarios make them) act on the older mass:
+  a freeze turns the frozen projection into a native solid while the owner
+  removes the liquid the cell then holds, so mass would not balance.
+- **Reconciliation it needs.** Freezes as owner-confirmed requests (the
+  owner freezes what the cell holds and native places that solid next frame)
+  instead of native freezing the shadow; a withdrawal larger than the cell
+  then holds clamped and its shortfall returned to native; heat to an emptied
+  cell returned to its body or a neighbour; and ownership the native frame
+  reads frozen for its whole frame (121 owner open/close edits in 900 frames
+  changed `owned[]` while a native frame ran).
+- **The idle copy is gone.** With no idle gap the prepared world copy is not
+  ready: the heat stage grows from 4.1 to 5.6 ms with 77 chunk copies, and
+  the frame's input copy takes 0.8 ms. Preparing it on its own thread when a
+  frame publishes would recover about 2 ms.
+- **Readers one more frame late** (0.6 s of game time behind the owner,
+  about 230 ms in real time), and the routing overlay one more frame long.
+
 ## Batched byproduct debris, 2026-11-05
 
 User decision 2026-11-05: the microgram phase-change debris ONI spawned one item

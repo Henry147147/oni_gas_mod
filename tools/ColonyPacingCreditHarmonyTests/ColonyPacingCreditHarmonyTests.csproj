@@ -5,6 +5,7 @@
     <Compile Include="../../managed/MixedAtmospheres.Oni/ColonyPacingRetained.cs" Link="ColonyPacingRetained.cs"/>
     <Compile Include="../../managed/MixedAtmospheres.Oni/ColonyPacingRetainedLog.cs" Link="ColonyPacingRetainedLog.cs"/>
     <Compile Include="../../managed/MixedAtmospheres.Oni/ColonyPacingLoss.cs" Link="ColonyPacingLoss.cs"/>
+    <Compile Include="../../managed/MixedAtmospheres.Oni/ColonyPacingGate.cs" Link="ColonyPacingGate.cs"/>
     <Reference Include="0Harmony"><HintPath>$(OniGameDir)/OxygenNotIncluded_Data/Managed/0Harmony.dll</HintPath></Reference>
   </ItemGroup>
   <Target Name="RequireGameHarmony" BeforeTargets="ResolveReferences" Condition="!Exists('$(OniGameDir)/OxygenNotIncluded_Data/Managed/0Harmony.dll')"><Error Text="Supply OniGameDir for the actual installed game Harmony assembly."/></Target>

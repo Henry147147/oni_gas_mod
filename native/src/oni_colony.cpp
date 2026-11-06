@@ -116,6 +116,8 @@ struct NativeArenaFrame {
     std::vector<MAOniColonyNativeSampleCell> cells;
 };
 struct Published {
+    // Creation order of publications in this process (reader pinning compares it).
+    std::uint64_t serial=0;
     // A lifecycle edit can publish new cells without consuming a fluid tick.
     // Frame-only clients must keep copying until the next positive advance.
     bool same_frame_edit=false;
@@ -210,6 +212,28 @@ std::mutex publication;
 std::atomic<bool> enabled{};
 std::unique_ptr<Session> session;
 std::shared_ptr<const Published> latest;
+// What the game thread's readers see (docs/colony-owner.md#pacing). In follow
+// mode they read `latest`. Pinned (overlapped pacing), they read `visible`,
+// which moves forward only when the adapter shows a frame: to the publication
+// an activity frame started from, recorded when that frame was handed to the
+// solver. Under publication; reset with the session.
+std::shared_ptr<const Published> visible;
+bool readers_pinned=false;
+// A handed activity frame: the publication it starts from and the cell
+// ownership changes its native frame made (closes, opens, freezes), which the
+// adapter's message routing has not seen yet in that publication.
+struct Handoff { std::uint64_t sequence=0; std::shared_ptr<const Published> start; std::vector<MAOniColonyTerrain> native_terrain; };
+std::deque<Handoff> handoffs; // the last few activity frames' starting publications
+// The game thread trims handoffs to the last few when it shows a frame and
+// frees their publications there, beside the owner, not on the native frame
+// that hands the next one (which, overlapped, is on the owner's critical path).
+constexpr std::size_t retained_handoffs=4,maximum_handoffs=16;
+std::atomic<std::uint64_t> publication_serial{0};
+std::atomic<std::uint64_t> handed_activity{0}; // the last activity sequence handed to the solver
+std::shared_ptr<const Published> reader_publication_locked() {
+    return readers_pinned && visible && latest && latest->status.state==1 && visible->status.session==latest->status.session ? visible : latest;
+}
+std::shared_ptr<const Published> reader_publication() { std::lock_guard lock(publication); return reader_publication_locked(); }
 std::uint32_t retained_sample_frames=0;
 std::map<std::uint64_t,std::shared_ptr<const Published>> sample_frames; // publication lock; diagnostics only
 std::atomic<bool> capture_native_arena{false};
@@ -878,6 +902,7 @@ Projection project(const Session& s, const MacClosedWorld& w) {
 }
 std::shared_ptr<Published> make_publication(const Session& s, Projection projection, bool same_frame_edit=false) {
     auto p = std::make_shared<Published>();
+    p->serial=publication_serial.fetch_add(1,std::memory_order_relaxed)+1;
     p->same_frame_edit=same_frame_edit;
     p->config=s.config; p->status = s.status; p->activity_sequence=s.activity_sequence; p->views = std::move(projection.views); p->readings = std::move(projection.readings); p->parts = std::move(projection.parts);
     p->block_readings = std::move(projection.block_readings); p->block_parts = std::move(projection.block_parts); p->refused_reading = projection.refused_reading;
@@ -916,7 +941,7 @@ void fault(Session& s, const char* why) noexcept {
     // an adapter fault, and their missing frame inputs are only a consequence.
     if (s.status.state == 2) return;
     s.status.state = 2; write_error(s.status, why);
-    try { auto p = std::make_shared<Published>(); p->config=s.config; p->status = s.status;
+    try { auto p = std::make_shared<Published>(); p->serial=publication_serial.fetch_add(1,std::memory_order_relaxed)+1; p->config=s.config; p->status = s.status;
         { std::lock_guard lock(publication); if (latest) { p->views = latest->views; p->readings = latest->readings; p->parts = latest->parts; p->world = latest->world; p->catalogue = latest->catalogue; p->booked_mass_kg=latest->booked_mass_kg; p->booked_heat_j=latest->booked_heat_j; p->precision=latest->precision;
             p->biology = latest->biology; p->germ_accounts = latest->germ_accounts; } latest = std::move(p); } }
     catch (...) {}
@@ -952,6 +977,8 @@ void activate(std::unique_ptr<Session> next, std::uint64_t thread) {
       byproduct_batches.clear(); }
     { std::lock_guard o(oracle.m); oracle.cells.clear(); oracle.comparisons = oracle.mismatches = oracle.extinctions = 0; oracle.born = oracle.died = 0; oracle.last.clear(); }
     biology_mode.store(next->germ_mode, std::memory_order_relaxed);
+    { std::lock_guard lock(publication); visible.reset(); readers_pinned=false; handoffs.clear(); }
+    handed_activity.store(0,std::memory_order_release);
     publish(*next);
     session = std::move(next);
     ma::experimental::game_kernel::reject_log::reset_counts();
@@ -1414,6 +1441,43 @@ bool needs_shadow_refresh() noexcept {
     std::lock_guard lock(publication);
     return retiring_count.load(std::memory_order_relaxed)!=0 || (latest && latest->same_frame_edit);
 }
+// Reader pinning for overlapped pacing (docs/colony-owner.md#pacing).
+void follow_frames(std::uint64_t session_id,bool follow) {
+    std::lock_guard lock(publication);
+    require(latest && latest->status.session==session_id,"Stale colony reader session");
+    readers_pinned=!follow; visible=latest;
+}
+bool show_frame(std::uint64_t session_id,std::uint64_t sequence) {
+    std::vector<Handoff> expired; std::shared_ptr<const Published> previous; // freed after unlocking
+    std::lock_guard lock(publication);
+    require(latest && latest->status.session==session_id,"Stale colony reader session");
+    if(!readers_pinned || !visible || visible->status.session!=session_id){readers_pinned=true;previous=std::exchange(visible,latest);}
+    while(handoffs.size()>retained_handoffs){expired.push_back(std::move(handoffs.front()));handoffs.pop_front();}
+    for(const auto& h:handoffs) if(h.sequence==sequence && h.start) {
+        // Readers never move back: after a save barrier they hold its frame
+        // until the frames handed after it catch up.
+        if(h.start->status.session==session_id && h.start->serial>visible->serial)previous=std::exchange(visible,h.start);
+        return true;
+    }
+    return false;
+}
+std::uint32_t handoff_terrain(std::uint64_t session_id,std::uint64_t sequence,MAOniColonyTerrain* out,std::uint32_t capacity) {
+    std::lock_guard lock(publication);
+    require(latest && latest->status.session==session_id,"Stale colony reader session");
+    for(const auto& h:handoffs) if(h.sequence==sequence) {
+        require(h.native_terrain.size()<=UINT32_MAX,"Too many native ownership changes");
+        const auto n=static_cast<std::uint32_t>(h.native_terrain.size());
+        if(out)std::copy_n(h.native_terrain.begin(),std::min(n,capacity),out);
+        return n;
+    }
+    return 0;
+}
+bool awaiting_handoff(std::uint64_t sequence) noexcept {
+    if(!enabled.load(std::memory_order_acquire) || !activity_owner.load(std::memory_order_acquire))return false;
+    if(handed_activity.load(std::memory_order_acquire)>=sequence)return false;
+    std::lock_guard lock(publication);
+    return latest && latest->status.state==1;
+}
 
 void start(const MAOniColonyConfig& config, std::span<const MAOniColonyMaterial> materials, std::span<const MAOniColonyCell> cells, std::uint64_t thread) {
     std::lock_guard lock(lifecycle);
@@ -1483,7 +1547,7 @@ void stop() noexcept {
     ma::oni::windows_lifecycle_trace("colony lifecycle locked");
     close_input_journal();
     session.reset();prepared_retirement.reset();retiring_count=0;
-    std::scoped_lock p(publication,inputs);latest.reset();sample_frames.clear();retained_sample_frames=0;
+    std::scoped_lock p(publication,inputs);latest.reset();visible.reset();readers_pinned=false;handoffs.clear();sample_frames.clear();retained_sample_frames=0;
     capture_native_arena.store(false,std::memory_order_release);
     pending_native_arena.reset();pending_native_arena_captures=0;
     ma::oni::windows_lifecycle_trace("colony stop completed");
@@ -1506,6 +1570,8 @@ void fault_native(const char* reason) noexcept {
     unrecorded_native_fault.store(true, std::memory_order_release);
 }
 
+// The owner's own latest status (barriers, diagnostics); the game's readers
+// get theirs with the views (copy_published).
 MAOniColonyStatus status() {
     std::lock_guard lock(publication);
     auto s = latest ? latest->status : empty_status();
@@ -1526,7 +1592,7 @@ MAOniColonyParcelContext parcel_context() {
 namespace {
 bool copy_published(MAOniColonyStatus& out, MAOniColonyCellView* views, std::uint32_t capacity,
     std::optional<std::pair<std::uint64_t,std::uint64_t>> previous) {
-    std::shared_ptr<const Published> p; { std::lock_guard lock(publication); p = latest; }
+    const auto p = reader_publication();
     require(p != nullptr, "No colony owner is active");
     const bool changed=p->same_frame_edit || !previous || previous->first!=p->status.session || previous->second!=p->status.completed_frames;
     if (views) {
@@ -1547,7 +1613,7 @@ bool copy_changed(std::uint64_t session_id,std::uint64_t frame,MAOniColonyStatus
     return copy_published(out,views,capacity,std::pair{session_id,frame});
 }
 std::uint32_t composition(std::uint32_t public_cell, std::uint32_t* indices, double* masses, std::uint32_t capacity) {
-    std::shared_ptr<const Published> p; { std::lock_guard lock(publication); p = latest; }
+    const auto p = reader_publication();
     require(p != nullptr && p->world != nullptr, "No colony owner is active");
     const auto i = rect_index(geometry, public_cell);
     const auto& m = p->world->state().cells[i].mixture; std::uint32_t count = 0;
@@ -1586,7 +1652,7 @@ void refuse_reading(std::int64_t public_cell) {
     refused_reading.store(public_cell < 0 ? SIZE_MAX : rect_index(geometry, static_cast<std::uint32_t>(public_cell)), std::memory_order_relaxed);
 }
 double trace_reading_temperature(std::uint32_t public_cell, std::uint32_t native_index, double trace_kg) {
-    std::shared_ptr<const Published> p; { std::lock_guard lock(publication); p = latest; }
+    const auto p = reader_publication();
     require(p != nullptr && p->world != nullptr, "No colony owner is active");
     const ArithmeticScope arithmetic;
     const auto& w = *p->world; const auto i = rect_index(geometry, public_cell);
@@ -1603,7 +1669,7 @@ double liquid_density(std::span<const MAOniColonyMaterial> materials, std::uint3
     return 1 / c->eos->reference().liquid_response(k, pressure_pa).specific_volume_m3_per_kg;
 }
 ReadingSnapshot reading_snapshot() {
-    std::shared_ptr<const Published> p; { std::lock_guard lock(publication); p=latest; }
+    const auto p = reader_publication();
     require(p && p->world,"No colony owner is active");
     return {p,p->readings,p->parts,p->status.completed_frames};
 }
@@ -1611,7 +1677,7 @@ bool sample_activity(std::uint64_t expected_session,std::uint64_t expected_frame
     std::span<const std::uint32_t> cells,MAOniColonyStatus& status,std::span<MAOniColonyActivityCell> rows) {
     require(!cells.empty() && cells.size()<=4096 && rows.size()==cells.size(),"Invalid activity observation coverage");
     for(std::size_t i=1;i<cells.size();++i)require(cells[i]>cells[i-1],"Activity observation cells must be sorted and unique");
-    std::shared_ptr<const Published> p;{std::lock_guard lock(publication);p=latest;}
+    const auto p=reader_publication();
     require(p && p->world,"No colony owner is active");
     if(expected_session && (expected_session!=p->status.session || expected_frame!=p->status.completed_frames))return false;
     if(!mac_game_activity_profile(p->world->settings().game_profile))
@@ -1634,7 +1700,7 @@ bool read_passives(std::uint64_t expected_session,std::uint64_t expected_frame,s
     MAOniColonyPassiveStamp& stamp,std::vector<MAOniColonyPassiveRow>& rows) {
     require(!cells.empty() && cells.size()<=4096,"Passive observation requires 1..4096 cells");
     for(std::size_t i=1;i<cells.size();++i)require(cells[i]>cells[i-1],"Passive observation cells must be sorted and unique");
-    std::shared_ptr<const Published> p;{std::lock_guard lock(publication);p=latest;}
+    const auto p=reader_publication();
     require(p && p->world,"No colony owner is active");
     if(expected_session && (expected_session!=p->status.session || expected_frame!=p->status.completed_frames))return false;
     const auto& state=p->world->state();std::size_t count=0;
@@ -2186,12 +2252,19 @@ void set_space_cells(std::span<const std::uint32_t> cells,bool space) {
     for(const auto cell:cells)session->space[rect_index(session->config,cell)]=space?1:0;
     if(activity_owner.load(std::memory_order_acquire)){std::lock_guard q(inputs);native_activity_touches.insert(native_activity_touches.end(),cells.begin(),cells.end());}
 }
-std::uint32_t copy_receipts(MAOniColonyReceipt* out, std::uint32_t capacity) {
+std::uint32_t copy_receipts(MAOniColonyReceipt* out, std::uint32_t capacity, bool pending) {
+    // Pinned readers receive the outcomes of the frames they see, no later
+    // ones (docs/colony-owner.md#overlapped-pacing); `pending` (a census of
+    // everything not yet acknowledged) sees them all.
+    std::uint64_t through_frame=UINT64_MAX;
+    if (!pending) { std::lock_guard p(publication);
+      if (const auto shown=reader_publication_locked(); readers_pinned && shown && shown==visible) through_frame=shown->status.completed_frames; }
     std::lock_guard lock(inputs);
     std::size_t available=receipts.size();
-    if (!receipt_jobs.empty()) {
+    if (!receipt_jobs.empty() || through_frame!=UINT64_MAX) {
         available=0;
         for (const auto& receipt : receipts) {
+            if (receipt.completed_frame>through_frame) break;
             const auto job=receipt_jobs.find(receipt.sequence);
             if (job!=receipt_jobs.end() && pipe_jobs.at(job->second).last_receipt==0) break;
             ++available;
@@ -2744,6 +2817,7 @@ void advance(std::uint64_t ticket, double seconds, std::uint64_t thread) noexcep
             solver.idle.wait(l,[&]{return !enabled.load(std::memory_order_acquire) || solver.quit || solver.activity_waiting_seconds+seconds<=10;});
             if(!enabled.load(std::memory_order_acquire) || solver.quit)return;
             auto task=std::make_shared<ActivityTask>();task->ticket=ticket;
+            std::vector<MAOniColonyTerrain> native_terrain;
             {std::lock_guard q(inputs);release_unbound_rebinds();
                 require(!native_activity_capture_failed.load(std::memory_order_relaxed),"Native activity capture could not retain its terrain input");
                 require(!pending_activity.empty() && pending_activity.front().claimed,"Native activity frame lacks its claimed census");
@@ -2751,6 +2825,8 @@ void advance(std::uint64_t ticket, double seconds, std::uint64_t thread) noexcep
                 require(!native_activity_ticket || native_activity_ticket==ticket,"Native activity capture ticket differs");
                 task->packet=std::move(pending_activity.front());pending_activity.pop_front();
                 task->batch=take_activity_inputs(task->packet.cuts,true);
+                for(const auto& e:native_activity_inputs.terrain)if(e.kind==MA_ONI_COLONY_OPEN || e.kind==MA_ONI_COLONY_CLOSE)native_terrain.push_back(e);
+                for(const auto& f:native_activity_inputs.freezes)native_terrain.push_back({f.public_cell,MA_ONI_COLONY_CLOSE});
                 append_inputs(task->batch,std::move(native_activity_inputs));native_activity_inputs={};native_activity_ticket=0;
                 task->packet.touched.insert(task->packet.touched.end(),native_activity_touches.begin(),native_activity_touches.end());
                 if(native_activity_wake_all.load(std::memory_order_relaxed)) {
@@ -2760,6 +2836,12 @@ void advance(std::uint64_t ticket, double seconds, std::uint64_t thread) noexcep
                 native_activity_touches.clear();native_activity_wake_all.store(false,std::memory_order_relaxed);
                 task->mode=pending_activity_mode;pending_activity_mode.reset();
             }
+            // The frame starts from the latest publication: the one this
+            // native frame's shadow showed native physics. Readers pinned to
+            // this frame see exactly it (docs/colony-owner.md#pacing).
+            {std::lock_guard p(publication);
+                if(readers_pinned && handoffs.size()<maximum_handoffs)handoffs.push_back({task->packet.sequence,latest,std::move(native_terrain)});}
+            handed_activity.store(task->packet.sequence,std::memory_order_release);
             solver.activity_waiting_seconds+=seconds;solver.activity_work.push_back(std::move(task));
             solver.busy.store(true,std::memory_order_release);
             if(!solver.thread.joinable())solver.thread=std::thread([]{solver.loop();});

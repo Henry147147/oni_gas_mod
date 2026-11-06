@@ -119,3 +119,5 @@ internal static bool PlainByproduct(ulong sequence){TestRuntime.Fail("outcome");
 namespace MixedAtmospheres.Oni {internal static class ColonyFrameLog {internal enum Part {Receipts,ByproductPump} internal static long Ticks;internal static void AddTicks(Part part,long ticks){Ticks+=ticks;} }}
 
 namespace MixedAtmospheres.Oni {internal static class ColonyContinuationProbe {internal static bool Holding;}internal static class ColonyCallbackRequests {internal static bool Pending;}}
+
+namespace MixedAtmospheres.Oni {internal static class ColonyReaderPin {internal static int Depth;internal static Scope FollowOwner(){++Depth;return new Scope();} internal sealed class Scope:IDisposable {public void Dispose(){--Depth;}}}}

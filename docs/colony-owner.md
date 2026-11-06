@@ -648,7 +648,98 @@ face masks; the owner wrapper records which boundary law rebuilds them.
 
 ## Pacing
 
-The owner's step runs on its own thread. While a step runs,
+The owner's step runs on its own thread.
+
+### Overlapped pacing
+
+Every activity owner (game profiles 9-12, so every new colony) uses
+overlapped pacing (user decision 2026-11-05) unless the development
+exact-storage heat control is active:
+
+- **The game posts its next 200 ms tick while the owner still computes the
+  previous one.** It holds the tick only until the owner has been *handed*
+  the frame it posted last (`ma_oni_colony_awaiting_handoff`). A positive
+  native frame still waits, on ONI's native worker, for the owner frame before
+  it, writes that frame's cells into ONI's arrays (the shadow) before
+  `UpdateData`, and only then hands its own frame to the owner. The owner's
+  frames, the inputs each one claims and its checkpoint bytes are therefore
+  those of serial pacing. While the posted frame awaits its handoff,
+  `Game.SimEveryTick` runs the 1/60 s sub ticks up to the next tick and holds
+  there; it also holds a Unity frame too short for a sub tick, whose zero-time
+  native frame would make the next `PrepareGameData` wait for the owner
+  (`ColonyPacingGate`). The game thread never waits for the owner, and its own
+  work (publication, pipes, ONI's sim) runs beside the owner frame instead of
+  between owner frames. The tick interval becomes the owner frame plus the
+  part of the native frame before the handoff (about 18 ms on the base full
+  colony: messages, shadow, `UpdateData`, capture), not owner frame plus
+  native frame plus the game thread's work.
+- **What the game's readers see: one frame later, at a fixed lag.** At the
+  tick that posts native frame T, every game-thread reader sees owner frame
+  T-2: exactly the owner state native frame T-1 started from, the cells its
+  shadow wrote into ONI's arrays. It is never owner frame T-1, even when that
+  frame has already completed, and the same frame is shown at every
+  publication until the next positive tick, whatever the owner's timing.
+  Serial pacing showed T-1, so readers see owner state 0.2 s of game time
+  later. The readers are: the overlay into ONI's cell arrays (`Grid` element,
+  mass, temperature and germs, from the cell views), the presentation readings
+  (hover, overlays, mixture rendering, breathing status), compositions, germ
+  passives (sensors, world germs), activity samples and the status that comes
+  with the views (`ColonyOwner.Status`). `ma_oni_colony_status`, current-frame
+  samples and checkpoints stay the owner's latest frame (barriers,
+  diagnostics), and `ma_oni_colony_copy_pending_receipts` is a census of every
+  unacknowledged receipt, never a delivery. The
+  receipts arrive with the same frame: consumer and emitter callbacks,
+  byproducts and pipe outcomes of owner frame T-2 are delivered at tick T and
+  those of later frames are not (`copy_receipts` stops at the first receipt of
+  a later frame). All of them read one immutable publication, so no two
+  readers ever disagree about a cell.
+- **How.** When native hands an activity frame to the solver it records the
+  publication that frame starts from, by activity sequence. Each publication
+  first calls `ma_oni_colony_show_frame` with the sequence of the positive
+  frame the game posted before the current one (`ColonyPostedFrames.Shown`);
+  native then serves every game-thread read from that publication. Readers
+  only move forward (publication serial numbers).
+- **Inputs.** An activity owner claims each frame's inputs when the game posts
+  it, so every game input reaches the same owner frame as under serial pacing.
+  The game decides them against state one frame older: a consumer may ask for
+  more than a cell then holds, and gets what is there (the owner already
+  clamps extraction; the receipt says what it got).
+- **Message routing.** Which side takes a cell's message (the owner or
+  ONI's native cell) must not lag: an edit made now applies two frames after
+  the readers' frame. Element replacements and digs no longer consult
+  ownership at all; they queue the owner's open, clear or close, which the
+  owner resolves against the cell when the edit applies (closing a wall,
+  opening an owned cell or clearing a wall changes nothing). Additive mass,
+  heat and germ edits are routed by the readers' ownership plus every
+  ownership change known since: the opens and closes the adapter queued for
+  later frames, and those the native frame of the readers' next frame
+  captured (solids landing, tiles melting, freezes; `ma_oni_colony_handoff_terrain`)
+  (`ColonyRouting`). That is at least as fresh as serial pacing's routing.
+  Readers (sensors, machines, the pitcher pump, world germs) use the
+  readers' ownership only.
+- **Scenarios.** The validation arenas place their fluid one tick after
+  their replacements instead of two, so the fill is in the readers' frame by
+  scenario frame 4 in both modes, and the building-melt baseline allows the
+  owner its two-frame lead; no check or bound changed.
+- **Saves.** Inside a save barrier (and the lifecycle barriers that flush
+  inputs) the readers follow the latest frame (`ColonySaveBarrier.FollowOwner`),
+  so the barrier settles the frame in flight, including a posted frame still
+  waiting for its predecessor, and delivers every receipt as before. When the
+  barrier ends the readers are pinned at the frame it settled and hold it
+  until the frames handed after it catch up (two ticks); they never move back.
+  A load of that save starts its readers at the same restored frame and shows
+  the same frames, with the same receipts, at the same ticks as the
+  uninterrupted game (native `overlapped_pacing_control`).
+- **Faults** show at once (the readers then read the faulted publication) and
+  never hold the tick.
+
+The game floor arenas, the diagnostic kernels and an owner with exact storage
+heat keep serial pacing: the game holds its tick while the owner is busy
+(`ma_oni_colony_busy`) and readers see the latest completed frame.
+
+### Serial pacing and the clock
+
+While a step runs under serial pacing,
 `Game.SimEveryTick` still runs the 1/60 s sub ticks up
 to the next 200 ms tick and holds there. The game clock (`Time.timeScale`)
 runs at the player's speed or 95% of the owner's measured rate (game seconds
@@ -656,9 +747,10 @@ per second of solving, smoothed), whichever is slower, so play runs in slow
 motion rather than stop-go. Pause, the camera and menus use unscaled time and
 stay responsive during those pacing holds. A native-frame fence also waits for
 the preceding owner step before a positive frame applies its messages,
-contacts and shadow, covering frames posted before managed pacing sees the
-busy flag. It preserves the physical frame order without advancing an extra
-step. ONI also posts a zero-time native frame every Unity frame; with activity
+contacts and shadow; it covers frames posted before managed pacing sees the
+busy flag, and under overlapped pacing it is how every positive frame meets
+its predecessor. It preserves the physical frame order without advancing an
+extra step. ONI also posts a zero-time native frame every Unity frame; with activity
 tiers the owner has already claimed its frame's inputs at submission, so those
 frames no longer wait for the running step (without tiers, or with exact
 storage, they still do). Waiting there had blocked the game thread's next
@@ -1375,8 +1467,11 @@ scheduler graphs, chores, state machines, timed events and ONI's native
 thermal registries) was abandoned unwritten: fourteen in-game source
 captures failed before any load, and no part of it reached main.
 
-The owner steps one frame ahead of what the game has seen, so at a save its
-last completed frame still has receipts the game has not received.
+The owner steps one frame (with [overlapped pacing](#overlapped-pacing), two)
+ahead of what the game has seen, so at a save its last completed frames still
+have receipts the game has not received, and a posted frame may still wait for
+its predecessor. Inside the barrier the readers follow the latest frame; at
+its end they are pinned at the settled frame.
 `ColonySaveBarrier` runs at `SaveLoader.Save(string, bool, bool)` entry, before
 ONI touches any file: it posts ONI's own zero-time sim step (`UnsafeSim200ms(0)`,
 as every paused frame does) and waits until ONI's sim thread has ended that

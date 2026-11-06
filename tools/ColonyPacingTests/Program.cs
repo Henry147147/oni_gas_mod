@@ -38,5 +38,76 @@ static class Program
         var before=GC.GetAllocatedBytesForCurrentThread();for(var k=0;k<100000;++k){var t=counter.Begin(.03f,true,220,8);counter.Pacing(.03f,.02f,true,true);counter.Complete(t,.02f,true);}
         Check(GC.GetAllocatedBytesForCurrentThread()==before);value=counter.Drain();Check(value.Calls==100000);
         Console.WriteLine($"Pacing loss controls: {checks} checks passed.");
+        GateControls();
+    }
+
+    // The serial hold before overlapped pacing, as an oracle for Admit(false, ...).
+    static bool SerialHold(int subTick, float simDt, ref float dt, out bool held)
+    {
+        var allowed = (12 - subTick) / 60f - simDt - 1e-4f;
+        if ((dt < .2f ? dt : .2f) < allowed) { held = false; return true; }
+        held = true;
+        if (allowed <= 0) return false;
+        dt = allowed; return true;
+    }
+    // Game.SimEveryTick: returns the positive and zero-time UnsafeSim200ms calls it makes.
+    static (int Positive, int Zero) SimEveryTick(ref int subTick, ref float simDt, float dt)
+    {
+        dt = dt < .2f ? dt : .2f; simDt += dt; var positive = 0;
+        if (simDt >= 1f / 60f)
+        {
+            do { subTick = (subTick + 1) % 12; if (subTick == 0) ++positive; simDt -= 1f / 60f; } while (simDt >= 1f / 60f);
+            return (positive, 0);
+        }
+        return (0, 1);
+    }
+    static void GateControls()
+    {
+        var start = checks;
+        var random = new Random(20261105);
+        // Serial pacing keeps its exact decisions.
+        for (var k = 0; k < 200000; ++k)
+        {
+            var subTick = random.Next(12); var simDt = (float)(random.NextDouble() / 60); var dt = (float)(random.NextDouble() * (k % 3 == 0 ? .5 : .06));
+            var a = dt; var b = dt;
+            var run = ColonyPacingGate.Admit(false, subTick, simDt, ref a, out var held);
+            var expected = SerialHold(subTick, simDt, ref b, out var expectedHeld);
+            Check(run == expected && held == expectedHeld && BitConverter.SingleToInt32Bits(a) == BitConverter.SingleToInt32Bits(b));
+        }
+        // Overlapped pacing against SimEveryTick: while a posted frame awaits its
+        // handoff the game posts neither a tick nor a zero-time frame, and every
+        // call posts at most one tick; once handed, the next tick follows.
+        foreach (var frameSeconds in new[] { 1 / 144f, 1 / 60f, .05f, .12f, .25f })
+        {
+            int subTick = 0, posts = 0, zeros = 0, handed = 0, pendingCalls = 0; float simDt = 0; var pending = false;
+            for (var call = 0; call < 20000; ++call)
+            {
+                var dt = frameSeconds * (float)(.5 + random.NextDouble());
+                if (pending && --pendingCalls <= 0) { pending = false; ++handed; }
+                if (pending)
+                {
+                    var run = ColonyPacingGate.Admit(true, subTick, simDt, ref dt, out _);
+                    if (!run) continue;
+                    var (positive, zero) = SimEveryTick(ref subTick, ref simDt, dt);
+                    Check(positive == 0 && zero == 0);
+                }
+                else
+                {
+                    var (positive, zero) = SimEveryTick(ref subTick, ref simDt, dt);
+                    Check(positive <= 1);
+                    posts += positive; zeros += zero;
+                    if (positive != 0) { pending = true; pendingCalls = random.Next(1, 6); }
+                }
+            }
+            Check(posts > 100 && posts - handed <= 1);
+            if (frameSeconds < 1 / 60f) Check(zeros > 0);
+        }
+        var frames = new ColonyPostedFrames();
+        Check(frames.Posted == 0 && frames.Shown == 0);
+        frames.Post(5); Check(frames.Posted == 5 && frames.Shown == 0);
+        frames.Post(6); Check(frames.Posted == 6 && frames.Shown == 5);
+        var refused = false; try { frames.Post(6); } catch (InvalidOperationException) { refused = true; } Check(refused && frames.Posted == 6 && frames.Shown == 5);
+        frames.Reset(); Check(frames.Posted == 0 && frames.Shown == 0); frames.Post(1); Check(frames.Shown == 0);
+        Console.WriteLine($"Pacing gate controls: {checks - start} checks passed.");
     }
 }

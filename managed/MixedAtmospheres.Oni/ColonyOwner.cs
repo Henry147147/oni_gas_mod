@@ -140,8 +140,11 @@ namespace MixedAtmospheres.Oni
             var x=(long)(cell % config.GridWidth)-config.OffsetX;var y=(long)(cell / config.GridWidth)-config.OffsetY;
             return x>=0 && y>=0 && x<config.Width && y<config.Height && (views[(int)(x+y*config.Width)].Flags & OniNativeColony.ViewOwned)!=0;
         }
-        internal static bool OwnsFluidCell(int cell) => OwnsFluid(cell);
-        private static bool OwnsFluid(int cell) => Active && InRect(cell, out var index) && (views[index].Flags & OniNativeColony.ViewOwned) != 0;
+        // Readers: the published frame's ownership.
+        internal static bool OwnsFluidCell(int cell) => Active && InRect(cell, out var index) && (views[index].Flags & OniNativeColony.ViewOwned) != 0;
+        // Message routing: that ownership with the changes known since (ColonyRouting).
+        private static bool OwnsFluid(int cell) => Active && InRect(cell, out var index) &&
+            (ColonyRouting.Owned(cell) ?? (views[index].Flags & OniNativeColony.ViewOwned) != 0);
 
         internal static OniNativeColony.Material[] BuildCatalogue()
         {
@@ -373,6 +376,7 @@ namespace MixedAtmospheres.Oni
                 previousCollections=collections;
                 lapStarted = now;
             }
+            ColonyReaderPin.Show(status.Session);
             var output = OniNativeColony.Status.Empty;
             ColonyViewCache.Copy(ref output, views);
             Lap("views");
@@ -739,7 +743,8 @@ namespace MixedAtmospheres.Oni
                     // ONI digs the tile natively; the owner opens the cell.
                     if (length < 4) return false;
                     var cell = *(int*)payload;
-                    if (InRect(cell, out _) && !OwnsFluid(cell)) QueueTerrain(cell, OniNativeColony.Open);
+                    // An open of an owned cell changes nothing: never let a stale view skip one.
+                    if (InRect(cell, out _)) QueueTerrain(cell, OniNativeColony.Open);
                     return false;
                 }
                 case ModifyCell when length == 28 && payload[22] != 0:
@@ -754,10 +759,14 @@ namespace MixedAtmospheres.Oni
                         if (!InRect(cell, out _)) continue;
                         var element = ElementLoader.elements[BinaryPrimitives.ReadUInt16LittleEndian(d.Slice(20))];
                         var mass = BitConverter.Int32BitsToSingle(BinaryPrimitives.ReadInt32LittleEndian(d.Slice(12)));
-                        if (element.IsSolid) { if (OwnsFluid(cell)) QueueTerrain(cell, OniNativeColony.Close); continue; }
-                        if (!OwnsFluid(cell)) QueueTerrain(cell, OniNativeColony.Open);
+                        // The owner resolves each edit against the cell as it is when
+                        // the edit applies (a close of a wall, an open of an owned
+                        // cell and a clear of a wall change nothing), never against a
+                        // view that may predate the cell's last open or close.
+                        if (element.IsSolid) { QueueTerrain(cell, OniNativeColony.Close); continue; }
+                        QueueTerrain(cell, OniNativeColony.Open);
                         // A plain replacement replaces the cell's fluid; replace-and-displace adds to it.
-                        else if (d[22] == 1) QueueTerrain(cell, OniNativeColony.Clear);
+                        if (d[22] == 1) QueueTerrain(cell, OniNativeColony.Clear);
                         if ((element.IsGas || element.IsLiquid) && mass > 0)
                             OniNativeColony.Check(OniNativeColony.QueueTransfers(new[] { WithGerms(new OniNativeColony.Transfer { PublicCell = (uint)cell,
                                 NativeIndex = element.idx, Kind = OniNativeColony.Inject, Callback = -1, MassKg = mass,
@@ -834,8 +843,11 @@ namespace MixedAtmospheres.Oni
             if (germs > 0 && d[23] != byte.MaxValue) { t.Disease = OniNativeColony.Germ(d[23]); t.DiseaseCount = germs; }
             return t;
         }
-        private static void QueueTerrain(int cell, uint kind) =>
+        private static void QueueTerrain(int cell, uint kind)
+        {
             OniNativeColony.Check(OniNativeColony.QueueTerrain(new[] { new OniNativeColony.Terrain { PublicCell = (uint)cell, Kind = kind } }, 1));
+            ColonyRouting.Queued(cell, kind);
+        }
         private delegate void TransferDecoder(ReadOnlySpan<byte> data, List<OniNativeColony.Transfer> list);
         private static bool Claim(int length, int expected, int count, byte* payload, TransferDecoder decode, bool rectAnywhere)
         {

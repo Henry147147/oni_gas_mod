@@ -81,7 +81,10 @@ namespace MixedAtmospheres.Oni
             if(space.Count>0)OniNativeColony.Check(OniNativeColony.SetSpaceCells(space.ToArray(),(uint)space.Count,1));
             if(interior.Count>0)OniNativeColony.Check(OniNativeColony.SetSpaceCells(interior.ToArray(),(uint)interior.Count,0));
             if(openings.Count>0)
+            {
                 OniNativeColony.Check(OniNativeColony.QueueTerrain(openings.ToArray(),(uint)openings.Count));
+                foreach(var opening in openings)ColonyRouting.Queued((int)opening.PublicCell,opening.Kind);
+            }
             // The already registered owner's masses, energy, germs and clock
             // are untouched. Only the new cells queue the existing terrain
             // operation; native template sources use the ordinary mass route.

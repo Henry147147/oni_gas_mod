@@ -49,7 +49,9 @@ namespace MixedAtmospheres.Oni
         private static int subTick(Game game)=>Guards.Allowance<=0?12:11;
         private static float simDt(Game game)=>Guards.Allowance<=0?-1e-4f:1f/60f-1e-4f-Guards.Allowance;
     }
-    internal static class OniNativeColony {internal static int Busy()=>Guards.Busy?1:0;}
+    // Serial pacing: this harness's owner is not an activity owner.
+    internal static class OniNativeColony {internal static int Busy()=>Guards.Busy?1:0;internal static uint Overlapped()=>0;internal static uint AwaitingHandoff(ulong sequence)=>0;}
+    internal static class ColonyActivity {internal const bool Active=false;internal static readonly ColonyPostedFrames Frames=new ColonyPostedFrames();}
     internal static class ColonyFrameLog {internal enum Part{Tick} internal static readonly bool Enabled=false;internal static long Now=>0;internal static void Add(Part part,long begun){}}
 }
 [HarmonyPatch(typeof(Game),nameof(Game.SimEveryTick))]static class LaterGuard

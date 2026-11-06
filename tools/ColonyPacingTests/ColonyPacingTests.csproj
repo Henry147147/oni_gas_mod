@@ -3,5 +3,5 @@
     <OutputType>Exe</OutputType><TargetFramework>net10.0</TargetFramework><Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings><TreatWarningsAsErrors>true</TreatWarningsAsErrors>
   </PropertyGroup>
-  <ItemGroup><Compile Include="../../managed/MixedAtmospheres.Oni/ColonyPacingLoss.cs" Link="ColonyPacingLoss.cs" /></ItemGroup>
+  <ItemGroup><Compile Include="../../managed/MixedAtmospheres.Oni/ColonyPacingLoss.cs" Link="ColonyPacingLoss.cs" /><Compile Include="../../managed/MixedAtmospheres.Oni/ColonyPacingGate.cs" Link="ColonyPacingGate.cs" /></ItemGroup>
 </Project>

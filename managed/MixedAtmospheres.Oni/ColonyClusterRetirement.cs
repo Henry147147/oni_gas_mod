@@ -131,6 +131,7 @@ namespace MixedAtmospheres.Oni
                 for(var x=state.Region.X;x<state.Region.X+state.Region.Width;++x)
                     closing.Add(new OniNativeColony.Terrain{PublicCell=(uint)Grid.XYToCell(x,y),Kind=OniNativeColony.Close});
             OniNativeColony.Check(OniNativeColony.QueueTerrain(closing.ToArray(),(uint)closing.Count));
+            foreach(var edit in closing)ColonyRouting.Queued((int)edit.PublicCell,edit.Kind);
             _=ColonySaveBarrier.FlushInputs();return true;
         }
         internal static void AfterDelete(WorldContainer world)

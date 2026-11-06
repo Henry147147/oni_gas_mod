@@ -23,6 +23,23 @@ void fault_native(const char* reason) noexcept;
 // tiers), so messages applied by a later zero-time native frame cannot reach
 // a frame that is still running.
 [[nodiscard]] bool claims_inputs_at_submission() noexcept;
+// What the game thread's readers (status, views, compositions, readings,
+// passives, activity samples, receipts) see (docs/colony-owner.md#pacing).
+// follow_frames(true): the latest publication, as before overlapped pacing.
+// follow_frames(false): pinned at the latest publication. show_frame pins the
+// readers to the publication the activity frame `sequence` started from (the
+// owner state that frame's native shadow showed), never moving them back;
+// false when that frame is not among the recent handoffs.
+void follow_frames(std::uint64_t session,bool follow);
+bool show_frame(std::uint64_t session,std::uint64_t sequence);
+// The cell ownership changes (opens, closes, freezes) the native frame that
+// handed activity frame `sequence` captured for it; copies up to `capacity`
+// and returns their count (zero when the frame is not among the recent ones).
+std::uint32_t handoff_terrain(std::uint64_t session,std::uint64_t sequence,MAOniColonyTerrain* out,std::uint32_t capacity);
+// True while an activity owner is healthy and the activity frame `sequence`
+// has not been handed to the solver (its native frame still waits for the
+// previous owner frame or has not reached UpdateData's end).
+[[nodiscard]] bool awaiting_handoff(std::uint64_t sequence) noexcept;
 // Controls: the idle-time private state copy a frame starts from (on by
 // default) and how many frames used one.
 void set_world_preparation(bool enabled) noexcept;
@@ -52,7 +69,9 @@ struct NativeHeatProjection {std::uint16_t element;float mass,temperature;bool v
 // native operations may already have changed before a contact is observed.
 [[nodiscard]] NativeHeatProjection native_heat_projection(int native_cell) noexcept;
 void set_space_cells(std::span<const std::uint32_t>,bool space);
-std::uint32_t copy_receipts(MAOniColonyReceipt*, std::uint32_t capacity);
+// Receipts to deliver: with pinned readers, those of the frames they see.
+// `pending`: every unacknowledged receipt (a census; never delivered from).
+std::uint32_t copy_receipts(MAOniColonyReceipt*, std::uint32_t capacity, bool pending=false);
 void ack_receipts(std::uint64_t through);
 // Byproduct batches (docs/colony-owner.md#byproduct-batches). release: every
 // pending batch becomes a receipt of the current frame (after wait(); the save

@@ -62,6 +62,8 @@ namespace MixedAtmospheres.Oni
         internal static int ActorCells { get; private set; }
         internal static int TouchedCells { get; private set; }
         internal static ulong LastSubmittedSequence { get; private set; }
+        // The activity frames positive native frames deliver (overlapped pacing).
+        internal static readonly ColonyPostedFrames Frames = new ColonyPostedFrames();
         internal static long MaskChecks { get; private set; }
         internal static long MaskCellsChecked { get; private set; }
         internal static long MaskBusy { get; private set; }
@@ -70,14 +72,16 @@ namespace MixedAtmospheres.Oni
         internal static void Reset()
         {
             entries.Clear(); dead.Clear(); retired.Clear(); census.Reset(); seeded = false; session = 0; Active = false; latestCensus = null; stagedSequence = 0; stagedSeconds = 0; ReplayMigratedActors = StagedFrames = StagedDeliveries = 0;
-            QueuedFrames = ClaimedFrames = LifecycleRefreshes = 0; ActorCount = ActorCells = TouchedCells = LivingActors = Buildings = Plants = InactiveActors = 0; LastSubmittedSequence = 0;
+            QueuedFrames = ClaimedFrames = LifecycleRefreshes = 0; ActorCount = ActorCells = TouchedCells = LivingActors = Buildings = Plants = InactiveActors = 0; LastSubmittedSequence = 0; Frames.Reset();
             pendingChecks.Clear(); MaskChecks = MaskCellsChecked = MaskBusy = DroppedChecks = 0;
         }
         internal static void Started(uint flags, ulong ownerSession)
         {
-            Active = (flags & OniNativeColony.GameActivity) != 0; session = ownerSession;
+            Active = (flags & OniNativeColony.GameActivity) != 0; session = ownerSession; Frames.Reset();
             if (Active && OniNativeColony.ActivityVersion() != 1)
                 throw new NotSupportedException("This native bundle does not support the region activity frame contract.");
+            if (Active && OniNativeColony.PacingVersion() != 1)
+                throw new NotSupportedException("This native bundle does not support overlapped pacing.");
         }
         private static bool Real(Component component)
         {
@@ -221,13 +225,13 @@ namespace MixedAtmospheres.Oni
             {
                 ColonyActivityDelivery.Validate(session, seconds, state.Session, 1, stagedSequence, stagedSeconds);
                 if (state.PendingFrames != 0) throw new InvalidOperationException("A staged live frame cannot also be a restored frame.");
-                _ = ColonyActors.TakeNativeForReplay(); stagedSequence = 0; ++StagedDeliveries; return;
+                _ = ColonyActors.TakeNativeForReplay(); Frames.Post(stagedSequence); stagedSequence = 0; ++StagedDeliveries; return;
             }
             if (state.PendingFrames != 0)
             {
                 ReplayMigratedActors += ColonyActors.TakeNativeForReplay();
                 OniNativeColony.Check(OniNativeColony.ClaimActivityFrame(session, state.PendingHeadSequence, seconds));
-                LastSubmittedSequence = state.PendingHeadSequence; ++ClaimedFrames; return;
+                LastSubmittedSequence = state.PendingHeadSequence; Frames.Post(state.PendingHeadSequence); ++ClaimedFrames; return;
             }
             ColonyActors.QueueFrame(seconds);
             var snapshot = Capture();
@@ -239,8 +243,9 @@ namespace MixedAtmospheres.Oni
                 { using var oldest = pendingChecks.GetEnumerator(); oldest.MoveNext(); pendingChecks.Remove(oldest.Current.Key); ++DroppedChecks; }
                 pendingChecks.Add(sequence, snapshot);
             }
-            LastSubmittedSequence = sequence; ++QueuedFrames;
+            LastSubmittedSequence = sequence; if (!staging) Frames.Post(sequence); ++QueuedFrames;
         }
+        private static bool staging; // the staged packet is posted by the next positive frame
         // Private lifecycle scenario only: prepare exactly the next native
         // frame before a normal save, then deliver that same frame once the
         // uninterrupted game resumes. A load instead claims its saved packet.
@@ -252,7 +257,9 @@ namespace MixedAtmospheres.Oni
             var state = OniNativeColony.ActivityState.Empty; OniNativeColony.Check(OniNativeColony.CopyActivity(ref state));
             if (state.PendingFrames != 0 || state.NextSubmissionSequence != state.LastCommittedSequence + 1)
                 throw new InvalidOperationException("Finish earlier activity delivery before staging another frame.");
-            QueueFrame(seconds); stagedSequence = LastSubmittedSequence; stagedSeconds = seconds; ++StagedFrames; return stagedSequence;
+            staging = true;
+            try { QueueFrame(seconds); } finally { staging = false; }
+            stagedSequence = LastSubmittedSequence; stagedSeconds = seconds; ++StagedFrames; return stagedSequence;
         }
         internal static void Refresh()
         {
@@ -298,7 +305,7 @@ namespace MixedAtmospheres.Oni
                 return true;
             }
         }
-        internal static object Report() => new { Active, QueuedFrames, ClaimedFrames, ReplayMigratedActors, StagedFrames, StagedDeliveries, StagedSequence = stagedSequence, LifecycleRefreshes, ActorCount, LivingActors, Buildings, Plants, InactiveActors, ActorCells, TouchedCells, LastSubmittedSequence, MaskChecks, MaskCellsChecked, MaskBusy, DroppedChecks };
+        internal static object Report() => new { Active, PostedSequence = Frames.Posted, ShownSequence = Frames.Shown, QueuedFrames, ClaimedFrames, ReplayMigratedActors, StagedFrames, StagedDeliveries, StagedSequence = stagedSequence, LifecycleRefreshes, ActorCount, LivingActors, Buildings, Plants, InactiveActors, ActorCells, TouchedCells, LastSubmittedSequence, MaskChecks, MaskCellsChecked, MaskBusy, DroppedChecks };
     }
 
     [HarmonyPatch(typeof(PrimaryElement), "OnSpawn")]

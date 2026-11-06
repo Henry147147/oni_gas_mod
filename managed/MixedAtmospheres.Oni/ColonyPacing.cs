@@ -10,6 +10,10 @@ namespace MixedAtmospheres.Oni
     // and the game clock runs at the player's speed or the owner's measured
     // rate, whichever is slower, so play is slow motion rather than stop-go.
     // The camera, menus and pause use unscaled time and stay responsive.
+    // Overlapped (an activity owner): the game posts its next tick once the
+    // owner has been handed the previous one, while it still computes it, and
+    // every game-thread reader sees the owner state the previous positive
+    // native frame started from: owner frame T-2 at the tick that posts T.
     internal static class ColonyPacing
     {
         internal static bool Enabled = true;
@@ -44,11 +48,18 @@ namespace MixedAtmospheres.Oni
             ColonyPacingRetainedLog.Reset();
             ColonyPacingLossLog.Reset();
             ColonyPerformanceLog.FinishRun();
-            HeldTicks = UnityFrames = 0; OwnerRate = 0; seenFrames = 0;
+            HeldTicks = UnityFrames = 0; OwnerRate = 0; seenFrames = 0; ColonyReaderPin.Reset();
             updateTicks = tickTicks = updateCalls = tickCalls = maximumUpdateTicks = loggedHeldTicks = 0;
             loggedFrame = ulong.MaxValue;
         }
-        internal static bool Busy => Enabled && ColonyOwner.Active && OniNativeColony.Busy() != 0;
+        // Overlapped pacing: an activity owner whose zero-time native frames
+        // need not wait for it (no exact storage heat).
+        internal static bool Overlapped => Enabled && ColonyOwner.Active && ColonyActivity.Active && OniNativeColony.Overlapped() != 0;
+        // Overlapped: the posted positive frame has not yet been handed to the
+        // owner. Otherwise: the owner is stepping or has a frame waiting.
+        private static bool Holding(bool overlapped) => Enabled && ColonyOwner.Active &&
+            (overlapped ? OniNativeColony.AwaitingHandoff(ColonyActivity.Frames.Posted) != 0 : OniNativeColony.Busy() != 0);
+        internal static bool Busy => Holding(Overlapped);
 
         // Game.SimEveryTick runs one 1/60 s sub tick per 1/60 s of game time
         // and posts the 200 ms simulation tick on every twelfth. While the
@@ -73,31 +84,20 @@ namespace MixedAtmospheres.Oni
 
         private static bool BeforeTick(Game game, ref float dt)
         {
-            if (!Busy)
+            var overlapped = Overlapped;
+            if (!Holding(overlapped))
             {
                 if (ColonyPacingLossLog.Enabled) ColonyPacingLossLog.Pacing(dt, dt, true, false);
                 if (ColonyPacingRetainedLog.Enabled) ColonyPacingRetainedLog.Pacing(dt, dt, true, false);
                 return true;
             }
             var before = dt;
-            var allowed = (12 - subTick(game)) / 60f - simDt(game) - 1e-4f;
-            if (Mathf.Min(dt, .2f) < allowed)
-            {
-                if (ColonyPacingLossLog.Enabled) ColonyPacingLossLog.Pacing(before, dt, true, true);
-                if (ColonyPacingRetainedLog.Enabled) ColonyPacingRetainedLog.Pacing(before, dt, true, true);
-                return true;
-            }
-            ++HeldTicks;
-            if (allowed <= 0)
-            {
-                if (ColonyPacingLossLog.Enabled) ColonyPacingLossLog.Pacing(before, 0, false, true);
-                if (ColonyPacingRetainedLog.Enabled) ColonyPacingRetainedLog.Pacing(before, 0, false, true);
-                return false;
-            }
-            dt = allowed;
-            if (ColonyPacingLossLog.Enabled) ColonyPacingLossLog.Pacing(before, dt, true, true);
-            if (ColonyPacingRetainedLog.Enabled) ColonyPacingRetainedLog.Pacing(before, dt, true, true);
-            return true;
+            var run = ColonyPacingGate.Admit(overlapped, subTick(game), simDt(game), ref dt, out var held);
+            if (held) ++HeldTicks;
+            var after = run ? dt : 0;
+            if (ColonyPacingLossLog.Enabled) ColonyPacingLossLog.Pacing(before, after, run, true);
+            if (ColonyPacingRetainedLog.Enabled) ColonyPacingRetainedLog.Pacing(before, after, run, true);
+            return run;
         }
 
         internal static void Update()

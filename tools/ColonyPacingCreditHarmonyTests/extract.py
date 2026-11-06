@@ -28,10 +28,15 @@ spec.loader.exec_module(reader)
 entry = source.replace("internal static bool BeforeSimEveryTick(", "private static bool BeforeSimEveryTick(")
 methods = [reader.method(entry, "BeforeSimEveryTick", "bool").replace("private static", "internal static", 1),
            reader.method(source, "BeforeSimEveryTickTimed", "bool"), reader.method(source, "BeforeTick", "bool")]
-busy = "        internal static bool Busy => Enabled && ColonyOwner.Active && OniNativeColony.Busy() != 0;\n"
+# The busy flag: overlapped pacing's handoff hold or the serial busy owner.
+busy_begin = "        internal static bool Overlapped => "
+busy_end = "        internal static bool Busy => Holding(Overlapped);\n"
 patch_begin = "    [HarmonyPatch(typeof(Game), \"SimEveryTick\")]\n    internal static class ColonyPacingTickPatch\n"
-if source.count(busy) != 1 or source.count(patch_begin) != 1:
+if source.count(busy_begin) != 1 or source.count(busy_end) != 1 or source.count(patch_begin) != 1:
     raise ValueError("Production busy flag or tick patch changed; review the actual source extraction")
+busy = source[source.index(busy_begin):source.index(busy_end) + len(busy_end)]
+if "OniNativeColony.Busy() != 0" not in busy or "OniNativeColony.AwaitingHandoff(" not in busy:
+    raise ValueError("Production busy flag no longer reads the owner's busy and handoff states")
 patch_end = source.index("\n    }\n", source.index(patch_begin)) + len("\n    }\n")
 patch = source[source.index(patch_begin):patch_end]
 if "ColonyPacing.BeforeSimEveryTick(__instance, ref __0)" not in patch:

@@ -193,6 +193,9 @@ namespace MixedAtmospheres.Oni
         internal static extern int ReleaseByproducts(out uint released);
         [DllImport(Library, EntryPoint = "ma_oni_colony_copy_byproduct_batches", CallingConvention = CallingConvention.Cdecl)]
         internal static extern int CopyByproductBatches([Out] Receipt[]? batches, uint capacity, out uint count);
+        // Every unacknowledged receipt, ignoring the readers' frame: a census, never a delivery.
+        [DllImport(Library, EntryPoint = "ma_oni_colony_copy_pending_receipts", CallingConvention = CallingConvention.Cdecl)]
+        internal static extern int CopyPendingReceipts([Out] Receipt[] receipts, uint capacity, out uint count);
         // Additive precision sidecar; legacy receipt48 remains unchanged.
         [DllImport(Library, EntryPoint = "ma_oni_colony_enable_precise_receipts", CallingConvention = CallingConvention.Cdecl)]
         internal static extern int EnablePreciseReceipts(uint enabled);
@@ -276,6 +279,14 @@ namespace MixedAtmospheres.Oni
             return result;
         }
         [DllImport(Library, EntryPoint = "ma_oni_colony_busy", CallingConvention = CallingConvention.Cdecl)] internal static extern uint Busy();
+        // Overlapped pacing and the readers' pinned frame (docs/colony-owner.md#pacing).
+        [DllImport(Library, EntryPoint = "ma_oni_colony_pacing_version", CallingConvention = CallingConvention.Cdecl)] internal static extern uint PacingVersion();
+        [DllImport(Library, EntryPoint = "ma_oni_colony_overlapped", CallingConvention = CallingConvention.Cdecl)] internal static extern uint Overlapped();
+        [DllImport(Library, EntryPoint = "ma_oni_colony_awaiting_handoff", CallingConvention = CallingConvention.Cdecl)] internal static extern uint AwaitingHandoff(ulong sequence);
+        [DllImport(Library, EntryPoint = "ma_oni_colony_follow_frames", CallingConvention = CallingConvention.Cdecl)] internal static extern int FollowFrames(ulong session, uint follow);
+        [DllImport(Library, EntryPoint = "ma_oni_colony_show_frame", CallingConvention = CallingConvention.Cdecl)] internal static extern int ShowFrame(ulong session, ulong sequence, out uint found);
+        [DllImport(Library, EntryPoint = "ma_oni_colony_handoff_terrain", CallingConvention = CallingConvention.Cdecl)]
+        internal static extern int HandoffTerrain(ulong session, ulong sequence, [Out] Terrain[] edits, uint capacity, out uint count);
         [DllImport(Library, EntryPoint = "ma_oni_colony_liquid_density", CallingConvention = CallingConvention.Cdecl)]
         internal static extern int LiquidDensity([In] Material[] materials, uint count, uint nativeIndex, double pressurePa, out double densityKgPerCubicMetre);
         [DllImport(Library, EntryPoint = "ma_oni_last_error", CallingConvention = CallingConvention.Cdecl)] private static extern IntPtr LastError();

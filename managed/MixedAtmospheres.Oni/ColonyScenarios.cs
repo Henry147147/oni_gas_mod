@@ -951,7 +951,7 @@ namespace MixedAtmospheres.Oni
                         (element.ElementID==SimHashes.Lead||(int)element.ElementID==ladderMeltHash))
                     .Where(item=>{Grid.CellToXY(Grid.PosToCell(item),out var x,out var y);return x>=x0&&x<x0+Width&&y>=y0&&y<y0+Height;})
                     .Sum(item=>(double)item.GetComponent<PrimaryElement>().Mass);
-                var receipts=new OniNativeColony.Receipt[4096];OniNativeColony.Check(OniNativeColony.CopyReceipts(receipts,(uint)receipts.Length,out var available));
+                var receipts=new OniNativeColony.Receipt[4096];OniNativeColony.Check(OniNativeColony.CopyPendingReceipts(receipts,(uint)receipts.Length,out var available));
                 var batches=new OniNativeColony.Receipt[4096];OniNativeColony.Check(OniNativeColony.CopyByproductBatches(batches,(uint)batches.Length,out var batchCount));
                 var after=before;OniNativeColony.Check(OniNativeColony.CopyStatus(ref after));var publishedAfter=ColonyOwner.Status.CompletedFrames;
                 if(attempt==0&&(before.CompletedFrames!=after.CompletedFrames||published!=publishedAfter))continue;
@@ -975,7 +975,8 @@ namespace MixedAtmospheres.Oni
                 recorded["mass"] = element.Mass; recorded["injected"] = status.InjectedKg;
                 ladderMeltHash=(int)element.Element.highTempTransitionTarget;
                 var before=ColonyOwner.Checkpoint();var sourceFrame=ColonyCheckpointMetadata.CompletedFrames(before);
-                if(sourceFrame>started+9)throw new InvalidOperationException("Melt source baseline is past its original setup frame.");
+                // The owner may be ColonyReaderPin.OwnerLead frames ahead of this frame.
+                if(sourceFrame>started+8+(ulong)ColonyReaderPin.OwnerLead)throw new InvalidOperationException("Melt source baseline is past its original setup frame.");
                 ladderInjectionBefore=AdmittedMaterial(before,ladderMeltHash);recorded["local lead"]=LocalLeadInventory(out var baselineCustody);
                 var ownedBefore=OwnedMeltSample(sourceFrame);
                 Record("the ladder is the arena's metal source",recorded["local lead"]==0&&ownedBefore==0,
@@ -983,7 +984,7 @@ namespace MixedAtmospheres.Oni
                 ladderProofFrame=ladderLastProofPublished=0;ladderProofPassed=false;ladderOwnedLiquidByDeadline=0;ladderInjectionByDeadline=PipeAmount.Zero;
                 AccessTools.Method(typeof(StructureTemperatureComponents), "DoMelt").Invoke(null, new object[] { element });
             }
-            // The owner may be one frame ahead. A coherent source observation
+            // The owner may be one frame ahead (two with overlapped pacing). A coherent source observation
             // by native14 proves admission without requiring it to remain liquid
             // after its original deadline. Sample each publication at most once.
             if(frame>=9&&frame<=13&&!ladderProofPassed&&status.CompletedFrames!=ladderLastProofPublished)
@@ -2382,7 +2383,11 @@ namespace MixedAtmospheres.Oni
         }
         private static void Fill()
         {
-            if (filling == null || ColonyFrame() < 2) return;
+            // The arena's fluid is placed once its replacements are posted, so
+            // that it is in the readers' frame by scenario frame 4: two frames
+            // after the arena with serial pacing, one with overlapped pacing,
+            // whose readers see the owner a frame later.
+            if (filling == null || ColonyFrame() < 3 - ColonyReaderPin.OwnerLead) return;
             var tool = CellEventLogger.Instance.SandBoxTool;
             for (var y = 0; y < fillHeight; ++y)
                 for (var x = 0; x < fillWidth; ++x)

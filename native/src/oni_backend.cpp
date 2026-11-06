@@ -1219,6 +1219,12 @@ MAOniResult ma_oni_colony_copy_receipts(MAOniColonyReceipt* receipts,std::uint32
         *count=ma::oni::colony::copy_receipts(receipts,capacity);
     });
 }
+MAOniResult ma_oni_colony_copy_pending_receipts(MAOniColonyReceipt* receipts,std::uint32_t capacity,std::uint32_t* count) {
+    return boundary([&] {
+        if (!count || (capacity && !receipts)) throw Failure(MA_ONI_INVALID_ARGUMENT,"Invalid colony receipt buffer");
+        *count=ma::oni::colony::copy_receipts(receipts,capacity,true);
+    });
+}
 MAOniResult ma_oni_colony_ack_receipts(std::uint64_t through) {
     return boundary([&] {
         try { ma::oni::colony::ack_receipts(through); }
@@ -1659,6 +1665,35 @@ MAOniResult ma_oni_colony_liquid_density(const MAOniColonyMaterial* materials, s
     });
 }
 std::uint32_t ma_oni_colony_busy() { return ma::oni::colony::busy() ? 1U : 0U; }
+std::uint32_t ma_oni_colony_pacing_version() { return 1; }
+// Zero-time native frames need not wait for the owner (on_next_frame) only
+// for an activity owner without exact storage heat; only then may the game
+// post its next tick while the owner runs.
+std::uint32_t ma_oni_colony_overlapped() {
+    return ma::oni::colony::active() && ma::oni::colony::claims_inputs_at_submission() && !storage_heat.active() ? 1U : 0U;
+}
+std::uint32_t ma_oni_colony_awaiting_handoff(std::uint64_t sequence) { return ma::oni::colony::awaiting_handoff(sequence) ? 1U : 0U; }
+MAOniResult ma_oni_colony_follow_frames(std::uint64_t session,std::uint32_t follow) {
+    return boundary([&] {
+        if (follow>1) throw Failure(MA_ONI_INVALID_ARGUMENT,"Invalid colony reader mode");
+        try { ma::oni::colony::follow_frames(session,follow!=0); }
+        catch (const std::invalid_argument& error) { throw Failure(MA_ONI_INVALID_ARGUMENT,error.what()); }
+    });
+}
+MAOniResult ma_oni_colony_handoff_terrain(std::uint64_t session,std::uint64_t sequence,MAOniColonyTerrain* edits,std::uint32_t capacity,std::uint32_t* count) {
+    return boundary([&] {
+        if (!count || (capacity && !edits)) throw Failure(MA_ONI_INVALID_ARGUMENT,"Invalid colony handoff terrain buffer");
+        try { *count=ma::oni::colony::handoff_terrain(session,sequence,edits,capacity); }
+        catch (const std::invalid_argument& error) { throw Failure(MA_ONI_INVALID_ARGUMENT,error.what()); }
+    });
+}
+MAOniResult ma_oni_colony_show_frame(std::uint64_t session,std::uint64_t sequence,std::uint32_t* found) {
+    return boundary([&] {
+        if (!found) throw Failure(MA_ONI_INVALID_ARGUMENT,"Invalid colony reader frame output");
+        try { *found=ma::oni::colony::show_frame(session,sequence)?1U:0U; }
+        catch (const std::invalid_argument& error) { throw Failure(MA_ONI_INVALID_ARGUMENT,error.what()); }
+    });
+}
 std::uint32_t ma_oni_abi_version() { return MA_ONI_ABI_VERSION; }
 const char* ma_oni_last_error() { return last_error.data(); }
 MAOniResult ma_oni_probe(const MAOniObserverConfig* config,MAOniObserverStatus* output) {
