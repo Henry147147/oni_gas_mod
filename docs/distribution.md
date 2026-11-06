@@ -115,6 +115,16 @@ because without a request the mod writes no report. These runs use exactly the
 shipped files. They are not a Workshop install (`mods/Steam/<id>`) and do not
 replace the release gates.
 
+Dry run, 2026-11-06: the folder assembled at `ceb4474` from natives built at
+`779d49f` (Ubuntu 22.04: 93/93 CTests, glibc at most 2.34; MinGW: 93/93 CTests
+under Wine, Windows system imports only) gives the ZIP SHA-256
+`dcdb3ddc58daca24a6160a468c297727e81b167549de23ae17c58d801ac45abe`. Rebuilding
+both managed DLLs from scratch and packaging again gives a byte-identical ZIP.
+Installed by the runners, the folder passes a new Linux base-game colony
+(`--scenario base`, `passed-colony-owner`). Under Proton 10.0-4b, WindowsPlayer
+passes the same colony with a save and `--quit-from-menu`, and a fresh-process
+load of that save passes `passed-colony-owner-load`. These are smoke runs only.
+
 ## Identity
 
 | Item | Value | Effect |
