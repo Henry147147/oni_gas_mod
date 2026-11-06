@@ -343,6 +343,27 @@ def run_display(state: Path, session: dict, output: Path, private: bool = False,
             stop_private_display(record)
 
 
+def steam_offline(state: Path, session: dict | None = None) -> None:
+    """Keep the private Steam client invisible to the user's friends (user decision
+    2026-11-06: tests were spamming them with "playing" and status notices).
+    The persona goes offline through the running client and, for the next start,
+    in its saved preferences (never while it runs: it rewrites them on exit).
+    Nothing here signs in or touches credentials."""
+    steam = state / "steam-home/.local/share/Steam"
+    if session and alive(session.get("steam")):
+        subprocess.run([str(steam / "steam.sh"), "steam://friends/status/offline"],
+                       env=steam_env(state, session), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                       timeout=60, check=False)
+        return
+    for config in sorted((steam / "userdata").glob("*/config/localconfig.vdf")):
+        text = config.read_text(errors="replace")
+        patched = re.sub(r'(ePersonaState\\":)\d+', r'\g<1>0', text)
+        if '"SignIntoFriends"' not in patched:
+            patched = patched.replace('"friends"\n\t{', '"friends"\n\t{\n\t\t"SignIntoFriends"\t\t"0"', 1)
+        if patched != text:
+            config.write_text(patched)
+
+
 def steam_env(state: Path, session: dict) -> dict:
     env = desktop_env(state, session)
     # HOME is redirected only in this child's environment for Steam's private
@@ -430,6 +451,7 @@ def start(state: Path) -> None:
             else:
                 raise RuntimeError("Virtual display did not become ready.")
         env = desktop_env(state, session)
+        steam_offline(state, session)
         commands = {
             "wm": [str(desktop / "bin/openbox"), "--sm-disable"],
             "steam": ["dbus-run-session", "--", str(state / "steam-home/.local/share/Steam/steam.sh"),
@@ -953,6 +975,7 @@ def playtest(args, state: Path, session: dict) -> int:
         raise ValueError("Supply the native Linux ONI installation.")
     if not alive(session.get("steam")) or not alive(session.get("xvfb")):
         raise RuntimeError("Run 'start' and sign in to Steam first.")
+    steam_offline(state, session)
     if process_group_alive(session.get("game")):
         raise RuntimeError("A previous retained game is running; use 'stop-game' first.")
     if alive(session.get("game_display")):

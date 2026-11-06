@@ -298,6 +298,7 @@ def playtest(args, state: Path, session: dict) -> int:
             raise ValueError("Supply a complete installed Proton tool directory")
     if not common.alive(session.get("steam")):
         raise RuntimeError("Start the private Steam client and sign in first")
+    common.steam_offline(state, session)
     if common.alive(session.get("game")):
         raise RuntimeError("Another retained game is running")
     run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ") + "-" + secrets.token_hex(3)
