@@ -467,8 +467,8 @@ room; `ConvertedKg` counts conversions gross.
 | Liquid chunk released (`SubstanceChunk.OnRelease`) | injected, item destroyed | `energy_in` | the chunk's disease |
 | Debris melting (`DoOreMeltTransition`, `DoMelt`) and sublimating (`Sublimates.Emit`) | injected, item destroyed or reduced | `energy_in` at the item's temperature | the item's disease |
 | Native tiles melting or sublimating; items freezing or melting under native heat | shadow: `NativeMassInKg`/`NativeMassOutKg`, then injected/extracted | `NativeHeatJoules` for exchange without mass change | native cell's germ, booked as germ edits |
-| Frozen liquid (owner freezes a hidden liquid) | extracted, the game spawns debris at the cell's temperature | `energy_out` | the debris carries the receipt's most numerous identity (fixed 2026-11-04; the freeze lost them before) |
-| Conversion byproduct (salt from boiling brine) | extracted gross (`ConvertedKg`); the product is injected back; the solid leaves as a receipt and becomes debris | `energy_out` of the converted mass, `energy_in` of the product | the product keeps the germs; the solid carries none |
+| Frozen liquid (owner freezes a hidden liquid) | extracted; the solid joins its cell's [byproduct batch](#byproduct-batches) and the game spawns the batch as debris | `energy_out`; the debris at the batch's mass-weighted temperature | the debris carries the batch's most numerous identity, its parts' counts summed (fixed 2026-11-04; the freeze lost them before) |
+| Conversion byproduct (salt from boiling brine) | extracted gross (`ConvertedKg`); the product is injected back; the solid joins its cell's [byproduct batch](#byproduct-batches) and becomes debris | `energy_out` of the converted mass, `energy_in` of the product | the product keeps the germs; the solid carries none |
 | Addition with no open cell within two (callback −1) | held in the reservoir (`ReservoirKg`), released later (`ReleasedKg`) | held at its temperature | not kept (open) |
 
 Known limits, all inside ONI's own model: an ONI item holds one disease, so
@@ -533,15 +533,60 @@ its own pair (polluted water boiling to steam, salt water to steam plus salt,
 crude oil cracking to petroleum) converts at the cell's temperature, the same
 share per step. The source leaves and the product enters as booked transfers,
 so the energy difference is booked with them (the game's own transitions keep
-the temperature too). A solid byproduct (salt) leaves the owner as a byproduct
-receipt and the game spawns it as debris. A conversion too small to change the
-cell's masses waits.
+the temperature too). A solid byproduct (salt) leaves the owner, gathers in
+its cell's [byproduct batch](#byproduct-batches) and the game spawns it as
+debris. A conversion too small to change the cell's masses waits.
 
 A liquid below its freezing point freezes natively when the projection shows it
 (the cell closes, see [native bodies](#native-bodies)). A liquid the projection
 hides (a puddle under gas, a minority liquid) would never freeze that way, so it
 freezes here: the same share per step leaves the owner and the game spawns it
-as debris of its solid at the cell's temperature.
+as debris of its solid at the cell's temperature, through the same batches.
+
+### Byproduct batches
+
+User decision 2026-11-05: the tiny phase-change debris ONI would spawn one item
+at a time is combined. In a colony most byproducts are a trickle, not single
+events: liquid traces carried with the air into below-freezing cells freeze
+there every step. The base full colony (`full-colony-base-v1`, cycle 4) made
+about 20 byproducts every 0.2 s tick from 65 cells of cold air (91% ice, 9%
+polluted ice, a little dirt from boiling polluted water), 71% of them under
+1 mg, each its own receipt and spawn; ONI's spawning took about 3 ms of every
+tick ([measurements](performance-acceptance.md#batched-byproduct-debris-2026-11-05)).
+
+The owner now gathers the solid byproducts of each cell and element after it
+has booked their extraction (`native/src/oni_byproduct_batches.hpp`) and
+releases a batch as one receipt, so one spawn, once it weighs 1 g or has waited
+10 s of owner time; a heavier byproduct leaves at once together with what its
+cell held. The receipt carries the batch's compensated mass sum, its
+mass-weighted temperature (what ONI's own merge of two items of one element
+gives) and its most numerous germ identity with the counts of all its parts
+summed, so fractions of germs add up instead of being dropped item by item.
+Batches leave in cell and element order. A cell that closes (a tile built, a
+native freeze) releases its batches first, so its debris still arrives before
+the solid.
+
+Batches are delivery state only. The owner's world, ledgers and checkpoint
+never contain them: what has frozen has left the owner as before, and solver
+arithmetic and checkpoint bytes are unchanged. The [save barrier](#saves)
+releases every pending batch into the settled frame's receipts once no positive
+frame can still reach the owner, before it publishes
+(`ma_oni_colony_release_byproducts`), so a save holds their debris and no batch
+(`ByproductBatchesAtSave` in its report); a save or capture that still finds
+one refuses. A new or restored session starts with none, and quitting drops them
+with the session's unacknowledged receipts. `ma_oni_colony_copy_byproduct_batches`
+lists the pending batches as receipts with sequence 0 and the frame of their
+latest part, for censuses (the `building-melt` custody count includes them).
+`MA_COLONY_BYPRODUCT_BATCH_KG` and `MA_COLONY_BYPRODUCT_BATCH_S` override 1 g
+and 10 s for measurements; 0 kg releases every byproduct at once, as before.
+
+Alternatives measured on the same receipt stream: merging each receipt into a
+same-element item already in its cell is ONI's own `SpawnResource` path and
+still costs about 41 µs a receipt (half the receipts already took it) against
+250 µs for a new item, and most trickle cells are in mid-air, where the item
+falls away. Leaving the trace liquid in the cell until it is heavy enough
+would keep supercooled liquid visible to readers and change the solver's
+trajectory. Both were rejected.
 
 ## Terrain
 
@@ -927,7 +972,9 @@ stuttering camera at 0.85x) and the fixes:
   next publication. It only stops before a byproduct, never inside a pipe
   outcome; a backlog over 1,500 receipts, zero-time steps (saves, restores,
   startup) and a save barrier deliver everything at once, so saves still hold
-  every receipt.
+  every receipt. Since 2026-11-05 the owner also [batches byproducts](#byproduct-batches)
+  per cell and element, so a full colony's trickle of microgram debris reaches
+  the game as about 0.6 receipts per tick instead of 20.
 - **Visible-cell allocations.** Bounded texture batches now sample cached
   numeric values from the retained immutable frame, avoiding rich cell objects
   for color, opacity and hazard. Unsupported/oversized batches retain the
@@ -975,7 +1022,10 @@ blocking native calls (`blocked_ms`: the native frame wait and submit), and the
 rest (`other_ms`: ONI, rendering, GC); the same parts averaged per frame
 (`views`, `snapshot`, `overlay`, `receipts` are publication laps); garbage
 collections, the frames that contained one and their length (`gc_frames`),
-managed heap growth per frame, and the slowest frame's parts. Garbage
+managed heap growth per frame, and the slowest frame's parts. Spawned
+byproducts are counted per element (`byproduct_Ice N kg M`), as new items or
+joined to an item already in their cell (`byproducts_new`, `byproducts_merged`),
+and per decade of mass (`byproduct_decades 1e-9:n ...`). Garbage
 collections inside mod code count as mod time. `MA_COLONY_WORKERS=N` forces the
 solver worker count for sweeps.
 
@@ -1334,8 +1384,12 @@ native frame and every earlier one (observer next-frame/end-frame counters), so
 no positive frame is still being handed to the owner. It then waits for the
 solver thread and publishes through `StepTheSim(0)` until no receipt is pending,
 so every callback, consumer mass and byproduct is dispatched by the game's
-normal code before the native section is captured. Zero time submits no owner
-frame; the capture must find the same frame.
+normal code before the native section is captured. Once ONI's zero-time
+frame has ended (an earlier positive frame may still have reached the owner
+during that wait) and before those publications, it releases every pending
+[byproduct batch](#byproduct-batches) into the settled frame's receipts, so
+the save holds their debris, not the batches.
+Zero time submits no owner frame; the capture must find the same frame.
 A save requested inside an unfinished `Game.StepTheSim` is deferred through
 `Game.StartDelayedSave`. The payload is MACOLP03 when something is in flight
 outside the owner image (docs/mixed-pipes.md#saved-framing), otherwise exact
@@ -1551,7 +1605,7 @@ The home asteroid of a Spaced Out! colony is 160 cells wide with the printing po
 | `polymer-press` | A polymer press works stored petroleum; its steam and carbon dioxide go through its exhaust pipe and a vent into the owner. |
 | `oxyfern` | A wild oxyfern's consumer takes the owner's carbon dioxide. |
 | `debris-heat` | Hot debris warms the owner's air through the native shadow; the energy ledger stays closed. |
-| `building-melt` | A lead ladder melting (the game's melt path) gives its mass to the owner as liquid. |
+| `building-melt` | A lead ladder melting (the game's melt path) gives its mass to the owner as liquid; its custody count includes pending receipts and byproduct batches. |
 | `byproduct-merge` | A phase-change byproduct delivered to a cell whose first debris item was just absorbed (and awaits destruction) keeps its mass as a separate item. Focused control; not in the acceptance batches. |
 | `geyser` | A steam geyser shifted to its active period erupts into the owner. |
 | `rocket-exhaust` | A steam rocket engine put into its burning state (as at launch) exhausts hot steam into the owner. |

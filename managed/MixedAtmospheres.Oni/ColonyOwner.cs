@@ -519,25 +519,30 @@ namespace MixedAtmospheres.Oni
             passiveSession=0;passiveFrame=ulong.MaxValue;
             ColonyPresentation.InvalidateLifecycleReadings();
         }
-        // A conversion's solid byproduct (salt from boiling salt water) becomes debris.
+        // A conversion's solid byproduct (salt from boiling salt water, a hidden
+        // liquid freezing) becomes debris. The owner batches them per cell and
+        // element (docs/colony-owner.md#byproduct-batches): one receipt, one spawn.
         internal static void SpawnByproduct(in OniNativeColony.Receipt r)
         {
             var element = ElementLoader.FindElementByHash((SimHashes)r.Callback);
             if (element == null || !(r.MassKg > 0)) return;
-            if (ColonyFrameLog.Enabled) ColonyFrameLog.CountByproduct(element.id.ToString(), r.MassKg);
             var cell = (int)r.PublicCell;
+            var target = MergeTarget(cell, element.tag, r.MassKg);
+            if (ColonyFrameLog.Enabled) ColonyFrameLog.CountByproduct(element.id.ToString(), r.MassKg, target == Merge.Live);
             // A debris item carries one disease (ONI's own item disease): the receipt's germs, if any.
             element.substance.SpawnResource(Grid.CellToPosCCC(cell, Grid.SceneLayer.Ore), r.MassKg, r.TemperatureK, OniNativeColony.DiseaseIdx(r.Disease), r.Disease != 0 ? r.DiseaseCount : 0,
-                prevent_merge: MergeTargetIsDying(cell, element.tag, r.MassKg));
+                prevent_merge: target == Merge.Dying);
         }
+        internal enum Merge { None, Live, Dying }
         // Substance.SpawnResource adds the mass to the first same-element item in
-        // the cell's pickupable layer. Debris that landed there this frame may
-        // already have been absorbed by its neighbour and only await destruction
-        // at the end of the frame; a byproduct merged into it would vanish with
-        // it. Spawn a separate item then; ONI's own landing merge still joins it.
-        internal static bool MergeTargetIsDying(int cell, Tag tag, float mass)
+        // the cell's pickupable layer (Live). Debris that landed there this frame
+        // may already have been absorbed by its neighbour and only await
+        // destruction at the end of the frame (Dying); a byproduct merged into it
+        // would vanish with it. Spawn a separate item then; ONI's own landing
+        // merge still joins it.
+        internal static Merge MergeTarget(int cell, Tag tag, float mass)
         {
-            if (!Grid.IsValidCell(cell)) return false;
+            if (!Grid.IsValidCell(cell)) return Merge.None;
             var head = Grid.Objects[cell, (int)ObjectLayer.Pickupables];
             var first = head != null ? head.GetComponent<Pickupable>() : null;
             for (var item = first != null ? first.objectLayerListItem : null; item != null; item = item.nextItem)
@@ -546,10 +551,11 @@ namespace MixedAtmospheres.Oni
                 if (id == null || id.PrefabTag != tag) continue;
                 var element = id.GetComponent<PrimaryElement>();
                 if (element == null || element.Mass + mass > PrimaryElement.MAX_MASS) continue;
-                return id.pendingDestruction || item.pickupable != null && item.pickupable.wasAbsorbed;
+                return id.pendingDestruction || item.pickupable != null && item.pickupable.wasAbsorbed ? Merge.Dying : Merge.Live;
             }
-            return false;
+            return Merge.None;
         }
+        internal static bool MergeTargetIsDying(int cell, Tag tag, float mass) => MergeTarget(cell, tag, mass) == Merge.Dying;
         // A receipt the adapter cannot settle (a pipe outcome it must refuse)
         // faults the owner (ColonyFault); a faulted owner's receipts are not
         // delivered again (they would refuse again).

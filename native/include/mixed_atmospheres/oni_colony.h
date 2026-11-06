@@ -244,6 +244,18 @@ MA_ONI_API MAOniResult ma_oni_colony_sample_activity(uint64_t session,uint64_t f
     const uint32_t* cells,uint32_t count,MAOniColonyStatus*,MAOniColonyActivityCell*);
 MA_ONI_API MAOniResult ma_oni_colony_copy_receipts(MAOniColonyReceipt*, uint32_t capacity, uint32_t* count);
 MA_ONI_API MAOniResult ma_oni_colony_ack_receipts(uint64_t through_sequence);
+/* Byproduct batches (docs/colony-owner.md#byproduct-batches): solid
+ * byproducts of one cell and element gather, already extracted, until they
+ * weigh 1 g or have waited 10 s of owner time, then leave as one BYPRODUCT
+ * receipt. release (with the native submitter paused, e.g. at the save
+ * barrier) turns every pending batch into a receipt of the current frame;
+ * released counts them. copy reports the pending batches as receipts with
+ * sequence 0 and completed_frame the frame of their latest byproduct (a
+ * census; never delivered or acknowledged); count is the number pending.
+ * version is 1. No checkpoint bytes or solver arithmetic change. */
+MA_ONI_API uint32_t ma_oni_colony_byproduct_batch_version(void);
+MA_ONI_API MAOniResult ma_oni_colony_release_byproducts(uint32_t* released);
+MA_ONI_API MAOniResult ma_oni_colony_copy_byproduct_batches(MAOniColonyReceipt*, uint32_t capacity, uint32_t* count);
 /* Optional exact adapter receipts. Enable before any outstanding receipts;
  * start/restore resets this opt-in. Repeating the current mode is harmless.
  * Size-query/copy by legacy sequence; bytes=0 means no sidecar (e.g. a solid

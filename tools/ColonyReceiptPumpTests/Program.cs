@@ -123,6 +123,30 @@ internal static class Program
   TestRuntime.Reset();ColonyOwner.Active=false;ColonyOwnedStorage.ThermalPendingChecks=1;
   Check(ColonySaveBarrier.BeforeFileSave("save",false,true)&&ColonyOwnedStorage.ThermalChecks==0,"inactive colony consulted exact storage");
  }
+ // The save barrier releases every pending byproduct batch before its
+ // zero-time publications, which deliver them as debris before the capture.
+ static void BatchSaveControls()
+ {
+  TestRuntime.Reset();ColonySaveBarrier.StepSeconds=0;OniNativeColony.Current.CompletedFrames=18;OniNativeColony.Pending.AddRange(Records(3));
+  var batches=Records(4,0,0);for(var k=0;k<batches.Length;++k)batches[k].Sequence=0;OniNativeColony.Batches.AddRange(batches);
+  Check(ColonySaveBarrier.BeforeFileSave("save",false,true),"a save with pending byproduct batches deferred");
+  Check(OniNativeColony.Releases==1&&OniNativeColony.Batches.Count==0&&OniNativeColony.Pending.Count==0&&TestRuntime.Dispatches.SequenceEqual(new ulong[]{1,2,3,4,5,6,7}),"the save barrier did not deliver its released batches after the queued receipts");
+  Check(TestRuntime.Spawned.Skip(3).All(r=>r.CompletedFrame==18)&&Wire(TestRuntime.Spawned.Skip(3).Select(r=>{r.Sequence=0;r.CompletedFrame=0;return r;})).SequenceEqual(Wire(batches)),"a released batch changed its payload");
+  Check(ColonySaveBarrier.ByproductBatchesAtSave==4&&ColonySaveBarrier.ReceiptsAtSave==7&&ColonySaveBarrier.ForCapture()==18,"save counters or capture readiness missed the batches");
+  ColonySaveBarrier.SaveFinished();
+  // A batch appearing after the barrier (no frame can run during a synchronous save) fails the capture.
+  Check(ColonySaveBarrier.BeforeFileSave("save",false,true),"an empty batch release deferred");OniNativeColony.Batches.Add(batches[0]);
+  var refused=false;try{ColonySaveBarrier.ForCapture();}catch(InvalidOperationException){refused=true;}Check(refused,"a capture held a pending byproduct batch");
+  ColonySaveBarrier.SaveFinished();OniNativeColony.Batches.Clear();
+  // An earlier positive frame can reach the owner while the barrier waits for
+  // ONI's zero-time frame; its batch is released and delivered too.
+  TestRuntime.Reset();ColonySaveBarrier.StepSeconds=0;OniNativeColony.Current.CompletedFrames=18;var late=Records(1,0,0);late[0].Sequence=0;
+  Game.NativeMessages=()=>{Game.NativeMessages=null;OniNativeColony.Batches.Add(late[0]);};
+  Check(ColonySaveBarrier.BeforeFileSave("save",false,true)&&OniNativeColony.Batches.Count==0&&OniNativeColony.Pending.Count==0&&TestRuntime.Dispatches.Count==1&&ColonySaveBarrier.ByproductBatchesAtSave==1,"a batch made during the barrier's native wait stayed pending or undelivered");
+  ColonySaveBarrier.SaveFinished();
+  TestRuntime.Reset();OniNativeColony.BatchVersion=2;refused=false;try{ColonySaveBarrier.BeforeFileSave("save",false,true);}catch(NotSupportedException){refused=true;}
+  Check(refused&&OniNativeColony.Releases==0,"the save barrier accepted an unknown byproduct batch version");ColonySaveBarrier.SaveFinished();
+ }
  static void EmptyPumpAllocation()
  {
   Prime(5);Pump(3);Check(OniNativeColony.Pending.Count==0,"empty pump fixture");
@@ -170,7 +194,7 @@ internal static class Program
    ColonySaveBarrier.StepSeconds=0;ColonyOwner.CommitTestPublication(18,4);Check(OniNativeColony.Pending.Count==0,"opt-out changed original zero-time full publication");NoAdvance();Console.WriteLine("PASS receipt pump opt-out: "+checks+" assertions; original publication drains, idle pump does not.");return 0;
   }
   if(args.Length!=0)throw new ArgumentException("Unknown receipt pump control argument");
-  StateControls();PrefixControls();GuardControls();ReentryControls();FaultControls();CustodyControls();ThermalSaveControls();EmptyPumpAllocation();PacketControls();NativePublicationControls();
+  StateControls();PrefixControls();GuardControls();ReentryControls();FaultControls();CustodyControls();ThermalSaveControls();BatchSaveControls();EmptyPumpAllocation();PacketControls();NativePublicationControls();
   Console.WriteLine("PASS idle receipt pump: "+checks+" assertions; actual delivery, arming, pump, native-publication and save-barrier bodies with deterministic clock/fake endpoints.");
 #if GAME_MONO
   Console.WriteLine("Game Mono allocation counter unsupported; allocation assertions omitted, functional controls retained.");

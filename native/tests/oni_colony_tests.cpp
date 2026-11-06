@@ -2926,6 +2926,52 @@ int main(int argc, char** argv) {
             require(after.maximum_relative_mass_error < 1e-12 && after.maximum_relative_energy_error < 1e-9, "freezing with germs closes the ledgers");
             ma::oni::colony::stop();
         }
+        // Batched byproducts (docs/colony-owner.md#byproduct-batches): the
+        // freeze's sub-gram tail gathers per cell and element. Every frozen
+        // kilogram is always in a receipt or a pending batch; releasing them
+        // (the save barrier) changes no checkpoint byte; a restore holds none.
+        {
+            ma::oni::colony::restore(config, materials, image, 1);
+            const auto start = ma::oni::colony::status();
+            const MAOniColonyTransfer cold{public_cell(11, 6), water, MA_ONI_COLONY_INJECT, 0, -1, 0, 5, 150, 0};
+            ma::oni::colony::queue_transfers(std::span(&cold, 1));
+            std::vector<MAOniColonyReceipt> got(4096), pending(4096);
+            double delivered = 0; std::uint32_t batch_receipts = 0, light = 0, frames = 0;
+            const auto collect = [&](double& total, std::uint32_t& tally, std::uint32_t& small) {
+                const auto n = ma::oni::colony::copy_receipts(got.data(), 4096);
+                for (std::uint32_t q = 0; q < n; ++q) if (got[q].kind == MA_ONI_COLONY_BYPRODUCT && got[q].callback == 99) {
+                    total += got[q].mass_kg; ++tally; if (got[q].mass_kg < 1e-3f) ++small;
+                }
+                if (n) ma::oni::colony::ack_receipts(got[n - 1].sequence);
+            };
+            // Until the tail has been batched for a while: heavy parts left at
+            // once, lighter ones gather.
+            for (std::uint64_t frame = 5; frame <= 100 && (frames < 20 || ma::oni::colony::copy_byproduct_batches(nullptr, 0) == 0); ++frame, ++frames) {
+                ma::oni::colony::advance(frame, .2, 2); ma::oni::colony::wait(); collect(delivered, batch_receipts, light);
+            }
+            const auto after = ma::oni::colony::status();
+            const auto held = ma::oni::colony::copy_byproduct_batches(pending.data(), 4096);
+            double batched = 0; for (std::uint32_t q = 0; q < held; ++q) batched += pending[q].mass_kg;
+            const double frozen = after.converted_kg - start.converted_kg;
+            std::cout << "batched freeze: " << frozen << " kg frozen in " << frames << " frames, " << batch_receipts << " receipts (" << light
+                      << " under 1 g) carry " << delivered << " kg, " << held << " pending batches " << batched << " kg\n";
+            require(after.state == 1 && frozen > 1 && held > 0 && std::abs(delivered + batched - frozen) < 1e-6 * frozen,
+                "every frozen kilogram is in a receipt or a pending batch");
+            require(batch_receipts < frames && after.maximum_relative_mass_error < 1e-12 && after.maximum_relative_energy_error < 1e-9,
+                "a freeze's tail was not batched or its ledgers opened");
+            const auto saved = ma::oni::colony::checkpoint();
+            require(ma::oni::colony::release_byproducts() == held && ma::oni::colony::copy_byproduct_batches(nullptr, 0) == 0,
+                "release did not take every pending batch");
+            require(ma::oni::colony::checkpoint() == saved, "pending byproduct batches changed the checkpoint");
+            double released = 0; std::uint32_t released_count = 0, small = 0;
+            const auto n = ma::oni::colony::copy_receipts(got.data(), 4096);
+            for (std::uint32_t q = 0; q < n; ++q) require(got[q].completed_frame == after.completed_frames, "a released batch is not of the settled frame");
+            collect(released, released_count, small);
+            require(released_count == held && std::abs(delivered + released - frozen) < 1e-6 * frozen, "released batches lost or gained mass");
+            ma::oni::colony::stop(); ma::oni::colony::restore(config, materials, saved, 1);
+            require(ma::oni::colony::copy_byproduct_batches(nullptr, 0) == 0, "a restored owner held byproduct batches");
+            ma::oni::colony::stop();
+        }
         // A liquid trace below binary64's normal range (a rounding product
         // of the kernel) leaves the cell's reading as it was.
         {

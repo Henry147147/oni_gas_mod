@@ -26,10 +26,11 @@ namespace MixedAtmospheres.Oni
         internal static int BodyHeatChecks { get; private set; }
         internal static int NativePublications { get; private set; }
         internal static long ReceiptsAtSave { get; private set; }
+        internal static long ByproductBatchesAtSave { get; private set; }
         internal static ulong LastSettledFrame { get; private set; }
         internal static ulong LastSettledSession { get; private set; }
-        internal static void Reset() { Settled = Deferred = BodyHeatChecks = NativePublications = 0; ReceiptsAtSave = 0; LastSettledFrame = LastSettledSession = 0; LastSynchronization = ""; thermalRetries = 0; }
-        internal static object Report() => new { Settled, Deferred, ReceiptsAtSave, BodyHeatChecks, NativePublications, LastSettledFrame, LastSettledSession, LastSynchronization, ReceiptPump=ColonyOwner.ReceiptPumpReport() };
+        internal static void Reset() { Settled = Deferred = BodyHeatChecks = NativePublications = 0; ReceiptsAtSave = ByproductBatchesAtSave = 0; LastSettledFrame = LastSettledSession = 0; LastSynchronization = ""; thermalRetries = 0; }
+        internal static object Report() => new { Settled, Deferred, ReceiptsAtSave, ByproductBatchesAtSave, BodyHeatChecks, NativePublications, LastSettledFrame, LastSettledSession, LastSynchronization, ReceiptPump=ColonyOwner.ReceiptPumpReport() };
 
         internal static void EnterStep() => ++stepping;
         // The game time of the sim step in progress; zero-time steps (saves,
@@ -147,7 +148,12 @@ namespace MixedAtmospheres.Oni
             var after = NativeFrames(); var waited = WaitNativeFrameAfter(before);
             LastSynchronization = $"native session/posted prefix before {before.Session}/{before.Posted}, after zero tick {after.Session}/{after.Posted}, completed {waited.Session}/{waited.Posted} in {timer.Elapsed.TotalMilliseconds:F1} ms";
             UnityEngine.Debug.Log("[Mixed Atmospheres] save barrier: " + LastSynchronization);
-            var pending = entry.ReceiptsPending;
+            // A save holds no byproduct batch (docs/colony-owner.md#byproduct-batches):
+            // once no positive frame can still reach the owner (an earlier one
+            // may have been handed over during that wait), each pending batch
+            // becomes a receipt of the settled frame, and debris below.
+            var released = ReleaseByproductBatches();
+            var pending = entry.ReceiptsPending + released;
             // UnsafeSim200ms publishes while its newly posted native frame
             // can still be running. After waiting for completion, publish
             // again even when the owner has no receipts: native body work and
@@ -155,9 +161,9 @@ namespace MixedAtmospheres.Oni
             Publish.Invoke(Game.Instance, new object[] { 0f }); ++NativePublications;
             for (var round = 0; round < 64 && !Quiescent(out var _); ++round)
             { Publish.Invoke(Game.Instance, new object[] { 0f }); ++NativePublications; }
-            if (!Quiescent(out var status))
-                throw new InvalidOperationException($"The colony owner did not settle before saving: {status.ReceiptsPending} receipts pending, busy {OniNativeColony.Busy()}.");
-            ReceiptsAtSave += (long)pending; ++Settled; settledForSave = true;
+            if (!Quiescent(out var status) || PendingByproductBatches() != 0)
+                throw new InvalidOperationException($"The colony owner did not settle before saving: {status.ReceiptsPending} receipts and {PendingByproductBatches()} byproduct batches pending, busy {OniNativeColony.Busy()}.");
+            ReceiptsAtSave += (long)pending; ByproductBatchesAtSave += released; ++Settled; settledForSave = true;
             // Validation: pipe contact work the native sim applies to bodies
             // one step later must be published before the capture.
             if(ColonyPipeRuntime.Active)SettlePipeBodyHeat(ref status);
@@ -214,10 +220,19 @@ namespace MixedAtmospheres.Oni
         {
             if(ColonyClusterRetirement.Pending)throw new InvalidOperationException("Finish rocket cleanup before capturing this colony.");
             if (!settledForSave) return Settle();
-            if (!Quiescent(out var status)) throw new InvalidOperationException("The colony owner advanced after its save barrier.");
+            if (!Quiescent(out var status) || PendingByproductBatches() != 0) throw new InvalidOperationException("The colony owner advanced after its save barrier.");
             return Record(status);
         }
         private static bool settledForSave;
+        private static uint ReleaseByproductBatches()
+        {
+            if (OniNativeColony.ByproductBatchVersion() != 1)
+                throw new NotSupportedException("The colony save barrier requires matching native byproduct batches.");
+            OniNativeColony.Check(OniNativeColony.ReleaseByproducts(out var released));
+            return released;
+        }
+        internal static uint PendingByproductBatches()
+        { OniNativeColony.Check(OniNativeColony.CopyByproductBatches(null, 0, out var count)); return count; }
         internal static void SaveFinished() => settledForSave = false;
         private static ulong Record(OniNativeColony.Status status)
         {

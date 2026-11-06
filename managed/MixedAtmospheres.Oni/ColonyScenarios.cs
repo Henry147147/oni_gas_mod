@@ -952,10 +952,11 @@ namespace MixedAtmospheres.Oni
                     .Where(item=>{Grid.CellToXY(Grid.PosToCell(item),out var x,out var y);return x>=x0&&x<x0+Width&&y>=y0&&y<y0+Height;})
                     .Sum(item=>(double)item.GetComponent<PrimaryElement>().Mass);
                 var receipts=new OniNativeColony.Receipt[4096];OniNativeColony.Check(OniNativeColony.CopyReceipts(receipts,(uint)receipts.Length,out var available));
+                var batches=new OniNativeColony.Receipt[4096];OniNativeColony.Check(OniNativeColony.CopyByproductBatches(batches,(uint)batches.Length,out var batchCount));
                 var after=before;OniNativeColony.Check(OniNativeColony.CopyStatus(ref after));var publishedAfter=ColonyOwner.Status.CompletedFrames;
                 if(attempt==0&&(before.CompletedFrames!=after.CompletedFrames||published!=publishedAfter))continue;
                 var census=ColonyMeltCustody.Count(fluid+solid+debris,before.CompletedFrames,after.CompletedFrames,published,publishedAfter,
-                    (Grid.WidthInCells,x0,y0,Width,Height),(int)SimHashes.Lead,receipts,available);
+                    (Grid.WidthInCells,x0,y0,Width,Height),(int)SimHashes.Lead,receipts,available,batches,batchCount);
                 source=$"native {before.CompletedFrames-started}, published {published-started}, fluid {fluid:G6}, solid {solid:G6}, debris {debris:G6}, pending byproduct {census.Pending:G6} kg";
                 return census.Total;
             }

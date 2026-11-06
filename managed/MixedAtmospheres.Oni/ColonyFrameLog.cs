@@ -112,11 +112,20 @@ namespace MixedAtmospheres.Oni
         private static long counted;
         // Cells whose reading and presentation objects were built on demand.
         private static readonly Dictionary<string, double[]> byproducts = new Dictionary<string, double[]>();
-        // Solid byproducts spawned as debris, by element: count and kilograms.
-        internal static void CountByproduct(string element, float kilograms)
+        // Solid byproducts spawned as debris, by element: count and kilograms;
+        // how many joined an item already in their cell (the rest are new
+        // objects); and their count per decade of mass (1e-12 kg up to 1e3 kg).
+        private static readonly long[] byproductDecades = new long[16];
+        private static long byproductsMerged, byproductsNew;
+        internal static void CountByproduct(string element, float kilograms, bool merged)
         {
             if (!Enabled) return;
-            lock (byproducts) { if (!byproducts.TryGetValue(element, out var t)) byproducts[element] = t = new double[2]; ++t[0]; t[1] += kilograms; }
+            lock (byproducts)
+            {
+                if (!byproducts.TryGetValue(element, out var t)) byproducts[element] = t = new double[2]; ++t[0]; t[1] += kilograms;
+                if (merged) ++byproductsMerged; else ++byproductsNew;
+                ++byproductDecades[Math.Max(0, Math.Min(byproductDecades.Length - 1, (int)Math.Floor(Math.Log10(kilograms)) + 12))];
+            }
         }
         internal static void CountCell() { if (Enabled) Interlocked.Increment(ref counted); }
         internal static long Now => Enabled ? Stopwatch.GetTimestamp() : 0;
@@ -164,7 +173,7 @@ namespace MixedAtmospheres.Oni
             heapStart = GC.GetTotalMemory(false);
             Interlocked.Exchange(ref counted, 0);
             lock (tracks) tracks.Clear();
-            lock (byproducts) byproducts.Clear();
+            lock (byproducts) { byproducts.Clear(); byproductsMerged = byproductsNew = 0; Array.Clear(byproductDecades, 0, byproductDecades.Length); }
         }
 
         private static double Rank(double[] sorted, double fraction) =>
@@ -212,7 +221,12 @@ namespace MixedAtmospheres.Oni
                 lock (byproducts)
                 {
                     foreach (var pair in byproducts) line.Append(" byproduct_").Append(pair.Key).Append(' ').Append(pair.Value[0].ToString("0", c)).Append(" kg ").Append(pair.Value[1].ToString("0.###", c));
-                    byproducts.Clear();
+                    if (byproductsMerged + byproductsNew > 0)
+                    {
+                        line.Append(" byproducts_new ").Append(byproductsNew.ToString(c)).Append(" byproducts_merged ").Append(byproductsMerged.ToString(c)).Append(" byproduct_decades");
+                        for (var k = 0; k < byproductDecades.Length; ++k) if (byproductDecades[k] > 0) line.Append(" 1e").Append((k - 12).ToString(c)).Append(':').Append(byproductDecades[k].ToString(c));
+                    }
+                    byproducts.Clear(); byproductsMerged = byproductsNew = 0; Array.Clear(byproductDecades, 0, byproductDecades.Length);
                 }
                 line.Append(" lazy_cells ").Append(Interlocked.Exchange(ref counted, 0).ToString(c));
                 line.Append(" publications ").Append(publications.ToString(c));

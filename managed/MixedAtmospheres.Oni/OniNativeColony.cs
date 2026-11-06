@@ -184,6 +184,15 @@ namespace MixedAtmospheres.Oni
                 ColonyCopyValidation.Receipts(receipts, capacity, count, System.Diagnostics.Stopwatch.GetTimestamp() - started);
             return result;
         }
+        // Byproduct batches (docs/colony-owner.md#byproduct-batches): release
+        // turns every pending batch into a receipt of the current frame (the
+        // save barrier); copy lists the pending ones (sequence 0, a census).
+        [DllImport(Library, EntryPoint = "ma_oni_colony_byproduct_batch_version", CallingConvention = CallingConvention.Cdecl)]
+        internal static extern uint ByproductBatchVersion();
+        [DllImport(Library, EntryPoint = "ma_oni_colony_release_byproducts", CallingConvention = CallingConvention.Cdecl)]
+        internal static extern int ReleaseByproducts(out uint released);
+        [DllImport(Library, EntryPoint = "ma_oni_colony_copy_byproduct_batches", CallingConvention = CallingConvention.Cdecl)]
+        internal static extern int CopyByproductBatches([Out] Receipt[]? batches, uint capacity, out uint count);
         // Additive precision sidecar; legacy receipt48 remains unchanged.
         [DllImport(Library, EntryPoint = "ma_oni_colony_enable_precise_receipts", CallingConvention = CallingConvention.Cdecl)]
         internal static extern int EnablePreciseReceipts(uint enabled);

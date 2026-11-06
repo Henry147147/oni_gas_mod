@@ -54,6 +54,12 @@ struct NativeHeatProjection {std::uint16_t element;float mass,temperature;bool v
 void set_space_cells(std::span<const std::uint32_t>,bool space);
 std::uint32_t copy_receipts(MAOniColonyReceipt*, std::uint32_t capacity);
 void ack_receipts(std::uint64_t through);
+// Byproduct batches (docs/colony-owner.md#byproduct-batches). release: every
+// pending batch becomes a receipt of the current frame (after wait(); the save
+// barrier). copy: the pending batches as receipts with sequence 0 and the
+// frame of their latest byproduct, in key order.
+std::uint32_t release_byproducts();
+std::uint32_t copy_byproduct_batches(MAOniColonyReceipt*, std::uint32_t capacity);
 void enable_precise_receipts(bool enabled);
 std::uint32_t copy_precise_receipt(std::uint64_t sequence, std::uint8_t*, std::uint32_t capacity);
 std::pair<std::uint32_t,std::uint64_t> queue_pipe_job(std::uint64_t, const MAOniColonyTransfer&, std::span<const MAOniColonyPassive>);

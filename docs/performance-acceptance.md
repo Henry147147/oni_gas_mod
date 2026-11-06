@@ -1,5 +1,117 @@
 # Performance acceptance measurements
 
+## Batched byproduct debris, 2026-11-05
+
+User decision 2026-11-05: the microgram phase-change debris ONI spawned one item
+at a time is batched, by the best measured method
+([design](colony-owner.md#byproduct-batches)). Base full colony
+(`full-colony-base-v1`, base game, cycle 4, 18 duplicants), Linux harness,
+RTX 5090 display, whole game slot, load at speed 3, 900 frames.
+
+**Where the debris came from.** A private trace of every spawned byproduct on
+`f0ff869` (one row per spawn, and the owner's composition of each cell the first
+time it spawns): 20,253 byproduct receipts in 181 s of game time (903 ticks,
+22 per tick), all from the owner's `convert_identities`: 18,338 ice and 1,871
+polluted ice from hidden liquids freezing, 44 dirt from polluted water boiling.
+They came from only 65 cells (74 cell and element pairs), and each pair made a
+receipt nearly every tick (median gap one tick, consecutive masses within
+0.7-1.4x of each other): a steady trickle, not the decaying tails of single
+freezes. 63 of the cells are cold air (257-273 K; about 2.2 kg oxygen and
+0.15 kg hydrogen) holding liquid traces (water, polluted water, liquid carbon
+dioxide) that the flow carries in; each tick 18% of a cell's hidden liquid
+freezes. Two are polluted-water pools whose minority water freezes.
+
+| Debris mass (kg) | Receipts | Share | Share of mass |
+|---|---|---|---|
+| 1e-9 to 1e-8 | 4,682 | 23.1% | 0.01% |
+| 1e-8 to 1e-7 | 5,221 | 25.8% | 0.06% |
+| 1e-7 to 1e-6 | 4,516 | 22.3% | 0.5% |
+| 1e-6 to 1e-5 | 3,593 | 17.7% | 4.0% |
+| 1e-5 to 1e-4 | 1,720 | 8.5% | 15.2% |
+| 1e-4 to 1e-3 | 449 | 2.2% | 35.7% |
+| 1e-3 to 1e-2 | 71 | 0.4% | 39.7% |
+| 1e-2 to 1e-1 | 1 | 0.005% | 4.9% |
+
+Together 0.355 kg. A spawn took 137.5 µs on the game thread (mean; p95 371 µs):
+250 µs when ONI created a new item (46% of receipts) and 41 µs when
+`Substance.SpawnResource` added the mass to a same-element item already in the
+cell (54%), about 3.1 ms per tick. The publication budget (2 ms) and the idle
+pump spread it over Unity frames.
+
+**Candidates.** (1) Owner-side batches per cell and element, released by mass
+or by owner time. Replaying the traced receipt stream (counts per 15 s of real
+time at the run's 1.74 game seconds per second):
+
+| Batch mass | Wait | Items per 15 s | Per tick | Mean / max delay (s) |
+|---|---|---|---|---|
+| none | - | 2,917 | 22.4 | 0 |
+| 0.1 g | 10 s | 220 | 1.69 | 4.1 / 10.2 |
+| 1 g | 5 s | 183 | 1.41 | 4.5 / 5.2 |
+| **1 g** | **10 s** | **116** | **0.89** | **8.1 / 10.2** |
+| 1 g | 30 s | 63 | 0.49 | 17.9 / 30.2 |
+| 1 g | none | 32 | 0.24 | 12.2 / 165 |
+| 10 g | 10 s | 96 | 0.74 | 9.9 / 10.2 |
+
+At 1 g and 10 s the spawn work falls to about 0.1-0.2 ms per tick; a longer
+wait saves under 0.1 ms more while debris appears later. (2) Merging each
+receipt into a same-element item in its cell is what ONI already does for 54%
+of them, and still costs 41 µs a receipt (about 0.8 ms per tick here) plus the
+receipt itself; most trickle cells are in mid-air, where the item has fallen
+away, and moving the mass to the pile below at once would be a flash. (3)
+Leaving the trace liquid in the cell until it is heavy would change the
+solver's trajectory and show supercooled liquid to every reader, with no bound
+on how long it stays. The first was adopted with 1 g and 10 s.
+
+**After.** Same load, `MA_FRAME_LOG=1` (windows after the load), batched build
+against `f0ff869` (the private trace hook disabled):
+
+| Per 0.2 s tick | `f0ff869` | Batched |
+|---|---|---|
+| Byproduct spawns per 15 s window (per tick) | 3,382 (20.4) | 114 (0.60) |
+| Spawns that made a new item | 46% (trace) | 77% (524 of 681) |
+| Receipt lap ms | 2.16 | 1.02 |
+| Idle byproduct pump ms | 1.47 | 0.07 |
+| Whole publication ms | 4.49 | 3.23 |
+| Unity frame ms, mean / p95 (windows) | 26.9-36.4 / 33-139 | 24.6-27.8 / 34-64 |
+| Collections per 15 s window | 3-5 | 1-3 |
+
+The batched debris is 22-308 g per window in all (the trickle's own mass);
+its decades spread from 1e-9 kg (pairs whose 10 s carried only micrograms) to
+1e-2 kg. With `MA_COLONY_PUBLICATION_LOG=1` a publication's receipt delivery
+spawned 8.7 byproducts in 1.29 ms before (budget-limited, the idle pump took
+the rest) and 0.76 in 0.35 ms after; its other 50-55 receipts (consumers,
+emitters, pipe outcomes) took about 0.9-1.2 ms in both and are what remains of
+the receipt lap. Without the frame log (stage and wait logs only), three runs each,
+alternated:
+
+| Build | Game per real | Unity frames | Tick interval minus owner frame, ms (window means) |
+|---|---|---|---|
+| `f0ff869` | 1.763, 1.683, 1.789 | 3,606, 3,491, 3,475 | 45.2, 49.6, 46.4 |
+| Batched | 1.728, 1.825, 1.819 | 3,939, 3,887, 3,700 | 44.1, 42.5, 44.5 |
+
+The owner frame (61-75 ms, varying between runs) still dominates the tick
+interval, so game per real moves within its noise (means 1.745 and 1.791); the
+game thread's share of each tick falls by about 3.4 ms (47.1 to 43.7 ms), and
+it no longer grows as the colony's trickle grows (the base runs' late windows
+reach 52-55 ms). Unity frames rise 9%.
+
+**Exactness.** Batching changes delivery only: no solver arithmetic, owner
+world, ledger or checkpoint byte changes, and the save barrier releases every
+batch before a save (`ma_oni_colony_release_byproducts`). Native controls
+(`ma_oni_byproduct_batch_tests`) check release at 1 g with the mass-weighted
+temperature, release after 10 s in cell and element order, compensated sums
+(2^30 kg plus 2^20 parts of 2^-24 kg exact), summed germ identities, closing
+cells, the census copy and the unbatched 0 kg mode. In `ma_oni_colony_tests` a
+5 kg hidden freeze keeps every frozen kilogram in a receipt or a pending batch,
+releasing the batches leaves the checkpoint byte-identical and a restored
+owner holds none. The receipt-pump controls deliver released batches at a save
+after the queued receipts with unchanged payloads, including a batch made by a
+positive frame that reaches the owner while the barrier waits for ONI's
+zero-time frame (the first in-game save released before that wait and was
+refused; a negative control with that order fails), refuse a capture holding a
+batch and refuse an unknown batch version; the melt custody census counts
+pending batches.
+
 ## Game-thread pipe and publication work, 2026-11-05
 
 After the precision-retry fix the base full colony (`full-colony-base-v1`)
@@ -92,7 +204,8 @@ the same process.
 
 What remains on the game thread per tick (after): publication about 4 ms, of
 which receipts about 2 ms (byproduct debris: several thousand microgram ice
-spawns per 15 s, budgeted at 2 ms a publication, the rest by the idle pump),
+spawns per 15 s, budgeted at 2 ms a publication, the rest by the idle pump;
+[batched since](#batched-byproduct-debris-2026-11-05)),
 the snapshot copy about 0.9 and the overlay 0.8 ms a publication; pipe
 work about 2.6 ms; ONI's
 own native frame (UpdateData about 14 ms) and its other updates. The owner

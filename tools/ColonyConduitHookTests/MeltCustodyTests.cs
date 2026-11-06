@@ -20,8 +20,11 @@ internal static class MeltCustodyTests
             }
             return array;
         }
-        (double Total,double Pending) Probe(double present,Array receipts,uint? available=null,ulong before=10,ulong after=10,ulong publishedBefore=9,ulong publishedAfter=9)
-            =>((double,double))count.Invoke(null,new object[]{present,before,after,publishedBefore,publishedAfter,arena,lead,receipts,available??(uint)receipts.Length})!;
+        (double Total,double Pending) Probe(double present,Array receipts,uint? available=null,ulong before=10,ulong after=10,ulong publishedBefore=9,ulong publishedAfter=9,Array? batches=null,uint? batchCount=null)
+        {
+            batches??=Receipts();
+            return ((double,double))count.Invoke(null,new object[]{present,before,after,publishedBefore,publishedAfter,arena,lead,receipts,available??(uint)receipts.Length,batches,batchCount??(uint)batches.Length})!;
+        }
         void Check(bool ok,string why){if(!ok)throw new Exception(why);}
         void Refuses(System.Action action,string why)
         {
@@ -47,6 +50,17 @@ internal static class MeltCustodyTests
             Refuses(()=>Probe(75,Receipts(R(1,10,22,5,lead,bad))),"An invalid matching byproduct passed.");
         Refuses(()=>Probe(75,Receipts(R(1,0,22,5,lead,25))),"An unstamped byproduct passed.");
         Refuses(()=>Probe(double.NaN,good),"An invalid present inventory passed.");
-        Console.WriteLine("PASS melt custody: complete synthetic100kg, future/wrong-source exclusion, receipt bounds, stable epochs and no duplicate credit");
+        // A pending byproduct batch (sequence 0) has left the owner without a
+        // receipt yet: 50kg fluid +10kg tile +15kg debris +20kg receipt +5kg batched.
+        var batched=Receipts(R(0,10,22,5,lead,5));
+        Check(Probe(75,Receipts(R(1,10,22,5,lead,20)),batches:batched)==(100,25),"A pending byproduct batch was left out of custody.");
+        var otherBatches=Receipts(R(0,11,22,5,lead,99),R(0,10,22,5,222,99),R(0,10,99,5,lead,99));
+        Check(Probe(100,Receipts(),batches:otherBatches)==(100,0),"A batch of a later frame, another species or outside the arena was credited.");
+        Check(Probe(95,Receipts(),batches:Receipts(R(0,10,22,5,lead,5),R(0,10,23,5,lead,7)),batchCount:1)==(100,5),"Unused batch-array capacity was credited.");
+        Refuses(()=>Probe(95,Receipts(),batches:batched,batchCount:2),"A truncated batch census passed.");
+        Refuses(()=>Probe(95,Receipts(),batches:Receipts(R(3,10,22,5,lead,5))),"A sequenced row passed as a batch.");
+        foreach(var bad in new[]{float.NaN,float.PositiveInfinity,-1f,0f})
+            Refuses(()=>Probe(95,Receipts(),batches:Receipts(R(0,10,22,5,lead,bad))),"An invalid matching batch passed.");
+        Console.WriteLine("PASS melt custody: complete synthetic100kg, future/wrong-source exclusion, receipt and batch bounds, pending batches, stable epochs and no duplicate credit");
     }
 }

@@ -1225,6 +1225,19 @@ MAOniResult ma_oni_colony_ack_receipts(std::uint64_t through) {
         catch (const std::invalid_argument& error) { throw Failure(MA_ONI_INVALID_ARGUMENT,error.what()); }
     });
 }
+std::uint32_t ma_oni_colony_byproduct_batch_version() { return 1; }
+MAOniResult ma_oni_colony_release_byproducts(std::uint32_t* released) {
+    return boundary([&] {
+        if (!released) throw Failure(MA_ONI_INVALID_ARGUMENT,"Missing byproduct release output");
+        *released=ma::oni::colony::release_byproducts();
+    });
+}
+MAOniResult ma_oni_colony_copy_byproduct_batches(MAOniColonyReceipt* batches,std::uint32_t capacity,std::uint32_t* count) {
+    return boundary([&] {
+        if (!count || (capacity && !batches)) throw Failure(MA_ONI_INVALID_ARGUMENT,"Invalid byproduct batch buffer");
+        *count=ma::oni::colony::copy_byproduct_batches(batches,capacity);
+    });
+}
 MAOniResult ma_oni_colony_enable_precise_receipts(std::uint32_t enabled) {
     return boundary([&] {
         if (enabled > 1) throw Failure(MA_ONI_INVALID_ARGUMENT,"Precise receipt mode must be zero or one");

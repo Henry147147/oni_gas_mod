@@ -9,6 +9,7 @@
 #include "oni_colony_import.hpp"
 #include "oni_radial_consumption.hpp"
 #include "oni_precise_receipt.hpp"
+#include "oni_byproduct_batches.hpp"
 #include "oni_parcel_admission.hpp"
 #include "oni_precision_inventory.hpp"
 #include "oni_retirement_inventory.hpp"
@@ -42,6 +43,7 @@
 #include <deque>
 #include <cstddef>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <exception>
 #include <functional>
@@ -257,6 +259,23 @@ bool moving_protocol_used=false; // persisted only after explicit admission
 std::atomic<std::uint64_t> live_parcel_session{0};
 std::map<std::uint64_t,std::vector<std::uint8_t>> moving_outcomes;
 std::uint64_t receipt_sequence = 0, acknowledged = 0, sessions = 0;
+double tunable(const char* name, double fallback, double low, double high) {
+    const char* value = std::getenv(name); if (!value || !*value) return fallback;
+    char* end = nullptr; const double parsed = std::strtod(value, &end);
+    return end && !*end && std::isfinite(parsed) && parsed >= low && parsed <= high ? parsed : fallback;
+}
+// Byproduct batches (oni_byproduct_batches.hpp, docs/colony-owner.md#byproduct-batches):
+// 1 g or 10 s of owner time. MA_COLONY_BYPRODUCT_BATCH_KG / _S override them
+// for measurements only (0 kg: every byproduct is released at once, as before
+// batching). Under inputs; not saved: the save barrier releases them first.
+detail::ByproductBatches byproduct_batches(tunable("MA_COLONY_BYPRODUCT_BATCH_KG", 1e-3, 0, 1e3),
+    tunable("MA_COLONY_BYPRODUCT_BATCH_S", 10, 0, 600));
+// A released batch's receipt joins the queue (inputs held).
+void queue_byproduct(MAOniColonyReceipt r, std::uint64_t completed_frame) {
+    require(receipt_sequence != UINT64_MAX, "Receipt sequence exhausted");
+    r.sequence = ++receipt_sequence; r.completed_frame = completed_frame;
+    receipts.push_back(r);
+}
 std::atomic<std::uint64_t> start_thread{};
 // Native shadow: per owned cell, what write_shadow put there this frame.
 struct ShadowCell { std::uint16_t element = 0, before = 0; bool written = false, solid_landed = false; std::size_t displaced_from = SIZE_MAX; float mass = 0, temperature = 0; std::uint32_t germ = 0; std::int32_t germs = 0; };
@@ -656,14 +675,7 @@ long double energy_of(const MacClosedWorld& w) {
     }
     return value;
 }
-// The most numerous germ among passives (identity <= 256 is a disease index + 1),
-// and its count as ONI holds it.
-std::pair<std::uint32_t, std::int32_t> dominant_germ(std::span<const PassiveQuantity> passives) {
-    std::uint32_t best = 0; double most = 0;
-    for (const auto& q : passives) if (q.identity <= 256 && q.quantity > most) { most = q.quantity; best = static_cast<std::uint32_t>(q.identity); }
-    if (best == 0 || !(most >= .5)) return {0, 0};
-    return {best, static_cast<std::int32_t>(std::min(most, 2147483647.))};
-}
+using detail::dominant_germ;
 long double parcel_energy(const MacFluidParcel& p) {
     return static_cast<long double>(p.internal_energy_j) + mac_energy_long_double(p.resolved_kinetic_energy) + mac_energy_long_double(p.potential_energy);
 }
@@ -936,7 +948,8 @@ void activate(std::unique_ptr<Session> next, std::uint64_t thread) {
       precise_receipts.clear(); precise_receipts_enabled = false;
       pipe_jobs.clear(); pending_job_tokens.clear(); receipt_jobs.clear(); accepted_job_token=0;
       awaiting_rebind.clear(); released_rebinds=0;
-      receipt_sequence = acknowledged = 0; exchanged = {}; moving_protocol_used=false; moving_outcomes.clear(); }
+      receipt_sequence = acknowledged = 0; exchanged = {}; moving_protocol_used=false; moving_outcomes.clear();
+      byproduct_batches.clear(); }
     { std::lock_guard o(oracle.m); oracle.cells.clear(); oracle.comparisons = oracle.mismatches = oracle.extinctions = 0; oracle.born = oracle.died = 0; oracle.last.clear(); }
     biology_mode.store(next->germ_mode, std::memory_order_relaxed);
     publish(*next);
@@ -1337,16 +1350,16 @@ MacClosedWorld convert_identities(Session& s, MacClosedWorld world, double secon
         if (!sterile && products[q].mass > 0) given.push_back({products[q].cell, products[q].species, true, products[q].mass, temperature[q], parcel.passives});
         if (products[q].byproduct_kg > 0) {
             std::lock_guard lock(inputs);
-            MAOniColonyReceipt r{}; r.sequence = ++receipt_sequence; r.completed_frame = s.status.completed_frames + 1;
-            r.callback = products[q].byproduct; r.kind = MA_ONI_COLONY_BYPRODUCT;
-            r.public_cell = static_cast<std::uint32_t>((s.config.offset_x + products[q].cell % s.config.width) +
+            const auto public_cell = static_cast<std::uint32_t>((s.config.offset_x + products[q].cell % s.config.width) +
                 (s.config.offset_y + products[q].cell / s.config.width) * s.config.grid_width);
-            r.mass_kg = static_cast<float>(products[q].byproduct_kg); r.temperature_k = static_cast<float>(temperature[q]);
             // A conversion whose whole mass leaves as the solid (a hidden liquid
             // freezing) has no product to keep its germs: they ride the debris as
             // the one disease of ONI's item. Otherwise the product keeps them.
-            if (!(products[q].mass > 0)) { const auto germ = dominant_germ(parcel.passives); r.disease = germ.first; r.disease_count = germ.second; }
-            receipts.push_back(r);
+            MAOniColonyReceipt released{};
+            if (byproduct_batches.add(public_cell, products[q].byproduct, products[q].byproduct_kg, temperature[q],
+                    products[q].mass > 0 ? std::span<const PassiveQuantity>{} : std::span<const PassiveQuantity>(parcel.passives),
+                    world.time_s(), s.status.completed_frames + 1, released))
+                queue_byproduct(released, s.status.completed_frames + 1);
         }
     }
     if (joined_gives > 0) {
@@ -2187,6 +2200,20 @@ std::uint32_t copy_receipts(MAOniColonyReceipt* out, std::uint32_t capacity) {
     const auto count = static_cast<std::uint32_t>(std::min<std::size_t>(capacity, available));
     if (out) std::copy(receipts.begin(), receipts.begin() + count, out);
     return static_cast<std::uint32_t>(available);
+}
+std::uint32_t release_byproducts() {
+    wait();
+    std::uint64_t frame = 0;
+    { std::lock_guard lock(lifecycle); require(session && session->status.state == 1, "Releasing byproducts requires a healthy colony owner");
+      frame = session->status.completed_frames; }
+    std::lock_guard lock(inputs);
+    const auto count = static_cast<std::uint32_t>(byproduct_batches.size());
+    byproduct_batches.release_all([&](const MAOniColonyReceipt& r) { queue_byproduct(r, frame); });
+    return count;
+}
+std::uint32_t copy_byproduct_batches(MAOniColonyReceipt* out, std::uint32_t capacity) {
+    std::lock_guard lock(inputs);
+    return byproduct_batches.copy(out, capacity);
 }
 void ack_receipts(std::uint64_t through) {
     std::lock_guard lock(inputs);
@@ -3187,6 +3214,11 @@ void run_frame(std::uint64_t ticket,double seconds,std::uint64_t frames,const ch
         }
         step("terrain");
         if (!terrain.empty()) {
+            // Debris of a cell that closes (a tile built, a native freeze)
+            // arrives before the solid does, as unbatched byproducts did.
+            { std::lock_guard q(inputs);
+              for (const auto& e : terrain) if (e.kind == MA_ONI_COLONY_CLOSE)
+                  byproduct_batches.release_cell(e.public_cell, [&](const MAOniColonyReceipt& r) { queue_byproduct(r, completed_frame); }); }
             const auto before_terrain = world; const Session before_session = s;
             try { world = apply_terrain(s, std::move(world), terrain); }
             catch (const std::exception& refused) {
@@ -4026,6 +4058,7 @@ void run_frame(std::uint64_t ticket,double seconds,std::uint64_t frames,const ch
         world = expel_blocked_liquid(s, std::move(world),due);
         step("conversions");
         world = convert_identities(s, std::move(world), seconds,due);
+        { std::lock_guard q(inputs); byproduct_batches.release_due(world.time_s(), [&](const MAOniColonyReceipt& r) { queue_byproduct(r, completed_frame); }); }
         step("trace sink");
         world = sink_traces(s, std::move(world),due);
         lap(3); step("space sink");
