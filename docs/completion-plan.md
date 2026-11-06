@@ -8,6 +8,19 @@ still require separate authorization.
 
 Amendments:
 
+- **Beta release at 1×, 3× stays the goal, user decisions 2026-11-06:**
+  - **A beta release needs sustained 1×:** a beta for wider playtesting
+    ships once the game sustains at least 1× (actual game seconds per wall
+    second, smooth input) on the representative full colonies. 3× remains
+    the speed goal that work keeps pursuing; it no longer blocks the beta.
+  - **No large end-game benchmark:** speed is measured on the existing
+    full-colony saves (`full-colony-base-v1`, `full-colony-spacedout-v1`)
+    and the other prepared saves, not on a new late-game colony, so testing
+    stays fast.
+  - Every other release gate and bound is unchanged. Public release and
+    Workshop upload still need the user's separate authorization, and the
+    licence is still the user's choice.
+
 - **User decisions 2026-11-05 toward the 3x gate:**
   - **Overlapped (post-ahead) pacing adopted:** the game may post the next
     tick while the owner computes the current one, so the game's readers see

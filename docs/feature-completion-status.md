@@ -1,5 +1,12 @@
 # Feature completion work
 
+**Update, 2026-11-06:** a beta for wider playtesting needs sustained 1× on
+the full-colony saves; 3× stays the speed goal
+([amendment](completion-plan.md#amendments)). The base full colony runs about
+2.1× on the Linux harness with overlapped pacing; the Spaced Out! full colony
+last measured 0.39× (before the pipe, publication and pacing work) and is the
+speed work that blocks the beta.
+
 **Update, 2026-11-04:** RC1 `258134c` passes the full private release tier,
 all 47 steps including the ten-cycle run, and is delivered privately
 ([record](private-playtest-release.md#rc1-258134c-2026-11-04)). On the Linux
