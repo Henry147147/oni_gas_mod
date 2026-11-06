@@ -55,7 +55,11 @@ PDB paths of different lengths can shift the PE layout and make this strict
 comparison refuse otherwise equivalent sources. The 2026-10-29 Linux- and
 Windows-referenced builds made with `-p:DebugType=None -p:DebugSymbols=false`
 produce byte-identical complete DLLs for both managed assemblies. The
-comparison and its rejection bounds are unchanged. For example:
+comparison and its rejection bounds are unchanged. Neither project writes the
+Git commit into its informational version, so the DLLs depend on their
+sources and references only; the manifest records the packaging revision.
+Before 2026-11-06 `MixedAtmospheres.Core.dll` carried `1.0.0+<commit>`, so a
+commit that touched no managed source still changed its bytes. For example:
 
 ```sh
 dotnet build managed/MixedAtmospheres.Oni -c Release \

@@ -6,6 +6,10 @@
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <NoWarn>$(NoWarn);1591</NoWarn>
+    <!-- Like MixedAtmospheres.Oni: the shipped DLL depends on its sources and
+         references only, not on the Git commit it was built at
+         (docs/distribution.md). -->
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
   </PropertyGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="MixedAtmospheres.Tests" />
