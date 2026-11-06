@@ -154,6 +154,8 @@ class ReleaseAssemblyTests(unittest.TestCase):
             self.assertEqual((output / "mod_info.yaml").read_text(), mod_identity.mod_info(mod_identity.version()))
             self.assertIn("mimalloc", (output / "third-party/third-party-sources.txt").read_text())
             self.assertIn("winpthreads", (output / "third-party/third-party-sources.txt").read_text())
+            # Both platforms link GCC's runtime statically; the notice must not say Windows only.
+            self.assertIn("GCC 11 (Ubuntu 22.04) in the Linux libraries", (output / "third-party/third-party-sources.txt").read_text())
             for notice in RELEASE.MINGW_NOTICES:
                 self.assertIn("third-party/licenses/" + notice, files)
             readme = (output / "README.txt").read_text()

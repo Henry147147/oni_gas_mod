@@ -1431,6 +1431,16 @@ class EvidenceTests(unittest.TestCase):
         self.assertFalse(runner.native_observer_passed(manifest, report))
         self.assertTrue(runner.native_observer_passed({}, None))
 
+    def test_release_observer_attaches_without_a_report(self):
+        release = {"kind": "release", "release_ready": True, "native_observer_enabled": True}
+        log = "...\n" + runner.OBSERVER_ATTACHED_MARKER + " Original colony physics remains active.\n"
+        self.assertTrue(runner.native_observer_passed(release, None, log))
+        self.assertFalse(runner.native_observer_passed(release, None, "no attachment line"))
+        # A release has no observation request, so a report means an unshipped file.
+        self.assertFalse(runner.native_observer_passed(release, {"Status": "observing"}, log))
+        # Probes still need their own forwarding report; the log alone is not enough.
+        self.assertFalse(runner.native_observer_passed({"native_observer_enabled": True}, None, log))
+
     def setUp(self):
         self.probe = {flag: True for flag in runner.PROBE_FLAGS}
         self.probe["Platform"] = "LinuxPlayer"
@@ -1860,6 +1870,47 @@ class PackageTests(unittest.TestCase):
         self.manifest["files"]["../outside"] = "unused"
         self.write_manifest()
         with self.assertRaises(ValueError):
+            runner.verify_package(self.root)
+
+    def make_release(self):
+        names = list(runner.RELEASE_FILES)
+        for name in names:
+            file = self.root / name
+            file.parent.mkdir(parents=True, exist_ok=True)
+            file.write_bytes(b"release fixture " + name.encode())
+        self.manifest = {"kind": "release", "release_ready": True, "native_observer_enabled": True,
+                         "source_revision": "0123456789abcdef0123456789abcdef01234567", "source_dirty": False,
+                         "files": {name: runner.digest(self.root / name) for name in names}}
+        self.write_manifest()
+
+    def test_release_folder_passes_for_both_platforms(self):
+        self.make_release()
+        for platform in ("linux-x64", "win-x64"):
+            self.assertTrue(runner.is_release(runner.verify_package(self.root, platform)))
+        self.assertIsNone(runner.release_mode_error(self.manifest, "colony-owner"))
+        self.assertIn("colony modes", runner.release_mode_error(self.manifest, "menu"))
+        self.assertIsNone(runner.release_mode_error({"kind": "integration-probe", "release_ready": False}, "menu"))
+
+    def test_release_folder_needs_both_native_pairs_and_no_development_marker(self):
+        self.make_release()
+        missing = "native/win-x64/mixed_atmospheres_oni.dll"
+        (self.root / missing).unlink()
+        del self.manifest["files"][missing]
+        self.write_manifest()
+        with self.assertRaisesRegex(ValueError, "both platforms"):
+            runner.verify_package(self.root, "linux-x64")
+        self.make_release()
+        (self.root / "development.json").write_text("{}")
+        self.manifest["files"]["development.json"] = runner.digest(self.root / "development.json")
+        self.write_manifest()
+        with self.assertRaisesRegex(ValueError, "development marker"):
+            runner.verify_package(self.root)
+
+    def test_release_manifest_must_claim_release_readiness(self):
+        self.make_release()
+        self.manifest["release_ready"] = False
+        self.write_manifest()
+        with self.assertRaisesRegex(ValueError, "integration probe package or a release folder"):
             runner.verify_package(self.root)
 
     def test_symlinks_are_rejected_even_with_matching_hash(self):

@@ -85,7 +85,31 @@ and libstdc++ statically. The packager copies their notices from the
 toolchain's packages (`--mingw-root`, default `MA_MINGW_ROOT` or the team's
 `build-oni-cross-tools/root/usr`) into `third-party/licenses/mingw-w64-runtime`
 and `gcc-runtime`. winpthreads' licence requires its notice to ship with the
-binaries.
+binaries. The Linux libraries also link GCC's libgcc and libstdc++ statically
+(Ubuntu 22.04's GCC 11) under the same runtime library exception;
+`third-party-sources.txt` names both.
+
+### Running the release folder in the game
+
+`tools/oni_headless.py run` and `tools/oni_proton_headless.py` take the release
+folder as `--package` in colony modes, as they take a probe package:
+
+```sh
+tools/game_slot.sh low python3 tools/oni_headless.py run \
+  --package artifacts/release/MixedAtmospheres --mode colony-owner --scenario base \
+  --dlc-mask 0 --gpu-display :99 --output artifacts/release-smoke/linux-base
+```
+
+The runners check every manifest hash and require both platforms' native
+pairs, the managed DLLs and `game-contract.json`, and no `development.json`.
+They install the folder unchanged as the private Dev mod and add only the run's
+`colony-validation.json` request, which makes the mod write its reports beside
+itself as a probe does. A release carries no observation request, so its
+attached forwarding observer writes no report; the runners require the
+attachment line in `Player.log` instead. `--mode menu` is refused for a release,
+because without a request the mod writes no report. These runs use exactly the
+shipped files. They are not a Workshop install (`mods/Steam/<id>`) and do not
+replace the release gates.
 
 ## Identity
 

@@ -78,6 +78,10 @@ also checks every manifest hash, requires the Linux native library, rejects
 unlisted files and symlinks, and rejects packages contaminated with earlier
 test reports or configuration. The copied launch package is verified against
 the original manifest before configuration is added or a game is launched.
+A Workshop release folder from `tools/package_release.py` is accepted in colony
+modes; it must pin both platforms' native pairs and carry no
+`development.json`, and its observer is checked by its `Player.log` attachment
+line ([running the release folder](../docs/distribution.md#running-the-release-folder-in-the-game)).
 
 Each invocation creates a new profile and disposable colony (seed 147147) below
 `<state>/runs/<timestamp>-<random>/`, holding `result.json`, `Player.log`,

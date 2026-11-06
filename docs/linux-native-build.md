@@ -40,8 +40,13 @@ supplied native binaries against that report and includes it as
 package assembly's current Git revision, and its `actual_game_test: false`
 describes the build command only.
 
-Current status, 2026-10-27: the production owner, native storage heat ABI2 and
-conduit energy-completion observer pass all 89 default CTests in Ubuntu 22.04
+Current status, 2026-11-06: native sources at `779d49f` pass all 93 default
+CTests in the Ubuntu 22.04 image (GCC 11), and both shared libraries require at
+most glibc 2.34. This pair is the Linux half of the release dry run in
+[distribution](distribution.md#running-the-release-folder-in-the-game).
+
+On 2026-10-27 the production owner, native storage heat ABI2 and
+conduit energy-completion observer passed all 89 default CTests in Ubuntu 22.04
 (`build-release-ubuntu2204-conduit`). Both shared libraries require at most
 glibc 2.34. Earlier 55-test evidence remains historical. The shared geometry's
 scaled square root replaces the `std::hypot` call that made an earlier observer

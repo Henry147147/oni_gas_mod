@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Assemble the Steam Workshop release folder and its deterministic ZIP.
 
-One folder serves Windows x64 and Linux x64 players: managed DLLs, element
-data, both platforms' native libraries, third-party notices and sources, the
-final mod.yaml/mod_info.yaml, a player README and a manifest of hashes. It has
+One folder serves Windows x64 and Linux x64 players: managed DLLs, their game
+contract, both platforms' native libraries, third-party notices and sources,
+the final mod.yaml/mod_info.yaml, a player README and a manifest of hashes. It has
 no installer, no development marker, no validation fixtures and no reports.
 Licensed game files never enter it. See docs/distribution.md.
 """
@@ -168,12 +168,15 @@ def third_party(roots: dict[str, Path], destination: Path) -> None:
 
 # The Windows DLLs link the MinGW-w64 C runtime, winpthreads and GCC's
 # libgcc/libstdc++ statically; their notices come from the toolchain's packages.
+# The Linux libraries link Ubuntu 22.04's GCC 11 libgcc/libstdc++ statically
+# (-static-libstdc++ -static-libgcc) under the same runtime library exception.
 MINGW_NOTICES = {"mingw-w64-runtime/copyright": "share/doc/mingw-w64-x86-64-dev/copyright",
                  "gcc-runtime/copyright": "share/doc/gcc-mingw-w64-base/copyright"}
 MINGW_SOURCES = ("MinGW-w64 runtime and winpthreads (Windows only, linked statically): https://www.mingw-w64.org/; "
                  "notices in licenses/mingw-w64-runtime.",
-                 "GCC 13 libgcc and libstdc++ (Windows only, linked statically under the GCC Runtime Library Exception): "
-                 "https://gcc.gnu.org/; notices in licenses/gcc-runtime.")
+                 "GCC libgcc and libstdc++, linked statically under the GCC Runtime Library Exception: GCC 13 (MinGW-w64) "
+                 "in the Windows libraries and GCC 11 (Ubuntu 22.04) in the Linux libraries: https://gcc.gnu.org/; "
+                 "notices in licenses/gcc-runtime.")
 
 
 def default_mingw_root() -> Path:

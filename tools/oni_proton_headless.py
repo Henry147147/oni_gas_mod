@@ -284,6 +284,8 @@ def playtest(args, state: Path, session: dict) -> int:
     inspection_seconds = getattr(args, "inspection_seconds", 0)
     package, game, proton = args.package.resolve(), args.game_dir.resolve(), args.proton.resolve()
     manifest = common.verify_package(package, "win-x64")
+    if common.release_mode_error(manifest, args.mode):
+        raise ValueError(common.release_mode_error(manifest, args.mode))
     if args.mode != "menu" and manifest.get("native_observer_enabled") is not True:
         raise ValueError("Native scenes require a Windows package built with --native-observer")
     if (game / "OxygenNotIncluded.exe").read_bytes()[:2] != b"MZ":
@@ -479,7 +481,7 @@ def playtest(args, state: Path, session: dict) -> int:
         domain_ok = args.mode not in OWNER_MODES + FORWARD_MODES and native_domain_passed(domain, observation, args.frames, **domain_options(args))
         if code == 0 and args.mode not in OWNER_MODES + FORWARD_MODES and not domain_ok:
             status, code = "failed-native-domain", 2
-        if code==0 and args.mode in OWNER_MODES + FORWARD_MODES and not common.native_observer_passed(manifest,observation):
+        if code==0 and args.mode in OWNER_MODES + FORWARD_MODES and not common.native_observer_passed(manifest,observation,log):
             status,code="failed-native-observer",2
         owner_ok = args.mode in OWNER_MODES and colony_owner_passed(owner)
         if code == 0 and args.mode in OWNER_MODES and not owner_ok:

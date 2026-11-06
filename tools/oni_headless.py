@@ -13,7 +13,7 @@ import fcntl
 import hashlib
 import json
 import os
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import re
 import secrets
 import shutil
@@ -60,6 +60,13 @@ MOD_FRAME = re.compile(r"MixedAtmospheres\.|DMD<|HarmonyLib\.")
 HARMONY_FAILURE = re.compile(r"HarmonyException|Patching exception", re.IGNORECASE)
 SHUTDOWN_ABORT = "Thread was being aborted"
 MANIFEST_REVISION = re.compile(r"[0-9a-f]{40}(?:[0-9a-f]{24})?")
+# A Workshop release folder (tools/package_release.py) runs as shipped: both
+# platforms' native pairs and no development marker. Without an observation
+# request its attached observer writes no report; Player.log records it.
+RELEASE_FILES = ("MixedAtmospheres.Oni.dll", "MixedAtmospheres.Core.dll", "game-contract.json",
+                 "native/linux-x64/libmixed_atmospheres.so", "native/linux-x64/libmixed_atmospheres_oni.so",
+                 "native/win-x64/mixed_atmospheres.dll", "native/win-x64/mixed_atmospheres_oni.dll")
+OBSERVER_ATTACHED_MARKER = "[Mixed Atmospheres] Native SimDLL forwarding observer attached."
 # Mirrors ColonyValidationLimits (ColonyValidationConfiguration.cs). Ten ONI
 # cycles are about 30,000 native 0.2 s frames; long runs are an explicit opt-in.
 FRAME_LIMIT, LONG_RUN_FRAME_LIMIT, LONG_RUN_DEFAULT_FRAMES = 10000, 100000, 30000
@@ -451,8 +458,9 @@ def verify_package(package: Path, platform: str = "linux-x64") -> dict:
         raise ValueError("Expected a supported Linux or Windows x64 probe platform")
     package = package.resolve()
     manifest = read_json(package / "package-manifest.json")
-    if manifest.get("kind") != "integration-probe" or manifest.get("release_ready") is not False:
-        raise ValueError("Supply a private integration probe package.")
+    release = is_release(manifest)
+    if not release and (manifest.get("kind") != "integration-probe" or manifest.get("release_ready") is not False):
+        raise ValueError("Supply a private integration probe package or a release folder.")
     revision = manifest.get("source_revision")
     if (not isinstance(revision, str) or not MANIFEST_REVISION.fullmatch(revision)
             or not isinstance(manifest.get("source_dirty"), bool)):
@@ -465,6 +473,10 @@ def verify_package(package: Path, platform: str = "linux-x64") -> dict:
     required = {"MixedAtmospheres.Oni.dll", "MixedAtmospheres.Core.dll", libraries[platform]}
     if not required.issubset(manifest["files"]):
         raise ValueError("The package must include pinned " + ("Linux" if platform=="linux-x64" else "Windows") + " native and managed libraries.")
+    if release and (not set(RELEASE_FILES).issubset(manifest["files"]) or manifest.get("native_observer_enabled") is not True
+                    or any(PurePosixPath(name).name == "development.json" for name in manifest["files"])):
+        raise ValueError("A release folder must pin both platforms' native pairs, the managed DLLs and their game "
+                         "contract, and no development marker.")
     actual = {p.relative_to(package).as_posix() for p in package.rglob("*") if p.is_file()
               and p != package / "package-manifest.json"}
     if actual != set(manifest["files"]) or any(p.is_symlink() for p in package.rglob("*")):
@@ -473,6 +485,17 @@ def verify_package(package: Path, platform: str = "linux-x64") -> dict:
            for p in package.iterdir()):
         raise ValueError("Use a clean package, without previous configuration or runtime reports.")
     return manifest
+
+
+def is_release(manifest: dict) -> bool:
+    return manifest.get("kind") == "release" and manifest.get("release_ready") is True
+
+
+def release_mode_error(manifest: dict, mode: str) -> str | None:
+    """A release writes reports only beside a validation request, which menu mode does not stage."""
+    if is_release(manifest) and mode == "menu":
+        return "A release folder runs in colony modes: only their validation request makes it report beside the mod."
+    return None
 
 
 def stage_package(package: Path, mod: Path, manifest: dict, platform: str = "linux-x64") -> None:
@@ -673,9 +696,13 @@ def screenshot(state: Path, session: dict, path: Path) -> None:
     run_checked([str(state / "tools/desktop/usr/bin/scrot"), "-o", str(path)], env=desktop_env(state, session, session.get("gpu") is True))
 
 
-def native_observer_passed(manifest: dict, report: dict | None) -> bool:
+def native_observer_passed(manifest: dict, report: dict | None, log: str = "") -> bool:
     if not manifest.get("native_observer_enabled", False):
         return True
+    if is_release(manifest):
+        # A release carries no observation request: the attached observer
+        # writes no report, and Player.log records the attachment.
+        return report is None and OBSERVER_ATTACHED_MARKER in log
     if not isinstance(report, dict):
         return False
     reading = report.get("Observation", {})
@@ -917,6 +944,8 @@ def playtest(args, state: Path, session: dict) -> int:
         raise ValueError("--gpu-display and --private-display are alternatives.")
     package = args.package.resolve()
     manifest = verify_package(package)
+    if release_mode_error(manifest, args.mode):
+        raise ValueError(release_mode_error(manifest, args.mode))
     if args.mode in ("native-observer", "colony-owner", "colony-owner-load", "colony-owner-inactive", "colony-vanilla", "native-configured-domain", "native-configured-water-domain", "native-configured-vacuum-domain", "native-domain", "native-solid-heat-domain", "native-mixed-domain", "native-mixed-heat-domain", "native-viscous-domain", "native-import-domain", "native-liquid-import-domain", "native-liquid-domain", "native-liquid-transfer-domain", "native-heat-domain", "native-liquid-heat-domain", "native-transfer-domain", "native-radius-domain", "native-rectangular-domain", "native-actor-domain", "native-liquid-actor-domain", "native-carbon-domain", "native-carbon-particle-domain", "native-breathing-read-domain", "native-pressure-read-domain", "native-liquid-pressure-read-domain", "native-conduction-domain", "native-gravity-domain", "native-liquid-gravity-domain", "native-checkpoint-domain", "native-paired-checkpoint-domain", "native-save-domain", "native-load-domain") and not manifest.get("native_observer_enabled", False):
         raise ValueError("Native integration modes require a package built with --native-observer")
     game = args.game_dir.resolve()
@@ -1080,7 +1109,7 @@ def playtest(args, state: Path, session: dict) -> int:
                 observer_report = read_json(observer_file) if observer_file.exists() else None
             except (OSError, json.JSONDecodeError):
                 observer_report = None
-            observer_ok = native_observer_passed(manifest, observer_report)
+            observer_ok = native_observer_passed(manifest, observer_report, log)
             domain_report = None
             domain_ok = False
             hover_report = None
