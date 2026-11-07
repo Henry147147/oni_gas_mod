@@ -1,5 +1,244 @@
 # Performance acceptance measurements
 
+## Large-colony exact improvements and research, 2026-11-07
+
+The requested 32-duplicant industrial benchmark is a frozen, instantly
+constructed large state: 1,474 building/floor/wire/conduit objects, 141 tracked
+devices (117 operational), 611 wires, 109 gas pipes, 144 liquid pipes and
+34,441 owned cells. The private save is `large-industrial-base-32-v3.sav`,
+SHA-256 `4eafe7b3570b08c442fc41f9844f1edb074b2da8ed9dc790b74063b67e64717e`.
+The separate `full-colony-spacedout-v2.sav` stress case retains 14 duplicants,
+1,147 such objects and about 67,857 owned cells, including its vented compact
+second base; SHA-256
+`774db516823f326f8f9f9735367b1b561adace161caa2b675ff03f2b189bce60`.
+The saves and licensed captures stay private. The public findings and current
+recommendations are at <https://finding.hilberto.com>.
+
+A full cycle is 3,000 positive owner ticks, approximately 600 game seconds,
+from a fresh frozen save at requested speed 3. The stress-case confirmation
+uses 900 ticks and its own matched control; its vented region evolves, so a
+short run cannot be compared directly to a full-cycle rate. Timed games hold
+the game slot and both project CPU locks, use GPU display `:99`, and retain
+commands, source/package/save hashes, timestamps and actual denominators.
+The host is a Linux Ryzen 9 5900X with roughly 60 GiB RAM and an RTX 5090.
+The game logs a 640×480 window. These are not Windows or 1080p performance
+measurements. Unrelated host workloads remain outside the project locks.
+
+### Exact implementation
+
+Two pass-local caches avoid revisiting the whole held-precision inventory:
+admission maintains the encoded-size total; release validates the inventory
+once and then validates each replacement against the same count/byte bounds.
+Failed replacements leave both the parcel and cached totals unchanged.
+Zero balances, signed energy and the existing 65,536-entry/16 MiB limits are
+preserved. The caches add no saved state.
+
+Moving-parcel deposition now reads shared cells through a const view while
+initializing occupied volumes, snapshotting face neighbours and accounting
+for heat/energy. Previously, mutable indexing detached shared cell chunks
+even when merely reading them. Writes still use the mutable state. The
+regression control requires exactly one copied cell chunk for one zero-momentum
+admission, including a chunk-boundary recipient and an existing partial-liquid
+volume array, in all three kernels. It also checks exact conservation and
+that the source checkpoint is unchanged. Solver arithmetic, operation order,
+checkpoint bytes/formats and numerical defaults are unchanged.
+
+### Fresh production comparison
+
+The old code is `a426b58`; the candidate combines both parcel caches and the
+const-read fix, with identical managed assemblies in both game packages.
+Four fresh 3,000-tick native replays use the same initial image and 635 MiB
+input journal in old/new/new/old order, 12 workers, CPU affinity 12–23 and both
+project CPU locks. The first 150 ticks of each run are excluded; each side
+contributes 5,700 warmed samples. Quantiles below pool those samples per side.
+
+| Native replay | Old | New |
+| --- | ---: | ---: |
+| Mean owner tick, ms | 93.746 | 85.619 |
+| Mean transfer stage, ms | 19.218 | 9.027 |
+| Owner p99, ms | 215.236 | 123.837 |
+| Worst owner tick, ms | 1003.417 | 150.318 |
+| Worst transfer stage, ms | 919.964 | 38.960 |
+| Mean peak replay RSS, MiB | 4378.1 | 4387.5 |
+
+This is **8.67% less native owner time**, or 9.49% more native capacity, and
+53.03% less transfer work. The old runs average 96.189 and 91.303 ms; the new
+runs average 85.633 and 85.605 ms. The difference between the two controls is
+retained rather than selecting the slower one. Replay RSS includes the journal
+and parsed input history; it establishes no memory saving and is not game RSS.
+
+All four endpoint owner hashes are
+`a23e65512f83f817f8c316c196a1ab19cc4e10dae39443aa90c1978b6cf80d76`, matching the
+historical fixed-input endpoint too. All 128 images from eight separate
+16-tick controls match old/new at both 1 and 12 workers in both colonies.
+The full-cycle check compares endpoints, not every intermediate full-cycle
+checkpoint. Maximum relative mass/energy errors are unchanged at
+3.581e-15/2.621e-16. There is no measured state deviation in these equivalence
+checks; this is not a claim that the original algorithm is physical ground truth.
+
+Fresh live base runs load the same frozen 32-duplicant save. Old/new advance
+601.125/600.925 game seconds in 428.756/395.422 wall seconds: **1.402× → 1.520×**,
+8.39% higher observed throughput. Warmed rates are 1.405× → 1.527× (+8.68%),
+with mean owner ticks 110.04 → 97.38 ms. Both retain all 32 duplicants, include
+the natural Cycle 2 autosave, pass telemetry and have no owner fault. This is
+one ordered live pair; scheduling changes live inputs. The fixed-input ABBA
+replay supplies the stronger isolated code-cost and exactness evidence.
+
+Base peak sampled RSS is 4.154 → 4.191 GiB; managed-heap peaks are
+1.639 → 1.612 GiB. These do not establish a whole-game memory reduction.
+Project locks exclude other project benchmarks, while unrelated video work
+continued on the shared host and was recorded. The 85.6 ms native mean alone
+still exceeds the 66.7 ms budget for 3× before game/native handoff overhead;
+sustained smooth 3× remains open.
+
+The separate fresh 900-tick Spaced Out! pair retains all 14 duplicants and
+passes telemetry/owner checks, but establishes **no whole-game speedup**:
+old/new rates are 1.069× → 1.038× (−2.93% observed), or 1.104× → 1.058× after
+warmup (−4.10%). Actual denominators are 180.939/180.739 game seconds in
+169.250/174.164 wall seconds. Warm owner means are 160.52 → 165.94 ms, with
+flow 140.40 → 144.76 ms and transfers 12.70 → 13.04 ms. Sampled RSS is
+4.971 → 4.861 GiB and managed heap 2.131 → 2.053 GiB; this single pair does
+not establish a lasting memory reduction.
+
+That live slowdown prompted a fresh 450-tick input capture and a second
+old/new/new/old native comparison on Spaced Out! (50 warmup ticks excluded,
+800 warmed samples per side). Old run means are 157.693/150.583 ms; new means
+151.158/153.153 ms. The combined means are 154.138 → 152.156 ms (−1.29%),
+with overlapping run ranges. Transfer means are 11.443 → 11.579 ms; flow
+136.766 → 134.573 ms. Replay RSS is 1017.95 → 1013.71 MiB. This check did
+not reproduce the live penalty, and does not establish a useful SO gain.
+It measures 90 game seconds under identical requested inputs, rather than
+replacing the 180-second live result. All four endpoint hashes are
+`e2caed727a430125f62b6538f99225d535281c18bc08b95e36798e26a6f0f8d6`;
+maximum relative mass/energy errors match at 5.503e-15/2.201e-15. The extra
+capture is diagnostic and is not counted as another timed live comparison.
+
+Mean Unity-frame time on the base is effectively unchanged (44.32 → 44.24 ms).
+The observed SO means are 30.65 → 31.36 ms. GC-containing frames include other
+work and occasional startup/autosave stalls; they are not isolated GC pause
+measurements. Faster owner computation has not established smoother input.
+
+### Copy microbenchmark
+
+A synthetic 65,536-cell world measures 100 independent zero-momentum,
+single-cell admissions per process, in old/new/new/old order for each case.
+The first case starts without an explicit occupied-volume array; the second
+already has one because a distant cell contains partial liquid, and deposits
+across a cell-chunk boundary. Both revisions use the same benchmark source,
+12-23 CPU affinity and both project CPU locks. Each case's physical checkpoint
+matches byte for byte across all four runs.
+
+| Operation | Old mean ms | New mean ms | Cell chunks copied | Mean peak process RSS, old → new |
+| --- | ---: | ---: | ---: | ---: |
+| Gas-only, initialize volume array | 5.780 | 0.614 | 64 → 1 | 77.14 → 41.81 MiB |
+| Existing partial-liquid volume array | 0.190 | 0.116 | 2 → 1 | 41.62 → 41.80 MiB |
+
+These are operation costs, not whole-game gains. The first case is 9.4× faster
+with about 35 MiB less synthetic-process peak RSS; the partial-volume case
+uses 39% less operation time with no established RSS reduction. Deposits that
+actually heat neighbours can legitimately write more than one chunk.
+
+### Production qualification
+
+The final production source passes `tools/build.py`: 93/93 CTests, the Python
+suite (516 tests reported, 11 existing skips), and managed/integration checks.
+The launcher test fixture also now mocks the newly required Steam-offline
+step and verifies that it precedes launch; real Steam-offline protection is
+unchanged.
+
+All 15 required Linux scenario batches pass, covering all 66 named scenarios.
+The strict coverage check confirms each expected scenario and its acceptance
+checks, with no owner fault and no modified inputs or bounds. The four timed
+large-colony loads also pass their telemetry and owner checks.
+
+Every default `ma_mac_*` executable was built and run against separate clean
+baseline/candidate trees: all 88 stdout/stderr and exit codes match, masking
+only the explicit `ref_ms`/`prod_ms` timing fields. Eight default invocations
+remain nonzero on both revisions: `curved_nodal_diagnostic`,
+`mixed_transfer_tests`, `multiphase_gates`, `playtest_benchmark`,
+`riemann_probe`, `riemann_slab_diagnostic`, `riemann_tests` and
+`vacuum_front_diagnostic` (all with the `ma_mac_` prefix). These are unchanged
+baseline failures, not newly passing gates. No input, grid or bound was changed.
+
+Both Windows x64 native DLLs also build with the MinGW toolchain. The precision
+inventory controls and the reference/production/game moving-parcel tests pass
+as Windows executables under Wine. This checks compilation and focused native
+behaviour; Windows OS gameplay, performance and interactive responsiveness
+remain for the user's rebuild/playtest.
+
+The exact implementation is qualified for integration into `main` and the
+user's Windows rebuild. It does not complete the sustained smooth 3× goal.
+Private reproducibility records are retained in the speed worktree under
+`artifacts/performance-integration-20261107/`: `REPRODUCE.txt` and
+`reproduce-game.py` describe fresh-tag, locked frozen-save reruns;
+`final-summary.json`, `replay-qualification.json`, `so-matched-summary.json`
+and `copy-benchmark.json` hold the timings and state identities.
+`candidate-source-hashes.json`, `all-mac-comparison.json`,
+`fifteen-batches.json`, `candidate-final-build.log` and `windows-check.log`
+identify the tested source and qualification results. Retained control and
+candidate game packages use the same managed assembly. Saves, licensed
+captures and journals are private and are not included in the repository or
+public page.
+
+### Further candidates and measured limits
+
+A fresh coalescing index each frame was rejected. The captured held inventory
+has 35,959 entries and 19,866 distinct exact keys. A construction-inclusive
+microbenchmark with 16 queries, half missing and first-match semantics,
+takes 0.410 ms by scanning versus 2.232 ms rebuilding an index. Over 285 warmed
+diagnostic frames, held admissions have median 13, p95 19 and maximum 30.
+The index only wins at much higher query counts (128 queries: 3.193 versus
+2.186 ms). A persistent index would need separate order/invalidation controls;
+this experiment establishes no whole-game gain.
+
+The earlier diagnostic frame places the industrial base's large-region work
+at 27.57 ms pressure, 16.05 ms interface correction and 4.32 ms transport.
+The vented Spaced Out! region instead needs 66 substeps/83 attempts: pressure
+61.38 ms, transport 69.26 ms, interface correction 2.56 ms. These are diagnostic
+samples, not exclusive whole-cycle averages. Reducing rejected trials or
+pressure iterations alone does not remove the repeated accepted transport.
+Local conservative subcycling is a substantial numerical candidate, not an
+implemented optimization. Splitting the base's connected interface cluster
+needs complete read/write dependencies and preserved per-cell ordering.
+
+Production already overlaps game-thread work and the owner. The experimental
+extra native/owner overlap hides roughly 13 ms of `UpdateData`, with an extra
+0.2 game seconds of reader lag. Historical short live pairs improved
+1.726→1.978× on base and 1.030→1.108× on Spaced Out!, but synthetic contact
+controls demonstrate 0.25 kg freezing and 0.15 kg withdrawal discrepancies,
+and 4,000 J skipped heat after a cell empties. The owner-only ledger can still
+close. The removed-wait prototype is not adopted; it needs owner-confirmed
+native contacts, heat reconciliation and lifecycle fences.
+
+Multigrid and a 1 mL interface-detail threshold remain numerical options,
+not exact wins. In the separate 6 November research cohort, a matched
+full-cycle replay with parcel caches falls from
+78.6 ms to 66.0 ms with multigrid, or 50.3 ms with multigrid plus that threshold.
+Against the original algorithm, populated-cell temperature RMS/max deviations
+are 3.72/38.87 K and 2.85/136.06 K respectively; liquid-volume L1 deviations are
+0.573 and 9.980 m³. These compare trajectories under the same requested inputs,
+not physical ground truth. The 136 K maximum occurs in a cell with about
+3 g remaining; above 100 g of gas the maximum is still 49.14 K. Mass/energy
+remain conserved, but local differences are material. Keep the adopted 1 g thin-gas drag: stronger drag suppresses
+far-field dilute-plume transport. No numerical option or extra overlap is
+included in the exact integration.
+
+Ordinary game-kernel transfer edits already use `EditJournal` in
+`mac_game_kernel.cpp`. The remaining transactional-copy candidate is
+moving-parcel admission/retry staging in `mac_parcel_deposit.cpp`; it must
+preserve atomic refusal, energy/face/passive accounting and immutable
+publications. The const-read fix removes unnecessary cell detachment but does
+not implement a larger moving-parcel rollback design. No speed gain is claimed
+for that future design.
+
+Managed publication/receipt churn, bounded pipe-contact scratch reuse and
+texture reuse for unchanged immutable reading blocks remain source-grounded
+candidates. Existing publication buffers and compact texture sampling are
+already optimized. The diagnostic runtime's per-thread allocation counter
+failed its sanity check; process-wide GC-free heap growth is only a proxy,
+not an exact allocation attribution or pure GC pause measurement. No further
+managed speed or memory improvement is claimed here.
+
 ## Spaced Out! full colony on profile 12, 2026-11-06
 
 `full-colony-spacedout-v1` was built before profile 12 and restores profile

@@ -3450,6 +3450,10 @@ void run_frame(std::uint64_t ticket,double seconds,std::uint64_t frames,const ch
             transfer_parts += item; transfer_mark = now;
         };
         std::size_t transfer_singles = 0, transfer_failed_batches = 0, transfer_held = 0, precision_released = 0;
+        // Unchanged entries have invariant encoded sizes during this pass.
+        // Validate each changed entry and update the total only on admission.
+        // This cache is local to the pass, never part of saved owner state.
+        std::optional<std::size_t> precision_wire_size;
         // Transfers: plan against the current state, then commit in batches.
         std::vector<MacFluidTransfer> edits; struct Pending { std::size_t first, count; const MAOniColonyTransfer* source; };
         std::vector<Pending> plans;
@@ -3750,13 +3754,20 @@ void run_frame(std::uint64_t ticket,double seconds,std::uint64_t frames,const ch
                                 // already did (each change is checked here or by its
                                 // release, and loads are decoded), so only the changed
                                 // entry and the total size can refuse.
-                                bool fits=true;
+                                bool fits=true;std::size_t bytes=0;
                                 try {
-                                    std::size_t bytes=detail::encode_precision_inventory(std::span(&changed,1)).size();
-                                    for(std::size_t q=0;q<s.precision.size();++q)if(q!=merged)bytes+=detail::precision_wire_bytes(s.precision[q]);
+                                    bytes=detail::encode_precision_inventory(std::span(&changed,1)).size();
+                                    if(!precision_wire_size) {
+                                        std::size_t total=12;
+                                        for(const auto& old:s.precision)total+=detail::precision_wire_bytes(old);
+                                        precision_wire_size=total;
+                                    }
+                                    bytes+=*precision_wire_size-12;
+                                    if(merged<s.precision.size())bytes-=detail::precision_wire_bytes(s.precision[merged]);
                                     detail::ParcelWireReader::require(bytes<=detail::maximum_parcel_wire_bytes,"Moving parcel wire is too large");
                                 } catch(const std::invalid_argument&) { fits=false; }
                                 if(fits) {
+                                    precision_wire_size=bytes;
                                     ++transfer_held;
                                     if(merged<s.precision.size())s.precision[merged]=std::move(changed);else s.precision.push_back(std::move(changed));
                                     s.precision_used=true;parcels.push_back(held);continue;
@@ -3855,6 +3866,7 @@ void run_frame(std::uint64_t ticket,double seconds,std::uint64_t frames,const ch
         // never change: search once per source and radius. A refused retry
         // leaves the world and the parcel untouched, so nothing is copied.
         std::map<std::pair<std::uint32_t, std::uint32_t>, std::vector<std::size_t>> precision_destinations;
+        std::optional<detail::PrecisionReleaseWireSize> release_wire_size;
         for(auto& held:s.precision) {
             auto [found,fresh]=precision_destinations.try_emplace({held.source,held.radius});
             if(fresh)found->second=nearby(world.state(),rect_index(s.config,held.source),held.radius);
@@ -3864,11 +3876,10 @@ void run_frame(std::uint64_t ticket,double seconds,std::uint64_t frames,const ch
             if(!released)continue;
             ++precision_released;
             const auto before_held=held;
+            if(!release_wire_size)release_wire_size.emplace(s.precision);
             held.mass_kg=released->mass_kg;held.energy_j=std::move(released->energy_j);
             try {
-                auto durable=s.precision;
-                std::erase_if(durable,[](const auto& p){return p.mass_kg==0 && p.energy_j.sign()==0;});
-                (void)detail::encode_precision_inventory(durable);
+                release_wire_size->replace(before_held,held);
             } catch(const std::invalid_argument&) { held=before_held; continue; }
             if(activity && held.mass_kg!=before_held.mass_kg) {
                 touched[rect_index(s.config,held.source)]=1;touched[rect_index(s.config,held.anchor)]=1;

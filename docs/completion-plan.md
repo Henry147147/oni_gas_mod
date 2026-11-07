@@ -8,6 +8,19 @@ still require separate authorization.
 
 Amendments:
 
+- **Large-colony speed research and exact integration, user decisions
+  2026-11-06/07:** construct a 32-duplicant industrial base and retain the
+  existing multi-asteroid colony as a separate stress case. One cycle from
+  the prepared large state is sufficient; a start-to-finish playthrough is
+  not required. This supersedes the earlier "No large end-game benchmark"
+  restriction for this research. Investigate game/solver concurrency and
+  numerical tradeoffs, report accuracy, speed and memory, and integrate
+  verified exact wins into `main` for the user's Windows rebuild/playtest.
+  Publish aggregate findings at <https://finding.hilberto.com> with no login
+  and update them as research progresses. This authorizes the research page,
+  not a public mod release or Workshop upload. Numerical defaults and fixed
+  gates remain unchanged unless the user chooses a measured tradeoff.
+
 - **Beta release at 1×, 3× stays the goal, user decisions 2026-11-06:**
   - **A beta release needs sustained 1×:** a beta for wider playtesting
     ships once the game sustains at least 1× (actual game seconds per wall

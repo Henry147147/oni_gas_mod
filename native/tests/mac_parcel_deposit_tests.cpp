@@ -208,6 +208,45 @@ void refused(const MacClosedWorld &w, std::span<const MacMovingParcel> p,
   check(r.world.checkpoint() == w.checkpoint(),
         "Refused moving parcel mutated physical bytes");
 }
+void shared_parcel_read_control(MacNumericalKernel mode, bool partial) {
+  const auto &f = ma::testing::setup();
+  auto state = f.state(64, 64, false);
+  if (partial) {
+    std::vector<double> masses(f.registry.size());
+    masses[f.registry.index("water")] = 500;
+    state.cells.back().mixture = f.eos->initialize_at_temperature(masses, 300, .5).mixture;
+    state.cells.back().passive_quantities.clear();
+    state.occupied_volumes_m3.assign(state.cells.size(), 1);
+    state.occupied_volumes_m3.back() = .5;
+  }
+  MacClosedSettings cfg;
+  cfg.numerical_kernel = mode;
+  cfg.vacuum = MacVacuumRepresentation::void_phase;
+  cfg.gravity_m_per_s2 = 9.81;
+  cfg.game_profile = mode == MacNumericalKernel::game
+                         ? MacGameProfile::game_kernel
+                         : cfg.game_profile;
+  auto w = mode == MacNumericalKernel::game
+               ? MacClosedWorld::game_colony(f.registry, f.eos, std::move(state),
+                                             std::vector<double>(4096, 300), cfg)
+               : MacClosedWorld(f.registry, f.eos, std::move(state), cfg);
+  check(w.state().occupied_volumes_m3.empty() != partial,
+        "Shared-read control has the wrong occupied-volume representation");
+  const auto before = w.checkpoint();
+  for (std::size_t cell : {130u, 1024u}) {
+    auto incoming = packet(w, cell, f.registry.index("oxygen"), .125);
+    incoming.momentum_x = {}; incoming.momentum_y = {};
+    incoming.kinetic_energy_j = {};
+    const auto copied = MacChunkStore<MacMaterialCell>::copied_chunks().load();
+    const auto result = w.with_moving_parcels(std::span(&incoming, 1));
+    const auto copies = MacChunkStore<MacMaterialCell>::copied_chunks().load() - copied;
+    audit(w, result);
+    check(w.checkpoint() == before, "Parcel read control changed shared source");
+    // Zero face momentum adds no neighbour mixing heat. Even across a chunk
+    // boundary, only the primary recipient needs a writable cell chunk.
+    check(copies == 1, "Parcel reads copied untouched cell chunks");
+  }
+}
 } // namespace
 int main() {
   try {
@@ -215,6 +254,8 @@ int main() {
          {MacNumericalKernel::reference, MacNumericalKernel::production,
           MacNumericalKernel::game}) {
       const bool game = mode == MacNumericalKernel::game;
+      shared_parcel_read_control(mode, false);
+      shared_parcel_read_control(mode, true);
       const auto &f = ma::testing::setup();
       auto w = world(mode);
       const auto old = w.checkpoint();

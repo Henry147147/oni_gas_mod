@@ -1240,6 +1240,68 @@ void precision_admission_control() {
     require(skipped>0 && accepted>0,"precision admission control did not exercise both sides");
     std::cout<<"PASS precision admission: "<<skipped<<" retries skipped (all refused by the core), "<<called<<" reached it, "<<accepted<<" accepted\n";
 }
+void precision_wire_cache_control() {
+    using namespace ma::oni::colony::detail;
+    PrecisionParcel p{1,2,2,3,1,300,{}};p.energy_j.add(100.);
+    auto q=p;q.source=4;q.mass_kg=.25;q.energy_j={};q.energy_j.add(-.5);
+    std::vector<PrecisionParcel> entries{p,q,p};
+    PrecisionReleaseWireSize cache(entries);
+    const auto durable=[](std::vector<PrecisionParcel> values) {
+        std::erase_if(values,[](const auto& value){return value.mass_kg==0 && value.energy_j.sign()==0;});
+        return encode_precision_inventory(values);
+    };
+    const auto verify=[&] {
+        const auto encoded=durable(entries);
+        require(cache.bytes==encoded.size(),"precision cache differs from complete inventory encoding");
+        require(cache.count==decode_precision_inventory(encoded).size(),"precision cache active count differs");
+    };
+    const auto edit=[&](std::size_t i,const PrecisionParcel& changed) {
+        auto candidate=entries;candidate[i]=changed;
+        bool expected=true;
+        try{(void)durable(candidate);}catch(const std::invalid_argument&){expected=false;}
+        const auto bytes=cache.bytes,count=cache.count;
+        bool accepted=true;
+        try{cache.replace(entries[i],changed);}catch(const std::invalid_argument&){accepted=false;}
+        require(accepted==expected,"precision cache and complete encoder disagree on admission");
+        if(accepted)entries=std::move(candidate);
+        else require(cache.bytes==bytes && cache.count==count,"refused precision edit changed cache");
+        verify();
+    };
+    verify();
+    auto empty=p;empty.mass_kg=0;empty.energy_j={};
+    edit(0,empty);edit(1,p);edit(2,empty);edit(0,q);edit(1,empty);edit(0,empty);
+    require(cache.bytes==12 && cache.count==0,"empty precision wire retains an entry");
+    edit(0,p);
+    for(int bad=0;bad<6;++bad) {
+        auto changed=p;
+        if(bad==0)changed.mass_kg=-1;
+        if(bad==1)changed.temperature_k=0;
+        if(bad==2)changed.mass_kg=std::numeric_limits<double>::quiet_NaN();
+        if(bad==3)changed.mass_kg=-0.;
+        if(bad==4)changed.radius=3;
+        if(bad==5)changed.energy_j.add(ma::experimental::MacEnergy::from_parts(.5,1026));
+        edit(0,changed);
+    }
+    // Repeated replacements change signs and encoded exponent widths. Zero
+    // mass with nonzero signed energy stays durable; only a zero balance drops.
+    for(int step=0;step<96;++step) {
+        auto changed=p;changed.mass_kg=(step%4==0)?0:.25;
+        changed.energy_j={};changed.energy_j.add(std::ldexp((step%2==0)?.5:-.5,-step*7));
+        edit(static_cast<std::size_t>(step%3),changed);
+    }
+    std::vector<PrecisionParcel> full(maximum_parcel_entries,p);
+    full.push_back(empty);
+    PrecisionReleaseWireSize limit(full);
+    require(limit.bytes==durable(full).size(),"full precision inventory size differs");
+    bool refused=false;const auto old_bytes=limit.bytes;
+    try{limit.replace(empty,p);}catch(const std::invalid_argument&){refused=true;}
+    require(refused && limit.count==maximum_parcel_entries && limit.bytes==old_bytes,"precision count limit changed cache");
+    refused=false;
+    try{PrecisionReleaseWireSize::check(maximum_parcel_wire_bytes+1,1);}catch(const std::invalid_argument&){refused=true;}
+    require(refused,"precision byte limit was relaxed");
+    PrecisionReleaseWireSize::check(maximum_parcel_wire_bytes,maximum_parcel_entries);
+    std::cout<<"PASS precision wire cache: complete encoder oracle, signed/empty transitions, invalid rollback and fixed limits\n";
+}
 void pipe_job_control() {
     using namespace ma::oni::colony;
     std::vector<MAOniColonyMaterial> mats{material("Oxygen",11,oxygen,true,.016,1000),material("CarbonDioxide",12,carbon,true,.044,850)};
@@ -2575,7 +2637,7 @@ int main(int argc, char** argv) {
         if (argc == 2 && std::strcmp(argv[1], "--shared-cell-trace-only") == 0) { shared_cell_trace_control(); return 0; }
         if (argc == 2 && std::strcmp(argv[1], "--pipe-trace-heat-only") == 0) { pipe_trace_heat_control(); return 0; }
         if (argc == 2 && std::strcmp(argv[1], "--relocated-trace-only") == 0) { relocated_trace_control(); return 0; }
-        if (argc == 2 && std::strcmp(argv[1], "--precision-inventory-only") == 0) { precision_inventory_control();precision_canonical_control();precision_heat_vacuum_control();precision_admission_control(); return 0; }
+        if (argc == 2 && std::strcmp(argv[1], "--precision-inventory-only") == 0) { precision_inventory_control();precision_canonical_control();precision_heat_vacuum_control();precision_admission_control();precision_wire_cache_control(); return 0; }
         if (argc == 2 && std::strcmp(argv[1], "--airflow-boundary-only") == 0) { airflow_boundary_control(); return 0; }
         if (argc == 2 && std::strcmp(argv[1], "--tiny-injection-only") == 0) { tiny_injection_neighbour_control(); return 0; }
         if (argc == 2 && std::strcmp(argv[1], "--parcel-wire-only") == 0) { parcel_wire_control(); parcel_outcome_control(); return 0; }
@@ -2619,6 +2681,7 @@ int main(int argc, char** argv) {
         precision_canonical_control();
         precision_heat_vacuum_control();
         precision_admission_control();
+        precision_wire_cache_control();
         pipe_job_control();
         sample_control();
         view_cache_control();

@@ -6,6 +6,7 @@
 #include <cmath>
 #include <map>
 #include <set>
+#include <utility>
 
 namespace ma::experimental {
 namespace {
@@ -133,14 +134,17 @@ void occupied(const MacClosedWorld &world, MacTransportState &s,
       world.settings().numerical_kernel == MacNumericalKernel::game;
   const bool voids =
       world.settings().vacuum == MacVacuumRepresentation::void_phase;
+  // Only occupied volumes change here. Mutable cell access would detach
+  // shared chunks even for the whole-grid read when this array is created.
+  const auto &cells = std::as_const(s).cells;
   if (voids && s.occupied_volumes_m3.empty()) {
-    s.occupied_volumes_m3.resize(s.cells.size());
-    for (std::size_t i = 0; i < s.cells.size(); ++i)
-      if (!s.grid.walls[i] && s.cells[i].mixture.mass() > 0)
+    s.occupied_volumes_m3.resize(cells.size());
+    for (std::size_t i = 0; i < cells.size(); ++i)
+      if (!s.grid.walls[i] && cells[i].mixture.mass() > 0)
         s.occupied_volumes_m3[i] = s.grid.volume_m3();
   }
   for (auto i : touched) {
-    auto &cell = s.cells[i];
+    const auto &cell = cells[i];
     if (cell.mixture.mass() == 0) {
       need(cell.mixture.energy == 0 && cell.energy_remainder_j.is_zero() &&
                cell.passive_quantities.empty(),
@@ -216,6 +220,7 @@ MacParcelDepositResult MacClosedWorld::with_moving_parcels(
          "Moving parcel batch must have 1..4096 constituents");
     const bool game = settings_.numerical_kernel == MacNumericalKernel::game;
     auto next = state();
+    const auto &cells = std::as_const(next).cells;
     Touched touched;
     MacEnergyAccount energy;
     MacScaledAccount px, py;
@@ -311,7 +316,7 @@ MacParcelDepositResult MacClosedWorld::with_moving_parcels(
             old_k[slot] = MacEnergy::kinetic(old_inertia[slot], old_j[slot]);
           for (auto i : ends(next.grid, x, f))
             if (i != none)
-              before.try_emplace(i, next.cells[i]);
+              before.try_emplace(i, cells[i]);
           (x ? touched.x : touched.y).insert(f);
           ++slot;
         }
@@ -411,9 +416,9 @@ MacParcelDepositResult MacClosedWorld::with_moving_parcels(
           local.add(K.negated());
           if (local.sign() != 0)
             for (auto i : ends(next.grid, x, f))
-              if (i != none && next.cells[i].mixture.mass() > 0)
+              if (i != none && cells[i].mixture.mass() > 0)
                 heat[i].add(
-                    local.value().shared(.5 * next.cells[i].mixture.mass(), I));
+                    local.value().shared(.5 * cells[i].mixture.mass(), I));
           ++slot;
         }
       mix.add(receipt.consumed.kinetic_energy_j);
@@ -429,7 +434,7 @@ MacParcelDepositResult MacClosedWorld::with_moving_parcels(
         touched.cells.insert(i);
         if (const auto at = heat.find(i); at != heat.end())
           store_energy(next.cells[i], at->second, game, result.primary_energy);
-        account_mac_cell_internal_energy(dU, next.cells[i]);
+        account_mac_cell_internal_energy(dU, cells[i]);
         account_mac_cell_internal_energy(dU, old, -1);
       }
       receipt.grid.internal_energy_j = std::move(dU);

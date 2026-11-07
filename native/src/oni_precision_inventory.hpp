@@ -100,6 +100,34 @@ inline std::size_t precision_wire_bytes(const PrecisionParcel& p) {
     for(std::size_t i=0;i<p.energy_j.size();++i)bytes+=8+4+p.energy_j.component(i).exponent().to_string().size();
     return bytes;
 }
+// A release changes one already-valid inventory entry. Validate the inventory
+// once on the first successful retry, then the replacement and the
+// same aggregate wire/count bounds. Zero balances are omitted just as by the
+// durable-copy/erase/encode control. A refused replacement leaves this cache
+// unchanged; callers retain the original parcel and world.
+struct PrecisionReleaseWireSize {
+    std::size_t bytes=12,count=0;
+    static bool active(const PrecisionParcel& p) { return p.mass_kg!=0 || p.energy_j.sign()!=0; }
+    explicit PrecisionReleaseWireSize(std::span<const PrecisionParcel> entries) {
+        for(const auto& p:entries)if(active(p)) {
+            validate_precision_parcel(p);
+            ParcelWireReader::require(p.energy_j.size()<=65536,"Too many parcel credit components");
+            bytes+=precision_wire_bytes(p);++count;
+        }
+        check(bytes,count);
+    }
+    static void check(std::size_t size,std::size_t entries) {
+        ParcelWireReader::require(entries<=maximum_parcel_entries,"Too many precision parcels");
+        ParcelWireReader::require(size<=maximum_parcel_wire_bytes,"Moving parcel wire is too large");
+    }
+    void replace(const PrecisionParcel& before,const PrecisionParcel& after) {
+        const bool was=active(before),is=active(after);
+        const auto removed=was?precision_wire_bytes(before):0;
+        const auto added=is?encode_precision_inventory(std::span(&after,1)).size()-12:0;
+        const auto next_bytes=bytes-removed+added,next_count=count-static_cast<std::size_t>(was)+static_cast<std::size_t>(is);
+        check(next_bytes,next_count);bytes=next_bytes;count=next_count;
+    }
+};
 // Diagnostics (stage log): the core edits retries attempted and accepted.
 struct PrecisionRetryCounts { std::size_t moving=0,moving_accepted=0,heat=0,heat_accepted=0; };
 inline thread_local PrecisionRetryCounts precision_retry_counts;
