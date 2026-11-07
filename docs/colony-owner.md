@@ -619,6 +619,37 @@ books the placed fluid; replace-and-displace adds the placed fluid instead. Move
 U+K+G: each receiving cell gets it at the temperature whose internal energy
 matches, after the potential at its height.
 
+The owner ends each frame holding a cell exactly when ONI holds it open, even
+when the frame both opened and closed it. ONI applies a frame's messages in its
+own order, not the order sent: a dig sent after a replacement with a solid is
+applied before it (the `terrain-order` scenario: built over and dug, the cell
+ends solid; built over and deconstructed, open). An activity owner's frame
+lists the game's edits (every dig of a batched message), then what the native
+frame observed in order: the shadow's closes; each cell the game both opened
+and closed whose last such edit ONI does not hold, as ONI holds it after its
+messages; then the capture's opens, closes and undone closes (a native freeze
+closes its cell whatever came before). Each cell's last open or close decides
+it, so a solid ONI placed in an owned cell and that fell on in the same update
+leaves the cell owned. Serial pacing takes edits whose messages ONI may not
+have applied yet, so there the first edit that changes a cell decides it, and
+the shadow (a solid in an owned cell) or custody (below) corrects it at the next
+frame. Until 2026-11-07 the first edit decided for every owner, which turned a
+cell closed and opened in one frame while ONI ended open into a wall ONI holds
+as vacuum: native physics is suppressed beside owned cells, so the hole never
+filled (the Windows playtest's vacuum cells in breathable rooms;
+`ma_oni_colony_tests --terrain-order-only` reproduces it). An activity owner's
+ownership marks are set only by the native frame that hands the edits, and
+after the step each edited cell has exactly the owner's state.
+
+Custody is the net for any other way to leave such a hole: a wall ONI holds as
+vacuum since before the frame's shadow, beside an owned cell, with no open
+pending, is opened by the next capture, adopting nothing (no mass or energy
+changes; native stderr reports each, the first 64 per session). Walls ONI
+already holds open at the session's first shadow (cells outside every world)
+and retired rocket worlds are never opened this way; an edit that opens one
+clears that. The mask is session state, not saved: a hole saved before this
+change stays after a load.
+
 ## Airflow tiles
 
 ONI marks an airflow tile's cell liquid-impermeable (`SetCellProperties`); the
@@ -709,7 +740,8 @@ exact-storage heat control is active:
   the readers' frame. Element replacements and digs no longer consult
   ownership at all; they queue the owner's open, clear or close, which the
   owner resolves against the cell when the edit applies (closing a wall,
-  opening an owned cell or clearing a wall changes nothing). Additive mass,
+  opening an owned cell or clearing a wall changes nothing; a cell opened and
+  closed in one frame ends as ONI holds it, [terrain](#terrain)). Additive mass,
   heat and germ edits are routed by the readers' ownership plus every
   ownership change known since: the opens and closes the adapter queued for
   later frames, and those the native frame of the readers' next frame
@@ -1701,6 +1733,7 @@ The home asteroid of a Spaced Out! colony is 160 cells wide with the printing po
 | `door` | A manual airlock between oxygen and vacuum seals when closed, passes gas when opened and displaces its cells' gas when closed again (a pneumatic door does not block gas in ONI). |
 | `sublimation` | Oxylite dropped in thin oxygen releases oxygen into the owner. |
 | `falling` | A sand tile placed over gas falls: its cell reopens, it lands and closes a floor cell, and the gas is kept. |
+| `terrain-order` | Within one game tick four cells are opened and closed in either order (a replacement with granite and a dig; two replacements, as a tile built and deconstructed): whatever ONI ends with, the owner holds each cell exactly when ONI holds it open (with its gas), and the gas is kept ([terrain](#terrain)). |
 | `breathing` | The colony's duplicants keep full breath (above 90), oxygen is taken from the owner (more than 0.1 kg), and every original duplicant produces carbon dioxide: for each, final held CO₂ minus source held CO₂ plus the mass of its own original puffs inside the window is positive ([criterion changed by delegated user decision 2026-11-02](release-candidate-testing.md#breathing-criterion-decision-2026-11-02)). The whole-world net CO₂ change stays reported in the detail, no longer asserted. |
 | `airflow` | A column of airflow tiles between water under air and thinner air passes the air but no water. |
 | `electrolysis` | An electrolyzer splits stored water into oxygen and hydrogen that reach the owner. |

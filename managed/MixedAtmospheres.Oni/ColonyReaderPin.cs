@@ -98,11 +98,12 @@ namespace MixedAtmospheres.Oni
             }
             for (var k = 0; k < count; ++k) Record((int)buffer[k].PublicCell, buffer[k].Kind == OniNativeColony.Open, frame);
         }
-        // A frame applies its adapter edits before its native ones, and the
-        // first edit that changes a cell takes it; a later frame's edit wins.
+        // A frame applies its adapter edits before its native ones (recorded
+        // later here), and a cell's last open or close in a frame decides it,
+        // as does a later frame's.
         private static void Record(int cell, bool owned, ulong frame)
         {
-            if (changes.TryGetValue(cell, out var known) && known.Frame >= frame) return;
+            if (changes.TryGetValue(cell, out var known) && known.Frame > frame) return;
             changes[cell] = (owned, frame);
         }
         private static readonly List<int> expired = new List<int>();

@@ -250,6 +250,13 @@ std::unique_ptr<std::atomic<std::uint8_t>[]> owned;
 // checkpoint is allowed until native FreeGridSpace has completed.
 std::unique_ptr<std::atomic<std::uint8_t>[]> retiring;
 std::atomic<std::size_t> retiring_count=0;
+// Walls ONI holds open that are not the owner's: cells outside every world
+// (cluster holes), found at the session's first shadow, and retired rocket
+// worlds. Custody (capture_shadow) never opens one; an edit that opens the
+// cell clears it. Session state only, never saved.
+std::unique_ptr<std::atomic<std::uint8_t>[]> outside_world;
+std::atomic<bool> outside_known{false};
+std::atomic<std::uint64_t> custody_logged{0};
 std::size_t owned_count = 0;
 std::vector<MAOniColonyTransfer> pending_transfers;
 std::vector<MAOniColonyHeat> pending_heat;
@@ -985,6 +992,7 @@ void activate(std::unique_ptr<Session> next, std::uint64_t thread) {
     geometry = next->config; owned_count = next->world->state().grid.walls.size();
     owned = std::make_unique<std::atomic<std::uint8_t>[]>(owned_count);
     retiring=std::make_unique<std::atomic<std::uint8_t>[]>(owned_count);retiring_count=0;prepared_retirement.reset();
+    outside_world=std::make_unique<std::atomic<std::uint8_t>[]>(owned_count);outside_known.store(false,std::memory_order_relaxed);custody_logged.store(0,std::memory_order_relaxed);
     for (std::size_t i = 0; i < owned_count; ++i) owned[i].store(next->world->state().grid.walls[i] ? 0 : 1, std::memory_order_relaxed);
     { std::lock_guard lock(inputs); pending_transfers.clear(); pending_heat.clear(); pending_terrain.clear(); pending_freezes.clear(); pending_germs.clear(); radiation_field = std::make_shared<const std::unordered_map<std::size_t, float>>(); receipts.clear();
       pending_activity.clear();lifecycle_activity.reset();pending_activity_mode.reset();
@@ -1142,7 +1150,24 @@ MacClosedWorld apply_terrain(Session& s, MacClosedWorld world, std::span<const M
     for (const auto& e : edits) if (e.public_cell == refused_terrain.load(std::memory_order_relaxed)) throw std::runtime_error("Terrain edit refused (control)");
     const auto& st0 = world.state(); const auto w = st0.grid.width, h = st0.grid.height;
     std::vector<std::size_t> opening, closing;
-    std::vector<std::uint8_t> touched(st0.cells.size());
+    // An activity owner's frame lists the game's edits, then what the native
+    // frame observed in order: the shadow's closes and the cells it found ONI
+    // holding otherwise than the game's last edit (ONI applies a frame's
+    // messages in its own order), then its opens, closes and undone closes.
+    // Each cell's last open or close decides it, so the owner ends where ONI
+    // does: a cell closed and opened again within one frame (sand landing
+    // natively and falling on in the same update) stays as it was. Otherwise
+    // (serial pacing, whose frames take edits ONI has not applied yet) the
+    // first edit that changes a cell decides it, and the shadow and custody
+    // correct a cell ONI holds otherwise at the next frame. The cell is listed
+    // at its first deciding edit either way.
+    const bool last_decides = activity_owner.load(std::memory_order_acquire);
+    std::vector<std::uint8_t> last(st0.cells.size());
+    for (const auto& e : edits) if (e.kind == MA_ONI_COLONY_OPEN || e.kind == MA_ONI_COLONY_CLOSE) {
+        auto& decided = last[rect_index(s.config, e.public_cell)];
+        if (last_decides) decided = static_cast<std::uint8_t>(e.kind);
+        else if (!decided && (e.kind == MA_ONI_COLONY_OPEN) == st0.grid.walls[rect_index(s.config, e.public_cell)]) decided = static_cast<std::uint8_t>(e.kind);
+    }
     std::vector<MacFluidTransfer> cleared;
     for (const auto& e : edits) {
         const auto i = rect_index(s.config, e.public_cell);
@@ -1153,11 +1178,10 @@ MacClosedWorld apply_terrain(Session& s, MacClosedWorld world, std::span<const M
             for (std::size_t k = 0; k < m.masses.size(); ++k) if (m.masses[k] > 0) cleared.push_back({i, k, false, m.masses[k], 0});
             continue;
         }
-        // The first edit that changes the cell takes it; one that would not
-        // (an open of an open cell, a close of a wall) does not hide a later one.
-        if (touched[i]) continue;
-        if (e.kind == MA_ONI_COLONY_OPEN && st0.grid.walls[i]) { touched[i] = 1; opening.push_back(i); }
-        if (e.kind == MA_ONI_COLONY_CLOSE && !st0.grid.walls[i]) { touched[i] = 1; closing.push_back(i); }
+        if (last[i] != e.kind) continue;
+        last[i] = 0; // listed once
+        if (e.kind == MA_ONI_COLONY_OPEN && st0.grid.walls[i]) opening.push_back(i);
+        if (e.kind == MA_ONI_COLONY_CLOSE && !st0.grid.walls[i]) closing.push_back(i);
     }
     if (!cleared.empty()) {
         // Replaced cells lose their fluid (traces first, the bulk last).
@@ -1251,7 +1275,7 @@ MacClosedWorld apply_terrain(Session& s, MacClosedWorld world, std::span<const M
     }
     if (!opening.empty()) {
         world = world.with_opened_cells(opening);
-        for (const auto i : opening) owned[i].store(1, std::memory_order_relaxed);
+        for (const auto i : opening) { owned[i].store(1, std::memory_order_relaxed); outside_world[i].store(0, std::memory_order_relaxed); }
         if(world.settings().numerical_kernel!=MacNumericalKernel::game){
         // Refill each opened cell from its gas neighbours at their pressure:
         // with m such neighbours each gives 1/(m+1) of its gas.
@@ -1273,6 +1297,16 @@ MacClosedWorld apply_terrain(Session& s, MacClosedWorld world, std::span<const M
         world = move_material(std::move(world), moves, s.ledger, s.status);
         }
         s.status.opened_cells += opening.size();
+    }
+    if (activity_owner.load(std::memory_order_acquire)) {
+        // An activity owner marks a frame's opens and closes only in the native
+        // frame that hands them (after the step before it): every cell this
+        // batch edited now has exactly the owner's state, never a stale mark.
+        for (const auto& e : edits) if (e.kind == MA_ONI_COLONY_CLOSE || e.kind == MA_ONI_COLONY_OPEN) {
+            const auto i = rect_index(s.config, e.public_cell);
+            owned[i].store(world.state().grid.walls[i] ? 0 : 1, std::memory_order_relaxed);
+        }
+        return world;
     }
     // A queued close or open that did not happen (the cell already had that
     // state, or another edit of the cell came first) returns an open cell to
@@ -2382,14 +2416,30 @@ void write_shadow(const NativeCells& n) noexcept {
     std::shared_ptr<const Published> p; { std::lock_guard lock(publication); p = latest; }
     if (!p || !p->catalogue || p->views.size() != owned_count || p->status.state != 1 || n.pitch != geometry.grid_width + 2) return;
     const auto& cat = *p->catalogue; const auto vacuum = geometry.vacuum_index;
+    // Cells the game both opened and closed this frame, with the last of those
+    // edits: ONI has applied their messages by now, in its own order (it
+    // applies a dig before a replacement sent ahead of it in the same frame).
+    std::vector<MAOniColonyTerrain> edited;
     if(activity_owner.load(std::memory_order_acquire)) {
         std::lock_guard q(inputs);
         const auto count=pending_activity.empty()?std::size_t{0}:pending_activity.front().cuts.terrain;
-        for(std::size_t k=0;k<count;++k) {
-            const auto& edit=pending_terrain[k];auto& state=owned[rect_index(geometry,edit.public_cell)];
-            if(edit.kind==MA_ONI_COLONY_CLOSE){std::uint8_t open=1;state.compare_exchange_strong(open,2,std::memory_order_relaxed);}
-            if(edit.kind==MA_ONI_COLONY_OPEN){std::uint8_t closed=0;state.compare_exchange_strong(closed,3,std::memory_order_relaxed);}
-        }
+        try {
+            for(std::size_t k=0;k<count;++k) {
+                const auto& edit=pending_terrain[k];auto& state=owned[rect_index(geometry,edit.public_cell)];
+                if(edit.kind==MA_ONI_COLONY_CLOSE){std::uint8_t open=1;state.compare_exchange_strong(open,2,std::memory_order_relaxed);}
+                if(edit.kind==MA_ONI_COLONY_OPEN){std::uint8_t closed=0;state.compare_exchange_strong(closed,3,std::memory_order_relaxed);}
+                if(edit.kind==MA_ONI_COLONY_CLOSE || edit.kind==MA_ONI_COLONY_OPEN)edited.push_back(edit);
+            }
+            std::stable_sort(edited.begin(),edited.end(),[](const auto& a,const auto& b){return a.public_cell<b.public_cell;});
+            std::vector<MAOniColonyTerrain> both;
+            for(std::size_t k=0;k<edited.size();) {
+                std::size_t end=k;bool open=false,close=false;
+                for(;end<edited.size() && edited[end].public_cell==edited[k].public_cell;++end)(edited[end].kind==MA_ONI_COLONY_OPEN?open:close)=true;
+                if(open && close)both.push_back(edited[end-1]);
+                k=end;
+            }
+            edited=std::move(both);
+        } catch (...) {native_activity_capture_failed.store(true,std::memory_order_relaxed);return;}
     }
     try { shadow.assign(owned_count, ShadowCell{}); solid_displacements.clear(); } catch (...) { return; }
     // Cells are independent: blocks run in parallel and their closes join in
@@ -2400,11 +2450,16 @@ void write_shadow(const NativeCells& n) noexcept {
     try { block_closes.resize(blocks); } catch (...) { return; }
     const auto options = mac_kernel_default_options();
     const auto threads = static_cast<unsigned>(std::max<std::size_t>(1, std::min<std::size_t>(options.threads, blocks)));
+    // The session's first shadow finds the walls ONI holds open: at import every
+    // open cell of a world is the owner's, so these lie outside every world.
+    const bool seal = !outside_known.load(std::memory_order_acquire);
     mac_kernel::pool_for(threads).run(blocks, [&](std::size_t block) {
       for (std::size_t i = block * block_size; i < std::min(owned_count, (block + 1) * block_size); ++i) {
             const std::size_t c = (geometry.offset_x + i % geometry.width + 1) + (geometry.offset_y + i / geometry.width + 1) * static_cast<std::size_t>(n.pitch);
             const auto present = n.element[0][c];
             shadow[i].before = present;
+            if (seal) outside_world[i].store(owned[i].load(std::memory_order_relaxed) == 0 && (present == vacuum || cat.has_native(present)) ? 1 : 0,
+                std::memory_order_relaxed);
             if(retiring[i].load(std::memory_order_relaxed)==2) {
                 for(int b=0;b<2;++b) {
                     n.element[b][c]=static_cast<std::uint16_t>(vacuum);n.mass[b][c]=n.temperature[b][c]=0;
@@ -2438,15 +2493,34 @@ void write_shadow(const NativeCells& n) noexcept {
             }
       }
     });
+    if (seal) outside_known.store(true, std::memory_order_release);
     std::vector<MAOniColonyTerrain> closes;
     for (auto& part : block_closes) closes.insert(closes.end(), part.begin(), part.end());
+    // Such a cell that ONI does not hold as its last edit says follows ONI:
+    // the cell as ONI holds it now joins the frame's native observations,
+    // after the game's edits, so it decides (docs/colony-owner.md#terrain).
+    // (A solid in a cell the owner held is closed by the shadow already.)
+    const auto shadow_closes = closes.size();
+    const auto shadow_closed = [&](std::uint32_t cell) {
+        return std::binary_search(closes.begin(), closes.begin() + static_cast<std::ptrdiff_t>(shadow_closes), MAOniColonyTerrain{cell, MA_ONI_COLONY_CLOSE},
+            [](const MAOniColonyTerrain& a, const MAOniColonyTerrain& b) { return a.public_cell < b.public_cell; });
+    };
+    try {
+        for (const auto& e : edited) {
+            const auto i = rect_index(geometry, e.public_cell);
+            if (retiring[i].load(std::memory_order_relaxed) != 0) continue;
+            const bool open = shadow[i].before == vacuum || cat.has_native(shadow[i].before);
+            if (open != (e.kind == MA_ONI_COLONY_OPEN) && !(!open && shadow_closed(e.public_cell)))
+                closes.push_back({e.public_cell, open ? MA_ONI_COLONY_OPEN : MA_ONI_COLONY_CLOSE});
+        }
+    } catch (...) { native_activity_capture_failed.store(true, std::memory_order_relaxed); }
     if (!closes.empty()) {
         std::lock_guard q(inputs);
         try {
             auto& queue=activity_owner.load(std::memory_order_acquire)?native_activity_inputs.terrain:pending_terrain;
             queue.insert(queue.end(),closes.begin(),closes.end());
         } catch (...) {if(activity_owner.load(std::memory_order_acquire))native_activity_capture_failed.store(true,std::memory_order_relaxed);}
-        log_terrain("shadow close", closes);
+        log_terrain("shadow close or follow", closes);
     }
 }
 
@@ -2596,7 +2670,14 @@ void capture_shadow(const NativeCells& n,std::uint64_t native_ticket,std::span<c
                 std::lock_guard lock(lifecycle);if(session)fault(*session,"Paired native heat lost its stable projection at capture");return;
             }
         }
-        std::vector<MAOniColonyHeat> heat; std::vector<MAOniColonyTransfer> moves; std::vector<MAOniColonyTerrain> opened;
+        std::vector<MAOniColonyHeat> heat; std::vector<MAOniColonyTransfer> moves; std::vector<MAOniColonyTerrain> opened, custody;
+        const auto beside_owned_index = [&](std::size_t i) {
+            const auto x = i % geometry.width, y = i / geometry.width;
+            return (x > 0 && owned[i - 1].load(std::memory_order_relaxed) == 1) ||
+                (x + 1 < geometry.width && owned[i + 1].load(std::memory_order_relaxed) == 1) ||
+                (y > 0 && owned[i - geometry.width].load(std::memory_order_relaxed) == 1) ||
+                (y + 1 < geometry.height && owned[i + geometry.width].load(std::memory_order_relaxed) == 1);
+        };
         std::vector<Freeze> froze; std::vector<GermEdit> germs; NativeExchange sum; std::vector<std::pair<std::size_t, std::uint32_t>> undone;
         const auto fluid = [&](std::uint16_t e) { return e == vacuum || cat.has_native(e); };
         const bool oracle_on = germ_oracle_requested() && biology_mode.load(std::memory_order_relaxed) == 0 && !disease_table.empty();
@@ -2630,6 +2711,16 @@ void capture_shadow(const NativeCells& n,std::uint64_t native_ticket,std::span<c
                 if (!fluid(e)) continue;
                 const auto state = owned[i].load(std::memory_order_relaxed);
                 if (fluid(sh.before)) {
+                    // Custody: ONI holds vacuum, since before this frame's
+                    // shadow, in a wall beside owned cells, and no edit is left
+                    // to open it. Native physics never fills a cell beside
+                    // owned ones, so it would stay a hole: the owner opens it,
+                    // adopting nothing. Never a wall outside every world.
+                    if (state == 0 && e == vacuum && outside_known.load(std::memory_order_relaxed) &&
+                        outside_world[i].load(std::memory_order_relaxed) == 0 && beside_owned_index(i)) {
+                        std::uint8_t closed = 0; owned[i].compare_exchange_strong(closed, 3, std::memory_order_relaxed);
+                        opened.push_back({cell, MA_ONI_COLONY_OPEN}); custody.push_back({cell, MA_ONI_COLONY_OPEN}); ++sum.changes; continue;
+                    }
                     // ONI holds fluid in a cell the owner closed and does not
                     // reopen: a solid placed after its close was queued and
                     // melted within the same native update. The owner opens the
@@ -2761,7 +2852,12 @@ void capture_shadow(const NativeCells& n,std::uint64_t native_ticket,std::span<c
             }
             std::size_t ordinal=0;
             std::erase_if(pending_terrain, [&](const MAOniColonyTerrain&) { return removed[ordinal++]!=0; });
-            if (pending_terrain.size() != before) { owned[i].store(1, std::memory_order_relaxed); continue; }
+            // A native close of the cell this frame (the shadow's, or one
+            // following ONI) needs the open below as well.
+            const bool native_close=activity_owner.load(std::memory_order_acquire) &&
+                std::any_of(native_activity_inputs.terrain.begin(),native_activity_inputs.terrain.end(),
+                    [&](const MAOniColonyTerrain& t){return t.public_cell==cell && t.kind==MA_ONI_COLONY_CLOSE;});
+            if (pending_terrain.size() != before && !native_close) { owned[i].store(1, std::memory_order_relaxed); continue; }
             // The close is in flight or done: the cell opens again without
             // taking ONI's fluid (its copy of the owner's).
             auto state = owned[i].load(std::memory_order_relaxed);
@@ -2785,6 +2881,10 @@ void capture_shadow(const NativeCells& n,std::uint64_t native_ticket,std::span<c
             pending_freezes.insert(pending_freezes.end(), froze.begin(), froze.end());
         }
         log_terrain("shadow open", opened);
+        // Custody is a safety net: every reopening is reported (the first 64 per session).
+        for (const auto& e : custody) if (custody_logged.fetch_add(1, std::memory_order_relaxed) < 64)
+            std::fprintf(stderr, "[Mixed Atmospheres] custody reopened an open wall at %u,%u (ticket %llu)\n",
+                e.public_cell % geometry.grid_width, e.public_cell / geometry.grid_width, static_cast<unsigned long long>(native_ticket));
         if(capture_arena) {
             ++pending_native_arena_captures;
             if(native_arena)native_arena->captures=pending_native_arena_captures;
@@ -3300,7 +3400,7 @@ void run_frame(std::uint64_t ticket,double seconds,std::uint64_t frames,const ch
         // Frozen cells: the liquid native turned solid leaves, then the cell closes.
         step("freezing");
         if (!freezes.empty()) {
-            std::vector<MacFluidTransfer> taken; const auto& st = world.state();
+            std::vector<MacFluidTransfer> taken; const auto& st = world.state(); std::size_t frozen = 0;
             for (const auto& f : freezes) {
                 const auto i = rect_index(s.config, f.public_cell);
                 if (st.grid.walls[i] || !cat.has_native(f.native_index)) continue;
@@ -3317,7 +3417,20 @@ void run_frame(std::uint64_t ticket,double seconds,std::uint64_t frames,const ch
                     for (std::size_t q = 0; q < held.masses.size(); ++q)
                         if (q != k && held.masses[q] > 0 && taken.size() < 4096) taken.push_back({i, q, false, held.masses[q], 0});
                 if (mass > 0 && taken.size() < 4096) taken.push_back({i, k, false, mass, 0});
-                terrain.insert(terrain.begin(), MAOniColonyTerrain{f.public_cell, MA_ONI_COLONY_CLOSE});
+                terrain.insert(terrain.begin(), MAOniColonyTerrain{f.public_cell, MA_ONI_COLONY_CLOSE}); ++frozen;
+            }
+            if (frozen) {
+                // A freeze is what the native frame ended with: an open of the
+                // cell earlier in the frame (a dig of liquid changes nothing)
+                // must not undo its close, and a cell's last open or close
+                // decides it, so the close is repeated after such an open.
+                std::vector<std::uint32_t> cells, again;
+                for (std::size_t q = 0; q < frozen; ++q) cells.push_back(terrain[q].public_cell);
+                std::sort(cells.begin(), cells.end());
+                for (std::size_t q = frozen; q < terrain.size(); ++q)
+                    if (terrain[q].kind == MA_ONI_COLONY_OPEN && std::binary_search(cells.begin(), cells.end(), terrain[q].public_cell)) again.push_back(terrain[q].public_cell);
+                std::sort(again.begin(), again.end()); again.erase(std::unique(again.begin(), again.end()), again.end());
+                for (const auto cell : again) terrain.push_back({cell, MA_ONI_COLONY_CLOSE});
             }
             if (!taken.empty()) {
                 auto result = external_transfers(std::move(world),taken, MacFluidTransferTopology::occupied_mixture);
@@ -4433,7 +4546,7 @@ void finish_retirement(std::uint32_t origin,std::uint32_t width,std::uint32_t he
     for(const auto& r:session->reservoir)require(!selected[r.region_cell],"A retiring world still anchors a retained reservoir");
     for(const auto& p:session->precision)require(!selected[rect_index(session->config,p.source)] && !selected[rect_index(session->config,p.anchor)],
         "A retiring world still anchors a precision parcel");
-    for(const auto i:cells) {retiring[i].store(0,std::memory_order_relaxed);session->space[i]=session->blocking[i]=0;}
+    for(const auto i:cells) {retiring[i].store(0,std::memory_order_relaxed);outside_world[i].store(1,std::memory_order_relaxed);session->space[i]=session->blocking[i]=0;}
     retiring_count.fetch_sub(cells.size(),std::memory_order_relaxed);
 }
 

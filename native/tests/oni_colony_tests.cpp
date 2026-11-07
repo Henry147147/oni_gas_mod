@@ -2615,9 +2615,11 @@ void heat_neighbour_bounds_control() {
 
 #include "oni_activity_owner_control.hpp"
 #include "oni_overlapped_pacing_control.hpp"
+#include "oni_terrain_order_control.hpp"
 int main(int argc, char** argv) {
     try {
         if (argc == 2 && std::strcmp(argv[1], "--overlapped-only") == 0) {overlapped_pacing_control();return 0;}
+        if (argc == 2 && std::strcmp(argv[1], "--terrain-order-only") == 0) {terrain_order_control();return 0;}
         if (argc == 2 && std::strcmp(argv[1], "--heat-neighbour-bounds-only") == 0) { heat_neighbour_bounds_control(); return 0; }
         if (argc == 2 && std::strcmp(argv[1], "--activity-only") == 0) {activity_owner_control();return 0;}
         if (argc == 2 && std::strcmp(argv[1], "--passives-only") == 0) {passive_observation_control();return 0;}
@@ -2653,6 +2655,7 @@ int main(int argc, char** argv) {
         heat_neighbour_bounds_control();
         activity_owner_control();
         overlapped_pacing_control();
+        terrain_order_control();
         precise_receipt_control();
         wrapped_handle_control();
         transfer_capture_control();

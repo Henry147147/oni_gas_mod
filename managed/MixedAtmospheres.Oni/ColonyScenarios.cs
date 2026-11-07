@@ -87,6 +87,7 @@ namespace MixedAtmospheres.Oni
                     case "door": DoorCycle(frame, status); break;
                     case "sublimation": Sublimation(frame, status); break;
                     case "falling": Falling(frame); break;
+                    case "terrain-order": TerrainOrder(frame); break;
                     case "breathing": Breathing(frame, status); break;
                     case "breath-particle": BreathParticle(frame); break;
                     case "airflow": Airflow(frame); break;
@@ -507,6 +508,44 @@ namespace MixedAtmospheres.Oni
                 Record("the gas was kept", Math.Abs(ArenaMass() - recorded["gas"]) < 1e-6 * recorded["gas"],
                     $"{recorded["gas"]:G9} -> {ArenaMass():G9} kg; native in {st.NativeMassInKg - recorded["nativeIn"]:G4} out {st.NativeMassOutKg - recorded["nativeOut"]:G4}, " +
                     $"injected {st.InjectedKg - recorded["injected"]:G4}, extracted {st.ExtractedKg - recorded["extracted"]:G4} kg; sand at {string.Join(" ", Enumerable.Range(0, Height).Select(y => Grid.Element[Cell(3, y)].id.ToString()))}");
+                Finish();
+            }
+        }
+
+        // Within one game tick four cells are opened and closed in either order
+        // (a replacement with granite and a dig, or two replacements as when a
+        // tile is built and deconstructed). ONI applies a tick's messages in its
+        // own order (it applies a dig before a replacement sent ahead of it);
+        // whatever it ends with, the owner must hold the cell exactly when ONI
+        // holds it open, and the gas is kept (docs/colony-owner.md#terrain).
+        // Before 2026-11-07 a cell closed and opened in one frame could become
+        // a wall ONI held as vacuum, never refilled.
+        private static void TerrainOrder(int frame)
+        {
+            var cells = new[] { (Name: "oxygen built over and dug", X: 1, Y: 2), (Name: "granite dug and built over", X: 1, Y: 4),
+                (Name: "oxygen built over and deconstructed", X: 5, Y: 2), (Name: "granite deconstructed and built over", X: 5, Y: 4) };
+            if (Once(0, "arena")) Arena((x, y) => (x == 1 || x == 5) && y == 4 ? (SimHashes.Granite, 1000f, 300f) : (SimHashes.Oxygen, 1.2f, 300f));
+            if (Once(6, "edit"))
+            {
+                recorded["gas"] = ArenaMass();
+                var log = CellEventLogger.Instance.SandBoxTool;
+                SimMessages.ReplaceAndDisplaceElement(Cell(1, 2), SimHashes.Granite, log, 1000, 300); SimMessages.Dig(Cell(1, 2));
+                SimMessages.Dig(Cell(1, 4)); SimMessages.ReplaceAndDisplaceElement(Cell(1, 4), SimHashes.Granite, log, 1000, 300);
+                SimMessages.ReplaceAndDisplaceElement(Cell(5, 2), SimHashes.Granite, log, 1000, 300); SimMessages.ReplaceAndDisplaceElement(Cell(5, 2), SimHashes.Vacuum, log, 0);
+                SimMessages.ReplaceAndDisplaceElement(Cell(5, 4), SimHashes.Vacuum, log, 0); SimMessages.ReplaceAndDisplaceElement(Cell(5, 4), SimHashes.Granite, log, 1000, 300);
+            }
+            string Describe(int c) => $"{Grid.Element[c].id}:{Grid.Mass[c]:G4}{(Grid.Solid[c] ? " solid" : "")}{(ColonyOwner.OwnsFluidCell(c) ? " owned" : " not owned")}, owner {CellMass(c):G4} kg";
+            if (frame >= 6 && frame <= 16 && Once(frame, "trace" + frame))
+                Debug.Log($"[Mixed Atmospheres] terrain-order frame {frame}: " + string.Join("; ", cells.Select(c => c.Name + " " + Describe(Cell(c.X, c.Y)))));
+            if (Once(18, "check"))
+            {
+                foreach (var c in cells)
+                {
+                    var cell = Cell(c.X, c.Y);
+                    Record(c.Name + ": the owner holds it exactly when ONI holds it open",
+                        ColonyOwner.OwnsFluidCell(cell) == !Grid.Solid[cell] && (Grid.Solid[cell] || CellMass(cell) > .5), Describe(cell));
+                }
+                Record("the gas was kept", Math.Abs(ArenaMass() - recorded["gas"]) < 1e-6 * recorded["gas"], $"{recorded["gas"]:G9} -> {ArenaMass():G9} kg");
                 Finish();
             }
         }

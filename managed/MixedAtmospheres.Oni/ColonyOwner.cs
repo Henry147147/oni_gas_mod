@@ -740,11 +740,15 @@ namespace MixedAtmospheres.Oni
                 }
                 case Dig:
                 {
-                    // ONI digs the tile natively; the owner opens the cell.
+                    // ONI digs the tile natively; the owner opens the cell, for
+                    // every dig of a batch.
                     if (length < 4) return false;
-                    var cell = *(int*)payload;
-                    // An open of an owned cell changes nothing: never let a stale view skip one.
-                    if (InRect(cell, out _)) QueueTerrain(cell, OniNativeColony.Open);
+                    for (var k = 0; k < count; ++k)
+                    {
+                        var cell = *(int*)(payload + k * length);
+                        // An open of an owned cell changes nothing: never let a stale view skip one.
+                        if (InRect(cell, out _)) QueueTerrain(cell, OniNativeColony.Open);
+                    }
                     return false;
                 }
                 case ModifyCell when length == 28 && payload[22] != 0:
