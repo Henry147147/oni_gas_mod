@@ -1973,6 +1973,7 @@ def _mock_playtest_case(failure=None, outcome=("passed-scoped-main-menu", 0)):
             mock.patch.object(runner, "verify_package", return_value={"unit": "manifest"}),
             mock.patch.object(runner, "stage_package", side_effect=stage, create=True),
             mock.patch.object(runner, "alive", side_effect=lambda value: value is steam or value is xvfb),
+            mock.patch.object(runner, "steam_offline"),
             mock.patch.object(Path, "symlink_to", autospec=True, return_value=None),
             mock.patch.object(runner, "write_json", side_effect=write),
             mock.patch.object(runner, "desktop_env", return_value={}),
@@ -2056,6 +2057,12 @@ class CopiedPayloadTests(unittest.TestCase):
 
 
 class LaunchLifetimeTests(unittest.TestCase):
+    def test_private_steam_is_set_offline_before_game_launch(self):
+        with _mock_playtest_case() as (args, state, session, record, events, writes, cleanup):
+            runner.steam_offline.side_effect = lambda *unused: self.assertNotIn("spawn", events)
+            self.assertEqual(runner.playtest(args, state, session), 0)
+            runner.steam_offline.assert_called_once_with(state, session)
+
     def test_save_load_profiles_keep_a_stable_mod_label(self):
         identities=[]
         for requested in (None,None,'OriginalSourceMod'):
