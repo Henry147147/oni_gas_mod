@@ -1,5 +1,51 @@
 # Performance acceptance measurements
 
+## Thin-gas trace heating in spaced-out-worlds, 2026-11-07 (user decision pending)
+
+The Spaced Out! acceptance scenario `spaced-out-worlds` faults at owner frame
+3 from `ca77650` on (Linux and Proton): `Private flow EOS cell 276 (24,9 of
+28x40)`, a 1e-12 kg hydrogen trace at 1.08e9 K, above the EOS domain. It
+passes at `258134c`, `f10fe22` and `2095964`. `ca77650` changes no solver code:
+its one-frame input lag changes this scenario's world enough to expose a
+defect of profile 12's thin-gas drag (`f10fe22`). A fault dump reproduces it
+offline with the current solver, and the same dump with the drag off runs
+cleanly; `MA_COLONY_KERNEL3_PROFILE11=1` in game has no fault.
+
+Mechanism: a 386 kPa pocket next to an empty cave leaks hydrogen (ONI's
+1.008 g/mol and 2.4 kJ/(kg K) give a heat-capacity ratio near 4.4). The drag
+holds the thin front back, so each front cell fills faster than it drains:
+compression and the drag's friction heat raise its temperature, and the next
+cell fills from it, 309 K to 1.6e8 K within about 30 flow intervals; the last
+step put 9.7e-13 kg at 1.08e9 K into an empty cell. Mass and energy stay
+exactly balanced; the energy is real pressure work concentrated on traces.
+Profile 11 flashes the same front to 5.4e5 K within the frame and settles near
+800 K.
+
+Options, measured on the fault dump (10 frames) and on the Spaced Out! full
+colony (flow ms a frame, 12 workers):
+
+| Option | Fault dump | Hottest in-frame | Flow ms |
+| --- | --- | --- | --- |
+| profile 12 as adopted (1 g, 10 ms) | faults | 1.08e9 K | 57.8 |
+| A: no drag (profile 11) | passes | 5.4e5 K | 318 |
+| B1: drag 1 g, 100 ms | passes | 2.4e7 K | 85.4 |
+| B2: drag 0.1 g, 10 ms | passes | 7.3e6 K | 101.3 |
+| C1: thin gas shares heat across drag faces (prototype) | passes | 3.1e8 K | 56.1 |
+| C2: thin gas not heated above the hottest gas it touches; the excess goes to its heaviest neighbour (prototype) | passes | 1.05e5 K | 59.1 |
+| C1 + C2 | passes | 8.1e4 K | 59.3 |
+
+Every passing option looks ordinary at the end of the frame and keeps the
+ledgers exact. Recommended: keep 1 g / 10 ms and design C properly (an
+implicit heat exchange between thin cells and the gas they touch within each
+flow interval, which would also remove profile 11's 5e5 K flash), in place or
+as a new profile. Ordinary new colonies have not hit it. Private evidence,
+dump, prototype patch and scripts: `artifacts/trace-energy-2026-11-07/`.
+
+A second failure in the same scenario on `133a4a1` (and on `b4a8e70` with
+profile 11): "sealed probes are empty before the source" (probe cells hold
+0.017-4600 kg). It passed at `2095964`; it likely follows `ca77650`'s
+one-frame input lag in the scenario's timing and is not yet changed.
+
 ## Windows playtest recording, 2026-11-07
 
 The user recorded 18 minutes of a new Spaced Out! colony (cycles 1-2, three
