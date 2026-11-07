@@ -20,6 +20,11 @@ namespace MixedAtmospheres.Oni
         internal static long HeldTicks { get; private set; }
         internal static long UnityFrames { get; private set; }
         internal static double OwnerRate { get; private set; } // game seconds per real second, smoothed
+        // Measured game speed: game-clock seconds per real second over the
+        // last whole second of unpaused play (0 until measured). The status
+        // panel shows it beside the requested clock, which it can fall behind.
+        internal static double GameRate { get; private set; }
+        private static long rateStartTicks; private static float rateStartGame; private static bool rateTiming;
         internal static float TimeScale => Time.timeScale;
         private static ulong seenFrames;
         private static bool scaled;
@@ -49,6 +54,7 @@ namespace MixedAtmospheres.Oni
             ColonyPacingLossLog.Reset();
             ColonyPerformanceLog.FinishRun();
             HeldTicks = UnityFrames = 0; OwnerRate = 0; seenFrames = 0; ColonyReaderPin.Reset();
+            GameRate = 0; rateTiming = false;
             updateTicks = tickTicks = updateCalls = tickCalls = maximumUpdateTicks = loggedHeldTicks = 0;
             loggedFrame = ulong.MaxValue;
         }
@@ -120,6 +126,18 @@ namespace MixedAtmospheres.Oni
             updateTicks = tickTicks = updateCalls = tickCalls = maximumUpdateTicks = 0;
         }
 
+        private static void MeasureGameRate()
+        {
+            var clock = GameClock.Instance; var speed = SpeedControlScreen.Instance;
+            if (clock == null || speed == null || speed.IsPaused) { rateTiming = false; return; }
+            var now = System.Diagnostics.Stopwatch.GetTimestamp(); var game = clock.GetTime();
+            if (!rateTiming) { rateTiming = true; rateStartTicks = now; rateStartGame = game; return; }
+            var real = (now - rateStartTicks) / (double)System.Diagnostics.Stopwatch.Frequency;
+            if (real < 1) return;
+            GameRate = Math.Max(0, (game - rateStartGame) / real);
+            rateStartTicks = now; rateStartGame = game;
+        }
+
         private static void UpdateClock()
         {
             if (!Enabled || !ColonyOwner.Active)
@@ -130,6 +148,7 @@ namespace MixedAtmospheres.Oni
             }
             ++UnityFrames;
             ColonyPerformanceLog.UnityFrame(Time.unscaledDeltaTime);
+            MeasureGameRate();
             var status = ColonyOwner.Status;
             if (status.CompletedFrames != seenFrames && status.LastAdvanceMilliseconds > 0)
             {
@@ -217,11 +236,12 @@ namespace MixedAtmospheres.Oni
         private void LateUpdate(){ColonyClusterRetirement.PumpDeletes();ColonyOwner.PumpDeferredByproducts();}
         internal static void Ensure()
         {
+            ColonyPerformanceLog.WindowExtras = UnityFrameTiming.Take;
             if (FindFirstObjectByType<ColonyPacingDriver>() != null) return;
             var holder = new GameObject("Mixed Atmospheres colony pacing");
             DontDestroyOnLoad(holder); holder.AddComponent<ColonyPacingDriver>();
         }
-        private void Update() => ColonyPacing.Update();
+        private void Update() { UnityFrameTiming.Frame(); ColonyPacing.Update(); }
     }
     [HarmonyPatch(typeof(Game), "SimEveryTick")]
     internal static class ColonyPacingTickPatch

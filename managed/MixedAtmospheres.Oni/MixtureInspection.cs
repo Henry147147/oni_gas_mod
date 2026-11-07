@@ -197,7 +197,7 @@ namespace MixedAtmospheres.Oni
         // of the cell's volume (about 10 g of water: evaporation residue in a
         // gas cell), as they leave out trace gases; exact readings show any
         // liquid and the selected cell's details name the trace.
-        internal const double TraceLiquidVolumeFraction = 1e-5;
+        internal const double TraceLiquidVolumeFraction = MixturePresentationModel.MeaningfulLiquidVolumeFraction;
         internal static bool ShowsLiquid(MixturePresentation reading) =>
             reading.LiquidVolumeFraction > 0 && (ExactReadings || reading.LiquidVolumeFraction >= TraceLiquidVolumeFraction);
 
@@ -682,16 +682,30 @@ namespace MixedAtmospheres.Oni
             output.Add(label + ": " + element.name + " · " + Number(mass) + " kg · " + Number(temperature) + " K");
         }
         private static string Number(double value) => ExactReadings ? value.ToString("G10", CultureInfo.InvariantCulture) : Friendly(value);
-        // Four significant figures without an exponent for ordinary magnitudes.
-        internal static string Friendly(double value)
+        // Significant figures of friendly readings (display.readingPrecision):
+        // 4 by default, down to 1; exact readings print every digit.
+        internal static int SignificantFigures = 4;
+        internal static string Friendly(double value) => Friendly(value, SignificantFigures);
+        // `figures` significant figures without an exponent for ordinary
+        // magnitudes. Four figures keep every digit of a large integer, as
+        // before; fewer figures round it too (1,247 kg at 2 figures is 1200).
+        internal static string Friendly(double value, int figures)
         {
             if (double.IsNaN(value) || double.IsInfinity(value)) return value.ToString(CultureInfo.InvariantCulture);
+            figures = Math.Max(1, Math.Min(4, figures));
             var size = Math.Abs(value);
             if (size == 0) return "0";
-            if (size < 1e-3 || size >= 1e7) return value.ToString("0.###E+0", CultureInfo.InvariantCulture);
-            var decimals = Math.Max(0, 3 - (int)Math.Floor(Math.Log10(size)));
-            var rounded = Math.Round(value, decimals, MidpointRounding.AwayFromZero);
-            return rounded.ToString(decimals == 0 ? "0" : "0." + new string('#', decimals), CultureInfo.InvariantCulture);
+            if (size < 1e-3 || size >= 1e7)
+                return value.ToString(figures == 1 ? "0E+0" : "0." + new string('#', figures - 1) + "E+0", CultureInfo.InvariantCulture);
+            var decimals = figures - 1 - (int)Math.Floor(Math.Log10(size));
+            if (decimals >= 0)
+            {
+                var rounded = Math.Round(value, decimals, MidpointRounding.AwayFromZero);
+                return rounded.ToString(decimals == 0 ? "0" : "0." + new string('#', decimals), CultureInfo.InvariantCulture);
+            }
+            if (figures >= 4) return Math.Round(value, 0, MidpointRounding.AwayFromZero).ToString("0", CultureInfo.InvariantCulture);
+            var unit = Math.Pow(10, -decimals);
+            return (Math.Round(value / unit, MidpointRounding.AwayFromZero) * unit).ToString("0", CultureInfo.InvariantCulture);
         }
         // A positive amount too small for binary64 keeps its exact wording.
         private static string Amount(double value, MixtureConstituentPresentation row, string unit) =>

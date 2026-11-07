@@ -23,6 +23,8 @@ namespace MixedAtmospheres.Oni
         private static readonly string[] TimingNames = { "process", "next_wait", "write_shadow", "update_data", "capture_shadow", "advance",
             "copy_to_game", "end_frame", "post_to_handoff", "owner_wake", "owner_frame" };
         private static readonly double[] timing = new double[3 * 11];
+        // Engine frame timing (UnityFrameTiming), appended to every window line.
+        internal static Action<StringBuilder>? WindowExtras { get; set; }
         private static readonly List<double> owner = new List<double>(WindowFrames), interval = new List<double>(WindowFrames),
             publication = new List<double>(WindowFrames);
         private static readonly double[] stages = new double[6];
@@ -185,6 +187,7 @@ namespace MixedAtmospheres.Oni
             line.Append(" held ").Append((lastHeld - heldAtStart).ToString(c));
             line.Append(" samples ").Append(owner.Count.ToString(c));
             line.Append(" owner_frames ").Append(measured.Frames.ToString(c));
+            WindowExtras?.Invoke(line);
             Timing(line);
             UnityEngine.Debug.Log(line.ToString());
             owner.Clear(); interval.Clear(); publication.Clear(); Array.Clear(stages, 0, stages.Length);

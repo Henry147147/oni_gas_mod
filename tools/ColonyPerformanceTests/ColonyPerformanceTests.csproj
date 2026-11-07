@@ -7,5 +7,6 @@
     <Compile Include="../../managed/MixedAtmospheres.Oni/ColonyPerformanceClock.cs" Link="ColonyPerformanceClock.cs" />
     <Compile Include="../../managed/MixedAtmospheres.Oni/ColonyPerformanceLog.cs" Link="ColonyPerformanceLog.cs" />
     <Compile Include="../../managed/MixedAtmospheres.Oni/ColonyFrameTiming.cs" Link="ColonyFrameTiming.cs" />
+    <Compile Include="../../managed/MixedAtmospheres.Oni/FrameClockWindow.cs" Link="FrameClockWindow.cs" />
   </ItemGroup>
 </Project>

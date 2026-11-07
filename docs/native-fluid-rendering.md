@@ -32,7 +32,17 @@ water, as they leave out trace gases; the selected cell's details then say
 
 The display refreshes five times a second, and at once (at most twenty times a
 second) when the cursor reaches another cell, so it describes the cell under
-the cursor. It sits below ONI's notification list and hides while a
+the cursor. Its speed line shows the measured game speed (game-clock seconds
+per real second over the last second) beside the requested clock, `game 2.98×
+(clock 3.00×)`, or `game paused`.
+
+A wet cell's name lists its liquid too, the phase that fills most of the cell
+first, as ONI's grid shows it (the owner projects a cell at least half liquid
+by volume as its liquid): `Water + Oxygen` for a cell two-thirds water,
+`Oxygen + Water` for a damp one; liquid below 0.001% of the volume is left out
+of the name. When liquid fills most of the cell, a breathable gas reads
+`Breathable headspace`: duplicants still breathe it (the owner's breathing
+read uses the cell's gas), but the cell is water to ONI. It sits below ONI's notification list and hides while a
 full-screen management screen (skills, research, starmap and the like) is
 open. Its status line gets the height it needs; a fixed 32-pixel line cut a
 wrapped `· running` in half. Its text and heights are built once per refresh,
@@ -138,6 +148,23 @@ about 1,200 reuses per window); `PropertyTextures.LateUpdate` fell from 2.37
 to 1.68 ms a frame, rendering after `LateUpdate` from 2.35 to 2.15 ms and the
 whole frame from 11.8 to 10.5 ms (median 9.8 to 8.6 ms; 86-97 to 94-99 fps).
 The cost saved grows with the visible cells, so a zoomed-out view saves more.
+
+## Full-map texture uploads
+
+ONI's `PropertyTextures.UpdateProperty` copies five textures the native
+simulation publishes for the whole cluster (flow, liquid, liquid data,
+material data and sunlight exposure: 21 bytes a cell, about 5.4 MB on a
+636×404 Spaced Out! cluster) into `Texture2D`s and uploads them every Unity
+frame. Their source buffers change only inside `Game.StepTheSim` (ONI's data
+request; every publication of the owner goes through it), which at speed 3
+and 100 fps is one frame in six or seven. A transpiler replaces the five
+`LoadRawTextureData` calls and the `Apply` after them with
+`PropertyTextureUploads.Load`/`Apply`: a frame whose texture, source pointer
+and size match the upload made since the latest `StepTheSim` skips the copy
+and the upload, and an upload is forced at least every half second. If the
+method no longer has exactly five copies and one upload, it is left as the
+game made it. `MA_TEXTURE_UPLOAD_REUSE=0` turns it off; `MA_FRAME_LOG=1`
+reports `map_texture_uploads` and `map_texture_reuses`.
 
 ## Verified status
 

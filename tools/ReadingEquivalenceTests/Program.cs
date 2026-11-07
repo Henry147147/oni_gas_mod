@@ -12,7 +12,11 @@ using MixedAtmospheres.Core.Interop;
 System.Globalization.CultureInfo.CurrentCulture = System.Globalization.CultureInfo.InvariantCulture;
 System.Globalization.CultureInfo.CurrentUICulture = System.Globalization.CultureInfo.InvariantCulture;
 if (args.Contains("--allocations")) return ExtendedCases.Allocations();
-const string ExpectedPortable = "4B21F08E1A3F913DD4713DF976A99699FB2B33756AB24F9D3DB058A5F0000E4C";
+// 2026-11-07: a wet cell's name lists its liquid and a mostly-liquid cell's
+// breathable gas reads "Breathable headspace" (deliberate text change). The
+// original construction's digest, 4B21F08E1A3F913DD4713DF976A99699FB2B33756AB24F9D3DB058A5F0000E4C,
+// still matches with only that naming reverted; every number is unchanged.
+const string ExpectedPortable = "24713456EBFE0B2220C1A90693AB646998DC8C4721A610092B66901BE2EDACF9";
 double[] Decades = { 1e-3, 1e-2, 1e-1, 1, 10, 100, 1000 };
 var ids = new[] { "oxygen", "nitrogen", "carbon_dioxide", "hydrogen", "chlorine", "water", "zeta", "Alpha" };
 var phases = new[] { NativeMatterPhase.Gas, NativeMatterPhase.Gas, NativeMatterPhase.Gas, NativeMatterPhase.Gas, NativeMatterPhase.Gas, NativeMatterPhase.Liquid, NativeMatterPhase.Gas, NativeMatterPhase.Gas };

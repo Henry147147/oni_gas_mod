@@ -19,7 +19,10 @@ using MixedAtmospheres.Core.Interop;
 // the random-cell colour digest against a supplied same-platform reference.
 internal static class ExtendedCases
 {
-    private const string Expected = "65E5BABD0BD7D914A4314301D44CA6E34F122080E92FD261D131C51A2C45FEA0";
+    // 2026-11-07 wet-cell names (see Program.cs): the original digest
+    // 65E5BABD0BD7D914A4314301D44CA6E34F122080E92FD261D131C51A2C45FEA0 still
+    // matches with only that naming reverted.
+    private const string Expected = "AD6D51876BDFC788719A8F084B81111B7105884A7CF12A34B0CF1D59401BD082";
     private static readonly Dictionary<Type, PropertyInfo[]> Properties = new();
 
     // Optional diagnostic, not a timing/acceptance bound. Input rows and source

@@ -122,7 +122,7 @@ namespace MixedAtmospheres.Core
             get
             {
                 var existing = Volatile.Read(ref displayName); if (existing != null) return existing;
-                var created = model.Name(Constituents, BreathingStatus); return Interlocked.CompareExchange(ref displayName, created, null) ?? created;
+                var created = model.Name(Constituents, BreathingStatus, LiquidVolumeFraction); return Interlocked.CompareExchange(ref displayName, created, null) ?? created;
             }
         }
         public IReadOnlyList<MixtureConstituentPresentation> Constituents
@@ -159,7 +159,9 @@ namespace MixedAtmospheres.Core
         public double Co2PartialPressurePa { get; }
         public BreathingFailure Failures { get; }
         public bool IsBreathable => Failures == BreathingFailure.None;
-        public string BreathingStatus => IsBreathable ? "Breathable" :
+        // A cell at least half liquid by volume is liquid in ONI's grid; its
+        // gas is a headspace (duplicants still breathe it, ColonyOwner).
+        public string BreathingStatus => IsBreathable ? (GasConstituentCount > 0 && LiquidVolumeFraction >= MixturePresentationModel.LiquidDominantVolumeFraction ? "Breathable headspace" : "Breathable") :
             (Failures & BreathingFailure.Vacuum) == 0 ? "Unsafe atmosphere" :
             GasConstituentCount == 0 && TotalMassKg > 0 ? "No gas phase / not breathable" : "Vacuum / no atmosphere";
         public IReadOnlyList<string> Warnings
@@ -359,6 +361,10 @@ namespace MixedAtmospheres.Core
 
     public sealed partial class MixturePresentationModel
     {
+        /// <summary>The liquid volume share from which a cell is liquid in ONI's grid (the owner's projection).</summary>
+        public const double LiquidDominantVolumeFraction = .5;
+        /// <summary>Liquid below this share of a cell's volume (about 10 g of water) is a trace: names and friendly readings leave it out.</summary>
+        public const double MeaningfulLiquidVolumeFraction = 1e-5;
         private readonly FluidMaterialCatalog catalog;
         private readonly IReadOnlyDictionary<string, MixtureSpeciesStyle> styles;
         private readonly IReadOnlyDictionary<string, double> contaminantLimits;
@@ -627,16 +633,29 @@ namespace MixedAtmospheres.Core
             return result;
         }
 
-        internal string Name(IReadOnlyList<MixtureConstituentPresentation> rows, string status)
+        // A wet cell names its liquid too, the phase that fills most of the
+        // cell first (as ONI's grid shows it): "Water + Oxygen" for a cell
+        // mostly water, "Oxygen + Water" for a damp one.
+        internal string Name(IReadOnlyList<MixtureConstituentPresentation> rows, string status, double liquidFraction = 0)
         {
             var gases = rows.Where(row => row.Phase == NativeMatterPhase.Gas).ToArray();
             if (gases.Length == 0) return rows.Count == 0 ? status :
                 (rows.Count == 1 ? rows[0].DisplayName + " (liquid)" : "Liquid mixture") + "\n" + status;
-            if (gases.Length == 1) return gases[0].DisplayName + "\n" + status;
-            var meaningful = gases.Where(row => !row.IsTrace).Take(2).ToArray();
-            if (meaningful.Length == 0) meaningful = gases.Take(2).ToArray();
-            var title = string.Join("–", meaningful.Select(row => row.DisplayName)) + " mixture";
-            if (gases.Length > meaningful.Length) title += gases.Except(meaningful).All(row => row.IsTrace) ? " (+ traces)" : " (+ other gases)";
+            string title;
+            if (gases.Length == 1) title = gases[0].DisplayName;
+            else
+            {
+                var meaningful = gases.Where(row => !row.IsTrace).Take(2).ToArray();
+                if (meaningful.Length == 0) meaningful = gases.Take(2).ToArray();
+                title = string.Join("–", meaningful.Select(row => row.DisplayName)) + " mixture";
+                if (gases.Length > meaningful.Length) title += gases.Except(meaningful).All(row => row.IsTrace) ? " (+ traces)" : " (+ other gases)";
+            }
+            var liquids = rows.Where(row => row.Phase == NativeMatterPhase.Liquid && row.MassKg > 0).ToArray();
+            if (liquids.Length != 0 && liquidFraction >= MeaningfulLiquidVolumeFraction)
+            {
+                var liquid = liquids.Length == 1 ? liquids[0].DisplayName : "Liquid mixture";
+                title = liquidFraction >= LiquidDominantVolumeFraction ? liquid + " + " + title : title + " + " + liquid;
+            }
             return title + "\n" + status;
         }
 

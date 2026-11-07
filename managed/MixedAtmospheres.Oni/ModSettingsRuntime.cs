@@ -129,7 +129,10 @@ namespace MixedAtmospheres.Oni
         {
             ApplyWorkers();
             ColonyFrameLog.SetPreference(Current.Toggle("performance.logFrameTiming"));
-            MixtureInspection.ExactReadings = Current.Choice("display.readingPrecision") == "exact";
+            var precision = Current.Choice("display.readingPrecision");
+            MixtureInspection.ExactReadings = precision == "exact";
+            MixtureInspection.SignificantFigures = precision == "sig3" ? 3 : precision == "sig2" ? 2 : precision == "sig1" ? 1 : 4;
+            UnityFrameTiming.SetPreference(Current.Toggle("performance.frameTimingFix"));
             MixtureAppearanceSettings.Apply(Current.Number("display.patternContrast"), Current.Number("display.traceMoleFraction"));
             PreferencesChanged?.Invoke();
         }

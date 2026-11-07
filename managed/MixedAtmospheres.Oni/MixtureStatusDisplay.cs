@@ -144,8 +144,10 @@ namespace MixedAtmospheres.Oni
                 if (owner.State == 2) failure = owner.Error;
                 scope = "Frame " + owner.CompletedFrames.ToString(CultureInfo.InvariantCulture) + " · " +
                     (frame?.SuppliedCells.Count ?? 0).ToString(CultureInfo.InvariantCulture) + " cells with readings\n" +
-                    "Solver pace " + ColonyPacing.OwnerRate.ToString("0.00", CultureInfo.InvariantCulture) + "× real time · game clock " +
-                    Time.timeScale.ToString("0.00", CultureInfo.InvariantCulture) + "×\nRenderer: " + (MixtureWorldRendering.LastError.Length != 0 ? "error" :
+                    "Solver pace " + ColonyPacing.OwnerRate.ToString("0.00", CultureInfo.InvariantCulture) + "× real time · " +
+                    (paused ? "game paused" : "game " + (ColonyPacing.GameRate > 0 ? ColonyPacing.GameRate.ToString("0.00", CultureInfo.InvariantCulture) + "×" : "…") +
+                        " (clock " + Time.timeScale.ToString("0.00", CultureInfo.InvariantCulture) + "×)") +
+                    "\nRenderer: " + (MixtureWorldRendering.LastError.Length != 0 ? "error" :
                     MixtureWorldRendering.Installed && MixtureWorldRendering.SchedulingActive ? "ready" : "waiting for textures") +
                     "\n" + ColonyPipeRuntime.StatusLine;
                 if (ColonyPipeRuntime.Failure.Length != 0 && failure.Length == 0) failure = ColonyPipeRuntime.Failure;

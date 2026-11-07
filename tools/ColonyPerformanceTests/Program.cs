@@ -162,4 +162,20 @@ for (var i = 0; i < 400; ++i) ColonyPerformanceLog.Published(11, i, i + 100, tru
 timerun = ColonyPerformanceLog.Timerun();
 Check((long)Property("DroppedPublicationSamples") == 100, "missing pacing observations grew latency samples without an explicit bound/loss count");
 ColonyPerformanceLog.FinishRun();
+
+// Frame timing fix detection (UnityFrameTiming): the 2026-11-07 Windows log's
+// pattern (each 10 ms frame reported as one 2 ms refresh of a 500 Hz display,
+// the rest put into a rare multi-second frame) is a mismatch; ordinary
+// frames, jitter and 60 Hz V-Sync quantization are not.
+bool Window(Func<int, (double real, double reported)> frame)
+{
+    var w = new MixedAtmospheres.Oni.FrameClockWindow();
+    for (var i = 0; ; ++i) { var (r, u) = frame(i); if (w.Add(r, u)) return w.Mismatched; if (i > 10000) throw new InvalidOperationException("window never completed"); }
+}
+Check(Window(i => (.0099, i == 120 ? 21.6 : .002)), "500 Hz variable-refresh frame timing was not detected");
+Check(Window(i => (.0099, .0069)), "144 Hz variable-refresh frame timing was not detected");
+Check(!Window(i => (.0099 + (i % 7 - 3) * .0008, .0099 + ((i + 3) % 7 - 3) * .0008)), "ordinary frame jitter was taken for a clock mismatch");
+Check(!Window(i => (i % 3 == 0 ? .021 : .016, i % 3 == 0 ? 1 / 30.0 : 1 / 60.0)), "60 Hz V-Sync quantization was taken for a clock mismatch");
+Check(!Window(i => (.0099, i % 2 == 0 ? .0045 : .0153)), "alternating long and short frames that keep the total were taken for a mismatch");
+Check(!Window(i => (i == 5 ? 3.0 : .0099, .0099)), "a loading hitch was counted");
 Console.WriteLine($"PASS performance clocks, lifecycle resets and publication metrics ({checks} checks)");

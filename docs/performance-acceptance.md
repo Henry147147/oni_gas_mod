@@ -25,6 +25,25 @@ below were read from it.
   whole frame, and ONI's native frame phases, so the next Windows Player.log
   shows where each tick waits.
 
+**Cause, from the session's Player.log.** The log (Windows 11, Unity
+6000.3.5f2, Direct3D 11, 2560×1440 borderless at 499.9 Hz, V-Sync on by
+Unity's default) has 37 `perf frames` windows: about 101 fps (114,014 Unity
+frames in 1,125 s), owner frames of 20-28 ms, yet tick intervals of 140-300 ms
+and 0.67-1.9× game speed at speed 3, with few held ticks (0.5-0.9 a tick) and
+a "slowest frame" of 2-25 s in every window that the recording never shows.
+In the window of frames 2863-3012 the game advanced 30 s in 44.7 s of wall
+time over about 4,650 frames: Unity reported about 2.2 ms a frame while 9.6 ms
+passed and put the rest into rare multi-second frames, which ONI caps at 0.2 s
+of simulation. That is one 2 ms refresh of a 500 Hz variable-refresh display
+per presented frame: Unity derives delta time from the refresh count with
+V-Sync on. The one window at 3.0× (frames 4213-4362, 64 fps, slowest frame
+184 ms) is when the NVIDIA overlay and the Start menu were open, which
+typically turns variable refresh off. The same frames cost the same at speed 1
+(0.7× there), so the solver and the pacing were never the limit. The
+[frame timing fix](settings.md) now detects this and turns V-Sync off; the
+`perf frames` lines report `engine_frame_ms`, `real_frame_ms`, `short_frames`
+and `timing_fix`.
+
 Main-thread work found in the same review and changed: the gas textures were
 recomputed and uploaded every frame ([gas texture reuse](native-fluid-rendering.md#gas-texture-reuse):
 whole frame 11.8 to 10.5 ms on the Linux harness), and the status panel

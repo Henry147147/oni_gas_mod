@@ -36,6 +36,8 @@ internal static class Program
             ("liquid inspection does not invent gas partial pressure", LiquidRows),
             ("compressed liquid shows actual fluid pressure without calling it vacuum", ActualLiquidPressure),
             ("wet mixture keeps fluid pressure separate from gas partial pressures", WetMixturePressure),
+            ("wet cells name their liquid, the phase filling most of the cell first", WetCellNames),
+            ("friendly readings round to 4, 3, 2 or 1 significant figures", SignificantFigures),
             ("breathing warnings use actual mixture model", BreathingWarnings),
             ("state uses player units and explicit breathing status", PlayerUnitsAndStatus),
             ("breathing warnings precede independently laid out constituent rows", DetailRows),
@@ -286,6 +288,45 @@ internal static class Program
             0, 0, 0, 0, 0, 0, 1, 0, 0, 1, "inspection-supplied-v1", "inspection-supplied-fingerprint"));
         Check(vacuum.BreathingStatus == "Vacuum / no atmosphere" && !MixtureInspection.FormatState(vacuum).Contains("Fluid pressure"),
             "True empty vacuum was relabelled as liquid or assigned a fluid pressure.");
+    }
+
+    private static MixturePresentation Wet(MixturePresentationModel model, double headspace, double liquidMass)
+    {
+        var pressure = 40 * FluidMaterialCatalog.GasConstantJoulesPerMolKelvin * 300 / headspace;
+        return model.Describe(new MixtureThermodynamicReading(new[]
+        {
+            new MixtureThermodynamicConstituent("oxygen", NativeMatterPhase.Gas, 8 * .032, .032, headspace * .2),
+            new MixtureThermodynamicConstituent("nitrogen", NativeMatterPhase.Gas, 32 * .028, .028, headspace * .8),
+            new MixtureThermodynamicConstituent("water", NativeMatterPhase.Liquid, liquidMass, .018, 1 - headspace)
+        }, liquidMass + 8 * .032 + 32 * .028, 251040000, 0, 300, pressure, pressure, 1, headspace, 1 - headspace, 0,
+            "inspection-supplied-v1", "inspection-supplied-fingerprint"));
+    }
+
+    private static void WetCellNames()
+    {
+        var (_, model) = Model();
+        var damp = Wet(model, .8, 200); var flooded = Wet(model, .3, 700); var trace = Wet(model, 1 - 1e-7, 1e-4);
+        var water = flooded.Constituents.Single(row => row.MaterialId == "water").DisplayName;
+        var gas = MixtureInspection.FormatHeader(trace);
+        Check(MixtureInspection.FormatHeader(damp) == gas + " + " + water, "A damp cell's name omits its liquid: " + MixtureInspection.FormatHeader(damp));
+        Check(MixtureInspection.FormatHeader(flooded) == water + " + " + gas, "A mostly liquid cell is not named for its liquid first: " + MixtureInspection.FormatHeader(flooded));
+        Check(flooded.IsBreathable && flooded.BreathingStatus == "Breathable headspace" && damp.BreathingStatus == "Breathable",
+            "A mostly liquid cell's breathable gas is not called a headspace.");
+        Check(!gas.Contains(water), "A trace of liquid renamed a gas cell.");
+    }
+
+    private static void SignificantFigures()
+    {
+        string F(double value, int figures) => MixtureInspection.Friendly(value, figures);
+        Check(F(1247.3, 4) == "1247" && F(12345.6, 4) == "12346" && F(1247.3, 3) == "1250" && F(1247.3, 2) == "1200" && F(1247.3, 1) == "1000",
+            "Integers keep 4 figures' digits but round at fewer figures.");
+        Check(F(269.7, 1) == "300" && F(22.47, 3) == "22.5" && F(1.765, 2) == "1.8" && F(1.765, 4) == "1.765" && F(9.96, 2) == "10",
+            "Ordinary magnitudes round to the requested figures.");
+        Check(F(.0004123, 4) == "4.123E-4" && F(.0004123, 2) == "4.1E-4" && F(.0004123, 1) == "4E-4" && F(-0.25, 1) == "-0.3" && F(0, 1) == "0",
+            "Small and signed values keep the requested figures.");
+        var saved = MixtureInspection.SignificantFigures;
+        try { MixtureInspection.SignificantFigures = 1; Check(MixtureInspection.Friendly(269.7) == "300", "The precision setting is not applied."); }
+        finally { MixtureInspection.SignificantFigures = saved; }
     }
 
     private static void WetMixturePressure()
