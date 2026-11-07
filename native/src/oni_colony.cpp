@@ -341,6 +341,7 @@ struct ActivityPacket {
     std::vector<std::uint32_t> actors,touched;
     InputCuts cuts;
     bool claimed=true; // session delivery only; saved packets restore unclaimed
+    std::int64_t posted_ns=0; // timing only (tick_timing); never saved
 };
 struct InputBatch {
     std::vector<MAOniColonyTransfer> transfers;
@@ -352,11 +353,29 @@ struct InputBatch {
 };
 struct ActivityTask {
     std::uint64_t ticket=0;
+    std::int64_t handed_ns=0; // timing only (tick_timing)
     ActivityPacket packet;
     InputBatch batch;
     std::optional<bool> mode;
 };
 std::deque<ActivityPacket> pending_activity;
+// Always-on timing of the overlapped tick chain for the performance log
+// (docs/colony-owner.md#performance-log): the game posting an activity frame
+// to the native frame handing it to the solver, the hand-off to the solver
+// thread taking it, and the solver thread's whole frame (advance, projection
+// and publication). Diagnostics only: nothing reads them back into a frame.
+namespace tick_timing {
+struct Stat { std::atomic<std::int64_t> sum{}, max{}, count{}; };
+Stat stats[tick_timing_phases];
+inline std::int64_t now() noexcept { return std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now().time_since_epoch()).count(); }
+inline void add(std::size_t phase, std::int64_t elapsed) noexcept {
+    if (elapsed < 0) return;
+    auto& stat = stats[phase];
+    stat.sum.fetch_add(elapsed, std::memory_order_relaxed); stat.count.fetch_add(1, std::memory_order_relaxed);
+    auto seen = stat.max.load(std::memory_order_relaxed);
+    while (elapsed > seen && !stat.max.compare_exchange_weak(seen, elapsed, std::memory_order_relaxed)) {}
+}
+}
 std::optional<ActivityPacket> lifecycle_activity;
 std::optional<bool> pending_activity_mode;
 std::atomic<bool> activity_owner{false};
@@ -457,8 +476,11 @@ struct Solver {
             if(!operation && !activity){seconds = 0; frames = 0; refusal = nullptr;}
             running = true;
             l.unlock();
+            if(activity && activity->handed_ns)tick_timing::add(tick_timing_owner_wake,tick_timing::now()-activity->handed_ns);
+            const auto frame_begun=activity?tick_timing::now():0;
             if(operation)try{operation();}catch(...){error=std::current_exception();}
             else run_frame(t,dt,f,r,id,false,std::move(activity));
+            if(frame_begun)tick_timing::add(tick_timing_owner_frame,tick_timing::now()-frame_begun);
             l.lock();if(operation)command_error=error;
             running = false;
             if (seconds == 0 && !command && activity_work.empty()) busy.store(false, std::memory_order_release);
@@ -1472,6 +1494,14 @@ std::uint32_t handoff_terrain(std::uint64_t session_id,std::uint64_t sequence,MA
     }
     return 0;
 }
+void take_tick_timing(double* out) noexcept {
+    for (std::size_t k=0;k<tick_timing_phases;++k) {
+        auto& stat=tick_timing::stats[k];
+        const auto n=stat.count.exchange(0), sum=stat.sum.exchange(0), max=stat.max.exchange(0);
+        out[3*k]=n?static_cast<double>(sum)/1e6/static_cast<double>(n):0.0;
+        out[3*k+1]=static_cast<double>(max)/1e6;out[3*k+2]=static_cast<double>(n);
+    }
+}
 bool awaiting_handoff(std::uint64_t sequence) noexcept {
     if(!enabled.load(std::memory_order_acquire) || !activity_owner.load(std::memory_order_acquire))return false;
     if(handed_activity.load(std::memory_order_acquire)>=sequence)return false;
@@ -2128,6 +2158,7 @@ std::uint64_t queue_activity(std::uint64_t expected,double seconds,std::span<con
     require(pending_activity.size()<1024 && accepted_activity_sequence<UINT64_MAX,"Activity submission queue exhausted");
     packet.sequence=accepted_activity_sequence+1;
     packet.cuts={pending_transfers.size(),pending_heat.size(),pending_terrain.size(),pending_freezes.size(),pending_germs.size()};
+    packet.posted_ns=tick_timing::now();
     merge_lifecycle_touches();pending_activity.push_back(std::move(packet));lifecycle_activity.reset();return ++accepted_activity_sequence;
 }
 void claim_activity_frame(std::uint64_t expected,std::uint64_t sequence,double seconds) {
@@ -2842,6 +2873,8 @@ void advance(std::uint64_t ticket, double seconds, std::uint64_t thread) noexcep
             {std::lock_guard p(publication);
                 if(readers_pinned && handoffs.size()<maximum_handoffs)handoffs.push_back({task->packet.sequence,latest,std::move(native_terrain)});}
             handed_activity.store(task->packet.sequence,std::memory_order_release);
+            task->handed_ns=tick_timing::now();
+            if(task->packet.posted_ns)tick_timing::add(tick_timing_post_to_handoff,task->handed_ns-task->packet.posted_ns);
             solver.activity_waiting_seconds+=seconds;solver.activity_work.push_back(std::move(task));
             solver.busy.store(true,std::memory_order_release);
             if(!solver.thread.joinable())solver.thread=std::thread([]{solver.loop();});

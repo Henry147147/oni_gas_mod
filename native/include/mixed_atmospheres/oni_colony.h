@@ -595,6 +595,12 @@ MA_ONI_API uint32_t ma_oni_colony_busy(void);
 MA_ONI_API uint32_t ma_oni_colony_pacing_version(void);
 MA_ONI_API uint32_t ma_oni_colony_overlapped(void);
 MA_ONI_API uint32_t ma_oni_colony_awaiting_handoff(uint64_t sequence);
+/* Diagnostics for the performance log: per phase [mean ms, max ms, count]
+ * since the previous call, in this order: the native frame phases process,
+ * next_wait, write_shadow, update_data, capture_shadow, advance,
+ * copy_to_game, end_frame, then the colony's post_to_handoff, owner_wake and
+ * owner_frame. Returns the number of phases written (0 if capacity is short). */
+MA_ONI_API uint32_t ma_oni_native_timing(double* values, uint32_t capacity);
 MA_ONI_API MAOniResult ma_oni_colony_follow_frames(uint64_t session, uint32_t follow);
 MA_ONI_API MAOniResult ma_oni_colony_show_frame(uint64_t session, uint64_t sequence, uint32_t* found);
 /* The cell ownership changes (opens, closes; freezes as closes) the native

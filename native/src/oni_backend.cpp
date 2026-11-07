@@ -173,19 +173,25 @@ void trace(std::uint32_t hook, bool entering, std::uint32_t bits=0) noexcept {
 // milliseconds over each 20 positive frames, to stderr. Off: one bool test.
 namespace wait_log {
 const bool enabled = [] { const auto* value = std::getenv("MA_COLONY_NATIVE_WAIT_LOG"); return value && std::strcmp(value, "1") == 0; }();
+// The phases are always timed for the performance log (ma_oni_native_timing,
+// read once per perf window); the stderr report above stays opt-in.
 enum Phase { Process, NextFrameWait, WriteShadow, UpdateData, CaptureShadow, Advance, CopyToGame, EndFrame, PhaseCount };
 const char* const names[PhaseCount] = {"process", "next_wait", "write_shadow", "update_data", "capture_shadow", "advance", "copy_to_game", "end_frame"};
 struct Stat { std::atomic<std::int64_t> sum{}, max{}, count{}; };
-Stat stats[PhaseCount];
+Stat stats[PhaseCount], window[PhaseCount];
 std::atomic<std::uint32_t> frames{};
 inline std::int64_t now() noexcept { return std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now().time_since_epoch()).count(); }
-inline void add(Phase phase, std::int64_t begun) noexcept {
-    const auto elapsed = now() - begun; auto& stat = stats[phase];
+inline void record(Stat& stat, std::int64_t elapsed) noexcept {
     stat.sum.fetch_add(elapsed, std::memory_order_relaxed); stat.count.fetch_add(1, std::memory_order_relaxed);
     auto seen = stat.max.load(std::memory_order_relaxed);
     while (elapsed > seen && !stat.max.compare_exchange_weak(seen, elapsed, std::memory_order_relaxed)) {}
 }
-struct Scope { Phase phase; std::int64_t begun; explicit Scope(Phase p) noexcept : phase(p), begun(enabled ? now() : 0) {} ~Scope() { if (enabled) add(phase, begun); } };
+inline void add(Phase phase, std::int64_t begun) noexcept {
+    const auto elapsed = now() - begun;
+    record(window[phase], elapsed);
+    if (enabled) record(stats[phase], elapsed);
+}
+struct Scope { Phase phase; std::int64_t begun; explicit Scope(Phase p) noexcept : phase(p), begun(now()) {} ~Scope() { add(phase, begun); } };
 void report() noexcept {
     if (!enabled || frames.fetch_add(1, std::memory_order_relaxed) % 20 != 19) return;
     std::string line = "[Mixed Atmospheres] native frame wait (mean/max ms per call):";
@@ -1673,6 +1679,18 @@ std::uint32_t ma_oni_colony_overlapped() {
     return ma::oni::colony::active() && ma::oni::colony::claims_inputs_at_submission() && !storage_heat.active() ? 1U : 0U;
 }
 std::uint32_t ma_oni_colony_awaiting_handoff(std::uint64_t sequence) { return ma::oni::colony::awaiting_handoff(sequence) ? 1U : 0U; }
+std::uint32_t ma_oni_native_timing(double* values, std::uint32_t capacity) {
+    constexpr auto phases = static_cast<std::uint32_t>(wait_log::PhaseCount + ma::oni::colony::tick_timing_phases);
+    if (!values || capacity < 3 * phases) return 0;
+    for (int k = 0; k < wait_log::PhaseCount; ++k) {
+        auto& stat = wait_log::window[k];
+        const auto n = stat.count.exchange(0), sum = stat.sum.exchange(0), max = stat.max.exchange(0);
+        values[3 * k] = n ? static_cast<double>(sum) / 1e6 / static_cast<double>(n) : 0.0;
+        values[3 * k + 1] = static_cast<double>(max) / 1e6; values[3 * k + 2] = static_cast<double>(n);
+    }
+    ma::oni::colony::take_tick_timing(values + 3 * wait_log::PhaseCount);
+    return phases;
+}
 MAOniResult ma_oni_colony_follow_frames(std::uint64_t session,std::uint32_t follow) {
     return boundary([&] {
         if (follow>1) throw Failure(MA_ONI_INVALID_ARGUMENT,"Invalid colony reader mode");

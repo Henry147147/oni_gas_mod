@@ -123,6 +123,8 @@ var line = UnityEngine.Debug.Lines.Single(value => value.StartsWith("[Mixed Atmo
 Check(line.Contains("owner_seconds 30.000000 game_seconds 24.000000") && line.Contains("owner_frames 150") && line.Contains("samples 1"), "logger lost unsampled clocks/counters");
 Check(line.Contains("submit_to_publication_ms mean 100.0") && line.Contains("capacity_estimate 4.00") && line.Contains("speed_button 3"), "logger conflated handoff/measured speed/capacity/button");
 Check(line.Contains("ledger_projection 6.0") && UnityEngine.Debug.Lines[0].Contains("owner_ms excludes projection/publication"), "partial native timer was labelled end to end");
+Check(line.Contains(" native_ms process 0.00/0.0/150 ") && line.Contains(" post_to_handoff 12.50/40.0/150 ") && line.EndsWith(" owner_frame 10.00/20.0/150", StringComparison.Ordinal),
+    "tick-chain timing missing from the window line");
 ColonyPerformanceLog.OwnerFrame(ColonyOwner.Status, 4, 0);
 Check(UnityEngine.Debug.Lines.Count(value => value.Contains("perf frames ")) == 1, "duplicate owner observation emitted a second window");
 SpeedControlScreen.Instance.IsPaused = true; ColonyPerformanceLog.UnityFrame(.01f);

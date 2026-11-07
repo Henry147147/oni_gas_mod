@@ -1031,6 +1031,23 @@ finish the earlier one goes unsampled; each line covers its fixed 150 frame
 numbers and ends with `samples`, how many of them it timed.
 `MA_PERFORMANCE_LOG=0` turns it off.
 
+Each line then ends with `native_ms`: for each phase, mean and maximum
+milliseconds per call and the number of calls since the previous line
+(`ma_oni_native_timing`, always on; a few clock reads per native frame).
+ONI's native frame on its worker: `process` (the whole message pass),
+`next_wait` (a positive frame waiting for the owner frame before it),
+`write_shadow`, `update_data`, `capture_shadow`, `advance`, `copy_to_game`,
+`end_frame`. The tick chain: `post_to_handoff` (the game posting an activity
+frame to its native frame handing it to the solver; under overlapped pacing
+the game holds its next tick for this), `owner_wake` (that hand-off to the
+solver thread taking the frame) and `owner_frame` (the solver thread's whole
+frame, including projection and publication, which `owner_ms` excludes). On
+Windows the native `MA_COLONY_NATIVE_WAIT_LOG` report goes to a stderr no log
+keeps, so these fields are how a slow tick chain on a player's PC is located.
+On the Linux harness a new Spaced Out! colony at speed 3 shows
+`post_to_handoff` about 13 ms (35 ms at most), `update_data` 8 ms and
+`owner_frame` 27 ms, with a 67 ms tick interval.
+
 ### Main-thread smoothness
 
 The game's frame rate, camera and menus must not depend on the solver: the game

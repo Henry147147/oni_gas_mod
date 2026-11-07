@@ -51,5 +51,12 @@ namespace MixedAtmospheres.Oni
             internal double TimeSeconds, LastAdvanceMilliseconds;
             internal double[]? StageMilliseconds;
         }
+        // ma_oni_native_timing: [mean, max, count] per phase; post_to_handoff (phase 8) is 12.5/40/150.
+        internal static uint NativeTiming(double[] values, uint capacity)
+        {
+            if (capacity < 33) return 0;
+            for (var k = 0; k < 11; ++k) { values[3 * k] = k; values[3 * k + 1] = 2 * k; values[3 * k + 2] = 150; }
+            values[24] = 12.5; values[25] = 40; return 11;
+        }
     }
 }

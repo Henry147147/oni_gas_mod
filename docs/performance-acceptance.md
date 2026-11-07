@@ -1,5 +1,44 @@
 # Performance acceptance measurements
 
+## Windows playtest recording, 2026-11-07
+
+The user recorded 18 minutes of a new Spaced Out! colony (cycles 1-2, three
+duplicants) on their Windows PC (Ryzen 9 9950X, RTX 5070 Ti, 2560×1440 HDR)
+with the beta ZIP `40a1465`, speed 3. The recording is private; the figures
+below were read from it.
+
+- **Frame rate.** NVIDIA's overlay (14:40-14:50) shows 52-113 fps, mostly
+  52-74, with the GPU at 8-17% and the CPU at 20-60%: the main thread limits,
+  not the GPU. Camera pans have no repeated captured frames (at least 30 fps).
+- **Game speed.** The status panel says `game clock 3.00×` and solver pace
+  6-11×, but its owner frame counter advances 4-7 frames a second (0.6-1.4×
+  real time over each 4.5-minute stretch; cycle 2, which began at 8:02, was
+  still running when the recording ended at 18:15). Sampled at 10 Hz it holds for 0.6-1.3 s and then
+  jumps by exactly 3 (2138, 2141, 2144, 2147, 2150, 2153, then 2161): ticks
+  come in bursts of three with about a second between them.
+- **Not reproduced off Windows.** The same ZIP under Proton on this host
+  (WindowsPlayer, the same new colony, speed 3) runs at 3.0× (fps 40-51); the
+  Linux build at 3.0× (fps 67-99). The cause is therefore specific to Windows
+  itself (scheduling, timers, memory) or to that PC, and is not yet located.
+  The `perf frames` lines now end with [`native_ms`](colony-owner.md#performance-log):
+  the time from posting a tick to its hand-off, the solver thread's wake-up and
+  whole frame, and ONI's native frame phases, so the next Windows Player.log
+  shows where each tick waits.
+
+Main-thread work found in the same review and changed: the gas textures were
+recomputed and uploaded every frame ([gas texture reuse](native-fluid-rendering.md#gas-texture-reuse):
+whole frame 11.8 to 10.5 ms on the Linux harness), and the status panel
+rebuilt and re-measured its text on every `OnGUI` call. Other findings:
+the panel's status line was cut off, the panel covered ONI's notifications and
+full-screen screens, it lagged the cursor by up to 0.2 s, and air cells showed
+`liquid 2.3E-12% by volume`; all changed (see
+[native fluid rendering](native-fluid-rendering.md#player-visible-status-and-navigation)).
+Seen and left for decisions: a cell that is two-thirds water is titled by its
+gas (`OXYGEN`) and reads `Breathable` (the hover's breathing status judges
+the gas only), and an open cell inside a 270 kPa room (124, 218) read
+`no gas or liquid` for at least 15 s at 17:40-17:55, which looks like a cell
+the owner does not hold.
+
 ## Follow-up cache, transport and presentation experiments, 2026-11-07
 
 The next performance target is the fluid calculation: it accounts for

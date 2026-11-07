@@ -200,6 +200,11 @@ void observe_native_solid(const NativeCells&, int source) noexcept;
 void advance(std::uint64_t ticket, double seconds, std::uint64_t thread) noexcept;
 // Returns once the solver thread has no step running or waiting.
 void wait() noexcept;
+// Tick-chain timing for the performance log: game post to native hand-off,
+// hand-off to the solver thread taking the frame, the solver's whole frame.
+inline constexpr std::size_t tick_timing_post_to_handoff=0, tick_timing_owner_wake=1, tick_timing_owner_frame=2, tick_timing_phases=3;
+// Writes [mean ms, max ms, count] per phase since the last call and resets.
+void take_tick_timing(double* out) noexcept;
 // Lifecycle boundary only, with the native submitter fenced. Apply one batch
 // of queued edits without flow, clock or biology growth. Return deferred edits.
 std::uint32_t flush_inputs(std::uint32_t* submitted=nullptr);

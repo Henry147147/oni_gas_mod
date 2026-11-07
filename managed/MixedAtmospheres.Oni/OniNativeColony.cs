@@ -283,6 +283,8 @@ namespace MixedAtmospheres.Oni
         [DllImport(Library, EntryPoint = "ma_oni_colony_pacing_version", CallingConvention = CallingConvention.Cdecl)] internal static extern uint PacingVersion();
         [DllImport(Library, EntryPoint = "ma_oni_colony_overlapped", CallingConvention = CallingConvention.Cdecl)] internal static extern uint Overlapped();
         [DllImport(Library, EntryPoint = "ma_oni_colony_awaiting_handoff", CallingConvention = CallingConvention.Cdecl)] internal static extern uint AwaitingHandoff(ulong sequence);
+        // Performance log diagnostics: [mean ms, max ms, count] per phase since the last call.
+        [DllImport(Library, EntryPoint = "ma_oni_native_timing", CallingConvention = CallingConvention.Cdecl)] internal static extern uint NativeTiming([Out] double[] values, uint capacity);
         [DllImport(Library, EntryPoint = "ma_oni_colony_follow_frames", CallingConvention = CallingConvention.Cdecl)] internal static extern int FollowFrames(ulong session, uint follow);
         [DllImport(Library, EntryPoint = "ma_oni_colony_show_frame", CallingConvention = CallingConvention.Cdecl)] internal static extern int ShowFrame(ulong session, ulong sequence, out uint found);
         [DllImport(Library, EntryPoint = "ma_oni_colony_handoff_terrain", CallingConvention = CallingConvention.Cdecl)]

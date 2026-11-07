@@ -17,6 +17,12 @@ namespace MixedAtmospheres.Oni
         private const int MaximumPublicationSamples = 2 * WindowFrames;
         internal static bool Enabled = Environment.GetEnvironmentVariable("MA_PERFORMANCE_LOG") != "0";
         private static readonly string[] StageNames = { "edits", "heat", "transfers", "flow", "space", "ledger_projection" };
+        // ma_oni_native_timing's phases: ONI's native frame on its worker, then
+        // the tick chain (game post to hand-off, hand-off to the solver thread
+        // taking it, the solver thread's whole frame).
+        private static readonly string[] TimingNames = { "process", "next_wait", "write_shadow", "update_data", "capture_shadow", "advance",
+            "copy_to_game", "end_frame", "post_to_handoff", "owner_wake", "owner_frame" };
+        private static readonly double[] timing = new double[3 * 11];
         private static readonly List<double> owner = new List<double>(WindowFrames), interval = new List<double>(WindowFrames),
             publication = new List<double>(WindowFrames);
         private static readonly double[] stages = new double[6];
@@ -179,10 +185,27 @@ namespace MixedAtmospheres.Oni
             line.Append(" held ").Append((lastHeld - heldAtStart).ToString(c));
             line.Append(" samples ").Append(owner.Count.ToString(c));
             line.Append(" owner_frames ").Append(measured.Frames.ToString(c));
+            Timing(line);
             UnityEngine.Debug.Log(line.ToString());
             owner.Clear(); interval.Clear(); publication.Clear(); Array.Clear(stages, 0, stages.Length);
             unityFrames = unmatchedPublications = droppedPublicationSamples = 0; slowestUnityFrame = 0;
             heldAtStart = lastHeld; window = clock.Current;
+        }
+
+        // Where a tick's wall time goes (mean/max ms per call, calls), so a slow
+        // tick chain on a player's machine can be located from Player.log.
+        private static void Timing(StringBuilder line)
+        {
+            var c = CultureInfo.InvariantCulture;
+            try
+            {
+                if (OniNativeColony.NativeTiming(timing, (uint)timing.Length) != TimingNames.Length) return;
+                line.Append(" native_ms");
+                for (var k = 0; k < TimingNames.Length; ++k)
+                    line.Append(' ').Append(TimingNames[k]).Append(' ').Append(timing[3 * k].ToString("0.00", c)).Append('/')
+                        .Append(timing[3 * k + 1].ToString("0.0", c)).Append('/').Append(timing[3 * k + 2].ToString("0", c));
+            }
+            catch (Exception error) when (error is EntryPointNotFoundException || error is DllNotFoundException) { }
         }
 
         private static void WriteRun(ColonyPerformanceClock.Measurement measured, string reason)
