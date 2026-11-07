@@ -193,6 +193,13 @@ namespace MixedAtmospheres.Oni
         // both units; otherwise the same values print rounded to four
         // significant figures in kPa, °C and kg. Validation scenes keep exact.
         internal static bool ExactReadings = true;
+        // Friendly readings leave out liquid below a thousandth of a percent
+        // of the cell's volume (about 10 g of water: evaporation residue in a
+        // gas cell), as they leave out trace gases; exact readings show any
+        // liquid and the selected cell's details name the trace.
+        internal const double TraceLiquidVolumeFraction = 1e-5;
+        internal static bool ShowsLiquid(MixturePresentation reading) =>
+            reading.LiquidVolumeFraction > 0 && (ExactReadings || reading.LiquidVolumeFraction >= TraceLiquidVolumeFraction);
 
         public static string FormatState(MixturePresentation reading)
         {
@@ -206,7 +213,7 @@ namespace MixedAtmospheres.Oni
                     " kPa" + (ExactReadings ? " (" + Number(reading.TotalPressurePa) + " Pa)" : "")
                 : "No gas phase";
             var state = pressure + " · " + temperature + " · " + Number(reading.TotalMassKg) + " kg";
-            if (reading.LiquidVolumeFraction > 0) state += " · " + FormatFluidPressure(reading);
+            if (ShowsLiquid(reading)) state += " · " + FormatFluidPressure(reading);
             return state + " · " + reading.BreathingStatus;
         }
 
@@ -236,7 +243,7 @@ namespace MixedAtmospheres.Oni
             foreach (var row in reading.GasConstituents)
                 if (!row.IsTrace)
                     result.Add(row.DisplayName + " " + Percent(row) + " by moles" + (row.IsContaminant ? " — CONTAMINANT" : ""));
-            if (reading.LiquidVolumeFraction > 0)
+            if (ShowsLiquid(reading))
                 result.Add("Liquid volume " + Number(100 * reading.LiquidVolumeFraction) + "%" + LiquidNames(reading));
             if (reading.GasConstituents.Any(row => row.IsTrace))
                 result.Add("Trace gases omitted from contents · select for complete composition");
@@ -284,9 +291,11 @@ namespace MixedAtmospheres.Oni
                     rows.Add(new MixtureInspectionDetailRow("Warning." + i.ToString(CultureInfo.InvariantCulture), reading.Warnings[i]));
             }
             rows.Add(new MixtureInspectionDetailRow("GasDensity", "Gas density " + Number(reading.GasDensityKgPerCubicMetre) + " kg/m³"));
-            if (reading.LiquidVolumeFraction > 0)
+            if (ShowsLiquid(reading))
                 rows.Add(new MixtureInspectionDetailRow("LiquidVolume", "Liquid volume " + Number(100 * reading.LiquidVolumeFraction) + "%",
                     FluidPressureSource(reading)));
+            else if (reading.LiquidVolumeFraction > 0)
+                rows.Add(new MixtureInspectionDetailRow("LiquidVolume", "Liquid volume trace (below 0.001%)", FluidPressureSource(reading)));
             rows.Add(new MixtureInspectionDetailRow("Composition", "Constituents · mole % · mass · mol · partial pressure"));
             foreach (var row in reading.Constituents)
             {

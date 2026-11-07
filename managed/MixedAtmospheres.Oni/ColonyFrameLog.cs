@@ -57,7 +57,7 @@ namespace MixedAtmospheres.Oni
         private static int collections0, collections1, collections2, lastCollections;
         private static long gcFrames, gcFrameTicks, gcWorstTicks;
         private static long lastHeap, allocated, publicationAllocated;
-        private static long heapStart;
+        private static long heapStart, gasUploadsStart, gasReusesStart;
         private static bool started;
 
         // Installed from Mod.OnLoad so the log also covers games without an owner.
@@ -171,6 +171,7 @@ namespace MixedAtmospheres.Oni
             hitch33 = hitch50 = hitch100 = publications = worstFrameTicks = 0; gcFrames = gcFrameTicks = gcWorstTicks = allocated = publicationAllocated = mainAllocated = 0; Array.Clear(worstParts, 0, worstParts.Length);
             collections0 = GC.CollectionCount(0); collections1 = GC.CollectionCount(1); collections2 = GC.CollectionCount(2);
             heapStart = GC.GetTotalMemory(false);
+            gasUploadsStart = MixtureWorldRendering.GasTextureUploads; gasReusesStart = MixtureWorldRendering.GasTextureReuses;
             Interlocked.Exchange(ref counted, 0);
             lock (tracks) tracks.Clear();
             lock (byproducts) { byproducts.Clear(); byproductsMerged = byproductsNew = 0; Array.Clear(byproductDecades, 0, byproductDecades.Length); }
@@ -206,7 +207,9 @@ namespace MixedAtmospheres.Oni
                     .Append(" gc_frame_max_ms ").Append((gcWorstTicks * 1000.0 / Stopwatch.Frequency).ToString("0.0", c))
                     .Append(" main_thread_alloc_kb_per_frame ").Append(threadAllocated == null ? "n/a" : (mainAllocated / 1024.0 / frames.Count).ToString("0.0", c))
                     .Append(" alloc_kb_per_frame ").Append((allocated / 1024.0 / frames.Count).ToString("0.0", c)).Append(" publication_alloc_kb ").Append((publicationAllocated / 1024.0 / Math.Max(1, publications)).ToString("0.0", c))
-                    .Append(" heap_delta_mb ").Append(((GC.GetTotalMemory(false) - heapStart) / 1048576.0).ToString("0.0", c));
+                    .Append(" heap_delta_mb ").Append(((GC.GetTotalMemory(false) - heapStart) / 1048576.0).ToString("0.0", c))
+                    .Append(" gas_texture_uploads ").Append((MixtureWorldRendering.GasTextureUploads - gasUploadsStart).ToString(c))
+                    .Append(" gas_texture_reuses ").Append((MixtureWorldRendering.GasTextureReuses - gasReusesStart).ToString(c));
                 line.Append(" per_frame_ms");
                 for (var k = 0; k < sums.Length; ++k) line.Append(' ').Append(Names[k]).Append(' ').Append((sums[k] / frames.Count).ToString("0.000", c));
                 line.Append(" worst_frame_ms ").Append((worstFrameTicks * 1000.0 / Stopwatch.Frequency).ToString("0.0", c)).Append(" worst_parts_ms");

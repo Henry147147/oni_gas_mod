@@ -116,6 +116,7 @@ namespace MixedAtmospheres.Oni
             AccessTools.Method(typeof(PropertyTextures), "UpdateGasColour", new[] { typeof(TextureRegion), typeof(int), typeof(int), typeof(int), typeof(int) }),
             AccessTools.Method(typeof(PropertyTextures), "UpdatePressure", new[] { typeof(TextureRegion), typeof(int), typeof(int), typeof(int), typeof(int) }),
             AccessTools.Method(typeof(PropertyTextures), "UpdateDanger", new[] { typeof(TextureRegion), typeof(int), typeof(int), typeof(int), typeof(int) }),
+            AccessTools.Method(typeof(TextureBuffer), nameof(TextureBuffer.Unlock), new[] { typeof(TextureRegion) }),
             AccessTools.Method(typeof(SimDebugView), nameof(SimDebugView.UpdateData), new[] { typeof(Texture2D), typeof(byte[]), typeof(HashedString), typeof(byte) }),
             AccessTools.Method(typeof(SimDebugView), "GetOxygenMapColour", new[] { typeof(SimDebugView), typeof(int) }),
             AccessTools.Method(typeof(SimDebugView), "GetPressureMapColour", new[] { typeof(SimDebugView), typeof(int) }),
@@ -138,6 +139,7 @@ namespace MixedAtmospheres.Oni
             var colour = Require(typeof(PropertyTextures), "UpdateGasColour", typeof(void), typeof(TextureRegion), typeof(int), typeof(int), typeof(int), typeof(int));
             var pressure = Require(typeof(PropertyTextures), "UpdatePressure", typeof(void), typeof(TextureRegion), typeof(int), typeof(int), typeof(int), typeof(int));
             var danger = Require(typeof(PropertyTextures), "UpdateDanger", typeof(void), typeof(TextureRegion), typeof(int), typeof(int), typeof(int), typeof(int));
+            var unlock = Require(typeof(TextureBuffer), nameof(TextureBuffer.Unlock), typeof(void), typeof(TextureRegion));
             var overlay = Require(typeof(SimDebugView), nameof(SimDebugView.UpdateData), typeof(void), typeof(Texture2D), typeof(byte[]), typeof(HashedString), typeof(byte));
             var oxygenMap = Require(typeof(SimDebugView), "GetOxygenMapColour", typeof(Color), typeof(SimDebugView), typeof(int));
             var pressureMap = Require(typeof(SimDebugView), "GetPressureMapColour", typeof(Color), typeof(SimDebugView), typeof(int));
@@ -150,9 +152,10 @@ namespace MixedAtmospheres.Oni
                 Patch(reset, nameof(BeforeReset), nameof(AfterReset), null);
                 Patch(shaders, null, nameof(AfterShadersReloaded), null);
                 Patch(destroy, nameof(BeforeDestroy), null, null);
-                Patch(colour, null, nameof(AfterGasColour), null);
-                Patch(pressure, null, nameof(AfterGasPressure), null);
-                Patch(danger, null, nameof(AfterGasDanger), null);
+                Patch(colour, nameof(BeforeGasCallback), nameof(AfterGasColour), null);
+                Patch(pressure, nameof(BeforeGasCallback), nameof(AfterGasPressure), null);
+                Patch(danger, nameof(BeforeGasCallback), nameof(AfterGasDanger), null);
+                Patch(unlock, nameof(BeforeUnlock), null, null);
                 Patch(overlay, nameof(BeginOverlayBatch), null, nameof(EndOverlayBatch));
                 Patch(oxygenMap, nameof(OxygenMap), null, null);
                 Patch(pressureMap, nameof(PressureMap), null, null);
@@ -198,11 +201,15 @@ namespace MixedAtmospheres.Oni
             if (acquired.Width != Grid.WidthInCells || acquired.Height != Grid.HeightInCells)
                 throw new InvalidOperationException("Mixture presentation geometry differs from the live grid.");
             EnsureScheduling(__instance);
-            var admitted=false;
-            if (compactTextures && Volatile.Read(ref validationProbes) == null)
-                admitted = TryPrepareOptionalTextures(readVisibleRange, __instance, acquired);
             var range = Read<Vector2>(PressureRange, __instance);
             opacity = new OpacityParameters(range.x, range.y, Read<float>(MinimumVisibility, __instance));
+            // Unchanged inputs keep the last gas textures (GasReuse).
+            __state.ReusedGas = DecideGasReuse(__instance, acquired, opacity, out __state.Upload);
+            __state.GasDecided = true;
+            BeginGasReuse(__state.ReusedGas);
+            var admitted=false;
+            if (!__state.ReusedGas && compactTextures && Volatile.Read(ref validationProbes) == null)
+                admitted = TryPrepareOptionalTextures(readVisibleRange, __instance, acquired);
             if(compactTextures)Volatile.Write(ref texturePlan,new CompactTexturePlan(acquired,opacity,ProofAdmit(acquired,admitted)));
             __state.Lease = MixturePresentationRuntime.EnterWorkerBatch(acquired);
             __state.StartTimestamp = Stopwatch.GetTimestamp();
@@ -228,6 +235,7 @@ namespace MixedAtmospheres.Oni
             {
                 if (__state != null)
                 {
+                    if (__state.GasDecided) EndGasReuse(__state.ReusedGas, __state.Upload, __exception != null);
                     Volatile.Write(ref textureFrame, __state.Previous);
                     Volatile.Write(ref texturePlan, __state.PreviousPlan);
                     __state.Lease?.Dispose();
@@ -266,11 +274,12 @@ namespace MixedAtmospheres.Oni
         private static void AfterReset(PropertyTextures __instance)
         { if (MixturePresentationRuntime.HasWorldProvider) EnsureScheduling(__instance); }
         private static void AfterShadersReloaded(PropertyTextures __instance)
-        { if (schedule != null) BindDirectTextures(__instance); }
+        { ForgetGasUpload(); if (schedule != null) BindDirectTextures(__instance); }
         private static void BeforeDestroy() { DisableValidationProbes(); RestoreScheduling(false); }
 
         private static void AfterGasColour(TextureRegion __0, int __1, int __2, int __3, int __4)
         {
+            if (reusingGasTextures) return;
             var plan = compactTextures ? Volatile.Read(ref texturePlan) : null;
             var frame = plan?.Frame ?? Volatile.Read(ref textureFrame);
             if (frame == null) return;
@@ -329,6 +338,7 @@ namespace MixedAtmospheres.Oni
 
         private static void AfterGasPressure(TextureRegion __0, int __1, int __2, int __3, int __4)
         {
+            if (reusingGasTextures) return;
             var plan = compactTextures ? Volatile.Read(ref texturePlan) : null;
             var frame = plan?.Frame ?? Volatile.Read(ref textureFrame);
             if (frame == null) return;
@@ -382,6 +392,7 @@ namespace MixedAtmospheres.Oni
 
         private static void AfterGasDanger(TextureRegion __0, int __1, int __2, int __3, int __4)
         {
+            if (reusingGasTextures) return;
             var plan = compactTextures ? Volatile.Read(ref texturePlan) : null;
             var frame = plan?.Frame ?? Volatile.Read(ref textureFrame);
             if (frame == null) return;
@@ -521,12 +532,14 @@ namespace MixedAtmospheres.Oni
         {
             if (schedule != null && ReferenceEquals(schedule.Owner, instance)) return;
             RestoreScheduling();
+            ForgetGasUpload();
             schedule = new ScheduleOverride(instance);
             BindDirectTextures(instance);
         }
 
         private static void RestoreScheduling(bool rebind = true)
         {
+            ForgetGasUpload();
             var previous = schedule; schedule = null;
             previous?.Restore(rebind);
         }
@@ -572,6 +585,8 @@ namespace MixedAtmospheres.Oni
             internal readonly CompactTexturePlan? PreviousPlan;
             internal IDisposable? Lease;
             internal long StartTimestamp;
+            internal bool GasDecided, ReusedGas;
+            internal GasUpload Upload;
             internal RenderBatchState(RuntimeMixturePresentationFrame? previous, CompactTexturePlan? previousPlan = null)
             {
                 Previous = previous;

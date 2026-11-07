@@ -25,7 +25,19 @@ the mixture under the cursor, falling back to the first supplied cell. Mass,
 temperature, gas pressure, oxygen partial pressure, composition and breathing
 warnings share that completed reading. Liquid cells also show their mechanical
 pressure and liquid volume fraction. Small positive values use scientific
-notation instead of rounding to zero.
+notation instead of rounding to zero. Friendly readings (the default precision
+setting) leave out liquid below 0.001% of the cell's volume, about 10 g of
+water, as they leave out trace gases; the selected cell's details then say
+`Liquid volume trace (below 0.001%)`, and exact readings show any liquid.
+
+The display refreshes five times a second, and at once (at most twenty times a
+second) when the cursor reaches another cell, so it describes the cell under
+the cursor. It sits below ONI's notification list and hides while a
+full-screen management screen (skills, research, starmap and the like) is
+open. Its status line gets the height it needs; a fixed 32-pixel line cut a
+wrapped `· running` in half. Its text and heights are built once per refresh,
+not on every `OnGUI` call (at least two a frame): 0.16 to 0.09 ms and 10.8 to
+3.3 KB of garbage per Unity frame in the 2026-11-07 measurement below.
 
 An optional cyan outline marks a filled rectangular set of supplied cells; it
 does not connect sparse readings across unowned cells.
@@ -99,6 +111,33 @@ the phase buffer, bound phase texture, water texture and the bound gas colour,
 pressure and danger textures. Each read covers only the room's rectangle, runs
 after the private scene completes on the publication thread and restores the
 previous render target. These diagnostics are not a performance measurement.
+
+## Gas texture reuse
+
+The renderer sets ONI's three gas textures (colour, density opacity, danger)
+to update every frame without blending, so a frame never mixes two
+publications; vanilla ONI updates them in rotation with the other slow
+property textures and blends between updates. Their content depends only on
+the presentation (its session epoch and generation, which every new
+publication, fixture or model advances), the visible cells, the active world
+and the opacity settings, and a publication lasts several Unity frames (four
+at speed 3, twelve at speed 1, all of a pause). ONI's texture buffers keep
+their last upload in a render texture, so a frame whose inputs match the last
+completed upload, with its visible cells inside that upload's range, reuses
+it: the stock and mod cell callbacks return at once and `TextureBuffer.Unlock`
+returns the unwritten page to its pool without an upload or blit
+(`MixtureWorldRendering.GasReuse.cs`). Validation probes, the compact-texture
+proof, a time-lapse capture, a lost render texture, a texture reset and half a
+second since the last upload all upload as before. `MA_FRAME_LOG=1` reports
+`gas_texture_uploads` and `gas_texture_reuses` per window.
+
+Measured 2026-11-07 on the Linux harness (RTX 5090 display, window clamped to
+640×480, new Spaced Out! colony at speed 3, steady 15 s windows, private
+per-method probe): the gas textures were reused on 84% of frames (225 uploads,
+about 1,200 reuses per window); `PropertyTextures.LateUpdate` fell from 2.37
+to 1.68 ms a frame, rendering after `LateUpdate` from 2.35 to 2.15 ms and the
+whole frame from 11.8 to 10.5 ms (median 9.8 to 8.6 ms; 86-97 to 94-99 fps).
+The cost saved grows with the visible cells, so a zoomed-out view saves more.
 
 ## Verified status
 

@@ -36,6 +36,17 @@ namespace MixedAtmospheres.Oni
         private Rect settingsButton;
         private SettingsButtonBlocker? buttonBlocker;
         private bool buttonBlockerFailed;
+        // OnGUI runs at least twice per Unity frame; its text changes only
+        // with a refresh (five times a second), a preference, the expanded
+        // state or the panel width. Build and measure it then, not per call.
+        private bool layoutDirty = true, layoutExpanded;
+        private float layoutWidth = -1, stateHeight, bodyHeight, hintsHeight;
+        private string stateText = "", bodyText = "", hintsText = "";
+        private readonly GUIContent measured = new GUIContent();
+        // Bottom of ONI's notification list in screen pixels (top origin),
+        // sampled with each refresh; the panel starts below it.
+        private float notificationsBottom;
+        private static readonly Vector3[] corners = new Vector3[4];
 
         internal static void Install()
         {
@@ -58,6 +69,7 @@ namespace MixedAtmospheres.Oni
             if (initial || panelExpanded != lastExpandedPreference) expanded = panelExpanded;
             if (initial || panelBoundary != lastBoundaryPreference) showBoundary = panelBoundary;
             lastExpandedPreference = panelExpanded; lastBoundaryPreference = panelBoundary;
+            layoutDirty = true;
         }
         private bool lastExpandedPreference = true, lastBoundaryPreference = true;
         private static string Key(KeyCode key) => key == KeyCode.None ? "" : "Shift+" + key;
@@ -72,8 +84,14 @@ namespace MixedAtmospheres.Oni
 
         private void Update()
         {
-            if (Time.unscaledTime < nextRefresh) return;
-            nextRefresh = Time.unscaledTime + .2f;
+            // The readings follow the cursor: a newly hovered cell refreshes at
+            // once (at most twenty times a second), otherwise five times a second.
+            var now = Time.unscaledTime;
+            var moved = now >= lastRefresh + .05f && InColony && HoveredCell() != refreshedCell;
+            if (now < nextRefresh && !moved) return;
+            nextRefresh = now + .2f; lastRefresh = now;
+            layoutDirty = true;
+            notificationsBottom = InColony ? NotificationsBottom() : 0;
             try
             {
                 Refresh();
@@ -93,8 +111,17 @@ namespace MixedAtmospheres.Oni
             }
         }
 
+        private int refreshedCell = -1;
+        private float lastRefresh;
+        private static int HoveredCell()
+        {
+            var camera = CameraController.Instance?.baseCamera;
+            return camera != null ? Grid.PosToCell(camera.ScreenToWorldPoint(Input.mousePosition)) : -1;
+        }
+
         private void Refresh()
         {
+            refreshedCell = InColony ? HoveredCell() : -1;
             frame = InColony ? MixturePresentationRuntime.AcquireFrame() : null;
             failure = NativeSealedDomainValidation.Failed ? NativeSealedDomainValidation.FailureMessage : MixtureWorldRendering.LastError;
             measurement = composition = warning = "";
@@ -145,8 +172,7 @@ namespace MixedAtmospheres.Oni
                         MixtureWorldRendering.Installed && MixtureWorldRendering.SchedulingActive ? "ready" : "waiting for textures");
                 if (frame.SuppliedCells.Count == 0) return;
             }
-            var camera = CameraController.Instance?.baseCamera;
-            var hovered = camera != null ? Grid.PosToCell(camera.ScreenToWorldPoint(Input.mousePosition)) : -1;
+            var hovered = refreshedCell;
             if (ColonyOwner.Active)
             {
                 // The owner's panel describes the cell under the cursor, never another one.
@@ -168,14 +194,17 @@ namespace MixedAtmospheres.Oni
             measurement = "Cell " + (sampleCell % frame.Width) + ", " + (sampleCell / frame.Width) + " · " + reading.BreathingStatus + "\n" +
                 Number(reading.TotalMassKg) + " kg · " + Number(reading.TemperatureKelvin - 273.15) + " °C\n" +
                 "Gas " + Number(reading.TotalPressurePa / 1000) + " kPa · O₂ " + Number(reading.OxygenPartialPressurePa / 1000) + " kPa";
-            if (reading.MechanicalPressurePa.HasValue && reading.LiquidVolumeFraction > 0)
+            var liquid = MixtureInspection.ShowsLiquid(reading);
+            if (reading.MechanicalPressurePa.HasValue && liquid)
                 measurement += "\nFluid " + (reading.MechanicalPressurePa.Value >= 1e6 ?
                     Number(reading.MechanicalPressurePa.Value / 1e6) + " MPa" : Number(reading.MechanicalPressurePa.Value / 1000) + " kPa");
-            if (reading.LiquidVolumeFraction > 0)
+            if (liquid)
+            {
                 measurement += " · liquid " + Number(100 * reading.LiquidVolumeFraction) + "% by volume";
-            var liquids = reading.Constituents.Where(value => value.Phase == MixedAtmospheres.Core.Interop.NativeMatterPhase.Liquid && value.MassKg > 0)
-                .OrderByDescending(value => value.MassKg).Select(value => value.DisplayName).ToArray();
-            if (liquids.Length != 0) measurement += " (" + string.Join(", ", liquids) + ")";
+                var liquids = reading.Constituents.Where(value => value.Phase == MixedAtmospheres.Core.Interop.NativeMatterPhase.Liquid && value.MassKg > 0)
+                    .OrderByDescending(value => value.MassKg).Select(value => value.DisplayName).ToArray();
+                if (liquids.Length != 0) measurement += " (" + string.Join(", ", liquids) + ")";
+            }
             composition = string.Join(" · ", reading.GasConstituents.Where(value => !value.IsTrace)
                 .Select(value => value.DisplayName + " " + (MixtureInspection.ExactReadings || !value.GasMoleFraction.HasValue ? value.MolePercentText :
                     MixtureInspection.Friendly(100 * value.GasMoleFraction.Value) + "%")));
@@ -281,27 +310,24 @@ namespace MixedAtmospheres.Oni
             }
             var previousMatrix = GUI.matrix;
             var previousColor = GUI.color;
+            // ONI's full-screen management screens (skills, research, starmap
+            // and the like) cover the world; the panel would cover them.
+            if (InColony && ManagementMenu.Instance != null && ManagementMenu.Instance.IsFullscreenUIActive())
+            {
+                if (Event.current.type == EventType.Repaint) buttonBlocker?.Place(new Rect(-10000, -10000, 0, 0));
+                return;
+            }
             try
             {
                 GUI.matrix = Matrix4x4.Scale(new Vector3(scale, scale, 1));
                 if (InColony && showBoundary && frame != null) DrawBoundary(frame, scale);
                 var width = Mathf.Min(328, Screen.width / scale - 24);
                 var contentWidth = width - 24;
-                var body = scope;
-                if (measurement.Length != 0) body += "\n\n" + measurement;
-                if (composition.Length != 0) body += "\n" + composition;
-                if (warning.Length != 0) body += "\n" + warning;
-                if (ModSettingsRuntime.Notices.Count != 0) body += "\n\nSettings: " + ModSettingsRuntime.Notices[0];
-                if (failure.Length != 0)
-                {
-                    var message = failure.Split('\n')[0];
-                    if (message.Length > 180) message = message.Substring(0, 180) + "… (see Player.log)";
-                    body += "\n\nAttention: " + message;
-                }
-                var hints = Hints();
-                var height = 66f + (expanded ? textStyle!.CalcHeight(new GUIContent(body), contentWidth) +
-                    hintStyle!.CalcHeight(new GUIContent(hints), contentWidth) + 14 : 0);
-                var top = InColony ? 200 : Screen.height / scale - height - 20;
+                if (layoutDirty || layoutWidth != contentWidth || layoutExpanded != expanded) Layout(contentWidth);
+                var bodyTop = 32 + stateHeight;
+                var height = bodyTop + 2 + (expanded ? bodyHeight + hintsHeight + 14 : 0);
+                // Below ONI's notification list while it reaches the panel.
+                var top = InColony ? Mathf.Max(200, notificationsBottom / scale + 8) : Screen.height / scale - height - 20;
                 top = Mathf.Max(100, Mathf.Min(top, Screen.height / scale - height - 110));
                 var rect = new Rect(12, top, width, height);
                 GUI.color = new Color(.08f, .11f, .16f, .97f);
@@ -318,16 +344,72 @@ namespace MixedAtmospheres.Oni
                     if (buttonBlocker == null && !buttonBlockerFailed) { buttonBlocker = SettingsButtonBlocker.Create(); buttonBlockerFailed = buttonBlocker == null; }
                     buttonBlocker?.Place(new Rect(settingsButton.x * scale, settingsButton.y * scale, settingsButton.width * scale, settingsButton.height * scale));
                 }
-                GUI.Label(new Rect(rect.x + 12, rect.y + 31, contentWidth, 32), failure.Length == 0 ? state : "Attention · " + state, textStyle);
+                GUI.Label(new Rect(rect.x + 12, rect.y + 31, contentWidth, stateHeight), stateText, textStyle);
                 if (expanded)
                 {
-                    var bodyHeight = textStyle!.CalcHeight(new GUIContent(body), contentWidth);
-                    GUI.Label(new Rect(rect.x + 12, rect.y + 64, contentWidth, bodyHeight), body, textStyle);
+                    GUI.Label(new Rect(rect.x + 12, rect.y + bodyTop, contentWidth, bodyHeight), bodyText, textStyle);
                     GUI.color = new Color(.76f, .83f, .89f);
-                    GUI.Label(new Rect(rect.x + 12, rect.y + 72 + bodyHeight, contentWidth, height - 72 - bodyHeight), hints, hintStyle);
+                    GUI.Label(new Rect(rect.x + 12, rect.y + bodyTop + 8 + bodyHeight, contentWidth, hintsHeight + 8), hintsText, hintStyle);
                 }
             }
             finally { GUI.matrix = previousMatrix; GUI.color = previousColor; }
+        }
+
+        // The panel's text and heights for this content width.
+        private void Layout(float contentWidth)
+        {
+            stateText = failure.Length == 0 ? state : "Attention · " + state;
+            var body = scope;
+            if (measurement.Length != 0) body += "\n\n" + measurement;
+            if (composition.Length != 0) body += "\n" + composition;
+            if (warning.Length != 0) body += "\n" + warning;
+            if (ModSettingsRuntime.Notices.Count != 0) body += "\n\nSettings: " + ModSettingsRuntime.Notices[0];
+            if (failure.Length != 0)
+            {
+                var message = failure.Split('\n')[0];
+                if (message.Length > 180) message = message.Substring(0, 180) + "… (see Player.log)";
+                body += "\n\nAttention: " + message;
+            }
+            bodyText = body; hintsText = Hints();
+            // The status line may wrap: it gets the height it needs.
+            measured.text = stateText; stateHeight = Mathf.Max(18, textStyle!.CalcHeight(measured, contentWidth));
+            if (expanded)
+            {
+                measured.text = bodyText; bodyHeight = textStyle.CalcHeight(measured, contentWidth);
+                measured.text = hintsText; hintsHeight = hintStyle!.CalcHeight(measured, contentWidth);
+            }
+            measured.text = "";
+            layoutWidth = contentWidth; layoutExpanded = expanded; layoutDirty = false;
+        }
+
+        // The lowest visible notification entry, in screen pixels from the top.
+        private static float NotificationsBottom()
+        {
+            try
+            {
+                var screen = NotificationScreen.Instance;
+                if (screen == null) return 0;
+                var bottom = 0f;
+                Lowest(screen.LabelsFolder, ref bottom);
+                Lowest(screen.MessagesFolder, ref bottom);
+                return Mathf.Min(bottom, Screen.height * .6f);
+            }
+            catch (Exception error) when (error is NullReferenceException || error is MissingReferenceException) { return 0; }
+        }
+        private static void Lowest(GameObject? folder, ref float bottom)
+        {
+            if (folder == null || !folder.activeInHierarchy) return;
+            var canvas = folder.GetComponentInParent<Canvas>();
+            var root = canvas != null ? canvas.rootCanvas : null;
+            var camera = root == null || root.renderMode == RenderMode.ScreenSpaceOverlay ? null : root.worldCamera;
+            var parent = folder.transform;
+            for (var i = 0; i < parent.childCount; ++i)
+            {
+                if (!(parent.GetChild(i) is RectTransform child) || !child.gameObject.activeInHierarchy) continue;
+                child.GetWorldCorners(corners);
+                var lowest = RectTransformUtility.WorldToScreenPoint(camera, corners[0]).y;
+                bottom = Mathf.Max(bottom, Screen.height - lowest);
+            }
         }
 
         private string Hints()
