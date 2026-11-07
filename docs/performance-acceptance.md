@@ -1,5 +1,174 @@
 # Performance acceptance measurements
 
+## Follow-up cache, transport and presentation experiments, 2026-11-07
+
+The next performance target is the fluid calculation: it accounts for
+roughly 86–89% of native owner time in this follow-up. Keep the qualified
+parcel changes in `40a1465` for the Windows rebuild. The further prototypes
+below remain research; they have not completed production qualification or
+established another live-game speedup. The existing full-cycle results below
+remain the production comparison, and sustained smooth 3× remains open.
+
+These tests start from the same private large-colony images and input
+journals as the preceding investigation, with no benchmark-layout or physics
+changes. The base pilot replays 600 positive owner ticks (120 game seconds);
+Spaced Out! replays 450 (90 game seconds). Each run discards its first 50
+samples, uses 12 workers on CPUs 12–23 and holds both project CPU locks.
+The controls use `40a1465`. These are short fixed-input native comparisons,
+not new live-game or full-cycle measurements. Peak RSS includes the complete
+parsed journals and is not game memory.
+
+### Material-table reuse
+
+A private prototype retains one derived material table per thread, keyed by
+the immutable species definitions, EOS, liquid stiffness and liquid law.
+It replaces a species-wide check on each reading and a table rebuild on each
+transfer. It retains the registry and EOS owners, so an address cannot become
+a false cache hit after its previous owner dies.
+
+The initial old/new/new/old base comparison gives 72.530 → 73.719 ms per
+owner tick (+1.64% time). The reverse-order confirmation changes the direction.
+Across all eight base runs, four per revision and 2,200 warmed samples per
+side, the means are **72.896 → 72.433 ms (−0.64%)**. Control run means range
+70.877–74.183 ms; prototype means range 70.578–73.881 ms. Transfer work falls
+consistently, 6.337 → 5.623 ms (−11.28%); projection falls 2.245 → 2.100 ms.
+The total benefit is small compared with the overlapping run variation.
+
+The separate four-run Spaced Out! comparison gives **153.523 → 150.162 ms
+(−2.19%)**, with transfers 11.516 → 10.224 ms (−11.22%). Flow also falls
+136.141 → 134.159 ms although this prototype changes no flow arithmetic,
+so the entire observed improvement should not be attributed to the cache.
+Mean peak replay RSS is 4277.76 → 4237.69 MiB on base and
+1012.80 → 1024.65 MiB on SO; these mixed process peaks establish no memory
+saving. Retain the prototype for possible later qualification, without
+promoting the stage saving into a proven colony-wide gain.
+
+### Remap scratch capacity
+
+This prototype retains mass, flux, swept-volume, clock, stamp and work-list
+capacity between remap calls, rewriting every logical entry before use. The
+six-mode synthetic benchmark averages 0.16340 → 0.15872 ms (−2.86%), with
+overlapping run ranges. Mean synthetic-process peak RSS rises
+6.496 → 6.922 MiB. That small-operation result does not carry through to the
+large colonies in the separate old/new/new/old pilots:
+
+| Remap-capacity pilot | Control | Prototype |
+| --- | ---: | ---: |
+| Base mean owner tick, ms | 72.132 | 72.292 |
+| SO mean owner tick, ms | 152.795 | 155.376 |
+| Base mean peak replay RSS, MiB | 4266.52 | 4311.82 |
+| SO mean peak replay RSS, MiB | 1011.60 | 1003.69 |
+
+Owner time is +0.22% on base and +1.69% on SO. The SO prototype runs average
+150.840 and 159.912 ms, versus controls at 151.909 and 153.681 ms; all runs
+are retained. There is no established large-colony gain or consistent memory
+saving, so this prototype is not integrated.
+
+### Reusing unchanged presentation data
+
+A separate diagnostic compares every published positive-mass cell reading
+with the preceding publication. It compares bit patterns of all six scalar
+fields and the ordered constituent species, masses and partial volumes;
+packed array offsets are ignored. Groups contain 64 consecutive public cell
+IDs. A group is unchanged only when its reading membership and all its
+readings match, including removal or addition of a reading.
+
+| Reading-reuse opportunity after warmup | Base | Spaced Out! |
+| --- | ---: | ---: |
+| Mean positive-mass readings per frame | 23,225.7 | 53,099.2 |
+| Unchanged readings | 58.23% | 79.18% |
+| Groups containing readings | 1,290 | 2,060 |
+| Entirely unchanged groups | 31.88% | 67.54% |
+
+These are whole-colony opportunities, not visible-texture hit rates, rendered
+pixel comparisons, allocation savings or FPS gains. Native publication
+already reuses unchanged cells and blocks. Managed reading buffers are also
+pooled; their compact texture cache is invalidated when a buffer gets a new
+lease. A cache spanning publications must also account for viewport use,
+ownership, passives, catalogue/model changes, load/reset and expired leases.
+The next useful measurement is visible texture work across publications,
+including the cost of validating reuse. The diagnostic's additional reading
+copies are excluded from performance comparisons.
+
+### Smaller candidates and concurrency
+
+The late-cycle held inventory has 35,959 entries: 33,535 still hold mass and
+2,424 hold only energy, across seven distinct source/radius keys. Destination
+searches already run once per such key in a pass. The previously rejected
+fresh coalescing index remains rejected.
+
+A projection-only model uses those 2,424 actual energy balances. At one
+recipient, recomputing versus remembering the projected amount costs
+0.06885 versus 0.06954 ms per inventory. At the maximum 13 radius-two
+recipients, the costs are 0.78324 versus 0.07540 ms. Each measurement uses
+200 inventories, in old/new/new/old order, with identical result checksums within each recipient count.
+The latter saving, about 0.71 ms, assumes every balance visits every nonempty
+recipient; production can skip empty cells or stop sooner. It is an operation
+model, including an opaque function-call cost, not an observed owner or game
+speedup. No projected-energy cache was adopted.
+
+Ordinary transfers already have an edit journal. Moving-parcel transactions
+still need to encompass the caller's receipt, energy and wire checks; merely
+adding an in-place core overload would not preserve atomic refusal. Existing
+285-window base diagnostics show about two accepted moving-parcel retries
+per sampled frame. This does not support treating that remaining copy as the
+main bottleneck after the landed const-read fix. `PipeInventory.WithHeat`
+already shares its immutable mass/passive arrays; avoiding repeated validation
+is a possible small CPU optimization, not an array-allocation elimination.
+No new managed-allocation or GC reduction has been established.
+
+Game-thread/owner overlap is already in production. The remaining positive
+native-frame fence orders messages, shadow writes, native contacts and paired
+heat capture before handing the next frame to the owner. Removing it retains
+the previously demonstrated contact/heat errors. Further exact overlap needs
+state-independent native jobs or owner-confirmed contact transactions; it is
+not another wait-removal switch.
+
+The first flow proposal resets to `dt / parts` on every advance (0.1 s here);
+the sized proposal carries between its flow parts, not between owner ticks.
+Pressure and implicit thin-gas drag depend on the trial duration, so scaling
+the first swept-volume ratio is not a guarantee that the next trial passes.
+Remembering the previous tick's successful interval would change accepted
+partitions and need a cold-continuation design. The SO region's repeated
+accepted transport remains expensive even if the initial rejected trial is
+made cheaper. Keep the 1 g drag and fixed gates unchanged. Multigrid and
+conservative pressure/transport subcycling remain numerical research options,
+with the earlier measured trajectory differences still relevant.
+
+### Scope of verification
+
+All 20 timed replays and both reading probes reproduce their respective
+control endpoint bytes. The base endpoint at frame 1023 is
+`0e04a12eb960e97580b5eddc44d1644f8fdaf8978a5d4d9db160335932117fc9`;
+the SO endpoint at frame 7575 is
+`e2caed727a430125f62b6538f99225d535281c18bc08b95e36798e26a6f0f8d6`.
+Maximum relative mass/energy errors match within every cohort:
+8.974e-16/5.714e-17 on base and 5.503e-15/2.201e-15 on SO. These are endpoint
+and ledger checks, not a comparison of every intermediate checkpoint or a
+claim of physical ground truth.
+
+Both prototypes pass the full game-kernel control executable, including
+worker-count and cold-continuation cases. The material-cache control also
+compares complete readings and copied/in-place transfers against fresh-thread
+results while alternating registries, EOS and liquid settings. The remap
+controls retain the original pinned dense/sparse/empty/reversal outputs and
+error/recovery expectations. No existing gate input or bound changed.
+
+Neither prototype is included in `main`. The required full production suite,
+all 88 diagnostic comparisons, 15 Linux scenario batches, Windows checks and
+fresh live-game pairs have not been rerun for these unadopted prototypes; the
+qualification recorded below applies only to the landed parcel changes.
+Solver arithmetic, checkpoint bytes/formats, profiles and runtime defaults
+on `main` are unchanged by this follow-up.
+
+Private records in `artifacts/performance-next-20261107/` retain the patches,
+binaries, commands, hashes, per-run measurements and host-load observations.
+`REPRODUCE.txt`, `pilot-final-summary.json`,
+`material-base-confirm-summary.json`, `texture-base.json`, `texture-so.json`
+and `heat-projection-summary.json` describe the measurements. Saves, journals,
+owner images and captured inventory remain private. The public findings page
+is updated once after this research pass, as requested.
+
 ## Large-colony exact improvements and research, 2026-11-07
 
 The requested 32-duplicant industrial benchmark is a frozen, instantly
