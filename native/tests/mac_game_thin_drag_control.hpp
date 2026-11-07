@@ -81,7 +81,10 @@ inline void run() {
     thin = std::move(b.world);
   }
   const auto far_fast = beyond(fast, 12), far_thin = beyond(thin, 12);
-  check(far_fast > 0 && far_thin < .5L * far_fast, "Profile 12 did not slow the thin front");
+  // 0.45 of profile 11's when adopted; 0.56 since the thin-gas heating
+  // (2026-11-07), which keeps the front near 300 K instead of letting it heat
+  // itself to 500 K and hold itself back.
+  check(far_fast > 0 && far_thin < .6L * far_fast, "Profile 12 did not slow the thin front");
   check(thin_substeps < fast_substeps, "Profile 12 did not lengthen the flow intervals");
   check(std::abs(total_mass(thin) + sunk_mass - mass0) <= 1e-12L * mass0, "Profile 12 changed mass");
   check(std::abs(surface_game::total_energy(thin) + sunk_energy - energy0) <= 1e-12L * std::abs(energy0),

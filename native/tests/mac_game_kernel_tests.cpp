@@ -12,6 +12,7 @@
 #include "mac_game_cold_gas_control.hpp"
 #include "mac_game_convective_control.hpp"
 #include "mac_game_thin_drag_control.hpp"
+#include "mac_game_thin_heat_control.hpp"
 #include "mac_game_plume_control.hpp"
 #include "../src/mac_hypot.hpp"
 #include "../src/mac_game/account.hpp"
@@ -734,6 +735,7 @@ int main() {
     ma::testing::cold_gas_game::run();
     ma::testing::convective_game::run();
     ma::testing::thin_drag_game::run();
+    ma::testing::thin_heat_game::run();
     ma::testing::convective_plume_control();
     ma::testing::mac_game_patch_plan_control();
     std::cout

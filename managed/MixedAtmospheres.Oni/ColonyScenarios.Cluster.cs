@@ -73,7 +73,11 @@ namespace MixedAtmospheres.Oni
             // Closing the border displaces its original gas into neighbours,
             // including the centre. Clear that completed displacement before
             // applying the declared source, as the normal arena helper does.
-            if(Once(4,"clear sealed cluster probes"))
+            // The clear must be in the readers' frame by scenario frame 6:
+            // posted two frames earlier with serial pacing, three with
+            // overlapped pacing, whose readers see the owner a frame later
+            // (as the arenas' Fill).
+            if(Once(5-ColonyReaderPin.OwnerLead,"clear sealed cluster probes"))
                 foreach(var cell in clusterProbeCells)
                     SimMessages.ReplaceElement(cell,SimHashes.Vacuum,CellEventLogger.Instance.SandBoxTool,0,0);
             if(Once(6,"cluster mixtures"))

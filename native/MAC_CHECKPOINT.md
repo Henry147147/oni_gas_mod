@@ -121,7 +121,11 @@ implicit drag with a 10 ms time constant; [MAC_GAME_KERNEL.md](MAC_GAME_KERNEL.m
 It keeps version 28's layout; only the version word differs. Versions 20–31
 keep their arithmetic and bytes. *Implemented 2026-11-05* and adopted for new
 colonies; the managed metadata reader treats 32 like 28 (owner wrapper 14
-required).
+required). **Changed in place 2026-11-07** (user decision, option C): version
+32's arithmetic adds the [thin-gas heating](MAC_GAME_KERNEL.md#thin-gas-heating-profile-12-2026-11-07)
+limit and exchange; its layout and version word are unchanged, so earlier
+version 32 images load and continue under the new arithmetic (old saves are
+not a consideration before release, user decision 2026-11-05).
 
 **Reserved 2026-11-03 immediately after fetching `e6dc573`:** physical
 `MACCLS01` version **31** identifies game profile **11**, profile 10 plus the

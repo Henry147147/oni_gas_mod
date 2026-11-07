@@ -1,6 +1,6 @@
 # Performance acceptance measurements
 
-## Thin-gas trace heating in spaced-out-worlds, 2026-11-07 (user decision pending)
+## Thin-gas trace heating in spaced-out-worlds, 2026-11-07 (option C adopted)
 
 The Spaced Out! acceptance scenario `spaced-out-worlds` faults at owner frame
 3 from `ca77650` on (Linux and Proton): `Private flow EOS cell 276 (24,9 of
@@ -41,10 +41,24 @@ flow interval, which would also remove profile 11's 5e5 K flash), in place or
 as a new profile. Ordinary new colonies have not hit it. Private evidence,
 dump, prototype patch and scripts: `artifacts/trace-energy-2026-11-07/`.
 
+**Adopted (user decision 2026-11-07): option C, in place.** Profile 12 now
+limits a thin cell's work heating before the transport and exchanges its
+heat with its gas neighbours implicitly after it
+([MAC_GAME_KERNEL.md](../native/MAC_GAME_KERNEL.md#thin-gas-heating-profile-12-2026-11-07)).
+On the fault dump (10 frames) its hottest in-frame reading is 2.65e4 K
+(exchange alone 1.03e6 K, limit alone 1.05e5 K), lower than the prototypes'
+8.1e4 K; the Spaced Out! full colony's flow takes 59.3 instead of 57.1 ms a
+frame (three alternating runs of 12 frames after 2 warm-up frames, 12
+workers).
+
 A second failure in the same scenario on `133a4a1` (and on `b4a8e70` with
 profile 11): "sealed probes are empty before the source" (probe cells hold
-0.017-4600 kg). It passed at `2095964`; it likely follows `ca77650`'s
-one-frame input lag in the scenario's timing and is not yet changed.
+0.017-4600 kg). It passed at `2095964`. Cause: the scenario cleared the
+probes at frame 4 and read them at frame 6, which with overlapped pacing
+(`ca77650`) still shows the owner before the clear: the gas and liquid the
+probe's closing border displaced. The clear is now posted at frame
+`5 - ColonyReaderPin.OwnerLead` (4 serial, 3 overlapped), as `ca77650` did
+for the arenas' fill; the check, its frame and the source are unchanged.
 
 ## Windows playtest recording, 2026-11-07
 

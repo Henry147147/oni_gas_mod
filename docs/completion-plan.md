@@ -8,6 +8,18 @@ still require separate authorization.
 
 Amendments:
 
+- **Profile 12 thin-gas heating (option C), user decision 2026-11-07:** keep
+  the 1 g / 10 ms drag and keep thin gas near the temperature of the gas it
+  touches, so a thin front can no longer heat itself step by step (the
+  Spaced Out! acceptance fault, 1e9 K on a 1e-12 kg hydrogen trace). Each
+  flow interval limits the work heating of a thin cell to its hottest
+  neighbour's temperature (the excess heats its heaviest neighbour) and then
+  lets it exchange heat with its gas neighbours at the drag's rate
+  ([MAC_GAME_KERNEL.md](../native/MAC_GAME_KERNEL.md#thin-gas-heating-profile-12-2026-11-07)).
+  Mass and energy stay exact. It changes profile 12 / checkpoint 32 in place,
+  so existing beta colonies get it (old saves are not a consideration before
+  release, 2026-11-05).
+
 - **Large-colony speed research and exact integration, user decisions
   2026-11-06/07:** construct a 32-duplicant industrial base and retain the
   existing multi-asteroid colony as a separate stress case. One cycle from

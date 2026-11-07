@@ -305,9 +305,60 @@ profiles. Measurements and the other settings tried:
 [performance acceptance](../docs/performance-acceptance.md#thin-gas-drag-a-proposed-game-profile-option-2026-11-05).
 `mac_game_thin_drag_control.hpp`: thin oxygen (0.2 g a cell) beside vacuum
 puts 0.24 instead of 0.54 g past column 12 after 1 s in 28 instead of 79
-flow intervals, with closed mass and U+K+G; air of ordinary density is
+flow intervals (0.31 g in 30 intervals since the thin-gas heating below,
+which keeps that front near 300 K instead of 500 K; the check moved from
+half to 0.6 of profile 11's), with closed mass and U+K+G; air of ordinary density is
 bit-identical to profile 11; checkpoint 32 continues exactly cold and on 12
 workers.
+
+### Thin-gas heating, profile 12 (2026-11-07)
+
+**User decision 2026-11-07 (option C), in place.** Thin gas holds almost no
+heat. A thin cell that fills faster than it drains takes pressure work and
+drag heat on almost no mass, and the next cell fills from it, so a front can
+heat itself step by step. The drag makes that more likely by holding fronts
+back: in the Spaced Out! acceptance scenario a 386 kPa hydrogen pocket
+(heat-capacity ratio near 4.4) leaking into an empty cave took a trace to
+1.6e8 K within about 30 flow intervals and the next step put 9.7e-13 kg at
+1.08e9 K, past the EOS domain. Profile 12 now keeps thin gas near the
+temperature of the gas it touches with two conservative steps in every flow
+interval (`flow_local.hpp`):
+
+- **Before the transport** (`limit_thin_work`): the interval's pressure
+  work, body work and damping and drag heat may raise a gas-only cell lighter
+  than `m_thin` at most to the hottest reading among it and its occupied
+  neighbours across open faces at the start of the interval. The excess heats
+  its heaviest such neighbour, which must be heavier than it.
+- **After the transport** (`share_thin_heat`): each gas-only cell lighter
+  than `m_thin` exchanges heat with each gas-only neighbour across an open
+  face at the drag's own rate, `gamma = (dt/tau)(m_thin/m - 1)` from the
+  cell's mass m. Backward Euler: a pair's temperature difference relaxes by
+  `1/(1 + gamma)`, as the drag relaxes momentum; the pair conductance
+  `gamma C_i C_j/(C_i + C_j)` is at most the drag's rate times the heat
+  capacity of 1 g of gas. A cell and its neighbours are solved together
+  (each neighbour coupled only to it), so every new temperature lies between
+  the old ones.
+
+Both visit thin cells lightest first (ties by cell index), so heat a thin
+front carries passes up the mass gradient to the gas pushing it within the
+same pass; the result does not depend on the worker count. Energy moves only
+across open faces, so within one region; species, momenta, passives and
+U+K+G are exact. Cells at or above 1 g are untouched except as neighbours,
+so air of ordinary density still advances exactly as on profile 11. The
+saved format and version 32 are unchanged; the arithmetic of version 32
+changed in place (old saves are not a consideration before release, user
+decision 2026-11-05).
+
+Measured (Linux, 12 workers): the saved fault state (`b4a8e70`,
+`spaced-out-worlds`) now runs 10 frames with its hottest reading at the
+start of any flow interval 2.65e4 K (profile 11: 5.4e5 K; the exchange alone
+1.03e6 K, the limit alone 1.05e5 K; without either the run stops at 1.08e9
+K). The Spaced Out! full colony's flow takes 59.3 instead of 57.1 ms a frame
+(three alternating runs each). `mac_game_thin_heat_control.hpp`: a 386 kPa
+light gas with the game's hydrogen data leaking into an empty 30x3 box reads
+at most 6.3e3 K at the end of any tick (1.06e6 K before this change, 5.1e4 K
+on profile 11), with closed mass and U+K+G, and continues exactly cold and on
+12 workers.
 
 ## Open acceptance work
 

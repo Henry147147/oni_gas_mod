@@ -3,6 +3,8 @@
 #include "pressure_be.hpp"
 #include "region.hpp"
 #include "reject_log.hpp"
+#include <algorithm>
+#include <array>
 #include <bit>
 #include <chrono>
 #include <limits>
@@ -12,6 +14,9 @@ struct FlowReport {
   std::vector<Eos> eos;
   std::size_t subcycles = 0, pressure_iterations = 0, pressure_corrections = 0,
               transport_cells = 0, transport_faces = 0;
+  // Profile 12: thin gas cells whose heating the interval limited before
+  // the transport, and that exchanged heat after it.
+  std::size_t thin_limited_cells = 0, thin_heat_cells = 0;
   double wall_x = 0, wall_y = 0, body_y = 0, wall_ops_x = 0, wall_ops_y = 0,
          mass_error = 0, energy_error = 0, momentum_error = 0;
   double eos_ms = 0, pressure_ms = 0, transport_ms = 0;
@@ -39,11 +44,22 @@ class Flow {
   // Profile 10: vertical faces remap a gas/liquid donor's phases in gravity
   // order (patch.hpp, layer_donor).
   bool layered_remap = false;
+  // Profile 12: the thin-gas drag's threshold and time constant, which also
+  // set the thin-gas heat exchange (share_thin_heat); 0 disables both.
+  double thin_mass = 0, thin_time = 0;
   PatchTransport patch;
   // Capacity of the previous pressure result, lent to the next solve.
   Pressure pressure_storage;
   // Scratch capacity; every entry is written before it is read.
   std::vector<double> body_heat;
+  struct ThinCell {
+    double mass = 0;
+    std::size_t cell = 0;
+  };
+  std::vector<std::vector<ThinCell>> thin_found;
+  std::vector<ThinCell> thin_order, thin_spare;
+  std::vector<double> thin_capacity, thin_offset;
+  std::vector<std::uint8_t> thin_marked;
   // Runs f(first row, end row, block) over the grid's fixed row blocks.
   template <class F> void rows(F &&f) const {
     eos_pool.run(g.blocks, [&](std::size_t block) {
@@ -85,23 +101,217 @@ class Flow {
     faces(g.xl, g.xr, s.jx);
     faces(g.yl, g.yr, s.jy);
   }
+  // Profile 12 thin-gas heating (user decision 2026-11-07, option C;
+  // MAC_GAME_KERNEL.md). Thin gas holds almost no heat. A thin cell filling
+  // faster than it drains takes pressure work and drag heat on almost no
+  // mass, and the next cell fills from it, so a front heats itself step by
+  // step: a hydrogen leak into an empty cave reached 1e9 K on a 1e-12 kg
+  // trace within one frame. Two conservative steps in each flow interval keep
+  // thin gas near the temperature of the gas it touches: limit_thin_work
+  // before the transport and share_thin_heat after it. Both act only on
+  // gas-only cells lighter than thin_mass, move energy only across open faces
+  // (so within one region), visit cells lightest first (ties by index) so
+  // heat passes up the mass gradient in the same pass, and do not depend on
+  // the worker count. Masses and momenta are unchanged.
+  //
+  // Thin cells (mass in (0, thin_mass)) in cell order, as hold(i, mass)
+  // reports them, then sorted by (mass, cell) into thin_order: a stable LSD
+  // radix sort of the mass bits (positive doubles order as their bits).
+  template <class Held> void order_thin(Held &&held) {
+    thin_found.resize(g.blocks);
+    rows([&](std::size_t y0, std::size_t y1, std::size_t block) {
+      auto &found = thin_found[block];
+      found.clear();
+      for (std::size_t i = y0 * g.W; i < y1 * g.W; ++i) {
+        double mass = 0;
+        if (!g.wall[i] && held(i, mass) && mass > 0 && mass < thin_mass)
+          found.push_back({mass, i});
+      }
+    });
+    thin_order.clear();
+    for (const auto &found : thin_found)
+      thin_order.insert(thin_order.end(), found.begin(), found.end());
+    thin_spare.resize(thin_order.size());
+    for (unsigned shift = 0; shift < 64; shift += 8) {
+      std::array<std::size_t, 257> start{};
+      for (const auto &c : thin_order)
+        ++start[((std::bit_cast<std::uint64_t>(c.mass) >> shift) & 255) + 1];
+      if (std::find(start.begin() + 1, start.end(), thin_order.size()) != start.end())
+        continue; // every key has this byte (or there are none)
+      for (std::size_t b = 1; b < start.size(); ++b)
+        start[b] += start[b - 1];
+      for (const auto &c : thin_order)
+        thin_spare[start[(std::bit_cast<std::uint64_t>(c.mass) >> shift) & 255]++] = c;
+      thin_order.swap(thin_spare);
+    }
+  }
+  static bool lighter(const ThinCell &a, const ThinCell &b) {
+    return a.mass != b.mass ? a.mass < b.mass : a.cell < b.cell;
+  }
+  // Before the transport: the interval's pressure work, body work and
+  // damping and drag heat may raise a thin cell at most to the hottest
+  // reading among it and its occupied neighbours across open faces at the
+  // start of the interval; the excess heats its heaviest such neighbour,
+  // which must be heavier than it. A cell can only exceed that limit if its
+  // own work heated it or a lighter cell passed it an excess, so the pass
+  // starts from the cells the work heated and adds each thin receiver in
+  // turn; the result is that of visiting every thin cell in order. Returns
+  // the cells limited.
+  std::size_t limit_thin_work(const std::vector<Eos> &eos, std::vector<double> &work) {
+    namespace k = ma::experimental::mac_kernel;
+    const auto thin = [&](std::size_t i) {
+      return eos[i].mass > 0 && eos[i].mass < thin_mass &&
+             eos[i].liquid_nominal_volume == 0 && eos[i].capacity > 0;
+    };
+    order_thin([&](std::size_t i, double &mass) {
+      mass = eos[i].mass;
+      return thin(i) && work[i] > eos[i].offset + eos[i].capacity * eos[i].temperature;
+    });
+    thin_marked.resize(g.N);
+    for (const auto &c : thin_order)
+      thin_marked[c.cell] = 1;
+    // A min-heap on (mass, cell); thin_order already is one.
+    const auto later = [](const ThinCell &a, const ThinCell &b) { return lighter(b, a); };
+    std::size_t limited = 0;
+    while (!thin_order.empty()) {
+      std::pop_heap(thin_order.begin(), thin_order.end(), later);
+      const auto i = thin_order.back().cell;
+      thin_order.pop_back();
+      thin_marked[i] = 0;
+      double hottest = eos[i].temperature, heaviest = eos[i].mass;
+      auto heavy = k::none;
+      const auto look = [&](bool x, std::size_t f) {
+        const auto l = (x ? g.xl : g.yl)[f], r = (x ? g.xr : g.yr)[f];
+        if (l == k::none || r == k::none || g.closed(!x, f))
+          return;
+        const auto j = l == i ? r : l;
+        if (!(eos[j].mass > 0))
+          return;
+        hottest = std::max(hottest, eos[j].temperature);
+        if (eos[j].mass > heaviest) {
+          heaviest = eos[j].mass;
+          heavy = j;
+        }
+      };
+      look(true, g.left_face(i));
+      look(true, g.right_face(i));
+      look(false, g.bottom_face(i));
+      look(false, g.top_face(i));
+      const double limit = eos[i].offset + eos[i].capacity * hottest;
+      if (heavy == k::none || !(work[i] > limit))
+        continue;
+      const double excess = work[i] - limit;
+      work[i] -= excess;
+      work[heavy] += excess;
+      ++limited;
+      if (thin(heavy) && !thin_marked[heavy]) {
+        thin_marked[heavy] = 1;
+        thin_order.push_back({eos[heavy].mass, heavy});
+        std::push_heap(thin_order.begin(), thin_order.end(), later);
+      }
+    }
+    return limited;
+  }
+  // After the transport: each thin cell exchanges heat with each gas-only
+  // neighbour across an open face at the drag's own rate, gamma =
+  // (dt/thin_time)(thin_mass/m - 1) from the cell's mass m. Backward Euler,
+  // so a pair's temperature difference relaxes by 1/(1 + gamma) as the drag
+  // relaxes momentum; the cell and its neighbours are solved together (each
+  // neighbour coupled only to it), and every new temperature lies between
+  // the old ones. For a gas-only cell the EOS reads exactly
+  // T = (U - offset) / capacity, with capacity and offset summed here in the
+  // EOS's order. Returns the cells exchanged.
+  std::size_t share_thin_heat(State &s, double dt) {
+    namespace k = ma::experimental::mac_kernel;
+    thin_capacity.resize(g.N);
+    thin_offset.resize(g.N);
+    order_thin([&](std::size_t i, double &mass) {
+      double capacity = 0, offset = 0;
+      bool gas = true;
+      for (auto a = s.masses.offsets[i]; a < s.masses.offsets[i + 1]; ++a) {
+        const double m = s.masses.mass[a];
+        if (m == 0)
+          continue;
+        const auto &sp = species[s.masses.species[a]];
+        gas = gas && sp.gas;
+        mass += m;
+        capacity += m * sp.cv;
+        offset += m * sp.offset;
+      }
+      // Zero marks a cell that takes no part: empty, or holding liquid.
+      thin_capacity[i] = gas && capacity > 0 ? capacity : 0;
+      thin_offset[i] = offset;
+      return thin_capacity[i] > 0;
+    });
+    std::size_t exchanged = 0;
+    for (const auto &thin : thin_order) {
+      const auto i = thin.cell;
+      const double capacity = thin_capacity[i];
+      const double t = (s.energy[i] - thin_offset[i]) / capacity;
+      if (!std::isfinite(t))
+        continue;
+      const double gamma = dt / thin_time * (thin_mass / thin.mass - 1);
+      struct Link {
+        std::size_t cell;
+        double weight, temperature;
+      };
+      std::array<Link, 4> links;
+      std::size_t count = 0;
+      double weight = capacity, sum = capacity * t;
+      const auto link = [&](bool x, std::size_t f) {
+        const auto l = (x ? g.xl : g.yl)[f], r = (x ? g.xr : g.yr)[f];
+        if (l == k::none || r == k::none || g.closed(!x, f))
+          return;
+        const auto j = l == i ? r : l;
+        const double other = thin_capacity[j];
+        if (!(other > 0))
+          return;
+        const double tj = (s.energy[j] - thin_offset[j]) / other;
+        // Pair conductance gamma C_i C_j/(C_i + C_j) (at most the drag's
+        // rate times the heat capacity of 1 g of gas), seen from the cell
+        // through the neighbour's own implicit response.
+        const double conductance = gamma * (capacity * other / (capacity + other));
+        const double w = conductance * other / (other + conductance);
+        if (!std::isfinite(tj) || !(w > 0) || !std::isfinite(w))
+          return;
+        links[count++] = {j, w, tj};
+        weight += w;
+        sum += w * tj;
+      };
+      link(true, g.left_face(i));
+      link(true, g.right_face(i));
+      link(false, g.bottom_face(i));
+      link(false, g.top_face(i));
+      if (count == 0)
+        continue;
+      const double shared = sum / weight;
+      for (std::size_t a = 0; a < count; ++a) {
+        const double heat = links[a].weight * (shared - links[a].temperature);
+        s.energy[links[a].cell] += heat;
+        s.energy[i] -= heat;
+      }
+      ++exchanged;
+    }
+    return exchanged;
+  }
 
 public:
   Flow(const ma::experimental::MacGrid &grid, std::vector<Species> table,
        unsigned threads, bool auditing = true, double pressure_tolerance = 1e-8,
        unsigned gravity_source = 0, unsigned pressure_iterations = 200,
        bool surface_closure = false, bool bound_pressure_volume = false,
-       double bound_mass = 0, bool layered = false, double thin_mass = 0,
-       double thin_time = 0)
+       double bound_mass = 0, bool layered = false, double thin_gas_mass = 0,
+       double thin_gas_time = 0)
       : source(grid), g(source), topology(g), species(std::move(table)),
         eos_pool(
             static_cast<unsigned>(std::min<std::size_t>(threads, g.blocks))),
         pressure(grid, threads, ma::PressurePreconditioner::incomplete_cholesky,
                  pressure_tolerance, gravity_source, &eos_pool, pressure_iterations,
-                 surface_closure, thin_mass, thin_time),
+                 surface_closure, thin_gas_mass, thin_gas_time),
         gravity_rule(gravity_source), audit_mode(auditing),
         bounded_pressure_volume(bound_pressure_volume),
         bound_mass_floor(bound_mass), layered_remap(layered),
+        thin_mass(thin_gas_mass), thin_time(thin_gas_time),
         patch(grid, &eos_pool, &topology) {}
   ma::experimental::mac_kernel::Pool &worker_pool() const { return eos_pool; }
   const auto &region_topology() const { return topology; }
@@ -375,6 +585,8 @@ public:
         work[i] = u;
       }
     });
+    if (thin_mass > 0)
+      result.thin_limited_cells = limit_thin_work(eos, work);
     start = std::chrono::steady_clock::now();
     auto remap =
         patch.advance(initial.masses, std::move(work), projected.jx,
@@ -392,6 +604,8 @@ public:
     result.state = {std::move(remap.masses), std::move(remap.energy),
                     std::move(remap.jx), std::move(remap.jy),
                     std::move(remap.passives)};
+    if (thin_mass > 0)
+      result.thin_heat_cells = share_thin_heat(result.state, dt);
     result.transport_ms = milliseconds(start);
     result.wall_x += projected.wall_impulse_x;
     result.wall_y += projected.wall_impulse_y;
