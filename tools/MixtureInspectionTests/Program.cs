@@ -216,7 +216,7 @@ internal static class Program
         Check(!lines.Any(line => line.StartsWith("chlorine ", StringComparison.Ordinal)), "Trace leaked into the non-trace contents list.");
         Check(reading.Warnings.Any(warning => warning.Contains("chlorine")), "Omitting a trace discarded its hazard warning.");
         Check(MixtureInspection.FormatFullComposition(reading).Contains("chlorine"), "Expanded details discarded a trace.");
-        Check(lines.Any(line => line.Contains("complete composition")), "No expansion hint for omitted species.");
+        Check(!lines.Any(line => line.Contains("omitted") || line.StartsWith("Select ", StringComparison.Ordinal)), "Hover kept a selection hint line.");
     }
 
     private static void HoverAllNonTrace()

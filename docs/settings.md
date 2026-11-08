@@ -194,7 +194,9 @@ worker. Sources: [Linux CPU topology](https://docs.kernel.org/admin-guide/cputop
 | `display.readingPrecision` | Reading precision | 4 significant figures | `friendly` (4), `sig3`, `sig2`, `sig1`, `exact` | Hover card and status panel: kPa/°C/kg to 4, 3, 2 or 1 significant figures (1 figure: 1,247 kg reads 1000, 269.7 kPa reads 300), or every digit with Pa and K. Values are the same. | config.json |
 | `display.patternContrast` | Mixture pattern contrast | 0.04 | 0–0.15 (0 off) | Map pattern for mixed gases (also set from the overlay legend) | config.json |
 | `display.traceMoleFraction` | Trace gas threshold | 1% | 0–10% | Gases below it are listed as traces | config.json |
-| `panel.expanded` | Show panel details | on | on/off | Status panel starts expanded | config.json |
+| `display.showBreathingPassed` | Show “Breathing checks passed” | off | on/off | Hover card adds that line when a cell passes every breathing check; failed checks always show | config.json |
+| `panel.visible` | Show status panel | on | on/off | Status panel shown in a colony; its × button and the **Atmospheres** button beside Vitals in the top bar change it | config.json |
+| `panel.expanded` | Show panel details | on | on/off | Readings and speed/frame lines below the title bar; its –/+ button and the details shortcut change it | config.json |
 | `panel.showBoundary` | Outline development regions | on | on/off | Outline of a bounded development region | config.json |
 | `keys.cycleOverlay` | Cycle mixture overlays | F5 | None, F1–F12 | Shift or Ctrl plus the key | config.json |
 | `keys.toggleDetails` | Status panel details | F8 | None, F1–F12 | Shift or Ctrl plus the key | config.json |
@@ -203,7 +205,13 @@ worker. Sources: [Linux CPU topology](https://docs.kernel.org/admin-guide/cputop
 | `keys.openSettings` | Open settings | None | None, F1–F12 | Shift or Ctrl plus the key | config.json |
 
 The status panel describes only the cell under the cursor: a solid tile reads
-"solid tile, no fluid". The hover card's liquid volume line names the liquids.
+"solid tile, no fluid". Below the readings it shows the solver and game speed,
+the owner frame and fluid cell count, and the renderer or pipe state only when
+unusual. Drag its title bar to move it; the position is remembered in the
+game's player preferences (`MixedAtmospheres.StatusPanel.X`/`Y`), not in
+config.json. The main menu shows only its title bar and **Settings** unless
+something is wrong. The hover card's liquid volume line names the liquids;
+trace gases are left out without a hint line (select the cell for all of them).
 
 ## Save record
 
@@ -301,6 +309,6 @@ player chooses unless set:
 documents no interface for other mods; its update feed
 ([oxy.mods](https://github.com/O-n-y/oxy.mods) `version/info`) lists only its
 own Workshop id. It shows a mod's version from its DLL, so
-`MixedAtmospheres.Oni.dll` carries the package version (0.1.0, as
+`MixedAtmospheres.Oni.dll` carries the package version (0.1.1, as
 `mod_info.yaml`). Its backups and folder buttons work unchanged: the settings
 folder is outside the mod folder and survives updates. Nothing depends on it.

@@ -124,9 +124,11 @@ Keep a copy of any colony you value.
 
 ## In the game
 
-A **Mixed Atmospheres** status panel in the main menu and colony shows what the
-mod owns, the reading under the mouse (mass, temperature, pressure, oxygen
-partial pressure and composition) and any solver error. Open the top-right
+A **Mixed Atmospheres** status panel in the main menu and colony shows the
+reading under the mouse (mass, temperature, pressure, oxygen partial pressure
+and composition), the solver and game speed, and any solver error. Drag its
+title bar to move it, use **–**/**+** to collapse it and **×** to hide it; the
+**Atmospheres** button beside **Vitals** at the top of the screen brings it back. Open the top-right
 **Overlays** menu for **Gas composition**, **Gas pressure**, **Oxygen partial
 pressure** and **Breathability**; hover a cell for each non-trace gas and select
 it for its full composition.

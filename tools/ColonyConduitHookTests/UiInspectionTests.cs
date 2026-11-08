@@ -20,8 +20,34 @@ internal static class UiInspectionTests
         var active = PatchProcessor.GetOriginalInstructions(display.GetMethod("FullscreenManagementActive", flags));
         Check(!active.Any(i => i.operand is MethodInfo method && method.Name == "IsFullscreenUIActive"),
             "The panel still relies on the game's uninitialized fullscreen toggle list.");
+        TopBarButton(assembly);
         NativeContentsShares(assembly);
         Console.WriteLine("PASS management visibility: actual Research/Skills/Starmap/ClusterMap screens hide the panel, ordinary colony panels retain it; installed active-screen contract matches");
+    }
+
+    // The status panel's top-bar button (beside Vitals) binds the installed
+    // menu declarations its Harmony patches and click handler rely on.
+    private static void TopBarButton(Assembly assembly)
+    {
+        void Check(bool condition, string why) { if (!condition) throw new Exception(why); }
+        var setup = AccessTools.Method(typeof(KIconToggleMenu), "Setup", new[] { typeof(IList<KIconToggleMenu.ToggleInfo>) });
+        Check(setup != null && setup.IsPublic, "KIconToggleMenu.Setup(IList<ToggleInfo>) is missing.");
+        var refresh = AccessTools.Method(typeof(KIconToggleMenu), "RefreshButtons");
+        Check(refresh != null && refresh.IsVirtual && refresh.GetParameters().Length == 0, "KIconToggleMenu.RefreshButtons() changed.");
+        Check(AccessTools.Field(typeof(ManagementMenu), "vitalsInfo")?.FieldType == typeof(ManagementMenu.ManagementMenuToggleInfo),
+            "ManagementMenu.vitalsInfo changed; the button would lose its place beside Vitals.");
+        Check(typeof(ManagementMenu.ManagementMenuToggleInfo).GetConstructor(new[] { typeof(string), typeof(string), typeof(object),
+            typeof(global::Action), typeof(string), typeof(string) }) != null, "ManagementMenuToggleInfo's constructor changed.");
+        Check(typeof(KToggle).GetMethod("ClearOnClick") != null && typeof(KToggle).GetEvent("onClick") != null,
+            "KToggle click callbacks changed.");
+        var button = assembly.GetType("MixedAtmospheres.Oni.StatusPanelMenuButton")!;
+        var patches = button.GetNestedTypes(BindingFlags.NonPublic).SelectMany(t => t.GetCustomAttributes<HarmonyPatch>()).ToArray();
+        Check(patches.Any(p => p.info.methodName == "Setup") && patches.Any(p => p.info.methodName == "RefreshButtons"),
+            "The top-bar button patches are missing.");
+        var display = assembly.GetType("MixedAtmospheres.Oni.MixtureStatusDisplay")!;
+        Check(display.GetMethod("ToggleVisible", BindingFlags.NonPublic | BindingFlags.Static)?.ReturnType == typeof(bool),
+            "The status panel has no visibility toggle for the top-bar button.");
+        Console.WriteLine("PASS top-bar status button: Setup/RefreshButtons/vitalsInfo/toggle-info/KToggle declarations bind the installed menu");
     }
 
     private static void NativeContentsShares(Assembly assembly)

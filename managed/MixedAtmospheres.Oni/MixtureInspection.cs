@@ -201,6 +201,8 @@ namespace MixedAtmospheres.Oni
         // of the cell's volume (about 10 g of water: evaporation residue in a
         // gas cell), as they leave out trace gases; exact readings show any
         // liquid and the selected cell's details name the trace.
+        // Display & keys preference display.showBreathingPassed (default off).
+        internal static bool ShowBreathingPassed { get; set; }
         internal const double TraceLiquidVolumeFraction = MixturePresentationModel.MeaningfulLiquidVolumeFraction;
         internal static bool ShowsLiquid(MixturePresentation reading) =>
             reading.LiquidVolumeFraction > 0 && (ExactReadings || reading.LiquidVolumeFraction >= TraceLiquidVolumeFraction);
@@ -247,11 +249,10 @@ namespace MixedAtmospheres.Oni
             foreach (var row in reading.GasConstituents)
                 if (!row.IsTrace)
                     result.Add(row.DisplayName + " " + Percent(row) + " by moles" + (row.IsContaminant ? " — CONTAMINANT" : ""));
+            // Traces are left out without a hint line (user decision 2026-11-08);
+            // selecting the cell still lists every constituent.
             if (ShowsLiquid(reading))
                 result.Add("Liquid volume " + Number(100 * reading.LiquidVolumeFraction) + "%" + LiquidNames(reading));
-            if (reading.GasConstituents.Any(row => row.IsTrace))
-                result.Add("Trace gases omitted from contents · select for complete composition");
-            else result.Add("Select for constituent masses and partial pressures");
             return result.AsReadOnly();
         }
 
@@ -336,7 +337,7 @@ namespace MixedAtmospheres.Oni
             var composition = FormatCompactComposition(reading);
             foreach (var line in composition) Line(drawer, card, line);
             if (cellGermReader?.Invoke(cell) is string germs) Line(drawer, card, germs);
-            if (reading.Warnings.Count == 0 && reading.IsBreathable) Line(drawer, card, "Breathing checks passed");
+            if (ShowBreathingPassed && reading.Warnings.Count == 0 && reading.IsBreathable) Line(drawer, card, "Breathing checks passed");
             foreach (var warning in reading.Warnings) Line(drawer, card, warning, true);
             drawer.EndShadowBar();
             Interlocked.Increment(ref hoverDraws);

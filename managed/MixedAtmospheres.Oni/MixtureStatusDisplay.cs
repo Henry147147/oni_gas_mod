@@ -17,6 +17,16 @@ namespace MixedAtmospheres.Oni
         private static MixtureStatusDisplay? instance;
         private bool expanded = true;
         private bool showBoundary = true;
+        // In a colony the panel can be hidden (its × button, the top-bar
+        // button beside Vitals) and dragged by its title bar; the main menu
+        // always shows it. The dragged position lives in KPlayerPrefs.
+        private bool visible = true;
+        private bool dragging, customPosition;
+        private Vector2 dragOffset;
+        private float panelX, panelY;
+        private const string PositionX = "MixedAtmospheres.StatusPanel.X", PositionY = "MixedAtmospheres.StatusPanel.Y";
+        private const float TitleHeight = 30;
+        private Rect panelRect; // last drawn, screen pixels (validation reports)
         private float nextRefresh;
         private float nextDiagnostic;
         private int shortcutsAccepted;
@@ -35,15 +45,14 @@ namespace MixedAtmospheres.Oni
         // preferences (docs/settings.md); KeyCode.None disables a shortcut.
         private KeyCode overlayKey = KeyCode.F5, detailsKey = KeyCode.F8, findKey = KeyCode.F9, boundaryKey = KeyCode.F10, settingsKey = KeyCode.None;
         private const KeyCode DiffusionKey = KeyCode.F6; // development regions only
-        private Rect settingsButton;
-        private SettingsButtonBlocker? buttonBlocker;
+        private PanelClickBlocker? buttonBlocker;
         private bool buttonBlockerFailed;
         // OnGUI runs at least twice per Unity frame; its text changes only
         // with a refresh (five times a second), a preference, the expanded
         // state or the panel width. Build and measure it then, not per call.
         private bool layoutDirty = true, layoutExpanded;
-        private float layoutWidth = -1, stateHeight, bodyHeight, hintsHeight;
-        private string stateText = "", bodyText = "", hintsText = "";
+        private float layoutWidth = -1, stateHeight, bodyHeight, diagnosticsHeight, contentHeight;
+        private string stateText = "", bodyText = "", diagnosticsText = "";
         private readonly GUIContent measured = new GUIContent();
         // Bottom of ONI's notification list in screen pixels (top origin),
         // sampled with each refresh; the panel starts below it.
@@ -72,6 +81,7 @@ namespace MixedAtmospheres.Oni
             DontDestroyOnLoad(owner);
             instance = owner.AddComponent<MixtureStatusDisplay>();
             instance.ApplyPreferences(true);
+            instance.LoadPosition();
             ModSettingsRuntime.PreferencesChanged += () => { if (instance != null) instance.ApplyPreferences(false); };
         }
 
@@ -83,13 +93,52 @@ namespace MixedAtmospheres.Oni
             boundaryKey = Key("keys.toggleBoundary"); settingsKey = Key("keys.openSettings");
             // The settings window sets the panel's starting state; the shortcuts toggle it until the next change.
             var panelExpanded = values.Toggle("panel.expanded"); var panelBoundary = values.Toggle("panel.showBoundary");
+            var panelVisible = values.Toggle("panel.visible");
             if (initial || panelExpanded != lastExpandedPreference) expanded = panelExpanded;
             if (initial || panelBoundary != lastBoundaryPreference) showBoundary = panelBoundary;
-            lastExpandedPreference = panelExpanded; lastBoundaryPreference = panelBoundary;
+            if (initial || panelVisible != lastVisiblePreference) visible = panelVisible;
+            lastExpandedPreference = panelExpanded; lastBoundaryPreference = panelBoundary; lastVisiblePreference = panelVisible;
             layoutDirty = true;
         }
-        private bool lastExpandedPreference = true, lastBoundaryPreference = true;
-        private static string Key(KeyCode key) => key == KeyCode.None ? "" : "Shift+" + key;
+        private bool lastExpandedPreference = true, lastBoundaryPreference = true, lastVisiblePreference = true;
+
+        // The title bar's and shortcut's changes are remembered as preferences.
+        private void SetExpanded(bool value)
+        {
+            expanded = value; layoutDirty = true;
+            ModSettingsRuntime.SetPreference("panel.expanded", value, persist: true);
+        }
+        // The top-bar button: returns whether the panel is now shown.
+        internal static bool ToggleVisible()
+        {
+            if (instance == null) return false;
+            var next = !instance.visible;
+            instance.visible = next; instance.layoutDirty = true;
+            ModSettingsRuntime.SetPreference("panel.visible", next, persist: true);
+            return next;
+        }
+
+        private void LoadPosition()
+        {
+            if (ModSettingsRuntime.Validation) return;
+            try
+            {
+                if (!KPlayerPrefs.HasKey(PositionX) || !KPlayerPrefs.HasKey(PositionY)) return;
+                panelX = KPlayerPrefs.GetFloat(PositionX); panelY = KPlayerPrefs.GetFloat(PositionY);
+                customPosition = !float.IsNaN(panelX) && !float.IsNaN(panelY);
+            }
+            catch (Exception error) when (!(error is OutOfMemoryException)) { customPosition = false; }
+        }
+        private void EndDrag()
+        {
+            dragging = false;
+            if (ModSettingsRuntime.Validation) return;
+            try { KPlayerPrefs.SetFloat(PositionX, panelX); KPlayerPrefs.SetFloat(PositionY, panelY); KPlayerPrefs.Save(); }
+            catch (Exception error) when (!(error is OutOfMemoryException))
+            { Debug.LogWarning("[Mixed Atmospheres] Could not remember the status panel position: " + error.Message); }
+        }
+        private static float PanelScale => Mathf.Max(1, Screen.height / 900f);
+        private float PanelWidth(float scale) => Mathf.Min(328, Screen.width / scale - 24);
 
         internal static void Remove()
         {
@@ -101,6 +150,19 @@ namespace MixedAtmospheres.Oni
 
         private void Update()
         {
+            // The title bar drags the panel while the left button stays down.
+            if (dragging)
+            {
+                if (!Input.GetMouseButton(0)) EndDrag();
+                else
+                {
+                    var scale = PanelScale;
+                    var mouse = new Vector2(Input.mousePosition.x / scale, (Screen.height - Input.mousePosition.y) / scale);
+                    panelX = Mathf.Clamp(mouse.x - dragOffset.x, 0, Mathf.Max(0, Screen.width / scale - PanelWidth(scale)));
+                    panelY = Mathf.Clamp(mouse.y - dragOffset.y, 0, Mathf.Max(0, Screen.height / scale - TitleHeight));
+                    customPosition = true;
+                }
+            }
             // The readings follow the cursor: a newly hovered cell refreshes at
             // once (at most twenty times a second), otherwise five times a second.
             var now = Time.unscaledTime;
@@ -145,28 +207,33 @@ namespace MixedAtmospheres.Oni
             sampleCell = -1;
             if (!InColony)
             {
-                state = "Loaded · waiting for a colony";
+                // The main menu panel is just the title bar and Settings
+                // unless something is unusual.
+                state = "";
                 scope = NativeSealedDomainValidation.IsMode
                     ? "Development scene enabled. Start a disposable new colony to see the custom fluid region."
-                    : ColonyOwner.Available ? "Start a new base-game or Spaced Out! colony: Mixed Atmospheres takes over its gases and liquids."
+                    : ColonyOwner.Available ? ""
                     : "ONI owns colony physics. Enable the visual development scene to see simulated mixtures (README).";
                 return;
             }
             if (ColonyOwner.Active)
             {
                 // The colony owner (docs/colony-owner.md) holds every gas and liquid.
+                // Normal play needs no status sentence: only a stop is named.
                 var owner = ColonyOwner.Status;
                 var paused = SpeedControlScreen.Instance != null && SpeedControlScreen.Instance.IsPaused;
-                state = owner.State == 2 ? "Fluid simulation stopped" : "Mixed Atmospheres owns the asteroid's fluids" + (paused ? " · paused" : " · running");
+                state = owner.State == 2 ? "Fluid simulation stopped" : "";
                 if (owner.State == 2) failure = owner.Error;
-                scope = "Frame " + owner.CompletedFrames.ToString(CultureInfo.InvariantCulture) + " · " +
-                    (frame?.SuppliedCells.Count ?? 0).ToString(CultureInfo.InvariantCulture) + " cells with readings\n" +
-                    "Solver pace " + ColonyPacing.OwnerRate.ToString("0.00", CultureInfo.InvariantCulture) + "× real time · " +
+                scope = "Speed: solver " + ColonyPacing.OwnerRate.ToString("0.00", CultureInfo.InvariantCulture) + "× · " +
                     (paused ? "game paused" : "game " + (ColonyPacing.GameRate > 0 ? ColonyPacing.GameRate.ToString("0.00", CultureInfo.InvariantCulture) + "×" : "…") +
-                        " (clock " + Time.timeScale.ToString("0.00", CultureInfo.InvariantCulture) + "×)") +
-                    "\nRenderer: " + (MixtureWorldRendering.LastError.Length != 0 ? "error" :
-                    MixtureWorldRendering.Installed && MixtureWorldRendering.SchedulingActive ? "ready" : "waiting for textures") +
-                    "\n" + ColonyPipeRuntime.StatusLine;
+                        " · clock " + Time.timeScale.ToString("0.00", CultureInfo.InvariantCulture) + "×") +
+                    "\nFrame " + owner.CompletedFrames.ToString("N0", CultureInfo.InvariantCulture) + " · " +
+                    (frame?.SuppliedCells.Count ?? 0).ToString("N0", CultureInfo.InvariantCulture) + " fluid cells" +
+                    (MixtureWorldRendering.LastError.Length != 0 ? " · renderer error" :
+                        MixtureWorldRendering.Installed && MixtureWorldRendering.SchedulingActive ? "" : " · renderer waiting");
+                // Mixed pipes are the normal case; anything else is named.
+                var pipes = ColonyPipeRuntime.StatusLine;
+                if (pipes != "Pipes: mixed contents") scope += "\n" + pipes;
                 if (ColonyPipeRuntime.Failure.Length != 0 && failure.Length == 0) failure = ColonyPipeRuntime.Failure;
                 if (frame == null || frame.SuppliedCells.Count == 0) return;
             }
@@ -304,7 +371,7 @@ namespace MixedAtmospheres.Oni
             {
                 var accepted = true;
                 if (code == overlayKey) pendingOverlayCycle = true;
-                else if (code == detailsKey) expanded = !expanded;
+                else if (code == detailsKey) SetExpanded(!expanded);
                 else if (code == findKey) FocusReadings();
                 else if (code == boundaryKey) showBoundary = !showBoundary;
                 else if (code == settingsKey) ModSettingsScreen.Open(0);
@@ -316,13 +383,13 @@ namespace MixedAtmospheres.Oni
                     key.Use(); RecordValidationStatus();
                 }
             }
-            var scale = Mathf.Max(1, Screen.height / 900f);
+            var scale = PanelScale;
             if (titleStyle == null)
             {
                 // ONI's IMGUI skin supplies an italic debug font. Use Unity's
                 // shipped runtime font so this persistent panel stays legible.
                 var font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
-                titleStyle = new GUIStyle(GUI.skin.label) { font = font, fontSize = 16, fontStyle = FontStyle.Bold, wordWrap = true };
+                titleStyle = new GUIStyle(GUI.skin.label) { font = font, fontSize = 15, fontStyle = FontStyle.Bold, wordWrap = false, clipping = TextClipping.Clip };
                 buttonStyle = new GUIStyle(GUI.skin.button) { font = font, fontSize = 12 };
                 textStyle = new GUIStyle(GUI.skin.label) { font = font, fontSize = 14, fontStyle = FontStyle.Normal, wordWrap = true };
                 hintStyle = new GUIStyle(GUI.skin.label) { font = font, fontSize = 12, fontStyle = FontStyle.Normal, wordWrap = true };
@@ -330,74 +397,114 @@ namespace MixedAtmospheres.Oni
             var previousMatrix = GUI.matrix;
             var previousColor = GUI.color;
             // ONI's full-screen management screens (skills, research, starmap
-            // and the like) cover the world; the panel would cover them.
-            if (InColony && FullscreenManagementActive())
+            // and the like) cover the world; the panel would cover them. A
+            // hidden panel leaves only the top-bar button.
+            if (InColony && (FullscreenManagementActive() || !visible))
             {
+                dragging = false;
                 if (Event.current.type == EventType.Repaint) buttonBlocker?.Place(new Rect(-10000, -10000, 0, 0));
+                if (!visible && InColony && showBoundary && frame != null && !FullscreenManagementActive())
+                    try { GUI.matrix = Matrix4x4.Scale(new Vector3(scale, scale, 1)); DrawBoundary(frame, scale); }
+                    finally { GUI.matrix = previousMatrix; GUI.color = previousColor; }
                 return;
             }
             try
             {
                 GUI.matrix = Matrix4x4.Scale(new Vector3(scale, scale, 1));
                 if (InColony && showBoundary && frame != null) DrawBoundary(frame, scale);
-                var width = Mathf.Min(328, Screen.width / scale - 24);
+                var width = PanelWidth(scale);
                 var contentWidth = width - 24;
                 if (layoutDirty || layoutWidth != contentWidth || layoutExpanded != expanded) Layout(contentWidth);
-                var bodyTop = 32 + stateHeight;
-                var height = bodyTop + 2 + (expanded ? bodyHeight + hintsHeight + 14 : 0);
-                // Below ONI's notification list while it reaches the panel.
-                var top = InColony ? Mathf.Max(200, notificationsBottom / scale + 8) : Screen.height / scale - height - 20;
-                top = Mathf.Max(100, Mathf.Min(top, Screen.height / scale - height - 110));
-                var rect = new Rect(12, top, width, height);
+                var height = TitleHeight + contentHeight;
+                var screenWidth = Screen.width / scale; var screenHeight = Screen.height / scale;
+                float left, top;
+                if (customPosition) { left = panelX; top = panelY; }
+                else
+                {
+                    // Below ONI's notification list while it reaches the panel.
+                    left = 12;
+                    top = InColony ? Mathf.Max(200, notificationsBottom / scale + 8) : screenHeight - height - 20;
+                    top = Mathf.Max(100, Mathf.Min(top, screenHeight - height - 110));
+                }
+                left = Mathf.Clamp(left, 0, Mathf.Max(0, screenWidth - width));
+                top = Mathf.Clamp(top, 0, Mathf.Max(0, screenHeight - height));
+                var rect = new Rect(left, top, width, height);
+                panelRect = new Rect(rect.x * scale, rect.y * scale, rect.width * scale, rect.height * scale);
                 GUI.color = new Color(.08f, .11f, .16f, .97f);
                 GUI.DrawTexture(rect, Texture2D.whiteTexture);
-                GUI.color = failure.Length == 0 ? Accent : new Color(1, .55f, .35f);
-                GUI.Label(new Rect(rect.x + 12, rect.y + 7, contentWidth - 80, 22), "MIXED ATMOSPHERES", titleStyle);
+                // Title bar buttons, right to left: close and collapse (colony
+                // only), then Settings (docs/settings.md).
                 GUI.color = Color.white;
-                // The settings window (docs/settings.md); a uGUI rectangle under
-                // the button keeps its click from reaching the game.
-                settingsButton = new Rect(rect.xMax - 84, rect.y + 6, 74, 22);
-                if (GUI.Button(settingsButton, "Settings", buttonStyle!)) ModSettingsScreen.Open(0);
+                var right = rect.xMax - 6;
+                Rect close = default, collapse = default;
+                if (InColony)
+                {
+                    close = new Rect(right - 22, rect.y + 6, 22, 22); right -= 24;
+                    collapse = new Rect(right - 22, rect.y + 6, 22, 22); right -= 26;
+                }
+                var settings = new Rect(right - 58, rect.y + 6, 58, 22);
+                var title = new Rect(rect.x, rect.y, settings.x - rect.x - 2, TitleHeight);
+                // Dragging starts on the title (not its buttons); Update moves it.
+                var input = Event.current;
+                if (input.type == EventType.MouseDown && input.button == 0 && !ModSettingsScreen.IsOpen)
+                {
+                    var mouse = new Vector2(Input.mousePosition.x / scale, (Screen.height - Input.mousePosition.y) / scale);
+                    if (title.Contains(mouse)) { dragging = true; dragOffset = mouse - rect.position; panelX = rect.x; panelY = rect.y; input.Use(); }
+                }
+                GUI.color = failure.Length == 0 ? Accent : new Color(1, .55f, .35f);
+                GUI.Label(new Rect(rect.x + 12, rect.y + 6, title.width - 12, 22), "MIXED ATMOSPHERES", titleStyle);
+                GUI.color = Color.white;
+                if (GUI.Button(settings, "Settings", buttonStyle!)) ModSettingsScreen.Open(0);
+                if (InColony)
+                {
+                    if (GUI.Button(collapse, expanded ? "–" : "+", buttonStyle!)) SetExpanded(!expanded);
+                    if (GUI.Button(close, "×", buttonStyle!)) { visible = false; layoutDirty = true; ModSettingsRuntime.SetPreference("panel.visible", false, persist: true); }
+                }
+                // A uGUI rectangle under the whole panel keeps its clicks
+                // (buttons, dragging, reading) from reaching the game.
                 if (Event.current.type == EventType.Repaint)
                 {
-                    if (buttonBlocker == null && !buttonBlockerFailed) { buttonBlocker = SettingsButtonBlocker.Create(); buttonBlockerFailed = buttonBlocker == null; }
-                    buttonBlocker?.Place(new Rect(settingsButton.x * scale, settingsButton.y * scale, settingsButton.width * scale, settingsButton.height * scale));
+                    if (buttonBlocker == null && !buttonBlockerFailed) { buttonBlocker = PanelClickBlocker.Create(); buttonBlockerFailed = buttonBlocker == null; }
+                    buttonBlocker?.Place(new Rect(rect.x * scale, rect.y * scale, rect.width * scale, rect.height * scale));
                 }
-                GUI.Label(new Rect(rect.x + 12, rect.y + 31, contentWidth, stateHeight), stateText, textStyle);
-                if (expanded)
+                var y = rect.y + TitleHeight;
+                if (stateHeight > 0) { GUI.Label(new Rect(rect.x + 12, y, contentWidth, stateHeight), stateText, textStyle); y += stateHeight + 4; }
+                if (bodyHeight > 0) { GUI.Label(new Rect(rect.x + 12, y, contentWidth, bodyHeight), bodyText, textStyle); y += bodyHeight + 6; }
+                if (diagnosticsHeight > 0)
                 {
-                    GUI.Label(new Rect(rect.x + 12, rect.y + bodyTop, contentWidth, bodyHeight), bodyText, textStyle);
                     GUI.color = new Color(.76f, .83f, .89f);
-                    GUI.Label(new Rect(rect.x + 12, rect.y + bodyTop + 8 + bodyHeight, contentWidth, hintsHeight + 8), hintsText, hintStyle);
+                    GUI.Label(new Rect(rect.x + 12, y, contentWidth, diagnosticsHeight), diagnosticsText, hintStyle);
                 }
             }
             finally { GUI.matrix = previousMatrix; GUI.color = previousColor; }
         }
 
-        // The panel's text and heights for this content width.
+        // The panel's text and heights for this content width. Collapsed, it
+        // keeps only the title bar and any stop or failure line.
         private void Layout(float contentWidth)
         {
-            stateText = failure.Length == 0 ? state : "Attention · " + state;
-            var body = scope;
-            if (measurement.Length != 0) body += "\n\n" + measurement;
-            if (composition.Length != 0) body += "\n" + composition;
-            if (warning.Length != 0) body += "\n" + warning;
-            if (ModSettingsRuntime.Notices.Count != 0) body += "\n\nSettings: " + ModSettingsRuntime.Notices[0];
+            stateText = failure.Length == 0 ? state : state.Length != 0 ? "Attention · " + state : "Attention";
+            // The main menu has no collapse button: it always shows its lines.
+            var open = expanded || !InColony;
+            var body = open ? measurement : "";
+            if (open && composition.Length != 0) body += (body.Length != 0 ? "\n" : "") + composition;
+            if (open && warning.Length != 0) body += (body.Length != 0 ? "\n" : "") + warning;
+            if (ModSettingsRuntime.Notices.Count != 0) body += (body.Length != 0 ? "\n\n" : "") + "Settings: " + ModSettingsRuntime.Notices[0];
             if (failure.Length != 0)
             {
                 var message = failure.Split('\n')[0];
                 if (message.Length > 180) message = message.Substring(0, 180) + "… (see Player.log)";
-                body += "\n\nAttention: " + message;
+                body += (body.Length != 0 ? "\n\n" : "") + message;
             }
-            bodyText = body; hintsText = Hints();
-            // The status line may wrap: it gets the height it needs.
-            measured.text = stateText; stateHeight = Mathf.Max(18, textStyle!.CalcHeight(measured, contentWidth));
-            if (expanded)
-            {
-                measured.text = bodyText; bodyHeight = textStyle.CalcHeight(measured, contentWidth);
-                measured.text = hintsText; hintsHeight = hintStyle!.CalcHeight(measured, contentWidth);
-            }
+            bodyText = body; diagnosticsText = scope;
+            measured.text = stateText;
+            stateHeight = stateText.Length == 0 ? 0 : textStyle!.CalcHeight(measured, contentWidth);
+            bodyHeight = diagnosticsHeight = 0;
+            if (bodyText.Length != 0) { measured.text = bodyText; bodyHeight = textStyle!.CalcHeight(measured, contentWidth); }
+            if (open && diagnosticsText.Length != 0) { measured.text = diagnosticsText; diagnosticsHeight = hintStyle!.CalcHeight(measured, contentWidth); }
             measured.text = "";
+            contentHeight = stateHeight + (stateHeight > 0 ? 4 : 0) + bodyHeight + (bodyHeight > 0 ? 6 : 0) + diagnosticsHeight;
+            if (contentHeight > 0) contentHeight += 8;
             layoutWidth = contentWidth; layoutExpanded = expanded; layoutDirty = false;
         }
 
@@ -431,19 +538,6 @@ namespace MixedAtmospheres.Oni
             }
         }
 
-        private string Hints()
-        {
-            var lines = new System.Collections.Generic.List<string>();
-            var first = string.Join(" · ", new[] { Key(detailsKey).Length != 0 ? Key(detailsKey) + " details" : "", Key(findKey).Length != 0 ? Key(findKey) + " find fluid" : "" }.Where(t => t.Length != 0));
-            var second = string.Join(" · ", new[] { Key(overlayKey).Length != 0 ? Key(overlayKey) + " overlay" : "", Key(boundaryKey).Length != 0 ? Key(boundaryKey) + " boundary" : "" }.Where(t => t.Length != 0));
-            if (first.Length != 0) lines.Add(first);
-            if (second.Length != 0) lines.Add(second);
-            if (NativeSealedDomainValidation.IsMode) lines.Add("Shift+F6 diffusion: physical / accelerated / off");
-            if (settingsKey != KeyCode.None) lines.Add(Key(settingsKey) + " settings");
-            lines.Add("Hover a cell; select it for full composition.");
-            return string.Join("\n", lines);
-        }
-
         private void RecordValidationStatus()
         {
             // Disposable scenes retain UI evidence alongside their existing
@@ -456,7 +550,8 @@ namespace MixedAtmospheres.Oni
                 File.WriteAllText(Path.Combine(ColonyRuntimeValidation.OutputDirectory, "status-display.json"), ReportJson.Serialize(new
                 {
                     Kind = "actual-game-mixture-status-display", UnityFrame = Time.frameCount,
-                    Status = state, Scope = scope, Failure = failure, Expanded = expanded, BoundaryVisible = showBoundary,
+                    Status = state, Scope = scope, Failure = failure, Expanded = expanded, Visible = visible, BoundaryVisible = showBoundary,
+                    PanelRect = new[] { panelRect.x, panelRect.y, panelRect.width, panelRect.height },
                     LastShortcut = lastShortcut, ShortcutsAccepted = shortcutsAccepted,
                     LastShortcutEvent = lastShortcutEvent, ApplicationFocused = Application.isFocused,
                     Overlay = OverlayScreen.Instance?.GetMode().ToString(),
@@ -513,18 +608,18 @@ namespace MixedAtmospheres.Oni
         }
     }
 
-    // A transparent uGUI rectangle under the status panel's Settings button:
-    // ONI ignores world clicks while the pointer is over uGUI.
-    internal sealed class SettingsButtonBlocker : IDisposable
+    // A transparent uGUI rectangle under the status panel: ONI ignores world
+    // clicks while the pointer is over uGUI.
+    internal sealed class PanelClickBlocker : IDisposable
     {
         private readonly GameObject owner;
         private readonly RectTransform area;
-        private SettingsButtonBlocker(GameObject owner, RectTransform area) { this.owner = owner; this.area = area; }
-        internal static SettingsButtonBlocker? Create()
+        private PanelClickBlocker(GameObject owner, RectTransform area) { this.owner = owner; this.area = area; }
+        internal static PanelClickBlocker? Create()
         {
             try
             {
-                var owner = new GameObject("Mixed Atmospheres status button area");
+                var owner = new GameObject("Mixed Atmospheres status panel area");
                 UnityEngine.Object.DontDestroyOnLoad(owner);
                 var canvas = owner.AddComponent<Canvas>(); canvas.renderMode = RenderMode.ScreenSpaceOverlay; canvas.sortingOrder = 29000;
                 owner.AddComponent<UnityEngine.UI.GraphicRaycaster>();
@@ -533,9 +628,9 @@ namespace MixedAtmospheres.Oni
                 var image = child.AddComponent<UnityEngine.UI.Image>(); image.color = new Color(0, 0, 0, 0); image.raycastTarget = true;
                 var area = (RectTransform)child.transform;
                 area.anchorMin = area.anchorMax = new Vector2(0, 1); area.pivot = new Vector2(0, 1);
-                return new SettingsButtonBlocker(owner, area);
+                return new PanelClickBlocker(owner, area);
             }
-            catch (Exception error) { Debug.LogWarning("[Mixed Atmospheres] Status button area unavailable: " + error.Message); return null; }
+            catch (Exception error) { Debug.LogWarning("[Mixed Atmospheres] Status panel click area unavailable: " + error.Message); return null; }
         }
         // GUI rectangle in screen pixels, origin top left.
         internal void Place(Rect rect)
