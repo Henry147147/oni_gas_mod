@@ -124,6 +124,13 @@ if(MINGW)
         "ARM optimized-routines v26.07 exp/log (Windows only): https://github.com/ARM-software/optimized-routines/tree/v26.07\n")
     add_library(ma_windows_mimalloc STATIC "${ma_mimalloc_SOURCE_DIR}/src/static.c")
     target_include_directories(ma_windows_mimalloc SYSTEM PUBLIC "${ma_mimalloc_SOURCE_DIR}/include")
+    # Retire each ended thread's heap through a fiber-local-storage callback
+    # that receives the heap itself. mimalloc's default thread-detach hook
+    # reads the heap from a __thread variable, which MinGW emulates; winpthreads
+    # frees that storage before the loader's DLL_THREAD_DETACH, so the hook
+    # found no heap and every ended solver thread kept its memory
+    # (native/tests/oni_windows_allocator_tests.cpp).
+    target_compile_definitions(ma_windows_mimalloc PRIVATE MI_WIN_INIT_USE_FLS=1)
     target_link_libraries(ma_windows_mimalloc PUBLIC psapi bcrypt advapi32)
     set(ma_or_math "${ma_optimized_routines_SOURCE_DIR}/math")
     add_library(ma_windows_math OBJECT "${ma_or_math}/exp.c" "${ma_or_math}/exp_data.c"
@@ -142,6 +149,14 @@ if(MINGW)
     if(TARGET ma_oni_colony_tests)
         target_sources(ma_oni_colony_tests PRIVATE native/src/oni_windows_allocator.cpp $<TARGET_OBJECTS:ma_windows_math>)
         target_link_libraries(ma_oni_colony_tests PRIVATE ma_windows_mimalloc)
+    endif()
+    if(MA_BUILD_TESTS)
+        # The DLL's allocator with the game kernel's regional threads.
+        add_executable(ma_oni_windows_allocator_tests native/tests/oni_windows_allocator_tests.cpp
+            native/src/oni_windows_allocator.cpp $<TARGET_OBJECTS:ma_windows_math>)
+        target_link_libraries(ma_oni_windows_allocator_tests PRIVATE ma_mac_closed_world ma_windows_mimalloc psapi)
+        target_compile_options(ma_oni_windows_allocator_tests PRIVATE -Wall -Wextra -Wpedantic -Wshadow -Werror -ffp-contract=off -fno-fast-math)
+        add_test(NAME native_oni_windows_allocator_thread_heaps COMMAND ma_oni_windows_allocator_tests)
     endif()
 endif()
 if(MA_BUILD_TESTS)

@@ -1,6 +1,9 @@
 // MinGW Windows only (cmake/OniNativeBackend.cmake): the owner DLL's C++
 // allocations use mimalloc instead of msvcrt's heap, which maps every large
-// solver buffer afresh. Allocation never changes solver arithmetic.
+// solver buffer afresh. Allocation never changes solver arithmetic. mimalloc
+// is built to retire an ended thread's heap through a fiber-local callback;
+// the solver ends threads every frame (regional coordinators, rebuilt worker
+// pools), and a kept heap would keep everything that thread allocated.
 #include <mimalloc-new-delete.h>
 #include <mimalloc.h>
 

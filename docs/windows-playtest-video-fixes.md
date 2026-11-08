@@ -140,3 +140,27 @@ project folder, with `REPORT.md` and `verification/summary.json` as indexes.
 The package remains a private playtest. WindowsPlayer was tested through
 Proton/Wine on Linux; actual Windows OS acceptance, the exact recorded save,
 long-run acceptance and representative-colony speed are not established here.
+
+## Memory growth in the edc362a playtest
+
+The user's new Spaced Out! colony on `edc362a` (Always simulate, two solver
+steps per tick, evaporation below boiling on; 66,029 owned cells) reached
+52 GB of RAM after about 1,800 owner frames, roughly 26 MB per frame; its
+Player.log records no error. The `held` field of the `perf frames` lines is
+unrelated: it counts the game's 1/60 s sub-ticks that pacing held while the
+owner was busy.
+
+Cause: the Windows owner DLL's allocator never retired the heap of a thread
+that ended, so everything such a thread had allocated stayed committed. The
+MinGW build links mimalloc, whose thread-exit hook runs at
+`DLL_THREAD_DETACH` and reads the thread's heap from a `__thread` variable.
+MinGW emulates `__thread`, and winpthreads frees that storage before the
+loader's detach callbacks, so the hook saw no heap and did nothing (a probe
+callback at the same point no longer finds the thread's heap). The game kernel
+ends threads every frame: the bounded regional tick starts a coordinator
+thread for each solver interval that runs a dominant region on inner
+workers, and a rebuilt tick replaces its worker pools. Linux uses glibc and
+is unaffected. The fix builds mimalloc with `MI_WIN_INIT_USE_FLS`, whose
+fiber-local callback receives the heap itself
+([backend integration](native-backend-integration.md)). Solver arithmetic,
+numerical defaults and checkpoint bytes are unchanged.

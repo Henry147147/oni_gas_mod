@@ -278,6 +278,19 @@ ship in the package. Linux keeps glibc. Each platform is deterministic, but
 their math libraries differ in the last bit, so a save continues with its own
 platform's arithmetic.
 
+mimalloc is built with `MI_WIN_INIT_USE_FLS`: a fiber-local-storage callback
+hands each ending thread's heap to mimalloc's thread cleanup. Its default
+hook runs at `DLL_THREAD_DETACH` and reads the heap from a `__thread`
+variable, which MinGW emulates; winpthreads has already freed that storage
+by then, so the hook found no heap and every ended thread kept all of its
+memory. The game kernel ends threads every frame (the regional tick's
+coordinator for each interval that runs a dominant region on inner workers,
+and the worker pools of a rebuilt tick), so the owner grew by several MB per
+frame on a base-game asteroid and tens of MB per frame in the user's 2026-11-08
+Spaced Out! playtest. `native_oni_windows_allocator_thread_heaps`
+(Windows CTest) checks that commit stays flat across ended threads, regional
+coordinators and rebuilt pools.
+
 ## Current evidence and limits
 
 Observer forwarding, as of 2026-10-17:
