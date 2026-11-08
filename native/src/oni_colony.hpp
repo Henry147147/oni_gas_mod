@@ -68,6 +68,7 @@ struct NativeHeatProjection {std::uint16_t element;float mass,temperature;bool v
 // Immutable origin written by write_shadow, not a native array which later
 // native operations may already have changed before a contact is observed.
 [[nodiscard]] NativeHeatProjection native_heat_projection(int native_cell) noexcept;
+void set_world_mask(std::span<const std::uint8_t> membership);
 void set_space_cells(std::span<const std::uint32_t>,bool space);
 // Receipts to deliver: with pinned readers, those of the frames they see.
 // `pending`: every unacknowledged receipt (a census; never delivered from).

@@ -24,7 +24,11 @@ namespace MixedAtmospheres.Oni
     {
         internal readonly string Title;
         internal readonly IReadOnlyList<string> Hover,Details;
-        internal MixturePipeReading(string title,IReadOnlyList<string> hover,IReadOnlyList<string> details){Title=title;Hover=hover;Details=details;}
+        internal readonly ConduitFlow? PacketFlow;
+        internal readonly int PacketCell;
+        internal MixturePipeReading(string title,IReadOnlyList<string> hover,IReadOnlyList<string> details,
+            ConduitFlow? packetFlow = null, int packetCell = -1)
+        { Title=title;Hover=hover;Details=details;PacketFlow=packetFlow;PacketCell=packetCell; }
     }
 
     /// <summary>Read-only cell and container surfaces over the shared completed-frame projection.</summary>
@@ -465,8 +469,15 @@ namespace MixedAtmospheres.Oni
             return rows;
         }
 
+        // A pipe and its attached building can both be hovered at one cell.
+        // They describe one packet, while coincident gas/liquid flows and held
+        // inventories remain independent. Never deduplicate by text or mass.
+        internal static bool FirstPipePacket(MixturePipeReading reading, HashSet<(ConduitFlow, int)> seen) =>
+            reading.PacketFlow == null || seen.Add((reading.PacketFlow, reading.PacketCell));
+
         internal static void DrawContainers(SelectToolHoverTextCard card, HoverTextDrawer drawer, List<KSelectable> hoverObjects)
         {
+            var seenPipePackets = new HashSet<(ConduitFlow, int)>();
             foreach (var selectable in hoverObjects)
             {
                 if (selectable == null || selectable.GetComponent<CellSelectionObject>() != null) continue;
@@ -484,6 +495,7 @@ namespace MixedAtmospheres.Oni
                 }
                 foreach(var pipe in data.Pipes)
                 {
+                    if (!FirstPipePacket(pipe, seenPipePackets)) continue;
                     MixtureHoverLayout.Request(drawer);drawer.BeginShadowBar(false);drawer.DrawText(pipe.Title,card.Styles_Title.Standard);
                     foreach(var line in pipe.Hover)Line(drawer,card,line);
                     drawer.EndShadowBar();Interlocked.Increment(ref ownedContainerDraws);
@@ -681,7 +693,51 @@ namespace MixedAtmospheres.Oni
             if (element == null || (!element.IsGas && !element.IsLiquid) || element.IsVacuum) return;
             output.Add(label + ": " + element.name + " · " + Number(mass) + " kg · " + Number(temperature) + " K");
         }
-        private static string Number(double value) => ExactReadings ? value.ToString("G10", CultureInfo.InvariantCulture) : Friendly(value);
+        internal static string Number(double value) => ExactReadings ? value.ToString("G10", CultureInfo.InvariantCulture) : Friendly(value);
+        // Ordinary packet amounts retain readable mass units. Very small
+        // positive parcels use scientific kilograms rather than a rounded zero
+        // from ONI's float-based microgram status formatter.
+        internal static string PacketMass(double kilograms, bool positive = false)
+        {
+            if (kilograms == 0 && positive) return "below numeric range kg";
+            var size = Math.Abs(kilograms);
+            if (size >= 1000) return Number(kilograms / 1000) + " t";
+            if (size >= 1) return Number(kilograms) + " kg";
+            if (size >= .001) return Number(kilograms * 1000) + " g";
+            if (size >= 1e-6) return Number(kilograms * 1e6) + " mg";
+            if (size >= 1e-9) return Number(kilograms * 1e9) + " mcg";
+            return Number(kilograms) + " kg";
+        }
+        internal static string PacketTemperature(double kelvin) =>
+            PacketTemperature(kelvin, GameUtil.temperatureUnit, GameUtil.GetTemperatureUnitSuffix());
+        internal static string PacketTemperature(double kelvin, GameUtil.TemperatureUnit unit, string suffix)
+        {
+            var converted = unit == GameUtil.TemperatureUnit.Celsius ? kelvin - 273.15 :
+                unit == GameUtil.TemperatureUnit.Fahrenheit ? kelvin * 1.8 - 459.67 : kelvin;
+            return Number(converted) + " " + suffix.TrimStart();
+        }
+        // Preserve a positive constituent even when a derived share underflows
+        // to zero, and do not print 100% for an impure packet after rounding.
+        internal static string MassPercent(double mass, double total)
+        {
+            var fraction = mass / total;
+            if (mass > 0 && fraction == 0) return "below numeric range";
+            var text = Number(100 * fraction);
+            return (fraction < 1 && text == "100" ? "<100" : text) + "%";
+        }
+        internal static IReadOnlyList<string> CompactLines(IEnumerable<string> entries, int width = 82)
+        {
+            var lines = new List<string>();
+            var line = "";
+            foreach (var entry in entries)
+            {
+                if (line.Length != 0 && line.Length + 3 + entry.Length > width)
+                { lines.Add(line); line = ""; }
+                line += (line.Length == 0 ? "" : " · ") + entry;
+            }
+            if (line.Length != 0) lines.Add(line);
+            return lines;
+        }
         // Significant figures of friendly readings (display.readingPrecision):
         // 4 by default, down to 1; exact readings print every digit.
         internal static int SignificantFigures = 4;

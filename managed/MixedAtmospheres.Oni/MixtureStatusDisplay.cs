@@ -2,6 +2,8 @@ using System;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Reflection;
+using HarmonyLib;
 using MixedAtmospheres.Core;
 using UnityEngine;
 
@@ -47,6 +49,21 @@ namespace MixedAtmospheres.Oni
         // sampled with each refresh; the panel starts below it.
         private float notificationsBottom;
         private static readonly Vector3[] corners = new Vector3[4];
+        private static readonly FieldInfo ActiveManagementScreen = AccessTools.Field(typeof(ManagementMenu), "activeScreen");
+
+        // In the supported game, IsFullscreenUIActive() compares toggle entries
+        // captured before those entries are initialized. Read the actual open
+        // screen instead; changing ONI's own menu behavior is unnecessary.
+        internal static bool IsFullscreenManagementScreen(Type? screenType) => screenType != null &&
+            (typeof(ResearchScreen).IsAssignableFrom(screenType) || typeof(SkillsScreen).IsAssignableFrom(screenType) ||
+             typeof(StarmapScreen).IsAssignableFrom(screenType) || typeof(ClusterMapScreen).IsAssignableFrom(screenType));
+        private static bool FullscreenManagementActive()
+        {
+            var menu = ManagementMenu.Instance;
+            if (menu == null) return false;
+            var active = ActiveManagementScreen.GetValue(menu) as ManagementMenu.ScreenData;
+            return active?.screen != null && IsFullscreenManagementScreen(active.screen.GetType());
+        }
 
         internal static void Install()
         {
@@ -314,7 +331,7 @@ namespace MixedAtmospheres.Oni
             var previousColor = GUI.color;
             // ONI's full-screen management screens (skills, research, starmap
             // and the like) cover the world; the panel would cover them.
-            if (InColony && ManagementMenu.Instance != null && ManagementMenu.Instance.IsFullscreenUIActive())
+            if (InColony && FullscreenManagementActive())
             {
                 if (Event.current.type == EventType.Repaint) buttonBlocker?.Place(new Rect(-10000, -10000, 0, 0));
                 return;

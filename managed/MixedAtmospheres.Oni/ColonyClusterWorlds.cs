@@ -30,6 +30,7 @@ namespace MixedAtmospheres.Oni
         {
             if(layout==null||!layout.Worlds.Any(w=>w.SameRegion(world)))throw new InvalidOperationException("The retiring rocket layout changed.");
             layout=new ColonyWorldLayout(layout.GridWidth,layout.GridHeight,layout.Worlds.Where(w=>w.Id!=world.Id));
+            ColonyOwner.ConfigureWorldMembership(layout);
             worldIds=layout.CellWorldIds();dirty=true;
         }
         internal static void RequireCapability()
@@ -78,6 +79,7 @@ namespace MixedAtmospheres.Oni
                         (outside?space:interior).Add((uint)cell);
                         openings.Add(new OniNativeColony.Terrain{PublicCell=(uint)cell,Kind=OniNativeColony.Open});
                     }
+            ColonyOwner.ConfigureWorldMembership(next);
             if(space.Count>0)OniNativeColony.Check(OniNativeColony.SetSpaceCells(space.ToArray(),(uint)space.Count,1));
             if(interior.Count>0)OniNativeColony.Check(OniNativeColony.SetSpaceCells(interior.ToArray(),(uint)interior.Count,0));
             if(openings.Count>0)

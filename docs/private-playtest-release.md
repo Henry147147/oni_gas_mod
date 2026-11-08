@@ -5,6 +5,14 @@
 
 # Private Linux and Windows playtest completion
 
+## Windows recording follow-up, 2026-11-08
+
+The latest private follow-up addresses saved empty-cell holes, management-screen
+obstruction and oversized/misleading mixed-pipe hover. Research, bounded
+reproductions and package verification are recorded in the
+[Windows playtest follow-up](windows-playtest-video-fixes.md). It does not
+relabel the historical acceptance runs below as current-build results.
+
 ## RC1 258134c, 2026-11-04
 
 Release candidate 1 is `258134c` (profile 11, checkpoint v31, copy-on-write

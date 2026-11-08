@@ -124,6 +124,12 @@ namespace MixedAtmospheres.Oni
                 sizeof(CellView) != 32 || sizeof(Reading) != 64 || sizeof(Constituent) != 24 || sizeof(Receipt) != 48)
                 throw new InvalidOperationException("Colony owner ABI layouts differ from the native library.");
             if (Version() != AbiVersion) throw new InvalidOperationException("Colony owner ABI version differs from the native library.");
+            try
+            {
+                if (WorldMaskVersion() == 1) return;
+            }
+            catch (EntryPointNotFoundException) { }
+            throw new NotSupportedException("World membership requires a matching native/managed bundle.");
         }
 
         [DllImport(Library, EntryPoint = "ma_oni_colony_game_kernel_version")]
@@ -166,6 +172,10 @@ namespace MixedAtmospheres.Oni
         internal static extern int QueueHeat([In] Heat[] heat, uint count);
         [DllImport(Library, EntryPoint = "ma_oni_colony_queue_terrain", CallingConvention = CallingConvention.Cdecl)]
         internal static extern int QueueTerrain([In] Terrain[] terrain, uint count);
+        [DllImport(Library, EntryPoint = "ma_oni_colony_world_mask_version", CallingConvention = CallingConvention.Cdecl)]
+        internal static extern uint WorldMaskVersion();
+        [DllImport(Library, EntryPoint = "ma_oni_colony_set_world_mask", CallingConvention = CallingConvention.Cdecl)]
+        internal static extern int SetWorldMask([In] byte[] membership,uint count);
         [DllImport(Library, EntryPoint = "ma_oni_colony_cluster_world_version", CallingConvention = CallingConvention.Cdecl)]
         internal static extern uint ClusterWorldVersion();
         [DllImport(Library, EntryPoint = "ma_oni_colony_set_space_cells", CallingConvention = CallingConvention.Cdecl)]

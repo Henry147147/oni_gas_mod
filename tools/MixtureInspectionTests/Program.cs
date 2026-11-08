@@ -38,6 +38,9 @@ internal static class Program
             ("wet mixture keeps fluid pressure separate from gas partial pressures", WetMixturePressure),
             ("wet cells name their liquid, the phase filling most of the cell first", WetCellNames),
             ("friendly readings round to 4, 3, 2 or 1 significant figures", SignificantFigures),
+            ("pipe shares retain positive traces and avoid rounding impure packets to 100 percent", PipeSharePrecision),
+            ("coincident pipe ports deduplicate by flow and cell while separate inventories remain", PipePacketIdentity),
+            ("compact packet rows wrap without discarding species or germs", CompactPacketRows),
             ("breathing warnings use actual mixture model", BreathingWarnings),
             ("state uses player units and explicit breathing status", PlayerUnitsAndStatus),
             ("breathing warnings precede independently laid out constituent rows", DetailRows),
@@ -327,6 +330,65 @@ internal static class Program
         var saved = MixtureInspection.SignificantFigures;
         try { MixtureInspection.SignificantFigures = 1; Check(MixtureInspection.Friendly(269.7) == "300", "The precision setting is not applied."); }
         finally { MixtureInspection.SignificantFigures = saved; }
+    }
+
+    private static void PipeSharePrecision()
+    {
+        var exact = MixtureInspection.ExactReadings; var figures = MixtureInspection.SignificantFigures;
+        try
+        {
+            MixtureInspection.ExactReadings = false;
+            for (var precision = 1; precision <= 4; ++precision)
+            {
+                MixtureInspection.SignificantFigures = precision;
+                Check(MixtureInspection.Number(3.96127e-50) != "0", "A positive trace was rounded to zero.");
+                Check(MixtureInspection.MassPercent(.999999, 1) == "<100%", "An impure packet was labelled 100 percent.");
+                Check(MixtureInspection.MassPercent(1, 1) == "100%", "A pure packet lost its exact share.");
+                Check(MixtureInspection.MassPercent(double.Epsilon, 100) == "below numeric range", "A positive underflowed trace was labelled zero.");
+            }
+            MixtureInspection.SignificantFigures = 2;
+            Check(MixtureInspection.PacketMass(1.2345) == "1.2 kg" && MixtureInspection.PacketMass(.12345) == "120 g" &&
+                MixtureInspection.PacketMass(.00012345) == "120 mg" && MixtureInspection.PacketMass(1e-50) == "1E-50 kg",
+                "Packet mass units lost ordinary readability or a positive sub-float parcel.");
+            Check(MixtureInspection.PacketMass(0, true) == "below numeric range kg", "An exact positive amount below binary64 range was labelled zero.");
+            MixtureInspection.SignificantFigures = 4;
+            Check(MixtureInspection.PacketTemperature(300, GameUtil.TemperatureUnit.Celsius, "°C") == "26.85 °C" &&
+                MixtureInspection.PacketTemperature(300, GameUtil.TemperatureUnit.Fahrenheit, "°F") == "80.33 °F" &&
+                MixtureInspection.PacketTemperature(300, GameUtil.TemperatureUnit.Kelvin, "K") == "300 K",
+                "Packet temperatures ignore the selected player unit or lose requested precision.");
+            MixtureInspection.SignificantFigures = 2;
+            Check(MixtureInspection.Number(.123456) == "0.12" && MixtureInspection.MassPercent(.123456, 1) == "12%",
+                "Pipe amounts and shares ignore the precision preference.");
+            MixtureInspection.ExactReadings = true;
+            Check(MixtureInspection.Number(3.96127e-50) == "3.96127E-50", "Exact packet trace lost digits.");
+        }
+        finally { MixtureInspection.ExactReadings = exact; MixtureInspection.SignificantFigures = figures; }
+    }
+
+    private static void PipePacketIdentity()
+    {
+        var first = (ConduitFlow)RuntimeHelpers.GetUninitializedObject(typeof(ConduitFlow));
+        var second = (ConduitFlow)RuntimeHelpers.GetUninitializedObject(typeof(ConduitFlow));
+        MixturePipeReading Packet(ConduitFlow? flow, int cell) => new MixturePipeReading("Same visible contents", new[] { "identical" }, new[] { "identical" }, flow, cell);
+        var seen = new HashSet<(ConduitFlow, int)>();
+        Check(MixtureInspection.FirstPipePacket(Packet(first, 12), seen), "First pipe packet was hidden.");
+        Check(!MixtureInspection.FirstPipePacket(Packet(first, 12), seen), "Building and pipe both drew the same packet.");
+        Check(MixtureInspection.FirstPipePacket(Packet(first, 13), seen), "Separate cell with identical contents was hidden.");
+        Check(MixtureInspection.FirstPipePacket(Packet(second, 12), seen), "Coincident gas/liquid networks were conflated.");
+        Check(MixtureInspection.FirstPipePacket(Packet(null, -1), seen) && MixtureInspection.FirstPipePacket(Packet(null, -1), seen),
+            "Independent stored inventories were deduplicated by their contents.");
+        Check(MixtureInspection.FirstPipePacket(Packet(first, 12), new HashSet<(ConduitFlow, int)>()), "The next hover retained a prior hover's deduplication.");
+    }
+
+    private static void CompactPacketRows()
+    {
+        var entries = Enumerable.Range(0, 20).Select(i => "Species " + i + " 1.25%").ToArray();
+        var compact = MixtureInspection.CompactLines(entries, 45);
+        Check(compact.Count < entries.Length && compact.All(line => line.Length <= 45), "Packet composition is not compact and bounded per line.");
+        Check(compact.SelectMany(line => line.Split(" · ")).SequenceEqual(entries), "Compacting packet rows discarded, reordered or duplicated an entry.");
+        var germ = "Food Poisoning: 3.96127E-50 germs";
+        Check(MixtureInspection.CompactLines(new[] { germ, "SlimeLung: 2 germs" }, 45).SelectMany(line => line.Split(" · ")).SequenceEqual(new[] { germ, "SlimeLung: 2 germs" }),
+            "Compacting packets discarded a germ identity or positive trace.");
     }
 
     private static void WetMixturePressure()

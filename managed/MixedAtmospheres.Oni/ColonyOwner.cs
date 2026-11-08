@@ -212,12 +212,13 @@ namespace MixedAtmospheres.Oni
                 {
                     var global = uncachedCellMap ? (x0+i%width)+(y0+i/width)*Grid.WidthInCells : publicationCells[i];
                     var element = ElementLoader.elements[source->elementIdx[global]];
-                    // Reserved cluster holes are walls, not empty chambers
-                    // joining otherwise separate asteroids or rocket worlds.
-                    if(cluster&&(!layout.TryFind(global,out var region)||Grid.WorldIdx[global]!=region.Id))
+                    // Unregistered cells are walls, including base-game grid
+                    // margins. Use the same world-identity proof as the native
+                    // custody mask, rather than admitting an exterior vacuum.
+                    if(!layout.TryFind(global,out var region)||Grid.WorldIdx[global]!=region.Id)
                     {
                         if(!element.IsSolid&&!element.IsVacuum&&source->mass[global]>0)
-                            throw new InvalidOperationException("Fluid outside a registered cluster world cannot be omitted at import.");
+                            throw new InvalidOperationException("Fluid outside a registered world cannot be omitted at import.");
                         cells[i]=new OniNativeColony.Cell{Kind=OniNativeColony.Solid};continue;
                     }
                     if(cellMapControl)
@@ -243,6 +244,7 @@ namespace MixedAtmospheres.Oni
                 ColonyStartingAir.Capture(source,
                     c => zones != null && ElementLoader.elements[source->elementIdx[c]].IsVacuum && zones.GetSubWorldZoneType(c) == ProcGen.SubWorld.ZoneType.Space);
                 OniNativeColony.Check(OniNativeColony.Start(ref config, materials, (uint)materials.Length, cells, (uint)cells.Length, ref output));
+                ConfigureInitialWorldMembership(layout);
                 ModSettingsRuntime.AfterStart();
                 status = output; views = new OniNativeColony.CellView[cells.Length]; Active = true; ColonyActivity.Started(config.Flags, status.Session); ColonyPacingDriver.Ensure(); ConfigurePresentation();
                 ColonyClusterWorlds.Initialize(cluster?layout:null);
@@ -272,6 +274,32 @@ namespace MixedAtmospheres.Oni
             return new ColonyWorldLayout(Grid.WidthInCells,Grid.HeightInCells,
                 ClusterManager.Instance.WorldContainers.Select(world=>new ColonyWorldRegion(world.id,
                     world.WorldOffset.x,world.WorldOffset.y,world.WorldSize.x,world.WorldSize.y,world.IsModuleInterior)));
+        }
+        private static void ConfigureInitialWorldMembership(ColonyWorldLayout layout)
+        {
+            try { ConfigureWorldMembership(layout); }
+            catch
+            {
+                // Do not leave a native owner running if actual world identity
+                // refuses its saved/imported topology before managed activation.
+                var stopped=OniNativeColony.Status.Empty;_=OniNativeColony.Stop(ref stopped);throw;
+            }
+        }
+        // Native vacuum is also used in empty cluster slots. Prove actual
+        // registered-world membership independently of the saved fluid mask,
+        // so a room cell closed in an old owner can be repaired after loading.
+        internal static void ConfigureWorldMembership(ColonyWorldLayout layout)
+        {
+            if(layout.GridWidth!=Grid.WidthInCells||layout.GridHeight!=Grid.HeightInCells)
+                throw new InvalidOperationException("World membership grid differs from the owner.");
+            var identities=layout.CellWorldIds();
+            var membership=new byte[publicationCells.Length];
+            for(var i=0;i<membership.Length;++i)
+            {
+                var cell=publicationCells[i];
+                if(identities[cell]>=0&&Grid.WorldIdx[cell]==identities[cell])membership[i]=1;
+            }
+            OniNativeColony.Check(OniNativeColony.SetWorldMask(membership,(uint)membership.Length));
         }
         // The configuration and catalogue the running game would give this asteroid.
         internal static (OniNativeColony.Config config, OniNativeColony.Material[] materials) Describe(uint? savedFlags = null)
@@ -321,6 +349,7 @@ namespace MixedAtmospheres.Oni
                 // A save that evolves world germs needs the disease table; say why it is missing.
                 throw new InvalidOperationException(error.Message + " (world germ rules unavailable: " + ColonyWorldGerms.ConfigureFailure + ")", error);
             }
+            ConfigureInitialWorldMembership(CaptureWorldLayout());
             ModSettingsRuntime.Restored(); // the settings this colony recorded (docs/settings.md)
             status = output; views = new OniNativeColony.CellView[width * height]; considered = true; Active = true; ColonyActivity.Started(config.Flags, status.Session); ColonyPacingDriver.Ensure(); ConfigurePresentation();
             ColonyClusterWorlds.Initialize(DlcManager.IsExpansion1Active()?CaptureWorldLayout():null);

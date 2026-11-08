@@ -250,10 +250,11 @@ std::unique_ptr<std::atomic<std::uint8_t>[]> owned;
 // checkpoint is allowed until native FreeGridSpace has completed.
 std::unique_ptr<std::atomic<std::uint8_t>[]> retiring;
 std::atomic<std::size_t> retiring_count=0;
-// Walls ONI holds open that are not the owner's: cells outside every world
-// (cluster holes), found at the session's first shadow, and retired rocket
-// worlds. Custody (capture_shadow) never opens one; an edit that opens the
-// cell clears it. Session state only, never saved.
+// Cells outside registered game worlds and retired rocket slots. Managed
+// supplies actual world membership after start/restore and layout changes.
+// Standalone callers without that metadata retain the conservative first-
+// shadow inference. Custody never opens an excluded cell; explicit terrain
+// admission clears it. Session state only, never saved.
 std::unique_ptr<std::atomic<std::uint8_t>[]> outside_world;
 std::atomic<bool> outside_known{false};
 std::atomic<std::uint64_t> custody_logged{0};
@@ -2305,6 +2306,27 @@ void queue_terrain(std::span<const MAOniColonyTerrain> edits) {
     pending_terrain.insert(pending_terrain.end(), edits.begin(), edits.end());
     log_terrain("managed", edits);
 }
+void set_world_mask(std::span<const std::uint8_t> membership) {
+    // The game submitter is fenced by the caller, as for set_space_cells.
+    // Native vacuum does not prove a cell is outside a world: a saved terrain
+    // mismatch can leave an ordinary room cell closed in the owner. Keep the
+    // actual game-world identity separate from that fluid/solid state.
+    wait();
+    std::lock_guard lock(lifecycle);
+    require(active() && session && session->status.state==1,"A healthy colony owner is required for world membership");
+    require(membership.size()==owned_count,"World membership mask differs from the owner rectangle");
+    const auto& walls=session->world->state().grid.walls;
+    for(std::size_t i=0;i<membership.size();++i) {
+        require(membership[i]<=1,"Invalid world membership value");
+        require(membership[i] || walls[i] || retiring[i].load(std::memory_order_relaxed)!=0,
+            "World membership cannot abandon an open owner cell");
+    }
+    // Validate the complete batch before changing any exclusion. Retirement's
+    // quarantine still wins in write/capture_shadow even for a retained world.
+    for(std::size_t i=0;i<membership.size();++i)
+        outside_world[i].store(membership[i]?0:1,std::memory_order_relaxed);
+    outside_known.store(true,std::memory_order_release);
+}
 void set_space_cells(std::span<const std::uint32_t> cells,bool space) {
     // A template is prepared by the game thread before it can submit more
     // world work. Serialize this boundary change with any prior owner step;
@@ -2450,8 +2472,10 @@ void write_shadow(const NativeCells& n) noexcept {
     try { block_closes.resize(blocks); } catch (...) { return; }
     const auto options = mac_kernel_default_options();
     const auto threads = static_cast<unsigned>(std::max<std::size_t>(1, std::min<std::size_t>(options.threads, blocks)));
-    // The session's first shadow finds the walls ONI holds open: at import every
-    // open cell of a world is the owner's, so these lie outside every world.
+    // Legacy standalone callers do not supply game-world membership. Infer
+    // their exclusions conservatively once. The game supplies an explicit
+    // mask before its first shadow, including after restore: an inherited
+    // closed-owner/native-vacuum room cell must remain eligible for custody.
     const bool seal = !outside_known.load(std::memory_order_acquire);
     mac_kernel::pool_for(threads).run(blocks, [&](std::size_t block) {
       for (std::size_t i = block * block_size; i < std::min(owned_count, (block + 1) * block_size); ++i) {

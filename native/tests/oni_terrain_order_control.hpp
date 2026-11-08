@@ -5,6 +5,8 @@
 // fills and native physics, suppressed beside owned cells, never fills either
 // (a vacuum hole in a breathable room).
 
+void restored_custody_control();
+
 void terrain_order_control() {
     using namespace ma::oni::colony;
     constexpr double dt=static_cast<double>(.2f);
@@ -118,6 +120,95 @@ void terrain_order_control() {
             "A frozen cell reopened or its ledgers drifted");
         stop();
     }
+    restored_custody_control();
     set_options(nullptr);set_activity_tiers(0,true);
     std::cout<<"PASS terrain order: the owner ends where ONI does (close/open and open/close either way, native close undone), a freeze stays closed; custody reopens an open wall beside owned cells and never a hole\n";
+}
+
+// A saved owner can be closed where native ONI already holds vacuum. That
+// state cannot be distinguished from a cluster hole by the first shadow.
+// Supply registered-world membership, rather than using native fluid state
+// as a substitute for world identity. Exercise the production save/restore,
+// shadow/capture and activity/serial handoff paths, not a copied predicate.
+void restored_custody_control() {
+    using namespace ma::oni::colony;
+    constexpr double dt=static_cast<double>(.2f);
+    constexpr std::uint32_t solid=1,width=7,height=3,pitch=width+2,rows=height+2;
+    const auto nat=[](std::uint32_t cell){return static_cast<int>((cell%width+1)+(cell/width+1)*pitch);};
+    for(const bool activity:{true,false})for(const bool explicit_membership:{false,true}) {
+        MAOniColonyConfig cfg{};cfg.struct_size=sizeof(cfg);cfg.abi_version=1;
+        cfg.flags=MA_ONI_COLONY_GAME_KERNEL|MA_ONI_COLONY_GAME_SURFACE|(activity?MA_ONI_COLONY_GAME_ACTIVITY:0u);
+        cfg.vacuum_index=vacuum;cfg.grid_width=cfg.width=width;cfg.grid_height=cfg.height=height;cfg.maximum_timestep_s=static_cast<double>(.1f);
+        const std::vector<MAOniColonyMaterial> mats{material("Oxygen",11,oxygen,true,.032,1005)};
+        std::vector<MAOniColonyCell> cells(width*height);
+        // Four gas cells surround the inherited room hole 10. Cell 13 is
+        // native vacuum too, directly beside gas, but outside every world.
+        for(const auto cell:{8u,9u,11u,12u})cells[cell]={oxygen,MA_ONI_COLONY_FLUID,1,300,0,0};
+        start(cfg,mats,cells,1);const auto saved=checkpoint();stop();restore(cfg,mats,saved,1);
+        require(checkpoint()==saved,"Inherited-hole fixture failed exact restore");
+        std::vector<std::uint8_t> membership(width*height,1);membership[13]=0;
+        if(explicit_membership) {
+            set_world_mask(membership);
+            require(checkpoint()==saved,"World membership changed checkpoint bytes or physical state");
+            auto invalid=membership;invalid[13]=1;invalid.back()=2;
+            bool refused=false;try{set_world_mask(invalid);}catch(const std::invalid_argument&){refused=true;}
+            require(refused && checkpoint()==saved,"An invalid world-mask value changed its valid prefix");
+            refused=false;try{set_world_mask(std::span(membership.data(),membership.size()-1));}catch(const std::invalid_argument&){refused=true;}
+            require(refused && checkpoint()==saved,"An invalid world-mask length changed the owner");
+            invalid=membership;invalid[13]=1;invalid[12]=0;
+            refused=false;try{set_world_mask(invalid);}catch(const std::invalid_argument&){refused=true;}
+            require(refused && checkpoint()==saved,"World membership abandoned an open owner cell");
+        }
+        std::array<std::vector<std::uint16_t>,2> element;std::array<std::vector<float>,2> mass,temperature;
+        NativeCells native{};native.pitch=pitch;native.rows=rows;
+        for(unsigned b=0;b<2;++b) {
+            element[b].assign(pitch*rows,solid);mass[b].assign(pitch*rows,1000);temperature[b].assign(pitch*rows,300);
+            for(const auto cell:{8u,9u,10u,11u,12u,13u}){element[b][nat(cell)]=vacuum;mass[b][nat(cell)]=temperature[b][nat(cell)]=0;}
+            native.element[b]=element[b].data();native.mass[b]=mass[b].data();native.temperature[b]=temperature[b].data();
+        }
+        const auto set=[&](std::uint32_t cell,std::uint16_t e,float m) {
+            for(unsigned b=0;b<2;++b){element[b][nat(cell)]=e;mass[b][nat(cell)]=m;temperature[b][nat(cell)]=e==vacuum?0.f:300.f;}
+        };
+        std::uint64_t ticket=0;
+        const auto frame=[&](const std::function<void()>& messages=[]{}) {
+            std::copy(element[1].begin(),element[1].end(),element[0].begin());std::copy(mass[1].begin(),mass[1].end(),mass[0].begin());
+            std::copy(temperature[1].begin(),temperature[1].end(),temperature[0].begin());
+            ++ticket;if(activity)(void)queue_activity(status().session,dt,{},{});
+            messages();write_shadow(native);capture_shadow(native,ticket);advance(ticket,dt,2);wait();
+            require(status().state==1,status().error);
+        };
+        frame();frame();
+        require(owns(nat(10))==explicit_membership,
+            "Registered-world membership did not repair an inherited closed-owner/native-vacuum room cell");
+        require(!owns(nat(13)),"Restored-hole custody admitted adjacent vacuum outside every world");
+        if(explicit_membership) {
+            std::uint32_t index=0;double held=0;
+            require(composition(10,&index,&held,1)==1 && index==oxygen && held>0,
+                "A repaired room cell did not receive owned gas");
+            const auto opened=status().opened_cells;
+            frame();require(status().opened_cells==opened,"Inherited-hole custody reopened the same room cell twice");
+            // A vacuum cell beside the room is quarantined throughout rocket
+            // evacuation, even when a refreshed mask still names that world.
+            const auto retirement=prepare_retirement(2,1,1);commit_retirement(retirement.first);
+            set_world_mask(membership);frame([&]{set(2,vacuum,0);});
+            require(!owns(nat(2)),"World membership bypassed retirement quarantine");
+            finish_retirement(2,1,1);membership[2]=0;set_world_mask(membership);
+            frame();require(!owns(nat(2)),"Custody reopened a retired rocket slot");
+            // Allocating an actual new world changes membership independently
+            // of its fluid state. Merely setting metadata takes no time and
+            // admits no fluid; the ordinary capture performs the opening.
+            const auto before=checkpoint();membership[13]=1;set_world_mask(membership);
+            require(checkpoint()==before && !owns(nat(13)),"New-world metadata changed physical state before capture");
+            frame();frame();
+            require(owns(nat(13)) && !owns(nat(2)),"New-world custody failed admission or reopened a retired slot");
+        }
+        double total=0;
+        for(std::uint32_t cell=0;cell<width*height;++cell){std::uint32_t index=0;double held=0;if(composition(cell,&index,&held,1))total+=held;}
+        const auto result=status();
+        require(std::abs(total-4)<1e-12 && result.native_mass_in_kg==0 && result.native_mass_out_kg==0 &&
+            result.maximum_relative_mass_error<1e-12 && result.maximum_relative_energy_error<1e-9,
+            "Restored-hole custody changed mass, adopted native fluid or lost energy");
+        stop();
+    }
+    std::cout<<"PASS restored custody: explicit world identity repairs a saved room hole, preserves adjacent cluster holes and retiring/retired slots, admits new worlds; atomic validation, exact metadata-only checkpoint and closed ledgers\n";
 }

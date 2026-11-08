@@ -176,6 +176,14 @@ typedef struct MAOniColonyTerrain { uint32_t public_cell, kind; } MAOniColonyTer
 
 MA_ONI_API uint32_t ma_oni_colony_abi_version(void);
 MA_ONI_API uint32_t ma_oni_colony_game_kernel_version(void);
+/* Actual registered-world membership, row-major in the owner's rectangle:
+ * 0 outside every world, 1 inside a world (including its solid terrain).
+ * Caller fences the game submitter and sends this after start/restore, before
+ * the first native shadow, and after a world layout change. Validation is
+ * atomic; an open owner cell cannot be abandoned except during retirement.
+ * This metadata changes no fluid inventory, time or checkpoint bytes. */
+MA_ONI_API uint32_t ma_oni_colony_world_mask_version(void);
+MA_ONI_API MAOniResult ma_oni_colony_set_world_mask(const uint8_t*, uint32_t count);
 /* Dynamic cluster-world boundary metadata. The caller holds the game
  * submitter; this waits for the owner and atomically replaces only the named
  * space flags. No inventory or physical time is changed. These flags already

@@ -22,6 +22,7 @@ internal static class Program
     static int Run()
     {
         var assembly=typeof(MixtureInspection).Assembly;
+        UiInspectionTests.Run(assembly);
         ClusterTemplateTests.Run(assembly);
         ClusterRetirementTests.Run(assembly);
         ValvePreparationTests.Run(assembly);

@@ -44,7 +44,10 @@ of the name. When liquid fills most of the cell, a breathable gas reads
 `Breathable headspace`: duplicants still breathe it (the owner's breathing
 read uses the cell's gas), but the cell is water to ONI. It sits below ONI's notification list and hides while a
 full-screen management screen (skills, research, starmap and the like) is
-open. Its status line gets the height it needs; a fixed 32-pixel line cut a
+open. The 2026-11-08 follow-up reads the management menu's actual active
+screen: the supported game's fullscreen helper misses the Research/Skills
+entries. Both the panel and its Settings click blocker hide on those screens.
+Its status line gets the height it needs; a fixed 32-pixel line cut a
 wrapped `· running` in half. Its text and heights are built once per refresh,
 not on every `OnGUI` call (at least two a frame): 0.16 to 0.09 ms and 10.8 to
 3.3 KB of garbage per Unity frame in the 2026-11-07 measurement below.

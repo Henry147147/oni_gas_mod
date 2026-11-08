@@ -644,11 +644,23 @@ after the step each edited cell has exactly the owner's state.
 Custody is the net for any other way to leave such a hole: a wall ONI holds as
 vacuum since before the frame's shadow, beside an owned cell, with no open
 pending, is opened by the next capture, adopting nothing (no mass or energy
-changes; native stderr reports each, the first 64 per session). Walls ONI
-already holds open at the session's first shadow (cells outside every world)
-and retired rocket worlds are never opened this way; an edit that opens one
-clears that. The mask is session state, not saved: a hole saved before this
-change stays after a load.
+changes; native stderr reports each, the first 64 per session).
+
+Since the 2026-11-08 Windows playtest follow-up, the game supplies actual
+registered-world membership after both start and restore, before the first
+native shadow, and refreshes it as rocket worlds change. Membership comes
+from the registered layout and `Grid.WorldIdx`, independently of the saved
+owner's wall mask. This lets an inherited closed-owner/native-vacuum room
+cell remain eligible for repair. Inferring every such cell at the first
+shadow to be outside every world previously left old saved holes unrepaired.
+Actual cluster gaps and retired rocket slots remain excluded; retirement
+quarantine remains authoritative. Base-game import uses the same membership
+rule, including empty margins. The additive `world_mask_version = 1` API
+validates the complete batch before changing anything and rejects abandonment
+of an open owner cell outside retirement. It changes no solver arithmetic or
+checkpoint layout; membership is reconstructed session metadata. Standalone
+callers without game-world metadata retain conservative first-shadow
+inference. See [the playtest follow-up](windows-playtest-video-fixes.md).
 
 ## Airflow tiles
 
