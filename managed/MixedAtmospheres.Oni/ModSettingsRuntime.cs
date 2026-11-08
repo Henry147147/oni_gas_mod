@@ -169,10 +169,11 @@ namespace MixedAtmospheres.Oni
                 ColonyPresentation.InvalidateLifecycleReadings();
             }
             ColonyDescription = "Changed in this colony.";
+            var when = change.Options || change.Activity ? "from its next frame" : "at once";
             Debug.Log("[Mixed Atmospheres] Colony settings changed in this colony: " + change.Describe(before, applied) +
-                ". The owner applies them from its next frame; the next save records them.");
+                ". It applies " + when + "; the next save records it.");
             if (!differs.Empty) Notice("The colony reports " + differs.Describe(next, applied) + " after the change.");
-            return (true, "Applied to this colony from its next frame; the next save records it.");
+            return (true, "Applied to this colony " + when + "; the next save records it.");
         }
         // The window lists notices and shows the message on its feedback line.
         private static string Refuse(string message) { Notice(message); return message; }
