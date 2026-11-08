@@ -14,7 +14,7 @@ Mixed Atmospheres is a private playtest build for Windows x64 and Linux. It appl
 
 *A real development colony in WindowsPlayer under Proton on Linux.*
 
-Settings open from the Mods row or the status panel. **Gameplay** contains the CO₂ breathing limits switch (Off by default), which you can change during play. **Display & keys** contains appearance and shortcuts. **Advanced** contains solver presets, solver controls, breathing thresholds, performance, advanced display and saved presets. Solver controls and numeric thresholds are fixed per colony; preferences apply at once. Files persist in `mods/config/MixedAtmospheres`, outside the mod folder. Older R&D saves, including nitrogen saves and saves using the earlier pressure update, are refused; start a new colony.
+Settings open from the Mods row or the status panel. **Gameplay** contains the CO₂ breathing limits switch (Off by default), which you can change during play. **Display & keys** contains appearance and shortcuts. **Advanced** contains solver presets, solver controls, breathing thresholds, performance, advanced display and saved presets. Colony settings (solver, region simulation, evaporation, breathing thresholds) are saved per colony and can be changed in a running colony; preferences apply at once. Files persist in `mods/config/MixedAtmospheres`, outside the mod folder. Older R&D saves, including nitrogen saves and saves using the earlier pressure update, are refused; start a new colony.
 
 ![Mixed Atmospheres composition display](docs/images/mixed-atmospheres-composition.png)
 
@@ -144,8 +144,9 @@ Open **Settings** on Mixed Atmospheres' row in **Mods**, or on the status
 panel. **Gameplay** opens first; CO₂ breathing limits default to Off and can
 be changed in a running colony. **Advanced → Solver** holds Default, Robust,
 Fast and Precise solver presets. **Advanced → Breathing thresholds** holds
-oxygen requirements and optional CO₂ thresholds. Solver settings and numeric
-thresholds apply to new colonies and are saved per colony. Display, shortcuts
+oxygen requirements and optional CO₂ thresholds. At the main menu these choose
+the settings of new colonies; in a colony they change that colony from its
+next frame, and its next save records them. Display, shortcuts
 and performance preferences apply immediately. Save and share complete
 presets under **Advanced → Saved presets**. Details:
 [docs/settings.md](docs/settings.md), [starting air](docs/starting-air.md).
