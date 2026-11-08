@@ -110,6 +110,17 @@ Actual-game evidence is scoped as follows:
   and positive fractional germs within the viewport. Some automated menu clicks
   missed their targets; only the inspected aligned captures support menu claims.
 
+An independent review of `b6c26ef`..`dcfd6a0` found no defect to fix. It
+repeated the checks on fresh builds: 93/93 native tests, 516 Python tests
+(11 skips), world-layout, hook and inspection suites. It also restored a
+saved colony, which the checks above did not: the clean `edc362a` Linux
+package loaded `full-colony-base-v1` (saved at `102a6d9`, before either
+hole fix). On the first frame, custody reopened nine inherited closed cells
+that ONI held as vacuum. The run then completed 300 frames with no native
+mass exchange and relative mass/energy errors of 3.8e-15/1.0e-15. The Spaced
+Out full-colony save was not rerun. Steam on this host had been signed in on
+another computer, so Spaced Out content could not activate.
+
 ## Delivered private candidate
 
 Code revision: `edc362a97f87986c4aa6a449d636c89a508f5b0a` (clean manifest).
