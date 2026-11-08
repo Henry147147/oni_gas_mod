@@ -329,6 +329,40 @@ exercise live actors, solid footprints, ports and pending-frame save/load.
 Their current-package game results and Windows OS playtest remain pending;
 these controls do not establish sustained 3× or the other release gates.
 
+## Verification of in-colony changes (2026-11-08)
+
+Native: the `oni_game_kernel` live-options control (profiles 8 and 12 with a
+water pool) shows that bit-equal options keep the checkpoint bytes; a change
+is reported by `copy_options` at once and saved in the core27/core32 fields;
+four solver steps per tick start with the next frame; the changed image
+continues byte for byte after a cold restore; out-of-range values and a stale
+session are refused without change; and a core20 colony is incompatible. The
+replay self-test journals an options change after its save and replays it
+exactly. All 93 Release CTests with the ONI backend pass, and `tools/build.py`
+passes (516 Python tests with 11 skips, 21 CTests, 92 managed/native, 46
+presentation and 345 settings checks). All 61 `ma_mac_*` programs (with their
+CTest arguments where registered) and the owner, backend and replay tests
+give the same output and exit status as the parent `1c1eb33` from clean
+builds, timings excluded, apart from the new PASS line.
+
+Linux game, base-game `base-defaults-p11-v1` (profile 11), `colony-owner-load`:
+
+- Window controls driven by `MA_SETTINGS_CHANGE`: pressure cap 1600, two
+  solver steps, Always simulate, evaporation on and a 12% oxygen share,
+  logged once each and read back from the owner; 300 frames, then a save. A
+  new process restored exactly these values, switched back to Activity tiers
+  and one step, set liquid stiffness 0.1, CO₂ limits on and 12 kPa oxygen,
+  ran 300 frames and saved; a third process restored those and ran 300
+  frames without a change.
+- Real mouse clicks in the open window: evaporation on, Always simulate, the
+  Robust solver preset, a 3200 pressure cap and a 12% oxygen share, while
+  the colony ran; then the pause menu's Save. A new process restored the
+  clicked values and ran 300 frames.
+
+Every run passed with the owner healthy, no mod errors and closed ledgers
+(mass ≤ 2.5e-15, energy ≤ 1.2e-14). Private run records and screenshots are
+under the ignored `artifacts/live-settings/`.
+
 ## Not settings
 
 Fixed by design: game gravity, thermal conduction, the profile's vacuum and
