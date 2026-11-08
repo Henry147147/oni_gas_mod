@@ -164,3 +164,15 @@ is unaffected. The fix builds mimalloc with `MI_WIN_INIT_USE_FLS`, whose
 fiber-local callback receives the heap itself
 ([backend integration](native-backend-integration.md)). Solver arithmetic,
 numerical defaults and checkpoint bytes are unchanged.
+
+Measured with the user's colony settings on new base-game Terra colonies
+(Spaced Out! could not activate: the host's Steam session had been signed in
+elsewhere). Native Linux `edc362a` stays near 3.3 GB over 800 owner frames.
+WindowsPlayer under Proton with the `edc362a` DLLs grows from 5.3 GB at frame
+150 to 8.3 GB at frame 1,050 (3.9 MB per frame) while the managed heap stays
+near 1.1 GB. The fixed DLLs (`fa847cf`, same managed adapter) stay at
+3.99–4.04 GB from frame 150 to frame 1,050 and quit normally through the menu.
+The Windows CTest `native_oni_windows_allocator_thread_heaps` grows 772, 782
+and 438 MiB before the fix (ended threads, regional coordinators, rebuilt
+pools) and at most 0.1 MiB after. The actual Windows OS and the Spaced Out!
+colony itself remain to be confirmed by the user.
