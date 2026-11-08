@@ -83,6 +83,7 @@ namespace MixedAtmospheres.Oni
                     case "phase": Phase(frame, status); break;
                     case "freeze-melt": FreezeMelt(frame, status); break;
                     case "deoxidizer": Deoxidizer(frame, status); break;
+                    case "playtest-ui": PlaytestUi(frame); break;
                     case "playtest-diffusers": PlaytestDiffusers(frame, status); break;
                     case "playtest-pump-vent": PlaytestPumpVent(frame, status); break;
                     case "pipes": Pipes(frame); break;
