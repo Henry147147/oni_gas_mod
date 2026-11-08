@@ -43,6 +43,17 @@ namespace MixedAtmospheres.Oni
             return new MixturePipeReading(label,hover,detail,flow,cell);
         }
         private static string Number(double value)=>MixtureInspection.Number(value);
+        // Native Contents status text has always used one decimal for shares,
+        // including exact development scenes. Keep that short status contract;
+        // hover and selected composition retain their independent precision.
+        internal static string StatusMassPercent(double mass,double total)
+        {
+            var percent=100*(mass/total);
+            if(mass>0&&percent==0)return "below numeric range";
+            var text=percent.ToString("0.#",CultureInfo.InvariantCulture);
+            if(percent>0&&text=="0")text=percent.ToString("G6",CultureInfo.InvariantCulture);
+            return (mass<total&&text=="100"?"<100":text)+"%";
+        }
         // The pipe status line ("Contents: ...") on hover and in details. An
         // owned cell lists its non-trace species with mass shares instead of
         // the dominant element's projection.
@@ -55,7 +66,7 @@ namespace MixedAtmospheres.Oni
             {
                 if(!inventory.ContainsFraction(part.Id,ColonySensors.TraceFraction)){traces=true;continue;}
                 var element=ElementLoader.FindElementByHash(ColonyConduits.ElementHash(part.Id));
-                names.Add(inventory.Count==1?element.name:element.name+" "+MixtureInspection.MassPercent(part.Mass,inventory.Mass));
+                names.Add(inventory.Count==1?element.name:element.name+" "+StatusMassPercent(part.Mass,inventory.Mass));
             }
             if(traces)names.Add("traces");
             var text=string.Format(STRINGS.BUILDING.STATUSITEMS.PIPECONTENTS.CONTENTS,MixtureInspection.PacketMass(inventory.Mass,inventory.Total.Sign>0),
