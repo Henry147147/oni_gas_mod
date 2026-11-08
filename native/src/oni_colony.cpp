@@ -2156,10 +2156,13 @@ void set_options(const MAOniColonyOptions* options) {
     validate_options(value);
     next_options=value;
 }
+// The owner's world, not the latest publication: a change between frames
+// (change_options) is what the next frame and save use before any frame
+// publishes it. Frames hold lifecycle, so a copy waits for one in progress.
 bool copy_options(MAOniColonyOptions& out) {
-    std::shared_ptr<const Published> p; { std::lock_guard lock(publication); p = latest; }
-    require(p != nullptr && p->world != nullptr, "No colony owner is active");
-    const auto& s=p->world->settings();
+    std::lock_guard lock(lifecycle);
+    require(session != nullptr && session->world != nullptr, "No colony owner is active");
+    const auto& s=session->world->settings();
     if (s.numerical_kernel!=MacNumericalKernel::game) return false;
     MAOniColonyOptions o{};o.struct_size=sizeof(o);o.abi_version=2;
     o.pressure_maximum_iterations=s.game.pressure_maximum_iterations;o.heat_maximum_iterations=s.game.heat_maximum_iterations;
@@ -2170,6 +2173,46 @@ bool copy_options(MAOniColonyOptions& out) {
     o.phase_relaxation_time_s=s.game.phase_relaxation_time_s;
     o.evaporation_below_boiling=s.game.phase_rule==MacPhaseRule::equilibrium?1:0;
     out=o;return true;
+}
+namespace { std::FILE* session_journal(const Session&) noexcept; }
+// A loaded colony's saved options changed by the player (docs/settings.md).
+// Under lifecycle, so between owner frames: every later frame, including one
+// already handed to the solver, and the next checkpoint use them. Readings
+// follow at the next publication. Equal options leave the owner untouched.
+bool change_options(std::uint64_t expected,const MAOniColonyOptions& o) {
+    validate_options(o);
+    std::lock_guard lock(lifecycle);
+    require(enabled.load(std::memory_order_acquire) && session && session->world && session->status.session==expected,"Stale colony options session");
+    require(session->status.state==1,"A faulted colony owner keeps its options");
+    // A prepared rocket retirement commits a copy of this session.
+    require(!prepared_retirement,"Finish native rocket grid cleanup before changing colony options");
+    auto& s=*session;
+    const auto& current=s.world->settings();
+    const auto profile=current.game_profile;
+    if(current.numerical_kernel!=MacNumericalKernel::game || !(profile==MacGameProfile::game_kernel_bounded_pressure ||
+        profile==MacGameProfile::game_kernel_sized_intervals || profile==MacGameProfile::game_kernel_carried_momentum ||
+        mac_game_activity_profile(profile)))return false;
+    const ArithmeticScope arithmetic;
+    auto tunables=current;
+    tunables.maximum_timestep_s=o.maximum_timestep_s;tunables.trace_sink_threshold_kg=o.trace_sink_threshold_kg;
+    auto& g=tunables.game;
+    g.pressure_maximum_iterations=o.pressure_maximum_iterations;g.heat_maximum_iterations=o.heat_maximum_iterations;
+    g.flow_parts=o.flow_parts;g.sharpen_liquid_interfaces=o.sharpen_liquid_interfaces!=0;g.liquid_stiffness_ratio=o.liquid_stiffness_ratio;
+    g.pressure_relative_tolerance=o.pressure_relative_tolerance;g.gas_heat_mixing=o.gas_heat_mixing;
+    g.interface_detail_fraction=o.interface_detail_fraction;g.phase_relaxation_time_s=o.phase_relaxation_time_s;
+    g.phase_rule=o.evaporation_below_boiling?MacPhaseRule::equilibrium:MacPhaseRule::boil_only;
+    auto next=s.world->with_game_tunables(tunables);
+    if(next.revision()==s.world->revision())return true;
+    s.world=std::make_shared<const MacClosedWorld>(std::move(next));
+    s.prepared.reset();s.prepared_source.reset();
+    // Input journal replays (oni_colony_replay) apply it before the next frame.
+    if(auto* file=session_journal(s)) {
+        std::fprintf(file,"options %u %u %u %u %a %a %a %a %a %a %a %u\n",o.pressure_maximum_iterations,o.heat_maximum_iterations,o.flow_parts,
+            o.sharpen_liquid_interfaces,o.maximum_timestep_s,o.trace_sink_threshold_kg,o.liquid_stiffness_ratio,o.pressure_relative_tolerance,
+            o.gas_heat_mixing,o.interface_detail_fraction,o.phase_relaxation_time_s,o.evaporation_below_boiling);
+        std::fflush(file);
+    }
+    return true;
 }
 std::uint64_t queue_activity(std::uint64_t expected,double seconds,std::span<const std::uint32_t> actors,
     std::span<const std::uint32_t> touched) {
@@ -3284,11 +3327,11 @@ void journal_diseases(std::span<const MAOniColonyDisease> diseases,std::span<con
         std::fclose(file);
     }
 }
-void journal_inputs(const Session& s,std::uint64_t ticket,double seconds,std::uint64_t frames,bool flush_only,const std::vector<MAOniColonyTransfer>& transfers,
-    const std::vector<MAOniColonyHeat>& heat,const std::vector<MAOniColonyTerrain>& terrain,const std::vector<Freeze>& freezes,
-    const std::vector<GermEdit>& germs,const std::map<std::size_t,std::uint64_t>& jobs,const ActivityTask* activity) noexcept {
+// The active session's input journal, opened at its first entry; null
+// without MA_COLONY_INPUT_JOURNAL_DIR. Under lifecycle.
+std::FILE* session_journal(const Session& s) noexcept {
     const auto* directory=journal_directory();
-    if(!directory)return;
+    if(!directory)return nullptr;
     auto*& file=input_journal_file; auto& file_session=input_journal_session;
     if(file_session!=s.status.session) {
         close_input_journal();
@@ -3297,6 +3340,12 @@ void journal_inputs(const Session& s,std::uint64_t ticket,double seconds,std::ui
         if(file)std::fprintf(file,"session %llu restored_frames %llu\n",static_cast<unsigned long long>(s.status.session),
             static_cast<unsigned long long>(s.status.completed_frames));
     }
+    return file;
+}
+void journal_inputs(const Session& s,std::uint64_t ticket,double seconds,std::uint64_t frames,bool flush_only,const std::vector<MAOniColonyTransfer>& transfers,
+    const std::vector<MAOniColonyHeat>& heat,const std::vector<MAOniColonyTerrain>& terrain,const std::vector<Freeze>& freezes,
+    const std::vector<GermEdit>& germs,const std::map<std::size_t,std::uint64_t>& jobs,const ActivityTask* activity) noexcept {
+    auto* file=session_journal(s);
     if(!file)return;
     std::fprintf(file,"frame %llu flush %d seconds %a ticket %llu transfers %zu heat %zu terrain %zu freezes %zu germs %zu jobs %zu frames %llu\n",
         static_cast<unsigned long long>(s.status.completed_frames+(flush_only?0:1)),flush_only?1:0,seconds,static_cast<unsigned long long>(ticket),

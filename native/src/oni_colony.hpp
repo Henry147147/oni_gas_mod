@@ -99,6 +99,10 @@ void set_diseases(std::span<const MAOniColonyDisease>, std::span<const MAOniColo
 void set_worker_count(unsigned);
 void set_options(const MAOniColonyOptions*);
 bool copy_options(MAOniColonyOptions&);
+// The running colony's saved options, changed between owner frames
+// (docs/settings.md); false for a colony whose profile does not take them.
+// Refusals throw and leave the colony unchanged.
+bool change_options(std::uint64_t session, const MAOniColonyOptions&);
 void queue_germs(std::span<const MAOniColonyGermEdit>);
 void set_radiation(std::span<const std::uint32_t> cells, std::span<const float> rads);
 void germ_accounts(MAOniColonyBiology&, std::vector<MAOniColonyBiologyAccount>&);

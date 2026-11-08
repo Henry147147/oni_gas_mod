@@ -421,6 +421,15 @@ public:
     [[nodiscard]] MacClosedWorld with_game_activity(std::span<const std::uint8_t> touched,
         std::span<const std::uint8_t> actors) const;
     [[nodiscard]] MacClosedWorld with_game_activity_tiers(bool enabled) const;
+    // A running colony's saved tunables changed between frames (game
+    // profiles 6-12, docs/settings.md). The maximum timestep, trace threshold
+    // and the game settings' iteration caps, flow parts, liquid stiffness,
+    // pressure tolerance, gas heat mixing, sharpening, interface detail, phase
+    // relaxation and phase rule come from `tunables`; every other setting, the
+    // state, clock and activity history stay. Bit-equal tunables return this
+    // owner unchanged. A stiffness change re-derives the occupied volumes as
+    // a restore of the saved image does. No physics or clock changes.
+    [[nodiscard]] MacClosedWorld with_game_tunables(const MacClosedSettings& tunables) const;
     [[nodiscard]] std::span<const MacGameActivityCell> game_activity() const noexcept;
     // Informational total physical seconds due in each cell, including every
     // maximum-timestep interval. This is not an ordered owner-stage schedule:

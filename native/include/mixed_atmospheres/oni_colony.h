@@ -439,7 +439,25 @@ typedef struct MAOniColonyOptions {
 MA_ONI_API uint32_t ma_oni_colony_options_version(void);
 MA_ONI_API MAOniResult ma_oni_colony_default_options(MAOniColonyOptions*);
 MA_ONI_API MAOniResult ma_oni_colony_set_options(const MAOniColonyOptions*);
+/* copy_options reads the running owner itself (it waits for a frame in
+ * progress), so it reports a change_options change at once. */
 MA_ONI_API MAOniResult ma_oni_colony_copy_options(MAOniColonyOptions*);
+/* Additive (2026-11-08): changes the running colony's saved options, the
+ * player's in-colony settings (docs/settings.md). session is the running
+ * owner's; ranges are those above. The call takes effect between owner
+ * frames, like set_worker_count: it waits for a frame in progress, and every
+ * later frame (including frames already handed to the solver), copy_options
+ * and the next checkpoint's physical image use the new values; readings
+ * follow at the next publication. A changed liquid stiffness re-derives the
+ * occupied liquid volumes as restoring the saved image would. Bit-equal
+ * options change nothing (no revision, identical checkpoint bytes). Game
+ * profiles 6-12 only (core24-32; profile 6 saves the phase rule as core24 or
+ * core25): MA_ONI_INCOMPATIBLE for other kernels. A stale session, a faulted
+ * owner, a prepared rocket retirement or a value outside its range is
+ * MA_ONI_INVALID_ARGUMENT and leaves the colony unchanged. Options for the
+ * next new colony (set_options) are unaffected. Region simulation changes
+ * through ma_oni_colony_set_activity_tiers. */
+MA_ONI_API MAOniResult ma_oni_colony_change_options(uint64_t session, const MAOniColonyOptions*);
 /* Unsaved execution preference, also changeable in a running colony between
  * frames. Zero selects the physical core count; 1..256 requests that many
  * workers (small grids still use fewer). Invalid values keep the old choice.

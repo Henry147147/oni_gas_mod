@@ -7,6 +7,7 @@
 #include "mac_kernel_detail.hpp"
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <cmath>
 #include <utility>
 #include <limits>
@@ -997,6 +998,42 @@ MacClosedWorld MacClosedWorld::with_diffusion(MacDiffusionSettings setting) cons
     require_diffusion_scope(registry_,state(),setting);
     if(revision_==std::numeric_limits<std::uint64_t>::max())throw std::overflow_error("MAC revision overflow");
     auto candidate=*this;candidate.settings_.diffusion=setting;++candidate.revision_;return candidate;
+}
+MacClosedWorld MacClosedWorld::with_game_tunables(const MacClosedSettings& tunables) const {
+    const auto profile=settings_.game_profile;
+    require(settings_.numerical_kernel==MacNumericalKernel::game && (profile==MacGameProfile::game_kernel_bounded_pressure ||
+        profile==MacGameProfile::game_kernel_sized_intervals || profile==MacGameProfile::game_kernel_carried_momentum ||
+        mac_game_activity_profile(profile)),"Running game tunables need game profile6-12");
+    auto next=settings_;auto& g=next.game;const auto& t=tunables.game;
+    next.maximum_timestep_s=tunables.maximum_timestep_s;next.trace_sink_threshold_kg=tunables.trace_sink_threshold_kg;
+    g.pressure_maximum_iterations=t.pressure_maximum_iterations;g.heat_maximum_iterations=t.heat_maximum_iterations;
+    g.flow_parts=t.flow_parts;g.liquid_stiffness_ratio=t.liquid_stiffness_ratio;g.pressure_relative_tolerance=t.pressure_relative_tolerance;
+    g.gas_heat_mixing=t.gas_heat_mixing;g.sharpen_liquid_interfaces=t.sharpen_liquid_interfaces;
+    g.interface_detail_fraction=t.interface_detail_fraction;g.phase_relaxation_time_s=t.phase_relaxation_time_s;g.phase_rule=t.phase_rule;
+    next.validate();
+    const auto bits=[](double v){return std::bit_cast<std::uint64_t>(v);};
+    const auto& o=settings_.game;
+    const bool stiffness=bits(g.liquid_stiffness_ratio)!=bits(o.liquid_stiffness_ratio);
+    if(!stiffness && bits(next.maximum_timestep_s)==bits(settings_.maximum_timestep_s) &&
+       bits(next.trace_sink_threshold_kg)==bits(settings_.trace_sink_threshold_kg) &&
+       g.pressure_maximum_iterations==o.pressure_maximum_iterations && g.heat_maximum_iterations==o.heat_maximum_iterations &&
+       g.flow_parts==o.flow_parts && bits(g.pressure_relative_tolerance)==bits(o.pressure_relative_tolerance) &&
+       bits(g.gas_heat_mixing)==bits(o.gas_heat_mixing) && g.sharpen_liquid_interfaces==o.sharpen_liquid_interfaces &&
+       bits(g.interface_detail_fraction)==bits(o.interface_detail_fraction) &&
+       bits(g.phase_relaxation_time_s)==bits(o.phase_relaxation_time_s) && g.phase_rule==o.phase_rule)return *this;
+    auto out=MacClosedWorld(Derived{},*this,state_snapshot_);out.game_totals_=game_totals_;out.settings_=next;
+    if(stiffness) {
+        // Occupied liquid volumes follow the stiffness: derive them exactly
+        // as the constructor does for a restored image (same cells, same EOS).
+        require_mac_energy_environment();
+        auto st=state();MacGameKernelAccess::validate(out,st);
+        bool partial=false;
+        for(std::size_t i=0;i<st.occupied_volumes_m3.size();++i)
+            partial=partial || (st.occupied_volumes_m3[i]<st.grid.volume_m3() && std::as_const(st).cells[i].mixture.mass()>0);
+        if(!partial)st.occupied_volumes_m3.clear();
+        out.replace_state(std::move(st));
+    }
+    return out;
 }
 namespace {
 void combine(double& a,double b) { a+=b; }

@@ -300,6 +300,88 @@ int main() {
               "Options leaked into an older game profile");
     }
     std::cout<<"PASS profile8 options: defaults byte-identical, higher caps identical results, saved/restored values, refusals\n";
+    {
+      // Live options (docs/settings.md): a loaded colony's options change
+      // between owner frames. Bit-equal options keep the checkpoint bytes;
+      // changed values are reported at once, saved in the physical image and
+      // continue exactly after a cold restore of that image; refusals leave
+      // the colony unchanged. A water pool under oxygen makes the liquid
+      // stiffness (occupied volumes) and the phase rule matter.
+      auto water=oxygen();water.native_index=3;water.element_hash=33;water.phase=2;water.molar_mass_kg_per_mol=.018015;
+      water.specific_heat_j_per_kg_k=4184;water.conductivity_w_per_m_k=.6;water.density_kg_per_m3=1000;
+      water.low_temperature_k=250;water.high_temperature_k=373.15;water.high_target=44;std::strcpy(water.id,"Water");
+      auto steam=oxygen();steam.native_index=4;steam.element_hash=44;steam.molar_mass_kg_per_mol=.018015;
+      steam.specific_heat_j_per_kg_k=2010;steam.low_temperature_k=373.15;steam.high_temperature_k=10000;steam.low_target=33;std::strcpy(steam.id,"Steam");
+      const std::vector<MAOniColonyMaterial> wet{oxygen(),hydrogen,water,steam};
+      auto pool=cells;
+      for(std::size_t x=1;x<4;++x)pool[x+W]={3,MA_ONI_COLONY_FLUID,600,300,0,0};
+      const auto same=[](const MAOniColonyOptions& a,const MAOniColonyOptions& b){return std::memcmp(&a,&b,sizeof a)==0;};
+      const auto defaults=c::default_options();
+      auto changed=defaults;changed.maximum_timestep_s=static_cast<double>(.05f);changed.pressure_relative_tolerance=1e-10;
+      changed.pressure_maximum_iterations=1600;changed.heat_maximum_iterations=3200;changed.flow_parts=3;changed.gas_heat_mixing=4;
+      changed.liquid_stiffness_ratio=.1;changed.sharpen_liquid_interfaces=0;changed.interface_detail_fraction=.05;
+      changed.phase_relaxation_time_s=2;changed.trace_sink_threshold_kg=1e-9;changed.evaporation_below_boiling=1;
+      for(const bool activity:{false,true}) {
+        auto cfg=config;cfg.flags|=MA_ONI_COLONY_GAME_SURFACE|(activity?MA_ONI_COLONY_GAME_ACTIVITY:0U);
+        // Always simulate, so every region advances in this small control.
+        if(activity)c::set_activity_tiers(0,false);
+        c::set_options(nullptr);c::start(cfg,wet,pool,1);
+        std::uint64_t frame=0;
+        const auto step=[&](int count){
+          for(int k=0;k<count;++k){
+            if(activity)(void)c::queue_activity(c::status().session,static_cast<double>(.2f),{},{});
+            c::advance(++frame,static_cast<double>(.2f),2);c::wait();
+          }
+          require(c::status().state==1,"Live options colony faulted");
+        };
+        step(2);
+        const auto session=c::status().session;
+        const auto before=c::checkpoint();const auto substeps_before=c::status().substeps;
+        require(c::change_options(session,defaults) && c::checkpoint()==before,"Bit-equal live options changed the checkpoint bytes");
+        step(1);const auto default_substeps=c::status().substeps-substeps_before;
+        const auto unchanged=c::checkpoint();
+        require(c::change_options(session,changed),"Live options were not taken by a profile8/12 colony");
+        MAOniColonyOptions reported{};require(c::copy_options(reported) && same(reported,changed),"copy_options did not report the live change at once");
+        const auto saved=c::checkpoint();
+        require(saved!=unchanged && core_version(saved)==(activity?32U:27U) && heat_mixing(saved)==4 && phase_selector(saved)==0,
+                "The live change was not saved in the physical image");
+        for(int k=0;k<4;++k){
+          auto bad=changed;
+          switch(k){case 0:bad.flow_parts=0;break;case 1:bad.maximum_timestep_s=.2;break;case 2:bad.liquid_stiffness_ratio=2;break;default:bad.reserved=1;break;}
+          bool refused=false;try{(void)c::change_options(session,bad);}catch(const std::invalid_argument&){refused=true;}
+          require(refused && c::copy_options(reported) && same(reported,changed) && c::checkpoint()==saved,"A refused live option changed the colony");
+        }
+        bool stale=false;try{(void)c::change_options(session+1,defaults);}catch(const std::invalid_argument&){stale=true;}
+        require(stale && c::checkpoint()==saved,"A stale session changed the colony options");
+        const auto substeps_changed=c::status().substeps;
+        step(3);
+        // Substeps count flow parts: one 0.2 s interval of two parts by
+        // default, then four 0.05 s intervals of three parts per frame.
+        const auto changed_substeps=c::status().substeps-substeps_changed;
+        if(default_substeps!=defaults.flow_parts || changed_substeps!=3*4*changed.flow_parts)
+          throw std::runtime_error("Four solver steps per tick did not apply from the next frame: "+std::to_string(default_substeps)+
+                                   " per default frame, "+std::to_string(changed_substeps)+" in three changed frames");
+        const auto live_end=c::checkpoint();const auto live_status=c::status();
+        require(live_status.maximum_relative_mass_error<1e-12 && live_status.maximum_relative_energy_error<1e-12,"Live options broke the ledgers");
+        c::stop();
+        c::set_options(nullptr);
+        c::restore(cfg,wet,saved,1);
+        require(c::copy_options(reported) && same(reported,changed) && c::checkpoint()==saved,"Restoring the changed image did not keep its options");
+        frame=3;step(3);
+        require(c::checkpoint()==live_end,"Cold continuation after a live options change differs");
+        require(c::change_options(c::status().session,defaults) && c::copy_options(reported) && same(reported,defaults),"Live options did not return to Default");
+        step(1);
+        c::stop();
+        if(activity)c::set_activity_tiers(0,true);
+      }
+      bool stopped=false;try{(void)c::change_options(1,defaults);}catch(const std::invalid_argument&){stopped=true;}
+      require(stopped,"Live options were accepted without an owner");
+      c::set_options(nullptr);c::start(config,wet,pool,1);
+      const auto core20=c::checkpoint();
+      require(!c::change_options(c::status().session,changed) && c::checkpoint()==core20,"Live options reached an older game profile");
+      c::stop();
+    }
+    std::cout<<"PASS live options: bit-equal unchanged, reported at once, saved, exact cold continuation, refusals, older profiles\n";
     std::cout << "PASS diagnostic kernel3 owner flag5, ownEOS publication, "
                  "native heat, opened door, zero retry/phase skips, ledgers "
                  "and exact owner cold continuation\n";

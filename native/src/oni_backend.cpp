@@ -1501,6 +1501,15 @@ MAOniResult ma_oni_colony_copy_options(MAOniColonyOptions* output) {
         *output=value;
     });
 }
+MAOniResult ma_oni_colony_change_options(std::uint64_t session,const MAOniColonyOptions* options) {
+    return boundary([&] {
+        if(!options) throw Failure(MA_ONI_INVALID_ARGUMENT,"Colony options are required");
+        bool taken=false;
+        try { taken=ma::oni::colony::change_options(session,*options); }
+        catch(const std::invalid_argument& error) {throw Failure(MA_ONI_INVALID_ARGUMENT,error.what());}
+        if(!taken) throw Failure(MA_ONI_INCOMPATIBLE,"This colony's game profile does not take option changes");
+    });
+}
 std::uint32_t ma_oni_colony_world_biology_version() { return 2; }
 MAOniResult ma_oni_colony_set_diseases(const MAOniColonyDisease* diseases,std::uint32_t disease_count,
     const MAOniColonyDiseaseGrowth* growth,std::uint32_t element_count) {

@@ -27,6 +27,8 @@
 #include <cstdio>
 #include <cstring>
 #include <fstream>
+#include <optional>
+#include <utility>
 #include <iostream>
 #include <iterator>
 #include <map>
@@ -108,21 +110,33 @@ OwnerParts parse(const std::vector<std::uint8_t>& image) {
 }
 struct Input { char kind; std::vector<std::string> fields; std::vector<std::pair<std::uint64_t, double>> passives; std::vector<std::uint8_t> wire; };
 struct Frame { double seconds = 0; std::uint64_t frames = 1; bool flush = false,after_checkpoint=false; std::vector<Input> inputs;
-    bool activity=false;std::uint64_t activity_sequence=0;int mode=-1;std::vector<std::uint32_t> actors,touched; };
+    bool activity=false;std::uint64_t activity_sequence=0;int mode=-1;std::vector<std::uint32_t> actors,touched;
+    std::optional<MAOniColonyOptions> options; }; // a player's options change just before this frame
 double hex(const std::string& text) { return std::strtod(text.c_str(), nullptr); }
 std::vector<std::pair<std::uint64_t, Frame>> journal(const std::string& path,const std::string& checkpoint_digest={}) {
     std::ifstream in(path); require(in.good(), "Cannot read journal " + path);
     std::vector<std::pair<std::uint64_t, Frame>> frames; std::string line;bool after_checkpoint=false;
+    std::optional<MAOniColonyOptions> options;
     while (std::getline(in, line)) {
         std::istringstream words(line); std::vector<std::string> f; for (std::string w; words >> w;) f.push_back(w);
         if (f.empty() || f[0] == "session") continue;
         if(f[0]=="checkpoint") {
             require(f.size()==3,"Invalid checkpoint journal marker");
-            if(!after_checkpoint && f[2]==checkpoint_digest){frames.clear();after_checkpoint=true;}
+            // The saved image already holds an earlier options change.
+            if(!after_checkpoint && f[2]==checkpoint_digest){frames.clear();options.reset();after_checkpoint=true;}
             continue;
         }
+        if(f[0]=="options") {
+            require(f.size()==13,"Invalid options journal entry");
+            MAOniColonyOptions o{};o.struct_size=sizeof(o);o.abi_version=2;
+            const auto u=[&](std::size_t k){return static_cast<std::uint32_t>(std::stoul(f[k]));};
+            o.pressure_maximum_iterations=u(1);o.heat_maximum_iterations=u(2);o.flow_parts=u(3);o.sharpen_liquid_interfaces=u(4);
+            o.maximum_timestep_s=hex(f[5]);o.trace_sink_threshold_kg=hex(f[6]);o.liquid_stiffness_ratio=hex(f[7]);o.pressure_relative_tolerance=hex(f[8]);
+            o.gas_heat_mixing=hex(f[9]);o.interface_detail_fraction=hex(f[10]);o.phase_relaxation_time_s=hex(f[11]);o.evaporation_below_boiling=u(12);
+            options=o;continue;
+        }
         if (f[0] == "frame") {
-            Frame frame; frame.flush = f[3] == "1"; frame.seconds = hex(f[5]);frame.after_checkpoint=after_checkpoint;
+            Frame frame; frame.flush = f[3] == "1"; frame.seconds = hex(f[5]);frame.after_checkpoint=after_checkpoint;frame.options=std::exchange(options,{});
             for (std::size_t k = 8; k + 1 < f.size(); k += 2) if (f[k] == "frames") frame.frames = std::stoull(f[k + 1]);
             frames.emplace_back(std::stoull(f[1]), std::move(frame)); continue;
         }
@@ -244,6 +258,7 @@ std::size_t replay(const std::vector<std::uint8_t>& saved, const std::vector<std
         }
         flush();
         require(skip_t+skip_h+skip_r+skip_f+skip_g==0,"Restored inputs exceed the committed journal frame");
+        if(frame.options)require(change_options(status().session,*frame.options),"Replayed options change was refused");
         if(frame.activity && frame.mode>=0)set_activity_tiers(status().session,frame.mode!=0);
         if(restored_activity_frame) {
             claim_activity_frame(status().session,frame.activity_sequence,frame.seconds);
@@ -321,6 +336,13 @@ std::vector<std::string> self_test(const std::string& parent,bool activity=false
         queue_transfers(inputs);
         const MAOniColonyHeat heat{width + 2, 0, 7.5 * static_cast<double>(frame), 2000}; queue_heat(std::span(&heat, 1));
         if(activity) {
+            if(frame==6) {
+                // A player's options change after the save (docs/settings.md):
+                // journaled, and applied by the replay before the same frame.
+                auto options=default_options();options.maximum_timestep_s=static_cast<double>(.1f);options.gas_heat_mixing=4;
+                options.evaporation_below_boiling=1;
+                require(change_options(status().session,options),"Self-test options change was refused");
+            }
             if(frame==6)set_activity_tiers(status().session,false);
             if(frame==7)set_activity_tiers(status().session,true);
             const std::vector<std::uint32_t> actors=frame==6?std::vector<std::uint32_t>{}:
