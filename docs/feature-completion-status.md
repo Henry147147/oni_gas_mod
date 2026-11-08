@@ -1,5 +1,12 @@
 # Feature completion work
 
+**Update, 2026-11-08:** private candidate [0.1.1](playtest-0.1.1.md)
+(`a914a00`) makes colony settings changeable on an existing save, fixes the
+Windows owner DLL's per-frame memory growth (52 GB in the user's Spaced Out!
+colony) and makes the status panel movable, collapsible and hideable with a
+top-bar button. A Spaced Out! colony and the Windows OS itself remain to be
+confirmed by the user.
+
 **Update, 2026-11-06:** a beta for wider playtesting needs sustained 1× on
 the full-colony saves; 3× stays the speed goal
 ([amendment](completion-plan.md#amendments)). The base full colony runs about
