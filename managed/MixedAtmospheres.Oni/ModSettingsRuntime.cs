@@ -11,7 +11,8 @@ namespace MixedAtmospheres.Oni
     // The settings the game uses (docs/settings.md). The player's choices live
     // in mods/config/MixedAtmospheres (config.json, presets/). A new colony
     // takes the chosen colony settings and records them; a loaded colony uses
-    // what it recorded. Validation scenes never read the player's files: they
+    // what it recorded, and changes made in it (ChangeColony) apply to it and
+    // its next save only. Validation scenes never read the player's files: they
     // use Default, or the preset MA_COLONY_SETTINGS_PRESET names (a built-in
     // id or a preset file path), so harness results never depend on a
     // player's configuration.
@@ -22,6 +23,7 @@ namespace MixedAtmospheres.Oni
         [DllImport(Library, EntryPoint = "ma_oni_colony_set_options", CallingConvention = CallingConvention.Cdecl)] private static extern int SetOptions(ref NativeColonyOptions options);
         [DllImport(Library, EntryPoint = "ma_oni_colony_set_options", CallingConvention = CallingConvention.Cdecl)] private static extern int ResetOptions(IntPtr none);
         [DllImport(Library, EntryPoint = "ma_oni_colony_copy_options", CallingConvention = CallingConvention.Cdecl)] private static extern int CopyOptions(ref NativeColonyOptions options);
+        [DllImport(Library, EntryPoint = "ma_oni_colony_change_options", CallingConvention = CallingConvention.Cdecl)] private static extern int ChangeOptions(ulong session, ref NativeColonyOptions options);
         [DllImport(Library, EntryPoint = "ma_oni_last_error", CallingConvention = CallingConvention.Cdecl)] private static extern IntPtr LastError();
         [DllImport(Library, EntryPoint = "ma_oni_colony_physical_core_count", CallingConvention = CallingConvention.Cdecl)] private static extern uint PhysicalCoreCount();
         [DllImport(Library, EntryPoint = "ma_oni_colony_set_worker_count", CallingConvention = CallingConvention.Cdecl)] private static extern int SetWorkerCount(uint workers);
@@ -38,8 +40,11 @@ namespace MixedAtmospheres.Oni
         internal static readonly List<string> Notices = new List<string>();
         internal static event System.Action? PreferencesChanged;
 
-        // The running colony's recorded colony settings; null without a colony.
+        // The running colony's colony settings (as recorded, then as changed in
+        // the colony); null without a colony.
         internal static SettingValues? Colony { get; private set; }
+        // Which of them the running colony takes (None without a colony).
+        internal static ColonyCapabilities Capabilities { get; private set; } = ColonyCapabilities.None;
         internal static string ColonyDescription { get; private set; } = "";
         private static SettingValues? loadedRecord;   // from a save, until its owner restores
         private static SettingValues? startedWith;    // the values handed to the next start
@@ -92,29 +97,85 @@ namespace MixedAtmospheres.Oni
             if (!Notices.Contains(message)) Notices.Add(message);
         }
 
-        // Changes made in the settings window. Colony values affect only the
-        // next new colony; preferences apply at once.
+        // Changes made in the settings window at the main menu (and preferences
+        // anywhere). Colony values here affect only the next new colony;
+        // preferences apply at once.
         internal static void Set(SettingValues values, string presetId)
         {
             Current = values; CurrentPresetId = presetId;
             ApplyPreferences();
             Persist();
         }
-        // This gameplay switch can change in a running colony without changing
-        // its fluid state or solver settings. The next save records the choice.
+        // In a colony the switch changes that colony (ChangeColony); at the
+        // main menu it chooses the default for new colonies.
         internal static void SetCarbonDioxideLimits(bool enabled)
         {
             if (ColonyOwner.Active && Colony != null)
             {
-                Colony = Colony.With(SettingCatalog.Co2Limits, enabled);
-                var model = MixturePresentationRuntime.CurrentModel;
-                if (model != null) MixturePresentationRuntime.Configure(model.WithBreathingSettings(Breathing));
-                ColonyPresentation.InvalidateLifecycleReadings();
-                ColonyDescription = "Breathing rules updated in this colony.";
+                var (applied, message) = ChangeColony(Colony.With(SettingCatalog.Co2Limits, enabled));
+                if (!applied) throw new InvalidOperationException(message);
                 return;
             }
             Set(Current.With(SettingCatalog.Co2Limits, enabled), "custom");
         }
+
+        // A change to the loaded colony's settings (docs/settings.md). Breathing
+        // applies at once in managed code; solver tunables and evaporation go to
+        // the owner's options and region simulation to its activity policy, both
+        // between owner frames. The colony's next save records what applied.
+        // The values chosen for new colonies (Current, config.json) stay as
+        // they are, as the CO2 switch always behaved. A refusal (a locked
+        // setting, a value native refuses) leaves the colony unchanged and
+        // shows a notice. Returns whether it applied and what to tell the player.
+        internal static (bool applied, string message) ChangeColony(SettingValues next)
+        {
+            var before = Colony;
+            if (!ColonyOwner.Active || before == null) return (false, ColonyCapabilities.NotSimulated);
+            var change = ColonyChange.Plan(before, next, Capabilities);
+            if (change.Empty) return (true, "No change.");
+            if (change.Refusal != null) return (false, Refuse(change.Refusal));
+            var session = ColonyOwner.Status.Session;
+            var optionsChanged = false;
+            try
+            {
+                if (change.Options)
+                {
+                    NativeColonyOptions.CheckLayout();
+                    var native = next.ToNative();
+                    var result = ChangeOptions(session, ref native);
+                    if (result != 0) throw new InvalidOperationException(Marshal.PtrToStringAnsi(LastError()) ?? ("error " + result));
+                    optionsChanged = true;
+                }
+                if (change.Activity)
+                    OniNativeColony.Check(OniNativeColony.SetActivityTiers(session, next.Choice(SettingCatalog.RegionActivity) == "tiers" ? 1u : 0u));
+            }
+            catch (Exception error) when (error is InvalidOperationException || error is FormatException || error is EntryPointNotFoundException || error is NotSupportedException)
+            {
+                if (optionsChanged)
+                {
+                    try { var previous = before.ToNative(); _ = ChangeOptions(session, ref previous); }
+                    catch (Exception undo) when (!(undo is OutOfMemoryException)) { Debug.LogWarning("[Mixed Atmospheres] Settings: the earlier solver settings could not be restored: " + undo.Message); }
+                }
+                return (false, Refuse("The colony settings could not be changed (" + error.Message + ")."));
+            }
+            // What the owner now holds, read back from it, with the new breathing rules.
+            var applied = WithRunningSolver(next);
+            var differs = ColonyChange.Plan(next, applied, Capabilities);
+            Colony = applied;
+            if (change.Breathing)
+            {
+                var model = MixturePresentationRuntime.CurrentModel;
+                if (model != null) MixturePresentationRuntime.Configure(model.WithBreathingSettings(Breathing));
+                ColonyPresentation.InvalidateLifecycleReadings();
+            }
+            ColonyDescription = "Changed in this colony.";
+            Debug.Log("[Mixed Atmospheres] Colony settings changed in this colony: " + change.Describe(before, applied) +
+                ". The owner applies them from its next frame; the next save records them.");
+            if (!differs.Empty) Notice("The colony reports " + differs.Describe(next, applied) + " after the change.");
+            return (true, "Applied to this colony from its next frame; the next save records it.");
+        }
+        // The window lists notices and shows the message on its feedback line.
+        private static string Refuse(string message) { Notice(message); return message; }
 
         internal static void Persist()
         {
@@ -196,7 +257,7 @@ namespace MixedAtmospheres.Oni
         }
         internal static void AfterStart()
         {
-            Colony = WithRunningSolver(startedWith ?? SettingValues.Defaults());
+            Colony = WithRunningSolver(startedWith ?? SettingValues.Defaults(), true);
             ColonyDescription = "Started with " + PresetName(startedPreset) + ".";
             startedWith = null;
             Debug.Log("[Mixed Atmospheres] New colony settings: " + Describe(Colony) + ".");
@@ -207,22 +268,32 @@ namespace MixedAtmospheres.Oni
             loadedRecord = bytes == null ? throw new NotSupportedException("This R&D save predates the current breathing settings. Start a new colony.") : ColonySettingsRecord.Decode(bytes, SettingValues.Defaults());
         internal static void Restored()
         {
-            Colony = WithRunningSolver(loadedRecord ?? throw new InvalidOperationException("The colony breathing settings were not loaded."));
+            Colony = WithRunningSolver(loadedRecord ?? throw new InvalidOperationException("The colony breathing settings were not loaded."), true);
             ColonyDescription = "Recorded in this colony's save.";
             loadedRecord = null;
             Debug.Log("[Mixed Atmospheres] Restored colony settings: " + Describe(Colony) + ".");
         }
         internal static byte[]? CaptureRecord() => Colony == null ? null : ColonySettingsRecord.Encode(Colony);
-        internal static void Reset() { Colony = null; ColonyDescription = ""; loadedRecord = null; startedWith = null; }
+        internal static void Reset() { Colony = null; Capabilities = ColonyCapabilities.None; ColonyDescription = ""; loadedRecord = null; startedWith = null; }
 
-        private static SettingValues WithRunningSolver(SettingValues basis)
+        // The running owner's options and requested activity policy (a queued
+        // change included) over `basis`. `assess` also records which settings
+        // the colony takes, from its configuration flags.
+        private static SettingValues WithRunningSolver(SettingValues basis, bool assess = false)
         {
             var native = new NativeColonyOptions { Size = NativeColonyOptions.Bytes, Version = NativeColonyOptions.CurrentVersion };
-            try { if (CopyOptions(ref native) == 0) basis = basis.WithNative(native); }
+            var reported = false;
+            try { if (CopyOptions(ref native) == 0) { basis = basis.WithNative(native); reported = true; } }
             catch (Exception error) when (error is EntryPointNotFoundException || error is FormatException)
             { Debug.LogWarning("[Mixed Atmospheres] The running colony's solver settings could not be read: " + error.Message); }
             var activity = OniNativeColony.ActivityState.Empty;
             OniNativeColony.Check(OniNativeColony.CopyActivity(ref activity));
+            if (assess)
+            {
+                var flags = ColonyOwner.Config.Flags;
+                Capabilities = ColonyCapabilities.Of((flags & OniNativeColony.GameKernel) != 0, (flags & OniNativeColony.GameSurface) != 0,
+                    (flags & OniNativeColony.GameActivity) != 0, reported);
+            }
             return basis.With(SettingCatalog.RegionActivity, activity.Enabled != 0 ? "tiers" : "always");
         }
 

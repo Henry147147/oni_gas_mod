@@ -23,8 +23,8 @@ it. Code: `ModSettings*.cs` (model, files, window, runtime); tests:
   holds no humidity. Every gas follows the same rule with the total gas
   pressure, so a minor gas in a strongly compressed mixture can condense
   (chlorine in Terra's ~19 bar hydrogen pocket). **On** restores realistic
-  evaporation into drier air and equilibrium humidity. It is chosen for new colonies, saved in the colony's
-  physical image and read-only during play
+  evaporation into drier air and equilibrium humidity. It is saved in the
+  colony's physical image and can be changed during play
   ([boil-only rule](../native/MAC_PHASE_CHANGE.md#boil-only-rule)). It is a
   gameplay rule rather than a solver tunable, so it is on Gameplay; solver
   presets keep it as chosen.
@@ -33,15 +33,17 @@ it. Code: `ModSettings*.cs` (model, files, window, runtime); tests:
   disturbed remote regions run at a reduced cadence and eventually pause.
   Untouched regions pause without catching up when disturbed later. **Always
   simulate** updates every fluid region each game tick. The choice is saved
-  per colony and is read-only during play; supported older profiles continue
-  with Always simulate.
+  per colony and can be changed during play; profiles 6–8 always simulate and
+  keep it read-only.
 - **Display & keys** contains reading precision, mixture appearance, status
   panel options and shortcuts. Changes apply immediately.
 - **Advanced** contains **Solver** (including solver presets), **Breathing
   thresholds**, **Performance**, **Display** and **Saved presets**. Each technical section
   is explicitly labelled Advanced. Solver settings and numeric breathing
-  thresholds are chosen before starting a colony, saved per colony, and shown
-  read-only during play. Performance and display preferences remain editable.
+  thresholds are saved per colony; at the main menu they are chosen for new
+  colonies, in a colony they change that colony
+  ([changing a loaded colony](#changing-a-loaded-colony)). Performance and
+  display preferences remain editable.
 
 Nitrogen elements, nitrogen starting air and the Hard mode preset have been
 removed. World generation keeps its usual oxygen and polluted oxygen.
@@ -70,6 +72,48 @@ is marked **experimental** in the window. The native library refuses values
 outside the ranges (`ma_oni_colony_set_options`); a refusal starts the colony
 with Default and shows a notice.
 
+## Changing a loaded colony
+
+In a colony (user decision 2026-11-08) the window shows that colony's current
+colony settings and every one of them can be changed: solver tunables and the
+solver presets (Default/Robust/Fast/Precise) on Advanced → Solver, Region
+simulation, Evaporation below boiling, the CO₂ switch and the breathing
+thresholds. Loading complete presets and **Reset colony settings to Default**
+still choose new colonies' settings and stay at the main menu.
+
+- A change applies to the running colony between owner frames and is logged
+  once in Player.log (`Colony settings changed in this colony: key old → new`).
+  The colony's next save records it: solver tunables and evaporation in the
+  physical image, region simulation in the owner wrapper (a queued policy
+  change included), breathing in section 3. Loading a save uses the values it
+  holds.
+- As the CO₂ switch always did, a change in a colony does not change the
+  main-menu choices (`config.json`) for new colonies.
+- Solver tunables and evaporation go to the owner's options
+  (`ma_oni_colony_change_options`, additive to options version 2). The call
+  waits for a frame in progress; every later frame, including frames already
+  handed to the solver, uses the new values. Game frames stay 0.2 s; Solver
+  steps per game tick only sets the largest step within each, and pacing
+  holds the game clock to the solver, so no queued frame, pacing state or
+  kernel cache keeps the old step.
+  A changed liquid stiffness re-derives occupied liquid volumes as loading the
+  save would; readings follow at the next published frame.
+- Region simulation goes to the owner's activity policy
+  (`ma_oni_colony_set_activity_tiers` with the session) at the next frame or
+  zero-time flush. Always simulate wakes every region from that frame without
+  catching up paused time; Activity tiers classifies regions from their saved
+  activity history.
+- Breathing thresholds and the CO₂ switch apply at once in managed code.
+- Game profiles 6–12 take solver and evaporation changes (profile 6 saves the
+  phase rule as core24 or core25); profiles 9–12 take region simulation.
+  Profiles 6–8 keep Region simulation read-only (they always simulate), and a
+  development solver without saved options keeps its solver settings
+  read-only; the window gives the reason on the row.
+- A value outside its range, a stale or faulted owner or a pending rocket
+  cleanup is refused: the colony keeps its values and a notice says why.
+- With no change made, solver arithmetic and checkpoint bytes are unchanged;
+  bit-equal options change nothing. No save format changed.
+
 ## Presets
 
 Under **Advanced → Solver**, Default, Robust, Fast and Precise apply only
@@ -90,8 +134,9 @@ Lower caps are not offered: they are never faster, and reaching a cap stops
 the simulation. Players save the shown settings (colony settings and
 preferences) as their own presets and overwrite, rename, delete, load, copy to
 the clipboard and import from it. In a colony, **Save this colony's
-settings** keeps that colony's values as a preset; loading presets and resetting
-colony settings happen in the main menu. **Reset colony settings to Default**
+settings** keeps that colony's values as a preset and the solver presets
+apply to that colony; loading complete presets and resetting colony settings
+happen in the main menu. **Reset colony settings to Default**
 and **Reset preferences** restore the defaults.
 
 ## Files
@@ -124,7 +169,8 @@ under `/tmp`.
 
 ## Colony settings
 
-All are recorded per colony. Only the CO₂ switch is editable in a loaded colony. Native ranges are
+All are recorded per colony and can be changed in a loaded colony
+([above](#changing-a-loaded-colony)). Native ranges are
 those of `MAOniColonyOptions` (`oni_colony.h`, options version 2, 88 bytes,
 which adds `evaporation_below_boiling`).
 
@@ -297,7 +343,7 @@ player chooses unless set:
 | Purpose | Variables |
 | --- | --- |
 | Solver/pipe selectors for development runs (unsupported for play) | `MA_COLONY_GAME_FLOOR`, `MA_COLONY_KERNEL3`, `MA_COLONY_KERNEL3_POSITIVE`, `MA_COLONY_KERNEL3_SURFACE`, `MA_COLONY_KERNEL3_PROFILE8`, `MA_COLONY_MIXED_PIPES=0`, `MA_COLONY_PIPE_SAVES=0`, `MA_COLONY_SUBSTEP_TRACE`, `MA_COLONY_FAST_PHASE_EOS`, `MA_COLONY_GERM_ORACLE`, `MA_MAC_WORKERS` |
-| Harness | `MA_COLONY_STARTING_RESERVE` (validation scenes place the starting oxylite reserve), `MA_COLONY_SETTINGS_PRESET`, `MA_SETTINGS_OPEN` (opens the window on tab N at the menu and in a colony, unpaused; `mods` clicks the Mods-screen button), `MA_COLONY_SAVE_CONTROL`, `MA_COLONY_SAVE_FRAME`, `MA_COLONY_CONTINUATION_FRAMES`, `MA_COLONY_EXPECT_LOAD_REFUSAL`, `MA_COLONY_PIPE_CONTACT_HEAT` |
+| Harness | `MA_COLONY_STARTING_RESERVE` (validation scenes place the starting oxylite reserve), `MA_COLONY_SETTINGS_PRESET`, `MA_SETTINGS_OPEN` (opens the window on tab N at the menu and in a colony, unpaused; `mods` clicks the Mods-screen button), `MA_SETTINGS_CHANGE` (`key=value;…;solver-preset=<id>`: once the window opened in a colony, makes those changes through its controls), `MA_COLONY_SAVE_CONTROL`, `MA_COLONY_SAVE_FRAME`, `MA_COLONY_CONTINUATION_FRAMES`, `MA_COLONY_EXPECT_LOAD_REFUSAL`, `MA_COLONY_PIPE_CONTACT_HEAT` |
 | Frame-time measurement (docs/colony-owner.md#main-thread-smoothness) | `MA_FRAME_LOG=1` (frame-time log in Player.log; the preference "Log frame timing" does the same), `MA_COLONY_WORKERS` (solver worker count for sweeps, overrides the preference), `MA_COLONY_RECEIPT_BUDGET_MS` (receipt time per publication, 0 for no limit), `MA_COLONY_PRESENTATION_EAGER=1` (build every reading at publication, the earlier behaviour), `MA_COLONY_NATIVE_WAIT_LOG=1` (native frame phase timing to stderr) |
 | Exactness controls | `MA_COLONY_ACTIVITY_CONTROL`, `MA_COLONY_CELL_MAP_CONTROL`, `MA_COLONY_UNCACHED_CELL_MAP`, `MA_COLONY_COPY_CONTROL`, `MA_COLONY_MARSHALLED_OUTPUT`, `MA_COLONY_MARSHALLED_RECEIPTS`, `MA_COLONY_RECEIPT_COPY_CONTROL`, `MA_COLONY_UNCACHED_VIEWS`, `MA_COLONY_VIEW_CACHE_CONTROL`, `MA_COLONY_WORLD_PASSIVE_CONTROL` |
 | Logs and dumps | `MA_COLONY_LEDGER_LOG`, `MA_COLONY_HEAT_LOG`, `MA_COLONY_TERRAIN_LOG`, `MA_COLONY_STAGE_LOG`, `MA_COLONY_PUBLICATION_LOG`, `MA_COLONY_VIEW_TIMING_LOG`, `MA_COLONY_DUPE_LOG`, `MA_COLONY_PIPE_BIOLOGY_TIMING`, `MA_COLONY_PIPE_THERMAL_LOG`, `MA_COLONY_FAULT_DUMP`, `MA_COLONY_DUMP_FRAME`, `MA_COLONY_SLOW_DUMP`, `MA_COLONY_TRANSFER_DUMP`, `MA_COLONY_RELEASE_DUMP`, `MA_COLONY_FLOOR_ADMISSION_DUMP`, `MA_COLONY_FLOOR_PREFIX_DUMP`, `MA_ONI_BODY_HEAT_TRACE`, `MA_ONI_CHUNK_HEAT_TRACE`, `MA_ONI_STORAGE_HEAT_TRACE`, `MA_KERNEL_DEBUG` |

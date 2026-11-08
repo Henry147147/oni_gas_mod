@@ -13,7 +13,8 @@ namespace MixedAtmospheres.Oni
     //
     // Colony settings are impactful: a new colony records them (the solver's
     // in its own physical image, breathing in MACOLP03 section 3) and a
-    // loaded colony keeps its recorded values. Preferences are execution,
+    // loaded colony starts with its recorded values, which the player can
+    // change in that colony (ColonyChange). Preferences are execution,
     // controls and display; they apply at once. The supported solver and
     // mixed pipes are always enabled; their saved settings can be adjusted.
     internal enum SettingScope { Colony, Preference }
@@ -135,13 +136,13 @@ namespace MixedAtmospheres.Oni
                 "A constituent below this mass in a cell leaves through the booked trace sink. 1e-11 kg is the smallest tested value; the ceiling is 1 mg.",
                 1e-11, 1e-11, 1e-6, Decades(-11, -6), "kg", false, v => v == 1e-11),
             SettingDefinition.Choice(RegionActivity, SettingScope.Colony, Simulation, "Region simulation",
-                "Activity tiers keep regions around actors active, update disturbed remote regions each second, and pause pristine regions. Always simulate updates every fluid region each game tick. Chosen for new colonies and saved with each colony.",
+                "Activity tiers keep regions around actors active, update disturbed remote regions each second, and pause pristine regions. Always simulate updates every fluid region each game tick. Saved with each colony; a change in a colony applies from its next frame without catching up paused time.",
                 "tiers", new[] { "tiers", "always" }, new[] { "Activity tiers", "Always simulate" }),
             // Gameplay, saved in the colony's physical image: boil-only phase
             // change by default (user decision 2026-10-28).
             SettingDefinition.Toggle(EvaporationBelowBoiling, SettingScope.Colony, PhaseChange, "Evaporation below boiling",
                 "Off (default): liquids turn to vapour only by boiling, and vapour below its boiling point condenses back to liquid, as in ONI. The boiling point depends on the surrounding gas pressure: water boils at 100 °C at normal pressure, lower in thin air and even in vacuum. Air holds no humidity. " +
-                "On: liquids also evaporate slowly into drier air below boiling, and air keeps realistic humidity. Chosen for new colonies and saved with each colony.", false),
+                "On: liquids also evaporate slowly into drier air below boiling, and air keeps realistic humidity. Saved with each colony; a change in a colony applies from its next frame.", false),
             // Gameplay: CO2 toxicity is optional; oxygen requirements always apply.
             SettingDefinition.Toggle(Co2Limits, SettingScope.Colony, Breathing, "CO₂ breathing limits",
                 "Off (default): carbon dioxide does not block breathing while enough oxygen remains. On: apply the CO₂ thresholds in Advanced. CO₂ still mixes, moves and carries heat.", false),
@@ -406,5 +407,70 @@ namespace MixedAtmospheres.Oni
             result = result.With(SettingCatalog.Co2Limits, flag == 1);
             return result;
         }
+    }
+
+    // What a loaded colony lets the player change (docs/settings.md):
+    // breathing always (managed rules, MACOLP03 section 3); solver tunables
+    // and evaporation on game profiles 6-12 (the owner's options,
+    // ma_oni_colony_change_options); region simulation on profiles 9-12 (its
+    // activity policy, ma_oni_colony_set_activity_tiers).
+    internal sealed class ColonyCapabilities
+    {
+        internal const string NotSimulated = "This colony is not simulated by Mixed Atmospheres.";
+        internal static readonly ColonyCapabilities None = new ColonyCapabilities(false, NotSimulated, false, NotSimulated, false);
+        internal bool Options { get; }
+        internal string OptionsReason { get; }
+        internal bool Activity { get; }
+        internal string ActivityReason { get; }
+        internal bool Breathing { get; }
+        private ColonyCapabilities(bool options, string optionsReason, bool activity, string activityReason, bool breathing)
+        { Options = options; OptionsReason = optionsReason; Activity = activity; ActivityReason = activityReason; Breathing = breathing; }
+        // From the running owner's configuration flags (oni_colony.h) and
+        // whether it reported its options (ma_oni_colony_copy_options).
+        internal static ColonyCapabilities Of(bool gameKernel, bool surface, bool activity, bool optionsReported) =>
+            new ColonyCapabilities(gameKernel && surface && optionsReported,
+                !gameKernel ? "A development selector chose a solver without adjustable settings for this colony." :
+                    "This colony's game profile predates adjustable solver settings.",
+                gameKernel && surface && activity, "This colony's game profile (6–8) always simulates every region.", true);
+        // Why a colony setting cannot change in this colony, or null.
+        internal string? Lock(string key)
+        {
+            var d = SettingCatalog.Get(key);
+            if (d.Scope != SettingScope.Colony) return null;
+            if (d.Group == SettingCatalog.Breathing) return Breathing ? null : NotSimulated;
+            if (key == SettingCatalog.RegionActivity) return Activity ? null : ActivityReason;
+            return Options ? null : OptionsReason;
+        }
+    }
+
+    // One change to a loaded colony's settings: the colony keys that differ,
+    // which parts of the owner take them, and a refusal if one is locked.
+    internal sealed class ColonyChange
+    {
+        internal IReadOnlyList<string> Keys { get; }
+        internal bool Options { get; }
+        internal bool Activity { get; }
+        internal bool Breathing { get; }
+        internal string? Refusal { get; }
+        private ColonyChange(List<string> keys, string? refusal)
+        {
+            Keys = keys; Refusal = refusal;
+            Options = keys.Any(k => SettingCatalog.Get(k).Group == SettingCatalog.Solver || k == SettingCatalog.EvaporationBelowBoiling);
+            Activity = keys.Contains(SettingCatalog.RegionActivity);
+            Breathing = keys.Any(k => SettingCatalog.Get(k).Group == SettingCatalog.Breathing);
+        }
+        internal bool Empty => Keys.Count == 0;
+        internal static ColonyChange Plan(SettingValues current, SettingValues next, ColonyCapabilities capabilities)
+        {
+            var keys = SettingCatalog.All.Where(d => d.Scope == SettingScope.Colony && !SameValue(current[d.Key], next[d.Key])).Select(d => d.Key).ToList();
+            string? refusal = null;
+            foreach (var key in keys)
+                if (capabilities.Lock(key) is string reason) { refusal = SettingCatalog.Get(key).Label + ": " + reason; break; }
+            return new ColonyChange(keys, refusal);
+        }
+        // "key old → new" for each changed key, for Player.log.
+        internal string Describe(SettingValues from, SettingValues to) =>
+            string.Join(", ", Keys.Select(k => k + " " + SettingValues.Describe(from[k]) + " → " + SettingValues.Describe(to[k])));
+        private static bool SameValue(object a, object b) => a is double x && b is double y ? BitConverter.DoubleToInt64Bits(x) == BitConverter.DoubleToInt64Bits(y) : a.Equals(b);
     }
 }

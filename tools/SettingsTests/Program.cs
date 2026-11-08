@@ -227,6 +227,58 @@ static class Program
         }
     }
 
+    // Changes in a loaded colony (docs/settings.md): which part of the owner
+    // takes each key, what each game profile locks, and refusals.
+    private static void LiveColony()
+    {
+        var profile12 = ColonyCapabilities.Of(true, true, true, true);
+        var profile8 = ColonyCapabilities.Of(true, true, false, true);
+        var older = ColonyCapabilities.Of(true, false, false, true);
+        var development = ColonyCapabilities.Of(false, false, false, false);
+        var colonyKeys = SettingCatalog.All.Where(d => d.Scope == SettingScope.Colony).Select(d => d.Key).ToArray();
+        Check(colonyKeys.All(k => profile12.Lock(k) == null), "an activity profile locks a colony setting");
+        Check(colonyKeys.All(k => (profile8.Lock(k) == null) == (k != SettingCatalog.RegionActivity)) &&
+              profile8.Lock(SettingCatalog.RegionActivity)!.Contains("always simulates"), "profiles 6-8 lock only region simulation");
+        Check(colonyKeys.All(k => (older.Lock(k) == null) == k.StartsWith("breathing.", StringComparison.Ordinal)) &&
+              colonyKeys.All(k => (development.Lock(k) == null) == k.StartsWith("breathing.", StringComparison.Ordinal)),
+              "older and development solvers keep only breathing editable");
+        Check(colonyKeys.All(k => ColonyCapabilities.None.Lock(k) == ColonyCapabilities.NotSimulated) &&
+              SettingCatalog.All.Where(d => d.Scope == SettingScope.Preference).All(d => ColonyCapabilities.None.Lock(d.Key) == null && profile8.Lock(d.Key) == null),
+              "without a colony every colony setting is locked and no preference is");
+        var basis = SettingValues.Defaults();
+        var plan = ColonyChange.Plan(basis, basis.With("solver.pressureIterationCap", 1600.0), profile12);
+        Check(plan.Keys.SequenceEqual(new[] { "solver.pressureIterationCap" }) && plan.Options && !plan.Activity && !plan.Breathing && plan.Refusal == null,
+              "a solver tunable is an owner option");
+        Check(plan.Describe(basis, basis.With("solver.pressureIterationCap", 1600.0)) == "solver.pressureIterationCap 400 → 1600", "change log text");
+        plan = ColonyChange.Plan(basis, basis.With(SettingCatalog.EvaporationBelowBoiling, true), profile8);
+        Check(plan.Options && !plan.Activity && !plan.Breathing && plan.Refusal == null, "evaporation below boiling is an owner option on profile 8");
+        plan = ColonyChange.Plan(basis, basis.With(SettingCatalog.RegionActivity, "always"), profile12);
+        Check(plan.Activity && !plan.Options && !plan.Breathing && plan.Refusal == null, "region simulation is the activity policy");
+        Check(ColonyChange.Plan(basis, basis.With(SettingCatalog.RegionActivity, "always"), profile8).Refusal ==
+              "Region simulation: " + profile8.ActivityReason, "profile 8 refuses region simulation with its reason");
+        foreach (var key in new[] { "breathing.minimumOxygenFraction", "breathing.maximumCo2PressurePa", SettingCatalog.Co2Limits })
+        {
+            var d = SettingCatalog.Get(key);
+            plan = ColonyChange.Plan(basis, basis.With(key, d.Kind == SettingKind.Toggle ? (object)true : d.Steps[0]), development);
+            Check(plan.Breathing && !plan.Options && !plan.Activity && plan.Refusal == null, "breathing applies in managed code: " + key);
+        }
+        Check(ColonyChange.Plan(basis, basis.With("solver.flowParts", 3.0), development).Refusal!.StartsWith("Flow parts per step: ", StringComparison.Ordinal),
+              "a locked refusal names the setting");
+        // A solver preset applied in a colony changes only its solver keys.
+        var chosen = basis.With(SettingCatalog.Co2Limits, true).With(SettingCatalog.RegionActivity, "always").With(SettingCatalog.EvaporationBelowBoiling, true);
+        plan = ColonyChange.Plan(chosen, chosen.WithGroup(SettingCatalog.Solver, BuiltInPresets.Find("precise")!.Values), profile8);
+        Check(plan.Keys.SequenceEqual(new[] { "solver.stepsPerFrame", "solver.pressureTolerance", "solver.pressureIterationCap", "solver.heatIterationCap" }) &&
+              plan.Options && !plan.Activity && !plan.Breathing && plan.Refusal == null, "a solver preset in a colony");
+        Check(ColonyChange.Plan(chosen, chosen.Copy(), profile12).Empty && ColonyChange.Plan(chosen, chosen.With("performance.workerThreads", 3.0), profile12).Empty,
+              "unchanged colony settings or a preference are no colony change");
+        // Changed thresholds enter the colony's next breathing record; values outside the ranges are refused before native.
+        var thresholds = basis.With("breathing.minimumOxygenFraction", .12).With("breathing.maximumCo2PressurePa", 1000.0);
+        var decoded = ColonySettingsRecord.Decode(ColonySettingsRecord.Encode(thresholds), basis);
+        Check(decoded.Number("breathing.minimumOxygenFraction") == .12 && decoded.Number("breathing.maximumCo2PressurePa") == 1000, "changed thresholds in the record");
+        Throws<FormatException>(() => basis.With("solver.flowParts", 9.0), "an out-of-range colony change");
+        Throws<FormatException>(() => basis.WithNative(BuiltInPresets.Find("robust")!.Values.ToNative()).With("solver.stepsPerFrame", 3.0).ToNative(), "three steps in a colony");
+    }
+
     // The ten-cycle bridge (docs/starting-air.md): 1,000 cells of 1.67 kg air at
     // 295 K, the game's 16 g/mol oxygen and 44 g/mol carbon dioxide.
     private static void Bridge()
@@ -258,7 +310,7 @@ static class Program
         var root = Path.Combine(Path.GetTempPath(), "ma-settings-tests-" + Guid.NewGuid().ToString("N"));
         try
         {
-            Catalog(); Json(); Store(root); Record(); Bridge();
+            Catalog(); Json(); Store(root); Record(); LiveColony(); Bridge();
             Console.WriteLine($"PASS settings model, JSON, files, presets and colony record ({checks} checks)");
             return 0;
         }
