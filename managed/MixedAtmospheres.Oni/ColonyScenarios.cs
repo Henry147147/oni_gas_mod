@@ -94,6 +94,8 @@ namespace MixedAtmospheres.Oni
                     case "breathing": Breathing(frame, status); break;
                     case "breath-particle": BreathParticle(frame); break;
                     case "airflow": Airflow(frame); break;
+                    case "flood-pocket": FloodPocket(frame, status); break;
+                    case "flood-co2-corner": FloodCo2Corner(frame, status); break;
                     case "electrolysis": Electrolysis(frame); break;
                     case "vent-overpressure": VentOverpressure(frame); break;
                     case "space-heater": SpaceHeater(frame); break;

@@ -12,7 +12,12 @@ namespace MixedAtmospheres.Oni
     internal static unsafe class ColonyStartingAir
     {
         internal const double BridgeCycles = 10, CycleSeconds = 600, ChunkKg = 300;
-        private const int MaximumWaitFrames = 600;
+        // The starting duplicants are printed once the game runs. Wait for them
+        // by game time, which a paused start (a settings window, the welcome
+        // screen) does not advance: counting publications gave up after a few
+        // real seconds of a paused start and skipped the reserve (2026-11-08
+        // playtest: 0 duplicants, 0 kg placed, suffocation in cycle 2).
+        internal const double MaximumWaitGameSeconds = 120;
 
         private sealed class Inventory
         {
@@ -20,7 +25,7 @@ namespace MixedAtmospheres.Oni
             internal double OxygenMol, Co2Mol, GasMol, GasVolume, MeanTemperature;
         }
         private static Inventory? pending;
-        private static int waited;
+        private static double waitStart = double.NaN;
         internal static object? Report { get; private set; }
         // For the harness scenario: the settled bridge of this session.
         internal static bool Settled { get; private set; }
@@ -31,7 +36,7 @@ namespace MixedAtmospheres.Oni
 
         internal static void Reset()
         {
-            pending = null; waited = 0; Report = null; Settled = false; PodCell = -1; ShortfallKg = ReserveKg = 0; Duplicants = 0;
+            pending = null; waitStart = double.NaN; Report = null; Settled = false; PodCell = -1; ShortfallKg = ReserveKg = 0; Duplicants = 0;
         }
 
         private static bool PlaceInValidation => Environment.GetEnvironmentVariable("MA_COLONY_STARTING_RESERVE") == "1";
@@ -94,7 +99,7 @@ namespace MixedAtmospheres.Oni
             try
             {
                 var minions = Components.LiveMinionIdentities.Items.Where(m => m != null && m.GetMyWorldId() == inventory.World).ToList();
-                if (minions.Count == 0 && ++waited < MaximumWaitFrames) return;
+                if (minions.Count == 0 && !WaitExpired(GameClock.Instance != null ? GameClock.Instance.GetTime() : double.NaN)) return;
                 pending = null;
                 Settle(inventory, minions);
             }
@@ -104,6 +109,14 @@ namespace MixedAtmospheres.Oni
                 Report = new { Skipped = "bridge failed: " + error.Message };
                 Debug.LogWarning("[Mixed Atmospheres] The starting air bridge failed: " + error.Message);
             }
+        }
+
+        // Game seconds since the first wait; without a game clock, never.
+        internal static bool WaitExpired(double now)
+        {
+            if (double.IsNaN(now)) return false;
+            if (double.IsNaN(waitStart)) waitStart = now;
+            return now - waitStart >= MaximumWaitGameSeconds;
         }
 
         private static void Settle(Inventory inventory, List<MinionIdentity> minions)
