@@ -933,6 +933,14 @@ MacPhaseRelaxation MacClosedWorld::with_phase_relaxation_in_cells(std::span<cons
     auto advanced = advance_mac_phase_change_in_cells(registry_, *thermodynamics_, state(), pairs, cells, fraction, settings_.fast_phase_trial_eos, rule);
     return {derived(std::move(advanced.state)), advanced.report};
 }
+MacClosedWorld MacClosedWorld::with_flow_return(std::span<const MacFlowReturn> sources,long double* applied_j) const& {
+    require(settings_.numerical_kernel==MacNumericalKernel::game,"Flow work returns need the game kernel");
+    return MacGameKernelAccess::flow_return(*this,sources,applied_j);
+}
+MacClosedWorld MacClosedWorld::with_flow_return(std::span<const MacFlowReturn> sources,long double* applied_j) && {
+    require(settings_.numerical_kernel==MacNumericalKernel::game,"Flow work returns need the game kernel");
+    return MacGameKernelAccess::flow_return(std::move(*this),sources,applied_j);
+}
 MacClosedWorld MacClosedWorld::with_cell_heat(std::span<const MacCellHeat> edits,MacPrimaryRoundingCounts* accepted_rounding) && {
     if(settings_.numerical_kernel!=MacNumericalKernel::game)return std::as_const(*this).with_cell_heat(edits,accepted_rounding);
     auto next=MacGameKernelAccess::heat(std::move(*this),edits);if(accepted_rounding)*accepted_rounding={};return next;

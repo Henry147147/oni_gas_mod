@@ -3882,6 +3882,16 @@ void run_frame(std::uint64_t ticket,double seconds,std::uint64_t frames,const ch
         }
         if (!deferred.empty()) { std::lock_guard q(inputs); pending_heat.insert(pending_heat.end(), deferred.begin(), deferred.end()); }
         lap(1); step("reservoir");
+        // Compensated source energy: this frame's machine and actor edits push
+        // and draw with enthalpy, and their flow work goes back across their
+        // rooms once, after the transfers (MacClosedWorld::with_flow_return),
+        // however the edits were batched or retried.
+        const auto edit_rule = s.source_energy == MacFlowWork::compensated ? MacFlowWork::enthalpy : s.source_energy;
+        std::vector<MacFlowReturn> flow_returns;
+        const auto collect_return = [&](const MacFluidParcel& parcel) {
+            if (s.source_energy == MacFlowWork::compensated && parcel.flow_work_j > 0)
+                flow_returns.push_back({parcel.cell_index, parcel.flow_work_j, parcel.injected});
+        };
         // Reservoir release: liquid booked at import (it did not fit its
         // sealed pocket) or from a sealed closing seeps back once there is room
         // near its anchor, at most reservoir_release_kg_per_s, at its own
@@ -3907,14 +3917,14 @@ void run_frame(std::uint64_t ticket,double seconds,std::uint64_t frames,const ch
                 double mass = std::min(entry.mass_kg, reservoir_release_kg_per_s * seconds);
                 if (!gas) mass = std::min(mass, (.95 - best_volume) * eos_materials[entry.species].zero_pressure_density_kg_per_m3);
                 if (!(mass > 0)) continue;
-                released.push_back({best, entry.species, true, mass, entry.temperature_k}); released.back().flow_work = s.source_energy; from.push_back(e);
+                released.push_back({best, entry.species, true, mass, entry.temperature_k}); released.back().flow_work = edit_rule; from.push_back(e);
             }
             if (!released.empty()) {
                 auto result = external_transfers(std::move(world),released, MacFluidTransferTopology::occupied_mixture);
                 world = std::move(result.world);
                 for (std::size_t q = 0; q < result.parcels.size(); ++q) {
                     const auto& parcel = result.parcels[q];
-                    L.injected[parcel.species_index] += parcel.mass_kg; L.energy_in += parcel_energy(parcel);
+                    L.injected[parcel.species_index] += parcel.mass_kg; L.energy_in += parcel_energy(parcel); collect_return(parcel);
                     s.reservoir[from[q]].mass_kg -= parcel.mass_kg; s.status.reservoir_kg -= parcel.mass_kg;
                     s.status.released_kg += parcel.mass_kg;
                 }
@@ -3954,7 +3964,7 @@ void run_frame(std::uint64_t ticket,double seconds,std::uint64_t frames,const ch
             if (at == net.end()) at = net.insert(net.end(), {edit.species_index, 0.});
             at->second += edit.inject ? edit.mass_kg : -edit.mass_kg;
             // Machines and actors push and draw their gas (set_source_energy).
-            edits.push_back(edit); edits.back().flow_work = s.source_energy;
+            edits.push_back(edit); edits.back().flow_work = edit_rule;
         };
         // Game activity profiles: comet exhaust whose cell is vacuum joined
         // through vacuum to open sky leaves through the space sink. A cell is
@@ -4342,6 +4352,16 @@ void run_frame(std::uint64_t ticket,double seconds,std::uint64_t frames,const ch
             }
         }
         transfer_part("receipts");
+        for (const auto& parcel : parcels) collect_return(parcel);
+        if (!flow_returns.empty()) {
+            // A refused return (none is expected) leaves the work where the
+            // edits booked it, as real physics would.
+            try { long double applied = 0; world = std::move(world).with_flow_return(flow_returns, &applied); L.heat += applied; }
+            catch (const std::exception& refused) {
+                if (std::getenv("MA_COLONY_LEDGER_LOG")) { std::fprintf(stderr, "[Mixed Atmospheres] flow work return refused: %s\n", refused.what()); std::fflush(stderr); }
+            }
+        }
+        transfer_part("compensation");
         const auto precision_held = s.precision.size(); detail::precision_retry_counts = {};
         // Retry held precision inventory after external edits have made their
         // recipients available, before flow. This does not create new input.

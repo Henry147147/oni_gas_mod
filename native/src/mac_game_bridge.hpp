@@ -25,6 +25,8 @@ struct MacGameKernelAccess {
   // owned_chunks (one flag per cell chunk, optional): chunks to copy now
   // rather than at their first write.
   static bool detach_heat_state(MacClosedWorld &, std::span<const std::uint8_t> owned_chunks = {});
+  static MacClosedWorld flow_return(const MacClosedWorld &, std::span<const MacFlowReturn>, long double *);
+  static MacClosedWorld flow_return(MacClosedWorld &&, std::span<const MacFlowReturn>, long double *);
   // Diagnostics: the stage times of this thread's last game advance.
   static MacClosedAdvanceReport::GameStages &last_stages() noexcept {
     thread_local MacClosedAdvanceReport::GameStages stages;

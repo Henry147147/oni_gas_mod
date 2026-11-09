@@ -566,6 +566,15 @@ contents are unchanged.
   `flow_work_j`, as for enthalpy. Otherwise the world's energy changes exactly
   as with none.
 
+The colony owner does not compensate per call: its machine and actor edits
+use enthalpy, and once per frame, after every transfer batch, retry and
+reservoir release, `MacClosedWorld::with_flow_return` sends their booked work
+back across their rooms by the same rule, booked in the ledger's heat. An
+enthalpy edit followed by its return gives exactly the compensated edit's
+state. (A large colony's transfer batch is refused every frame by a few
+sub-ulp injections and retried edit by edit, which made per-call
+compensation run hundreds of times a frame.)
+
 Every parcel's `internal_energy_j + flow_work_j` enters the transfer audit and
 the owner's ledger. A 12-cell sealed tube of 300 K air fed 0.1 kg/s of 300 K
 oxygen for 3 s (`mac_game_kernel_tests`) ends with source cell / mean gas

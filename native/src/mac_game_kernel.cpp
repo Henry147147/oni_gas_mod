@@ -1574,14 +1574,15 @@ void compensate(MacTransportState &next, const std::vector<k::Species> &species,
             work.cells.push_back(i); // a zero edit records its cell unaudited
         }
     if (unplaced > 0) {
-      // Back to the parcels whose direction the room could not take.
+      // Back to the parcels whose direction the room could not take (a
+      // frame's return has none: the work stays where its edits booked it).
       const bool inject = room.joules < 0;
       double gross = 0;
       for (const auto q : room.members)
         if (sources[q].inject == inject)
           gross += sources[q].joules;
       for (const auto q : room.members)
-        if (sources[q].inject == inject && gross > 0)
+        if (sources[q].inject == inject && gross > 0 && sources[q].parcel < work.parcels.size())
           work.parcels[sources[q].parcel].flow_work_j +=
               unplaced * (sources[q].joules / gross);
     }
@@ -1816,6 +1817,90 @@ transferred_totals(const MacClosedWorld &source, const k::Totals &old_totals,
   return now;
 }
 } // namespace
+namespace {
+// A frame's flow work returns (with_flow_return) as compensations without
+// parcels.
+std::vector<Compensation> returns_of(std::span<const MacFlowReturn> sources, std::size_t cells) {
+  require(sources.size() <= (std::size_t{1} << 24), "Too many game flow work returns");
+  std::vector<Compensation> out;
+  out.reserve(sources.size());
+  for (const auto &r : sources) {
+    require(r.cell_index < cells && std::isfinite(r.joules) && r.joules >= 0,
+            "Invalid game flow work return");
+    if (r.joules > 0)
+      out.push_back({r.cell_index, r.joules, r.injected, std::numeric_limits<std::size_t>::max()});
+  }
+  return out;
+}
+// The audit totals after a return: only U changed, by the booked amount.
+std::shared_ptr<const k::Totals> returned_totals(const k::Totals *kept, const TransferWork &work) {
+  if (!kept)
+    return {};
+  TotalsChange change;
+  change.species.resize(kept->species.size());
+  for (const auto [into, part] : {std::pair{&change.energy, &work.energy},
+                                  std::pair{&change.energy_operands, &work.energy_operands}}) {
+    into->add(part->hi);
+    into->add(part->lo);
+  }
+  return std::make_shared<const k::Totals>(changed_totals(*kept, change));
+}
+long double applied_of(const TransferWork &work) {
+  return static_cast<long double>(work.energy.hi) + static_cast<long double>(work.energy.lo);
+}
+} // namespace
+MacClosedWorld MacGameKernelAccess::flow_return(const MacClosedWorld &source,
+                                                std::span<const MacFlowReturn> sources,
+                                                long double *applied) {
+  const auto list = returns_of(sources, source.state().cells.size());
+  if (applied)
+    *applied = 0;
+  if (list.empty())
+    return source;
+  const auto species = table(source.registry_, *source.thermodynamics_,
+                             source.settings_.game.liquid_stiffness_ratio, source.settings_.game.liquid_law);
+  auto next = source.state();
+  EditJournal journal;
+  TransferWork work;
+  compensate(next, species, list, work, journal);
+  auto now = returned_totals(source.game_totals_.get(), work);
+  if (applied)
+    *applied = applied_of(work);
+  auto result = source.derived(std::move(next));
+  result.game_totals_ = std::move(now);
+  return result;
+}
+MacClosedWorld MacGameKernelAccess::flow_return(MacClosedWorld &&source,
+                                                std::span<const MacFlowReturn> sources,
+                                                long double *applied) {
+  if (source.state_snapshot_.use_count() != 1)
+    return flow_return(std::as_const(source), sources, applied);
+  const auto list = returns_of(sources, source.state().cells.size());
+  if (applied)
+    *applied = 0;
+  if (list.empty())
+    return std::move(source);
+  const auto species = table(source.registry_, *source.thermodynamics_,
+                             source.settings_.game.liquid_stiffness_ratio, source.settings_.game.liquid_law);
+  // No other world shares this state: edit it in place, undoing on failure.
+  auto &next = const_cast<MacTransportState &>(*source.state_snapshot_);
+  EditJournal journal;
+  try {
+    TransferWork work;
+    compensate(next, species, list, work, journal);
+    auto now = returned_totals(source.game_totals_.get(), work);
+    MacClosedWorld result(MacClosedWorld::Derived{}, source, source.state_snapshot_);
+    canonical_volumes(next);
+    source.state_snapshot_.reset(); // the result now owns the state
+    result.game_totals_ = std::move(now);
+    if (applied)
+      *applied = applied_of(work);
+    return result;
+  } catch (...) {
+    journal.undo(next);
+    throw;
+  }
+}
 bool MacGameKernelAccess::detach_heat_state(MacClosedWorld &source, std::span<const std::uint8_t> owned_chunks) {
   if (source.settings_.numerical_kernel != MacNumericalKernel::game ||
       source.state_snapshot_.use_count() == 1)

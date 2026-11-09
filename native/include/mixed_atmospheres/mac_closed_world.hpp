@@ -331,6 +331,9 @@ struct MacLiquidSettlingReport { std::size_t faces = 0; double moved_kg = 0, rel
 // does as with enthalpy, and the same energy goes the other way across the
 // cell's room (MAC_GAME_KERNEL.md, "Source energy"). Liquids are unaffected.
 enum class MacFlowWork : std::uint8_t { none = 0, enthalpy = 1, compensated = 2 };
+// A source's flow work for MacClosedWorld::with_flow_return: its edit's cell,
+// the work its enthalpy edit booked (flow_work_j, positive) and its direction.
+struct MacFlowReturn { std::size_t cell_index = 0; double joules = 0; bool injected = false; };
 // Passives (germs) move with mass: an injection adds its own, an extraction
 // takes the cell's passives in proportion to the mass it removes (all of them
 // when it empties the cell) and returns them on its parcel.
@@ -492,6 +495,13 @@ public:
     [[nodiscard]] MacFluidTransferResult with_fluid_transfers(std::span<const MacFluidTransfer>, MacFluidTransferTopology) const&;
     // In place for an expiring owner, as with_cell_heat.
     [[nodiscard]] MacFluidTransferResult with_fluid_transfers(std::span<const MacFluidTransfer>, MacFluidTransferTopology) &&;
+    // Game kernel: compensated flow work for many transfer calls at once (an
+    // owner's whole frame). Each source's work, booked by its enthalpy edit,
+    // goes the other way across its room exactly as a compensated edit's does
+    // (MacFlowWork); what the rooms cannot take stays. `applied_j` receives
+    // the exact change of U. In place for an expiring owner, as with_cell_heat.
+    [[nodiscard]] MacClosedWorld with_flow_return(std::span<const MacFlowReturn>, long double* applied_j = nullptr) const&;
+    [[nodiscard]] MacClosedWorld with_flow_return(std::span<const MacFlowReturn>, long double* applied_j = nullptr) &&;
     // Terrain edits (docs/colony-owner.md#terrain). Opening turns walls into
     // exact vacuum cells (void phase or empty-cell inventory). Closing turns
     // empty cells into walls: the normal momentum on their faces is removed and

@@ -515,6 +515,33 @@ void source_energy_controls() {
   require(near(static_cast<double>(returned), pushed, 1e-9),
           "Compensated injection's room returned another amount");
   closed_energy(energy(none.world), energy(compensated.world));
+  // An owner returns a whole frame's work at once: an enthalpy edit and its
+  // return give the compensated edit's world exactly, copied or in place.
+  {
+    const MacFlowReturn back{0, pe.flow_work_j, true};
+    long double applied = 0, moved_applied = 0;
+    const auto returned = enthalpy.world.with_flow_return(std::span(&back, 1), &applied);
+    auto owner = MacClosedWorld::from_checkpoint(f.registry, f.eos, enthalpy.world.checkpoint());
+    const auto moved = std::move(owner).with_flow_return(std::span(&back, 1), &moved_applied);
+    // The revision counts the extra edit, so compare the states.
+    const auto same_state = [&](const MacClosedWorld &a, const MacClosedWorld &b) {
+      for (std::size_t i = 0; i < a.state().cells.size(); ++i)
+        if (a.state().cells[i].mixture.energy != b.state().cells[i].mixture.energy ||
+            a.state().cells[i].mixture.masses != b.state().cells[i].mixture.masses)
+          return false;
+      return a.state().momentum_x == b.state().momentum_x && a.state().momentum_y == b.state().momentum_y;
+    };
+    for (std::size_t i = 0; i < 6; ++i)
+      if (u(returned, i) != u(compensated.world, i))
+        std::cout << "cell " << i << " returned " << u(returned, i) << " compensated " << u(compensated.world, i) << "\n";
+    require(same_state(returned, compensated.world) && same_state(moved, compensated.world) &&
+                applied == moved_applied && near(static_cast<double>(-applied), pushed, 1e-9),
+            "A frame's flow work return differs from compensated edits");
+    closed_energy(energy(enthalpy.world) + applied, energy(returned));
+    const auto audit = returned.game_audit_totals();
+    require(audit && std::abs(audit->energy_j - energy(returned)) <= 1e-12L * std::abs(energy(returned)),
+            "A frame's flow work return left its audit totals behind");
+  }
   // An extraction: the rest of the cell expands into the drawn volume.
   const double drawn = .05;
   const auto &held = dry.state().cells[0].mixture.masses;
