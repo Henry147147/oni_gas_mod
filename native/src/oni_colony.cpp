@@ -184,6 +184,9 @@ struct Session {
     // version 10: 0 legacy (native code evolves the projected germ on the
     // shadow), 1 the owner evolves every identity.
     std::uint32_t germ_mode = 0;
+    // How machine and actor gas carries energy (set_source_energy); the
+    // adapter's colony record saves it, not the owner.
+    MacFlowWork source_energy = MacFlowWork::compensated;
     biology::Clocks clocks;
     biology::Accounts accounts;
     biology::Evolution evolution; // scratch of the germ frames, never serialized
@@ -390,6 +393,7 @@ std::optional<bool> pending_activity_mode;
 std::atomic<bool> activity_owner{false};
 std::uint64_t activity_session=0,accepted_activity_sequence=0;
 bool next_activity_tiers=true,requested_activity_tiers=true;
+MacFlowWork next_source_energy=MacFlowWork::compensated; // under lifecycle; the next session's
 InputBatch native_activity_inputs;
 std::vector<std::uint32_t> native_activity_touches;
 std::uint64_t native_activity_ticket=0;
@@ -755,7 +759,8 @@ long double energy_of(const MacClosedWorld& w) {
 }
 using detail::dominant_germ;
 long double parcel_energy(const MacFluidParcel& p) {
-    return static_cast<long double>(p.internal_energy_j) + mac_energy_long_double(p.resolved_kinetic_energy) + mac_energy_long_double(p.potential_energy);
+    return static_cast<long double>(p.internal_energy_j) + static_cast<long double>(p.flow_work_j) +
+        mac_energy_long_double(p.resolved_kinetic_energy) + mac_energy_long_double(p.potential_energy);
 }
 std::atomic<std::size_t> refused_reading{SIZE_MAX}; // control hook: a rect cell whose reading throws
 struct Projection {
@@ -1010,6 +1015,7 @@ void activate(std::unique_ptr<Session> next, std::uint64_t thread) {
     options.threads = requested_workers ? requested_workers : cpu::physical_core_count();
     options.collect_conduction_entropy = false;
     set_mac_kernel_default_options(options);
+    next->source_energy = next_source_energy;
     next->status = empty_status(); next->status.state = 1; next->status.session = ++sessions; next->status.start_thread = thread;
     start_thread.store(thread, std::memory_order_relaxed);
     next->status.species = static_cast<std::uint32_t>(next->catalogue->registry.size()); next->status.time_seconds = next->world->time_s();
@@ -2237,6 +2243,24 @@ bool change_options(std::uint64_t expected,const MAOniColonyOptions& o) {
         std::fflush(file);
     }
     return true;
+}
+void set_source_energy(std::uint64_t expected,std::uint32_t mode) {
+    require(mode<=2,"Colony source energy is outside its range");
+    const auto value=static_cast<MacFlowWork>(mode);
+    std::lock_guard lock(lifecycle);
+    if(!expected){require(!enabled.load(std::memory_order_acquire),"Prestart source energy needs a stopped colony");next_source_energy=value;return;}
+    require(enabled.load(std::memory_order_acquire) && session && session->status.session==expected,"Stale colony source energy session");
+    require(session->status.state==1,"A faulted colony owner keeps its source energy");
+    require(!prepared_retirement,"Finish native rocket grid cleanup before changing colony options");
+    if(session->source_energy==value)return;
+    session->source_energy=value;
+    // Input journal replays apply it before the next frame.
+    if(auto* file=session_journal(*session)){std::fprintf(file,"energy %u\n",mode);std::fflush(file);}
+}
+std::uint32_t source_energy() {
+    std::lock_guard lock(lifecycle);
+    require(session != nullptr,"No colony owner is active");
+    return static_cast<std::uint32_t>(session->source_energy);
 }
 std::uint64_t queue_activity(std::uint64_t expected,double seconds,std::span<const std::uint32_t> actors,
     std::span<const std::uint32_t> touched) {
@@ -3576,8 +3600,8 @@ std::FILE* session_journal(const Session& s) noexcept {
         close_input_journal();
         const auto path=std::string(directory)+"/inputs-"+std::to_string(s.status.session)+".txt";
         file=std::fopen(path.c_str(),"wx"); file_session=s.status.session;
-        if(file)std::fprintf(file,"session %llu restored_frames %llu\n",static_cast<unsigned long long>(s.status.session),
-            static_cast<unsigned long long>(s.status.completed_frames));
+        if(file)std::fprintf(file,"session %llu restored_frames %llu\nenergy %u\n",static_cast<unsigned long long>(s.status.session),
+            static_cast<unsigned long long>(s.status.completed_frames),static_cast<unsigned>(s.source_energy));
     }
     return file;
 }
@@ -3883,7 +3907,7 @@ void run_frame(std::uint64_t ticket,double seconds,std::uint64_t frames,const ch
                 double mass = std::min(entry.mass_kg, reservoir_release_kg_per_s * seconds);
                 if (!gas) mass = std::min(mass, (.95 - best_volume) * eos_materials[entry.species].zero_pressure_density_kg_per_m3);
                 if (!(mass > 0)) continue;
-                released.push_back({best, entry.species, true, mass, entry.temperature_k}); from.push_back(e);
+                released.push_back({best, entry.species, true, mass, entry.temperature_k}); released.back().flow_work = s.source_energy; from.push_back(e);
             }
             if (!released.empty()) {
                 auto result = external_transfers(std::move(world),released, MacFluidTransferTopology::occupied_mixture);
@@ -3929,7 +3953,8 @@ void run_frame(std::uint64_t ticket,double seconds,std::uint64_t frames,const ch
             auto at = std::find_if(net.begin(), net.end(), [&](const auto& n) { return n.first == edit.species_index; });
             if (at == net.end()) at = net.insert(net.end(), {edit.species_index, 0.});
             at->second += edit.inject ? edit.mass_kg : -edit.mass_kg;
-            edits.push_back(edit);
+            // Machines and actors push and draw their gas (set_source_energy).
+            edits.push_back(edit); edits.back().flow_work = s.source_energy;
         };
         // Game activity profiles: comet exhaust whose cell is vacuum joined
         // through vacuum to open sky leaves through the space sink. A cell is
@@ -4672,7 +4697,7 @@ void run_frame(std::uint64_t ticket,double seconds,std::uint64_t frames,const ch
         // Also any frame slower than 250 ms, whatever its number.
         if (!flush_only && stage_log && (s.status.completed_frames % 10 == 0 || s.status.last_advance_ms > 250)) {
             std::string line = "[Mixed Atmospheres] stages frame " + std::to_string(s.status.completed_frames) + ":";
-            char item[128];
+            char item[256];
             for (std::size_t n = 0; n < steps.size(); ++n) {
                 if (step_copies[n]) std::snprintf(item, sizeof item, " %s %.1f (%llu copies)", steps[n].first, steps[n].second, static_cast<unsigned long long>(step_copies[n]));
                 else std::snprintf(item, sizeof item, " %s %.1f", steps[n].first, steps[n].second);

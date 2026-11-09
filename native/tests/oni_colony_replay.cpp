@@ -111,20 +111,28 @@ OwnerParts parse(const std::vector<std::uint8_t>& image) {
 struct Input { char kind; std::vector<std::string> fields; std::vector<std::pair<std::uint64_t, double>> passives; std::vector<std::uint8_t> wire; };
 struct Frame { double seconds = 0; std::uint64_t frames = 1; bool flush = false,after_checkpoint=false; std::vector<Input> inputs;
     bool activity=false;std::uint64_t activity_sequence=0;int mode=-1;std::vector<std::uint32_t> actors,touched;
-    std::optional<MAOniColonyOptions> options; }; // a player's options change just before this frame
+    std::optional<MAOniColonyOptions> options; // a player's options change just before this frame
+    std::optional<std::uint32_t> energy; }; // the source energy rule set just before this frame
 double hex(const std::string& text) { return std::strtod(text.c_str(), nullptr); }
 std::vector<std::pair<std::uint64_t, Frame>> journal(const std::string& path,const std::string& checkpoint_digest={}) {
     std::ifstream in(path); require(in.good(), "Cannot read journal " + path);
     std::vector<std::pair<std::uint64_t, Frame>> frames; std::string line;bool after_checkpoint=false;
     std::optional<MAOniColonyOptions> options;
+    // The owner does not save its source energy rule: the one in effect at a
+    // matching checkpoint applies before its first replayed frame.
+    std::uint32_t energy_in_effect=2;std::optional<std::uint32_t> energy;
     while (std::getline(in, line)) {
         std::istringstream words(line); std::vector<std::string> f; for (std::string w; words >> w;) f.push_back(w);
         if (f.empty() || f[0] == "session") continue;
         if(f[0]=="checkpoint") {
             require(f.size()==3,"Invalid checkpoint journal marker");
             // The saved image already holds an earlier options change.
-            if(!after_checkpoint && f[2]==checkpoint_digest){frames.clear();options.reset();after_checkpoint=true;}
+            if(!after_checkpoint && f[2]==checkpoint_digest){frames.clear();options.reset();energy=energy_in_effect;after_checkpoint=true;}
             continue;
+        }
+        if(f[0]=="energy") {
+            require(f.size()==2,"Invalid source energy journal entry");
+            energy_in_effect=static_cast<std::uint32_t>(std::stoul(f[1]));energy=energy_in_effect;continue;
         }
         if(f[0]=="options") {
             require(f.size()==13,"Invalid options journal entry");
@@ -136,7 +144,7 @@ std::vector<std::pair<std::uint64_t, Frame>> journal(const std::string& path,con
             options=o;continue;
         }
         if (f[0] == "frame") {
-            Frame frame; frame.flush = f[3] == "1"; frame.seconds = hex(f[5]);frame.after_checkpoint=after_checkpoint;frame.options=std::exchange(options,{});
+            Frame frame; frame.flush = f[3] == "1"; frame.seconds = hex(f[5]);frame.after_checkpoint=after_checkpoint;frame.options=std::exchange(options,{});frame.energy=std::exchange(energy,{});
             for (std::size_t k = 8; k + 1 < f.size(); k += 2) if (f[k] == "frames") frame.frames = std::stoull(f[k + 1]);
             frames.emplace_back(std::stoull(f[1]), std::move(frame)); continue;
         }
@@ -259,6 +267,7 @@ std::size_t replay(const std::vector<std::uint8_t>& saved, const std::vector<std
         flush();
         require(skip_t+skip_h+skip_r+skip_f+skip_g==0,"Restored inputs exceed the committed journal frame");
         if(frame.options)require(change_options(status().session,*frame.options),"Replayed options change was refused");
+        if(frame.energy)set_source_energy(status().session,*frame.energy);
         if(frame.activity && frame.mode>=0)set_activity_tiers(status().session,frame.mode!=0);
         if(restored_activity_frame) {
             claim_activity_frame(status().session,frame.activity_sequence,frame.seconds);
@@ -342,6 +351,7 @@ std::vector<std::string> self_test(const std::string& parent,bool activity=false
                 auto options=default_options();options.maximum_timestep_s=static_cast<double>(.1f);options.gas_heat_mixing=4;
                 options.evaporation_below_boiling=1;
                 require(change_options(status().session,options),"Self-test options change was refused");
+                set_source_energy(status().session,1); // and a source energy change
             }
             if(frame==6)set_activity_tiers(status().session,false);
             if(frame==7)set_activity_tiers(status().session,true);

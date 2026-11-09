@@ -482,6 +482,20 @@ MA_ONI_API MAOniResult ma_oni_colony_copy_options(MAOniColonyOptions*);
  * next new colony (set_options) are unaffected. Region simulation changes
  * through ma_oni_colony_set_activity_tiers. */
 MA_ONI_API MAOniResult ma_oni_colony_change_options(uint64_t session, const MAOniColonyOptions*);
+/* Additive (2026-11-09): how gas from machines, duplicants, vents and pumps
+ * carries energy across their boundary (docs/settings.md, "Source energy").
+ * 0 internal energy only; 1 real physics, the gas's flow enthalpy (pushing
+ * it in heats a sealed room, drawing it out cools one); 2 compensated (the
+ * default): the cell gets the enthalpy and the room around it returns the
+ * same energy, so no cold or warm spot forms and the room's energy changes as
+ * with internal energy. Session 0 chooses it for the next colony, new or
+ * loaded (the owner does not save it: the adapter's colony record does);
+ * otherwise session is the running owner's and the change applies between
+ * owner frames, like change_options, and is journaled. A value above 2, a
+ * stale session, a faulted owner or a prepared rocket retirement is
+ * MA_ONI_INVALID_ARGUMENT. source_energy reads the running owner's rule. */
+MA_ONI_API MAOniResult ma_oni_colony_set_source_energy(uint64_t session, uint32_t mode);
+MA_ONI_API MAOniResult ma_oni_colony_source_energy(uint32_t* mode);
 /* Unsaved execution preference, also changeable in a running colony between
  * frames. Zero selects the physical core count; 1..256 requests that many
  * workers (small grids still use fewer). Invalid values keep the old choice.

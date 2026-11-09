@@ -103,6 +103,11 @@ bool copy_options(MAOniColonyOptions&);
 // (docs/settings.md); false for a colony whose profile does not take them.
 // Refusals throw and leave the colony unchanged.
 bool change_options(std::uint64_t session, const MAOniColonyOptions&);
+// How gas from machines and actors carries energy (MacFlowWork, 0..2): for
+// the next session (session 0, a stopped colony, new or restored) or the
+// running one between owner frames. Not saved by the owner; journaled.
+void set_source_energy(std::uint64_t session, std::uint32_t mode);
+[[nodiscard]] std::uint32_t source_energy();
 void queue_germs(std::span<const MAOniColonyGermEdit>);
 void set_radiation(std::span<const std::uint32_t> cells, std::span<const float> rads);
 void germ_accounts(MAOniColonyBiology&, std::vector<MAOniColonyBiologyAccount>&);

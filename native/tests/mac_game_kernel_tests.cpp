@@ -451,6 +451,154 @@ void full_worker_continuation() {
   set_mac_kernel_default_options(saved);
   std::cout << "PASS game workers1/12/13/22/30/256, actual pool size, block limit and exact cold continuation\n";
 }
+// Source energy (MacFlowWork): with enthalpy and compensated an injection's
+// cell gets the gas's flow enthalpy and an extraction expands the rest of its
+// cell isentropically; compensated returns that work across the room, in
+// equal shares to equal gas-only cells, and keeps it as flow work in a wet
+// room. Every account closes. In a sealed tube fed at room temperature,
+// internal energy makes the source cell cold, enthalpy heats the tube, and
+// compensated does neither.
+void source_energy_controls() {
+  const auto &f = ma::testing::setup();
+  const auto oxygen = f.registry.index("oxygen"), nitrogen = f.registry.index("nitrogen");
+  const auto world_of = [&](std::size_t w, bool wet) {
+    return MacClosedWorld::game_colony(f.registry, f.eos, f.state(w, 1, false, wet),
+                                       std::vector<double>(w, 300), config());
+  };
+  const auto parcel_total = [](const MacFluidParcel &p) {
+    return static_cast<long double>(p.internal_energy_j) + p.flow_work_j +
+           mac_energy_long_double(p.resolved_kinetic_energy) +
+           mac_energy_long_double(p.potential_energy);
+  };
+  const auto apply = [&](const MacClosedWorld &w, const MacFluidTransfer &edit) {
+    auto r = w.with_fluid_transfers(std::span(&edit, 1),
+                                    MacFluidTransferTopology::occupied_mixture);
+    closed_energy(energy(w) + (edit.inject ? 1 : -1) * parcel_total(r.parcels.front()),
+                  energy(r.world));
+    return r;
+  };
+  const auto near = [](double a, double b, double tolerance) {
+    return std::abs(a - b) <= tolerance * std::max(std::abs(a), std::abs(b));
+  };
+  const auto u = [](const MacClosedWorld &w, std::size_t i) {
+    return w.state().cells[i].mixture.energy;
+  };
+  const auto edit = [](std::size_t cell, std::size_t key, bool inject, double mass,
+                       MacFlowWork rule) {
+    MacFluidTransfer e{cell, key, inject, mass, inject ? 300. : 0.};
+    e.flow_work = rule;
+    return e;
+  };
+  constexpr double m = .01, T = 300;
+  const double pushed = m * gas_constant / f.registry[oxygen].molar_mass * T;
+  const auto dry = world_of(6, false);
+  const auto none = apply(dry, edit(0, oxygen, true, m, MacFlowWork::none));
+  const auto enthalpy = apply(dry, edit(0, oxygen, true, m, MacFlowWork::enthalpy));
+  const auto compensated = apply(dry, edit(0, oxygen, true, m, MacFlowWork::compensated));
+  const auto &pn = none.parcels.front(), &pe = enthalpy.parcels.front(),
+             &pc = compensated.parcels.front();
+  require(pn.flow_work_j == 0 && pc.flow_work_j == 0 && near(pe.flow_work_j, pushed, 1e-12) &&
+              near(pe.internal_energy_j, pn.internal_energy_j, 1e-12) &&
+              near(pc.internal_energy_j, pn.internal_energy_j, 1e-12),
+          "Source energy injection parcels differ from their rule");
+  require(near(u(enthalpy.world, 0) - u(none.world, 0), pushed, 1e-9),
+          "Enthalpy injection's cell lacks the flow work");
+  long double returned = 0;
+  for (std::size_t i = 0; i < 6; ++i) {
+    if (i > 0)
+      require(u(enthalpy.world, i) == u(dry, i) &&
+                  u(compensated.world, i) < u(dry, i) &&
+                  near(u(dry, i) - u(compensated.world, i), u(dry, 1) - u(compensated.world, 1), 1e-9),
+              "Compensated injection's room did not return equal shares");
+    returned += u(enthalpy.world, i) - u(compensated.world, i);
+  }
+  require(near(static_cast<double>(returned), pushed, 1e-9),
+          "Compensated injection's room returned another amount");
+  closed_energy(energy(none.world), energy(compensated.world));
+  // An extraction: the rest of the cell expands into the drawn volume.
+  const double drawn = .05;
+  const auto &held = dry.state().cells[0].mixture.masses;
+  double moles = 0, capacity = 0;
+  for (std::size_t k = 0; k < f.registry.size(); ++k)
+    if (held[k] > 0) {
+      moles += held[k] / f.registry[k].molar_mass;
+      capacity += (held[k] - (k == nitrogen ? drawn : 0)) * f.registry[k].cv();
+    }
+  const double share = drawn / f.registry[nitrogen].molar_mass / moles,
+               exponent = (moles - drawn / f.registry[nitrogen].molar_mass) * gas_constant / capacity;
+  const auto taken = apply(dry, edit(0, nitrogen, false, drawn, MacFlowWork::enthalpy));
+  const auto plain = apply(dry, edit(0, nitrogen, false, drawn, MacFlowWork::none));
+  const auto returned_draw = apply(dry, edit(0, nitrogen, false, drawn, MacFlowWork::compensated));
+  require(near(taken.world.cell_reading(0).temperature_k, 300 * std::pow(1 - share, exponent), 1e-9) &&
+              near(taken.parcels.front().flow_work_j, capacity * 300 * (1 - std::pow(1 - share, exponent)), 1e-9) &&
+              near(taken.parcels.front().internal_energy_j, plain.parcels.front().internal_energy_j, 1e-12) &&
+              std::abs(plain.world.cell_reading(0).temperature_k - 300) < 1e-9,
+          "Enthalpy extraction differs from isentropic expansion");
+  require(returned_draw.parcels.front().flow_work_j == 0 &&
+              u(returned_draw.world, 3) > u(dry, 3),
+          "Compensated extraction did not return its work to the room");
+  closed_energy(energy(plain.world), energy(returned_draw.world));
+  // A wet room has no gas-only cell to take the work: it stays as flow work.
+  const auto wet = world_of(6, true);
+  const auto wet_enthalpy = apply(wet, edit(0, oxygen, true, m, MacFlowWork::enthalpy));
+  const auto wet_compensated = apply(wet, edit(0, oxygen, true, m, MacFlowWork::compensated));
+  require(wet_compensated.world.checkpoint() == wet_enthalpy.world.checkpoint() &&
+              near(wet_compensated.parcels.front().flow_work_j, wet_enthalpy.parcels.front().flow_work_j, 1e-12),
+          "Compensated injection into a wet room differs from enthalpy");
+  // A source into an empty, sealed cell: its room is the gas it brought, so
+  // the gas ends at its own temperature, as with internal energy.
+  {
+    auto state = f.state(3, 1, false);
+    state.grid.walls[1] = 1;
+    state.cells[1] = MacMaterialCell{MixtureInventory(f.registry.size()), {}};
+    auto sealed = MacClosedWorld::game_colony(f.registry, f.eos, std::move(state),
+                                              std::vector<double>(3, 300), config());
+    std::vector<MacFluidTransfer> empty;
+    for (std::size_t k = 0; k < f.registry.size(); ++k)
+      if (sealed.state().cells[0].mixture.masses[k] > 0)
+        empty.push_back(edit(0, k, false, sealed.state().cells[0].mixture.masses[k], MacFlowWork::none));
+    // Smallest first, as the owner removes a cell's constituents.
+    std::sort(empty.begin(), empty.end(), [](const auto &a, const auto &b) { return a.mass_kg < b.mass_kg; });
+    sealed = sealed.with_fluid_transfers(empty, MacFluidTransferTopology::occupied_mixture).world;
+    require(sealed.state().cells[0].mixture.mass() == 0, "Sealed source control did not empty its cell");
+    const auto helium = f.registry.index("helium");
+    const auto filled = apply(sealed, edit(0, helium, true, .05, MacFlowWork::compensated));
+    require(near(filled.world.cell_reading(0).temperature_k, 300, 1e-9) &&
+                filled.parcels.front().flow_work_j == 0 &&
+                u(filled.world, 2) == u(sealed, 2),
+            "A compensated source into an empty cell left it off its own temperature");
+  }
+  // Dynamics: a sealed tube fed 0.1 kg/s of oxygen at its own temperature.
+  const auto mean = [](const MacClosedWorld &w) {
+    double heat = 0, mass = 0;
+    for (std::size_t i = 0; i < w.state().cells.size(); ++i) {
+      const double cell = w.state().cells[i].mixture.mass();
+      heat += cell * w.cell_reading(i).temperature_k;
+      mass += cell;
+    }
+    return heat / mass;
+  };
+  std::array<double, 3> source{}, room{};
+  for (const auto rule : {MacFlowWork::none, MacFlowWork::enthalpy, MacFlowWork::compensated}) {
+    auto w = world_of(12, false);
+    for (int frame = 0; frame < 15; ++frame) {
+      w = apply(w, edit(0, oxygen, true, .02, rule)).world;
+      w = w.advanced(.2).world;
+    }
+    const auto r = static_cast<std::size_t>(rule);
+    source[r] = w.cell_reading(0).temperature_k;
+    room[r] = mean(w);
+  }
+  std::cout << "source energy tube: source/mean K none " << source[0] << "/" << room[0]
+            << ", enthalpy " << source[1] << "/" << room[1] << ", compensated "
+            << source[2] << "/" << room[2] << "\n";
+  require(source[0] < room[0] - .5 && room[1] > room[0] + 1 &&
+              std::abs(room[2] - room[0]) < .05 &&
+              std::abs(source[2] - room[2]) < .5 * std::abs(source[0] - room[0]),
+          "Source energy rules lost their tube behaviour");
+  std::cout << "PASS source energy: enthalpy and isentropic draw, compensated room shares, wet rooms keep flow work; "
+               "the sealed tube's cold source and compression heating\n";
+}
 } // namespace
 int main() {
   try {
@@ -467,6 +615,7 @@ int main() {
     heat_reading_controls();
     ma::testing::component_cache_control();
     full_worker_continuation();
+    source_energy_controls();
     const auto &f = ma::testing::setup();
     auto state = f.state(8, 4, false, true);
     std::vector<double> temperatures(state.cells.size(), 300);

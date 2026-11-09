@@ -1277,6 +1277,7 @@ void audit_transfers(const k::Totals &old, const k::Totals &now,
     const double sign = parcel.injected ? 1 : -1;
     masses[parcel.species_index].add(sign * parcel.mass_kg);
     energy.add(sign * parcel.internal_energy_j);
+    energy.add(sign * parcel.flow_work_j);
     energy.add(sign * parcel.potential_energy.project().value);
     energy.add(sign * parcel.resolved_kinetic_energy.project().value);
     x.add(sign * parcel.momentum_x.project().value);
@@ -1380,6 +1381,190 @@ struct TransferWork {
   std::vector<std::size_t> cells;
   std::vector<std::pair<bool, std::size_t>> faces;
 };
+// Flow work per kg of a gas edit crossing a boundary (MacFlowWork): an
+// injection's (R/M) T; for an extraction, the work of the cell's remaining
+// contents expanding isentropically into the drawn gas's volume. Their gas
+// moles n and heat capacity C (liquids included) cool by T (1 - f)^(nR/C),
+// f being the drawn share of the gas moles: about (R/M) T per kg for a
+// small draw, never their whole thermal energy, nothing when no gas remains.
+template <class Masses>
+double flow_work(const std::vector<k::Species> &species, const Masses &masses,
+                 std::size_t key, bool inject, double mass, double temperature) {
+  const auto &material = species[key];
+  if (inject)
+    return k::R / material.molar_mass * temperature;
+  double moles = 0, capacity = 0;
+  for (std::size_t q = 0; q < species.size(); ++q) {
+    const double held = masses[q];
+    if (!(held > 0))
+      continue;
+    capacity += (held - (q == key ? mass : 0)) * species[q].cv;
+    if (species[q].gas)
+      moles += held / species[q].molar_mass;
+  }
+  const double drawn = mass / material.molar_mass;
+  if (!(mass > 0) || !(moles > drawn) || !(capacity > 0))
+    return 0;
+  const double exponent = (moles - drawn) * k::R / capacity;
+  return capacity * temperature *
+         -std::expm1(exponent * std::log1p(-drawn / moles)) / mass;
+}
+// A compensated edit's flow work (positive), its cell and parcel.
+struct Compensation {
+  std::size_t cell;
+  double joules;
+  bool inject;
+  std::size_t parcel;
+};
+// The most cells a room spans, and the largest share of its cells' thermal
+// energy one batch may take from it (MAC_GAME_KERNEL.md, "Source energy"). A
+// room of only freshly injected gas gives up 1 - 1/gamma of it, 0.63 for the
+// catalogue's hydrogen; the bound keeps every cell above its lowest
+// temperature.
+constexpr std::size_t compensation_cells = 1024;
+constexpr double compensation_fraction = .75;
+// Compensated flow work goes the other way across each source's room: the
+// open cells joined to the source cell by gas through open faces, nearest
+// first, at most compensation_cells, not already in an earlier source's room
+// of this batch (a source inside one joins it). Each gas-only cell takes a
+// share in proportion to its thermal energy above twice its species' lowest
+// temperature, so a room's gas warms or cools by one relative amount; cells
+// holding liquid take none, so their EOS is never re-read here. What a room
+// cannot take (more than compensation_fraction of that energy, or a room
+// without such cells) stays with its parcels as flow work, as for enthalpy.
+void compensate(MacTransportState &next, const std::vector<k::Species> &species,
+                std::span<const Compensation> sources, TransferWork &work,
+                EditJournal &journal) {
+  constexpr auto none = std::numeric_limits<std::size_t>::max();
+  const auto &grid = next.grid;
+  const auto &cells = std::as_const(next).cells;
+  const auto n = cells.size();
+  // Room membership by stamp: one value per room, increasing across batches.
+  thread_local std::vector<std::uint32_t> stamp;
+  thread_local std::uint32_t generation = 0;
+  if (stamp.size() != n || generation >= std::numeric_limits<std::uint32_t>::max() - sources.size() - 1) {
+    stamp.assign(n, 0);
+    generation = 0;
+  }
+  const std::uint32_t first = generation + 1;
+  struct Room {
+    std::vector<std::size_t> cells, members;
+    double joules = 0; // net: positive adds to the room
+  };
+  std::vector<Room> rooms;
+  const auto gaseous = [&](std::size_t i) {
+    if (grid.walls[i])
+      return false;
+    const auto &m = cells[i].mixture.masses;
+    if (m.implicit_zero())
+      return false;
+    for (std::size_t q = 0; q < species.size(); ++q)
+      if (species[q].gas && m[q] > 0)
+        return true;
+    return false;
+  };
+  const auto closed = [&](bool x, std::size_t f) {
+    const auto &c = x ? grid.closed_x : grid.closed_y;
+    return !c.empty() && c[f];
+  };
+  for (std::size_t q = 0; q < sources.size(); ++q) {
+    const auto &c = sources[q];
+    const double signed_joules = c.inject ? -c.joules : c.joules;
+    if (stamp[c.cell] >= first && stamp[c.cell] < first + rooms.size()) {
+      auto &room = rooms[stamp[c.cell] - first];
+      room.members.push_back(q);
+      room.joules += signed_joules;
+      continue;
+    }
+    const auto id = static_cast<std::uint32_t>(first + rooms.size());
+    auto &room = rooms.emplace_back();
+    room.members.push_back(q);
+    room.joules = signed_joules;
+    stamp[c.cell] = id;
+    if (!gaseous(c.cell))
+      continue;
+    room.cells.push_back(c.cell);
+    for (std::size_t at = 0; at < room.cells.size() &&
+                             room.cells.size() < compensation_cells;
+         ++at) {
+      const auto i = room.cells[at];
+      for (bool x : {true, false})
+        for (const auto f : cell_faces(grid, i, x)) {
+          if (closed(x, f) || room.cells.size() >= compensation_cells)
+            continue;
+          const auto [l, r] = endpoints(grid, x, f);
+          const auto j = l == i ? r : l;
+          if (j == none || j == i || stamp[j] >= first || !gaseous(j))
+            continue;
+          stamp[j] = id;
+          room.cells.push_back(j);
+        }
+    }
+  }
+  generation = static_cast<std::uint32_t>(first + rooms.size());
+  std::vector<std::size_t> changed;
+  std::vector<double> weights;
+  for (auto &room : rooms) {
+    weights.assign(room.cells.size(), 0);
+    double total = 0;
+    for (std::size_t at = 0; at < room.cells.size(); ++at) {
+      const auto &mixture = cells[room.cells[at]].mixture;
+      double thermal = mixture.energy, capacity = 0, floor = 0;
+      bool liquid = false;
+      for (std::size_t q = 0; q < species.size() && !liquid; ++q) {
+        const double held = mixture.masses[q];
+        if (!(held > 0))
+          continue;
+        liquid = !species[q].gas;
+        thermal -= held * species[q].offset;
+        capacity += held * species[q].cv;
+        floor = std::max(floor, species[q].minimum_temperature);
+      }
+      if (liquid)
+        continue;
+      const double w = thermal - 2 * capacity * floor;
+      if (w > 0 && std::isfinite(w)) {
+        weights[at] = w;
+        total += w;
+      }
+    }
+    double scale = 0, unplaced = std::abs(room.joules);
+    if (total > 0 && room.joules > 0) {
+      scale = room.joules / total;
+      unplaced = 0;
+    } else if (total > 0 && room.joules < 0) {
+      const double fraction = -room.joules / total;
+      scale = -std::min(fraction, compensation_fraction);
+      unplaced = fraction > compensation_fraction
+                     ? -room.joules - compensation_fraction * total
+                     : 0;
+    }
+    if (scale != 0)
+      for (std::size_t at = 0; at < room.cells.size(); ++at)
+        if (weights[at] > 0) {
+          const auto i = room.cells[at];
+          journal.cell(next, i);
+          auto &energy = next.cells[i].mixture.energy;
+          energy += scale * weights[at];
+          require(std::isfinite(energy), "Game flow-work compensation is unrepresentable");
+          changed.push_back(i);
+        }
+    if (unplaced > 0) {
+      // Back to the parcels whose direction the room could not take.
+      const bool inject = room.joules < 0;
+      double gross = 0;
+      for (const auto q : room.members)
+        if (sources[q].inject == inject)
+          gross += sources[q].joules;
+      for (const auto q : room.members)
+        if (sources[q].inject == inject && gross > 0)
+          work.parcels[sources[q].parcel].flow_work_j +=
+              unplaced * (sources[q].joules / gross);
+    }
+  }
+  // Gas-only cells keep their full occupied volume: only their energy changed.
+  work.cells.insert(work.cells.end(), changed.begin(), changed.end());
+}
 // Transfers on `next`, the state of `source` or its copy, each cell, face and
 // occupied volume recorded in the journal before it changes.
 TransferWork apply_transfers(const MacClosedWorld &source,
@@ -1396,6 +1581,7 @@ TransferWork apply_transfers(const MacClosedWorld &source,
   TransferWork work;
   work.parcels.reserve(edits.size());
   std::vector<std::size_t> touched;
+  std::vector<Compensation> compensations;
   const auto reading = [&](const MacMaterialCell &cell) {
     return transfer_reading(source, species, cell, next.grid.volume_m3());
   };
@@ -1469,10 +1655,16 @@ TransferWork apply_transfers(const MacClosedWorld &source,
         old_k[slot] = J == 0 ? 0 : .5 * J * (J / I);
         ++slot;
       }
+    double flow = material.gas && edit.flow_work != MacFlowWork::none
+                      ? flow_work(species, cell.mixture.masses, edit.species_index,
+                                  edit.inject, p.mass_kg, p.temperature_k)
+                      : 0;
     cell.mixture.masses[edit.species_index] = new_species;
+    if (cell.mixture.mass() == 0)
+      flow = 0; // an emptied cell gives up all of its energy either way
     const double old_u = cell.mixture.energy;
     const double specific =
-        material.offset + material.cv * p.temperature_k +
+        material.offset + material.cv * p.temperature_k + flow +
         (material.gas ? 0
                       : k::liquid_specific_elastic(material,before.pressure));
     cell.mixture.energy =
@@ -1483,6 +1675,17 @@ TransferWork apply_transfers(const MacClosedWorld &source,
         edit.inject ? cell.mixture.energy - old_u : old_u - cell.mixture.energy;
     require(std::isfinite(cell.mixture.energy),
             "Game transfer energy is unrepresentable");
+    if (flow != 0) {
+      // The parcel keeps its internal energy; the flow work is booked apart
+      // (enthalpy) or returned across the room after the batch (compensated).
+      const double pushed = p.mass_kg * flow;
+      p.internal_energy_j -= pushed;
+      if (edit.flow_work == MacFlowWork::enthalpy)
+        p.flow_work_j = pushed;
+      else // this edit's parcel is pushed last in the loop
+        compensations.push_back(
+            {edit.cell_index, pushed, edit.inject, work.parcels.size()});
+    }
     if (edit.inject) {
       for (const auto &q : edit.passives) {
         auto at = std::lower_bound(
@@ -1568,6 +1771,8 @@ TransferWork apply_transfers(const MacClosedWorld &source,
         work.faces.emplace_back(x, f);
     work.parcels.push_back(std::move(p));
   }
+  if (!compensations.empty())
+    compensate(next, species, compensations, work, journal);
   return work;
 }
 // The audited result world of a transfer edit.

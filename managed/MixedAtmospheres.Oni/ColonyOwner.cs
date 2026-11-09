@@ -343,6 +343,7 @@ namespace MixedAtmospheres.Oni
             publicationCells=ColonyPublicationMap.Create(Grid.WidthInCells,Grid.HeightInCells,x0,y0,width,height);
             ColonyWorldGerms.Configure(); ColonyRadiationGerms.Configure(); ColonySublimation.Configure();
             var output = OniNativeColony.Status.Empty;
+            ModSettingsRuntime.BeforeRestore(); // the gas source energy this colony recorded
             try { OniNativeColony.Check(OniNativeColony.Restore(ref config, materials, (uint)materials.Length, image, (uint)image.Length, ref output)); }
             catch (InvalidOperationException error) when (!ColonyWorldGerms.Supported && ColonyWorldGerms.ConfigureFailure.Length != 0)
             {

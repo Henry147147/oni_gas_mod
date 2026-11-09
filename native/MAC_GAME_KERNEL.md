@@ -527,6 +527,55 @@ pressure at room temperature. The trajectories are chaotic (a different
 refinement changes everything after it), so neighbouring rows differ by a
 few ms either way.
 
+## Source energy
+
+Gas that machines, vents, pumps, duplicants and sublimating tiles add or take
+crosses a boundary the grid does not model. `MacFluidTransfer::flow_work`
+(`MacFlowWork`, game kernel only; the reference kernel moves internal energy)
+chooses what such a gas edit carries; the colony owner sets it on every actor
+transfer and reservoir release from the colony's **Gas source energy**
+(user decision 2026-11-09, compensated by default; `docs/settings.md`).
+Internal moves, terrain displacement, freezing, the space sink and pipe
+contents are unchanged.
+
+- **none** (0.1.2 and earlier): an edit moves offset + cv T per kg. Gas pushed
+  in then expands and does work on its room, so a strong source's cell runs
+  cold (the 0.1.1 playtest's diffuser read 0.5 °C in a 22 °C room). A pump's or
+  breather's cell takes in flow enthalpy but gives up only internal energy, so
+  it runs warm.
+- **enthalpy**: an injection adds offset + cv T + (R/M) T per kg. An extraction
+  also takes the work of the cell's remaining contents expanding
+  isentropically into the drawn volume: their gas moles n and heat capacity C
+  (liquids included) cool by T (1 − f)^(nR/C), f the drawn share of the gas
+  moles. That is about (R/M) T per kg for a small draw and never their whole
+  thermal energy (the linear form took a hydrogen cell below zero thermal
+  energy, since ONI's hydrogen has R/(M cv) = 1.73). The parcel keeps its
+  internal energy in `internal_energy_j`, so pipes and receipts see gas at the
+  cell's temperature, and books the rest as `flow_work_j`.
+- **compensated**: the cell does as with enthalpy; after the batch the same
+  work goes the other way across the source's room. A room is the cells
+  joined to the source cell by gas through open faces, nearest first, at most
+  1,024, not already in an earlier source's room of the batch (a source inside
+  one joins it). Each gas-only cell takes a share in proportion to its thermal
+  energy above twice its species' lowest temperature, so the room's gas warms
+  or cools by one relative amount; cells holding liquid take none. A room
+  gives up at most three quarters of that energy in one batch (a room of only
+  freshly injected gas gives up 1 − 1/γ, 0.63 for the catalogue's hydrogen,
+  so a source into an empty sealed cell ends at its own temperature). What a
+  room cannot take (a wet room, or more than that) stays with the parcels as
+  `flow_work_j`, as for enthalpy. Otherwise the world's energy changes exactly
+  as with none.
+
+Every parcel's `internal_energy_j + flow_work_j` enters the transfer audit and
+the owner's ledger. A 12-cell sealed tube of 300 K air fed 0.1 kg/s of 300 K
+oxygen for 3 s (`mac_game_kernel_tests`) ends with source cell / mean gas
+temperature 284.4 / 300.0 K with none, 302.3 / 302.3 K with enthalpy and
+300.2 / 300.0 K with compensated. In the game's `playtest-diffusers` arena
+(two oxygen diffusers in a sealed 296 K room) the gas spans 284-302 K with
+none and 380-451 K with enthalpy (2026-11-09 A/B); compensated is measured in
+[playtest 0.1.2](../docs/playtest-0.1.2.md). With none, solver arithmetic is
+unchanged.
+
 ## Open acceptance work
 
 No private-playtest-ready or performance pass is claimed. The coupled material

@@ -321,6 +321,16 @@ struct MacTraceSink;
 struct MacPhaseRelaxation;
 struct MacLiquidSettling;
 struct MacLiquidSettlingReport { std::size_t faces = 0; double moved_kg = 0, released_j = 0; };
+// How gas crossing a machine or actor boundary carries energy (game kernel
+// only; the reference kernel always moves internal energy). none: the
+// parcel's internal energy, offset + cv T per kg. enthalpy: the flow work
+// too, as in real physics. An injection adds offset + cv T + (R/M) T per kg;
+// an extraction also takes the work of the cell's remaining contents
+// expanding isentropically into the drawn gas's volume (about (R/M) T per kg
+// for a small draw, never their whole thermal energy). compensated: the cell
+// does as with enthalpy, and the same energy goes the other way across the
+// cell's room (MAC_GAME_KERNEL.md, "Source energy"). Liquids are unaffected.
+enum class MacFlowWork : std::uint8_t { none = 0, enthalpy = 1, compensated = 2 };
 // Passives (germs) move with mass: an injection adds its own, an extraction
 // takes the cell's passives in proportion to the mass it removes (all of them
 // when it empties the cell) and returns them on its parcel.
@@ -331,6 +341,7 @@ struct MacFluidTransfer {
     PassiveQuantities passives{};
     // Optional adapter accounting metadata; never changes physical arithmetic.
     bool observe_passives = false;
+    MacFlowWork flow_work = MacFlowWork::none;
 };
 struct MacFluidParcel {
     std::size_t cell_index, species_index;
@@ -340,6 +351,10 @@ struct MacFluidParcel {
     MacScaled momentum_x, momentum_y;
     PassiveQuantities passives{};
     PassiveQuantities passives_before{}, passives_after{};
+    // Flow work beyond internal_energy_j, in the parcel's direction: what an
+    // enthalpy boundary supplied (injection) or took (extraction), or the
+    // part of a compensated one its room could not take. Booked with it.
+    double flow_work_j = 0;
 };
 using MacGasTransfer = MacFluidTransfer;
 using MacGasParcel = MacFluidParcel;

@@ -66,5 +66,9 @@ and four steps).
   enthalpy removes that but heats sealed rooms by compression as machines
   pressurize them: in `playtest-diffusers` the room's gas spans 284-302 K
   today and 380-451 K with enthalpy injection (`playtest-pump-vent`: 278-305 K
-  and 322-512 K). That change was not adopted; the source energy model remains
-  the user's decision.
+  and 322-512 K). Resolved by the user's choice of 2026-11-09: **Gameplay →
+  Gas sources → Gas source energy** offers internal energy, real physics
+  (enthalpy) and compensated, the default, which gives the source cell the
+  enthalpy and returns the same energy across its room
+  ([source energy](../native/MAC_GAME_KERNEL.md#source-energy),
+  [0.1.2](playtest-0.1.2.md)).

@@ -182,6 +182,7 @@ namespace MixedAtmospheres.Oni
                         SettingsTab(SettingCatalog.Breathing, false);
                         GUILayout.Label("Oxygen requirements and optional CO₂ thresholds are under Advanced → Breathing thresholds.", small!);
                         SettingsTab(SettingCatalog.PhaseChange, false);
+                        SettingsTab(SettingCatalog.GasSources, false);
                         SettingsTab(SettingCatalog.Simulation, false);
                         break;
                     case 1:

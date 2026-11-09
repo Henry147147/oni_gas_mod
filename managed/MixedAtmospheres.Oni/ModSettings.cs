@@ -94,8 +94,10 @@ namespace MixedAtmospheres.Oni
     // Every supported setting (docs/settings.md lists the same table).
     internal static class SettingCatalog
     {
-        internal const string Solver = "Solver", Simulation = "Region simulation", Breathing = "Breathing", PhaseChange = "Boiling and condensation", Performance = "Performance", Display = "Display", Panel = "Status panel", Keys = "Keyboard shortcuts";
-        internal const string RegionActivity = "simulation.regionActivity";
+        internal const string Solver = "Solver", Simulation = "Region simulation", Breathing = "Breathing", PhaseChange = "Boiling and condensation", GasSources = "Gas sources", Performance = "Performance", Display = "Display", Panel = "Status panel", Keys = "Keyboard shortcuts";
+        internal const string RegionActivity = "simulation.regionActivity", SourceEnergy = "gases.sourceEnergy";
+        // ma_oni_colony_set_source_energy's modes, by choice.
+        internal static readonly string[] SourceEnergyChoices = { "internal", "enthalpy", "compensated" };
         internal const string Co2Limits = "breathing.co2Limits", EvaporationBelowBoiling = "liquids.evaporationBelowBoiling";
         private static double[] Decades(int from, int to) { var r = new List<double>(); for (var e = from; e <= to; ++e) r.Add(double.Parse("1e" + e.ToString(CultureInfo.InvariantCulture), CultureInfo.InvariantCulture)); return r.ToArray(); }
         internal static readonly string[] KeyChoices = { "None", "F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9", "F10", "F11", "F12" };
@@ -143,6 +145,12 @@ namespace MixedAtmospheres.Oni
             SettingDefinition.Toggle(EvaporationBelowBoiling, SettingScope.Colony, PhaseChange, "Evaporation below boiling",
                 "Off (default): liquids turn to vapour only by boiling, and vapour below its boiling point condenses back to liquid, as in ONI. The boiling point depends on the surrounding gas pressure: water boils at 100 °C at normal pressure, lower in thin air and even in vacuum. Air holds no humidity. " +
                 "On: liquids also evaporate slowly into drier air below boiling, and air keeps realistic humidity. Saved with each colony; a change in a colony applies from its next frame.", false),
+            // Gameplay, saved in the colony settings record (MACOLP03 section 3).
+            SettingDefinition.Choice(SourceEnergy, SettingScope.Colony, GasSources, "Gas source energy",
+                "How gas from machines, vents, pumps and duplicants carries energy. Compensated (default): no cold spot where gas comes out and no warm spot where it is drawn in; " +
+                "room temperatures change as in ONI. Real physics: gas also carries the work of pushing it in or drawing it out, so filling a sealed room heats it and emptying one cools it. " +
+                "Internal energy: room temperatures change as in ONI, but strong sources leave cold spots and pumps warm spots. Saved with each colony; a change in a colony applies from its next frame.",
+                "compensated", new[] { "compensated", "enthalpy", "internal" }, new[] { "Compensated", "Real physics", "Internal energy" }),
             // Gameplay: CO2 toxicity is optional; oxygen requirements always apply.
             SettingDefinition.Toggle(Co2Limits, SettingScope.Colony, Breathing, "CO₂ breathing limits",
                 "Off (default): carbon dioxide does not block breathing while enough oxygen remains. On: apply the CO₂ thresholds in Advanced. CO₂ still mixes, moves and carries heat.", false),
@@ -365,12 +373,14 @@ namespace MixedAtmospheres.Oni
         internal static bool IsBuiltInId(string id) => Find(id) != null;
     }
 
-    // MACOLP03 section 3, version 3 (docs/settings.md). Always explicit for
-    // new colonies: older builds must refuse the new CO2 behavior rather than
-    // silently applying their former defaults. Older records are refused during R&D.
+    // MACOLP03 section 3, version 4 (docs/settings.md): version 3 and the gas
+    // source energy. Always explicit for new colonies: older builds must
+    // refuse the new CO2 behavior rather than silently applying their former
+    // defaults. Version 3 records load with the default source energy; older
+    // records are refused during R&D.
     internal static class ColonySettingsRecord
     {
-        internal const uint Tag = 3, Version = 3;
+        internal const uint Tag = 3, Version = 4, PreviousVersion = 3;
         internal static readonly string[] Keys =
         {
             "breathing.minimumOxygenFraction", "breathing.minimumOxygenPressurePa", "breathing.maximumCo2Fraction",
@@ -378,21 +388,31 @@ namespace MixedAtmospheres.Oni
         };
         internal static byte[] Encode(SettingValues values)
         {
-            var bytes = new byte[8 + 8 * (Keys.Length + 1)];
+            var bytes = new byte[8 + 8 * (Keys.Length + 2)];
             BinaryPrimitives.WriteUInt32LittleEndian(bytes, Version);
-            BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(4), (uint)(Keys.Length + 1));
+            BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(4), (uint)(Keys.Length + 2));
             for (var k = 0; k < Keys.Length; ++k)
                 BinaryPrimitives.WriteInt64LittleEndian(bytes.AsSpan(8 + 8 * k), BitConverter.DoubleToInt64Bits(values.Number(Keys[k])));
             BinaryPrimitives.WriteInt64LittleEndian(bytes.AsSpan(8 + 8 * Keys.Length), BitConverter.DoubleToInt64Bits(values.Toggle(SettingCatalog.Co2Limits) ? 1.0 : 0.0));
+            BinaryPrimitives.WriteInt64LittleEndian(bytes.AsSpan(16 + 8 * Keys.Length), BitConverter.DoubleToInt64Bits(SourceEnergyMode(values)));
             return bytes;
         }
+        // ma_oni_colony_set_source_energy's mode of a setting set.
+        internal static uint SourceEnergyMode(SettingValues values)
+        {
+            var mode = Array.IndexOf(SettingCatalog.SourceEnergyChoices, values.Choice(SettingCatalog.SourceEnergy));
+            return mode >= 0 ? (uint)mode : throw new FormatException("Unknown gas source energy " + values.Choice(SettingCatalog.SourceEnergy) + ".");
+        }
+        internal static SettingValues WithSourceEnergyMode(SettingValues values, uint mode) =>
+            mode < SettingCatalog.SourceEnergyChoices.Length ? values.With(SettingCatalog.SourceEnergy, SettingCatalog.SourceEnergyChoices[mode]) :
+                throw new FormatException("Unknown native gas source energy " + mode + ".");
         internal static SettingValues Decode(ReadOnlySpan<byte> bytes, SettingValues basis)
         {
             if (bytes.Length < 8) throw new InvalidDataException("Truncated colony settings record.");
             var version = BinaryPrimitives.ReadUInt32LittleEndian(bytes);
-            if (version != Version)
+            if (version != Version && version != PreviousVersion)
                 throw new NotSupportedException("Colony settings record version " + version + " is not supported by this R&D build. Start a new colony.");
-            var count = Keys.Length + 1;
+            var count = Keys.Length + (version == Version ? 2 : 1);
             if (BinaryPrimitives.ReadUInt32LittleEndian(bytes.Slice(4)) != count || bytes.Length != 8 + 8 * count)
                 throw new InvalidDataException("Invalid colony settings record.");
             var result = basis;
@@ -405,6 +425,12 @@ namespace MixedAtmospheres.Oni
             var flag = BitConverter.Int64BitsToDouble(BinaryPrimitives.ReadInt64LittleEndian(bytes.Slice(8 + 8 * Keys.Length)));
             if (flag != 1 && flag != 0) throw new InvalidDataException("Invalid colony settings switch.");
             result = result.With(SettingCatalog.Co2Limits, flag == 1);
+            if (version == Version)
+            {
+                var mode = BitConverter.Int64BitsToDouble(BinaryPrimitives.ReadInt64LittleEndian(bytes.Slice(16 + 8 * Keys.Length)));
+                if (mode != 0 && mode != 1 && mode != 2) throw new InvalidDataException("Invalid colony gas source energy.");
+                result = WithSourceEnergyMode(result, (uint)mode);
+            }
             return result;
         }
     }
@@ -439,6 +465,7 @@ namespace MixedAtmospheres.Oni
             if (d.Scope != SettingScope.Colony) return null;
             if (d.Group == SettingCatalog.Breathing) return Breathing ? null : NotSimulated;
             if (key == SettingCatalog.RegionActivity) return Activity ? null : ActivityReason;
+            if (key == SettingCatalog.SourceEnergy) return Breathing ? null : NotSimulated;
             return Options ? null : OptionsReason;
         }
     }
@@ -450,6 +477,7 @@ namespace MixedAtmospheres.Oni
         internal IReadOnlyList<string> Keys { get; }
         internal bool Options { get; }
         internal bool Activity { get; }
+        internal bool SourceEnergy { get; }
         internal bool Breathing { get; }
         internal string? Refusal { get; }
         private ColonyChange(List<string> keys, string? refusal)
@@ -457,6 +485,7 @@ namespace MixedAtmospheres.Oni
             Keys = keys; Refusal = refusal;
             Options = keys.Any(k => SettingCatalog.Get(k).Group == SettingCatalog.Solver || k == SettingCatalog.EvaporationBelowBoiling);
             Activity = keys.Contains(SettingCatalog.RegionActivity);
+            SourceEnergy = keys.Contains(SettingCatalog.SourceEnergy);
             Breathing = keys.Any(k => SettingCatalog.Get(k).Group == SettingCatalog.Breathing);
         }
         internal bool Empty => Keys.Count == 0;

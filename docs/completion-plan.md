@@ -8,6 +8,18 @@ still require separate authorization.
 
 Amendments:
 
+- **Gas source energy option, compensated by default, user decision
+  2026-11-09:** one colony setting offers all three ways for gas from
+  machines, vents, pumps, duplicants and sublimating tiles to carry energy:
+  internal energy (0.1.2 and earlier: cold spots at strong sources, warm spots
+  at pumps), real physics (flow enthalpy: filling a sealed room heats it) and
+  compensated, the default (enthalpy at the cell with the same energy
+  returned across its room, so neither spots nor heating). It is saved in the
+  colony settings record, changes during play and keeps solver arithmetic
+  unchanged under internal energy
+  ([MAC_GAME_KERNEL.md](../native/MAC_GAME_KERNEL.md#source-energy),
+  [settings](settings.md)). The playtest candidate stays version 0.1.2.
+
 - **Profile 12 thin-gas heating (option C), user decision 2026-11-07:** keep
   the 1 g / 10 ms drag and keep thin gas near the temperature of the gas it
   touches, so a thin front can no longer heat itself step by step (the

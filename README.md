@@ -14,7 +14,7 @@ Mixed Atmospheres is a private playtest build for Windows x64 and Linux. It appl
 
 *A real development colony in WindowsPlayer under Proton on Linux.*
 
-Settings open from the Mods row or the status panel. **Gameplay** contains the CO₂ breathing limits switch (Off by default), which you can change during play. **Display & keys** contains appearance and shortcuts. **Advanced** contains solver presets, solver controls, breathing thresholds, performance, advanced display and saved presets. Colony settings (solver, region simulation, evaporation, breathing thresholds) are saved per colony and can be changed in a running colony; preferences apply at once. Files persist in `mods/config/MixedAtmospheres`, outside the mod folder. Older R&D saves, including nitrogen saves and saves using the earlier pressure update, are refused; start a new colony.
+Settings open from the Mods row or the status panel. **Gameplay** contains the CO₂ breathing limits switch (Off by default) and **Gas source energy** (Compensated by default: no cold spots at vents and diffusers, room temperatures as in ONI; Real physics and Internal energy are the alternatives), which you can change during play. **Display & keys** contains appearance and shortcuts. **Advanced** contains solver presets, solver controls, breathing thresholds, performance, advanced display and saved presets. Colony settings (solver, region simulation, evaporation, gas source energy, breathing thresholds) are saved per colony and can be changed in a running colony; preferences apply at once. Files persist in `mods/config/MixedAtmospheres`, outside the mod folder. Older R&D saves, including nitrogen saves and saves using the earlier pressure update, are refused; start a new colony.
 
 ![Mixed Atmospheres composition display](docs/images/mixed-atmospheres-composition.png)
 
@@ -141,8 +141,9 @@ it for its full composition.
 ### Settings
 
 Open **Settings** on Mixed Atmospheres' row in **Mods**, or on the status
-panel. **Gameplay** opens first; CO₂ breathing limits default to Off and can
-be changed in a running colony. **Advanced → Solver** holds Default, Robust,
+panel. **Gameplay** opens first; CO₂ breathing limits default to Off and
+**Gas source energy** to Compensated, and both can be changed in a running
+colony. **Advanced → Solver** holds Default, Robust,
 Fast and Precise solver presets. **Advanced → Breathing thresholds** holds
 oxygen requirements and optional CO₂ thresholds. At the main menu these choose
 the settings of new colonies; in a colony they change that colony from its

@@ -175,10 +175,13 @@ void exact_release_control() {
     const char* previous=std::getenv("MA_COLONY_RELEASE_DUMP");const bool had_previous=previous;
     const std::string saved=previous?previous:"";
     struct Cleanup {std::string path,saved;bool had;
-        ~Cleanup(){stop();if(had)setenv("MA_COLONY_RELEASE_DUMP",saved.c_str(),1);else unsetenv("MA_COLONY_RELEASE_DUMP");
+        ~Cleanup(){stop();set_source_energy(0,2);if(had)setenv("MA_COLONY_RELEASE_DUMP",saved.c_str(),1);else unsetenv("MA_COLONY_RELEASE_DUMP");
             std::error_code ignored;for(const auto suffix:{"",".request",".tmp"})std::filesystem::remove(path+suffix,ignored);}
     } cleanup{path,saved,had_previous};
     setenv("MA_COLONY_RELEASE_DUMP",path.c_str(),1);
+    // The capture is of ONI's own initial fill: gas at exactly its internal
+    // energy, so the sources carry internal energy only.
+    set_source_energy(0,0);
     MAOniColonyConfig cfg{};cfg.struct_size=sizeof(cfg);cfg.abi_version=MA_ONI_COLONY_ABI_VERSION;
     cfg.flags=MA_ONI_COLONY_GAME_KERNEL;cfg.vacuum_index=vacuum;cfg.grid_width=cfg.width=7;cfg.grid_height=cfg.height=4;
     cfg.gravity_m_per_s2=9.81;cfg.maximum_timestep_s=.1;
@@ -204,6 +207,48 @@ void exact_release_control() {
     require(status().state==1 && std::filesystem::exists(path),"exact initial capture missed a complete unevolved atomic fill");
     std::ifstream image(path,std::ios::binary|std::ios::ate);require(image.tellg()>static_cast<std::streamoff>(4+sizeof(MAOniColonyMaterial)+8+64),"exact initial image truncated");
     stop();std::cout<<"PASS exact initial capture: all eight fluid tuples before first flow; partial and evolved fills refused\n";
+}
+// Gas source energy (set_source_energy): compensated by default, changed in
+// a running colony between frames or for the next one, refused when invalid
+// or stale. A diffuser-like source fed at room temperature keeps the ledgers
+// closed under every rule, and only the real-physics rule heats the room.
+void source_energy_control() {
+    using namespace ma::oni::colony;
+    MAOniColonyConfig cfg{};cfg.struct_size=sizeof(cfg);cfg.abi_version=MA_ONI_COLONY_ABI_VERSION;
+    cfg.flags=MA_ONI_COLONY_PHYSICS_CONDUCTION|MA_ONI_COLONY_GAME_KERNEL|MA_ONI_COLONY_GAME_SURFACE;cfg.vacuum_index=vacuum;
+    cfg.grid_width=cfg.width=8;cfg.grid_height=cfg.height=4;cfg.maximum_timestep_s=.1;
+    const std::vector<MAOniColonyMaterial> mats{material("Oxygen",11,oxygen,true,.032,1005)};
+    std::vector<MAOniColonyCell> cells(32,MAOniColonyCell{0,MA_ONI_COLONY_SOLID,0,0,0,0});
+    for(unsigned y=1;y<=2;++y)for(unsigned x=1;x<=6;++x)cells[x+8*y]={oxygen,MA_ONI_COLONY_FLUID,1.2f,295.f,0,0};
+    const auto refused=[](auto call){try{call();}catch(const std::invalid_argument&){return true;}return false;};
+    std::array<double,3> mean{};
+    for(const std::uint32_t mode:{2u,0u,1u}) {
+        if(mode!=2)set_source_energy(0,mode);
+        start(cfg,mats,cells,1);
+        require(source_energy()==mode,"a colony did not start with the chosen source energy");
+        const auto session=status().session;
+        require(refused([&]{set_source_energy(session,3);}) && refused([&]{set_source_energy(session+1,0);}) &&
+                    refused([&]{set_source_energy(0,0);}) && source_energy()==mode,"an invalid source energy change was accepted");
+        for(std::uint64_t frame=1;frame<=20;++frame) {
+            const MAOniColonyTransfer add{9,oxygen,MA_ONI_COLONY_INJECT,0,-1,0,.1,295,0};
+            queue_transfers(std::span(&add,1));advance(frame,.2,2);wait();
+        }
+        const auto st=status();
+        require(st.state==1 && st.maximum_relative_mass_error<=1e-12 && st.maximum_relative_energy_error<=1e-12,
+                "a source energy rule left the colony ledgers open");
+        // Mass-weighted temperature of the room.
+        std::vector<MAOniColonyCellView> views(32);MAOniColonyStatus shown{};copy(shown,views.data(),32);
+        double heat=0,mass=0;
+        for(const auto& v:views)if(v.mass_kg>0){heat+=static_cast<double>(v.mass_kg)*v.temperature_k;mass+=v.mass_kg;}
+        mean[mode]=heat/mass;
+        set_source_energy(session,mode==2?0:2);
+        require(source_energy()==(mode==2?0u:2u),"a running colony did not take its source energy change");
+        stop();
+    }
+    set_source_energy(0,2);
+    std::cout<<"source energy owner room mean K: internal "<<mean[0]<<", enthalpy "<<mean[1]<<", compensated "<<mean[2]<<"\n";
+    require(std::abs(mean[2]-mean[0])<.05 && mean[1]>mean[0]+1,"source energy rules changed the room's heating");
+    std::cout<<"PASS source energy: default compensated, prestart and live changes, refusals, closed ledgers; only real physics heats the room\n";
 }
 struct ReceiptReader {
     const std::vector<std::uint8_t>& bytes; std::size_t at = 0;
@@ -2667,6 +2712,7 @@ int main(int argc, char** argv) {
         falling_solid_control();
         natural_sublimation_control();
         release_capture_control();exact_release_control();
+        source_energy_control();
         parcel_wire_control();
         parcel_outcome_control();
         parcel_context_control();

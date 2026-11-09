@@ -1538,6 +1538,19 @@ MAOniResult ma_oni_colony_change_options(std::uint64_t session,const MAOniColony
         if(!taken) throw Failure(MA_ONI_INCOMPATIBLE,"This colony's game profile does not take option changes");
     });
 }
+MAOniResult ma_oni_colony_set_source_energy(std::uint64_t session,std::uint32_t mode) {
+    return boundary([&] {
+        try { ma::oni::colony::set_source_energy(session,mode); }
+        catch(const std::invalid_argument& error) {throw Failure(MA_ONI_INVALID_ARGUMENT,error.what());}
+    });
+}
+MAOniResult ma_oni_colony_source_energy(std::uint32_t* mode) {
+    return boundary([&] {
+        if(!mode) throw Failure(MA_ONI_INVALID_ARGUMENT,"Colony source energy output is required");
+        try { *mode=ma::oni::colony::source_energy(); }
+        catch(const std::invalid_argument& error) {throw Failure(MA_ONI_INVALID_ARGUMENT,error.what());}
+    });
+}
 std::uint32_t ma_oni_colony_world_biology_version() { return 2; }
 MAOniResult ma_oni_colony_set_diseases(const MAOniColonyDisease* diseases,std::uint32_t disease_count,
     const MAOniColonyDiseaseGrowth* growth,std::uint32_t element_count) {

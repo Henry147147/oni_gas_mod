@@ -24,6 +24,8 @@ namespace MixedAtmospheres.Oni
         [DllImport(Library, EntryPoint = "ma_oni_colony_set_options", CallingConvention = CallingConvention.Cdecl)] private static extern int ResetOptions(IntPtr none);
         [DllImport(Library, EntryPoint = "ma_oni_colony_copy_options", CallingConvention = CallingConvention.Cdecl)] private static extern int CopyOptions(ref NativeColonyOptions options);
         [DllImport(Library, EntryPoint = "ma_oni_colony_change_options", CallingConvention = CallingConvention.Cdecl)] private static extern int ChangeOptions(ulong session, ref NativeColonyOptions options);
+        [DllImport(Library, EntryPoint = "ma_oni_colony_set_source_energy", CallingConvention = CallingConvention.Cdecl)] private static extern int SetSourceEnergy(ulong session, uint mode);
+        [DllImport(Library, EntryPoint = "ma_oni_colony_source_energy", CallingConvention = CallingConvention.Cdecl)] private static extern int CopySourceEnergy(out uint mode);
         [DllImport(Library, EntryPoint = "ma_oni_last_error", CallingConvention = CallingConvention.Cdecl)] private static extern IntPtr LastError();
         [DllImport(Library, EntryPoint = "ma_oni_colony_physical_core_count", CallingConvention = CallingConvention.Cdecl)] private static extern uint PhysicalCoreCount();
         [DllImport(Library, EntryPoint = "ma_oni_colony_set_worker_count", CallingConvention = CallingConvention.Cdecl)] private static extern int SetWorkerCount(uint workers);
@@ -146,6 +148,7 @@ namespace MixedAtmospheres.Oni
                     if (result != 0) throw new InvalidOperationException(Marshal.PtrToStringAnsi(LastError()) ?? ("error " + result));
                     optionsChanged = true;
                 }
+                if (change.SourceEnergy) CheckNative(SetSourceEnergy(session, ColonySettingsRecord.SourceEnergyMode(next)));
                 if (change.Activity)
                     OniNativeColony.Check(OniNativeColony.SetActivityTiers(session, next.Choice(SettingCatalog.RegionActivity) == "tiers" ? 1u : 0u));
             }
@@ -169,7 +172,7 @@ namespace MixedAtmospheres.Oni
                 ColonyPresentation.InvalidateLifecycleReadings();
             }
             ColonyDescription = "Changed in this colony.";
-            var when = change.Options || change.Activity ? "from its next frame" : "at once";
+            var when = change.Options || change.Activity || change.SourceEnergy ? "from its next frame" : "at once";
             Debug.Log("[Mixed Atmospheres] Colony settings changed in this colony: " + change.Describe(before, applied) +
                 ". It applies " + when + "; the next save records it.");
             if (!differs.Empty) Notice("The colony reports " + differs.Describe(next, applied) + " after the change.");
@@ -177,6 +180,8 @@ namespace MixedAtmospheres.Oni
         }
         // The window lists notices and shows the message on its feedback line.
         private static string Refuse(string message) { Notice(message); return message; }
+        private static void CheckNative(int result)
+        { if (result != 0) throw new InvalidOperationException(Marshal.PtrToStringAnsi(LastError()) ?? ("error " + result)); }
 
         internal static void Persist()
         {
@@ -236,6 +241,7 @@ namespace MixedAtmospheres.Oni
                 var native = values.ToNative();
                 var result = SetOptions(ref native);
                 if (result != 0) throw new InvalidOperationException(Marshal.PtrToStringAnsi(LastError()) ?? ("error " + result));
+                CheckNative(SetSourceEnergy(0, ColonySettingsRecord.SourceEnergyMode(values)));
                 if ((flags & OniNativeColony.GameActivity) != 0)
                 {
                     if (OniNativeColony.ActivityVersion() != 1) throw new NotSupportedException("the native region activity version differs from this build");
@@ -244,7 +250,7 @@ namespace MixedAtmospheres.Oni
             }
             catch (Exception error) when (!(error is OutOfMemoryException))
             {
-                try { _ = ResetOptions(IntPtr.Zero); } catch (Exception) { }
+                try { _ = ResetOptions(IntPtr.Zero); _ = SetSourceEnergy(0, ColonySettingsRecord.SourceEnergyMode(SettingValues.Defaults())); } catch (Exception) { }
                 values = SettingValues.Defaults(); startedPreset = BuiltInPresets.DefaultId;
                 if ((flags & OniNativeColony.GameActivity) != 0) OniNativeColony.Check(OniNativeColony.SetActivityTiers(0, 1));
                 var message = "Your colony settings could not be applied (" + error.Message + "). This colony uses Default.";
@@ -267,6 +273,15 @@ namespace MixedAtmospheres.Oni
         // Every supported R&D save requires the current breathing record.
         internal static void LoadRecord(byte[]? bytes) =>
             loadedRecord = bytes == null ? throw new NotSupportedException("This R&D save predates the current breathing settings. Start a new colony.") : ColonySettingsRecord.Decode(bytes, SettingValues.Defaults());
+        // Right before a loaded colony's owner restores: the owner does not
+        // save the gas source energy, the colony's record does.
+        internal static void BeforeRestore()
+        {
+            var mode = ColonySettingsRecord.SourceEnergyMode(loadedRecord ?? throw new InvalidOperationException("The colony breathing settings were not loaded."));
+            try { CheckNative(SetSourceEnergy(0, mode)); }
+            catch (Exception error) when (error is InvalidOperationException || error is EntryPointNotFoundException)
+            { Notice("The colony's gas source energy could not be restored (" + error.Message + "); the colony reports the one it uses."); }
+        }
         internal static void Restored()
         {
             Colony = WithRunningSolver(loadedRecord ?? throw new InvalidOperationException("The colony breathing settings were not loaded."), true);
@@ -287,6 +302,9 @@ namespace MixedAtmospheres.Oni
             try { if (CopyOptions(ref native) == 0) { basis = basis.WithNative(native); reported = true; } }
             catch (Exception error) when (error is EntryPointNotFoundException || error is FormatException)
             { Debug.LogWarning("[Mixed Atmospheres] The running colony's solver settings could not be read: " + error.Message); }
+            try { if (CopySourceEnergy(out var mode) == 0) basis = ColonySettingsRecord.WithSourceEnergyMode(basis, mode); }
+            catch (Exception error) when (error is EntryPointNotFoundException || error is FormatException)
+            { Debug.LogWarning("[Mixed Atmospheres] The running colony's gas source energy could not be read: " + error.Message); }
             var activity = OniNativeColony.ActivityState.Empty;
             OniNativeColony.Check(OniNativeColony.CopyActivity(ref activity));
             if (assess)

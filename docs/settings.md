@@ -28,6 +28,19 @@ it. Code: `ModSettings*.cs` (model, files, window, runtime); tests:
   ([boil-only rule](../native/MAC_PHASE_CHANGE.md#boil-only-rule)). It is a
   gameplay rule rather than a solver tunable, so it is on Gameplay; solver
   presets keep it as chosen.
+- **Gameplay → Gas sources → Gas source energy** defaults to **Compensated**
+  (user decision 2026-11-09). It sets how gas from machines, vents, pumps,
+  duplicants and sublimating tiles carries energy across their boundary.
+  **Compensated:** a source's cell gets the gas's enthalpy, so it forms no
+  cold spot, and a pump's or breather's cell gives up the extra energy of
+  being drawn out, so it forms no warm spot. The same energy goes the other
+  way across the source's room, so room temperatures change as in ONI.
+  **Real physics:** the gas also carries that flow work, so filling a sealed
+  room heats it and emptying one cools it, as a tank heats when filled.
+  **Internal energy** (0.1.2 and earlier): room temperatures change as in
+  ONI, but strong sources leave cold spots and pumps warm spots. It is saved
+  in the colony settings record and can be changed during play
+  ([source energy](../native/MAC_GAME_KERNEL.md#source-energy)).
 - **Gameplay → Region simulation** defaults to **Activity tiers** for new
   colonies. Regions around actors and recent inputs run each game tick;
   disturbed remote regions run at a reduced cadence and eventually pause.
@@ -54,7 +67,8 @@ before native loading. Start a new colony for the corrected pressure update.
 
 Colony settings are stored in the physical image (solver, evaporation rule and
 region policy), the integrated owner checkpoint (region delivery and lifecycle
-state), and MACOLP03 section 3 (breathing). Preferences live in the user's
+state), and MACOLP03 section 3 (breathing and the gas source energy; version 4,
+and version 3 records load with the default source energy). Preferences live in the user's
 config and are not stored in colony saves.
 
 New colonies use game profile 12 (core32, owner wrapper14; profile 9 plus the
@@ -103,6 +117,10 @@ still choose new colonies' settings and stay at the main menu.
   zero-time flush. Always simulate wakes every region from that frame without
   catching up paused time; Activity tiers classifies regions from their saved
   activity history.
+- The gas source energy goes to the owner (`ma_oni_colony_set_source_energy`
+  with the session) between owner frames. The owner does not save it: the
+  colony settings record does, and a loaded colony hands it to the owner
+  before it restores (`ma_oni_colony_set_source_energy` with session 0).
 - Breathing thresholds and the CO₂ switch apply at once in managed code.
 - Game profiles 6–12 take solver and evaporation changes (profile 6 saves the
   phase rule as core24 or core25); profiles 9–12 take region simulation.
@@ -189,6 +207,7 @@ which adds `evaporation_below_boiling`).
 | `solver.traceThresholdKg` | Trace removal threshold | 1e-11 kg | 1e-11–1e-6 kg (≠1e-11 experimental) | Per-constituent booked trace sink; 1 mg ceiling | core24/25 |
 | `simulation.regionActivity` | Region simulation (Gameplay) | Activity tiers | Activity tiers / Always simulate | Select adaptive regions or simulate every region each tick | core28 policy and owner wrapper14 |
 | `liquids.evaporationBelowBoiling` | Evaporation below boiling (Gameplay) | off | on/off | Off: liquid/vapour pairs compare saturation with the total gas pressure (boil-only, ONI-like condensation, no humidity); on: the vapour's partial pressure (evaporation into unsaturated gas) | core27/28 phase-rule selector (1 off, 0 on) |
+| `gases.sourceEnergy` | Gas source energy (Gameplay) | Compensated | Compensated / Real physics / Internal energy | How machine, vent, pump, duplicant and sublimation gas carries energy: enthalpy at the cell with the room returning it; enthalpy (flow work); internal energy only | section 3 v4 (`ma_oni_colony_set_source_energy` modes 2/1/0) |
 | `breathing.co2Limits` | CO₂ breathing limits | off | on/off | Enforce the CO₂ share and partial pressure thresholds; oxygen remains required when off | section 3 v3 |
 | `breathing.minimumOxygenFraction` | Minimum oxygen share | 15% | 5–25% | Breathable with at least this oxygen share by moles (polluted oxygen counts) | section 3 |
 | `breathing.minimumOxygenPressurePa` | Minimum oxygen partial pressure | 15 kPa | 1–50 kPa | …and at least this oxygen partial pressure | section 3 |

@@ -69,7 +69,10 @@ source/flow explanation; it is not a demonstrated numerical energy loss.
 Stored kinetic energy alone is too small to explain the changes. Exact regional
 heat/work closure was not captured, so detailed local thermodynamic correctness
 remains open. Supplying flow enthalpy instead would be a separate source-model
-decision, not a justified accounting repair from this evidence.
+decision, not a justified accounting repair from this evidence. (The user
+decided on 2026-11-09: **Gas source energy** offers internal energy, real
+physics and compensated, the default; see
+[source energy](../native/MAC_GAME_KERNEL.md#source-energy).)
 
 All four stationed duplicants retain 100 breath, with no provider-empty or
 out-of-oxygen samples and no breathing/presentation disagreements. The original

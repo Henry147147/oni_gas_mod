@@ -36,8 +36,9 @@ static class Program
             Check(!d.IsExperimental(d.Default), "default is experimental: " + d.Key);
             foreach (var step in d.Steps) d.Accept(step);
             Check(d.Key.StartsWith(d.Scope == SettingScope.Colony ? "solver." : "", StringComparison.Ordinal) || d.Key.StartsWith("breathing.", StringComparison.Ordinal) ||
-                d.Key == SettingCatalog.EvaporationBelowBoiling || d.Key == SettingCatalog.RegionActivity || d.Scope == SettingScope.Preference,
-                "colony keys are solver, breathing, activity or the phase rule: " + d.Key);
+                d.Key == SettingCatalog.EvaporationBelowBoiling || d.Key == SettingCatalog.RegionActivity || d.Key == SettingCatalog.SourceEnergy ||
+                d.Scope == SettingScope.Preference,
+                "colony keys are solver, breathing, activity, the phase rule or the source energy: " + d.Key);
         }
         // Default reproduces today's profile 5 exactly (oni_colony.cpp default_options_value).
         var native = SettingValues.Defaults().ToNative();
@@ -69,6 +70,23 @@ static class Program
         Check(ColonySettingsRecord.Encode(always).SequenceEqual(ColonySettingsRecord.Encode(SettingValues.Defaults())), "activity policy entered breathing record");
         Check(always.WithGroup(SettingCatalog.Solver, BuiltInPresets.Find("precise")!.Values).Choice(SettingCatalog.RegionActivity) == "always", "solver preset changed activity policy");
         Throws<FormatException>(() => always.With(SettingCatalog.RegionActivity, "sometimes"), "invalid activity policy");
+        // Gas source energy: compensated by default (user decision 2026-11-09), a basic
+        // Gameplay colony setting saved in the colony record, not in the options ABI.
+        var energy = SettingCatalog.Get(SettingCatalog.SourceEnergy);
+        Check(energy.Kind == SettingKind.Choice && energy.Scope == SettingScope.Colony && !energy.Advanced && energy.Group == SettingCatalog.GasSources &&
+              (string)energy.Default == "compensated" && ColonySettingsRecord.SourceEnergyMode(SettingValues.Defaults()) == 2, "gas source energy definition");
+        Check(SettingCatalog.SourceEnergyChoices.Select((c, mode) => ColonySettingsRecord.SourceEnergyMode(SettingValues.Defaults().With(SettingCatalog.SourceEnergy, c)) == mode).All(x => x),
+              "gas source energy native modes");
+        foreach (var choice in SettingCatalog.SourceEnergyChoices)
+        {
+            var chosenEnergy = SettingValues.Defaults().With(SettingCatalog.SourceEnergy, choice);
+            Check(chosenEnergy.ToNative().Reserved == 0 && NativeAccepts(chosenEnergy.ToNative()) &&
+                  ColonySettingsRecord.Decode(ColonySettingsRecord.Encode(chosenEnergy), SettingValues.Defaults()).Choice(SettingCatalog.SourceEnergy) == choice &&
+                  chosenEnergy.WithGroup(SettingCatalog.Solver, BuiltInPresets.Find("precise")!.Values).Choice(SettingCatalog.SourceEnergy) == choice,
+                  "gas source energy record, options ABI or solver preset: " + choice);
+        }
+        Check(BuiltInPresets.All.All(p => p.Values.Choice(SettingCatalog.SourceEnergy) == "compensated"), "a built-in preset changes the gas source energy");
+        Throws<FormatException>(() => ColonySettingsRecord.WithSourceEnergyMode(SettingValues.Defaults(), 3), "invalid native gas source energy");
         // Every offered step of every solver setting, and every built-in preset, is inside the native ranges.
         foreach (var d in SettingCatalog.All.Where(d => d.Key.StartsWith("solver.", StringComparison.Ordinal)))
             foreach (var step in d.Kind == SettingKind.Toggle ? new object[] { true, false } : d.Steps.Cast<object>())
@@ -206,7 +224,14 @@ static class Program
             SettingValues.Defaults().With(SettingCatalog.Co2Limits, true) })
         {
             var bytes = ColonySettingsRecord.Encode(values);
-            Check(bytes.Length == 56 && BitConverter.ToUInt32(bytes, 0) == 3 && BitConverter.ToUInt32(bytes, 4) == 6, "v3 record layout");
+            Check(bytes.Length == 64 && BitConverter.ToUInt32(bytes, 0) == 4 && BitConverter.ToUInt32(bytes, 4) == 7 &&
+                  BitConverter.ToDouble(bytes, 56) == 2, "v4 record layout");
+            // A version 3 record (0.1.2 and earlier) loads with the default source energy.
+            var v3 = bytes.AsSpan(0, 56).ToArray(); v3[0] = 3; v3[4] = 6;
+            var fromV3 = ColonySettingsRecord.Decode(v3, SettingValues.Defaults().With(SettingCatalog.SourceEnergy, "internal"));
+            Check(fromV3.ScopeEquals(SettingScope.Colony, values.With(SettingCatalog.SourceEnergy, "internal")), "v3 record round trip");
+            var badEnergy = (byte[])bytes.Clone(); BitConverter.GetBytes(3.0).CopyTo(badEnergy, 56);
+            Throws<InvalidDataException>(() => ColonySettingsRecord.Decode(badEnergy, SettingValues.Defaults()), "invalid gas source energy");
             Check(ColonySettingsRecord.Decode(bytes, SettingValues.Defaults()).ScopeEquals(SettingScope.Colony, values), "record round trip");
             Check(ColonySettingsRecord.Decode(bytes, SettingValues.Defaults().With(SettingCatalog.Co2Limits, !values.Toggle(SettingCatalog.Co2Limits))).Toggle(SettingCatalog.Co2Limits) == values.Toggle(SettingCatalog.Co2Limits), "saved switch overrides preferences");
             Throws<InvalidDataException>(() => ColonySettingsRecord.Decode(bytes.AsSpan(0, 20), SettingValues.Defaults()), "truncated record");
@@ -217,7 +242,7 @@ static class Program
                 var bad = (byte[])bytes.Clone(); BitConverter.GetBytes(flag).CopyTo(bad, 48);
                 Throws<InvalidDataException>(() => ColonySettingsRecord.Decode(bad, SettingValues.Defaults()), "invalid switch");
             }
-            foreach (var version in new byte[] { 1, 2, 4 })
+            foreach (var version in new byte[] { 1, 2, 5 })
             {
                 var bad = (byte[])bytes.Clone(); bad[0] = version;
                 Throws<NotSupportedException>(() => ColonySettingsRecord.Decode(bad, SettingValues.Defaults()), "unsupported R&D record");
@@ -239,9 +264,9 @@ static class Program
         Check(colonyKeys.All(k => profile12.Lock(k) == null), "an activity profile locks a colony setting");
         Check(colonyKeys.All(k => (profile8.Lock(k) == null) == (k != SettingCatalog.RegionActivity)) &&
               profile8.Lock(SettingCatalog.RegionActivity)!.Contains("always simulates"), "profiles 6-8 lock only region simulation");
-        Check(colonyKeys.All(k => (older.Lock(k) == null) == k.StartsWith("breathing.", StringComparison.Ordinal)) &&
-              colonyKeys.All(k => (development.Lock(k) == null) == k.StartsWith("breathing.", StringComparison.Ordinal)),
-              "older and development solvers keep only breathing editable");
+        Check(colonyKeys.All(k => (older.Lock(k) == null) == (k.StartsWith("breathing.", StringComparison.Ordinal) || k == SettingCatalog.SourceEnergy)) &&
+              colonyKeys.All(k => (development.Lock(k) == null) == (k.StartsWith("breathing.", StringComparison.Ordinal) || k == SettingCatalog.SourceEnergy)),
+              "older and development solvers keep only breathing and the gas source energy editable");
         Check(colonyKeys.All(k => ColonyCapabilities.None.Lock(k) == ColonyCapabilities.NotSimulated) &&
               SettingCatalog.All.Where(d => d.Scope == SettingScope.Preference).All(d => ColonyCapabilities.None.Lock(d.Key) == null && profile8.Lock(d.Key) == null),
               "without a colony every colony setting is locked and no preference is");
@@ -264,6 +289,10 @@ static class Program
         }
         Check(ColonyChange.Plan(basis, basis.With("solver.flowParts", 3.0), development).Refusal!.StartsWith("Flow parts per step: ", StringComparison.Ordinal),
               "a locked refusal names the setting");
+        plan = ColonyChange.Plan(basis, basis.With(SettingCatalog.SourceEnergy, "enthalpy"), older);
+        Check(plan.SourceEnergy && !plan.Options && !plan.Activity && !plan.Breathing && plan.Refusal == null &&
+              plan.Describe(basis, basis.With(SettingCatalog.SourceEnergy, "enthalpy")) == "gases.sourceEnergy compensated → enthalpy",
+              "gas source energy is its own owner change");
         // A solver preset applied in a colony changes only its solver keys.
         var chosen = basis.With(SettingCatalog.Co2Limits, true).With(SettingCatalog.RegionActivity, "always").With(SettingCatalog.EvaporationBelowBoiling, true);
         plan = ColonyChange.Plan(chosen, chosen.WithGroup(SettingCatalog.Solver, BuiltInPresets.Find("precise")!.Values), profile8);
