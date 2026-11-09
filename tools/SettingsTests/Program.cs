@@ -298,6 +298,14 @@ static class Program
         Check(double.IsPositiveInfinity(disabled.carbonDioxide) && Near(disabled.oxygen, o), "CO2 off removes only CO2 headroom limit");
         // Hard mode on generated oxygen breathes nothing; thin air binds by pressure.
         Check(StartingAirBridge.BreathableMoles(n, 0, n, cells, t, k, .15, 15000, .35, .005, 500).oxygen == 0, "hard mode on generated oxygen");
+        // The duplicant wait counts game time only (2026-11-08: a paused start
+        // counted publications and skipped the reserve).
+        var start = double.NaN;
+        Check(!StartingAirBridge.WaitExpired(ref start, 12.5, 120) && start == 12.5, "the wait starts at the first check");
+        Check(Enumerable.Range(0, 1000).All(_ => !StartingAirBridge.WaitExpired(ref start, 12.5, 120)), "a paused start expired the duplicant wait");
+        Check(!StartingAirBridge.WaitExpired(ref start, 132.4, 120) && StartingAirBridge.WaitExpired(ref start, 132.5, 120), "the wait ends after 120 game seconds");
+        var none = double.NaN;
+        Check(!StartingAirBridge.WaitExpired(ref none, double.NaN, 120) && double.IsNaN(none), "a missing game clock expired the wait");
         var thin = cells * .3 / mo;
         (o, _) = StartingAirBridge.BreathableMoles(thin, 0, thin, cells, t, k, .15, 15000, 1, .005, 500);
         Check(Near(o, thin - 15000 * cells / (StartingAirBridge.GasConstant * t)), "partial pressure binds in thin air");

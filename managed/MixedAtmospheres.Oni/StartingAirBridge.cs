@@ -26,5 +26,15 @@ namespace MixedAtmospheres.Oni
             var co2ByPressure = (maximumCo2Pa * molesPerPa - co2Mol) / k;
             return (oxygen, co2Limits ? Math.Max(0, Math.Min(co2ByShare, co2ByPressure)) : double.PositiveInfinity);
         }
+
+        // The wait for the starting duplicants, in game seconds from the first
+        // check: a paused start (no game time passes) never expires it, and
+        // without a game clock (NaN) it never expires.
+        internal static bool WaitExpired(ref double start, double now, double limitSeconds)
+        {
+            if (double.IsNaN(now)) return false;
+            if (double.IsNaN(start)) start = now;
+            return now - start >= limitSeconds;
+        }
     }
 }

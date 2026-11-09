@@ -99,7 +99,7 @@ namespace MixedAtmospheres.Oni
             try
             {
                 var minions = Components.LiveMinionIdentities.Items.Where(m => m != null && m.GetMyWorldId() == inventory.World).ToList();
-                if (minions.Count == 0 && !WaitExpired(GameClock.Instance != null ? GameClock.Instance.GetTime() : double.NaN)) return;
+                if (minions.Count == 0 && !StartingAirBridge.WaitExpired(ref waitStart, GameClock.Instance != null ? GameClock.Instance.GetTime() : double.NaN, MaximumWaitGameSeconds)) return;
                 pending = null;
                 Settle(inventory, minions);
             }
@@ -109,14 +109,6 @@ namespace MixedAtmospheres.Oni
                 Report = new { Skipped = "bridge failed: " + error.Message };
                 Debug.LogWarning("[Mixed Atmospheres] The starting air bridge failed: " + error.Message);
             }
-        }
-
-        // Game seconds since the first wait; without a game clock, never.
-        internal static bool WaitExpired(double now)
-        {
-            if (double.IsNaN(now)) return false;
-            if (double.IsNaN(waitStart)) waitStart = now;
-            return now - waitStart >= MaximumWaitGameSeconds;
         }
 
         private static void Settle(Inventory inventory, List<MinionIdentity> minions)
