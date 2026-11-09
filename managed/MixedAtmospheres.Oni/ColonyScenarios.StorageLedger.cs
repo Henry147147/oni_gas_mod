@@ -116,7 +116,10 @@ namespace MixedAtmospheres.Oni
                 var chunkGerms = ItemGerms(SimHashes.Water, slime) - recorded["mop item germs"]; var control = CellGerms(Cell(4, 1), slime);
                 Record("the mopped chunk and what the puddle kept hold the puddle's germs, once", chunkGerms > 0 && chunkGerms + CellGerms(Cell(7, 1), slime) > .98 * recorded["mop germs"] && chunkGerms + CellGerms(Cell(7, 1), slime) < 1.02 * recorded["mop germs"],
                     $"chunk {chunkGerms:F0} germs, puddle held {recorded["mop germs"]:F0}, control puddle now {control:F0}, puddle left {CellGerms(Cell(7, 1), slime):F0}");
-                var chunk = Items(SimHashes.Water).OrderByDescending(primary => primary.Mass).FirstOrDefault(primary => Math.Abs(primary.Mass - 20) < .01f);
+                // The chunk is the mass that moved, not 20 kg: the puddle holds only water until its air arrives at
+                // frame 6, and water boils into that vacuum towards its saturation pressure (about 25 g of steam at
+                // 300 K), which the mop leaves behind.
+                var chunk = Items(SimHashes.Water).OrderByDescending(primary => primary.Mass).FirstOrDefault(primary => Math.Abs(primary.Mass - gained) < 2e-3);
                 Record("the mopped chunk has the temperature of the liquid that left", chunk != null && Math.Abs(chunk.Temperature - 300) < .5, $"{chunk?.Temperature:F3} K");
             }
 
