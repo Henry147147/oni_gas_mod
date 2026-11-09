@@ -478,6 +478,32 @@ frame 6 and now boils into that vacuum towards saturation (11.6 g of steam
 by the mop, 8.4 g before), so the chunk is 19.988 kg. The check now finds
 the chunk by the mass that moved; its 0.5 K bound is unchanged (299.72 K).
 
+Cost, Linux, 3,000 frames at speed 3 on the whole machine, against the
+0.1.1 package (and the same old source built with this revision's pipeline,
+which runs alike):
+
+| Run | 0.1.1 | This revision |
+| --- | --- | --- |
+| Large industrial save, game seconds per real second | 1.674 / 1.686 (old source 1.680) | 1.635 |
+| Same, mean flow stage per 150-frame window | 72.6 ms | 76.4 ms |
+| Same, refined flow attempts | 4,797 | 3,864 |
+| New Volcanic colony (story traits V7, mixing 0), game seconds per real second | 1.523 | 2.471 |
+| Same, mean flow stage per window | 97.9 ms | 47.2 ms |
+
+The Volcanic run predates the last change below, which only removes
+repeated readings.
+
+The first version of these changes ran the industrial save at 1.550: its
+check after the transport read every liquid cell that had room, changed or
+not, and the readings that follow it read the changed ones again. The check
+now skips a cell the transport left bitwise unchanged (it keeps its start
+pressure, which the bound exceeds) and hands its readings on, so they are
+made once. World-dump replays of that save at frames 1,150 and 2,950 run
+within run-to-run noise of the old kernel; the captured Spaced Out! fault
+world flows in about 1.6 times its old time (257 against 164 ms a frame),
+almost all of it in magma that the transport overfills by a fraction of a
+percent, which the check refines rather than keeping as megapascals.
+
 ## Open acceptance work
 
 No private-playtest-ready or performance pass is claimed. The coupled material

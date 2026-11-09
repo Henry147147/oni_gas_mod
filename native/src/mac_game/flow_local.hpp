@@ -357,37 +357,56 @@ public:
         throw std::runtime_error(error);
     return result;
   }
+  // Whether cell i holds bitwise the inventory and energy `masses` and
+  // `energy` describe (evaluate_selected reads nothing else).
+  static bool unchanged_cell(const SparseMass &masses,
+                             const std::vector<double> &energy,
+                             const State &after, std::size_t i) {
+    const auto same = [](double a, double b) {
+      return std::bit_cast<std::uint64_t>(a) == std::bit_cast<std::uint64_t>(b);
+    };
+    const auto begin = after.masses.offsets[i],
+               count = after.masses.offsets[i + 1] - begin;
+    const auto old = masses.offsets[i];
+    bool unchanged = same(energy[i], after.energy[i]) &&
+                     masses.offsets[i + 1] - old == count;
+    for (std::size_t a = 0; unchanged && a < count; ++a)
+      unchanged = masses.species[old + a] == after.masses.species[begin + a] &&
+                  same(masses.mass[old + a], after.masses.mass[begin + a]);
+    return unchanged;
+  }
+  // Readings evaluate_selected made of `after` for some cells, per row
+  // block in cell order.
+  using KnownReadings = std::vector<std::vector<std::pair<std::size_t, Eos>>>;
   // Readings of `after`, given `readings` of the cells `masses` and
   // `energy` describe. A cell whose inventory and energy are bitwise
   // unchanged keeps its reading, which evaluate_selected would reproduce
   // exactly (it reads nothing else); every other cell is evaluated as
   // evaluate_state does, so the result and any error are the same.
+  // `known` readings are used where given.
   std::vector<Eos> evaluate_changed(const SparseMass &masses,
                                     const std::vector<double> &energy,
                                     const State &after,
-                                    std::vector<Eos> readings) const {
+                                    std::vector<Eos> readings,
+                                    const KnownReadings *known = nullptr) const {
     if (readings.size() != g.N || masses.offsets.size() != g.N + 1 ||
         energy.size() != g.N)
       return evaluate_state(after, std::move(readings));
-    const auto same = [](double a, double b) {
-      return std::bit_cast<std::uint64_t>(a) == std::bit_cast<std::uint64_t>(b);
-    };
     std::vector<std::string> errors(g.blocks);
     eos_pool.run(g.blocks, [&](std::size_t block) {
+      std::size_t next = 0;
       for (std::size_t i = g.block_row_begin(block) * g.W;
            i < g.block_row_end(block) * g.W; ++i) {
         if (g.wall[i])
           continue;
+        if (unchanged_cell(masses, energy, after, i))
+          continue;
+        if (known && next < (*known)[block].size() && (*known)[block][next].first == i) {
+          readings[i] = (*known)[block][next++].second;
+          continue;
+        }
         const auto begin = after.masses.offsets[i],
                    count = after.masses.offsets[i + 1] - begin;
-        const auto old = masses.offsets[i];
-        bool unchanged = same(energy[i], after.energy[i]) &&
-                         masses.offsets[i + 1] - old == count;
-        for (std::size_t a = 0; unchanged && a < count; ++a)
-          unchanged = masses.species[old + a] == after.masses.species[begin + a] &&
-                      same(masses.mass[old + a], after.masses.mass[begin + a]);
-        if (unchanged)
-          continue;
         try {
           readings[i] = evaluate_selected(
               species, count,
@@ -741,6 +760,7 @@ public:
     if (thin_mass > 0)
       result.thin_heat_cells = share_thin_heat(result.state, dt);
     result.transport_ms = milliseconds(start);
+    KnownReadings checked;
     if (volume_consistent) {
       // Profile 12: the transport must not leave a liquid cell that had room
       // (void or gas) far above the pressure the solve gave it and its
@@ -752,11 +772,21 @@ public:
       // the cell then has. A refused advance has booked nothing.
       // Only the cells that had room are read here; the readings of the
       // whole result follow below, as on other profiles.
+      // A cell the transport left bitwise unchanged keeps its start
+      // pressure, which the bound exceeds; the readings made here are those
+      // the final evaluation below would make, so it reuses them.
+      const bool comparable = initial.masses.offsets.size() == g.N + 1 &&
+                              initial.energy.size() == g.N;
       std::vector<double> excess(g.blocks);
+      checked.resize(g.blocks);
       rows([&](std::size_t y0, std::size_t y1, std::size_t block) {
         double worst = 0;
+        auto &kept = checked[block];
+        kept.clear();
         for (std::size_t i = y0 * g.W; i < y1 * g.W; ++i) {
           if (g.wall[i] || !(g.V - eos[i].liquid_volume > 1e-6 * g.V))
+            continue;
+          if (comparable && unchanged_cell(initial.masses, initial.energy, result.state, i))
             continue;
           const auto begin = result.state.masses.offsets[i],
                      count = result.state.masses.offsets[i + 1] - begin;
@@ -776,6 +806,7 @@ public:
           }
           if (s.liquid_nominal_volume > 0)
             worst = std::max(worst, s.pressure / tolerated(i, s.mass * std::abs(gravity) / g.A));
+          kept.emplace_back(i, s);
         }
         excess[block] = worst;
       });
@@ -869,7 +900,7 @@ public:
     pressure_storage = std::move(projected);
     start = std::chrono::steady_clock::now();
     result.eos = evaluate_changed(initial.masses, initial.energy, result.state,
-                                  std::move(eos));
+                                  std::move(eos), volume_consistent ? &checked : nullptr);
     result.eos_ms += milliseconds(start);
     return result;
   }
