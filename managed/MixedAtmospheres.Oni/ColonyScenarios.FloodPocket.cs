@@ -16,11 +16,12 @@ namespace MixedAtmospheres.Oni
         private const int FloodHeight = 12;
         private static readonly List<string> floodLog = new List<string>();
         private static double floodPeak, floodLiquidCo2Peak;
+        private static int floodLogged = -1;
         private static void FloodPocket(int frame, OniNativeColony.Status status)
         {
             if (Once(0, "arena"))
             {
-                floodLog.Clear(); floodPeak = floodLiquidCo2Peak = 0;
+                floodLog.Clear(); floodPeak = floodLiquidCo2Peak = 0; floodLogged = -1;
                 Arena((x, y) => y <= 1 ? (SimHashes.CarbonDioxide, 1f, 295f) : y <= 3 ? (SimHashes.Oxygen, .6f, 295f) :
                     y == 4 ? (SimHashes.SandStone, 1000f, 295f) : y <= 9 ? (SimHashes.Water, 1000f, 295f) : (SimHashes.Oxygen, .6f, 295f),
                     Width, FloodHeight);
@@ -37,8 +38,10 @@ namespace MixedAtmospheres.Oni
                 recorded["water"] = FloodSpecies(SimHashes.Water);
             }
             if (Once(8, "dig")) { SimMessages.Dig(Cell(3, 4)); SimMessages.Dig(Cell(4, 4)); }
-            if (frame >= 10 && frame % 10 == 0 && frame <= 400 && (floodLog.Count == 0 || !floodLog[floodLog.Count - 1].StartsWith("f" + frame + " ")))
+            // Once per scenario frame (Update runs on every Unity frame).
+            if (frame >= 10 && frame % 10 == 0 && frame <= 400 && frame != floodLogged)
             {
+                floodLogged = frame;
                 var peak = 0.0; var at = "";
                 for (var y = 0; y < FloodHeight; ++y) for (var x = 0; x < Width; ++x)
                 {
@@ -46,7 +49,7 @@ namespace MixedAtmospheres.Oni
                 }
                 var liquidCo2 = FloodSpecies(SimHashes.LiquidCarbonDioxide);
                 var steam = FloodSpecies(SimHashes.Steam);
-                if (frame >= 60) floodPeak = Math.Max(floodPeak, peak);
+                floodPeak = Math.Max(floodPeak, peak);
                 floodLiquidCo2Peak = Math.Max(floodLiquidCo2Peak, liquidCo2);
                 floodLog.Add(FormattableString.Invariant($"f{frame} peak {peak / 1000:G4} kPa at {at}; pocket gas {Rows(0, 3, Gas):G4} kg, water low {Rows(0, 3, LiquidMass):G6} kg; liquid CO2 {liquidCo2:G4} kg; steam {steam:G4} kg"));
             }
@@ -59,7 +62,10 @@ namespace MixedAtmospheres.Oni
                 Record("the water filled the pocket", Rows(0, 3, LiquidMass) > 25000,
                     FormattableString.Invariant($"{Rows(0, 3, LiquidMass):G6} kg of liquid in the pocket rows"));
                 Record("no carbon dioxide liquefied at room temperature", floodLiquidCo2Peak < 1e-3, FormattableString.Invariant($"peak liquid CO2 {floodLiquidCo2Peak:G4} kg"));
-                Record("no cell held liquid far above its column's pressure", floodPeak < 400e3, FormattableString.Invariant($"peak {floodPeak / 1000:G4} kPa after 12 s"));
+                // After the flood the floor holds five rows of water under the
+                // compressed oxygen, about 140 kPa; from the dig on, no cell may
+                // reach twice that (a 2026-11-08 pool cell read 5.5 MPa).
+                Record("no cell held liquid far above its column's pressure", floodPeak < 300e3, FormattableString.Invariant($"peak {floodPeak / 1000:G4} kPa from the dig on"));
                 Record("flooding keeps closed ledgers", status.State == 1 && status.MaximumRelativeMassError <= 1e-12 && status.MaximumRelativeEnergyError <= 1e-10,
                     FormattableString.Invariant($"mass {status.MaximumRelativeMassError:G3}, energy {status.MaximumRelativeEnergyError:G3}"));
                 Finish();
@@ -77,24 +83,40 @@ namespace MixedAtmospheres.Oni
         // full water pool (the 2026-11-08 playtest cell: 1,070 kg, 5.51 MPa)
         // must boil away and leave the pool at its hydrostatic pressure.
         private static readonly List<string> cornerLog = new List<string>();
+        private static int cornerLogged = -1;
         private static void FloodCo2Corner(int frame, OniNativeColony.Status status)
         {
             const int height = 8;
             if (Once(0, "arena"))
             {
-                cornerLog.Clear();
+                cornerLog.Clear(); cornerLogged = -1;
                 Arena((x, y) => x == 0 && y == 0 ? (SimHashes.LiquidCarbonDioxide, 70f, 295f) : y <= 5 ? (SimHashes.Water, 1000f, 295f) : (SimHashes.Oxygen, .6f, 295f), Width, height);
             }
             double Species(SimHashes e) => Enumerable.Range(0, Width).Sum(x => Enumerable.Range(0, height).Sum(y => SpeciesMass(Cell(x, y), e)));
             double Pressure(int cell) => MixturePresentationRuntime.TryGetCell(cell, out var r) && r != null ? (r.MechanicalPressurePa ?? r.TotalPressurePa) : 0;
-            if (frame >= 6 && frame % 10 == 6 && frame <= 306 && (cornerLog.Count == 0 || !cornerLog[cornerLog.Count - 1].StartsWith("f" + frame + " ")))
+            if (frame >= 6 && frame % 10 == 6 && frame <= 306 && frame != cornerLogged)
+            {
+                cornerLogged = frame;
                 cornerLog.Add(FormattableString.Invariant($"f{frame} corner {Pressure(Cell(0, 0)) / 1000:G4} kPa {CellMass(Cell(0, 0)):G5} kg; above {Pressure(Cell(0, 1)) / 1000:G4} kPa; liquid CO2 {Species(SimHashes.LiquidCarbonDioxide):G4} kg, CO2 gas {Species(SimHashes.CarbonDioxide):G4} kg"));
+            }
+            // At 295 K the liquid is far above its boiling point at the pool's
+            // pressure (about 270 K at 400 kPa in the mod's EOS; 225 K at 1 atm)
+            // and the water around it holds the heat: it flashes within seconds.
+            if (Once(106, "boiling")) recorded["liquid at 20 s"] = Species(SimHashes.LiquidCarbonDioxide);
             if (Once(306, "check"))
             {
                 Debug.Log("[Mixed Atmospheres] flood-co2-corner: " + string.Join(" | ", cornerLog));
                 var liquid = Species(SimHashes.LiquidCarbonDioxide);
+                Record("room-temperature liquid carbon dioxide boiled within 20 s", recorded["liquid at 20 s"] < .01 * 70,
+                    FormattableString.Invariant($"70 -> {recorded["liquid at 20 s"]:G4} kg"));
                 Record("room-temperature liquid carbon dioxide boiled away", liquid < .01 * 70, FormattableString.Invariant($"70 -> {liquid:G4} kg"));
-                Record("the corner returned to its column's pressure", Pressure(Cell(0, 0)) < 200e3, FormattableString.Invariant($"{Pressure(Cell(0, 0)) / 1000:G4} kPa"));
+                // The arena is sealed: its 70 kg of carbon dioxide, now gas in
+                // the two top rows, raise the whole pool's pressure (about 360
+                // kPa at the floor). The corner must sit at its column's
+                // pressure, four cells of water (39 kPa) below cell (0, 4).
+                var excess = Pressure(Cell(0, 0)) - Pressure(Cell(0, 4));
+                Record("the corner returned to its column's pressure", Math.Abs(excess - 4 * 9.81e3) < 10e3,
+                    FormattableString.Invariant($"{Pressure(Cell(0, 0)) / 1000:G4} kPa, {excess / 1000:G4} kPa above cell (0, 4)"));
                 Record("the corner's ledgers stay closed", status.State == 1 && status.MaximumRelativeMassError <= 1e-12, FormattableString.Invariant($"mass {status.MaximumRelativeMassError:G3}"));
                 Finish();
             }
