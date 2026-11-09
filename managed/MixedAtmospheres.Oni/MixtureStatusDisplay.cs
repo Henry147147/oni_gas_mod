@@ -277,9 +277,10 @@ namespace MixedAtmospheres.Oni
                 if (frame.TryGetCell(hovered, out var hoveredReading) && hoveredReading != null) sampleCell = hovered;
             }
             if (!frame.TryGetCell(sampleCell, out var reading) || reading == null) return;
-            measurement = "Cell " + (sampleCell % frame.Width) + ", " + (sampleCell / frame.Width) + " · " + reading.BreathingStatus + "\n" +
-                Number(reading.TotalMassKg) + " kg · " + Number(reading.TemperatureKelvin - 273.15) + " °C\n" +
-                "Gas " + Number(reading.TotalPressurePa / 1000) + " kPa · O₂ " + Number(reading.OxygenPartialPressurePa / 1000) + " kPa";
+            var submerged = MixtureInspection.Submerged(reading);
+            measurement = "Cell " + (sampleCell % frame.Width) + ", " + (sampleCell / frame.Width) + " · " + MixtureInspection.Status(reading) + "\n" +
+                Number(reading.TotalMassKg) + " kg · " + Number(reading.TemperatureKelvin - 273.15) + " °C" +
+                (submerged ? "" : "\nGas " + Number(reading.TotalPressurePa / 1000) + " kPa · O₂ " + Number(reading.OxygenPartialPressurePa / 1000) + " kPa");
             var liquid = MixtureInspection.ShowsLiquid(reading);
             if (reading.MechanicalPressurePa.HasValue && liquid)
                 measurement += "\nFluid " + (reading.MechanicalPressurePa.Value >= 1e6 ?
@@ -291,11 +292,11 @@ namespace MixedAtmospheres.Oni
                     .OrderByDescending(value => value.MassKg).Select(value => value.DisplayName).ToArray();
                 if (liquids.Length != 0) measurement += " (" + string.Join(", ", liquids) + ")";
             }
-            composition = string.Join(" · ", reading.GasConstituents.Where(value => !value.IsTrace)
+            composition = submerged ? "" : string.Join(" · ", reading.GasConstituents.Where(value => !value.IsTrace)
                 .Select(value => value.DisplayName + " " + (MixtureInspection.ExactReadings || !value.GasMoleFraction.HasValue ? value.MolePercentText :
                     MixtureInspection.Friendly(100 * value.GasMoleFraction.Value) + "%")));
-            if (composition.Length == 0 && reading.TotalMassKg > 0) composition = reading.DisplayName;
-            warning = reading.Warnings.Count == 0 ? "" : reading.Warnings[0];
+            if (composition.Length == 0 && reading.TotalMassKg > 0 && !submerged) composition = reading.DisplayName;
+            warning = reading.Warnings.Count == 0 || submerged ? "" : reading.Warnings[0];
         }
 
         private static string Number(double value) => !MixtureInspection.ExactReadings ? MixtureInspection.Friendly(value) : value.ToString(

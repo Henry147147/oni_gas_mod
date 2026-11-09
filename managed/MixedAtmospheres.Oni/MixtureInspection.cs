@@ -207,9 +207,22 @@ namespace MixedAtmospheres.Oni
         internal static bool ShowsLiquid(MixturePresentation reading) =>
             reading.LiquidVolumeFraction > 0 && (ExactReadings || reading.LiquidVolumeFraction >= TraceLiquidVolumeFraction);
 
-        public static string FormatState(MixturePresentation reading)
+        // Friendly hover and panel readings show a cell that is almost all
+        // liquid as submerged: its trapped gas (grams, often vapour) and the
+        // breathing checks that gas fails add nothing a player acts on, and
+        // read as broken water (2026-11-08 playtest). Exact readings and the
+        // selected cell's details keep every constituent and warning.
+        internal const double SubmergedLiquidVolumeFraction = .95;
+        internal static bool Submerged(MixturePresentation reading) =>
+            !ExactReadings && reading.LiquidVolumeFraction >= SubmergedLiquidVolumeFraction;
+        internal static string Status(MixturePresentation reading) => Submerged(reading) ? "Submerged" : reading.BreathingStatus;
+
+        public static string FormatState(MixturePresentation reading) => FormatState(reading, false);
+        // compact: the hover card's line (a submerged cell omits its gas pressure).
+        internal static string FormatState(MixturePresentation reading, bool compact)
         {
             if (reading == null) throw new ArgumentNullException(nameof(reading));
+            var submerged = compact && Submerged(reading);
             var temperature = reading.TotalMassKg > 0
                 ? Number(reading.TemperatureKelvin - 273.15) + " °C" + (ExactReadings ? " (" + Number(reading.TemperatureKelvin) + " K)" : "")
                 : "temperature unavailable in vacuum";
@@ -218,9 +231,9 @@ namespace MixedAtmospheres.Oni
                 ? "Gas pressure " + (kilopascals == 0 && reading.TotalPressurePa > 0 ? "below numeric range" : Number(kilopascals)) +
                     " kPa" + (ExactReadings ? " (" + Number(reading.TotalPressurePa) + " Pa)" : "")
                 : "No gas phase";
-            var state = pressure + " · " + temperature + " · " + Number(reading.TotalMassKg) + " kg";
+            var state = (submerged ? "" : pressure + " · ") + temperature + " · " + Number(reading.TotalMassKg) + " kg";
             if (ShowsLiquid(reading)) state += " · " + FormatFluidPressure(reading);
-            return state + " · " + reading.BreathingStatus;
+            return state + " · " + (compact ? Status(reading) : reading.BreathingStatus);
         }
 
         public static string FormatHeader(MixturePresentation reading)
@@ -247,7 +260,7 @@ namespace MixedAtmospheres.Oni
             // DrawCell/DrawContainers append every warning separately, including
             // hazardous traces omitted from this contents list.
             foreach (var row in reading.GasConstituents)
-                if (!row.IsTrace)
+                if (!row.IsTrace && !Submerged(reading))
                     result.Add(row.DisplayName + " " + Percent(row) + " by moles" + (row.IsContaminant ? " — CONTAMINANT" : ""));
             // Traces are left out without a hint line (user decision 2026-11-08);
             // selecting the cell still lists every constituent.
@@ -332,13 +345,15 @@ namespace MixedAtmospheres.Oni
             if (!MixturePresentationRuntime.TryGetCell(cell, out var reading) || reading == null) return false;
             MixtureHoverLayout.Request(drawer);
             drawer.BeginShadowBar(selected);
-            drawer.DrawText(FormatHeader(reading).ToUpperInvariant(), card.Styles_Title.Standard);
-            Line(drawer, card, FormatState(reading));
+            var header = FormatHeader(reading);
+            if (Submerged(reading)) { var plus = header.IndexOf(" + ", StringComparison.Ordinal); if (plus > 0) header = header.Substring(0, plus); }
+            drawer.DrawText(header.ToUpperInvariant(), card.Styles_Title.Standard);
+            Line(drawer, card, FormatState(reading, true));
             var composition = FormatCompactComposition(reading);
             foreach (var line in composition) Line(drawer, card, line);
             if (cellGermReader?.Invoke(cell) is string germs) Line(drawer, card, germs);
             if (ShowBreathingPassed && reading.Warnings.Count == 0 && reading.IsBreathable) Line(drawer, card, "Breathing checks passed");
-            foreach (var warning in reading.Warnings) Line(drawer, card, warning, true);
+            if (!Submerged(reading)) foreach (var warning in reading.Warnings) Line(drawer, card, warning, true);
             drawer.EndShadowBar();
             Interlocked.Increment(ref hoverDraws);
             CellHoverObserver?.Invoke(cell, reading, composition, selected);

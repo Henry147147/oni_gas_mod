@@ -37,6 +37,7 @@ internal static class Program
             ("compressed liquid shows actual fluid pressure without calling it vacuum", ActualLiquidPressure),
             ("wet mixture keeps fluid pressure separate from gas partial pressures", WetMixturePressure),
             ("wet cells name their liquid, the phase filling most of the cell first", WetCellNames),
+            ("a submerged cell reads as submerged in friendly hover and panel text", SubmergedCell),
             ("friendly readings round to 4, 3, 2 or 1 significant figures", SignificantFigures),
             ("pipe shares retain positive traces and avoid rounding impure packets to 100 percent", PipeSharePrecision),
             ("coincident pipe ports deduplicate by flow and cell while separate inventories remain", PipePacketIdentity),
@@ -316,6 +317,32 @@ internal static class Program
         Check(flooded.IsBreathable && flooded.BreathingStatus == "Breathable headspace" && damp.BreathingStatus == "Breathable",
             "A mostly liquid cell's breathable gas is not called a headspace.");
         Check(!gas.Contains(water), "A trace of liquid renamed a gas cell.");
+    }
+
+    private static void SubmergedCell()
+    {
+        var (_, model) = Model();
+        var submerged = Wet(model, .02, 980); var flooded = Wet(model, .3, 700);
+        var saved = MixtureInspection.ExactReadings;
+        try
+        {
+            MixtureInspection.ExactReadings = false;
+            Check(MixtureInspection.Submerged(submerged) && !MixtureInspection.Submerged(flooded), "The submerged threshold misclassified a cell.");
+            var state = MixtureInspection.FormatState(submerged, true);
+            Check(state.EndsWith("Submerged", StringComparison.Ordinal) && !state.Contains("Gas pressure") && state.Contains("Fluid pressure"),
+                "A submerged hover line kept its trapped gas pressure: " + state);
+            Check(!MixtureInspection.FormatCompactComposition(submerged).Any(line => line.Contains(" by moles")),
+                "A submerged hover listed its trapped gas.");
+            Check(MixtureInspection.FormatState(submerged) == MixtureInspection.BuildDetailRows(submerged).Single(row => row.Key == "State").Text &&
+                MixtureInspection.FormatState(submerged).Contains(submerged.BreathingStatus),
+                "The selected details lost the submerged cell's full state.");
+            Check(MixtureInspection.FormatState(flooded, true) == MixtureInspection.FormatState(flooded),
+                "A headspace cell changed its hover state.");
+            MixtureInspection.ExactReadings = true;
+            Check(!MixtureInspection.Submerged(submerged) && MixtureInspection.FormatCompactComposition(submerged).Any(line => line.Contains(" by moles")),
+                "Exact readings hid a submerged cell's gas.");
+        }
+        finally { MixtureInspection.ExactReadings = saved; }
     }
 
     private static void SignificantFigures()
