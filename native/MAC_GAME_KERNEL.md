@@ -561,8 +561,11 @@ contents are unchanged.
   or cools by one relative amount; cells holding liquid take none. A room
   gives up at most three quarters of that energy in one batch (a room of only
   freshly injected gas gives up 1 − 1/γ, 0.63 for the catalogue's hydrogen,
-  so a source into an empty sealed cell ends at its own temperature). What a
-  room cannot take (a wet room, or more than that) stays with the parcels as
+  so a source into an empty sealed cell ends at its own temperature). A
+  source whose cell took no share (it holds liquid, or its room has no
+  gas-only cell) takes its own work back, so its cell ends as with none (an
+  injection's cell gives up at most half its thermal energy that way). Only
+  what a room would give up beyond three quarters stays with the parcels as
   `flow_work_j`, as for enthalpy. Otherwise the world's energy changes exactly
   as with none.
 

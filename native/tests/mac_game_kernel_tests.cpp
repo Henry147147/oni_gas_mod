@@ -565,13 +565,21 @@ void source_energy_controls() {
               u(returned_draw.world, 3) > u(dry, 3),
           "Compensated extraction did not return its work to the room");
   closed_energy(energy(plain.world), energy(returned_draw.world));
-  // A wet room has no gas-only cell to take the work: it stays as flow work.
+  // A wet room has no gas-only cell to take the work: the source's own cell
+  // takes it back, ending as with internal energy (an injection and a draw).
   const auto wet = world_of(6, true);
-  const auto wet_enthalpy = apply(wet, edit(0, oxygen, true, m, MacFlowWork::enthalpy));
-  const auto wet_compensated = apply(wet, edit(0, oxygen, true, m, MacFlowWork::compensated));
-  require(wet_compensated.world.checkpoint() == wet_enthalpy.world.checkpoint() &&
-              near(wet_compensated.parcels.front().flow_work_j, wet_enthalpy.parcels.front().flow_work_j, 1e-12),
-          "Compensated injection into a wet room differs from enthalpy");
+  for (const bool inject : {true, false}) {
+    const auto key = inject ? oxygen : nitrogen;
+    const double mass = inject ? m : .01;
+    const auto wet_none = apply(wet, edit(0, key, inject, mass, MacFlowWork::none));
+    const auto wet_compensated = apply(wet, edit(0, key, inject, mass, MacFlowWork::compensated));
+    require(wet_compensated.parcels.front().flow_work_j == 0 &&
+                near(u(wet_compensated.world, 0), u(wet_none.world, 0), 1e-12) &&
+                near(wet_compensated.world.cell_reading(0).temperature_k, wet_none.world.cell_reading(0).temperature_k, 1e-9),
+            "Compensated edit in a wet room differs from internal energy");
+    for (std::size_t i = 1; i < 6; ++i)
+      require(u(wet_compensated.world, i) == u(wet, i), "Compensated edit in a wet room changed another cell");
+  }
   // A zero edit records its cell before the room's compensation changes it;
   // the audit still sees that change. In place equals the copying form.
   {
@@ -635,7 +643,7 @@ void source_energy_controls() {
               std::abs(room[2] - room[0]) < .05 &&
               std::abs(source[2] - room[2]) < .5 * std::abs(source[0] - room[0]),
           "Source energy rules lost their tube behaviour");
-  std::cout << "PASS source energy: enthalpy and isentropic draw, compensated room shares, wet rooms keep flow work; "
+  std::cout << "PASS source energy: enthalpy and isentropic draw, compensated room shares, wet rooms as internal energy; "
                "the sealed tube's cold source and compression heating\n";
 }
 } // namespace

@@ -1150,9 +1150,9 @@ public:
   // swapped back (a cell whose chunk was never made writable was never
   // written), so the restore cannot fail on the way.
   void undo(MacTransportState &state) {
-    for (const auto &[i, energy] : energies_)
-      if (state.cells.writable(i))
-        state.cells[i].mixture.energy = energy;
+    for (auto at = energies_.rbegin(); at != energies_.rend(); ++at)
+      if (state.cells.writable(at->first))
+        state.cells[at->first].mixture.energy = at->second;
     for (auto &[i, cell] : cells_)
       if (state.cells.writable(i))
         std::swap(state.cells[i], cell);
@@ -1443,8 +1443,10 @@ constexpr double compensation_fraction = .75;
 // share in proportion to its thermal energy above twice its species' lowest
 // temperature, so a room's gas warms or cools by one relative amount; cells
 // holding liquid take none, so their EOS is never re-read here. What a room
-// cannot take (more than compensation_fraction of that energy, or a room
-// without such cells) stays with its parcels as flow work, as for enthalpy.
+// cannot take goes back to the source's own cell when that cell took no
+// share (a wet room: its cell ends as with internal energy); what a room
+// would give up beyond compensation_fraction stays with its parcels as flow
+// work, as for enthalpy.
 void compensate(MacTransportState &next, const std::vector<k::Species> &species,
                 std::span<const Compensation> sources, TransferWork &work,
                 EditJournal &journal) {
@@ -1537,6 +1539,37 @@ void compensate(MacTransportState &next, const std::vector<k::Species> &species,
     }
   }
   generation = static_cast<std::uint32_t>(first + rooms.size());
+  // A cell's energy change: a cell an edit changed keeps its full record and
+  // is audited with the edits' cells; any other changes only its energy,
+  // which is recorded (again for each change) and booked exactly here.
+  const auto shift = [&](std::size_t i, double delta) {
+    const bool alone = !journal.recorded(i);
+    if (alone)
+      journal.energy(next, i);
+    auto &energy = next.cells[i].mixture.energy;
+    const double before = energy;
+    energy += delta;
+    require(std::isfinite(energy), "Game flow-work compensation is unrepresentable");
+    if (alone) {
+      work.energy.add(energy);
+      work.energy.add(-before);
+      work.energy_operands.add(std::abs(energy));
+      work.energy_operands.add(-std::abs(before));
+    } else
+      work.cells.push_back(i); // a zero edit records its cell unaudited
+  };
+  // The thermal energy of a cell's contents above their offsets.
+  const auto thermal = [&](std::size_t i) {
+    const auto &mixture = cells[i].mixture;
+    if (grid.walls[i] || mixture.masses.implicit_zero())
+      return 0.;
+    const std::vector<double> &masses = mixture.masses;
+    double value = mixture.energy;
+    for (std::size_t q = 0; q < masses.size(); ++q)
+      if (masses[q] > 0)
+        value -= masses[q] * species[q].offset;
+    return value;
+  };
   for (auto &room : rooms) {
     const auto &weights = room.weights;
     const double total = room.total;
@@ -1553,38 +1586,38 @@ void compensate(MacTransportState &next, const std::vector<k::Species> &species,
     }
     if (scale != 0)
       for (std::size_t at = 0; at < room.cells.size(); ++at)
-        if (weights[at] > 0) {
-          // A cell an edit changed keeps its full record and is audited
-          // with the edits' cells; any other changes only its energy, which
-          // is recorded and booked exactly here.
-          const auto i = room.cells[at];
-          const bool alone = !journal.recorded(i);
-          if (alone)
-            journal.energy(next, i);
-          auto &energy = next.cells[i].mixture.energy;
-          const double before = energy;
-          energy += scale * weights[at];
-          require(std::isfinite(energy), "Game flow-work compensation is unrepresentable");
-          if (alone) {
-            work.energy.add(energy);
-            work.energy.add(-before);
-            work.energy_operands.add(std::abs(energy));
-            work.energy_operands.add(-std::abs(before));
-          } else
-            work.cells.push_back(i); // a zero edit records its cell unaudited
-        }
+        if (weights[at] > 0)
+          shift(room.cells[at], scale * weights[at]);
     if (unplaced > 0) {
-      // Back to the parcels whose direction the room could not take (a
-      // frame's return has none: the work stays where its edits booked it).
+      // What the room could not take. A source whose cell took no share
+      // (it holds liquid, or its room has no gas-only cell) takes its own
+      // work back, so its cell ends as with internal energy; an injection's
+      // cell gives up at most half its thermal energy that way. Otherwise
+      // (a room that would give up more than compensation_fraction) the
+      // work stays where its edit booked it: on its parcel, or for a
+      // frame's return in the world.
       const bool inject = room.joules < 0;
       double gross = 0;
       for (const auto q : room.members)
         if (sources[q].inject == inject)
           gross += sources[q].joules;
-      for (const auto q : room.members)
-        if (sources[q].inject == inject && gross > 0 && sources[q].parcel < work.parcels.size())
-          work.parcels[sources[q].parcel].flow_work_j +=
-              unplaced * (sources[q].joules / gross);
+      for (const auto q : room.members) {
+        const auto &c = sources[q];
+        if (c.inject != inject || !(gross > 0))
+          continue;
+        const double share = unplaced * (c.joules / gross);
+        bool weighted = false;
+        if (scale != 0)
+          for (std::size_t at = 0; at < room.cells.size() && !weighted; ++at)
+            weighted = room.cells[at] == c.cell && weights[at] > 0;
+        const auto &held = cells[c.cell].mixture;
+        const bool own = !weighted && !grid.walls[c.cell] && held.mass() > 0 &&
+                         (!inject || share < .5 * thermal(c.cell));
+        if (own)
+          shift(c.cell, inject ? -share : share);
+        else if (c.parcel < work.parcels.size())
+          work.parcels[c.parcel].flow_work_j += share;
+      }
     }
   }
   // Gas-only cells keep their full occupied volume: only their energy changed.
