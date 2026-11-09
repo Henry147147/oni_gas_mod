@@ -1,5 +1,13 @@
 # Feature completion work
 
+**Update, 2026-11-09:** private candidate [0.1.2](playtest-0.1.2.md)
+(`57f9e44`) answers the [0.1.1 playtest review](playtest-0.1.1-review.md):
+the starting oxygen reserve is no longer skipped by a paused start, natural
+tiles and polluted water sublimate by ONI's rule, and flooded pools no longer
+spike to megapascals or liquefy CO₂ at room temperature. Still open: the cold
+gas at strong sources (a source energy model decision for the user), a
+Spaced Out! colony in game and the Windows OS itself.
+
 **Update, 2026-11-08:** private candidate [0.1.1](playtest-0.1.1.md)
 (`a914a00`) makes colony settings changeable on an existing save, fixes the
 Windows owner DLL's per-frame memory growth (52 GB in the user's Spaced Out!
