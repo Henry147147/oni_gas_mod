@@ -103,7 +103,8 @@ public:
                    const std::vector<double> &old_y, double dt, double gravity,
                    bool positive_correction = false,
                    const std::vector<std::uint8_t> *fixed = nullptr,
-                   Pressure storage = {}) {
+                   Pressure storage = {},
+                   const std::vector<double> *boiling = nullptr) {
     const auto N = grid.N;
     const auto &g = grid;
     if (states.size() != N || old_x.size() != g.NX || old_y.size() != g.NY ||
@@ -272,6 +273,12 @@ public:
         gather(true, g.right_face(i), true);
         gather(false, g.bottom_face(i), false);
         gather(false, g.top_face(i), true);
+        // Profile 12: the volume the cell's boiling adds this interval
+        // (BoilPlan) pushes material out at the solved pressure.
+        if (boiling && (*boiling)[i] != 0) {
+          rhs += (*boiling)[i];
+          increment += (*boiling)[i];
+        }
         w.rhs[i] = rhs;
         w.increment_rhs[i] = increment;
         system.diag[i] = diagonal;
@@ -383,7 +390,7 @@ public:
         const auto iterations = result.iterations;
         const bool converged = result.converged;
         auto corrected = advance(states, old_x, old_y, dt, gravity, false,
-                                 &constrained, std::move(result));
+                                 &constrained, std::move(result), boiling);
         corrected.iterations += iterations;
         corrected.corrections = 1;
         corrected.converged = corrected.converged && converged;

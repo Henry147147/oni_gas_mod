@@ -24,6 +24,8 @@ struct FlowReport {
   // transport or ledger entry. Its unchanged EOS storage returns to the caller.
   bool pressure_refinement_requested = false;
   double pressure_volume_change = 0;
+  // The solved pressures of an interval given a boiling source (profile 12).
+  std::vector<double> pressure;
   // Why the refinement was requested (diagnostic, reject_log.hpp); no_cell where not applicable.
   reject_log::Reason reject_reason = reject_log::Reason::swept_volume;
   std::size_t reject_cell = reject_log::no_cell;
@@ -47,6 +49,9 @@ class Flow {
   // Profile 12: the thin-gas drag's threshold and time constant, which also
   // set the thin-gas heat exchange (share_thin_heat); 0 disables both.
   double thin_mass = 0, thin_time = 0;
+  // Profile 12: the room bound on liquid cells (advance, below) and the
+  // volume-consistent remap (PatchTransport::advance).
+  bool volume_consistent = false;
   PatchTransport patch;
   // Capacity of the previous pressure result, lent to the next solve.
   Pressure pressure_storage;
@@ -301,7 +306,7 @@ public:
        unsigned gravity_source = 0, unsigned pressure_iterations = 200,
        bool surface_closure = false, bool bound_pressure_volume = false,
        double bound_mass = 0, bool layered = false, double thin_gas_mass = 0,
-       double thin_gas_time = 0)
+       double thin_gas_time = 0, bool bound_room = false)
       : source(grid), g(source), topology(g), species(std::move(table)),
         eos_pool(
             static_cast<unsigned>(std::min<std::size_t>(threads, g.blocks))),
@@ -312,6 +317,7 @@ public:
         bounded_pressure_volume(bound_pressure_volume),
         bound_mass_floor(bound_mass), layered_remap(layered),
         thin_mass(thin_gas_mass), thin_time(thin_gas_time),
+        volume_consistent(bound_pressure_volume && bound_room),
         patch(grid, &eos_pool, &topology) {}
   ma::experimental::mac_kernel::Pool &worker_pool() const { return eos_pool; }
   const auto &region_topology() const { return topology; }
@@ -404,7 +410,8 @@ public:
   FlowReport advance(const State &initial, double dt, double gravity,
                      RegionAudit *regions = nullptr,
                      const LiquidBoundary *boundary = nullptr,
-                     std::vector<Eos> readings = {}) {
+                     std::vector<Eos> readings = {},
+                     const std::vector<double> *boiling = nullptr) {
     namespace k = ma::experimental::mac_kernel;
     FlowReport result;
     auto start = std::chrono::steady_clock::now();
@@ -414,7 +421,8 @@ public:
     Pressure projected;
     try {
       projected = pressure.advance(eos, initial.jx, initial.jy, dt, gravity,
-                                    true, nullptr, std::move(pressure_storage));
+                                    true, nullptr, std::move(pressure_storage),
+                                    boiling);
     } catch (const k::ComponentPressureSolveFailure &) {
       if (!bounded_pressure_volume) throw;
       result.pressure_ms = milliseconds(start);
@@ -487,6 +495,77 @@ public:
       });
       const double largest = *std::max_element(maxima.begin(), maxima.end());
       result.pressure_volume_change = largest / g.V;
+      if (volume_consistent) {
+        // Profile 12 room bound (MAC_GAME_KERNEL.md). The solve sees a
+        // partly filled gas-free cell as a zero-pressure boundary and a gas
+        // bubble by its tangent compliance at the start of the interval, so
+        // it can send a liquid cell more net volume than the cell has room
+        // for: more than its void, or than the 0.4 share of its gas the
+        // gas-cell bound allows, or gas the transport itself takes out (a
+        // top face draws a cell's gas first). The liquid's stiffness then
+        // turns the excess into megapascals after the transport. The room is
+        // what the cell keeps through its own sweeps: its retained void,
+        // 0.4 of its retained gas, and its liquid's linear compression up to
+        // the largest solved pressure around it (the pressure driving the
+        // inflow) or the weight of its own column. Gas a neighbour sends in
+        // is not counted. A larger net inflow refines the interval; the
+        // ratio joins the swept-volume ratio that sizes the next one.
+        std::vector<double> rooms(g.blocks);
+        rows([&](std::size_t y0, std::size_t y1, std::size_t block) {
+          double worst = 0;
+          for (std::size_t i = y0 * g.W; i < y1 * g.W; ++i) {
+            const auto &s = eos[i];
+            if (g.wall[i] || !(s.liquid_nominal_volume > 0))
+              continue;
+            const double inflow = -(projected.qx[g.right_face(i)] - projected.qx[g.left_face(i)] +
+                                    projected.qy[g.top_face(i)] - projected.qy[g.bottom_face(i)]);
+            if (!(inflow > 0))
+              continue;
+            double drive = std::max({projected.p[i], s.pressure, s.mass * std::abs(gravity) / g.A});
+            const auto around = [&](bool x, std::size_t f) {
+              const auto l = (x ? g.xl : g.yl)[f], r = (x ? g.xr : g.yr)[f];
+              if (l == k::none || r == k::none || g.closed(!x, f))
+                return;
+              drive = std::max(drive, projected.p[l == i ? r : l]);
+            };
+            around(true, g.left_face(i));
+            around(true, g.right_face(i));
+            around(false, g.bottom_face(i));
+            around(false, g.top_face(i));
+            // What the cell's own sweeps leave of its void and gas.
+            const double horizontal = std::max(0., -projected.qx[g.left_face(i)]) +
+                                      std::max(0., projected.qx[g.right_face(i)]),
+                         up = std::max(0., projected.qy[g.top_face(i)]),
+                         down = std::max(0., -projected.qy[g.bottom_face(i)]);
+            const double empty = std::max(0., g.V - s.gas_volume - s.liquid_volume);
+            double gas = 0, kept_empty = 0;
+            if (layered_remap && gravity > 0 && s.gas_volume > 0) {
+              // Horizontal faces sweep in proportion; the top face draws gas
+              // first and the bottom face liquid first.
+              const double share = std::max(0., 1 - horizontal / g.V);
+              const double liquid = s.liquid_volume * share;
+              gas = s.gas_volume * share - std::min(up, s.gas_volume * share);
+              gas -= std::max(0., down - liquid);
+              gas = std::max(0., gas);
+            } else {
+              const double share = std::max(0., 1 - (horizontal + up + down) / g.V);
+              gas = s.gas_volume * share;
+              kept_empty = empty * share;
+            }
+            const double rise = std::max(0., projected.p[i] - s.pressure);
+            const double room = kept_empty + .4 * gas + s.liquid_compliance * (rise + drive);
+            worst = std::max(worst, room > 0 ? inflow / room : std::numeric_limits<double>::infinity());
+          }
+          rooms[block] = worst;
+        });
+        const double worst = *std::max_element(rooms.begin(), rooms.end());
+        result.pressure_volume_change = std::max(result.pressure_volume_change, .4 * worst);
+        if (worst > 1) {
+          result.reject_reason = reject_log::Reason::swept_volume;
+          request_refinement();
+          return result;
+        }
+      }
       // The pressure solve freezes its compliance and face velocities until
       // the remap finishes. Re-solve before a cell's net swept volume exceeds
       // the existing 0.4-cell transport scale. Net volume
@@ -592,7 +671,8 @@ public:
         patch.advance(initial.masses, std::move(work), projected.jx,
                       projected.jy, projected.qx, projected.qy, gravity,
                       audit_mode, &initial.passives, regions, boundary,
-                      layered_remap ? &species : nullptr);
+                      layered_remap ? &species : nullptr,
+                      volume_consistent);
     result.subcycles = remap.microticks;
     result.transport_cells = remap.cell_updates;
     result.transport_faces = remap.face_updates;
@@ -677,6 +757,8 @@ public:
                        ? std::abs(my.residual.value()) / my.operands.value()
                        : 0);
     }
+    if (boiling)
+      result.pressure = projected.p;
     pressure_storage = std::move(projected);
     start = std::chrono::steady_clock::now();
     result.eos = evaluate_changed(initial.masses, initial.energy, result.state,

@@ -1,6 +1,7 @@
 #pragma once
 #include "flow_local.hpp"
 #include <optional>
+#include <span>
 namespace ma::experimental::game_kernel {
 // boil_only (saved profile6 rule, MAC_PHASE_CHANGE.md): compare saturation
 // with the cell's total gas pressure instead of the vapour's partial
@@ -15,6 +16,21 @@ struct PhaseResult {
   SparseMass masses;
   double evaporated = 0, condensed = 0, entropy_change = 0, mass_error = 0;
   std::size_t changed_cells = 0, trials = 0;
+};
+// Profile 12 boiling with displacement (MAC_GAME_KERNEL.md, "Boiling in
+// liquid-full cells"): a pair liquid boiling in a cell with too little room
+// for its vapour converts during the flow intervals of a tick, its vapour
+// volume pushing the liquid out within the pressure solve. One entry per
+// cell and pair, ascending by cell then pair.
+struct BoilPlan {
+  std::size_t cell = 0, pair = 0;
+  // Liquid to convert over the whole tick (kg) and the volume its vapour
+  // adds at the cell's pressure (m3/kg).
+  double mass = 0, volume_per_kg = 0;
+};
+struct BoilResult {
+  std::vector<std::size_t> cells; // changed, ascending
+  double evaporated = 0, entropy_change = 0;
 };
 inline double saturation_pressure(const Species &liquid, const Species &vapour,
                                   double temperature, double pressure) {
@@ -71,8 +87,250 @@ public:
                       static_cast<unsigned>(
                           (source.width * source.height + 127) / 128)))),
         pool(executor ? *executor : *owned_pool) {}
+  // The temperature at which `pair`'s liquid boils at `pressure`
+  // (saturation_pressure(T, pressure) == pressure), below `temperature`;
+  // 0 if it does not boil there.
+  double boiling_temperature(const PhasePair &pair, double temperature,
+                             double pressure) const {
+    const auto &liquid = species[pair.liquid];
+    const auto &vapour = species[pair.vapour];
+    const auto above = [&](double t) {
+      return saturation_pressure(liquid, vapour, t, pressure) > pressure;
+    };
+    if (!above(temperature))
+      return 0;
+    double low = .5 * temperature, high = temperature;
+    for (unsigned k = 0; k < 8 && above(low); ++k)
+      low *= .5;
+    if (above(low))
+      return 0;
+    for (unsigned iter = 0; iter < 60; ++iter) {
+      const double mid = .5 * (low + high);
+      if (mid == low || mid == high)
+        break;
+      (above(mid) ? high : low) = mid;
+    }
+    return high;
+  }
+  // Profile 12: liquids that boil at their cell's pressure in a cell
+  // without room for the vapour. The isobaric amount is the heat above the
+  // boiling point at the cell's pressure over the latent heat (as in a
+  // flash), relaxed over the tick like the rest of the phase change, and
+  // limited so the vapour adds at most the 0.4-cell transport scale per
+  // flow part. A cell whose gas and void already hold that vapour is left
+  // to the relaxation at the tick's end.
+  std::vector<BoilPlan> plan_boiling(const State &state,
+                                     const std::vector<Eos> &eos, double dt,
+                                     double relaxation_time,
+                                     unsigned flow_parts) {
+    const double fraction = -std::expm1(-dt / relaxation_time);
+    const double V = grid.volume_m3();
+    const auto N = state.masses.cells();
+    const auto blocks = (N + 127) / 128;
+    std::vector<std::vector<BoilPlan>> found(blocks);
+    pool.run(blocks, [&](std::size_t block) {
+      for (std::size_t i = block * 128; i < std::min(N, (block + 1) * 128); ++i) {
+        if (grid.walls[i] || state.masses.offsets[i] == state.masses.offsets[i + 1])
+          continue;
+        const auto &e = eos[i];
+        if (!(e.pressure > 0) || !(e.liquid_nominal_volume > 0))
+          continue;
+        const auto mass_of = [&](std::size_t key) {
+          for (auto a = state.masses.offsets[i]; a < state.masses.offsets[i + 1]; ++a)
+            if (state.masses.species[a] == key)
+              return state.masses.mass[a];
+          return 0.;
+        };
+        const bool interface = e.gas_volume > 1e-6 * V;
+        for (std::size_t p = 0; p < pairs.size(); ++p) {
+          const auto &pair = pairs[p];
+          const double ml = mass_of(pair.liquid);
+          if (!(ml > 0) || e.temperature >= pair.critical)
+            continue;
+          const auto &liquid = species[pair.liquid];
+          const auto &vapour = species[pair.vapour];
+          // Boiling at the cell's pressure; a gas-free liquid also needs the
+          // nucleation superheat, as in advance.
+          if (!(saturation_pressure(liquid, vapour, e.temperature, e.pressure) > e.pressure) ||
+              (!interface && !(saturation_pressure(liquid, vapour, e.temperature - 5,
+                                                   e.pressure) > e.pressure)))
+            continue;
+          const double boiling = boiling_temperature(pair, e.temperature, e.pressure);
+          if (!(boiling > 0) || !(boiling < e.temperature))
+            continue;
+          const double r = R / vapour.molar_mass;
+          const double latent =
+              vapour.offset + (vapour.cv + r) * e.temperature -
+              (liquid.offset + liquid.cv * e.temperature +
+               e.pressure / liquid.rho0 * liquid_volume_fraction(liquid, e.pressure));
+          const double volume_per_kg =
+              r * e.temperature / e.pressure -
+              liquid_volume_fraction(liquid, e.pressure) / liquid.rho0;
+          if (!(latent > 0) || !(volume_per_kg > 0) || !std::isfinite(volume_per_kg))
+            continue;
+          const double flash = std::min(
+              ml, (e.capacity + e.nR) * (e.temperature - boiling) / latent);
+          double mass = fraction * flash;
+          if (!(mass > 0) || mass * volume_per_kg <= std::max(0., V - e.liquid_volume))
+            continue;
+          mass = std::min(mass, .4 * V * flow_parts / volume_per_kg);
+          found[block].push_back({i, p, mass, volume_per_kg});
+        }
+      }
+    });
+    std::vector<BoilPlan> plans;
+    for (const auto &part : found)
+      plans.insert(plans.end(), part.begin(), part.end());
+    return plans;
+  }
+  // Converts `share` of each plan's mass in `state` (after a flow
+  // interval), at fixed U, while the pair liquid lasts, no more than the
+  // heat above its boiling point at the cell's pressure boils, and the
+  // cell's gas pressure stays at or below saturation. The cell's pressure
+  // is the interval's solved one (`solved`), or its reading if higher: the
+  // interval has just pushed the cell's own material out, so its reading
+  // alone would not show a sealed space filling up. Boiling into a sealed
+  // space thereby stops once that space reaches the saturation pressure.
+  // A plan keeps pushing its share out for the whole tick: a cell whose
+  // conversion falls short refills from its neighbours in the next
+  // interval, and converts again once its pressure falls. Updates `eos`
+  // for changed cells.
+  BoilResult boil_planned(State &state, std::vector<Eos> &eos,
+                          std::span<const BoilPlan> plans, double share,
+                          std::span<const double> solved) const {
+    BoilResult result;
+    if (plans.empty())
+      return result;
+    const double V = grid.volume_m3();
+    std::vector<std::pair<std::size_t, std::vector<std::pair<std::uint32_t, double>>>> changed;
+    std::vector<double> masses(species.size());
+    std::vector<std::uint32_t> keys;
+    for (std::size_t at = 0; at < plans.size();) {
+      const auto i = plans[at].cell;
+      std::fill(masses.begin(), masses.end(), 0);
+      keys.assign(state.masses.species.begin() + state.masses.offsets[i],
+                  state.masses.species.begin() + state.masses.offsets[i + 1]);
+      for (auto a = state.masses.offsets[i]; a < state.masses.offsets[i + 1]; ++a)
+        masses[state.masses.species[a]] = state.masses.mass[a];
+      const auto include = [&](std::size_t key) {
+        const auto pos = std::lower_bound(keys.begin(), keys.end(), key);
+        if (pos == keys.end() || *pos != key)
+          keys.insert(pos, static_cast<std::uint32_t>(key));
+      };
+      const auto read = [&](Eos &out) {
+        return try_evaluate_selected(
+            out, species, keys.size(), [&](std::size_t a) { return keys[a]; },
+            [&](std::size_t a) { return masses[keys[a]]; }, state.energy[i], V);
+      };
+      Eos before;
+      if (read(before)) {
+        while (at < plans.size() && plans[at].cell == i)
+          ++at;
+        continue;
+      }
+      const double initial_entropy = entropy(species, masses, before);
+      const double around = std::max(before.pressure, solved.size() > i ? solved[i] : 0.);
+      bool any = false;
+      for (; at < plans.size() && plans[at].cell == i; ++at) {
+        const auto &pair = pairs[plans[at].pair];
+        const double ml = masses[pair.liquid], mv = masses[pair.vapour];
+        const auto &liquid = species[pair.liquid];
+        const auto &vapour = species[pair.vapour];
+        const double boiling = boiling_temperature(pair, before.temperature, around);
+        const double latent =
+            vapour.offset + (vapour.cv + R / vapour.molar_mass) * before.temperature -
+            (liquid.offset + liquid.cv * before.temperature +
+             around / liquid.rho0 * liquid_volume_fraction(liquid, around));
+        if (!(boiling > 0) || !(boiling < before.temperature) || !(latent > 0))
+          continue;
+        const double planned = plans[at].mass * share;
+        const double target = std::min(
+            {ml, planned,
+             (before.capacity + before.nR) * (before.temperature - boiling) / latent});
+        if (!(target > 0))
+          continue;
+        include(pair.liquid);
+        include(pair.vapour);
+        // Gas pressure minus saturation after moving `moved` (the
+        // relaxation's departure); nullopt where the EOS refuses it.
+        const auto departure = [&](double moved) -> std::optional<double> {
+          masses[pair.liquid] = ml - moved;
+          masses[pair.vapour] = mv + moved;
+          Eos trial;
+          if (read(trial))
+            return std::nullopt;
+          const double pv =
+              trial.gas_volume > 0
+                  ? (pair.boil_only ? trial.nR : masses[pair.vapour] * R / vapour.molar_mass) *
+                        trial.temperature / trial.gas_volume
+                  : trial.pressure;
+          const double d = pv - saturation_pressure(liquid, vapour, trial.temperature, trial.pressure);
+          if (!std::isfinite(d))
+            return std::nullopt;
+          return d;
+        };
+        double near = 0, far = target;
+        const auto end = departure(far);
+        if (end && *end <= 0)
+          near = far;
+        else
+          for (unsigned iter = 0; iter < 32; ++iter) {
+            const double mid = .5 * (near + far);
+            if (mid == near || mid == far)
+              break;
+            const auto d = departure(mid);
+            if (d && *d < 0)
+              near = mid;
+            else
+              far = mid;
+          }
+        masses[pair.liquid] = ml - near;
+        masses[pair.vapour] = mv + near;
+        if (near > 0) {
+          any = true;
+          result.evaporated += near;
+        }
+      }
+      if (!any)
+        continue;
+      Eos after;
+      if (read(after))
+        throw std::runtime_error("Private boiling left an unreadable cell");
+      result.entropy_change += entropy(species, masses, after) - initial_entropy;
+      auto &entry = changed.emplace_back(i, std::vector<std::pair<std::uint32_t, double>>{});
+      for (const auto key : keys)
+        if (masses[key] > 0)
+          entry.second.emplace_back(key, masses[key]);
+      eos[i] = after;
+    }
+    if (changed.empty())
+      return result;
+    // Rebuild the sparse inventories with the changed cells' new lists.
+    SparseMass next;
+    next.offsets.reserve(state.masses.offsets.size());
+    next.offsets.push_back(0);
+    std::size_t c = 0;
+    for (std::size_t i = 0; i + 1 < state.masses.offsets.size(); ++i) {
+      if (c < changed.size() && changed[c].first == i) {
+        for (const auto &[key, value] : changed[c].second) {
+          next.species.push_back(key);
+          next.mass.push_back(value);
+        }
+        result.cells.push_back(i);
+        ++c;
+      } else
+        for (auto a = state.masses.offsets[i]; a < state.masses.offsets[i + 1]; ++a) {
+          next.species.push_back(state.masses.species[a]);
+          next.mass.push_back(state.masses.mass[a]);
+        }
+      next.offsets.push_back(next.mass.size());
+    }
+    state.masses = std::move(next);
+    return result;
+  }
   PhaseResult advance(const State &state, double dt,
-                      double relaxation_time = 1) {
+                      double relaxation_time = 1,
+                      std::span<const BoilPlan> planned = {}) {
     const auto N = state.masses.cells();
     std::vector<std::vector<std::pair<std::uint32_t, double>>> cells(N);
     struct Receipt {
@@ -120,7 +378,13 @@ public:
         auto before = reading();
         double initial_entropy = 0;
         auto &receipt = receipts[i];
-        for (const auto &pair : pairs) {
+        // Pairs this tick's flow intervals boiled (boil_planned) do not
+        // evaporate again here.
+        const auto plans_from = std::lower_bound(
+            planned.begin(), planned.end(), i,
+            [](const BoilPlan &plan, std::size_t cell) { return plan.cell < cell; });
+        for (std::size_t index = 0; index < pairs.size(); ++index) {
+          const auto &pair = pairs[index];
           const double ml = masses[pair.liquid], mv = masses[pair.vapour];
           if ((ml == 0 && mv == 0) ||
               (ml == 0 && before.temperature >= pair.critical))
@@ -157,7 +421,10 @@ public:
           if (!start || *start == 0)
             continue;
           const bool evaporation = *start < 0;
-          if ((evaporation && ml == 0) ||
+          bool boiled = false;
+          for (auto plan = plans_from; plan != planned.end() && plan->cell == i; ++plan)
+            boiled = boiled || plan->pair == index;
+          if ((evaporation && (ml == 0 || boiled)) ||
               (!evaporation &&
                (mv == 0 || before.temperature >= pair.critical)))
             continue;

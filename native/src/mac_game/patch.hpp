@@ -69,6 +69,11 @@ class PatchTransport {
   }
   std::vector<std::uint32_t> layered_stamp;
   std::vector<Geometry> layered_geometry;
+  // Profile 12: the volume each cell's material occupies during one
+  // advance (swept_volume). Empty on other profiles, which sweep every
+  // donor as if its material filled the cell.
+  std::vector<double> swept;
+  double held(std::size_t i) const { return swept.empty() ? g.V : swept[i]; }
   // Runs job(block) over the grid's fixed row blocks, on the pool if any.
   void blocks(const std::function<void(std::size_t)> &job) {
     if (executor)
@@ -105,15 +110,16 @@ class PatchTransport {
     if (!gas || !liquid)
       return;
     Eos eos;
+    const double V = held(d);
     if (try_evaluate_selected(
             eos, species, inventory.size(),
             [&](std::size_t a) { return inventory[a].first; },
-            [&](std::size_t a) { return inventory[a].second; }, energy, g.V))
+            [&](std::size_t a) { return inventory[a].second; }, energy, V))
       return;
     if (!(eos.gas_volume > 0))
       return;
     auto &geo = layered_geometry[d];
-    geometry_into(geo, species, inventory, energy, g.V, gravity, &eos);
+    geometry_into(geo, species, inventory, energy, V, gravity, &eos);
     const auto n = geo.phases.size();
     double total = 0;
     for (const auto &p : geo.phases) {
@@ -123,10 +129,10 @@ class PatchTransport {
     }
     // Phase order is bottom (heaviest) to top (gas). Volumes are scaled to
     // fill the cell exactly, so the sweeps never exceed what a phase holds.
-    const double scale = g.V / total;
-    if (!(qh + qu + qd < g.V))
+    const double scale = V / total;
+    if (!(qh + qu + qd < V))
       return;
-    out.horizontal = qh / g.V;
+    out.horizontal = qh / V;
     out.mass = 0;
     for (const auto &[key, value] : inventory)
       out.mass += value;
@@ -139,10 +145,10 @@ class PatchTransport {
     std::array<double, 2> exported{};
     for (const bool bottom_layered : {true, false}) {
       auto &phases = allocation[bottom_layered ? 0 : 1];
-      const double keep = 1 - (bottom_layered ? qh : qh + qd) / g.V;
+      const double keep = 1 - (bottom_layered ? qh : qh + qd) / V;
       phases.resize(n);
       for (std::size_t p = 0; p < n; ++p)
-        phases[p] = {geo.phases[p].identity, 0, bottom_layered ? 0 : qd / g.V, keep};
+        phases[p] = {geo.phases[p].identity, 0, bottom_layered ? 0 : qd / V, keep};
       // The top face takes whole phases from the top until its volume is met.
       double remaining = qu;
       for (std::size_t q = n; q-- > 0 && remaining > 0;) {
@@ -208,9 +214,9 @@ class PatchTransport {
     // Horizontal receivers take fraction * U, as for any donor.
     double horizontal_energy = 0;
     if (dx[g.left_face(d)] < 0)
-      horizontal_energy += -dx[g.left_face(d)] / g.V * energy;
+      horizontal_energy += -dx[g.left_face(d)] / V * energy;
     if (dx[g.right_face(d)] > 0)
-      horizontal_energy += dx[g.right_face(d)] / g.V * energy;
+      horizontal_energy += dx[g.right_face(d)] / V * energy;
     out.keep_energy = energy - horizontal_energy - out.up_energy - out.down_energy;
     // The remainder carries any EOS closure residual. A donor whose retained
     // inventory would be left without positive thermal energy keeps the
@@ -241,9 +247,25 @@ public:
           const SparsePassive *initial_passives = nullptr,
           RegionAudit *regions = nullptr,
           const LiquidBoundary *boundary = nullptr,
-          const std::vector<Species> *layered_species = nullptr) {
+          const std::vector<Species> *layered_species = nullptr,
+          bool swept_volume = false) {
     namespace k = ma::experimental::mac_kernel;
     PatchResult result;
+    // Profile 12 (MAC_GAME_KERNEL.md, "Volume-consistent remap"): faces run
+    // on local dyadic clocks, so within one advance a cell can receive a
+    // coarse face's whole sweep before its finer faces have sent theirs.
+    // Its material then holds more (or less) than the cell volume, and a
+    // donor swept as if its material filled the cell would ship the excess
+    // density onward: a liquid-full cell with balanced volume fluxes gained
+    // 59 kg (5 MPa) in one interval. Each donor's material instead occupies
+    // the volume it has been swept to (the cell volume plus its sweeps so
+    // far), so material keeps its density while it is moved and a cell ends
+    // at the net volume change the pressure solve predicted. A one-event
+    // advance sweeps exactly as before.
+    if (swept_volume)
+      swept.assign(g.N, g.V);
+    else
+      swept.clear();
     const bool layered = layered_species && gravity > 0;
     result.energy = std::move(energy);
     result.jx = jx;
@@ -379,7 +401,7 @@ public:
         auto &flux = face.x ? fx : fy;
         auto &sweep = face.x ? dx : dy;
         const auto donor = face.q > 0 ? l[face.index] : r[face.index];
-        flux[face.index] = face.q / g.V * mass[donor];
+        flux[face.index] = face.q / held(donor) * mass[donor];
         sweep[face.index] = face.q;
         affect(l[face.index]);
         affect(r[face.index]);
@@ -426,17 +448,17 @@ public:
         std::array<Contribution, 5> c{};
         c[0] = {i, 1 - (std::max(0., -dx[l]) + std::max(0., dx[r]) +
                         std::max(0., -dy[b]) + std::max(0., dy[t])) /
-                           g.V};
+                           held(i)};
         if (c[0].fraction < 0)
           throw std::runtime_error("Private local material CFL failed");
         if (dx[l] > 0)
-          c[1] = {g.xl[l], dx[l] / g.V};
+          c[1] = {g.xl[l], dx[l] / held(g.xl[l])};
         if (dx[r] < 0)
-          c[2] = {g.xr[r], -dx[r] / g.V};
+          c[2] = {g.xr[r], -dx[r] / held(g.xr[r])};
         if (dy[b] > 0)
-          c[3] = {g.yl[b], dy[b] / g.V};
+          c[3] = {g.yl[b], dy[b] / held(g.yl[b])};
         if (dy[t] < 0)
-          c[4] = {g.yr[t], -dy[t] / g.V};
+          c[4] = {g.yr[t], -dy[t] / held(g.yr[t])};
         auto &update = updated[cell_position];
         update.i = i;
         update.inventory.clear();
@@ -735,6 +757,16 @@ public:
       } else
         for (std::size_t position = 0; position < dual_faces.size(); ++position)
           gather(position);
+      // Under the 0.4-cell net-volume bound a cell's swept volume, less any
+      // one event's outgoing sweep (at most 0.39 of a cell), stays above 0.2
+      // of a cell. The floor keeps the retained fraction positive where the
+      // bound does not apply (cells below its mass floor).
+      if (!swept.empty())
+        for (const auto &entry : updated) {
+          const auto i = entry.i;
+          swept[i] = std::max(.4 * g.V, swept[i] + dx[g.left_face(i)] - dx[g.right_face(i)] +
+                                            dy[g.bottom_face(i)] - dy[g.top_face(i)]);
+        }
       for (auto &entry : updated) {
         cells[entry.i].swap(entry.inventory);
         if (has_passives)

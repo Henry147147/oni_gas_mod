@@ -221,7 +221,12 @@ production kernel runs the void phase) can relax between intervals with
 `MacClosedWorld::with_phase_relaxation(pairs, fraction, rule)`: the same
 relaxation, each cell moving `fraction` of the way to equilibrium. The game
 kernel relaxes pairs inside each tick with its own EOS and the saved
-[rule](#boil-only-rule). A pair's
+[rule](#boil-only-rule). That relaxation holds the cell's volume, so in a
+liquid-full cell a boiling liquid can only form the vapour the cell's room
+holds at saturation; profile 12 boils such a liquid during the tick's flow
+intervals instead, its vapour pushing the liquid out within the pressure
+solve ([boiling with displacement](MAC_GAME_KERNEL.md#flooded-cells-and-boiling-profile-12-2026-11-09)).
+A pair's
 `critical_temperature_k` (infinite by default) bounds its liquid: at or above
 it none condenses and liquid evaporates, since the elastic-liquid saturation
 curve otherwise continues far past the critical point. Neither changes any

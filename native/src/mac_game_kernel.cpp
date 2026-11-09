@@ -696,7 +696,7 @@ MacClosedAdvance MacGameKernelAccess::advance_guarded(
         cache.regional_execution=std::make_shared<k::RegionalExecutionHistory>();
       cache.regional=std::make_unique<k::RegionalTick>(source.state().grid,species,pairs,threads,cfg,source.settings_.thermal_conduction,sized,
                                                        carried,carried?1e-6:0.,cache.regional_execution,layered,convective,
-                                                       thin?thin_gas_drag_mass_kg:0.,thin?thin_gas_drag_time_s:0.);
+                                                       thin?thin_gas_drag_mass_kg:0.,thin?thin_gas_drag_time_s:0.,thin);
       cache.tick.reset();
     } else {
     cache.tick = std::make_unique<k::Tick>(

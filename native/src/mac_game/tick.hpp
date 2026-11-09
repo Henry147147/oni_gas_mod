@@ -76,6 +76,9 @@ class Tick {
   bool carry_momentum = false;
   // Profile 11: layering also overturns buoyantly unstable gas layers.
   bool convective = false;
+  // Profile 12: liquids boiling in cells without room for their vapour
+  // convert during the flow intervals (PhaseSolver::plan_boiling).
+  bool boil_in_flow = false;
   SurfaceScratch surface_scratch;
   static double ms(std::chrono::steady_clock::time_point start) {
     return std::chrono::duration<double, std::milli>(
@@ -96,12 +99,12 @@ public:
        bool size_intervals = false, bool carry_moved_momentum = false,
        double bound_mass_floor = 0, bool layered_remap = false,
        bool convective_adjustment = false, double thin_gas_mass = 0,
-       double thin_gas_time = 0)
+       double thin_gas_time = 0, bool room_bound = false)
       : grid(source), species(table),
         flow(source, table, threads, false, pressure_tolerance, gravity_source, pressure_iterations,
              surface_closure, bound_pressure_volume,
              bound_pressure_volume ? bound_mass_floor : 0, layered_remap,
-             thin_gas_mass, thin_gas_time),
+             thin_gas_mass, thin_gas_time, room_bound),
         heat(source, table, threads, heat_mixing, &flow.worker_pool(), heat_iterations),
         phase(source, std::move(table), std::move(pairs), threads,
               &flow.worker_pool()),
@@ -113,7 +116,8 @@ public:
         bounded_pressure_volume(bound_pressure_volume),
         sized_intervals(bound_pressure_volume && size_intervals),
         carry_momentum(carry_moved_momentum),
-        convective(convective_adjustment) {}
+        convective(convective_adjustment),
+        boil_in_flow(bound_pressure_volume && room_bound) {}
   [[nodiscard]] unsigned threads_used() const noexcept {
     return flow.worker_pool().size();
   }
@@ -243,6 +247,14 @@ public:
       out.state = std::move(sunk.state);
       return true;
     };
+    // Profile 12: the tick's boiling in cells without room for its vapour,
+    // planned from the opening state; each accepted flow interval pushes
+    // out and converts its share (BoilPlan).
+    std::vector<BoilPlan> plans;
+    if (boil_in_flow)
+      plans = phase.plan_boiling(out.state, out.eos, dt, phase_time, parts);
+    std::vector<double> boil_source;
+    double inflow_evaporated = 0, inflow_entropy = 0;
     // Profile 7 carries its proposal from one flow part into the next.
     double proposal = dt / parts;
     for (unsigned part = 0; part < parts; ++part) {
@@ -257,9 +269,15 @@ public:
             throw std::runtime_error("Game interval exceeds its pressure attempt budget");
           ++out.pressure_attempts;
           const auto trial_start = std::chrono::steady_clock::now();
+          if (!plans.empty()) {
+            boil_source.assign(out.state.energy.size(), 0.);
+            for (const auto &plan : plans)
+              boil_source[plan.cell] += plan.mass * (trial / dt) * plan.volume_per_kg;
+          }
           advanced = flow.advance(out.state, trial, gravity, &regions,
                                   liquid_blocked.empty() ? nullptr : &boundary,
-                                  std::move(out.eos));
+                                  std::move(out.eos),
+                                  plans.empty() ? nullptr : &boil_source);
           if (!advanced.pressure_refinement_requested) break;
           reject_log::count(advanced.reject_reason);
           if (reject_log::level())
@@ -299,6 +317,16 @@ public:
         out.state = std::move(advanced.state);
         out.eos = std::move(advanced.eos);
         observe_entropy(out.flow_entropy);
+        if (!plans.empty()) {
+          const auto masses_before = out.state.masses;
+          const auto boiled = phase.boil_planned(out.state, out.eos, plans, trial / dt, advanced.pressure);
+          if (!boiled.cells.empty()) {
+            regions.convert(masses_before, out.state.masses, conversion, &flow.worker_pool());
+            inflow_evaporated += boiled.evaporated;
+            inflow_entropy += boiled.entropy_change;
+            observe_entropy(out.phase_entropy_change);
+          }
+        }
         if (filter_speed > 0) {
           const auto filter_start = std::chrono::steady_clock::now();
           const auto filtered = filter_velocity(
@@ -379,13 +407,17 @@ public:
       out.state.energy = std::move(heated.energy);
     }
     stage_start = std::chrono::steady_clock::now();
-    auto changed = phase.advance(out.state, dt, phase_time);
-    out.evaporated = changed.evaporated;
+    auto changed = phase.advance(out.state, dt, phase_time, plans);
+    out.evaporated = changed.evaporated + inflow_evaporated;
     out.condensed = changed.condensed;
     out.phase_ms = ms(stage_start);
     regions.convert(out.state.masses, changed.masses, conversion,
                     &flow.worker_pool());
-    out.phase_entropy_change = changed.entropy_change;
+    // Boiling during the flow (profile 12) joins the phase account; with
+    // detailed entropy it was measured as it happened.
+    if (!detailed_entropy)
+      out.phase_entropy_change = inflow_entropy;
+    out.phase_entropy_change += changed.entropy_change;
     out.state.masses = std::move(changed.masses);
     const auto pre_final_sink = sink_entropy;
     prune(false);

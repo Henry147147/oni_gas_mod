@@ -380,10 +380,11 @@ MixtureInventory boil_only_cell(const Water& s, const char* name, std::vector<do
     }
     return b;
 }
-// A game-kernel box (profile6, the colony's kernel) of 1 m cells with walls
+// A game-kernel box (profile6 unless given) of 1 m cells with walls
 // around; fill(x, y) gives masses and temperature of each open cell.
 template <class Fill>
-MacClosedWorld game_box(const Water& s, MacPhaseRule rule, std::size_t w, std::size_t h, double gravity, Fill fill) {
+MacClosedWorld game_box(const Water& s, MacPhaseRule rule, std::size_t w, std::size_t h, double gravity, Fill fill,
+                        MacGameProfile profile = MacGameProfile::game_kernel_bounded_pressure) {
     MacTransportState st; st.grid = {w, h, 1, 1, false, false, std::vector<std::uint8_t>(w * h)};
     std::vector<double> temperatures(w * h, 300);
     for (std::size_t y = 0; y < h; ++y) for (std::size_t x = 0; x < w; ++x) {
@@ -393,7 +394,7 @@ MacClosedWorld game_box(const Water& s, MacPhaseRule rule, std::size_t w, std::s
         st.cells.push_back({m, {}});
     }
     st.momentum_x.assign(st.grid.x_width() * h, 0); st.momentum_y.assign(w * st.grid.y_height(), 0);
-    MacClosedSettings cfg; cfg.numerical_kernel = MacNumericalKernel::game; cfg.game_profile = MacGameProfile::game_kernel_bounded_pressure;
+    MacClosedSettings cfg; cfg.numerical_kernel = MacNumericalKernel::game; cfg.game_profile = profile;
     cfg.vacuum = MacVacuumRepresentation::void_phase; cfg.thermal_conduction = true; cfg.gravity_m_per_s2 = gravity;
     cfg.maximum_timestep_s = static_cast<double>(.2f); cfg.trace_sink_threshold_kg = 1e-11;
     cfg.game.liquid_law = MacGameLiquidLaw::positive_segments; cfg.game.pressure_maximum_iterations = 400; cfg.game.heat_maximum_iterations = 800;
@@ -416,6 +417,53 @@ GameRun run_game(const Water& s, MacClosedWorld world, int ticks) {
     check(std::abs(pair(out.world) + sunk - initial) <= 1e-12L * initial, "Game-kernel water and steam ledger failed");
     for (const auto& c : out.world.state().cells) out.steam += c.mixture.masses[s.steam];
     return out;
+}
+// Profile 12 boiling with displacement (native/MAC_GAME_KERNEL.md). Four rows
+// of liquid-full water at 390 K, about 8 K above its boiling point at the
+// floor's pressure, under 1 atm of air in a sealed box. Profile 11 boils each
+// tick only what the cell's room holds at saturation (the liquid's
+// compression), grams; profile 12 boils the heat above the boiling point
+// within the tick, its steam pushing the water out within the pressure solve.
+// The steam raises the sealed headspace towards the saturation pressure
+// (about 180 kPa) and the floor to about 220 kPa; no cell may reach 250 kPa.
+// Water+steam and energy ledgers close and checkpoint 32 continues exactly
+// cold.
+void profile12_boiling_control(const Water& s) {
+    const auto masses = [&](double water, double steam, double air) { std::vector<double> m(3); m[s.water] = water; m[s.steam] = steam; m[s.air] = air; return m; };
+    const auto gas = [&](std::size_t k, double pressure, double t, double volume) { return pressure * volume * s.registry[k].molar_mass / (gas_constant * t); };
+    constexpr std::size_t W = 6, H = 10;
+    const auto pool = [&](std::size_t, std::size_t y) -> std::pair<std::vector<double>, double> {
+        if (y <= 3) return {masses(s.registry[s.water].density * (1 + (101325 + 9810 * (3.5 - static_cast<double>(y))) / (.04 * 2.2e9)), 0, 0), 390};
+        return {masses(0, 0, gas(s.air, 101325, 390, 1)), 390};
+    };
+    const auto peak = [](const MacClosedWorld& w) {
+        double p = 0;
+        for (std::size_t i = 0; i < w.state().cells.size(); ++i)
+            if (!w.state().grid.walls[i] && w.state().cells[i].mixture.mass() > 0) p = std::max(p, w.cell_reading(i).mechanical_pressure_pa);
+        return p;
+    };
+    double old_peak = 0, new_peak = 0;
+    auto before = game_box(s, MacPhaseRule::boil_only, W, H, 9.81, pool, MacGameProfile::game_kernel_convective);
+    auto after = game_box(s, MacPhaseRule::boil_only, W, H, 9.81, pool, MacGameProfile::game_kernel_thin_drag);
+    double old_evaporated = 0, new_evaporated = 0;
+    for (int k = 0; k < 5; ++k) {
+        auto a = run_game(s, before, 1), b = run_game(s, after, 1);
+        old_evaporated += a.evaporated; new_evaporated += b.evaporated;
+        before = std::move(a.world); after = std::move(b.world);
+        old_peak = std::max(old_peak, peak(before)); new_peak = std::max(new_peak, peak(after));
+    }
+    std::cout << "PCGAME profile12 boiling: liquid-full 390 K water boils " << old_evaporated << " kg (profile 11) and " << new_evaporated
+              << " kg (profile 12) in 1 s; peak pressure " << old_peak / 1e3 << " / " << new_peak / 1e3 << " kPa\n";
+    check(old_evaporated < .1 && new_evaporated > 50 * old_evaporated && new_evaporated > 1,
+          "Profile 12 did not boil liquid-full superheated water within the tick");
+    check(new_peak < 2.5e5, "Profile 12 boiling lifted a cell above saturation and its column");
+    const auto image = after.checkpoint();
+    check(image.at(8) == 32, "Profile 12 did not save as checkpoint 32");
+    const auto cold = MacClosedWorld::from_checkpoint(s.registry, s.eos, image);
+    check(cold.checkpoint() == image && cold.advanced(static_cast<double>(.2f)).world.checkpoint() ==
+          after.advanced(static_cast<double>(.2f)).world.checkpoint(), "Profile 12 boiling cold continuation differs");
+    std::cout << "PASS profile12 boiling with displacement: liquid-full superheated water boils within the tick without overpressure, "
+                 "closed ledgers, checkpoint 32 cold continuation\n";
 }
 void boil_only_control(const Water& s) {
     const auto masses = [&](double water, double steam, double air) { std::vector<double> m(3); m[s.water] = water; m[s.steam] = steam; m[s.air] = air; return m; };
@@ -524,6 +572,7 @@ void boil_only_control(const Water& s) {
     }
     std::cout << "PASS boil-only game kernel: humid pool condenses with no evaporation, closed ledgers, core25 save/continuation, "
                  "hot and vacuum boiling, pure steam unchanged, rule entropy rises\n";
+    profile12_boiling_control(s);
 }
 int main(int argc, char** argv) {
     try {

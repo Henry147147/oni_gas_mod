@@ -360,6 +360,88 @@ at most 6.3e3 K at the end of any tick (1.06e6 K before this change, 5.1e4 K
 on profile 11), with closed mass and U+K+G, and continues exactly cold and on
 12 workers.
 
+### Flooded cells and boiling, profile 12 (2026-11-09)
+
+The 2026-11-08 Windows playtest flooded air pockets from a pool through dug
+cells. Pool cells then read megapascals beside near-vacuum cells, carbon
+dioxide condensed at 22 °C, and liquid carbon dioxide stayed in water for
+minutes. Offline replicas of the `flood-pocket` and `flood-co2-corner`
+scenarios (the game's catalogue path, profile 12 defaults) separate three
+causes. All three fixes change profile 12 in place: the saved format and
+version 32 are unchanged (old saves are not a consideration before release,
+user decision 2026-11-05) and no setting is added.
+
+- **Room bound** (`flow_local.hpp`). The pressure solve sees a partly filled,
+  gas-free cell (void where water drained or cavitated) as a zero-pressure
+  boundary and a gas bubble by its tangent compliance at the start of the
+  interval. One interval could send a liquid cell more volume than its void or
+  gas could take, and the transport also draws a cell's gas out of its top
+  face first. In the replica a pool cell with 0.024 m³ of void received
+  0.23 m³ in 46 ms (1,208 kg, 15 MPa after the transport), and a cell with a
+  0.0095 m³ steam bubble at 0.6 kPa received 0.23 m³ (14 MPa). Now a liquid
+  cell's net inflow must fit its room: the void it keeps, 0.4 of the gas its
+  own sweeps leave (the share the gas-cell bound allows), and its liquid's
+  linear compression up to the largest solved pressure around it or the
+  weight of its own cell. A larger inflow refines the interval like the
+  0.4-cell bound; the ratio also sizes the next interval. A liquid-full cell
+  is linear and never triggers it.
+- **Volume-consistent remap** (`patch.hpp`). Faces run on local dyadic
+  clocks, so a cell can receive a coarse face's whole sweep before its finer
+  faces send theirs; a donor swept as if its material filled the cell then
+  ships the excess density onward. A liquid-full cell with balanced volume
+  fluxes gained 59 kg (5 MPa) in one interval. Each donor's material now
+  occupies its swept volume (the cell volume plus its sweeps so far, floored
+  at 0.4 cell for cells outside the net-volume bound), so material keeps its
+  density while it moves and ends at the net volume change the solve
+  predicted. A one-event advance sweeps exactly as before.
+- **Boiling with displacement** (`phase.hpp`, `tick.hpp`). The phase
+  relaxation runs at fixed cell volume, so a liquid boiling in a liquid-full
+  cell formed only the vapour its tiny gas volume and the liquid's compression
+  held at saturation: about 40 g of carbon dioxide a tick at 400 kPa, 7 g after
+  the 1 s relaxation, and 37 of 70 kg were still liquid after 60 s. A pair
+  liquid boiling at its cell's pressure (with the nucleation superheat where
+  the cell has no gas) in a cell whose gas and void cannot hold its vapour now
+  boils during the tick's flow intervals. The tick plans the heat above the
+  boiling point at the cell's pressure over the latent heat (a flash),
+  relaxed over the tick like the rest of the phase change and limited to 0.4
+  cell of vapour per flow part. In each interval its vapour volume enters the
+  pressure solve as a source, pushing the liquid out, and after the transport
+  its share converts at fixed U while the heat above the boiling point at the
+  interval's solved pressure lasts and the cell's gas pressure stays at or
+  below saturation, so boiling into a sealed space stops at the saturation
+  pressure. The relaxation at the tick's end does not evaporate those pairs
+  again; the region audits book the conversions.
+
+Replicas, Always simulate / Activity tiers (the regions go remote two seconds
+after the dig and pause 60 s after it):
+
+| Check | Before | After |
+| --- | --- | --- |
+| `flood-pocket` peak pressure, any frame | 19.9 / 26.9 MPa | 199 / 149 kPa |
+| `flood-pocket` liquid carbon dioxide, peak | 11.7 / 178 g | 0 / 0 |
+| `flood-pocket` steam in the arena, frame 20 | 3.0 / 4.4 g | 0 / 0 |
+| `flood-co2-corner` liquid carbon dioxide after 60 s (of 70 kg) | 37.4 / 31.8 kg | 0 / 0 (3.7 kg after 4 s, 1.3 g after 12 s) |
+| `flood-co2-corner` peak pressure, any frame | 17.3 / 25.0 MPa | 465 / 591 kPa |
+| `flood-pocket` flow intervals (400 frames) | 866 / 2,133 | 911 / 523 |
+
+Under Activity tiers the old kernel kept re-overfilling the pool on its 1 s
+remote steps and paused 60 s after the dig with one cell frozen at 18.4 MPa
+(1,264 kg). That is how a pool cell could read 5.51 MPa beside a 0.6 kPa cell
+for many seconds: a paused region holds whatever transient it had. Activity
+regions are solid-separated, so no region boundary runs inside a liquid body;
+pausing a moving region is the accepted policy (motion is not activity). With
+the fixes the frozen state is near hydrostatic (128 kPa at the floor).
+
+`mac_game_flood_control.hpp` (in `ma_mac_game_kernel_tests`) moves a uniform
+liquid round two loops at clock levels 0 and 2 (the old remap drifts a cell
+by 21.5 kg, the new one by 0) and drops a water column into a cavitated cell
+and a thin-gas bubble (profile 11 peaks at 19.75 MPa, profile 12 at 153 kPa),
+with closed mass and U+K+G and exact checkpoint 32 continuation cold and on
+12 workers. `ma_mac_phase_change_tests --boil-only` boils liquid-full 390 K
+water in a sealed box: 0.051 kg (profile 11) against 8.77 kg (profile 12) in
+1 s, peak 204 kPa (the headspace approaches the 180 kPa saturation pressure),
+closed ledgers and cold continuation.
+
 ## Open acceptance work
 
 No private-playtest-ready or performance pass is claimed. The coupled material
