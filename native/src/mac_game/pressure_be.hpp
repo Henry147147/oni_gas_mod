@@ -19,6 +19,15 @@ struct Pressure {
   double wall_impulse_x = 0, wall_impulse_y = 0, body_impulse_y = 0;
   double wall_operands_x = 0, wall_operands_y = 0;
 };
+// Profile 12 (MAC_GAME_KERNEL.md, "Room in liquid cells"): a liquid cell
+// whose void and compressible gas the interval would use up. It enters the
+// solve with `compliance` (its liquid's plus what remains of its gas) and
+// `offset`, the volume its room takes before that compliance applies,
+// expressed against its pressure at the start: compliance * dp = inflow +
+// offset. compliance <= 0 marks an ordinary cell.
+struct Stiffened {
+  double compliance = 0, offset = 0;
+};
 // Component prototype only: transport, positivity and receipts follow.
 // Vacuum is a zero-pressure boundary until material arrives there.
 class PressureSolver {
@@ -104,7 +113,8 @@ public:
                    bool positive_correction = false,
                    const std::vector<std::uint8_t> *fixed = nullptr,
                    Pressure storage = {},
-                   const std::vector<double> *boiling = nullptr) {
+                   const std::vector<double> *boiling = nullptr,
+                   const std::vector<Stiffened> *stiffened = nullptr) {
     const auto N = grid.N;
     const auto &g = grid;
     if (states.size() != N || old_x.size() != g.NX || old_y.size() != g.NY ||
@@ -155,14 +165,19 @@ public:
             (fixed && (*fixed)[i]))
           continue;
         const auto &s = states[i];
+        const bool stiff = stiffened && (*stiffened)[i].compliance > 0;
         double compliance = 0;
-        if (s.nR > 0)
-          compliance = s.gas_volume / ((1 + s.nR / s.capacity) * s.pressure);
-        if (s.liquid_nominal_volume > 0)
-          compliance += s.liquid_compliance;
-        // A partly filled, gas-free surface is at vacuum pressure.
-        if (s.nR == 0 && s.liquid_nominal_volume < g.V)
-          continue;
+        if (stiff)
+          compliance = (*stiffened)[i].compliance;
+        else {
+          if (s.nR > 0)
+            compliance = s.gas_volume / ((1 + s.nR / s.capacity) * s.pressure);
+          if (s.liquid_nominal_volume > 0)
+            compliance += s.liquid_compliance;
+          // A partly filled, gas-free surface is at vacuum pressure.
+          if (s.nR == 0 && s.liquid_nominal_volume < g.V)
+            continue;
+        }
         if (!(compliance > 0 && std::isfinite(compliance)))
           throw std::runtime_error("Invalid pressure compliance");
         system.active[i] = 1;
@@ -279,6 +294,10 @@ public:
           rhs += (*boiling)[i];
           increment += (*boiling)[i];
         }
+        if (stiffened && (*stiffened)[i].compliance > 0) {
+          rhs += (*stiffened)[i].offset;
+          increment += (*stiffened)[i].offset;
+        }
         w.rhs[i] = rhs;
         w.increment_rhs[i] = increment;
         system.diag[i] = diagonal;
@@ -390,7 +409,8 @@ public:
         const auto iterations = result.iterations;
         const bool converged = result.converged;
         auto corrected = advance(states, old_x, old_y, dt, gravity, false,
-                                 &constrained, std::move(result), boiling);
+                                 &constrained, std::move(result), boiling,
+                                 stiffened);
         corrected.iterations += iterations;
         corrected.corrections = 1;
         corrected.converged = corrected.converged && converged;

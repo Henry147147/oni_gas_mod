@@ -446,6 +446,117 @@ public:
       request_refinement();
       return result;
     }
+    // Profile 12: the most the transport may leave a liquid cell that had
+    // room above its surroundings: twice the largest of its own start
+    // pressure, the solved pressures of it and its open neighbours and the
+    // weight of its own cell, plus one atmosphere.
+    const auto tolerated = [&](std::size_t i, double weight) {
+      double drive = std::max({projected.p[i], eos[i].pressure, weight});
+      const auto around = [&](bool x, std::size_t f) {
+        const auto l = (x ? g.xl : g.yl)[f], r = (x ? g.xr : g.yr)[f];
+        if (l == k::none || r == k::none || g.closed(!x, f))
+          return;
+        drive = std::max(drive, projected.p[l == i ? r : l]);
+      };
+      around(true, g.left_face(i));
+      around(true, g.right_face(i));
+      around(false, g.bottom_face(i));
+      around(false, g.top_face(i));
+      return 2 * drive + 101325;
+    };
+    if (volume_consistent) {
+      // Profile 12 room in liquid cells (MAC_GAME_KERNEL.md). The solve sees
+      // a partly filled gas-free cell as a zero-pressure boundary and a gas
+      // bubble by its tangent compliance at the start of the interval, so it
+      // can send a liquid cell more net volume than its void or gas can take
+      // (and the transport draws a cell's gas out of its top face first);
+      // the liquid's stiffness then turned the excess into megapascals after
+      // the transport. A cell's room is the void and gas its own sweeps
+      // leave. The tangent model holds up to it; beyond it the cell is full
+      // and only its liquid's compliance applies, from the pressure rise the
+      // tangent model reaches there (zero for a void or a near-vacuum
+      // bubble), so the two branches meet. A liquid cell whose solve uses up
+      // its room re-enters the solve on the second branch, like the
+      // nonnegative-pressure correction, and stays there for the interval:
+      // the solve then stops its inflow within the interval. At most three
+      // passes add cells; the check after the transport (below) refines an
+      // interval whose cells still end far above their surroundings.
+      std::vector<Stiffened> stiff(g.N);
+      std::vector<std::uint8_t> changed(g.blocks);
+      // Adds the cells the latest solve overfills; true if any.
+      const auto classify = [&] {
+        std::fill(changed.begin(), changed.end(), 0);
+        rows([&](std::size_t y0, std::size_t y1, std::size_t block) {
+          for (std::size_t i = y0 * g.W; i < y1 * g.W; ++i) {
+            const auto &s = eos[i];
+            if (g.wall[i] || !(s.liquid_nominal_volume > 0) || !(s.mass > 0) ||
+                stiff[i].compliance > 0)
+              continue;
+            const double inflow = -(projected.qx[g.right_face(i)] - projected.qx[g.left_face(i)] +
+                                    projected.qy[g.top_face(i)] - projected.qy[g.bottom_face(i)]);
+            // What the cell's own sweeps leave of its void and gas.
+            const double horizontal = std::max(0., -projected.qx[g.left_face(i)]) +
+                                      std::max(0., projected.qx[g.right_face(i)]),
+                         up = std::max(0., projected.qy[g.top_face(i)]),
+                         down = std::max(0., -projected.qy[g.bottom_face(i)]);
+            const double empty = std::max(0., g.V - s.gas_volume - s.liquid_volume);
+            double gas = 0, kept_empty = 0;
+            if (layered_remap && gravity > 0 && s.gas_volume > 0) {
+              // Horizontal faces sweep in proportion; the top face draws gas
+              // first and the bottom face liquid first.
+              const double share = std::max(0., 1 - horizontal / g.V);
+              gas = s.gas_volume * share - std::min(up, s.gas_volume * share);
+              gas = std::max(0., gas - std::max(0., down - s.liquid_volume * share));
+            } else {
+              const double share = std::max(0., 1 - (horizontal + up + down) / g.V);
+              gas = s.gas_volume * share;
+              kept_empty = empty * share;
+            }
+            const double room = kept_empty + gas;
+            const bool active = s.nR > 0 || !(s.liquid_nominal_volume < g.V);
+            const double tangent =
+                s.nR > 0 ? s.gas_volume / ((1 + s.nR / s.capacity) * s.pressure) : 0;
+            const double kink = active ? room / (tangent + s.liquid_compliance) : 0;
+            const bool full = active ? s.nR > 0 && projected.p[i] - s.pressure > kink
+                                     : inflow > room;
+            // An overfill below a millionth of the cell (the kernel's trace
+            // scale for a phase's share of a cell) is left to the tangent
+            // model: it costs no extra solve and no measurable pressure.
+            if (!full || !(inflow - room > 1e-6 * g.V))
+              continue;
+            const Stiffened entry{s.liquid_compliance, -room + s.liquid_compliance * kink};
+            if (entry.compliance > 0 && std::isfinite(entry.offset)) {
+              stiff[i] = entry;
+              changed[block] = 1;
+            }
+          }
+        });
+        return std::any_of(changed.begin(), changed.end(), [](std::uint8_t c) { return c != 0; });
+      };
+      bool added = classify();
+      for (unsigned pass = 0; added && pass < 3; ++pass) {
+        try {
+          projected = pressure.advance(eos, initial.jx, initial.jy, dt, gravity,
+                                        true, nullptr, std::move(projected),
+                                        boiling, &stiff);
+        } catch (const k::ComponentPressureSolveFailure &) {
+          result.pressure_ms = milliseconds(start);
+          result.pressure_refinement_requested = true;
+          result.reject_reason = reject_log::Reason::pressure_solve_failure;
+          result.eos = std::move(eos);
+          return result;
+        }
+        result.pressure_iterations += projected.iterations;
+        result.pressure_corrections += projected.corrections;
+        if (!projected.converged) {
+          result.reject_reason = reject_log::Reason::pressure_not_converged;
+          request_refinement();
+          return result;
+        }
+        added = classify();
+      }
+      result.pressure_ms = milliseconds(start);
+    }
     const bool negative_pressure = std::any_of(projected.p.begin(), projected.p.end(),
                                               [](double p) { return p < 0; });
     if (negative_pressure && !bounded_pressure_volume)
@@ -495,77 +606,6 @@ public:
       });
       const double largest = *std::max_element(maxima.begin(), maxima.end());
       result.pressure_volume_change = largest / g.V;
-      if (volume_consistent) {
-        // Profile 12 room bound (MAC_GAME_KERNEL.md). The solve sees a
-        // partly filled gas-free cell as a zero-pressure boundary and a gas
-        // bubble by its tangent compliance at the start of the interval, so
-        // it can send a liquid cell more net volume than the cell has room
-        // for: more than its void, or than the 0.4 share of its gas the
-        // gas-cell bound allows, or gas the transport itself takes out (a
-        // top face draws a cell's gas first). The liquid's stiffness then
-        // turns the excess into megapascals after the transport. The room is
-        // what the cell keeps through its own sweeps: its retained void,
-        // 0.4 of its retained gas, and its liquid's linear compression up to
-        // the largest solved pressure around it (the pressure driving the
-        // inflow) or the weight of its own column. Gas a neighbour sends in
-        // is not counted. A larger net inflow refines the interval; the
-        // ratio joins the swept-volume ratio that sizes the next one.
-        std::vector<double> rooms(g.blocks);
-        rows([&](std::size_t y0, std::size_t y1, std::size_t block) {
-          double worst = 0;
-          for (std::size_t i = y0 * g.W; i < y1 * g.W; ++i) {
-            const auto &s = eos[i];
-            if (g.wall[i] || !(s.liquid_nominal_volume > 0))
-              continue;
-            const double inflow = -(projected.qx[g.right_face(i)] - projected.qx[g.left_face(i)] +
-                                    projected.qy[g.top_face(i)] - projected.qy[g.bottom_face(i)]);
-            if (!(inflow > 0))
-              continue;
-            double drive = std::max({projected.p[i], s.pressure, s.mass * std::abs(gravity) / g.A});
-            const auto around = [&](bool x, std::size_t f) {
-              const auto l = (x ? g.xl : g.yl)[f], r = (x ? g.xr : g.yr)[f];
-              if (l == k::none || r == k::none || g.closed(!x, f))
-                return;
-              drive = std::max(drive, projected.p[l == i ? r : l]);
-            };
-            around(true, g.left_face(i));
-            around(true, g.right_face(i));
-            around(false, g.bottom_face(i));
-            around(false, g.top_face(i));
-            // What the cell's own sweeps leave of its void and gas.
-            const double horizontal = std::max(0., -projected.qx[g.left_face(i)]) +
-                                      std::max(0., projected.qx[g.right_face(i)]),
-                         up = std::max(0., projected.qy[g.top_face(i)]),
-                         down = std::max(0., -projected.qy[g.bottom_face(i)]);
-            const double empty = std::max(0., g.V - s.gas_volume - s.liquid_volume);
-            double gas = 0, kept_empty = 0;
-            if (layered_remap && gravity > 0 && s.gas_volume > 0) {
-              // Horizontal faces sweep in proportion; the top face draws gas
-              // first and the bottom face liquid first.
-              const double share = std::max(0., 1 - horizontal / g.V);
-              const double liquid = s.liquid_volume * share;
-              gas = s.gas_volume * share - std::min(up, s.gas_volume * share);
-              gas -= std::max(0., down - liquid);
-              gas = std::max(0., gas);
-            } else {
-              const double share = std::max(0., 1 - (horizontal + up + down) / g.V);
-              gas = s.gas_volume * share;
-              kept_empty = empty * share;
-            }
-            const double rise = std::max(0., projected.p[i] - s.pressure);
-            const double room = kept_empty + .4 * gas + s.liquid_compliance * (rise + drive);
-            worst = std::max(worst, room > 0 ? inflow / room : std::numeric_limits<double>::infinity());
-          }
-          rooms[block] = worst;
-        });
-        const double worst = *std::max_element(rooms.begin(), rooms.end());
-        result.pressure_volume_change = std::max(result.pressure_volume_change, .4 * worst);
-        if (worst > 1) {
-          result.reject_reason = reject_log::Reason::swept_volume;
-          request_refinement();
-          return result;
-        }
-      }
       // The pressure solve freezes its compliance and face velocities until
       // the remap finishes. Re-solve before a cell's net swept volume exceeds
       // the existing 0.4-cell transport scale. Net volume
@@ -672,7 +712,7 @@ public:
                       projected.jy, projected.qx, projected.qy, gravity,
                       audit_mode, &initial.passives, regions, boundary,
                       layered_remap ? &species : nullptr,
-                      volume_consistent);
+                      volume_consistent, volume_consistent);
     result.subcycles = remap.microticks;
     result.transport_cells = remap.cell_updates;
     result.transport_faces = remap.face_updates;
@@ -687,6 +727,59 @@ public:
     if (thin_mass > 0)
       result.thin_heat_cells = share_thin_heat(result.state, dt);
     result.transport_ms = milliseconds(start);
+    if (volume_consistent) {
+      // Profile 12: the transport must not leave a liquid cell that had room
+      // (void or gas) far above the pressure the solve gave it and its
+      // neighbours, its own pressure at the start or the weight of its cell:
+      // at most twice that and one atmosphere. Above it the interval sent the
+      // cell volume its room could not take after all (its sweeps took more
+      // of its room than the solve was told, or the room filled after the
+      // solve's last pass); a shorter interval re-solves with the compliance
+      // the cell then has. A refused advance has booked nothing.
+      // Only the cells that had room are read here; the readings of the
+      // whole result follow below, as on other profiles.
+      std::vector<double> excess(g.blocks);
+      rows([&](std::size_t y0, std::size_t y1, std::size_t block) {
+        double worst = 0;
+        for (std::size_t i = y0 * g.W; i < y1 * g.W; ++i) {
+          if (g.wall[i] || !(g.V - eos[i].liquid_volume > 1e-6 * g.V))
+            continue;
+          const auto begin = result.state.masses.offsets[i],
+                     count = result.state.masses.offsets[i + 1] - begin;
+          bool liquid = false;
+          for (std::size_t a = 0; a < count && !liquid; ++a)
+            liquid = !species[result.state.masses.species[begin + a]].gas;
+          if (!liquid)
+            continue;
+          Eos s;
+          if (try_evaluate_selected(
+                  s, species, count,
+                  [&](std::size_t a) { return result.state.masses.species[begin + a]; },
+                  [&](std::size_t a) { return result.state.masses.mass[begin + a]; },
+                  result.state.energy[i], g.V)) {
+            worst = std::numeric_limits<double>::infinity();
+            continue;
+          }
+          if (s.liquid_nominal_volume > 0)
+            worst = std::max(worst, s.pressure / tolerated(i, s.mass * std::abs(gravity) / g.A));
+        }
+        excess[block] = worst;
+      });
+      const double worst = *std::max_element(excess.begin(), excess.end());
+      if (worst > 1) {
+        result.pressure_refinement_requested = true;
+        result.reject_reason = reject_log::Reason::swept_volume;
+        result.pressure_volume_change =
+            std::max(result.pressure_volume_change, .4 * std::min(worst, 1024.));
+        result.eos = std::move(eos);
+        result.state = {};
+        pressure_storage = std::move(projected);
+        return result;
+      }
+      if (regions)
+        for (const auto &receipt : remap.receipts)
+          regions->momentum_receipt(receipt.cell, receipt.x, receipt.value, receipt.operands);
+    }
     result.wall_x += projected.wall_impulse_x;
     result.wall_y += projected.wall_impulse_y;
     result.body_y = projected.body_impulse_y;

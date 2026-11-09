@@ -72,6 +72,11 @@ class PhaseSolver {
   ma::experimental::MacGrid grid;
   std::unique_ptr<ma::experimental::mac_kernel::Pool> owned_pool;
   ma::experimental::mac_kernel::Pool &pool;
+  // plan_boiling's lookups, made on first use: the pairs of each liquid
+  // species, and each pair's boiling temperature at one atmosphere (a liquid
+  // at or above that pressure does not boil below it).
+  std::vector<std::vector<std::size_t>> pairs_of_liquid;
+  std::vector<double> boiling_at_atmosphere;
 
 public:
   PhaseSolver(const ma::experimental::MacGrid &source,
@@ -123,6 +128,16 @@ public:
                                      const std::vector<Eos> &eos, double dt,
                                      double relaxation_time,
                                      unsigned flow_parts) {
+    if (pairs_of_liquid.size() != species.size()) {
+      pairs_of_liquid.assign(species.size(), {});
+      boiling_at_atmosphere.assign(pairs.size(), 0);
+      for (std::size_t p = 0; p < pairs.size(); ++p) {
+        pairs_of_liquid[pairs[p].liquid].push_back(p);
+        const double top = std::min(pairs[p].critical, 1e4);
+        const double boiling = boiling_temperature(pairs[p], top, 101325);
+        boiling_at_atmosphere[p] = boiling > 0 ? boiling : top;
+      }
+    }
     const double fraction = -std::expm1(-dt / relaxation_time);
     const double V = grid.volume_m3();
     const auto N = state.masses.cells();
@@ -135,52 +150,56 @@ public:
         const auto &e = eos[i];
         if (!(e.pressure > 0) || !(e.liquid_nominal_volume > 0))
           continue;
-        const auto mass_of = [&](std::size_t key) {
-          for (auto a = state.masses.offsets[i]; a < state.masses.offsets[i + 1]; ++a)
-            if (state.masses.species[a] == key)
-              return state.masses.mass[a];
-          return 0.;
-        };
         const bool interface = e.gas_volume > 1e-6 * V;
-        for (std::size_t p = 0; p < pairs.size(); ++p) {
-          const auto &pair = pairs[p];
-          const double ml = mass_of(pair.liquid);
-          if (!(ml > 0) || e.temperature >= pair.critical)
+        for (auto a = state.masses.offsets[i]; a < state.masses.offsets[i + 1]; ++a) {
+          const auto key = state.masses.species[a];
+          const double ml = state.masses.mass[a];
+          if (species[key].gas || !(ml > 0))
             continue;
-          const auto &liquid = species[pair.liquid];
-          const auto &vapour = species[pair.vapour];
-          // Boiling at the cell's pressure; a gas-free liquid also needs the
-          // nucleation superheat, as in advance.
-          if (!(saturation_pressure(liquid, vapour, e.temperature, e.pressure) > e.pressure) ||
-              (!interface && !(saturation_pressure(liquid, vapour, e.temperature - 5,
-                                                   e.pressure) > e.pressure)))
-            continue;
-          const double boiling = boiling_temperature(pair, e.temperature, e.pressure);
-          if (!(boiling > 0) || !(boiling < e.temperature))
-            continue;
-          const double r = R / vapour.molar_mass;
-          const double latent =
-              vapour.offset + (vapour.cv + r) * e.temperature -
-              (liquid.offset + liquid.cv * e.temperature +
-               e.pressure / liquid.rho0 * liquid_volume_fraction(liquid, e.pressure));
-          const double volume_per_kg =
-              r * e.temperature / e.pressure -
-              liquid_volume_fraction(liquid, e.pressure) / liquid.rho0;
-          if (!(latent > 0) || !(volume_per_kg > 0) || !std::isfinite(volume_per_kg))
-            continue;
-          const double flash = std::min(
-              ml, (e.capacity + e.nR) * (e.temperature - boiling) / latent);
-          double mass = fraction * flash;
-          if (!(mass > 0) || mass * volume_per_kg <= std::max(0., V - e.liquid_volume))
-            continue;
-          mass = std::min(mass, .4 * V * flow_parts / volume_per_kg);
-          found[block].push_back({i, p, mass, volume_per_kg});
+          for (const auto p : pairs_of_liquid[key]) {
+            const auto &pair = pairs[p];
+            if (e.temperature >= pair.critical ||
+                (e.pressure >= 101325 && e.temperature <= boiling_at_atmosphere[p]))
+              continue;
+            const auto &liquid = species[pair.liquid];
+            const auto &vapour = species[pair.vapour];
+            // Boiling at the cell's pressure; a gas-free liquid also needs the
+            // nucleation superheat, as in advance.
+            if (!(saturation_pressure(liquid, vapour, e.temperature, e.pressure) > e.pressure) ||
+                (!interface && !(saturation_pressure(liquid, vapour, e.temperature - 5,
+                                                     e.pressure) > e.pressure)))
+              continue;
+            const double boiling = boiling_temperature(pair, e.temperature, e.pressure);
+            if (!(boiling > 0) || !(boiling < e.temperature))
+              continue;
+            const double r = R / vapour.molar_mass;
+            const double latent =
+                vapour.offset + (vapour.cv + r) * e.temperature -
+                (liquid.offset + liquid.cv * e.temperature +
+                 e.pressure / liquid.rho0 * liquid_volume_fraction(liquid, e.pressure));
+            const double volume_per_kg =
+                r * e.temperature / e.pressure -
+                liquid_volume_fraction(liquid, e.pressure) / liquid.rho0;
+            if (!(latent > 0) || !(volume_per_kg > 0) || !std::isfinite(volume_per_kg))
+              continue;
+            const double flash = std::min(
+                ml, (e.capacity + e.nR) * (e.temperature - boiling) / latent);
+            double mass = fraction * flash;
+            if (!(mass > 0) || mass * volume_per_kg <= std::max(0., V - e.liquid_volume))
+              continue;
+            mass = std::min(mass, .4 * V * flow_parts / volume_per_kg);
+            found[block].push_back({i, p, mass, volume_per_kg});
+          }
         }
       }
     });
     std::vector<BoilPlan> plans;
-    for (const auto &part : found)
+    for (auto &part : found) {
+      std::sort(part.begin(), part.end(), [](const BoilPlan &a, const BoilPlan &b) {
+        return a.cell != b.cell ? a.cell < b.cell : a.pair < b.pair;
+      });
       plans.insert(plans.end(), part.begin(), part.end());
+    }
     return plans;
   }
   // Converts `share` of each plan's mass in `state` (after a flow

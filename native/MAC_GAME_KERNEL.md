@@ -371,20 +371,29 @@ causes. All three fixes change profile 12 in place: the saved format and
 version 32 are unchanged (old saves are not a consideration before release,
 user decision 2026-11-05) and no setting is added.
 
-- **Room bound** (`flow_local.hpp`). The pressure solve sees a partly filled,
-  gas-free cell (void where water drained or cavitated) as a zero-pressure
-  boundary and a gas bubble by its tangent compliance at the start of the
-  interval. One interval could send a liquid cell more volume than its void or
-  gas could take, and the transport also draws a cell's gas out of its top
-  face first. In the replica a pool cell with 0.024 m³ of void received
-  0.23 m³ in 46 ms (1,208 kg, 15 MPa after the transport), and a cell with a
-  0.0095 m³ steam bubble at 0.6 kPa received 0.23 m³ (14 MPa). Now a liquid
-  cell's net inflow must fit its room: the void it keeps, 0.4 of the gas its
-  own sweeps leave (the share the gas-cell bound allows), and its liquid's
-  linear compression up to the largest solved pressure around it or the
-  weight of its own cell. A larger inflow refines the interval like the
-  0.4-cell bound; the ratio also sizes the next interval. A liquid-full cell
-  is linear and never triggers it.
+- **Room in liquid cells** (`flow_local.hpp`, `pressure_be.hpp`). The
+  pressure solve sees a partly filled, gas-free cell (void where water
+  drained or cavitated) as a zero-pressure boundary and a gas bubble by its
+  tangent compliance at the start of the interval. One interval could send a
+  liquid cell more volume than its void or gas could take, and the transport
+  also draws a cell's gas out of its top face first. In the replica a pool
+  cell with 0.024 m³ of void received 0.23 m³ in 46 ms (1,208 kg, 15 MPa
+  after the transport), and a cell with a 0.0095 m³ steam bubble at 0.6 kPa
+  received 0.23 m³ (14 MPa). A cell's room is now the void and gas its own
+  sweeps leave. The tangent model holds up to it; beyond it the cell is full
+  and only its liquid's compliance applies, from the pressure the tangent
+  model reaches there (zero for a void or a near-vacuum bubble), so the two
+  branches meet. A liquid cell whose solve overfills its room by more than a
+  millionth of the cell re-enters the solve on the second branch, like the
+  nonnegative-pressure correction (at most three passes), and the solve then
+  stops its inflow within the interval. After the transport, a cell that had
+  room and holds liquid may end at most at twice the largest of its start
+  pressure, the solved pressures of it and its open neighbours and its own
+  weight, plus one atmosphere; otherwise the interval is refined (the
+  transport's momentum receipts are held back, so a refused interval books
+  nothing). A first version refined every interval whose inflow exceeded the
+  room instead; on a captured Spaced Out! world with magma it exhausted the
+  attempt budget.
 - **Volume-consistent remap** (`patch.hpp`). Faces run on local dyadic
   clocks, so a cell can receive a coarse face's whole sweep before its finer
   faces send theirs; a donor swept as if its material filled the cell then

@@ -12,6 +12,15 @@ struct PatchResult {
   std::vector<double> energy, jx, jy;
   std::size_t microticks = 0, cell_updates = 0, face_updates = 0;
   double wall_x = 0, wall_y = 0, wall_ops_x = 0, wall_ops_y = 0, mass_error = 0;
+  // Region momentum receipts held back for the caller to book in this
+  // order (advance with `defer_receipts`), so an advance it refuses books
+  // nothing.
+  struct Receipt {
+    std::size_t cell;
+    bool x;
+    double value, operands;
+  };
+  std::vector<Receipt> receipts;
 };
 // Private local-clock donor-cell remap. Dyadic face clocks are at least as fine
 // as either adjacent cell's outgoing-volume clock. Each event has one shared
@@ -248,7 +257,7 @@ public:
           RegionAudit *regions = nullptr,
           const LiquidBoundary *boundary = nullptr,
           const std::vector<Species> *layered_species = nullptr,
-          bool swept_volume = false) {
+          bool swept_volume = false, bool defer_receipts = false) {
     namespace k = ma::experimental::mac_kernel;
     PatchResult result;
     // Profile 12 (MAC_GAME_KERNEL.md, "Volume-consistent remap"): faces run
@@ -783,14 +792,17 @@ public:
         (entry.x ? wall_ops_x : wall_ops_y).add(std::abs(entry.wall));
         const auto l = left[entry.f], r = right[entry.f];
         if (regions && entry.wall_operands != 0) {
+          const auto receipt = [&](std::size_t cell, double value, double operands) {
+            if (defer_receipts)
+              result.receipts.push_back({cell, entry.x, value, operands});
+            else
+              regions->momentum_receipt(cell, entry.x, value, operands);
+          };
           if (entry.isolated) {
-            regions->momentum_receipt(l, entry.x, entry.left_wall,
-                                      entry.left_wall_operands);
-            regions->momentum_receipt(r, entry.x, entry.right_wall,
-                                      entry.right_wall_operands);
+            receipt(l, entry.left_wall, entry.left_wall_operands);
+            receipt(r, entry.right_wall, entry.right_wall_operands);
           } else
-            regions->momentum_receipt(l != k::none ? l : r, entry.x, entry.wall,
-                                      entry.wall_operands);
+            receipt(l != k::none ? l : r, entry.wall, entry.wall_operands);
         }
         const double ml = l == k::none ? 0 : mass[l],
                      mr = r == k::none ? 0 : mass[r], sum = ml + mr;
