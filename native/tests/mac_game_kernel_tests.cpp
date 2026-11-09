@@ -545,6 +545,18 @@ void source_energy_controls() {
   require(wet_compensated.world.checkpoint() == wet_enthalpy.world.checkpoint() &&
               near(wet_compensated.parcels.front().flow_work_j, wet_enthalpy.parcels.front().flow_work_j, 1e-12),
           "Compensated injection into a wet room differs from enthalpy");
+  // A zero edit records its cell before the room's compensation changes it;
+  // the audit still sees that change. In place equals the copying form.
+  {
+    const std::array<MacFluidTransfer, 2> batch{edit(2, oxygen, true, 0, MacFlowWork::compensated),
+                                                edit(0, oxygen, true, m, MacFlowWork::compensated)};
+    const auto copied = dry.with_fluid_transfers(batch, MacFluidTransferTopology::occupied_mixture);
+    closed_energy(energy(dry) + parcel_total(copied.parcels[1]), energy(copied.world));
+    require(u(copied.world, 2) < u(dry, 2), "A zero edit's cell missed its room's compensation");
+    auto owner = MacClosedWorld::from_checkpoint(f.registry, f.eos, dry.checkpoint());
+    auto moved = std::move(owner).with_fluid_transfers(batch, MacFluidTransferTopology::occupied_mixture);
+    require(moved.world.checkpoint() == copied.world.checkpoint(), "Compensated in-place edits differ from their copies");
+  }
   // A source into an empty, sealed cell: its room is the gas it brought, so
   // the gas ends at its own temperature, as with internal energy.
   {

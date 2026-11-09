@@ -1105,6 +1105,8 @@ struct TotalsChange {
 class EditJournal {
   std::vector<std::pair<std::size_t, MacMaterialCell>> cells_;
   std::unordered_map<std::size_t, std::size_t> cell_index_;
+  // Cells whose energy alone changed and that hold no other record.
+  std::vector<std::pair<std::size_t, double>> energies_;
   std::map<std::pair<bool, std::size_t>, double> faces_;
   std::vector<std::pair<std::size_t, double>> volumes_;
   std::unordered_set<std::size_t> volume_seen_;
@@ -1117,6 +1119,11 @@ public:
   }
   void face(const MacTransportState &state, bool x, std::size_t f) {
     faces_.try_emplace({x, f}, (x ? state.momentum_x : state.momentum_y)[f]);
+  }
+  bool recorded(std::size_t i) const { return cell_index_.contains(i); }
+  // An energy-only change of a cell with no full record; it never gets one.
+  void energy(const MacTransportState &state, std::size_t i) {
+    energies_.emplace_back(i, std::as_const(state).cells[i].mixture.energy);
   }
   void volumes(const MacTransportState &state,
                std::span<const std::size_t> touched) {
@@ -1143,6 +1150,9 @@ public:
   // swapped back (a cell whose chunk was never made writable was never
   // written), so the restore cannot fail on the way.
   void undo(MacTransportState &state) {
+    for (const auto &[i, energy] : energies_)
+      if (state.cells.writable(i))
+        state.cells[i].mixture.energy = energy;
     for (auto &[i, cell] : cells_)
       if (state.cells.writable(i))
         std::swap(state.cells[i], cell);
@@ -1380,6 +1390,9 @@ struct TransferWork {
   std::vector<MacFluidParcel> parcels;
   std::vector<std::size_t> cells;
   std::vector<std::pair<bool, std::size_t>> faces;
+  // The exact energy change, and the change of the energy operands, of the
+  // cells only compensation changed (outside `cells`).
+  k::DoubleDouble energy, energy_operands;
 };
 // Flow work per kg of a gas edit crossing a boundary (MacFlowWork): an
 // injection's (R/M) T; for an extraction, the work of the cell's remaining
@@ -1449,23 +1462,42 @@ void compensate(MacTransportState &next, const std::vector<k::Species> &species,
   const std::uint32_t first = generation + 1;
   struct Room {
     std::vector<std::size_t> cells, members;
-    double joules = 0; // net: positive adds to the room
+    std::vector<double> weights;
+    double joules = 0, total = 0; // net joules: positive adds to the room
   };
   std::vector<Room> rooms;
-  const auto gaseous = [&](std::size_t i) {
-    if (grid.walls[i])
+  // Whether a cell holds gas, and its weight: its thermal energy above twice
+  // its species' lowest temperature, zero when it holds liquid. One pass.
+  const auto inspect = [&](std::size_t i, double &weight) {
+    weight = 0;
+    const auto &mixture = cells[i].mixture;
+    if (grid.walls[i] || mixture.masses.implicit_zero())
       return false;
-    const auto &m = cells[i].mixture.masses;
-    if (m.implicit_zero())
-      return false;
-    for (std::size_t q = 0; q < species.size(); ++q)
-      if (species[q].gas && m[q] > 0)
-        return true;
-    return false;
+    const std::vector<double> &masses = mixture.masses;
+    bool gas = false, liquid = false;
+    double thermal = mixture.energy, capacity = 0, floor = 0;
+    for (std::size_t q = 0; q < masses.size(); ++q) {
+      const double held = masses[q];
+      if (!(held > 0))
+        continue;
+      (species[q].gas ? gas : liquid) = true;
+      thermal -= held * species[q].offset;
+      capacity += held * species[q].cv;
+      floor = std::max(floor, species[q].minimum_temperature);
+    }
+    const double w = thermal - 2 * capacity * floor;
+    if (!liquid && w > 0 && std::isfinite(w))
+      weight = w;
+    return gas;
   };
   const auto closed = [&](bool x, std::size_t f) {
     const auto &c = x ? grid.closed_x : grid.closed_y;
     return !c.empty() && c[f];
+  };
+  const auto add = [](Room &room, std::size_t i, double weight) {
+    room.cells.push_back(i);
+    room.weights.push_back(weight);
+    room.total += weight;
   };
   for (std::size_t q = 0; q < sources.size(); ++q) {
     const auto &c = sources[q];
@@ -1481,9 +1513,10 @@ void compensate(MacTransportState &next, const std::vector<k::Species> &species,
     room.members.push_back(q);
     room.joules = signed_joules;
     stamp[c.cell] = id;
-    if (!gaseous(c.cell))
+    double weight = 0;
+    if (!inspect(c.cell, weight))
       continue;
-    room.cells.push_back(c.cell);
+    add(room, c.cell, weight);
     for (std::size_t at = 0; at < room.cells.size() &&
                              room.cells.size() < compensation_cells;
          ++at) {
@@ -1494,40 +1527,19 @@ void compensate(MacTransportState &next, const std::vector<k::Species> &species,
             continue;
           const auto [l, r] = endpoints(grid, x, f);
           const auto j = l == i ? r : l;
-          if (j == none || j == i || stamp[j] >= first || !gaseous(j))
+          if (j == none || j == i || stamp[j] >= first)
             continue;
+          // Claimed either way: a cell without gas is looked at once.
           stamp[j] = id;
-          room.cells.push_back(j);
+          if (inspect(j, weight))
+            add(room, j, weight);
         }
     }
   }
   generation = static_cast<std::uint32_t>(first + rooms.size());
-  std::vector<std::size_t> changed;
-  std::vector<double> weights;
   for (auto &room : rooms) {
-    weights.assign(room.cells.size(), 0);
-    double total = 0;
-    for (std::size_t at = 0; at < room.cells.size(); ++at) {
-      const auto &mixture = cells[room.cells[at]].mixture;
-      double thermal = mixture.energy, capacity = 0, floor = 0;
-      bool liquid = false;
-      for (std::size_t q = 0; q < species.size() && !liquid; ++q) {
-        const double held = mixture.masses[q];
-        if (!(held > 0))
-          continue;
-        liquid = !species[q].gas;
-        thermal -= held * species[q].offset;
-        capacity += held * species[q].cv;
-        floor = std::max(floor, species[q].minimum_temperature);
-      }
-      if (liquid)
-        continue;
-      const double w = thermal - 2 * capacity * floor;
-      if (w > 0 && std::isfinite(w)) {
-        weights[at] = w;
-        total += w;
-      }
-    }
+    const auto &weights = room.weights;
+    const double total = room.total;
     double scale = 0, unplaced = std::abs(room.joules);
     if (total > 0 && room.joules > 0) {
       scale = room.joules / total;
@@ -1542,12 +1554,24 @@ void compensate(MacTransportState &next, const std::vector<k::Species> &species,
     if (scale != 0)
       for (std::size_t at = 0; at < room.cells.size(); ++at)
         if (weights[at] > 0) {
+          // A cell an edit changed keeps its full record and is audited
+          // with the edits' cells; any other changes only its energy, which
+          // is recorded and booked exactly here.
           const auto i = room.cells[at];
-          journal.cell(next, i);
+          const bool alone = !journal.recorded(i);
+          if (alone)
+            journal.energy(next, i);
           auto &energy = next.cells[i].mixture.energy;
+          const double before = energy;
           energy += scale * weights[at];
           require(std::isfinite(energy), "Game flow-work compensation is unrepresentable");
-          changed.push_back(i);
+          if (alone) {
+            work.energy.add(energy);
+            work.energy.add(-before);
+            work.energy_operands.add(std::abs(energy));
+            work.energy_operands.add(-std::abs(before));
+          } else
+            work.cells.push_back(i); // a zero edit records its cell unaudited
         }
     if (unplaced > 0) {
       // Back to the parcels whose direction the room could not take.
@@ -1563,7 +1587,6 @@ void compensate(MacTransportState &next, const std::vector<k::Species> &species,
     }
   }
   // Gas-only cells keep their full occupied volume: only their energy changed.
-  work.cells.insert(work.cells.end(), changed.begin(), changed.end());
 }
 // Transfers on `next`, the state of `source` or its copy, each cell, face and
 // occupied volume recorded in the journal before it changes.
@@ -1780,9 +1803,14 @@ std::shared_ptr<const k::Totals>
 transferred_totals(const MacClosedWorld &source, const k::Totals &old_totals,
                    const EditJournal &journal, const MacTransportState &next,
                    TransferWork &work) {
-  const auto change = totals_change(journal, next, source.registry().size(),
-                                    source.settings().gravity_m_per_s2,
-                                    std::move(work.cells), std::move(work.faces));
+  auto change = totals_change(journal, next, source.registry().size(),
+                              source.settings().gravity_m_per_s2,
+                              std::move(work.cells), std::move(work.faces));
+  for (const auto [into, part] : {std::pair{&change.energy, &work.energy},
+                                  std::pair{&change.energy_operands, &work.energy_operands}}) {
+    into->add(part->hi);
+    into->add(part->lo);
+  }
   auto now = std::make_shared<const k::Totals>(changed_totals(old_totals, change));
   audit_transfers(old_totals, *now, change, work.parcels);
   return now;

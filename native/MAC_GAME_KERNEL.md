@@ -576,6 +576,13 @@ none and 380-451 K with enthalpy (2026-11-09 A/B); compensated is measured in
 [playtest 0.1.2](../docs/playtest-0.1.2.md). With none, solver arithmetic is
 unchanged.
 
+Cost: compensation reads each room cell once and records only the energy of
+a cell no edit changed, booking its exact change in the audit. On a 256 × 128
+grid of air, a batch of 600 edits (300 injections, 300 draws, spread over the
+map) takes about 3.3-3.6 ms with none or enthalpy; compensated adds about
+0.8 ms when walls split the grid into 16 × 8 rooms and about 3 ms when it is
+one open area (every gas cell then belongs to some source's room).
+
 ## Open acceptance work
 
 No private-playtest-ready or performance pass is claimed. The coupled material
