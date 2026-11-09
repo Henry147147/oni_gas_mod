@@ -383,17 +383,25 @@ user decision 2026-11-05) and no setting is added.
   sweeps leave. The tangent model holds up to it; beyond it the cell is full
   and only its liquid's compliance applies, from the pressure the tangent
   model reaches there (zero for a void or a near-vacuum bubble), so the two
-  branches meet. A liquid cell whose solve overfills its room by more than a
-  millionth of the cell re-enters the solve on the second branch, like the
+  branches meet. A liquid cell whose solve overfills its room by more than
+  0.3 % of the cell re-enters the solve on the second branch, like the
   nonnegative-pressure correction (at most three passes), and the solve then
   stops its inflow within the interval. After the transport, a cell that had
-  room and holds liquid may end at most at twice the largest of its start
+  room and holds liquid is refined (the transport's momentum receipts are
+  held back, so a refused interval books nothing) when it holds more than
+  0.3 % of the cell beyond what it holds at twice the largest of its start
   pressure, the solved pressures of it and its open neighbours and its own
-  weight, plus one atmosphere; otherwise the interval is refined (the
-  transport's momentum receipts are held back, so a refused interval books
-  nothing). A first version refined every interval whose inflow exceeded the
-  room instead; on a captured Spaced Out! world with magma it exhausted the
-  attempt budget.
+  weight, plus one atmosphere (the excess pressure times its compliance). The
+  tolerance is a volume, so that one small mismatch costs no extra solve in
+  any liquid: 0.26 MPa in water, 0.12 MPa in liquid carbon dioxide (below its
+  0.73 MPa saturation pressure at room temperature) and a few MPa in magma,
+  far above every gas's critical temperature. A first version refined every
+  interval whose inflow exceeded the room; on a captured Spaced Out! world
+  with magma it exhausted the attempt budget. A second settled and refined
+  any overfill above a millionth of the cell and a pressure bound; that
+  world then flowed 1.6 times slower than before these changes, nearly all
+  of it in magma overfilled by a fraction of a percent (the tolerance swept
+  in the cost notes below).
 - **Volume-consistent remap** (`patch.hpp`). Faces run on local dyadic
   clocks, so a cell can receive a coarse face's whole sweep before its finer
   faces send theirs; a donor swept as if its material filled the cell then
@@ -437,12 +445,12 @@ after the dig and pause 60 s after it):
 
 | Check | Before | After |
 | --- | --- | --- |
-| `flood-pocket` peak pressure, any frame | 19.9 / 26.9 MPa | 137 / 142 kPa |
+| `flood-pocket` peak pressure, any frame | 19.9 / 26.9 MPa | 222 / 331 kPa |
 | `flood-pocket` liquid carbon dioxide, peak | 11.7 / 178 g | 0 / 0 |
-| `flood-pocket` steam in the arena, frame 20 | 3.0 / 4.4 g | 0 / 0 |
+| `flood-pocket` steam in the arena, frame 20 | 3.0 / 4.4 g | 0.2 / 0.3 mg |
 | `flood-co2-corner` liquid carbon dioxide after 60 s (of 70 kg) | 37.4 / 31.8 kg | 0 / 0 (8.4 kg after 4 s, 2.8 g after 12 s) |
-| `flood-co2-corner` peak pressure, any frame | 17.3 / 25.0 MPa | 376 / 734 kPa |
-| `flood-pocket` flow intervals (400 frames) | 866 / 2,133 | 812 / 163 |
+| `flood-co2-corner` peak pressure, any frame | 17.3 / 25.0 MPa | 435 / 640 kPa |
+| `flood-pocket` flow intervals (400 frames) | 866 / 2,133 | 811 / 165 |
 
 Under Activity tiers the old kernel kept re-overfilling the pool on its 1 s
 remote steps and paused 60 s after the dig with one cell frozen at 18.4 MPa
@@ -450,24 +458,24 @@ remote steps and paused 60 s after the dig with one cell frozen at 18.4 MPa
 for many seconds: a paused region holds whatever transient it had. Activity
 regions are solid-separated, so no region boundary runs inside a liquid body;
 pausing a moving region is the accepted policy (motion is not activity). With
-the fixes the pocket peaks at 142 kPa. On the 1 s remote steps the corner
-cell, full of water with its last carbon dioxide liquid, swings between
-about 350 and 734 kPa (boiling stops at the 728 kPa saturation pressure at
-295 K) until that liquid is gone after about 20 s, then settles at 365 kPa.
+the fixes one pocket cell reaches 331 kPa for one 1 s remote step and the
+pool then settles at 129 kPa. On those steps the corner cell, full of water
+with its last carbon dioxide liquid, swings up to 640 kPa (below the 728 kPa
+saturation pressure at 295 K) until that liquid is gone after about 20 s,
+then settles at 365 kPa.
 
 `mac_game_flood_control.hpp` (in `ma_mac_game_kernel_tests`) moves a uniform
 liquid round two loops at clock levels 0 and 2 (the old remap drifts a cell
 by 21.5 kg, the new one by 0) and drops a water column into a cavitated cell
-and a thin-gas bubble (profile 11 peaks at 19.75 MPa, profile 12 at 173 kPa),
+and a thin-gas bubble (profile 11 peaks at 19.75 MPa, profile 12 at 175 kPa),
 with closed mass and U+K+G and exact checkpoint 32 continuation cold and on
 12 workers. `ma_mac_phase_change_tests --boil-only` boils liquid-full 390 K
-water in a sealed box: 0.051 kg (profile 11) against 8.00 kg (profile 12) in
-1 s, peak 274 kPa (the headspace approaches the 180 kPa saturation pressure
-and the floor about 220 kPa; the bound is 500 kPa), closed ledgers and cold
-continuation.
+water in a sealed box: 0.051 kg (profile 11) against 6.30 kg (profile 12) in
+1 s, peak 205 kPa (the headspace approaches the 180 kPa saturation pressure;
+the bound is 500 kPa), closed ledgers and cold continuation.
 
 In game (Linux, base game, defaults and the 2026-11-08 playtest preset),
-`flood-pocket` peaks at 135.6 kPa from the dig on with no liquid carbon
+`flood-pocket` peaks at 218 kPa from the dig on with no liquid carbon
 dioxide, and `flood-co2-corner` boils its 70 kg within 20 s and returns to
 its column's pressure (364.6 kPa). The terrain, heat, phase, freeze-melt,
 door, sublimation, falling, airflow, debris-heat, building-melt, sensor,
@@ -479,30 +487,45 @@ by the mop, 8.4 g before), so the chunk is 19.988 kg. The check now finds
 the chunk by the mass that moved; its 0.5 K bound is unchanged (299.72 K).
 
 Cost, Linux, 3,000 frames at speed 3 on the whole machine, against the
-0.1.1 package (and the same old source built with this revision's pipeline,
-which runs alike):
+0.1.1 package (the same old source built with this revision's pipeline runs
+alike, 1.680 on the industrial save):
 
 | Run | 0.1.1 | This revision |
 | --- | --- | --- |
-| Large industrial save, game seconds per real second | 1.674 / 1.686 (old source 1.680) | 1.635 |
-| Same, mean flow stage per 150-frame window | 72.6 ms | 76.4 ms |
-| Same, refined flow attempts | 4,797 | 3,864 |
-| New Volcanic colony (story traits V7, mixing 0), game seconds per real second | 1.523 | 2.471 |
-| Same, mean flow stage per window | 97.9 ms | 47.2 ms |
+| Large industrial save, game seconds per real second | 1.696 | 1.654 |
+| Same, mean flow stage per 150-frame window | 71.3 ms | 73.9 ms |
+| Same, refined flow attempts | 4,855 | 3,352 |
+| New Volcanic colony (story traits V7, mixing 0), game seconds per real second | 1.523 | 2.553 |
+| Same, mean flow stage per window | 97.9 ms | 41.8 ms |
+| Captured Spaced Out! fault world, flow per frame (world-dump replay, 12 workers) | 148 ms | 165 ms |
 
-The Volcanic run predates the last change below, which only removes
-repeated readings.
+The 0.1.1 Volcanic run is from an earlier run the same day on this machine;
+this revision also carries main's natural sublimation scan.
 
-The first version of these changes ran the industrial save at 1.550: its
-check after the transport read every liquid cell that had room, changed or
-not, and the readings that follow it read the changed ones again. The check
-now skips a cell the transport left bitwise unchanged (it keeps its start
-pressure, which the bound exceeds) and hands its readings on, so they are
-made once. World-dump replays of that save at frames 1,150 and 2,950 run
-within run-to-run noise of the old kernel; the captured Spaced Out! fault
-world flows in about 1.6 times its old time (257 against 164 ms a frame),
-almost all of it in magma that the transport overfills by a fraction of a
-percent, which the check refines rather than keeping as megapascals.
+Earlier versions cost more. Reading every liquid cell that had room after
+the transport, changed or not, and the changed ones again for the result,
+ran the industrial save at 1.550; the check now skips a cell the transport
+left bitwise unchanged (it keeps its start pressure, which the bound
+exceeds) and hands its readings on. Settling and refining any overfill
+above a millionth of the cell under a pressure bound ran the Spaced Out!
+world at 231 ms a frame (1.6 times), nearly all of it in magma overfilled
+by a fraction of a percent. Overfill tolerances swept on that world and
+the two flood replicas (post-transport / in-solve, share of the cell):
+
+| Tolerance | Spaced Out! flow | `flood-pocket` peak | `flood-co2-corner` peak |
+| --- | --- | --- | --- |
+| a pressure bound / 10⁻⁶ | 231 ms | 137 / 142 kPa | 376 / 734 kPa |
+| 1 % / 10⁻⁶ | 170 ms | 760 / 911 kPa | 376 / 913 kPa |
+| 1 % / 0.1 % | 163 ms | 759 / 181 kPa | 390 / 890 kPa |
+| 0.5 % / 0.1 % | 167 ms | 137 / 181 kPa | 390 / 931 kPa |
+| 0.3 % / 0.1 % | 171 ms | 137 / 168 kPa | 390 / 657 kPa |
+| 0.3 % / 0.3 % (adopted) | 160-168 ms | 222 / 331 kPa | 435 / 640 kPa |
+
+A 1 % tolerance lets one water cell keep 0.76 MPa; the adopted 0.3 % keeps
+every replica and in-game peak below the 728 kPa carbon dioxide saturation
+pressure at room temperature. The trajectories are chaotic (a different
+refinement changes everything after it), so neighbouring rows differ by a
+few ms either way.
 
 ## Open acceptance work
 

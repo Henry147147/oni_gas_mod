@@ -465,8 +465,16 @@ public:
       request_refinement();
       return result;
     }
-    // Profile 12: the most the transport may leave a liquid cell that had
-    // room above its surroundings: twice the largest of its own start
+    // Profile 12: the overfill a liquid cell may take beyond its room, as a
+    // share of the cell, before the solve settles it on its liquid's
+    // compliance or the check after the transport refines the interval. A
+    // volume, not a pressure, so that one small mismatch costs no extra solve
+    // in any liquid: 0.26 MPa in water, 0.12 MPa in liquid carbon dioxide
+    // (below its 0.73 MPa saturation pressure at room temperature) and a few
+    // MPa in magma, which is far above every gas's critical temperature.
+    constexpr double overfill_tolerance = .003;
+    // Profile 12: the pressure above which the check after the transport
+    // measures a liquid cell's overfill: twice the largest of its own start
     // pressure, the solved pressures of it and its open neighbours and the
     // weight of its own cell, plus one atmosphere.
     const auto tolerated = [&](std::size_t i, double weight) {
@@ -513,9 +521,9 @@ public:
               continue;
             const double inflow = -(projected.qx[g.right_face(i)] - projected.qx[g.left_face(i)] +
                                     projected.qy[g.top_face(i)] - projected.qy[g.bottom_face(i)]);
-            // Overfilling takes a net inflow above the trace scale below
-            // (the room is never negative), so other cells skip their state.
-            if (!(inflow > 1e-6 * g.V))
+            // Overfilling takes a net inflow above the tolerance below (the
+            // room is never negative), so other cells skip their state.
+            if (!(inflow > overfill_tolerance * g.V))
               continue;
             const auto &s = eos[i];
             if (!(s.liquid_nominal_volume > 0) || !(s.mass > 0) ||
@@ -546,10 +554,9 @@ public:
             const double kink = active ? room / (tangent + s.liquid_compliance) : 0;
             const bool full = active ? s.nR > 0 && projected.p[i] - s.pressure > kink
                                      : inflow > room;
-            // An overfill below a millionth of the cell (the kernel's trace
-            // scale for a phase's share of a cell) is left to the tangent
-            // model: it costs no extra solve and no measurable pressure.
-            if (!full || !(inflow - room > 1e-6 * g.V))
+            // A smaller overfill is left to the tangent model and the check
+            // after the transport.
+            if (!full || !(inflow - room > overfill_tolerance * g.V))
               continue;
             const Stiffened entry{s.liquid_compliance, -room + s.liquid_compliance * kink};
             if (entry.compliance > 0 && std::isfinite(entry.offset))
@@ -763,13 +770,15 @@ public:
     KnownReadings checked;
     if (volume_consistent) {
       // Profile 12: the transport must not leave a liquid cell that had room
-      // (void or gas) far above the pressure the solve gave it and its
-      // neighbours, its own pressure at the start or the weight of its cell:
-      // at most twice that and one atmosphere. Above it the interval sent the
-      // cell volume its room could not take after all (its sweeps took more
-      // of its room than the solve was told, or the room filled after the
-      // solve's last pass); a shorter interval re-solves with the compliance
-      // the cell then has. A refused advance has booked nothing.
+      // (void or gas) overfilled by more than overfill_tolerance of the
+      // cell: the volume it would have to give up, at its compliance, to fall
+      // to twice the largest of the pressure the solve gave it and its
+      // neighbours, its own pressure at the start and the weight of its
+      // cell, plus one atmosphere. Such a cell received volume its room could
+      // not take after all (its sweeps took more of its room than the solve
+      // was told, or the room filled after the solve's last pass); a shorter
+      // interval re-solves with the compliance the cell then has. A refused
+      // advance has booked nothing.
       // Only the cells that had room are read here; the readings of the
       // whole result follow below, as on other profiles.
       // A cell the transport left bitwise unchanged keeps its start
@@ -804,8 +813,15 @@ public:
             worst = std::numeric_limits<double>::infinity();
             continue;
           }
-          if (s.liquid_nominal_volume > 0)
-            worst = std::max(worst, s.pressure / tolerated(i, s.mass * std::abs(gravity) / g.A));
+          if (s.liquid_nominal_volume > 0) {
+            const double above = s.pressure - tolerated(i, s.mass * std::abs(gravity) / g.A);
+            if (above > 0) {
+              const double compliance =
+                  s.liquid_compliance +
+                  (s.nR > 0 ? s.gas_volume / ((1 + s.nR / s.capacity) * s.pressure) : 0);
+              worst = std::max(worst, above * compliance / (overfill_tolerance * g.V));
+            }
+          }
           kept.emplace_back(i, s);
         }
         excess[block] = worst;
