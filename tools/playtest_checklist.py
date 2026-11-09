@@ -100,7 +100,7 @@ SCENARIO_SYSTEMS: dict[str, tuple[list[str], tuple[str, ...]]] = {
     "electrolysis": (MACHINES, ("electrolysis", "electrolyzer-blocked")),
     "generators": (MACHINES, ("gas-generator", "coal-generator")),
     "emitters-consumers": (ACTORS, ("life-support", "wheezewort", "oxyfern")),
-    "sublimation": (SHADOW, ("sublimation",)),
+    "sublimation": ([*SHADOW, "managed/MixedAtmospheres.Oni/ColonySublimation.cs"], ("sublimation", "natural-sublimation")),
     "duplicants": (ACTORS, ("breathing", "hazards", "germ-exposure")),
     "storage": (OWNER, ("bottle-emptier", "storage-ledger")),
     "suits-masks": (ACTORS, ("mask-station", "suit")),
@@ -164,6 +164,8 @@ PASSED_SCENARIOS: set[str] = {
     "liquid-pump", "pipes", "mask-station", "polymer-press", "gas-generator", "geyser", "filter", "storage-ledger",
     "skimmer", "terrarium", "deodorizer", "rust-deoxidizer", "coal-generator", "electrolyzer-blocked", "hazards", "suit",
     "germ-exposure", "germ-oracle",
+    # Natural tiles and polluted water sublimating into owned cells, base game, cf2ecbe (2026-11-09).
+    "natural-sublimation",
     # Spaced Out!: WindowsPlayer under Proton on the recorded revisions, source plus cold/menu loads
     # (docs/dlc-compatibility.md; docs/spaced-out-private-playtest.md; docs/release-candidate-2026-10-30.md).
     "spaced-out-worlds", "spaced-out-rocket", "spaced-out-rocket-ports", "spaced-out-input-flush", "spaced-out-rocket-retire",

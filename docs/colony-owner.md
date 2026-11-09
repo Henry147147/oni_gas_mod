@@ -394,6 +394,19 @@ receiving cells included (`ma_oni_colony_tests --sublimation-cost`).
 ONI's step; the `natural-sublimation` scenario checks it in game, and also runs
 under ONI's own simulation (`--mode colony-vanilla`).
 
+Verified 2026-11-09 on the Linux harness (base game, `cf2ecbe`): the scenario
+passes under the owner and under ONI's own simulation, and the
+Windows-built tests pass under Wine. The oxylite tile follows the same course
+in both (198.88 to 193.6 kg from frame 8 to frame 41, the pocket gaining
+2.64 kg of oxygen), and the polluted dirt tile gives up 0.40 kg in 20 events
+in both. ONI ends with all three pocket cells at 1.8 kg; under the owner the
+far cell holds 1.35 kg at the same pressure (279 kPa), about 100 K warmer,
+because the owner's gas heats as the pocket is compressed and ONI's does not.
+The inspector's rate is ONI's own accumulated flow, which ONI clears every
+fifteen copies of its data, zero-time frames included, so under ONI and the
+owner alike it shows a fraction of the take (0.1 to 0.6 kg/s here against
+0.8 kg/s taken) and often 0 kg/s between frames.
+
 ## Germs
 
 ONI's germs are passive quantities of the owner's cells (identity: ONI's

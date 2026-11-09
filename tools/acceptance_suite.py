@@ -53,7 +53,7 @@ PROTON_PROFILE = "compatdata/pfx/drive_c/users/steamuser/Documents/Klei/OxygenNo
 
 LINUX_BATCHES = (
     "terrain,heat,phase,freeze-melt,door",
-    "sublimation,falling,airflow,debris-heat,building-melt",
+    "sublimation,natural-sublimation,falling,airflow,debris-heat,building-melt",
     "breathing,life-support,mask-station,suit,germ-exposure",
     "electrolysis,electrolyzer-blocked,deoxidizer,rust-deoxidizer,space-heater",
     "gas-generator,coal-generator,polymer-press,oil-refinery,deodorizer",

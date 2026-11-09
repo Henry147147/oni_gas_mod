@@ -1376,9 +1376,10 @@
       "playtest_system": "sublimation",
       "implementation": [
         "native/src/oni_colony.cpp",
-        "native/src/oni_backend.cpp"
+        "native/src/oni_backend.cpp",
+        "managed/MixedAtmospheres.Oni/ColonySublimation.cs"
       ],
-      "playtest_check": "in-game scenarios `sublimation` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `sublimation`, `natural-sublimation` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "callsite/30b0e809935ce43c4dd6",
@@ -12787,9 +12788,10 @@
       "playtest_system": "sublimation",
       "implementation": [
         "native/src/oni_colony.cpp",
-        "native/src/oni_backend.cpp"
+        "native/src/oni_backend.cpp",
+        "managed/MixedAtmospheres.Oni/ColonySublimation.cs"
       ],
-      "playtest_check": "in-game scenarios `sublimation` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `sublimation`, `natural-sublimation` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "native-hook/temperature",
@@ -15149,9 +15151,10 @@
       "playtest_system": "sublimation",
       "implementation": [
         "native/src/oni_colony.cpp",
-        "native/src/oni_backend.cpp"
+        "native/src/oni_backend.cpp",
+        "managed/MixedAtmospheres.Oni/ColonySublimation.cs"
       ],
-      "playtest_check": "in-game scenarios `sublimation` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `sublimation`, `natural-sublimation` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "prefab/BleachStoneComet/0",
@@ -21433,9 +21436,10 @@
       "playtest_system": "sublimation",
       "implementation": [
         "native/src/oni_colony.cpp",
-        "native/src/oni_backend.cpp"
+        "native/src/oni_backend.cpp",
+        "managed/MixedAtmospheres.Oni/ColonySublimation.cs"
       ],
-      "playtest_check": "in-game scenarios `sublimation` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `sublimation`, `natural-sublimation` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "prefab/DisconnectMultipleVis/0",
@@ -39523,9 +39527,10 @@
       "playtest_system": "sublimation",
       "implementation": [
         "native/src/oni_colony.cpp",
-        "native/src/oni_backend.cpp"
+        "native/src/oni_backend.cpp",
+        "managed/MixedAtmospheres.Oni/ColonySublimation.cs"
       ],
-      "playtest_check": "in-game scenarios `sublimation` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `sublimation`, `natural-sublimation` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "prefab/Oxyfern/0",
@@ -45608,9 +45613,10 @@
       "playtest_system": "sublimation",
       "implementation": [
         "native/src/oni_colony.cpp",
-        "native/src/oni_backend.cpp"
+        "native/src/oni_backend.cpp",
+        "managed/MixedAtmospheres.Oni/ColonySublimation.cs"
       ],
-      "playtest_check": "in-game scenarios `sublimation` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `sublimation`, `natural-sublimation` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "prefab/SludgePress/0",
@@ -49970,9 +49976,10 @@
       "playtest_system": "sublimation",
       "implementation": [
         "native/src/oni_colony.cpp",
-        "native/src/oni_backend.cpp"
+        "native/src/oni_backend.cpp",
+        "managed/MixedAtmospheres.Oni/ColonySublimation.cs"
       ],
-      "playtest_check": "in-game scenarios `sublimation` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `sublimation`, `natural-sublimation` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "prefab/TravelTube/0",
@@ -59702,9 +59709,10 @@
       "playtest_system": "sublimation",
       "implementation": [
         "native/src/oni_colony.cpp",
-        "native/src/oni_backend.cpp"
+        "native/src/oni_backend.cpp",
+        "managed/MixedAtmospheres.Oni/ColonySublimation.cs"
       ],
-      "playtest_check": "in-game scenarios `sublimation` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `sublimation`, `natural-sublimation` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "system/suits-masks",
