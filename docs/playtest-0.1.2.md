@@ -43,45 +43,59 @@ arithmetic.
 
 ## Verification
 
-Rebuilt candidate `fba862c` (gas source energy):
+Rebuilt candidate `832c763` (gas source energy):
 
 - Linux: `tools/build.py --oni-native-observer` passes at `eb79a42` (93/93
   native tests, 516 Python tests with 11 platform skips, the managed suites
-  including 375 settings checks); after the compensation cost change
-  (`fba862c`) the 93 native tests pass again. Between `f10f414` and this
-  revision 61 of 63 `ma_mac_*` test outputs are identical; `mac_game_kernel`
-  differs by its two new source energy lines and the production oracle by
-  timing fields, so Internal energy keeps the solver's arithmetic.
+  including 375 settings checks); the 93 native tests pass again at
+  `fba862c` and `832c763`. Between `f10f414` and this revision 61 of 63
+  `ma_mac_*` test outputs are identical; `mac_game_kernel` differs by its
+  source energy lines and the production oracle by timing fields, so
+  Internal energy keeps the solver's arithmetic.
 - New tests: the kernel's source energy controls (enthalpy split,
   isentropic draw, equal room shares, wet rooms, an empty sealed cell, a zero
-  edit inside a room, in-place edits, and a sealed tube fed oxygen at room
-  temperature: source cell / mean 284.4 / 300.0 K with Internal energy,
-  302.3 / 302.3 K with Real physics, 300.2 / 300.0 K with Compensated), the
-  owner's rule API and ledgers, the replay journal and the colony record.
-  They also pass under AddressSanitizer/UBSan. (The kernel test binary's
-  existing zero-add check fails under the sanitizers at `f10f414` too.)
-- Windows `fba862c`: the MinGW cross-build passes 94/94 tests under Wine;
+  edit inside a room, in-place edits, a frame's return equal to compensated
+  edits, and a sealed tube fed oxygen at room temperature: source cell / mean
+  284.4 / 300.0 K with Internal energy, 302.3 / 302.3 K with Real physics,
+  300.2 / 300.0 K with Compensated), the owner's rule API and ledgers, the
+  replay journal and the colony record. They also pass under
+  AddressSanitizer/UBSan. (The kernel test binary's existing zero-add check
+  fails under the sanitizers at `f10f414` too.)
+- Windows `832c763`: the MinGW cross-build passes 94/94 tests under Wine;
   both DLLs import only Windows system libraries; the package's game
   contract checks 2,814 dependencies with 0 differences.
-- Linux game, base game, the setting's first build (same physics): every
-  check of `playtest-diffusers` and `playtest-pump-vent` passes in each mode
-  (two oxygen diffusers, and a pump feeding a vent, in sealed 296 K rooms):
+- In game, gas in sealed 296 K rooms with two oxygen diffusers, and with a
+  pump feeding a vent (`playtest-diffusers`, `playtest-pump-vent`, base
+  game); every check passes in each mode:
 
   | Mode | Diffuser room gas | Pump and vent rooms gas |
   | --- | --- | --- |
-  | Compensated (default) | 295.7-302.8 K | 295.3-302.0 K |
-  | Internal energy | 286.6-301.9 K | 277.9-305.5 K |
-  | Real physics | 381.1-451.0 K | 324.2-449.1 K |
+  | Compensated (default), Linux `832c763` | 295.7-302.8 K | 295.2-301.7 K |
+  | Compensated, WindowsPlayer under Proton `832c763` | 295.7-302.3 K | 295.2-301.5 K |
+  | Internal energy, Linux (first build of the setting) | 286.6-301.9 K | 277.9-305.5 K |
+  | Real physics, Linux (first build of the setting) | 381.1-451.0 K | 324.2-449.1 K |
 
-- Cost: on a 256 × 128 grid of air, a batch of 600 edits takes about
-  3.3-3.6 ms; Compensated adds about 0.8 ms with walled 16 × 8 rooms and
-  3 ms when the grid is one open area.
-
-Queued behind another agent's hold on the shared game slot (a GPU study),
-to run on this exact package: the live change and save/reload of the
-setting, the regression and machine/pipe/terrain scenario batches, the
-WindowsPlayer run under Proton and the large industrial save's speed with
-Compensated against Internal energy.
+- WindowsPlayer under Proton, final package: `starting-air`, both playtest
+  arenas, `natural-sublimation`, `flood-pocket` and `flood-co2-corner` pass
+  all 39 checks. Linux: the same scenarios pass (27 and 12 checks).
+  `starting-air` reads the pod's air when it starts, so after other
+  scenarios in one game it sees the duplicants' exhaled CO₂ (99.94% oxygen)
+  and fails that one check; first in a game it passes, as with `57f9e44`.
+- A loaded colony (a 0.1.1-era save, which loads with Compensated) changed
+  to Real physics during play, saved and reloaded with Real physics.
+- Speed, the large industrial save (32 duplicants), 3,000 frames at speed 3,
+  Linux, same session: Compensated 1.682 and Internal energy 1.700 game
+  seconds per real second; transfer stage 14.7 and 9.7 ms a 150-frame mean,
+  of which the frame's flow work return takes about 1.3 ms. The save's
+  transfer batch is refused every frame by a few sub-ulp injections and
+  retried edit by edit; compensating per call (`fba862c`) therefore cost
+  26.6 ms and 1.554, which this revision removes. On a 256 × 128 grid of
+  air, a batch of 600 edits takes about 3.3-3.6 ms; compensating it adds
+  about 0.8 ms with walled 16 × 8 rooms and 3 ms as one open area.
+- Seen while measuring, not changed: the owner's held precision inventory
+  (sub-ulp injections kept for later release) grows by about 10-20 entries
+  a frame on the industrial save in either mode and is not released (47,000
+  entries after 3,000 frames; its stage then takes about 6 ms a frame).
 
 First build `57f9e44`:
 
@@ -111,13 +125,15 @@ save.
 
 ## Delivered private candidate
 
-Code revision `fba862c347b56ab6b51942e8505f257de529beaa` (clean manifest).
+Code revision `832c763a1723b660a3bf381d320f821e87d218e3` (clean manifest).
 Directory
-`/mnt/data/share/oni/playtest/MixedAtmospheres-0.1.2-fba862c/`, ZIP
-`MixedAtmospheres-private-windows-0.1.2-fba862c.zip`, SHA256
-`60de5a205a9e6382368860d8fbf755188b76e80cb8cc6053b0a915e8b65fed70`. Install
+`/mnt/data/share/oni/playtest/MixedAtmospheres-0.1.2-832c763/`, ZIP
+`MixedAtmospheres-private-windows-0.1.2-832c763.zip`, SHA256
+`126c05fc81c5f2fae58093b6db830e473a5085ac1c1b37fc94530046f6cb4bd0`. Install
 as before: close ONI, extract, run `install_windows.ps1`. A new colony is
 recommended. Evidence is under the ignored `artifacts/source-energy/`,
-`artifacts/release-0.1.2c/` and, for the first build, `artifacts/release-0.1.2/`
-and `artifacts/video-0.1.1/`. The first build's ZIP
-(`MixedAtmospheres-0.1.2-57f9e44/`, SHA256 `c595d0f8…c31ed3`) is superseded.
+`artifacts/release-0.1.2d/` and, for the first build, `artifacts/release-0.1.2/`
+and `artifacts/video-0.1.1/`. Earlier ZIPs of 0.1.2 are superseded:
+`MixedAtmospheres-0.1.2-57f9e44/` (SHA256 `c595d0f8…c31ed3`) and
+`MixedAtmospheres-0.1.2-fba862c/` (SHA256 `60de5a20…ed70`, per-call
+compensation, about 10% slower on large colonies).

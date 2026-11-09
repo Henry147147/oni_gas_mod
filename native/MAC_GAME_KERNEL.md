@@ -590,7 +590,10 @@ a cell no edit changed, booking its exact change in the audit. On a 256 × 128
 grid of air, a batch of 600 edits (300 injections, 300 draws, spread over the
 map) takes about 3.3-3.6 ms with none or enthalpy; compensated adds about
 0.8 ms when walls split the grid into 16 × 8 rooms and about 3 ms when it is
-one open area (every gas cell then belongs to some source's room).
+one open area (every gas cell then belongs to some source's room). In game,
+on the large industrial save (32 duplicants, 17,832 gas cells), Compensated
+runs at 1.682 against 1.700 game seconds per real second for Internal energy;
+the frame's return takes about 1.3 ms.
 
 ## Open acceptance work
 
