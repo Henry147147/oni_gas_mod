@@ -43,17 +43,18 @@ arithmetic.
 
 ## Verification
 
-Rebuilt candidate `832c763` (gas source energy):
+Rebuilt candidate `d7eb0e3` (gas source energy):
 
 - Linux: `tools/build.py --oni-native-observer` passes at `eb79a42` (93/93
   native tests, 516 Python tests with 11 platform skips, the managed suites
   including 375 settings checks); the 93 native tests pass again at
-  `fba862c` and `832c763`. Between `f10f414` and this revision 61 of 63
+  `fba862c`, `832c763` and `d7eb0e3`. Between `f10f414` and this revision 61 of 63
   `ma_mac_*` test outputs are identical; `mac_game_kernel` differs by its
   source energy lines and the production oracle by timing fields, so
   Internal energy keeps the solver's arithmetic.
 - New tests: the kernel's source energy controls (enthalpy split,
-  isentropic draw, equal room shares, wet rooms, an empty sealed cell, a zero
+  isentropic draw, equal room shares, wet rooms ending as with internal
+  energy, an empty sealed cell, a zero
   edit inside a room, in-place edits, a frame's return equal to compensated
   edits, and a sealed tube fed oxygen at room temperature: source cell / mean
   284.4 / 300.0 K with Internal energy, 302.3 / 302.3 K with Real physics,
@@ -61,7 +62,7 @@ Rebuilt candidate `832c763` (gas source energy):
   replay journal and the colony record. They also pass under
   AddressSanitizer/UBSan. (The kernel test binary's existing zero-add check
   fails under the sanitizers at `f10f414` too.)
-- Windows `832c763`: the MinGW cross-build passes 94/94 tests under Wine;
+- Windows `d7eb0e3`: the MinGW cross-build passes 94/94 tests under Wine;
   both DLLs import only Windows system libraries; the package's game
   contract checks 2,814 dependencies with 0 differences.
 - In game, gas in sealed 296 K rooms with two oxygen diffusers, and with a
@@ -72,20 +73,39 @@ Rebuilt candidate `832c763` (gas source energy):
   | --- | --- | --- |
   | Compensated (default), Linux `832c763` | 295.7-302.8 K | 295.2-301.7 K |
   | Compensated, WindowsPlayer under Proton `832c763` | 295.7-302.3 K | 295.2-301.5 K |
+  | Compensated, Linux and WindowsPlayer `d7eb0e3` | every check passes | every check passes |
   | Internal energy, Linux (first build of the setting) | 286.6-301.9 K | 277.9-305.5 K |
   | Real physics, Linux (first build of the setting) | 381.1-451.0 K | 324.2-449.1 K |
 
-- WindowsPlayer under Proton, final package: `starting-air`, both playtest
-  arenas, `natural-sublimation`, `flood-pocket` and `flood-co2-corner` pass
-  all 39 checks. Linux: the same scenarios pass (27 and 12 checks).
+- WindowsPlayer under Proton, final package (`d7eb0e3`): `starting-air`,
+  both playtest arenas, `natural-sublimation`, `flood-pocket` and
+  `flood-co2-corner` pass all 39 checks; on Linux the same game passes all
+  39 too.
   `starting-air` reads the pod's air when it starts, so after other
   scenarios in one game it sees the duplicants' exhaled CO₂ (99.94% oxygen)
   and fails that one check; first in a game it passes, as with `57f9e44`.
 - A loaded colony (a 0.1.1-era save, which loads with Compensated) changed
   to Real physics during play, saved and reloaded with Real physics.
+- Linux game, base game, at `832c763` and (marked) `d7eb0e3`: electrolysis,
+  vent overpressure, space heater, bottle emptier, gas generator,
+  deoxidizer, breathing, breath particle, life support, mask station and
+  oxyfern (18 checks); coal generator, rust deoxidizer, blocked
+  electrolyzer, deodorizer, polymer press, oil refinery, geyser, meteor,
+  rocket exhaust and sensor (15); pipes, filter, mixed pipes, pipe thermal,
+  cold pipes, heat machines and liquid pump (28); the mixed-pipe pumps
+  (27), gas vents (13, mass, heat and passive accounts exact), output (10)
+  and machines (8), each in its own game (together they count one
+  another's pumps and pending jobs); terrain, heat, phase, freeze-melt,
+  door, sublimation, falling, airflow, debris heat, building melt and
+  byproduct merge (31); and at `d7eb0e3` wheezewort, puft, hazards, pitcher
+  pump and storage ledger (21). At `832c763` the storage ledger's mopped
+  water (a puddle filled with air, a room without gas-only cells) was
+  2 K warm, which `d7eb0e3` fixes (299.8 K). `fault-containment` crashes the
+  game into ONI's error report two seconds in, also with the 0.1.1
+  package: not checked here.
 - Speed, the large industrial save (32 duplicants), 3,000 frames at speed 3,
-  Linux, same session: Compensated 1.682 and Internal energy 1.700 game
-  seconds per real second; transfer stage 14.7 and 9.7 ms a 150-frame mean,
+  Linux, same session: Compensated 1.682 (1.692 at `d7eb0e3`) and Internal
+  energy 1.700 game seconds per real second; transfer stage 14.7 and 9.7 ms a 150-frame mean,
   of which the frame's flow work return takes about 1.3 ms. The save's
   transfer batch is refused every frame by a few sub-ulp injections and
   retried edit by edit; compensating per call (`fba862c`) therefore cost
@@ -125,15 +145,16 @@ save.
 
 ## Delivered private candidate
 
-Code revision `832c763a1723b660a3bf381d320f821e87d218e3` (clean manifest).
-Directory
-`/mnt/data/share/oni/playtest/MixedAtmospheres-0.1.2-832c763/`, ZIP
-`MixedAtmospheres-private-windows-0.1.2-832c763.zip`, SHA256
-`126c05fc81c5f2fae58093b6db830e473a5085ac1c1b37fc94530046f6cb4bd0`. Install
+Code revision `d7eb0e32796b292b451502592cbc7d382b949637` (clean manifest).
+Directory `/mnt/data/share/oni/playtest/MixedAtmospheres-0.1.2-d7eb0e3/`, ZIP
+`MixedAtmospheres-private-windows-0.1.2-d7eb0e3.zip`, SHA256
+`54deeaed830d4991f63cb3fd9cd500f82324008fa8ddc37cad86ec6c294511a0`. Install
 as before: close ONI, extract, run `install_windows.ps1`. A new colony is
 recommended. Evidence is under the ignored `artifacts/source-energy/`,
-`artifacts/release-0.1.2d/` and, for the first build, `artifacts/release-0.1.2/`
+`artifacts/release-0.1.2e/` and, for the first build, `artifacts/release-0.1.2/`
 and `artifacts/video-0.1.1/`. Earlier ZIPs of 0.1.2 are superseded:
-`MixedAtmospheres-0.1.2-57f9e44/` (SHA256 `c595d0f8…c31ed3`) and
+`MixedAtmospheres-0.1.2-57f9e44/` (SHA256 `c595d0f8…c31ed3`),
 `MixedAtmospheres-0.1.2-fba862c/` (SHA256 `60de5a20…ed70`, per-call
-compensation, about 10% slower on large colonies).
+compensation, about 10% slower on large colonies) and
+`MixedAtmospheres-0.1.2-832c763/` (SHA256 `126c05fc…4bd0`, wet rooms warmed
+as with real physics).

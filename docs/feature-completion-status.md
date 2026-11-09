@@ -1,7 +1,7 @@
 # Feature completion work
 
 **Update, 2026-11-09:** private candidate [0.1.2](playtest-0.1.2.md)
-(rebuilt as `832c763`) answers the [0.1.1 playtest review](playtest-0.1.1-review.md):
+(rebuilt as `d7eb0e3`) answers the [0.1.1 playtest review](playtest-0.1.1-review.md):
 the starting oxygen reserve is no longer skipped by a paused start, natural
 tiles and polluted water sublimate by ONI's rule, and flooded pools no longer
 spike to megapascals or liquefy CO₂ at room temperature. The cold gas at
