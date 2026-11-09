@@ -6,6 +6,7 @@
 #include "../src/oni_sublimation.hpp"
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <iostream>
@@ -206,6 +207,60 @@ void colony_control() {
     set_sublimation({});
     std::cout << "PASS natural sublimation: take, cap, vacuum, impermeable, used up, unheld product, polluted water, ledgers\n";
 }
+
+// The adapter's cost in post-processing, on a Terra-sized 256 x 384 grid:
+// every cell owned gas except one row in eight of rock with an oxylite tile in
+// every 32nd cell. Times one pass over every owned cell, armed and disarmed.
+void cost_control() {
+    constexpr std::uint32_t GW = 256, GH = 384, NP = GW + 2;
+    set_sublimation(records);
+    MAOniColonyConfig cfg{}; cfg.struct_size = sizeof(cfg); cfg.abi_version = 1;
+    cfg.flags = 12; cfg.vacuum_index = vacuum; cfg.grid_width = cfg.width = GW; cfg.grid_height = cfg.height = GH; cfg.maximum_timestep_s = .1;
+    std::vector<MAOniColonyMaterial> mats{material("Oxygen", 11, oxygen, true, .032, 1005),
+        material("ContaminatedOxygen", 12, polluted_oxygen, true, .032, 1005), material("DirtyWater", 13, polluted_water, false, .018, 4179, 1000)};
+    std::vector<MAOniColonyCell> cells(GW * GH, MAOniColonyCell{oxygen, MA_ONI_COLONY_FLUID, 1, 300, 0, 0});
+    for (std::uint32_t y = 0; y < GH; y += 8) for (std::uint32_t x = 0; x < GW; ++x) cells[x + y * GW] = {rock, MA_ONI_COLONY_SOLID, 0, 0, 0, 0};
+    start(cfg, mats, cells, 1);
+    std::array<std::vector<std::uint16_t>, 2> element; std::array<std::vector<float>, 2> mass, temperature;
+    std::array<std::vector<std::uint8_t>, 2> disease; std::array<std::vector<std::int32_t>, 2> germs;
+    std::vector<std::uint8_t> properties(NP * (GH + 2), 0); std::vector<float> flow(NP * (GH + 2), 0);
+    NativeCells native{}; native.pitch = NP; native.rows = GH + 2;
+    for (int b = 0; b < 2; ++b) {
+        element[b].assign(NP * (GH + 2), static_cast<std::uint16_t>(rock)); mass[b].assign(NP * (GH + 2), 1000); temperature[b].assign(NP * (GH + 2), 300);
+        disease[b].assign(NP * (GH + 2), 255); germs[b].assign(NP * (GH + 2), 0);
+        for (std::uint32_t y = 0; y < GH; ++y) for (std::uint32_t x = 0; x < GW; ++x) {
+            const auto c = (x + 1) + (y + 1) * NP;
+            if (y % 8) element[b][c] = static_cast<std::uint16_t>(vacuum);
+            else if (x % 32 == 0) element[b][c] = static_cast<std::uint16_t>(oxylite);
+        }
+        native.element[b] = element[b].data(); native.mass[b] = mass[b].data(); native.temperature[b] = temperature[b].data();
+        native.disease[b] = disease[b].data(); native.disease_count[b] = germs[b].data();
+    }
+    write_shadow(native);
+    std::uint32_t seed = 7; Model model; model.n = &native;
+    const auto pass = [&] {
+        const auto begun = std::chrono::steady_clock::now();
+        for (std::uint32_t y = 0; y < GH; ++y) if (y % 8) for (std::uint32_t x = 0; x < GW; ++x)
+            sublimate(&model, nullptr, static_cast<int>((x + 1) + (y + 1) * NP), &model_sublimation);
+        return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - begun).count();
+    };
+    // The first arm of a session scans the rectangle for candidates.
+    const auto scan_begun = std::chrono::steady_clock::now();
+    arm_sublimation(SublimationFrame{native, properties.data(), flow.data(), &seed});
+    const double scan = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - scan_begun).count();
+    disarm_sublimation();
+    double armed = 1e9, disarmed = 1e9;
+    for (int k = 0; k < 5; ++k) {
+        disarm_sublimation(); disarmed = std::min(disarmed, pass());
+        arm_sublimation(SublimationFrame{native, properties.data(), flow.data(), &seed}); armed = std::min(armed, pass());
+        disarm_sublimation(); capture_shadow(native);
+    }
+    std::printf("natural sublimation cost: %u owned cells, %d model steps; armed %.3f ms, disarmed %.3f ms per frame (one thread); "
+        "candidate scan %.3f ms every %d frames\n", GW * (GH - GH / 8), model.calls, armed, disarmed, scan, 5);
+    check(model.calls == 5 * 2 * static_cast<int>(GW / 32) * static_cast<int>(GH / 8) - 5 * static_cast<int>(GW / 32), "ONI's step runs only beside the tiles");
+    stop(); set_sublimation({});
+}
 }
 
 void natural_sublimation_control() { rule_control(); colony_control(); }
+void natural_sublimation_cost() { cost_control(); }

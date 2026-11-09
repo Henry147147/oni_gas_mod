@@ -460,6 +460,12 @@ std::mutex sublimation_mutex; // native post-processing may run on several threa
 std::vector<MAOniColonyTransfer> sublimation_moves; // this native frame
 bool sublimation_failed = false; // under sublimation_mutex
 MAOniColonySublimationTotals sublimation_total{}; // under sublimation_mutex
+// The cells post-processing visits (bit 1: beside a sublimating native tile;
+// bit 2: an off-gassing liquid), per native cell, from one pass over the
+// rectangle every few frames; written only while disarmed.
+constexpr std::uint64_t sublimation_rescan_frames = 5;
+std::vector<std::uint8_t> sublimation_candidates;
+std::uint64_t sublimation_scan_frame = 0, sublimation_scan_session = 0;
 
 // Solver thread (docs/colony-owner.md#pacing). ONI's game thread waits for
 // each native frame right after posting it, so a positive frame only hands its
@@ -2678,6 +2684,24 @@ void arm_sublimation(const SublimationFrame& frame) noexcept {
             }
             sublimation_classes = std::move(k);
         }
+        // A tile newly exposed (or a liquid newly under gas) waits at most the
+        // rescan interval; post-processing then reads one byte per owned cell.
+        const auto& n = frame.cells; const auto& k = sublimation_classes;
+        const std::size_t pitch = n.pitch, native = pitch * n.rows, frames = p->status.completed_frames;
+        if (sublimation_candidates.size() != native || sublimation_scan_session != p->status.session ||
+            frames - sublimation_scan_frame >= sublimation_rescan_frames) {
+            sublimation_candidates.assign(native, 0); auto* mark = sublimation_candidates.data();
+            for (std::size_t y = 0; y < geometry.height; ++y) {
+                const std::size_t row = (geometry.offset_y + y + 1) * pitch + geometry.offset_x + 1;
+                for (std::size_t x = 0; x < geometry.width; ++x) {
+                    const auto c = row + x; const auto e = n.element[1][c];
+                    if (e >= k.cell.size()) continue;
+                    if (k.source[e] == 1) { mark[c + pitch] |= 1u; mark[c + 1] |= 1u; mark[c - 1] |= 1u; mark[c - pitch] |= 1u; }
+                    else if (k.cell[e] == 2) mark[c] |= 2u;
+                }
+            }
+            sublimation_scan_frame = frames; sublimation_scan_session = p->status.session;
+        }
         std::lock_guard lock(sublimation_mutex);
         sublimation_moves.clear(); sublimation_failed = false;
         if (sublimation_total.session != p->status.session) { sublimation_total = {}; sublimation_total.session = p->status.session; }
@@ -2800,11 +2824,13 @@ void sublimate(void* data, void* events, int native_cell, NativeSublimation orig
     // Only owned cells come here: inside the rectangle, never on the native
     // border column, so their four neighbours exist.
     const auto g = static_cast<std::size_t>(native_cell);
+    const auto mark = sublimation_candidates[g];
+    if (!mark) return;
     const auto e = n.element[1][g];
-    if (e >= k.cell.size() || !k.cell[e]) return;
+    if (e >= k.cell.size()) return;
     try {
-        if (k.cell[e] == 1) { if (original) sublimate_into(data, events, g, original); }
-        else offgas_from(g);
+        if (k.cell[e] == 1 && (mark & 1u)) { if (original) sublimate_into(data, events, g, original); }
+        else if (k.cell[e] == 2 && (mark & 2u)) offgas_from(g);
     } catch (...) { std::lock_guard lock(sublimation_mutex); sublimation_failed = true; }
 }
 namespace {

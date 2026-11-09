@@ -29,6 +29,7 @@
 
 void airflow_boundary_control();
 void natural_sublimation_control();
+void natural_sublimation_cost();
 
 namespace {
 #if defined(_WIN32)
@@ -2646,6 +2647,7 @@ int main(int argc, char** argv) {
         if (argc == 2 && std::strcmp(argv[1], "--parcel-wire-only") == 0) { parcel_wire_control(); parcel_outcome_control(); return 0; }
         if (argc == 2 && std::strcmp(argv[1], "--falling-solid-only") == 0) { falling_solid_control(); return 0; }
         if (argc == 2 && std::strcmp(argv[1], "--sublimation-only") == 0) { natural_sublimation_control(); return 0; }
+        if (argc == 2 && std::strcmp(argv[1], "--sublimation-cost") == 0) { natural_sublimation_cost(); return 0; }
         if (argc == 2 && std::strcmp(argv[1], "--sample-only") == 0) { sample_control(); return 0; }
         if (argc == 2 && std::strcmp(argv[1], "--comet-exhaust-only") == 0) { comet_exhaust_sky_control(); return 0; }
         if (argc == 2 && std::strcmp(argv[1], "--view-cache-only") == 0) { view_cache_control(); return 0; }

@@ -350,7 +350,8 @@ words; it runs each 0.2 s frame:
   below gives.
 
 The owner applies the rule at the same native callback, the post-processing
-of an owned cell (`on_post_process`, `oni_colony.cpp` `sublimate`):
+of an owned cell (`on_post_process`, `oni_colony.cpp` `sublimate`), on
+positive frames:
 
 - A cell shown as gas or vacuum beside a sublimating native tile: the adapter
   calls ONI's own `DoSublimation` on the owner's shadow, so the tile's take,
@@ -381,12 +382,17 @@ and close in the ledgers with the other native bodies. The rules are the
 game's element data, handed over at start and restore (`ColonySublimation.cs`,
 `ma_oni_colony_set_sublimation`); nothing is saved, and solver arithmetic and
 checkpoint bytes are unchanged. `ma_oni_colony_sublimation_totals` counts a
-session's events, takes and products. The cost is an element lookup in each
-owned cell's post-processing (four more loads for a gas cell), plus ONI's own
-step for a cell beside a sublimating tile; there is no separate scan.
-`ma_oni_colony_tests --sublimation-only` checks the rule and the bookings
-against a model of ONI's step; the `natural-sublimation` scenario checks it in
-game, and also runs under ONI's own simulation (`--mode colony-vanilla`).
+session's events, takes and products.
+
+Cost: post-processing reads one byte per owned cell, marking the cells beside
+a sublimating native tile and the off-gassing liquid cells; one pass over the
+owned rectangle every five frames finds them, so a newly exposed tile starts
+within a second. On a Terra-sized grid (256 × 384, one thread) the pass takes
+0.09 ms and a frame's post-processing 0.1 ms, ONI's own step for 760
+receiving cells included (`ma_oni_colony_tests --sublimation-cost`).
+`--sublimation-only` checks the rule and the bookings against a model of
+ONI's step; the `natural-sublimation` scenario checks it in game, and also runs
+under ONI's own simulation (`--mode colony-vanilla`).
 
 ## Germs
 

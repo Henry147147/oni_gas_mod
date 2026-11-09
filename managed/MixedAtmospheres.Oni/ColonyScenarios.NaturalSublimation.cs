@@ -36,7 +36,8 @@ namespace MixedAtmospheres.Oni
         private static double TileMass(int x, int y) => Grid.Solid[Cell(x, y)] ? Grid.Mass[Cell(x, y)] : 0;
         // The game's cell inspector: "Emitting <gas>: <rate>" reads this (kg/s).
         private static double InspectorRate(int x, int y) => Grid.AccumulatedFlow[Cell(x, y)] / 3f;
-        private static string PocketDetail() => string.Join(" ", PocketA.Select(p => $"({p.x},{p.y}) {CellMass(Cell(p.x, p.y)):G4}"));
+        private static string PocketDetail() => string.Join(" ", PocketA.Select(p => $"({p.x},{p.y}) {CellMass(Cell(p.x, p.y)):G4}")) +
+            " [" + string.Join(" ", PocketA.Select(p => $"{Grid.Temperature[Cell(p.x, p.y)]:F1} K p {Grid.Pressure[Cell(p.x, p.y)]:G4}")) + "]";
 
         private static void NaturalSublimation(int frame)
         {
@@ -63,6 +64,8 @@ namespace MixedAtmospheres.Oni
                     $"+{oxygen:G4} kg oxygen, tile {recorded["oxylite"]:G6} -> {TileMass(0, 0):G6} kg; pocket {PocketDetail()}");
                 Record("the cell inspector shows the tile emitting", recorded["rate"] > .05, $"up to {recorded["rate"]:G4} kg/s");
             }
+            if (frame > 41 && frame < 240 && frame % 20 == 10 && Once(frame, "holding " + frame))
+                Debug.Log($"[Mixed Atmospheres] natural sublimation frame {frame}: oxylite {TileMass(0, 0):G6} kg, pocket {PocketDetail()}, inspector {InspectorRate(0, 0):G4} kg/s");
             if (Once(200, "held")) { recorded["held tile"] = TileMass(0, 0); recorded["held oxygen"] = PocketA.Sum(p => SpeciesMass(Cell(p.x, p.y), SimHashes.Oxygen)); }
             if (Once(240, "check"))
             {
