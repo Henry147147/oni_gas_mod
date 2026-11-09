@@ -33,10 +33,12 @@ play.
 - **Frames.** Each positive native frame hands its timestep to the owner's
   solver thread after `UpdateData` and returns; the step's result publishes at
   the first data request after it completes. Native pressure, liquid,
-  displacement and gas-interaction phases are suppressed for owned cells;
-  transitions, sublimation and solid post-processing are suppressed over the
-  whole asteroid until their terrain adapters exist. Item contacts with owned
-  cells are adiabatic until the heat adapter exists.
+  displacement, gas-interaction and post-processing phases are suppressed for
+  owned cells, except natural sublimation into them and off-gassing from them,
+  which the owner books ([natural sublimation](#natural-sublimation)); native
+  solids' transitions and post-processing run natively
+  ([native bodies](#native-bodies)). Item contacts with owned cells are
+  adiabatic until the heat adapter exists.
 - **Publication.** After each data request the mod copies ONI's game data and
   overwrites every owned cell with the owner's projection: the dominant
   constituent of the dominant phase, that phase's mass, temperature. Changed
@@ -259,7 +261,8 @@ booked owner input for the next step:
 
 Native state transitions run on an owned cell only when they freeze it (the
 target is a solid); fluid targets are the owner's [phase change](#phase-change).
-Sublimation and transitions of native solids run natively. A cell native built
+Transitions of native solids run natively; their sublimation into owned cells
+is the owner's [natural sublimation](#natural-sublimation). A cell native built
 over this frame (a tile) is not written and stays native. The status reports
 the booked heat, mass in and out, and the number of changed cells. A shortfall
 (native took more than the owner cell still holds after its step) is not yet
@@ -305,6 +308,85 @@ mass changes ([above](#native-bodies)) are chiefly ONI deleting gas exposed to
 space; booked as takes of the projected element, they left the other gases of
 Terra's space-exposed pockets as near-empty traces, and frames took 17 to 90 s
 by frame 50.
+
+## Natural sublimation
+
+ONI lets a natural tile whose element sublimates (oxylite, polluted dirt and
+mud; corium in Spaced Out!) give off its product into the gas or vacuum beside it, and a
+liquid that off-gasses (polluted water) give off its product into the gas
+above it. Both happen in the native post-processing of the receiving gas or
+vacuum cell and of the liquid cell, which the owner suppresses for its cells,
+so through private candidate 0.1.1 an exposed oxylite tile never emitted
+under the mod (the user's playtest 2026-11-08: "Emitting Oxygen: 0 kg/s"
+beside 0.23 kg of gas).
+Sublimating debris (`Sublimates`) is a separate, managed path, routed
+already ([storage crossings](#storage-crossings)).
+
+The native rule, read from the game's native library and described in our
+words; it runs each 0.2 s frame:
+
+- **Tiles.** A gas cell, or a vacuum cell that is not gas-impermeable, takes
+  nothing while it holds 1.8 kg or more. Otherwise each of its four
+  neighbours, in the order above, right, left, below, that is a solid with a
+  product passes its probability (ONI's random generator; 1 for oxylite and
+  corium, 0.05 for polluted dirt and mud) and gives up its rate × 0.2 s of
+  mass (oxylite 0.08 kg, polluted dirt 0.02 kg, per face and frame).
+  Efficiency × that mass (half for oxylite, a fifth for polluted dirt) becomes
+  the product at the tile's temperature, carrying the same share of the tile's
+  germs; the rest is lost, as in ONI. A product of the cell's own element is
+  held to the cap: the take shrinks so that the cell reaches 1.8 kg. A tile
+  that would be left with less than one more take converts in place: its cell
+  becomes efficiency × its mass of the product. Each take is added to the
+  tile's accumulated flow, which the game's cell inspector shows, summed over
+  three seconds, as "Emitting <product>".
+- **Liquids.** A liquid cell that off-gasses, under a cell of gas or vacuum
+  (not gas-impermeable) holding less than 1.8 kg, passes its probability (0.01
+  for polluted water) and gives off its fraction of its mass (0.1%, at most
+  1 kg; of the cell below's mass when that holds more of the same liquid),
+  held to the cap above. Efficiency × that (all of it, for polluted water)
+  becomes the product in the cell above at the liquid's temperature, and the
+  take is added to the liquid cell's accumulated flow. A cell that would keep
+  less than 10 g converts whole in place, with whatever more the deeper cell
+  below gives.
+
+The owner applies the rule at the same native callback, the post-processing
+of an owned cell (`on_post_process`, `oni_colony.cpp` `sublimate`):
+
+- A cell shown as gas or vacuum beside a sublimating native tile: the adapter
+  calls ONI's own `DoSublimation` on the owner's shadow, so the tile's take,
+  its germs, its accumulated flow, the bubbles and a used-up tile's conversion
+  stay ONI's own. The call is given a vacuum-state cell definition, so ONI
+  never pushes the owner's gas into neighbours to make room for a different
+  element (ONI's cells hold one element, the owner's hold mixtures), and the
+  cell is shown as the first product's element, so the cap holds as ONI holds
+  it for a cell of its product. The shadow cell is then put back exactly, and
+  each tile's loss times its efficiency is booked as an owner injection at the
+  receiving cell, with the germs the tile gave up. A used-up tile's own cell
+  holds its product: the shadow capture opens it and takes the product, as
+  for a melted tile. A cell beside a tile whose product is not a catalogue
+  fluid is left alone.
+- A cell shown as an off-gassing liquid: the adapter applies the liquid rule
+  itself (ONI applies it inline), with ONI's generator and seed, as an owner
+  extraction of the liquid and an injection of its product; the cell's most
+  numerous germ follows in proportion, and the take is added to ONI's
+  accumulated flow at the cell. Not reproduced: ONI's bubbles for this case
+  (its effect call is not bound) and its displacement of a different gas
+  above (the owner's cells hold mixtures).
+
+The cap reads the receiving cell's shadow mass, the owner's whole gas phase
+there; a cell shown as liquid takes nothing, as the cell inspector (which
+reads the same published grid) says. The products and takes are owner
+transfers of the frame's shadow capture (`NativeMassInKg`, `NativeMassOutKg`)
+and close in the ledgers with the other native bodies. The rules are the
+game's element data, handed over at start and restore (`ColonySublimation.cs`,
+`ma_oni_colony_set_sublimation`); nothing is saved, and solver arithmetic and
+checkpoint bytes are unchanged. `ma_oni_colony_sublimation_totals` counts a
+session's events, takes and products. The cost is an element lookup in each
+owned cell's post-processing (four more loads for a gas cell), plus ONI's own
+step for a cell beside a sublimating tile; there is no separate scan.
+`ma_oni_colony_tests --sublimation-only` checks the rule and the bookings
+against a model of ONI's step; the `natural-sublimation` scenario checks it in
+game, and also runs under ONI's own simulation (`--mode colony-vanilla`).
 
 ## Germs
 
@@ -466,7 +548,8 @@ room; `ConvertedKg` counts conversions gross.
 | Demolition (`Storage.DropAll`): gas `Dumpable.Dump`; liquid a chunk | gas injected; the chunk stays ONI's until mopped, released or emptied | gas `energy_in` | gas: the item's disease; chunk: ONI's |
 | Liquid chunk released (`SubstanceChunk.OnRelease`) | injected, item destroyed | `energy_in` | the chunk's disease |
 | Debris melting (`DoOreMeltTransition`, `DoMelt`) and sublimating (`Sublimates.Emit`) | injected, item destroyed or reduced | `energy_in` at the item's temperature | the item's disease |
-| Native tiles melting or sublimating; items freezing or melting under native heat | shadow: `NativeMassInKg`/`NativeMassOutKg`, then injected/extracted | `NativeHeatJoules` for exchange without mass change | native cell's germ, booked as germ edits |
+| Native tiles melting; items freezing or melting under native heat | shadow: `NativeMassInKg`/`NativeMassOutKg`, then injected/extracted | `NativeHeatJoules` for exchange without mass change | native cell's germ, booked as germ edits |
+| Natural tiles sublimating, polluted water off-gassing ([natural sublimation](#natural-sublimation)) | the product injected at the receiving cell (a used-up tile's own cell opens with it); the liquid's take extracted; both in the shadow's `NativeMassInKg`/`NativeMassOutKg` | `energy_in` at the tile's or liquid's temperature | the germs the tile gave up; the liquid's most numerous germ, in proportion |
 | Frozen liquid (owner freezes a hidden liquid) | extracted; the solid joins its cell's [byproduct batch](#byproduct-batches) and the game spawns the batch as debris | `energy_out`; the debris at the batch's mass-weighted temperature | the debris carries the batch's most numerous identity, its parts' counts summed (fixed 2026-11-04; the freeze lost them before) |
 | Conversion byproduct (salt from boiling brine) | extracted gross (`ConvertedKg`); the product is injected back; the solid joins its cell's [byproduct batch](#byproduct-batches) and becomes debris | `energy_out` of the converted mass, `energy_in` of the product | the product keeps the germs; the solid carries none |
 | Addition with no open cell within two (callback −1) | held in the reservoir (`ReservoirKg`), released later (`ReleasedKg`) | held at its temperature | not kept (open) |
@@ -1744,6 +1827,7 @@ The home asteroid of a Spaced Out! colony is 160 cells wide with the printing po
 | `pipes` | A gas pump in oxygen and carbon dioxide feeds a pipe to a vent in vacuum: both gases arrive, and owner, pipe and pump keep the gas. |
 | `door` | A manual airlock between oxygen and vacuum seals when closed, passes gas when opened and displaces its cells' gas when closed again (a pneumatic door does not block gas in ONI). |
 | `sublimation` | Oxylite dropped in thin oxygen releases oxygen into the owner. |
+| `natural-sublimation` | An exposed oxylite tile releases oxygen into a three-cell pocket of thin oxygen, which fills to about 1.8 kg and stops, and the cell inspector shows it emitting; an oxylite tile enclosed in rock keeps its mass; a polluted dirt tile releases polluted oxygen; polluted water gives off polluted oxygen at its surface, kilogram for kilogram; the ledgers close ([natural sublimation](#natural-sublimation)). Also runs under `--mode colony-vanilla`, its reference. |
 | `falling` | A sand tile placed over gas falls: its cell reopens, it lands and closes a floor cell, and the gas is kept. |
 | `terrain-order` | Within one game tick four cells are opened and closed in either order (a replacement with granite and a dig; two replacements, as a tile built and deconstructed): whatever ONI ends with, the owner holds each cell exactly when ONI holds it open (with its gas), and the gas is kept ([terrain](#terrain)). |
 | `breathing` | The colony's duplicants keep full breath (above 90), oxygen is taken from the owner (more than 0.1 kg), and every original duplicant produces carbon dioxide: for each, final held CO₂ minus source held CO₂ plus the mass of its own original puffs inside the window is positive ([criterion changed by delegated user decision 2026-11-02](release-candidate-testing.md#breathing-criterion-decision-2026-11-02)). The whole-world net CO₂ change stays reported in the detail, no longer asserted. |
@@ -1931,7 +2015,8 @@ Environment variables of the game process (the harness passes them through):
   first flow step still running after s seconds (a watchdog, so a step that
   never finishes is caught).
 - `MA_COLONY_STAGE_LOG=1`: every tenth owner frame, each stage's wall time and
-  the frame's edit counts (in the run's `Player.log`).
+  the frame's edit counts (in the run's `Player.log`); every fiftieth, the
+  session's [natural sublimation](#natural-sublimation) totals.
 - `MA_COLONY_REJECT_LOG=1` (`=2` also one line per event): the game kernel's
   "rejected attempts" are pressure refinements of the flow stage (the counter is
   the deepest region's refinement count per kernel advance). This logs, per

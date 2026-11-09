@@ -413,6 +413,27 @@ bool native_cells(void* data,ma::oni::colony::NativeCells& out) noexcept {
     out.pitch=static_cast<std::uint32_t>(pitch);out.rows=static_cast<std::uint32_t>(rows);
     return true;
 }
+// Natural sublimation's native fields beyond the cell arrays (both layouts
+// inspected independently, as for on_temperature): the updated cells'
+// properties (gas-impermeable bit 0), SimData's per-cell accumulated flow (the
+// mass each cell sublimated this window; the game copies it each frame and
+// its cell inspector shows it as the emission rate) and its random seed.
+void arm_sublimation(void* data,const ma::oni::colony::NativeCells& cells) noexcept {
+#if defined(_WIN32)
+    constexpr std::size_t properties_offset=104,accumulated_flow_offset=0x60;
+#else
+    constexpr std::size_t properties_offset=72,accumulated_flow_offset=0x58;
+#endif
+    constexpr std::size_t seed_offset=12;
+    if (!data) return;
+    auto* sim=static_cast<std::byte*>(data);void* updated{};float* flow{};std::uint8_t* properties{};
+    std::memcpy(&updated,sim+40,sizeof(updated));std::memcpy(&flow,sim+accumulated_flow_offset,sizeof(flow));
+    if (updated) std::memcpy(&properties,static_cast<std::byte*>(updated)+properties_offset,sizeof(properties));
+    ma::oni::colony::SublimationFrame frame{};
+    frame.cells=cells;frame.properties=properties;frame.accumulated_flow=flow;
+    frame.seed=reinterpret_cast<std::uint32_t*>(sim+seed_offset);
+    ma::oni::colony::arm_sublimation(frame);
+}
 // A cell owned by the development domain or the colony owner: its native
 // fluid physics is suppressed.
 bool owned_cell(std::uint32_t hook,int cell) noexcept {
@@ -456,7 +477,9 @@ void on_update_data(void* self,void* data) {
     if(shadowed)paired_heat.begin(data,pending.ticket,counters[MA_ONI_PROCESS_FRAME].entries.load(std::memory_order_relaxed));
     native_paired_heat_ticket.store(shadowed?pending.ticket:0,std::memory_order_release);
     ma::oni::runtime_trace::Frame::physics_cells(counters[MA_ONI_PROCESS_FRAME].entries.load(std::memory_order_relaxed),2,data,shadowed);
+    if (shadowed && pending.ticket) arm_sublimation(data,shadow);
     { wait_log::Scope timed(wait_log::UpdateData); original<void (*)(void*,void*)>(MA_ONI_UPDATE_DATA)(self,data); }
+    ma::oni::colony::disarm_sublimation();
     ma::oni::runtime_trace::Frame::physics_cells(counters[MA_ONI_PROCESS_FRAME].entries.load(std::memory_order_relaxed),3,data,shadowed);
     runtime_clock.sample(data);
     storage_heat.sample(data,counters[MA_ONI_PROCESS_FRAME].entries.load(std::memory_order_relaxed));
@@ -583,7 +606,12 @@ bool on_sublimation(void* data,void* events,int cell,const void* definition) {
 }
 void on_post_process(void* data,void* events,int cell) {
     Call call(MA_ONI_POST_PROCESS);
-    if (owned_cell(MA_ONI_POST_PROCESS,cell)) return;
+    if (owned_cell(MA_ONI_POST_PROCESS,cell)) {
+        // Natural sublimation into, and off-gassing from, an owned cell
+        // (docs/colony-owner.md#natural-sublimation); a no-op unless armed.
+        ma::oni::colony::sublimate(data,events,cell,original<ma::oni::colony::NativeSublimation>(MA_ONI_SUBLIMATION));
+        return;
+    }
     // A newly melted/opening cell can still be unowned this frame. Native
     // density and lateral swaps would move a scalar gas projection across
     // this boundary, losing its real mixture. Keep native solid work, but
@@ -1521,6 +1549,21 @@ MAOniResult ma_oni_colony_set_diseases(const MAOniColonyDisease* diseases,std::u
             ma::oni::colony::set_diseases(std::span(diseases,disease_count),
                 std::span(growth,static_cast<std::size_t>(disease_count)*element_count),element_count);
         } catch(const std::invalid_argument& error) {throw Failure(MA_ONI_INVALID_ARGUMENT,error.what());}
+    });
+}
+std::uint32_t ma_oni_colony_sublimation_version() { return MA_ONI_COLONY_SUBLIMATION_VERSION; }
+MAOniResult ma_oni_colony_set_sublimation(const MAOniColonySublimation* rules,std::uint32_t count) {
+    return boundary([&] {
+        static_assert(sizeof(MAOniColonySublimation)==40 && sizeof(MAOniColonySublimationTotals)==56);
+        if((count && !rules) || count>65536) throw Failure(MA_ONI_INVALID_ARGUMENT,"Invalid sublimation rule buffer");
+        try {ma::oni::colony::set_sublimation(std::span(rules,count));}
+        catch(const std::invalid_argument& error) {throw Failure(MA_ONI_INVALID_ARGUMENT,error.what());}
+    });
+}
+MAOniResult ma_oni_colony_sublimation_totals(MAOniColonySublimationTotals* out) {
+    return boundary([&] {
+        if(!out || out->struct_size!=sizeof(*out)) throw Failure(MA_ONI_INVALID_ARGUMENT,"Invalid sublimation totals buffer");
+        *out=ma::oni::colony::sublimation_totals();
     });
 }
 MAOniResult ma_oni_colony_queue_germs(const MAOniColonyGermEdit* edits,std::uint32_t count) {

@@ -17,6 +17,7 @@
 #include "oni_release_capture.hpp"
 #include "oni_transfer_capture.hpp"
 #include "oni_world_biology.hpp"
+#include "oni_sublimation.hpp"
 #include "oni_sha256.hpp"
 #include "mixed_atmospheres/mac_closed_world.hpp"
 #include "mixed_atmospheres/mac_kernel.hpp"
@@ -442,6 +443,23 @@ std::vector<SolidDisplacement> solid_displacements; // this native frame only
 std::mutex solid_displacements_mutex; // callbacks may run on native job threads
 struct NativeExchange { double heat_j = 0, mass_in_kg = 0, mass_out_kg = 0; std::uint64_t changes = 0; };
 NativeExchange exchanged; // under inputs
+// write_shadow wrote this frame's shadow (natural sublimation needs it).
+std::atomic<bool> shadow_fresh{false};
+// Natural sublimation (docs/colony-owner.md#natural-sublimation). The rules
+// are set while the owner is stopped; the classes follow the catalogue (per
+// native element: cell 1 takes products, gas or vacuum; 2 an off-gassing
+// liquid. source 1 a solid with an owner product, 2 one whose product the
+// owner cannot hold). The frame is armed only for one UpdateData.
+std::vector<sublimation::Rule> sublimation_rules;
+struct SublimationClasses { std::shared_ptr<const Catalogue> catalogue; std::vector<std::uint8_t> cell, source; };
+SublimationClasses sublimation_classes;
+SublimationFrame sublimation_frame;
+std::shared_ptr<const Published> sublimation_publication;
+std::atomic<bool> sublimation_armed{false};
+std::mutex sublimation_mutex; // native post-processing may run on several threads
+std::vector<MAOniColonyTransfer> sublimation_moves; // this native frame
+bool sublimation_failed = false; // under sublimation_mutex
+MAOniColonySublimationTotals sublimation_total{}; // under sublimation_mutex
 
 // Solver thread (docs/colony-owner.md#pacing). ONI's game thread waits for
 // each native frame right after posting it, so a positive frame only hands its
@@ -2474,6 +2492,7 @@ bool is_fluid_element(std::uint16_t native_element) noexcept {
 }
 
 void write_shadow(const NativeCells& n) noexcept {
+    shadow_fresh.store(false, std::memory_order_relaxed);
     if (!enabled.load(std::memory_order_acquire)) return;
     // A native frame can be queued before managed pacing sees the owner
     // become busy. Never apply its contacts to the preceding stale image.
@@ -2589,6 +2608,7 @@ void write_shadow(const NativeCells& n) noexcept {
         } catch (...) {if(activity_owner.load(std::memory_order_acquire))native_activity_capture_failed.store(true,std::memory_order_relaxed);}
         log_terrain("shadow close or follow", closes);
     }
+    shadow_fresh.store(true, std::memory_order_release);
 }
 
 void observe_native_solid(const NativeCells& n, int source) noexcept {
@@ -2605,6 +2625,187 @@ void observe_native_solid(const NativeCells& n, int source) noexcept {
         ++q;
     }
     try { std::lock_guard lock(solid_displacements_mutex); solid_displacements.push_back(out); } catch (...) {}
+}
+
+// ---- Natural sublimation (docs/colony-owner.md#natural-sublimation)
+void set_sublimation(std::span<const MAOniColonySublimation> records) {
+    std::lock_guard lock(lifecycle);
+    require(!enabled.load(std::memory_order_acquire), "Set the sublimation rules before the colony owner starts");
+    std::vector<sublimation::Rule> rules;
+    for (const auto& r : records) {
+        require(r.struct_size == sizeof(r) && r.abi_version == MA_ONI_COLONY_SUBLIMATION_VERSION, "Invalid sublimation record");
+        require(r.element_index < 65535 && r.target_index < 65535 && r.element_index != r.target_index, "Invalid sublimation element");
+        require(r.kind == MA_ONI_COLONY_SUBLIMATES_SOLID || r.kind == MA_ONI_COLONY_SUBLIMATES_LIQUID, "Invalid sublimation kind");
+        const auto finite = [](float v) { return std::isfinite(v) && v >= 0; };
+        require(finite(r.rate_kg_per_s) && finite(r.efficiency) && r.efficiency <= 1 && finite(r.probability) && r.probability <= 1 &&
+            finite(r.offgas_fraction) && r.offgas_fraction <= 1, "Invalid sublimation rule");
+        if (rules.size() <= r.element_index) rules.resize(r.element_index + 1u);
+        auto& rule = rules[r.element_index];
+        require(rule.kind == sublimation::Kind::none, "Duplicate sublimation rule");
+        rule.kind = r.kind == MA_ONI_COLONY_SUBLIMATES_SOLID ? sublimation::Kind::solid : sublimation::Kind::liquid;
+        rule.target = static_cast<std::uint16_t>(r.target_index);
+        rule.rate = r.rate_kg_per_s; rule.efficiency = r.efficiency; rule.probability = r.probability; rule.offgas = r.offgas_fraction;
+    }
+    sublimation_rules = std::move(rules); sublimation_classes = {};
+}
+MAOniColonySublimationTotals sublimation_totals() noexcept {
+    std::lock_guard lock(sublimation_mutex);
+    auto out = sublimation_total; out.struct_size = sizeof(out); out.abi_version = MA_ONI_COLONY_SUBLIMATION_VERSION;
+    return out;
+}
+void disarm_sublimation() noexcept { sublimation_armed.store(false, std::memory_order_release); }
+void arm_sublimation(const SublimationFrame& frame) noexcept {
+    sublimation_armed.store(false, std::memory_order_relaxed);
+    if (sublimation_rules.empty() || !enabled.load(std::memory_order_acquire) || !shadow_fresh.load(std::memory_order_acquire) ||
+        frame.cells.pitch != geometry.grid_width + 2 || frame.cells.rows != geometry.grid_height + 2) return;
+    std::shared_ptr<const Published> p; { std::lock_guard lock(publication); p = latest; }
+    if (!p || !p->catalogue || p->views.size() != owned_count || p->status.state != 1) return;
+    try {
+        if (sublimation_classes.catalogue != p->catalogue) {
+            const auto& cat = *p->catalogue; SublimationClasses k; k.catalogue = p->catalogue;
+            const auto elements = std::max<std::size_t>(sublimation_rules.size(), geometry.vacuum_index + 1u);
+            k.cell.assign(elements, 0); k.source.assign(elements, 0);
+            for (std::size_t e = 0; e < elements; ++e) {
+                const auto fluid = cat.has_native(static_cast<std::uint32_t>(e));
+                const bool gas = fluid && cat.materials[cat.species_of_native(static_cast<std::uint32_t>(e))].game.gas;
+                if (e == geometry.vacuum_index || gas) k.cell[e] = 1;
+                if (e >= sublimation_rules.size()) continue;
+                const auto& rule = sublimation_rules[e];
+                if (rule.kind == sublimation::Kind::none || rule.target == sublimation::no_element) continue;
+                const bool product = cat.has_native(rule.target);
+                if (rule.kind == sublimation::Kind::liquid && fluid && !gas && product && rule.offgas > 0) k.cell[e] = 2;
+                if (rule.kind == sublimation::Kind::solid && !fluid) k.source[e] = product ? 1 : 2;
+            }
+            sublimation_classes = std::move(k);
+        }
+        std::lock_guard lock(sublimation_mutex);
+        sublimation_moves.clear(); sublimation_failed = false;
+        if (sublimation_total.session != p->status.session) { sublimation_total = {}; sublimation_total.session = p->status.session; }
+        if (stage_logging_enabled() && p->status.completed_frames % 50 == 0)
+            std::fprintf(stderr, "[Mixed Atmospheres] natural sublimation frame %llu: %llu events, tiles %.6g kg, liquids %.6g kg, products %.6g kg, %llu tiles used up\n",
+                static_cast<unsigned long long>(p->status.completed_frames), static_cast<unsigned long long>(sublimation_total.events),
+                sublimation_total.tile_kg, sublimation_total.liquid_kg, sublimation_total.produced_kg, static_cast<unsigned long long>(sublimation_total.tiles_used_up));
+    } catch (...) { return; }
+    sublimation_frame = frame; sublimation_publication = std::move(p);
+    sublimation_armed.store(true, std::memory_order_release);
+}
+namespace {
+std::uint32_t public_of_native(std::size_t c, std::uint32_t pitch) noexcept {
+    return static_cast<std::uint32_t>((c % pitch - 1) + (c / pitch - 1) * geometry.grid_width);
+}
+void book_sublimation(std::span<const MAOniColonyTransfer> made, std::uint64_t events, std::uint64_t used_up,
+    double tile_kg, double liquid_kg, double produced_kg) noexcept {
+    std::lock_guard lock(sublimation_mutex);
+    try { sublimation_moves.insert(sublimation_moves.end(), made.begin(), made.end()); }
+    catch (...) { sublimation_failed = true; return; }
+    sublimation_total.events += events; sublimation_total.tiles_used_up += used_up;
+    sublimation_total.tile_kg += tile_kg; sublimation_total.liquid_kg += liquid_kg; sublimation_total.produced_kg += produced_kg;
+}
+// A gas or vacuum owned cell: ONI's own DoSublimation releases its native
+// solid neighbours' products into the shadow, and they become owner
+// injections. The cell's shadow is put back as it was, so the shadow capture
+// books nothing else there; a tile used up converts in place to its product
+// (ONI's own conversion and events), which the capture opens and takes.
+void sublimate_into(void* data, void* events, std::size_t g, NativeSublimation original) {
+    const auto& f = sublimation_frame; const auto& n = f.cells; const auto& k = sublimation_classes;
+    const auto vacuum = static_cast<std::uint16_t>(geometry.vacuum_index);
+    // ONI: a gas-impermeable vacuum cell (a door's) takes nothing; a cell
+    // holding the cap or more takes nothing.
+    if (n.element[1][g] == vacuum && f.properties && (f.properties[g] & 1u)) return;
+    if (!(n.mass[1][g] < sublimation::pressure_cap_kg)) return;
+    struct Before { std::size_t cell; std::uint16_t element; float mass, temperature; std::uint8_t disease; std::int32_t germs; };
+    std::array<Before, 4> before{}; std::size_t sources = 0;
+    const bool germs = n.disease[1] && n.disease_count[1];
+    for (const auto c : {g + n.pitch, g + 1, g - 1, g - n.pitch}) { // ONI's order: above, right, left, below
+        const auto s = n.element[1][c];
+        if (s >= k.source.size() || !k.source[s]) continue;
+        if (k.source[s] != 1) return; // a product the owner cannot hold: ONI's own step would lose it here
+        before[sources++] = {c, s, n.mass[1][c], n.temperature[1][c], germs ? n.disease[1][c] : std::uint8_t{255}, germs ? n.disease_count[1][c] : 0};
+    }
+    if (!sources) return;
+    const auto element = n.element[1][g]; const float mass = n.mass[1][g], temperature = n.temperature[1][g];
+    const auto disease = germs ? n.disease[1][g] : std::uint8_t{255}; const auto count = germs ? n.disease_count[1][g] : 0;
+    // ONI reads only the receiving cell's state from its definition: a
+    // vacuum state never displaces the owner's gas into neighbours (ONI's
+    // cells hold one element; the owner's hold mixtures). Shown as the first
+    // product, the cell holds that product to the cap as ONI does.
+    static constexpr std::array<std::uint32_t, 11> vacuum_definition{};
+    n.element[1][g] = sublimation_rules[before[0].element].target;
+    (void)original(data, events, static_cast<int>(g), vacuum_definition.data());
+    n.element[1][g] = element; n.mass[1][g] = mass; n.temperature[1][g] = temperature;
+    if (germs) { n.disease[1][g] = disease; n.disease_count[1][g] = count; }
+    std::array<MAOniColonyTransfer, 4> made{}; std::size_t moves = 0; std::uint64_t events_made = 0, used_up = 0;
+    double tile_kg = 0, produced_kg = 0;
+    const auto cell = public_of_native(g, n.pitch);
+    for (std::size_t q = 0; q < sources; ++q) {
+        const auto& b = before[q]; const auto& rule = sublimation_rules[b.element];
+        const auto y = sublimation::yield(rule, vacuum, b.element, b.mass, b.disease, b.germs, n.element[1][b.cell], n.mass[1][b.cell],
+            germs ? n.disease[1][b.cell] : std::uint8_t{255}, germs ? n.disease_count[1][b.cell] : 0);
+        if (y.converted) {
+            ++events_made; ++used_up; tile_kg += b.mass;
+            if (std::isfinite(n.mass[1][b.cell]) && n.mass[1][b.cell] > 0) produced_kg += n.mass[1][b.cell];
+            continue;
+        }
+        if (!(y.removed > 0)) continue;
+        ++events_made; tile_kg += y.removed; produced_kg += y.gas;
+        if (!(y.gas > 0)) continue;
+        made[moves++] = {cell, rule.target, MA_ONI_COLONY_INJECT, 0, -1, y.germs > 0 ? b.disease + 1u : 0u, y.gas,
+            static_cast<double>(b.temperature), static_cast<double>(y.germs)};
+    }
+    if (events_made) book_sublimation(std::span(made.data(), moves), events_made, used_up, tile_kg, 0, produced_kg);
+}
+// An owned cell shown as an off-gassing liquid (polluted water) with gas or
+// vacuum above: ONI's inline rule, as an owner extraction of the liquid and
+// an injection of its product. ONI's displacement of a different gas above
+// does not apply: the owner's cells hold mixtures.
+void offgas_from(std::size_t g) {
+    const auto& f = sublimation_frame; const auto& n = f.cells; const auto& k = sublimation_classes;
+    const auto liquid = n.element[1][g]; const auto& rule = sublimation_rules[liquid];
+    const auto above = g + n.pitch, below = g - n.pitch;
+    if (!owns(static_cast<int>(above))) return;
+    if (!(n.mass[1][above] < sublimation::pressure_cap_kg)) return;
+    const auto up = n.element[1][above];
+    if (up >= k.cell.size() || k.cell[up] != 1 || !f.seed) return;
+    const float roll = sublimation::draw(*f.seed); // ONI draws before its impermeability check
+    if (f.properties && (f.properties[above] & 1u)) return;
+    if (!(roll < rule.probability)) return;
+    const bool same_below = n.element[1][below] == liquid && owns(static_cast<int>(below));
+    const auto out = sublimation::offgas(rule, n.mass[1][g], same_below ? n.mass[1][below] : 0.f, n.mass[1][above]);
+    if (out.kind == sublimation::Offgas::Kind::none) return;
+    // The germs the taken share of the liquid carries go with its product.
+    const auto& view = sublimation_publication->views[rect_index(geometry, public_of_native(g, n.pitch))];
+    const double carried = view.disease && view.disease_count > 0 && n.mass[1][g] > 0 ?
+        std::floor(static_cast<double>(view.disease_count) * std::min(1.0, static_cast<double>(out.amount) / n.mass[1][g])) : 0;
+    const auto cell = public_of_native(g, n.pitch);
+    std::array<MAOniColonyTransfer, 4> made{}; std::size_t moves = 0;
+    made[moves++] = {cell, liquid, MA_ONI_COLONY_EXTRACT, 0, -1, 0, out.amount, 0, 0};
+    const auto destination = out.kind == sublimation::Offgas::Kind::film ? cell : public_of_native(above, n.pitch);
+    made[moves++] = {destination, rule.target, MA_ONI_COLONY_INJECT, 0, -1, carried > 0 ? view.disease : 0u, out.produced,
+        static_cast<double>(n.temperature[1][g]), carried};
+    if (out.from_below > 0) {
+        made[moves++] = {public_of_native(below, n.pitch), liquid, MA_ONI_COLONY_EXTRACT, 0, -1, 0, out.from_below, 0, 0};
+        made[moves++] = {cell, rule.target, MA_ONI_COLONY_INJECT, 0, -1, 0, out.produced_below, static_cast<double>(n.temperature[1][below]), 0};
+    }
+    // The inspector's emission rate reads ONI's accumulated flow at the
+    // liquid cell; ONI adds a surface event's take there (not a film's).
+    if (out.kind == sublimation::Offgas::Kind::surface && f.accumulated_flow) f.accumulated_flow[g] += out.amount;
+    book_sublimation(std::span(made.data(), moves), 1, 0, 0, static_cast<double>(out.amount) + out.from_below,
+        static_cast<double>(out.produced) + out.produced_below);
+}
+}
+void sublimate(void* data, void* events, int native_cell, NativeSublimation original) noexcept {
+    if (!sublimation_armed.load(std::memory_order_acquire)) return;
+    const auto& n = sublimation_frame.cells; const auto& k = sublimation_classes;
+    if (native_cell < static_cast<int>(n.pitch) || static_cast<std::uint64_t>(native_cell) >= static_cast<std::uint64_t>(n.pitch) * (n.rows - 1)) return;
+    // Only owned cells come here: inside the rectangle, never on the native
+    // border column, so their four neighbours exist.
+    const auto g = static_cast<std::size_t>(native_cell);
+    const auto e = n.element[1][g];
+    if (e >= k.cell.size() || !k.cell[e]) return;
+    try {
+        if (k.cell[e] == 1) { if (original) sublimate_into(data, events, g, original); }
+        else offgas_from(g);
+    } catch (...) { std::lock_guard lock(sublimation_mutex); sublimation_failed = true; }
 }
 namespace {
 bool resolve_solid_displacement(const NativeCells& n, const SolidDisplacement& before) noexcept {
@@ -2904,6 +3105,18 @@ void capture_shadow(const NativeCells& n,std::uint64_t native_ticket,std::span<c
                     static_cast<double>(n.mass[1][c]),static_cast<double>(n.temperature[1][c])});
             }
         }catch(...){native_arena.reset();} // A failed diagnostic cannot discard physical boundary inputs.
+        bool sublimation_lost = false;
+        {
+            // This frame's natural sublimation (docs/colony-owner.md#natural-sublimation).
+            std::lock_guard lock(sublimation_mutex);
+            sublimation_lost = sublimation_failed; sublimation_failed = false;
+            if (!sublimation_lost) {
+                for (const auto& t : sublimation_moves) { (t.kind == MA_ONI_COLONY_INJECT ? sum.mass_in_kg : sum.mass_out_kg) += t.mass_kg; ++sum.changes; }
+                moves.insert(moves.end(), sublimation_moves.begin(), sublimation_moves.end());
+            }
+            sublimation_moves.clear();
+        }
+        if (sublimation_lost) { std::lock_guard life(lifecycle); if (session) fault(*session, "Natural sublimation could not book its products"); return; }
         std::lock_guard q(inputs);
         for (const auto& [i, cell] : undone) {
             // Cancel a close not yet taken by the owner; one already taken is

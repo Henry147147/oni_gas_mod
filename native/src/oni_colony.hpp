@@ -173,6 +173,30 @@ struct NativeCells {
     std::uint8_t* disease[2]{}; std::int32_t* disease_count[2]{};
     std::uint32_t pitch = 0, rows = 0;
 };
+// Natural sublimation (docs/colony-owner.md#natural-sublimation). The game's
+// rules, set while the owner is stopped (empty: none).
+void set_sublimation(std::span<const MAOniColonySublimation>);
+[[nodiscard]] MAOniColonySublimationTotals sublimation_totals() noexcept;
+// The native fields the rules read beyond NativeCells, for one frame (null
+// when unknown): updated cells' properties, the inspector's accumulated flow
+// and the simulation's random seed.
+struct SublimationFrame {
+    NativeCells cells;
+    const std::uint8_t* properties = nullptr;
+    float* accumulated_flow = nullptr;
+    std::uint32_t* seed = nullptr;
+};
+// A positive frame's UpdateData runs between arm (after write_shadow) and
+// disarm; capture_shadow books what the frame's sublimation produced.
+void arm_sublimation(const SublimationFrame&) noexcept;
+void disarm_sublimation() noexcept;
+// ONI's DoSublimation(data, events, cell, definition).
+using NativeSublimation = bool (*)(void*, void*, int, const void*);
+// Called from native post-processing of an owned cell: a gas or vacuum cell
+// takes what ONI's own DoSublimation releases from its native solid
+// neighbours; an off-gassing liquid gives off its product into the cell
+// above. Products and takes become owner transfers.
+void sublimate(void* data, void* events, int native_cell, NativeSublimation) noexcept;
 // Native shadow (docs/colony-owner.md#native-bodies). Before a positive
 // frame's UpdateData, write() waits for the preceding owner step and puts its
 // completed cells into both arrays; after it, capture() books every native change as

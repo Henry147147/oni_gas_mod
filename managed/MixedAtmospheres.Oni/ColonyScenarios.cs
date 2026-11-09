@@ -89,6 +89,7 @@ namespace MixedAtmospheres.Oni
                     case "pipes": Pipes(frame); break;
                     case "door": DoorCycle(frame, status); break;
                     case "sublimation": Sublimation(frame, status); break;
+                    case "natural-sublimation": NaturalSublimation(frame); break;
                     case "falling": Falling(frame); break;
                     case "terrain-order": TerrainOrder(frame); break;
                     case "breathing": Breathing(frame, status); break;

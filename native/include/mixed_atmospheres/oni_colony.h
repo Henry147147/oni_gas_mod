@@ -406,6 +406,30 @@ MA_ONI_API uint32_t ma_oni_colony_world_biology_version(void);
 MA_ONI_API MAOniResult ma_oni_colony_set_radiation(const uint32_t* public_cells, const float* rads, uint32_t count);
 MA_ONI_API MAOniResult ma_oni_colony_set_diseases(const MAOniColonyDisease*, uint32_t disease_count,
     const MAOniColonyDiseaseGrowth*, uint32_t element_count);
+/* Natural sublimation (docs/colony-owner.md#natural-sublimation): the game's
+ * per-element rules, one record per element that sublimates (a solid, rate in
+ * kg/s) or off-gasses (a liquid, offgas_fraction of its cell's mass), with its
+ * product's element index. Set them before start/restore; an empty list
+ * clears them (no natural sublimation into owned cells). The rules are the
+ * game's data, not saved. Totals count this session's events: the mass taken
+ * from native tiles and owned liquids, and the products booked to the owner
+ * (a used-up tile's own conversion included). */
+#define MA_ONI_COLONY_SUBLIMATION_VERSION 1U
+#define MA_ONI_COLONY_SUBLIMATES_SOLID 1U
+#define MA_ONI_COLONY_SUBLIMATES_LIQUID 2U
+typedef struct MAOniColonySublimation {
+    uint32_t struct_size, abi_version;
+    uint32_t element_index, kind, target_index, reserved;
+    float rate_kg_per_s, efficiency, probability, offgas_fraction;
+} MAOniColonySublimation;
+typedef struct MAOniColonySublimationTotals {
+    uint32_t struct_size, abi_version;
+    uint64_t session, events, tiles_used_up;
+    double tile_kg, liquid_kg, produced_kg;
+} MAOniColonySublimationTotals;
+MA_ONI_API uint32_t ma_oni_colony_sublimation_version(void);
+MA_ONI_API MAOniResult ma_oni_colony_set_sublimation(const MAOniColonySublimation*, uint32_t count);
+MA_ONI_API MAOniResult ma_oni_colony_sublimation_totals(MAOniColonySublimationTotals*);
 /* Saved profile-6 options (docs/settings.md). A new colony created with
  * GAME_KERNEL|GAME_SURFACE takes the options last set here and saves them in
  * its physical image (core25, or core24 with evaporation below boiling);

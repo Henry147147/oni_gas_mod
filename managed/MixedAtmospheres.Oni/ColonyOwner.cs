@@ -238,7 +238,7 @@ namespace MixedAtmospheres.Oni
                         throw new NotSupportedException("Fluid element " + element.id + " has no catalogue entry.");
                 }
                 var started = System.Diagnostics.Stopwatch.StartNew();
-                ColonyWorldGerms.Configure(); ColonyRadiationGerms.Configure();
+                ColonyWorldGerms.Configure(); ColonyRadiationGerms.Configure(); ColonySublimation.Configure();
                 var output = OniNativeColony.Status.Empty;
                 _ = ModSettingsRuntime.BeforeStart(config.Flags); // the player's colony settings (docs/settings.md)
                 ColonyStartingAir.Capture(source,
@@ -341,7 +341,7 @@ namespace MixedAtmospheres.Oni
             config = saved; materials = catalogue;
             x0 = (int)config.OffsetX; y0 = (int)config.OffsetY; width = (int)config.Width; height = (int)config.Height;
             publicationCells=ColonyPublicationMap.Create(Grid.WidthInCells,Grid.HeightInCells,x0,y0,width,height);
-            ColonyWorldGerms.Configure(); ColonyRadiationGerms.Configure();
+            ColonyWorldGerms.Configure(); ColonyRadiationGerms.Configure(); ColonySublimation.Configure();
             var output = OniNativeColony.Status.Empty;
             try { OniNativeColony.Check(OniNativeColony.Restore(ref config, materials, (uint)materials.Length, image, (uint)image.Length, ref output)); }
             catch (InvalidOperationException error) when (!ColonyWorldGerms.Supported && ColonyWorldGerms.ConfigureFailure.Length != 0)
