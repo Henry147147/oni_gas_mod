@@ -122,12 +122,20 @@ public:
   // boiling point at the cell's pressure over the latent heat (as in a
   // flash), relaxed over the tick like the rest of the phase change, and
   // limited so the vapour adds at most the 0.4-cell transport scale per
-  // flow part. A cell whose gas and void already hold that vapour is left
-  // to the relaxation at the tick's end.
+  // flow part. Only a liquid body boils this way: a cell its liquid fills
+  // at least half (as the game shows a cell's liquid) whose pressure is at
+  // least the weight of its contents (`weight_per_kg` times its mass), so
+  // that a column or atmosphere holds it. Elsewhere, and in a cell whose gas
+  // and void already hold the vapour, the relaxation at the tick's end boils
+  // in place up to the saturation pressure and the flow carries the vapour
+  // away: liquid in a mostly gas cell evaporates into that gas, and in a
+  // cell whose own thin vapour or void sets its pressure the vapour volume
+  // at that near-vacuum pressure would push out far more than boils.
   std::vector<BoilPlan> plan_boiling(const State &state,
                                      const std::vector<Eos> &eos, double dt,
                                      double relaxation_time,
-                                     unsigned flow_parts) {
+                                     unsigned flow_parts,
+                                     double weight_per_kg) {
     if (pairs_of_liquid.size() != species.size()) {
       pairs_of_liquid.assign(species.size(), {});
       boiling_at_atmosphere.assign(pairs.size(), 0);
@@ -148,7 +156,8 @@ public:
         if (grid.walls[i] || state.masses.offsets[i] == state.masses.offsets[i + 1])
           continue;
         const auto &e = eos[i];
-        if (!(e.pressure > 0) || !(e.liquid_nominal_volume > 0))
+        if (!(e.pressure > 0) || !(e.liquid_volume >= .5 * V) ||
+            e.pressure < e.mass * weight_per_kg)
           continue;
         const bool interface = e.gas_volume > 1e-6 * V;
         for (auto a = state.masses.offsets[i]; a < state.masses.offsets[i + 1]; ++a) {

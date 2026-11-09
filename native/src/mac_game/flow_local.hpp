@@ -481,19 +481,27 @@ public:
       // the solve then stops its inflow within the interval. At most three
       // passes add cells; the check after the transport (below) refines an
       // interval whose cells still end far above their surroundings.
-      std::vector<Stiffened> stiff(g.N);
-      std::vector<std::uint8_t> changed(g.blocks);
+      // Allocated when a cell first stiffens (most intervals have none).
+      std::vector<Stiffened> stiff;
+      std::vector<std::vector<std::pair<std::size_t, Stiffened>>> found(g.blocks);
       // Adds the cells the latest solve overfills; true if any.
       const auto classify = [&] {
-        std::fill(changed.begin(), changed.end(), 0);
         rows([&](std::size_t y0, std::size_t y1, std::size_t block) {
+          auto &out = found[block];
+          out.clear();
           for (std::size_t i = y0 * g.W; i < y1 * g.W; ++i) {
-            const auto &s = eos[i];
-            if (g.wall[i] || !(s.liquid_nominal_volume > 0) || !(s.mass > 0) ||
-                stiff[i].compliance > 0)
+            if (g.wall[i])
               continue;
             const double inflow = -(projected.qx[g.right_face(i)] - projected.qx[g.left_face(i)] +
                                     projected.qy[g.top_face(i)] - projected.qy[g.bottom_face(i)]);
+            // Overfilling takes a net inflow above the trace scale below
+            // (the room is never negative), so other cells skip their state.
+            if (!(inflow > 1e-6 * g.V))
+              continue;
+            const auto &s = eos[i];
+            if (!(s.liquid_nominal_volume > 0) || !(s.mass > 0) ||
+                (!stiff.empty() && stiff[i].compliance > 0))
+              continue;
             // What the cell's own sweeps leave of its void and gas.
             const double horizontal = std::max(0., -projected.qx[g.left_face(i)]) +
                                       std::max(0., projected.qx[g.right_face(i)]),
@@ -525,13 +533,19 @@ public:
             if (!full || !(inflow - room > 1e-6 * g.V))
               continue;
             const Stiffened entry{s.liquid_compliance, -room + s.liquid_compliance * kink};
-            if (entry.compliance > 0 && std::isfinite(entry.offset)) {
-              stiff[i] = entry;
-              changed[block] = 1;
-            }
+            if (entry.compliance > 0 && std::isfinite(entry.offset))
+              out.emplace_back(i, entry);
           }
         });
-        return std::any_of(changed.begin(), changed.end(), [](std::uint8_t c) { return c != 0; });
+        bool any = false;
+        for (const auto &block : found)
+          for (const auto &[i, entry] : block) {
+            if (stiff.empty())
+              stiff.assign(g.N, {});
+            stiff[i] = entry;
+            any = true;
+          }
+        return any;
       };
       bool added = classify();
       for (unsigned pass = 0; added && pass < 3; ++pass) {

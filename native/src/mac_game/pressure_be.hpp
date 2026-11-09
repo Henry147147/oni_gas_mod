@@ -48,8 +48,10 @@ class PressureSolver {
   double thin_mass = 0, thin_time = 0;
   kernel::Context context;
   // Component structure of the last solve, and of the last corrected solve
-  // (cells held at zero pressure); see solve_components_cached.
-  kernel::ComponentSolveCache component_cache[2];
+  // (cells held at zero pressure); see solve_components_cached. Solves with
+  // stiffened cells (profile 12) keep their own two, so that their active
+  // cells do not discard the structure the next interval's solve reuses.
+  kernel::ComponentSolveCache component_cache[4];
   // Capacity reused by every solve. Each pass writes every entry that a
   // later pass reads, so nothing carries over between calls.
   struct Scratch {
@@ -311,7 +313,7 @@ public:
     // Components of at least 4096 cells solve across the pool; their dot
     // products sum fixed 1024-cell blocks (PressureParallelPlan).
     const auto solved = kernel::solve_components_cached(
-        context, component_cache[fixed ? 1 : 0], system, w.increment_rhs,
+        context, component_cache[(fixed ? 1 : 0) + (stiffened ? 2 : 0)], system, w.increment_rhs,
         result.p, 0, tolerance, maximum_iterations, 4096);
     context.exec.rows([&](std::size_t y0, std::size_t y1, std::size_t) {
       for (std::size_t i = y0 * g.W; i < y1 * g.W; ++i)

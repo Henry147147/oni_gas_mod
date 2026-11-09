@@ -252,7 +252,8 @@ public:
     // out and converts its share (BoilPlan).
     std::vector<BoilPlan> plans;
     if (boil_in_flow)
-      plans = phase.plan_boiling(out.state, out.eos, dt, phase_time, parts);
+      plans = phase.plan_boiling(out.state, out.eos, dt, phase_time, parts,
+                                 std::abs(gravity) / flow.kernel_grid().A);
     std::vector<double> boil_source;
     double inflow_evaporated = 0, inflow_entropy = 0;
     // Profile 7 carries its proposal from one flow part into the next.

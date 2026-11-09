@@ -419,19 +419,30 @@ user decision 2026-11-05) and no setting is added.
   interval's solved pressure lasts and the cell's gas pressure stays at or
   below saturation, so boiling into a sealed space stops at the saturation
   pressure. The relaxation at the tick's end does not evaporate those pairs
-  again; the region audits book the conversions.
+  again; the region audits book the conversions. Only a liquid body boils
+  this way: a cell its liquid fills at least half (as the game shows a
+  cell's liquid) whose pressure is at least the weight of its contents, so
+  that a column or atmosphere holds it. Liquid in a mostly gas cell, and
+  liquid whose pressure its own thin vapour or void sets, boils in place up
+  to the saturation pressure at the tick's end and the flow carries the
+  vapour away. Without that limit a captured Spaced Out! world planned
+  7,532 m³ of vapour in 40 frames (a water body with 1 % void per cell at
+  zero pressure, magma droplets in near-vacuum cells at 0.2 to 0.9 kPa): the
+  vapour volume at those pressures pushed liquid into the neighbouring cells
+  far faster than anything boiled, and the flow refined 44.6 times a frame
+  (7.4 before these changes).
 
 Replicas, Always simulate / Activity tiers (the regions go remote two seconds
 after the dig and pause 60 s after it):
 
 | Check | Before | After |
 | --- | --- | --- |
-| `flood-pocket` peak pressure, any frame | 19.9 / 26.9 MPa | 199 / 149 kPa |
+| `flood-pocket` peak pressure, any frame | 19.9 / 26.9 MPa | 137 / 142 kPa |
 | `flood-pocket` liquid carbon dioxide, peak | 11.7 / 178 g | 0 / 0 |
 | `flood-pocket` steam in the arena, frame 20 | 3.0 / 4.4 g | 0 / 0 |
-| `flood-co2-corner` liquid carbon dioxide after 60 s (of 70 kg) | 37.4 / 31.8 kg | 0 / 0 (3.7 kg after 4 s, 1.3 g after 12 s) |
-| `flood-co2-corner` peak pressure, any frame | 17.3 / 25.0 MPa | 465 / 591 kPa |
-| `flood-pocket` flow intervals (400 frames) | 866 / 2,133 | 911 / 523 |
+| `flood-co2-corner` liquid carbon dioxide after 60 s (of 70 kg) | 37.4 / 31.8 kg | 0 / 0 (8.4 kg after 4 s, 2.8 g after 12 s) |
+| `flood-co2-corner` peak pressure, any frame | 17.3 / 25.0 MPa | 376 / 734 kPa |
+| `flood-pocket` flow intervals (400 frames) | 866 / 2,133 | 812 / 163 |
 
 Under Activity tiers the old kernel kept re-overfilling the pool on its 1 s
 remote steps and paused 60 s after the dig with one cell frozen at 18.4 MPa
@@ -439,17 +450,33 @@ remote steps and paused 60 s after the dig with one cell frozen at 18.4 MPa
 for many seconds: a paused region holds whatever transient it had. Activity
 regions are solid-separated, so no region boundary runs inside a liquid body;
 pausing a moving region is the accepted policy (motion is not activity). With
-the fixes the frozen state is near hydrostatic (128 kPa at the floor).
+the fixes the pocket peaks at 142 kPa. On the 1 s remote steps the corner
+cell, full of water with its last carbon dioxide liquid, swings between
+about 350 and 734 kPa (boiling stops at the 728 kPa saturation pressure at
+295 K) until that liquid is gone after about 20 s, then settles at 365 kPa.
 
 `mac_game_flood_control.hpp` (in `ma_mac_game_kernel_tests`) moves a uniform
 liquid round two loops at clock levels 0 and 2 (the old remap drifts a cell
 by 21.5 kg, the new one by 0) and drops a water column into a cavitated cell
-and a thin-gas bubble (profile 11 peaks at 19.75 MPa, profile 12 at 153 kPa),
+and a thin-gas bubble (profile 11 peaks at 19.75 MPa, profile 12 at 173 kPa),
 with closed mass and U+K+G and exact checkpoint 32 continuation cold and on
 12 workers. `ma_mac_phase_change_tests --boil-only` boils liquid-full 390 K
-water in a sealed box: 0.051 kg (profile 11) against 8.77 kg (profile 12) in
-1 s, peak 204 kPa (the headspace approaches the 180 kPa saturation pressure),
-closed ledgers and cold continuation.
+water in a sealed box: 0.051 kg (profile 11) against 8.00 kg (profile 12) in
+1 s, peak 274 kPa (the headspace approaches the 180 kPa saturation pressure
+and the floor about 220 kPa; the bound is 500 kPa), closed ledgers and cold
+continuation.
+
+In game (Linux, base game, defaults and the 2026-11-08 playtest preset),
+`flood-pocket` peaks at 135.6 kPa from the dig on with no liquid carbon
+dioxide, and `flood-co2-corner` boils its 70 kg within 20 s and returns to
+its column's pressure (364.6 kPa). The terrain, heat, phase, freeze-melt,
+door, sublimation, falling, airflow, debris-heat, building-melt, sensor,
+vent-overpressure, liquid-pump, meteor, geyser, mixed-pipe, pitcher-pump and
+storage-ledger scenarios pass. `storage-ledger` found its mopped chunk by a
+20 ± 0.01 kg mass; its puddle holds only water until its air arrives at
+frame 6 and now boils into that vacuum towards saturation (11.6 g of steam
+by the mop, 8.4 g before), so the chunk is 19.988 kg. The check now finds
+the chunk by the mass that moved; its 0.5 K bound is unchanged (299.72 K).
 
 ## Open acceptance work
 
