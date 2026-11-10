@@ -8,6 +8,41 @@ version number, at the user's request); the first build, `57f9e44`, is
 superseded. It is a private candidate; no public release or Workshop upload
 was made.
 
+## Liquid stability rebuild, 2026-11-10
+
+Latest private code revision **`b75d712`** answers the 2026-11-09 recording's
+liquid churn. Profile 12 sharpens along the reconstructed surface normal
+and retains active flow resolution during wet remote intervals. The two
+independent causes and conservative regression controls are described in the
+[game kernel](../native/MAC_GAME_KERNEL.md#quiet-liquid-surfaces-profile-12-2026-11-10).
+Checkpoint encoding/version 32 is unchanged; profile-12 arithmetic and
+resulting checkpoint contents change. Profiles 2–11 keep their arithmetic.
+
+Linux base game and WindowsPlayer/Proton Spaced Out! each pass all 17
+liquid/flood/airflow/freeze-melt checks: the sealed basin's late variation is
+70.93 kg under the unchanged 80 kg bound, with all 56,000 kg water retained.
+The old Linux baseline fails at 421.57 kg. Clean verification passes 93 Linux
+and 94 Windows/Wine native tests, 516 Python tests (11 platform skips), all
+managed suites and each platform's 2,814-dependency contract with zero
+differences. All 62 standard MAC invocations pass before/after: 59 outputs
+are identical, one changes only timing fields, one adds regression lines,
+and one changes only the profile-12 boiling trajectory.
+
+Clean-manifest ZIP:
+`/mnt/data/share/oni/playtest/MixedAtmospheres-0.1.2-b75d712/MixedAtmospheres-private-windows-0.1.2-b75d712.zip`.
+SHA256 `7943a7fa2edf0a74fc7bef41172484a800d24ccadecdebbf2cd20df41cfc9e52`.
+Both managed and both native DLLs match the passing WindowsPlayer game batch.
+Close ONI, extract and run `install_windows.ps1`. This supersedes the earlier
+0.1.2 ZIPs. The timestamped recording/log review is saved beside the video as
+`Playtest-review-2026-11-09.md`; private evidence is in
+`artifacts/liquid-instability-2026-11-10/` and `artifacts/video-0.1.2/`.
+
+The supplied recording confirms the earlier candidate on actual Windows;
+this rebuild's game test uses Proton. The user's exact final save and new
+full-colony throughput remain unmeasured. Linux launches and advances in
+actual [Steam Offline Mode](steam-offline-playtesting.md), after the user's
+cached sign-in, while Windows Steam runs successfully.
+
 ## Changes
 
 - **Starting oxygen reserve:** the bridge waits for the starting duplicants
@@ -143,7 +178,7 @@ Not established here: a Spaced Out! colony in game (the harness Steam client
 needs the user to sign in again), the actual Windows OS, and the user's exact
 save.
 
-## Delivered private candidate
+## Earlier candidate, 2026-11-09 (superseded)
 
 Code revision `d7eb0e32796b292b451502592cbc7d382b949637` (clean manifest).
 Directory `/mnt/data/share/oni/playtest/MixedAtmospheres-0.1.2-d7eb0e3/`, ZIP

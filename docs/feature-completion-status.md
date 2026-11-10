@@ -13,7 +13,9 @@ and WindowsPlayer under Proton (Spaced Out!); all 17 liquid/flood/airflow/
 freeze-melt checks pass in each with closed ledgers. The
 recording confirms the earlier candidate on actual Windows, not the new
 repair or representative full-colony throughput. The detailed timestamped
-review is saved beside the user's recording.
+review is saved beside the user's recording. The private
+[0.1.2 rebuild `b75d712`](playtest-0.1.2.md#liquid-stability-rebuild-2026-11-10)
+is delivered beside it.
 [Steam Offline Mode](steam-offline-playtesting.md) launches and advances
 the Linux owner after the user's cached sign-in. The user confirms Steam
 running on Windows concurrently; simultaneous Windows ONI simulation was
