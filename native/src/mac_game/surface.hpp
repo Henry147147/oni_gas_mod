@@ -38,7 +38,7 @@ sharpen(const ma::experimental::MacGrid &source,
         ma::experimental::mac_kernel::Pool *executor = nullptr,
         const ma::experimental::mac_kernel::Grid *cached_grid = nullptr,
         SurfaceScratch *reuse = nullptr, bool carry_momentum = false,
-        RegionAudit *audit = nullptr) {
+        RegionAudit *audit = nullptr, bool normal_sharpening = false) {
   namespace k = ma::experimental::mac_kernel;
   SurfaceResult out;
   bool any = false;
@@ -176,6 +176,15 @@ sharpen(const ma::experimental::MacGrid &source,
     for (long a = -1; a <= 1; ++a) {
       gx += .5 * (alpha(x + 1, y + a) - alpha(x - 1, y + a));
       gy += .5 * (alpha(x + a, y + 1) - alpha(x + a, y - 1));
+    }
+    if (normal_sharpening) {
+      // Match the height remap's dominant-axis slab. Along its tangent,
+      // fraction differences describe real surface heights, not interface
+      // smearing. Anti-diffusing them gathers water into taller columns and
+      // drives cell-scale waves without a resolved gravitational cost.
+      if (gx == 0 && gy == 0)
+        return 0.;
+      return x_axis == (std::abs(gx) > std::abs(gy)) ? 1. : 0.;
     }
     const double scale = std::abs(gx) + std::abs(gy);
     return scale > 0 ? (x_axis ? std::abs(gx) : std::abs(gy)) / scale : .5;

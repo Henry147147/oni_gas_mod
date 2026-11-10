@@ -1,5 +1,24 @@
 # Feature completion work
 
+**Update, 2026-11-10:** the latest Windows recording confirms liquid
+churn in a young Spaced Out! colony. Two independent causes are repaired:
+sharpening gathered water sideways into taller columns, and remote activity
+used coarse liquid-flow steps that fed waves on repeated wakes. Profile 12
+now sharpens along the reconstructed normal and retains the saved active
+flow resolution in wet remote regions
+([cause and controls](../native/MAC_GAME_KERNEL.md#quiet-liquid-surfaces-profile-12-2026-11-10)).
+The new actual-game `liquid-settling` control fails on the old Linux solver
+at 421.57 kg late column variation and passes at 70.93 kg on Linux (base game)
+and WindowsPlayer under Proton (Spaced Out!); all 17 liquid/flood/airflow/
+freeze-melt checks pass in each with closed ledgers. The
+recording confirms the earlier candidate on actual Windows, not the new
+repair or representative full-colony throughput. The detailed timestamped
+review is saved beside the user's recording.
+[Steam Offline Mode](steam-offline-playtesting.md) launches and advances
+the Linux owner after the user's cached sign-in. The user confirms Steam
+running on Windows concurrently; simultaneous Windows ONI simulation was
+not independently observed.
+
 **Update, 2026-11-09:** private candidate [0.1.2](playtest-0.1.2.md)
 (rebuilt as `d7eb0e3`) answers the [0.1.1 playtest review](playtest-0.1.1-review.md):
 the starting oxygen reserve is no longer skipped by a paused start, natural

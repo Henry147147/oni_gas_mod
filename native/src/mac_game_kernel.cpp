@@ -768,10 +768,11 @@ MacClosedAdvance MacGameKernelAccess::advance_guarded(
     auto next = into?
         cache.regional->advance_into(std::move(state),last,dt,source.settings_.gravity_m_per_s2,
                                source.settings_.trace_sink_threshold_kg,liquid_blocked,budget-result.report.attempts,due,
-                               elapsed > 0):
+                               elapsed > 0,thin?source.settings_.maximum_timestep_s:0):
       bounded?
         cache.regional->advance(state,dt,source.settings_.gravity_m_per_s2,
-                               source.settings_.trace_sink_threshold_kg,liquid_blocked,budget-result.report.attempts,due):
+                               source.settings_.trace_sink_threshold_kg,liquid_blocked,budget-result.report.attempts,due,
+                               thin?source.settings_.maximum_timestep_s:0):
         cache.tick->advance(state, dt, source.settings_.gravity_m_per_s2,
                             source.settings_.trace_sink_threshold_kg,
                             liquid_blocked, bounded ? budget-result.report.attempts : 65536);

@@ -79,6 +79,9 @@ class Tick {
   // Profile 12: liquids boiling in cells without room for their vapour
   // convert during the flow intervals (PhaseSolver::plan_boiling).
   bool boil_in_flow = false;
+  // Profile 12: sharpen the reconstructed slab only along its normal;
+  // tangential fraction differences are physical surface-height variation.
+  bool normal_sharpening = false;
   SurfaceScratch surface_scratch;
   static double ms(std::chrono::steady_clock::time_point start) {
     return std::chrono::duration<double, std::milli>(
@@ -117,7 +120,8 @@ public:
         sized_intervals(bound_pressure_volume && size_intervals),
         carry_momentum(carry_moved_momentum),
         convective(convective_adjustment),
-        boil_in_flow(bound_pressure_volume && room_bound) {}
+        boil_in_flow(bound_pressure_volume && room_bound),
+        normal_sharpening(bound_pressure_volume && room_bound) {}
   [[nodiscard]] unsigned threads_used() const noexcept {
     return flow.worker_pool().size();
   }
@@ -130,9 +134,24 @@ public:
   TickResult advance(const State &initial, double dt, double gravity,
                      double threshold,
                      std::span<const std::uint8_t> liquid_blocked = {},
-                     std::size_t pressure_budget = 65536) {
+                     std::size_t pressure_budget = 65536,
+                     double maximum_active_interval = 0) {
     if (bounded_pressure_volume && pressure_budget == 0)
       throw std::runtime_error("Game pressure interval has no attempt budget");
+    // A remote region can owe several active intervals. Its liquid flow
+    // must retain the active interval's pressure/transport resolution:
+    // one coarse pressure step otherwise feeds surface waves on each wake.
+    unsigned flow_parts = parts;
+    if (normal_sharpening && maximum_active_interval > 0 &&
+        dt > maximum_active_interval &&
+        std::any_of(initial.masses.species.begin(), initial.masses.species.end(),
+                    [&](auto key) { return !species[key].gas; })) {
+      const double intervals = std::ceil(dt / maximum_active_interval);
+      if (!std::isfinite(intervals) ||
+          intervals > static_cast<double>(pressure_budget / parts))
+        throw std::runtime_error("Remote liquid flow exceeds its interval budget");
+      flow_parts *= static_cast<unsigned>(intervals);
+    }
     const LiquidBoundary boundary{liquid_blocked, species};
     // A preceding tick may have condensed liquid inside a marked cell. Keep
     // such a cell isolated before pressure AND the later layer/sharpen stages;
@@ -252,14 +271,14 @@ public:
     // out and converts its share (BoilPlan).
     std::vector<BoilPlan> plans;
     if (boil_in_flow)
-      plans = phase.plan_boiling(out.state, out.eos, dt, phase_time, parts,
+      plans = phase.plan_boiling(out.state, out.eos, dt, phase_time, flow_parts,
                                  std::abs(gravity) / flow.kernel_grid().A);
     std::vector<double> boil_source;
     double inflow_evaporated = 0, inflow_entropy = 0;
     // Profile 7 carries its proposal from one flow part into the next.
-    double proposal = dt / parts;
-    for (unsigned part = 0; part < parts; ++part) {
-      double remaining = dt / parts;
+    double proposal = dt / flow_parts;
+    for (unsigned part = 0; part < flow_parts; ++part) {
+      double remaining = dt / flow_parts;
       double trial = sized_intervals ? std::min(remaining, proposal) : remaining;
       while (remaining > 0) {
         prune(true, true);
@@ -384,7 +403,8 @@ public:
       auto sharpened =
           sharpen(grid, species, out.state, std::move(out.eos), dt, gravity,
                   interface_detail, &flow.worker_pool(), &flow.kernel_grid(),
-                  &surface_scratch, carry_momentum, &regions);
+                  &surface_scratch, carry_momentum, &regions,
+                  normal_sharpening);
       wall_x += sharpened.wall_x;
       wall_y += sharpened.wall_y;
       wall_ops_x += sharpened.wall_ops_x;

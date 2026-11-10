@@ -129,6 +129,65 @@ ordered phase buffer. Six whole-lock offline AB/BA runs on the captured Terra
 world measured 105.587 to 103.057ms per tick (2.40%); all six30-tick terminal
 images matched. Refreshed profile3 and in-game evidence is recorded below.
 
+## Quiet liquid surfaces (profile 12, 2026-11-10)
+
+The 2026-11-09 Windows playtest shows a fixed surface cell exchanging
+547 → 251 → 283 kg over two wall seconds, at 274–275 kPa and 22.2 °C.
+The changing cell-width humps are actual inventory changes, not just ONI's
+wave animation. A separate unforced basin reproduces sustained waves when
+interface sharpening is enabled.
+
+The correction used every component of the height normal to move liquid
+from lower to higher fractions. Along a shallow surface this gathers water
+into taller columns: it sharpens physical height variation as if it were
+interface smearing. Its same-row swaps cost no resolved cell-center
+potential energy, so positivity and conservation cannot reject this wave
+forcing. This is distinct from the flooded-cell overfill repaired below.
+
+Profile 12 now sharpens only along the dominant axis of the frozen,
+per-phase height normal, matching the height remap's slab reconstruction.
+Tangent faces receive no correction; a zero normal receives none either.
+Normal sharpening, wall sampling, parcel momentum and conservative work
+bookkeeping remain active. No drag or whole-pool levelling is added.
+
+The Spaced Out! follow-up also exposed a separate activity-cadence error:
+remote regions accumulated up to a second but ran only the usual two flow
+parts. Repeated wake/remote transitions fed waves even with sharpening off.
+Replaying only the captured activity touches reproduces 143.879 kg late
+column variation, versus 70.936 kg with continuous activity. Profile 12 now
+subdivides a wet remote region's pressure/transport work to retain the saved
+maximum active interval. Remote scheduling, gas-only work and the attempt
+budget remain in force. That same replay falls to 70.936 kg; it contains no
+mass, heat or terrain edits.
+
+Profiles 2–11 retain their arithmetic. Profile 12 trajectories and resulting
+checkpoint contents change; the checkpoint format and version 32 do not.
+
+The permanent controls check both interface orientations, retain physical
+height variation along the tangent, and require a deliberately blurred
+normal interface to sharpen while closing species, passives and U+K+G.
+An alternating 300/700 kg surface in a sealed 16-column basin, with continuous
+activity or a touch every three game seconds, must settle
+through a whole late observation window; its approximate initial
+hydrostatic pressure permits ordinary reflected waves. Cold continuation
+and requested-worker equality are checked, including pending remote work.
+The synthetic wake control falls from 1542.66 kg / 3.40231 m/s without the
+cadence repair to 68.0978 kg / 0.0785706 m/s with it. The separate `liquid-settling`
+game scenario exercises the same behavior through actual cell placement;
+it changes none of the existing gates or their bounds.
+The Linux actual-game late-window variation is 421.57 kg before and 70.93 kg after
+(the bound is 80 kg), with all 56,000 kg water retained. The final Linux base
+game and WindowsPlayer/Proton Spaced Out! batches each pass all 17 checks
+over 1,787/1,788 owner frames, including the unchanged flood, CO₂
+boil-off, airflow and freeze/melt controls. The clean standard MAC comparison
+has 59 of 62 outputs exactly equal, one differing only by oracle timings,
+one by the new controls' PASS lines, and the profile-12 boiling control's
+changed trajectory (6.30 → 6.83 kg boiled in one second; both pass). No
+long manual gate was run. Linux passes 93/93 native tests, 516 Python tests
+(11 platform skips), all managed suites and the installed-game contract;
+Windows passes 94/94 native tests under Wine. Each platform contract checks
+2,814 dependencies with zero differences.
+
 ## Suspended liquid and the layered vertical remap
 
 **Defect (profiles 2-9).** The donor-cell remap moves every constituent of a

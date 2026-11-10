@@ -15,6 +15,7 @@
 #include "mac_game_thin_heat_control.hpp"
 #include "mac_game_plume_control.hpp"
 #include "mac_game_flood_control.hpp"
+#include "mac_game_surface_stability_control.hpp"
 #include "../src/mac_hypot.hpp"
 #include "../src/mac_game/account.hpp"
 #include "../src/mac_game/entropy.hpp"
@@ -934,6 +935,7 @@ int main() {
     ma::testing::thin_drag_game::run();
     ma::testing::thin_heat_game::run();
     ma::testing::flood_game::run();
+    ma::testing::surface_stability_game::run();
     ma::testing::convective_plume_control();
     ma::testing::mac_game_patch_plan_control();
     std::cout

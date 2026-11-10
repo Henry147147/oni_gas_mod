@@ -132,8 +132,8 @@ public:
   ma::experimental::mac_kernel::Pool& worker_pool() {return pool;}
   TickResult advance(const State& initial,double dt,double gravity,double threshold,
                      std::span<const std::uint8_t> blocked={},std::size_t budget=65536,
-                     std::span<const double> due={}) {
-    return advance_impl(initial,nullptr,nullptr,dt,gravity,threshold,blocked,budget,due);
+                     std::span<const double> due={},double maximum_active_interval=0) {
+    return advance_impl(initial,nullptr,nullptr,dt,gravity,threshold,blocked,budget,due,maximum_active_interval);
   }
   // advance() that takes `initial` (its energy and face momenta become the
   // result's) and writes the readings of the cells it steps into `readings`
@@ -144,17 +144,17 @@ public:
   // are then that call's, not summed again.
   TickResult advance_into(State&& initial,std::vector<Eos>& readings,double dt,double gravity,double threshold,
                           std::span<const std::uint8_t> blocked={},std::size_t budget=65536,
-                          std::span<const double> due={},bool continues=false) {
+                          std::span<const double> due={},bool continues=false,double maximum_active_interval=0) {
     if(readings.size()!=grid.N)throw std::invalid_argument("Game readings coverage differs");
     if(!continues || !carried_valid || carried_gravity!=gravity)carried_valid=false;
-    return advance_impl(initial,&initial,&readings,dt,gravity,threshold,blocked,budget,due);
+    return advance_impl(initial,&initial,&readings,dt,gravity,threshold,blocked,budget,due,maximum_active_interval);
   }
 private:
   // The last advance_into's audit totals of its result, by row block.
   bool carried_valid=false;double carried_gravity=0;
   Totals carried_totals;std::vector<Totals> carried_block_sums;
   TickResult advance_impl(const State& initial,State* consumed,std::vector<Eos>* readings,double dt,double gravity,double threshold,
-                          std::span<const std::uint8_t> blocked,std::size_t budget,std::span<const double> due) {
+                          std::span<const std::uint8_t> blocked,std::size_t budget,std::span<const double> due,double maximum_active_interval) {
     if(!due.empty() && due.size()!=grid.N)throw std::invalid_argument("Game activity step coverage differs");
     auto mark=std::chrono::steady_clock::now();
     const auto lap=[&mark]{const auto now=std::chrono::steady_clock::now();const double ms=std::chrono::duration<double,std::milli>(now-mark).count();mark=now;return ms;};
@@ -221,7 +221,7 @@ private:
         try {
           if(reject_log::level())reject_log::region={r.x,r.y,static_cast<std::size_t>(r.box.width),static_cast<std::size_t>(source.width)};
           auto& tick=execution.parallel_region==id?*parallel_tick:*r.tick;
-          results[id]=tick.advance(state,steps[id],gravity,threshold,local_blocked,budget);
+          results[id]=tick.advance(state,steps[id],gravity,threshold,local_blocked,budget,maximum_active_interval);
         }
         catch(const LiquidBoundaryConflict& e) {
           auto translated=e;
