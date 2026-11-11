@@ -338,7 +338,8 @@ class CriteriaTests(unittest.TestCase):
                  "MaximumRelativeMassError": 0.0, "MaximumRelativeEnergyError": 0.0, "OwnerConfigFlags": 29,
                  "RejectionCriteria": {"Available": True, "PressureSolveFailures": 0, "UnconvergedPressure": 0,
                                        "NegativeOrNonFinitePressure": 0, "SweptVolumeRefinements": 12},
-                 "Scenarios": [{"Name": f"s{i}", "Finished": True, "Passed": True} for i in range(5)]}
+                 # windows-b2's scenarios, in its order (six since natural-sublimation joined it).
+                 "Scenarios": [{"Name": name, "Finished": True, "Passed": True} for name in suite.LINUX_BATCHES[1].split(",")]}
         result = {"exit_code": 0, "observed_player_exit_code": 0, "source_revision": REVISION, "source_dirty": False,
                   "runner_git_revision": REVISION, "runner_git_status": "", "mod_failure_lines": [], "timed_out": False,
                   "actual_windows_os": False, "target_platform": "WindowsPlayer", "package_manifest": {"files": files},
@@ -353,6 +354,11 @@ class CriteriaTests(unittest.TestCase):
         output, files = self.proton_result()
         checks, _ = suite.proton_checks(step, output, REVISION, files)
         self.assertTrue(all(checks.values()), checks)
+        # A batch that skipped or reordered a scenario is refused.
+        result = suite.read_json(output / "result.json")
+        result["colony_owner"]["Scenarios"].pop()
+        (output / "result.json").write_text(suite.json.dumps(result))
+        self.assertFalse(suite.proton_checks(step, output, REVISION, files)[0]["requested_scenarios_ran"])
         output, files = self.proton_result(owner_environment_overrides=True, runner_git_status=" M x")
         checks, _ = suite.proton_checks(step, output, REVISION, files)
         self.assertFalse(checks["no_ma_environment_overrides"])

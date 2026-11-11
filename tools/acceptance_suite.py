@@ -760,7 +760,10 @@ def proton_checks(step: Step, output: Path, revision: str, files: dict) -> tuple
     quit_menu = {"menu_then_desktop_quit": result.get("quit_from_menu_observed") is True}
     if kind == "proton-batch":
         checks = {**proton_owner(result, "passed-colony-owner", revision, files),
-                  "five_original_scenarios": len(owner.get("Scenarios", [])) == 5}
+                  # Every scenario of the batch ran, in order (the batches
+                  # had five each until natural-sublimation joined b2).
+                  "requested_scenarios_ran": [s.get("Name") for s in owner.get("Scenarios", [])] ==
+                      step.options.get("scenario", "").split(",")}
     elif kind == "proton-contact":
         checks = {**proton_owner(result, "passed-colony-owner", revision, files), **quit_menu,
                   "windows_contact_scenario": [s.get("Name") for s in owner.get("Scenarios", [])] == ["windows-contact"]}
@@ -1263,7 +1266,9 @@ def settings_clicks(desktop: Desktop, output: Path, log, wait) -> None:
     ids = desktop.run(str(desktop.bin / "xdotool"), "search", "--onlyvisible", "--name", "Oxygen Not Included").split()
     desktop.run(str(desktop.bin / "xdotool"), "windowfocus", "--sync", ids[-1])
     desktop.run(str(desktop.bin / "xdotool"), "key", "Escape")
-    wait(lambda: "Settings window opened (Advanced, colony settings read-only)" in log())
+    # Colony settings are changeable in a loaded colony since 0.1.1; the
+    # screenshot names keep their earlier "readonly" suffix.
+    wait(lambda: "Settings window opened (Advanced, this colony's settings)" in log())
     report = output / PROTON_PROFILE / VALIDATION / "colony-validation.json"
     wait(lambda: read_json(report).get("Status") == "passed")
     time.sleep(1)
@@ -1298,7 +1303,7 @@ def ordinary_clicks(desktop: Desktop, log, wait) -> None:
     # The owner-start log precedes Embark. Require an actual initial save,
     # handling the intro and any settings window which opens before it.
     saved_before_begin = log().count("Saved to")
-    readonly = "Settings window opened (Advanced, colony settings read-only)"
+    readonly = "Settings window opened (Advanced, this colony's settings)"
     closed_openings = log().count(readonly)
     readonly_before_begin = closed_openings
     closed_settings = False
@@ -1313,7 +1318,10 @@ def ordinary_clicks(desktop: Desktop, log, wait) -> None:
             closed_openings = text.count(readonly)
             closed_settings = True
         else:
+            # ONI's intro message, then the mod's start dialog, whose OK
+            # button sits lower since it lists what plays differently (0.1.3).
             desktop.click(637, 449)
+            desktop.click(641, 565)
         return False
     wait(begun, 120)
     shot("colony-owner-active")

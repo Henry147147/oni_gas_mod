@@ -7,7 +7,7 @@ from unittest import mock
 sys.path.insert(0, str(Path(__file__).parents[1]))
 import acceptance_suite as suite
 
-READONLY = "Settings window opened (Advanced, colony settings read-only)"
+READONLY = "Settings window opened (Advanced, this colony's settings)"
 
 
 class OrdinaryColony:

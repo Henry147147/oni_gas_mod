@@ -24,7 +24,7 @@ class SettingsUiTests(unittest.TestCase):
             self.assertTrue(predicate())
         desktop = SimpleNamespace(bin=Path("/desktop/bin"), run=mock.Mock(return_value="7"),
                                   click=click, key=key, shot=shot)
-        log = lambda: "Settings window opened (Advanced)\nSettings window opened (Advanced, colony settings read-only)"
+        log = lambda: "Settings window opened (Advanced)\nSettings window opened (Advanced, this colony's settings)"
         with mock.patch.object(suite.time, "sleep"), mock.patch.object(suite, "read_json", return_value={"Status": "passed"}):
             suite.settings_clicks(desktop, Path("/run"), log, wait)
         self.assertEqual({name: views.get(name) for name in suite.SETTINGS_SHOTS}, {
