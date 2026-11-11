@@ -1461,8 +1461,9 @@ constexpr double compensation_fraction = .75;
 // with this relative margin (above any liquid's elastic share of its thermal
 // energy at ordinary pressures, so an exact return is never cut).
 constexpr double return_margin = 1e-3;
-// What an extraction leaves below this share of its cell's mass takes its
-// energy from the edit's temperature instead of from the difference.
+// What an extraction leaves below this share of its cell's mass, or with
+// less than this share of the energies its difference is taken from, takes
+// its energy from the edit's temperature instead.
 constexpr double trace_remainder = 1e-9;
 // Compensated flow work goes the other way across each source's room: the
 // open cells joined to the source cell by gas through open faces, nearest
@@ -1822,20 +1823,29 @@ TransferWork apply_transfers(const MacClosedWorld &source,
         cell.mixture.mass() == 0
             ? 0
             : old_u + (edit.inject ? 1 : -1) * p.mass_kg * specific;
-    // A trace left by an extraction (under trace_remainder of the cell's
-    // mass) has less thermal energy than the rounding of that difference, so
-    // it read any temperature, or none: a space-exposed cell's last
-    // 6.5e-70 kg of hydrogen read 5.6e20 K and stopped the owner. It keeps
-    // the temperature the edit read, less the flow work it gave.
-    if (!edit.inject && cell.mixture.mass() > 0 &&
-        cell.mixture.mass() < trace_remainder * old_mass) {
-      double kept = -p.mass_kg * flow;
+    // What an extraction leaves can hold less thermal energy than the
+    // rounding of that difference, and then read any temperature, or none:
+    // a trace (under trace_remainder of the cell's mass: a space-exposed
+    // cell's last 6.5e-70 kg of hydrogen read 5.6e20 K), or gas a deep
+    // draw cooled along its isentrope (6e-8 of a hydrogen cell keeps 2e-20
+    // of its thermal energy). Either stopped the owner. Such a remainder
+    // takes its energy from the temperature the edit read, less the flow
+    // work it gave, instead of from the difference.
+    if (!edit.inject && cell.mixture.mass() > 0) {
+      double offsets = 0, capacity = 0;
+      bool liquid = false;
       for (std::size_t q = 0; q < species.size(); ++q) {
         const double held = cell.mixture.masses[q];
-        if (held > 0)
-          kept += held * (species[q].offset + species[q].cv * p.temperature_k);
+        if (!(held > 0))
+          continue;
+        offsets += held * species[q].offset;
+        capacity += held * species[q].cv;
+        liquid = liquid || !species[q].gas;
       }
-      cell.mixture.energy = kept;
+      const double thermal = capacity * p.temperature_k - p.mass_kg * flow;
+      if (cell.mixture.mass() < trace_remainder * old_mass ||
+          (!liquid && thermal < trace_remainder * (std::abs(old_u) + std::abs(p.mass_kg * specific))))
+        cell.mixture.energy = offsets + thermal;
     }
     p.internal_energy_j =
         edit.inject ? cell.mixture.energy - old_u : old_u - cell.mixture.energy;

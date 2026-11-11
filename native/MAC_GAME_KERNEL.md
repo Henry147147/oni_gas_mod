@@ -738,11 +738,18 @@ space-exposed cell's gas, its last 6.5e-70 kg of hydrogen held 8.8e-46 J
 edit there stopped the owner. What an extraction leaves below 1e-9 of the
 cell's mass now takes its energy from the temperature the edit read (less
 the flow work it gave) instead of from the difference; the parcel's energy
-is still the exact change. Other extractions are unchanged. The isentropic
-draw also keeps at least 2^-20 of the temperature of what stays, so a draw
-that leaves less than rounding resolves no longer cools it to 0 K exactly.
-`ma_mac_game_kernel_tests` draws a cell's oxygen from beside 1e-30 kg of
-nitrogen: 300 K (6e14 K before, refused by the EOS).
+is still the exact change. The same holds for gas a deep draw cooled along
+its isentrope: the 6e-8 of a hydrogen cell that the binary32 projection
+leaves keeps 2e-20 of the cell's thermal energy (γ 2.72), below the
+rounding of the difference, so it read 0 K or 1e12 K. A gas-only remainder
+whose thermal energy is under 1e-9 of the energies the difference is taken
+from takes it from the edit's temperature and flow work too. Other
+extractions are unchanged. The isentropic draw also keeps at least 2^-20 of
+the temperature of what stays, so a draw that leaves less than rounding
+resolves no longer cools it to 0 K exactly. `ma_mac_game_kernel_tests`
+draws a cell's oxygen from beside 1e-30 kg of nitrogen (300 K; 6e14 K
+before, refused by the EOS) and all but 1e-7 of a helium cell with its flow
+work (the remainder on its isentrope to 1e-6; any temperature before).
 
 ## Open acceptance work
 

@@ -790,9 +790,35 @@ void source_energy_controls() {
               "The trace an extraction left lost the edit's temperature");
     }
   }
+  // A deep draw's remainder (2026-11-11). All but 1e-7 of a helium cell
+  // drawn with its flow work leaves gas on its isentrope whose thermal
+  // energy is below the rounding of the cell's: it read any temperature.
+  {
+    const auto helium = f.registry.index("helium");
+    MacTransportState state;
+    state.grid = {3, 3, 1, 1, false, false, std::vector<std::uint8_t>(9, 1)};
+    state.grid.walls[4] = 0;
+    for (std::size_t i = 0; i < 9; ++i) {
+      MacMaterialCell cell{ma::MixtureInventory(f.registry.size()), {}};
+      if (i == 4)
+        cell.mixture.masses[helium] = .01;
+      state.cells.push_back(std::move(cell));
+    }
+    state.momentum_x.resize(12);
+    state.momentum_y.resize(12);
+    const auto room = MacClosedWorld::game_colony(f.registry, f.eos, std::move(state),
+                                                  std::vector<double>(9, 300), config());
+    const auto draw = edit(4, helium, false, .01 * (1 - 1e-7), MacFlowWork::enthalpy);
+    const auto drawn = room.with_fluid_transfers(std::span(&draw, 1), MacFluidTransferTopology::occupied_mixture);
+    const double left = drawn.world.state().cells[4].mixture.masses[helium];
+    const double expected = 300 * std::pow(left / .01, gas_constant / (f.registry[helium].molar_mass * f.registry[helium].cv()));
+    const double read = (u(drawn.world, 4) - left * f.registry[helium].internal_energy(0)) / (left * f.registry[helium].cv());
+    require(left > 0 && expected > 0 && expected < 1e-2 && near(read, expected, 1e-6),
+            "A deep draw's remainder left its isentrope");
+  }
   std::cout << "PASS source energy: enthalpy and isentropic draw, compensated room shares, wet rooms as internal energy; "
                "the sealed tube's cold source and compression heating; a deep draw beside a droplet stays in its EOS domain; "
-               "a draw that empties its cell returns no more than its own cooling; an extraction's trace keeps its temperature\n";
+               "a draw that empties its cell returns no more than its own cooling; an extraction's trace and a deep draw's remainder keep their temperature\n";
 }
 } // namespace
 int main() {
