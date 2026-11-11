@@ -112,12 +112,16 @@ namespace MixedAtmospheres.Oni
         internal static int Consumers { get; private set; }
         internal static int Emitters { get; private set; }
         internal static int Native => native.Count + registering.Count;
+        // Advances whenever an actor's activity footprint can change: a
+        // registration, its cell or radius, its removal, or its move between
+        // the maps (which changes its census identity).
+        internal static long ActivityInputs { get; private set; }
         internal static long Queued { get; private set; }
         internal static long Delivered { get; private set; }
         internal static double DeliveredKg { get; private set; }
         internal static void Reset()
         {
-            registering.Clear(); native.Clear(); owned.Clear(); replies.Clear(); callbacks.Clear(); ordered=null;
+            registering.Clear(); native.Clear(); owned.Clear(); replies.Clear(); callbacks.Clear(); ordered=null; ++ActivityInputs;
             issued = 0; Consumers = Emitters = 0; Queued = Delivered = 0; DeliveredKg = 0; SourceKg.Clear();
         }
 
@@ -175,6 +179,7 @@ namespace MixedAtmospheres.Oni
             var expected = Length(message);
             if (expected < 0) return false;
             if (expected != length || count != 1 || payload == null) return false; // not ONI's own single messages
+            ++ActivityInputs;
             switch (message)
             {
                 case AddConsumer:
@@ -248,7 +253,7 @@ namespace MixedAtmospheres.Oni
             {
                 var answer = source->componentStateChangedMessages[i];
                 if (!registering.TryGetValue(answer.callbackIdx, out var actor)) continue;
-                registering.Remove(answer.callbackIdx);
+                registering.Remove(answer.callbackIdx); ++ActivityInputs;
                 if (Sim.IsValidHandle(answer.simHandle)) native[answer.simHandle] = actor;
             }
         }
@@ -260,6 +265,7 @@ namespace MixedAtmospheres.Oni
         private static void TakeNative()
         {
             if (native.Count == 0) return;
+            ++ActivityInputs;
             var size = removeConsumer!.Size; var remove = stackalloc byte[size];
             foreach (var entry in native)
             {

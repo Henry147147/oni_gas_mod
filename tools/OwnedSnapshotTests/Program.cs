@@ -785,6 +785,133 @@ internal static unsafe class Program
             publisher.Abandon(third); // already handed over: not freed
             Check((IntPtr)publisher.CurrentPointer == (IntPtr)third.Pointer && third.Pointer->numFramesProcessed == 3);
         });
+        Test("a reusing publisher copies into the snapshot the game no longer reads", () =>
+        {
+            using var source = new NativeFixture();
+            using var publisher = new OwnedSnapshotPublisher(reuseBuffers: true);
+            var first = publisher.Publish(source.Pointer, 3, 2);
+            var firstPointer = (IntPtr)first.Pointer; var firstMass = (IntPtr)first.Pointer->mass; var firstEvents = (IntPtr)first.Pointer->massConsumedCallbacks;
+            Check(!publisher.HasSpare);
+            var second = publisher.Publish(source.Pointer, 3, 2);
+            // The first is retired as the spare: alive, never the current one.
+            Check(publisher.HasSpare && (IntPtr)first.Pointer == firstPointer && publisher.CurrentPointer == second.Pointer && second.Pointer != first.Pointer);
+            source.Pointer->mass[2] = 42.5f; source.Pointer->numFramesProcessed = 7;
+            source.Pointer->massConsumedCallbacks[1].callbackIdx = 909;
+            var third = publisher.Begin(source.Pointer, 3, 2);
+            // The game still holds the second; the third is the first's memory.
+            Check(ReferenceEquals(third, first) && !publisher.HasSpare && (IntPtr)third.Pointer == firstPointer &&
+                (IntPtr)third.Pointer->mass == firstMass && (IntPtr)third.Pointer->massConsumedCallbacks == firstEvents &&
+                publisher.CurrentPointer == second.Pointer && second.Pointer->numFramesProcessed == 2 && second.Pointer->mass[2] != 42.5f);
+            third.AssertEquivalentTo(source.Pointer);
+            Check(third.Pointer->mass[2] == 42.5f && third.Pointer->massConsumedCallbacks[1].callbackIdx == 909 && third.Pointer->numFramesProcessed == 7);
+            // An append that fits stays in place; one that does not moves the
+            // table and keeps every record.
+            var count = third.Pointer->numMassConsumedCallbacks;
+            var records = new ReadOnlySpan<Sim.MassConsumedCallback>(third.Pointer->massConsumedCallbacks, count).ToArray();
+            var appended = Enumerable.Range(0, 200).Select(i => new Sim.MassConsumedCallback { callbackIdx = 1000 + i, elemIdx = 3, mass = i, temperature = 290, diseaseIdx = 255 }).ToArray();
+            third.AppendEvents<Sim.MassConsumedCallback>(SnapshotEventChannel.MassConsumedCallbacks, appended);
+            Check(third.Pointer->numMassConsumedCallbacks == count + 200 &&
+                new ReadOnlySpan<Sim.MassConsumedCallback>(third.Pointer->massConsumedCallbacks, count).SequenceEqual(records) &&
+                third.Pointer->massConsumedCallbacks[count + 199].callbackIdx == 1199);
+            Check(publisher.Commit(third) == firstPointer && publisher.CurrentPointer == third.Pointer && publisher.HasSpare);
+            // The next copy reuses the grown table without moving it again.
+            var grown = (IntPtr)third.Pointer->massConsumedCallbacks;
+            var fourth = publisher.Publish(source.Pointer, 3, 2);
+            Check(ReferenceEquals(fourth, second)); fourth.AssertEquivalentTo(source.Pointer);
+            var fifth = publisher.Begin(source.Pointer, 3, 2);
+            Check(ReferenceEquals(fifth, third) && (IntPtr)fifth.Pointer->massConsumedCallbacks == grown);
+            fifth.AppendEvents<Sim.MassConsumedCallback>(SnapshotEventChannel.MassConsumedCallbacks, appended.AsSpan(0, 100));
+            Check((IntPtr)fifth.Pointer->massConsumedCallbacks == grown && fifth.Pointer->numMassConsumedCallbacks == count + 100);
+            publisher.Commit(fifth);
+        });
+        Test("a reused snapshot publishes empty tables as null and refills them", () =>
+        {
+            using var source = new NativeFixture();
+            using var publisher = new OwnedSnapshotPublisher(reuseBuffers: true);
+            var first = publisher.Publish(source.Pointer, 3, 2);
+            var table = (IntPtr)first.Pointer->callbackInfo;
+            publisher.Publish(source.Pointer, 3, 2);
+            var callbacks = source.Pointer->numCallbackInfo; source.Pointer->numCallbackInfo = 0;
+            var empty = publisher.Publish(source.Pointer, 3, 2);
+            Check(ReferenceEquals(empty, first) && empty.Pointer->callbackInfo == null && empty.Pointer->numCallbackInfo == 0);
+            empty.AssertEquivalentTo(source.Pointer);
+            publisher.Publish(source.Pointer, 3, 2);
+            source.Pointer->numCallbackInfo = callbacks;
+            var refilled = publisher.Publish(source.Pointer, 3, 2);
+            Check(ReferenceEquals(refilled, first) && (IntPtr)refilled.Pointer->callbackInfo == table);
+            refilled.AssertEquivalentTo(source.Pointer);
+            refilled.ClearEventsForFault();
+            Check(refilled.Pointer->callbackInfo == null && refilled.Pointer->numCallbackInfo == 0 && refilled.Pointer->mass[0] == source.Pointer->mass[0]);
+        });
+        Test("a reusing publisher keeps the handed-over snapshot through failures and grid changes", () =>
+        {
+            using var source = new NativeFixture();
+            using var publisher = new OwnedSnapshotPublisher(reuseBuffers: true);
+            var first = publisher.Publish(source.Pointer, 3, 2);
+            var second = publisher.Publish(source.Pointer, 3, 2);
+            var handed = (IntPtr)second.Pointer; var mass = second.Pointer->mass[1];
+            // A malformed source is refused before any copy: the spare stays.
+            source.Pointer->numRadiationConsumedCallbacks = -1;
+            Reject(() => publisher.Begin(source.Pointer, 3, 2));
+            Check(publisher.HasSpare && !publisher.HasCandidate && (IntPtr)publisher.CurrentPointer == handed && (IntPtr)first.Pointer != IntPtr.Zero);
+            source.Pointer->numRadiationConsumedCallbacks = 2;
+            // A failure after the copy discards the candidate (the old spare).
+            var failed = publisher.Begin(source.Pointer, 3, 2);
+            Check(ReferenceEquals(failed, first));
+            publisher.Abandon(failed);
+            Reject(() => { _ = (IntPtr)first.Pointer; });
+            Check(!publisher.HasSpare && (IntPtr)publisher.CurrentPointer == handed && second.Pointer->mass[1] == mass);
+            // An overlay failure inside the copy also leaves the current one.
+            var third = publisher.Publish(source.Pointer, 3, 2);
+            Check(publisher.HasSpare);
+            Reject(() => publisher.Begin(source.Pointer, 3, 2, writer => throw new InvalidDataException("Injected overlay failure")));
+            Check(!publisher.HasSpare && !publisher.HasCandidate && publisher.CurrentPointer == third.Pointer);
+            Reject(() => { _ = (IntPtr)second.Pointer; });
+            // Another grid never reuses the spare's planes.
+            var fourth = publisher.Publish(source.Pointer, 3, 2);
+            Check(publisher.HasSpare);
+            var reshaped = publisher.Publish(source.Pointer, 6, 1);
+            Check(!ReferenceEquals(reshaped, third) && reshaped.CellCount == 6 && reshaped.Width == 6);
+            Reject(() => { _ = (IntPtr)third.Pointer; });
+            Check(fourth.Pointer->mass[0] == source.Pointer->mass[0]);
+            publisher.Clear();
+            Check(!publisher.HasSpare && publisher.CurrentPointer == null);
+            Reject(() => { _ = (IntPtr)fourth.Pointer; });
+        });
+        Test("texture planes keep their content identity only while their bytes do", () =>
+        {
+            using var source = new NativeFixture();
+            using var publisher = new OwnedSnapshotPublisher(reuseBuffers: true);
+            const int flowBytes = 6 * 2 * sizeof(float);
+            var first = publisher.Publish(source.Pointer, 3, 2);
+            Check(publisher.TryGetTextureContent(first.Pointer->propertyTextureFlow, flowBytes, out var flow) && flow != 0);
+            Check(!publisher.TryGetTextureContent(first.Pointer->propertyTextureFlow, flowBytes - 1, out _) &&
+                !publisher.TryGetTextureContent((IntPtr)first.Pointer->mass, 24, out _) && !publisher.TryGetTextureContent(IntPtr.Zero, 0, out _));
+            Check(publisher.TryGetTextureContent(first.Pointer->propertyTextureLiquid, 24, out var liquid) && liquid != 0 && liquid != flow);
+            // A processed native frame rewrote its planes: new identities.
+            var second = publisher.Publish(source.Pointer, 3, 2);
+            Check(publisher.TryGetTextureContent(second.Pointer->propertyTextureFlow, flowBytes, out var processed) && processed != flow);
+            // Zero-time data requests compare: equal bytes keep the identity
+            // although the address alternates between the two snapshots.
+            source.Pointer->numFramesProcessed = 0;
+            var third = publisher.Publish(source.Pointer, 3, 2);
+            Check(third.Pointer->propertyTextureFlow != second.Pointer->propertyTextureFlow);
+            Check(publisher.TryGetTextureContent(third.Pointer->propertyTextureFlow, flowBytes, out var paused) && paused == processed);
+            var fourth = publisher.Publish(source.Pointer, 3, 2);
+            Check(publisher.TryGetTextureContent(fourth.Pointer->propertyTextureFlow, flowBytes, out var still) && still == processed &&
+                fourth.Pointer->propertyTextureFlow != third.Pointer->propertyTextureFlow);
+            // One changed byte of one plane changes only that plane's identity.
+            publisher.TryGetTextureContent(fourth.Pointer->propertyTextureLiquid, 24, out var liquidBefore);
+            ((byte*)source.Pointer->propertyTextureFlow)[flowBytes - 1] ^= 0x55;
+            var fifth = publisher.Publish(source.Pointer, 3, 2);
+            Check(publisher.TryGetTextureContent(fifth.Pointer->propertyTextureFlow, flowBytes, out var changed) && changed != processed &&
+                publisher.TryGetTextureContent(fifth.Pointer->propertyTextureLiquid, 24, out var liquidAfter) && liquidAfter == liquidBefore);
+            // Only the snapshot the game holds answers.
+            Check(!publisher.TryGetTextureContent(fourth.Pointer->propertyTextureFlow, flowBytes, out _));
+            using var plain = new OwnedSnapshotPublisher();
+            var unreused = plain.Publish(source.Pointer, 3, 2);
+            Check(!plain.TryGetTextureContent(unreused.Pointer->propertyTextureFlow, flowBytes, out _));
+        });
         Test("a session reset while a publication is built frees it and refuses its hand-over", () =>
         {
             using var source = new NativeFixture();

@@ -22,13 +22,18 @@ namespace MixedAtmospheres.Oni
     // texture, source pointer and size match the last upload made since the
     // latest StepTheSim skips the copy and the upload; an upload is forced at
     // least every half second. MA_TEXTURE_UPLOAD_REUSE=0 turns it off.
+    // Under the colony owner the source is a plane of its published snapshot,
+    // whose content identity (ColonyOwner.TryGetPublishedTexture) changes only
+    // with its bytes: an upload of the same identity is reused across data
+    // requests too, so a paused game (a data request every frame) uploads
+    // only when a plane actually changed.
     [HarmonyPatch(typeof(PropertyTextures), "UpdateProperty")]
     internal static class PropertyTextureUploads
     {
         internal static readonly bool Enabled = Environment.GetEnvironmentVariable("MA_TEXTURE_UPLOAD_REUSE") != "0";
         private const float RefreshSeconds = .5f;
         private const int ExpectedLoads = 5, ExpectedApplies = 1;
-        private struct Upload { internal Texture2D? Texture; internal IntPtr Data; internal int Size; internal long Generation; internal float At; }
+        private struct Upload { internal Texture2D? Texture; internal IntPtr Data; internal int Size; internal long Generation, Content; internal float At; }
         private static readonly Upload[] uploads = new Upload[8];
         private static long generation = 1, uploaded, reused;
         private static Texture2D? skippedApply;
@@ -73,13 +78,16 @@ namespace MixedAtmospheres.Oni
             skippedApply = null;
             var slot = Slot(texture);
             ref var last = ref uploads[slot];
-            if (ReferenceEquals(last.Texture, texture) && last.Data == data && last.Size == size && last.Generation == generation &&
+            // Content 0: a source without an identity (no colony owner).
+            var content = ColonyOwner.TryGetPublishedTexture(data, size, out var identity) ? identity : 0;
+            var same = content != 0 ? last.Content == content : last.Content == 0 && last.Data == data && last.Generation == generation;
+            if (ReferenceEquals(last.Texture, texture) && last.Size == size && same &&
                 Time.unscaledTime - last.At < RefreshSeconds && texture != null)
             {
                 skippedApply = texture; ++reused; return;
             }
             texture!.LoadRawTextureData(data, size);
-            last = new Upload { Texture = texture, Data = data, Size = size, Generation = generation, At = Time.unscaledTime };
+            last = new Upload { Texture = texture, Data = data, Size = size, Generation = generation, Content = content, At = Time.unscaledTime };
             ++uploaded;
         }
 

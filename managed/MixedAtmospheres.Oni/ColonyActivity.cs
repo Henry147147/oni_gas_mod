@@ -20,6 +20,7 @@ namespace MixedAtmospheres.Oni
             internal readonly ConduitConsumer[] Consumers;
             internal readonly ConduitDispenser[] Dispensers;
             internal uint[] Previous = Array.Empty<uint>();
+            internal int Anchor = int.MinValue; // the cell Previous was built around
             internal Entry(Component component)
             {
                 Component = component; var go = component.gameObject;
@@ -64,6 +65,13 @@ namespace MixedAtmospheres.Oni
         internal static ulong LastSubmittedSequence { get; private set; }
         // The activity frames positive native frames deliver (overlapped pacing).
         internal static readonly ColonyPostedFrames Frames = new ColonyPostedFrames();
+        // Zero-time census settlement: what the last census was built from.
+        // Lifecycle events (registration, spawn, retirement) and actor-map
+        // changes advance `inputs`; game time is the scaled Unity clock.
+        private static long inputs, censusInputs = -1, censusActorInputs = -1;
+        private static double censusTime = double.NaN;
+        private static int censusMinions = -1, censusBrains = -1, censusBuildings = -1, censusUprootables = -1;
+        internal static long SettledRefreshes { get; private set; }
         internal static long MaskChecks { get; private set; }
         internal static long MaskCellsChecked { get; private set; }
         internal static long MaskBusy { get; private set; }
@@ -74,6 +82,7 @@ namespace MixedAtmospheres.Oni
             entries.Clear(); dead.Clear(); retired.Clear(); census.Reset(); seeded = false; session = 0; Active = false; latestCensus = null; stagedSequence = 0; stagedSeconds = 0; ReplayMigratedActors = StagedFrames = StagedDeliveries = 0;
             QueuedFrames = ClaimedFrames = LifecycleRefreshes = 0; ActorCount = ActorCells = TouchedCells = LivingActors = Buildings = Plants = InactiveActors = 0; LastSubmittedSequence = 0; Frames.Reset();
             pendingChecks.Clear(); MaskChecks = MaskCellsChecked = MaskBusy = DroppedChecks = 0;
+            ++inputs; censusInputs = -1; SettledRefreshes = 0;
         }
         internal static void Started(uint flags, ulong ownerSession)
         {
@@ -97,13 +106,14 @@ namespace MixedAtmospheres.Oni
             if (!actor && go.GetComponent<Building>() == null && go.GetComponent<Brain>() == null &&
                 go.GetComponent<MinionIdentity>() == null && go.GetComponent<Uprootable>() == null &&
                 go.GetComponent<Growing>() == null && !go.HasTag(GameTags.Plant)) return;
-            entries.Add(identity, new Entry(component));
+            entries.Add(identity, new Entry(component)); ++inputs;
         }
         internal static void Spawned(Component component)
-        { retired.Remove(component.gameObject.GetInstanceID()); Register(component); }
+        { ++inputs; retired.Remove(component.gameObject.GetInstanceID()); Register(component); }
         internal static void Retire(Component component)
         {
             if (component == null) return;
+            ++inputs;
             var id = component.gameObject.GetInstanceID();
             if (!entries.Remove(id)) return;
             retired[id] = component.gameObject; census.Retire(id);
@@ -140,6 +150,7 @@ namespace MixedAtmospheres.Oni
         private static void Offset(int anchor, CellOffset offset, int orientation = 0) => footprint.Offset(anchor, offset.x, offset.y, orientation);
         private static ColonyActivitySnapshot Capture()
         {
+            censusInputs = -1;
             SeedAndUnion(); census.Begin(Grid.WidthInCells, Grid.HeightInCells); dead.Clear();
             LivingActors = Buildings = Plants = InactiveActors = 0;
             foreach (var pair in entries)
@@ -148,6 +159,7 @@ namespace MixedAtmospheres.Oni
                 if (e.Living) ++LivingActors; if (e.Building != null) ++Buildings; if (e.Plant) ++Plants;
                 if (!e.Component.gameObject.activeInHierarchy) ++InactiveActors;
                 var anchor = Grid.PosToCell(e.Component.transform.position);
+                e.Anchor = anchor;
                 BeginFootprint(footprint); footprint.Add(anchor);
                 if (e.Living)
                 {
@@ -186,7 +198,33 @@ namespace MixedAtmospheres.Oni
             foreach (var id in dead) entries.Remove(id);
             ColonyActors.CaptureActivity(census, footprint);
             var snapshot = census.Finish(); ActorCount = census.ActorCount; ActorCells = snapshot.Actors.Length; TouchedCells = snapshot.Touched.Length;
+            censusTime = Time.timeAsDouble; censusActorInputs = ColonyActors.ActivityInputs;
+            censusMinions = Components.LiveMinionIdentities.Count; censusBrains = Components.Brains.Count;
+            censusBuildings = Components.BuildingCompletes.Count; censusUprootables = Components.Uprootables.Count;
+            censusInputs = inputs;
             return snapshot;
+        }
+        // Whether a census now would be built from exactly what the last one
+        // was: no game time has passed (nothing moved under the simulation),
+        // no actor was registered, spawned or retired, no consumer or emitter
+        // changed, no registry grew or shrank and every actor still stands on
+        // the cell its footprint was built around. Every other footprint input
+        // (occupied and placement cells, ports, offsets, orientation) is set
+        // when an actor spawns or moves. Such a census observes every actor
+        // unchanged, touches no cell and finds the presence published last:
+        // Refresh would submit nothing, so a zero-time frame need not build it.
+        private static bool CensusUnchanged()
+        {
+            if (control || !seeded || latestCensus == null || censusInputs != inputs || censusActorInputs != ColonyActors.ActivityInputs ||
+                BitConverter.DoubleToInt64Bits(censusTime) != BitConverter.DoubleToInt64Bits(Time.timeAsDouble) ||
+                censusMinions != Components.LiveMinionIdentities.Count || censusBrains != Components.Brains.Count ||
+                censusBuildings != Components.BuildingCompletes.Count || censusUprootables != Components.Uprootables.Count) return false;
+            foreach (var pair in entries)
+            {
+                var e = pair.Value;
+                if (e.Component == null || Grid.PosToCell(e.Component.transform.position) != e.Anchor) return false;
+            }
+            return true;
         }
         private static void ValidateGameFootprint(Entry entry)
         {
@@ -208,7 +246,10 @@ namespace MixedAtmospheres.Oni
         }
         // Native owns sequence allocation. Restored snapshots already contain
         // actor transfers and pump jobs: claim them without generating either.
-        internal static void QueueFrame(float seconds)
+        // `settle`: the game's own zero-time frame (every paused Unity frame),
+        // whose census is skipped when it would be built from unchanged inputs
+        // (CensusUnchanged); explicit flushes and saves always rebuild it.
+        internal static void QueueFrame(float seconds, bool settle = false)
         {
             if (!Active) { ColonyActors.QueueFrame(seconds); return; }
             if (!(seconds > 0))
@@ -217,7 +258,15 @@ namespace MixedAtmospheres.Oni
                 // positive claim. Count that same restore-delivery work too.
                 var paused = OniNativeColony.ActivityState.Empty; OniNativeColony.Check(OniNativeColony.CopyActivity(ref paused));
                 if (paused.PendingFrames != 0) ReplayMigratedActors += ColonyActors.TakeNativeForReplay();
-                ColonyActors.QueueFrame(seconds); Refresh(); return;
+                ColonyActors.QueueFrame(seconds);
+                if (settle)
+                {
+                    bool unchanged;
+                    using (ColonyFrameLog.Track("activity_settle")) unchanged = CensusUnchanged();
+                    if (unchanged) { ++SettledRefreshes; return; }
+                }
+                using (ColonyFrameLog.Track("activity_census")) Refresh();
+                return;
             }
             var state = OniNativeColony.ActivityState.Empty; OniNativeColony.Check(OniNativeColony.CopyActivity(ref state));
             ColonyActivityDelivery.Validate(session, seconds, state.Session, state.PendingFrames, state.PendingHeadSequence, state.PendingHeadSeconds);
@@ -305,7 +354,7 @@ namespace MixedAtmospheres.Oni
                 return true;
             }
         }
-        internal static object Report() => new { Active, PostedSequence = Frames.Posted, ShownSequence = Frames.Shown, QueuedFrames, ClaimedFrames, ReplayMigratedActors, StagedFrames, StagedDeliveries, StagedSequence = stagedSequence, LifecycleRefreshes, ActorCount, LivingActors, Buildings, Plants, InactiveActors, ActorCells, TouchedCells, LastSubmittedSequence, MaskChecks, MaskCellsChecked, MaskBusy, DroppedChecks };
+        internal static object Report() => new { Active, PostedSequence = Frames.Posted, ShownSequence = Frames.Shown, QueuedFrames, ClaimedFrames, ReplayMigratedActors, StagedFrames, StagedDeliveries, StagedSequence = stagedSequence, LifecycleRefreshes, SettledRefreshes, ActorCount, LivingActors, Buildings, Plants, InactiveActors, ActorCells, TouchedCells, LastSubmittedSequence, MaskChecks, MaskCellsChecked, MaskBusy, DroppedChecks };
     }
 
     [HarmonyPatch(typeof(PrimaryElement), "OnSpawn")]

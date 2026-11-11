@@ -16,8 +16,16 @@ namespace MixedAtmospheres.Oni
         private const int MaximumCells = 16_777_216;
         private static readonly Channel[] Channels = CreateChannels();
         private static readonly string[] EventPointerFields = CreateEventPointerFields();
+        // Each channel owns one native block: `capacities` bytes allocated, the
+        // first `lengths` records of it in use. A snapshot captured again into
+        // the same object (a publisher's spare) keeps its blocks when they are
+        // large enough, so a steady publication allocates nothing.
         private readonly IntPtr[] allocations = new IntPtr[Channels.Length];
         private readonly int[] lengths = new int[Channels.Length];
+        private readonly long[] capacities = new long[Channels.Length];
+        // Texture planes only: equal identities (OwnedSnapshotPublisher) mean
+        // equal bytes; 0 is unknown.
+        private readonly long[] textureContent = new long[Channels.Length];
         private IntPtr snapshot;
         private bool disposed;
 
@@ -25,6 +33,7 @@ namespace MixedAtmospheres.Oni
         internal int Height { get; }
         internal int CellCount { get; }
         internal long CapturedBytes { get; private set; }
+        internal bool IsDisposed => disposed;
         internal static int ChannelCount => Channels.Length;
         internal static int EventChannelCount => 29;
         internal Sim.GameDataUpdate* Pointer
@@ -43,15 +52,18 @@ namespace MixedAtmospheres.Oni
         // source must be the native completed-frame snapshot at a synchronization
         // boundary, with no concurrent writer or outstanding native mutation.
         // Pointer/count validation cannot make an arbitrary address safe to read.
+        // `reuse`, a snapshot nobody reads any more, is captured into when it
+        // has the same grid (and disposed otherwise, or if the capture fails
+        // after it was chosen); an invalid source leaves it untouched.
         internal static OwnedGameDataSnapshot Capture(Sim.GameDataUpdate* source, int width, int height,
-            Action<OwnedSnapshotOverlay>? overlay = null, bool allowMissingTextures = false)
+            Action<OwnedSnapshotOverlay>? overlay = null, bool allowMissingTextures = false, OwnedGameDataSnapshot? reuse = null)
         {
             if (source == null) throw new ArgumentNullException(nameof(source));
             if (width <= 0 || height <= 0 || (long)width * height > MaximumCells)
                 throw new ArgumentOutOfRangeException(nameof(width), "Invalid snapshot dimensions.");
             if (source->numFramesProcessed < 0) throw new InvalidDataException("Negative completed native frame count.");
             var cellCount = checked(width * height);
-            var counts = new int[Channels.Length];
+            Span<int> counts = stackalloc int[Channels.Length];
             long totalBytes = sizeof(Sim.GameDataUpdate);
             // Validate EVERY descriptor before copying any native bytes. A late
             // malformed event cannot expose a partly copied published snapshot.
@@ -68,7 +80,9 @@ namespace MixedAtmospheres.Oni
                 counts[index] = count;
             }
 
-            var result = new OwnedGameDataSnapshot(width, height);
+            OwnedGameDataSnapshot result;
+            if (reuse != null && !reuse.disposed && reuse.Width == width && reuse.Height == height) result = reuse;
+            else { reuse?.Dispose(); result = new OwnedGameDataSnapshot(width, height); }
             try
             {
                 // Copy scalar metadata, then replace ALL 47 native addresses.
@@ -118,8 +132,11 @@ namespace MixedAtmospheres.Oni
         private void ReplaceBuffer(int index, IntPtr source, int count) =>
             ReplaceCombinedBuffer(index, IntPtr.Zero, 0, source, count);
 
-        // Copy directly into the final allocation. Both sources may refer to
-        // our previous buffer, which stays alive until both copies succeed.
+        // Copy into the channel's block when it is large enough and neither
+        // source overlaps it (an append's prefix is the block's own records,
+        // already in place); otherwise into a new block, freeing the old one
+        // only after both copies succeeded, since either source may be it.
+        // A channel with no records publishes a null address, as ONI does.
         private void ReplaceCombinedBuffer(int index, IntPtr prefix, int prefixCount, IntPtr suffix, int suffixCount)
         {
             RequireOpen();
@@ -133,28 +150,92 @@ namespace MixedAtmospheres.Oni
             var previousBytes = (long)lengths[index] * channel.Stride;
             var total = checked(CapturedBytes - previousBytes + bytes);
             if (total > MaximumOwnedBytes) throw new InvalidDataException("Snapshot exceeds the owned-buffer limit.");
+            var block = allocations[index]; var capacity = capacities[index];
+            var appended = prefix == block && prefixCount <= lengths[index];
+            if (bytes != 0 && block != IntPtr.Zero && bytes <= capacity &&
+                (appended || prefixBytes == 0 || !Overlaps(prefix, prefixBytes, block, capacity)) &&
+                (suffixBytes == 0 || !Overlaps(suffix, suffixBytes, block, capacity) || appended && !Overlaps(suffix, suffixBytes, block + prefixBytes, capacity - prefixBytes)))
+            {
+                if (!appended && prefixBytes != 0) Buffer.MemoryCopy((void*)prefix, (void*)block, capacity, prefixBytes);
+                if (suffixBytes != 0) Buffer.MemoryCopy((void*)suffix, (byte*)block + prefixBytes, capacity - prefixBytes, suffixBytes);
+                Publish(index, block, count, total);
+                return;
+            }
+            if (bytes == 0)
+            {
+                // The block stays for a later capture; nothing reads it now.
+                Publish(index, block, 0, total);
+                return;
+            }
+            // Event tables grow geometrically; cell planes are exactly their size.
+            var size = channel.CountOffset >= 0 ? Math.Max(bytes, Math.Min(Math.Max(capacity * 2, 1024), MaximumOwnedBytes)) : bytes;
             var replacement = IntPtr.Zero;
             try
             {
-                if (bytes != 0)
-                {
-                    replacement = Marshal.AllocHGlobal(bytes);
-                    if (prefixBytes != 0) Buffer.MemoryCopy((void*)prefix, (void*)replacement, bytes, prefixBytes);
-                    if (suffixBytes != 0) Buffer.MemoryCopy((void*)suffix, (byte*)replacement + prefixBytes, suffixBytes, suffixBytes);
-                }
+                replacement = Marshal.AllocHGlobal((IntPtr)size);
+                if (prefixBytes != 0) Buffer.MemoryCopy((void*)prefix, (void*)replacement, size, prefixBytes);
+                if (suffixBytes != 0) Buffer.MemoryCopy((void*)suffix, (byte*)replacement + prefixBytes, size - prefixBytes, suffixBytes);
             }
             catch
             {
                 if (replacement != IntPtr.Zero) Marshal.FreeHGlobal(replacement);
                 throw;
             }
-            var previous = allocations[index];
-            allocations[index] = replacement;
+            allocations[index] = replacement; capacities[index] = size;
+            Publish(index, replacement, count, total);
+            if (block != IntPtr.Zero) Marshal.FreeHGlobal(block);
+        }
+        private void Publish(int index, IntPtr block, int count, long total)
+        {
+            var channel = Channels[index];
             lengths[index] = count;
             CapturedBytes = total;
-            channel.WritePointer(Pointer, replacement);
+            channel.WritePointer(Pointer, count == 0 ? IntPtr.Zero : block);
             if (channel.CountOffset >= 0) *(int*)((byte*)Pointer + channel.CountOffset) = count;
-            if (previous != IntPtr.Zero) Marshal.FreeHGlobal(previous);
+        }
+        private static bool Overlaps(IntPtr first, long firstBytes, IntPtr second, long secondBytes) =>
+            (byte*)first < (byte*)second + secondBytes && (byte*)second < (byte*)first + firstBytes;
+        // The published address of a channel (null when it holds no records).
+        private IntPtr Published(int index) => lengths[index] == 0 ? IntPtr.Zero : allocations[index];
+
+        // Gives each texture plane the identity of the same plane in `previous`
+        // when its bytes are equal, a new one otherwise. Only a copy of a
+        // zero-time data request (no native frame processed: every paused
+        // Unity frame) is compared; a processed frame gets new identities
+        // without a comparison, as its planes were rewritten. Returns the last
+        // identity issued.
+        internal long IdentifyTextures(OwnedGameDataSnapshot? previous, long issued)
+        {
+            RequireOpen();
+            var compare = Pointer->numFramesProcessed == 0;
+            for (var index = 0; index < Channels.Length; ++index)
+            {
+                if (!Channels[index].Texture) continue;
+                var bytes = (long)lengths[index] * Channels[index].Stride;
+                textureContent[index] = compare && previous != null && !previous.disposed && previous.textureContent[index] != 0 &&
+                    (long)previous.lengths[index] * Channels[index].Stride == bytes &&
+                    SameBytes(allocations[index], previous.allocations[index], bytes) ? previous.textureContent[index] : ++issued;
+            }
+            return issued;
+        }
+        private static bool SameBytes(IntPtr first, IntPtr second, long bytes)
+        {
+            if (bytes == 0 || first == second) return true;
+            for (long offset = 0; offset < bytes; offset += int.MaxValue)
+            {
+                var length = (int)Math.Min(int.MaxValue, bytes - offset);
+                if (!new ReadOnlySpan<byte>((byte*)first + offset, length).SequenceEqual(new ReadOnlySpan<byte>((byte*)second + offset, length))) return false;
+            }
+            return true;
+        }
+        internal bool TryGetTextureContent(IntPtr data, long bytes, out long content)
+        {
+            content = 0;
+            if (disposed || data == IntPtr.Zero) return false;
+            for (var index = 0; index < Channels.Length; ++index)
+                if (Channels[index].Texture && Published(index) == data && (long)lengths[index] * Channels[index].Stride == bytes && textureContent[index] != 0)
+                { content = textureContent[index]; return true; }
+            return false;
         }
 
         internal Span<T> CellBuffer<T>(string pointerField) where T : unmanaged
@@ -224,7 +305,7 @@ namespace MixedAtmospheres.Oni
         private void ValidateOwnership()
         {
             for (var index = 0; index < Channels.Length; ++index)
-                if (Channels[index].ReadPointer(Pointer) != allocations[index] ||
+                if (Channels[index].ReadPointer(Pointer) != Published(index) ||
                     (Channels[index].CountOffset >= 0 && Channels[index].ReadCount(Pointer, CellCount) != lengths[index]))
                     throw new InvalidDataException("Snapshot overlay changed a buffer's ownership or length.");
         }
@@ -421,11 +502,19 @@ namespace MixedAtmospheres.Oni
     // been committed.
     internal sealed unsafe class OwnedSnapshotPublisher : IDisposable
     {
-        private OwnedGameDataSnapshot? current, candidate;
+        // reuseBuffers: the snapshot retired by a hand-over (which the game no
+        // longer reads) is kept as the spare the next publication is copied
+        // into, so a steady publication allocates no native memory. The game
+        // then alternates between two sets of addresses.
+        private readonly bool reuseBuffers;
+        private OwnedGameDataSnapshot? current, candidate, spare;
+        private long textureContents;
         private bool disposed;
+        internal OwnedSnapshotPublisher(bool reuseBuffers = false) { this.reuseBuffers = reuseBuffers; }
         internal Sim.GameDataUpdate* CurrentPointer => disposed
             ? throw new ObjectDisposedException(nameof(OwnedSnapshotPublisher)) : current == null ? null : current.Pointer;
         internal bool HasCandidate => candidate != null;
+        internal bool HasSpare => spare != null;
         internal OwnedGameDataSnapshot Publish(Sim.GameDataUpdate* source, int width, int height,
             Action<OwnedSnapshotOverlay>? overlay = null, bool allowMissingTextures = false)
         {
@@ -439,10 +528,18 @@ namespace MixedAtmospheres.Oni
         {
             if (disposed) throw new ObjectDisposedException(nameof(OwnedSnapshotPublisher));
             if (candidate != null) throw new InvalidOperationException("A snapshot publication is already being built.");
-            candidate = OwnedGameDataSnapshot.Capture(source, width, height, overlay, allowMissingTextures);
+            var reuse = spare; spare = null;
+            try { candidate = OwnedGameDataSnapshot.Capture(source, width, height, overlay, allowMissingTextures, reuse); }
+            catch
+            {
+                // A source refused before any copy leaves the spare as it was.
+                if (reuse != null && !reuse.IsDisposed) spare = reuse;
+                throw;
+            }
             return candidate;
         }
-        // Hands the candidate over; only then is the previous snapshot freed.
+        // Hands the candidate over; only then is the previous snapshot retired
+        // (kept as the spare, or freed).
         internal IntPtr Commit(OwnedGameDataSnapshot completed)
         {
             if (disposed || !ReferenceEquals(completed, candidate))
@@ -452,10 +549,12 @@ namespace MixedAtmospheres.Oni
                 throw new InvalidOperationException("The snapshot publication is no longer being built.");
             }
             var pointer = (IntPtr)completed.Pointer;
+            if (reuseBuffers) textureContents = completed.IdentifyTextures(current, textureContents);
             candidate = null;
             var previous = current;
             current = completed;
-            previous?.Dispose();
+            if (reuseBuffers && previous != null) { spare?.Dispose(); spare = previous; }
+            else previous?.Dispose();
             return pointer;
         }
         // A failed publication: the current snapshot stays as it was.
@@ -463,13 +562,22 @@ namespace MixedAtmospheres.Oni
         {
             if (failed == null) return;
             if (ReferenceEquals(failed, candidate)) candidate = null;
-            if (!ReferenceEquals(failed, current)) failed.Dispose();
+            if (!ReferenceEquals(failed, current) && !ReferenceEquals(failed, spare)) failed.Dispose();
+        }
+        // The content identity of a texture plane the game was handed with
+        // the current snapshot (reuseBuffers only): equal identities, equal
+        // bytes. False for any other address or size.
+        internal bool TryGetTextureContent(IntPtr data, long bytes, out long content)
+        {
+            content = 0;
+            return reuseBuffers && !disposed && current != null && current.TryGetTextureContent(data, bytes, out content);
         }
         // Session teardown: the game no longer reads any snapshot.
         internal void Clear()
         {
             candidate?.Dispose(); candidate = null;
             current?.Dispose(); current = null;
+            spare?.Dispose(); spare = null;
         }
         public void Dispose()
         {

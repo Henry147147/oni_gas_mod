@@ -97,8 +97,12 @@ namespace MixedAtmospheres.Oni
         private static OniNativeColony.Receipt[] receipts = new OniNativeColony.Receipt[4096];
         private static bool[] catalogued = Array.Empty<bool>();
         // The game's data copy: the snapshot last handed to the game stays
-        // readable until the next publication has been handed over.
-        private static readonly OwnedSnapshotPublisher publication = new OwnedSnapshotPublisher();
+        // readable until the next publication has been handed over; the one
+        // before it is the spare the next publication is copied into.
+        private static readonly OwnedSnapshotPublisher publication = new OwnedSnapshotPublisher(reuseBuffers: true);
+        // A property texture plane of the snapshot the game holds: its content
+        // identity (equal identities, equal bytes; PropertyTextureUploads).
+        internal static bool TryGetPublishedTexture(IntPtr data, int bytes, out long content) => publication.TryGetTextureContent(data, bytes, out content);
         private static string loggedFault = "";
         internal static string NoticedFault => loggedFault;
 
@@ -718,7 +722,7 @@ namespace MixedAtmospheres.Oni
             if (message == NewGameFrame && length >= 4)
             {
                 var begun = publicationLog ? System.Diagnostics.Stopwatch.GetTimestamp() : 0;
-                ColonyActivity.QueueFrame(*(float*)payload);
+                ColonyActivity.QueueFrame(*(float*)payload, settle: true);
                 if ((publicationLog || ColonyPerformanceLog.Enabled) && *(float*)payload > 0)
                 {
                     var now = System.Diagnostics.Stopwatch.GetTimestamp();
