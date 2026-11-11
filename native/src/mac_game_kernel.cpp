@@ -1631,7 +1631,8 @@ TransferWork apply_transfers(const MacClosedWorld &source,
                              std::span<const MacFluidTransfer> edits,
                              MacFluidTransferTopology topology,
                              const std::vector<k::Species> &species,
-                             EditJournal &journal) {
+                             EditJournal &journal,
+                             bool until_refused = false) {
   require(!edits.empty() && edits.size() <= 4096,
           "Invalid game transfer batch");
   require(topology == MacFluidTransferTopology::single_phase ||
@@ -1697,6 +1698,11 @@ TransferWork apply_transfers(const MacClosedWorld &source,
       if (error < 0)
         new_species = std::nextafter(new_species, old_species);
     }
+    // The caller asked to stop here rather than fail: nothing of this edit
+    // has changed the state (its cell is only recorded in the journal).
+    if (until_refused && edit.inject && std::isfinite(new_species) &&
+        new_species == old_species)
+      break;
     require(std::isfinite(new_species) && new_species >= 0 &&
                 new_species != old_species,
             "Game transfer mass is unrepresentable");
@@ -1988,13 +1994,15 @@ MacClosedWorld MacGameKernelAccess::heat(MacClosedWorld &&source,
 MacFluidTransferResult
 MacGameKernelAccess::transfers(const MacClosedWorld &source,
                                std::span<const MacFluidTransfer> edits,
-                               MacFluidTransferTopology topology) {
+                               MacFluidTransferTopology topology,
+                               bool until_refused) {
   const auto species = table(source.registry_, *source.thermodynamics_,
                              source.settings_.game.liquid_stiffness_ratio, source.settings_.game.liquid_law);
   const auto old_totals = totals_of(source, source.game_totals_.get());
   auto next = source.state();
   EditJournal journal;
-  auto work = apply_transfers(source, next, edits, topology, species, journal);
+  auto work = apply_transfers(source, next, edits, topology, species, journal,
+                              until_refused);
   auto now = transferred_totals(source, *old_totals, journal,
                                 next, work);
   MacFluidTransferResult result{source.derived(std::move(next)),
@@ -2005,9 +2013,10 @@ MacGameKernelAccess::transfers(const MacClosedWorld &source,
 MacFluidTransferResult
 MacGameKernelAccess::transfers(MacClosedWorld &&source,
                                std::span<const MacFluidTransfer> edits,
-                               MacFluidTransferTopology topology) {
+                               MacFluidTransferTopology topology,
+                               bool until_refused) {
   if (source.state_snapshot_.use_count() != 1)
-    return transfers(std::as_const(source), edits, topology);
+    return transfers(std::as_const(source), edits, topology, until_refused);
   // No other world shares this state: edit it in place, undoing on failure.
   const auto species = table(source.registry_, *source.thermodynamics_,
                              source.settings_.game.liquid_stiffness_ratio, source.settings_.game.liquid_law);
@@ -2017,7 +2026,8 @@ MacGameKernelAccess::transfers(MacClosedWorld &&source,
   auto &next = const_cast<MacTransportState &>(*source.state_snapshot_);
   EditJournal journal;
   try {
-    auto work = apply_transfers(source, next, edits, topology, species, journal);
+    auto work = apply_transfers(source, next, edits, topology, species, journal,
+                                until_refused);
     auto now = transferred_totals(source, *old_totals, journal,
                                   next, work);
     MacFluidTransferResult result{

@@ -1473,9 +1473,38 @@ a changed grid cell. Its passive observation stays unchanged for held admission.
 job acknowledgement and committed-outcome save barrier apply unchanged.
 Grid readings remain grid
 readings; the separate published inventory and checkpoint expose held state.
-The owner mass and energy audit includes both. Identical source/anchor/species/
-temperature records coalesce only when their binary64 mass sum is exactly
-representable; energy additions retain every expansion term.
+The owner mass and energy audit includes both. Records of one source, anchor
+and species coalesce without rounding a mass (until 2026-11-11 only records of
+bit-equal temperature whose masses summed exactly; see "Gathering rests"
+above); energy additions retain every expansion term.
+
+**Gathering rests (2026-11-11).** A pipe port keeps the part of a packet its
+cell could not represent and offers it again by itself next frame; that rest
+(about 1e-16 kg) is refused by every legal cell and admitted here, 8 to 20
+times a frame in a piped colony. Entries used to coalesce only when their
+temperatures were bit-equal and their masses summed exactly, so almost none
+did: one cycle of the 32-duplicant save left 36,000 entries for seven
+sources, none ever released, each retried every frame (4 to 6 ms) and copied
+with every publication. An admission now joins the entries of its source,
+anchor and material whatever their temperature. Mass sums stay exact: a sum
+that would round keeps the representable part and passes the rest to the
+key's next entry (or a new one), so a key holds a few entries of rapidly
+falling size. The entry's energy remains its exact sum and its temperature
+only prices a later release, the difference staying in the sum, as after any
+partial release. The same 1,500-tick replay adds 148 entries instead of about
+20,000; ledgers close as before. Older entries are not merged with each
+other. The record format is unchanged.
+
+The transfer batch that carries such a rest no longer fails: the core stops
+at the first injection too small to change its cell
+(`with_fluid_transfers_until_refused`), the owner handles that edit as when
+edits ran one by one (neighbours within the source's radius, then this
+inventory) and the batch continues after it. A neighbour the core would
+refuse for the same reason is skipped without a call. Frames with a refused
+injection used to apply every edit one by one; they now apply the edits
+between refusals as batches, which the core does not round identically (a
+batch of edits and the same edits one at a time differ in a few bytes of
+state, before and after this change), so those frames differ at round-off.
 
 Every owner frame retries the original source's current open-cell radius-two
 BFS through the existing moving-parcel law. Actual grid mass and U+K+G credits

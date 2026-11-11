@@ -496,6 +496,14 @@ public:
     [[nodiscard]] MacFluidTransferResult with_fluid_transfers(std::span<const MacFluidTransfer>, MacFluidTransferTopology) const&;
     // In place for an expiring owner, as with_cell_heat.
     [[nodiscard]] MacFluidTransferResult with_fluid_transfers(std::span<const MacFluidTransfer>, MacFluidTransferTopology) &&;
+    // Game kernel: with_fluid_transfers that stops, without failing, at the
+    // first injection too small to change its cell's mass of that material
+    // (the "Game transfer mass is unrepresentable" refusal). The result holds
+    // the edits before it, applied as with_fluid_transfers applies them, and
+    // their parcels: fewer parcels than edits means edits[parcels.size()] was
+    // refused and nothing after it was tried. Every other failure throws and
+    // leaves the world unchanged, as before. Other kernels never stop.
+    [[nodiscard]] MacFluidTransferResult with_fluid_transfers_until_refused(std::span<const MacFluidTransfer>, MacFluidTransferTopology) &&;
     // Game kernel: compensated flow work for many transfer calls at once (an
     // owner's whole frame). Each source's work, booked by its enthalpy edit,
     // goes the other way across its room exactly as a compensated edit's does

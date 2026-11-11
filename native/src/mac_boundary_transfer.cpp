@@ -84,6 +84,11 @@ MacFluidTransferResult MacClosedWorld::with_fluid_transfers(std::span<const MacF
     return std::as_const(*this).with_fluid_transfers(edits,topology);
 }
 
+MacFluidTransferResult MacClosedWorld::with_fluid_transfers_until_refused(std::span<const MacFluidTransfer> edits,MacFluidTransferTopology topology) && {
+    if(settings_.numerical_kernel==MacNumericalKernel::game)return MacGameKernelAccess::transfers(std::move(*this),edits,topology,true);
+    return std::as_const(*this).with_fluid_transfers(edits,topology);
+}
+
 MacFluidTransferResult MacClosedWorld::with_fluid_transfers(std::span<const MacFluidTransfer> edits,MacFluidTransferTopology topology) const& {
     if(settings_.numerical_kernel==MacNumericalKernel::game)return MacGameKernelAccess::transfers(*this,edits,topology);
     require_mac_energy_environment();

@@ -1078,8 +1078,12 @@ std::vector<std::size_t> nearby(const MacTransportState& st, std::size_t centre,
 // less the potential at the target. Both directions are booked, so the ledger
 // closes whatever the rounding.
 thread_local std::vector<std::uint8_t>* external_activity_touched=nullptr;
-MacFluidTransferResult external_transfers(MacClosedWorld&& world,std::span<const MacFluidTransfer> edits,MacFluidTransferTopology topology) {
-    auto result=std::move(world).with_fluid_transfers(edits,topology);
+// until_refused: stop at the first injection too small to change its cell
+// (fewer parcels than edits) instead of failing the whole batch.
+MacFluidTransferResult external_transfers(MacClosedWorld&& world,std::span<const MacFluidTransfer> edits,MacFluidTransferTopology topology,
+    bool until_refused=false) {
+    auto result=until_refused?std::move(world).with_fluid_transfers_until_refused(edits,topology):
+        std::move(world).with_fluid_transfers(edits,topology);
     if(external_activity_touched)for(const auto& parcel:result.parcels)
         if(parcel.mass_kg>0)(*external_activity_touched)[parcel.cell_index]=1;
     return result;
@@ -3221,7 +3225,13 @@ void capture_shadow(const NativeCells& n,std::uint64_t native_ticket,std::span<c
             pending_native_arena=std::move(native_arena);
         }
         exchanged.heat_j += sum.heat_j; exchanged.mass_in_kg += sum.mass_in_kg; exchanged.mass_out_kg += sum.mass_out_kg; exchanged.changes += sum.changes;
-    } catch (...) {}
+    } catch (...) {
+        // A capture that failed part-way has dropped native changes the owner
+        // must book (heat, moves, freezes, opens): refuse the next frame
+        // instead of advancing without them.
+        if (activity_owner.load(std::memory_order_acquire)) native_activity_capture_failed.store(true, std::memory_order_relaxed);
+        else unrecorded_native_fault.store(true, std::memory_order_release);
+    }
 }
 
 bool allow_native_transition(int native_cell, std::uint16_t element, float temperature) noexcept {
@@ -3751,8 +3761,8 @@ void run_frame(std::uint64_t ticket,double seconds,std::uint64_t frames,const ch
                 // stays and is displaced when the cell closes.
                 if (held.mass() - mass <= 1e-6 * held.mass())
                     for (std::size_t q = 0; q < held.masses.size(); ++q)
-                        if (q != k && held.masses[q] > 0 && taken.size() < 4096) taken.push_back({i, q, false, held.masses[q], 0});
-                if (mass > 0 && taken.size() < 4096) taken.push_back({i, k, false, mass, 0});
+                        if (q != k && held.masses[q] > 0) taken.push_back({i, q, false, held.masses[q], 0});
+                if (mass > 0) taken.push_back({i, k, false, mass, 0});
                 terrain.insert(terrain.begin(), MAOniColonyTerrain{f.public_cell, MA_ONI_COLONY_CLOSE}); ++frozen;
             }
             if (frozen) {
@@ -3768,8 +3778,13 @@ void run_frame(std::uint64_t ticket,double seconds,std::uint64_t frames,const ch
                 std::sort(again.begin(), again.end()); again.erase(std::unique(again.begin(), again.end()), again.end());
                 for (const auto cell : again) terrain.push_back({cell, MA_ONI_COLONY_CLOSE});
             }
-            if (!taken.empty()) {
-                auto result = external_transfers(std::move(world),taken, MacFluidTransferTopology::occupied_mixture);
+            // Every frozen cell's liquid leaves, however many froze in one
+            // native frame: a cell whose liquid stayed would be closed over it
+            // and its liquid displaced into the neighbours, beside the ice ONI
+            // already holds (extraction used to stop at 4,096 edits).
+            for (std::size_t first = 0; first < taken.size(); first += 4096) {
+                const std::span<const MacFluidTransfer> batch(taken.data() + first, std::min<std::size_t>(4096, taken.size() - first));
+                auto result = external_transfers(std::move(world),batch, MacFluidTransferTopology::occupied_mixture);
                 world = std::move(result.world);
                 for (const auto& parcel : result.parcels) {
                     L.extracted[parcel.species_index] += parcel.mass_kg; L.energy_out += parcel_energy(parcel); s.status.extracted_kg += parcel.mass_kg;
@@ -3941,7 +3956,7 @@ void run_frame(std::uint64_t ticket,double seconds,std::uint64_t frames,const ch
             std::snprintf(item, sizeof item, " %s %.2f", name, std::chrono::duration<double, std::milli>(now - transfer_mark).count());
             transfer_parts += item; transfer_mark = now;
         };
-        std::size_t transfer_singles = 0, transfer_failed_batches = 0, transfer_held = 0, precision_released = 0;
+        std::size_t transfer_singles = 0, transfer_failed_batches = 0, transfer_refused = 0, transfer_held = 0, precision_released = 0;
         // Unchanged entries have invariant encoded sizes during this pass.
         // Validate each changed entry and update the total only on admission.
         // This cache is local to the pass, never part of saved owner state.
@@ -4170,16 +4185,28 @@ void run_frame(std::uint64_t ticket,double seconds,std::uint64_t frames,const ch
         transfer_part("plan");
         for (std::size_t first = 0; first < edits.size(); first += 4096) {
             const std::span<const MacFluidTransfer> batch(edits.data() + first, std::min<std::size_t>(4096, edits.size() - first));
-            try {
-                auto result = external_transfers(std::move(world),batch, MacFluidTransferTopology::occupied_mixture);
-                world = std::move(result.world);
-                parcels.insert(parcels.end(), result.parcels.begin(), result.parcels.end());
-            } catch (const std::exception&) {
-                // One by one: an edit too small to change its cell in binary64
-                // (a few nanograms on a full liquid cell) is dropped as a zero
-                // parcel; any other failing edit faults, naming its cell.
-                ++transfer_failed_batches; transfer_singles += batch.size();
-                for (const auto& e : batch) {
+            // The batch stops at an injection too small to change its cell
+            // (a pipe port's sub-ulp rest, every frame in a piped colony):
+            // that one edit is handled below, as when edits ran one by one,
+            // and the batch goes on after it. The edits before it are applied
+            // exactly as a batch of their own, so the order of every edit and
+            // of the handling is that of one-by-one application.
+            for (std::size_t at = 0; at < batch.size();) {
+                std::span<const MacFluidTransfer> singly;
+                try {
+                    auto result = external_transfers(std::move(world),batch.subspan(at), MacFluidTransferTopology::occupied_mixture,true);
+                    world = std::move(result.world);
+                    parcels.insert(parcels.end(), result.parcels.begin(), result.parcels.end());
+                    at += result.parcels.size();
+                    if (at < batch.size()) { singly = batch.subspan(at, 1); ++at; ++transfer_refused; }
+                } catch (const std::exception&) {
+                    // Any other failure, one by one from here: an edit too
+                    // small to change its cell in binary64 (a few nanograms on
+                    // a full liquid cell) is dropped as a zero parcel; any
+                    // other failing edit faults, naming its cell.
+                    ++transfer_failed_batches; singly = batch.subspan(at); at = batch.size(); transfer_singles += singly.size();
+                }
+                for (const auto& e : singly) {
                     std::string failure;
                     try {
                         auto one = external_transfers(std::move(world),std::span(&e, 1), MacFluidTransferTopology::occupied_mixture);
@@ -4203,6 +4230,19 @@ void run_frame(std::uint64_t ticket,double seconds,std::uint64_t frames,const ch
                             // never saw this trace, and would leave it beside
                             // nothing.
                             if (cell == e.cell_index || emptied.contains(cell)) continue;
+                            {
+                                // The core's own mass admission (an injection
+                                // never gives the cell more than its source
+                                // gave): a neighbour it would refuse for the
+                                // same reason needs no call and no unwinding.
+                                const double held = world.state().cells[cell].mixture.masses[e.species_index];
+                                double sum = held + e.mass_kg;
+                                if (std::isfinite(sum)) {
+                                    const double back = sum - held;
+                                    if ((held - (sum - back)) + (e.mass_kg - back) < 0) sum = std::nextafter(sum, held);
+                                    if (sum == held) continue;
+                                }
+                            }
                             auto candidate = e; candidate.cell_index = cell;
                             try {
                                 auto one = external_transfers(std::move(world),std::span(&candidate, 1), MacFluidTransferTopology::occupied_mixture);
@@ -4229,40 +4269,65 @@ void run_frame(std::uint64_t ticket,double seconds,std::uint64_t frames,const ch
                                 entry.energy_j.add(held.internal_energy_j);entry.energy_j.add(held.potential_energy);
                                 if(auto canonical=detail::canonical_precision_sum(entry.energy_j))entry.energy_j=std::move(*canonical);
                                 // Bound durable allocation before claiming a receipt.
-                                // The first entry it coalesces with, or a new one.
-                                std::size_t merged=s.precision.size();detail::PrecisionParcel changed;
-                                for(std::size_t q=0;q<s.precision.size();++q) {
+                                // Coalesce with the entries of the same source, cell
+                                // and material, whatever their temperature: an entry's
+                                // energy is its own exact sum, and its temperature only
+                                // prices a later release (the difference stays in that
+                                // sum). No mass is rounded: what a rounded sum leaves
+                                // over goes on to the key's next entry, or becomes one.
+                                // A source's rests therefore gather in a few entries
+                                // that grow until a cell can take them, instead of one
+                                // entry a frame (36,000 entries for seven sources after
+                                // one cycle of the industrial save, none ever released).
+                                struct Change { std::size_t index; detail::PrecisionParcel value; };
+                                std::vector<Change> changes; std::optional<detail::PrecisionParcel> added;
+                                auto pending=entry; bool whole=true; // pending still carries the admission's energy
+                                for(std::size_t q=0;q<s.precision.size() && pending.mass_kg>0;++q) {
                                     const auto& prior=s.precision[q];
                                     if(prior.source!=entry.source || prior.anchor!=entry.anchor || prior.radius!=entry.radius ||
-                                        prior.native_index!=entry.native_index || prior.temperature_k!=entry.temperature_k)continue;
-                                    const double mass=prior.mass_kg+entry.mass_kg;if(!std::isfinite(mass))continue;
-                                    MacEnergySum check;check.add(prior.mass_kg);check.add(entry.mass_kg);check.add(-mass);
-                                    if(check.sign()!=0)continue; // Never round a coalesced mass.
-                                    auto energy=prior.energy_j;detail::add_precision_sum(energy,entry.energy_j);
-                                    auto canonical=detail::canonical_precision_sum(std::move(energy));if(!canonical)continue;
-                                    changed=prior;changed.mass_kg=mass;changed.energy_j=std::move(*canonical);merged=q;break;
+                                        prior.native_index!=entry.native_index)continue;
+                                    const double nearest=prior.mass_kg+pending.mass_kg;if(!std::isfinite(nearest))continue;
+                                    // Two-sum; a sum that rounded up steps down, so the rest is never negative.
+                                    const double back=nearest-prior.mass_kg;
+                                    const double error=(prior.mass_kg-(nearest-back))+(pending.mass_kg-back);
+                                    const double sum=error<0?std::nextafter(nearest,prior.mass_kg):nearest;
+                                    const double rest=error<0?error+(nearest-sum):error;
+                                    MacEnergySum check;check.add(prior.mass_kg);check.add(pending.mass_kg);check.add(-sum);check.add(-rest);
+                                    if(!(sum>prior.mass_kg) || !(rest>=0) || check.sign()!=0)continue; // never round a coalesced mass
+                                    auto next=prior;next.mass_kg=sum;
+                                    if(whole) {
+                                        auto energy=prior.energy_j;detail::add_precision_sum(energy,pending.energy_j);
+                                        auto canonical=detail::canonical_precision_sum(std::move(energy));if(!canonical)continue;
+                                        next.energy_j=std::move(*canonical);
+                                    }
+                                    changes.push_back({q,std::move(next)});
+                                    pending.mass_kg=rest;
+                                    if(whole){pending.energy_j={};whole=false;}
                                 }
-                                if(merged==s.precision.size())changed=entry;
+                                if(whole || pending.mass_kg>0)added=pending;
                                 // The inventory must still encode. Every other entry
                                 // already did (each change is checked here or by its
                                 // release, and loads are decoded), so only the changed
-                                // entry and the total size can refuse.
+                                // entries and the total size can refuse.
                                 bool fits=true;std::size_t bytes=0;
                                 try {
-                                    bytes=detail::encode_precision_inventory(std::span(&changed,1)).size();
                                     if(!precision_wire_size) {
                                         std::size_t total=12;
                                         for(const auto& old:s.precision)total+=detail::precision_wire_bytes(old);
                                         precision_wire_size=total;
                                     }
-                                    bytes+=*precision_wire_size-12;
-                                    if(merged<s.precision.size())bytes-=detail::precision_wire_bytes(s.precision[merged]);
+                                    bytes=*precision_wire_size;
+                                    for(const auto& change:changes)
+                                        bytes=bytes-detail::precision_wire_bytes(s.precision[change.index])+
+                                            detail::encode_precision_inventory(std::span(&change.value,1)).size()-12;
+                                    if(added)bytes+=detail::encode_precision_inventory(std::span(&*added,1)).size()-12;
                                     detail::ParcelWireReader::require(bytes<=detail::maximum_parcel_wire_bytes,"Moving parcel wire is too large");
                                 } catch(const std::invalid_argument&) { fits=false; }
                                 if(fits) {
                                     precision_wire_size=bytes;
                                     ++transfer_held;
-                                    if(merged<s.precision.size())s.precision[merged]=std::move(changed);else s.precision.push_back(std::move(changed));
+                                    for(auto& change:changes)s.precision[change.index]=std::move(change.value);
+                                    if(added)s.precision.push_back(std::move(*added));
                                     s.precision_used=true;parcels.push_back(held);continue;
                                 }
                             }
@@ -4393,9 +4458,9 @@ void run_frame(std::uint64_t ticket,double seconds,std::uint64_t frames,const ch
         std::erase_if(s.precision,[](const auto& held){return held.mass_kg==0 && held.energy_j.sign()==0;});
         transfer_part("precision");
         if (transfer_log)
-            std::fprintf(stderr, "[Mixed Atmospheres] transfers frame %llu:%s edits %zu plans %zu failed_batches %zu singles %zu held_new %zu precision %zu released %zu moving %zu/%zu heat %zu/%zu\n",
+            std::fprintf(stderr, "[Mixed Atmospheres] transfers frame %llu:%s edits %zu plans %zu failed_batches %zu singles %zu refused %zu held_new %zu precision %zu released %zu moving %zu/%zu heat %zu/%zu\n",
                 static_cast<unsigned long long>(s.status.completed_frames + 1), transfer_parts.c_str(), edits.size(), plans.size(),
-                transfer_failed_batches, transfer_singles, transfer_held, precision_held, precision_released,
+                transfer_failed_batches, transfer_singles, transfer_refused, transfer_held, precision_held, precision_released,
                 detail::precision_retry_counts.moving_accepted, detail::precision_retry_counts.moving,
                 detail::precision_retry_counts.heat_accepted, detail::precision_retry_counts.heat);
         const auto moving_started=std::chrono::steady_clock::now();
