@@ -46,12 +46,16 @@ namespace MixedAtmospheres.Core
         public bool PatternEnabled { get; set; } = true;
         public double PatternContrast { get; set; } = 0.04;
         public double MeaningfulGasMoleFraction { get; set; } = 0.01;
+        /// <summary>Significant figures (1-4) of warning numbers, in kPa and percent; 0 keeps the exact form (every digit, Pa).</summary>
+        public int ReadingSignificantFigures { get; set; }
         internal MixtureVisualOptions Copy()
         {
             FluidChecks.Nonnegative(PatternContrast, nameof(PatternContrast));
             FluidChecks.Nonnegative(MeaningfulGasMoleFraction, nameof(MeaningfulGasMoleFraction));
             if (PatternContrast > 0.25 || MeaningfulGasMoleFraction > 1) throw new ArgumentOutOfRangeException(nameof(PatternContrast));
-            return new MixtureVisualOptions { PatternEnabled = PatternEnabled, PatternContrast = PatternContrast, MeaningfulGasMoleFraction = MeaningfulGasMoleFraction };
+            if (ReadingSignificantFigures < 0 || ReadingSignificantFigures > 4) throw new ArgumentOutOfRangeException(nameof(ReadingSignificantFigures));
+            return new MixtureVisualOptions { PatternEnabled = PatternEnabled, PatternContrast = PatternContrast, MeaningfulGasMoleFraction = MeaningfulGasMoleFraction,
+                ReadingSignificantFigures = ReadingSignificantFigures };
         }
     }
 
@@ -89,6 +93,41 @@ namespace MixedAtmospheres.Core
             otherGasConstituentsPresent = otherGases;
             ThermodynamicPartialVolumeCubicMetres = thermodynamicPartialVolume;
         }
+    }
+
+    // Friendly readings (the player's reading precision): `figures`
+    // significant figures without an exponent for ordinary magnitudes. Four
+    // figures keep every digit of a large integer; fewer round it too (1,247 kg
+    // at 2 figures is 1200). The hover card and warnings share it.
+    internal static class MixtureReadingText
+    {
+        internal static string Friendly(double value, int figures)
+        {
+            if (double.IsNaN(value) || double.IsInfinity(value)) return value.ToString(CultureInfo.InvariantCulture);
+            figures = Math.Max(1, Math.Min(4, figures));
+            var size = Math.Abs(value);
+            if (size == 0) return "0";
+            if (size < 1e-3 || size >= 1e7)
+                return value.ToString(figures == 1 ? "0E+0" : "0." + new string('#', figures - 1) + "E+0", CultureInfo.InvariantCulture);
+            var decimals = figures - 1 - (int)Math.Floor(Math.Log10(size));
+            if (decimals >= 0)
+            {
+                var rounded = Math.Round(value, decimals, MidpointRounding.AwayFromZero);
+                return rounded.ToString(decimals == 0 ? "0" : "0." + new string('#', decimals), CultureInfo.InvariantCulture);
+            }
+            if (figures >= 4) return Math.Round(value, 0, MidpointRounding.AwayFromZero).ToString("0", CultureInfo.InvariantCulture);
+            var unit = Math.Pow(10, -decimals);
+            return (Math.Round(value / unit, MidpointRounding.AwayFromZero) * unit).ToString("0", CultureInfo.InvariantCulture);
+        }
+        // A share as a percentage; a present gas never reads 0% or, beside another gas, 100%.
+        internal static string Percent(double fraction, int figures, bool knownPresent = false)
+        {
+            if (fraction == 0 && knownPresent) return "below numeric range";
+            var text = Friendly(fraction * 100, figures);
+            return (fraction < 1 && text == "100" ? "<100" : fraction > 0 && text == "0" ? "<0.001" : text) + "%";
+        }
+        internal static string Kilopascals(double pascals, int figures, bool knownPresent = false) =>
+            pascals == 0 && knownPresent ? "below numeric range kPa" : Friendly(pascals / 1000, figures) + " kPa";
     }
 
     internal static class MixturePresentationText
@@ -649,18 +688,30 @@ namespace MixedAtmospheres.Core
             bool Has(BreathingFailure flag) => (failures & flag) != 0;
             var oxygenPresent = rows.Any(row => (row.MaterialId == oxygenId || Array.IndexOf(oxygenEquivalentIds, row.MaterialId) >= 0) && row.MassKg > 0);
             var co2Present = rows.Any(row => row.MaterialId == co2Id && row.MassKg > 0);
+            // The reading precision: friendly kPa and percent, readings at the
+            // player's significant figures and the colony's limits as chosen
+            // (to four figures: a 15 kPa minimum never reads 20), or (0, exact
+            // readings) every digit in Pa.
+            var figures = options.ReadingSignificantFigures;
+            string Share(double fraction, bool present = false) =>
+                figures == 0 ? MixturePresentationText.Percent(fraction, present) : MixtureReadingText.Percent(fraction, figures, present);
+            string ShareLimit(double fraction) => figures == 0 ? MixturePresentationText.Percent(fraction) : MixtureReadingText.Percent(fraction, 4);
+            string Measured(double pascals, bool present) =>
+                figures == 0 ? MixturePresentationText.PositiveNumber(pascals, present) + " Pa" : MixtureReadingText.Kilopascals(pascals, figures, present);
+            string Limit(double pascals) => figures == 0 ? Number(pascals) + " Pa" : MixtureReadingText.Kilopascals(pascals, 4);
             if (Has(BreathingFailure.Vacuum)) result.Add("No gas is present; there is no breathable atmosphere.");
-            if (Has(BreathingFailure.OxygenFractionLow)) result.Add("Oxygen fraction is too low: " + MixturePresentationText.Percent(oxygen, oxygenPresent) + "; minimum " + MixturePresentationText.Percent(settings.MinimumOxygenFraction) + ".");
-            if (Has(BreathingFailure.OxygenFractionHigh)) result.Add("Oxygen fraction is too high: " + MixturePresentationText.Percent(oxygen, oxygenPresent) + "; maximum " + MixturePresentationText.Percent(settings.MaximumOxygenFraction) + ".");
-            if (Has(BreathingFailure.OxygenPartialPressureLow)) result.Add("Oxygen partial pressure is too low: " + MixturePresentationText.PositiveNumber(oxygenPartialPressure, oxygenPresent) + " Pa; minimum " + Number(settings.MinimumOxygenPartialPressurePa) + " Pa.");
-            if (Has(BreathingFailure.CarbonDioxideFractionHigh)) result.Add("Carbon dioxide fraction exceeds its limit: " + MixturePresentationText.Percent(co2, co2Present) + "; maximum " + MixturePresentationText.Percent(settings.MaximumCo2Fraction) + ".");
-            if (Has(BreathingFailure.CarbonDioxidePartialPressureHigh)) result.Add("Carbon dioxide partial pressure exceeds its limit: " + MixturePresentationText.PositiveNumber(co2PartialPressure, co2Present) + " Pa; maximum " + Number(settings.MaximumCo2PartialPressurePa) + " Pa.");
+            if (Has(BreathingFailure.OxygenFractionLow)) result.Add("Oxygen fraction is too low: " + Share(oxygen, oxygenPresent) + "; minimum " + ShareLimit(settings.MinimumOxygenFraction) + ".");
+            if (Has(BreathingFailure.OxygenFractionHigh)) result.Add("Oxygen fraction is too high: " + Share(oxygen, oxygenPresent) + "; maximum " + ShareLimit(settings.MaximumOxygenFraction) + ".");
+            if (Has(BreathingFailure.OxygenPartialPressureLow)) result.Add("Oxygen partial pressure is too low: " + Measured(oxygenPartialPressure, oxygenPresent) + "; minimum " + Limit(settings.MinimumOxygenPartialPressurePa) + ".");
+            if (Has(BreathingFailure.CarbonDioxideFractionHigh)) result.Add("Carbon dioxide fraction exceeds its limit: " + Share(co2, co2Present) + "; maximum " + ShareLimit(settings.MaximumCo2Fraction) + ".");
+            if (Has(BreathingFailure.CarbonDioxidePartialPressureHigh)) result.Add("Carbon dioxide partial pressure exceeds its limit: " + Measured(co2PartialPressure, co2Present) + "; maximum " + Limit(settings.MaximumCo2PartialPressurePa) + ".");
             var toxicRows = rows.Where(row => row.Phase == NativeMatterPhase.Gas && row.MassKg > 0 && Array.IndexOf(toxicIds, row.MaterialId) >= 0).ToArray();
             if (Has(BreathingFailure.Contaminant) && settings.ToxicLimitReached(toxic, toxicRows.Length != 0))
-                result.Add("Toxic gas fraction exceeds its limit: " + MixturePresentationText.Percent(toxic, true) + " (" +
-                    string.Join(", ", toxicRows.Select(row => row.DisplayName)) + "); maximum " + MixturePresentationText.Percent(settings.MaximumToxicGasFraction) + ".");
+                result.Add("Toxic gas fraction exceeds its limit: " + Share(toxic, true) + " (" +
+                    string.Join(", ", toxicRows.Select(row => row.DisplayName)) + "); maximum " + ShareLimit(settings.MaximumToxicGasFraction) + ".");
             foreach (var row in rows.Where(row => row.ExceedsOwnLimit))
-                result.Add("Contaminant limit exceeded: " + row.DisplayName + " " + row.MolePercentText + "; maximum " + MixturePresentationText.Percent(row.ContaminantMoleFractionLimit!.Value) + ".");
+                result.Add("Contaminant limit exceeded: " + row.DisplayName + " " + (figures == 0 ? row.MolePercentText : Share(row.GasMoleFraction!.Value, row.MassKg > 0)) +
+                    "; maximum " + ShareLimit(row.ContaminantMoleFractionLimit!.Value) + ".");
             return result;
         }
 

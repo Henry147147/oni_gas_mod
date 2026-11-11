@@ -761,24 +761,8 @@ namespace MixedAtmospheres.Oni
         // `figures` significant figures without an exponent for ordinary
         // magnitudes. Four figures keep every digit of a large integer, as
         // before; fewer figures round it too (1,247 kg at 2 figures is 1200).
-        internal static string Friendly(double value, int figures)
-        {
-            if (double.IsNaN(value) || double.IsInfinity(value)) return value.ToString(CultureInfo.InvariantCulture);
-            figures = Math.Max(1, Math.Min(4, figures));
-            var size = Math.Abs(value);
-            if (size == 0) return "0";
-            if (size < 1e-3 || size >= 1e7)
-                return value.ToString(figures == 1 ? "0E+0" : "0." + new string('#', figures - 1) + "E+0", CultureInfo.InvariantCulture);
-            var decimals = figures - 1 - (int)Math.Floor(Math.Log10(size));
-            if (decimals >= 0)
-            {
-                var rounded = Math.Round(value, decimals, MidpointRounding.AwayFromZero);
-                return rounded.ToString(decimals == 0 ? "0" : "0." + new string('#', decimals), CultureInfo.InvariantCulture);
-            }
-            if (figures >= 4) return Math.Round(value, 0, MidpointRounding.AwayFromZero).ToString("0", CultureInfo.InvariantCulture);
-            var unit = Math.Pow(10, -decimals);
-            return (Math.Round(value / unit, MidpointRounding.AwayFromZero) * unit).ToString("0", CultureInfo.InvariantCulture);
-        }
+        // (MixtureReadingText.Friendly, shared with the breathing warnings.)
+        internal static string Friendly(double value, int figures) => MixtureReadingText.Friendly(value, figures);
         // A positive amount too small for binary64 keeps its exact wording.
         private static string Amount(double value, MixtureConstituentPresentation row, string unit) =>
             value == 0 && row.MassKg > 0 ? "below numeric range" + unit : Friendly(value) + unit;

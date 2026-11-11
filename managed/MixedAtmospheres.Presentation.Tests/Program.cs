@@ -167,6 +167,29 @@ internal static class Program
             Reject(() => new AtmosphereSettings { MaximumToxicGasFraction = 1.5 }.Validate());
         });
 
+        Test("warnings print kPa and percent at the reading precision; exact readings keep every digit in Pa", () =>
+        {
+            var rules = new AtmosphereSettings { HardMode = false, MaximumCo2Fraction = .02, MaximumCo2PartialPressurePa = 5000, MaximumToxicGasFraction = .05 };
+            var thin = Air(.21, .03, 44821.7);
+            var exact = Model(rules, limits: new Dictionary<string, double>()).Describe(thin, 1).Warnings;
+            Check(exact.SequenceEqual(new[] {
+                "Oxygen partial pressure is too low: " + (.21 * 44821.7).ToString("G8", System.Globalization.CultureInfo.InvariantCulture) + " Pa; minimum 15000 Pa.",
+                "Carbon dioxide fraction exceeds its limit: 3%; maximum 2%." }));
+            foreach (var (figures, oxygen, co2) in new[] { (4, "9.413 kPa", "3%"), (3, "9.41 kPa", "3%"), (2, "9.4 kPa", "3%"), (1, "9 kPa", "3%") })
+            {
+                var warnings = Model(rules, new MixtureVisualOptions { ReadingSignificantFigures = figures }, limits: new Dictionary<string, double>()).Describe(thin, 1).Warnings;
+                Check(warnings.SequenceEqual(new[] { "Oxygen partial pressure is too low: " + oxygen + "; minimum 15 kPa.", "Carbon dioxide fraction exceeds its limit: " + co2 + "; maximum 2%." }));
+            }
+            var co2Pressure = Model(rules, new MixtureVisualOptions { ReadingSignificantFigures = 4 }, limits: new Dictionary<string, double>()).Describe(Air(.21, .019, 400000), 1).Warnings;
+            Check(co2Pressure.Single() == "Carbon dioxide partial pressure exceeds its limit: 7.6 kPa; maximum 5 kPa.");
+            var toxic = new MixturePresentationModel(Catalog, Styles, rules, "oxygen", "carbon_dioxide", new Dictionary<string, double>(),
+                new MixtureVisualOptions { ReadingSignificantFigures = 2 }, toxicGasMaterialIds: new[] { "chlorine" });
+            var share = toxic.Describe(FromMoleFractions(new Dictionary<string, double> { ["oxygen"] = .5, ["nitrogen"] = .3765, ["chlorine"] = .1235 }), 1).Warnings;
+            Check(share.Single() == "Toxic gas fraction exceeds its limit: 12% (Chlorine); maximum 5%.");
+            Reject(() => Model(options: new MixtureVisualOptions { ReadingSignificantFigures = 5 }));
+            Check(Model(options: new MixtureVisualOptions { ReadingSignificantFigures = 3 }).VisualOptions.ReadingSignificantFigures == 3);
+        });
+
         Test("gases counted as oxygen breathe like oxygen in every reader", () =>
         {
             // The game counts polluted oxygen as oxygen; nitrogen stands in for it here.

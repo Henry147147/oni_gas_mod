@@ -66,6 +66,13 @@ gate that these requirements belong to is
   limit even when its computed fraction underflows.
 - Rows, assessment and warning text use the same partial pressures. Changing
   colours cannot change the assessment.
+- Warning numbers follow the reading precision
+  (`MixtureVisualOptions.ReadingSignificantFigures`, from
+  `display.readingPrecision`): pressures in kPa and shares in percent at the
+  player's significant figures, the limit as set, e.g. `Oxygen partial
+  pressure is too low: 9.41 kPa; minimum 15 kPa.` Exact readings (0, the
+  default of a bare model and of validation scenes) keep the earlier form with
+  every digit in Pa: `…too low: 9412.557 Pa; minimum 15000 Pa.`
 - **One rule for every reader.** `AtmosphereSettings.Assess` is the breathing
   rule. The duplicants' breathing decision (`ColonyOwner.TryReadBreathingCell`),
   the hover card's warnings, the suffocation tooltip (`ColonyBreathingStatus`),

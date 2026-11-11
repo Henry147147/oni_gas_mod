@@ -10,23 +10,26 @@ namespace MixedAtmospheres.Oni
     internal static class MixtureAppearanceSettings
     {
         private static double contrast = 0.04, traceFraction = 0.01;
+        // Warning numbers follow the reading precision (0: exact).
+        private static int figures;
         // Set by the settings runtime: (contrast, persist).
         internal static Action<double, bool>? ContrastChanged { get; set; }
         internal static double Contrast => contrast;
         internal static MixtureVisualOptions Options => new MixtureVisualOptions
-        { PatternEnabled = contrast != 0, PatternContrast = contrast == 0 ? 0.04 : contrast, MeaningfulGasMoleFraction = traceFraction };
+        { PatternEnabled = contrast != 0, PatternContrast = contrast == 0 ? 0.04 : contrast, MeaningfulGasMoleFraction = traceFraction, ReadingSignificantFigures = figures };
 
         // The player's preferences; a running presentation takes them.
-        internal static void Apply(double patternContrast, double traceMoleFraction)
+        // `significantFigures`: the reading precision, 0 for exact readings.
+        internal static void Apply(double patternContrast, double traceMoleFraction, int significantFigures)
         {
-            if (!Valid(patternContrast) || double.IsNaN(traceMoleFraction) || traceMoleFraction < 0 || traceMoleFraction > 1)
+            if (!Valid(patternContrast) || double.IsNaN(traceMoleFraction) || traceMoleFraction < 0 || traceMoleFraction > 1 || significantFigures < 0 || significantFigures > 4)
                 throw new ArgumentOutOfRangeException(nameof(patternContrast));
-            contrast = patternContrast; traceFraction = traceMoleFraction;
+            contrast = patternContrast; traceFraction = traceMoleFraction; figures = significantFigures;
             var model = MixturePresentationRuntime.CurrentModel;
             if (model == null) return;
             var current = model.VisualOptions; var next = Options;
             if (current.PatternEnabled == next.PatternEnabled && current.PatternContrast == next.PatternContrast &&
-                current.MeaningfulGasMoleFraction == next.MeaningfulGasMoleFraction) return;
+                current.MeaningfulGasMoleFraction == next.MeaningfulGasMoleFraction && current.ReadingSignificantFigures == next.ReadingSignificantFigures) return;
             MixturePresentationRuntime.Configure(model.WithVisualOptions(next));
         }
 

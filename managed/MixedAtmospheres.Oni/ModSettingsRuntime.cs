@@ -204,7 +204,8 @@ namespace MixedAtmospheres.Oni
             MixtureInspection.SignificantFigures = precision == "sig3" ? 3 : precision == "sig2" ? 2 : precision == "sig1" ? 1 : 4;
             MixtureInspection.ShowBreathingPassed = Current.Toggle("display.showBreathingPassed");
             UnityFrameTiming.SetPreference(Current.Toggle("performance.frameTimingFix"));
-            MixtureAppearanceSettings.Apply(Current.Number("display.patternContrast"), Current.Number("display.traceMoleFraction"));
+            MixtureAppearanceSettings.Apply(Current.Number("display.patternContrast"), Current.Number("display.traceMoleFraction"),
+                MixtureInspection.ExactReadings ? 0 : MixtureInspection.SignificantFigures);
             PreferencesChanged?.Invoke();
         }
         private static void ApplyWorkers()
