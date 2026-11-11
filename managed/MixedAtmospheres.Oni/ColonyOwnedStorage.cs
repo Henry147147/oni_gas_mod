@@ -453,26 +453,6 @@ namespace MixedAtmospheres.Oni
         private static void Prefix(Storage __instance)=>ColonyOwnedStorage.RetireCompleted(__instance);
     }
 
-    [HarmonyPatch]
-    internal static class ColonyExactStorageMutationPatch
-    {
-        private static IEnumerable<MethodBase> TargetMethods()
-        {
-            var names=new HashSet<string>{"Store","AddElement","AddGasChunk","AddLiquid","AddOre","AddToPrimaryElement","ConsumeAndGetDisease","ConsumeIgnoringDisease","ConsumeAllIgnoringDisease",
-                "Remove","Drop","DropAll","DropSome","DropUnlessMatching","DropUnlessHasTag","DropHasTags","ForceStore","Transfer","TransferMass","TransferUnitMass","ClearItems"};
-            return typeof(Storage).GetMethods(BindingFlags.Public|BindingFlags.NonPublic|BindingFlags.Instance|BindingFlags.DeclaredOnly).Where(method=>names.Contains(method.Name));
-        }
-        private static void Prefix(Storage __instance,object[] __args,MethodBase __originalMethod)
-        {
-            if(__originalMethod.Name=="Remove"&&__args.Length>0&&__args[0] is GameObject exhausted&&
-                ColonyOwnedStorage.RetireEmptyProjection(__instance,exhausted))return;
-            ColonyOwnedStorage.Reject(__instance,__originalMethod.Name);
-            foreach(var argument in __args)
-                if(argument is Storage storage)ColonyOwnedStorage.Reject(storage,__originalMethod.Name+" destination");
-                else if(argument is GameObject item&&item!=null)
-                {var pickup=item.GetComponent<Pickupable>();if(pickup!=null&&pickup.storage!=null)ColonyOwnedStorage.Reject(pickup.storage,__originalMethod.Name+" source");}
-        }
-    }
     // Removing an exhausted display carrier must not transfer the building's
     // disease into it. All fluid cultures already travelled with the exact
     // withdrawal, independently of the discarded native zero-mass view.
@@ -481,12 +461,6 @@ namespace MixedAtmospheres.Oni
     {
         private static bool Prefix(Storage __instance,GameObject __0) =>
             !ColonyOwnedStorage.IsRetiringEmptyProjection(__instance,__0);
-    }
-    [HarmonyPatch]
-    internal static class ColonyExactStorageItemMutationPatch
-    {
-        private static IEnumerable<MethodBase> TargetMethods()=>new[]{"SetMass","SetTemperature","SetMassTemperature","SetElement","ModifyDiseaseCount","AddDisease"}.Select(name=>AccessTools.Method(typeof(PrimaryElement),name));
-        private static void Prefix(PrimaryElement __instance,MethodBase __originalMethod)=>ColonyOwnedStorage.Reject(__instance,__originalMethod.Name);
     }
     [HarmonyPatch(typeof(SimTemperatureTransfer),"OnSimRegistered")]
     internal static class ColonyExactStorageRegistrationPatch

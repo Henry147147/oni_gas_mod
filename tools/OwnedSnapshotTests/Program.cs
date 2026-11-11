@@ -914,6 +914,8 @@ internal static unsafe class Program
         });
         Test("the owner's overlay pass and its ownership runs write and emit exactly what the original loop did", () =>
             OverlayEquivalenceTests.Run(Check));
+        Test("typed exact-storage guards cover the generic guard's game methods and return at once without stores", () =>
+            ExactStorageGuardTests.Run(Check));
         Test("a session reset while a publication is built frees it and refuses its hand-over", () =>
         {
             using var source = new NativeFixture();
