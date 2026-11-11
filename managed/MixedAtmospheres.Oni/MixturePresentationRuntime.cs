@@ -321,8 +321,12 @@ namespace MixedAtmospheres.Oni
                 var capturedModel = model!; var capturedWorld = world; var capturedFixture = fixture; var capturedSource = source;
                 var capturedGeneration = generation; var capturedEpoch = resetEpoch; var capturedIsFixture = sourceIsFixture;
                 var capturedWorldCells = includeWorldCells;
-                var inventories = new Dictionary<string, MixturePresentation>(StringComparer.Ordinal);
-                var errors = new Dictionary<string, string>(StringComparer.Ordinal);
+                // Without registered adapters (an ordinary colony) a frame has no
+                // inventories: nothing to capture or copy every Unity frame.
+                var any = Registrations.Count != 0;
+                var inventories = any ? new Dictionary<string, MixturePresentation>(StringComparer.Ordinal) : null;
+                var errors = any ? new Dictionary<string, string>(StringComparer.Ordinal) : null;
+                if (any)
                 foreach (var registration in Registrations.Values.ToArray())
                 {
                     if (capturedEpoch != resetEpoch) throw new InvalidOperationException("The presentation session ended during an inventory capture.");
@@ -342,13 +346,13 @@ namespace MixedAtmospheres.Oni
                             throw new InvalidOperationException("Inventory adapter returned a different or missing identity.");
                         if (capturedSource != null && sample.Revision != capturedSource.Revision)
                             throw new InvalidOperationException("Inventory adapter belongs to a different authoritative colony revision.");
-                        inventories.Add(registration.Id, capturedModel.Describe(sample.Inventory, sample.VolumeCubicMetres, sample.Revision, sample.Id));
+                        inventories!.Add(registration.Id, capturedModel.Describe(sample.Inventory, sample.VolumeCubicMetres, sample.Revision, sample.Id));
                     }
                     catch (Exception error)
                     {
                         // Explicit registered ownership never silently becomes
                         // a vanilla pure packet when its adapter fails.
-                        errors[registration.Id] = error.Message;
+                        errors![registration.Id] = error.Message;
                     }
                 }
                 if (capturedEpoch != resetEpoch) throw new InvalidOperationException("The presentation session ended during an inventory capture.");
@@ -515,15 +519,20 @@ namespace MixedAtmospheres.Oni
         internal IReadOnlyDictionary<int, MixturePresentation> SuppliedCells =>
             fixtures ?? (includeWorldCells ? world?.Cells : null) ?? NoCells;
 
+        private static readonly IReadOnlyDictionary<string, MixturePresentation> NoInventories =
+            new ReadOnlyDictionary<string, MixturePresentation>(new Dictionary<string, MixturePresentation>(StringComparer.Ordinal));
+        private static readonly IReadOnlyDictionary<string, string> NoInventoryErrors =
+            new ReadOnlyDictionary<string, string>(new Dictionary<string, string>(StringComparer.Ordinal));
+        // Null inventories or errors: none (one shared empty, read-only view).
         internal RuntimeMixturePresentationFrame(int unityFrame, long generation, long sessionEpoch, MixturePresentationModel model,
             MixturePresentationFrame? world, IReadOnlyDictionary<int, MixturePresentation>? fixtures, int width, int height,
-            long revision, bool fixture, Dictionary<string, MixturePresentation> inventories, Dictionary<string, string> errors, bool includeWorldCells = true)
+            long revision, bool fixture, Dictionary<string, MixturePresentation>? inventories, Dictionary<string, string>? errors, bool includeWorldCells = true)
         {
             UnityFrame = unityFrame; PublicationGeneration = generation; SessionEpoch = sessionEpoch; Model = model; this.world = world; this.fixtures = fixtures;
             Width = width; Height = height; Revision = revision; IsFixture = fixture;
             this.includeWorldCells = includeWorldCells;
-            Inventories = new ReadOnlyDictionary<string, MixturePresentation>(inventories);
-            InventoryErrors = new ReadOnlyDictionary<string, string>(errors);
+            Inventories = inventories == null || inventories.Count == 0 ? NoInventories : new ReadOnlyDictionary<string, MixturePresentation>(inventories);
+            InventoryErrors = errors == null || errors.Count == 0 ? NoInventoryErrors : new ReadOnlyDictionary<string, string>(errors);
         }
 
         internal bool PrepareTextureScalars(int x0,int y0,int x1,int y1,out int count)

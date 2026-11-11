@@ -825,9 +825,12 @@ namespace MixedAtmospheres.Oni
                         // A plain replacement replaces the cell's fluid; replace-and-displace adds to it.
                         if (d[22] == 1) QueueTerrain(cell, OniNativeColony.Clear);
                         if ((element.IsGas || element.IsLiquid) && mass > 0)
-                            OniNativeColony.Check(OniNativeColony.QueueTransfers(new[] { WithGerms(new OniNativeColony.Transfer { PublicCell = (uint)cell,
+                        {
+                            singleTransfer[0] = WithGerms(new OniNativeColony.Transfer { PublicCell = (uint)cell,
                                 NativeIndex = element.idx, Kind = OniNativeColony.Inject, Callback = -1, MassKg = mass,
-                                TemperatureK = BitConverter.Int32BitsToSingle(BinaryPrimitives.ReadInt32LittleEndian(d.Slice(8))) }, d) }, 1));
+                                TemperatureK = BitConverter.Int32BitsToSingle(BinaryPrimitives.ReadInt32LittleEndian(d.Slice(8))) }, d);
+                            OniNativeColony.Check(OniNativeColony.QueueTransfers(singleTransfer, 1));
+                        }
                     }
                     return false;
                 }
@@ -847,7 +850,7 @@ namespace MixedAtmospheres.Oni
                     }
                     if (!OwnsFluid(cell)) return false;
                     var data = new ReadOnlySpan<byte>(payload, length * count);
-                    var list = new List<OniNativeColony.Transfer>();
+                    var list = messageTransfers; list.Clear();
                     for (var k = 0; k < count; ++k)
                     {
                         var d = data.Slice(k * length, length);
@@ -871,13 +874,13 @@ namespace MixedAtmospheres.Oni
                             NativeIndex = BinaryPrimitives.ReadUInt16LittleEndian(d.Slice(20)), Kind = OniNativeColony.Inject, Callback = -1, MassKg = mass,
                             TemperatureK = BitConverter.Int32BitsToSingle(BinaryPrimitives.ReadInt32LittleEndian(d.Slice(8))) }, d));
                     }
-                    if (list.Count > 0) OniNativeColony.Check(OniNativeColony.QueueTransfers(list.ToArray(), (uint)list.Count));
+                    if (list.Count > 0) OniNativeColony.Check(OniNativeColony.QueueTransfers(Batch(list, ref transferBatch), (uint)list.Count));
                     return true;
                 }
                 case ModifyCellEnergy:
                 {
                     if (length != 16) return false;
-                    var list = new List<OniNativeColony.Heat>();
+                    var list = messageHeat; list.Clear();
                     for (var k = 0; k < count; ++k)
                     {
                         var d = new ReadOnlySpan<byte>(payload + k * length, length);
@@ -887,7 +890,7 @@ namespace MixedAtmospheres.Oni
                             Joules = 1000.0 * BitConverter.Int32BitsToSingle(BinaryPrimitives.ReadInt32LittleEndian(d.Slice(4))),
                             MaximumTemperatureK = BitConverter.Int32BitsToSingle(BinaryPrimitives.ReadInt32LittleEndian(d.Slice(8))) });
                     }
-                    OniNativeColony.Check(OniNativeColony.QueueHeat(list.ToArray(), (uint)list.Count));
+                    OniNativeColony.Check(OniNativeColony.QueueHeat(Batch(list, ref heatBatch), (uint)list.Count));
                     return true;
                 }
             }
@@ -902,14 +905,28 @@ namespace MixedAtmospheres.Oni
         }
         private static void QueueTerrain(int cell, uint kind)
         {
-            OniNativeColony.Check(OniNativeColony.QueueTerrain(new[] { new OniNativeColony.Terrain { PublicCell = (uint)cell, Kind = kind } }, 1));
+            terrainEdit[0] = new OniNativeColony.Terrain { PublicCell = (uint)cell, Kind = kind };
+            OniNativeColony.Check(OniNativeColony.QueueTerrain(terrainEdit, 1));
             ColonyRouting.Queued(cell, kind);
+        }
+        // Message scratch (main thread, not reentered: a message's decoding
+        // calls nothing that sends one). The native queues copy each batch.
+        private static readonly List<OniNativeColony.Transfer> messageTransfers = new List<OniNativeColony.Transfer>();
+        private static readonly List<OniNativeColony.Heat> messageHeat = new List<OniNativeColony.Heat>();
+        private static OniNativeColony.Transfer[] transferBatch = new OniNativeColony.Transfer[16];
+        private static OniNativeColony.Heat[] heatBatch = new OniNativeColony.Heat[16];
+        private static readonly OniNativeColony.Transfer[] singleTransfer = new OniNativeColony.Transfer[1];
+        private static readonly OniNativeColony.Terrain[] terrainEdit = new OniNativeColony.Terrain[1];
+        private static T[] Batch<T>(List<T> list, ref T[] buffer)
+        {
+            if (buffer.Length < list.Count) buffer = new T[Math.Max(list.Count, buffer.Length * 2)];
+            list.CopyTo(buffer); return buffer;
         }
         private delegate void TransferDecoder(ReadOnlySpan<byte> data, List<OniNativeColony.Transfer> list);
         private static bool Claim(int length, int expected, int count, byte* payload, TransferDecoder decode, bool rectAnywhere)
         {
             if (length != expected) return false;
-            var list = new List<OniNativeColony.Transfer>();
+            var list = messageTransfers; list.Clear();
             for (var k = 0; k < count; ++k)
             {
                 var d = new ReadOnlySpan<byte>(payload + k * length, length);
@@ -918,7 +935,7 @@ namespace MixedAtmospheres.Oni
                 if (!inside) { if (k == 0) return false; throw new NotSupportedException("A transfer batch spans owned and native cells."); }
                 decode(d, list);
             }
-            OniNativeColony.Check(OniNativeColony.QueueTransfers(list.ToArray(), (uint)list.Count));
+            OniNativeColony.Check(OniNativeColony.QueueTransfers(Batch(list, ref transferBatch), (uint)list.Count));
             return true;
         }
 

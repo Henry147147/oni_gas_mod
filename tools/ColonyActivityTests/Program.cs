@@ -31,6 +31,8 @@ static class Program
         var unchanged=census.Finish();Equal(unchanged.Actors,1,2,3);Equal(unchanged.Touched);Equal(seeded.Actors,1,2,3);
         census.Begin(4,3);census.Observe(1,new uint[]{5,6});census.Observe(1L<<32,new uint[]{2,3});
         var moved=census.Finish();Equal(moved.Actors,2,3,5,6);Equal(moved.Touched,1,2,5,6);Equal(unchanged.Actors,1,2,3);
+        // Unchanged presence shares the previous (never written) array; no touch is the shared empty one.
+        Check(unchanged.Actors.Overlaps(seeded.Actors) && unchanged.Touched.Length==0 && !moved.Actors.Overlaps(unchanged.Actors));
         census.Retire(1);census.Begin(4,3);census.Observe(1L<<32,new uint[]{2,3});var retired=census.Finish();Equal(retired.Actors,2,3);Equal(retired.Touched,5,6);
         census.Begin(4,3);var removed=census.Finish();Equal(removed.Actors);Equal(removed.Touched,2,3);
         census.Begin(4,3);var settled=census.Finish();Equal(settled.Touched);

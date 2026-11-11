@@ -191,7 +191,7 @@ namespace MixedAtmospheres.Oni
 
         private static void BeginTextureBatch(PropertyTextures __instance, out RenderBatchState __state)
         {
-            __state = new RenderBatchState(Volatile.Read(ref textureFrame),Volatile.Read(ref texturePlan));
+            __state = RenderBatchState.Open(ref spareTextureState, Volatile.Read(ref textureFrame), Volatile.Read(ref texturePlan));
             Volatile.Write(ref texturePlan,null);
             var acquired = MixturePresentationRuntime.AcquireFrame();
             if (acquired == null || !acquired.HasWorld)
@@ -201,8 +201,11 @@ namespace MixedAtmospheres.Oni
             if (acquired.Width != Grid.WidthInCells || acquired.Height != Grid.HeightInCells)
                 throw new InvalidOperationException("Mixture presentation geometry differs from the live grid.");
             EnsureScheduling(__instance);
-            var range = Read<Vector2>(PressureRange, __instance);
-            opacity = new OpacityParameters(range.x, range.y, Read<float>(MinimumVisibility, __instance));
+            // Typed field references: a reflected read boxes each value per frame.
+            pressureRange ??= AccessTools.FieldRefAccess<PropertyTextures, Vector2>(PressureRange);
+            minimumVisibility ??= AccessTools.FieldRefAccess<PropertyTextures, float>(MinimumVisibility);
+            var range = pressureRange(__instance);
+            opacity = new OpacityParameters(range.x, range.y, minimumVisibility(__instance));
             // Unchanged inputs keep the last gas textures (GasReuse).
             __state.ReusedGas = DecideGasReuse(__instance, acquired, opacity, out __state.Upload);
             __state.GasDecided = true;
@@ -251,6 +254,7 @@ namespace MixedAtmospheres.Oni
                             seen = replaced;
                         }
                     }
+                    __state.Close(ref spareTextureState);
                 }
             }
             if (__exception != null) { DisableValidationProbes(); LastError = __exception.ToString(); }
@@ -259,14 +263,14 @@ namespace MixedAtmospheres.Oni
 
         private static void BeginOverlayBatch(out RenderBatchState __state)
         {
-            __state = new RenderBatchState(Volatile.Read(ref overlayFrame));
+            __state = RenderBatchState.Open(ref spareOverlayState, Volatile.Read(ref overlayFrame), null);
             var acquired = MixturePresentationRuntime.AcquireFrame();
             if (acquired != null) __state.Lease = MixturePresentationRuntime.EnterWorkerBatch(acquired);
             Volatile.Write(ref overlayFrame, acquired);
         }
         private static Exception? EndOverlayBatch(RenderBatchState? __state, Exception? __exception)
         {
-            if (__state != null) { Volatile.Write(ref overlayFrame, __state.Previous); __state.Lease?.Dispose(); }
+            if (__state != null) { Volatile.Write(ref overlayFrame, __state.Previous); __state.Lease?.Dispose(); __state.Close(ref spareOverlayState); }
             return __exception;
         }
 
@@ -546,14 +550,28 @@ namespace MixedAtmospheres.Oni
 
         private static void BindDirectTextures(PropertyTextures instance)
         {
-            foreach (var property in GasProperties)
+            var ids = GasTextureIds();
+            for (var k = 0; k < GasProperties.Length; ++k)
             {
-                var index = (int)property;
+                var index = (int)GasProperties[k];
                 if (instance.textureBuffers == null || index >= instance.textureBuffers.Length || instance.textureBuffers[index] == null)
                     throw new InvalidOperationException("Gas property texture buffers have not been initialized.");
-                Shader.SetGlobalTexture("_" + property + "Tex", instance.textureBuffers[index].texture);
+                Shader.SetGlobalTexture(ids[k], instance.textureBuffers[index].texture);
             }
         }
+        // The shader ids of the gas textures' global names ("_" + property + "Tex"),
+        // looked up once (main thread) instead of building and hashing the names every frame.
+        private static int[]? gasTextureIds;
+        private static int[] GasTextureIds()
+        {
+            if (gasTextureIds != null) return gasTextureIds;
+            var ids = new int[GasProperties.Length];
+            for (var k = 0; k < ids.Length; ++k) ids[k] = Shader.PropertyToID("_" + GasProperties[k] + "Tex");
+            return gasTextureIds = ids;
+        }
+        private static AccessTools.FieldRef<PropertyTextures, Vector2>? pressureRange;
+        private static AccessTools.FieldRef<PropertyTextures, float>? minimumVisibility;
+        private static RenderBatchState? spareTextureState, spareOverlayState;
 
         private static T Read<T>(FieldInfo field, object owner)
             => field.GetValue(owner) is T value ? value : throw new NotSupportedException("Invalid property-texture field " + field.Name);
@@ -579,18 +597,28 @@ namespace MixedAtmospheres.Oni
             }
         }
 
+        // One batch's state (Harmony __state), reused across Unity frames: a
+        // batch takes the spare and its end returns it (a nested batch, never
+        // expected, takes a new one).
         private sealed class RenderBatchState
         {
-            internal readonly RuntimeMixturePresentationFrame? Previous;
-            internal readonly CompactTexturePlan? PreviousPlan;
+            internal RuntimeMixturePresentationFrame? Previous;
+            internal CompactTexturePlan? PreviousPlan;
             internal IDisposable? Lease;
             internal long StartTimestamp;
             internal bool GasDecided, ReusedGas;
             internal GasUpload Upload;
-            internal RenderBatchState(RuntimeMixturePresentationFrame? previous, CompactTexturePlan? previousPlan = null)
+            internal static RenderBatchState Open(ref RenderBatchState? spare, RuntimeMixturePresentationFrame? previous, CompactTexturePlan? previousPlan)
             {
-                Previous = previous;
-                PreviousPlan = previousPlan;
+                var state = spare ?? new RenderBatchState(); spare = null;
+                state.Previous = previous; state.PreviousPlan = previousPlan; state.Lease = null;
+                state.StartTimestamp = 0; state.GasDecided = state.ReusedGas = false; state.Upload = default;
+                return state;
+            }
+            internal void Close(ref RenderBatchState? spare)
+            {
+                Previous = null; PreviousPlan = null; Lease = null; Upload = default;
+                spare = this;
             }
         }
 

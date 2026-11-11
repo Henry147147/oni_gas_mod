@@ -126,15 +126,27 @@ namespace MixedAtmospheres.Oni
             foreach (var cell in before) retired.Add(cell);
             previous.Remove(identity);
         }
+        // Snapshot arrays are never written after Finish: presence equal to the
+        // last census shares its array, and no touch shares the empty one.
+        private uint[] lastActors = Array.Empty<uint>();
         internal ColonyActivitySnapshot Finish()
         {
             foreach (var pair in previous)
                 if (!seen.Contains(pair.Key)) { foreach (var cell in pair.Value) touched.Add(cell); missing.Add(pair.Key); }
             foreach (var identity in missing) previous.Remove(identity);
-            var a = new uint[actors.Count]; actors.CopyTo(a); Array.Sort(a);
-            var t = new uint[touched.Count]; touched.CopyTo(t); Array.Sort(t);
+            var a = Sorted(actors, lastActors); lastActors = a;
+            var t = Sorted(touched, Array.Empty<uint>());
             return new ColonyActivitySnapshot(a, t);
         }
-        internal void Reset() { previous.Clear(); seen.Clear(); actors.Clear(); touched.Clear(); retired.Clear(); missing.Clear(); width = height = 0; }
+        private static uint[] Sorted(HashSet<uint> cells, uint[] same)
+        {
+            if (same.Length == cells.Count)
+            {
+                var equal = true; foreach (var cell in same) if (!cells.Contains(cell)) { equal = false; break; }
+                if (equal) return same;
+            }
+            var result = new uint[cells.Count]; cells.CopyTo(result); Array.Sort(result); return result;
+        }
+        internal void Reset() { previous.Clear(); seen.Clear(); actors.Clear(); touched.Clear(); retired.Clear(); missing.Clear(); width = height = 0; lastActors = Array.Empty<uint>(); }
     }
 }

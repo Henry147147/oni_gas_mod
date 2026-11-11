@@ -121,7 +121,7 @@ namespace MixedAtmospheres.Oni
         internal static double DeliveredKg { get; private set; }
         internal static void Reset()
         {
-            registering.Clear(); native.Clear(); owned.Clear(); replies.Clear(); callbacks.Clear(); ordered=null; ++ActivityInputs;
+            registering.Clear(); native.Clear(); owned.Clear(); replies.Clear(); callbacks.Clear(); ordered=null; ++ActivityInputs; frameTransfers.Clear(); queueing = false;
             issued = 0; Consumers = Emitters = 0; Queued = Delivered = 0; DeliveredKg = 0; SourceKg.Clear();
         }
 
@@ -301,12 +301,29 @@ namespace MixedAtmospheres.Oni
                 }
             }
         }
+        // Per-frame scratch (main thread): the frame's transfers, the array
+        // handed to the native queue (it copies them), and element ids by
+        // index for the source ledger (Enum.ToString per emitter per frame).
+        private static readonly List<OniNativeColony.Transfer> frameTransfers = new List<OniNativeColony.Transfer>();
+        private static OniNativeColony.Transfer[] transferArray = new OniNativeColony.Transfer[64];
+        private static bool queueing;
+        private static string?[] elementIds = Array.Empty<string?>();
+        private static string ElementId(Element element)
+        {
+            if (element.idx >= elementIds.Length) Array.Resize(ref elementIds, Math.Max(element.idx + 1, ElementLoader.elements.Count));
+            return elementIds[element.idx] ??= element.id.ToString();
+        }
         internal static void QueueFrame(float seconds)
         {
             TakeNative();
             if (!(seconds > 0) || owned.Count == 0) return;
             using var pipeBatch = ColonyPipePumps.BeginActorBatch();
-            var list = new List<OniNativeColony.Transfer>(owned.Count);
+            // A reentrant frame (never expected) uses its own list.
+            var reused = !queueing; queueing = true;
+            try
+            {
+            var list = reused ? frameTransfers : new List<OniNativeColony.Transfer>(owned.Count);
+            list.Clear();
             foreach (var entry in Ordered())
             {
                 var a = entry.Value;
@@ -332,14 +349,22 @@ namespace MixedAtmospheres.Oni
                 var germs = a.Disease != 0 && a.Interval > 0 ? a.Germs * seconds / a.Interval : 0;
                 a.Source ??= SourceOf(a.Cell);
                 if (!SourceKg.TryGetValue(a.Source, out var byElement)) SourceKg[a.Source] = byElement = new SortedDictionary<string, double>();
-                byElement[element.id.ToString()] = (byElement.TryGetValue(element.id.ToString(), out var kg) ? kg : 0) + a.Mass * seconds;
+                var id = ElementId(element);
+                byElement[id] = (byElement.TryGetValue(id, out var kg) ? kg : 0) + a.Mass * seconds;
                 list.Add(new OniNativeColony.Transfer { PublicCell = (uint)a.Cell, NativeIndex = a.NativeIndex, Kind = OniNativeColony.Inject, Callback = -1,
                     MassKg = a.Mass * seconds, TemperatureK = a.Temperature, Disease = germs > 0 ? a.Disease : 0, DiseaseCount = germs });
             }
             if (list.Count == 0) return;
-            if (pipeBatch == null) OniNativeColony.Check(OniNativeColony.QueueTransfers(list.ToArray(), (uint)list.Count));
+            if (pipeBatch == null)
+            {
+                if (transferArray.Length < list.Count) transferArray = new OniNativeColony.Transfer[Math.Max(list.Count, transferArray.Length * 2)];
+                list.CopyTo(transferArray);
+                OniNativeColony.Check(OniNativeColony.QueueTransfers(transferArray, (uint)list.Count));
+            }
             else pipeBatch.Commit(list);
             Queued += list.Count;
+            }
+            finally { if (reused) { frameTransfers.Clear(); queueing = false; } }
         }
 
         // Registration answers and emitter callbacks go out with the frame.
