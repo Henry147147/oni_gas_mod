@@ -236,6 +236,12 @@ Measured on the 744825 installations:
   - Synthetic envelopes saved at 744825 load under 744826.
   - Newer, older-than-supported, catalogue-changed and model-changed envelopes
     are refused with their reason.
+  - Material model 4 (0.1.4,
+    [molecular masses](material-catalogue.md#molecular-masses-014-2026-11-11)):
+    an earlier model is refused with "Start a new colony with this version",
+    a newer one with "Update the mod". The model-3 frozen saves
+    `base-defaults-p10-v1` and `-p11-v1` are refused this way and the
+    model-4 `base-defaults-p12-v1` is accepted.
   - Real envelopes are accepted byte for byte by a later build: every prepared
     base-game save in `local/saves` and a `bfb1168` Spaced Out! manual save.
     That is the envelope only (framing, build, catalogue, material model);

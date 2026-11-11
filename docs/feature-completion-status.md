@@ -1,5 +1,14 @@
 # Feature completion work
 
+**Update, 2026-11-11, 0.1.4:** by user decision oxygen, polluted oxygen,
+hydrogen and chlorine have the masses of their molecules
+([material catalogue](material-catalogue.md#molecular-masses-014-2026-11-11)):
+normal base air reads about 125 kPa instead of 250, natural gas and steam
+rise above oxygen and chlorine sinks below carbon dioxide. Earlier colonies
+are refused at the menu (save material model 4), so the frozen acceptance
+save and both full-colony benchmark saves were made again. Candidate
+[0.1.4](playtest-0.1.4.md); its acceptance is recorded there.
+
 **Update, 2026-11-11:** private candidate [0.1.3](playtest-0.1.3.md) carries
 out a project review of speed, bugs and playability. The review found that
 0.1.2 had slowed the Spaced Out! full colony by a third (170 to 228 ms a

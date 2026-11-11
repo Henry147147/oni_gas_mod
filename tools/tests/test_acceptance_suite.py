@@ -260,7 +260,7 @@ class CriteriaTests(unittest.TestCase):
                         "CompletedFrames": 33 + frames, "OwnerConfigFlags": 29,
                         "RejectionCriteria": {"Available": True, "PressureSolveFailures": 0, "UnconvergedPressure": 0,
                                               "NegativeOrNonFinitePressure": 0, "SweptVolumeRefinements": 56},
-                        "RestoredOwner": {"PhysicalVersion": 31, "LiquidLaw": 1, "PressureIterationCap": 400,
+                        "RestoredOwner": {"PhysicalVersion": 32, "LiquidLaw": 1, "PressureIterationCap": 400,
                                           "HeatIterationCap": 800, "GasHeatMixing": 8.0}}
         owner_report.update(owner or {})
         write(validation / "colony-owner.json", owner_report)

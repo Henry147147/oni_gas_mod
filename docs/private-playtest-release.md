@@ -25,7 +25,7 @@ skipped):
 - **Gameplay:** all 15 Linux gameplay batches, and the WindowsPlayer batches b2, b3, b4, b6,
   b7, b10, b11, b12 and contact under Proton.
 - **Asteroids:** all nine base-game starting asteroids at 3,000 frames each.
-- **One cycle:** the one-cycle run on the frozen save `base-defaults-p11-v1`.
+- **One cycle:** the one-cycle run on the frozen save `base-defaults-p11-v1` (from 0.1.4: `base-defaults-p12-v1`, made under material model 4).
 - **Ten cycles:** 30,031 owner frames, from cycle 1 to cycle 11, at normal speed without
   invincibility. All three duplicants were alive in every sample, the owner never faulted,
   no pressure attempt failed and no relaxation was skipped. Ledgers closed at the existing

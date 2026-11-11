@@ -45,8 +45,10 @@ TOOLS = ROOT / "tools"
 GAME_SLOT = TOOLS / "game_slot.sh"
 RUN_LOCKED = TOOLS / "run_locked.sh"
 
-FROZEN_SAVE = Path("local/saves/base-defaults-p11-v1.sav")
-FROZEN_SAVE_SHA256 = "92630e515cef64ba42f8954cd1c2234ea1fe7f14ab0643e8f0cb2a7877299fad"
+# Made from cc56605 (0.1.4) by the recipe in tools/ONI_HEADLESS.md: material model 4 (molecular
+# masses), game profile 12. The earlier `base-defaults-p11-v1` holds model 3, which 0.1.4 refuses.
+FROZEN_SAVE = Path("local/saves/base-defaults-p12-v1.sav")
+FROZEN_SAVE_SHA256 = "2fb8701dcc2ecf1ba5eb4db16fff91b409c35f77a449c4a5dbe9ef285e94037b"
 VALIDATION = "mods/Dev/MixedAtmospheres.IntegrationProbe/game-contract-local/colony-validation"
 LINUX_PROFILE = "home/.config/unity3d/Klei/Oxygen Not Included"
 PROTON_PROFILE = "compatdata/pfx/drive_c/users/steamuser/Documents/Klei/OxygenNotIncluded"
@@ -666,7 +668,7 @@ def cycle_checks(rc: int, output: Path, frames: int, hashes: dict, package: Path
         "natural_autosave_log_present": bool(autosaves),
         "natural_autosave_files_present": bool(existing),
         "default_config_flags": owner.get("OwnerConfigFlags") == 29,
-        "saved_default_profile_eleven": family == 11 and profile.get("LiquidLaw") == 1
+        "saved_default_profile_twelve": family == 12 and profile.get("LiquidLaw") == 1
             and profile.get("PressureIterationCap") == 400 and profile.get("HeatIterationCap") == 800
             and profile.get("GasHeatMixing") == 8,
         "frozen_package_unchanged": after == hashes and sha256(package / "package-manifest.json") == manifest_sha,
