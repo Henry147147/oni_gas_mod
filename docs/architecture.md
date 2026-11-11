@@ -202,7 +202,7 @@ the full policy is in [mixture presentation](mixture-presentation.md) and
   Colours blend constituent sRGB palettes in linear RGB with a world-anchored
   4-by-4-cell pattern. Pressure queries and overlays use double-precision Pa;
   the danger channel and warnings come from the numerical assessment, not tint.
-- Four overlays expose composition, total pressure, oxygen partial pressure and
+- Four overlays expose composition, total pressure, oxygen margin and
   breathability. Unowned cells keep native colours and native breathing.
   Colour-only mode and contrast (default 0.04) change no inventories or policy.
 - Worker sampling and colour lookup allocate zero after publication. Teardown

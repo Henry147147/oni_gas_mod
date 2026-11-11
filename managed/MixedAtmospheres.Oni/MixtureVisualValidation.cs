@@ -111,7 +111,7 @@ namespace MixedAtmospheres.Oni
                 case 5: Capture("03-composition-overlay.png"); break;
                 case 6: Show(MixtureOverlays.Id(MixtureOverlayKind.Pressure), "Physical total gas pressure · kPa"); break;
                 case 7: Capture("04-pressure-overlay.png"); break;
-                case 8: Show(MixtureOverlays.Id(MixtureOverlayKind.OxygenPartialPressure), "Oxygen partial pressure · kPa"); break;
+                case 8: Show(MixtureOverlays.Id(MixtureOverlayKind.OxygenMargin), "Oxygen margin · times the breathing minimums"); break;
                 case 9: Capture("05-oxygen-partial-pressure.png"); break;
                 case 10: Show(MixtureOverlays.Id(MixtureOverlayKind.Breathability), "Breathability · all warnings, including imperceptible hazardous traces"); break;
                 case 11: Capture("06-breathability-overlay.png"); break;

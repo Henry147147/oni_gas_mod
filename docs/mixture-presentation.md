@@ -92,10 +92,24 @@ gate that these requirements belong to is
   replace the model through `WithVisualOptions` and never change inventory or
   breathing policy. Core accepts contrast up to 0.25; the game settings reader
   accepts up to 0.15.
-- The composition, gas-pressure, oxygen-partial-pressure and breathability
-  overlays use the same model as normal colour, hover and details. Harmful
-  traces stay in warnings and the breathability legend even when their colour
-  contribution is imperceptible.
+- The composition, gas-pressure, oxygen-margin and breathability overlays use
+  the same model as normal colour, hover and details. Harmful traces stay in
+  warnings and the breathability legend even when their colour contribution is
+  imperceptible. Legends hold only colour rows; no row merely explains.
+- **Oxygen margin** colours each tile by how many times the loaded colony's
+  breathing minimums its oxygen holds: m = min(oxygen share / minimum share,
+  oxygen partial pressure / minimum partial pressure), polluted oxygen
+  counting as oxygen as it does for breathing. Below 1 (a duplicant cannot
+  breathe the tile) it runs from dark red at vacuum to orange; from 1 it runs
+  from yellow (barely breathable) to teal at 4× and above (comfortable). Its
+  legend: Below the breathing minimum, Barely breathable, Comfortable, with
+  the colony's own minimums in their tooltips. It measures oxygen only;
+  carbon dioxide and toxic gas are on the Breathability overlay. The overlay
+  was called "Oxygen partial pressure" and saturated at the minimum; it is
+  not called plain "Oxygen" because ONI's own overlay has that name.
+- ONI's own **Oxygen** overlay (F1) shades breathable owned tiles along ONI's
+  breathable gradient by the same margin, from barely breathable at 1× to
+  comfortable at 4×; failing tiles keep ONI's toxic and unbreathable colours.
 - **Gas pressure** is linear from vacuum to 500 kPa with three colour stops:
   dark blue at vacuum, green-grey at 250 kPa (normal base air: 1.6–1.8 kg of
   oxygen per tile reads about 245–275 kPa) and amber from 500 kPa up, so thin

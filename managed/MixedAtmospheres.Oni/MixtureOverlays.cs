@@ -10,7 +10,7 @@ using UnityEngine;
 
 namespace MixedAtmospheres.Oni
 {
-    internal enum MixtureOverlayKind { Composition, Pressure, OxygenPartialPressure, Breathability }
+    internal enum MixtureOverlayKind { Composition, Pressure, OxygenMargin, Breathability }
 
     internal sealed class MixtureOverlayMode : OverlayModes.Mode
     {
@@ -41,12 +41,13 @@ namespace MixedAtmospheres.Oni
     internal static class MixtureOverlays
     {
         internal static readonly double[] Contrasts = { 0, 0.02, 0.04, 0.08, 0.12 };
-        private static readonly string[] Names = { "Gas composition", "Gas pressure", "Oxygen partial pressure", "Breathability" };
+        // "Oxygen margin", not "Oxygen": ONI's own Oxygen overlay keeps that name.
+        private static readonly string[] Names = { "Gas composition", "Gas pressure", "Oxygen margin", "Breathability" };
         private static readonly string[] Descriptions =
         {
             "Gas colours show constituent mole fractions. Inspect a cell for every constituent, including traces.",
             "Total gas pressure from vacuum to 500 kPa. Normal base air is about 250 kPa.",
-            "Oxygen partial pressure in kPa. The same atmosphere assessment drives breathing warnings.",
+            "How far each tile's oxygen is above the breathing minimums (share and partial pressure): red cannot be breathed, yellow barely, teal comfortably.",
             "Breathing safety includes oxygen fraction, oxygen partial pressure, carbon dioxide and trace contaminants."
         };
         internal static HashedString Id(MixtureOverlayKind kind) => "MixedAtmospheres." + kind;
@@ -66,6 +67,23 @@ namespace MixedAtmospheres.Oni
             var t = Mathf.Clamp01((float)(pascals / MaximumPressurePa)) * 2;
             return t <= 1 ? Color.Lerp(Low, Normal, t) : Color.Lerp(Normal, High, t - 1);
         }
+        // The oxygen margin: how many times the colony's breathing minimums a
+        // cell's oxygen holds, the smaller of its share by moles and its
+        // partial pressure over their minimums (polluted oxygen counts, as for
+        // breathing). Below 1 a duplicant cannot breathe the cell; from 4 the
+        // air has plenty to spare.
+        internal const double ComfortableMargin = 4;
+        internal static double OxygenMargin(MixturePresentation reading, MixturePresentationModel model) =>
+            !(reading.GasMoles > 0) ? 0 : Math.Min(reading.OxygenMoleFraction / model.MinimumOxygenFraction,
+                reading.OxygenPartialPressurePa / model.MinimumOxygenPartialPressurePa);
+        // Comfort on the 1..4 margin scale, 0 at the minimums.
+        internal static float Comfort(double margin) => Mathf.Clamp01((float)((margin - 1) / (ComfortableMargin - 1)));
+        private static readonly Color Suffocating = new Color(0.42f, 0.07f, 0.09f), Failing = new Color(0.88f, 0.32f, 0.16f),
+            Barely = new Color(0.94f, 0.80f, 0.26f);
+        internal static Color MarginColor(double margin) =>
+            !(margin >= 1) ? Color.Lerp(Suffocating, Failing, Mathf.Clamp01((float)margin)) : Color.Lerp(Barely, Safe, Comfort(margin));
+        private static string Percent(double fraction) => (fraction * 100).ToString("0.##", CultureInfo.InvariantCulture) + "%";
+        private static string Kilopascals(double pascals) => (pascals / 1000).ToString("0.##", CultureInfo.InvariantCulture) + " kPa";
         private static ConditionalWeakTable<OverlayLegend, NativeOxygenLegend> OxygenLegends = new ConditionalWeakTable<OverlayLegend, NativeOxygenLegend>();
 
         static MixtureOverlays() { MixturePresentationRuntime.SessionEnding += ResetSessionLegend; }
@@ -119,14 +137,15 @@ namespace MixedAtmospheres.Oni
             internal void Apply(SimDebugView view)
             {
                 var icon = units.FirstOrDefault()?.icon;
-                Info.name = "Mixture breathability · owned cells";
+                Info.name = "Oxygen · breathability";
                 Info.isProgrammaticallyPopulated = false;
                 Info.diagrams = new List<GameObject>();
                 OverlayLegend.OverlayInfoUnit Unit(string text, string description, Color color) =>
                     new OverlayLegend.OverlayInfoUnit(icon, text, color, Color.white) { tooltip = description };
                 Info.infoUnits = new List<OverlayLegend.OverlayInfoUnit>
                 {
-                    Unit("Breathable · all checks pass", "For owned mixture cells: oxygen fraction, oxygen partial pressure, carbon dioxide and contaminant limits all pass. Unowned cells retain ONI's native oxygen colours.", view.breathableGradient.Evaluate(1)),
+                    Unit("Comfortable", "At least four times the breathing minimums for oxygen; every other breathing check passes. Unowned cells keep ONI's own oxygen colours.", view.breathableGradient.Evaluate(1)),
+                    Unit("Barely breathable", "Just above the breathing minimums for oxygen: a little more of another gas, or thinner air, and duplicants cannot breathe.", view.breathableGradient.Evaluate(0)),
                     Unit("Carbon dioxide / contaminants · unsafe", "Inspect for the exact constituent and limit; a hazardous trace can be visually imperceptible.",
                         view.toxicColour != null && view.toxicColour.Length != 0 ? view.toxicColour[view.toxicColour.Length - 1] : view.unbreathableColour),
                     Unit("Oxygen / pressure / vacuum · unsafe", "Low oxygen, thin atmosphere, excessive oxygen or vacuum in an owned mixture cell. This presentation does not replace gameplay breathing.", view.unbreathableColour)
@@ -157,9 +176,8 @@ namespace MixedAtmospheres.Oni
                     return new Color((float)rgb.R, (float)rgb.G, (float)rgb.B, sample.GasMassKg > 0 ? 1 : 0);
                 case MixtureOverlayKind.Pressure:
                     return PressureColor(sample.TotalPressurePa);
-                case MixtureOverlayKind.OxygenPartialPressure:
-                    var threshold = frame.Model.MinimumOxygenPartialPressurePa;
-                    return Color.Lerp(Unsafe, Safe, Mathf.Clamp01((float)(sample.OxygenPartialPressurePa / threshold)));
+                case MixtureOverlayKind.OxygenMargin:
+                    return MarginColor(OxygenMargin(sample, frame.Model));
                 default:
                     if ((sample.Failures & BreathingFailure.Contaminant) != 0) return Toxic;
                     if ((sample.Failures & BreathingFailure.Vacuum) != 0) return Low;
@@ -182,9 +200,8 @@ namespace MixedAtmospheres.Oni
                 var model = MixturePresentationRuntime.AcquireFrame()?.Model;
                 if (model != null)
                     foreach (var style in model.GasMaterialIds.Select(id => model.Styles[id]).OrderBy(value => value.DisplayName, StringComparer.Ordinal))
-                        list.Add(new LegendEntry(style.DisplayName, "Colour contribution is weighted by gas mole fraction.",
+                        list.Add(new LegendEntry(style.DisplayName, "Each gas colours a tile by its share of the gas by moles (not by mass).",
                             new Color((float)style.Color.R, (float)style.Color.G, (float)style.Color.B)));
-                list.Add(new LegendEntry("Mole fractions, not mass fractions", Descriptions[0], Color.white, displaySprite: false));
             }
             else if (kind == MixtureOverlayKind.Pressure)
             {
@@ -193,12 +210,17 @@ namespace MixedAtmospheres.Oni
                 list.Add(new LegendEntry("250 kPa · normal base air", "1.6–1.8 kg of oxygen per tile reads about 245–275 kPa.", PressureColor(NormalPressurePa)));
                 list.Add(new LegendEntry("500 kPa or more", "The scale ends here; the hover card shows the exact pressure.", PressureColor(MaximumPressurePa)));
             }
-            else if (kind == MixtureOverlayKind.OxygenPartialPressure)
+            else if (kind == MixtureOverlayKind.OxygenMargin)
             {
-                list.Add(new LegendEntry("0 kPa O2", "No oxygen partial pressure.", Unsafe));
-                var threshold = MixturePresentationRuntime.AcquireFrame()?.Model.MinimumOxygenPartialPressurePa ?? 15000;
-                list.Add(new LegendEntry((threshold / 1000).ToString("0.###", CultureInfo.InvariantCulture) + " kPa O2", "Active minimum oxygen partial pressure. Other breathing checks also apply.", Safe));
-                list.Add(new LegendEntry("Partial pressure is only one breathing check", Descriptions[2], Color.white, displaySprite: false));
+                // The loaded colony's minimums (docs/settings.md).
+                var model = MixturePresentationRuntime.AcquireFrame()?.Model;
+                var share = model?.MinimumOxygenFraction ?? .15; var pascals = model?.MinimumOxygenPartialPressurePa ?? 15000;
+                list.Add(new LegendEntry("Below the breathing minimum", "Duplicants cannot breathe here: less than " + Percent(share) +
+                    " oxygen by moles or less than " + Kilopascals(pascals) + " of oxygen (polluted oxygen counts).", MarginColor(.5)));
+                list.Add(new LegendEntry("Barely breathable", "Just above " + Percent(share) + " and " + Kilopascals(pascals) +
+                    ": a little more of another gas, or thinner air, and duplicants cannot breathe.", MarginColor(1)));
+                list.Add(new LegendEntry("Comfortable", "At least four times the minimums: " + Percent(ComfortableMargin * share) + " oxygen and " +
+                    Kilopascals(ComfortableMargin * pascals) + ". Carbon dioxide and other harmful gases show on the Breathability overlay.", MarginColor(ComfortableMargin)));
             }
             else
             {
@@ -207,8 +229,6 @@ namespace MixedAtmospheres.Oni
                 list.Add(new LegendEntry("Contaminated", "A trace constituent exceeds its configured limit, even when its tint is imperceptible.", Toxic));
                 list.Add(new LegendEntry("Vacuum / no gas", "There is no gas available for breathing.", Low));
             }
-            list.Add(new LegendEntry("Cells without readings are left blank",
-                "Inspect a cell to see its mixture measurements. A blank area does not indicate vacuum.", Color.white, displaySprite: false));
             return list;
         }
 

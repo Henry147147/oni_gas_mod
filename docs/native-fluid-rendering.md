@@ -60,7 +60,7 @@ does not connect sparse readings across unowned cells.
 | F8 | Expand/collapse the details |
 | F9 | Focus the camera on the region |
 | F10 | Show/hide the boundary |
-| F5 | Cycle composition, gas pressure, oxygen partial pressure, breathability and normal view |
+| F5 | Cycle composition, gas pressure, oxygen margin, breathability and normal view |
 
 Focusing sets the camera's current **and target** zoom through
 `SnapTo(position, size)`; assigning only the current size drifted back to the

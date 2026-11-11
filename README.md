@@ -6,7 +6,7 @@ Pumps and pipes carry full mixtures. Filters remove the constituent you pick and
 
 New colonies keep vanilla generated oxygen and polluted oxygen. Nitrogen content and the nitrogen-air option have been removed. A ten-cycle oxygen shortfall for your starting duplicants is supplied as oxylite beside the printing pod. If a fluid fault occurs, the gas and liquid simulation stops visibly and saves are refused, so reload your last save to continue. The game clock slows to match the solver's pace; this mod does not promise real-time speed.
 
-Plan sustainable oxygen production early. CO₂ still displaces oxygen, so an oxygen-poor room remains unsafe with CO₂ limits off. If you enable the limits, arrange CO₂ removal too. Use the Breathability overlay and partial-pressure readings to check reachable air.
+Plan sustainable oxygen production early. CO₂ still displaces oxygen, so an oxygen-poor room remains unsafe with CO₂ limits off. If you enable the limits, arrange CO₂ removal too. Use the Oxygen margin overlay to see how much oxygen a room has to spare, and the Breathability overlay to see why a tile cannot be breathed.
 
 Mixed Atmospheres is a private playtest build for Windows x64 and Linux. It applies to new base-game and Spaced Out! colonies, ONI build 744825, licensed through Steam. Spaced Out! can remain enabled; keep the other gameplay packs disabled for this playtest. Existing vanilla saves keep their vanilla simulation. The Windows build has been tested under Proton; Windows validation is part of your own playtest. Final release-candidate acceptance is still in progress, so this is preparation for private playtesting, not a public release. There is no Workshop release.
 
@@ -129,13 +129,13 @@ reading under the mouse (mass, temperature, pressure, oxygen partial pressure
 and composition), the solver and game speed, and any solver error. Drag its
 title bar to move it, use **–**/**+** to collapse it and **×** to hide it; the
 **Atmospheres** button beside **Vitals** at the top of the screen brings it back. Open the top-right
-**Overlays** menu for **Gas composition**, **Gas pressure**, **Oxygen partial
-pressure** and **Breathability**; hover a cell for each non-trace gas and select
+**Overlays** menu for **Gas composition**, **Gas pressure**, **Oxygen
+margin** and **Breathability**; hover a cell for each non-trace gas and select
 it for its full composition.
 
 | Control | Effect |
 | --- | --- |
-| Shift+F5 | Cycle composition, pressure, oxygen partial pressure, breathability and normal view |
+| Shift+F5 | Cycle composition, pressure, oxygen margin, breathability and normal view |
 | Shift+F8 | Expand/collapse the status panel |
 
 ### Settings

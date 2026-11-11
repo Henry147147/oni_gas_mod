@@ -452,7 +452,8 @@ namespace MixedAtmospheres.Oni
         {
             var frame = Volatile.Read(ref overlayFrame);
             if (frame == null || !frame.TryGetCell(__1, out var reading)) return true;
-            if (reading!.IsBreathable) __result = __0.breathableGradient.Evaluate(1);
+            // Breathable air shades from barely (0) to comfortable (1) by its oxygen margin, as ONI's own gradient does.
+            if (reading!.IsBreathable) __result = __0.breathableGradient.Evaluate(MixtureOverlays.Comfort(MixtureOverlays.OxygenMargin(reading, frame.Model)));
             else if ((reading.Failures & (BreathingFailure.Contaminant | BreathingFailure.CarbonDioxideFractionHigh | BreathingFailure.CarbonDioxidePartialPressureHigh)) != 0
                 && __0.toxicColour != null && __0.toxicColour.Length != 0) __result = __0.toxicColour[__0.toxicColour.Length - 1];
             else __result = __0.unbreathableColour;
