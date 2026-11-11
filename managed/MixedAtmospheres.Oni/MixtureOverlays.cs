@@ -45,7 +45,7 @@ namespace MixedAtmospheres.Oni
         private static readonly string[] Descriptions =
         {
             "Gas colours show constituent mole fractions. Inspect a cell for every constituent, including traces.",
-            "Total gas pressure in kPa. Gas pressure is calculated from the complete mixture and its available volume.",
+            "Total gas pressure from vacuum to 500 kPa. Normal base air is about 250 kPa.",
             "Oxygen partial pressure in kPa. The same atmosphere assessment drives breathing warnings.",
             "Breathing safety includes oxygen fraction, oxygen partial pressure, carbon dioxide and trace contaminants."
         };
@@ -56,6 +56,16 @@ namespace MixedAtmospheres.Oni
         private static readonly Color Toxic = new Color(0.85f, 0.36f, 0.79f);
         private static readonly Color Low = new Color(0.16f, 0.22f, 0.40f);
         private static readonly Color High = new Color(0.96f, 0.73f, 0.26f);
+        // Gas pressure, linear from vacuum to 500 kPa: normal base air (1.6–1.8
+        // kg of oxygen per tile, about 245–275 kPa) sits mid-scale, so both thin
+        // air and overpressure stand out from it.
+        internal const double NormalPressurePa = 250000, MaximumPressurePa = 500000;
+        private static readonly Color Normal = new Color(0.40f, 0.68f, 0.58f);
+        internal static Color PressureColor(double pascals)
+        {
+            var t = Mathf.Clamp01((float)(pascals / MaximumPressurePa)) * 2;
+            return t <= 1 ? Color.Lerp(Low, Normal, t) : Color.Lerp(Normal, High, t - 1);
+        }
         private static ConditionalWeakTable<OverlayLegend, NativeOxygenLegend> OxygenLegends = new ConditionalWeakTable<OverlayLegend, NativeOxygenLegend>();
 
         static MixtureOverlays() { MixturePresentationRuntime.SessionEnding += ResetSessionLegend; }
@@ -146,7 +156,7 @@ namespace MixedAtmospheres.Oni
                     var rgb = sample.ColorAt(cell % frame.Width, cell / frame.Width);
                     return new Color((float)rgb.R, (float)rgb.G, (float)rgb.B, sample.GasMassKg > 0 ? 1 : 0);
                 case MixtureOverlayKind.Pressure:
-                    return Color.Lerp(Low, High, Mathf.Clamp01((float)(sample.TotalPressurePa / 200000)));
+                    return PressureColor(sample.TotalPressurePa);
                 case MixtureOverlayKind.OxygenPartialPressure:
                     var threshold = frame.Model.MinimumOxygenPartialPressurePa;
                     return Color.Lerp(Unsafe, Safe, Mathf.Clamp01((float)(sample.OxygenPartialPressurePa / threshold)));
@@ -178,9 +188,10 @@ namespace MixedAtmospheres.Oni
             }
             else if (kind == MixtureOverlayKind.Pressure)
             {
-                foreach (var kpa in new[] { 0, 15, 50, 101.325, 200 })
-                    list.Add(new LegendEntry(kpa.ToString("0.###", CultureInfo.InvariantCulture) + " kPa", "Total gas pressure.", Color.Lerp(Low, High, (float)(kpa / 200))));
-                list.Add(new LegendEntry("Above 200 kPa", "The scale saturates; exact pressure remains in the inspection card.", High));
+                list.Add(new LegendEntry("Vacuum", "No gas, or almost none.", PressureColor(0)));
+                list.Add(new LegendEntry("100 kPa", "Thin: less than half the pressure of normal base air.", PressureColor(100000)));
+                list.Add(new LegendEntry("250 kPa · normal base air", "1.6–1.8 kg of oxygen per tile reads about 245–275 kPa.", PressureColor(NormalPressurePa)));
+                list.Add(new LegendEntry("500 kPa or more", "The scale ends here; the hover card shows the exact pressure.", PressureColor(MaximumPressurePa)));
             }
             else if (kind == MixtureOverlayKind.OxygenPartialPressure)
             {

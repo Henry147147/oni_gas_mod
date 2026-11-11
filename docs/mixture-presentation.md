@@ -96,6 +96,11 @@ gate that these requirements belong to is
   overlays use the same model as normal colour, hover and details. Harmful
   traces stay in warnings and the breathability legend even when their colour
   contribution is imperceptible.
+- **Gas pressure** is linear from vacuum to 500 kPa with three colour stops:
+  dark blue at vacuum, green-grey at 250 kPa (normal base air: 1.6–1.8 kg of
+  oxygen per tile reads about 245–275 kPa) and amber from 500 kPa up, so thin
+  air and overpressure both stand out from an ordinary room. Its legend has
+  four rows: Vacuum, 100 kPa, 250 kPa · normal base air, 500 kPa or more.
 - The native F1 legend limits mixture assessment to owned cells; unowned cells
   keep native colours. Custom modes reuse the native oxygen mode's status-item
   visibility mapping. Without it, ONI warns about an unknown view every frame.
