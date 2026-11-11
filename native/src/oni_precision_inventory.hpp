@@ -195,6 +195,13 @@ inline std::optional<PrecisionRelease> try_release_precision_parcel(const experi
             if(amount==0)continue;
             const double old=world.state().cells[cell].mixture.energy;
             if(old+amount==old)continue;
+            // A correction is rounding-sized against the cell it was held
+            // for. A trace cell (a vented room's last 1e-83 kg) would take
+            // it as its whole energy and read any temperature, or none
+            // (1e-20 J: 9e59 K; the next reading there stopped the owner).
+            // Only a cell that the correction changes by under 2^-20 of its
+            // energy takes it; otherwise it stays held.
+            if(!(std::abs(amount)<=0x1p-20*std::abs(old)))continue;
             const MacCellHeat heat{cell,amount,std::numeric_limits<double>::max()};
             ++precision_retry_counts.heat;
             auto result=world.with_cell_heat(std::span(&heat,1));

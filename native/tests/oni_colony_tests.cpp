@@ -1241,7 +1241,23 @@ void precision_heat_vacuum_control() {
     require(world.state().cells[0].mixture.mass()==0 && world.state().cells[0].mixture.energy==0,"held heat entered an empty cell");
     MacEnergySum balance=correction;balance.add(before);balance.add(-world.state().cells[1].mixture.energy);add_precision_sum(balance,held.energy_j,-1);
     require(balance.sign()==0,"held heat release did not close exactly");
-    std::cout<<"PASS precision heat vacuum: held heat skips an empty neighbour and closes in an occupied one\n";
+    // A trace cell does not take a held correction (2026-11-11): a vented
+    // room's last 1e-60 kg would read 1e39 K with 1e-20 J more, or no
+    // temperature with 1e-20 J less. Either sign stays held and the world
+    // is unchanged.
+    {
+        MacTransportState thin;thin.grid={2,1,1,1,false,false,{0,0}};thin.cells.resize(2,MacMaterialCell{ma::MixtureInventory(1),{}});
+        thin.cells[1].mixture.masses[0]=1e-60;thin.momentum_x.resize(3);thin.momentum_y.resize(4);
+        auto vented=MacClosedWorld::game_colony(registry,eos,std::move(thin),temperatures,settings);
+        const auto image=vented.checkpoint();
+        for(const double joules:{1e-20,-1e-20}) {
+            PrecisionParcel correction_held{0,0,2,0,0,300,{}};correction_held.energy_j.add(joules);
+            require(!release_precision_parcel(vented,correction_held,0,0,destinations) && vented.checkpoint()==image,
+                "a trace cell took a held energy correction");
+            require(std::abs(vented.cell_reading(1).temperature_k-300)<1e-9,"the trace cell left its temperature");
+        }
+    }
+    std::cout<<"PASS precision heat vacuum: held heat skips an empty neighbour and a trace cell, and closes in an occupied one\n";
 }
 // A held mass retry first applies the core's own scalar admission, then calls
 // the core only for a parcel that admission lets through. The rule must be

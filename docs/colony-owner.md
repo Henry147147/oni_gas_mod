@@ -1541,6 +1541,18 @@ is no epsilon pruning, wider search, invented trace sink or permanent-release
 shortcut. Unsupported passives and liquids retain their prior refusal: this
 change adds neither a held-culture clock nor a new entropy or heat model.
 
+**Held corrections and trace cells (2026-11-11).** A held parcel whose mass
+has gone keeps a signed energy correction, rounding-sized against the cell
+it was held for, and releases it as heat into the first nearby cell that
+holds mass. In a room opened to space that cell can be a trace: the last
+1e-83 kg of a vented cell took 1e-20 J as its whole energy and read 9e59 K
+(or, with the other sign, no temperature), and the next reading there
+stopped the owner. A correction now goes only into a cell whose energy it
+changes by under 2^-20; otherwise it stays held. Ordinary cells take it as
+before. `precision_heat_vacuum_control` holds ±1e-20 J beside a cell of
+1e-60 kg: nothing is released and the world's bytes are unchanged (1e37 K
+before, refused by the EOS).
+
 **Assigned 2026-10-24 by main after a fetch at `3eaccfa`:** owner wrapper
 `MACOLN01` version **10** holds world germ evolution ([germs](#germs)): after the
 version 9 job list, u32 mode, u64 biology frames, the culture clocks, the queued
