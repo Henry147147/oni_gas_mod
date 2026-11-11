@@ -11,8 +11,9 @@ few that your task touches, starting here.
 - [docs/feature-completion-status.md](docs/feature-completion-status.md):
   **resume here** — current status toward the beta (sustained 1× on the
   full-colony saves; 3× stays the goal) and what remains open. The latest
-  private Windows candidate is [0.1.2](docs/playtest-0.1.2.md); the review it
-  answers is in [docs/playtest-0.1.1-review.md](docs/playtest-0.1.1-review.md).
+  private Windows candidate is [0.1.3](docs/playtest-0.1.3.md), which carries
+  out the project review of 2026-11-10/11; [0.1.2](docs/playtest-0.1.2.md)
+  answered [the 0.1.1 playtest review](docs/playtest-0.1.1-review.md).
   The `docs/handoff-codex-*.md` files are historical; continue on `main`.
 - [docs/playtest-plan.md](docs/playtest-plan.md): the original first-playtest
   plan (the full base game on one asteroid, playable on Linux).

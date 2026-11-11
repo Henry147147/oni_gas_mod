@@ -432,6 +432,6 @@ player chooses unless set:
 documents no interface for other mods; its update feed
 ([oxy.mods](https://github.com/O-n-y/oxy.mods) `version/info`) lists only its
 own Workshop id. It shows a mod's version from its DLL, so
-`MixedAtmospheres.Oni.dll` carries the package version (0.1.2, as
+`MixedAtmospheres.Oni.dll` carries the package version (0.1.3, as
 `mod_info.yaml`). Its backups and folder buttons work unchanged: the settings
 folder is outside the mod folder and survives updates. Nothing depends on it.

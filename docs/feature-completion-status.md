@@ -1,5 +1,20 @@
 # Feature completion work
 
+**Update, 2026-11-11:** private candidate [0.1.3](playtest-0.1.3.md) carries
+out a project review of speed, bugs and playability. The review found that
+0.1.2 had slowed the Spaced Out! full colony by a third (170 to 228 ms a
+tick on its replay, probably below 1× in game): thin-gas cells holding a
+mist droplet were entered into the pressure solve as full liquid cells.
+That is fixed (172 ms); large connected regions use the multigrid pressure
+solve (industrial base replay 78 to 63 ms a tick); idle solver workers no
+longer spin for 2 ms; paused frames, publications and overlays cost the game
+thread less; the fault path no longer frees the snapshot the game reads.
+Play: a rescaled pressure overlay, an oxygen margin overlay, a toxic gas
+limit (5 % chlorine, sour gas and fallout), playable CO₂ limits when on, a
+start dialog that lists what plays differently, and a slowdown sign
+([measurements](performance-acceptance.md#review-measurements-and-013-2026-11-11)).
+Still to measure: both full colonies in game, and all of it on Windows.
+
 **Update, 2026-11-10:** the latest Windows recording confirms liquid
 churn in a young Spaced Out! colony. Two independent causes are repaired:
 sharpening gathered water sideways into taller columns, and remote activity

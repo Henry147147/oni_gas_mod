@@ -1,5 +1,101 @@
 # Performance acceptance measurements
 
+## Review measurements and 0.1.3, 2026-11-11
+
+A project review profiled the two large-colony replays (the 32-duplicant
+industrial base, 400 ticks; the Spaced Out! full colony, 300 ticks; captured
+inputs of 2026-11-06/07, twelve workers on CPUs 12-23, first 20 ticks
+excluded, runs alternated old/new). These are fixed-input native replays on
+the Linux host, not live-game or Windows measurements. `perf` is not usable
+on the host (`perf_event_paranoid` 4); function-level figures came from a
+preloaded `SIGPROF` sampler and from linking replacement translation units
+ahead of the static libraries, both kept outside the repository.
+
+**A regression 0.1.2 did not record.** Spaced Out! full colony, owner tick:
+
+| Revision | ms a tick | Flow intervals a tick |
+| --- | ---: | ---: |
+| `40a1465` (2026-11-07) | 158 | 60 |
+| `a914a00` (0.1.1) | 170-177 | 76 |
+| `746832f` | 171-183 | 76 |
+| `08ce0fe` | 516-519 | 444 |
+| `8578ddf` | 250 | 75 |
+| `57f9e44` (first 0.1.2) | 231-237 | 74 |
+| `f138c60` (0.1.2, liquid stability) | 224-230 | 79 |
+| 0.1.3 | 172.5 | 80 |
+
+The 0.1.2 notes give 11 % on a different replay. In game this colony ran
+1.05× at 166-170 ms a tick, so 0.1.2 probably ran it near 0.8×, below the
+beta bar; that was not measured in game. The whole cost was the pressure
+solve of the vented base: 5,529 "stiffened" re-solves in 150 ticks at 80 PCG
+iterations each against 18,738 ordinary solves at 18 (53 % of the region's
+cell-iterations). The cells entered were thin-gas cells holding a mist
+droplet; [the fix](../native/MAC_GAME_KERNEL.md#flooded-cells-and-boiling-profile-12-2026-11-09)
+enters only cells that liquid can overfill. The liquid stability change of
+2026-11-10 adds 18 % more flow intervals on the industrial base and no
+measurable time on either replay.
+
+**Where the tick goes** (one worker, industrial base, 115 ms a tick): the
+pressure solve 38 % (one function, `solve_cached_component`; its long-double
+dot-product loop alone about 10 %, the IC(0) sweeps 11 %), the transport 8 %,
+interface sharpening 8 %, the projection 6 %, the regional audit 5 %,
+conversions 4 %, allocation 8-10 %. Large components took 134 IC(0)
+iterations a solve.
+
+| Industrial base, ms a tick | 1 worker | 4 | 12 |
+| --- | ---: | ---: | ---: |
+| `f138c60` | 115-120 | 89 | 77-82 |
+| 0.1.3 | 87 | | 59-66 |
+
+Twelve workers bought 1.47 times one worker. Idle workers were the visible
+waste: a third of the process's CPU samples in `sched_yield`, about 15,000
+forced context switches a tick, 3,000 parallel sections a tick of 18 µs on
+average. Sleeping after 200 µs instead of 2 ms keeps the tick time and bytes
+and removes 27 % of the process CPU time (39-45 % when workers sleep at
+once, with no measurable tick cost on this idle host; 200 µs was chosen for
+a busy game process). Running small sections inline is slower (80 to 104 ms
+at eight blocks) and was not adopted.
+
+| 0.1.3, twelve workers | Old | New |
+| --- | ---: | ---: |
+| Industrial base, ms a tick | 78.8 / 77.3 | 59.2 / 66.3 |
+| Industrial base, 95th percentile | 142 / 130 | 96 / 106 |
+| Industrial base, process CPU s (400 ticks) | 151 | 87-95 |
+| Spaced Out!, ms a tick | 230.2 / 223.8 | 172.5 / 172.6 |
+| Spaced Out!, 95th percentile | 284 / 272 | 213 / 215 |
+| Spaced Out!, process CPU s (300 ticks) | 313-321 | 210 |
+
+Owner bytes are equal at 1, 3 and 12 workers on both replays. Ledger maxima
+are unchanged (relative mass/energy 9.2e-16/1.7e-16 and 4.9e-15/2.2e-15).
+
+**Measured and not adopted.** Four fixed double lanes for the PCG dot
+products: tick −7.5 % (one worker, base), round-off only. A modified IC(0)
+(τ 0.97): 134 to 83 iterations on large components, tick −14 %; superseded
+by the multigrid solve there and no help in the vented region. Warm-starting
+re-solves from the preceding solve of the same interval: the negative-
+pressure correction then converges at once, the stiffened passes 80 to 63
+iterations, tick −4 %; unnecessary once droplet cells are not entered. A
+100 times looser tolerance saves only 15-20 % of the iterations.
+
+**Trajectory deviation is not an accuracy measure.** Replaying 220 ticks
+(44 game seconds) with only the round-off of the dot products changed (the
+same algorithm and iteration counts) moves populated cells by 0.44 K rms and
+13 K at most, pressures by 72 Pa rms and 4.3 kPa at most; the modified
+IC(0) moves them by 0.55 K and 12.5 K. The multigrid prototype of
+2026-11-06 was set aside for 3.7 K rms and 39 K over a cycle, which this
+shows to be the flow's sensitivity to round-off, not error. Numerical
+options are judged here by conservation, the residual bound and the fixed
+controls.
+
+**Game thread, from the user's Player.log of 2026-11-09** (young Spaced
+Out! colony, 80 fps): the mod took about 0.01 ms on most frames, 9 ms on
+frames that publish a tick and about 6 ms on every frame while paused (full
+publication, actor census and five map texture uploads each frame); the
+managed heap was 2.3-3.0 GB with a 150-240 ms collection about every 36 s.
+0.1.3 changes the paused path, the publication buffers, the texture path
+above 4,093 visible readings, the storage guards and the per-tick garbage
+([0.1.3](playtest-0.1.3.md)); none of that is measured in game yet.
+
 ## Thin-gas trace heating in spaced-out-worlds, 2026-11-07 (option C adopted)
 
 The Spaced Out! acceptance scenario `spaced-out-worlds` faults at owner frame

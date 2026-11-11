@@ -9,7 +9,7 @@
     <OniManagedDir>$(OniGameDir)/OxygenNotIncluded_Data/Managed</OniManagedDir>
     <!-- The one version (tools/mod_identity.py): the DLL carries it and every
          package's mod_info.yaml is written from it; private probe packages add "-probe". -->
-    <Version>0.1.2</Version>
+    <Version>0.1.3</Version>
     <InformationalVersion>$(Version)</InformationalVersion>
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
   </PropertyGroup>

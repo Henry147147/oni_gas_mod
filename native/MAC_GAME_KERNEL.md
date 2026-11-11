@@ -476,8 +476,12 @@ user decision 2026-11-05) and no setting is added.
   solve only when liquid can overfill it: each inflowing face brings at most
   its donor cell's liquid volume, and the sum must exceed the room by the
   same 0.3 % of the cell. Cells with liquid-holding donors (every pool and
-  flood case) are entered exactly as before; the kernel controls' output is
-  unchanged. `ma_mac_game_kernel_tests` adds a front of air expanding into
+  flood case) are entered exactly as before, and every existing line of
+  `ma_mac_game_kernel_tests` is unchanged. The boiling control of
+  `ma_mac_phase_change_tests` moves from 6.83 kg boiled in a second and a
+  213.7 kPa peak to 6.22 kg and 204.6 kPa (its bounds: more than 2.6 kg,
+  below 500 kPa): vapour arriving in a cell no longer counts against its
+  room. `ma_mac_game_kernel_tests` adds a front of air expanding into
   thin oxygen with and without ten micrograms of water in each thin cell:
   1,194 pressure iterations dry, 1,191 with mist (1,657 before). The mist
   still moves that front by 1.5 % (it changes the intervals the transport
