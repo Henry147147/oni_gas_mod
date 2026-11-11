@@ -816,9 +816,48 @@ void source_energy_controls() {
     require(left > 0 && expected > 0 && expected < 1e-2 && near(read, expected, 1e-6),
             "A deep draw's remainder left its isentrope");
   }
+  // A trace beside a deep draw (2026-11-11). A room shares returned work by
+  // thermal energy: a source the draw cooled deeply holds almost none, so a
+  // trace beside it was warmed by the same huge factor (1.4e7 K here, 9e29 K
+  // for a base opened to space). A room now warms by at most a quarter per
+  // batch and the source is topped up to the temperature its gas left at.
+  {
+    const auto helium = f.registry.index("helium");
+    MacTransportState state;
+    state.grid = {4, 3, 1, 1, false, false, std::vector<std::uint8_t>(12, 1)};
+    state.grid.walls[5] = state.grid.walls[6] = 0;
+    for (std::size_t i = 0; i < 12; ++i) {
+      MacMaterialCell cell{ma::MixtureInventory(f.registry.size()), {}};
+      if (i == 5)
+        cell.mixture.masses[helium] = .01;
+      if (i == 6)
+        cell.mixture.masses[helium] = 1e-20;
+      state.cells.push_back(std::move(cell));
+    }
+    state.momentum_x.resize(15);
+    state.momentum_y.resize(16);
+    const auto pair = MacClosedWorld::game_colony(f.registry, f.eos, std::move(state),
+                                                  std::vector<double>(12, 300), config());
+    const auto kelvin = [&](const MacClosedWorld &w, std::size_t i) {
+      const double held = w.state().cells[i].mixture.masses[helium];
+      return (u(w, i) - held * f.registry[helium].internal_energy(0)) / (held * f.registry[helium].cv());
+    };
+    for (const auto rule : {MacFlowWork::enthalpy, MacFlowWork::compensated}) {
+      const auto draw = edit(5, helium, false, .01 * (1 - 1e-7), rule);
+      auto drawn = pair.with_fluid_transfers(std::span(&draw, 1), MacFluidTransferTopology::occupied_mixture);
+      auto world = std::move(drawn.world);
+      if (rule == MacFlowWork::enthalpy) {
+        require(kelvin(world, 5) < 1e-2 && near(kelvin(world, 6), 300, 1e-9), "The deep draw did not cool its own cell alone");
+        const MacFlowReturn back{5, drawn.parcels.front().flow_work_j, false, drawn.parcels.front().temperature_k};
+        world = std::move(world).with_flow_return(std::span(&back, 1), nullptr);
+      }
+      require(kelvin(world, 5) > 299.9 && kelvin(world, 5) < 300.31 && kelvin(world, 6) >= 300 && kelvin(world, 6) < 376,
+              "A deep draw's returned work overheated its room");
+    }
+  }
   std::cout << "PASS source energy: enthalpy and isentropic draw, compensated room shares, wet rooms as internal energy; "
                "the sealed tube's cold source and compression heating; a deep draw beside a droplet stays in its EOS domain; "
-               "a draw that empties its cell returns no more than its own cooling; an extraction's trace and a deep draw's remainder keep their temperature\n";
+               "a draw that empties its cell returns no more than its own cooling; an extraction's trace and a deep draw's remainder keep their temperature; a trace beside a deep draw is not overheated\n";
 }
 } // namespace
 int main() {

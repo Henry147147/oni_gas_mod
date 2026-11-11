@@ -709,25 +709,39 @@ thermal/pressure domain", or on a later frame's transfer reading a cell of
 `full-colony-spacedout` build, with 0.1.3 as well, since the source energy
 rules of 2026-11-09.
 
-A draw's work now returns only as far as the temperature its parcel left at
-(`MacFlowReturn::temperature_k`, or the edit's own parcel in a batch):
+A room also shares returned work in proportion to thermal energy. A source
+that a deep draw cooled along its isentrope holds almost none, so it took
+almost none of its own work back, and a trace of gas beside it, at ordinary
+temperature, was warmed by the same huge factor (a trace of hydrogen beside
+a space-exposed cell: 9e29 K).
 
-- a room's relative warming is at most what brings a drawn cell back to that
-  temperature, through the cell's own weight or, for a cell that takes no
-  share, by its own cooling;
-- a cell that takes its own work back takes at most that much;
+A draw's work now returns only as far as the temperature its parcel left at
+(`MacFlowReturn::temperature_k`, or the edit's own parcel in a batch). For
+draws that name it:
+
+- a room warms by at most a quarter of its thermal energy in one batch
+  (`compensation_gain`), and a cell already hotter than twice the reference
+  takes no share;
+- what the room did not take tops the draw's own cell up to the reference,
+  whether or not the cell took a share, and a cell that holds liquid or no
+  gas takes at most that much;
 - the rest stays with the parcels as flow work, as with Real physics. The
   owner's ledger books only what was applied, as before.
 
-The bound has a margin of 0.1 % (0.3 K at room temperature), above a
+The top-up has a margin of 0.1 % (0.3 K at room temperature), above a
 liquid's elastic share of its thermal energy at ordinary pressures, so an
-exact return is never cut: a single draw, a wet room and every room larger
-than its source compute as before, bit for bit. A return without a
-temperature (0) is not bounded. No checkpoint byte changes.
-`ma_mac_game_kernel_tests` draws both gases from an isolated cell, leaving a
-droplet or 1e-8 of each gas, as enthalpy edits with one return and as a
-compensated batch: the cell ends within 0.3 K of 300 K and 291 J stay with
-the first parcel (without the bound the return puts them on the droplet).
+exact return is never cut. A draw whose room warms by less than a quarter
+(every ordinary pump, vent and breath) and a wet room compute as before, bit
+for bit. A return without a temperature (0) is not bounded. No checkpoint
+byte changes. `ma_mac_game_kernel_tests`:
+
+- draws both gases from an isolated cell, leaving a droplet or 1e-8 of each
+  gas, as enthalpy edits with one return and as a compensated batch: the
+  cell ends within 0.3 K of 300 K and 291 J stay with the first parcel
+  (without the bound the return puts them on the droplet);
+- draws all but 1e-7 of a helium cell beside a cell holding 1e-20 kg: the
+  drawn cell returns to 300 K and the trace ends below 376 K (1.4e7 K
+  before).
 
 **The trace an extraction leaves (2026-11-11).** An extraction books the
 cell's new energy as the old one less the parcel's. When what stays is a
