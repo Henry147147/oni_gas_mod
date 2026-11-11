@@ -131,6 +131,9 @@ static class Program
         var chosen = SettingValues.Defaults().With(SettingCatalog.Co2Limits, true);
         Check(chosen.WithGroup(SettingCatalog.Solver, BuiltInPresets.Find("fast")!.Values).Toggle(SettingCatalog.Co2Limits), "solver preset preserves gameplay choice");
         Check(!SettingCatalog.All.Any(d => d.Key == "breathing.nitrogenAir") && BuiltInPresets.Find("hard-mode") == null, "removed nitrogen controls");
+        // Development-region controls stay settings (saved files keep them) but the window lists them only in development sessions.
+        Check(SettingCatalog.All.Where(d => d.DevelopmentOnly).Select(d => d.Key).SequenceEqual(new[] { "panel.showBoundary", "keys.findFluid", "keys.toggleBoundary" }) &&
+              SettingCatalog.All.Where(d => d.DevelopmentOnly).All(d => d.Scope == SettingScope.Preference), "development-only controls");
         foreach (var id in new[] { "fast", "precise" }) Check(BuiltInPresets.Find(id)!.Experimental, id + " not marked experimental");
         Check(SettingValues.Defaults().With("solver.sharpenLiquidInterfaces", false).Experimental(SettingScope.Colony).Any(), "sharpening off not experimental");
         Check(SettingValues.Defaults().With("solver.pressureTolerance", 1e-6).Experimental(SettingScope.Colony).Any(), "looser tolerance not experimental");

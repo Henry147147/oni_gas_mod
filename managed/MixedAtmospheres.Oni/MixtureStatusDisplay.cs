@@ -147,6 +147,10 @@ namespace MixedAtmospheres.Oni
         }
 
         private bool InColony => Game.Instance != null && Game.Instance.GameStarted() && Grid.WidthInCells > 0;
+        // A session with a bounded development region: a sealed native domain
+        // or a validation scene (display fixtures, arenas). Only there do the
+        // region outline and "find simulated fluid" do anything useful.
+        internal static bool DevelopmentRegions => NativeSealedDomainValidation.IsMode || ColonyRuntimeValidation.Settings != null;
 
         private void Update()
         {
@@ -364,7 +368,9 @@ namespace MixedAtmospheres.Oni
             // paused inspection, without relying on legacy input poll order.
             var key = Event.current;
             var code = key.keyCode;
-            var shortcut = code != KeyCode.None && (code == overlayKey || code == DiffusionKey || code == detailsKey || code == findKey || code == boundaryKey || code == settingsKey);
+            var development = DevelopmentRegions;
+            var shortcut = code != KeyCode.None && (code == overlayKey || code == DiffusionKey || code == detailsKey || code == settingsKey ||
+                development && (code == findKey || code == boundaryKey));
             if (key.type == EventType.KeyDown && shortcut)
                 lastShortcutEvent = key.keyCode + " · " + key.modifiers;
             // The settings window takes keys while it is open.
@@ -373,8 +379,8 @@ namespace MixedAtmospheres.Oni
                 var accepted = true;
                 if (code == overlayKey) pendingOverlayCycle = true;
                 else if (code == detailsKey) SetExpanded(!expanded);
-                else if (code == findKey) FocusReadings();
-                else if (code == boundaryKey) showBoundary = !showBoundary;
+                else if (code == findKey && development) FocusReadings();
+                else if (code == boundaryKey && development) showBoundary = !showBoundary;
                 else if (code == settingsKey) ModSettingsScreen.Open(0);
                 else if (code == DiffusionKey) { pendingDiffusionOverlayRestore = true; NativeSealedDomainValidation.CycleGasDiffusion(); }
                 else accepted = false;

@@ -55,7 +55,11 @@ it. Code: `ModSettings*.cs` (model, files, window, runtime); tests:
   per colony and can be changed during play; profiles 6–8 always simulate and
   keep it read-only.
 - **Display & keys** contains reading precision, mixture appearance, status
-  panel options and shortcuts. Changes apply immediately.
+  panel options and shortcuts. Changes apply immediately. The region outline
+  and its shortcut and **Find simulated fluid** serve bounded development
+  regions only; outside a development session (a sealed development domain or
+  a validation scene) the window leaves them out and their shortcuts do
+  nothing. Their saved values stay valid in `config.json` and presets.
 - **Advanced** contains **Solver** (including solver presets), **Breathing
   thresholds** (oxygen minimums, the toxic gas limit, CO₂ thresholds and the
   oxygen ceiling), **Performance**, **Display** and **Saved presets**. Each technical section
@@ -273,11 +277,11 @@ worker. Sources: [Linux CPU topology](https://docs.kernel.org/admin-guide/cputop
 | `display.showBreathingPassed` | Show “Breathing checks passed” | off | on/off | Hover card adds that line when a cell passes every breathing check; failed checks always show | config.json |
 | `panel.visible` | Show status panel | on | on/off | Status panel shown in a colony; its × button and the **Atmospheres** button beside Vitals in the top bar change it | config.json |
 | `panel.expanded` | Show panel details | on | on/off | Readings and speed/frame lines below the title bar; its –/+ button and the details shortcut change it | config.json |
-| `panel.showBoundary` | Outline development regions | on | on/off | Outline of a bounded development region | config.json |
+| `panel.showBoundary` | Outline development regions | on | on/off | Outline of a bounded development region. Development sessions only: the window lists it only with a sealed development domain or a validation scene | config.json |
 | `keys.cycleOverlay` | Cycle mixture overlays | F5 | None, F1–F12 | Shift or Ctrl plus the key | config.json |
 | `keys.toggleDetails` | Status panel details | F8 | None, F1–F12 | Shift or Ctrl plus the key | config.json |
-| `keys.findFluid` | Find simulated fluid | F9 | None, F1–F12 | Shift or Ctrl plus the key | config.json |
-| `keys.toggleBoundary` | Region outline | F10 | None, F1–F12 | Shift or Ctrl plus the key | config.json |
+| `keys.findFluid` | Find simulated fluid | F9 | None, F1–F12 | Shift or Ctrl plus the key: centre a bounded development region. Development sessions only (listed and active), since in a colony it would jump to the lowest-index fluid cell, even on another asteroid | config.json |
+| `keys.toggleBoundary` | Region outline | F10 | None, F1–F12 | Shift or Ctrl plus the key. Development sessions only (listed and active) | config.json |
 | `keys.openSettings` | Open settings | None | None, F1–F12 | Shift or Ctrl plus the key | config.json |
 
 The status panel describes only the cell under the cursor: a solid tile reads

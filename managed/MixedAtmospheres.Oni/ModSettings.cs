@@ -64,6 +64,12 @@ namespace MixedAtmospheres.Oni
             Group == SettingCatalog.Breathing && Key != SettingCatalog.Co2Limits ||
             Key == "display.traceMoleFraction" || Key == "panel.showBoundary" || Key == "keys.toggleBoundary";
         internal bool IsExperimental(object value) => tested != null && !tested(value);
+        // Controls of a bounded development region (sealed domains, display
+        // fixtures, validation arenas). In a colony the owner simulates the
+        // whole asteroid: the outline never shows and finding "the" fluid only
+        // jumps the camera, so the window lists them only in development
+        // sessions. Saved values stay valid either way.
+        internal bool DevelopmentOnly => Key == "panel.showBoundary" || Key == "keys.findFluid" || Key == "keys.toggleBoundary";
 
         // A file value converted to this setting's type, or an error.
         internal object Accept(object? value)

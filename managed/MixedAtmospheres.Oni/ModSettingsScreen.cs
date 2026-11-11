@@ -412,7 +412,7 @@ namespace MixedAtmospheres.Oni
 
         private void SettingsTab(string group, bool advanced)
         {
-            var definitions = SettingCatalog.All.Where(d => d.Group == group && d.Advanced == advanced).ToArray();
+            var definitions = SettingCatalog.All.Where(d => d.Group == group && d.Advanced == advanced && (!d.DevelopmentOnly || MixtureStatusDisplay.DevelopmentRegions)).ToArray();
             if (definitions.Length == 0) return;
             Section((advanced ? "Advanced · " : "") + group);
             var values = Shown;
