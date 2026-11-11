@@ -26,17 +26,27 @@ It is a private candidate; no public release or Workshop upload was made.
   mid-scale (500 kPa in 0.1.3).
 - **Start dialog and How it plays** say base air is about 125 kPa and add the
   layering line.
-- **A base opened to space stopped the simulation** (also in 0.1.3, found
-  while rebuilding the Spaced Out! benchmark colony). When ONI deleted the
-  gas of a space-exposed cell, the mod drew the mixture's gases in turn and
-  the Compensated source energy rule returned the draw's work to whatever
-  was left in the cell: a mist droplet or a trace of gas reached over 1e9 K
-  and the owner faulted. A draw's work now returns only as far as the
-  temperature its gas left at, and the trace an extraction leaves keeps the
-  temperature it was read at instead of the rounding of an energy
-  difference ([game kernel](../native/MAC_GAME_KERNEL.md#source-energy)).
-  All five runs of the vented-base build faulted before (four with 0.1.4's
-  masses, one with the 0.1.3 package).
+- **A base opened to space stopped the simulation** (also with 0.1.3; found
+  while rebuilding the Spaced Out! benchmark colony, whose second base vents
+  to space). All nine runs of that build faulted before the fixes (one of
+  them with the 0.1.3 package); six of six complete after them. Two causes,
+  each with a control that reproduces the game's refusal without its fix:
+  - When ONI deleted a space-exposed cell's gas, the mod drew the mixture's
+    gases in turn and the Compensated source energy rule returned the
+    draw's work to whatever the draws had left: a mist droplet took 333 J
+    and read 1.3e9 K. A draw's work now returns only as far as the
+    temperature its gas left at, a room warms by at most a quarter in one
+    batch, and the rest stays with the gas that left
+    ([game kernel](../native/MAC_GAME_KERNEL.md#source-energy)).
+  - A rounding-sized energy correction held by the owner was released as
+    heat into the nearest cell with mass, which beside a vented room is a
+    trace: 1e-83 kg read 9e59 K. A correction now goes only into a cell
+    whose energy it barely changes
+    ([owner](colony-owner.md)).
+
+  Two rounding hazards of the same family are closed as well (what an
+  extraction leaves as a trace, or after a deep draw, takes its energy from
+  the temperature it was read at).
 - **Saves.** Colonies saved by 0.1.3 or earlier are refused at the menu with
   "Start a new colony with this version" and left unchanged (save material
   model 4): their gas would read half its saved pressure, and there is no
@@ -44,9 +54,11 @@ It is a private candidate; no public release or Workshop upload was made.
 
 The molar masses change no solver code: the solver receives different
 values for seven elements, and a colony's checkpoint records its catalogue,
-so 0.1.4 checkpoints differ from 0.1.3's in that identity. The space fix
-changes the arithmetic of a returned draw only where the bound cuts it; the
-checkpoint format and version 32 are unchanged.
+so 0.1.4 checkpoints differ from 0.1.3's in that identity. The space fixes
+change arithmetic only where a returned draw would warm its room by more
+than a quarter, where an extraction leaves a trace, or where a trace cell
+would have taken a held correction; the checkpoint format and version 32
+are unchanged.
 
 ## Prepared saves
 
@@ -75,7 +87,7 @@ workloads.
   distribution checks that also pin how model-3 saves are refused).
 - Every `ma_mac_*` invocation against 0.1.3's outputs: 62 of 62 pass, 60
   identical, the production oracle differs in timing fields only and
-  `mac_game_kernel` adds the new control to its source energy line.
+  `mac_game_kernel` names its new controls on its source energy line.
 
 In-game results are recorded in [the acceptance section below](#acceptance).
 
