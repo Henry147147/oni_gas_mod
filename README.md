@@ -146,7 +146,7 @@ panel. **Gameplay** opens first; CO₂ breathing limits default to Off and
 **Gas source energy** to Compensated, and both can be changed in a running
 colony. **Advanced → Solver** holds Default, Robust,
 Fast and Precise solver presets. **Advanced → Breathing thresholds** holds
-oxygen requirements and optional CO₂ thresholds. At the main menu these choose
+oxygen requirements, the toxic gas limit and optional CO₂ thresholds. At the main menu these choose
 the settings of new colonies; in a colony they change that colony from its
 next frame, and its next save records them. Display, shortcuts
 and performance preferences apply immediately. Save and share complete

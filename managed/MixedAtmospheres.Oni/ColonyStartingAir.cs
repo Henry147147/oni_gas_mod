@@ -150,8 +150,9 @@ namespace MixedAtmospheres.Oni
             {
                 placedKg > 0
                     ? ((int)Math.Ceiling(placedKg)).ToString(CultureInfo.InvariantCulture) + " kg of oxylite lies beside the printing pod. It releases oxygen " +
-                      "while the air around it is thin and, with the pod's own air, gives " + duplicants + " ten cycles of breathing. On its own, " +
-                      "the air connected to the pod would last about " + Cycles(oxygenCycles) + " cycles."
+                      "while the air around it is thin and, with the pod's own air, gives " + duplicants + " ten cycles of breathing. " +
+                      (oxygenCycles < .05 ? "The air connected to the pod has no breathable oxygen to spare on its own." :
+                          "On its own, the air connected to the pod would last about " + Cycles(oxygenCycles) + " cycles.")
                     : "The air connected to the printing pod gives " + duplicants + " about " + Cycles(oxygenCycles) + " cycles of breathing."
             };
             if (rules.EnforceCarbonDioxideLimits)

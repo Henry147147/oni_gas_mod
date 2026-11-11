@@ -28,11 +28,12 @@ gate that these requirements belong to is
   `MixtureVisualOptions.MeaningfulGasMoleFraction` (default 0.01). Rows at 1%
   and above are listed. Every surface uses the shared row's `IsTrace`.
 - Percentages keep their fraction of all gas moles. Omitting traces does not
-  renormalize the visible entries. A short hint points to full composition
-  when traces are omitted.
-- Breathing and contaminant warnings always show, including warnings for
-  hazardous traces left out of the contents list. Expanded details show every
-  constituent.
+  renormalize the visible entries. Traces are left out without a hint line
+  (user decision 2026-11-08); selecting the cell lists every constituent.
+- Breathing and toxic gas warnings always show, including warnings for
+  hazardous traces left out of the contents list, except on a submerged cell
+  (at least 95% liquid) at friendly precision, whose trapped gas the hover
+  leaves out. Expanded details show every constituent.
 - Acceptance needs actual mouse hover on Windows and Linux. The tile must have
   at least four non-trace gases plus benign and hazardous traces, including a
   gas exactly at the threshold. Every displayed entry must match one completed
