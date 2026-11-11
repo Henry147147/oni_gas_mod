@@ -47,7 +47,10 @@ namespace MixedAtmospheres.Oni
             lock (sessionGate)
             {
                 catalog = null; publishedFrame = ulong.MaxValue; Volatile.Write(ref cellIds, new string?[Math.Max(0, Grid.CellCount)]); ColonyReadingPool.Release(publishedBuffer); publishedBuffer = null;
-                ColonyReadingPool.RetireCompactModels();ColonyCompactReadings.ResetDiagnostics();
+                // The session ends (Sim.Shutdown): its buffers and compact slot
+                // table go with it rather than into the next colony. A reader
+                // still holding one keeps it (it is never rewritten).
+                ColonyReadingPool.Reset();ColonyCompactReadings.ResetDiagnostics();
                 Interlocked.Exchange(ref publications, 0); LastError = "";
                 Volatile.Write(ref rejectedCells, 0); FirstRejection = ""; LastBuildMilliseconds = 0; CopyMilliseconds = 0;
             }

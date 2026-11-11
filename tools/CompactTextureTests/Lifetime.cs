@@ -38,9 +38,21 @@ static partial class Proof
         Check((pooled.CompactCache != null) == ColonyCompactReadings.Enabled, "cache allocation follows immutable environment opt-out");
         var firstCache = pooled.CompactCache;
         ColonyReadingPool.Release(pooled);
+        // A replaced buffer waits for RecycleAfterPublications newer frames and
+        // RecycleAfterSeconds (a reader may hold it for a Unity frame or a status refresh).
+        var newer = new List<ColonyReadingBuffer>();
+        void Publish() { var next = ColonyReadingPool.Acquire(4, 4); Check(!ReferenceEquals(next, pooled), "a buffer is not reused before newer frames replaced it"); newer.Add(next); ColonyReadingPool.Release(next); }
         pooled.ReleasedAt = Stopwatch.GetTimestamp() - 3 * Stopwatch.Frequency;
+        for (var k = 0; k < ColonyReadingPool.RecycleAfterPublications - 1; ++k) Publish();
+        foreach (var young in newer) young.ReleasedAt = Stopwatch.GetTimestamp();
+        Publish(); // the last newer frame: now enough publications, but the newer buffers are too young
+        Check(newer.Distinct().Count() == ColonyReadingPool.RecycleAfterPublications && ColonyReadingPool.Pooled == 1 + newer.Count, "newer frames take new buffers meanwhile");
+        var timely = pooled.ReleasedAt; pooled.ReleasedAt = Stopwatch.GetTimestamp();
+        var early = ColonyReadingPool.Acquire(4, 4);
+        Check(!ReferenceEquals(early, pooled), "enough newer frames but not the grace period: kept");
+        ColonyReadingPool.Release(early); pooled.ReleasedAt = timely;
         var reused = ColonyReadingPool.Acquire(10000, 10000);
-        Check(ReferenceEquals(pooled, reused), "pool buffer reused after grace");
+        Check(ReferenceEquals(pooled, reused), "pool buffer reused after newer frames and grace");
         Check(ReferenceEquals(firstCache, reused.CompactCache), "cache fixed across reading-array growth");
         Check(ColonyReadingPool.CompactSlots == (ColonyCompactReadings.Enabled ? ColonyReadingPool.SharedCompactSlots : 0), "live pool slots reflect enabled mode");
         if (ColonyCompactReadings.Enabled)
@@ -51,8 +63,14 @@ static partial class Proof
                 ReferenceEquals(other.CompactCache!.Slots, reused.CompactCache!.Slots) && other.Lease != reused.Lease &&
                 ColonyReadingPool.CompactSlots == ColonyReadingPool.SharedCompactSlots, "pooled caches share one bounded table");
         }
+        // The pool is bounded: buffers beyond it are allocated unpooled.
+        var held = new List<ColonyReadingBuffer>();
+        for (var k = 0; k < ColonyReadingPool.MaximumPooled + 3; ++k) held.Add(ColonyReadingPool.Acquire(4, 4));
+        Check(ColonyReadingPool.Pooled == ColonyReadingPool.MaximumPooled && held.Count(h => h.Pooled) <= ColonyReadingPool.MaximumPooled &&
+            held.Where(h => !h.Pooled).All(h => h.CompactCache == null), "pool bounded; overflow buffers unpooled without a scalar cache");
+        foreach (var h in held) ColonyReadingPool.Release(h);
         ColonyReadingPool.Reset();
-        Check(ColonyReadingPool.CompactSlots == 0, "pool reset releases live cache accounting");
+        Check(ColonyReadingPool.CompactSlots == 0 && ColonyReadingPool.Pooled == 0, "pool reset releases its buffers and live cache accounting");
         var pair = BufferOf(cases, 100);
         var b = pair.Buffer;
         int rejected = 0;
@@ -191,7 +209,7 @@ static partial class Proof
             if (!current.TrySampleTexture(0, 0, 0, out _))
                 throw new Exception("cache warm missing");
         Check(GC.GetAllocatedBytesForCurrentThread() - cacheBefore == 0, "warmed cached sampling allocation zero");
-        Console.WriteLine($"PASS compact cache/runtime lifecycle, model/coordinates, nested worker/session/lease, concurrent-model controls; slot_bytes {SlotBytes()} worst48buffer_cache_bytes {48L * 4093 * SlotBytes()}");
+        Console.WriteLine($"PASS compact cache/runtime lifecycle, model/coordinates, nested worker/session/lease, concurrent-model controls; slot_bytes {SlotBytes()} shared_table_bytes {(long)ColonyReadingPool.SharedCompactSlots * SlotBytes()}");
     }
     static void CacheBenchmark(MixturePresentationModel model, List<(ColonyPresentation.Table Table, OniNativeColony.Reading Cell)> cases)
     {

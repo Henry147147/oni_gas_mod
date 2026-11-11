@@ -1211,9 +1211,11 @@ stuttering camera at 0.85x) and the fixes:
   copied into a pooled array (no per-cell objects) and `ColonyLazyReadings` /
   `ColonyLazyPresentations` build a cell's reading and presentation, with the
   same code and values as before, when a reader asks for it, and keep it for the
-  frame. The pool recycles a buffer only two seconds after a newer frame
-  replaced it; readers hold a frame for at most a Unity frame (the status
-  display for one refresh). A buffer carries a lease number, and a reader that
+  frame. The pool recycles a buffer only after three newer frames replaced it
+  and at least half a second has passed (a save barrier can publish several
+  frames in one Unity frame); readers hold a frame for at most a Unity frame
+  (the status display for one 0.2 s refresh). It keeps at most 16 buffers and
+  is emptied when the session ends. A buffer carries a lease number, and a reader that
   finds its buffer reused (never expected; counted in `ColonyReadingPool.StaleReads`)
   treats the cell as absent instead of reading another frame's values. A cell
   that fails validation is now rejected when it is first read rather than when

@@ -15,9 +15,12 @@ namespace MixedAtmospheres.Oni
     // objects, which is what kept the garbage collector busy.
     //
     // A buffer belongs to the published frame that holds it. It is recycled
-    // only after a newer frame replaced it and RecycleAfterSeconds have passed;
-    // readers hold a frame for at most a Unity frame (the status display for a
-    // refresh), so no reader can see a buffer rewritten under it. Each buffer
+    // only after RecycleAfterPublications newer frames replaced it and at
+    // least RecycleAfterSeconds have passed: readers hold a frame for at most
+    // a Unity frame (the status display for its 0.2 s refresh), and a save
+    // barrier can publish several frames inside one Unity frame, so the count
+    // alone would not keep a buffer for a reader that took it earlier in that
+    // frame. No reader can see a buffer rewritten under it. Each buffer
     // carries a lease number and a reader that finds it changed treats the
     // cell as absent and counts the event (StaleReads) instead of reading
     // another frame's values.
@@ -29,6 +32,7 @@ namespace MixedAtmospheres.Oni
         internal ulong Frame;
         internal long Lease;
         internal long ReleasedAt;      // Stopwatch ticks when replaced; 0 while published or being filled
+        internal long ReleasedAfter;   // the pool's release count when this one was released
         internal bool Pooled;
         internal bool Sorted;          // PublicCell ascending: lookups bisect
         internal ColonyCompactReadings.Cache? CompactCache;
@@ -37,8 +41,12 @@ namespace MixedAtmospheres.Oni
 
     internal static class ColonyReadingPool
     {
-        internal const double RecycleAfterSeconds = 2;
-        private const int MaximumPooled = 48;
+        internal const double RecycleAfterSeconds = .5;
+        internal const int RecycleAfterPublications = 3;
+        // At speed 3 a frame is published about 15 times a second: about
+        // eight buffers are in use or waiting; more are allocated unpooled.
+        internal const int MaximumPooled = 16;
+        private static long releases;
         // The compact texture slot table every pooled buffer's cache shares
         // (ColonyCompactReadings.Cache): a prime, about 10 MiB of numbers.
         internal const int SharedCompactSlots = 65521;
@@ -55,12 +63,13 @@ namespace MixedAtmospheres.Oni
             ColonyReadingBuffer? chosen = null;
             lock (buffers)
             {
+                bool Free(ColonyReadingBuffer b) => b.ReleasedAt != 0 && now - b.ReleasedAt >= age && releases - b.ReleasedAfter >= RecycleAfterPublications;
                 foreach (var b in buffers)
-                    if (b.ReleasedAt != 0 && now - b.ReleasedAt >= age && b.Readings.Length >= readings && b.Parts.Length >= parts) { chosen = b; break; }
+                    if (Free(b) && b.Readings.Length >= readings && b.Parts.Length >= parts) { chosen = b; break; }
                 if (chosen == null)
                 {
                     // Reuse the oldest free buffer's slot for a larger one rather than growing the pool.
-                    foreach (var b in buffers) if (b.ReleasedAt != 0 && now - b.ReleasedAt >= age) { chosen = b; break; }
+                    foreach (var b in buffers) if (Free(b)) { chosen = b; break; }
                     if (chosen != null) { chosen.Readings = new OniNativeColony.Reading[readings + readings / 4 + 16]; chosen.Parts = new OniNativeColony.Constituent[parts + parts / 4 + 16]; ++Allocated; }
                 }
                 if (chosen == null)
@@ -80,12 +89,14 @@ namespace MixedAtmospheres.Oni
             return chosen;
         }
 
-        // The buffer is not published (or has been replaced): it may be reused after the grace period.
+        // The buffer is not published (or has been replaced): it may be reused
+        // once newer frames replaced it and the grace period passed.
         internal static void Release(ColonyReadingBuffer? buffer)
         {
             if (buffer == null) return;
-            lock (buffers) buffer.ReleasedAt = Stopwatch.GetTimestamp();
+            lock (buffers) { buffer.ReleasedAt = Stopwatch.GetTimestamp(); buffer.ReleasedAfter = ++releases; }
         }
+        internal static int Pooled { get { lock (buffers) return buffers.Count; } }
 
         // Live compact slots: the shared table, once a pooled cache uses it.
         internal static long CompactSlots { get { lock(buffers)return sharedSlots?.Length??0; } }
