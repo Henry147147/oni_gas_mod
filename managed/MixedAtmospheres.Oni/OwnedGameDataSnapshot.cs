@@ -411,26 +411,70 @@ namespace MixedAtmospheres.Oni
     // Publish only at a boundary where readers of the previous publication have
     // completed. Game.simData keeps some event pointers until the NEXT snapshot;
     // disposing a copy immediately after Game.StepTheSim would be unsafe.
+    //
+    // The game reads the snapshot it was last handed (Grid's cell pointers,
+    // its event tables) until it is handed another one. A publication is
+    // therefore built as a candidate the game cannot see (Begin) and becomes
+    // current only when nothing else can fail (Commit, the last step before
+    // the pointer is returned). An abandoned candidate is discarded; the
+    // current snapshot is never freed or rewritten until its successor has
+    // been committed.
     internal sealed unsafe class OwnedSnapshotPublisher : IDisposable
     {
-        private OwnedGameDataSnapshot? current;
+        private OwnedGameDataSnapshot? current, candidate;
         private bool disposed;
         internal Sim.GameDataUpdate* CurrentPointer => disposed
             ? throw new ObjectDisposedException(nameof(OwnedSnapshotPublisher)) : current == null ? null : current.Pointer;
+        internal bool HasCandidate => candidate != null;
         internal OwnedGameDataSnapshot Publish(Sim.GameDataUpdate* source, int width, int height,
             Action<OwnedSnapshotOverlay>? overlay = null, bool allowMissingTextures = false)
         {
+            var completed = Begin(source, width, height, overlay, allowMissingTextures);
+            Commit(completed);
+            return completed;
+        }
+        // A copy of source the caller completes before Commit or Abandon.
+        internal OwnedGameDataSnapshot Begin(Sim.GameDataUpdate* source, int width, int height,
+            Action<OwnedSnapshotOverlay>? overlay = null, bool allowMissingTextures = false)
+        {
             if (disposed) throw new ObjectDisposedException(nameof(OwnedSnapshotPublisher));
-            var completed = OwnedGameDataSnapshot.Capture(source, width, height, overlay, allowMissingTextures);
+            if (candidate != null) throw new InvalidOperationException("A snapshot publication is already being built.");
+            candidate = OwnedGameDataSnapshot.Capture(source, width, height, overlay, allowMissingTextures);
+            return candidate;
+        }
+        // Hands the candidate over; only then is the previous snapshot freed.
+        internal IntPtr Commit(OwnedGameDataSnapshot completed)
+        {
+            if (disposed || !ReferenceEquals(completed, candidate))
+            {
+                // A reset while it was built already took the candidate.
+                if (!ReferenceEquals(completed, current)) completed.Dispose();
+                throw new InvalidOperationException("The snapshot publication is no longer being built.");
+            }
+            var pointer = (IntPtr)completed.Pointer;
+            candidate = null;
             var previous = current;
             current = completed;
             previous?.Dispose();
-            return completed;
+            return pointer;
+        }
+        // A failed publication: the current snapshot stays as it was.
+        internal void Abandon(OwnedGameDataSnapshot? failed)
+        {
+            if (failed == null) return;
+            if (ReferenceEquals(failed, candidate)) candidate = null;
+            if (!ReferenceEquals(failed, current)) failed.Dispose();
+        }
+        // Session teardown: the game no longer reads any snapshot.
+        internal void Clear()
+        {
+            candidate?.Dispose(); candidate = null;
+            current?.Dispose(); current = null;
         }
         public void Dispose()
         {
             if (disposed) return;
-            disposed = true; current?.Dispose(); current = null;
+            disposed = true; Clear();
         }
     }
 

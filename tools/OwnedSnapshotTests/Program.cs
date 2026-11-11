@@ -752,6 +752,54 @@ internal static unsafe class Program
             Reject(() => { _ = (IntPtr)second.Pointer; });
             Reject(() => publisher.Publish(source.Pointer, 3, 2));
         });
+        Test("a publication that fails after its copy keeps the handed-over snapshot readable", () =>
+        {
+            // The colony owner's shape: copy, complete (receipts, actors,
+            // presentation), and only then hand over. A failure anywhere in
+            // between returns no data, so the game keeps reading the snapshot
+            // it already holds: that snapshot must stay current and alive.
+            using var source = new NativeFixture();
+            using var publisher = new OwnedSnapshotPublisher();
+            var first = publisher.Begin(source.Pointer, 3, 2);
+            var handed = publisher.Commit(first);
+            Check(handed == (IntPtr)first.Pointer && (IntPtr)publisher.CurrentPointer == handed && !publisher.HasCandidate);
+            var mass = first.Pointer->mass[2]; var events = first.Pointer->numMassConsumedCallbacks;
+            source.Pointer->numFramesProcessed = 3;
+            var second = publisher.Begin(source.Pointer, 3, 2);
+            Check(publisher.HasCandidate && (IntPtr)publisher.CurrentPointer == handed && first.Pointer->mass[2] == mass);
+            Reject(() => publisher.Begin(source.Pointer, 3, 2));
+            second.AppendEvents<Sim.MassConsumedCallback>(SnapshotEventChannel.MassConsumedCallbacks,
+                new[] { new Sim.MassConsumedCallback { callbackIdx = 7, elemIdx = 1, mass = 1, temperature = 300, diseaseIdx = 255 } });
+            try { throw new InvalidOperationException("Injected presentation failure after the copy"); }
+            catch (InvalidOperationException) { publisher.Abandon(second); }
+            Reject(() => { _ = (IntPtr)second.Pointer; });
+            Check(!publisher.HasCandidate && (IntPtr)publisher.CurrentPointer == handed && first.Pointer->mass[2] == mass &&
+                first.Pointer->numMassConsumedCallbacks == events && first.Pointer->numFramesProcessed == 2);
+            Check(first.CellBuffer<float>(nameof(Sim.GameDataUpdate.mass)).Length == first.CellCount);
+            // The next publication still hands over normally, then retires the old one.
+            var third = publisher.Begin(source.Pointer, 3, 2);
+            Check((IntPtr)publisher.CurrentPointer == handed);
+            Check(publisher.Commit(third) == (IntPtr)third.Pointer && third.Pointer->numFramesProcessed == 3);
+            Reject(() => { _ = (IntPtr)first.Pointer; });
+            Reject(() => publisher.Commit(third));
+            publisher.Abandon(third); // already handed over: not freed
+            Check((IntPtr)publisher.CurrentPointer == (IntPtr)third.Pointer && third.Pointer->numFramesProcessed == 3);
+        });
+        Test("a session reset while a publication is built frees it and refuses its hand-over", () =>
+        {
+            using var source = new NativeFixture();
+            using var publisher = new OwnedSnapshotPublisher();
+            var first = publisher.Publish(source.Pointer, 3, 2);
+            var building = publisher.Begin(source.Pointer, 3, 2);
+            publisher.Clear();
+            Check(publisher.CurrentPointer == null && !publisher.HasCandidate);
+            Reject(() => { _ = (IntPtr)first.Pointer; });
+            Reject(() => { _ = (IntPtr)building.Pointer; });
+            Reject(() => publisher.Commit(building));
+            Check(publisher.CurrentPointer == null);
+            var next = publisher.Publish(source.Pointer, 3, 2);
+            Check(publisher.CurrentPointer == next.Pointer);
+        });
         Test("zero-count arrays relinquish native addresses", () =>
         {
             using var source = new NativeFixture();

@@ -96,7 +96,9 @@ namespace MixedAtmospheres.Oni
         private static OniNativeColony.CellView[] views = Array.Empty<OniNativeColony.CellView>();
         private static OniNativeColony.Receipt[] receipts = new OniNativeColony.Receipt[4096];
         private static bool[] catalogued = Array.Empty<bool>();
-        private static OwnedGameDataSnapshot? current;
+        // The game's data copy: the snapshot last handed to the game stays
+        // readable until the next publication has been handed over.
+        private static readonly OwnedSnapshotPublisher publication = new OwnedSnapshotPublisher();
         private static string loggedFault = "";
         internal static string NoticedFault => loggedFault;
 
@@ -116,7 +118,7 @@ namespace MixedAtmospheres.Oni
         {
             receiptPump.Reset();
             ColonyPresentation.Reset(); ColonyActivity.Reset(); ColonyActors.Reset(); ColonyViewCache.Reset(); ColonyConduits.Reset(); ColonyWorldGerms.Reset(); ColonyRadiationGerms.Reset(); ColonyNotices.Reset(); ColonyBalance.Reset(); ColonyDlcFluidReaders.Reset();
-            current?.Dispose(); current = null;
+            publication.Clear();
             if (Active) { var s = OniNativeColony.Status.Empty; _ = OniNativeColony.Stop(ref s); }
             ColonyPacing.Reset(); ColonyOwnerPersistence.Reset(); ModSettingsRuntime.Reset();
             ColonyClusterWorlds.Reset();ColonyStartingAir.Reset();OwnedCells=0;
@@ -433,7 +435,7 @@ namespace MixedAtmospheres.Oni
                 ColonyNotices.Show("Mixed Atmospheres stopped", "The gas and liquid simulation stopped: " + status.Error +
                     "\n\nGases and liquids, in the world and in pipes, are frozen and this colony cannot be saved. Load your last save to continue.");
             }
-            var copy = OwnedGameDataSnapshot.Capture(source, Grid.WidthInCells, Grid.HeightInCells);
+            var copy = publication.Begin(source, Grid.WidthInCells, Grid.HeightInCells);
             Lap("snapshot");
             try
             {
@@ -506,8 +508,6 @@ namespace MixedAtmospheres.Oni
                 ColonyActivity.ValidatePublication(status);
                 ColonyActors.Publish(copy);
                 Lap("actors");
-                var previous = current; current = copy; previous?.Dispose();
-                Lap("retire");
                 ++Publications;
                 ColonyPresentation.Publish(status.CompletedFrames);
                 ColonyStartingAir.Update();
@@ -517,9 +517,12 @@ namespace MixedAtmospheres.Oni
                 if (timedCompletion) ColonyPerformanceLog.Published(status.Session, submittedAt, System.Diagnostics.Stopwatch.GetTimestamp(), matchedCompletion);
                 if (laps != null) Debug.Log($"[Mixed Atmospheres] publication frame {status.CompletedFrames} native {source->numFramesProcessed}:{laps}");
                 ArmReceiptPump(receiptPublicationGeneration,receiptPublicationSession,receiptPublicationFrame,receiptObservedThrough);
-                return (IntPtr)copy.Pointer;
             }
-            catch { copy.Dispose(); throw; }
+            catch { publication.Abandon(copy); throw; }
+            // The last step: until here a failure (the caller returns no data,
+            // so the game keeps reading the snapshot it already has) leaves
+            // that snapshot current and readable. Nothing may follow it.
+            return publication.Commit(copy);
         }
 
         // Only a completed publication whose receipt epoch, owner and fault
