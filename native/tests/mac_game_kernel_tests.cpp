@@ -645,8 +645,39 @@ void source_energy_controls() {
               std::abs(room[2] - room[0]) < .05 &&
               std::abs(source[2] - room[2]) < .5 * std::abs(source[0] - room[0]),
           "Source energy rules lost their tube behaviour");
+  // A deep draw beside a droplet (2026-11-11). Drawing nearly all of a light
+  // gas cools the rest along its isentrope far below 1 K (helium to 0.03 K
+  // here; the game's hydrogen data cool faster still). Gas alone is admitted
+  // at any positive temperature, but a liquid keeps its catalogue floor, so
+  // a hydrogen cell holding a trace droplet left the EOS domain and stopped
+  // the owner (a new Forest colony, frame 14). The draw now leaves what
+  // stays no colder than twice its liquids' floor.
+  {
+    const auto helium = f.registry.index("helium"), water = f.registry.index("water");
+    MacTransportState state;
+    state.grid = {3, 3, 1, 1, false, false, std::vector<std::uint8_t>(9, 1)};
+    state.grid.walls[4] = 0;
+    for (std::size_t i = 0; i < 9; ++i) {
+      MacMaterialCell cell{ma::MixtureInventory(f.registry.size()), {}};
+      if (i == 4) {
+        cell.mixture.masses[helium] = .01;
+        cell.mixture.masses[water] = 1e-10;
+      }
+      state.cells.push_back(std::move(cell));
+    }
+    state.momentum_x.resize(12);
+    state.momentum_y.resize(12);
+    const auto droplet = MacClosedWorld::game_colony(f.registry, f.eos, std::move(state),
+                                                     std::vector<double>(9, 300), config());
+    auto draw = edit(4, helium, false, .00999999, MacFlowWork::enthalpy);
+    const auto drawn = droplet.with_fluid_transfers(std::span(&draw, 1), MacFluidTransferTopology::occupied_mixture);
+    closed_energy(energy(droplet) - parcel_total(drawn.parcels.front()), energy(drawn.world));
+    const double left = drawn.world.cell_reading(4).temperature_k;
+    require(drawn.parcels.front().flow_work_j > 0 && left >= 1 && left < 300,
+            "A deep enthalpy draw beside a droplet left the liquid's temperature domain");
+  }
   std::cout << "PASS source energy: enthalpy and isentropic draw, compensated room shares, wet rooms as internal energy; "
-               "the sealed tube's cold source and compression heating\n";
+               "the sealed tube's cold source and compression heating; a deep draw beside a droplet stays in its EOS domain\n";
 }
 } // namespace
 int main() {

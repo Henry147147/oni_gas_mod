@@ -1401,19 +1401,23 @@ struct TransferWork {
 // contents expanding isentropically into the drawn gas's volume. Their gas
 // moles n and heat capacity C (liquids included) cool by T (1 - f)^(nR/C),
 // f being the drawn share of the gas moles: about (R/M) T per kg for a
-// small draw, never their whole thermal energy, nothing when no gas remains.
+// small draw, never their whole thermal energy, nothing when no gas remains,
+// and never below twice the temperature floor of a liquid that stays.
 template <class Masses>
 double flow_work(const std::vector<k::Species> &species, const Masses &masses,
                  std::size_t key, bool inject, double mass, double temperature) {
   const auto &material = species[key];
   if (inject)
     return k::R / material.molar_mass * temperature;
-  double moles = 0, capacity = 0;
+  double moles = 0, capacity = 0, floor = 0;
   for (std::size_t q = 0; q < species.size(); ++q) {
     const double held = masses[q];
     if (!(held > 0))
       continue;
-    capacity += (held - (q == key ? mass : 0)) * species[q].cv;
+    const double stays = held - (q == key ? mass : 0);
+    capacity += stays * species[q].cv;
+    if (stays > 0)
+      floor = std::max(floor, species[q].minimum_temperature);
     if (species[q].gas)
       moles += held / species[q].molar_mass;
   }
@@ -1421,8 +1425,19 @@ double flow_work(const std::vector<k::Species> &species, const Masses &masses,
   if (!(mass > 0) || !(moles > drawn) || !(capacity > 0))
     return 0;
   const double exponent = (moles - drawn) * k::R / capacity;
-  return capacity * temperature *
-         -std::expm1(exponent * std::log1p(-drawn / moles)) / mass;
+  // The share of their temperature the remaining contents give up.
+  double cooled = -std::expm1(exponent * std::log1p(-drawn / moles));
+  // Gas alone is admitted at any positive temperature, but a liquid keeps its
+  // catalogue floor: drawing most of a light gas from a cell that holds a
+  // droplet would otherwise take the cell out of its EOS domain (hydrogen's
+  // game data give it gamma 4.44; 88 % drawn leaves 0.4 K). What stays is not
+  // cooled below twice the highest floor of its materials, the margin the
+  // compensation's weights use.
+  if (floor > 0) {
+    const double kept = 2 * floor / temperature;
+    cooled = kept < 1 ? std::min(cooled, 1 - kept) : 0;
+  }
+  return capacity * temperature * cooled / mass;
 }
 // A compensated edit's flow work (positive), its cell and parcel.
 struct Compensation {

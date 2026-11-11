@@ -682,6 +682,20 @@ on the large industrial save (32 duplicants, 17,832 gas cells), Compensated
 runs at 1.682 against 1.700 game seconds per real second for Internal energy;
 the frame's return takes about 1.3 ms.
 
+**A draw beside a droplet (2026-11-11).** The isentropic draw cools what
+stays in the cell by `(1 - f)^(nR/C)`. Gas alone is admitted at any positive
+temperature, but a liquid keeps its catalogue floor, so drawing most of a
+light gas from a cell that also held a trace droplet took the cell out of
+its EOS domain and stopped the owner: a new colony on the Forest asteroid
+faulted at owner frame 14 with 0.1.2 (88 % of a cell's hydrogen drawn beside
+0.2 mg of liquid: 0.43 K against the liquid's 1 K floor). What stays is now
+cooled no further than twice the highest floor of its materials, the margin
+the compensation's weights already use; the work not taken is simply not
+booked (with Compensated it would have returned to the room anyway). Cells
+without liquid, and draws that stay above that margin, are unchanged.
+`ma_mac_game_kernel_tests` draws 99.9999 % of a helium cell beside a droplet
+(0.03 K before, refused by the EOS).
+
 ## Open acceptance work
 
 No private-playtest-ready or performance pass is claimed. The coupled material
