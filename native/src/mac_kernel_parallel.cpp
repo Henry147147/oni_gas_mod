@@ -5,6 +5,7 @@
 #include "mac_kernel_detail.hpp"
 #include "mac_kernel_lifecycle.hpp"
 #include <chrono>
+#include <cstdlib>
 #include <map>
 #include <memory>
 #if defined(__x86_64__) || defined(_M_X64) || defined(__i386__) || defined(_M_IX86)
@@ -48,11 +49,21 @@ Grid::Grid(const MacGrid& mg)
 namespace {
 // Short pause spin, then yield, then sleep: an oversubscribed host must not
 // burn the cores other threads (including our own workers) need. Workers keep
-// yielding for up to 2 ms before sleeping: regions inside one interval follow
-// each other closely, and a worker woken from sleep in a busy process (the
-// game) arrives after the caller has claimed most blocks.
+// yielding for 200 us before sleeping: parallel sections inside one interval
+// follow each other within tens of microseconds, and a worker woken from
+// sleep in a busy process (the game) arrives after the caller has claimed
+// most blocks. A longer wait only burns cores through the serial stretches
+// between phases: several pools exist at once (the regional pool, the
+// largest region's and the rest's), and with 2 ms a third of the process's
+// CPU time was idle workers in sched_yield. Measured on the large-colony
+// replays (12 workers, 2026-11-11): the same tick time and bytes with 27 %
+// less CPU time. MA_POOL_AWAKE_US overrides it for measurements.
 constexpr int pause_spins = 256;
-constexpr auto awake_before_sleep = std::chrono::microseconds(2000);
+const auto awake_before_sleep = std::chrono::microseconds([] {
+    const char* value = std::getenv("MA_POOL_AWAKE_US");
+    const long parsed = value && *value ? std::strtol(value, nullptr, 10) : 200;
+    return parsed < 0 ? 0L : parsed > 100000 ? 100000L : parsed;
+}());
 // Block index of a closed ticket: never below any admissible block count.
 constexpr std::uint64_t closed = 0xffffffffU;
 }

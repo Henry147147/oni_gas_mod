@@ -738,7 +738,11 @@ The pool (`mac_kernel_parallel.cpp`) keeps its workers between parallel
 regions. Threads claim blocks dynamically from one 64-bit ticket (region
 generation and next block), so a descheduled worker delays only the block it
 holds; which thread runs a block never changes the result. Idle workers pause
-briefly, then yield, then sleep on a condition variable. Before a new region
+briefly, then yield for 200 µs, then sleep on a condition variable (2 ms
+until 2026-11-11: with the game kernel's several pools a third of the
+process's CPU time was idle workers in `sched_yield`; the shorter wait gives
+the same tick time and bytes on the large-colony replays with 27 % less CPU
+time; `MA_POOL_AWAKE_US` overrides it for measurements). Before a new region
 changes the block count and job, the finished region's ticket is closed, so a
 late worker cannot claim a block of the new region twice. The first pool
 partitioned blocks statically; on the shared host one preempted thread then
