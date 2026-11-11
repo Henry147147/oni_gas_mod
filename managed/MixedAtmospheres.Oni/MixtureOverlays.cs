@@ -46,7 +46,7 @@ namespace MixedAtmospheres.Oni
         private static readonly string[] Descriptions =
         {
             "Gas colours show constituent mole fractions. Inspect a cell for every constituent, including traces.",
-            "Total gas pressure from vacuum to 500 kPa. Normal base air is about 250 kPa.",
+            "Total gas pressure from vacuum to 250 kPa. Normal base air is about 125 kPa.",
             "How far each tile's oxygen is above the breathing minimums (share and partial pressure): red cannot be breathed, yellow barely, teal comfortably.",
             "Which breathing check each tile fails: too little oxygen, toxic gas (and carbon dioxide when its limits are on), or vacuum."
         };
@@ -57,10 +57,10 @@ namespace MixedAtmospheres.Oni
         private static readonly Color Toxic = new Color(0.85f, 0.36f, 0.79f);
         private static readonly Color Low = new Color(0.16f, 0.22f, 0.40f);
         private static readonly Color High = new Color(0.96f, 0.73f, 0.26f);
-        // Gas pressure, linear from vacuum to 500 kPa: normal base air (1.6–1.8
-        // kg of oxygen per tile, about 245–275 kPa) sits mid-scale, so both thin
-        // air and overpressure stand out from it.
-        internal const double NormalPressurePa = 250000, MaximumPressurePa = 500000;
+        // Gas pressure, linear from vacuum to 250 kPa: normal base air (1.6–1.8
+        // kg of oxygen per tile, about 122–138 kPa with molecular oxygen) sits
+        // mid-scale, so both thin air and overpressure stand out from it.
+        internal const double NormalPressurePa = 125000, MaximumPressurePa = 250000;
         private static readonly Color Normal = new Color(0.40f, 0.68f, 0.58f);
         internal static Color PressureColor(double pascals)
         {
@@ -241,9 +241,9 @@ namespace MixedAtmospheres.Oni
             else if (kind == MixtureOverlayKind.Pressure)
             {
                 list.Add(new LegendEntry("Vacuum", "No gas, or almost none.", PressureColor(0)));
-                list.Add(new LegendEntry("100 kPa", "Thin: less than half the pressure of normal base air.", PressureColor(100000)));
-                list.Add(new LegendEntry("250 kPa · normal base air", "1.6–1.8 kg of oxygen per tile reads about 245–275 kPa.", PressureColor(NormalPressurePa)));
-                list.Add(new LegendEntry("500 kPa or more", "The scale ends here; the hover card shows the exact pressure.", PressureColor(MaximumPressurePa)));
+                list.Add(new LegendEntry("50 kPa", "Thin: less than half the pressure of normal base air.", PressureColor(50000)));
+                list.Add(new LegendEntry("125 kPa · normal base air", "1.6–1.8 kg of oxygen per tile reads about 122–138 kPa.", PressureColor(NormalPressurePa)));
+                list.Add(new LegendEntry("250 kPa or more", "The scale ends here; the hover card shows the exact pressure.", PressureColor(MaximumPressurePa)));
             }
             else if (kind == MixtureOverlayKind.OxygenMargin)
             {

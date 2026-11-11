@@ -141,11 +141,13 @@ gate that these requirements belong to is
   comfortable at 4×; failing tiles keep ONI's toxic and unbreathable colours.
   Its legend: Comfortable, Barely breathable, the harmful-gas row as on the
   Breathability overlay, and Too little oxygen or vacuum.
-- **Gas pressure** is linear from vacuum to 500 kPa with three colour stops:
-  dark blue at vacuum, green-grey at 250 kPa (normal base air: 1.6–1.8 kg of
-  oxygen per tile reads about 245–275 kPa) and amber from 500 kPa up, so thin
+- **Gas pressure** is linear from vacuum to 250 kPa with three colour stops:
+  dark blue at vacuum, green-grey at 125 kPa (normal base air: 1.6–1.8 kg of
+  oxygen per tile reads about 122–138 kPa with
+  [molecular oxygen](material-catalogue.md#molecular-masses-014-2026-11-11);
+  the scale ran to 500 kPa in 0.1.3) and amber from 250 kPa up, so thin
   air and overpressure both stand out from an ordinary room. Its legend has
-  four rows: Vacuum, 100 kPa, 250 kPa · normal base air, 500 kPa or more.
+  four rows: Vacuum, 50 kPa, 125 kPa · normal base air, 250 kPa or more.
 - The native F1 legend limits mixture assessment to owned cells; unowned cells
   keep native colours. Custom modes reuse the native oxygen mode's status-item
   visibility mapping. Without it, ONI warns about an unknown view every frame.

@@ -172,7 +172,7 @@ namespace MixedAtmospheres.Oni
                 .05, 0, 1, new double[] { 0, .01, .02, .05, .1, .2, .5, 1 }),
             SettingDefinition.Number("breathing.maximumCo2Fraction", SettingScope.Colony, Breathing, "Maximum carbon dioxide share",
                 "Applied only when Gameplay → CO₂ breathing limits is On: maximum share by moles (0: any carbon dioxide fails).",
-                .02, 0, .1, new double[] { 0, .001, .003, .005, .01, .02, .05, .1 }),
+                .04, 0, .1, new double[] { 0, .001, .003, .005, .01, .02, .04, .05, .1 }),
             SettingDefinition.Number("breathing.maximumCo2PressurePa", SettingScope.Colony, Breathing, "Maximum carbon dioxide partial pressure",
                 "Applied only when Gameplay → CO₂ breathing limits is On: maximum carbon dioxide partial pressure.",
                 5000, 0, 10000, new double[] { 0, 100, 300, 500, 1000, 2000, 2500, 5000, 10000 }, "Pa"),
@@ -383,9 +383,9 @@ namespace MixedAtmospheres.Oni
             Keeping("relaxed-breathing", "Relaxed breathing", "At least 10% and 10 kPa oxygen. CO₂ breathing limits stay as you set them.",
                 new[] { SettingCatalog.Co2Limits },
                 ("breathing.minimumOxygenFraction", .1), ("breathing.minimumOxygenPressurePa", 10000.0)),
-            Make("strict-breathing", "Strict breathing", "At least 18% and 18 kPa oxygen. Enables CO₂ breathing limits: below 1% and 2.5 kPa carbon dioxide.",
+            Make("strict-breathing", "Strict breathing", "At least 18% and 18 kPa oxygen. Enables CO₂ breathing limits: below 2% and 2.5 kPa carbon dioxide.",
                 ("breathing.minimumOxygenFraction", .18), ("breathing.minimumOxygenPressurePa", 18000.0),
-                (SettingCatalog.Co2Limits, true), ("breathing.maximumCo2Fraction", .01), ("breathing.maximumCo2PressurePa", 2500.0)),
+                (SettingCatalog.Co2Limits, true), ("breathing.maximumCo2Fraction", .02), ("breathing.maximumCo2PressurePa", 2500.0)),
         };
         internal static SettingsPreset Default => All[0];
         internal static SettingsPreset? Find(string id) => All.FirstOrDefault(p => string.Equals(p.Id, id, StringComparison.OrdinalIgnoreCase));

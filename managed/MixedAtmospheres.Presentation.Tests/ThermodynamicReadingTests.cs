@@ -23,6 +23,19 @@ internal static class ThermodynamicReadingTests
             check(first.BaseColor.Equals(second.BaseColor) && first.Failures == second.Failures);
             check(ReferenceEquals(first.ThermodynamicReading, source) && ReferenceEquals(second.ThermodynamicReading, other));
         });
+        // docs/material-catalogue.md: the game's table gives the diatomic
+        // elements the mass of one atom; the mod uses the molecule's.
+        test("diatomic game elements take the mass of their molecule", () =>
+        {
+            foreach (var id in new[] { "Oxygen", "ContaminatedOxygen", "LiquidOxygen", "Hydrogen", "LiquidHydrogen", "ChlorineGas", "Chlorine" })
+                check(MolecularMass.AtomsPerMolecule(id) == 2);
+            foreach (var id in new[] { "CarbonDioxide", "Methane", "Steam", "Water", "SourGas", "Helium", "SulfurGas", "PhosphorusGas", "Fallout", "", "oxygen" })
+                check(MolecularMass.AtomsPerMolecule(id) == 1);
+            check(MolecularMass.KgPerMol("Oxygen", 16) == .032 && MolecularMass.KgPerMol("Hydrogen", 1) == .002 && MolecularMass.KgPerMol("CarbonDioxide", 44) == .044);
+            // 1.8 kg of oxygen in a one cubic metre tile at 20 °C: about 137 kPa.
+            var pascals = 1.8 / MolecularMass.KgPerMol("Oxygen", 16) * FluidMaterialCatalog.GasConstantJoulesPerMolKelvin * 293.15;
+            check(pascals > 136e3 && pascals < 138e3);
+        });
         test("canonical molar masses set fractions independently of the legacy presentation catalog", () =>
         {
             var reading = Reading(); var view = model().Describe(reading);

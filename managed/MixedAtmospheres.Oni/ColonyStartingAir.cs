@@ -69,7 +69,7 @@ namespace MixedAtmospheres.Oni
                     var mass = (double)source->mass[cell];
                     if (element.IsGas && mass > 0)
                     {
-                        var molar = element.molarMass / 1000.0;
+                        var molar = OniMolarMass.KgPerMol(element);
                         inventory.GasMol += mass / molar;
                         if (element == oxygen || element == polluted) inventory.OxygenMol += mass / molar;
                         if (element == co2) inventory.Co2Mol += mass / molar;
@@ -116,8 +116,8 @@ namespace MixedAtmospheres.Oni
             var attribute = Db.Get().Attributes.AirConsumptionRate;
             var rates = minions.Select(m => (double)(attribute.Lookup(m)?.GetTotalValue() ?? TUNING.DUPLICANTSTATS.STANDARD.BaseStats.OXYGEN_USED_PER_SECOND)).ToArray();
             var rateKg = rates.Sum();
-            var oxygenMolar = ElementLoader.FindElementByHash(SimHashes.Oxygen).molarMass / 1000.0;
-            var co2Molar = ElementLoader.FindElementByHash(SimHashes.CarbonDioxide).molarMass / 1000.0;
+            var oxygenMolar = OniMolarMass.KgPerMol(ElementLoader.FindElementByHash(SimHashes.Oxygen));
+            var co2Molar = OniMolarMass.KgPerMol(ElementLoader.FindElementByHash(SimHashes.CarbonDioxide));
             var k = oxygenMolar * TUNING.DUPLICANTSTATS.STANDARD.BaseStats.OXYGEN_TO_CO2_CONVERSION / co2Molar;
             var rules = ModSettingsRuntime.Breathing;
             var molesPerCycle = rateKg / oxygenMolar * CycleSeconds;

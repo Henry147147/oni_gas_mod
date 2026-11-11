@@ -5,7 +5,7 @@ namespace MixedAtmospheres.Oni
 {
     // "What plays differently" (docs/starting-air.md#what-plays-differently):
     // the start-of-colony dialog lists it, and Settings → Gameplay → How it
-    // plays shows the same list again. At most seven one-line items, each
+    // plays shows the same list again. At most eight one-line items, each
     // something the player acts on; every number comes from the colony's
     // settings. Engine-free: tools/SettingsTests compiles it.
     internal static class ColonyPrimer
@@ -32,7 +32,8 @@ namespace MixedAtmospheres.Oni
             else if (co2 != null)
                 lines.Add("Air with " + co2 + " is unbreathable.");
             lines.Add("An electrolyzer releases twice as much hydrogen as oxygen, by moles, into the same air: filter or pump the hydrogen out.");
-            lines.Add("A liquid lock holds back only about 10 kPa per tile of water height, and base air is about 250 kPa: seal off vacuum with airlocks.");
+            lines.Add("A liquid lock holds back only about 10 kPa per tile of water height, and base air is about 125 kPa: seal off vacuum with airlocks.");
+            lines.Add("Gases layer by molecular weight: natural gas and steam rise above oxygen; chlorine sinks below carbon dioxide.");
             lines.Add("Boiling follows pressure: water in vacuum or thin air boils at room temperature.");
             lines.Add("A Gas Element Sensor reacts to its gas from 0.1% of the air by mass; a Gas Share Sensor switches at a share you choose.");
             return lines;

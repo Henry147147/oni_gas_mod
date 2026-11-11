@@ -450,7 +450,7 @@ namespace MixedAtmospheres.Oni
         private static Dictionary<string, object> Describe(Element e) => new Dictionary<string, object>
         {
             ["id"] = e.id.ToString(), ["phase"] = e.IsVacuum ? "vacuum" : e.IsGas ? "gas" : e.IsLiquid ? "liquid" : "solid",
-            ["molar_mass_kg_per_mol"] = e.molarMass / 1000.0, ["specific_heat_j_per_kg_k"] = e.specificHeatCapacity * 1000.0,
+            ["molar_mass_kg_per_mol"] = OniMolarMass.KgPerMol(e), ["specific_heat_j_per_kg_k"] = e.specificHeatCapacity * 1000.0,
             ["conductivity_w_per_m_k"] = e.thermalConductivity,
         };
         // The cells a floor run under the owner owns: the arena with its border.
@@ -632,8 +632,8 @@ namespace MixedAtmospheres.Oni
                 for (var x = 1; x < width - 1; ++x)
                     if (!Solid(x, y)) Replace(x, y, SimHashes.Vacuum, 0, 0);
             var oxygen = ElementLoader.FindElementByHash(SimHashes.Oxygen);
-            double Gas(double pa, double kelvin) => pa * oxygen.molarMass / 1000 / (GasConstant * kelvin);
-            placed["oxygen_molar_mass_kg_per_mol"] = oxygen.molarMass / 1000;
+            double Gas(double pa, double kelvin) => pa * OniMolarMass.KgPerMol(oxygen) / (GasConstant * kelvin);
+            placed["oxygen_molar_mass_kg_per_mol"] = OniMolarMass.KgPerMol(oxygen);
             switch (Id)
             {
                 case "f1": case "f2":

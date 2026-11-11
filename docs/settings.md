@@ -16,9 +16,11 @@ it. Code: `ModSettings*.cs` (model, files, window, runtime); tests:
   settings' numbers. **CO₂ breathing limits** defaults to **Off**.
   Enough oxygen is always required; CO₂ still mixes, moves through pipes and
   displaces oxygen. Turn the switch on to enforce the saved CO₂ thresholds
-  (by default 2% and 5 kPa, which bind together in normal base air of about
-  250 kPa; that is ten times the CO₂ headroom of 0.5% and 500 Pa, the
-  defaults before 2026-11-11).
+  (by default 4% and 5 kPa, which bind together in normal base air of about
+  125 kPa; that is ten times the CO₂ headroom of 0.5% and 500 Pa, the
+  defaults before 2026-11-11, and the same carbon dioxide mass as the 2% and
+  5 kPa of 0.1.3, when oxygen had half its molecular mass and base air read
+  250 kPa).
   During play this switch applies immediately to the current colony and its
   next save. At the main menu it chooses the default for new colonies.
 - **Gameplay → Boiling and condensation → Evaporation below boiling** defaults
@@ -160,7 +162,7 @@ it only lowers the oxygen minimums.
 | Fast (experimental) | Pressure tolerance 1e-6: fewer pressure iterations, pressures settle less exactly. |
 | Precise (experimental) | Two solver steps per game tick, pressure tolerance 1e-10 and the Robust caps; about twice the solver time. |
 | Relaxed breathing | Oxygen ≥ 10% and 10 kPa; keeps the CO₂ switch as the player set it (the CO₂ thresholds take their defaults). |
-| Strict breathing | Oxygen ≥ 18% and 18 kPa; enables CO₂ limits of 1% and 2.5 kPa. |
+| Strict breathing | Oxygen ≥ 18% and 18 kPa; enables CO₂ limits of 2% and 2.5 kPa (1% until 0.1.4). |
 
 Lower caps are not offered: they are never faster, and reaching a cap stops
 the simulation. Players save the shown settings (colony settings and
@@ -226,7 +228,7 @@ which adds `evaporation_below_boiling`).
 | `breathing.minimumOxygenFraction` | Minimum oxygen share | 15% | 5–25% | Breathable with at least this oxygen share by moles (polluted oxygen counts) | section 3 |
 | `breathing.minimumOxygenPressurePa` | Minimum oxygen partial pressure | 15 kPa | 1–50 kPa | …and at least this oxygen partial pressure | section 3 |
 | `breathing.maximumToxicFraction` | Maximum toxic gas share | 5% | 0–100% (0, 1, 2, 5, 10, 20, 50%, No limit) | Not breathable once chlorine, sour gas and nuclear fallout (where the content has it) together reach this share by moles; 100% is no limit. Always applies, like the oxygen minimums | section 3 v5 |
-| `breathing.maximumCo2Fraction` | Maximum carbon dioxide share | 2% (0.5% until 2026-11-11) | 0–10% | Only when CO₂ limits are on: carbon dioxide at most this share | section 3 |
+| `breathing.maximumCo2Fraction` | Maximum carbon dioxide share | 4% (2% in 0.1.3, 0.5% before) | 0–10% | Only when CO₂ limits are on: carbon dioxide at most this share | section 3 |
 | `breathing.maximumCo2PressurePa` | Maximum carbon dioxide partial pressure | 5 kPa (500 Pa until 2026-11-11) | 0–10 kPa | Only when CO₂ limits are on: at most this partial pressure | section 3 |
 | `breathing.maximumOxygenFraction` | Maximum oxygen share | no limit (1) | 30–100% | Cells richer in oxygen fail. Below 100% can make pure generated oxygen unbreathable; the window warns | section 3 |
 

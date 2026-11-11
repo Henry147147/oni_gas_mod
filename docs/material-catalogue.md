@@ -14,7 +14,7 @@ liquid (`native/src/oni_catalogue.cpp`). The catalogue joins two sources:
 
 | Property | Use |
 | --- | --- |
-| Molar mass | The ideal-gas molar mass, exactly as the game defines it. The game gives oxygen and hydrogen their atomic masses (about 16 and 1 g/mol), so a kilogram of either exerts about twice its physical pressure. |
+| Molar mass | The ideal-gas molar mass: the game's value times the atoms in the element's molecule ([molecular masses](#molecular-masses-014-2026-11-11)). |
 | Specific heat | The constant-volume capacity `cv` (a game cell has fixed volume), so a cell's heat content matches the game; `cp = cv + R/M`. |
 | Liquid full-cell mass | The zero-pressure density in kg/m³: a cell holds that mass at zero pressure. |
 | Transitions | Boiling and condensation temperatures anchor saturation pairs; other transitions become audited conversions. |
@@ -24,13 +24,53 @@ at any positive temperature, below). Liquids may compress to twice
 their zero-pressure density. Formation enthalpies are zero except for the
 vapour of a saturation pair.
 
+### Molecular masses (0.1.4, 2026-11-11)
+
+The game's element table gives oxygen, polluted oxygen, hydrogen and chlorine
+the mass of one atom (about 16, 16, 1 and 34.5 g/mol). Their gases are
+molecules of two atoms, so until 0.1.3 a kilogram of any of them exerted
+twice its physical pressure and normal base air read about 250 kPa. By user
+decision (2026-11-11) the mod multiplies the game's value by the atoms in
+the molecule: 2 for `Oxygen`, `ContaminatedOxygen`, `Hydrogen`, `ChlorineGas`
+and their liquids `LiquidOxygen`, `LiquidHydrogen` and `Chlorine`; 1 for every
+other element (`MolecularMass` in the core, `OniMolarMass` in the mod, which
+every reader of a molar mass goes through). The rule scales the game's own
+number, so no game value is committed and a changed element table follows.
+
+- 1.6-1.8 kg of oxygen in a tile at 20 °C reads 122-137 kPa (it read
+  245-275), and a pocket of hydrogen or chlorine half its former pressure.
+  Carbon dioxide, natural gas, steam and the other gases read as before.
+- γ = 1 + R/(M cv) falls for these gases: oxygen 1.52 to 1.26, chlorine 1.50
+  to 1.25, hydrogen 4.44 to 2.72 (still beyond any physical gas, below).
+- Gases layer by molecular weight: hydrogen (2), natural gas (16), steam (18)
+  and sour gas (19) rise above oxygen (32); carbon dioxide (44) sinks below
+  it and chlorine (69) below that. With the game's values oxygen sat above
+  natural gas and chlorine above carbon dioxide.
+- The reference latent heats of liquid oxygen, hydrogen and chlorine are per
+  kilogram and unchanged; their saturation curves now use the molecule's
+  mass.
+- Phosphorus and sulphur gas keep the game's atomic values: their vapours
+  are mixtures of molecules (P₄/P₂, S₈ to S₂) that change with temperature,
+  and no single mass is right. Fictional gases keep the game's values.
+- The catalogue's identity changes, so the save envelope's material model
+  is 4 and a colony saved by 0.1.3 or earlier is refused at the menu with
+  "Start a new colony with this version"; there is no migration
+  ([saved catalogues](#saved-catalogues)).
+
+Control: `MolecularMass` in `MixedAtmospheres.Presentation.Tests`
+("diatomic game elements take the mass of their molecule").
+
 ### Hydrogen expansion below 1 K (fixed 2026-11-02)
 
-These two choices make hydrogen an ideal gas with γ = 1 + R/(M cv) = 1 +
-8249/2400 = 4.44, beyond any physical gas (at most 5/3). Carbon gas (1.98)
-also exceeds 5/3; every other base-game and Spaced Out! gas lies between 1.005
-and 1.52 (oxygen). The game's values are kept (delegated decision 2026-11-02:
-they set hydrogen's gameplay heat behaviour). An isentropic expansion cools as
+The game's specific heat and molar mass made hydrogen an ideal gas with
+γ = 1 + R/(M cv) = 1 + 8249/2400 = 4.44, beyond any physical gas (at most
+5/3); with the molecule's mass (0.1.4) it is 1 + 4124/2400 = 2.72. Carbon gas
+(1.98) also exceeds 5/3; every other base-game and Spaced Out! gas lies
+between 1.005 and 1.37 (sulphur gas; oxygen was highest at 1.52 until 0.1.3
+and is now 1.26). The game's specific heats
+are kept (delegated decision 2026-11-02: they set hydrogen's gameplay heat
+behaviour). The rest of this section describes the γ 4.44 gas of the time.
+An isentropic expansion cools as
 ρ^(γ−1) = ρ^3.44, so a hydrogen pocket that spreads into vacuum to a 29th of
 its density cools from 319 K below 1 K. The Spaced Out! `spaced-out-rail-gun`
 arena did this deterministically: closing cells beside a natural pocket (seven

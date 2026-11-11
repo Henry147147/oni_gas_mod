@@ -16,6 +16,10 @@ namespace MixedAtmospheres.Oni
         internal const int FormatVersion = 1;
         // The first game build Mixed Atmospheres saves exist for.
         internal const int FirstSupportedBuild = 744825;
+        // The material model this build writes and continues. 4 (0.1.4): oxygen,
+        // hydrogen and chlorine have the masses of their molecules
+        // (docs/material-catalogue.md#molecular-masses-014-2026-11-11).
+        internal const int CurrentMaterialModel = 4;
         internal const int CatalogHashBytes = 32;
         internal const int MaximumPayloadBytes = 640 * 1024 * 1024;
         private const int HeaderBytes = 76;
@@ -87,8 +91,15 @@ namespace MixedAtmospheres.Oni
                 throw new NotSupportedException($"This colony was saved by a newer game build ({build}) than this one ({latestBuild}).");
             if (build < earliestBuild)
                 throw new NotSupportedException($"This colony was saved by game build {build}, which this Mixed Atmospheres version does not support.");
-            if (BinaryPrimitives.ReadInt32LittleEndian(data.Slice(16)) != expectedMaterialModelVersion)
-                throw new NotSupportedException("This colony was saved with a different Mixed Atmospheres material model.");
+            // Model 4 (0.1.4): oxygen, hydrogen and chlorine have the masses of
+            // their molecules, so an earlier colony's gas would read half its
+            // saved pressure. There is no migration.
+            var model = BinaryPrimitives.ReadInt32LittleEndian(data.Slice(16));
+            if (model > expectedMaterialModelVersion)
+                throw new NotSupportedException("This colony was saved with a newer Mixed Atmospheres material model. Update the mod to continue it.");
+            if (model != expectedMaterialModelVersion)
+                throw new NotSupportedException("This colony was saved with an earlier Mixed Atmospheres material model (its gas pressures were computed " +
+                    "differently). Start a new colony with this version.");
             if (!data.Slice(28, CatalogHashBytes).SequenceEqual(expectedMaterialCatalogHash))
                 throw new NotSupportedException("This game's gases and liquids differ from the ones this colony was saved with, so its fluids cannot continue " +
                     "without a save migration that this Mixed Atmospheres version does not have.");

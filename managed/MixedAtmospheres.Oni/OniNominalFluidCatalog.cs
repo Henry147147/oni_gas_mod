@@ -37,7 +37,7 @@ namespace MixedAtmospheres.Oni
                 // maxMass is only the explicit nominal full-cell gameplay reference.
                 // No pressure/compression relation or undisclosed native energy is inferred.
                 materials.Add(new FluidMaterial(id, element.IsLiquid ? NativeMatterPhase.Liquid : NativeMatterPhase.Gas,
-                    element.molarMass / 1000.0, element.specificHeatCapacity * 1000.0,
+                    OniMolarMass.KgPerMol(element), element.specificHeatCapacity * 1000.0,
                     element.IsLiquid ? element.maxMass / cellVolumeCubicMetres : 0));
             }
             missing.ExceptWith(found);

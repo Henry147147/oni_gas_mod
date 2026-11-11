@@ -105,8 +105,9 @@ static class Program
         Check(BuiltInPresets.All.Select(p => p.Id).SequenceEqual(new[] { "default", "robust", "fast", "precise", "relaxed-breathing", "strict-breathing" }), "built-in preset list");
         foreach (var id in new[] { "default", "robust", "relaxed-breathing", "strict-breathing" }) Check(!BuiltInPresets.Find(id)!.Experimental, id + " marked experimental");
         Check(!SettingValues.Defaults().Toggle(SettingCatalog.Co2Limits), "CO2 limits off by default");
-        // When switched on, CO2 limits default to 2% and 5 kPa (2026-11-11; were 0.5% and 500 Pa).
-        Check(SettingValues.Defaults().Number("breathing.maximumCo2Fraction") == .02 && SettingValues.Defaults().Number("breathing.maximumCo2PressurePa") == 5000,
+        // When switched on, CO2 limits default to 4% and 5 kPa, which bind together in normal base air of
+        // about 125 kPa (0.1.4, molecular oxygen; 2% and 5 kPa in 0.1.3, 0.5% and 500 Pa before).
+        Check(SettingValues.Defaults().Number("breathing.maximumCo2Fraction") == .04 && SettingValues.Defaults().Number("breathing.maximumCo2PressurePa") == 5000,
               "CO2 threshold defaults");
         // Relaxed breathing lowers only the oxygen minimums and keeps the CO2 switch as the player set it;
         // Strict switches CO2 limits on below the defaults.
@@ -117,11 +118,11 @@ static class Program
             var after = relaxed.ApplyTo(before);
             Check(after.Toggle(SettingCatalog.Co2Limits) == co2 && after.Number("breathing.minimumOxygenFraction") == .1 &&
                   after.Number("breathing.minimumOxygenPressurePa") == 10000 && after.Number("solver.flowParts") == 2 &&
-                  after.Number("breathing.maximumCo2Fraction") == .02 && relaxed.Matches(after) && !BuiltInPresets.Default.Matches(after),
+                  after.Number("breathing.maximumCo2Fraction") == .04 && relaxed.Matches(after) && !BuiltInPresets.Default.Matches(after),
                   "relaxed breathing kept the CO2 switch " + co2);
         }
         var strict = BuiltInPresets.Find("strict-breathing")!;
-        Check(strict.Values.Toggle(SettingCatalog.Co2Limits) && strict.Values.Number("breathing.maximumCo2Fraction") == .01 &&
+        Check(strict.Values.Toggle(SettingCatalog.Co2Limits) && strict.Values.Number("breathing.maximumCo2Fraction") == .02 &&
               strict.Values.Number("breathing.maximumCo2PressurePa") == 2500 && strict.Kept.Count == 0 &&
               strict.ApplyTo(SettingValues.Defaults()).Toggle(SettingCatalog.Co2Limits), "strict breathing CO2 limits");
         Check(BuiltInPresets.All.Where(p => p.Id != "relaxed-breathing").All(p => p.Kept.Count == 0 && p.Matches(p.Values)) &&
@@ -386,24 +387,26 @@ static class Program
         Check(StartingAirBridge.BreathableMoles(n, .01 * n, n, cells, t, k, .15, 15000, 1, .005, 500).carbonDioxide == 0, "no headroom past the limit");
     }
 
-    // "What plays differently" (docs/starting-air.md): at most seven one-line
+    // "What plays differently" (docs/starting-air.md): at most eight one-line
     // items, every number from the colony's settings.
     private static void Primer()
     {
         var defaults = ColonyPrimer.Lines(SettingValues.Defaults(), true);
-        Check(defaults.Count == 7 && defaults.All(line => line.Length <= 140 && !line.Contains('\n') && line.EndsWith(".", StringComparison.Ordinal)), "primer shape");
+        Check(defaults.Count == 8 && defaults.All(line => line.Length <= 140 && !line.Contains('\n') && line.EndsWith(".", StringComparison.Ordinal)), "primer shape");
         Check(defaults[1] == "Duplicants need air with at least 15% oxygen and 15 kPa of oxygen (polluted oxygen counts): see the Oxygen margin overlay." && defaults.Any(line => line.StartsWith("Chlorine, sour gas and nuclear fallout make air unbreathable once together they are 5% of it.", StringComparison.Ordinal)) &&
-              !defaults.Any(line => line.Contains("carbon dioxide")), "primer numbers from the default settings");
+              !defaults.Any(line => line.Contains("carbon dioxide above")), "primer numbers from the default settings");
         var custom = SettingValues.Defaults().With("breathing.minimumOxygenFraction", .12).With("breathing.minimumOxygenPressurePa", 8000.0)
             .With(SettingCatalog.ToxicLimit, .02).With(SettingCatalog.Co2Limits, true);
         var lines = ColonyPrimer.Lines(custom, false);
-        Check(lines.Count == 7 && lines[1].Contains("at least 12% oxygen and 8 kPa of oxygen") &&
-              lines.Any(line => line == "Chlorine and sour gas make air unbreathable once together they are 2% of it, and so does carbon dioxide above 2% or 5 kPa."),
+        Check(lines.Count == 8 && lines[1].Contains("at least 12% oxygen and 8 kPa of oxygen") &&
+              lines.Any(line => line == "Chlorine and sour gas make air unbreathable once together they are 2% of it, and so does carbon dioxide above 4% or 5 kPa."),
               "primer numbers from the colony's settings");
         var noToxic = ColonyPrimer.Lines(SettingValues.Defaults().With(SettingCatalog.ToxicLimit, 1.0), true);
-        Check(noToxic.Count == 6 && !noToxic.Any(line => line.Contains("sour gas")), "no toxic gas line without a limit");
+        Check(noToxic.Count == 7 && !noToxic.Any(line => line.Contains("sour gas")), "no toxic gas line without a limit");
         Check(ColonyPrimer.Lines(SettingValues.Defaults().With(SettingCatalog.ToxicLimit, 1.0).With(SettingCatalog.Co2Limits, true), true)
-              .Any(line => line == "Air with carbon dioxide above 2% or 5 kPa is unbreathable."), "CO2 line alone");
+              .Any(line => line == "Air with carbon dioxide above 4% or 5 kPa is unbreathable."), "CO2 line alone");
+        Check(defaults.Contains("Gases layer by molecular weight: natural gas and steam rise above oxygen; chlorine sinks below carbon dioxide.") &&
+              defaults.Any(line => line.Contains("base air is about 125 kPa")), "primer follows the molecular masses");
         Check(ColonyPrimer.Text(SettingValues.Defaults(), true).StartsWith(ColonyPrimer.Title + ":\n• Gases stay mixed.", StringComparison.Ordinal), "primer text");
     }
 

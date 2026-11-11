@@ -57,7 +57,7 @@ namespace MixedAtmospheres.Oni
             {
                 var e = ElementLoader.elements[(int)indices[k]];
                 if (!e.IsGas || !(e.molarMass > 0)) continue;
-                var moles = masses[k] / e.molarMass;
+                var moles = masses[k] / OniMolarMass.KgPerMol(e);
                 all += moles;
                 if (e == wanted) mine += moles;
             }

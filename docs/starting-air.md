@@ -36,7 +36,7 @@ in every new colony. It leads with what was done: the oxylite placed and that,
 with the pod's own air, it covers ten cycles; then, as context, how long the
 pod's air alone would last (without a reserve: how long the pod's air lasts).
 With CO₂ limits on it adds the CO₂ headroom and, when it is short, how to plan
-removal. It ends with **What plays differently**, at most seven one-line items
+removal. It ends with **What plays differently**, at most eight one-line items
 built from the colony's own settings (`ColonyPrimer.cs`):
 
 - Gases stay mixed. A Gas Filter takes out the gas you select and lets the
@@ -50,16 +50,21 @@ built from the colony's own settings (`ColonyPrimer.cs`):
 - An electrolyzer releases twice as much hydrogen as oxygen, by moles, into
   the same air: filter or pump the hydrogen out.
 - A liquid lock holds back only about 10 kPa per tile of water height, and
-  base air is about 250 kPa: seal off vacuum with airlocks.
+  base air is about 125 kPa: seal off vacuum with airlocks.
+- Gases layer by molecular weight: natural gas and steam rise above oxygen;
+  chlorine sinks below carbon dioxide.
 - Boiling follows pressure: water in vacuum or thin air boils at room
   temperature.
 - A Gas Element Sensor reacts to its gas from 0.1% of the air by mass; a Gas
   Share Sensor switches at a share you choose.
 
 Each item was checked against the code or follows from the element table:
-an electrolyzer splits water, so with the table's 16 g/mol oxygen and 1 g/mol
-hydrogen its 0.888 kg/s oxygen and 0.112 kg/s hydrogen are 55.5 and 111 mol/s
-(both go into the owner's cell, the `electrolysis` scenario);
+an electrolyzer splits water, so with 32 g/mol oxygen and 2 g/mol hydrogen
+([molecular masses](material-catalogue.md#molecular-masses-014-2026-11-11))
+its 0.888 kg/s oxygen and 0.112 kg/s hydrogen are 27.8 and 55.5 mol/s
+(both go into the owner's cell, the `electrolysis` scenario); gases layer by
+molar mass (2, 16, 18, 32, 44 and 69 g/mol for hydrogen, natural gas, steam,
+oxygen, carbon dioxide and chlorine);
 water at 1000 kg/m³ under 9.81 m/s² holds 9.8 kPa per one-metre tile; the
 boil-only rule boils water at room temperature in vacuum
 ([phase change](../native/MAC_PHASE_CHANGE.md)); element sensors use a 0.1%

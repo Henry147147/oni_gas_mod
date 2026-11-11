@@ -162,7 +162,7 @@ namespace MixedAtmospheres.Oni
                 list.Add(new OniNativeColony.Material
                 {
                     Size = 168, Version = OniNativeColony.AbiVersion, ElementHash = (int)e.id, NativeIndex = (uint)e.idx, Phase = e.IsGas ? 1U : 2U,
-                    MolarMassKgPerMol = e.molarMass / 1000.0, SpecificHeatJPerKgK = e.specificHeatCapacity * 1000.0,
+                    MolarMassKgPerMol = OniMolarMass.KgPerMol(e), SpecificHeatJPerKgK = e.specificHeatCapacity * 1000.0,
                     ConductivityWPerMK = Math.Max(0, (double)e.thermalConductivity), DensityKgPerM3 = e.IsLiquid ? e.maxMass : 0,
                     LowTemperatureK = e.lowTemp, HighTemperatureK = e.highTemp,
                     LowTarget = (int)e.lowTempTransitionTarget, HighTarget = (int)e.highTempTransitionTarget,

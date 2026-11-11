@@ -90,7 +90,10 @@ static class Program
         Check(Refused(() => ColonySaveEnvelope.Parse(Saved(first + 2), first, first + 1, 3, catalog), "newer game build (744827)"), "a newer save is refused");
         Check(Refused(() => ColonySaveEnvelope.Parse(Saved(first - 1), first, first + 1, 3, catalog), "744824"), "an earlier unsupported save is refused");
         Check(Refused(() => ColonySaveEnvelope.Parse(Saved(first), first, first + 1, 3, Enumerable.Repeat((byte)8, 32).ToArray()), "save migration"), "a changed catalogue is refused");
-        Check(Refused(() => ColonySaveEnvelope.Parse(Saved(first), first, first + 1, 4, catalog), "material model"), "a changed material model is refused");
+        // Model 4 (0.1.4, molecular oxygen, hydrogen and chlorine) refuses earlier colonies and says what to do.
+        Check(Refused(() => ColonySaveEnvelope.Parse(Saved(first), first, first + 1, 4, catalog), "earlier Mixed Atmospheres material model"), "an earlier material model is refused");
+        Check(Refused(() => ColonySaveEnvelope.Parse(Saved(first), first, first + 1, 4, catalog), "Start a new colony"), "the refusal says to start a new colony");
+        Check(Refused(() => ColonySaveEnvelope.Parse(Saved(first), first, first + 1, 2, catalog), "newer Mixed Atmospheres material model"), "a newer material model is refused");
         // The single-build form keeps its exact meaning for development paths.
         Check(Refused(() => ColonySaveEnvelope.Parse(Saved(first), first + 1, 3, catalog), "game build 744825"), "exact-build parsing is unchanged");
     }
@@ -141,8 +144,9 @@ static class Program
 
     // Prepared base-game saves in local/saves (skipped where absent). Those made before the nitrogen
     // removal (2026-10-27, docs/completion-plan.md amendments) have a valid envelope but their content is
-    // refused with an explanation; the profile-10 and profile-11 frozen saves (base-defaults-p10-v1 and -p11-v1, made from main by
-    // tools/acceptance_suite.py's source) must be accepted.
+    // refused with an explanation. The profile-10 and profile-11 frozen saves (base-defaults-p10-v1 and -p11-v1) hold accepted
+    // content under material model 3, which this build (model 4, molecular masses, 0.1.4) refuses at the envelope with what to
+    // do; the model-4 frozen save base-defaults-p12-v1 must be accepted by both.
     private static int PreparedContent()
     {
         var root = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../.."));
@@ -155,7 +159,17 @@ static class Program
             var sim = ColonySaveReadback.SimSection(File.ReadAllBytes(path));
             if (sim == null || !ColonySaveEnvelope.HasMagic(sim)) continue;
             var refusal = Refusal(sim);
-            if (name == "base-defaults-p10-v1" || name == "base-defaults-p11-v1") Check(refusal == null, "a current frozen save is accepted: " + refusal);
+            var model = BitConverter.ToInt32(sim, 16);
+            string? Running() { try { ColonySaveEnvelope.Parse(sim, ColonySaveEnvelope.FirstSupportedBuild, BitConverter.ToInt32(sim, 12), ColonySaveEnvelope.CurrentMaterialModel, sim.AsSpan(28, 32).ToArray()); return null; } catch (Exception error) { return error.Message; } }
+            if (name == "base-defaults-p10-v1" || name == "base-defaults-p11-v1")
+            {
+                Check(refusal == null && model == 3, "an earlier frozen save holds accepted content under model 3: " + refusal);
+                var running = Running();
+                Check(running != null && running.Contains("earlier Mixed Atmospheres material model") && running.Contains("Start a new colony"),
+                    "this build refuses a model-3 frozen save with what to do: " + running);
+            }
+            else if (name == "base-defaults-p12-v1")
+                Check(refusal == null && model == ColonySaveEnvelope.CurrentMaterialModel && Running() == null, "the current frozen save is accepted: " + refusal);
             else if (name.StartsWith("base-core21-") || name.StartsWith("base-defaults-p5-") || name.StartsWith("base-floor-") ||
                      name.StartsWith("base-package-") || name.StartsWith("base-trace-"))
                 Check(refusal != null && refusal.Contains("removed nitrogen content") && refusal.Contains("Start a new colony"),

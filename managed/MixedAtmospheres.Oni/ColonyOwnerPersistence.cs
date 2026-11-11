@@ -19,7 +19,7 @@ namespace MixedAtmospheres.Oni
         // Envelopes record the build that wrote them and are accepted from
         // the first supported build up to the running one
         // (docs/game-update-resilience.md#saves-across-builds).
-        private const int MaterialModel = 3, NativeLoad = -672538170;
+        private const int MaterialModel = ColonySaveEnvelope.CurrentMaterialModel, NativeLoad = -672538170;
         private static int RunningBuild => GameBuildCheck.RunningBuild;
         [DllImport("SimDLL", EntryPoint = "SIM_BeginSave")] private static extern byte* BeginSave(int* size, int width, int height);
         [DllImport("SimDLL", EntryPoint = "SIM_EndSave")] private static extern void EndSave();

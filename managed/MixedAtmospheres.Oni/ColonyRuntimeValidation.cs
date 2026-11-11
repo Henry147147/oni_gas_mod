@@ -556,7 +556,7 @@ namespace MixedAtmospheres.Oni
                 for (var k = 0; k < count; ++k)
                 {
                     var e = ElementLoader.elements[(int)indices[k]]; if (!e.IsGas) continue;
-                    var n = masses[k] / (e.molarMass / 1000); moles += n;
+                    var n = masses[k] / OniMolarMass.KgPerMol(e); moles += n;
                     if (e.id == SimHashes.Oxygen || e.id == SimHashes.ContaminatedOxygen) o2 += n; else if (e.id == SimHashes.CarbonDioxide) co2 += n;
                 }
                 // Ideal-gas pressure of the cell's gas over a full cell (an estimate under liquid).
