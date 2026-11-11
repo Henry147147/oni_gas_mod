@@ -5,6 +5,7 @@
 // cancellation floor limits the Newton root. Linear systems use PCG with a
 // Jacobi or geometric-multigrid preconditioner.
 #include "mac_kernel_detail.hpp"
+#include <optional>
 #include "mixed_atmospheres/mac_phase_change.hpp"
 #include <algorithm>
 #include <array>
@@ -595,11 +596,26 @@ PressureSolveResult solve_cached_component(CacheImpl& cache, const CacheImpl::Co
     throw std::runtime_error("Pressure solve did not converge; no state published");
 }
 }
+namespace {
+std::optional<LinearSolveResult> solve_geometric_checked(Context&, const LinearSystem&, const std::vector<double>& b,
+    std::vector<double>& x, double bound, std::size_t maximum);
+}
 LinearSolveResult solve_components_cached(Context& c, ComponentSolveCache& handle, const LinearSystem& sys,
     const std::vector<double>& b, std::vector<double>& x, double rtol, double atol, std::size_t maximum,
-    std::size_t parallel_rows) {
-    if (c.exec.pool.size() != 1 || c.settings.game_profile == MacGameProfile::base_game_floor)
-        return solve_components(c, sys, b, x, rtol, atol, maximum, parallel_rows);
+    std::size_t parallel_rows, std::size_t geometric_cells) {
+    // A single connected system of at least `geometric_cells` cells with an
+    // absolute bound tries the geometric solve first, at the bound its
+    // component solve would meet (half the limit; see solve_component_ic).
+    const bool geometric = geometric_cells != 0 && rtol == 0 && c.settings.game_profile != MacGameProfile::base_game_floor;
+    if (c.exec.pool.size() != 1 || c.settings.game_profile == MacGameProfile::base_game_floor) {
+        if (!geometric) return solve_components(c, sys, b, x, rtol, atol, maximum, parallel_rows);
+        if (c.settings.preconditioner != PressurePreconditioner::incomplete_cholesky || parallel_rows == 0)
+            throw std::invalid_argument("Parallel component solves need the IC preconditioner and a size");
+        const auto layout = component_layout(c, sys);
+        if (layout.size() == 1 && layout.cells.size() >= geometric_cells)
+            if (const auto solved = solve_geometric_checked(c, sys, b, x, .5 * atol, maximum)) return *solved;
+        return solve_component_ic(c, sys, b, x, rtol, atol, maximum, &layout, parallel_rows);
+    }
     if (c.settings.preconditioner != PressurePreconditioner::incomplete_cholesky || parallel_rows == 0)
         throw std::invalid_argument("Parallel component solves need the IC preconditioner and a size");
     auto& cache = *handle.impl;
@@ -621,8 +637,18 @@ LinearSolveResult solve_components_cached(Context& c, ComponentSolveCache& handl
     }
     // Couplings to an inactive cell (none in the game kernel's systems) keep
     // the general path.
-    if (cache.boundary) return solve_components(c, sys, b, x, rtol, atol, maximum, parallel_rows);
+    if (cache.boundary) {
+        if (geometric) {
+            const auto layout = component_layout(c, sys);
+            if (layout.size() == 1 && layout.cells.size() >= geometric_cells)
+                if (const auto solved = solve_geometric_checked(c, sys, b, x, .5 * atol, maximum)) return *solved;
+            return solve_component_ic(c, sys, b, x, rtol, atol, maximum, &layout, parallel_rows);
+        }
+        return solve_components(c, sys, b, x, rtol, atol, maximum, parallel_rows);
+    }
     const auto parts = cache.components.size();
+    if (geometric && parts == 1 && cache.components.front().cells.size() >= geometric_cells)
+        if (const auto solved = solve_geometric_checked(c, sys, b, x, .5 * atol, maximum)) return *solved;
     x.assign(g.N, 0);
     const double local_atol = parts == 0 ? atol : .5 * atol / std::sqrt(static_cast<double>(parts));
     LinearSolveResult result; result.converged = true; DD squared;
@@ -667,9 +693,13 @@ LinearSolveResult solve_components_cached(Context& c, ComponentSolveCache& handl
     }
     result.residual = std::sqrt(squared.value()); return result;
 }
-LinearSolveResult solve_linear(Context& c, const LinearSystem& sys, const std::vector<double>& b, std::vector<double>& x,
-    double rtol, double atol, std::size_t maximum, bool try_jacobi) {
-    if (c.settings.preconditioner == PressurePreconditioner::incomplete_cholesky && !(try_jacobi && c.g.N >= 256))
+namespace {
+// solve_linear with the saved preconditioner, or (`geometric`) the geometric
+// preconditioner alone: no result when its hierarchy cannot be prepared.
+LinearSolveResult solve_linear_selected(Context& c, const LinearSystem& sys, const std::vector<double>& b, std::vector<double>& x,
+    double rtol, double atol, std::size_t maximum, bool try_jacobi, bool geometric) {
+    const auto preconditioner = geometric ? PressurePreconditioner::automatic : c.settings.preconditioner;
+    if (preconditioner == PressurePreconditioner::incomplete_cholesky && !(try_jacobi && c.g.N >= 256))
         return solve_component_ic(c, sys, b, x, rtol, atol, maximum);
     auto& ws = c.ws; const auto& g = c.g; const auto N = g.N;
     for (auto* v : {&ws.lr, &ws.lz, &ws.lp, &ws.lq, &ws.lAp, &ws.ldiag}) v->resize(N);
@@ -678,8 +708,9 @@ LinearSolveResult solve_linear(Context& c, const LinearSystem& sys, const std::v
     // iterations. Avoid building a hierarchy (and evicting pressure topology)
     // for it. A bounded probe retains the full geometric solve for stiff heat
     // systems, from the same zero correction and at the original tolerance.
-    const bool probe = try_jacobi && c.settings.preconditioner != PressurePreconditioner::jacobi && g.N >= 256;
-    const bool multigrid = !probe && c.settings.preconditioner == PressurePreconditioner::automatic && g.N >= 256 && prepare_multigrid(c, sys);
+    const bool probe = try_jacobi && preconditioner != PressurePreconditioner::jacobi && g.N >= 256;
+    const bool multigrid = !probe && preconditioner == PressurePreconditioner::automatic && g.N >= 256 && prepare_multigrid(c, sys);
+    if (geometric && !multigrid) return {};
     // Jacobi: inverse of the full operator diagonal.
     c.exec.rows([&](std::size_t y0, std::size_t y1, std::size_t) {
         for (std::size_t i = y0 * g.W; i < y1 * g.W; ++i) {
@@ -755,11 +786,38 @@ LinearSolveResult solve_linear(Context& c, const LinearSystem& sys, const std::v
         const double rz1 = dot(ws.lr, ws.lz); beta = rz1 / rz; rz = rz1;
     }
     if (probe && !result.converged) {
-        auto geometric = solve_linear(c, sys, b, x, rtol, atol, maximum);
-        geometric.iterations += result.iterations;
-        return geometric;
+        auto full = solve_linear(c, sys, b, x, rtol, atol, maximum);
+        full.iterations += result.iterations;
+        return full;
     }
     return result;
+}
+// One connected pressure system solved by the geometric PCG to the absolute
+// residual `bound`, then checked: the residual of the result is recomputed
+// from the system itself and must meet the same bound. No result (and an
+// unspecified x) otherwise; the caller then runs its component solve.
+// Every value is that of the fixed row blocks, so the outcome, including
+// acceptance, does not depend on the worker count.
+std::optional<LinearSolveResult> solve_geometric_checked(Context& c, const LinearSystem& sys, const std::vector<double>& b,
+    std::vector<double>& x, double bound, std::size_t maximum) {
+    auto result = solve_linear_selected(c, sys, b, x, 0, bound, maximum, false, true);
+    if (!result.converged) return std::nullopt;
+    auto& product = c.ws.lAp;
+    apply(c, sys, x, product, nullptr, nullptr);
+    long double squared = 0;
+    for (std::size_t i = 0; i < c.g.N; ++i) if (sys.active[i]) {
+        const double r = b[i] - product[i];
+        squared += static_cast<long double>(r) * r;
+    }
+    const double residual = std::sqrt(static_cast<double>(squared));
+    if (!(residual <= bound)) return std::nullopt;
+    result.residual = residual; result.geometric = true;
+    return result;
+}
+}
+LinearSolveResult solve_linear(Context& c, const LinearSystem& sys, const std::vector<double>& b, std::vector<double>& x,
+    double rtol, double atol, std::size_t maximum, bool try_jacobi) {
+    return solve_linear_selected(c, sys, b, x, rtol, atol, maximum, try_jacobi, false);
 }
 
 void solve_pressure_moments_linear(Context& c, const LinearSystem& sys, const std::vector<double>& compliance,

@@ -278,7 +278,7 @@ private:
 #define MA_REGIONAL_SUM(field) out.field+=next.field
       MA_REGIONAL_SUM(flow_ms);MA_REGIONAL_SUM(heat_ms);MA_REGIONAL_SUM(phase_ms);MA_REGIONAL_SUM(trace_audit_ms);
       MA_REGIONAL_SUM(interface_ms);MA_REGIONAL_SUM(layering_ms);MA_REGIONAL_SUM(pressure_ms);MA_REGIONAL_SUM(transport_ms);MA_REGIONAL_SUM(eos_ms);
-      MA_REGIONAL_SUM(pressure_iterations);MA_REGIONAL_SUM(pressure_corrections);
+      MA_REGIONAL_SUM(pressure_iterations);MA_REGIONAL_SUM(pressure_corrections);MA_REGIONAL_SUM(pressure_geometric);
       MA_REGIONAL_SUM(pressure_attempts);MA_REGIONAL_SUM(pressure_refinements);MA_REGIONAL_SUM(refused_trial_ms);
       MA_REGIONAL_SUM(trace_constituents);MA_REGIONAL_SUM(trace_cells);MA_REGIONAL_SUM(microevents);
       MA_REGIONAL_SUM(interface_faces);MA_REGIONAL_SUM(limited_faces);MA_REGIONAL_SUM(interface_clusters);

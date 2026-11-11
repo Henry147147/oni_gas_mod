@@ -12,6 +12,7 @@ namespace ma::experimental::game_kernel {
 struct FlowReport {
   State state;
   std::vector<Eos> eos;
+  std::size_t pressure_geometric = 0; // pressure solves by the geometric PCG
   std::size_t subcycles = 0, pressure_iterations = 0, pressure_corrections = 0,
               transport_cells = 0, transport_faces = 0;
   // Profile 12: thin gas cells whose heating the interval limited before
@@ -30,6 +31,11 @@ struct FlowReport {
   reject_log::Reason reject_reason = reject_log::Reason::swept_volume;
   std::size_t reject_cell = reject_log::no_cell;
 };
+// Profile 12 (2026-11-11): a region whose pressure system is one connected
+// component of at least this many cells solves it with the geometric
+// multigrid PCG, checked against the component solve's residual bound
+// (MAC_GAME_KERNEL.md, "Large connected regions").
+inline constexpr std::size_t geometric_pressure_cells = 2000;
 class Flow {
   ma::experimental::MacGrid source;
   ma::experimental::mac_kernel::Grid g;
@@ -312,7 +318,8 @@ public:
             static_cast<unsigned>(std::min<std::size_t>(threads, g.blocks))),
         pressure(grid, threads, ma::PressurePreconditioner::incomplete_cholesky,
                  pressure_tolerance, gravity_source, &eos_pool, pressure_iterations,
-                 surface_closure, thin_gas_mass, thin_gas_time),
+                 surface_closure, thin_gas_mass, thin_gas_time,
+                 bound_pressure_volume && bound_room ? geometric_pressure_cells : 0),
         gravity_rule(gravity_source), audit_mode(auditing),
         bounded_pressure_volume(bound_pressure_volume),
         bound_mass_floor(bound_mass), layered_remap(layered),
@@ -453,6 +460,7 @@ public:
     result.pressure_ms = milliseconds(start);
     result.pressure_iterations = projected.iterations;
     result.pressure_corrections = projected.corrections;
+    result.pressure_geometric = projected.geometric;
     const auto request_refinement = [&] {
       result.pressure_refinement_requested = true;
       result.eos = std::move(eos);
@@ -548,6 +556,29 @@ public:
               kept_empty = empty * share;
             }
             const double room = kept_empty + gas;
+            // Only liquid uses up a cell's room: gas that arrives is
+            // compressed by the gas law the tangent model already carries.
+            // Each inflowing face brings at most its donor's liquid, so a
+            // cell whose donors cannot send more liquid than its room is
+            // never full, whatever its net inflow (a mist droplet in thin
+            // gas at a vent front would otherwise enter the solve with the
+            // droplet's compliance, almost none).
+            double reach = 0;
+            const auto arrives = [&](bool x, std::size_t f, bool upper) {
+              const double q = (x ? projected.qx : projected.qy)[f];
+              const double in = upper ? -q : q;
+              if (!(in > 0))
+                return;
+              const auto donor = upper ? (x ? g.xr : g.yr)[f] : (x ? g.xl : g.yl)[f];
+              if (donor != k::none)
+                reach += std::min(in, eos[donor].liquid_volume);
+            };
+            arrives(true, g.left_face(i), false);
+            arrives(true, g.right_face(i), true);
+            arrives(false, g.bottom_face(i), false);
+            arrives(false, g.top_face(i), true);
+            if (!(reach - room > overfill_tolerance * g.V))
+              continue;
             const bool active = s.nR > 0 || !(s.liquid_nominal_volume < g.V);
             const double tangent =
                 s.nR > 0 ? s.gas_volume / ((1 + s.nR / s.capacity) * s.pressure) : 0;
@@ -588,6 +619,7 @@ public:
         }
         result.pressure_iterations += projected.iterations;
         result.pressure_corrections += projected.corrections;
+        result.pressure_geometric += projected.geometric;
         if (!projected.converged) {
           result.reject_reason = reject_log::Reason::pressure_not_converged;
           request_refinement();

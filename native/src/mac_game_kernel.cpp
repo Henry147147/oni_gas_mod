@@ -789,6 +789,7 @@ MacClosedAdvance MacGameKernelAccess::advance_guarded(
     stages.audit_ms += next.trace_audit_ms;
     stages.pressure_iterations += next.pressure_iterations;
     stages.pressure_corrections += next.pressure_corrections;
+    stages.pressure_geometric += next.pressure_geometric;
     stages.pressure_attempts += next.pressure_attempts;
     stages.pressure_refinements += next.pressure_refinements;
     stages.refused_trial_ms += next.refused_trial_ms;

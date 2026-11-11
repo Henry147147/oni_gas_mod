@@ -18,7 +18,7 @@ struct TickResult {
          pressure_ms = 0, transport_ms = 0, eos_ms = 0;
   std::size_t regions = 0, trace_constituents = 0, trace_cells = 0;
   // Execution diagnostics: pressure solver iterations and corrections.
-  std::size_t pressure_iterations = 0, pressure_corrections = 0;
+  std::size_t pressure_iterations = 0, pressure_corrections = 0, pressure_geometric = 0;
   std::size_t pressure_attempts = 0, pressure_refinements = 0,
               flow_substeps = 0;
   // Execution diagnostic: time in flow trials a pressure refinement refused.
@@ -308,6 +308,7 @@ public:
           out.eos_ms += advanced.eos_ms;
           out.pressure_iterations += advanced.pressure_iterations;
           out.pressure_corrections += advanced.pressure_corrections;
+          out.pressure_geometric += advanced.pressure_geometric;
           out.eos = std::move(advanced.eos);
           // A net-volume rejection (ratio above one) proposes the interval
           // its measured swept volume predicts; any other refinement halves.
@@ -327,6 +328,7 @@ public:
         out.eos_ms += advanced.eos_ms;
         out.pressure_iterations += advanced.pressure_iterations;
         out.pressure_corrections += advanced.pressure_corrections;
+        out.pressure_geometric += advanced.pressure_geometric;
         out.microevents += advanced.subcycles;
         wall_x += advanced.wall_x;
         wall_y += advanced.wall_y;

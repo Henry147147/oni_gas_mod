@@ -461,6 +461,27 @@ user decision 2026-11-05) and no setting is added.
   world then flowed 1.6 times slower than before these changes, nearly all
   of it in magma overfilled by a fraction of a percent (the tolerance swept
   in the cost notes below).
+  **Only liquid uses up room (2026-11-11).** The rule above entered every
+  cell holding any liquid, including a thin-gas cell with a mist droplet at a
+  vent front: its pressure more than doubles in an interval, which the rule
+  read as a used-up bubble, and the cell re-entered the solve with the
+  droplet's compliance (almost none). Gas that arrives is compressed by the
+  gas law the tangent model already carries, so nothing was overfilled, yet
+  the droplet cells made the region's pressure system nearly incompressible.
+  In the vented base of the Spaced Out! full colony 30 % of the intervals
+  took such a re-solve, at about 80 PCG iterations against 18 for an ordinary
+  solve (53 % of the region's pressure work), which is the whole of the tick
+  cost 0.1.2 added there (170 to 228 ms at twelve workers; the notes of
+  2026-11-09 below saw 11 % on a different replay). A cell now re-enters the
+  solve only when liquid can overfill it: each inflowing face brings at most
+  its donor cell's liquid volume, and the sum must exceed the room by the
+  same 0.3 % of the cell. Cells with liquid-holding donors (every pool and
+  flood case) are entered exactly as before; the kernel controls' output is
+  unchanged. `ma_mac_game_kernel_tests` adds a front of air expanding into
+  thin oxygen with and without ten micrograms of water in each thin cell:
+  1,194 pressure iterations dry, 1,191 with mist (1,657 before). The mist
+  still moves that front by 1.5 % (it changes the intervals the transport
+  takes), which is open.
 - **Volume-consistent remap** (`patch.hpp`). Faces run on local dyadic
   clocks, so a cell can receive a coarse face's whole sweep before its finer
   faces send theirs; a donor swept as if its material filled the cell then
@@ -905,6 +926,42 @@ worsened native tails and were rejected. The smaller representation improves
 DLC replay mean/p95 and actual game progress while leaving the base-game
 clock result essentially unchanged. See [measurements and limits](../docs/performance-acceptance.md#idle-frame-byproducts-and-combined-pacing-2026-10-29).
 
+
+## Large connected regions (profile 12, 2026-11-11)
+
+A region whose pressure system is one connected component of at least 2,000
+cells (`geometric_pressure_cells`) solves it with the geometric multigrid
+PCG of the production kernel ([MAC_MULTIGRID.md](MAC_MULTIGRID.md)) instead of
+IC(0)-PCG (`solve_components_cached`, `solve_geometric_checked`). The system,
+its right-hand side and the residual bound are the same: the geometric solve
+runs to the absolute bound the component solve would meet, its residual is
+then recomputed from the system, and a result that misses the bound (or a
+hierarchy that cannot be prepared) falls back to the component solve. Systems
+of several components, smaller systems and profiles 2-11 keep IC(0). The
+choice, the solve and the check use the fixed row blocks, so results do not
+depend on the worker count.
+
+On the 32-duplicant industrial base its large region took 134 IC(0)
+iterations a solve; the geometric solve takes 15, with no fallback in 1,069
+solves. Its replay tick (220 ticks, twelve workers) falls from 80-88 ms to
+60-64 ms and its 95th percentile from 143-154 to 102-108 ms; one worker
+falls from 115 to 87 ms. The vented Spaced Out! region is several components
+and is unchanged by this (its gain is the liquid-reach rule under
+[Flooded cells](#flooded-cells-and-boiling-profile-12-2026-11-09)).
+An earlier private prototype of the same solve (2026-11-06) raised the
+industrial base from 1.579 to 1.787 game seconds per second in game.
+
+Iterates differ from IC(0) at the level of the tolerance, so a colony's
+trajectory differs. That is not an accuracy loss: replaying 220 ticks with
+only the round-off of the dot products changed (same algorithm, same
+iteration counts) moves populated cells by 0.44 K rms and 13 K at most, and
+a different preconditioner moves them by the same amount. Deviation from one
+trajectory measures the flow's sensitivity, not error; conservation, the
+residual bound and the fixed controls are the criteria.
+`ma_mac_game_kernel_tests` adds a disturbed 2,048-cell room that must use the
+geometric solve, close mass and U+K+G and continue exactly cold and on twelve
+workers, and a small room that must not use it. The advance report counts the
+solves (`pressure_geometric`).
 
 ## Large pressure and heat components
 

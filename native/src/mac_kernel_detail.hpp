@@ -489,7 +489,8 @@ struct LinearSystem {
     std::vector<double> diag, wx, wy; // wx[x face], wy[y face]: 0 for no coupling
     std::vector<std::uint8_t> active;   // 1 = unknown
 };
-struct LinearSolveResult { std::size_t iterations = 0; double residual = 0; bool converged = false; };
+struct LinearSolveResult { std::size_t iterations = 0; double residual = 0; bool converged = false;
+    bool geometric = false; /* solved by the geometric PCG (solve_components_cached) */ };
 // A failed numerical pressure root is distinct from malformed inputs or a
 // broken solver invariant. Legacy callers retain its domain_error contract.
 struct ComponentPressureSolveFailure final : std::domain_error {
@@ -518,7 +519,15 @@ public:
 // each component's serial or blocked-reduction PCG directly, with the same
 // arithmetic, results and errors as solve_components; otherwise it calls
 // solve_components.
+// `geometric_cells` (0: never): a system that is one connected component of
+// at least that many cells, solved to an absolute bound, first tries the
+// geometric multigrid PCG at the bound its component solve would meet. The
+// result is accepted only when its recomputed residual meets that bound;
+// otherwise the component solve runs as before. The choice and its values
+// do not depend on the worker count (MAC_GAME_KERNEL.md, "Large connected
+// regions").
 LinearSolveResult solve_components_cached(Context&, ComponentSolveCache&, const LinearSystem&,
     const std::vector<double>& b, std::vector<double>& x, double relative_tolerance,
-    double absolute_tolerance, std::size_t maximum_iterations, std::size_t parallel_rows);
+    double absolute_tolerance, std::size_t maximum_iterations, std::size_t parallel_rows,
+    std::size_t geometric_cells = 0);
 }
