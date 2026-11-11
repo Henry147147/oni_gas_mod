@@ -383,12 +383,33 @@ static class Program
         Check(StartingAirBridge.BreathableMoles(n, .01 * n, n, cells, t, k, .15, 15000, 1, .005, 500).carbonDioxide == 0, "no headroom past the limit");
     }
 
+    // "What plays differently" (docs/starting-air.md): at most seven one-line
+    // items, every number from the colony's settings.
+    private static void Primer()
+    {
+        var defaults = ColonyPrimer.Lines(SettingValues.Defaults(), true);
+        Check(defaults.Count == 7 && defaults.All(line => line.Length <= 140 && !line.Contains('\n') && line.EndsWith(".", StringComparison.Ordinal)), "primer shape");
+        Check(defaults[1] == "Duplicants need air with at least 15% oxygen and 15 kPa of oxygen (polluted oxygen counts): see the Oxygen margin overlay." && defaults.Any(line => line.StartsWith("Chlorine, sour gas and nuclear fallout make air unbreathable once together they are 5% of it.", StringComparison.Ordinal)) &&
+              !defaults.Any(line => line.Contains("carbon dioxide")), "primer numbers from the default settings");
+        var custom = SettingValues.Defaults().With("breathing.minimumOxygenFraction", .12).With("breathing.minimumOxygenPressurePa", 8000.0)
+            .With(SettingCatalog.ToxicLimit, .02).With(SettingCatalog.Co2Limits, true);
+        var lines = ColonyPrimer.Lines(custom, false);
+        Check(lines.Count == 7 && lines[1].Contains("at least 12% oxygen and 8 kPa of oxygen") &&
+              lines.Any(line => line == "Chlorine and sour gas make air unbreathable once together they are 2% of it, and so does carbon dioxide above 2% or 5 kPa."),
+              "primer numbers from the colony's settings");
+        var noToxic = ColonyPrimer.Lines(SettingValues.Defaults().With(SettingCatalog.ToxicLimit, 1.0), true);
+        Check(noToxic.Count == 6 && !noToxic.Any(line => line.Contains("sour gas")), "no toxic gas line without a limit");
+        Check(ColonyPrimer.Lines(SettingValues.Defaults().With(SettingCatalog.ToxicLimit, 1.0).With(SettingCatalog.Co2Limits, true), true)
+              .Any(line => line == "Air with carbon dioxide above 2% or 5 kPa is unbreathable."), "CO2 line alone");
+        Check(ColonyPrimer.Text(SettingValues.Defaults(), true).StartsWith(ColonyPrimer.Title + ":\n• Gases stay mixed.", StringComparison.Ordinal), "primer text");
+    }
+
     private static int Main()
     {
         var root = Path.Combine(Path.GetTempPath(), "ma-settings-tests-" + Guid.NewGuid().ToString("N"));
         try
         {
-            Catalog(); Json(); Store(root); Record(); LiveColony(); Bridge();
+            Catalog(); Json(); Store(root); Record(); LiveColony(); Bridge(); Primer();
             Console.WriteLine($"PASS settings model, JSON, files, presets and colony record ({checks} checks)");
             return 0;
         }

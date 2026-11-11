@@ -29,6 +29,42 @@ the main menu for new colonies or in a running colony for that colony. With limi
 the starting notice also estimates CO₂ headroom and advises removal if it is
 short. The oxygen reserve does not remove CO₂.
 
+## The start-of-colony dialog
+
+Once the starting duplicants exist, one dialog (**Mixed Atmospheres**) opens
+in every new colony. It leads with what was done: the oxylite placed and that,
+with the pod's own air, it covers ten cycles; then, as context, how long the
+pod's air alone would last (without a reserve: how long the pod's air lasts).
+With CO₂ limits on it adds the CO₂ headroom and, when it is short, how to plan
+removal. It ends with **What plays differently**, at most seven one-line items
+built from the colony's own settings (`ColonyPrimer.cs`):
+
+- Gases stay mixed. A Gas Filter takes out the gas you select and lets the
+  rest through.
+- Duplicants need air with at least 15% oxygen and 15 kPa of oxygen
+  (polluted oxygen counts): see the Oxygen margin overlay.
+- Chlorine, sour gas and nuclear fallout make air unbreathable once together
+  they are 5% of it (fallout only with Spaced Out!; with CO₂ limits on the
+  line adds carbon dioxide above its limits; with no toxic gas limit and CO₂
+  limits off there is no such line).
+- An electrolyzer releases twice as much hydrogen as oxygen, by moles, into
+  the same air: filter or pump the hydrogen out.
+- A liquid lock holds back only about 10 kPa per tile of water height, and
+  base air is about 250 kPa: seal off vacuum with airlocks.
+- Boiling follows pressure: water in vacuum or thin air boils at room
+  temperature.
+- A Gas Element Sensor reacts to its gas from 0.1% of the air by mass; a Gas
+  Share Sensor switches at a share you choose.
+
+Each item was checked against the code: the electrolyzer's 0.888 kg/s oxygen
+and 0.112 kg/s hydrogen are 55.5 and 111 mol/s with the game's molar masses;
+water at 1000 kg/m³ under 9.81 m/s² holds 9.8 kPa per one-metre tile; the
+boil-only rule boils water at room temperature in vacuum
+([phase change](../native/MAC_PHASE_CHANGE.md)); element sensors use a 0.1%
+trace threshold by mass of their phase (`ColonySensors.cs`). **Settings →
+Gameplay → How it plays** shows the same list again, with the shown
+settings' numbers (the colony's in a colony, new colonies' at the main menu).
+
 The **Gas Share Sensor**, unlocked with the gas element sensor, compares the
 selected constituent's share by moles with a percentage threshold. Use it to
 control oxygen production or filtration. It reads the full mixture in its

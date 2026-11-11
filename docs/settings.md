@@ -10,7 +10,10 @@ it. Code: `ModSettings*.cs` (model, files, window, runtime); tests:
 
 ## Finding the settings
 
-- **Gameplay** opens first. **CO₂ breathing limits** defaults to **Off**.
+- **Gameplay** opens first. Its **How it plays** button shows the start-of-colony
+  dialog's "What plays differently" list again
+  ([starting air](starting-air.md#the-start-of-colony-dialog)), with the shown
+  settings' numbers. **CO₂ breathing limits** defaults to **Off**.
   Enough oxygen is always required; CO₂ still mixes, moves through pipes and
   displaces oxygen. Turn the switch on to enforce the saved CO₂ thresholds
   (by default 2% and 5 kPa, which bind together in normal base air of about

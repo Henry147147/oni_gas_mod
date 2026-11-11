@@ -143,19 +143,34 @@ namespace MixedAtmospheres.Oni
             Debug.Log(FormattableString.Invariant(
                 $"[Mixed Atmospheres] Starting air: {minions.Count} duplicants use {rateKg:G4} kg/s oxygen; {inventory.Cells} connected cells hold {g0:G6} mol gas ({o0:G6} oxygen, {c0:G6} CO2) at {inventory.MeanTemperature:F1} K; breathable oxygen {Cycles(oxygenCycles)} cycles, CO2 headroom {Cycles(co2Cycles)} cycles; ten-cycle shortfall {shortfallKg:G6} kg; oxylite placed {placedKg:G6} kg."));
             if (minions.Count == 0) return;
+            // One dialog for a new colony: what was done for its air first,
+            // the pod's own air as context, then what plays differently.
+            var duplicants = minions.Count == 1 ? "your duplicant" : "your " + minions.Count + " duplicants";
             var lines = new List<string>
             {
-                "The air connected to the printing pod lets your " + minions.Count + " duplicants breathe for about " + Cycles(oxygenCycles) +
-                " cycles before its oxygen runs short." + (rules.EnforceCarbonDioxideLimits ?
-                    " Exhaled carbon dioxide reaches the colony's limit after about " + Cycles(co2Cycles) + " cycles." :
-                    " CO₂ breathing limits are off. You can enable them in Settings → Gameplay.")
+                placedKg > 0
+                    ? ((int)Math.Ceiling(placedKg)).ToString(CultureInfo.InvariantCulture) + " kg of oxylite lies beside the printing pod. It releases oxygen " +
+                      "while the air around it is thin and, with the pod's own air, gives " + duplicants + " ten cycles of breathing. On its own, " +
+                      "the air connected to the pod would last about " + Cycles(oxygenCycles) + " cycles."
+                    : "The air connected to the printing pod gives " + duplicants + " about " + Cycles(oxygenCycles) + " cycles of breathing."
             };
-            if (placedKg > 0)
-                lines.Add(((int)Math.Ceiling(placedKg)).ToString(CultureInfo.InvariantCulture) + " kg of oxylite has been placed beside the printing pod. It releases oxygen while the air around it is thin, covering ten cycles of breathing.");
-            if (co2Cycles < BridgeCycles)
-                lines.Add("Plan carbon dioxide removal early: dig the starting cave open to more air, or build an algae terrarium or a carbon skimmer.");
-            if (placedKg > 0 || co2Cycles < BridgeCycles)
-                ColonyNotices.Show("Starting air", string.Join("\n\n", lines));
+            if (rules.EnforceCarbonDioxideLimits)
+                lines.Add("Exhaled carbon dioxide reaches the colony's limit after about " + Cycles(co2Cycles) + " cycles." + (co2Cycles < BridgeCycles ?
+                    " Plan its removal early: dig the starting cave open to more air, or build an algae terrarium or a carbon skimmer." : ""));
+            lines.Add(ColonyPrimer.Text(ModSettingsRuntime.Colony ?? SettingValues.Defaults(), FalloutLoaded()));
+            ColonyNotices.Show("Mixed Atmospheres", string.Join("\n\n", lines));
+        }
+
+        // Whether this colony's content has nuclear fallout, for the primer:
+        // its toxic gases in a colony, Spaced Out! at the main menu.
+        internal static bool FalloutLoaded()
+        {
+            try
+            {
+                var model = MixturePresentationRuntime.CurrentModel;
+                return ColonyOwner.Active && model != null ? model.ToxicGasMaterialIds.Contains(SimHashes.Fallout.ToString()) : DlcManager.IsExpansion1Active();
+            }
+            catch (Exception error) when (!(error is OutOfMemoryException)) { return false; }
         }
 
         private static double? Finite(double value) => double.IsInfinity(value) || double.IsNaN(value) ? (double?)null : value;

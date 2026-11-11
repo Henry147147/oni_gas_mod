@@ -10,5 +10,7 @@
     <Compile Include="../../managed/MixedAtmospheres.Oni/ModSettingsStore.cs" Link="ModSettingsStore.cs" />
     <!-- Engine-free ten-cycle bridge arithmetic (docs/starting-air.md). -->
     <Compile Include="../../managed/MixedAtmospheres.Oni/StartingAirBridge.cs" Link="StartingAirBridge.cs" />
+    <!-- Engine-free "What plays differently" list (docs/starting-air.md). -->
+    <Compile Include="../../managed/MixedAtmospheres.Oni/ColonyPrimer.cs" Link="ColonyPrimer.cs" />
   </ItemGroup>
 </Project>

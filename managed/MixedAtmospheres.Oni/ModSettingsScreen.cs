@@ -26,6 +26,7 @@ namespace MixedAtmospheres.Oni
         private static readonly string[] AdvancedTabs = { "Solver", "Breathing thresholds", "Performance", "Display", "Saved presets" };
         private int advancedTab;
         private bool open, openedInColony;
+        private bool primerShown; // Gameplay → How it plays
         private int tab;
         private Vector2 scroll;
         private string newName = "", newDescription = "", renameText = "", feedback = "";
@@ -178,7 +179,12 @@ namespace MixedAtmospheres.Oni
                 switch (tab)
                 {
                     case 0:
+                        // The start-of-colony dialog's list again, with these settings' numbers.
+                        GUILayout.BeginHorizontal();
                         GUILayout.Label("Duplicants always need enough oxygen. CO₂ continues to mix and displace oxygen when its breathing limits are off.", text!);
+                        if (GUILayout.Button(primerShown ? "Hide" : "How it plays", button!, GUILayout.Width(120), GUILayout.Height(26))) primerShown = !primerShown;
+                        GUILayout.EndHorizontal();
+                        if (primerShown) GUILayout.Label(ColonyPrimer.Text(Shown, ColonyStartingAir.FalloutLoaded()), text!);
                         SettingsTab(SettingCatalog.Breathing, false);
                         GUILayout.Label("Oxygen requirements, the toxic gas limit and optional CO₂ thresholds are under Advanced → Breathing thresholds.", small!);
                         SettingsTab(SettingCatalog.PhaseChange, false);
