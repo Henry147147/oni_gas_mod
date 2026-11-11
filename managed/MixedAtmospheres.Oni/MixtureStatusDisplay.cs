@@ -174,6 +174,7 @@ namespace MixedAtmospheres.Oni
             if (now < nextRefresh && !moved) return;
             nextRefresh = now + .2f; lastRefresh = now;
             layoutDirty = true;
+            StatusPanelMenuButton.Refresh();
             notificationsBottom = InColony ? NotificationsBottom() : 0;
             try
             {

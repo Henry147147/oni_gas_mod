@@ -25,6 +25,16 @@ namespace MixedAtmospheres.Oni
         // panel shows it beside the requested clock, which it can fall behind.
         internal static double GameRate { get; private set; }
         private static long rateStartTicks; private static float rateStartGame; private static bool rateTiming;
+        // A slowdown the player should see without the status panel
+        // (StatusPanelMenuButton): the measured game speed more than 10% below
+        // the chosen speed for three measured seconds in a row (one long
+        // frame, such as a save, is one measurement), until one second at 95%
+        // or more, or a pause.
+        internal const double SlowFraction = .9, RecoveredFraction = .95;
+        internal const int SlowWindows = 3;
+        internal static bool SlowedDown { get; private set; }
+        internal static double ChosenSpeed { get; private set; }
+        private static int slowWindows;
         internal static float TimeScale => Time.timeScale;
         private static ulong seenFrames;
         private static bool scaled;
@@ -54,7 +64,7 @@ namespace MixedAtmospheres.Oni
             ColonyPacingLossLog.Reset();
             ColonyPerformanceLog.FinishRun();
             HeldTicks = UnityFrames = 0; OwnerRate = 0; seenFrames = 0; ColonyReaderPin.Reset();
-            GameRate = 0; rateTiming = false;
+            GameRate = 0; rateTiming = false; SlowedDown = false; slowWindows = 0; ChosenSpeed = 0;
             updateTicks = tickTicks = updateCalls = tickCalls = maximumUpdateTicks = loggedHeldTicks = 0;
             loggedFrame = ulong.MaxValue;
         }
@@ -129,14 +139,20 @@ namespace MixedAtmospheres.Oni
         private static void MeasureGameRate()
         {
             var clock = GameClock.Instance; var speed = SpeedControlScreen.Instance;
-            if (clock == null || speed == null || speed.IsPaused) { rateTiming = false; return; }
+            if (clock == null || speed == null || speed.IsPaused) { rateTiming = false; SlowedDown = false; slowWindows = 0; return; }
             var now = System.Diagnostics.Stopwatch.GetTimestamp(); var game = clock.GetTime();
             if (!rateTiming) { rateTiming = true; rateStartTicks = now; rateStartGame = game; return; }
             var real = (now - rateStartTicks) / (double)System.Diagnostics.Stopwatch.Frequency;
             if (real < 1) return;
             GameRate = Math.Max(0, (game - rateStartGame) / real);
             rateStartTicks = now; rateStartGame = game;
+            ChosenSpeed = ChosenScale(speed);
+            if (GameRate < SlowFraction * ChosenSpeed) { if (++slowWindows >= SlowWindows) SlowedDown = true; }
+            else { slowWindows = 0; if (GameRate >= RecoveredFraction * ChosenSpeed) SlowedDown = false; }
         }
+        // The game clock speed the player chose (normal, fast or ultra).
+        private static float ChosenScale(SpeedControlScreen speed) =>
+            speed.GetSpeed() switch { 0 => normalSpeed(speed), 1 => fastSpeed(speed), _ => devSpeed > 0 ? devSpeed : ultraSpeed(speed) };
 
         private static void UpdateClock()
         {
@@ -144,7 +160,7 @@ namespace MixedAtmospheres.Oni
             {
                 // The owner stopped: return the player's own speed.
                 if (scaled && SpeedControlScreen.Instance != null && !SpeedControlScreen.Instance.IsPaused) Time.timeScale = playerScale;
-                scaled = false; return;
+                scaled = false; SlowedDown = false; slowWindows = 0; return;
             }
             ++UnityFrames;
             ColonyPerformanceLog.UnityFrame(Time.unscaledDeltaTime);
@@ -159,7 +175,7 @@ namespace MixedAtmospheres.Oni
             }
             var speed = SpeedControlScreen.Instance;
             if (speed == null || speed.IsPaused || OwnerRate == 0) return;
-            playerScale = speed.GetSpeed() switch { 0 => normalSpeed(speed), 1 => fastSpeed(speed), _ => devSpeed > 0 ? devSpeed : ultraSpeed(speed) };
+            playerScale = ChosenScale(speed);
             var target = Mathf.Clamp((float)(.95 * OwnerRate), .01f, playerScale);
             if (Mathf.Abs(Time.timeScale - target) > 1e-3f * target) { Time.timeScale = target; scaled = true; }
         }

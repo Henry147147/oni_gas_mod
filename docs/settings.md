@@ -287,7 +287,11 @@ worker. Sources: [Linux CPU topology](https://docs.kernel.org/admin-guide/cputop
 The status panel describes only the cell under the cursor: a solid tile reads
 "solid tile, no fluid". Below the readings it shows the solver and game speed,
 the owner frame and fluid cell count, and the renderer or pipe state only when
-unusual. Drag its title bar to move it; the position is remembered in the
+unusual. A sustained slowdown (the game more than 10% below the chosen speed
+for three seconds) also shows without the panel: the **Atmospheres** button in
+the top bar then reads the actual speed in orange, e.g. `Speed 0.62×`, with
+the reason in its tooltip, until the speed recovers
+([pacing](colony-owner.md#serial-pacing-and-the-clock)). Drag its title bar to move it; the position is remembered in the
 game's player preferences (`MixedAtmospheres.StatusPanel.X`/`Y`), not in
 config.json. The main menu shows only its title bar and **Settings** unless
 something is wrong. The hover card's liquid volume line names the liquids;

@@ -891,7 +891,14 @@ to the next 200 ms tick and holds there. The game clock (`Time.timeScale`)
 runs at the player's speed or 95% of the owner's measured rate (game seconds
 per second of solving, smoothed), whichever is slower, so play runs in slow
 motion rather than stop-go. Pause, the camera and menus use unscaled time and
-stay responsive during those pacing holds. A native-frame fence also waits for
+stay responsive during those pacing holds. When the measured game speed stays
+more than 10% below the chosen speed for three measured seconds in a row, the
+**Atmospheres** button beside Vitals shows the actual speed in orange
+(`Speed 0.62×`) and its tooltip says why (the fluid simulation, when pacing
+lowered the clock; otherwise the game's frames); it reads **Atmospheres**
+again after a second at 95% or more, or a pause (`ColonyPacing.SlowedDown`,
+`StatusPanelMenuButton.cs`). A single long frame, such as a save, is one
+measurement and does not trigger it. A native-frame fence also waits for
 the preceding owner step before a positive frame applies its messages,
 contacts and shadow; it covers frames posted before managed pacing sees the
 busy flag, and under overlapped pacing it is how every positive frame meets
