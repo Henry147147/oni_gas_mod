@@ -164,7 +164,13 @@ and 100 fps is one frame in six or seven. A transpiler replaces the five
 `LoadRawTextureData` calls and the `Apply` after them with
 `PropertyTextureUploads.Load`/`Apply`: a frame whose texture, source pointer
 and size match the upload made since the latest `StepTheSim` skips the copy
-and the upload, and an upload is forced at least every half second. If the
+and the upload, and an upload is forced at least every half second. Under the
+colony owner the source is a plane of its published snapshot, which carries a
+content identity: a zero-time data request (every paused Unity frame) whose
+plane has the same bytes as the snapshot the game held keeps that identity,
+anything else gets a new one. An upload of the same identity is reused across
+data requests too, so a paused game uploads a plane only when it changed (and
+every half second). If the
 method no longer has exactly five copies and one upload, it is left as the
 game made it. `MA_TEXTURE_UPLOAD_REUSE=0` turns it off; `MA_FRAME_LOG=1`
 reports `map_texture_uploads` and `map_texture_reuses`.

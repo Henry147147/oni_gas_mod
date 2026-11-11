@@ -1234,13 +1234,27 @@ stuttering camera at 0.85x) and the fixes:
   the game as about 0.6 receipts per tick instead of 20.
 - **Visible-cell allocations.** Bounded texture batches now sample cached
   numeric values from the retained immutable frame, avoiding rich cell objects
-  for color, opacity and hazard. Unsupported/oversized batches retain the
-  original path; hover and detailed readers retain their rich readings. The
+  for color, opacity and hazard. Unsupported batches (unsorted readings, too
+  many constituents) retain the original path; a view with more readings than
+  cache slots uses the compact path too (pooled buffers share one 65,521-slot
+  table; a slot collision is a miss). Hover and detailed readers retain their
+  rich readings. The
   900-frame Linux comparison halves GC-containing frames in three clean
   windows, but late receipt costs remain. See
   [texture measurements](performance-acceptance.md#cached-texture-scalars).
 - **Per-frame reflection.** The pacing read the player's speed through a new
   reflection `Traverse` each Unity frame; it uses cached field references.
+- **Paused and zero-time data requests.** ONI requests data every Unity frame
+  without a sub tick (every paused frame). The game's data copy is made into
+  the snapshot the previous hand-over retired (no native allocation; the one
+  the game holds is never touched before its successor is handed over); the
+  overlay walks the ownership runs of the last full pass while the owner's
+  views are unchanged; the actor census of a zero-time frame is skipped when
+  no game time passed, no actor was registered, spawned, retired or moved and
+  no consumer or emitter changed (it would submit nothing); and the five
+  full-map property textures are uploaded again only when a plane's bytes
+  changed. The copy itself and the Grid.Element check of every unowned cell
+  still run: native data can change on a zero-time frame.
 - What remains on the game thread is ONI's own synchronous wait in
   `PrepareGameData` for the native frame (the end-of-frame projection, about
   9 ms and up to about 30 ms, which vanilla ONI also waits for its native
