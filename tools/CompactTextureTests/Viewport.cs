@@ -71,7 +71,10 @@ static partial class Proof
         var source = (ICompactTextureSource)lazy.Describe(model);
         Check(source.PrepareTextureScalars(256, 0, 0, 79, 29, out var visible) && visible == 800, "realistic800batch fits unique slots");
         Check(source.PrepareTextureScalars(256, 0, 0, 159, 74, out visible) && visible == 4000, "4k colliding batch fits bounded eviction cache");
-        Check(!source.PrepareTextureScalars(256, 0, 0, 255, 383, out visible) && visible == 32768, "full native batch chooses whole full fallback");
+        // 2026-11-11: more visible readings than cache slots no longer refuse
+        // the compact path (collisions are misses); it previously chose the
+        // whole full fallback here.
+        Check(source.PrepareTextureScalars(256, 0, 0, 255, 383, out visible) && visible == 32768, "full native batch above the slot count uses compact misses");
         Check(source.PrepareTextureScalars(256, 0, 0, 79, 29, out visible) && visible == 800, "zoom in returns to compact");
         b.Sorted = false;
         ++b.Lease;

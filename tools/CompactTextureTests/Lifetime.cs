@@ -42,7 +42,15 @@ static partial class Proof
         var reused = ColonyReadingPool.Acquire(10000, 10000);
         Check(ReferenceEquals(pooled, reused), "pool buffer reused after grace");
         Check(ReferenceEquals(firstCache, reused.CompactCache), "cache fixed across reading-array growth");
-        Check(ColonyReadingPool.CompactSlots == (ColonyCompactReadings.Enabled ? 4093 : 0), "live pool slots reflect enabled mode");
+        Check(ColonyReadingPool.CompactSlots == (ColonyCompactReadings.Enabled ? ColonyReadingPool.SharedCompactSlots : 0), "live pool slots reflect enabled mode");
+        if (ColonyCompactReadings.Enabled)
+        {
+            // Pooled buffers share one slot table; leases keep their entries apart.
+            var other = ColonyReadingPool.Acquire(4, 4);
+            Check(!ReferenceEquals(other, reused) && !ReferenceEquals(other.CompactCache, reused.CompactCache) &&
+                ReferenceEquals(other.CompactCache!.Slots, reused.CompactCache!.Slots) && other.Lease != reused.Lease &&
+                ColonyReadingPool.CompactSlots == ColonyReadingPool.SharedCompactSlots, "pooled caches share one bounded table");
+        }
         ColonyReadingPool.Reset();
         Check(ColonyReadingPool.CompactSlots == 0, "pool reset releases live cache accounting");
         var pair = BufferOf(cases, 100);

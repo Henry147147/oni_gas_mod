@@ -39,6 +39,10 @@ namespace MixedAtmospheres.Oni
     {
         internal const double RecycleAfterSeconds = 2;
         private const int MaximumPooled = 48;
+        // The compact texture slot table every pooled buffer's cache shares
+        // (ColonyCompactReadings.Cache): a prime, about 10 MiB of numbers.
+        internal const int SharedCompactSlots = 65521;
+        private static ColonyCompactReadings.Cache.Slot[]? sharedSlots;
         private static readonly List<ColonyReadingBuffer> buffers = new List<ColonyReadingBuffer>();
         private static long leases;
         internal static long Allocated { get; private set; }
@@ -69,7 +73,8 @@ namespace MixedAtmospheres.Oni
                     ++Allocated;
                     if (chosen.Pooled) buffers.Add(chosen);
                 }
-                if(ColonyCompactReadings.Enabled && chosen.Pooled && chosen.CompactCache==null)chosen.CompactCache=new ColonyCompactReadings.Cache(4093);
+                if(ColonyCompactReadings.Enabled && chosen.Pooled && chosen.CompactCache==null)
+                    chosen.CompactCache=new ColonyCompactReadings.Cache(sharedSlots??=new ColonyCompactReadings.Cache.Slot[SharedCompactSlots]);
                 chosen.ReleasedAt = 0; chosen.Lease = ++leases; chosen.CompactCache?.Activate(chosen.Lease); chosen.Index = null; chosen.Count = chosen.PartCount = 0;
             }
             return chosen;
@@ -82,9 +87,10 @@ namespace MixedAtmospheres.Oni
             lock (buffers) buffer.ReleasedAt = Stopwatch.GetTimestamp();
         }
 
-        internal static long CompactSlots { get { lock(buffers){long slots=0;foreach(var b in buffers)slots+=b.CompactCache?.Slots.Length??0;return slots;} } }
+        // Live compact slots: the shared table, once a pooled cache uses it.
+        internal static long CompactSlots { get { lock(buffers)return sharedSlots?.Length??0; } }
         internal static void RetireCompactModels() {lock(buffers)foreach(var buffer in buffers)buffer.CompactCache?.RetireModel();}
-        internal static void Reset() { lock (buffers) {foreach(var buffer in buffers)buffer.CompactCache?.RetireModel();buffers.Clear();} }
+        internal static void Reset() { lock (buffers) {foreach(var buffer in buffers)buffer.CompactCache?.RetireModel();buffers.Clear();sharedSlots=null;} }
     }
 
     // The readings of one completed frame, built on demand per cell.

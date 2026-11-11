@@ -25,7 +25,7 @@ namespace MixedAtmospheres.Oni
             RawSamples = System.Threading.Interlocked.Read(ref rawSamples),
             CumulativeAllocatedSlots = System.Threading.Interlocked.Read(ref cacheSlots),
             LivePooledSlots = ColonyReadingPool.CompactSlots,
-            MaximumPooledSlots = 48 * 4093,
+            MaximumPooledSlots = ColonyReadingPool.SharedCompactSlots,
             MaximumScratchConstituents = MaximumCompactConstituents
         };
 
@@ -40,10 +40,17 @@ namespace MixedAtmospheres.Oni
         }
 
         [ThreadStatic] private static Scratch? current;
-        // Slots contain numeric values only:152 bytes ×4093×48 <29MiB.
-        // Unpooled overflow buffers retain no scalar cache. Slots keep their
-        // locks through a buffer lease change; a retired writer cannot race a
-        // new writer or install a value accepted under the new lease.
+        // Slots contain numeric values only. Pooled buffers share one slot
+        // table (ColonyReadingPool.SharedCompactSlots, 152 bytes each, about
+        // 10 MiB): a slot's key holds the buffer lease, unique per filled
+        // buffer, so entries of different buffers or frames never match each
+        // other. A cell's slot is its reading index modulo the table size;
+        // two visible cells in one slot only evict each other (a miss, under
+        // the slot's gate), so any number of visible readings may use the
+        // compact path. Unpooled overflow buffers retain no scalar cache.
+        // Slots keep their locks through a buffer lease change; a retired
+        // writer cannot race a new writer or install a value accepted under
+        // the new lease.
         internal sealed class Cache
         {
             internal struct Slot
@@ -93,7 +100,7 @@ namespace MixedAtmospheres.Oni
                             ++count;
                             if (valid)
                             {
-                                if (count > Slots.Length || buffer.Readings[i].Constituents > Math.Min(tableSpecies, MaximumCompactConstituents))
+                                if (buffer.Readings[i].Constituents > Math.Min(tableSpecies, MaximumCompactConstituents))
                                     valid = false;
                             }
                         }
@@ -161,6 +168,12 @@ namespace MixedAtmospheres.Oni
                 activeLease = lease;
                 Slots = new Slot[Math.Min(count, 4093)];
                 System.Threading.Interlocked.Add(ref cacheSlots, Slots.Length);
+            }
+            // A cache over a slot table shared with other buffers' caches.
+            internal Cache(Slot[] shared, long lease = long.MinValue)
+            {
+                activeLease = lease;
+                Slots = shared ?? throw new ArgumentNullException(nameof(shared));
             }
         }
         internal static bool Prepare(ColonyReadingBuffer buffer, long lease, int width, int x0, int y0, int x1, int y1, int tableSpecies, out int count)
