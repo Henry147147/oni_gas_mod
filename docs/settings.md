@@ -150,8 +150,8 @@ Under **Advanced → Solver**, Default, Robust, Fast and Precise apply only
 solver tunables, keeping your gameplay choice. Under **Advanced → Saved
 presets**, complete presets replace all colony rules, including breathing,
 and keep preferences unless a user preset explicitly contains them. Relaxed
-breathing is the exception: it keeps the CO₂ switch (user decision
-2026-11-11), so it only lowers the oxygen minimums.
+breathing is the exception: it keeps the CO₂ switch (since 2026-11-11), so
+it only lowers the oxygen minimums.
 
 | Preset | Colony settings |
 | --- | --- |

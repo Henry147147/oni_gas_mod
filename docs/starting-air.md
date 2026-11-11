@@ -56,8 +56,10 @@ built from the colony's own settings (`ColonyPrimer.cs`):
 - A Gas Element Sensor reacts to its gas from 0.1% of the air by mass; a Gas
   Share Sensor switches at a share you choose.
 
-Each item was checked against the code: the electrolyzer's 0.888 kg/s oxygen
-and 0.112 kg/s hydrogen are 55.5 and 111 mol/s with the game's molar masses;
+Each item was checked against the code or follows from the element table:
+an electrolyzer splits water, so with the table's 16 g/mol oxygen and 1 g/mol
+hydrogen its 0.888 kg/s oxygen and 0.112 kg/s hydrogen are 55.5 and 111 mol/s
+(both go into the owner's cell, the `electrolysis` scenario);
 water at 1000 kg/m³ under 9.81 m/s² holds 9.8 kPa per one-metre tile; the
 boil-only rule boils water at room temperature in vacuum
 ([phase change](../native/MAC_PHASE_CHANGE.md)); element sensors use a 0.1%
