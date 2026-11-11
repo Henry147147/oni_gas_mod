@@ -180,7 +180,7 @@ namespace MixedAtmospheres.Oni
                     case 0:
                         GUILayout.Label("Duplicants always need enough oxygen. CO₂ continues to mix and displace oxygen when its breathing limits are off.", text!);
                         SettingsTab(SettingCatalog.Breathing, false);
-                        GUILayout.Label("Oxygen requirements and optional CO₂ thresholds are under Advanced → Breathing thresholds.", small!);
+                        GUILayout.Label("Oxygen requirements, the toxic gas limit and optional CO₂ thresholds are under Advanced → Breathing thresholds.", small!);
                         SettingsTab(SettingCatalog.PhaseChange, false);
                         SettingsTab(SettingCatalog.GasSources, false);
                         SettingsTab(SettingCatalog.Simulation, false);
@@ -411,7 +411,7 @@ namespace MixedAtmospheres.Oni
             Section((advanced ? "Advanced · " : "") + group);
             var values = Shown;
             if (group == SettingCatalog.Breathing && advanced)
-                GUILayout.Label("Oxygen requirements always apply. CO₂ thresholds apply only when CO₂ breathing limits is On in Gameplay.", small!);
+                GUILayout.Label("Oxygen requirements and the toxic gas limit always apply. CO₂ thresholds apply only when CO₂ breathing limits is On in Gameplay.", small!);
             if (group == SettingCatalog.Solver)
                 GUILayout.Label("The supported solver and mixed pipes are always enabled. These controls are saved with the colony" +
                     (InColony ? "; a change applies to it from its next frame" : "") + ". Values marked experimental were not measured.", small!);
@@ -526,7 +526,7 @@ namespace MixedAtmospheres.Oni
             }
             var v = (double)value;
             if (d.Key.EndsWith("Fraction", StringComparison.Ordinal) && d.Group == SettingCatalog.Breathing)
-                return d.Key == "breathing.maximumOxygenFraction" && v >= 1 ? "No limit" : (v * 100).ToString("0.###", CultureInfo.InvariantCulture) + "%";
+                return (d.Key == "breathing.maximumOxygenFraction" || d.Key == SettingCatalog.ToxicLimit) && v >= 1 ? "No limit" : (v * 100).ToString("0.###", CultureInfo.InvariantCulture) + "%";
             if (d.Key == "display.traceMoleFraction" || d.Key == "solver.interfaceDetail") return (v * 100).ToString("0.###", CultureInfo.InvariantCulture) + "%" + (d.Unit.Length != 0 ? " " + d.Unit : "");
             if (d.Key == "display.patternContrast" && v == 0) return "Off";
             if (d.Unit == "Pa") return v >= 1000 ? (v / 1000).ToString("0.###", CultureInfo.InvariantCulture) + " kPa" : v.ToString("0", CultureInfo.InvariantCulture) + " Pa";

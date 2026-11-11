@@ -101,6 +101,17 @@ Test("settings JSON is culture independent and accepts reordered escaped names",
     }
     finally { CultureInfo.CurrentCulture = previous; }
 });
+Test("settings JSON keeps an optional toxic gas limit; without it there is no limit", () =>
+{
+    var none = new AtmosphereSettings();
+    Check(none.MaximumToxicGasFraction == 1 && !none.ToJson().Contains("MaximumToxicGasFraction"));
+    Check(AtmosphereSettings.FromJson(none.ToJson()).MaximumToxicGasFraction == 1);
+    var limited = new AtmosphereSettings { MaximumToxicGasFraction = .05 };
+    Check(AtmosphereSettings.FromJson(limited.ToJson()).MaximumToxicGasFraction == .05);
+    Reject(() => AtmosphereSettings.FromJson(limited.ToJson().Replace("0.05", "1.5")));
+    Reject(() => AtmosphereSettings.FromJson(limited.ToJson().Replace("\"MaximumToxicGasFraction\":0.05", "\"MaximumToxicGasFraction\":-0.1")));
+    Reject(() => new AtmosphereSettings { MaximumToxicGasFraction = double.NaN }.ToJson());
+});
 Test("settings JSON rejects missing duplicate unknown and trailing fields", () =>
 {
     var valid = new AtmosphereSettings().ToJson();

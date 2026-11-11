@@ -13,6 +13,9 @@ namespace MixedAtmospheres.Oni
         {
             if(Once(0,"DLC mixture query arena"))
             {
+                // Pinned: this arena's minority oxygen sits in chlorine (about 60%
+                // by moles), which predates the toxic gas limit (default 5%).
+                PinColonySettings((SettingCatalog.ToxicLimit,1.0));
                 aquaticReaderCreature=null;
                 Arena((x,y)=>x==4?(SimHashes.Unobtanium,20000f,300f):
                     x<4?(SimHashes.ChlorineGas,1f,300f):(SimHashes.Oxygen,1.2f,300f));

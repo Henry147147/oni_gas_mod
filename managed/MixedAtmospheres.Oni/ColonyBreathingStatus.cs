@@ -4,9 +4,9 @@ using UnityEngine;
 namespace MixedAtmospheres.Oni
 {
     // A duplicant holding its breath or suffocating on the owned asteroid is
-    // told why the air at its head fails easy-mode breathing (the same
-    // warnings as the cell hover): too little oxygen, too much carbon dioxide,
-    // or no gas.
+    // told why the air at its head fails the colony's breathing rule (the
+    // same warnings as the cell hover): too little oxygen, toxic gas, too much
+    // carbon dioxide when its limits are on, or no gas.
     internal static class ColonyBreathingStatus
     {
         private static bool installed;
@@ -29,7 +29,8 @@ namespace MixedAtmospheres.Oni
                 if (go == null || !ColonyOwner.Active) return text;
                 var cell = Grid.CellAbove(Grid.PosToCell(go));
                 if (!Grid.IsValidCell(cell) || !MixturePresentationRuntime.TryGetCell(cell, out var reading) || reading == null || reading.Warnings.Count == 0) return text;
-                return text + "\n\nThe air here: " + string.Join("; ", reading.Warnings) + ".";
+                // Each warning is a sentence.
+                return text + "\n\nThe air here: " + string.Join(" ", reading.Warnings);
             }
             catch (Exception) { return text; }
         }

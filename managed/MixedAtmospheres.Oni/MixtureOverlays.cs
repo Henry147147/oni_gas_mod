@@ -48,7 +48,7 @@ namespace MixedAtmospheres.Oni
             "Gas colours show constituent mole fractions. Inspect a cell for every constituent, including traces.",
             "Total gas pressure from vacuum to 500 kPa. Normal base air is about 250 kPa.",
             "How far each tile's oxygen is above the breathing minimums (share and partial pressure): red cannot be breathed, yellow barely, teal comfortably.",
-            "Breathing safety includes oxygen fraction, oxygen partial pressure, carbon dioxide and trace contaminants."
+            "Which breathing check each tile fails: too little oxygen, toxic gas (and carbon dioxide when its limits are on), or vacuum."
         };
         internal static HashedString Id(MixtureOverlayKind kind) => "MixedAtmospheres." + kind;
         internal static string Name(MixtureOverlayKind kind) => Names[(int)kind];
@@ -84,6 +84,38 @@ namespace MixedAtmospheres.Oni
             !(margin >= 1) ? Color.Lerp(Suffocating, Failing, Mathf.Clamp01((float)margin)) : Color.Lerp(Barely, Safe, Comfort(margin));
         private static string Percent(double fraction) => (fraction * 100).ToString("0.##", CultureInfo.InvariantCulture) + "%";
         private static string Kilopascals(double pascals) => (pascals / 1000).ToString("0.##", CultureInfo.InvariantCulture) + " kPa";
+        // Another gas makes the air unbreathable: toxic gas over its limit, or
+        // carbon dioxide over its limits when they are on.
+        internal const BreathingFailure Harmful = BreathingFailure.Contaminant | BreathingFailure.CarbonDioxideFractionHigh | BreathingFailure.CarbonDioxidePartialPressureHigh;
+        private static string List(IEnumerable<string> names)
+        {
+            var all = names.ToArray();
+            return all.Length <= 1 ? string.Concat(all) : string.Join(", ", all.Take(all.Length - 1)) + " and " + all[all.Length - 1];
+        }
+        // The legend row for harmful gas, from the loaded colony's limits; none
+        // when no limit can fail (toxic gas limit at 100%, CO2 limits off).
+        private static (string label, string tooltip)? HarmfulGasRow(MixturePresentationModel? model)
+        {
+            if (model == null) return ("Toxic gas", "A toxic gas is above its breathing limit.");
+            var toxic = model.MaximumToxicGasFraction < 1 && model.ToxicGasMaterialIds.Count > 0;
+            var co2 = model.EnforceCarbonDioxideLimits;
+            var other = model.ContaminantMoleFractionLimits.Count > 0;
+            if (!toxic && !co2 && !other) return null;
+            var where = new List<string>();
+            if (toxic) where.Add(List(model.ToxicGasMaterialIds.Select(id => model.Styles[id].DisplayName)) + " together make up " +
+                Percent(model.MaximumToxicGasFraction) + " of the gas or more");
+            if (co2) where.Add("carbon dioxide is above " + Percent(model.MaximumCo2Fraction) + " or " + Kilopascals(model.MaximumCo2PartialPressurePa));
+            if (other) where.Add("a gas is above its own limit");
+            return (toxic || other ? co2 ? "Toxic gas or CO₂" : "Toxic gas" : "Too much CO₂",
+                "Duplicants cannot breathe where " + string.Join(", or where ", where) + ".");
+        }
+        private static (string label, string tooltip) LowOxygenRow(MixturePresentationModel? model)
+        {
+            var share = model?.MinimumOxygenFraction ?? .15; var pascals = model?.MinimumOxygenPartialPressurePa ?? 15000;
+            var ceiling = model != null && model.HardMode;
+            return (ceiling ? "Too little or too much oxygen" : "Too little oxygen", "Less than " + Percent(share) + " oxygen by moles or less than " +
+                Kilopascals(pascals) + " of oxygen (polluted oxygen counts)" + (ceiling ? ", or more than " + Percent(model!.MaximumOxygenFraction) + " oxygen" : "") + ".");
+        }
         private static ConditionalWeakTable<OverlayLegend, NativeOxygenLegend> OxygenLegends = new ConditionalWeakTable<OverlayLegend, NativeOxygenLegend>();
 
         static MixtureOverlays() { MixturePresentationRuntime.SessionEnding += ResetSessionLegend; }
@@ -142,14 +174,16 @@ namespace MixedAtmospheres.Oni
                 Info.diagrams = new List<GameObject>();
                 OverlayLegend.OverlayInfoUnit Unit(string text, string description, Color color) =>
                     new OverlayLegend.OverlayInfoUnit(icon, text, color, Color.white) { tooltip = description };
+                var model = MixturePresentationRuntime.CurrentModel;
                 Info.infoUnits = new List<OverlayLegend.OverlayInfoUnit>
                 {
                     Unit("Comfortable", "At least four times the breathing minimums for oxygen; every other breathing check passes. Unowned cells keep ONI's own oxygen colours.", view.breathableGradient.Evaluate(1)),
-                    Unit("Barely breathable", "Just above the breathing minimums for oxygen: a little more of another gas, or thinner air, and duplicants cannot breathe.", view.breathableGradient.Evaluate(0)),
-                    Unit("Carbon dioxide / contaminants · unsafe", "Inspect for the exact constituent and limit; a hazardous trace can be visually imperceptible.",
-                        view.toxicColour != null && view.toxicColour.Length != 0 ? view.toxicColour[view.toxicColour.Length - 1] : view.unbreathableColour),
-                    Unit("Oxygen / pressure / vacuum · unsafe", "Low oxygen, thin atmosphere, excessive oxygen or vacuum in an owned mixture cell. This presentation does not replace gameplay breathing.", view.unbreathableColour)
+                    Unit("Barely breathable", "Just above the breathing minimums for oxygen: a little more of another gas, or thinner air, and duplicants cannot breathe.", view.breathableGradient.Evaluate(0))
                 };
+                if (HarmfulGasRow(model) is (string label, string tooltip))
+                    Info.infoUnits.Add(Unit(label, tooltip, view.toxicColour != null && view.toxicColour.Length != 0 ? view.toxicColour[view.toxicColour.Length - 1] : view.unbreathableColour));
+                var low = LowOxygenRow(model);
+                Info.infoUnits.Add(Unit(low.label + " or vacuum", low.tooltip, view.unbreathableColour));
             }
         }
 
@@ -179,8 +213,9 @@ namespace MixedAtmospheres.Oni
                 case MixtureOverlayKind.OxygenMargin:
                     return MarginColor(OxygenMargin(sample, frame.Model));
                 default:
-                    if ((sample.Failures & BreathingFailure.Contaminant) != 0) return Toxic;
+                    // As ONI's Oxygen overlay: harmful gas before too little oxygen.
                     if ((sample.Failures & BreathingFailure.Vacuum) != 0) return Low;
+                    if ((sample.Failures & Harmful) != 0) return Toxic;
                     return sample.IsBreathable ? Safe : Unsafe;
             }
         }
@@ -224,10 +259,13 @@ namespace MixedAtmospheres.Oni
             }
             else
             {
-                list.Add(new LegendEntry("Breathable", "All configured breathing checks pass.", Safe));
-                list.Add(new LegendEntry("Unsafe atmosphere", "Inspect for oxygen fraction, thin atmosphere or carbon dioxide warnings.", Unsafe));
-                list.Add(new LegendEntry("Contaminated", "A trace constituent exceeds its configured limit, even when its tint is imperceptible.", Toxic));
-                list.Add(new LegendEntry("Vacuum / no gas", "There is no gas available for breathing.", Low));
+                // The loaded colony's limits (docs/settings.md); a row only for a check that can fail.
+                var model = MixturePresentationRuntime.AcquireFrame()?.Model;
+                list.Add(new LegendEntry("Breathable", "Every breathing check passes.", Safe));
+                var low = LowOxygenRow(model);
+                list.Add(new LegendEntry(low.label, low.tooltip, Unsafe));
+                if (HarmfulGasRow(model) is (string label, string tooltip)) list.Add(new LegendEntry(label, tooltip + " The hover card names the gas, even a trace too faint to see.", Toxic));
+                list.Add(new LegendEntry("Vacuum", "No gas to breathe.", Low));
             }
             return list;
         }

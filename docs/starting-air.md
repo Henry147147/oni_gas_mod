@@ -16,8 +16,10 @@ oxygen while its surroundings are thin and may remain as debris in dense gas.
 
 **CO₂ breathing limits default to Off.** CO₂ still mixes, displaces oxygen,
 passes through pipes and contributes to pressure. Duplicants always need at
-least 15% oxygen by moles and 15 kPa oxygen partial pressure by default.
-Polluted oxygen counts toward oxygen. An oxygen-poor room remains unsafe.
+least 15% oxygen by moles and 15 kPa oxygen partial pressure by default, and
+air in which chlorine, sour gas and nuclear fallout together reach 5% cannot
+be breathed. Polluted oxygen counts toward oxygen. An oxygen-poor room remains
+unsafe.
 
 Use **Settings → Gameplay → CO₂ breathing limits** to enforce CO₂ thresholds.
 This can be changed during play and is stored with the colony. The default

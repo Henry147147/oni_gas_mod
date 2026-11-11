@@ -64,6 +64,7 @@ namespace MixedAtmospheres.Oni
                 var species = new OniNativeColony.Species[count];
                 OniNativeColony.Check(OniNativeColony.SpeciesList(species, count, out count));
                 var materials = new List<FluidMaterial>(); var styles = new List<MixtureSpeciesStyle>();
+                var toxic = new List<string>(); var oxygen = new List<string>();
                 ids = new string[count]; phases = new NativeMatterPhase[count]; molarMasses = new double[count];
                 for (var k = 0; k < count; ++k)
                 {
@@ -75,15 +76,21 @@ namespace MixedAtmospheres.Oni
                     Color colour = element.substance.colour;
                     var name = global::STRINGS.UI.StripLinkFormatting(element.name);
                     styles.Add(new MixtureSpeciesStyle(ids[k], string.IsNullOrWhiteSpace(name) ? ids[k] : name, new MixtureSrgbColor(colour.r, colour.g, colour.b)));
+                    // The breathing rule's gases (ColonyOwner.TryReadBreathingCell).
+                    if (phases[k] == NativeMatterPhase.Gas && ColonyOwner.IsToxicGas(element.id)) toxic.Add(ids[k]);
+                    if (phases[k] == NativeMatterPhase.Gas && element.id == SimHashes.ContaminatedOxygen) oxygen.Add(ids[k]);
                 }
                 catalog = new FluidMaterialCatalog(Version, materials);
                 Volatile.Write(ref cellIds, new string?[Math.Max(0, Grid.CellCount)]);
                 // The colony's recorded breathing rules (docs/settings.md); by
                 // default easy mode (docs/colony-owner.md): no upper oxygen bound.
+                // Polluted oxygen counts as oxygen and the toxic gases share one
+                // limit, as for the duplicants' breathing.
                 var breathing = ModSettingsRuntime.Breathing;
                 MixturePresentationRuntime.ResetProviders();
                 MixturePresentationRuntime.Configure(new MixturePresentationModel(catalog, styles, breathing,
-                    SimHashes.Oxygen.ToString(), SimHashes.CarbonDioxide.ToString(), options: MixtureAppearanceSettings.Options));
+                    SimHashes.Oxygen.ToString(), SimHashes.CarbonDioxide.ToString(), options: MixtureAppearanceSettings.Options,
+                    toxicGasMaterialIds: toxic, oxygenEquivalentMaterialIds: oxygen));
                 publishedFrame = ulong.MaxValue;
             }
         }

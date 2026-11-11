@@ -99,6 +99,7 @@ namespace MixedAtmospheres.Oni
         // ma_oni_colony_set_source_energy's modes, by choice.
         internal static readonly string[] SourceEnergyChoices = { "internal", "enthalpy", "compensated" };
         internal const string Co2Limits = "breathing.co2Limits", EvaporationBelowBoiling = "liquids.evaporationBelowBoiling";
+        internal const string ToxicLimit = "breathing.maximumToxicFraction";
         private static double[] Decades(int from, int to) { var r = new List<double>(); for (var e = from; e <= to; ++e) r.Add(double.Parse("1e" + e.ToString(CultureInfo.InvariantCulture), CultureInfo.InvariantCulture)); return r.ToArray(); }
         internal static readonly string[] KeyChoices = { "None", "F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9", "F10", "F11", "F12" };
 
@@ -160,6 +161,9 @@ namespace MixedAtmospheres.Oni
             SettingDefinition.Number("breathing.minimumOxygenPressurePa", SettingScope.Colony, Breathing, "Minimum oxygen partial pressure",
                 "…and at least this oxygen partial pressure.",
                 15000, 1000, 50000, new double[] { 1000, 5000, 8000, 10000, 12000, 15000, 18000, 21000, 30000, 50000 }, "Pa"),
+            SettingDefinition.Number(ToxicLimit, SettingScope.Colony, Breathing, "Maximum toxic gas share",
+                "Air in which chlorine, sour gas and nuclear fallout together reach this share by moles cannot be breathed (100%: no limit).",
+                .05, 0, 1, new double[] { 0, .01, .02, .05, .1, .2, .5, 1 }),
             SettingDefinition.Number("breathing.maximumCo2Fraction", SettingScope.Colony, Breathing, "Maximum carbon dioxide share",
                 "Applied only when Gameplay → CO₂ breathing limits is On: maximum share by moles (0: any carbon dioxide fails).",
                 .005, 0, .1, new double[] { 0, .001, .003, .005, .01, .02, .05, .1 }),
@@ -373,14 +377,18 @@ namespace MixedAtmospheres.Oni
         internal static bool IsBuiltInId(string id) => Find(id) != null;
     }
 
-    // MACOLP03 section 3, version 4 (docs/settings.md): version 3 and the gas
-    // source energy. Always explicit for new colonies: older builds must
-    // refuse the new CO2 behavior rather than silently applying their former
-    // defaults. Version 3 records load with the default source energy; older
-    // records are refused during R&D.
+    // MACOLP03 section 3, version 5 (docs/settings.md): version 4 (version 3
+    // and the gas source energy) and the toxic gas limit. Always explicit for
+    // new colonies: older builds must refuse the new behavior rather than
+    // silently applying their former defaults. Version 3 and 4 records load
+    // with the basis (the defaults) for what they lack; older records are
+    // refused during R&D.
     internal static class ColonySettingsRecord
     {
-        internal const uint Tag = 3, Version = 4, PreviousVersion = 3;
+        internal const uint Tag = 3, Version = 5, OldestVersion = 3;
+        // Numbers after the thresholds: the CO2 switch (v3), the gas source
+        // energy (v4), the toxic gas limit (v5).
+        private static int Count(uint version) => version >= OldestVersion && version <= Version ? Keys.Length + (int)(version - OldestVersion) + 1 : -1;
         internal static readonly string[] Keys =
         {
             "breathing.minimumOxygenFraction", "breathing.minimumOxygenPressurePa", "breathing.maximumCo2Fraction",
@@ -388,13 +396,14 @@ namespace MixedAtmospheres.Oni
         };
         internal static byte[] Encode(SettingValues values)
         {
-            var bytes = new byte[8 + 8 * (Keys.Length + 2)];
+            var bytes = new byte[8 + 8 * Count(Version)];
             BinaryPrimitives.WriteUInt32LittleEndian(bytes, Version);
-            BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(4), (uint)(Keys.Length + 2));
+            BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(4), (uint)Count(Version));
             for (var k = 0; k < Keys.Length; ++k)
                 BinaryPrimitives.WriteInt64LittleEndian(bytes.AsSpan(8 + 8 * k), BitConverter.DoubleToInt64Bits(values.Number(Keys[k])));
             BinaryPrimitives.WriteInt64LittleEndian(bytes.AsSpan(8 + 8 * Keys.Length), BitConverter.DoubleToInt64Bits(values.Toggle(SettingCatalog.Co2Limits) ? 1.0 : 0.0));
             BinaryPrimitives.WriteInt64LittleEndian(bytes.AsSpan(16 + 8 * Keys.Length), BitConverter.DoubleToInt64Bits(SourceEnergyMode(values)));
+            BinaryPrimitives.WriteInt64LittleEndian(bytes.AsSpan(24 + 8 * Keys.Length), BitConverter.DoubleToInt64Bits(values.Number(SettingCatalog.ToxicLimit)));
             return bytes;
         }
         // ma_oni_colony_set_source_energy's mode of a setting set.
@@ -410,9 +419,9 @@ namespace MixedAtmospheres.Oni
         {
             if (bytes.Length < 8) throw new InvalidDataException("Truncated colony settings record.");
             var version = BinaryPrimitives.ReadUInt32LittleEndian(bytes);
-            if (version != Version && version != PreviousVersion)
+            var count = Count(version);
+            if (count < 0)
                 throw new NotSupportedException("Colony settings record version " + version + " is not supported by this R&D build. Start a new colony.");
-            var count = Keys.Length + (version == Version ? 2 : 1);
             if (BinaryPrimitives.ReadUInt32LittleEndian(bytes.Slice(4)) != count || bytes.Length != 8 + 8 * count)
                 throw new InvalidDataException("Invalid colony settings record.");
             var result = basis;
@@ -425,11 +434,17 @@ namespace MixedAtmospheres.Oni
             var flag = BitConverter.Int64BitsToDouble(BinaryPrimitives.ReadInt64LittleEndian(bytes.Slice(8 + 8 * Keys.Length)));
             if (flag != 1 && flag != 0) throw new InvalidDataException("Invalid colony settings switch.");
             result = result.With(SettingCatalog.Co2Limits, flag == 1);
-            if (version == Version)
+            if (version >= 4)
             {
                 var mode = BitConverter.Int64BitsToDouble(BinaryPrimitives.ReadInt64LittleEndian(bytes.Slice(16 + 8 * Keys.Length)));
                 if (mode != 0 && mode != 1 && mode != 2) throw new InvalidDataException("Invalid colony gas source energy.");
                 result = WithSourceEnergyMode(result, (uint)mode);
+            }
+            if (version >= 5)
+            {
+                var toxic = BitConverter.Int64BitsToDouble(BinaryPrimitives.ReadInt64LittleEndian(bytes.Slice(24 + 8 * Keys.Length)));
+                try { result = result.With(SettingCatalog.ToxicLimit, toxic); }
+                catch (FormatException error) { throw new InvalidDataException("Invalid colony settings record: " + error.Message); }
             }
             return result;
         }

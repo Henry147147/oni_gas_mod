@@ -66,6 +66,21 @@ gate that these requirements belong to is
   limit even when its computed fraction underflows.
 - Rows, assessment and warning text use the same partial pressures. Changing
   colours cannot change the assessment.
+- **One rule for every reader.** `AtmosphereSettings.Assess` is the breathing
+  rule. The duplicants' breathing decision (`ColonyOwner.TryReadBreathingCell`),
+  the hover card's warnings, the suffocation tooltip (`ColonyBreathingStatus`),
+  the overlays and ONI's own Oxygen overlay all apply it to the same cell, so
+  none of them disagrees with another. In a colony the model counts polluted
+  oxygen as oxygen (the shares and partial pressures it shows include it, as
+  the breathing decision always did) and treats chlorine, sour gas and nuclear
+  fallout (where the content has it) as toxic gases.
+- **Toxic gas limit** (`breathing.maximumToxicFraction`, default 5%): air in
+  which the toxic gases together reach the limit by moles fails with
+  `BreathingFailure.Contaminant`, whatever its oxygen. Each present toxic row
+  is marked toxic and one warning names them:
+  `Toxic gas fraction exceeds its limit: 12% (Chlorine, Sour Gas); maximum 5%.`
+  At 100% the limit is off. Development fixtures may still pass explicit
+  per-gas contaminant limits; those keep their own warning.
 
 ### Pressure and liquid rows
 
@@ -107,9 +122,17 @@ gate that these requirements belong to is
   carbon dioxide and toxic gas are on the Breathability overlay. The overlay
   was called "Oxygen partial pressure" and saturated at the minimum; it is
   not called plain "Oxygen" because ONI's own overlay has that name.
+- **Breathability** colours a tile by the check it fails, with the loaded
+  colony's numbers in its legend tooltips: Breathable; Too little oxygen
+  (Too little or too much oxygen with an oxygen ceiling); Toxic gas (Toxic gas
+  or CO₂, or Too much CO₂, by which limits apply; the row is left out when
+  neither can fail); Vacuum. Carbon dioxide over its limits shares the toxic
+  colour, as on ONI's Oxygen overlay.
 - ONI's own **Oxygen** overlay (F1) shades breathable owned tiles along ONI's
   breathable gradient by the same margin, from barely breathable at 1× to
   comfortable at 4×; failing tiles keep ONI's toxic and unbreathable colours.
+  Its legend: Comfortable, Barely breathable, the harmful-gas row as on the
+  Breathability overlay, and Too little oxygen or vacuum.
 - **Gas pressure** is linear from vacuum to 500 kPa with three colour stops:
   dark blue at vacuum, green-grey at 250 kPa (normal base air: 1.6–1.8 kg of
   oxygen per tile reads about 245–275 kPa) and amber from 500 kPa up, so thin

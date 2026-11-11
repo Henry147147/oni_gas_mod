@@ -2,7 +2,7 @@
 
 Mixed Atmospheres changes how air, gas, and liquid behave across your asteroid in Oxygen Not Included. Gases now share space and stay mixed, so oxygen, carbon dioxide and other gases travel together. Miscible liquids blend together, while immiscible liquids settle into layers you can see and manage.
 
-Pumps and pipes carry full mixtures. Filters remove the constituent you pick and let the rest pass through. Gas pressure, oxygen partial pressure, and pressure-dependent boiling and latent heat all matter, and the gauges show the mixture you are managing. By default, a room counts as breathable when oxygen is at least 15% by moles and at least 15 kPa of partial pressure. CO₂ breathing limits are off by default; turn them on in Settings → Gameplay to enforce the optional 0.5% and 500 Pa limits.
+Pumps and pipes carry full mixtures. Filters remove the constituent you pick and let the rest pass through. Gas pressure, oxygen partial pressure, and pressure-dependent boiling and latent heat all matter, and the gauges show the mixture you are managing. By default, a room counts as breathable when oxygen is at least 15% by moles and at least 15 kPa of partial pressure, and chlorine, sour gas and nuclear fallout together stay below 5%. CO₂ breathing limits are off by default; turn them on in Settings → Gameplay to enforce the optional 0.5% and 500 Pa limits.
 
 New colonies keep vanilla generated oxygen and polluted oxygen. Nitrogen content and the nitrogen-air option have been removed. A ten-cycle oxygen shortfall for your starting duplicants is supplied as oxylite beside the printing pod. If a fluid fault occurs, the gas and liquid simulation stops visibly and saves are refused, so reload your last save to continue. The game clock slows to match the solver's pace; this mod does not promise real-time speed.
 
@@ -105,7 +105,8 @@ Keep a copy of any colony you value.
   the pressure its liquid height supports.
 - Boiling depends on pressure, and phase changes take or release latent heat.
 - Breathing (easy mode): a cell is breathable with at least 15% oxygen by moles
-  and 15 kPa oxygen partial pressure. Optional CO₂ limits default off.
+  and 15 kPa oxygen partial pressure, and below 5% toxic gas (chlorine, sour
+  gas, nuclear fallout). Optional CO₂ limits default off.
 - Pumps and pipes carry full mixtures; filters pass everything except their
   selected constituent.
 

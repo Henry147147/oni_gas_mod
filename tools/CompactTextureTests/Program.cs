@@ -45,7 +45,10 @@ static partial class Proof
         var materials = ids.Select((x, i) => new FluidMaterial(x, phases[i], mm[i], 700, i < 5 ? 0 : 1000, 0, 1e6)).ToArray();
         var catalog = new FluidMaterialCatalog("texture-proof", materials);
         var styles = ids.Select((x, i) => new MixtureSpeciesStyle(x, x, new MixtureSrgbColor(.1 + .1 * i, .9 - .1 * i, .5))).ToArray();
-        var models = new[] { new MixturePresentationModel(catalog, styles, new AtmosphereSettings(), "oxygen", "carbon_dioxide"), new MixturePresentationModel(catalog, styles, new AtmosphereSettings(), "oxygen", "carbon_dioxide", options: new MixtureVisualOptions { PatternEnabled = false }), new MixturePresentationModel(catalog, styles, new AtmosphereSettings(), "oxygen", "carbon_dioxide", options: new MixtureVisualOptions { PatternContrast = .25 }) };
+        var models = new[] { new MixturePresentationModel(catalog, styles, new AtmosphereSettings(), "oxygen", "carbon_dioxide"), new MixturePresentationModel(catalog, styles, new AtmosphereSettings(), "oxygen", "carbon_dioxide", options: new MixtureVisualOptions { PatternEnabled = false }), new MixturePresentationModel(catalog, styles, new AtmosphereSettings(), "oxygen", "carbon_dioxide", options: new MixtureVisualOptions { PatternContrast = .25 }),
+            // The colony's breathing rule: summed toxic gases at a limit and a gas counted as oxygen.
+            new MixturePresentationModel(catalog, styles, new AtmosphereSettings { HardMode = false, EnforceCarbonDioxideLimits = false, MaximumToxicGasFraction = .05 },
+                "oxygen", "carbon_dioxide", toxicGasMaterialIds: new[] { "chlorine", "hydrogen" }, oxygenEquivalentMaterialIds: new[] { "nitrogen" }) };
         var rng = new Random(77143);
         var cases = new List<(ColonyPresentation.Table Table, OniNativeColony.Reading Cell)>();
         for (int ncase = 0; ncase < 12000; ++ncase)

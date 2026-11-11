@@ -170,6 +170,9 @@ namespace MixedAtmospheres.Oni
                 var model = MixturePresentationRuntime.CurrentModel;
                 if (model != null) MixturePresentationRuntime.Configure(model.WithBreathingSettings(Breathing));
                 ColonyPresentation.InvalidateLifecycleReadings();
+                // An open overlay's legend quotes the thresholds.
+                try { MixtureOverlays.RefreshLegend(); }
+                catch (Exception error) when (!(error is OutOfMemoryException)) { Debug.LogWarning("[Mixed Atmospheres] The overlay legend could not be refreshed: " + error.Message); }
             }
             ColonyDescription = "Changed in this colony.";
             var when = change.Options || change.Activity || change.SourceEnergy ? "from its next frame" : "at once";
@@ -330,7 +333,8 @@ namespace MixedAtmospheres.Oni
                     MinimumOxygenFraction = v.Number("breathing.minimumOxygenFraction"),
                     MinimumOxygenPartialPressurePa = v.Number("breathing.minimumOxygenPressurePa"),
                     MaximumCo2Fraction = v.Number("breathing.maximumCo2Fraction"),
-                    MaximumCo2PartialPressurePa = v.Number("breathing.maximumCo2PressurePa")
+                    MaximumCo2PartialPressurePa = v.Number("breathing.maximumCo2PressurePa"),
+                    MaximumToxicGasFraction = v.Number(SettingCatalog.ToxicLimit)
                 };
             }
         }

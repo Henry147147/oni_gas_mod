@@ -87,6 +87,15 @@ static class Program
         }
         Check(BuiltInPresets.All.All(p => p.Values.Choice(SettingCatalog.SourceEnergy) == "compensated"), "a built-in preset changes the gas source energy");
         Throws<FormatException>(() => ColonySettingsRecord.WithSourceEnergyMode(SettingValues.Defaults(), 3), "invalid native gas source energy");
+        // Toxic gas limit: 5% by default, an advanced breathing threshold saved in
+        // the colony record (version 5); 100% means no limit.
+        var toxic = SettingCatalog.Get(SettingCatalog.ToxicLimit);
+        Check(toxic.Kind == SettingKind.Number && toxic.Scope == SettingScope.Colony && toxic.Advanced && toxic.Group == SettingCatalog.Breathing &&
+              (double)toxic.Default == .05 && toxic.Minimum == 0 && toxic.Maximum == 1 && toxic.Steps.Contains(1.0) && toxic.Label == "Maximum toxic gas share",
+              "toxic gas limit definition");
+        Check(BuiltInPresets.All.All(p => p.Values.Number(SettingCatalog.ToxicLimit) == .05), "a built-in preset changes the toxic gas limit");
+        foreach (var invalid in new[] { -.01, 1.01, double.NaN })
+            Throws<FormatException>(() => SettingValues.Defaults().With(SettingCatalog.ToxicLimit, invalid), "invalid toxic gas limit " + invalid);
         // Every offered step of every solver setting, and every built-in preset, is inside the native ranges.
         foreach (var d in SettingCatalog.All.Where(d => d.Key.StartsWith("solver.", StringComparison.Ordinal)))
             foreach (var step in d.Kind == SettingKind.Toggle ? new object[] { true, false } : d.Steps.Cast<object>())
@@ -221,17 +230,28 @@ static class Program
     private static void Record()
     {
         foreach (var values in new[] { SettingValues.Defaults(), BuiltInPresets.Find("strict-breathing")!.Values,
-            SettingValues.Defaults().With(SettingCatalog.Co2Limits, true) })
+            SettingValues.Defaults().With(SettingCatalog.Co2Limits, true), SettingValues.Defaults().With(SettingCatalog.ToxicLimit, 1.0),
+            SettingValues.Defaults().With(SettingCatalog.ToxicLimit, .2) })
         {
             var bytes = ColonySettingsRecord.Encode(values);
-            Check(bytes.Length == 64 && BitConverter.ToUInt32(bytes, 0) == 4 && BitConverter.ToUInt32(bytes, 4) == 7 &&
-                  BitConverter.ToDouble(bytes, 56) == 2, "v4 record layout");
-            // A version 3 record (0.1.2 and earlier) loads with the default source energy.
+            Check(bytes.Length == 72 && BitConverter.ToUInt32(bytes, 0) == 5 && BitConverter.ToUInt32(bytes, 4) == 8 &&
+                  BitConverter.ToDouble(bytes, 56) == 2 && BitConverter.ToDouble(bytes, 64) == values.Number(SettingCatalog.ToxicLimit), "v5 record layout");
+            // A version 4 record (gas source energy, 0.1.2) loads with the basis toxic gas limit.
+            var v4 = bytes.AsSpan(0, 64).ToArray(); v4[0] = 4; v4[4] = 7;
+            var fromV4 = ColonySettingsRecord.Decode(v4, SettingValues.Defaults().With(SettingCatalog.ToxicLimit, .5));
+            Check(fromV4.ScopeEquals(SettingScope.Colony, values.With(SettingCatalog.ToxicLimit, .5)), "v4 record round trip");
+            Check(ColonySettingsRecord.Decode(v4, SettingValues.Defaults()).Number(SettingCatalog.ToxicLimit) == .05, "a v4 record loads with the default toxic gas limit");
+            // A version 3 record (0.1.2 and earlier) loads with the default source energy and toxic gas limit.
             var v3 = bytes.AsSpan(0, 56).ToArray(); v3[0] = 3; v3[4] = 6;
             var fromV3 = ColonySettingsRecord.Decode(v3, SettingValues.Defaults().With(SettingCatalog.SourceEnergy, "internal"));
-            Check(fromV3.ScopeEquals(SettingScope.Colony, values.With(SettingCatalog.SourceEnergy, "internal")), "v3 record round trip");
+            Check(fromV3.ScopeEquals(SettingScope.Colony, values.With(SettingCatalog.SourceEnergy, "internal").With(SettingCatalog.ToxicLimit, .05)), "v3 record round trip");
             var badEnergy = (byte[])bytes.Clone(); BitConverter.GetBytes(3.0).CopyTo(badEnergy, 56);
             Throws<InvalidDataException>(() => ColonySettingsRecord.Decode(badEnergy, SettingValues.Defaults()), "invalid gas source energy");
+            foreach (var limit in new[] { 1.5, -.1, double.NaN })
+            {
+                var badToxic = (byte[])bytes.Clone(); BitConverter.GetBytes(limit).CopyTo(badToxic, 64);
+                Throws<InvalidDataException>(() => ColonySettingsRecord.Decode(badToxic, SettingValues.Defaults()), "invalid toxic gas limit");
+            }
             Check(ColonySettingsRecord.Decode(bytes, SettingValues.Defaults()).ScopeEquals(SettingScope.Colony, values), "record round trip");
             Check(ColonySettingsRecord.Decode(bytes, SettingValues.Defaults().With(SettingCatalog.Co2Limits, !values.Toggle(SettingCatalog.Co2Limits))).Toggle(SettingCatalog.Co2Limits) == values.Toggle(SettingCatalog.Co2Limits), "saved switch overrides preferences");
             Throws<InvalidDataException>(() => ColonySettingsRecord.Decode(bytes.AsSpan(0, 20), SettingValues.Defaults()), "truncated record");
@@ -242,7 +262,7 @@ static class Program
                 var bad = (byte[])bytes.Clone(); BitConverter.GetBytes(flag).CopyTo(bad, 48);
                 Throws<InvalidDataException>(() => ColonySettingsRecord.Decode(bad, SettingValues.Defaults()), "invalid switch");
             }
-            foreach (var version in new byte[] { 1, 2, 5 })
+            foreach (var version in new byte[] { 1, 2, 6 })
             {
                 var bad = (byte[])bytes.Clone(); bad[0] = version;
                 Throws<NotSupportedException>(() => ColonySettingsRecord.Decode(bad, SettingValues.Defaults()), "unsupported R&D record");
@@ -281,7 +301,7 @@ static class Program
         Check(plan.Activity && !plan.Options && !plan.Breathing && plan.Refusal == null, "region simulation is the activity policy");
         Check(ColonyChange.Plan(basis, basis.With(SettingCatalog.RegionActivity, "always"), profile8).Refusal ==
               "Region simulation: " + profile8.ActivityReason, "profile 8 refuses region simulation with its reason");
-        foreach (var key in new[] { "breathing.minimumOxygenFraction", "breathing.maximumCo2PressurePa", SettingCatalog.Co2Limits })
+        foreach (var key in new[] { "breathing.minimumOxygenFraction", "breathing.maximumCo2PressurePa", SettingCatalog.Co2Limits, SettingCatalog.ToxicLimit })
         {
             var d = SettingCatalog.Get(key);
             plan = ColonyChange.Plan(basis, basis.With(key, d.Kind == SettingKind.Toggle ? (object)true : d.Steps[0]), development);

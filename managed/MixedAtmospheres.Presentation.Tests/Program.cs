@@ -126,6 +126,64 @@ internal static class Program
             Check(!disabled.WithBreathingSettings(new AtmosphereSettings { HardMode = false }).Describe(mix, 1).IsBreathable);
         });
 
+        Test("toxic gases share one limit: just below, at and above it fail only at and above, and 100% disables it", () =>
+        {
+            // Easy mode without CO2 limits or per-gas limits: only the toxic gas rule can fail.
+            AtmosphereSettings Rules(double limit) => new() { HardMode = false, EnforceCarbonDioxideLimits = false, MaximumToxicGasFraction = limit };
+            MixturePresentationModel Toxic(double limit) => new(Catalog, Styles, Rules(limit), "oxygen", "carbon_dioxide",
+                new Dictionary<string, double>(), toxicGasMaterialIds: new[] { "chlorine", "hydrogen" });
+            FluidInventory Mix(double chlorine, double hydrogen) => FromMoleFractions(new Dictionary<string, double>
+                { ["oxygen"] = .5, ["nitrogen"] = .5 - chlorine - hydrogen, ["chlorine"] = chlorine, ["hydrogen"] = hydrogen });
+            var model = Toxic(.05);
+            Check(model.MaximumToxicGasFraction == .05 && model.ToxicGasMaterialIds.SequenceEqual(new[] { "chlorine", "hydrogen" }));
+            var below = model.Describe(Mix(.049, 0), 1);
+            Check(below.IsBreathable && below.Warnings.Count == 0 && !below.Constituents.Single(row => row.MaterialId == "chlorine").IsContaminant);
+            foreach (var (chlorine, hydrogen) in new[] { (.05, 0.0), (.03, .02), (.051, 0.0), (.3, .1) })
+            {
+                var view = model.Describe(Mix(chlorine, hydrogen), 1);
+                Check(view.Failures == BreathingFailure.Contaminant && view.BreathingStatus == "Unsafe atmosphere");
+                Near(view.GasConstituents.Where(row => row.MaterialId is "chlorine" or "hydrogen").Sum(row => row.GasMoleFraction!.Value), chlorine + hydrogen, 1e-9);
+                Check(view.Warnings.Single().StartsWith("Toxic gas fraction exceeds its limit: ", StringComparison.Ordinal) &&
+                      view.Warnings.Single().Contains("Chlorine", StringComparison.Ordinal) && view.Warnings.Single().EndsWith("maximum 5%.", StringComparison.Ordinal));
+                Check(view.Constituents.Where(row => row.MaterialId is "chlorine" or "hydrogen").All(row => row.IsContaminant == row.MassKg > 0) &&
+                      !view.Constituents.Single(row => row.MaterialId == "oxygen").IsContaminant);
+            }
+            // Two gases that are each below the limit fail together.
+            Check(model.Describe(Mix(.03, .03), 1).Failures == BreathingFailure.Contaminant && model.Describe(Mix(.03, 0), 1).IsBreathable);
+            // 100% disables the limit: 85% chlorine with 15% oxygen at 101 kPa is breathable.
+            var heavy = FromMoleFractions(new Dictionary<string, double> { ["oxygen"] = .15, ["chlorine"] = .85 });
+            Check(Toxic(1).Describe(heavy, 1).IsBreathable && Toxic(.05).Describe(heavy, 1).Failures == BreathingFailure.Contaminant);
+            Check(Toxic(0).Describe(Mix(1e-12, 0), 1).Failures == BreathingFailure.Contaminant && Toxic(0).Describe(Mix(0, 0), 1).IsBreathable);
+            // The limit and the toxic gases survive breathing and visual reconfiguration.
+            Check(model.WithBreathingSettings(Rules(.5)).Describe(Mix(.4, .05), 1).IsBreathable &&
+                  model.WithBreathingSettings(Rules(.5)).Describe(FromMoleFractions(new Dictionary<string, double> { ["oxygen"] = .4, ["chlorine"] = .6 }), 1).Failures == BreathingFailure.Contaminant &&
+                  model.WithVisualOptions(new MixtureVisualOptions()).Describe(Mix(.05, 0), 1).Failures == BreathingFailure.Contaminant);
+            // The same rule as the duplicants' breathing decision (AtmosphereSettings.Assess).
+            foreach (var share in new[] { .049, .05, .051 })
+                Check(Rules(.05).Assess(1, .5, 50000, 0, 0, false, share, true) == (share < .05 ? BreathingFailure.None : BreathingFailure.Contaminant));
+            Check(Rules(1).Assess(1, .5, 50000, 0, 0, false, .99, true) == BreathingFailure.None && Rules(.05).Assess(1, .5, 50000, 0, 0, false, .5, false) == BreathingFailure.None);
+            Reject(() => new MixturePresentationModel(Catalog, Styles, Rules(.05), "oxygen", "carbon_dioxide", toxicGasMaterialIds: new[] { "water" }));
+            Reject(() => new MixturePresentationModel(Catalog, Styles, Rules(.05), "oxygen", "carbon_dioxide", toxicGasMaterialIds: new[] { "oxygen" }));
+            Reject(() => new AtmosphereSettings { MaximumToxicGasFraction = 1.5 }.Validate());
+        });
+
+        Test("gases counted as oxygen breathe like oxygen in every reader", () =>
+        {
+            // The game counts polluted oxygen as oxygen; nitrogen stands in for it here.
+            var rules = new AtmosphereSettings { HardMode = false, EnforceCarbonDioxideLimits = false };
+            var counted = new MixturePresentationModel(Catalog, Styles, rules, "oxygen", "carbon_dioxide", new Dictionary<string, double>(),
+                oxygenEquivalentMaterialIds: new[] { "nitrogen" });
+            var mix = FromMoleFractions(new Dictionary<string, double> { ["oxygen"] = .1, ["nitrogen"] = .1, ["carbon_dioxide"] = .8 });
+            var view = counted.Describe(mix, 1);
+            Check(view.IsBreathable); Near(view.OxygenMoleFraction, .2, 1e-9); Near(view.OxygenPartialPressurePa, .2 * 101325, 1e-9);
+            var plain = Model(rules, limits: new Dictionary<string, double>()).Describe(mix, 1);
+            Check(plain.Failures == (BreathingFailure.OxygenFractionLow | BreathingFailure.OxygenPartialPressureLow));
+            Check(counted.OxygenEquivalentMaterialIds.SequenceEqual(new[] { "nitrogen" }) &&
+                  counted.WithBreathingSettings(rules).Describe(mix, 1).IsBreathable);
+            Reject(() => new MixturePresentationModel(Catalog, Styles, rules, "oxygen", "carbon_dioxide",
+                toxicGasMaterialIds: new[] { "nitrogen" }, oxygenEquivalentMaterialIds: new[] { "nitrogen" }));
+        });
+
         Test("explicit trace contaminants flag risk without color or dominant species inference", () =>
         {
             var mix = FromMoleFractions(new Dictionary<string, double> { ["oxygen"] = 0.21, ["nitrogen"] = 0.789998, ["chlorine"] = 0.000002 });

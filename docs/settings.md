@@ -51,7 +51,8 @@ it. Code: `ModSettings*.cs` (model, files, window, runtime); tests:
 - **Display & keys** contains reading precision, mixture appearance, status
   panel options and shortcuts. Changes apply immediately.
 - **Advanced** contains **Solver** (including solver presets), **Breathing
-  thresholds**, **Performance**, **Display** and **Saved presets**. Each technical section
+  thresholds** (oxygen minimums, the toxic gas limit, CO₂ thresholds and the
+  oxygen ceiling), **Performance**, **Display** and **Saved presets**. Each technical section
   is explicitly labelled Advanced. Solver settings and numeric breathing
   thresholds are saved per colony; at the main menu they are chosen for new
   colonies, in a colony they change that colony
@@ -67,9 +68,10 @@ before native loading. Start a new colony for the corrected pressure update.
 
 Colony settings are stored in the physical image (solver, evaporation rule and
 region policy), the integrated owner checkpoint (region delivery and lifecycle
-state), and MACOLP03 section 3 (breathing and the gas source energy; version 4,
-and version 3 records load with the default source energy). Preferences live in the user's
-config and are not stored in colony saves.
+state), and MACOLP03 section 3 (breathing, the gas source energy and the toxic
+gas limit; version 5, and version 3 and 4 records load with the defaults for
+what they lack). Preferences live in the user's config and are not stored in
+colony saves.
 
 New colonies use game profile 12 (core32, owner wrapper14; profile 9 plus the
 layered vertical remap of 2026-11-02, the convective adjustment of 2026-11-03
@@ -208,9 +210,10 @@ which adds `evaporation_below_boiling`).
 | `simulation.regionActivity` | Region simulation (Gameplay) | Activity tiers | Activity tiers / Always simulate | Select adaptive regions or simulate every region each tick | core28 policy and owner wrapper14 |
 | `liquids.evaporationBelowBoiling` | Evaporation below boiling (Gameplay) | off | on/off | Off: liquid/vapour pairs compare saturation with the total gas pressure (boil-only, ONI-like condensation, no humidity); on: the vapour's partial pressure (evaporation into unsaturated gas) | core27/28 phase-rule selector (1 off, 0 on) |
 | `gases.sourceEnergy` | Gas source energy (Gameplay) | Compensated | Compensated / Real physics / Internal energy | How machine, vent, pump, duplicant and sublimation gas carries energy: enthalpy at the cell with the room returning it; enthalpy (flow work); internal energy only | section 3 v4 (`ma_oni_colony_set_source_energy` modes 2/1/0) |
-| `breathing.co2Limits` | CO₂ breathing limits | off | on/off | Enforce the CO₂ share and partial pressure thresholds; oxygen remains required when off | section 3 v3 |
+| `breathing.co2Limits` | CO₂ breathing limits | off | on/off | Enforce the CO₂ share and partial pressure thresholds; oxygen and the toxic gas limit remain required when off | section 3 v3 |
 | `breathing.minimumOxygenFraction` | Minimum oxygen share | 15% | 5–25% | Breathable with at least this oxygen share by moles (polluted oxygen counts) | section 3 |
 | `breathing.minimumOxygenPressurePa` | Minimum oxygen partial pressure | 15 kPa | 1–50 kPa | …and at least this oxygen partial pressure | section 3 |
+| `breathing.maximumToxicFraction` | Maximum toxic gas share | 5% | 0–100% (0, 1, 2, 5, 10, 20, 50%, No limit) | Not breathable once chlorine, sour gas and nuclear fallout (where the content has it) together reach this share by moles; 100% is no limit. Always applies, like the oxygen minimums | section 3 v5 |
 | `breathing.maximumCo2Fraction` | Maximum carbon dioxide share | 0.5% | 0–10% | Only when CO₂ limits are on: carbon dioxide below this share | section 3 |
 | `breathing.maximumCo2PressurePa` | Maximum carbon dioxide partial pressure | 500 Pa | 0–10 kPa | Only when CO₂ limits are on: below this partial pressure | section 3 |
 | `breathing.maximumOxygenFraction` | Maximum oxygen share | no limit (1) | 30–100% | Cells richer in oxygen fail. Below 100% can make pure generated oxygen unbreathable; the window warns | section 3 |
@@ -286,11 +289,16 @@ Every new save writes it, including defaults. This makes older builds refuse
 rather than silently apply their former CO₂ limits. Old R&D saves are not
 supported.
 
-Little endian, 56 bytes: `u32 version = 3`, `u32 count = 6`, then binary64
-minimum oxygen share, minimum oxygen partial pressure (Pa), maximum CO₂ share,
-maximum CO₂ partial pressure (Pa), maximum oxygen share, and CO₂ limits
-(`0.0` off, `1.0` on). Missing records, other versions/counts, invalid switches
-and out-of-range thresholds refuse before loading. The physical solver
+Version 3, little endian, 56 bytes: `u32 version = 3`, `u32 count = 6`, then
+binary64 minimum oxygen share, minimum oxygen partial pressure (Pa), maximum
+CO₂ share, maximum CO₂ partial pressure (Pa), maximum oxygen share, and CO₂
+limits (`0.0` off, `1.0` on). Version 4 (2026-11-09, 64 bytes, count 7) adds
+the gas source energy mode (`0.0` internal, `1.0` enthalpy, `2.0`
+compensated). Version **5** (2026-11-11, 72 bytes, count 8), which every new
+save writes, adds the maximum toxic gas share (0–1). Version 3 and 4 records
+load with the defaults for what they lack (Compensated, 5%). Missing records,
+other versions/counts, invalid switches or modes and out-of-range thresholds
+refuse before loading. The physical solver
 checkpoint format was unchanged by this historical settings change; the later
 profile9 integration writes core28 and owner wrapper14.
 

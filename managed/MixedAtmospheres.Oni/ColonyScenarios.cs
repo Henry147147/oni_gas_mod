@@ -2541,6 +2541,18 @@ namespace MixedAtmospheres.Oni
         internal static bool Vanilla => !ColonyOwner.Active;
         private static int ColonyFrame() => (int)((Vanilla ? VanillaFrames : ColonyOwner.Status.CompletedFrames) - started);
         private static void Record(string name, bool passed, string detail) => Current.Checks.Add(new Check { Name = name, Passed = passed, Detail = detail });
+        // Pins colony settings that a scenario's fixed inputs depend on, so a
+        // later change of their defaults leaves the scenario as it was
+        // (applied to this colony at once, as the settings window does). A
+        // colony-vanilla reference has no mixture rules to pin.
+        private static void PinColonySettings(params (string key, object value)[] pins)
+        {
+            if (Vanilla) return;
+            var colony = ModSettingsRuntime.Colony ?? throw new InvalidOperationException("The scenario's colony has no settings to pin.");
+            foreach (var (key, value) in pins) colony = colony.With(key, value);
+            var (applied, message) = ModSettingsRuntime.ChangeColony(colony);
+            if (!applied) throw new InvalidOperationException("The scenario's colony settings could not be pinned: " + message);
+        }
         private static void Finish()
         {
             Current.Finished = true; Current.Stage = "finished";

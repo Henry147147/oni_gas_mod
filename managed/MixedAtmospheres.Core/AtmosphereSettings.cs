@@ -14,6 +14,8 @@ namespace MixedAtmospheres.Core
         public double MinimumOxygenPartialPressurePa { get; set; } = 15000;
         public double MaximumCo2Fraction { get; set; } = 0.005;
         public double MaximumCo2PartialPressurePa { get; set; } = 500;
+        /// <summary>Toxic gases together (the model's toxic gas identities) at or above this share of gas moles fail; 1 is no limit.</summary>
+        public double MaximumToxicGasFraction { get; set; } = 1;
 
         // This is deliberately a fixed, flat settings format. Unity's Linux
         // Mono depot omits the machine.config required by DataContract JSON.
@@ -25,12 +27,42 @@ namespace MixedAtmospheres.Core
 
         public void Validate()
         {
-            foreach (var value in new[] { MinimumOxygenFraction, MaximumOxygenFraction, MinimumOxygenPartialPressurePa, MaximumCo2Fraction, MaximumCo2PartialPressurePa })
+            foreach (var value in new[] { MinimumOxygenFraction, MaximumOxygenFraction, MinimumOxygenPartialPressurePa, MaximumCo2Fraction, MaximumCo2PartialPressurePa, MaximumToxicGasFraction })
                 if (double.IsNaN(value) || double.IsInfinity(value)) throw new ArgumentException("Atmosphere settings must be finite.");
             if (MinimumOxygenFraction <= 0 || MaximumOxygenFraction < MinimumOxygenFraction || MaximumOxygenFraction > 1 ||
-                MinimumOxygenPartialPressurePa <= 0 || MaximumCo2Fraction < 0 || MaximumCo2Fraction > 1 || MaximumCo2PartialPressurePa < 0)
+                MinimumOxygenPartialPressurePa <= 0 || MaximumCo2Fraction < 0 || MaximumCo2Fraction > 1 || MaximumCo2PartialPressurePa < 0 ||
+                MaximumToxicGasFraction < 0 || MaximumToxicGasFraction > 1)
                 throw new ArgumentException("Invalid atmosphere thresholds.");
         }
+
+        /// <summary>
+        /// The breathing rule (docs/settings.md), the one every reader applies: the
+        /// colony's breathing decision, hover warnings, overlays and tooltips. Shares
+        /// are of all gas moles; oxygen includes the gases counted as oxygen. Flags
+        /// use a 16-ulp tolerance relative to the compared values: oxygen fails below
+        /// its minimums, carbon dioxide above its limits, toxic gas at or above its
+        /// limit (a present gas fails a zero limit).
+        /// </summary>
+        public BreathingFailure Assess(double gasMoles, double oxygenFraction, double oxygenPartialPressurePa,
+            double co2Fraction, double co2PartialPressurePa, bool co2Present, double toxicFraction, bool toxicPresent)
+        {
+            if (!(gasMoles > 0)) return BreathingFailure.Vacuum;
+            var result = BreathingFailure.None;
+            if (Below(oxygenFraction, MinimumOxygenFraction)) result |= BreathingFailure.OxygenFractionLow;
+            if (HardMode && Below(MaximumOxygenFraction, oxygenFraction)) result |= BreathingFailure.OxygenFractionHigh;
+            if (Below(oxygenPartialPressurePa, MinimumOxygenPartialPressurePa)) result |= BreathingFailure.OxygenPartialPressureLow;
+            if (EnforceCarbonDioxideLimits && ExceedsLimit(MaximumCo2Fraction, co2Fraction, co2Present)) result |= BreathingFailure.CarbonDioxideFractionHigh;
+            if (EnforceCarbonDioxideLimits && ExceedsLimit(MaximumCo2PartialPressurePa, co2PartialPressurePa, co2Present)) result |= BreathingFailure.CarbonDioxidePartialPressureHigh;
+            if (ToxicLimitReached(toxicFraction, toxicPresent)) result |= BreathingFailure.Contaminant;
+            return result;
+        }
+        /// <summary>Whether present toxic gas at this share of gas moles reaches the limit (never at 100%).</summary>
+        public bool ToxicLimitReached(double toxicFraction, bool toxicPresent) =>
+            toxicPresent && MaximumToxicGasFraction < 1 && !Below(toxicFraction, MaximumToxicGasFraction);
+        // Tolerance follows the values' scale. An absolute unit-sized floor
+        // would silently exempt sufficiently small hazardous traces.
+        internal static bool Below(double a, double b) => a < b && b - a > 16 * 2.2204460492503131e-16 * Math.Max(Math.Abs(a), Math.Abs(b));
+        internal static bool ExceedsLimit(double limit, double value, bool knownPresent) => knownPresent && (limit == 0 || Below(limit, value));
 
         internal NativeAtmosphere ToNative()
         {
@@ -56,7 +88,9 @@ namespace MixedAtmospheres.Core
                 ",\"MaximumOxygenFraction\":" + Number(MaximumOxygenFraction) +
                 ",\"MinimumOxygenPartialPressurePa\":" + Number(MinimumOxygenPartialPressurePa) +
                 ",\"MaximumCo2Fraction\":" + Number(MaximumCo2Fraction) +
-                ",\"MaximumCo2PartialPressurePa\":" + Number(MaximumCo2PartialPressurePa) + "}";
+                ",\"MaximumCo2PartialPressurePa\":" + Number(MaximumCo2PartialPressurePa) +
+                // Optional: absent means no toxic gas limit, the earlier format.
+                (MaximumToxicGasFraction < 1 ? ",\"MaximumToxicGasFraction\":" + Number(MaximumToxicGasFraction) : "") + "}";
         }
 
         public static AtmosphereSettings FromJson(string json)
@@ -105,17 +139,18 @@ namespace MixedAtmospheres.Core
                         case nameof(MinimumOxygenPartialPressurePa): result.MinimumOxygenPartialPressurePa = number; break;
                         case nameof(MaximumCo2Fraction): result.MaximumCo2Fraction = number; break;
                         case nameof(MaximumCo2PartialPressurePa): result.MaximumCo2PartialPressurePa = number; break;
+                        case nameof(MaximumToxicGasFraction): result.MaximumToxicGasFraction = number; break;
                         default: throw new ArgumentException("Unknown atmosphere setting: " + name, nameof(json));
                     }
                 }
                 if (token.Groups["end"].Value == "}") break;
             }
             SkipSpace();
-            if (position != json.Length || names.Count < 6 || names.Count > 7 ||
+            if (position != json.Length || names.Count < 6 || names.Count > 8 ||
                 !names.Contains(nameof(HardMode)) || !names.Contains(nameof(MinimumOxygenFraction)) ||
                 !names.Contains(nameof(MaximumOxygenFraction)) || !names.Contains(nameof(MinimumOxygenPartialPressurePa)) ||
                 !names.Contains(nameof(MaximumCo2Fraction)) || !names.Contains(nameof(MaximumCo2PartialPressurePa)))
-                throw new ArgumentException("Expected all six atmosphere thresholds/flags, an optional CO2 switch and no trailing data.", nameof(json));
+                throw new ArgumentException("Expected all six atmosphere thresholds/flags, an optional CO2 switch, an optional toxic gas limit and no trailing data.", nameof(json));
             result.Validate();
             return result;
         }

@@ -56,8 +56,10 @@ namespace MixedAtmospheres.Core
             var values = scratch.AsSpan(0, constituents.Length);
             var oxygen = 0.0;
             var co2 = 0.0;
+            var toxic = 0.0;
             var hasContaminant = false;
             var hasCo2 = false;
+            var hasToxic = false;
             var oxygenPressure = 0.0;
             var co2Pressure = 0.0;
             var index = 0;
@@ -77,8 +79,13 @@ namespace MixedAtmospheres.Core
                     hasContaminant = true;
                 if (resolved.IsOxygen)
                 {
-                    oxygen = fraction;
-                    oxygenPressure = partialPressure!.Value;
+                    oxygen += fraction;
+                    oxygenPressure += partialPressure!.Value;
+                }
+                if (resolved.IsToxic)
+                {
+                    toxic += fraction;
+                    hasToxic = true;
                 }
                 if (resolved.IsCo2)
                 {
@@ -87,7 +94,7 @@ namespace MixedAtmospheres.Core
                     hasCo2 = true;
                 }
             }
-            var failures = Assess(reading.GasMoles, oxygen, co2, hasContaminant, hasCo2, oxygenPressure, co2Pressure);
+            var failures = Assess(reading.GasMoles, oxygen, co2, hasContaminant, hasCo2, oxygenPressure, co2Pressure, toxic, hasToxic);
             var density = reading.GasMassKg == 0 ? 0 : reading.GasMassKg / reading.GasVolumeCubicMetres;
             FluidChecks.Nonnegative(density, nameof(MixturePresentation.GasDensityKgPerCubicMetre));
             var hasPhase = reading.GasVolumeCubicMetres > 0 && reading.LiquidVolumeCubicMetres > 0;

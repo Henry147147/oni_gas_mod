@@ -963,25 +963,25 @@ namespace MixedAtmospheres.Oni
             OniNativeColony.Check(OniNativeColony.Composition((uint)cell, partIndices, partMasses, (uint)partIndices.Length, out var count));
             return (int)Math.Min(count, (uint)partIndices.Length);
         }
-        // Breathing by the colony's recorded rules (docs/settings.md): by
-        // default easy mode, at least 15% oxygen by moles and 15 kPa oxygen
-        // partial pressure. Optional CO2 limits default off; an advanced oxygen
-        // ceiling fails above its maximum share. Polluted oxygen counts as
-        // oxygen. A breathable cell offers its oxygen of the more abundant
-        // kind; otherwise none.
+        // Breathing by the colony's recorded rules (docs/settings.md), the
+        // same AtmosphereSettings.Assess that the hover card, overlays and
+        // suffocation tooltip use: by default easy mode, at least 15% oxygen
+        // by moles and 15 kPa oxygen partial pressure, and chlorine, sour gas
+        // and nuclear fallout together below 5%. Optional CO2 limits default
+        // off; an advanced oxygen ceiling fails above its maximum share.
+        // Polluted oxygen counts as oxygen. A breathable cell offers its
+        // oxygen of the more abundant kind; otherwise none.
         private static object? rulesOf;
-        private static bool enforceCarbonDioxideLimits;
-        private static double minimumOxygenFraction = .15, minimumOxygenPressurePa = 15000, maximumOxygenFraction = 1,
-            maximumCarbonDioxideFraction = .005, maximumCarbonDioxidePressurePa = 500;
+        private static Core.AtmosphereSettings breathingRules = new Core.AtmosphereSettings { HardMode = false, EnforceCarbonDioxideLimits = false };
+        private static bool[] toxicGas = Array.Empty<bool>();
+        // The gases whose shares add up against the toxic gas limit (fallout
+        // only where the loaded content has it).
+        internal static bool IsToxicGas(SimHashes id) => id == SimHashes.ChlorineGas || id == SimHashes.SourGas || id == SimHashes.Fallout;
         private static void RefreshBreathingRules()
         {
             var colony = ModSettingsRuntime.Colony;
             if (ReferenceEquals(colony, rulesOf) && rulesOf != null) return;
-            var rules = ModSettingsRuntime.Breathing; rulesOf = colony;
-            minimumOxygenFraction = rules.MinimumOxygenFraction; minimumOxygenPressurePa = rules.MinimumOxygenPartialPressurePa;
-            maximumOxygenFraction = rules.MaximumOxygenFraction;
-            maximumCarbonDioxideFraction = rules.MaximumCo2Fraction; maximumCarbonDioxidePressurePa = rules.MaximumCo2PartialPressurePa;
-            enforceCarbonDioxideLimits = rules.EnforceCarbonDioxideLimits;
+            breathingRules = ModSettingsRuntime.Breathing; rulesOf = colony;
         }
         internal static bool TryReadBreathingCell(int cell, out float mass, out SimHashes element)
         {
@@ -991,11 +991,12 @@ namespace MixedAtmospheres.Oni
             if ((view.Flags & OniNativeColony.ViewGas) == 0 || status.State != 1) return true;
             if (molarMass.Length == 0)
             {
-                molarMass = new double[ElementLoader.elements.Count];
-                foreach (var m in materials) molarMass[m.NativeIndex] = m.MolarMassKgPerMol;
+                var masses0 = new double[ElementLoader.elements.Count]; var toxic0 = new bool[masses0.Length];
+                foreach (var m in materials) { masses0[m.NativeIndex] = m.MolarMassKgPerMol; toxic0[m.NativeIndex] = IsToxicGas(ElementLoader.elements[(int)m.NativeIndex].id); }
+                toxicGas = toxic0; molarMass = masses0;
             }
             var count = Composition(cell, out var indices, out var masses);
-            double moles = 0, oxygenMoles = 0, carbonMoles = 0, oxygen = 0, polluted = 0;
+            double moles = 0, oxygenMoles = 0, carbonMoles = 0, toxicMoles = 0, oxygen = 0, polluted = 0;
             for (var k = 0; k < count; ++k)
             {
                 var e = ElementLoader.elements[(int)indices[k]]; if (!e.IsGas) continue;
@@ -1003,12 +1004,12 @@ namespace MixedAtmospheres.Oni
                 if (e.id == SimHashes.Oxygen) { oxygenMoles += n; oxygen += masses[k]; }
                 else if (e.id == SimHashes.ContaminatedOxygen) { oxygenMoles += n; polluted += masses[k]; }
                 else if (e.id == SimHashes.CarbonDioxide) carbonMoles += n;
+                else if (toxicGas[indices[k]]) toxicMoles += n;
             }
             if (!(moles > 0)) return true;
             var pressure = (double)view.PressurePa;
             var xo = oxygenMoles / moles; var xc = carbonMoles / moles;
-            if (xo < minimumOxygenFraction || xo * pressure < minimumOxygenPressurePa || xo > maximumOxygenFraction ||
-                enforceCarbonDioxideLimits && carbonMoles > 0 && (xc >= maximumCarbonDioxideFraction || xc * pressure >= maximumCarbonDioxidePressurePa)) return true;
+            if (breathingRules.Assess(moles, xo, xo * pressure, xc, xc * pressure, carbonMoles > 0, toxicMoles / moles, toxicMoles > 0) != Core.BreathingFailure.None) return true;
             element = oxygen >= polluted ? SimHashes.Oxygen : SimHashes.ContaminatedOxygen;
             // Rounded down so the advertised amount never exceeds the cell.
             var offered = (float)(oxygen >= polluted ? oxygen : polluted);

@@ -261,7 +261,7 @@ namespace MixedAtmospheres.Oni
             // hazardous traces omitted from this contents list.
             foreach (var row in reading.GasConstituents)
                 if (!row.IsTrace && !Submerged(reading))
-                    result.Add(row.DisplayName + " " + Percent(row) + " by moles" + (row.IsContaminant ? " — CONTAMINANT" : ""));
+                    result.Add(row.DisplayName + " " + Percent(row) + " by moles" + (row.IsContaminant ? " — toxic" : ""));
             // Traces are left out without a hint line (user decision 2026-11-08);
             // selecting the cell still lists every constituent.
             if (ShowsLiquid(reading))
@@ -279,7 +279,7 @@ namespace MixedAtmospheres.Oni
                     (ExactReadings || !row.PartialPressurePa.HasValue ? row.PartialPressureText : Amount(row.PartialPressurePa.Value, row, " Pa"));
             else result += " · liquid constituent · gas partial pressure not applicable";
             if (row.IsTrace) result += " · trace";
-            if (row.IsContaminant) result += " · CONTAMINANT";
+            if (row.IsContaminant) result += " · toxic";
             return result;
         }
 
@@ -317,7 +317,7 @@ namespace MixedAtmospheres.Oni
             rows.Add(new MixtureInspectionDetailRow("Composition", "Constituents · mole % · mass · mol · partial pressure"));
             foreach (var row in reading.Constituents)
             {
-                var name = row.DisplayName + (row.IsTrace ? " (trace)" : "") + (row.IsContaminant ? " · CONTAMINANT" : "");
+                var name = row.DisplayName + (row.IsTrace ? " (trace)" : "") + (row.IsContaminant ? " · toxic" : "");
                 var details = row.GasMoleFraction.HasValue ? Percent(row) + " by moles" : "Liquid constituent";
                 details += " · " + (ExactReadings ? row.MassTextKg + " · " + row.MolesText : Amount(row.MassKg, row, " kg") + " · " + Amount(row.Moles, row, " mol"));
                 var pressure = row.PartialPressurePa.HasValue ? "Partial pressure " +
