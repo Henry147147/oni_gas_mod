@@ -912,6 +912,8 @@ internal static unsafe class Program
             var unreused = plain.Publish(source.Pointer, 3, 2);
             Check(!plain.TryGetTextureContent(unreused.Pointer->propertyTextureFlow, flowBytes, out _));
         });
+        Test("the owner's overlay pass and its ownership runs write and emit exactly what the original loop did", () =>
+            OverlayEquivalenceTests.Run(Check));
         Test("a session reset while a publication is built frees it and refuses its hand-over", () =>
         {
             using var source = new NativeFixture();

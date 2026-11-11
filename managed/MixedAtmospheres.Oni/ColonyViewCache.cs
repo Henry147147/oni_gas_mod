@@ -23,7 +23,9 @@ namespace MixedAtmospheres.Oni
             session = frame = ulong.MaxValue; buffer = null;
             Copies = Hits = Comparisons = ChangedDuringComparison = 0;
         }
-        internal static void Copy(ref OniNativeColony.Status status, OniNativeColony.CellView[] views)
+        // Returns whether the views were written (false: they hold the frame
+        // the last copy wrote into this same array).
+        internal static bool Copy(ref OniNativeColony.Status status, OniNativeColony.CellView[] views)
         {
             if (!ReferenceEquals(buffer, views)) { Reset(); buffer = views; }
             int result; bool copied;
@@ -44,14 +46,15 @@ namespace MixedAtmospheres.Oni
             OniNativeColony.Check(result);
             session = status.Session; frame = status.CompletedFrames;
             if (copied) ++Copies; else ++Hits;
-            if (!control || Comparisons >= 512) return;
+            if (!control || Comparisons >= 512) return copied;
             if (expected.Length != views.Length) expected = new OniNativeColony.CellView[views.Length];
             var full = OniNativeColony.Status.Empty;
             OniNativeColony.Check(OniNativeColony.Copy(ref full, expected, (uint)expected.Length));
-            if (full.Session != session || full.CompletedFrames != frame) { ++ChangedDuringComparison; return; }
+            if (full.Session != session || full.CompletedFrames != frame) { ++ChangedDuringComparison; return copied; }
             if (!MemoryMarshal.AsBytes(views.AsSpan()).SequenceEqual(MemoryMarshal.AsBytes(expected.AsSpan())))
                 throw new InvalidOperationException("Cached colony view bytes differ from a complete copy.");
             ++Comparisons;
+            return copied;
         }
     }
 }

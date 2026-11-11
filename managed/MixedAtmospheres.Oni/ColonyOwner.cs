@@ -126,7 +126,7 @@ namespace MixedAtmospheres.Oni
             if (Active) { var s = OniNativeColony.Status.Empty; _ = OniNativeColony.Stop(ref s); }
             ColonyPacing.Reset(); ColonyOwnerPersistence.Reset(); ModSettingsRuntime.Reset();
             ColonyClusterWorlds.Reset();ColonyStartingAir.Reset();OwnedCells=0;
-            publicationCells=Array.Empty<int>();CellMapComparisons=0;
+            publicationCells=Array.Empty<int>();CellMapComparisons=0;ColonyOverlay.Reset();
             passiveSession=0;passiveFrame=ulong.MaxValue;WorldPassiveComparisons=WorldPassiveRows=WorldPassiveBusy=0;
             Active = false; considered = false; restoreAttempted = false; StartFailure = ""; loggedFault = ""; ColonyFault.Reset(); Publications = 0; PublicationMilliseconds = MaximumPublicationMilliseconds = 0; Census.Clear(); molarMass = Array.Empty<double>();
             completionObservedAt = 0; completionObservedFrame = ulong.MaxValue; frameTiming.Reset();
@@ -414,7 +414,7 @@ namespace MixedAtmospheres.Oni
             }
             ColonyReaderPin.Show(status.Session);
             var output = OniNativeColony.Status.Empty;
-            ColonyViewCache.Copy(ref output, views);
+            var viewsCopied = ColonyViewCache.Copy(ref output, views);
             Lap("views");
             status = output;
             var receiptPublicationSession=output.Session;var receiptPublicationFrame=output.CompletedFrames;
@@ -455,6 +455,21 @@ namespace MixedAtmospheres.Oni
                 // changes them (main thread).
                 var gridElements=Grid.Element;var catalogue=ElementLoader.elements;var cellMap=publicationCells;
                 var mapped=!uncachedCellMap&&!cellMapControl;
+                var solid=mapped?ColonyOverlay.SolidElements(catalogue):null;
+                if(solid!=null)
+                {
+                    fixed(float* massPlane=masses)fixed(float* temperaturePlane=temperatures)fixed(float* radiationPlane=radiation)
+                    fixed(ushort* elementPlane=elements)fixed(byte* diseasePlane=diseases)fixed(int* germPlane=germs)
+                    {
+                        var planes=new ColonyOverlay.Planes{Masses=massPlane,Temperatures=temperaturePlane,Radiation=radiation.Length!=0?radiationPlane:null,
+                            Elements=elementPlane,Diseases=diseasePlane,Germs=germPlane};
+                        ownedNow=ColonyOverlay.Apply(views,cellMap,in planes,gridElements,solid,!viewsCopied,
+                            ref substanceChanges,ref changeCount,ref irradiatedCells,ref irradiatedRads,ref irradiatedCount);
+                    }
+                }
+                else
+                {
+                ColonyOverlay.Forget();
                 for (var i = 0; i < views.Length; ++i)
                 {
                     ref readonly var view = ref views[i];
@@ -502,6 +517,7 @@ namespace MixedAtmospheres.Oni
                         substanceChanges[changeCount++]=new Sim.SubstanceChangeInfo { cellIdx = global, newElemIdx = element };
                     }
                     elements[global] = element;
+                }
                 }
                 OwnedCells=ownedNow;
                 ColonyRadiationGerms.Apply(irradiatedCells,irradiatedRads,irradiatedCount);
