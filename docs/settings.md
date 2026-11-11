@@ -12,7 +12,10 @@ it. Code: `ModSettings*.cs` (model, files, window, runtime); tests:
 
 - **Gameplay** opens first. **CO₂ breathing limits** defaults to **Off**.
   Enough oxygen is always required; CO₂ still mixes, moves through pipes and
-  displaces oxygen. Turn the switch on to enforce the saved CO₂ thresholds.
+  displaces oxygen. Turn the switch on to enforce the saved CO₂ thresholds
+  (by default 2% and 5 kPa, which bind together in normal base air of about
+  250 kPa; that is ten times the CO₂ headroom of 0.5% and 500 Pa, the
+  defaults before 2026-11-11).
   During play this switch applies immediately to the current colony and its
   next save. At the main menu it chooses the default for new colonies.
 - **Gameplay → Boiling and condensation → Evaporation below boiling** defaults
@@ -139,7 +142,9 @@ still choose new colonies' settings and stay at the main menu.
 Under **Advanced → Solver**, Default, Robust, Fast and Precise apply only
 solver tunables, keeping your gameplay choice. Under **Advanced → Saved
 presets**, complete presets replace all colony rules, including breathing,
-and keep preferences unless a user preset explicitly contains them.
+and keep preferences unless a user preset explicitly contains them. Relaxed
+breathing is the exception: it keeps the CO₂ switch (user decision
+2026-11-11), so it only lowers the oxygen minimums.
 
 | Preset | Colony settings |
 | --- | --- |
@@ -147,8 +152,8 @@ and keep preferences unless a user preset explicitly contains them.
 | Robust | Pressure/heat iteration caps 1600/3200. A converged solve stops early, so results are identical wherever Default completes; a difficult solve gets more room before it faults. |
 | Fast (experimental) | Pressure tolerance 1e-6: fewer pressure iterations, pressures settle less exactly. |
 | Precise (experimental) | Two solver steps per game tick, pressure tolerance 1e-10 and the Robust caps; about twice the solver time. |
-| Relaxed breathing | Oxygen ≥ 10% and 10 kPa; enables CO₂ limits of 1% and 1 kPa. |
-| Strict breathing | Oxygen ≥ 18% and 18 kPa; enables CO₂ limits of 0.3% and 300 Pa. |
+| Relaxed breathing | Oxygen ≥ 10% and 10 kPa; keeps the CO₂ switch as the player set it (the CO₂ thresholds take their defaults). |
+| Strict breathing | Oxygen ≥ 18% and 18 kPa; enables CO₂ limits of 1% and 2.5 kPa. |
 
 Lower caps are not offered: they are never faster, and reaching a cap stops
 the simulation. Players save the shown settings (colony settings and
@@ -214,8 +219,8 @@ which adds `evaporation_below_boiling`).
 | `breathing.minimumOxygenFraction` | Minimum oxygen share | 15% | 5–25% | Breathable with at least this oxygen share by moles (polluted oxygen counts) | section 3 |
 | `breathing.minimumOxygenPressurePa` | Minimum oxygen partial pressure | 15 kPa | 1–50 kPa | …and at least this oxygen partial pressure | section 3 |
 | `breathing.maximumToxicFraction` | Maximum toxic gas share | 5% | 0–100% (0, 1, 2, 5, 10, 20, 50%, No limit) | Not breathable once chlorine, sour gas and nuclear fallout (where the content has it) together reach this share by moles; 100% is no limit. Always applies, like the oxygen minimums | section 3 v5 |
-| `breathing.maximumCo2Fraction` | Maximum carbon dioxide share | 0.5% | 0–10% | Only when CO₂ limits are on: carbon dioxide below this share | section 3 |
-| `breathing.maximumCo2PressurePa` | Maximum carbon dioxide partial pressure | 500 Pa | 0–10 kPa | Only when CO₂ limits are on: below this partial pressure | section 3 |
+| `breathing.maximumCo2Fraction` | Maximum carbon dioxide share | 2% (0.5% until 2026-11-11) | 0–10% | Only when CO₂ limits are on: carbon dioxide at most this share | section 3 |
+| `breathing.maximumCo2PressurePa` | Maximum carbon dioxide partial pressure | 5 kPa (500 Pa until 2026-11-11) | 0–10 kPa | Only when CO₂ limits are on: at most this partial pressure | section 3 |
 | `breathing.maximumOxygenFraction` | Maximum oxygen share | no limit (1) | 30–100% | Cells richer in oxygen fail. Below 100% can make pure generated oxygen unbreathable; the window warns | section 3 |
 
 ## Preferences

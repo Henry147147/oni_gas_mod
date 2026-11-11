@@ -13,6 +13,10 @@ namespace MixedAtmospheres.Oni
         {
             if (Once(0, "arena"))
             {
+                // Pinned: the CO2 limits this scenario switches on keep the
+                // thresholds it was written for (0.5% and 500 Pa, the defaults
+                // until 2026-11-11; now 2% and 5 kPa).
+                PinColonySettings(("breathing.maximumCo2Fraction", .005), ("breathing.maximumCo2PressurePa", 500.0));
                 // The pod's air as imported, before breathing and any reserve change it.
                 var podAir = Components.Telepads.Count > 0 ? Grid.CellAbove(Grid.PosToCell(Components.Telepads[0])) : -1;
                 recorded["pod oxygen share"] = podAir >= 0 ? OxygenShare(podAir) : -1;

@@ -166,10 +166,10 @@ namespace MixedAtmospheres.Oni
                 .05, 0, 1, new double[] { 0, .01, .02, .05, .1, .2, .5, 1 }),
             SettingDefinition.Number("breathing.maximumCo2Fraction", SettingScope.Colony, Breathing, "Maximum carbon dioxide share",
                 "Applied only when Gameplay → CO₂ breathing limits is On: maximum share by moles (0: any carbon dioxide fails).",
-                .005, 0, .1, new double[] { 0, .001, .003, .005, .01, .02, .05, .1 }),
+                .02, 0, .1, new double[] { 0, .001, .003, .005, .01, .02, .05, .1 }),
             SettingDefinition.Number("breathing.maximumCo2PressurePa", SettingScope.Colony, Breathing, "Maximum carbon dioxide partial pressure",
                 "Applied only when Gameplay → CO₂ breathing limits is On: maximum carbon dioxide partial pressure.",
-                500, 0, 10000, new double[] { 0, 100, 300, 500, 1000, 2000, 5000, 10000 }, "Pa"),
+                5000, 0, 10000, new double[] { 0, 100, 300, 500, 1000, 2000, 2500, 5000, 10000 }, "Pa"),
             SettingDefinition.Number("breathing.maximumOxygenFraction", SettingScope.Colony, Breathing, "Maximum oxygen share",
                 "Cells above this oxygen share cannot be breathed (100%: no upper limit). Generated oxygen is pure; lowering this can make starting air unbreathable.",
                 1, .3, 1, new double[] { .3, .35, .5, .75, 1 }),
@@ -337,24 +337,32 @@ namespace MixedAtmospheres.Oni
         // A built-in preset sets colony settings only; a saved preset also
         // carries the preferences it was saved with.
         internal bool HasPreferences { get; }
-        internal SettingsPreset(string id, string name, string description, bool builtIn, SettingValues values, bool hasPreferences)
-        { Id = id; Name = name; Description = description; BuiltIn = builtIn; Values = values; HasPreferences = hasPreferences; }
+        // Colony settings the preset leaves as the player set them.
+        internal IReadOnlyCollection<string> Kept { get; }
+        internal SettingsPreset(string id, string name, string description, bool builtIn, SettingValues values, bool hasPreferences,
+            IReadOnlyCollection<string>? kept = null)
+        { Id = id; Name = name; Description = description; BuiltIn = builtIn; Values = values; HasPreferences = hasPreferences; Kept = kept ?? Array.Empty<string>(); }
         internal bool Experimental => Values.Experimental(SettingScope.Colony).Any();
         internal SettingValues ApplyTo(SettingValues current)
         {
             var result = current.WithScope(SettingScope.Colony, Values);
+            foreach (var key in Kept) result = result.With(key, current[key]);
             return HasPreferences ? result.WithScope(SettingScope.Preference, Values) : result;
         }
+        // Whether these colony settings are this preset's (its kept settings any value).
+        internal bool Matches(SettingValues values) => ApplyTo(values).ScopeEquals(SettingScope.Colony, values);
     }
 
     internal static class BuiltInPresets
     {
         internal const string DefaultId = "default";
-        private static SettingsPreset Make(string id, string name, string description, params (string key, object value)[] changes)
+        private static SettingsPreset Make(string id, string name, string description, params (string key, object value)[] changes) =>
+            Keeping(id, name, description, Array.Empty<string>(), changes);
+        private static SettingsPreset Keeping(string id, string name, string description, string[] kept, params (string key, object value)[] changes)
         {
             var values = SettingValues.Defaults();
             foreach (var (key, value) in changes) values = values.With(key, value);
-            return new SettingsPreset(id, name, description, true, values, false);
+            return new SettingsPreset(id, name, description, true, values, false, kept);
         }
         internal static readonly IReadOnlyList<SettingsPreset> All = new[]
         {
@@ -365,12 +373,13 @@ namespace MixedAtmospheres.Oni
                 ("solver.pressureTolerance", 1e-6)),
             Make("precise", "Precise", "Two solver steps per game tick and a tighter pressure tolerance, with the Robust caps. About twice the solver time.",
                 ("solver.stepsPerFrame", 2.0), ("solver.pressureTolerance", 1e-10), ("solver.pressureIterationCap", 1600.0), ("solver.heatIterationCap", 3200.0)),
-            Make("relaxed-breathing", "Relaxed breathing", "At least 10% and 10 kPa oxygen. Enables CO₂ breathing limits: up to 1% and 1 kPa carbon dioxide.",
-                ("breathing.minimumOxygenFraction", .1), ("breathing.minimumOxygenPressurePa", 10000.0),
-                (SettingCatalog.Co2Limits, true), ("breathing.maximumCo2Fraction", .01), ("breathing.maximumCo2PressurePa", 1000.0)),
-            Make("strict-breathing", "Strict breathing", "At least 18% and 18 kPa oxygen. Enables CO₂ breathing limits: below 0.3% and 300 Pa carbon dioxide.",
+            // Relaxed only lowers the oxygen minimums: the CO2 switch stays as the player set it.
+            Keeping("relaxed-breathing", "Relaxed breathing", "At least 10% and 10 kPa oxygen. CO₂ breathing limits stay as you set them.",
+                new[] { SettingCatalog.Co2Limits },
+                ("breathing.minimumOxygenFraction", .1), ("breathing.minimumOxygenPressurePa", 10000.0)),
+            Make("strict-breathing", "Strict breathing", "At least 18% and 18 kPa oxygen. Enables CO₂ breathing limits: below 1% and 2.5 kPa carbon dioxide.",
                 ("breathing.minimumOxygenFraction", .18), ("breathing.minimumOxygenPressurePa", 18000.0),
-                (SettingCatalog.Co2Limits, true), ("breathing.maximumCo2Fraction", .003), ("breathing.maximumCo2PressurePa", 300.0)),
+                (SettingCatalog.Co2Limits, true), ("breathing.maximumCo2Fraction", .01), ("breathing.maximumCo2PressurePa", 2500.0)),
         };
         internal static SettingsPreset Default => All[0];
         internal static SettingsPreset? Find(string id) => All.FirstOrDefault(p => string.Equals(p.Id, id, StringComparison.OrdinalIgnoreCase));

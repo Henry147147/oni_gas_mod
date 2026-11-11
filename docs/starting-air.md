@@ -23,8 +23,9 @@ unsafe.
 
 Use **Settings → Gameplay → CO₂ breathing limits** to enforce CO₂ thresholds.
 This can be changed during play and is stored with the colony. The default
-optional thresholds are 0.5% and 500 Pa; change the numeric thresholds before
-starting a colony under **Advanced → Breathing thresholds**. With limits on,
+optional thresholds are 2% and 5 kPa (0.5% and 500 Pa before 2026-11-11);
+change the numeric thresholds under **Advanced → Breathing thresholds**, at
+the main menu for new colonies or in a running colony for that colony. With limits on,
 the starting notice also estimates CO₂ headroom and advises removal if it is
 short. The oxygen reserve does not remove CO₂.
 

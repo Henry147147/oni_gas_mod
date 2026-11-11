@@ -493,8 +493,8 @@ namespace MixedAtmospheres.Oni
         // The preset the colony settings now equal, or "custom".
         private string Matching(SettingValues values)
         {
-            foreach (var p in BuiltInPresets.All) if (p.Values.ScopeEquals(SettingScope.Colony, values)) return p.Id;
-            foreach (var e in userPresets) if (e.Preset != null && e.Preset.Values.ScopeEquals(SettingScope.Colony, values)) return e.Id;
+            foreach (var p in BuiltInPresets.All) if (p.Matches(values)) return p.Id;
+            foreach (var e in userPresets) if (e.Preset != null && e.Preset.Matches(values)) return e.Id;
             return "custom";
         }
 

@@ -105,6 +105,27 @@ static class Program
         Check(BuiltInPresets.All.Select(p => p.Id).SequenceEqual(new[] { "default", "robust", "fast", "precise", "relaxed-breathing", "strict-breathing" }), "built-in preset list");
         foreach (var id in new[] { "default", "robust", "relaxed-breathing", "strict-breathing" }) Check(!BuiltInPresets.Find(id)!.Experimental, id + " marked experimental");
         Check(!SettingValues.Defaults().Toggle(SettingCatalog.Co2Limits), "CO2 limits off by default");
+        // When switched on, CO2 limits default to 2% and 5 kPa (2026-11-11; were 0.5% and 500 Pa).
+        Check(SettingValues.Defaults().Number("breathing.maximumCo2Fraction") == .02 && SettingValues.Defaults().Number("breathing.maximumCo2PressurePa") == 5000,
+              "CO2 threshold defaults");
+        // Relaxed breathing lowers only the oxygen minimums and keeps the CO2 switch as the player set it;
+        // Strict switches CO2 limits on below the defaults.
+        var relaxed = BuiltInPresets.Find("relaxed-breathing")!;
+        foreach (var co2 in new[] { false, true })
+        {
+            var before = SettingValues.Defaults().With(SettingCatalog.Co2Limits, co2).With("solver.flowParts", 4.0).With("breathing.maximumCo2Fraction", .05);
+            var after = relaxed.ApplyTo(before);
+            Check(after.Toggle(SettingCatalog.Co2Limits) == co2 && after.Number("breathing.minimumOxygenFraction") == .1 &&
+                  after.Number("breathing.minimumOxygenPressurePa") == 10000 && after.Number("solver.flowParts") == 2 &&
+                  after.Number("breathing.maximumCo2Fraction") == .02 && relaxed.Matches(after) && !BuiltInPresets.Default.Matches(after),
+                  "relaxed breathing kept the CO2 switch " + co2);
+        }
+        var strict = BuiltInPresets.Find("strict-breathing")!;
+        Check(strict.Values.Toggle(SettingCatalog.Co2Limits) && strict.Values.Number("breathing.maximumCo2Fraction") == .01 &&
+              strict.Values.Number("breathing.maximumCo2PressurePa") == 2500 && strict.Kept.Count == 0 &&
+              strict.ApplyTo(SettingValues.Defaults()).Toggle(SettingCatalog.Co2Limits), "strict breathing CO2 limits");
+        Check(BuiltInPresets.All.Where(p => p.Id != "relaxed-breathing").All(p => p.Kept.Count == 0 && p.Matches(p.Values)) &&
+              BuiltInPresets.Default.Matches(SettingValues.Defaults()), "presets match their own values");
         Check(SettingCatalog.Get(SettingCatalog.Co2Limits).Advanced == false &&
             SettingCatalog.All.Where(d => d.Group == SettingCatalog.Solver).All(d => d.Advanced), "basic gameplay and advanced solver classification");
         var chosen = SettingValues.Defaults().With(SettingCatalog.Co2Limits, true);
