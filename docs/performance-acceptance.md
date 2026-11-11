@@ -87,6 +87,14 @@ shows to be the flow's sensitivity to round-off, not error. Numerical
 options are judged here by conservation, the residual bound and the fixed
 controls.
 
+**In game** (Linux harness, GPU display, one cycle of 3,000 frames at
+speed 3 from each frozen save, one run each in one session, 0.1.2 `b75d712`
+against 0.1.3 `d9dd945`): the industrial base 1.730 to 2.189 game seconds
+per real second (warmed windows: owner 87.5 to 61.5 ms a tick, flow 65.7 to
+49.6); the Spaced Out! full colony 0.875 to 1.021 (owner 201.3 to 170.6,
+flow 177.6 to 150.0; 0.954 to 1.059 in warmed windows). 0.1.2 was below the
+1× beta bar there, as the replay predicted.
+
 **Game thread, from the user's Player.log of 2026-11-09** (young Spaced
 Out! colony, 80 fps): the mod took about 0.01 ms on most frames, 9 ms on
 frames that publish a tick and about 6 ms on every frame while paused (full

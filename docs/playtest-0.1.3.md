@@ -59,6 +59,15 @@ private candidate; no public release or Workshop upload was made.
   swallowed; it now refuses the next frame.
 - **Polluted oxygen.** Duplicants breathed it while the hover card called the
   tile unsafe; every reader now counts it as oxygen.
+- **A stopped simulation on the Forest asteroid.** With 0.1.2 a new colony
+  there stopped at owner frame 14: something drew most of a cell's hydrogen
+  beside a trace droplet, and the gas source energy rule cooled the rest to
+  0.43 K, outside the liquid's range. A draw now leaves what stays no colder
+  than twice its liquids' floor
+  ([source energy](../native/MAC_GAME_KERNEL.md#source-energy)). Found by
+  the acceptance run of this candidate.
+- **The fault scenario.** `fault-containment`, which crashed the game with
+  0.1.1 and 0.1.2, passes.
 
 ### Play
 
@@ -112,7 +121,22 @@ Before the push, on the integrated tree:
 
 In-game results are recorded in [the acceptance section below](#acceptance).
 
-## Open, found by the review and not changed here
+## Open
+
+Found by this candidate's acceptance run:
+
+- **Germs above pools (from the liquid stability change of 2026-11-10).** The
+  `storage-ledger` check "the emptied gas brings its germs once" fails: the
+  arena's air rows gain 394,670 germs where the bottle emptier held 80,000
+  (its mass is exact; the builds of 2026-11-09 gained about 75,000). The
+  delivered 0.1.2 package fails it identically, and a build of this candidate
+  with sharpening along the surface normal only (`b75d712`) switched off
+  passes it (74,695). So that rule lets germs of the pools' liquid reach the
+  air rows; the sharpening's own passive bookkeeping is proportional to the
+  mass it moves, and the mechanism is not located. Not reverted: the rule is
+  the fix for the liquid churn of the 2026-11-09 recording.
+
+Found by the review and not changed here:
 
 - A mist droplet still moves a thin-gas front by about 1.5 % (it changes the
   intervals the transport takes); the cause is not located.
@@ -126,9 +150,68 @@ In-game results are recorded in [the acceptance section below](#acceptance).
   solver inputs and every pressure-based check, and is the user's decision.
 - The pressure solve's long-double dot products (about 10 % of solver time)
   and the IC(0) sweeps were measured but not changed.
-- The `fault-containment` scenario still needs a look in game.
 - Older saves keep the held entries they already have; only new rests gather.
+- Not seen in game by anyone yet: the two rescaled overlays' colours, the
+  slowdown sign on the top-bar button and the "How it plays" button.
 
 ## Acceptance
 
-Pending.
+Code revision **`d9dd945`** (clean manifest). Windows ZIP:
+`/mnt/data/share/oni/playtest/MixedAtmospheres-0.1.3-d9dd945/MixedAtmospheres-private-windows-0.1.3-d9dd945.zip`,
+SHA256 `00b7a08498f65bb60c2acc1ee8c857f12883ca3a0eddbd06e679d33faa81bce6`.
+Close ONI, extract and run `install_windows.ps1`; a new colony is
+recommended. The earlier folder `MixedAtmospheres-0.1.3-c990ad7/` is
+superseded (it has the Forest fault).
+
+The quick tier of `tools/acceptance_suite.py` ran in full on `c990ad7`
+(46 steps, tag `quick-v1`) and its failures were then fixed or attributed and
+re-run on `d9dd945` (12 steps):
+
+| Step | `c990ad7` | `d9dd945` |
+| --- | --- | --- |
+| Linux build, 93 native tests; Windows (MinGW) build, 94 tests under Wine | pass | pass |
+| Linux batches 1-12, 14 (`fault-containment`), 15 | pass | 4, 7, 11 re-run: pass |
+| Linux batch 13 | `storage-ledger` fails one check of 14 (see Open) | not re-run |
+| Nine starting asteroids, 3,000 frames each | 8 pass; Forest faults at frame 14 | Forest passes |
+| One cycle on the frozen prepared save | pass | |
+| Proton batches 3, 4, 6, 7, 10, 11, 12 | pass | 7 re-run: pass |
+| Proton batch 2 | all six scenarios pass; the suite still required five | pass |
+| Proton contact, base source, prepared cycle, autosave cold | pass | |
+| Proton Spaced Out! source, cold load, menu reload | pass | |
+| Proton settings source and load | the stage waited for a log line 0.1.1 changed | pass |
+| Proton ordinary Spaced Out! new game, save, quit, reload | the stage clicked the old dialog's button | pass |
+
+The four suite repairs (the scenario count of batch 2, the settings log
+line, the start dialog's button) change no scenario input or bound. The
+Proton steps are the WindowsPlayer under Proton, not Windows itself. Their
+screenshots show the start dialog and the settings screen (the toxic gas
+row, the new CO₂ defaults) laid out correctly.
+
+Also in game, Linux: `liquid-settling`, `flood-pocket`, `flood-co2-corner`,
+`airflow` and `freeze-melt` pass all 17 checks with the pool figures of
+0.1.2 (late column variation 70.89 kg under the 80 kg bound, flood peak
+135.6 kPa, no liquid CO₂, 70 kg of corner CO₂ gone within 20 s);
+`starting-air`, `playtest-diffusers`, `playtest-pump-vent` and `breathing`
+pass 25 checks.
+
+Attribution runs with the delivered 0.1.2 Linux package (`b75d712`): it
+faults on the Forest asteroid at frame 14 exactly as `c990ad7` did, and it
+fails the same `storage-ledger` check with 393,797 germs.
+
+Speed in game (Linux harness, GPU display, one run each in one session; one
+cycle of 3,000 frames at speed 3 loaded from the frozen saves):
+
+| Save | 0.1.2 `b75d712` | 0.1.3 `d9dd945` |
+| --- | ---: | ---: |
+| Industrial base, 32 duplicants: game seconds per real second | 1.730 | 2.189 |
+| ... warmed windows: owner / flow ms a tick | 87.5 / 65.7 | 61.5 / 49.6 |
+| Spaced Out! full colony: game seconds per real second | 0.875 | 1.021 |
+| ... warmed windows: owner / flow ms a tick | 201.3 / 177.6 | 170.6 / 150.0 |
+
+0.1.2 was below the 1× beta bar on the Spaced Out! full colony; 0.1.3 is
+back above it (1.06× in warmed windows). These are not Windows figures. The
+game-thread changes are not separately measured: frames a second on this
+640×480 harness display fall as ticks a second rise.
+
+Not established here: Windows itself, the user's own saves, and a human
+look at the overlays and the slowdown sign.

@@ -13,7 +13,14 @@ Play: a rescaled pressure overlay, an oxygen margin overlay, a toxic gas
 limit (5 % chlorine, sour gas and fallout), playable CO₂ limits when on, a
 start dialog that lists what plays differently, and a slowdown sign
 ([measurements](performance-acceptance.md#review-measurements-and-013-2026-11-11)).
-Still to measure: both full colonies in game, and all of it on Windows.
+Its acceptance run also found that 0.1.2 stopped the simulation at frame 14
+of a new Forest colony (a hydrogen draw beside a droplet; fixed) and that the
+liquid stability change of 2026-11-10 lets pool germs reach the air above
+(open). Delivered as `d9dd945`
+([acceptance](playtest-0.1.3.md#acceptance)): in game on Linux the
+industrial base runs 2.19 game seconds per real second (0.1.2: 1.73) and the
+Spaced Out! full colony 1.02 (0.1.2: 0.875, below the beta bar). Still to
+measure: all of it on Windows.
 
 **Update, 2026-11-10:** the latest Windows recording confirms liquid
 churn in a young Spaced Out! colony. Two independent causes are repaired:
