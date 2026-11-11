@@ -3905,7 +3905,7 @@ void run_frame(std::uint64_t ticket,double seconds,std::uint64_t frames,const ch
         std::vector<MacFlowReturn> flow_returns;
         const auto collect_return = [&](const MacFluidParcel& parcel) {
             if (s.source_energy == MacFlowWork::compensated && parcel.flow_work_j > 0)
-                flow_returns.push_back({parcel.cell_index, parcel.flow_work_j, parcel.injected});
+                flow_returns.push_back({parcel.cell_index, parcel.flow_work_j, parcel.injected, parcel.injected ? 0 : parcel.temperature_k});
         };
         // Reservoir release: liquid booked at import (it did not fit its
         // sealed pocket) or from a sealed closing seeps back once there is room

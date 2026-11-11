@@ -1426,7 +1426,10 @@ double flow_work(const std::vector<k::Species> &species, const Masses &masses,
     return 0;
   const double exponent = (moles - drawn) * k::R / capacity;
   // The share of their temperature the remaining contents give up.
-  double cooled = -std::expm1(exponent * std::log1p(-drawn / moles));
+  // Never their whole thermal energy: a draw that leaves less than rounding
+  // resolves (1e-30 of the moles) would otherwise cool what stays to 0 K
+  // exactly, which no reading admits.
+  double cooled = std::min(-std::expm1(exponent * std::log1p(-drawn / moles)), 1 - 0x1p-20);
   // Gas alone is admitted at any positive temperature, but a liquid keeps its
   // catalogue floor: drawing most of a light gas from a cell that holds a
   // droplet would otherwise take the cell out of its EOS domain (hydrogen's
@@ -1445,6 +1448,7 @@ struct Compensation {
   double joules;
   bool inject;
   std::size_t parcel;
+  double reference = 0; // a draw: the temperature its parcel left at (0: not known)
 };
 // The most cells a room spans, and the largest share of its cells' thermal
 // energy one batch may take from it (MAC_GAME_KERNEL.md, "Source energy"). A
@@ -1453,6 +1457,13 @@ struct Compensation {
 // temperature.
 constexpr std::size_t compensation_cells = 1024;
 constexpr double compensation_fraction = .75;
+// A draw's work returns only as far as the temperature its parcel left at,
+// with this relative margin (above any liquid's elastic share of its thermal
+// energy at ordinary pressures, so an exact return is never cut).
+constexpr double return_margin = 1e-3;
+// What an extraction leaves below this share of its cell's mass takes its
+// energy from the edit's temperature instead of from the difference.
+constexpr double trace_remainder = 1e-9;
 // Compensated flow work goes the other way across each source's room: the
 // open cells joined to the source cell by gas through open faces, nearest
 // first, at most compensation_cells, not already in an earlier source's room
@@ -1464,6 +1475,17 @@ constexpr double compensation_fraction = .75;
 // share (a wet room: its cell ends as with internal energy); what a room
 // would give up beyond compensation_fraction stays with its parcels as flow
 // work, as for enthalpy.
+//
+// A draw's work returns only as far as its reference temperature. The work
+// is what the cell's remaining contents gave up, but a batch that draws a
+// mixture draws its gases in turn: the first draw's work was also taken from
+// gas a later edit removed (colder, with less energy). Returned in full to
+// what is left, it heated a cell emptied to a trace of gas, or to a mist
+// droplet, by the ratio of the masses (a base opened to space: 333 J on
+// 0.2 ug of water, 1.3e9 K, outside the EOS domain). So a room's relative
+// warming is at most what brings a drawn cell back to the temperature its
+// parcel left at, and a cell taking its own work back takes at most that;
+// the rest stays with the parcels as flow work, as for enthalpy.
 void compensate(MacTransportState &next, const std::vector<k::Species> &species,
                 std::span<const Compensation> sources, TransferWork &work,
                 EditJournal &journal) {
@@ -1587,6 +1609,22 @@ void compensate(MacTransportState &next, const std::vector<k::Species> &species,
         value -= masses[q] * species[q].offset;
     return value;
   };
+  // A cell's heat capacity, and the thermal energy that puts its contents at
+  // a draw's reference temperature (its liquids' elastic energy left out).
+  const auto capacity = [&](std::size_t i) {
+    const auto &mixture = cells[i].mixture;
+    if (grid.walls[i] || mixture.masses.implicit_zero())
+      return 0.;
+    const std::vector<double> &masses = mixture.masses;
+    double value = 0;
+    for (std::size_t q = 0; q < masses.size(); ++q)
+      if (masses[q] > 0)
+        value += masses[q] * species[q].cv;
+    return value;
+  };
+  const auto at_reference = [&](const Compensation &c) {
+    return capacity(c.cell) * c.reference * (1 + return_margin);
+  };
   for (auto &room : rooms) {
     const auto &weights = room.weights;
     const double total = room.total;
@@ -1594,6 +1632,35 @@ void compensate(MacTransportState &next, const std::vector<k::Species> &species,
     if (total > 0 && room.joules > 0) {
       scale = room.joules / total;
       unplaced = 0;
+      // The largest relative warming that leaves a drawn cell at its
+      // reference temperature: through its own weight, or for a cell that
+      // takes no share (it holds liquid, or no gas) by its own cooling.
+      double bound = 0;
+      bool known = true;
+      for (const auto q : room.members) {
+        const auto &c = sources[q];
+        if (c.inject)
+          continue;
+        if (!(c.reference > 0)) {
+          known = false;
+          break;
+        }
+        const double held = thermal(c.cell), target = at_reference(c);
+        double weight = 0;
+        for (std::size_t at = 0; at < room.cells.size(); ++at)
+          if (room.cells[at] == c.cell) {
+            weight = weights[at];
+            break;
+          }
+        const double most = weight > 0 ? (target - held) / weight
+                                       : held > 0 ? target / held - 1 : 0;
+        if (most > bound)
+          bound = most;
+      }
+      if (known && scale > bound) {
+        scale = bound;
+        unplaced = room.joules - bound * total;
+      }
     } else if (total > 0 && room.joules < 0) {
       const double fraction = -room.joules / total;
       scale = -std::min(fraction, compensation_fraction);
@@ -1630,10 +1697,14 @@ void compensate(MacTransportState &next, const std::vector<k::Species> &species,
         const auto &held = cells[c.cell].mixture;
         const bool own = !weighted && !grid.walls[c.cell] && held.mass() > 0 &&
                          (!inject || share < .5 * thermal(c.cell));
-        if (own)
-          shift(c.cell, inject ? -share : share);
-        else if (c.parcel < work.parcels.size())
-          work.parcels[c.parcel].flow_work_j += share;
+        // A draw's cell takes back at most what brings it to its reference.
+        double back = own ? share : 0;
+        if (own && !inject && c.reference > 0)
+          back = std::clamp(at_reference(c) - thermal(c.cell), 0., share);
+        if (back > 0)
+          shift(c.cell, inject ? -back : back);
+        if (share > back && c.parcel < work.parcels.size())
+          work.parcels[c.parcel].flow_work_j += share - back;
       }
     }
   }
@@ -1751,6 +1822,21 @@ TransferWork apply_transfers(const MacClosedWorld &source,
         cell.mixture.mass() == 0
             ? 0
             : old_u + (edit.inject ? 1 : -1) * p.mass_kg * specific;
+    // A trace left by an extraction (under trace_remainder of the cell's
+    // mass) has less thermal energy than the rounding of that difference, so
+    // it read any temperature, or none: a space-exposed cell's last
+    // 6.5e-70 kg of hydrogen read 5.6e20 K and stopped the owner. It keeps
+    // the temperature the edit read, less the flow work it gave.
+    if (!edit.inject && cell.mixture.mass() > 0 &&
+        cell.mixture.mass() < trace_remainder * old_mass) {
+      double kept = -p.mass_kg * flow;
+      for (std::size_t q = 0; q < species.size(); ++q) {
+        const double held = cell.mixture.masses[q];
+        if (held > 0)
+          kept += held * (species[q].offset + species[q].cv * p.temperature_k);
+      }
+      cell.mixture.energy = kept;
+    }
     p.internal_energy_j =
         edit.inject ? cell.mixture.energy - old_u : old_u - cell.mixture.energy;
     require(std::isfinite(cell.mixture.energy),
@@ -1763,8 +1849,8 @@ TransferWork apply_transfers(const MacClosedWorld &source,
       if (edit.flow_work == MacFlowWork::enthalpy)
         p.flow_work_j = pushed;
       else // this edit's parcel is pushed last in the loop
-        compensations.push_back(
-            {edit.cell_index, pushed, edit.inject, work.parcels.size()});
+        compensations.push_back({edit.cell_index, pushed, edit.inject,
+                                 work.parcels.size(), p.temperature_k});
     }
     if (edit.inject) {
       for (const auto &q : edit.passives) {
@@ -1881,10 +1967,11 @@ std::vector<Compensation> returns_of(std::span<const MacFlowReturn> sources, std
   std::vector<Compensation> out;
   out.reserve(sources.size());
   for (const auto &r : sources) {
-    require(r.cell_index < cells && std::isfinite(r.joules) && r.joules >= 0,
+    require(r.cell_index < cells && std::isfinite(r.joules) && r.joules >= 0 &&
+                std::isfinite(r.temperature_k) && r.temperature_k >= 0,
             "Invalid game flow work return");
     if (r.joules > 0)
-      out.push_back({r.cell_index, r.joules, r.injected, std::numeric_limits<std::size_t>::max()});
+      out.push_back({r.cell_index, r.joules, r.injected, std::numeric_limits<std::size_t>::max(), r.temperature_k});
   }
   return out;
 }

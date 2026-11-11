@@ -333,8 +333,11 @@ struct MacLiquidSettlingReport { std::size_t faces = 0; double moved_kg = 0, rel
 // cell's room (MAC_GAME_KERNEL.md, "Source energy"). Liquids are unaffected.
 enum class MacFlowWork : std::uint8_t { none = 0, enthalpy = 1, compensated = 2 };
 // A source's flow work for MacClosedWorld::with_flow_return: its edit's cell,
-// the work its enthalpy edit booked (flow_work_j, positive) and its direction.
-struct MacFlowReturn { std::size_t cell_index = 0; double joules = 0; bool injected = false; };
+// the work its enthalpy edit booked (flow_work_j, positive), its direction
+// and, for a draw, the temperature its parcel left at (0: not known). A
+// draw's work returns only as far as that temperature (MAC_GAME_KERNEL.md,
+// "A draw that empties its cell").
+struct MacFlowReturn { std::size_t cell_index = 0; double joules = 0; bool injected = false; double temperature_k = 0; };
 // Passives (germs) move with mass: an injection adds its own, an extraction
 // takes the cell's passives in proportion to the mass it removes (all of them
 // when it empties the cell) and returns them on its parcel.

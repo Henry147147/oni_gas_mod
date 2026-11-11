@@ -676,8 +676,123 @@ void source_energy_controls() {
     require(drawn.parcels.front().flow_work_j > 0 && left >= 1 && left < 300,
             "A deep enthalpy draw beside a droplet left the liquid's temperature domain");
   }
+  // A draw that empties its cell (2026-11-11). A batch draws a mixture's
+  // gases in turn, so the first draw's work was also taken from gas a later
+  // edit removed. Returned in full to what is left, it put 290 J on a mist
+  // droplet, or on a trace of gas, and the cell left the EOS domain at over
+  // 1e9 K (a base opened to space stopped the owner). A draw's work now
+  // returns only as far as the temperature its parcel left at; the rest
+  // stays with the parcels as flow work. The owner's form (enthalpy edits,
+  // then one return) and the batched compensated form, each for a cell left
+  // with a droplet and for a cell left with a trace of both gases.
+  for (const bool droplet : {true, false}) {
+    const auto water = f.registry.index("water");
+    // U + G of a world at rest (the shared helper's face inertias refuse a
+    // cell that holds a droplet and no gas).
+    const auto resting = [](const MacClosedWorld &w) {
+      const auto &st = w.state();
+      long double total = 0;
+      for (std::size_t i = 0; i < st.cells.size(); ++i) {
+        total += st.cells[i].mixture.energy +
+                 static_cast<long double>(st.cells[i].mixture.mass()) * w.settings().gravity_m_per_s2 *
+                     (static_cast<long double>(i / st.grid.width) + .5L) * st.grid.spacing_m;
+      }
+      for (const auto j : st.momentum_x) require(j == 0, "The emptying control is not at rest");
+      for (const auto j : st.momentum_y) require(j == 0, "The emptying control is not at rest");
+      return total;
+    };
+    MacTransportState state;
+    state.grid = {3, 3, 1, 1, false, false, std::vector<std::uint8_t>(9, 1)};
+    state.grid.walls[4] = 0;
+    for (std::size_t i = 0; i < 9; ++i) {
+      MacMaterialCell cell{ma::MixtureInventory(f.registry.size()), {}};
+      if (i == 4) {
+        cell.mixture.masses[oxygen] = .03;
+        cell.mixture.masses[nitrogen] = .002;
+        if (droplet)
+          cell.mixture.masses[water] = 2e-10;
+      }
+      state.cells.push_back(std::move(cell));
+    }
+    state.momentum_x.resize(12);
+    state.momentum_y.resize(12);
+    const auto room = MacClosedWorld::game_colony(f.registry, f.eos, std::move(state),
+                                                  std::vector<double>(9, 300), config());
+    // All of each gas beside the droplet; all but 1e-8 of each without it.
+    const double share = droplet ? 1 : 1 - 1e-8;
+    for (const auto rule : {MacFlowWork::enthalpy, MacFlowWork::compensated}) {
+      const std::array<MacFluidTransfer, 2> draws{edit(4, oxygen, false, .03 * share, rule),
+                                                  edit(4, nitrogen, false, .002 * share, rule)};
+      auto drawn = room.with_fluid_transfers(draws, MacFluidTransferTopology::occupied_mixture);
+      long double left = resting(room) - parcel_total(drawn.parcels[0]) - parcel_total(drawn.parcels[1]);
+      // Almost all of the cell's energy leaves: close to the energy it held.
+      const auto closes = [&](long double expected, const MacClosedWorld &w) {
+        require(std::abs(expected - resting(w)) <= 1e-12L * std::abs(resting(room)), "An emptying draw's energy account failed");
+      };
+      closes(left, drawn.world);
+      require(drawn.parcels[0].temperature_k == 300 && drawn.parcels[1].temperature_k < 200,
+              "The emptying draws did not cool the gas drawn second");
+      auto world = std::move(drawn.world);
+      if (rule == MacFlowWork::enthalpy) {
+        require(drawn.parcels[0].flow_work_j > 100, "The first emptying draw booked no flow work");
+        std::vector<MacFlowReturn> back;
+        for (const auto &parcel : drawn.parcels)
+          if (parcel.flow_work_j > 0)
+            back.push_back({4, parcel.flow_work_j, false, parcel.temperature_k});
+        long double applied = 0;
+        world = std::move(world).with_flow_return(back, &applied);
+        require(applied >= 0 && applied < 1e-3, "An emptied cell took back work its departed gas gave up");
+        closes(left + applied, world);
+      } else
+        require(drawn.parcels[0].flow_work_j > 100, "The emptied cell's unreturned work is not on its parcel");
+      // The cell's temperature from its energy (a droplet alone has no
+      // reference reading): thermal energy over heat capacity.
+      double thermal = u(world, 4), capacity = 0;
+      for (std::size_t k = 0; k < f.registry.size(); ++k) {
+        const double held = world.state().cells[4].mixture.masses[k];
+        thermal -= held * f.registry[k].internal_energy(0);
+        capacity += held * f.registry[k].cv();
+      }
+      const double after = thermal / capacity;
+      // At most the reference with the return's margin of 0.1 % (0.3 K).
+      require(capacity > 0 && after >= 1 && after <= 300.31,
+              "A draw that emptied its cell left it hotter than its gas left");
+    }
+  }
+  // The trace an extraction leaves (2026-11-11). Drawing a cell's oxygen
+  // from beside 1e-30 kg of nitrogen left that trace the rounding of the
+  // cell's energy: any temperature, or none. It keeps the edit's.
+  {
+    MacTransportState state;
+    state.grid = {3, 3, 1, 1, false, false, std::vector<std::uint8_t>(9, 1)};
+    state.grid.walls[4] = 0;
+    for (std::size_t i = 0; i < 9; ++i) {
+      MacMaterialCell cell{ma::MixtureInventory(f.registry.size()), {}};
+      if (i == 4) {
+        cell.mixture.masses[oxygen] = .03;
+        cell.mixture.masses[nitrogen] = 1e-30;
+      }
+      state.cells.push_back(std::move(cell));
+    }
+    state.momentum_x.resize(12);
+    state.momentum_y.resize(12);
+    const auto room = MacClosedWorld::game_colony(f.registry, f.eos, std::move(state),
+                                                  std::vector<double>(9, 300), config());
+    // Either rule: the trace's moles are below the rounding of the cell's,
+    // so the draw books no flow work.
+    for (const auto rule : {MacFlowWork::none, MacFlowWork::enthalpy}) {
+      const auto draw = edit(4, oxygen, false, .03, rule);
+      const auto drawn = room.with_fluid_transfers(std::span(&draw, 1), MacFluidTransferTopology::occupied_mixture);
+      const double thermal = u(drawn.world, 4) - 1e-30 * f.registry[nitrogen].internal_energy(0);
+      const double left = thermal / (1e-30 * f.registry[nitrogen].cv());
+      require(drawn.world.state().cells[4].mixture.masses[nitrogen] == 1e-30 &&
+                  near(left, 300, 1e-9),
+              "The trace an extraction left lost the edit's temperature");
+    }
+  }
   std::cout << "PASS source energy: enthalpy and isentropic draw, compensated room shares, wet rooms as internal energy; "
-               "the sealed tube's cold source and compression heating; a deep draw beside a droplet stays in its EOS domain\n";
+               "the sealed tube's cold source and compression heating; a deep draw beside a droplet stays in its EOS domain; "
+               "a draw that empties its cell returns no more than its own cooling; an extraction's trace keeps its temperature\n";
 }
 } // namespace
 int main() {

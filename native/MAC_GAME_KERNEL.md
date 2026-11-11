@@ -696,6 +696,54 @@ without liquid, and draws that stay above that margin, are unchanged.
 `ma_mac_game_kernel_tests` draws 99.9999 % of a helium cell beside a droplet
 (0.03 K before, refused by the EOS).
 
+**A draw that empties its cell (2026-11-11).** A draw's work is what the
+cell's remaining contents gave up. A batch draws a mixture's gases in turn
+(the owner mirrors ONI deleting a space-exposed cell's gas this way), so the
+first draw's work was also taken from gas that a later edit removed, colder
+and with less energy. Compensated returned all of it to the source's room,
+and when the room was only what the draws left in that cell, a trace of gas
+or a mist droplet, the return heated it by the ratio of the masses: 333 J
+on 0.2 µg of water, 1.3e9 K. The owner stopped ("EOS outside its
+thermal/pressure domain", or on a later frame's transfer reading a cell of
+1e-67 kg at 4e27 K) whenever a base was opened to space: every run of the
+`full-colony-spacedout` build, with 0.1.3 as well, since the source energy
+rules of 2026-11-09.
+
+A draw's work now returns only as far as the temperature its parcel left at
+(`MacFlowReturn::temperature_k`, or the edit's own parcel in a batch):
+
+- a room's relative warming is at most what brings a drawn cell back to that
+  temperature, through the cell's own weight or, for a cell that takes no
+  share, by its own cooling;
+- a cell that takes its own work back takes at most that much;
+- the rest stays with the parcels as flow work, as with Real physics. The
+  owner's ledger books only what was applied, as before.
+
+The bound has a margin of 0.1 % (0.3 K at room temperature), above a
+liquid's elastic share of its thermal energy at ordinary pressures, so an
+exact return is never cut: a single draw, a wet room and every room larger
+than its source compute as before, bit for bit. A return without a
+temperature (0) is not bounded. No checkpoint byte changes.
+`ma_mac_game_kernel_tests` draws both gases from an isolated cell, leaving a
+droplet or 1e-8 of each gas, as enthalpy edits with one return and as a
+compensated batch: the cell ends within 0.3 K of 300 K and 291 J stay with
+the first parcel (without the bound the return puts them on the droplet).
+
+**The trace an extraction leaves (2026-11-11).** An extraction books the
+cell's new energy as the old one less the parcel's. When what stays is a
+trace, its thermal energy is smaller than the rounding of that difference
+and the cell read any temperature, or none: after ONI deleted a
+space-exposed cell's gas, its last 6.5e-70 kg of hydrogen held 8.8e-46 J
+(five units in the last place of the energy before), 5.6e20 K, and the next
+edit there stopped the owner. What an extraction leaves below 1e-9 of the
+cell's mass now takes its energy from the temperature the edit read (less
+the flow work it gave) instead of from the difference; the parcel's energy
+is still the exact change. Other extractions are unchanged. The isentropic
+draw also keeps at least 2^-20 of the temperature of what stays, so a draw
+that leaves less than rounding resolves no longer cools it to 0 K exactly.
+`ma_mac_game_kernel_tests` draws a cell's oxygen from beside 1e-30 kg of
+nitrogen: 300 K (6e14 K before, refused by the EOS).
+
 ## Open acceptance work
 
 No private-playtest-ready or performance pass is claimed. The coupled material
