@@ -1321,9 +1321,10 @@ def ordinary_clicks(desktop: Desktop, log, wait) -> None:
             closed_settings = True
         else:
             # ONI's intro message, then the mod's start dialog, whose OK
-            # button sits lower since it lists what plays differently (0.1.3).
+            # button sits lower with each line of what plays differently
+            # (seven lines in 0.1.3: y 565; eight since 0.1.4: y 584).
             desktop.click(637, 449)
-            desktop.click(641, 565)
+            desktop.click(641, 584)
         return False
     wait(begun, 120)
     shot("colony-owner-active")

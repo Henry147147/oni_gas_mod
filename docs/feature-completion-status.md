@@ -1,5 +1,18 @@
 # Feature completion work
 
+**Update, 2026-11-12, 0.1.5:** the user's recording of 0.1.4 shows a
+35-tile pool sloshing with a half-tile step for over a minute after a shaft
+was dug under it. Liquid had no damping; profile 12 now has a liquid drag
+with a one-second time constant, and the same pool is flat in ten to
+fifteen seconds without swinging over
+([game kernel](../native/MAC_GAME_KERNEL.md#liquid-drag-profile-12-2026-11-12)).
+The user raised going back to ONI's own liquid simulation; that would be a
+large rework and is the user's decision
+([0.1.5](playtest-0.1.5.md#open)). The 0.1.4 acceptance tier: 40 of 46
+steps, the misses being the known germ check, a Proton new-colony exit
+that passed when re-run, and a test click at the start dialog's old button
+position.
+
 **Update, 2026-11-11, 0.1.4:** by user decision oxygen, polluted oxygen,
 hydrogen and chlorine have the masses of their molecules
 ([material catalogue](material-catalogue.md#molecular-masses-014-2026-11-11)):

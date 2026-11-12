@@ -11,8 +11,10 @@ few that your task touches, starting here.
 - [docs/feature-completion-status.md](docs/feature-completion-status.md):
   **resume here** — current status toward the beta (sustained 1× on the
   full-colony saves; 3× stays the goal) and what remains open. The latest
-  private Windows candidate is [0.1.4](docs/playtest-0.1.4.md), which gives
-  oxygen, hydrogen and chlorine their molecular masses;
+  private Windows candidate is [0.1.5](docs/playtest-0.1.5.md), which damps
+  liquid motion after the user's recording of 0.1.4;
+  [0.1.4](docs/playtest-0.1.4.md) gave oxygen, hydrogen and chlorine their
+  molecular masses;
   [0.1.3](docs/playtest-0.1.3.md) carried out the project review of
   2026-11-10/11 and [0.1.2](docs/playtest-0.1.2.md) answered
   [the 0.1.1 playtest review](docs/playtest-0.1.1-review.md).
