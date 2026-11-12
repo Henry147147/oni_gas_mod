@@ -148,7 +148,8 @@ Profile 12 now sharpens only along the dominant axis of the frozen,
 per-phase height normal, matching the height remap's slab reconstruction.
 Tangent faces receive no correction; a zero normal receives none either.
 Normal sharpening, wall sampling, parcel momentum and conservative work
-bookkeeping remain active. No drag or whole-pool levelling is added.
+bookkeeping remain active. No drag or whole-pool levelling was added then;
+the [liquid drag](#liquid-drag-profile-12-2026-11-12) came two days later.
 
 The Spaced Out! follow-up also exposed a separate activity-cadence error:
 remote regions accumulated up to a second but ran only the usual two flow
@@ -1013,6 +1014,60 @@ worsened native tails and were rejected. The smaller representation improves
 DLC replay mean/p95 and actual game progress while leaving the base-game
 clock result essentially unchanged. See [measurements and limits](../docs/performance-acceptance.md#idle-frame-byproducts-and-combined-pacing-2026-10-29).
 
+
+## Liquid drag (profile 12, 2026-11-12)
+
+The 0.1.4 playtest recording shows a 35-tile pool, three tiles deep, after a
+shaft was dug under it: its surface keeps a half-tile step that travels from
+side to side for more than a minute. That is the solver, not the renderer.
+Liquid here had no dissipation but the implicit pressure step's own, so a
+pool's long waves are almost undamped: the same pool with a 500 kg step
+between its halves still swings by 200-350 kg a column after two minutes
+(period about 12 s). The quiet-surface fixes above removed forcing; they did
+not add damping, and the `liquid-settling` control only looks from 100 s on.
+(The recording's rooms also held about 2 % steam at room temperature, with
+mist in some air tiles. Sloshing is not its source: the stepped pool makes
+no steam with or without the drag, a pool at rest makes none, and room steam
+condenses within about twenty seconds. Its source is not established; cells
+opened by digging beside water start empty, where water boils.)
+
+Profile 12 now gives every face an implicit drag at the rate
+`1/liquid_drag_time` times its liquid share by volume (the mean of its two
+cells' liquid volume fractions, at most 1), through the same term as the
+thin-gas drag: `J (1 + γ) = J_old + body + pressure impulse`. The momentum
+taken is an external load on the walls and its kinetic work becomes heat in
+place, so mass, U+K+G and the momentum account close as before.
+`liquid_drag_time` is one second (`mac_game/pressure_be.hpp`):
+
+| Pool with a 500 kg step | no drag | 4 s | 2 s | **1 s** | 0.5 s |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 35 columns: column range after 10 s, kg | 300 | 191 | 110 | 27 | 192 |
+| ... after 20 s | 680 | 46 | 11 | 1.6 | 53 |
+| ... after 60 s | 360 | 1.5 | 0 | 0 | 0.3 |
+
+One second is about critical damping for that pool's longest wave: it levels
+without changing sides. An 8-column pool is flat in about 8 s; an 80-column
+one creeps level (range 97 kg after 40 s) without oscillating. A liquid falls
+at up to `g × liquid_drag_time` (9.8 m/s), and gas in a cell without liquid
+feels none of it; a mist droplet's share is negligible.
+
+Profile 12 arithmetic changes wherever liquid moves; profiles 2-11, the
+checkpoint format and version 32 do not. Against the previous revision, of
+the 62 `ma_mac_*` invocations 60 are identical, `mac_game_kernel`'s settling
+controls end at under a gram of surface variation (68 kg before) with a
+falling column peaking at 174.3 kPa (175.4), and `mac_phase_change`'s
+profile-12 boiling line reads 5.87 kg boiled in a second and a 280.6 kPa
+peak (6.22 kg and 204.6 kPa; bounds more than 2.6 kg and below 500 kPa).
+Controls: `pool_step_control` in `mac_game_surface_stability_control.hpp`
+(the 35-column step levels without changing sides and holds under 2 % of the
+step from 20 to 30 s, with mass and U+K+G closed) and the game scenario
+`pool-step`, which also requires that levelling makes no steam. In game
+without the drag the step swings to -419 kg and the range is 724 kg from 20
+to 60 s; with it the lowest is -7 kg and the range 0.22 kg, and
+`liquid-settling`'s late variation falls from 70.5 kg to under a gram.
+`flood-pocket` still drains its pocket (0.51 kg of the 25.6 kg of gas left
+below the hole at frame 400, bound 2.56 kg; 0.04 kg without the drag: gas
+rises through liquid more slowly).
 
 ## Large connected regions (profile 12, 2026-11-11)
 

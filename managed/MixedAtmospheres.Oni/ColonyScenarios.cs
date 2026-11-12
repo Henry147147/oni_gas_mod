@@ -98,6 +98,7 @@ namespace MixedAtmospheres.Oni
                     case "flood-pocket": FloodPocket(frame, status); break;
                     case "flood-co2-corner": FloodCo2Corner(frame, status); break;
                     case "liquid-settling": LiquidSettling(frame, status); break;
+                    case "pool-step": PoolStep(frame, status); break;
                     case "electrolysis": Electrolysis(frame); break;
                     case "vent-overpressure": VentOverpressure(frame); break;
                     case "space-heater": SpaceHeater(frame); break;

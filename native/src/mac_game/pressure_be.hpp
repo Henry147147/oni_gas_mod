@@ -4,6 +4,8 @@
 #include "eos.hpp"
 #include <memory>
 namespace ma::experimental::game_kernel {
+inline constexpr double liquid_drag_time = 1; // seconds; profile 12, see PressureSolver
+
 namespace kernel = ma::experimental::mac_kernel;
 struct Pressure {
   std::vector<double> p, jx, jy, qx, qy, damping_x, damping_y, body_impulses_y;
@@ -43,6 +45,16 @@ class PressureSolver {
   double relative_tolerance = 1e-8;
   unsigned gravity_rule = 0, maximum_iterations = 200;
   bool close_empty_inflow = false;
+  // Profile 12 liquid drag (2026-11-12; MAC_GAME_KERNEL.md, "Liquid drag"):
+  // with the thin-gas drag, a face also feels an implicit drag at the rate
+  // (1/liquid_drag_time) times its liquid share by volume (the mean of its
+  // two cells' liquid volume fractions, at most 1). Liquid here had no
+  // dissipation but the implicit step's own: a 35-cell pool with a
+  // half-cell step sloshed at full height for minutes. One second makes
+  // the pool's longest wave about critically damped: it is flat in ten to
+  // fifteen seconds without oscillating, and liquid falls at up to
+  // g * liquid_drag_time. The momentum taken is an external load and its
+  // kinetic work is local heat, exactly as for the thin-gas drag.
   // Profile 12 thin-gas drag: a face whose inertia I (half its two cells'
   // mass) is below thin_mass feels an implicit drag on its momentum at the
   // rate (1/thin_time)(thin_mass/I - 1), zero at the threshold. 0 disables it.
@@ -239,13 +251,21 @@ public:
       }
       if (!x)
         result.body_impulses_y[f] = body;
-      // Thin-gas drag, implicit: J(1 + gamma) = old + body + pressure
-      // impulse, so the face enters the system with inertia I(1 + gamma).
+      // Drag (thin gas, liquid), implicit: J(1 + gamma) = old + body +
+      // pressure impulse, so the face enters the system with inertia
+      // I(1 + gamma).
       double effective = inertia;
-      if (thin && inertia < thin_mass) {
-        const double gamma = dt / thin_time * (thin_mass / inertia - 1);
-        (x ? w.gamma_x : w.gamma_y)[f] = gamma;
-        effective = inertia * (1 + gamma);
+      if (thin) {
+        double gamma = inertia < thin_mass ? dt / thin_time * (thin_mass / inertia - 1) : 0;
+        // Liquid drag: the face's share of liquid by volume, relaxed at
+        // 1/liquid_drag_time.
+        const double liquid = .5 * (states[l].liquid_nominal_volume + states[r].liquid_nominal_volume) / g.V;
+        if (liquid > 0)
+          gamma += dt / liquid_drag_time * std::min(1., liquid);
+        if (gamma > 0) {
+          (x ? w.gamma_x : w.gamma_y)[f] = gamma;
+          effective = inertia * (1 + gamma);
+        }
       }
       const double base = dt * g.A * (old + body) / effective;
       const double coefficient = dt * dt * g.A * g.A / effective;

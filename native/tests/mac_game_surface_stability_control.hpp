@@ -210,9 +210,94 @@ inline void settling_control(bool wake) {
             << "unforced basin late height/speed "
             << late_height << " kg/" << late_speed << " m/s; closed accounts and exact cold/requested-worker continuation\n";
 }
+// A wide pool with a step (2026-11-12 playtest: a 35-tile pool kept a
+// half-tile step sloshing from side to side for over a minute after a shaft
+// was dug under it). 35 columns, three cells deep, the surface layer a
+// quarter full on the left half and three quarters on the right. With the
+// liquid drag the two halves level without changing sides and the surface is
+// flat within twenty seconds; without it the step sloshed at full height.
+inline void pool_step_control() {
+  const auto saved = mac_kernel_default_options();
+  auto options = saved;
+  options.threads = 1;
+  set_mac_kernel_default_options(options);
+  const auto &f = setup();
+  constexpr std::size_t open = 35, W = open + 2, H = 8;
+  constexpr double gas = 138000;
+  MacTransportState state;
+  state.grid = {W, H, 1, 1, false, false, std::vector<std::uint8_t>(W * H)};
+  const auto water = f.registry.index("water"), oxygen = f.registry.index("oxygen");
+  for (std::size_t i = 0; i < W * H; ++i) {
+    const auto x = i % W, y = i / W;
+    state.grid.walls[i] = x == 0 || x == W - 1 || y == 0 || y == H - 1;
+    MacMaterialCell cell{MixtureInventory(f.registry.size()), {}};
+    if (!state.grid.walls[i]) {
+      if (y < 3)
+        cell.mixture.masses[water] = 1000 + 1000 * (gas + 9810 * (3.5 - static_cast<double>(y))) / (2.2e9 * .04);
+      else if (y == 3) {
+        const double alpha = x <= open / 2 ? .25 : .75;
+        cell.mixture.masses[water] = 1000 * alpha;
+        cell.mixture.masses[oxygen] = (1 - alpha) * gas * .032 / (gas_constant * 300);
+      } else cell.mixture.masses[oxygen] = gas * .032 / (gas_constant * 300);
+    }
+    state.cells.push_back(std::move(cell));
+  }
+  state.momentum_x.resize((W + 1) * H);
+  state.momentum_y.resize(W * (H + 1));
+  MacClosedSettings cfg;
+  cfg.numerical_kernel = MacNumericalKernel::game;
+  cfg.game_profile = MacGameProfile::game_kernel_thin_drag;
+  cfg.vacuum = MacVacuumRepresentation::void_phase;
+  cfg.maximum_timestep_s = .2;
+  cfg.gravity_m_per_s2 = 9.81;
+  cfg.trace_sink_threshold_kg = 1e-11;
+  cfg.game.liquid_law = MacGameLiquidLaw::positive_segments;
+  cfg.game.pressure_maximum_iterations = 400;
+  cfg.game.heat_maximum_iterations = 800;
+  auto world = MacClosedWorld::game_colony(f.registry, f.eos, std::move(state), std::vector<double>(W * H, 300), cfg);
+  const auto energy0 = surface_game::total_energy(world);
+  long double mass0 = 0, sunk_mass = 0, sunk_energy = 0;
+  for (const auto &cell : world.state().cells) mass0 += cell.mixture.mass();
+  // Mean column mass of the right half less the left half, and the range.
+  const auto step = [&](const MacClosedWorld &w) {
+    double left = 0, right = 0, low = 1e30, high = 0;
+    for (std::size_t x = 1; x + 1 < W; ++x) {
+      double column = 0;
+      for (std::size_t y = 1; y + 1 < H; ++y) column += w.state().cells[x + y * W].mixture.masses[water];
+      (x <= open / 2 ? left : right) += column;
+      low = std::min(low, column);
+      high = std::max(high, column);
+    }
+    return std::pair{right / (open - open / 2) - left / (open / 2), high - low};
+  };
+  const double initial = step(world).first;
+  double reversed = 0, late = 0;
+  for (unsigned tick = 1; tick <= 150; ++tick) {
+    auto next = std::move(world).advanced(.2);
+    for (const auto &m : next.report.trace_sink.mass_kg) sunk_mass += mac_energy_long_double(m);
+    const auto &sink = next.report.trace_sink;
+    sunk_energy += mac_energy_long_double(sink.internal_energy_j) + mac_energy_long_double(sink.kinetic_energy_j) +
+                   mac_energy_long_double(sink.potential_energy_j);
+    world = std::move(next.world);
+    const auto [difference, range] = step(world);
+    reversed = std::min(reversed, difference);
+    if (tick > 100) late = std::max(late, range);
+  }
+  check(initial > 499 && reversed > -.05 * initial, "A stepped pool sloshed to the other side instead of levelling");
+  check(late < .02 * initial, "A stepped pool was not flat within twenty seconds");
+  long double mass1 = 0;
+  for (const auto &cell : world.state().cells) mass1 += cell.mixture.mass();
+  check(std::abs(mass1 + sunk_mass - mass0) < 1e-12L * mass0, "The stepped pool changed mass");
+  check(std::abs(surface_game::total_energy(world) + sunk_energy - energy0) < 1e-12L * std::abs(energy0),
+        "The stepped pool lost U+K+G");
+  set_mac_kernel_default_options(saved);
+  std::cout << "PASS profile12 liquid drag: a 35-column pool with a " << initial << " kg step levels without changing sides (lowest "
+            << reversed << " kg) and holds " << late << " kg of range from 20 to 30 s; mass and U+K+G closed\n";
+}
 inline void run() {
   normal_controls();
   settling_control(false);
   settling_control(true);
+  pool_step_control();
 }
 } // namespace ma::testing::surface_stability_game
