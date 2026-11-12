@@ -54,7 +54,9 @@ built from the colony's own settings (`ColonyPrimer.cs`):
 - Gases layer by molecular weight: natural gas and steam rise above oxygen;
   chlorine sinks below carbon dioxide.
 - Boiling follows pressure: water in vacuum or thin air boils at room
-  temperature.
+  temperature. With **Evaporation below boiling** on, this item is replaced by
+  "Evaporation below boiling is on: air near water holds about 2% steam and
+  wet rooms form dew (Gameplay → Boiling and condensation)."
 - A Gas Element Sensor reacts to its gas from 0.1% of the air by mass; a Gas
   Share Sensor switches at a share you choose.
 

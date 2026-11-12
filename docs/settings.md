@@ -31,7 +31,8 @@ it. Code: `ModSettings*.cs` (model, files, window, runtime); tests:
   holds no humidity. Every gas follows the same rule with the total gas
   pressure, so a minor gas in a strongly compressed mixture can condense
   (chlorine in Terra's ~19 bar hydrogen pocket). **On** restores realistic
-  evaporation into drier air and equilibrium humidity. It is saved in the
+  evaporation into drier air and equilibrium humidity; when it is on, the
+  start dialog and Settings → Gameplay → How it plays say so. It is saved in the
   colony's physical image and can be changed during play
   ([boil-only rule](../native/MAC_PHASE_CHANGE.md#boil-only-rule)). It is a
   gameplay rule rather than a solver tunable, so it is on Gameplay; solver

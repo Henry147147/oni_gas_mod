@@ -34,7 +34,10 @@ namespace MixedAtmospheres.Oni
             lines.Add("An electrolyzer releases twice as much hydrogen as oxygen, by moles, into the same air: filter or pump the hydrogen out.");
             lines.Add("A liquid lock holds back only about 10 kPa per tile of water height, and base air is about 125 kPa: seal off vacuum with airlocks.");
             lines.Add("Gases layer by molecular weight: natural gas and steam rise above oxygen; chlorine sinks below carbon dioxide.");
-            lines.Add("Boiling follows pressure: water in vacuum or thin air boils at room temperature.");
+            // With evaporation below boiling on, air near water holds humidity: say so, and where to turn it off.
+            lines.Add(values.Toggle(SettingCatalog.EvaporationBelowBoiling)
+                ? "Evaporation below boiling is on: air near water holds about 2% steam and wet rooms form dew (Gameplay → Boiling and condensation)."
+                : "Boiling follows pressure: water in vacuum or thin air boils at room temperature.");
             lines.Add("A Gas Element Sensor reacts to its gas from 0.1% of the air by mass; a Gas Share Sensor switches at a share you choose.");
             return lines;
         }

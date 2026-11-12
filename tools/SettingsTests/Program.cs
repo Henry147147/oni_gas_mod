@@ -408,6 +408,13 @@ static class Program
         Check(defaults.Contains("Gases layer by molecular weight: natural gas and steam rise above oxygen; chlorine sinks below carbon dioxide.") &&
               defaults.Any(line => line.Contains("base air is about 125 kPa")), "primer follows the molecular masses");
         Check(ColonyPrimer.Text(SettingValues.Defaults(), true).StartsWith(ColonyPrimer.Title + ":\n• Gases stay mixed.", StringComparison.Ordinal), "primer text");
+        var evaporating = ColonyPrimer.Lines(SettingValues.Defaults().With(SettingCatalog.EvaporationBelowBoiling, true), true);
+        Check(evaporating.Contains("Evaporation below boiling is on: air near water holds about 2% steam and wet rooms form dew (Gameplay → Boiling and condensation).") &&
+              !evaporating.Any(line => line.StartsWith("Boiling follows pressure", StringComparison.Ordinal)) &&
+              evaporating.Count <= 8 && evaporating.All(line => line.Length <= 140 && !line.Contains('\n')), "primer says evaporation below boiling is on");
+        Check(defaults.Contains("Boiling follows pressure: water in vacuum or thin air boils at room temperature.") &&
+              ColonyPrimer.Lines(SettingValues.Defaults().With(SettingCatalog.EvaporationBelowBoiling, false), true).SequenceEqual(defaults) &&
+              !defaults.Any(line => line.Contains("Evaporation below boiling")), "primer unchanged with evaporation below boiling off");
     }
 
     private static int Main()
