@@ -255,7 +255,7 @@ namespace MixedAtmospheres.Oni
             if (ColonySaveBarrier.BeforeFileSave(__0, __1, __2)) return true;
             __result = __0; return false;
         }
-        private static Exception? Finalizer(Exception? __exception) { ColonySaveBarrier.SaveFinished(); return __exception; }
+        private static Exception? Finalizer(Exception? __exception) { ColonySaveBarrier.SaveFinished(); return ColonyFault.Pass(__exception); }
     }
 
     [HarmonyPatch(typeof(Game), "StepTheSim")]
@@ -267,7 +267,7 @@ namespace MixedAtmospheres.Oni
         private static Exception? Finalizer(Exception? __exception)
         {
             ColonySaveBarrier.ExitStep();
-            return __exception != null && ColonyOwner.Active ? ColonyFault.Contain(__exception, "game sim step") : __exception;
+            return __exception != null && ColonyOwner.Active ? ColonyFault.Contain(__exception, "game sim step") : ColonyFault.Pass(__exception);
         }
     }
 }

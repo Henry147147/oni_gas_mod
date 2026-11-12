@@ -38,7 +38,7 @@ namespace MixedAtmospheres.Oni
             }
             // An injected control fault is expected: a warning, not a mod error.
             if (injectedError) Debug.LogWarning("[Mixed Atmospheres] Contained the injected " + where + " fault; the colony owner stops.");
-            else Debug.LogError("[Mixed Atmospheres] " + where + " failed; the colony owner stops: " + error);
+            else Debug.LogError("[Mixed Atmospheres] " + where + " failed; the colony owner stops: " + error + Origin(error));
             try
             {
                 if (ColonyOwner.Active)
@@ -54,6 +54,27 @@ namespace MixedAtmospheres.Oni
         {
             if (error != null) Raise(where, error);
             return null;
+        }
+
+        // Harmony throws the exception a finalizer returns anew, which restarts
+        // its stack trace at the patched method. Every finalizer that hands an
+        // exception on passes it through here, so the trace of its first
+        // throw is kept and Raise can log where the failure began.
+        private const string OriginKey = "MixedAtmospheres.Origin";
+        internal static Exception? Pass(Exception? error)
+        {
+            try
+            {
+                if (error != null && !error.Data.Contains(OriginKey) && !string.IsNullOrEmpty(error.StackTrace))
+                    error.Data[OriginKey] = error.StackTrace;
+            }
+            catch (Exception) { }
+            return error;
+        }
+        internal static string Origin(Exception error)
+        {
+            try { return error.Data[OriginKey] is string trace && trace != error.StackTrace ? "\n  first thrown at:\n" + trace : ""; }
+            catch (Exception) { return ""; }
         }
 
         // Fault-containment control (harness only, scenario fault-containment):
@@ -97,7 +118,7 @@ namespace MixedAtmospheres.Oni
             // disease containers; the frame end normally leaves none.
             try { ColonyConduits.PublishVisibility(__instance.soaInfo); }
             catch (Exception error) { __exception ??= error; }
-            return __exception != null && ColonyConduits.OwnsFlow(__instance) ? ColonyFault.Contain(__exception, "pipe flow") : __exception;
+            return __exception != null && ColonyConduits.OwnsFlow(__instance) ? ColonyFault.Contain(__exception, "pipe flow") : ColonyFault.Pass(__exception);
         }
     }
 }

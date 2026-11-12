@@ -108,6 +108,6 @@ namespace MixedAtmospheres.Oni
             __state=ColonyConduits.BeginTransfer(Conduit.GetFlowManager(type),input,secondary);
         }
         private static Exception? Finalizer(Exception? __exception,ColonyConduits.TransferScope? __state)
-        {ColonyConduits.EndTransfer(__state,__exception);return __exception;}
+        {ColonyConduits.EndTransfer(__state,__exception);return ColonyFault.Pass(__exception);}
     }
 }

@@ -399,7 +399,7 @@ namespace MixedAtmospheres.Oni
         {
             try{__state?.Finish(false);}catch(Exception error){ColonyLoadRefusal.Refuse(error);if(__exception==null)return error;}
             if(__state!=null&&__exception!=null)ColonyLoadRefusal.Refuse(__exception);
-            return __exception;
+            return ColonyFault.Pass(__exception);
         }
     }
 }

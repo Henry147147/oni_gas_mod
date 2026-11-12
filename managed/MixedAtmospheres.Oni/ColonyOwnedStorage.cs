@@ -466,7 +466,7 @@ namespace MixedAtmospheres.Oni
     internal static class ColonyExactStorageRegistrationPatch
     {
         private static void Prefix(SimTemperatureTransfer __instance,int __0)=>ColonyOwnedStorage.Registering(__instance,__0);
-        private static Exception? Finalizer(SimTemperatureTransfer __instance,Exception? __exception){ColonyOwnedStorage.Registered(__instance);return __exception;}
+        private static Exception? Finalizer(SimTemperatureTransfer __instance,Exception? __exception){ColonyOwnedStorage.Registered(__instance);return ColonyFault.Pass(__exception);}
     }
     [HarmonyPatch(typeof(SimMessages),nameof(SimMessages.SetElementChunkData))]
     internal static class ColonyExactStorageBodyDataPatch

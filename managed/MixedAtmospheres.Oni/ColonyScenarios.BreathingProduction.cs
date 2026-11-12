@@ -125,7 +125,7 @@ namespace MixedAtmospheres.Oni
         private static bool Prepare()=>BreathingProductionObservation.Required;
         private static void Prefix(OxygenBreather __instance,out OxygenBreather? __state)=>__state=BreathingProductionObservation.Enter(__instance);
         private static Exception? Finalizer(Exception? __exception,OxygenBreather? __state)
-        { BreathingProductionObservation.Leave(__state,__exception);return __exception; }
+        { BreathingProductionObservation.Leave(__state,__exception);return ColonyFault.Pass(__exception); }
     }
     [HarmonyPatch(typeof(CO2Manager),nameof(CO2Manager.SpawnBreath))]
     internal static class BreathingProductionSpawnPatch

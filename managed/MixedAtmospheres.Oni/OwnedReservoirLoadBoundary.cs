@@ -522,7 +522,7 @@ namespace MixedAtmospheres.Oni
         }
         private static Exception? OnSpawnFinalizer(OwnedReservoirOnSpawnCall? __state, Exception? __exception)
         {
-            if (__state == null || !ReferenceEquals(__state, onSpawnCall)) return __exception;
+            if (__state == null || !ReferenceEquals(__state, onSpawnCall)) return ColonyFault.Pass(__exception);
             var attempt = attempts.Current;
             if (attempt != null && ReferenceEquals(ownerLoader, onSpawnLoader))
             {
@@ -531,7 +531,7 @@ namespace MixedAtmospheres.Oni
             }
             onSpawnCall = null; onSpawnLoader = null;
             TryCompletePreGameScene();
-            return __exception;
+            return ColonyFault.Pass(__exception);
         }
         private static bool StopFailedOnSpawnContinuation(SaveLoader loader)
             => Installed && !loader.loadedFromSave;
@@ -728,7 +728,7 @@ namespace MixedAtmospheres.Oni
                 attempts.Record(attempt, Name(__originalMethod) + ":finalizer", __exception == null ? "No escaping exception; fatal remains latched." : __exception.GetType().Name + ": " + __exception.Message);
                 SetFailureFields(__instance, attempt);
             }
-            return __exception;
+            return ColonyFault.Pass(__exception);
         }
         private static bool RejectBoolPrefix(MethodBase __originalMethod, ref bool __result)
         { if (!Blocked(__originalMethod)) return true; __result = false; return false; }
@@ -881,10 +881,10 @@ namespace MixedAtmospheres.Oni
         }
         private static Exception? BodyFinalizer(OwnedReservoirLoadBodyInvocation? __state, Exception? __exception)
         {
-            if (__state == null || __state.Closed) return __exception;
-            if (Thread.CurrentThread.ManagedThreadId != activationThread) { __state.Faulted = true; return __exception; }
+            if (__state == null || __state.Closed) return ColonyFault.Pass(__exception);
+            if (Thread.CurrentThread.ManagedThreadId != activationThread) { __state.Faulted = true; return ColonyFault.Pass(__exception); }
             if (bodyInvocations.Count == 0 || !ReferenceEquals(bodyInvocations[bodyInvocations.Count - 1], __state))
-            { attempts.FailBodyWitness(__state.Attempt, "Foreign or out-of-order original-body finalizer."); return __exception; }
+            { attempts.FailBodyWitness(__state.Attempt, "Foreign or out-of-order original-body finalizer."); return ColonyFault.Pass(__exception); }
             bodyInvocations.RemoveAt(bodyInvocations.Count - 1); __state.Closed = true;
             var error = __exception;
             if (error == null && (!__state.Entered || !__state.Returned || !__state.NormalPathCertified || __state.Faulted)) error = new InvalidOperationException("Original teardown body was skipped, faulted or did not reach the normal-path certificate.");
@@ -895,7 +895,7 @@ namespace MixedAtmospheres.Oni
             { if (attempts.CompleteTeardown(__state.Completion, error)) { ownerGame = null; ownerLoader = null; } }
             else attempts.CompletePreGameBody(__state.Completion, __state.Entered, __state.Returned, error);
             TryCompletePreGameScene();
-            return __exception;
+            return ColonyFault.Pass(__exception);
         }
         private static bool LateGamePrefabPrefix(Game __instance)
         {

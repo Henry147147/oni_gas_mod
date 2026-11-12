@@ -137,7 +137,7 @@ namespace MixedAtmospheres.Oni
         {
             if (ColonyBalance.End(__state)) __state!.Ledger.ElectricalJoules -= __instance.WattageRating * __0;
         }
-        private static Exception? Finalizer(Exception? __exception, ColonyBalance.Scope? __state) { if (__exception != null) ColonyBalance.End((ColonyBalance.Scope?)null); return __exception; }
+        private static Exception? Finalizer(Exception? __exception, ColonyBalance.Scope? __state) { if (__exception != null) ColonyBalance.End((ColonyBalance.Scope?)null); return ColonyFault.Pass(__exception); }
     }
 
     [HarmonyPatch(typeof(ElementConverter), "ConvertMass")]
@@ -146,6 +146,6 @@ namespace MixedAtmospheres.Oni
         [HarmonyPriority(Priority.Last)]
         private static void Prefix(ElementConverter __instance, ref ColonyBalance.Scope? __state) => __state = ColonyBalance.Begin(__instance);
         private static void Postfix(ElementConverter __instance, ColonyBalance.Scope? __state) => ColonyBalance.End(__instance, __state);
-        private static Exception? Finalizer(Exception? __exception, ColonyBalance.Scope? __state) { if (__exception != null) ColonyBalance.End((ColonyBalance.Scope?)null); return __exception; }
+        private static Exception? Finalizer(Exception? __exception, ColonyBalance.Scope? __state) { if (__exception != null) ColonyBalance.End((ColonyBalance.Scope?)null); return ColonyFault.Pass(__exception); }
     }
 }

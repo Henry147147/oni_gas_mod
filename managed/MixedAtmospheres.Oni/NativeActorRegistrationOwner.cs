@@ -36,6 +36,6 @@ namespace MixedAtmospheres.Oni
             out NativeActorRegistrationOwner? __state)
         { __state=NativeSealedDomainValidation.Active ? new NativeActorRegistrationOwner(__instance,cb_handle.index) : null; }
         private static Exception? Finalizer(Exception? __exception,NativeActorRegistrationOwner? __state)
-        { __state?.Dispose();return __exception; }
+        { __state?.Dispose();return ColonyFault.Pass(__exception); }
     }
 }

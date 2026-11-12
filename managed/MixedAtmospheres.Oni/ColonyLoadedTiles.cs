@@ -77,6 +77,6 @@ namespace MixedAtmospheres.Oni
     internal static class ColonyLoadedTileSpawnPatch
     {
         private static void Prefix(SimCellOccupier __instance,ref ColonyLoadedTiles.Scope? __state)=>__state=ColonyLoadedTiles.Begin(__instance);
-        private static Exception? Finalizer(Exception? __exception,ColonyLoadedTiles.Scope? __state){__state?.Finish(__exception==null);return __exception;}
+        private static Exception? Finalizer(Exception? __exception,ColonyLoadedTiles.Scope? __state){__state?.Finish(__exception==null);return ColonyFault.Pass(__exception);}
     }
 }

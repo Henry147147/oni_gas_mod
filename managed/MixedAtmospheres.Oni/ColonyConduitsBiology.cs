@@ -281,7 +281,7 @@ namespace MixedAtmospheres.Oni
         private static Exception? Finalizer(Exception? __exception,ColonyPipeBiology.Scope? __state)
         {
             __state?.Finish(false);
-            return __exception!=null&&ColonyConduits.Active?ColonyFault.Contain(__exception,"pipe germs"):__exception;
+            return __exception!=null&&ColonyConduits.Active?ColonyFault.Contain(__exception,"pipe germs"):ColonyFault.Pass(__exception);
         }
     }
 }

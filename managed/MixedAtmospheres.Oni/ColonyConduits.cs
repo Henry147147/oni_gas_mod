@@ -822,7 +822,7 @@ namespace MixedAtmospheres.Oni
         {
             try{ColonyPipeThermalProbe.EndScope(__state?.Probe);}
             finally{ColonyPipeContactHeat.End(__state?.Contact);}
-            return __exception!=null&&ColonyConduits.Active?ColonyFault.Contain(__exception,"pipe heat"):__exception;
+            return __exception!=null&&ColonyConduits.Active?ColonyFault.Contain(__exception,"pipe heat"):ColonyFault.Pass(__exception);
         }
     }
     [HarmonyPatch]
@@ -897,7 +897,7 @@ namespace MixedAtmospheres.Oni
         private static Exception? Finalizer(Exception? __exception,ConduitFlow __instance)
         {
             ColonyConduits.EndFlow();
-            return __exception!=null&&ColonyConduits.OwnsFlow(__instance)?ColonyFault.Contain(__exception,"pipe flow"):__exception;
+            return __exception!=null&&ColonyConduits.OwnsFlow(__instance)?ColonyFault.Contain(__exception,"pipe flow"):ColonyFault.Pass(__exception);
         }
         private static int Slot(CodeInstruction instruction,bool store)
         {

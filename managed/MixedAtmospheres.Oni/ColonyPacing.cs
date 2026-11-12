@@ -241,7 +241,7 @@ namespace MixedAtmospheres.Oni
         {
             if (__exception != null) ColonyPacingLossLog.Exception(__state);
             else ColonyPacingLossLog.End(__state);
-            return __exception;
+            return ColonyFault.Pass(__exception);
         }
     }
     public sealed class ColonyPacingDriver : MonoBehaviour

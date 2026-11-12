@@ -408,7 +408,7 @@ namespace MixedAtmospheres.Oni
     internal static class ColonyMachineConditionerPatch
     {
         private static void Prefix(AirConditioner __instance)=>ColonyMachinePorts.BeginConditioner(__instance);
-        private static Exception? Finalizer(AirConditioner __instance,Exception? __exception){ColonyMachinePorts.EndConditioner(__instance,__exception);return __exception;}
+        private static Exception? Finalizer(AirConditioner __instance,Exception? __exception){ColonyMachinePorts.EndConditioner(__instance,__exception);return ColonyFault.Pass(__exception);}
     }
 
     [HarmonyPatch(typeof(EmptyConduitWorkable),"EmptyContents")]

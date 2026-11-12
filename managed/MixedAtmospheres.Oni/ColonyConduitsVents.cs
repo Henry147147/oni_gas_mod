@@ -194,7 +194,7 @@ namespace MixedAtmospheres.Oni
         private static Exception? Finalizer(Exception? __exception,ColonyPipeVents.Scope? __state)
         {
             ColonyPipeVents.EndConsume(__state,__exception);
-            return __exception!=null&&ColonyConduits.Active?ColonyFault.Contain(__exception,"pipe intake"):__exception;
+            return __exception!=null&&ColonyConduits.Active?ColonyFault.Contain(__exception,"pipe intake"):ColonyFault.Pass(__exception);
         }
     }
     [HarmonyPatch(typeof(Exhaust),"UpdateEmission")]

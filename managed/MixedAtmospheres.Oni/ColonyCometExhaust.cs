@@ -22,6 +22,6 @@ namespace MixedAtmospheres.Oni
     {
         private static void Prefix() => ColonyCometExhaust.Enter();
         private static void Postfix() => ColonyCometExhaust.Leave();
-        private static Exception? Finalizer(Exception? __exception) { if (__exception != null) ColonyCometExhaust.Leave(); return __exception; }
+        private static Exception? Finalizer(Exception? __exception) { if (__exception != null) ColonyCometExhaust.Leave(); return ColonyFault.Pass(__exception); }
     }
 }

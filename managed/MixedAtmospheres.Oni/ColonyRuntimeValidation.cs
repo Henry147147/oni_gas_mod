@@ -918,7 +918,7 @@ namespace MixedAtmospheres.Oni
     internal static class NewColonyValidationScope
     {
         private static void Prefix() => ColonyRuntimeValidation.BeginNewColony();
-        private static Exception? Finalizer(Exception? __exception) { ColonyRuntimeValidation.EndNewColony(__exception); return __exception; }
+        private static Exception? Finalizer(Exception? __exception) { ColonyRuntimeValidation.EndNewColony(__exception); return ColonyFault.Pass(__exception); }
     }
 
     [HarmonyPatch(typeof(Cluster), nameof(Cluster.LoadClusterSim))]

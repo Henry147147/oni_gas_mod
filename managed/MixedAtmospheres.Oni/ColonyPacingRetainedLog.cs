@@ -97,7 +97,7 @@ namespace MixedAtmospheres.Oni
         private static void Prefix(ref float __0,out ColonyRetainState __state)=>__state=ColonyPacingRetainedLog.Begin(ref __0);
         [HarmonyPriority(Priority.Last)]
         private static Exception? Finalizer(float __0,bool __runOriginal,Exception? __exception,ColonyRetainState __state)
-        {ColonyPacingRetainedLog.Finish(__state,__0,__runOriginal,__exception);return __exception;}
+        {ColonyPacingRetainedLog.Finish(__state,__0,__runOriginal,__exception);return ColonyFault.Pass(__exception);}
     }
     [HarmonyPatch(typeof(Game),"SimEveryTick")]
     internal static class ColonyPacingRetainAdmissionPatch

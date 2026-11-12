@@ -258,7 +258,7 @@ namespace MixedAtmospheres.Oni
                 }
             }
             if (__exception != null) { DisableValidationProbes(); LastError = __exception.ToString(); }
-            return __exception;
+            return ColonyFault.Pass(__exception);
         }
 
         private static void BeginOverlayBatch(out RenderBatchState __state)
@@ -271,7 +271,7 @@ namespace MixedAtmospheres.Oni
         private static Exception? EndOverlayBatch(RenderBatchState? __state, Exception? __exception)
         {
             if (__state != null) { Volatile.Write(ref overlayFrame, __state.Previous); __state.Lease?.Dispose(); __state.Close(ref spareOverlayState); }
-            return __exception;
+            return ColonyFault.Pass(__exception);
         }
 
         private static void BeforeReset() { DisableValidationProbes(); RestoreScheduling(false); }

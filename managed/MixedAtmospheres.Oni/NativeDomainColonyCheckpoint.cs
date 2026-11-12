@@ -672,7 +672,7 @@ namespace MixedAtmospheres.Oni
         {
             try {__state?.Finish(__exception==null && __state.FileAccepted);}
             catch(Exception failure) {return __exception ?? failure;}
-            return __exception;
+            return ColonyFault.Pass(__exception);
         }
     }
     [HarmonyPatch]
