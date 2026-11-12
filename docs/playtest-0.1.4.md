@@ -109,4 +109,92 @@ New with this version:
 
 ## Acceptance
 
-Pending.
+Code revision **`60030e4`** (the tree of `152cb75`, which adds notes only;
+clean manifest). Windows ZIP:
+`/mnt/data/share/oni/playtest/MixedAtmospheres-0.1.4-152cb75/MixedAtmospheres-private-windows-0.1.4-152cb75.zip`,
+SHA256 `0498802e95c67da934d3ac0c0230bf87b4891ef54f83f2027fedba5c8e72970f`.
+Close ONI, extract and run `install_windows.ps1`; start a new colony (earlier colonies are refused at the menu).
+
+The quick tier of `tools/acceptance_suite.py` ran in full on `152cb75`
+(46 steps, tag `quick-v1`): 40 passed, 3 failed, 3 were skipped. The tier
+did not pass; the table gives the reason for each step that did not.
+
+| Step | Result |
+| --- | --- |
+| Linux build; Windows (MinGW) build | pass |
+| Linux batches 1-12, 14, 15 | pass |
+| Nine starting asteroids, 3,000 frames each | pass |
+| One cycle on the frozen prepared save | pass |
+| Proton batches 2, 3, 4, 6, 7, 10, 11, 12 | pass |
+| Proton contact, settings source and load, Spaced Out! source, cold load, menu reload | pass |
+| Linux batch 13 | fail: `storage-ledger`, one germ check (see below) |
+| Proton base source | fail: the player exited, exit code 5, about a second after the owner started (see below); passed on the rerun |
+| Proton ordinary Spaced Out! new game, save, quit, reload | fail: the suite clicked the start dialog's old button position (see below) |
+| Proton prepared cycle, autosave cold | skipped: dependent of base source |
+| Proton ordinary Spaced Out! load | skipped: dependent of the Spaced Out! new game step |
+
+`linux-b13`: scenario `storage-ledger` fails one check of its group, "the
+emptied gas brings its germs once" (owner +397,950 germs, still stored 0,
+stored 80,000). The other three scenarios pass and the owner is healthy
+(823 frames, mass error 2.9e-16). It is the same open item as in 0.1.3
+(393,797 germs on 0.1.2, the delivered package then).
+
+`windows-base-source`: the player exited about a second after the owner
+started, and the log ends at that line, with no error. It passed on the
+rerun below. One-off; the cause is not established.
+
+`windows-spacedout-ui`: the suite clicked the start dialog's OK button at
+its old position (the dialog is one line taller since 0.1.4), so no embark
+or save happened; the owner had started. The suite was corrected in 0.1.5
+(`1f5c091`). Not a mod defect.
+
+The three skipped steps were dependents of those two failures
+(`windows-prepared-cycle` and `windows-autosave-cold` of base source,
+`windows-spacedout-ui-load` of the Spaced Out! new game step).
+
+Rerun `quick-v1-rerun1` (same revision and package; Windows build, base
+source, prepared cycle, autosave cold): base source and prepared cycle
+passed. Autosave cold failed only the check `clean_exact_runner`, because the
+working tree was edited while the run was in progress; its other checks
+passed (owner healthy, 2,880 frames, mass error 4.5e-16, no failed
+pressure attempts, no mod failure lines).
+
+The fix for the clicked step and a full passing run of those steps came with
+0.1.5's run: see [0.1.5](playtest-0.1.5.md#acceptance).
+
+The Proton steps are the WindowsPlayer under Proton, not Windows itself.
+
+Before the tier, on the working tree of `cc56605` (masses only): the 15
+Linux batches passed as with 0.1.3 (`storage-ledger` failing its one known
+check with 397,951 germs), and the game log showed the new masses (a
+40-cell starting room of 63.7 kg oxygen: 1,991 mol, about 122 kPa).
+
+The vented-base build (`full-colony-spacedout`), which no acceptance step
+runs: 5 of 5 runs stopped before the fixes (four with 0.1.4's masses, one
+with the 0.1.3 package), 10 of 16 while the fixes were partial, 6 of 6
+complete on `60030e4`, and the colony then ran two
+more cycles (7,123 owner frames, ledgers 4e-15) to become
+`full-colony-spacedout-v3`.
+
+Speed in game (Linux harness, GPU display, one run each; one cycle of 3,000
+frames at speed 3 loaded from the prepared saves; 0.1.3 on the saves it
+could load, 0.1.4 on the ones made again, so the colonies are alike but not
+the same states):
+
+| Save | 0.1.3 `d9dd945` | 0.1.4 `152cb75` |
+| --- | ---: | ---: |
+| Industrial base, 32 duplicants (`-v3` / `-v4`): game seconds per real second | 2.189 | 2.255 |
+| ... warmed windows: owner / flow ms a tick | 61.5 / 49.6 | 58.3 / 46.4 |
+| Spaced Out! full colony (`-v2` / `-v3`): game seconds per real second | 1.021 | 0.974 |
+| ... warmed windows: owner / flow ms a tick | 170.6 / 150.0 | 182.0 / 162.5 |
+
+The Spaced Out! colony is just below the 1× beta bar on its new save. Its
+flow stage costs 10 % more and the colony's whole history has 13 % more
+flow intervals; the new save also holds 15 % more gas (17.0 t against
+14.8 t). The cause is not established: the two saves are different states,
+and neither version loads the other's. One candidate is the halved
+pressure itself: the vented second base sits at 1-2 kPa instead of 2-4,
+where water boils near 10 °C.
+
+Not established here: Windows itself, the user's own colonies, and a human
+look at the overlays, the layering line and the refusal dialog.

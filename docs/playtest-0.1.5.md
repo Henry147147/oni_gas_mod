@@ -57,4 +57,61 @@ and version 32 are unchanged, and 0.1.4 colonies load.
 
 ## Acceptance
 
-Pending.
+Code revision **`e3666a9`**. Windows ZIP:
+`/mnt/data/share/oni/playtest/MixedAtmospheres-0.1.5-e3666a9/MixedAtmospheres-private-windows-0.1.5-e3666a9.zip`,
+SHA256 `5c964508b917980d1d2d3ceeeed1d332a0401f657d61706da32d69e095f90ddb`.
+Close ONI, extract and run `install_windows.ps1`; start a new colony
+(earlier colonies are refused at the menu).
+
+The quick tier of `tools/acceptance_suite.py` ran in full on `e3666a9`
+(46 steps, tag `quick-v1`): 44 passed, 2 failed, none skipped. The tier did
+not pass.
+
+| Step | Result |
+| --- | --- |
+| Linux build; Windows (MinGW) build | pass |
+| Linux batches 1-12, 14, 15 | pass |
+| Nine starting asteroids, 3,000 frames each | pass |
+| One cycle on the frozen prepared save | pass |
+| Proton batches 2, 3, 4, 6, 7, 10, 11, 12 | pass |
+| Proton contact, base source, prepared cycle | pass |
+| Proton settings source and load, Spaced Out! source, cold load, menu reload | pass |
+| Proton ordinary Spaced Out! new game, save, quit, reload (the step 0.1.4 failed; the suite's click corrected in `1f5c091`) | pass |
+| Linux batch 13 | fail: `storage-ledger`, two germ checks (see below) |
+| Proton autosave cold | fail: the owner faulted on the first game step (see below) |
+
+`linux-b13`: scenario `storage-ledger` now fails two germ checks; the other
+three scenarios pass and the owner is healthy (823 frames, mass error
+8.6e-16). The checks:
+
+- "the vented gas brings its germs to the owner once": +100,357 germs
+  (stored 90,000);
+- "the emptied gas brings its germs once": owner +435,032 germs, still
+  stored 0 (stored 80,000).
+
+On 0.1.4 only the second check failed (owner +397,950 germs); the first
+passed. It is the open germ item of [0.1.4](playtest-0.1.4.md#acceptance),
+here with a second check failing.
+
+`windows-autosave-cold`: on the first game step after loading the cycle-2
+autosave written by `windows-prepared-cycle` (owner restored at frame 2760,
+30,952 owned cells), the game's power tick threw a NullReferenceException
+inside `EnergyGenerator.EnergySim200ms`; the mod contained it as an owner
+fault, "Colony owner faulted; fluids are frozen: Adapter: game sim step:
+Object reference not set to an instance of an object". The owner frame was
+2761 (90.8 ms, flow stage 58.1 ms); the ledgers and pressure solves were
+clean to that frame (mass error 9.3e-16, no failed pressure attempts).
+The same autosave was then loaded twelve more times (eleven under Proton,
+one on Linux; ten of them with a build that keeps a fault's first stack
+trace) without a fault. The trace of the one failure starts at the mod's
+own clean-up hook on that method, which is where the hook's host restarts
+it, so the origin below it is not known
+([0.1.6](playtest-0.1.6.md#open)).
+
+The Proton steps are the WindowsPlayer under Proton, not Windows itself.
+
+The timed full-colony loads were not repeated on this revision; the next
+candidate's record carries them.
+
+Not established here: Windows itself, and the user's own look at pools in
+play.

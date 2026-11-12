@@ -11,8 +11,11 @@ few that your task touches, starting here.
 - [docs/feature-completion-status.md](docs/feature-completion-status.md):
   **resume here** — current status toward the beta (sustained 1× on the
   full-colony saves; 3× stays the goal) and what remains open. The latest
-  private Windows candidate is [0.1.5](docs/playtest-0.1.5.md), which damps
-  liquid motion after the user's recording of 0.1.4;
+  private Windows candidate is [0.1.6](docs/playtest-0.1.6.md), which lets
+  liquid fall through a one-tile opening onto trapped gas, keeps germs with
+  their phase and stops interface sharpening lifting mass;
+  [0.1.5](docs/playtest-0.1.5.md) damped liquid motion after the user's
+  recording of 0.1.4;
   [0.1.4](docs/playtest-0.1.4.md) gave oxygen, hydrogen and chlorine their
   molecular masses;
   [0.1.3](docs/playtest-0.1.3.md) carried out the project review of

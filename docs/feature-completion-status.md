@@ -1,5 +1,19 @@
 # Feature completion work
 
+**Update, 2026-11-12, 0.1.6:** a probe of everyday liquid situations on the
+solver alone found that water would not drain through a one-tile opening
+into a closed space (it stood on the trapped air), that interface
+sharpening held a tilted water and oil interface and could stir a resting
+one, and that wide pools level slowly. The first two are fixed
+([liquid over gas](../native/MAC_GAME_KERNEL.md#liquid-over-gas-profile-12-2026-11-12)).
+The germ check open since 0.1.2 is traced to a pool tile's germs diffusing
+into the air over it; germs are now carried by the gas or the liquid of
+their tile and the germ rules run for each
+([carried passives](../native/MAC_GAME_KERNEL.md#carried-passives-profile-12-2026-11-12)).
+What stays open is in [0.1.6](playtest-0.1.6.md#open). The 0.1.5 acceptance
+tier: 44 of 46 steps, the misses being the germ checks and a load fault
+that did not recur in twelve reloads.
+
 **Update, 2026-11-12, 0.1.5:** the user's recording of 0.1.4 shows a
 35-tile pool sloshing with a half-tile step for over a minute after a shaft
 was dug under it. Liquid had no damping; profile 12 now has a liquid drag
