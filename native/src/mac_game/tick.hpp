@@ -82,6 +82,9 @@ class Tick {
   // Profile 12: sharpen the reconstructed slab only along its normal;
   // tangential fraction differences are physical surface-height variation.
   bool normal_sharpening = false;
+  // Profile 12: layering also exchanges liquid resting on the gas of the
+  // cell below it (layering.hpp).
+  bool liquid_exchange = false;
   SurfaceScratch surface_scratch;
   static double ms(std::chrono::steady_clock::time_point start) {
     return std::chrono::duration<double, std::milli>(
@@ -121,7 +124,8 @@ public:
         carry_momentum(carry_moved_momentum),
         convective(convective_adjustment),
         boil_in_flow(bound_pressure_volume && room_bound),
-        normal_sharpening(bound_pressure_volume && room_bound) {}
+        normal_sharpening(bound_pressure_volume && room_bound),
+        liquid_exchange(bound_pressure_volume && room_bound) {}
   [[nodiscard]] unsigned threads_used() const noexcept {
     return flow.worker_pool().size();
   }
@@ -388,7 +392,8 @@ public:
     auto stage_start = std::chrono::steady_clock::now();
     auto layered = layer(grid, species, out.state, out.eos, dt, gravity,
                          &flow.kernel_grid(), &flow.worker_pool(),
-                         carry_momentum, &regions, convective);
+                         carry_momentum, &regions, convective,
+                         liquid_exchange);
     wall_x += layered.wall_x;
     wall_y += layered.wall_y;
     wall_ops_x += layered.wall_ops_x;

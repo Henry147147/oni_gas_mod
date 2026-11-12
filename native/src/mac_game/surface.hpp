@@ -269,7 +269,18 @@ sharpen(const ma::experimental::MacGrid &source,
       }
     // Anti-diffusion may not reinforce an inverted full-liquid layer.
     // Buoyant exchange remains responsible for its density ordering.
-    if (!x_axis && geom[donor].alpha > .99 && geom[target].alpha > .99 &&
+    // Profile 12 refuses every vertical exchange that lifts net mass. The
+    // target returns all it holds besides the chosen liquid, which beside a
+    // second liquid is not the phase across this interface: oil drawn up
+    // from a water/oil cell into the oil above trades for that cell's gas,
+    // and oil drawn down from an oil/gas cell trades for the water below.
+    // The first holds a tilted liquid-liquid interface off level; the second
+    // mixes a resting oil layer whose top lies inside a cell. Under a resting
+    // gas-liquid surface the fuller cell is the lower one, so liquid moves
+    // down and this refuses nothing there.
+    if (!x_axis &&
+        (normal_sharpening ||
+         (geom[donor].alpha > .99 && geom[target].alpha > .99)) &&
         gravity * (double(target / g.W) - double(donor / g.W)) *
                 (forward_mass - back_mass) >
             0)

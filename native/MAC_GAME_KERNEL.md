@@ -1069,6 +1069,81 @@ to 60 s; with it the lowest is -7 kg and the range 0.22 kg, and
 below the hole at frame 400, bound 2.56 kg; 0.04 kg without the drag: gas
 rises through liquid more slowly).
 
+## Liquid over gas (profile 12, 2026-11-12)
+
+A face carries one velocity, so it cannot pass liquid down and gas up in the
+same interval. Where a cell's liquid lies on the gas of the cell below and
+that gas has no other way out, the flow only compresses the gas until it
+bears the liquid, and the liquid then stands on it for good. A probe of
+2026-11-12 (10 x 4 tiles of water over a sealed 10 x 6 room of air, one floor
+tile opened) stopped after 45 s with 31.7 of 40 t still above, the room's air
+at 142 kPa under 101 kPa; a 7 x 5 air pocket breached under a pool kept 57.5
+of its 59.3 kg of air for 300 s, with two full tiles of water standing in
+the shaft over it. Two tiles of opening, or a vent, drained in under a
+minute: the fault is the single face.
+
+Layering now also exchanges liquid resting on gas (`layer`, the `sinking`
+rule): across an open vertical face whose upper cell holds liquid and whose
+lower cell holds gas, the two cells swap equal volumes of the upper cell's
+liquid (every liquid, in proportion) and the lower cell's gas, each share
+carrying its own EOS energy and passives. The share is that of the convective
+adjustment with the free-fall speed over one cell,
+`w = sqrt(g h (rho_liquid - rho_gas) / rho_mean)`, capped at a quarter of the
+smaller volume an interval; a face whose cells already move faster than `w`
+exchanges nothing, as there. The released potential energy is local heat, so
+species, U+K+G, momentum and passives close as for every layering exchange.
+Gas over liquid, a vacuum under liquid and a closed face exchange nothing.
+
+The same probe now drains completely (half in 52 s, 99 % in 162 s; 0.13 kg
+left above), the pocket floods (0.48 kg of air left in it) and so does a
+breached vacuum cave. Bubbles under a flat ceiling away from the opening
+leave slowly. Control: `sealed_drain_control` (12 t of water over a sealed
+nine-cell room with a one-cell hole: the room holds 8,873 kg of water and
+0.30 of its 15.9 kg of air after 120 s, half full by 5.2 s with the
+sharpening rule below, 11.4 s without it; mass and U+K+G closed), and the
+game scenario `sealed-drain`.
+
+Profile 12 arithmetic changes wherever liquid lies over gas (falling liquid
+and mist settle a little faster); profiles 2-11, the checkpoint format and
+version 32 do not. Of the 62 `ma_mac_*` invocations, 59 are identical to the
+previous revision; `mac_game_kernel` gains its control lines,
+`mac_production_kernel_oracle` differs only in its timings, and
+`mac_phase_change`'s profile-12 boiling line reads 6.15 kg and 277.0 kPa
+with this rule alone
+(5.87 kg and 280.6 kPa; bounds more than 2.6 kg and below 500 kPa).
+
+### Sharpening never lifts net mass
+
+Interface sharpening moves a liquid from the cell holding less of it to its
+neighbour holding more, and the receiver returns everything it holds besides
+that liquid. Beside a second liquid that remainder is not the phase across
+the interface. Oil drawn up from a water-and-oil cell into the oil above
+traded for that cell's gas, which was pumped down under the oil until it
+balanced the column: a tilted water and crude oil interface did not level
+(40 kg of range left after 300 s, and 296.5 kg frozen after a hard start,
+against 51 s with sharpening off). Oil drawn down from an oil-and-gas cell
+traded for the water below: a resting pool of 2.5 cells of water under one
+of oil mixed itself within seconds (a 1,426 kg column range and 0.94 m3 of
+gas under liquid). The existing refusal of exchanges that lift net mass
+applied only between two full cells.
+
+Profile 12 refuses every vertical sharpening exchange that lifts net mass
+(`sharpen`, `normal_sharpening`). Under a gas-liquid surface the fuller cell
+is the lower one, so liquid moves down and nothing is refused there; density
+ordering stays with the buoyant exchanges. The tilted interface now levels
+in 44 s (crude) and 19 s (petroleum), 51 s after the hard start, as with
+sharpening off, and the resting pool stays at rest. `pool_step_control` and
+the settling controls are unchanged to the digit; the sealed room above
+fills twice as fast; `mac_phase_change`'s profile-12 boiling line reads
+6.21 kg and 306.9 kPa. Control: `liquid_interface_control` (water under an
+870 kg/m3 liquid of its own group: the resting pool keeps 1.8e-7 kg of
+column range and no gas under liquid for 60 s, where it ended 639 kg out of
+level with 0.57 m3 of air under it; the tilted interface is under 25 kg
+from 51 s, where it was 120 kg out at 90 s). Water poured onto oil still
+spreads slowly (about 78 kg of range at 400 s, 18 kg with sharpening off):
+a different exchange, across the vertical walls at the edge of the thin
+film, and open.
+
 ## Large connected regions (profile 12, 2026-11-11)
 
 A region whose pressure system is one connected component of at least 2,000

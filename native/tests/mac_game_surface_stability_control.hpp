@@ -2,7 +2,9 @@
 #include "mac_game_surface_control.hpp"
 #include "../src/mac_game/surface.hpp"
 #include "../src/mac_game/totals.hpp"
+#include <algorithm>
 #include <array>
+#include <tuple>
 
 namespace ma::testing::surface_stability_game {
 using namespace ma::experimental;
@@ -294,10 +296,255 @@ inline void pool_step_control() {
   std::cout << "PASS profile12 liquid drag: a 35-column pool with a " << initial << " kg step levels without changing sides (lowest "
             << reversed << " kg) and holds " << late << " kg of range from 20 to 30 s; mass and U+K+G closed\n";
 }
+// Profile 12, water above a sealed room of air, joined by a one-cell hole in
+// the floor between them. The hole's face carries one velocity, so the flow
+// alone compresses the room's air until it bears the water, which then stands
+// on it for good (31.7 t of 40 t in the probe of 2026-11-12). With the
+// liquid-over-gas exchange the water falls through while the air rises past
+// it, and the room fills.
+inline void sealed_drain_control() {
+  const auto saved = mac_kernel_default_options();
+  auto options = saved;
+  options.threads = 1;
+  set_mac_kernel_default_options(options);
+  const auto &f = setup();
+  // Rows 1-2: the sealed room; row 3: its ceiling with the hole; rows 4-6:
+  // water; rows 7-8: air.
+  constexpr std::size_t W = 6, H = 10, floor = 3, hole = 2 + floor * W;
+  constexpr double gas = 138000;
+  MacTransportState state;
+  state.grid = {W, H, 1, 1, false, false, std::vector<std::uint8_t>(W * H)};
+  const auto water = f.registry.index("water"), oxygen = f.registry.index("oxygen");
+  for (std::size_t i = 0; i < W * H; ++i) {
+    const auto x = i % W, y = i / W;
+    state.grid.walls[i] = x == 0 || x == W - 1 || y == 0 || y == H - 1 || (y == floor && i != hole);
+    MacMaterialCell cell{MixtureInventory(f.registry.size()), {}};
+    if (!state.grid.walls[i]) {
+      if (y > floor && y <= floor + 3)
+        cell.mixture.masses[water] = 1000 + 1000 * (gas + 9810 * (floor + 3.5 - static_cast<double>(y))) / (2.2e9 * .04);
+      else cell.mixture.masses[oxygen] = gas * .032 / (gas_constant * 300);
+    }
+    state.cells.push_back(std::move(cell));
+  }
+  state.momentum_x.resize((W + 1) * H);
+  state.momentum_y.resize(W * (H + 1));
+  MacClosedSettings cfg;
+  cfg.numerical_kernel = MacNumericalKernel::game;
+  cfg.game_profile = MacGameProfile::game_kernel_thin_drag;
+  cfg.vacuum = MacVacuumRepresentation::void_phase;
+  cfg.maximum_timestep_s = .2;
+  cfg.gravity_m_per_s2 = 9.81;
+  cfg.trace_sink_threshold_kg = 1e-11;
+  cfg.game.liquid_law = MacGameLiquidLaw::positive_segments;
+  cfg.game.pressure_maximum_iterations = 400;
+  cfg.game.heat_maximum_iterations = 800;
+  auto world = MacClosedWorld::game_colony(f.registry, f.eos, std::move(state), std::vector<double>(W * H, 300), cfg);
+  const auto energy0 = surface_game::total_energy(world);
+  long double mass0 = 0, sunk_mass = 0, sunk_energy = 0;
+  for (const auto &cell : world.state().cells) mass0 += cell.mixture.mass();
+  // The room and its hole: the water and the air they hold.
+  const auto room = [&](const MacClosedWorld &w) {
+    double wet = 0, air = 0;
+    for (std::size_t i = 0; i < (floor + 1) * W; ++i) {
+      wet += w.state().cells[i].mixture.masses[water];
+      air += w.state().cells[i].mixture.masses[oxygen];
+    }
+    return std::pair{wet, air};
+  };
+  const double air0 = room(world).second;
+  double half_at = 0;
+  for (unsigned tick = 1; tick <= 600; ++tick) {
+    auto next = std::move(world).advanced(.2);
+    for (const auto &m : next.report.trace_sink.mass_kg) sunk_mass += mac_energy_long_double(m);
+    const auto &sink = next.report.trace_sink;
+    sunk_energy += mac_energy_long_double(sink.internal_energy_j) + mac_energy_long_double(sink.kinetic_energy_j) +
+                   mac_energy_long_double(sink.potential_energy_j);
+    world = std::move(next.world);
+    if (half_at == 0 && room(world).first > 4500) half_at = .2 * tick;
+  }
+  const auto [wet1, air1] = room(world);
+  // Nine cells: the room fills and its air has gone up through the water,
+  // but for bubbles under the flat ceiling away from the hole (0.32 kg).
+  check(wet1 > 8500, "Water above a sealed room did not drain through a one-cell hole");
+  check(air0 > 10 && air1 < .05 * air0, "The sealed room's air did not rise past the draining water");
+  long double mass1 = 0;
+  for (const auto &cell : world.state().cells) mass1 += cell.mixture.mass();
+  check(std::abs(mass1 + sunk_mass - mass0) < 1e-12L * mass0, "The draining pool changed mass");
+  check(std::abs(surface_game::total_energy(world) + sunk_energy - energy0) < 1e-12L * std::abs(energy0),
+        "The draining pool lost U+K+G");
+  set_mac_kernel_default_options(saved);
+  std::cout << "PASS profile12 liquid over gas: a sealed nine-cell room under 12 t of water fills through a one-cell hole (half by "
+            << half_at << " s; " << wet1 << " kg of water and " << air1 << " of " << air0 << " kg of air in it after 120 s)\n";
+}
+// Water under a lighter immiscible liquid (870 kg/m3, like crude oil) under
+// 130 kPa of oxygen in a closed 10 x 7 box. Each half of the box has its own
+// water and oil tops (in cells); the liquid cells start compressed only by
+// the liquid above them, so the air settles onto the pool as it starts.
+struct LiquidPair {
+  SpeciesRegistry registry;
+  std::shared_ptr<const FluidThermodynamics> eos;
+  std::size_t oxygen = 0, water = 0, oil = 0;
+};
+inline const LiquidPair &liquid_pair() {
+  static const LiquidPair value = [] {
+    LiquidPair out;
+    const auto standard = SpeciesRegistry::standard();
+    auto oil = standard[standard.index("water")];
+    oil.id = "interface_oil";
+    oil.name = "Interface control oil";
+    oil.density = 870;
+    oil.cp = 1690;
+    std::vector<ReferenceMaterial> materials;
+    for (const auto &[sp, density, modulus] :
+         {std::tuple{standard[standard.index("oxygen")], 0., 0.},
+          std::tuple{standard[standard.index("water")], 1000., 2.2e9}, std::tuple{oil, 870., 1.5e9}}) {
+      out.registry.add(sp);
+      ReferenceMaterial m;
+      m.id = sp.id;
+      m.phase = sp.phase == Phase::gas ? ReferencePhase::ideal_gas : ReferencePhase::elastic_liquid;
+      m.molar_mass_kg_per_mol = sp.molar_mass;
+      m.cv_j_per_kg_k = sp.cv();
+      m.energy_offset_j_per_kg = sp.internal_energy(0);
+      m.minimum_temperature_k = 1;
+      m.maximum_temperature_k = 1e6;
+      m.zero_pressure_density_kg_per_m3 = density;
+      m.reference_bulk_modulus_pa = modulus;
+      m.maximum_density_ratio = sp.phase == Phase::gas ? 1 : 2;
+      m.provenance = "Two-liquid surface control surrogate";
+      materials.push_back(std::move(m));
+    }
+    out.eos = std::make_shared<const FluidThermodynamics>(out.registry, "liquid-interface-control-v1",
+                                                          std::move(materials));
+    out.oxygen = out.registry.index("oxygen");
+    out.water = out.registry.index("water");
+    out.oil = out.registry.index("interface_oil");
+    return out;
+  }();
+  return value;
+}
+inline MacClosedWorld liquid_pair_box(std::array<double, 2> water_top, std::array<double, 2> oil_top) {
+  const auto &f = liquid_pair();
+  constexpr std::size_t W = 12, H = 9;
+  constexpr double gas = 130000, T = 295;
+  MacTransportState state;
+  state.grid = {W, H, 1, 1, false, false, std::vector<std::uint8_t>(W * H)};
+  state.cells.resize(W * H, MacMaterialCell{MixtureInventory(f.registry.size()), {}});
+  for (std::size_t x = 0; x < W; ++x) {
+    double above = 0; // liquid weight above the cell, Pa
+    for (std::size_t y = H; y-- > 0;) {
+      const auto i = x + y * W;
+      state.grid.walls[i] = x == 0 || x == W - 1 || y == 0 || y == H - 1;
+      if (state.grid.walls[i]) continue;
+      const double low = static_cast<double>(y - 1), high = low + 1;
+      const double wet = water_top[x <= 5 ? 0 : 1], top = oil_top[x <= 5 ? 0 : 1];
+      const double water = std::clamp(wet - low, 0., 1.), oil = std::clamp(std::min(top, high) - std::max(wet, low), 0., 1.);
+      const double weight = 9.81 * (1000 * water + 870 * oil);
+      const double p = above + .5 * weight;
+      auto &m = state.cells[i].mixture.masses;
+      m[f.water] = water * 1000 * (1 + p / (.04 * 2.2e9));
+      m[f.oil] = oil * 870 * (1 + p / (.04 * 1.5e9));
+      if (water + oil < 1) m[f.oxygen] = (1 - water - oil) * gas * .032 / (gas_constant * T);
+      above += weight;
+    }
+  }
+  state.momentum_x.resize((W + 1) * H);
+  state.momentum_y.resize(W * (H + 1));
+  MacClosedSettings cfg;
+  cfg.numerical_kernel = MacNumericalKernel::game;
+  cfg.game_profile = MacGameProfile::game_kernel_thin_drag;
+  cfg.vacuum = MacVacuumRepresentation::void_phase;
+  cfg.maximum_timestep_s = .2;
+  cfg.gravity_m_per_s2 = 9.81;
+  cfg.trace_sink_threshold_kg = 1e-11;
+  cfg.game.liquid_law = MacGameLiquidLaw::positive_segments;
+  cfg.game.pressure_maximum_iterations = 400;
+  cfg.game.heat_maximum_iterations = 800;
+  return MacClosedWorld::game_colony(f.registry, f.eos, std::move(state), std::vector<double>(W * H, T), cfg);
+}
+struct LiquidPairRun {
+  double range = 0, gas_under = 0, water_lifted = 0, flat_after = -1, mass_error = 0, energy_error = 0;
+};
+// Advances `seconds`; range is the final water column range, gas_under the
+// largest gas volume in rows 1-3 (all liquid at rest), water_lifted the
+// largest water mass in rows 4 and up, flat_after the first time from which
+// the water column range stays under 25 kg.
+inline LiquidPairRun run_liquid_pair(MacClosedWorld world, double seconds) {
+  const auto &f = liquid_pair();
+  const auto W = world.state().grid.width;
+  const auto energy0 = surface_game::total_energy(world);
+  long double mass0 = 0, sunk_mass = 0, sunk_energy = 0;
+  for (const auto &cell : world.state().cells) mass0 += cell.mixture.mass();
+  LiquidPairRun out;
+  const auto ticks = static_cast<unsigned>(std::lround(seconds / .2));
+  for (unsigned tick = 1; tick <= ticks; ++tick) {
+    auto next = std::move(world).advanced(.2);
+    for (const auto &m : next.report.trace_sink.mass_kg) sunk_mass += mac_energy_long_double(m);
+    const auto &sink = next.report.trace_sink;
+    sunk_energy += mac_energy_long_double(sink.internal_energy_j) + mac_energy_long_double(sink.kinetic_energy_j) +
+                   mac_energy_long_double(sink.potential_energy_j);
+    world = std::move(next.world);
+    double low = 1e30, high = 0, gas = 0, lifted = 0;
+    for (std::size_t x = 1; x + 1 < W; ++x) {
+      double column = 0;
+      for (std::size_t y = 1; y + 1 < world.state().grid.height; ++y) {
+        const auto i = x + y * W;
+        const double water = world.state().cells[i].mixture.masses[f.water];
+        column += water;
+        if (y <= 3 && world.state().cells[i].mixture.masses[f.oxygen] > 0) gas += world.cell_reading(i).gas_volume_m3;
+        if (y >= 4) lifted += water;
+      }
+      low = std::min(low, column);
+      high = std::max(high, column);
+    }
+    out.range = high - low;
+    out.gas_under = std::max(out.gas_under, gas);
+    out.water_lifted = std::max(out.water_lifted, lifted);
+    if (out.range >= 25) out.flat_after = -1;
+    else if (out.flat_after < 0) out.flat_after = .2 * tick;
+  }
+  long double mass1 = 0;
+  for (const auto &cell : world.state().cells) mass1 += cell.mixture.mass();
+  out.mass_error = static_cast<double>(std::abs(mass1 + sunk_mass - mass0) / mass0);
+  out.energy_error = static_cast<double>(std::abs(surface_game::total_energy(world) + sunk_energy - energy0) / std::abs(energy0));
+  return out;
+}
+// Sharpening exchanges a liquid for everything else its target cell holds.
+// Beside a second liquid, that is not the phase across the interface, so
+// profile 12 refuses a vertical exchange that lifts net mass (surface.hpp).
+// Without that refusal the resting pool below (water 2.5 cells, oil 1 cell,
+// oil top inside a cell) trades its water up for oil: within 60 s it lifts
+// 4425 kg of water into the oil row, draws 0.572 m3 of air under the liquid
+// and ends 639 kg out of level. The tilted interface (water 2.5/1.5 cells
+// under oil to a flat top at 4 cells) holds 0.18 m3 of air under its oil and
+// is still 120 kg out of level at 90 s; with the refusal it is under 25 kg
+// from 51.2 s, the pool keeps 1.8e-7 kg of range, 0.12 kg of lifted water
+// and no gas under liquid.
+inline void liquid_interface_control() {
+  const auto saved = mac_kernel_default_options();
+  auto options = saved;
+  options.threads = 1;
+  set_mac_kernel_default_options(options);
+  const auto rest = run_liquid_pair(liquid_pair_box({2.5, 2.5}, {3.5, 3.5}), 60);
+  const auto tilt = run_liquid_pair(liquid_pair_box({2.5, 1.5}, {4, 4}), 90);
+  set_mac_kernel_default_options(saved);
+  check(rest.range < 1 && rest.water_lifted < 10 && rest.gas_under < 1e-3,
+        "A resting water/oil pool mixed or drew gas under its liquid");
+  check(tilt.flat_after > 0, "A tilted water/oil interface did not level within 90 s");
+  for (const auto &measured : {rest, tilt}) {
+    check(measured.mass_error < 1e-12, "The water/oil pool changed mass");
+    check(measured.energy_error < 1e-12, "The water/oil pool lost U+K+G");
+  }
+  std::cout << "PASS profile12 liquid interface: a resting water/oil pool keeps " << rest.range
+            << " kg of column range, " << rest.water_lifted << " kg of water above its interface and "
+            << rest.gas_under << " m3 of gas under liquid for 60 s; a tilted interface is under 25 kg from "
+            << tilt.flat_after << " s (" << tilt.range << " kg at 90 s); mass and U+K+G closed\n";
+}
 inline void run() {
   normal_controls();
   settling_control(false);
   settling_control(true);
   pool_step_control();
+  sealed_drain_control();
+  liquid_interface_control();
 }
 } // namespace ma::testing::surface_stability_game

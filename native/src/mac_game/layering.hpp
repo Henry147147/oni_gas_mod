@@ -21,7 +21,7 @@ layer(const ma::experimental::MacGrid &source,
       const ma::experimental::mac_kernel::Grid *cached_grid = nullptr,
       ma::experimental::mac_kernel::Pool *executor = nullptr,
       bool carry_momentum = false, RegionAudit *audit = nullptr,
-      bool convective = false) {
+      bool convective = false, bool sinking = false) {
   namespace k = ma::experimental::mac_kernel;
   k::Grid built;
   if (!cached_grid)
@@ -217,6 +217,100 @@ layer(const ma::experimental::MacGrid &source,
       ++out.faces;
     }
   }
+  if (sinking) {
+    // Profile 12 sub-grid exchange of liquid resting on gas. A face carries
+    // one velocity, so where a cell's liquid lies on the gas of the cell
+    // below it and that gas has no other way out (a one-tile opening into a
+    // closed space), the resolved flow only compresses the gas until it
+    // bears the liquid, and the liquid stands on it for good. Real liquid
+    // falls through such an opening while the gas rises past it. The two
+    // cells swap equal volumes of the upper cell's liquid and the lower
+    // cell's gas, each share carrying its own EOS energy and passives; the
+    // released potential energy is heat (below), so species, U+K+G and
+    // passives are exact. The share follows the free-fall speed over one
+    // cell, w = sqrt(g h (rho_liquid - rho_gas) / rho_mean), capped like
+    // layering; as for the convective adjustment, a face whose cells
+    // already move faster than w exchanges nothing.
+    const double h = source.spacing_m;
+    const auto face_speed = [&](bool x, std::size_t face) {
+      const double j = (x ? initial.jx : initial.jy)[face];
+      if (j == 0)
+        return 0.;
+      const auto l = (x ? g.xl : g.yl)[face], r = (x ? g.xr : g.yr)[face];
+      const double inertia = .5 * ((l == k::none ? 0 : old_mass[l]) +
+                                   (r == k::none ? 0 : old_mass[r]));
+      return inertia > 0 ? std::abs(j / inertia)
+                         : std::numeric_limits<double>::infinity();
+    };
+    for (std::size_t f = 0; f < g.NY; ++f) {
+      const auto lower = gravity > 0 ? g.yl[f] : g.yr[f],
+                 upper = gravity > 0 ? g.yr[f] : g.yl[f];
+      if (lower == k::none || upper == k::none || g.closed(true, f) ||
+          g.wall[lower] || g.wall[upper] || !(eos[lower].gas_volume > 0) ||
+          !(eos[upper].liquid_volume > 0))
+        continue;
+      double gas = 0, liquid = 0;
+      for (std::size_t a = initial.masses.offsets[lower];
+           a < initial.masses.offsets[lower + 1]; ++a)
+        if (species[initial.masses.species[a]].gas)
+          gas += initial.masses.mass[a];
+      for (std::size_t a = initial.masses.offsets[upper];
+           a < initial.masses.offsets[upper + 1]; ++a)
+        if (!species[initial.masses.species[a]].gas)
+          liquid += initial.masses.mass[a];
+      if (!(gas > 0) || !(liquid > 0))
+        continue;
+      const double rare = gas / eos[lower].gas_volume,
+                   dense = liquid / eos[upper].liquid_volume;
+      if (!(rare < dense))
+        continue;
+      const double speed = std::sqrt(std::abs(gravity) * h * (dense - rare) /
+                                     (.5 * (dense + rare)));
+      bool quiescent = true;
+      for (const auto cell : {lower, upper})
+        quiescent = quiescent && face_speed(true, g.left_face(cell)) <= speed &&
+                    face_speed(true, g.right_face(cell)) <= speed &&
+                    face_speed(false, g.bottom_face(cell)) <= speed &&
+                    face_speed(false, g.top_face(cell)) <= speed;
+      if (!quiescent)
+        continue;
+      const double share = std::min(.25, -std::expm1(-dt * speed / h));
+      const double volume =
+          share * std::min(eos[lower].gas_volume, eos[upper].liquid_volume);
+      if (!(volume > 0))
+        continue;
+      Parcel rising{lower, upper, {}}, falling{upper, lower, {}};
+      for (std::size_t a = initial.masses.offsets[lower];
+           a < initial.masses.offsets[lower + 1]; ++a) {
+        const auto key = initial.masses.species[a];
+        const auto &s = species[key];
+        if (!s.gas)
+          continue;
+        const double moved =
+            initial.masses.mass[a] * (volume / eos[lower].gas_volume);
+        rising.species.emplace_back(key, moved);
+        rising.mass += moved;
+        rising.energy += moved * (s.offset + s.cv * eos[lower].temperature);
+      }
+      for (std::size_t a = initial.masses.offsets[upper];
+           a < initial.masses.offsets[upper + 1]; ++a) {
+        const auto key = initial.masses.species[a];
+        const auto &s = species[key];
+        if (s.gas)
+          continue;
+        const double moved =
+            initial.masses.mass[a] * (volume / eos[upper].liquid_volume);
+        falling.species.emplace_back(key, moved);
+        falling.mass += moved;
+        falling.energy +=
+            moved * (s.offset + s.cv * eos[upper].temperature +
+                     liquid_specific_elastic(s, eos[upper].pressure));
+      }
+      parcels.push_back(std::move(rising));
+      parcels.push_back(std::move(falling));
+      ++out.faces;
+    }
+  }
   if (parcels.empty())
     return out;
   // Each cell's outgoing and then incoming parcels, in parcel order.
@@ -366,7 +460,7 @@ layer(const ma::experimental::MacGrid &source,
   // what moved through it (the fault would otherwise surface a step later in
   // the EOS with only the final state).
   const auto audit_touched = [&]() {
-    if (!convective)
+    if (!convective && !sinking)
       return;
     for (std::size_t i = 0; i < g.N; ++i) {
       if (out_start[i] == out_start[i + 1] && in_start[i] == in_start[i + 1])
