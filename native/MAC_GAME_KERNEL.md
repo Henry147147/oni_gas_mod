@@ -1069,6 +1069,72 @@ to 60 s; with it the lowest is -7 kg and the range 0.22 kg, and
 below the hole at frame 400, bound 2.56 kg; 0.04 kg without the drag: gas
 rises through liquid more slowly).
 
+### Layering in a remote step
+
+The shares of the layering exchanges (liquid over liquid, the convective
+adjustment, liquid over gas) are capped at a quarter a call, and a remote
+step of the activity tiers covers a second in one call. A region stepped
+once a second therefore exchanged at most a quarter a second where one
+stepped every frame exchanges up to three quarters: in game the
+`sealed-drain` room filled at 250 kg/s in one batch and at 700 kg/s in
+another (the two runs differ in the order of their scenarios; the faster
+arena probably held an earlier scenario's buildings, which keep a region
+stepped every frame, but that was not checked). Profile 12 now layers once
+for each frame's length of a
+step (`Tick`, `layering_frame_s`), stopping at the first pass that exchanges
+nothing; a frame-long step makes its one pass as before. The control's
+remote room holds 8,755 kg after 30 s against 8,745 kg stepped every frame
+(6,410 kg with one pass a step). `mac_phase_change`'s profile-12 boiling
+line, which advances one second in a step, reads 6.91 kg and a 226.5 kPa
+peak (6.21 kg and 306.9 kPa).
+
+### Levelling keeps a region remote
+
+With the drag a wide pool levels by diffusion (D about g h × 1 s), and
+[activity tiers](#region-activity-tiers-profile9) paused its region 60 s
+after the last touch with whatever slope it had left. Profile 12 now keeps a
+remote region that reaches its pause deadline in the remote tier while its
+liquid still moves: some open face between two of its cells has
+|J|/I times the smaller of the two cells' liquid volume fractions (nominal,
+at most 1) above `levelling_speed_m_per_s`, 3e-4 m/s (`mac_game/activity.hpp`).
+Gas weighs nothing and mist next to nothing. A paused region stays paused; a
+touch wakes it as before; motion still never counts as activity. The
+question is asked of the state at the start of each advance, as the owner's
+`game_activity_steps` query asks it, so both schedule the same cells (the
+owner advances one interval a frame); the saved clocks, the checkpoint format
+and version 32 do not change.
+
+Pools at rest move below 1e-6 m/s on such faces (1e-9 with still gas above);
+a levelling pool moves about 0.016 m/s times its column range in kg over its
+width in columns. Rest pools under 1-1.5 m/s of convecting gas (a 70-150 K
+split, some with mist) read 0.8-2.6e-4 m/s at the deadline and pause there as
+before. A 500 kg step, the pool touched once at t = 0 (test registry, game
+options; last remote step and column range then):
+
+| Pool | before | after |
+| --- | --- | --- |
+| 35 columns, 3 cells deep | 59.6 s, 0.0015 kg | unchanged |
+| 35 columns, half a cell | 59.6 s, 2.48 kg | 75.6 s, 0.54 kg |
+| 70 columns, 3 cells deep | 59.6 s, 14.5 kg | 98.6 s, 1.16 kg |
+| 70 columns, half a cell | 59.6 s, 189 kg | 301.6 s, 1.30 kg |
+| 140 columns, 3 cells deep | 59.6 s, 261 kg | 364.6 s, 2.61 kg |
+| 140 columns, half a cell | 59.6 s, 452 kg | 599.6 s, 31.5 kg (the limit) |
+
+The extension ends `levelling_limit_s`, 600 s, after the region's last
+activity whatever its liquid does, so motion that never stops (a pool
+boiling on hot rock) cannot keep an untouched region stepping for good;
+without the limit the last pool of the table stepped for 1,094 s and ended
+2.7 kg from level.
+
+Remote levelling tracks continuous simulation within its pending second. A
+wet region's remote second cost 0.8-0.9 of a continuously simulated one in
+these pools (its pressure and transport work is subdivided), so the 140-column
+pools cost 4.4 and 7.3 s of the 8.0 and 8.9 s that 600 s of continuous
+simulation takes (1.0 s before). The question itself took 2.1 ms on a resting
+97,000-cell region of the test registry. Pools at rest, with or without the
+convecting gas, keep their bytes. Profiles 2-11 are unchanged. Control:
+`levelling_pause_control` in `mac_game_surface_stability_control.hpp`.
+
 ## Liquid over gas (profile 12, 2026-11-12)
 
 A face carries one velocity, so it cannot pass liquid down and gas up in the

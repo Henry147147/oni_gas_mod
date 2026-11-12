@@ -1,5 +1,6 @@
 #include "mac_game/activity.hpp"
 #include <limits>
+#include <optional>
 
 namespace ma::experimental {
 std::span<const MacGameActivityCell> MacClosedWorld::game_activity() const noexcept {
@@ -72,11 +73,15 @@ std::vector<double> MacClosedWorld::game_activity_steps(double seconds) const {
   game_kernel::validate_activity_interval(seconds,settings_.maximum_timestep_s);
   const auto& regions=game_kernel::cached_activity_regions(g);
   auto cells=std::vector<MacGameActivityCell>(game_activity().begin(),game_activity().end());
+  std::optional<game_kernel::Levelling> levelling;
+  if(settings_.game_profile==MacGameProfile::game_kernel_thin_drag && settings_.game.activity_tiers)
+    levelling.emplace(state(),registry_,*thermodynamics_,regions.cells.size());
   double elapsed=0;std::size_t intervals=0;
   while(elapsed<seconds) {
     if(++intervals>65536)throw std::invalid_argument("Game activity query exceeds its scheduling budget");
     const double dt=std::min(settings_.maximum_timestep_s,seconds-elapsed);
-    const auto due=game_kernel::activity_step(g,regions,cells,settings_.game,time_s_+elapsed,dt);
+    const auto due=game_kernel::activity_step(g,regions,cells,settings_.game,time_s_+elapsed,dt,
+                                              levelling?&*levelling:nullptr);
     for(std::size_t i=0;i<total.size();++i)total[i]+=due[i];
     const double next=elapsed+dt;
     if(!(next>elapsed))throw std::invalid_argument("Game activity interval cannot advance");

@@ -85,6 +85,8 @@ class Tick {
   // Profile 12: layering also exchanges liquid resting on the gas of the
   // cell below it (layering.hpp).
   bool liquid_exchange = false;
+  // The game's frame: the length one layering pass stands for.
+  static constexpr double layering_frame_s = .2;
   SurfaceScratch surface_scratch;
   static double ms(std::chrono::steady_clock::time_point start) {
     return std::chrono::duration<double, std::milli>(
@@ -390,15 +392,27 @@ public:
       }
     }
     auto stage_start = std::chrono::steady_clock::now();
-    auto layered = layer(grid, species, out.state, out.eos, dt, gravity,
-                         &flow.kernel_grid(), &flow.worker_pool(),
-                         carry_momentum, &regions, convective,
-                         liquid_exchange);
-    wall_x += layered.wall_x;
-    wall_y += layered.wall_y;
-    wall_ops_x += layered.wall_ops_x;
-    wall_ops_y += layered.wall_ops_y;
-    if (layered.faces) {
+    // The exchange shares are capped per call. A remote step (activity
+    // tiers) covers several frames at once, so profile 12 layers once for
+    // each frame's length of it: a region then drains, overturns and
+    // settles at the pace of one simulated every frame (in game a one-cell
+    // drain ran at 250 kg/s in a region without buildings and at 700 kg/s
+    // in one stepped every frame). A frame-long step makes one pass, with
+    // its own dt, as before.
+    const unsigned passes =
+        liquid_exchange ? std::max(1u, static_cast<unsigned>(std::ceil(dt / layering_frame_s - 1e-9))) : 1u;
+    for (unsigned pass = 0; pass < passes; ++pass) {
+      auto layered = layer(grid, species, out.state, out.eos, dt / passes, gravity,
+                           &flow.kernel_grid(), &flow.worker_pool(),
+                           carry_momentum, &regions, convective,
+                           liquid_exchange);
+      wall_x += layered.wall_x;
+      wall_y += layered.wall_y;
+      wall_ops_x += layered.wall_ops_x;
+      wall_ops_y += layered.wall_ops_y;
+      // Nothing exchanged: the state is unchanged and so is every later pass.
+      if (!layered.faces)
+        break;
       out.eos = flow.evaluate_changed(out.state.masses, out.state.energy,
                                       layered.state, std::move(out.eos));
       out.state = std::move(layered.state);

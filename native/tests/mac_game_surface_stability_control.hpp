@@ -312,69 +312,90 @@ inline void sealed_drain_control() {
   // water; rows 7-8: air.
   constexpr std::size_t W = 6, H = 10, floor = 3, hole = 2 + floor * W;
   constexpr double gas = 138000;
-  MacTransportState state;
-  state.grid = {W, H, 1, 1, false, false, std::vector<std::uint8_t>(W * H)};
   const auto water = f.registry.index("water"), oxygen = f.registry.index("oxygen");
-  for (std::size_t i = 0; i < W * H; ++i) {
-    const auto x = i % W, y = i / W;
-    state.grid.walls[i] = x == 0 || x == W - 1 || y == 0 || y == H - 1 || (y == floor && i != hole);
-    MacMaterialCell cell{MixtureInventory(f.registry.size()), {}};
-    if (!state.grid.walls[i]) {
-      if (y > floor && y <= floor + 3)
-        cell.mixture.masses[water] = 1000 + 1000 * (gas + 9810 * (floor + 3.5 - static_cast<double>(y))) / (2.2e9 * .04);
-      else cell.mixture.masses[oxygen] = gas * .032 / (gas_constant * 300);
+  struct Drained { double half_at = 0, wet_30s = 0, wet = 0, air = 0, air0 = 0; };
+  // `remote`: activity tiers on and the region touched once, so after two
+  // seconds it is stepped once a second (MAC_GAME_KERNEL.md, activity tiers).
+  const auto drain = [&](bool remote) {
+    MacTransportState state;
+    state.grid = {W, H, 1, 1, false, false, std::vector<std::uint8_t>(W * H)};
+    for (std::size_t i = 0; i < W * H; ++i) {
+      const auto x = i % W, y = i / W;
+      state.grid.walls[i] = x == 0 || x == W - 1 || y == 0 || y == H - 1 || (y == floor && i != hole);
+      MacMaterialCell cell{MixtureInventory(f.registry.size()), {}};
+      if (!state.grid.walls[i]) {
+        if (y > floor && y <= floor + 3)
+          cell.mixture.masses[water] = 1000 + 1000 * (gas + 9810 * (floor + 3.5 - static_cast<double>(y))) / (2.2e9 * .04);
+        else cell.mixture.masses[oxygen] = gas * .032 / (gas_constant * 300);
+      }
+      state.cells.push_back(std::move(cell));
     }
-    state.cells.push_back(std::move(cell));
-  }
-  state.momentum_x.resize((W + 1) * H);
-  state.momentum_y.resize(W * (H + 1));
-  MacClosedSettings cfg;
-  cfg.numerical_kernel = MacNumericalKernel::game;
-  cfg.game_profile = MacGameProfile::game_kernel_thin_drag;
-  cfg.vacuum = MacVacuumRepresentation::void_phase;
-  cfg.maximum_timestep_s = .2;
-  cfg.gravity_m_per_s2 = 9.81;
-  cfg.trace_sink_threshold_kg = 1e-11;
-  cfg.game.liquid_law = MacGameLiquidLaw::positive_segments;
-  cfg.game.pressure_maximum_iterations = 400;
-  cfg.game.heat_maximum_iterations = 800;
-  auto world = MacClosedWorld::game_colony(f.registry, f.eos, std::move(state), std::vector<double>(W * H, 300), cfg);
-  const auto energy0 = surface_game::total_energy(world);
-  long double mass0 = 0, sunk_mass = 0, sunk_energy = 0;
-  for (const auto &cell : world.state().cells) mass0 += cell.mixture.mass();
-  // The room and its hole: the water and the air they hold.
-  const auto room = [&](const MacClosedWorld &w) {
-    double wet = 0, air = 0;
-    for (std::size_t i = 0; i < (floor + 1) * W; ++i) {
-      wet += w.state().cells[i].mixture.masses[water];
-      air += w.state().cells[i].mixture.masses[oxygen];
+    state.momentum_x.resize((W + 1) * H);
+    state.momentum_y.resize(W * (H + 1));
+    MacClosedSettings cfg;
+    cfg.numerical_kernel = MacNumericalKernel::game;
+    cfg.game_profile = MacGameProfile::game_kernel_thin_drag;
+    cfg.vacuum = MacVacuumRepresentation::void_phase;
+    cfg.maximum_timestep_s = .2;
+    cfg.gravity_m_per_s2 = 9.81;
+    cfg.trace_sink_threshold_kg = 1e-11;
+    cfg.game.liquid_law = MacGameLiquidLaw::positive_segments;
+    cfg.game.pressure_maximum_iterations = 400;
+    cfg.game.heat_maximum_iterations = 800;
+    auto world = MacClosedWorld::game_colony(f.registry, f.eos, std::move(state), std::vector<double>(W * H, 300), cfg);
+    if (remote) {
+      std::vector<std::uint8_t> touched(W * H);
+      touched[hole] = 1;
+      world = world.with_game_activity_tiers(true).with_game_activity(touched, {});
     }
-    return std::pair{wet, air};
+    const auto energy0 = surface_game::total_energy(world);
+    long double mass0 = 0, sunk_mass = 0, sunk_energy = 0;
+    for (const auto &cell : world.state().cells) mass0 += cell.mixture.mass();
+    // The room and its hole: the water and the air they hold.
+    const auto room = [&](const MacClosedWorld &w) {
+      double wet = 0, air = 0;
+      for (std::size_t i = 0; i < (floor + 1) * W; ++i) {
+        wet += w.state().cells[i].mixture.masses[water];
+        air += w.state().cells[i].mixture.masses[oxygen];
+      }
+      return std::pair{wet, air};
+    };
+    Drained out;
+    out.air0 = room(world).second;
+    for (unsigned tick = 1; tick <= 600; ++tick) {
+      auto next = std::move(world).advanced(.2);
+      for (const auto &m : next.report.trace_sink.mass_kg) sunk_mass += mac_energy_long_double(m);
+      const auto &sink = next.report.trace_sink;
+      sunk_energy += mac_energy_long_double(sink.internal_energy_j) + mac_energy_long_double(sink.kinetic_energy_j) +
+                     mac_energy_long_double(sink.potential_energy_j);
+      world = std::move(next.world);
+      const double wet = room(world).first;
+      if (out.half_at == 0 && wet > 4500) out.half_at = .2 * tick;
+      if (tick == 150) out.wet_30s = wet;
+    }
+    std::tie(out.wet, out.air) = room(world);
+    long double mass1 = 0;
+    for (const auto &cell : world.state().cells) mass1 += cell.mixture.mass();
+    check(std::abs(mass1 + sunk_mass - mass0) < 1e-12L * mass0, "The draining pool changed mass");
+    check(std::abs(surface_game::total_energy(world) + sunk_energy - energy0) < 1e-12L * std::abs(energy0),
+          "The draining pool lost U+K+G");
+    return out;
   };
-  const double air0 = room(world).second;
-  double half_at = 0;
-  for (unsigned tick = 1; tick <= 600; ++tick) {
-    auto next = std::move(world).advanced(.2);
-    for (const auto &m : next.report.trace_sink.mass_kg) sunk_mass += mac_energy_long_double(m);
-    const auto &sink = next.report.trace_sink;
-    sunk_energy += mac_energy_long_double(sink.internal_energy_j) + mac_energy_long_double(sink.kinetic_energy_j) +
-                   mac_energy_long_double(sink.potential_energy_j);
-    world = std::move(next.world);
-    if (half_at == 0 && room(world).first > 4500) half_at = .2 * tick;
-  }
-  const auto [wet1, air1] = room(world);
-  // Nine cells: the room fills and its air has gone up through the water,
-  // but for bubbles under the flat ceiling away from the hole (0.32 kg).
-  check(wet1 > 8500, "Water above a sealed room did not drain through a one-cell hole");
-  check(air0 > 10 && air1 < .05 * air0, "The sealed room's air did not rise past the draining water");
-  long double mass1 = 0;
-  for (const auto &cell : world.state().cells) mass1 += cell.mixture.mass();
-  check(std::abs(mass1 + sunk_mass - mass0) < 1e-12L * mass0, "The draining pool changed mass");
-  check(std::abs(surface_game::total_energy(world) + sunk_energy - energy0) < 1e-12L * std::abs(energy0),
-        "The draining pool lost U+K+G");
+  const auto every_frame = drain(false), remote = drain(true);
   set_mac_kernel_default_options(saved);
+  // Nine cells: the room fills and its air has gone up through the water,
+  // but for bubbles under the flat ceiling away from the hole (0.30 kg).
+  check(every_frame.wet > 8500, "Water above a sealed room did not drain through a one-cell hole");
+  check(every_frame.air0 > 10 && every_frame.air < .05 * every_frame.air0, "The sealed room's air did not rise past the draining water");
+  // A remote step layers once for each frame it covers, so the room fills at
+  // the same pace when its region is stepped once a second (with one pass a
+  // step it held 6,410 kg after 30 s where the frame-by-frame run held 8,745).
+  check(remote.wet_30s > .8 * every_frame.wet_30s && remote.wet > 8500 && remote.air < .05 * remote.air0,
+        "A sealed room in a remote region filled more slowly than one stepped every frame");
   std::cout << "PASS profile12 liquid over gas: a sealed nine-cell room under 12 t of water fills through a one-cell hole (half by "
-            << half_at << " s; " << wet1 << " kg of water and " << air1 << " of " << air0 << " kg of air in it after 120 s)\n";
+            << every_frame.half_at << " s; " << every_frame.wet << " kg of water and " << every_frame.air << " of "
+            << every_frame.air0 << " kg of air in it after 120 s); in a remote region it holds " << remote.wet_30s
+            << " kg after 30 s (" << every_frame.wet_30s << " kg stepped every frame) and " << remote.wet << " kg after 120 s\n";
 }
 // Profile 12 carries each passive with the gas or the liquid of its cell. A
 // stepped pool whose water holds 1000 germs per kilogram under air holding
@@ -661,11 +682,116 @@ inline void liquid_interface_control() {
             << rest.gas_under << " m3 of gas under liquid for 60 s; a tilted interface is under 25 kg from "
             << tilt.flat_after << " s (" << tilt.range << " kg at 90 s); mass and U+K+G closed\n";
 }
+// Profile 12 with activity tiers (MAC_GAME_KERNEL.md, "Levelling keeps a
+// region remote"): a 70-column pool, three cells deep, with a 500 kg step,
+// touched once. Its region used to pause 60 s after the touch with about 15 kg
+// of the step left; its remote steps now continue until it is level. The same
+// pool at rest still pauses at the deadline.
+inline void levelling_pause_control() {
+  const auto saved = mac_kernel_default_options();
+  auto options = saved;
+  options.threads = 1;
+  set_mac_kernel_default_options(options);
+  const auto &f = setup();
+  constexpr std::size_t open = 70, W = open + 2, H = 8;
+  constexpr double gas = 138000;
+  const auto water = f.registry.index("water"), oxygen = f.registry.index("oxygen");
+  const auto pool = [&](double left, double right) {
+    MacTransportState state;
+    state.grid = {W, H, 1, 1, false, false, std::vector<std::uint8_t>(W * H)};
+    for (std::size_t i = 0; i < W * H; ++i) {
+      const auto x = i % W, y = i / W;
+      state.grid.walls[i] = x == 0 || x == W - 1 || y == 0 || y == H - 1;
+      MacMaterialCell cell{MixtureInventory(f.registry.size()), {}};
+      if (!state.grid.walls[i]) {
+        if (y < 3)
+          cell.mixture.masses[water] = 1000 + 1000 * (gas + 9810 * (3.5 - static_cast<double>(y))) / (2.2e9 * .04);
+        else if (y == 3) {
+          const double alpha = x <= open / 2 ? left : right;
+          cell.mixture.masses[water] = 1000 * alpha;
+          cell.mixture.masses[oxygen] = (1 - alpha) * gas * .032 / (gas_constant * 300);
+        } else cell.mixture.masses[oxygen] = gas * .032 / (gas_constant * 300);
+      }
+      state.cells.push_back(std::move(cell));
+    }
+    state.momentum_x.resize((W + 1) * H);
+    state.momentum_y.resize(W * (H + 1));
+    MacClosedSettings cfg;
+    cfg.numerical_kernel = MacNumericalKernel::game;
+    cfg.game_profile = MacGameProfile::game_kernel_thin_drag;
+    cfg.vacuum = MacVacuumRepresentation::void_phase;
+    cfg.maximum_timestep_s = .2;
+    cfg.gravity_m_per_s2 = 9.81;
+    cfg.trace_sink_threshold_kg = 1e-11;
+    cfg.game.liquid_law = MacGameLiquidLaw::positive_segments;
+    cfg.game.pressure_maximum_iterations = 400;
+    cfg.game.heat_maximum_iterations = 800;
+    return MacClosedWorld::game_colony(f.registry, f.eos, std::move(state), std::vector<double>(W * H, 300), cfg)
+        .with_game_activity_tiers(true);
+  };
+  const auto range = [&](const MacClosedWorld &w) {
+    double low = 1e30, high = 0;
+    for (std::size_t x = 1; x + 1 < W; ++x) {
+      double column = 0;
+      for (std::size_t y = 1; y + 1 < H; ++y) column += w.state().cells[x + y * W].mixture.masses[water];
+      low = std::min(low, column);
+      high = std::max(high, column);
+    }
+    return high - low;
+  };
+  struct Run { double last_step = 0, range = 0; std::size_t steps = 0; bool continued = false; };
+  const auto run = [&](double left, double right) {
+    Run out;
+    auto world = pool(left, right);
+    long double mass0 = 0, mass1 = 0, sunk = 0;
+    for (const auto &cell : world.state().cells) mass0 += cell.mixture.mass();
+    std::vector<std::uint8_t> touched(W * H);
+    touched[open / 2 + 2 * W] = 1;
+    world = world.with_game_activity(touched, {});
+    for (unsigned tick = 1; tick <= 1000; ++tick) {
+      const bool due = world.game_activity_steps(.2)[1 + W] > 0;
+      const auto before = world.state().momentum_x;
+      auto next = std::move(world).advanced(.2);
+      for (const auto &m : next.report.trace_sink.mass_kg) sunk += mac_energy_long_double(m);
+      world = std::move(next.world);
+      check(due || world.state().momentum_x == before, "A region the activity query held was stepped");
+      if (due) { ++out.steps; out.last_step = world.time_s(); }
+      // In the remote steps past the deadline: exact cold and requested-worker continuation.
+      if (tick == 400 && world.game_activity()[1 + W].next_remote_s > 0) {
+        const auto image = world.checkpoint();
+        const auto cold = MacClosedWorld::from_checkpoint(f.registry, f.eos, image);
+        const auto live = world.advanced(1.).world.checkpoint();
+        options.threads = 12;
+        set_mac_kernel_default_options(options);
+        check(cold.checkpoint() == image && cold.advanced(1.).world.checkpoint() == live,
+              "A levelling remote region's cold/requested-worker continuation differs");
+        options.threads = 1;
+        set_mac_kernel_default_options(options);
+        out.continued = true;
+      }
+    }
+    for (const auto &cell : world.state().cells) mass1 += cell.mixture.mass();
+    check(std::abs(mass1 + sunk - mass0) < 1e-12L * mass0, "The levelling pool changed mass");
+    check(world.game_activity()[1 + W].next_remote_s == 0, "A level pool did not pause");
+    out.range = range(world);
+    return out;
+  };
+  const auto step = run(.25, .75), rest = run(.5, .5);
+  check(step.continued && step.last_step > 70 && step.range < 5,
+        "A levelling pool paused before it was level");
+  check(rest.last_step < 60.2 && rest.steps < 70, "A pool at rest no longer paused at the deadline");
+  set_mac_kernel_default_options(saved);
+  std::cout << "PASS profile12 levelling keeps a region remote: a 70-column pool with a 500 kg step, touched once, "
+            << "keeps its remote steps until " << step.last_step << " s (" << step.steps << " stepped frames) and pauses with "
+            << step.range << " kg of range; at rest it pauses at " << rest.last_step << " s after " << rest.steps
+            << " stepped frames; held frames leave the state alone; exact cold and 12-worker continuation; mass closed\n";
+}
 inline void run() {
   normal_controls();
   settling_control(false);
   settling_control(true);
   pool_step_control();
+  levelling_pause_control();
   sealed_drain_control();
   liquid_interface_control();
   carried_passives_control();

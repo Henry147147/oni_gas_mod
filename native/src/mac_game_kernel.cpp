@@ -739,12 +739,18 @@ MacClosedAdvance MacGameKernelAccess::advance_guarded(
   std::vector<MacGameActivityCell> activity_state;
   std::vector<std::uint8_t> evolved;
   const k::ActivityRegions* activity_regions=nullptr;
+  // Profile 12: levelling is read from the source state, as the owner's
+  // game_activity_steps query reads it (MAC_GAME_KERNEL.md, "Levelling keeps a
+  // region remote").
+  std::optional<k::Levelling> levelling;
   if(activity) {
     evolved.resize(source.state().cells.size());
     k::validate_activity(source.game_activity(),source.state().cells.size(),source.time_s_,source.state().grid.walls);
     k::validate_activity_interval(seconds,source.settings_.maximum_timestep_s,budget);
     activity_state.assign(source.game_activity().begin(),source.game_activity().end());
     activity_regions=&k::cached_activity_regions(source.state().grid);
+    if(thin && cfg.activity_tiers)
+      levelling.emplace(source.state(),source.registry_,*source.thermodynamics_,activity_regions->cells.size());
   }
   result.report.game_converted_mass_kg.assign(source.registry_.size(), 0);
   std::size_t activity_intervals=0;
@@ -756,7 +762,7 @@ MacClosedAdvance MacGameKernelAccess::advance_guarded(
     const double dt =
         std::min(source.settings_.maximum_timestep_s, seconds - elapsed);
     const auto due=activity?k::activity_step(source.state().grid,*activity_regions,
-        activity_state,cfg,source.time_s_+elapsed,dt):std::vector<double>{};
+        activity_state,cfg,source.time_s_+elapsed,dt,levelling?&*levelling:nullptr):std::vector<double>{};
     if(activity)for(std::size_t i=0;i<due.size();++i)if(due[i]>0)evolved[i]=1;
     stamp = std::chrono::steady_clock::now();
     // With activity the regional tick takes the interval's state and writes
