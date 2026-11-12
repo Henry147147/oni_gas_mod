@@ -387,12 +387,33 @@ layer(const ma::experimental::MacGrid &source,
           for (const auto &[key, value] : parcel.species)
             mass[key] += sign * value;
           out.state.energy[i] += sign * parcel.energy;
-          if (has_passives)
+          if (has_passives &&
+              initial.passives.offsets[parcel.from] !=
+                  initial.passives.offsets[parcel.from + 1]) {
+            // A parcel holds one phase. A plain passive moves with the mass
+            // share; a carried one (profile 12) with its carrier's share, or
+            // with the phase the donor holds when it lacks the carrier.
+            double gas = 0, liquid = 0;
+            for (std::size_t a = initial.masses.offsets[parcel.from];
+                 a < initial.masses.offsets[parcel.from + 1]; ++a)
+              (species[initial.masses.species[a]].gas ? gas : liquid) +=
+                  initial.masses.mass[a];
+            const bool gas_parcel = !parcel.species.empty() &&
+                                    species[parcel.species.front().first].gas;
             for (std::size_t a = initial.passives.offsets[parcel.from];
-                 a < initial.passives.offsets[parcel.from + 1]; ++a)
-              passive[initial.passives.species[a]] +=
-                  sign * initial.passives.mass[a] *
-                  (parcel.mass / old_mass[parcel.from]);
+                 a < initial.passives.offsets[parcel.from + 1]; ++a) {
+              const auto identity = initial.passives.species[a];
+              double share = parcel.mass / old_mass[parcel.from];
+              if (identity & ma::passive_carrier_mask) {
+                const bool with_gas = identity & ma::passive_gas_carrier
+                                          ? gas > 0
+                                          : !(liquid > 0);
+                share = with_gas != gas_parcel ? 0
+                        : parcel.mass / (gas_parcel ? gas : liquid);
+              }
+              passive[identity] += sign * initial.passives.mass[a] * share;
+            }
+          }
         };
         for (auto n = out_start[i]; n < out_start[i + 1]; ++n)
           apply(parcels[outgoing[n]], -1);

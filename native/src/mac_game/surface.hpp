@@ -489,13 +489,48 @@ sharpen(const ma::experimental::MacGrid &source,
     }
     if (!candidate || accepted == 0)
       return;
+    // A plain passive moves with the mass share. A carried one (profile 12)
+    // moves with its carrier's share: the donor gives liquid of the chosen
+    // group, the target returns its gas and other liquids. A carrier the
+    // cell does not hold leaves its passives to the phase it does hold.
     std::map<std::uint64_t, double> passive_delta;
-    for (const auto &[identity, quantity] : passives[donor])
-      passive_delta[identity] -=
-          quantity * (accepted * forward_mass / mass[donor]);
-    for (const auto &[identity, quantity] : passives[target])
-      passive_delta[identity] +=
-          quantity * (accepted * back_mass / mass[target]);
+    if (!passives[donor].empty() || !passives[target].empty()) {
+      const auto held = [&](std::size_t i) {
+        std::pair<double, double> sum{};
+        for (const auto &[key, value] : cells[i])
+          (species[key].gas ? sum.first : sum.second) += value;
+        return sum;
+      };
+      const auto [donor_gas, donor_liquid] = held(donor);
+      const auto [target_gas, target_liquid] = held(target);
+      double back_gas = 0, back_liquid = 0;
+      for (const auto &[key, value] : cells[target])
+        if (phase_group(species, key) != chosen)
+          (species[key].gas ? back_gas : back_liquid) +=
+              value * volume / remaining;
+      const auto liquid_carried = [](std::uint64_t identity, double gas,
+                                     double liquid) {
+        return identity & ma::passive_liquid_carrier ? liquid > 0 : !(gas > 0);
+      };
+      for (const auto &[identity, quantity] : passives[donor]) {
+        const double share =
+            !(identity & ma::passive_carrier_mask) ? forward_mass / mass[donor]
+            : liquid_carried(identity, donor_gas, donor_liquid)
+                ? forward_mass / donor_liquid
+                : 0;
+        if (share > 0)
+          passive_delta[identity] -= quantity * (accepted * share);
+      }
+      for (const auto &[identity, quantity] : passives[target]) {
+        const double share =
+            !(identity & ma::passive_carrier_mask) ? back_mass / mass[target]
+            : liquid_carried(identity, target_gas, target_liquid)
+                ? (target_liquid > 0 ? back_liquid / target_liquid : 0)
+                : back_gas / target_gas;
+        if (share > 0)
+          passive_delta[identity] += quantity * (accepted * share);
+      }
+    }
     for (const auto i : {donor, target}) {
       std::map<std::uint64_t, double> inventory;
       for (const auto &[identity, quantity] : passives[i])

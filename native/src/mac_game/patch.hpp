@@ -61,6 +61,17 @@ class PatchTransport {
     bool on = false;
     double horizontal = 0, mass = 0, up_mass = 0, down_mass = 0,
            up_energy = 0, down_energy = 0, keep_energy = 0;
+    // The shares of the donor's gas and of its liquid (every liquid phase,
+    // by mass) through the top face, the bottom face and retained: a carried
+    // passive moves with its carrier's share (profile 12).
+    std::array<double, 3> gas_share{}, liquid_share{};
+    double carried(std::uint64_t identity, int which, double plain) const {
+      if (!(identity & ma::passive_carrier_mask))
+        return plain;
+      const auto &share =
+          identity & ma::passive_liquid_carrier ? liquid_share : gas_share;
+      return share[which > 0 ? 0 : which < 0 ? 1 : 2];
+    }
     std::vector<LayeredPhase> phases;
     double fraction(std::uint64_t identity, int which) const {
       for (const auto &p : phases)
@@ -219,6 +230,25 @@ class PatchTransport {
       out.down_mass += out.phases[q].down * geo.phases[q].mass;
       out.up_energy += out.phases[q].up * geo.phases[q].energy;
       out.down_energy += out.phases[q].down * geo.phases[q].energy;
+    }
+    {
+      double wet = 0;
+      std::array<double, 3> moved{};
+      for (std::size_t q = 0; q < n; ++q) {
+        const auto &phase = out.phases[q];
+        if (geo.phases[q].identity == gas_group) {
+          out.gas_share = {phase.up, phase.down, phase.keep};
+          continue;
+        }
+        wet += geo.phases[q].mass;
+        moved[0] += phase.up * geo.phases[q].mass;
+        moved[1] += phase.down * geo.phases[q].mass;
+      }
+      // The retained share is the remainder, so the three sum to the whole
+      // less the horizontal sweep, as for the gas.
+      out.liquid_share = {moved[0] / wet, moved[1] / wet, 0};
+      out.liquid_share[2] = std::max(
+          0., 1 - out.horizontal - out.liquid_share[0] - out.liquid_share[1]);
     }
     // Horizontal receivers take fraction * U, as for any donor.
     double horizontal_energy = 0;
@@ -551,7 +581,9 @@ public:
               if (c[a].fraction &&
                   passive_pos[a] < passive_cells[c[a].cell].size() &&
                   passive_cells[c[a].cell][passive_pos[a]].first == key)
-                value += passive_fraction[a] *
+                value += (split[a] ? split[a]->carried(key, direction[a],
+                                                       passive_fraction[a])
+                                   : passive_fraction[a]) *
                          passive_cells[c[a].cell][passive_pos[a]++].second;
             if (!(value > 0)) {
               if (layered && value == 0 && update.mass > 0)

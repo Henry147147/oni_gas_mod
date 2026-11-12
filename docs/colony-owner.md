@@ -418,6 +418,16 @@ it removes and its receipt returns the most numerous one, so a breath or a
 pump gets the germs of what it took. Each published frame shows a cell's most
 numerous germ to the game; a germ sensor counts all of them.
 
+**Carriers (profile 12, 0.1.6).** A cell that holds gas and liquid keeps two
+counts of each germ: those its gas carries and those its liquid carries
+([kernel](../native/MAC_GAME_KERNEL.md#carried-passives-profile-12-2026-11-12)).
+Water's germs leave with the water and air's with the air: a pump under a
+germy pool takes the water's, a breath over it only the air's. Germs arrive
+with the phase that brings them and an import gives a cell's germs to the
+phase holding most of its mass; a colony saved before 0.1.6 is treated as an
+import when it loads. Everything the game and the adapter see (the shown
+germ, sensors, receipts, pipe contents) is the sum of the two.
+
 **World evolution** (`oni_world_biology.cpp`, owner mode 1, every new colony
 whose game supplied its disease table through `ma_oni_colony_set_diseases`).
 Once per native 0.2 s frame the owner applies the game's world rules to every
@@ -429,6 +439,15 @@ several; there is no competition between them):
   the difference in count, scaled by the richer cell's element and truncated
   to whole germs; the richer cell must hold its element's minimum count and
   have held the identity its minimum number of frames.
+- With carriers the rules run once for the gas-carried cultures and once for
+  the liquid-carried ones. A cell's medium is then its gas (its mass, its
+  heaviest gas as the element, its gas constituents) or its liquid, and a
+  cell without that phase is closed to that carrier: a pool's germs diffuse
+  through the water and never into the air over it, and the air's never into
+  the water. Before, a pool cell less than half full was one gas culture
+  and its water's germs diffused into the room (the `storage-ledger` arena
+  gained 355,000 germs in its air that way). A liquid-carried culture's
+  clock is saved under its carried identity.
 - *Growth and death* then: the temperature half-life of the disease and the
   element's rule inside, below (an absolute death rate) or above its density
   window. A mixed cell weights each constituent's rule by its mass, like pipe

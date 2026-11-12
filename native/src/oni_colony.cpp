@@ -187,9 +187,13 @@ struct Session {
     // How machine and actor gas carries energy (set_source_energy); the
     // adapter's colony record saves it, not the owner.
     MacFlowWork source_energy = MacFlowWork::compensated;
-    biology::Clocks clocks;
+    // Profile 12 runs the world rules for each carrier of a cell's germs on its
+    // own (evolve_germs): `clocks` and `evolution` are the gas-carried
+    // cultures' (and every culture's on older profiles), `wet_*` the
+    // liquid-carried ones'.
+    biology::Clocks clocks, wet_clocks;
     biology::Accounts accounts;
-    biology::Evolution evolution; // scratch of the germ frames, never serialized
+    biology::Evolution evolution, wet_evolution; // scratch of the germ frames, never serialized
     std::uint64_t biology_frames = 0;
     std::uint64_t activity_sequence = 0;
     std::vector<double> biology_pending_s;
@@ -968,8 +972,9 @@ std::shared_ptr<Published> make_publication(const Session& s, Projection project
     p->world = s.world; p->catalogue = s.catalogue; p->precision=s.precision;
     p->native_arena=s.native_arena;p->native_arena_owner_frames=s.native_arena_owner_frames;
     auto& b = p->biology; b.struct_size = sizeof(b); b.abi_version = 1; b.mode = s.germ_mode;
-    b.frames = s.biology_frames; b.cultures = s.clocks.size(); b.germ_cells = s.germ_cells; b.audit_error = s.biology_error;
-    for (const auto& held : s.clocks) if (held.clock.mode == biology::expected_mode) ++b.expected_cultures;
+    b.frames = s.biology_frames; b.cultures = s.clocks.size() + s.wet_clocks.size(); b.germ_cells = s.germ_cells; b.audit_error = s.biology_error;
+    for (const auto* clocks : {&s.clocks, &s.wet_clocks})
+        for (const auto& held : *clocks) if (held.clock.mode == biology::expected_mode) ++b.expected_cultures;
     for (const auto& [identity, a] : s.accounts) {
         const auto held = s.germs_held.find(identity);
         p->germ_accounts.push_back({identity, static_cast<double>(a.born), static_cast<double>(a.died), static_cast<double>(a.culled),
@@ -1616,7 +1621,8 @@ void start(const MAOniColonyConfig& config, std::span<const MAOniColonyMaterial>
         std::vector<double> temperatures(settled.state.cells.size());
         for(std::size_t i=0;i<temperatures.size();++i)if(!settled.state.grid.walls[i]&&settled.state.cells[i].mixture.mass()>0)
             temperatures[i]=cat.eos->evaluate(settled.state.cells[i].mixture,mac_material_volume(settled.state,i)).temperature_k;
-        next->world=std::make_shared<const MacClosedWorld>(MacClosedWorld::game_colony(cat.registry,cat.eos,std::move(settled.state),temperatures,cfg));
+        // Profile 12 carries each cell's germs with its gas or its liquid.
+        next->world=std::make_shared<const MacClosedWorld>(MacClosedWorld::game_colony(cat.registry,cat.eos,std::move(settled.state),temperatures,cfg).with_carried_passives());
     } else {
     next->world = std::make_shared<const MacClosedWorld>(cat.registry, cat.eos, std::move(settled.state), settings_of(config,next_options));
     }
@@ -1807,10 +1813,11 @@ bool read_passives(std::uint64_t expected_session,std::uint64_t expected_frame,s
         const auto i=rect_index(p->config,cell);const auto size=state.cells[i].passive_quantities.size();
         require(size<=(1u<<20)-count,"Passive observation exceeds the row limit");count+=size;
     }
+    // Rows name plain identities: a germ's gas-carried and liquid-carried counts add.
     std::vector<MAOniColonyPassiveRow> next;next.reserve(count);
     for(const auto cell : cells) {
         const auto i=rect_index(p->config,cell);
-        for(const auto& value : state.cells[i].passive_quantities)next.push_back({cell,0,value.identity,value.quantity});
+        for(const auto& value : plain_passive_quantities(state.cells[i].passive_quantities))next.push_back({cell,0,value.identity,value.quantity});
     }
     std::sort(next.begin(),next.end(),[](const auto& a,const auto& b) {
         return a.public_cell<b.public_cell || (a.public_cell==b.public_cell && a.identity<b.identity);
@@ -3375,7 +3382,41 @@ MacClosedWorld evolve_germs(Session& s, MacClosedWorld world, std::span<const Ge
         std::snprintf(item, sizeof item, " %s %.2f", name, std::chrono::duration<double, std::milli>(now - part_mark).count());
         parts_line += item; part_mark = now;
     };
-    const auto& st = world.state(); const auto& cat = *s.catalogue;
+    // Profile 12 carries each germ with the gas or the liquid of its cell
+    // (passive_quantities.hpp) and the world rules below run for each carrier
+    // on its own, so the germs of a pool's water never diffuse into the air
+    // over it. A germ whose carrier its cell no longer holds (the liquid
+    // boiled away, the gas left), or a plain one (a moving parcel's), first
+    // goes to a phase the cell holds.
+    const bool carried = world.carries_passives();
+    const auto& cat = *s.catalogue;
+    if (carried) {
+        // Whether any germ needs that: a parallel look at the cells holding
+        // passives, each stopping at the first species that settles it.
+        const auto& state = world.state();
+        constexpr std::size_t block_size = 4096;
+        const auto blocks = (state.cells.size() + block_size - 1) / block_size;
+        std::vector<std::uint8_t> stale(blocks);
+        const auto options = mac_kernel_default_options();
+        const auto threads = static_cast<unsigned>(std::min<std::size_t>(options.threads, std::max<std::size_t>(1, blocks / options.minimum_blocks_per_thread)));
+        if (blocks > 0) mac_kernel::pool_for(threads).run(blocks, [&](std::size_t block) {
+            for (std::size_t i = block * block_size; i < std::min(state.cells.size(), (block + 1) * block_size) && !stale[block]; ++i) {
+                const auto& passives = state.cells[i].passive_quantities;
+                if (passives.empty() || state.grid.walls[i]) continue;
+                bool gas_needed = false, liquid_needed = false;
+                for (const auto& q : passives) {
+                    if ((q.identity & passive_carrier_mask) == 0) stale[block] = 1;
+                    (q.identity & passive_liquid_carrier ? liquid_needed : gas_needed) = true;
+                }
+                const std::vector<double>& masses = state.cells[i].mixture.masses;
+                for (std::size_t k = 0; k < masses.size() && (gas_needed || liquid_needed); ++k)
+                    if (masses[k] > 0) (cat.materials[k].game.gas ? gas_needed : liquid_needed) = false;
+                if (gas_needed || liquid_needed) stale[block] = 1;
+            }
+        });
+        if (std::find(stale.begin(), stale.end(), 1) != stale.end()) world = world.with_carried_passives();
+    }
+    const auto& st = world.state();
     // The germ cells of a state, in cell order: found per block on the pool,
     // then booked serially in the order of a plain cell loop.
     const auto germs_of = [](const MacTransportState& state, const auto& book) {
@@ -3388,30 +3429,58 @@ MacClosedWorld evolve_germs(Session& s, MacClosedWorld world, std::span<const Ge
             for (std::size_t i = block * block_size; i < std::min(state.cells.size(), (block + 1) * block_size); ++i) {
                 if (state.grid.walls[i]) continue;
                 for (const auto& q : state.cells[i].passive_quantities)
-                    if (biology::disease_identity(q.identity)) { found[block].push_back(i); break; }
+                    if (biology::disease_identity(plain_passive_identity(q.identity))) { found[block].push_back(i); break; }
             }
         });
         for (const auto& list : found) for (const auto i : list) book(i, state.cells[i].passive_quantities);
     };
     // The germ cultures as flat (cell, identity) entries, and what the world
     // holds per identity (disease identities are 1..256).
-    biology::Field cells; cells.reserve(s.germ_cells + s.germ_cells / 2 + 64);
+    // With carriers, `cells` are the gas-carried cultures and `wet` the
+    // liquid-carried ones, both by plain identity (a cell's passives are
+    // sorted with its gas-carried identities first).
+    biology::Field cells, wet; cells.reserve(s.germ_cells + s.germ_cells / 2 + 64);
     std::array<long double, 257> before{};
     germs_of(st, [&](std::size_t i, const PassiveQuantities& passives) {
-        for (const auto& q : passives)
-            if (biology::disease_identity(q.identity)) { cells.push_back({i, q.identity, q.quantity}); before[q.identity] += q.quantity; }
+        for (const auto& q : passives) {
+            const auto identity = plain_passive_identity(q.identity);
+            if (!biology::disease_identity(identity)) continue;
+            require(!carried || (q.identity & passive_carrier_mask) != 0, "A carried world holds a plain germ");
+            (q.identity & passive_liquid_carrier ? wet : cells).push_back({i, identity, q.quantity}); before[identity] += q.quantity;
+        }
     });
     part("scan");
     const auto previous = s.accounts;
-    const auto held_in = [&](std::size_t i, std::uint64_t identity) { return biology::quantity_in(cells, i, identity); };
-    std::vector<biology::Edit> edits;
+    const auto held_in = [&](std::size_t i, std::uint64_t identity) { return biology::quantity_in(cells, i, identity) + biology::quantity_in(wet, i, identity); };
+    // The edits of the gas-carried cultures (of every culture without
+    // carriers) and of the liquid-carried ones, each in the order to apply.
+    std::vector<biology::Edit> edits, wet_edits;
     for (const auto& g : queued) {
         const auto i = rect_index(s.config, g.public_cell);
         if (st.grid.walls[i] || !biology::disease_identity(g.germ)) continue;
         const double held = held_in(i, g.germ);
-        const biology::Edit e{i, g.germ, g.change};
-        if (!biology::apply(cells, e, st.cells[i].mixture.mass() > 0)) continue;
-        edits.push_back(e);
+        const bool has_mass = st.cells[i].mixture.mass() > 0;
+        if (!carried) {
+            const biology::Edit e{i, g.germ, g.change};
+            if (!biology::apply(cells, e, has_mass)) continue;
+            edits.push_back(e);
+        } else {
+            // A queued edit names the germ, not its carrier. As the solver
+            // does for a plain edit, the change is shared among the cell's
+            // cultures of the germ in proportion to what each holds, and a
+            // new culture goes to the phase holding most of the cell's mass.
+            const double dry = biology::quantity_in(cells, i, g.germ), in_liquid = biology::quantity_in(wet, i, g.germ);
+            if (!has_mass || g.change == 0 || (!(held > 0) && !(g.change > 0))) continue;
+            double gas = 0, liquid = 0;
+            if (!(held > 0)) for (std::size_t k = 0; k < st.cells[i].mixture.masses.size(); ++k)
+                (cat.materials[k].game.gas ? gas : liquid) += st.cells[i].mixture.masses[k];
+            const bool leaves = !(held + g.change > 0);
+            const std::array<double, 2> share{
+                !(held > 0) ? (liquid >= gas && liquid > 0 ? 0. : g.change) : leaves ? -dry : in_liquid > 0 ? g.change * (dry / held) : g.change,
+                !(held > 0) ? (liquid >= gas && liquid > 0 ? g.change : 0.) : leaves ? -in_liquid : dry > 0 ? g.change * (in_liquid / held) : g.change};
+            if (share[0] != 0 && (dry > 0 || !(held > 0))) { const biology::Edit e{i, g.germ, share[0]}; if (biology::apply(cells, e, true)) edits.push_back(e); }
+            if (share[1] != 0 && (in_liquid > 0 || !(held > 0))) { const biology::Edit e{i, g.germ, share[1]}; if (biology::apply(wet, e, true)) wet_edits.push_back(e); }
+        }
         const double change = held_in(i, g.germ) > 0 ? g.change : -held;
         auto& a = s.accounts[g.germ]; if (change > 0) a.edited_in += change; else a.edited_out -= change;
     }
@@ -3422,24 +3491,35 @@ MacClosedWorld evolve_germs(Session& s, MacClosedWorld world, std::span<const Ge
         // A cell's medium is read once per call, when the first frame needs it
         // (cell_presentation gives cell_reading's temperature and liquid volume
         // without the entropy and specific energies, which are not used here).
-        const biology::Evolution::Fill medium = [&](std::size_t i, biology::Fluid& m, std::vector<biology::Part>& parts) {
+        // phase 0: the whole cell as the game shows it (no carriers); 1: the cell's gas, as the gas-carried germs
+        // meet it; 2: its liquid, for the liquid-carried ones. A cell without the phase is closed to that carrier.
+        const auto medium_of = [&](unsigned phase) -> biology::Evolution::Fill { return [&, phase](std::size_t i, biology::Fluid& m, std::vector<biology::Part>& parts) {
             thread_local experimental::ReferenceEquilibriumState reading; // filled on several threads
             if (st.grid.walls[i]) return;
             const auto& mixture = st.cells[i].mixture; const auto& v = p->views[i];
             // One pass over the species: the cell's mass (the sum of its positive entries in species order, which is
-            // mixture.mass()), its constituents, and with activity tiers its heaviest gas and liquid.
+            // mixture.mass()), its constituents, and with activity tiers or carriers its heaviest gas and liquid.
             const std::vector<double>& masses = mixture.masses;
             const bool pick = !due.empty();
-            double total = 0, gas = 0, best_gas = 0, best_liquid = 0; std::size_t gas_k = 0, liquid_k = 0;
+            double total = 0, gas = 0, liquid = 0, best_gas = 0, best_liquid = 0; std::size_t gas_k = 0, liquid_k = 0;
             for (std::size_t k = 0; k < masses.size(); ++k) {
                 const double mass = masses[k];
                 if (!(mass > 0)) continue;
                 total += mass;
                 const auto& game = cat.materials[k].game;
-                parts.push_back({game.native_index, mass});
-                if (!pick) continue;
+                if (phase == 0 || game.gas == (phase == 1)) parts.push_back({game.native_index, mass});
+                if (!pick && phase == 0) continue;
                 if (game.gas) { gas += mass; if (mass > best_gas) { best_gas = mass; gas_k = k; } }
-                else if (mass > best_liquid) { best_liquid = mass; liquid_k = k; }
+                else { liquid += mass; if (mass > best_liquid) { best_liquid = mass; liquid_k = k; } }
+            }
+            if (phase != 0) {
+                const double held = phase == 1 ? gas : liquid;
+                if (!(held > 0)) return;
+                m.open = true; m.mass_kg = held; m.temperature_k = v.temperature_k; m.state = static_cast<std::uint8_t>(phase);
+                m.element = cat.materials[phase == 1 ? gas_k : liquid_k].game.native_index;
+                if (const auto r = radiation.find(i); r != radiation.end()) m.radiation = r->second;
+                if (pick) { world.cell_presentation(i, reading); m.temperature_k = static_cast<float>(std::clamp(reading.temperature_k, 1., 9999.)); }
+                return;
             }
             m.open = true; m.mass_kg = total; m.temperature_k = v.temperature_k; m.element = v.element_index;
             if (const auto r = radiation.find(i); r != radiation.end()) m.radiation = r->second;
@@ -3448,7 +3528,7 @@ MacClosedWorld evolve_germs(Session& s, MacClosedWorld world, std::span<const Ge
                 m.element=cat.materials[reading.liquid_volume_m3>=.5*st.grid.volume_m3() || gas==0?liquid_k:gas_k].game.native_index;
             }
             if (m.mass_kg > 0 && cat.has_native(m.element)) m.state = cat.materials[cat.species_of_native(m.element)].game.gas ? 1 : 2;
-        };
+        }; };
         // The media are filled on the pool (each is read-only work on the world and the same
         // on any thread); the frames below then find them all.
         const biology::Evolution::Runner runner = [](std::size_t blocks, const std::function<void(std::size_t)>& job) {
@@ -3456,11 +3536,15 @@ MacClosedWorld evolve_germs(Session& s, MacClosedWorld world, std::span<const Ge
             const auto threads = static_cast<unsigned>(std::min<std::size_t>(options.threads, std::max<std::size_t>(1, blocks / options.minimum_blocks_per_thread)));
             mac_kernel::pool_for(threads).run(blocks, job);
         };
-        s.evolution.begin(disease_table, st.grid.width, st.grid.height, medium, runner);
+        s.evolution.begin(disease_table, st.grid.width, st.grid.height, medium_of(carried ? 1 : 0), runner);
+        if (carried) s.wet_evolution.begin(disease_table, st.grid.width, st.grid.height, medium_of(2), runner);
         if(due.empty()) {
             s.evolution.prefill(cells);
-            for (std::uint64_t f = 0; f < frames; ++f)
+            if (carried) s.wet_evolution.prefill(wet);
+            for (std::uint64_t f = 0; f < frames; ++f) {
                 s.evolution.frame(cells, s.clocks, s.accounts, edits);
+                if (carried) s.wet_evolution.frame(wet, s.wet_clocks, s.accounts, wet_edits);
+            }
             s.biology_frames += frames;
         } else {
             if(s.biology_pending_s.empty())s.biology_pending_s.assign(st.cells.size(),0);
@@ -3494,9 +3578,11 @@ MacClosedWorld evolve_germs(Session& s, MacClosedWorld world, std::span<const Ge
                 if(f==0) {
                     // The first frame has the widest mask: every medium the frames ask for is read now, on the pool.
                     s.evolution.prefill(cells,active);
+                    if (carried) s.wet_evolution.prefill(wet,active);
                     part("prefill");
                 }
                 s.evolution.frame(cells,s.clocks,s.accounts,edits,active);
+                if (carried) s.wet_evolution.frame(wet,s.wet_clocks,s.accounts,wet_edits,active);
             }
             part("frames");
             // Public/saved elapsed frames count native frames, not an unrelated
@@ -3504,9 +3590,12 @@ MacClosedWorld evolve_germs(Session& s, MacClosedWorld world, std::span<const Ge
             s.biology_frames+=frames;
         }
     }
-    if (!edits.empty()) {
-        std::vector<MacPassiveEdit> passive; passive.reserve(edits.size());
-        for (const auto& e : edits) passive.push_back({e.cell, e.identity, e.change});
+    if (!edits.empty() || !wet_edits.empty()) {
+        // With carriers each edit names its culture's own entry (the two
+        // carriers of a germ in a cell never share one).
+        std::vector<MacPassiveEdit> passive; passive.reserve(edits.size() + wet_edits.size());
+        for (const auto& e : edits) passive.push_back({e.cell, carried ? e.identity | passive_gas_carrier : e.identity, e.change});
+        for (const auto& e : wet_edits) passive.push_back({e.cell, e.identity | passive_liquid_carrier, e.change});
         world = std::move(world).with_passive_edits(passive);
     }
     part("edits");
@@ -3516,7 +3605,7 @@ MacClosedWorld evolve_germs(Session& s, MacClosedWorld world, std::span<const Ge
     const auto& now = world.state();
     germs_of(now, [&](std::size_t, const PassiveQuantities& passives) {
         for (const auto& q : passives)
-            if (biology::disease_identity(q.identity)) after[q.identity] += q.quantity;
+            if (const auto identity = plain_passive_identity(q.identity); biology::disease_identity(identity)) after[identity] += q.quantity;
         ++germ_cells;
     });
     std::map<std::uint64_t, double> held;
@@ -3535,9 +3624,10 @@ MacClosedWorld evolve_germs(Session& s, MacClosedWorld world, std::span<const Ge
     part("audit");
     if (part_log) {
         std::size_t occupied = 0;
-        for (std::size_t e = 0; e < cells.size(); ++e) if (e == 0 || cells[e].cell != cells[e - 1].cell) ++occupied;
+        for (const auto* field : {&cells, &wet})
+            for (std::size_t e = 0; e < field->size(); ++e) if (e == 0 || (*field)[e].cell != (*field)[e - 1].cell) ++occupied;
         std::fprintf(stderr, "[Mixed Atmospheres] germ evolution frame %llu: germ cells %zu edits %zu cultures %zu;%s\n",
-        static_cast<unsigned long long>(s.status.completed_frames + 1), occupied, edits.size(), s.clocks.size(), parts_line.c_str()); std::fflush(stderr); }
+        static_cast<unsigned long long>(s.status.completed_frames + 1), occupied, edits.size() + wet_edits.size(), s.clocks.size() + s.wet_clocks.size(), parts_line.c_str()); std::fflush(stderr); }
     return world;
 }
 // Resolve the restored callback-owned requests, under inputs: bind each to
@@ -4260,7 +4350,7 @@ void run_frame(std::uint64_t ticket,double seconds,std::uint64_t frames,const ch
                             held.mass_kg=e.mass_kg;held.temperature_k=e.temperature_k;
                             held.internal_energy_j=e.mass_kg*(material.energy_offset_j_per_kg+material.cv_j_per_kg_k*e.temperature_k);
                             held.potential_energy=detail::precision_potential(world,e.cell_index,e.mass_kg);
-                            held.passives_before=held.passives_after=world.state().cells[e.cell_index].passive_quantities;
+                            held.passives_before=held.passives_after=plain_passive_quantities(world.state().cells[e.cell_index].passive_quantities);
                             if(std::isfinite(held.internal_energy_j) && e.temperature_k>=material.minimum_temperature_k &&
                                 e.temperature_k<=material.maximum_temperature_k) {
                                 const auto anchor=static_cast<std::uint32_t>((s.config.offset_x+e.cell_index%s.config.width)+
@@ -4335,7 +4425,7 @@ void run_frame(std::uint64_t ticket,double seconds,std::uint64_t frames,const ch
                     }
                     if (e.mass_kg <= 1e-9 * world.state().cells[e.cell_index].mixture.mass()) {
                         MacFluidParcel zero{}; zero.cell_index = e.cell_index; zero.species_index = e.species_index; zero.injected = e.inject;
-                        if (e.observe_passives) zero.passives_before=zero.passives_after=world.state().cells[e.cell_index].passive_quantities;
+                        if (e.observe_passives) zero.passives_before=zero.passives_after=plain_passive_quantities(world.state().cells[e.cell_index].passive_quantities);
                         parcels.push_back(zero); continue;
                     }
                     const auto& m = world.state().cells[e.cell_index].mixture; const auto W = world.state().grid.width;
@@ -4924,6 +5014,7 @@ std::pair<std::uint64_t,std::uint32_t> prepare_retirement(std::uint32_t origin,s
     }
     std::erase_if(s.precision,[&](const auto& p){return selected[rect_index(s.config,p.anchor)]!=0;});
     std::erase_if(s.clocks,[&](const auto& held){return selected[held.cell]!=0;});
+    std::erase_if(s.wet_clocks,[&](const auto& held){return selected[held.cell]!=0;});
     if(s.germ_mode==1)world=evolve_germs(s,std::move(world),{},0);
     s.world=std::make_shared<const MacClosedWorld>(std::move(world));audit_retirement(s);
     detail::ParcelWireWriter wire;wire.raw("MARET001");wire.u64(s.status.session);wire.u64(s.status.completed_frames);
@@ -5107,9 +5198,14 @@ std::vector<std::uint8_t> checkpoint() {
     }
     if (saved_version >= 10) {
         w.u32(s.germ_mode); w.u64(s.biology_frames);
-        w.u32(static_cast<std::uint32_t>(s.clocks.size()));
-        for (const auto& held : s.clocks) {
-            w.u32(static_cast<std::uint32_t>(held.cell)); w.u64(held.identity); w.u8(held.clock.mode); w.u8(held.clock.ticks); w.f32(held.clock.residue);
+        // One list in (cell, identity) order: a liquid-carried culture's clock
+        // is saved under its carried identity, which follows every plain one.
+        w.u32(static_cast<std::uint32_t>(s.clocks.size() + s.wet_clocks.size()));
+        for (std::size_t dry = 0, wet = 0; dry < s.clocks.size() || wet < s.wet_clocks.size();) {
+            const bool liquid = dry == s.clocks.size() || (wet < s.wet_clocks.size() && s.wet_clocks[wet].cell < s.clocks[dry].cell);
+            const auto& held = liquid ? s.wet_clocks[wet++] : s.clocks[dry++];
+            w.u32(static_cast<std::uint32_t>(held.cell)); w.u64(liquid ? held.identity | passive_liquid_carrier : held.identity);
+            w.u8(held.clock.mode); w.u8(held.clock.ticks); w.f32(held.clock.residue);
         }
         w.u32(static_cast<std::uint32_t>(pending_germs.size()));
         for (const auto& g : pending_germs) { w.u32(g.public_cell); w.u32(g.germ); w.f64(g.change); }
@@ -5311,10 +5407,12 @@ void restore(const MAOniColonyConfig& config, std::span<const MAOniColonyMateria
             const std::size_t cell = r.u32(); const auto identity = r.u64();
             biology::Clock clock; clock.mode = r.u8(); clock.ticks = r.u8(); clock.residue = r.f32();
             const std::pair key{cell, identity};
-            require(cell < cells && biology::disease_identity(identity) && (k == 0 || key > previous_key) && clock.mode <= biology::expected_mode &&
+            const bool liquid = (identity & passive_carrier_mask) == passive_liquid_carrier;
+            require(cell < cells && biology::disease_identity(plain_passive_identity(identity)) && (liquid || (identity & passive_carrier_mask) == 0) &&
+                (k == 0 || key > previous_key) && clock.mode <= biology::expected_mode &&
                 clock.ticks <= biology::maximum_ticks && std::isfinite(clock.residue) && std::abs(clock.residue) < 1 &&
                 (clock.mode == biology::native_mode || clock.residue == 0), "Invalid saved germ clock");
-            next->clocks.push_back({cell, identity, clock}); previous_key = key;
+            (liquid ? next->wet_clocks : next->clocks).push_back({cell, plain_passive_identity(identity), clock}); previous_key = key;
         }
         const auto germs = r.u32(); require(germs <= 1u << 20 && germs <= (r.bytes.size() - r.at) / 16, "Invalid saved germ edit count");
         for (std::uint32_t k = 0; k < germs; ++k) {
@@ -5389,8 +5487,10 @@ void restore(const MAOniColonyConfig& config, std::span<const MAOniColonyMateria
         restored_touches=read_cells();
     }
     const auto physical = r.u64(); require(physical == r.bytes.size() - r.at, "Colony checkpoint physical image length differs");
+    // A profile-12 colony saved before germs had carriers gives each cell's
+    // germs to its dominant phase; later saves hold none that are plain.
     next->world = std::make_shared<const MacClosedWorld>(MacClosedWorld::from_checkpoint(next->catalogue->registry, next->catalogue->eos,
-        r.bytes.subspan(r.at, static_cast<std::size_t>(physical))));
+        r.bytes.subspan(r.at, static_cast<std::size_t>(physical))).with_carried_passives());
     require(((config.flags&MA_ONI_COLONY_GAME_KERNEL)!=0)==(next->world->settings().numerical_kernel==MacNumericalKernel::game),"Saved core kernel differs from saved colony flags");
     require(((config.flags&MA_ONI_COLONY_GAME_ACTIVITY)!=0)==mac_game_activity_profile(next->world->settings().game_profile),
         "Saved activity core differs from owner integration");

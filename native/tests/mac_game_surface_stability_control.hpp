@@ -376,6 +376,128 @@ inline void sealed_drain_control() {
   std::cout << "PASS profile12 liquid over gas: a sealed nine-cell room under 12 t of water fills through a one-cell hole (half by "
             << half_at << " s; " << wet1 << " kg of water and " << air1 << " of " << air0 << " kg of air in it after 120 s)\n";
 }
+// Profile 12 carries each passive with the gas or the liquid of its cell. A
+// stepped pool whose water holds 1000 germs per kilogram under air holding
+// 500 of another kind levels (pool_step_control): every cell then still
+// holds exactly that many of each per kilogram of its carrier, where plain
+// identities leave the water's germs in the air at the water's count per
+// kilogram of gas. Transfers and edits keep to the same rule.
+inline void carried_passives_control() {
+  const auto saved = mac_kernel_default_options();
+  auto options = saved;
+  options.threads = 1;
+  set_mac_kernel_default_options(options);
+  const auto &f = setup();
+  constexpr std::size_t open = 35, W = open + 2, H = 8;
+  constexpr double gas = 138000;
+  const auto water = f.registry.index("water"), oxygen = f.registry.index("oxygen");
+  const auto pool = [&](bool carried) {
+    MacTransportState state;
+    state.grid = {W, H, 1, 1, false, false, std::vector<std::uint8_t>(W * H)};
+    for (std::size_t i = 0; i < W * H; ++i) {
+      const auto x = i % W, y = i / W;
+      state.grid.walls[i] = x == 0 || x == W - 1 || y == 0 || y == H - 1;
+      MacMaterialCell cell{MixtureInventory(f.registry.size()), {}};
+      if (!state.grid.walls[i]) {
+        if (y < 3)
+          cell.mixture.masses[water] = 1000 + 1000 * (gas + 9810 * (3.5 - static_cast<double>(y))) / (2.2e9 * .04);
+        else if (y == 3) {
+          const double alpha = x <= open / 2 ? .25 : .75;
+          cell.mixture.masses[water] = 1000 * alpha;
+          cell.mixture.masses[oxygen] = (1 - alpha) * gas * .032 / (gas_constant * 300);
+        } else cell.mixture.masses[oxygen] = gas * .032 / (gas_constant * 300);
+        // Gas-carried identities sort first.
+        if (cell.mixture.masses[oxygen] > 0)
+          cell.passive_quantities.push_back({2 | (carried ? passive_gas_carrier : 0), 500 * cell.mixture.masses[oxygen]});
+        if (cell.mixture.masses[water] > 0) {
+          const PassiveQuantity germs{1 | (carried ? passive_liquid_carrier : 0), 1000 * cell.mixture.masses[water]};
+          cell.passive_quantities.insert(carried ? cell.passive_quantities.end() : cell.passive_quantities.begin(), germs);
+        }
+      }
+      state.cells.push_back(std::move(cell));
+    }
+    state.momentum_x.resize((W + 1) * H);
+    state.momentum_y.resize(W * (H + 1));
+    MacClosedSettings cfg;
+    cfg.numerical_kernel = MacNumericalKernel::game;
+    cfg.game_profile = MacGameProfile::game_kernel_thin_drag;
+    cfg.vacuum = MacVacuumRepresentation::void_phase;
+    cfg.maximum_timestep_s = .2;
+    cfg.gravity_m_per_s2 = 9.81;
+    cfg.trace_sink_threshold_kg = 1e-11;
+    cfg.game.liquid_law = MacGameLiquidLaw::positive_segments;
+    cfg.game.pressure_maximum_iterations = 400;
+    cfg.game.heat_maximum_iterations = 800;
+    return MacClosedWorld::game_colony(f.registry, f.eos, std::move(state), std::vector<double>(W * H, 300), cfg);
+  };
+  // The largest distance of a cell's germs from its carrier's count, in germs, and each kind's total.
+  const auto strayed = [&](const MacClosedWorld &w) {
+    double worst = 0, wet = 0, dry = 0;
+    for (const auto &cell : w.state().cells) {
+      double in_water = 0, in_air = 0;
+      for (const auto &q : cell.passive_quantities) (plain_passive_identity(q.identity) == 1 ? in_water : in_air) += q.quantity;
+      worst = std::max({worst, std::abs(in_water - 1000 * cell.mixture.masses[water]), std::abs(in_air - 500 * cell.mixture.masses[oxygen])});
+      wet += in_water;
+      dry += in_air;
+    }
+    return std::array{worst, wet, dry};
+  };
+  std::array<double, 2> worst{};
+  for (const bool carried : {false, true}) {
+    auto world = pool(carried);
+    const auto before = strayed(world);
+    for (unsigned tick = 1; tick <= 150; ++tick) world = std::move(world).advanced(.2).world;
+    const auto after = strayed(world);
+    check(std::abs(after[1] - before[1]) < 1e-9 * before[1] && std::abs(after[2] - before[2]) < 1e-9 * before[2],
+          "A levelling pool changed its germ totals");
+    worst[carried] = after[0];
+  }
+  check(worst[0] > 100, "Plain passives no longer leave a levelling pool's germs in its air (the control lost its contrast)");
+  check(worst[1] < 1e-3, "Carried passives left their carrier in a levelling pool");
+  // Transfers: an injection's germs take the injected material's carrier
+  // and its parcel names plain identities; an extraction takes only its own
+  // phase's germs, and all of them with the last of that phase.
+  auto world = pool(true);
+  const std::size_t air = 5 + 5 * W, surface = 5 + 3 * W;
+  const auto count = [&](const MacClosedWorld &w, std::size_t cell, std::uint64_t identity) {
+    for (const auto &q : w.state().cells[cell].passive_quantities)
+      if (q.identity == identity) return q.quantity;
+    return 0.;
+  };
+  const double air_germs = count(world, air, 2 | passive_gas_carrier), surface_germs = count(world, surface, 1 | passive_liquid_carrier);
+  auto poured = std::move(world).with_fluid_transfers(
+      std::array{MacFluidTransfer{air, water, true, 2, 300, {{3, 700}}}}, MacFluidTransferTopology::occupied_mixture);
+  check(poured.parcels.size() == 1 && poured.parcels[0].passives.size() == 1 && poured.parcels[0].passives[0].identity == 3 &&
+            count(poured.world, air, 3 | passive_liquid_carrier) == 700 && count(poured.world, air, 2 | passive_gas_carrier) == air_germs,
+        "Injected germs did not take the injected liquid's carrier");
+  auto drawn = std::move(poured.world).with_fluid_transfers(
+      std::array{MacFluidTransfer{air, water, false, 2, 300}, MacFluidTransfer{surface, oxygen, false, .05, 300}},
+      MacFluidTransferTopology::occupied_mixture);
+  check(drawn.parcels.size() == 2 && drawn.parcels[0].passives.size() == 1 && drawn.parcels[0].passives[0].identity == 3 &&
+            drawn.parcels[0].passives[0].quantity == 700 && count(drawn.world, air, 2 | passive_gas_carrier) == air_germs,
+        "Drawing a cell's liquid did not take exactly the liquid's germs");
+  check(drawn.parcels[1].passives.size() == 1 && drawn.parcels[1].passives[0].identity == 2 &&
+            count(drawn.world, surface, 1 | passive_liquid_carrier) == surface_germs,
+        "Drawing gas above a pool took the water's germs");
+  // Edits name plain identities: a germ grows and dies where it is, a new
+  // culture goes to the phase holding most of the cell's mass, and an edit
+  // naming a carrier changes that entry alone.
+  auto edited = drawn.world.with_passive_edits(std::array{MacPassiveEdit{surface, 1, 1000}, MacPassiveEdit{air, 7, 40},
+                                                          MacPassiveEdit{surface, 7, 60}, MacPassiveEdit{surface, 7 | passive_gas_carrier, 5}});
+  check(count(edited, surface, 1 | passive_liquid_carrier) == surface_germs + 1000 && count(edited, air, 7 | passive_gas_carrier) == 40 &&
+            count(edited, surface, 7 | passive_liquid_carrier) == 60 && count(edited, surface, 7 | passive_gas_carrier) == 5,
+        "A plain passive edit did not follow the cell's carriers");
+  // An imported or older state: plain germs go to the dominant phase.
+  auto plain = pool(false);
+  check(plain.carries_passives() && count(plain.with_carried_passives(), surface, 1 | passive_liquid_carrier) == surface_germs &&
+            count(plain.with_carried_passives(), surface, 2 | passive_liquid_carrier) > 0 &&
+            count(plain.with_carried_passives(), air, 2 | passive_gas_carrier) == air_germs,
+        "Plain passives were not given to their cell's dominant phase");
+  set_mac_kernel_default_options(saved);
+  std::cout << "PASS profile12 carried passives: after a 35-column pool levels, the furthest cell is " << worst[1]
+            << " germs from its carriers' counts (plain identities: " << worst[0]
+            << "); injections, extractions and edits keep each germ with its phase\n";
+}
 // Water under a lighter immiscible liquid (870 kg/m3, like crude oil) under
 // 130 kPa of oxygen in a closed 10 x 7 box. Each half of the box has its own
 // water and oil tops (in cells); the liquid cells start compressed only by
@@ -546,5 +668,6 @@ inline void run() {
   pool_step_control();
   sealed_drain_control();
   liquid_interface_control();
+  carried_passives_control();
 }
 } // namespace ma::testing::surface_stability_game

@@ -552,6 +552,16 @@ public:
     // leave the expiring owner unchanged.
     [[nodiscard]] MacClosedWorld with_passive_edits(std::span<const MacPassiveEdit>) const&;
     [[nodiscard]] MacClosedWorld with_passive_edits(std::span<const MacPassiveEdit>) &&;
+    // Game profile 12 carries each passive with the gas or the liquid of its
+    // cell (passive_quantities.hpp); its edits and injections take plain
+    // identities and its state holds carried ones.
+    [[nodiscard]] bool carries_passives() const noexcept;
+    // The same world with every passive carried by a phase its cell holds:
+    // a plain one (an imported or older state, a moving parcel's) goes to
+    // the phase holding most of the cell's mass, and one whose carrier the
+    // cell no longer holds (its liquid boiled away, its gas left) to the
+    // phase it does hold. Itself on other profiles or when nothing changes.
+    [[nodiscard]] MacClosedWorld with_carried_passives() const;
     [[nodiscard]] MacClosedWorld with_opened_cells(std::span<const std::size_t>) const;
     [[nodiscard]] MacClosedWorld with_closed_cells(std::span<const std::size_t>) const;
     // Physical owner checkpoint, not a scalar/display projection. Restoring

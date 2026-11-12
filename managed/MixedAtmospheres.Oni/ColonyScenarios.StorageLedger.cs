@@ -65,6 +65,7 @@ namespace MixedAtmospheres.Oni
                 .Sum(primary => (double)primary.DiseaseCount);
 
         private static object? bottleSession;
+        private static int ledgerLogged = -1;
         private static GameObject? ledgerLocker;
         private static string Fraction(double value, double expected) => expected > 0 ? $"{value / expected:F3} of the expected {expected:G5}" : $"{value:G5}";
 
@@ -213,6 +214,19 @@ namespace MixedAtmospheres.Oni
                 recorded["empty co2"] = ArenaSpecies(SimHashes.CarbonDioxide); recorded["empty food"] = GasGerms(food);
                 emptier.GetComponent<Storage>().AddGasChunk(SimHashes.CarbonDioxide, 4, 305, food, 80000, false, true);
                 recorded["empty stored"] = emptier.GetComponent<Storage>().MassStored();
+            }
+            // The germs in the air of the pool's room (left of the wall at x 3) and of the emptier's room, with what
+            // the emptier still stores: one line every five frames while it works.
+            if (step >= 35 && step <= 64 && (ColonyFrame() % 5 == 0 || (ColonyFrame() >= 58 && ColonyFrame() <= 68)) && ColonyFrame() != ledgerLogged)
+            {
+                ledgerLogged = ColonyFrame();
+                double left = 0, right = 0;
+                for (var y = 2; y < Height; ++y) for (var x = 0; x < Width; ++x)
+                {
+                    var cell = Cell(x, y);
+                    if (!Grid.Solid[cell] && Grid.DiseaseIdx[cell] == food && Grid.DiseaseCount[cell] > 0) { if (x < 3) left += Grid.DiseaseCount[cell]; else right += Grid.DiseaseCount[cell]; }
+                }
+                Debug.Log(FormattableString.Invariant($"[Mixed Atmospheres] storage-ledger emptier f{ColonyFrame()}: air germs pool room {left:F0}, emptier room {right:F0}, stored {(step == 64 ? StoredGerms(powered.Last().GetComponent<Storage>(), food) : 0):F0}, CO2 in the arena {ArenaSpecies(SimHashes.CarbonDioxide):G4} kg, water in rows 2+ {Enumerable.Range(0, Width).Sum(x => Enumerable.Range(2, Height - 2).Sum(y => SpeciesMass(Cell(x, y), SimHashes.Water))):G4} kg"));
             }
             // The emptier works at its own rate: wait until its store is empty, then a few frames for the last injection.
             if (step <= 101 && ColonyFrame() >= 63 && powered.Last().GetComponent<Storage>().MassStored() < 1e-6f && ColonyFrame() >= 70) recorded["emptier done"] = ColonyFrame();

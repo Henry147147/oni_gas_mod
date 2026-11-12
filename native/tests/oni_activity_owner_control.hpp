@@ -316,7 +316,8 @@ void activity_owner_control() {
     // A space cell receives real input immediately, sinks only on its selected stage, and books all mass.
     start(cfg,mats,cells,1);set_space_cells(std::span(selection.data()+1,1),true);
     tick(1);require(held(10)==0 && held(8)==1 && status().space_sink_kg==1,"Selective space sink touched a held region");stop();
-    // Always simulate retains all authoritative profile8 physical bytes after normalization of profile metadata.
+    // Always simulate retains all authoritative profile8 physical bytes after normalization of profile metadata
+    // (profile 12 also names each germ's carrier phase; the comparison is of plain identities).
     std::vector<ma::oni::GameFluidElement> elements;
     for(const auto& m:mats) {
         ma::oni::GameFluidElement e;e.id=m.id;e.hash=m.element_hash;e.native_index=m.native_index;e.gas=m.phase==1;
@@ -332,7 +333,9 @@ void activity_owner_control() {
         const auto bytes=std::span(owner).subspan(static_cast<std::size_t>(at-owner.begin()),static_cast<std::size_t>(owner.end()-64-at));
         auto world=ma::experimental::MacClosedWorld::from_checkpoint(cat.registry,cat.eos,bytes);auto settings=world.settings();
         settings.game_profile=ma::experimental::MacGameProfile::game_kernel_carried_momentum;settings.game.activity_tiers=false;
-        return std::pair{std::bit_cast<std::uint64_t>(world.time_s()),ma::experimental::MacClosedWorld(cat.registry,cat.eos,world.state(),settings).checkpoint()};
+        auto plain=world.state();
+        for(auto& cell:plain.cells)cell.passive_quantities=ma::plain_passive_quantities(cell.passive_quantities);
+        return std::pair{std::bit_cast<std::uint64_t>(world.time_s()),ma::experimental::MacClosedWorld(cat.registry,cat.eos,std::move(plain),settings).checkpoint()};
     };
     const auto trajectory=[&](bool activity,unsigned workers) {
         auto config=cfg;if(!activity)config.flags&=~MA_ONI_COLONY_GAME_ACTIVITY;

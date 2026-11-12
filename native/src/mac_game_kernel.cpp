@@ -1048,8 +1048,9 @@ k::Totals dense_totals(const MacTransportState &state, std::size_t count,
       sum.energy.add(potential);
       sum.energy_operands.add(std::abs(cell.mixture.energy));
       sum.energy_operands.add(std::abs(potential));
+      // By plain identity: a transfer's parcels do not name carriers.
       for (const auto &q : cell.passive_quantities)
-        sum.passives[q.identity].add(q.quantity);
+        sum.passives[plain_passive_identity(q.identity)].add(q.quantity);
     }
     // The block's x faces, then its y faces (the last block also takes the
     // top boundary row).
@@ -1212,7 +1213,7 @@ TotalsChange totals_change(const EditJournal &journal,
       change.energy_operands.add(sign * std::abs(cell.mixture.energy));
       change.energy_operands.add(sign * std::abs(potential));
       for (const auto &q : cell.passive_quantities)
-        change.passives[q.identity].add(sign * q.quantity);
+        change.passives[plain_passive_identity(q.identity)].add(sign * q.quantity);
     }
   for (const auto &[x, f] : faces)
     for (const auto &[original, sign] : {std::pair{true, -1.}, std::pair{false, 1.}}) {
@@ -1295,7 +1296,7 @@ void audit_transfers(const k::Totals &old, const k::Totals &now,
     x.add(sign * parcel.momentum_x.project().value);
     y.add(sign * parcel.momentum_y.project().value);
     for (const auto &q : parcel.passives)
-      passives[q.identity].add(sign * q.quantity);
+      passives[plain_passive_identity(q.identity)].add(sign * q.quantity);
   }
   energy.operands = {};
   energy.operands.add(old.energy_operands.value());
@@ -1744,6 +1745,8 @@ TransferWork apply_transfers(const MacClosedWorld &source,
   work.parcels.reserve(edits.size());
   std::vector<std::size_t> touched;
   std::vector<Compensation> compensations;
+  const bool phase_passives = source.settings().game_profile ==
+                       MacGameProfile::game_kernel_thin_drag;
   const auto reading = [&](const MacMaterialCell &cell) {
     return transfer_reading(source, species, cell, next.grid.volume_m3());
   };
@@ -1774,17 +1777,26 @@ TransferWork apply_transfers(const MacClosedWorld &source,
     p.species_index = edit.species_index;
     p.injected = edit.inject;
     p.temperature_k = edit.inject ? edit.temperature_k : before.temperature;
+    // A parcel and its observations name plain identities on every profile.
+    const auto observed = [&] {
+      return phase_passives ? plain_passive_quantities(cell.passive_quantities)
+                     : cell.passive_quantities;
+    };
     if (edit.observe_passives)
-      p.passives_before = cell.passive_quantities;
+      p.passives_before = observed();
     if (edit.mass_kg == 0 ||
         (!edit.inject && cell.mixture.masses[edit.species_index] == 0)) {
       if (edit.observe_passives)
-        p.passives_after = cell.passive_quantities;
+        p.passives_after = observed();
       work.parcels.push_back(std::move(p));
       continue;
     }
     const double old_species = cell.mixture.masses[edit.species_index],
                  old_mass = cell.mixture.mass();
+    double old_gas = 0, old_liquid = 0;
+    if (!edit.inject && !cell.passive_quantities.empty())
+      for (std::size_t key = 0; key < species.size(); ++key)
+        (species[key].gas ? old_gas : old_liquid) += cell.mixture.masses[key];
     const double requested =
         edit.inject ? edit.mass_kg : std::min(edit.mass_kg, old_species);
     double new_species =
@@ -1878,7 +1890,15 @@ TransferWork apply_transfers(const MacClosedWorld &source,
                                  work.parcels.size(), p.temperature_k});
     }
     if (edit.inject) {
-      for (const auto &q : edit.passives) {
+      // Profile 12: injected passives arrive with the injected material, so
+      // its phase carries them, whatever carrier they had where they came from.
+      PassiveQuantities arriving;
+      if (phase_passives && !edit.passives.empty())
+        arriving = carried_passive_quantities(
+            edit.passives,
+            material.gas ? passive_gas_carrier : passive_liquid_carrier);
+      for (const auto &q : phase_passives ? std::span<const PassiveQuantity>(arriving)
+                                   : std::span<const PassiveQuantity>(edit.passives)) {
         auto at = std::lower_bound(
             cell.passive_quantities.begin(), cell.passive_quantities.end(),
             q.identity, [](const auto &a, auto id) { return a.identity < id; });
@@ -1894,14 +1914,26 @@ TransferWork apply_transfers(const MacClosedWorld &source,
           cell.passive_quantities.insert(at, {q.identity, actual});
         else
           at->quantity = actual;
-        p.passives.push_back({q.identity, actual - held});
+        p.passives.push_back({plain_passive_identity(q.identity), actual - held});
       }
     } else if (cell.mixture.mass() == 0) {
-      p.passives = std::move(cell.passive_quantities);
+      p.passives = phase_passives ? plain_passive_quantities(cell.passive_quantities)
+                           : std::move(cell.passive_quantities);
       cell.passive_quantities.clear();
     } else {
+      // A plain passive leaves with the mass share. A carried one leaves
+      // with its carrier's share: none when another phase is drawn, unless
+      // the cell held no carrier of its kind.
+      const double old_phase = material.gas ? old_gas : old_liquid;
       for (auto &q : cell.passive_quantities) {
-        const double kept = q.quantity * (1 - p.mass_kg / old_mass);
+        double share = p.mass_kg / old_mass;
+        if (q.identity & passive_carrier_mask) {
+          const bool with_gas = q.identity & passive_gas_carrier
+                                    ? old_gas > 0
+                                    : !(old_liquid > 0);
+          share = with_gas != material.gas ? 0 : p.mass_kg / old_phase;
+        }
+        const double kept = share >= 1 ? 0 : q.quantity * (1 - share);
         const double moved = q.quantity - kept;
         if (moved > 0) {
           p.passives.push_back({q.identity, moved});
@@ -1910,6 +1942,8 @@ TransferWork apply_transfers(const MacClosedWorld &source,
       }
       std::erase_if(cell.passive_quantities,
                     [](const auto &q) { return q.quantity == 0; });
+      if (phase_passives)
+        p.passives = plain_passive_quantities(p.passives);
     }
     k::DoubleDouble carried_k, carried_x, carried_y;
     slot = 0;
@@ -1953,7 +1987,7 @@ TransferWork apply_transfers(const MacClosedWorld &source,
                 (static_cast<double>(edit.cell_index / next.grid.width) + .5) *
                 next.grid.spacing_m);
     if (edit.observe_passives)
-      p.passives_after = cell.passive_quantities;
+      p.passives_after = observed();
     journal.volumes(next, touched);
     occupied(source, next, touched, &species);
     work.cells.insert(work.cells.end(), touched.begin(), touched.end());

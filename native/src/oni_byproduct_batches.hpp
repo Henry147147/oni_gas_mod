@@ -18,11 +18,19 @@
 #include <utility>
 
 namespace ma::oni::colony::detail {
-// The most numerous germ among passives (identity <= 256 is a disease index + 1),
-// and its count as ONI holds it.
+// The most numerous germ among passives (plain identity <= 256 is a disease
+// index + 1; a germ's gas-carried and liquid-carried counts add), and its
+// count as ONI holds it. The lower identity wins a tie.
 inline std::pair<std::uint32_t, std::int32_t> dominant_germ(std::span<const PassiveQuantity> passives) {
     std::uint32_t best = 0; double most = 0;
-    for (const auto& q : passives) if (q.identity <= 256 && q.quantity > most) { most = q.quantity; best = static_cast<std::uint32_t>(q.identity); }
+    for (std::size_t a = 0; a < passives.size(); ++a) {
+        const auto identity = plain_passive_identity(passives[a].identity);
+        if (identity > 256) continue;
+        double count = passives[a].quantity; bool counted = false;
+        for (std::size_t b = 0; b < passives.size() && !counted; ++b)
+            if (b != a && plain_passive_identity(passives[b].identity) == identity) { if (b < a) counted = true; else count += passives[b].quantity; }
+        if (!counted && (count > most || (count == most && best != 0 && identity < best))) { most = count; best = static_cast<std::uint32_t>(identity); }
+    }
     if (best == 0 || !(most >= .5)) return {0, 0};
     return {best, static_cast<std::int32_t>(std::min(most, 2147483647.))};
 }

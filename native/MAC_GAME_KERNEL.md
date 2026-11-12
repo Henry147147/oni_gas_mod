@@ -1144,6 +1144,52 @@ spreads slowly (about 78 kg of range at 400 s, 18 kg with sharpening off):
 a different exchange, across the vertical walls at the edge of the thin
 film, and open.
 
+## Carried passives (profile 12, 2026-11-12)
+
+A passive (a germ count) used to move with the mass share of whatever left
+its cell. In a cell holding gas and liquid that gives the gas the liquid's
+germs per kilogram: the air pushed out of a pool's surface cells carried off
+1,000 germs for every kilogram of air where the water held 1,000 a kilogram
+(12,040 germs in pure-air cells after one 500 kg step levelled), and a
+droplet falling through germy air left most of its own behind.
+
+Profile 12 carries each passive with one phase of its cell. The top two bits
+of the identity name the carrier (`passive_gas_carrier`,
+`passive_liquid_carrier`, `passive_quantities.hpp`); an identity without one
+is plain and moves with the mass share, as on every other profile, so their
+arithmetic and every test that uses plain identities are unchanged. Where a
+cell's phases part, a carried passive goes with its carrier's share:
+
+- the layered vertical remap (a top face takes gas first, a bottom face
+  liquid): the gas phase's fractions for a gas-carried passive, the
+  mass-weighted fractions of the liquid phases for a liquid-carried one;
+- interface sharpening and every layering exchange: the share of the phase
+  moved;
+- an extraction: the share of the species' own phase, all of it with the
+  last of that phase, none from the other.
+
+Horizontal faces and unlayered donors sweep every phase in proportion, which
+is already each carrier's share. A carrier the cell does not hold (its liquid
+boiled away) leaves its passives to the phase the cell does hold; phase
+change itself moves none, so boiling leaves the germs in the remaining
+liquid. Injected passives take the injected species' carrier, whatever they
+were. `with_passive_edits` takes plain identities (the change is shared among
+the cell's entries of that identity in proportion, a new one goes to the
+phase holding most of the cell's mass) or a carried identity (that entry
+alone). A transfer's parcels and observations name plain identities, as its
+audit does. `with_carried_passives` gives plain passives (an import, an older
+save, a moving parcel) and those whose carrier has gone to a phase their cell
+holds. The trace sink still takes the mass share.
+
+The carrier is part of the identity, so the sparse state, the region audits
+(exact per identity) and the checkpoint format are untouched; a profile-12
+checkpoint's passive identities now carry it, and one written before is
+given carriers by the owner when it loads. Control:
+`carried_passives_control` (the stepped pool with 1,000 germs a kilogram in
+its water and 500 of another kind in its air: after levelling every cell is
+within 4e-9 germs of both counts, where plain identities are 854 off; the
+injection, extraction, edit and import rules).
+
 ## Large connected regions (profile 12, 2026-11-11)
 
 A region whose pressure system is one connected component of at least 2,000

@@ -581,11 +581,51 @@ MacClosedWorld MacClosedWorld::with_closed_faces(std::vector<std::uint8_t> x,std
     return candidate;
 }
 
+namespace {
+// Which carrier takes a cell's plain passives: the phase holding most of its mass.
+std::uint64_t dominant_carrier(const SpeciesRegistry& registry,const MixtureInventory& mixture) {
+    double gas=0,liquid=0;
+    for (std::size_t k=0;k<registry.size();++k) (registry[k].phase==Phase::gas ? gas : liquid)+=mixture.masses[k];
+    return liquid>=gas && liquid>0 ? passive_liquid_carrier : passive_gas_carrier;
+}
+// One edit of a cell's passives. Without carriers, or naming a carrier, it
+// changes that exact identity. With them (game profile 12) a plain identity
+// names the germ wherever the cell holds it: the change is shared among the
+// cell's entries of that identity in proportion to what each holds, so germs
+// grow and die where they are, and a new culture goes to the cell's
+// dominant phase.
+void apply_passive_edit(PassiveQuantities& q,const MacPassiveEdit& edit,bool carried,const SpeciesRegistry& registry,const MixtureInventory& mixture) {
+    if (!carried || (edit.identity & passive_carrier_mask) != 0) {
+        auto it=std::find_if(q.begin(),q.end(),[&](const PassiveQuantity& v){return v.identity==edit.identity;});
+        if(it==q.end()) {
+            if (edit.change > 0) add_passive_quantities(q,std::array<PassiveQuantity,1>{PassiveQuantity{edit.identity,edit.change}},1);
+            return;
+        }
+        it->quantity+=edit.change;
+        if (!(it->quantity > 0)) q.erase(it);
+        return;
+    }
+    const auto plain=plain_passive_identity(edit.identity);
+    double held=0; std::size_t entries=0;
+    for (const auto& v : q) if (plain_passive_identity(v.identity)==plain) { held+=v.quantity; ++entries; }
+    if (entries==0) {
+        if (edit.change > 0)
+            add_passive_quantities(q,std::array<PassiveQuantity,1>{PassiveQuantity{plain|dominant_carrier(registry,mixture),edit.change}},1);
+        return;
+    }
+    const bool leaves=!(held+edit.change > 0);
+    for (auto& v : q) if (plain_passive_identity(v.identity)==plain)
+        v.quantity=leaves ? 0 : entries==1 ? v.quantity+edit.change : v.quantity+edit.change*(v.quantity/held);
+    std::erase_if(q,[](const PassiveQuantity& v){return !(v.quantity > 0);});
+}
+}
+
 MacClosedWorld MacClosedWorld::with_passive_edits(std::span<const MacPassiveEdit> edits) && {
     if (settings_.numerical_kernel!=MacNumericalKernel::game || state_snapshot_.use_count()!=1)
         return std::as_const(*this).with_passive_edits(edits);
     if (revision_ == std::numeric_limits<std::uint64_t>::max()) throw std::overflow_error("MAC closed revision overflow");
     if (edits.empty()) { auto candidate=*this; ++candidate.revision_; return candidate; }
+    const bool carried=carries_passives();
     struct Staged { std::size_t cell; PassiveQuantities after; };
     std::vector<Staged> staged;
     std::map<std::size_t,std::size_t> indices;
@@ -600,15 +640,7 @@ MacClosedWorld MacClosedWorld::with_passive_edits(std::span<const MacPassiveEdit
             const auto index=staged.size();staged.push_back({edit.cell_index,cell.passive_quantities});
             found=indices.emplace(edit.cell_index,index).first;
         }
-        auto& q=staged[found->second].after;
-        auto it=std::find_if(q.begin(),q.end(),[&](const PassiveQuantity& v){return v.identity==edit.identity;});
-        if(it==q.end()) {
-            if (!(edit.change > 0)) continue;
-            add_passive_quantities(q,std::array<PassiveQuantity,1>{PassiveQuantity{edit.identity,edit.change}},1);
-            continue;
-        }
-        it->quantity+=edit.change;
-        if (!(it->quantity > 0)) q.erase(it);
+        apply_passive_edit(staged[found->second].after,edit,carried,registry_,cell.mixture);
     }
     // Registry allocation and canonicalization decisions precede every write.
     // Nonempty calls clear cached totals, including no-op calls, as before.
@@ -627,23 +659,57 @@ MacClosedWorld MacClosedWorld::with_passive_edits(std::span<const MacPassiveEdit
 MacClosedWorld MacClosedWorld::with_passive_edits(std::span<const MacPassiveEdit> edits) const& {
     if (revision_ == std::numeric_limits<std::uint64_t>::max()) throw std::overflow_error("MAC closed revision overflow");
     if (edits.empty()) { auto candidate=*this; ++candidate.revision_; return candidate; }
+    const bool carried=carries_passives();
     auto next=state();
     for (const auto& edit : edits) {
         require(edit.cell_index < next.cells.size() && !next.grid.walls[edit.cell_index] && edit.identity != 0 && std::isfinite(edit.change),
             "Invalid MAC passive edit");
         auto& cell=next.cells[edit.cell_index];
         if (!(cell.mixture.mass() > 0) || edit.change == 0) continue;
-        auto& q=cell.passive_quantities;
-        auto it=std::find_if(q.begin(),q.end(),[&](const PassiveQuantity& p) { return p.identity == edit.identity; });
-        if (it == q.end()) {
-            if (!(edit.change > 0)) continue;
-            add_passive_quantities(q,std::array<PassiveQuantity,1>{PassiveQuantity{edit.identity,edit.change}},1);
-            continue;
-        }
-        it->quantity+=edit.change;
-        if (!(it->quantity > 0)) q.erase(it);
+        apply_passive_edit(cell.passive_quantities,edit,carried,registry_,cell.mixture);
     }
     auto candidate=derived(std::move(next));
     return candidate;
+}
+bool MacClosedWorld::carries_passives() const noexcept {
+    return settings_.numerical_kernel==MacNumericalKernel::game && settings_.game_profile==MacGameProfile::game_kernel_thin_drag;
+}
+MacClosedWorld MacClosedWorld::with_carried_passives() const {
+    if (!carries_passives()) return *this;
+    const auto& before=state();
+    // The carrier a cell leaves a passive: its own while the cell holds that
+    // phase, otherwise the phase the cell does hold; a plain passive goes to
+    // the phase holding most of the cell's mass.
+    const auto phases=[&](const MixtureInventory& mixture) {
+        std::pair<double,double> held{};
+        for (std::size_t k=0;k<registry_.size();++k) (registry_[k].phase==Phase::gas ? held.first : held.second)+=mixture.masses[k];
+        return held;
+    };
+    const auto carrier=[](std::uint64_t identity,double gas,double liquid) {
+        const auto named=identity & passive_carrier_mask;
+        if (named==passive_liquid_carrier) return liquid>0 ? passive_liquid_carrier : passive_gas_carrier;
+        if (named==passive_gas_carrier) return gas>0 ? passive_gas_carrier : passive_liquid_carrier;
+        return liquid>=gas && liquid>0 ? passive_liquid_carrier : passive_gas_carrier;
+    };
+    std::vector<std::size_t> changed;
+    for (std::size_t i=0;i<before.cells.size();++i) {
+        const auto& cell=before.cells[i];
+        if (cell.passive_quantities.empty()) continue;
+        const auto [gas,liquid]=phases(cell.mixture);
+        for (const auto& q : cell.passive_quantities)
+            if ((q.identity & passive_carrier_mask)!=carrier(q.identity,gas,liquid)) { changed.push_back(i); break; }
+    }
+    if (changed.empty()) return *this;
+    auto next=before;
+    for (const auto i : changed) {
+        auto& cell=next.cells[i];
+        const auto [gas,liquid]=phases(cell.mixture);
+        std::map<std::uint64_t,double> held;
+        for (const auto& q : cell.passive_quantities) held[plain_passive_identity(q.identity)|carrier(q.identity,gas,liquid)]+=q.quantity;
+        cell.passive_quantities.clear();
+        for (const auto& [identity,quantity] : held) cell.passive_quantities.push_back({identity,quantity});
+        validate_passive_quantities(cell.passive_quantities);
+    }
+    return derived(std::move(next));
 }
 }
