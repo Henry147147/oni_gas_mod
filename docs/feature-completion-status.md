@@ -1,5 +1,13 @@
 # Feature completion work
 
+**Update, 2026-11-13, 0.1.7:** the steam of the 0.1.4 recording is the
+humidity of "Evaporation below boiling", which the user's own logs show on
+in that installation; the start dialog now says when it is on. A pool that
+is still levelling when its region reaches the activity pause keeps its
+remote steps until it is level
+([game kernel](../native/MAC_GAME_KERNEL.md#levelling-keeps-a-region-remote)).
+Open items are in [0.1.7](playtest-0.1.7.md#open).
+
 **Update, 2026-11-12, 0.1.6:** a probe of everyday liquid situations on the
 solver alone found that water would not drain through a one-tile opening
 into a closed space (it stood on the trapped air), that interface
