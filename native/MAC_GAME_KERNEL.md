@@ -1205,10 +1205,25 @@ fills twice as fast; `mac_phase_change`'s profile-12 boiling line reads
 870 kg/m3 liquid of its own group: the resting pool keeps 1.8e-7 kg of
 column range and no gas under liquid for 60 s, where it ended 639 kg out of
 level with 0.57 m3 of air under it; the tilted interface is under 25 kg
-from 51 s, where it was 120 kg out at 90 s). Water poured onto oil still
-spreads slowly (about 78 kg of range at 400 s, 18 kg with sharpening off):
-a different exchange, across the vertical walls at the edge of the thin
-film, and open.
+from 51 s, where it was 120 kg out at 90 s).
+
+Water poured onto oil still spread slowly after that (78 kg of column range
+at 400 s, 18 kg with sharpening off), by a different exchange. At the edge
+of the thin water film on the floor under the oil, the edge cell's height
+normal comes out horizontal (its own fraction is tiny, and the reflected
+floor repeats the edge step) while the film cell's is vertical; the mean of
+their weights let each liquid gather the film back from its edge every tick:
+0.26 kg a tick at each edge, which undid 2,128 of the 2,240 kg the flow
+spread between 60 and 400 s. Profile 12 now sharpens a horizontal face
+between cells that together hold two or more liquids only where both cells'
+normals lie along it, reckoned without reflecting the floor. The pour then
+spreads as with sharpening off (17.8 kg at 400 s). Faces between a liquid
+and gas keep the mean: applied there, the same rule took the profile-12
+boiling control's peak pressure past its bound, and thin films under air
+were never held (they spread the same with sharpening off). Worlds with one
+liquid keep their bytes; the control's poured case ends 15.3 kg from level
+after 300 s (75.8 kg without the rule). Both rules were found and measured
+by a helper's instrumented build.
 
 ## Carried passives (profile 12, 2026-11-12)
 

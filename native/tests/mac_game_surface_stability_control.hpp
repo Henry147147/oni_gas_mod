@@ -565,7 +565,10 @@ inline const LiquidPair &liquid_pair() {
   }();
   return value;
 }
-inline MacClosedWorld liquid_pair_box(std::array<double, 2> water_top, std::array<double, 2> oil_top) {
+// `heap_kg` of water rests in the two middle cells of the row above the
+// liquid, as if just poured there.
+inline MacClosedWorld liquid_pair_box(std::array<double, 2> water_top, std::array<double, 2> oil_top,
+                                      double heap_kg = 0) {
   const auto &f = liquid_pair();
   constexpr std::size_t W = 12, H = 9;
   constexpr double gas = 130000, T = 295;
@@ -580,7 +583,9 @@ inline MacClosedWorld liquid_pair_box(std::array<double, 2> water_top, std::arra
       if (state.grid.walls[i]) continue;
       const double low = static_cast<double>(y - 1), high = low + 1;
       const double wet = water_top[x <= 5 ? 0 : 1], top = oil_top[x <= 5 ? 0 : 1];
-      const double water = std::clamp(wet - low, 0., 1.), oil = std::clamp(std::min(top, high) - std::max(wet, low), 0., 1.);
+      const bool heap = heap_kg > 0 && (x == 5 || x == 6) && low == std::ceil(top);
+      const double water = heap ? heap_kg / 2000 : std::clamp(wet - low, 0., 1.),
+                   oil = std::clamp(std::min(top, high) - std::max(wet, low), 0., 1.);
       const double weight = 9.81 * (1000 * water + 870 * oil);
       const double p = above + .5 * weight;
       auto &m = state.cells[i].mixture.masses;
@@ -661,7 +666,12 @@ inline LiquidPairRun run_liquid_pair(MacClosedWorld world, double seconds) {
 // under oil to a flat top at 4 cells) holds 0.18 m3 of air under its oil and
 // is still 120 kg out of level at 90 s; with the refusal it is under 25 kg
 // from 51.2 s, the pool keeps 1.8e-7 kg of range, 0.12 kg of lifted water
-// and no gas under liquid.
+// and no gas under liquid. Between two liquids a horizontal face is
+// sharpened only where both cells' normals lie along it (surface.hpp):
+// without that, 300 kg of water just poured onto an oil pool 2 cells deep
+// spreads into a thin film whose edges each liquid gathers back every tick,
+// and is still 75.8 kg from level after 300 s; with it, 15.3 kg (under
+// 25 kg from 212 s).
 inline void liquid_interface_control() {
   const auto saved = mac_kernel_default_options();
   auto options = saved;
@@ -669,18 +679,21 @@ inline void liquid_interface_control() {
   set_mac_kernel_default_options(options);
   const auto rest = run_liquid_pair(liquid_pair_box({2.5, 2.5}, {3.5, 3.5}), 60);
   const auto tilt = run_liquid_pair(liquid_pair_box({2.5, 1.5}, {4, 4}), 90);
+  const auto poured = run_liquid_pair(liquid_pair_box({0, 0}, {2, 2}, 300), 300);
   set_mac_kernel_default_options(saved);
   check(rest.range < 1 && rest.water_lifted < 10 && rest.gas_under < 1e-3,
         "A resting water/oil pool mixed or drew gas under its liquid");
   check(tilt.flat_after > 0, "A tilted water/oil interface did not level within 90 s");
-  for (const auto &measured : {rest, tilt}) {
+  check(poured.range < 25, "Water poured onto oil did not spread level within 300 s");
+  for (const auto &measured : {rest, tilt, poured}) {
     check(measured.mass_error < 1e-12, "The water/oil pool changed mass");
     check(measured.energy_error < 1e-12, "The water/oil pool lost U+K+G");
   }
   std::cout << "PASS profile12 liquid interface: a resting water/oil pool keeps " << rest.range
             << " kg of column range, " << rest.water_lifted << " kg of water above its interface and "
             << rest.gas_under << " m3 of gas under liquid for 60 s; a tilted interface is under 25 kg from "
-            << tilt.flat_after << " s (" << tilt.range << " kg at 90 s); mass and U+K+G closed\n";
+            << tilt.flat_after << " s (" << tilt.range << " kg at 90 s); water poured onto oil ends " << poured.range
+            << " kg from level after 300 s; mass and U+K+G closed\n";
 }
 // Profile 12 with activity tiers (MAC_GAME_KERNEL.md, "Levelling keeps a
 // region remote"): a 70-column pool, three cells deep, with a 500 kg step,

@@ -146,8 +146,10 @@ sharpen(const ma::experimental::MacGrid &source,
         return p.volume;
     return 0.;
   };
+  // `open_floor`: a solid cell (or the box edge) below the cell is not
+  // reflected; it repeats the cell's own fraction instead.
   const auto height_weight = [&](std::size_t i, std::uint64_t group,
-                                 bool x_axis) {
+                                 bool x_axis, bool open_floor = false) {
     const auto x = static_cast<long>(i % g.W), y = static_cast<long>(i / g.W);
     const auto normal_volume = [&](std::size_t cell) {
       for (auto a = normal_start[cell]; a < normal_start[cell + 1]; ++a)
@@ -157,11 +159,16 @@ sharpen(const ma::experimental::MacGrid &source,
     };
     const double center = normal_volume(i) / g.V;
     const auto alpha = [&](long cx, long cy) {
+      const bool on_floor = open_floor && (gravity >= 0 ? cy < y : cy > y);
+      if (on_floor && (cy < 0 || cy >= static_cast<long>(g.H)))
+        return center;
       cx = std::clamp(cx, 0L, static_cast<long>(g.W) - 1);
       cy = std::clamp(cy, 0L, static_cast<long>(g.H) - 1);
       const auto j = static_cast<std::size_t>(cx + cy * static_cast<long>(g.W));
       if (!g.wall[j])
         return normal_volume(j) / g.V;
+      if (on_floor)
+        return center;
       const auto along_y =
                      static_cast<std::size_t>(x + cy * static_cast<long>(g.W)),
                  along_x =
@@ -228,8 +235,20 @@ sharpen(const ma::experimental::MacGrid &source,
       if (!(low > detail_fraction * g.V && room > detail_fraction * g.V))
         continue;
       const double gradient = std::min(1., (high - low) / (.1 * g.V));
-      const double weight = .5 * (height_weight(l, group, x_axis) +
-                                  height_weight(r, group, x_axis));
+      double weight = .5 * (height_weight(l, group, x_axis) +
+                            height_weight(r, group, x_axis));
+      // Profile 12: between two liquids, a horizontal face is sharpened only
+      // where both cells' normals lie along it, reckoned without reflecting
+      // the floor. At the edge of a thin water film on the floor under oil
+      // the edge cell's normal is horizontal (its own fraction is tiny and
+      // the reflected floor repeats the edge step) and the film cell's is
+      // vertical; their mean let each liquid gather the film back from its
+      // edge every tick, cancelling the flow that spreads it. Gas-liquid
+      // faces keep the mean: this rule there lifted the profile-12 boiling
+      // control's peak pressure past its bound.
+      if (normal_sharpening && x_axis && groups.size() > 1)
+        weight = std::min(height_weight(l, group, x_axis, true),
+                          height_weight(r, group, x_axis, true));
       const double requested =
           fraction * std::min(low, room) * gradient * weight;
       if (requested > volume) {

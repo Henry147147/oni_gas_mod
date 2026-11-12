@@ -48,6 +48,14 @@ nothing on screen said it was on.
   Those exchanges now run once for each frame a step covers
   ([game kernel](../native/MAC_GAME_KERNEL.md#layering-in-a-remote-step)).
 
+- **Water poured onto oil spreads.** Sharpening gathered the thin water
+  film back from its edges as fast as it spread (78 kg from level after
+  400 s). Between two liquids a sideways face is now sharpened only where
+  both tiles' surfaces face it
+  ([game kernel](../native/MAC_GAME_KERNEL.md#sharpening-never-lifts-net-mass));
+  the pour ends 18 kg from level after 400 s, as with sharpening off. Pools
+  of one liquid are unchanged to the byte.
+
 | Pool with a 500 kg step, touched once | 0.1.6: paused at, slope left | 0.1.7 |
 | --- | --- | --- |
 | 35 tiles, 3 deep | 60 s, 0.0015 kg | unchanged |
@@ -68,7 +76,8 @@ On the working tree before the acceptance run:
 
 - **Native.** 93 of 93 CTest tests. Of the 62 `ma_mac_*` invocations, 59
   print what 0.1.6 printed; `mac_game_kernel` gains the levelling control
-  line and the remote half of the drain control's line,
+  line, the remote half of the drain control's line and the poured case of
+  the two-liquid control's (15.3 kg from level after 300 s; 75.8 kg before),
   `mac_production_kernel_oracle` differs only in timings, and
   `mac_phase_change`'s profile-12 boiling line, which advances a second in
   one step, reads 6.91 kg and a 226.5 kPa peak (6.21 kg and 306.9 kPa;
@@ -96,9 +105,9 @@ full-colony saves, which the timed runs will show.
   diffusive: 215 s to a 25 kg range on 140 tiles). A longer drag time levels
   wide pools faster but brings the overshoot back on 35 tiles (1.5 s: one
   37 kg reversal; 2 s: two, 82 kg), so no single value serves both.
-- Water poured onto oil spreads slowly; the `storage-ledger` emptier check
-  waits for the user's ruling; the one-off load fault of 0.1.5's run has
-  not recurred. All as in [0.1.6](playtest-0.1.6.md#open).
+- The `storage-ledger` emptier check waits for the user's ruling, and the
+  one-off load fault of 0.1.5's run has not recurred; both as in
+  [0.1.6](playtest-0.1.6.md#open).
 
 ## Acceptance
 
