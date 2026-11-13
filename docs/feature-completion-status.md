@@ -7,6 +7,14 @@ opening one tile high (fixed:
 and three things left for the user to weigh: released gases mix more than
 they layer, a pump cools the last of a room, and a quiet region pauses with
 its gas still moving ([0.1.8](playtest-0.1.8.md#what-the-probe-found)).
+Replaying one world state of each full colony on each solver showed that
+the layering changes of 0.1.6 to 0.1.8 had made that stage five times
+dearer; 0.1.8 narrows them and the flow advance is back at 0.1.5's cost
+([replays](playtest-0.1.8.md#verification)). The timed runs of 2026-11-13
+had the Spaced Out! colony at 0.88 to 0.92× on every version measured,
+0.1.4 included (0.974× on the 11th), with other work on the machine: the
+1× beta bar is not held on that save
+([0.1.7](playtest-0.1.7.md#acceptance)).
 
 **Update, 2026-11-13, 0.1.7:** the steam of the 0.1.4 recording is the
 humidity of "Evaporation below boiling", which the user's own logs show on

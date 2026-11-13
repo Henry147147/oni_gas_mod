@@ -123,4 +123,55 @@ full-colony saves, which the timed runs will show.
 
 ## Acceptance
 
-Pending.
+Code revision **`f659a40`**. Windows ZIP:
+`/mnt/data/share/oni/playtest/MixedAtmospheres-0.1.7-f659a40/MixedAtmospheres-private-windows-0.1.7-f659a40.zip`,
+SHA256 `19d713b8dbf702c3e19091914b03152c801c1673eaf0dbc6815df7d36b83262a`.
+Close ONI, extract and run `install_windows.ps1`. Colonies saved by 0.1.4
+or 0.1.5 load; a colony saved by 0.1.7 does not load in 0.1.5 or earlier.
+
+The quick tier of `tools/acceptance_suite.py` ran in full on `f659a40`
+(46 steps, tag `quick-v1`): 45 passed, 1 failed, none skipped.
+
+| Step | Result |
+| --- | --- |
+| Linux build; Windows (MinGW) build with its tests under Wine (94 of 94) | pass |
+| Linux batches 1-12, 14, 15 | pass |
+| Nine starting asteroids, 3,000 frames each | pass |
+| One cycle on the frozen prepared save (made by 0.1.4) | pass: 3,033 frames, a natural autosave, three duplicants alive, mass error 3e-15 |
+| Proton batches 2, 3, 4, 6, 7, 10, 11, 12 | pass |
+| Proton contact, base source, prepared cycle, autosave cold | pass |
+| Proton settings source and load, Spaced Out! source, cold load, menu reload, ordinary new game and its reload | pass |
+| Linux batch 13 | fail: `storage-ledger`, "the emptied gas brings its germs once": owner +53,398 germs against a floor of 68,000 |
+
+`linux-b13` is the check left for the user to rule on
+([0.1.6](playtest-0.1.6.md#open)): the scenario samples at its fallback
+frame, fifty seconds after the emptier's store is empty, and reads the
+game's own die-off; its other thirteen checks and the batch's other three
+scenarios pass. The frozen-save cycle is the step that stopped 0.1.6.
+
+The Proton steps are the WindowsPlayer under Proton, not Windows itself.
+
+Speed in game (Linux harness, GPU display, one run each; one cycle of 3,000
+frames at speed 3 loaded from the prepared saves). The last three columns
+were measured on 2026-11-13 with other work on the machine (a media
+transcode held one core throughout); the first is the run of 2026-11-11:
+
+| Save | 0.1.4, 11 Nov | 0.1.4 again | 0.1.5 `e3666a9` | 0.1.7 `f659a40` |
+| --- | ---: | ---: | ---: | ---: |
+| Industrial base, 32 duplicants: game seconds per real second | 2.255 | | 2.059 | 2.006 |
+| ... warmed windows: owner / flow ms a tick | 58.3 / 46.4 | | 63.1 / 50.6 | 65.4 / 52.7 |
+| Spaced Out! full colony: game seconds per real second | 0.974 | 0.922 | 0.905 | 0.883 |
+| ... warmed windows: owner / flow ms a tick | 182.0 / 162.5 | 192.7 / 172.8 | 196.1 / 176.0 | 201.8 / 180.4 |
+
+The same 0.1.4 package ran 5 % slower on the 13th than on the 11th, so the
+two days do not compare; within the 13th, 0.1.5 is 2 % and 0.1.7 4 % behind
+0.1.4 in the flow stage, against a spread of 5 % between windows of one
+run. Replaying one world state of each colony on each solver (the flow
+advance alone, [0.1.8](playtest-0.1.8.md#verification)) shows what is real
+in that: the liquid drag of 0.1.5 costs nothing, and 0.1.7's repeated
+layering in remote regions cost 4 to 5 ms a frame, which 0.1.8 removes. The
+Spaced Out! colony is below the 1× beta bar on every version measured that
+day.
+
+Not established here: Windows itself, and the user's own look at pools,
+one-tile openings and oil over water in play.

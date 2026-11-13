@@ -1081,8 +1081,15 @@ another (the two runs differ in the order of their scenarios; the faster
 arena probably held an earlier scenario's buildings, which keep a region
 stepped every frame, but that was not checked). Profile 12 now layers once
 for each frame's length of a
-step (`Tick`, `layering_frame_s`), stopping at the first pass that exchanges
-nothing; a frame-long step makes its one pass as before. The control's
+step (`Tick`, `layering_frame_s`) where that step exchanges liquid, or gas
+through a one-cell opening (`LayerResult::capped_faces`, counted first
+without changing anything), stopping at the first pass that exchanges
+nothing. The convective adjustment alone keeps its one pass over the whole
+step, as before 0.1.7, and a frame-long step makes its one pass as before.
+Repeating for every exchange, as 0.1.7 did, made layering five times dearer
+in every remote region, because nearly every region overturns some gas:
+1.4 ms of layering a frame became 6.4 ms on a replay of the Spaced Out!
+full colony. The control's
 remote room holds 8,755 kg after 30 s against 8,745 kg stepped every frame
 (6,410 kg with one pass a step). `mac_phase_change`'s profile-12 boiling
 line, which advances one second in a step, reads 6.91 kg and a 226.5 kPa
@@ -1149,11 +1156,13 @@ the shaft over it. Two tiles of opening, or a vent, drained in under a
 minute: the fault is the single face.
 
 Layering now also exchanges liquid resting on gas (`layer`, the `sinking`
-rule): across an open vertical face whose upper cell holds liquid and whose
-lower cell holds gas, the two cells swap equal volumes of the upper cell's
-liquid (every liquid, in proportion) and the lower cell's gas, each share
-carrying its own EOS energy and passives. The share is that of the convective
-adjustment with the free-fall speed over one cell,
+rule): across an open vertical face whose upper cell holds liquid (a
+thousandth of a cell at least: mist and droplets fall through their own
+cell's gas as they always did, and a colony's air holds them in thousands
+of cells) and whose lower cell holds gas, the two cells swap equal volumes
+of the upper cell's liquid (every liquid, in proportion) and the lower
+cell's gas, each share carrying its own EOS energy and passives. The share
+is that of the convective adjustment with the free-fall speed over one cell,
 `w = sqrt(g h (rho_liquid - rho_gas) / rho_mean)`, capped at a quarter of the
 smaller volume an interval; a face whose cells already move faster than `w`
 exchanges nothing, as there. The released potential energy is local heat, so
@@ -1169,9 +1178,10 @@ nine-cell room with a one-cell hole: the room holds 8,873 kg of water and
 sharpening rule below, 11.4 s without it; mass and U+K+G closed), and the
 game scenario `sealed-drain`.
 
-Profile 12 arithmetic changes wherever liquid lies over gas (falling liquid
-and mist settle a little faster); profiles 2-11, the checkpoint format and
-version 32 do not. Of the 62 `ma_mac_*` invocations, 59 are identical to the
+Profile 12 arithmetic changes wherever a litre or more of liquid lies over
+gas (any liquid at all until 0.1.8, which found mist counting in thousands
+of a colony's cells); profiles 2-11, the checkpoint format and version 32
+do not. Of the 62 `ma_mac_*` invocations, 59 are identical to the
 previous revision; `mac_game_kernel` gains its control lines,
 `mac_production_kernel_oracle` differs only in its timings, and
 `mac_phase_change`'s profile-12 boiling line reads 6.15 kg and 277.0 kPa
@@ -1200,9 +1210,12 @@ its own EOS energy and passives. The share is that of a lock exchange
 filling half the opening each way at
 `u = sqrt(g h |rho_l - rho_r| / rho_mean) / 2`, capped at a quarter a pass,
 and a face whose cells already move faster than `u` exchanges nothing. Gases
-of equal density do not exchange; only diffusion would mix them, and the
-game runs without it. Rooms more than one cell high and openings of two
-cells or more are untouched: there the flow resolves the exchange itself.
+whose densities are within a thousandth of each other (0.3 K, or the
+unevenness of any moving room) do not exchange; only diffusion would mix
+them, and the game runs without it. The cells closed above and below are
+marked once in the kernel grid (`Grid::slot`). Rooms more than one cell
+high and openings of two cells or more are untouched: there the flow
+resolves the exchange itself.
 
 The carbon dioxide now crosses (7 % in 60 s, 20 % in 300 s; the two-cell
 opening is unchanged at 37 %), and the hot and cold rooms close from 79 K to

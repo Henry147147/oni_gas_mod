@@ -42,6 +42,12 @@ Grid::Grid(const MacGrid& mg)
     cell_faces.resize(N);
     for (std::size_t row = 0; row < H; ++row) for (std::size_t col = 0; col < W; ++col)
         cell_faces[col + row * W] = {xface(col, row), xface(col + 1 == XW ? 0 : col + 1, row), yface(col, row), yface(col, row + 1 == YH ? 0 : row + 1)};
+    slot.assign(N, 0);
+    for (std::size_t c = 0; c < N; ++c) {
+        if (wall[c]) continue;
+        const auto top = cell_faces[c][3], bottom = cell_faces[c][2];
+        slot[c] = (yr[top] == none || closed(true, top)) && (yl[bottom] == none || closed(true, bottom));
+    }
     rows_per_block = block_rows(W);
     blocks = (H + rows_per_block - 1) / rows_per_block;
 }

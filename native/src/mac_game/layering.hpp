@@ -6,6 +6,10 @@ namespace ma::experimental::game_kernel {
 struct LayerResult {
   State state;
   std::size_t faces = 0;
+  // The faces among them that exchanged liquid, or gas through a one-cell
+  // opening: all but the convective adjustment's. A step longer than a
+  // frame repeats layering only for these (Tick).
+  std::size_t capped_faces = 0;
   double released = 0;
   // Profile 8: momentum the parcels carried into closed faces.
   double wall_x = 0, wall_y = 0, wall_ops_x = 0, wall_ops_y = 0;
@@ -21,7 +25,8 @@ layer(const ma::experimental::MacGrid &source,
       const ma::experimental::mac_kernel::Grid *cached_grid = nullptr,
       ma::experimental::mac_kernel::Pool *executor = nullptr,
       bool carry_momentum = false, RegionAudit *audit = nullptr,
-      bool convective = false, bool sinking = false) {
+      bool convective = false, bool sinking = false,
+      bool count_only = false) {
   namespace k = ma::experimental::mac_kernel;
   k::Grid built;
   if (!cached_grid)
@@ -129,6 +134,7 @@ layer(const ma::experimental::MacGrid &source,
     add_parcel(lower, upper, l);
     add_parcel(upper, lower, h);
     ++out.faces;
+    ++out.capped_faces;
   }
   if (convective) {
     // Profile 11 sub-grid convective adjustment. Where the gas of a cell is
@@ -245,9 +251,12 @@ layer(const ma::experimental::MacGrid &source,
     for (std::size_t f = 0; f < g.NY; ++f) {
       const auto lower = gravity > 0 ? g.yl[f] : g.yr[f],
                  upper = gravity > 0 ? g.yr[f] : g.yl[f];
+      // A thousandth of a cell of liquid at least: mist and droplets fall
+      // through their own cell's gas as they always did, and a colony's air
+      // holds them in thousands of cells.
       if (lower == k::none || upper == k::none || g.closed(true, f) ||
           g.wall[lower] || g.wall[upper] || !(eos[lower].gas_volume > 0) ||
-          !(eos[upper].liquid_volume > 0))
+          !(eos[upper].liquid_volume > 1e-3 * g.V))
         continue;
       double gas = 0, liquid = 0;
       for (std::size_t a = initial.masses.offsets[lower];
@@ -309,6 +318,7 @@ layer(const ma::experimental::MacGrid &source,
       parcels.push_back(std::move(rising));
       parcels.push_back(std::move(falling));
       ++out.faces;
+      ++out.capped_faces;
     }
     // Profile 12 sub-grid exchange of gas through an opening one cell high.
     // Where two rooms of different gas density meet (a heavy gas beside a
@@ -326,18 +336,11 @@ layer(const ma::experimental::MacGrid &source,
     // capped like layering, and, as for the convective adjustment, a face
     // whose cells already move faster than u exchanges nothing. Gases of
     // equal density do not exchange: only diffusion would mix them.
-    const auto shut = [&](std::size_t cell) {
-      const auto closed = [&](std::size_t face, bool up) {
-        const auto other = up ? g.yr[face] : g.yl[face];
-        return other == k::none || g.wall[other] || g.closed(true, face);
-      };
-      return closed(g.top_face(cell), true) && closed(g.bottom_face(cell), false);
-    };
     for (std::size_t f = 0; f < g.NX; ++f) {
       const auto l = g.xl[f], r = g.xr[f];
-      if (l == k::none || r == k::none || g.closed(false, f) || g.wall[l] ||
-          g.wall[r] || !(eos[l].gas_volume > 0) || !(eos[r].gas_volume > 0) ||
-          !(shut(l) || shut(r)))
+      if (l == k::none || r == k::none || !(g.slot[l] || g.slot[r]) ||
+          g.closed(false, f) || !(eos[l].gas_volume > 0) ||
+          !(eos[r].gas_volume > 0))
         continue;
       const auto gas_density = [&](std::size_t i) {
         double mass = 0;
@@ -348,7 +351,12 @@ layer(const ma::experimental::MacGrid &source,
         return mass / eos[i].gas_volume;
       };
       const double left = gas_density(l), right = gas_density(r);
-      if (!(left > 0) || !(right > 0) || left == right)
+      // Densities within a thousandth of each other (0.3 K, or the unevenness
+      // any moving room has) exchange nothing: the lock exchange they would
+      // drive creeps at 5 cm/s, and nearly every such opening in a colony
+      // would otherwise count as exchanging.
+      if (!(left > 0) || !(right > 0) ||
+          !(std::abs(left - right) > 1e-3 * .5 * (left + right)))
         continue;
       const double speed =
           .5 * std::sqrt(std::abs(gravity) * h * std::abs(left - right) /
@@ -383,9 +391,12 @@ layer(const ma::experimental::MacGrid &source,
         parcels.push_back(std::move(parcel));
       }
       ++out.faces;
+      ++out.capped_faces;
     }
   }
-  if (parcels.empty())
+  // `count_only`: the faces that would exchange, and nothing else (no state,
+  // no audit receipt).
+  if (count_only || parcels.empty())
     return out;
   // Each cell's outgoing and then incoming parcels, in parcel order.
   std::vector<std::size_t> out_start(g.N + 1), in_start(g.N + 1), outgoing,

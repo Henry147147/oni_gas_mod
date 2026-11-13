@@ -105,6 +105,9 @@ struct Grid {
     [[nodiscard]] Index right_face(std::size_t c) const { return cell_faces[c][1]; }
     [[nodiscard]] Index bottom_face(std::size_t c) const { return cell_faces[c][2]; }
     [[nodiscard]] Index top_face(std::size_t c) const { return cell_faces[c][3]; }
+    // Fluid cells closed above and below (a wall, the grid edge or a closed
+    // face on each side): a wall's one-cell opening, a one-cell corridor.
+    std::vector<std::uint8_t> slot;
     [[nodiscard]] std::size_t block_row_begin(std::size_t b) const { return std::min(H, b * rows_per_block); }
     [[nodiscard]] std::size_t block_row_end(std::size_t b) const { return std::min(H, (b + 1) * rows_per_block); }
     // y-face rows [begin, end) of a block.

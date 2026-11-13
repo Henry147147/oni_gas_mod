@@ -72,11 +72,26 @@ Four did not, or need a decision:
   do not exchange through such an opening: only diffusion would mix them,
   and the game runs without it. Rooms more than one tile high and openings
   of two tiles or more are untouched.
+- **Cheaper layering.** The timed runs of 0.1.7 looked slower, and replaying
+  one world state of each full colony on each solver showed where: 0.1.7
+  repeated layering five times in every region stepped once a second,
+  because nearly every region overturns some gas. A long step now repeats
+  layering only where liquid is exchanging, or gas through a one-tile
+  opening; liquid over gas needs a litre of liquid (mist and droplets fall
+  as they always did, and a colony's air holds them in thousands of
+  tiles); and gases within a thousandth of each other in density do not
+  count as different. The layering stage of the Spaced Out! replay went
+  from 1.4 ms (0.1.5) to 6.4 ms and is now 3.5 ms, the sharpening stage is
+  0.7 ms cheaper than in 0.1.5, and the whole flow advance is back at
+  0.1.5's cost.
 - **Scenario `side-opening`**, written by a helper.
 
 Profile 12 arithmetic changes at side openings one tile high whose two
-sides differ in gas density; the checkpoint format and version 32 are
-unchanged, and 0.1.7 colonies load.
+sides differ in gas density by more than a thousandth, where less than a
+litre of liquid lies over gas (as before 0.1.6 there), and in steps longer
+than a frame that exchange no liquid and no gas through such an opening
+(one layering pass, as before 0.1.7). The checkpoint format and version 32
+are unchanged, and 0.1.7 colonies load.
 
 ## Verification
 
@@ -84,19 +99,39 @@ On the working tree before the acceptance run:
 
 - **Native.** 93 of 93 CTest tests. Of the 62 `ma_mac_*` invocations, 60
   print what 0.1.7 printed; `mac_production_kernel_oracle` differs only in
-  timings, and `mac_game_kernel` gains the control's line and reads
+  timings, and `mac_game_kernel` gains the control's line, reads
   6,235.79 K where it read 6,241.27 K in the thin-gas heating control,
-  whose leak is a one-cell hole. Control: 17.4 % of a room's nitrogen is in
-  the oxygen room beside it after 120 s (7e-9 % before), and rooms at 350 K
-  and 250 K are 37 K apart after 300 s (100 K before), with mass and U+K+G
-  closed. The probe's layered gases at rest keep their layers to the digit
-  and its two-tile door run is unchanged.
+  whose leak is a one-cell hole, and moves two controls in their last
+  digits (0.297073 for 0.297068 kg of air left in the drained room,
+  1.11647 for 1.11646 kg at the tilted interface). Control: 17.4 % of a
+  room's nitrogen is in the oxygen room beside it after 120 s (7e-9 %
+  before), and rooms at 350 K and 250 K are 37 K apart after 300 s (100 K
+  before), with mass and U+K+G closed. The probe's layered gases at rest
+  keep their layers to the digit and its two-tile door run is unchanged.
 - **In game** (Linux harness): `side-opening` 6 of 6 (18.4 % of the carbon
   dioxide is in the oxygen room and 20.5 % of the oxygen in the other after
   120 s; no liquid; ledgers 3e-15); batches 1 and 2 of the acceptance tier
   (terrain, heat, phase, freeze-melt, door, sublimation, natural
   sublimation, falling, airflow, debris heat, building melt) and the five
-  liquid scenarios pass.
+  liquid scenarios pass. With the cheaper layering, run again: the five
+  liquid scenarios and `side-opening` pass in one batch (the sealed room
+  98.7 % full, half full in 26 frames; 13.8 % of the carbon dioxide and
+  16.2 % of the oxygen across, in a batch order that leaves the arena
+  stepped once a second), batch 1 passes, and the frozen prepared save made
+  by 0.1.4 loads and runs 300 frames (173 germ cultures, germ audit 1e-16).
+
+- **Replays** (the flow advance alone on one captured world state of each
+  full colony, 30 frames, 12 workers, locked cores; ms a frame):
+
+  | Solver | Spaced Out!: flow / layering / sharpening | Industrial: flow / layering / sharpening |
+  | --- | ---: | ---: |
+  | 0.1.4 `152cb75` | 47.4 / 1.4 / 7.0 | 29.8 / 1.1 / 5.7 |
+  | 0.1.5 `e3666a9` | 45.9 / 1.4 / 6.9 | 27.9 / 1.0 / 5.7 |
+  | 0.1.8 as first pushed `e58fb3a` | 47.6 / 6.4 / 6.2 | 32.7 / 5.6 / 5.6 |
+  | 0.1.8 with the cheaper layering | 46.9 / 3.5 / 6.2 | 26.8 / 2.6 / 4.9 |
+
+  A replay has no owner inputs, so most of its regions go remote after two
+  seconds; it shows the solver's cost on one state, not the game's speed.
 
 Not established: Windows itself, and the user's own look at a one-tile gap
 between rooms in play.

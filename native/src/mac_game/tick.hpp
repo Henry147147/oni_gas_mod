@@ -392,20 +392,27 @@ public:
       }
     }
     auto stage_start = std::chrono::steady_clock::now();
-    // The exchange shares are capped per call. A remote step (activity
-    // tiers) covers several frames at once, so profile 12 layers once for
-    // each frame's length of it: a region then drains, overturns and
-    // settles at the pace of one simulated every frame (in game a one-cell
-    // drain ran at 250 kg/s in a region without buildings and at 700 kg/s
-    // in one stepped every frame). A frame-long step makes one pass, with
-    // its own dt, as before.
-    const unsigned passes =
+    // The exchange shares are capped per call, and a remote step (activity
+    // tiers) covers several frames at once. Where such a step exchanges
+    // liquid, or gas through a one-cell opening, profile 12 layers once for
+    // each frame's length of it instead, so a region drains and settles at
+    // the pace of one simulated every frame (in game a one-cell drain ran
+    // at 250 kg/s in a region without buildings and at 700 kg/s in one
+    // stepped every frame). The convective adjustment alone keeps its one
+    // pass over the whole step: nearly every region overturns some gas,
+    // and repeating for it made layering five times dearer in every remote
+    // region. A frame-long step makes its one pass as before.
+    unsigned passes =
         liquid_exchange ? std::max(1u, static_cast<unsigned>(std::ceil(dt / layering_frame_s - 1e-9))) : 1u;
+    const auto layer_for = [&](double seconds, bool count_only) {
+      return layer(grid, species, out.state, out.eos, seconds, gravity,
+                   &flow.kernel_grid(), &flow.worker_pool(), carry_momentum,
+                   &regions, convective, liquid_exchange, count_only);
+    };
+    if (passes > 1 && !layer_for(dt, true).capped_faces)
+      passes = 1;
     for (unsigned pass = 0; pass < passes; ++pass) {
-      auto layered = layer(grid, species, out.state, out.eos, dt / passes, gravity,
-                           &flow.kernel_grid(), &flow.worker_pool(),
-                           carry_momentum, &regions, convective,
-                           liquid_exchange);
+      auto layered = layer_for(dt / passes, false);
       wall_x += layered.wall_x;
       wall_y += layered.wall_y;
       wall_ops_x += layered.wall_ops_x;
