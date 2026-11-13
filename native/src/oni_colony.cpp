@@ -5487,10 +5487,12 @@ void restore(const MAOniColonyConfig& config, std::span<const MAOniColonyMateria
         restored_touches=read_cells();
     }
     const auto physical = r.u64(); require(physical == r.bytes.size() - r.at, "Colony checkpoint physical image length differs");
-    // A profile-12 colony saved before germs had carriers gives each cell's
-    // germs to its dominant phase; later saves hold none that are plain.
+    // The restored world is exactly the saved one: the adapter checks that
+    // it encodes to the saved image. A profile-12 colony saved before germs
+    // had carriers therefore keeps its plain germs here, and the first germ
+    // stage gives them to a phase their cell holds (evolve_germs).
     next->world = std::make_shared<const MacClosedWorld>(MacClosedWorld::from_checkpoint(next->catalogue->registry, next->catalogue->eos,
-        r.bytes.subspan(r.at, static_cast<std::size_t>(physical))).with_carried_passives());
+        r.bytes.subspan(r.at, static_cast<std::size_t>(physical))));
     require(((config.flags&MA_ONI_COLONY_GAME_KERNEL)!=0)==(next->world->settings().numerical_kernel==MacNumericalKernel::game),"Saved core kernel differs from saved colony flags");
     require(((config.flags&MA_ONI_COLONY_GAME_ACTIVITY)!=0)==mac_game_activity_profile(next->world->settings().game_profile),
         "Saved activity core differs from owner integration");

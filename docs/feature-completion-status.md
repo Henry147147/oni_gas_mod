@@ -6,7 +6,9 @@ in that installation; the start dialog now says when it is on. A pool that
 is still levelling when its region reaches the activity pause keeps its
 remote steps until it is level
 ([game kernel](../native/MAC_GAME_KERNEL.md#levelling-keeps-a-region-remote)).
-Open items are in [0.1.7](playtest-0.1.7.md#open).
+0.1.6 was withdrawn: its acceptance run found that it did not load a
+colony saved by 0.1.4 or 0.1.5 (it re-keyed the germs while restoring);
+0.1.7 corrects that. Open items are in [0.1.7](playtest-0.1.7.md#open).
 
 **Update, 2026-11-12, 0.1.6:** a probe of everyday liquid situations on the
 solver alone found that water would not drain through a one-tile opening

@@ -139,4 +139,31 @@ openings and oil over water in play.
 
 ## Acceptance
 
-Pending.
+**Withdrawn.** Code revision `1d424d1`. The quick tier of
+`tools/acceptance_suite.py` (46 steps, tag `quick-v1`) was stopped at its
+28th step after it found that this version does not load a colony saved by
+0.1.4 or 0.1.5:
+
+| Step | Result |
+| --- | --- |
+| Linux build; Windows (MinGW) build | pass |
+| Linux batches 1-12, 14, 15 | pass |
+| Nine starting asteroids, 3,000 frames each | pass |
+| Linux batch 13 | fail: `storage-ledger`, the emptier germ check ([Open](#open)): owner +53,397 germs |
+| One cycle on the frozen prepared save | fail: the save does not load (below) |
+| The 19 Proton steps | not run |
+
+`linux-one-cycle`: the frozen prepared save was made by 0.1.4. On load the
+adapter checks that the restored owner encodes to the saved image, and it
+did not ("The restored colony owner does not reproduce its saved image"):
+this version gave the save's germs their carriers while restoring, which
+changes the image. Every colony saved by 0.1.4 or 0.1.5 that holds germs is
+affected; new colonies are not. The statement under Changes that such
+colonies load is wrong for this revision. [0.1.7](playtest-0.1.7.md)
+restores the saved world as it is and gives the germs their carriers in the
+first germ stage instead.
+
+The Windows ZIP of this revision was on the playtest share from 22:00 to
+01:00 UTC marked "acceptance in progress"; it is now renamed
+`DO-NOT-USE-…` there with a status note
+(`/mnt/data/share/oni/playtest/MixedAtmospheres-0.1.6-1d424d1/`).

@@ -1,10 +1,11 @@
 # Private playtest 0.1.7, 2026-11-13
 
-Version 0.1.7 follows [0.1.6](playtest-0.1.6.md) with the two things its
-record left open that could be settled without the user: wide pools that
-stopped levelling, and the steam of the 0.1.4 recording. It keeps everything
-in 0.1.6. It is a private candidate; no public release or Workshop upload
-was made.
+Version 0.1.7 replaces [0.1.6](playtest-0.1.6.md), which was withdrawn
+because it did not load earlier colonies, and settles what its record left
+open that needed no decision from the user: wide pools that stopped
+levelling, water poured onto oil, and the steam of the 0.1.4 recording. It
+keeps everything else in 0.1.6. It is a private candidate; no public release
+or Workshop upload was made.
 
 ## The steam of the 0.1.4 recording
 
@@ -24,6 +25,12 @@ nothing on screen said it was on.
 
 ## Changes
 
+- **Colonies of 0.1.4 and 0.1.5 load again.** 0.1.6 gave an older colony's
+  germs their carriers while restoring it, so the restored owner no longer
+  matched its saved image and the load was refused; its acceptance run
+  caught this on the frozen 0.1.4 save and 0.1.6 was withdrawn
+  ([0.1.6](playtest-0.1.6.md#acceptance)). The saved world is now restored
+  as it is and its germs get their carriers in the first germ stage.
 - **The start dialog says when evaporation is on.** With "Evaporation below
   boiling" on, the item about boiling in "What plays differently" (the start
   dialog and Settings → Gameplay → How it plays) reads "Evaporation below
@@ -91,6 +98,11 @@ On the working tree before the acceptance run:
   in the room after 10 s where the same batch read 4,204 kg before the
   remote layering change), `liquid-settling`, `flood-pocket` and
   `flood-co2-corner` pass.
+- **Earlier and new saves** (Linux harness, the check 0.1.6 lacked): the
+  frozen prepared save made by 0.1.4 loads and runs 300 frames (170 germ
+  cultures, germ audit 1e-16); a colony saved by this build after the
+  `germs` and `pool-step` scenarios (201 cultures, in water and in air)
+  loads and runs 200 frames.
 - **Managed and tools.** Settings 453 checks (two new, for the start dialog
   with the option on and off), distribution 250, presentation 50 tests,
   Python 516 tests.
