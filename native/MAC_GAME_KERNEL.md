@@ -358,8 +358,9 @@ milligram traces raced across vacuum caves at hundreds of m/s, and the
 0.4-cell swept-volume bound and the transport subcycles followed them. On
 the Spaced Out! full colony one such region cost 535-855 ms a frame. With the
 drag, thin gas seeps (its velocity about proportional to the pressure
-difference). Faces at or above 1 g are untouched, so air of ordinary density
-advances exactly as on profile 11. Saves keep their profile;
+difference). Faces at or above 1 g are untouched by this term, so air of
+ordinary density advanced exactly as on profile 11 until the
+[gas drag](#gas-drag-profile-12-2026-11-13). Saves keep their profile;
 `MA_COLONY_KERNEL3_PROFILE11=1` (or 10, 9) still creates the earlier
 profiles. Measurements and the other settings tried:
 [performance acceptance](../docs/performance-acceptance.md#thin-gas-drag-a-proposed-game-profile-option-2026-11-05).
@@ -403,8 +404,9 @@ Both visit thin cells lightest first (ties by cell index), so heat a thin
 front carries passes up the mass gradient to the gas pushing it within the
 same pass; the result does not depend on the worker count. Energy moves only
 across open faces, so within one region; species, momenta, passives and
-U+K+G are exact. Cells at or above 1 g are untouched except as neighbours,
-so air of ordinary density still advances exactly as on profile 11. The
+U+K+G are exact. Cells at or above 1 g are untouched except as neighbours
+(air of ordinary density advanced exactly as on profile 11 until the gas
+drag of 2026-11-13). The
 saved format and version 32 are unchanged; the arithmetic of version 32
 changed in place (old saves are not a consideration before release, user
 decision 2026-11-05).
@@ -1049,7 +1051,8 @@ One second is about critical damping for that pool's longest wave: it levels
 without changing sides. An 8-column pool is flat in about 8 s; an 80-column
 one creeps level (range 97 kg after 40 s) without oscillating. A liquid falls
 at up to `g × liquid_drag_time` (9.8 m/s), and gas in a cell without liquid
-feels none of it; a mist droplet's share is negligible.
+feels none of it (it has its own, twenty times weaker, since 2026-11-13); a
+mist droplet's share is negligible.
 
 Profile 12 arithmetic changes wherever liquid moves; profiles 2-11, the
 checkpoint format and version 32 do not. Against the previous revision, of
@@ -1141,6 +1144,71 @@ simulation takes (1.0 s before). The question itself took 2.1 ms on a resting
 97,000-cell region of the test registry. Pools at rest, with or without the
 convecting gas, keep their bytes. Profiles 2-11 are unchanged. Control:
 `levelling_pause_control` in `mac_game_surface_stability_control.hpp`.
+
+## Gas drag (profile 12, 2026-11-13)
+
+The gas probe of 0.1.8 found that released gases mix more than they layer:
+carbon dioxide let out at a floor was 96 % in the bottom third of its room
+after a minute and 76 % after fifteen, still falling. The time series shows
+why. After the release the room never comes to rest: its fastest gas moves
+at 17 cm/s after two minutes, 5 cm/s after ten and 4 cm/s after fifteen. Gas
+here had no dissipation but the implicit pressure step's own, like liquid
+before its drag, and the first-order transport spreads a gradient by about
+`|u| h / 2` while anything moves: at 5 cm/s that is 1,500 times molecular
+diffusion. Layers at true rest keep their rows for half an hour; a room that
+was stirred once never gets there.
+
+Profile 12 now gives the gas share of every face the same implicit drag as
+the liquid share, at `1/gas_drag_time` (`mac_game/pressure_be.hpp`):
+`γ = dt (liquid/liquid_drag_time + (1 - liquid)/gas_drag_time)` plus the
+thin-gas term, in `J (1 + γ) = J_old + body + pressure impulse`. The
+momentum taken is an external load and its kinetic work becomes heat in
+place, as for the other two. `gas_drag_time` is twenty seconds, about an
+eddy's turnover in a room. The drag is linear, so it creates no false rest:
+a weak density difference still drives its flow, more slowly.
+
+| Gas probe, one room of 20 by 12 cells | no drag | 60 s | 30 s | **20 s** | 10 s | 3 s |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Carbon dioxide released at the ceiling: in the bottom third after 30 min, % | 42.8, falling | 57.7 | 64.0 | 68.1 | 75.5 | 87.9 |
+| ... released at the floor: after 15 min, % | 75.8, falling | 90.7 | 94.1 | 95.7 | 98.0 | 99.6 |
+| Hydrogen released at the floor: in the top third after 30 min, % | 41.6, falling | 52.9 | 56.3 | 58.7 | 63.7 | 74.6 |
+| ... released at the ceiling: after 15 min, % | 74.4, falling | 88.5 | 92.4 | 94.3 | 96.6 | 99.0 |
+| Fastest gas 10 min after the floor release, cm/s | 4.7 | | | 0.5 | | |
+| A 1 kW heater's plume, m/s; hottest cell, K | 0.34; 301.28 | 0.26; 301.45 | 0.22; 301.55 | 0.19; 301.64 | 0.15; 301.87 | 0.08; 302.57 |
+| Rooms at 286 K and 315 K joined by a two-cell door: apart after 300 s, K | 4.6 | 5.8 | 6.6 | 7.4 | 9.3 | 15.6 |
+
+With any drag the shares stop changing within about five minutes; without
+it they fall towards an even mix for as long as the room is watched. What
+is lost in the first minute of a release from the wrong end is the plume's
+own mixing (the released gas leaves its source cell already diluted), which
+the drag reduces but does not remove. The costs are the last two rows: weak
+buoyant flows are slower. Pressure differences equalise as before (the
+door's rooms at 140 and 70 kPa meet in 0.4 s with a 6.2 kPa overshoot for
+6.3, a breach to vacuum in the same 0.6 s), a one-cell hole in a floor
+passes what it did (40.4 % of the carbon dioxide down after 300 s), a
+two-cell side opening 35.9 % for 37.3 % and the one-cell side opening
+18.7 % for 20.5 %. The heater's room is below 1 cm/s 211 s after the
+heater stops (not within the 600 s watched before).
+
+Profile 12 arithmetic changes wherever gas moves; profiles 2-11, the
+checkpoint format and version 32 do not. Air of ordinary density no longer
+advances exactly as on profile 11: the thin-gas control now bounds the
+difference (1.3e-10 of a cell's mass after 2 s in its overturning box)
+where it required equality. Of the 62 `ma_mac_*` invocations 59 are
+identical to the previous revision; `mac_production_kernel_oracle` differs
+only in its timings, `mac_phase_change`'s profile-12 boiling line reads
+6.80 kg and 226.6 kPa (6.91 kg and 226.5 kPa; bounds more than 2.6 kg and
+below 500 kPa), and twelve profile-12 lines of `mac_game_kernel` move
+within their bounds, with one new (the one-cell opening control 16.4 % for 17.4 % and
+40.6 K for 37.2 K; the unforced basin's late speed 0.8 cm/s for 2.6; the
+thin-gas heating control 6,204 K for 6,236 K). Control:
+`resting_layers_control` (a room of nitrogen with two rows of oxygen on its
+floor and two of helium under its ceiling, stirred once by a warm block:
+20.7 % of the oxygen is above its rows after 600 s, 0.3 points more than
+after 300 s, where it was 47.7 % and 4.2 points; helium 12.6 % for 23.3 %;
+mass and U+K+G closed). On replays of one world state of each full colony
+the flow advance costs what it did (Spaced Out! 47.4 ms for 47.3 ms a
+frame, industrial 28.6 ms for 30.5 ms).
 
 ## Liquid over gas (profile 12, 2026-11-12)
 

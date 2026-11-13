@@ -5,6 +5,7 @@
 #include <memory>
 namespace ma::experimental::game_kernel {
 inline constexpr double liquid_drag_time = 1; // seconds; profile 12, see PressureSolver
+inline constexpr double gas_drag_time = 20;   // seconds; profile 12, see PressureSolver
 
 namespace kernel = ma::experimental::mac_kernel;
 struct Pressure {
@@ -55,6 +56,15 @@ class PressureSolver {
   // fifteen seconds without oscillating, and liquid falls at up to
   // g * liquid_drag_time. The momentum taken is an external load and its
   // kinetic work is local heat, exactly as for the thin-gas drag.
+  // Profile 12 gas drag (2026-11-13; MAC_GAME_KERNEL.md, "Gas drag"): the
+  // rest of the face, its share of gas by volume, feels the same drag at
+  // 1/gas_drag_time. Gas had no dissipation either: a room stirred once
+  // kept moving at centimetres a second for half an hour, and the
+  // first-order transport mixed resting layers into it all that time.
+  // Twenty seconds is an eddy's turnover in a room: pressure differences
+  // still equalise in a frame or two and a strong plume is unchanged, a
+  // weak one (1 kW) rises at 0.19 m/s for 0.34, and left alone the gas is at
+  // rest in about a minute.
   // Profile 12 thin-gas drag: a face whose inertia I (half its two cells'
   // mass) is below thin_mass feels an implicit drag on its momentum at the
   // rate (1/thin_time)(thin_mass/I - 1), zero at the threshold. 0 disables it.
@@ -251,7 +261,7 @@ public:
       }
       if (!x)
         result.body_impulses_y[f] = body;
-      // Drag (thin gas, liquid), implicit: J(1 + gamma) = old + body +
+      // Drag (thin gas, liquid, gas), implicit: J(1 + gamma) = old + body +
       // pressure impulse, so the face enters the system with inertia
       // I(1 + gamma).
       double effective = inertia;
@@ -262,6 +272,9 @@ public:
         const double liquid = .5 * (states[l].liquid_nominal_volume + states[r].liquid_nominal_volume) / g.V;
         if (liquid > 0)
           gamma += dt / liquid_drag_time * std::min(1., liquid);
+        // Gas drag: the rest of the face, relaxed at 1/gas_drag_time.
+        if (liquid < 1)
+          gamma += dt / gas_drag_time * (1 - std::max(0., liquid));
         if (gamma > 0) {
           (x ? w.gamma_x : w.gamma_y)[f] = gamma;
           effective = inertia * (1 + gamma);

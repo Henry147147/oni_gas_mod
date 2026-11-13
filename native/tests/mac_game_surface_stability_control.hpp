@@ -887,12 +887,100 @@ inline void side_opening_control() {
             << " % of a room's nitrogen is in the oxygen room beside it after 120 s; rooms at 350 K and 250 K are "
             << heated.split << " K apart after 300 s; mass and U+K+G closed\n";
 }
+// Profile 12, a closed room of nitrogen with two rows of oxygen on its floor
+// and two rows of helium under its ceiling, at rest but for a warm block of
+// nitrogen in the middle. The block rises and stirs the room once. Gas had
+// no dissipation but the implicit step's own, so the room then kept moving
+// at centimetres a second for as long as it was watched, and the first-order
+// transport mixed the layers into it the whole time. With the gas drag
+// (pressure_be.hpp, gas_drag_time) the room comes to rest and the layers
+// stay where the stir left them: 20.7 % of the oxygen is above its rows
+// after 600 s, 0.3 points more than after 300 s (47.7 % and 4.2 points
+// before), and 12.6 % of the helium below its rows (23.3 %).
+inline void resting_layers_control() {
+  const auto saved = mac_kernel_default_options();
+  auto options = saved;
+  options.threads = 1;
+  set_mac_kernel_default_options(options);
+  const auto &f = setup();
+  constexpr std::size_t W = 22, H = 14;
+  constexpr double p = 120000;
+  const auto nitrogen = f.registry.index("nitrogen"), oxygen = f.registry.index("oxygen"),
+             helium = f.registry.index("helium");
+  MacTransportState state;
+  state.grid = {W, H, 1, 1, false, false, std::vector<std::uint8_t>(W * H)};
+  std::vector<double> temperatures(W * H, 300);
+  for (std::size_t i = 0; i < W * H; ++i) {
+    const auto x = i % W, y = i / W;
+    state.grid.walls[i] = x == 0 || x == W - 1 || y == 0 || y == H - 1;
+    MacMaterialCell cell{MixtureInventory(f.registry.size()), {}};
+    if (!state.grid.walls[i]) {
+      const auto gas = y <= 2 ? oxygen : y >= 11 ? helium : nitrogen;
+      if ((x == 10 || x == 11) && (y == 6 || y == 7)) temperatures[i] = 400;
+      cell.mixture.masses[gas] = p * f.registry[gas].molar_mass / (gas_constant * temperatures[i]);
+    }
+    state.cells.push_back(std::move(cell));
+  }
+  state.momentum_x.resize((W + 1) * H);
+  state.momentum_y.resize(W * (H + 1));
+  MacClosedSettings cfg;
+  cfg.numerical_kernel = MacNumericalKernel::game;
+  cfg.game_profile = MacGameProfile::game_kernel_thin_drag;
+  cfg.vacuum = MacVacuumRepresentation::void_phase;
+  cfg.maximum_timestep_s = .2;
+  cfg.gravity_m_per_s2 = 9.81;
+  cfg.trace_sink_threshold_kg = 1e-11;
+  cfg.game.liquid_law = MacGameLiquidLaw::positive_segments;
+  cfg.game.pressure_maximum_iterations = 400;
+  cfg.game.heat_maximum_iterations = 800;
+  auto world = MacClosedWorld::game_colony(f.registry, f.eos, std::move(state), temperatures, cfg);
+  const auto energy0 = surface_game::total_energy(world);
+  long double mass0 = 0, sunk_mass = 0, sunk_energy = 0;
+  for (const auto &cell : world.state().cells) mass0 += cell.mixture.mass();
+  // The oxygen above its two rows and the helium below its two, as shares.
+  const auto strayed = [&] {
+    std::array<double, 2> away{}, all{};
+    for (std::size_t i = 0; i < W * H; ++i) {
+      if (world.state().grid.walls[i]) continue;
+      const auto y = i / W;
+      const auto &m = world.state().cells[i].mixture.masses;
+      all[0] += m[oxygen];
+      all[1] += m[helium];
+      if (y > 2) away[0] += m[oxygen];
+      if (y < 11) away[1] += m[helium];
+    }
+    return std::array{away[0] / all[0], away[1] / all[1]};
+  };
+  std::array<double, 2> early{}, late{};
+  for (unsigned tick = 1; tick <= 3000; ++tick) {
+    auto next = std::move(world).advanced(.2);
+    for (const auto &m : next.report.trace_sink.mass_kg) sunk_mass += mac_energy_long_double(m);
+    const auto &sink = next.report.trace_sink;
+    sunk_energy += mac_energy_long_double(sink.internal_energy_j) + mac_energy_long_double(sink.kinetic_energy_j) +
+                   mac_energy_long_double(sink.potential_energy_j);
+    world = std::move(next.world);
+    if (tick == 1500) early = strayed();
+  }
+  late = strayed();
+  long double mass1 = 0;
+  for (const auto &cell : world.state().cells) mass1 += cell.mixture.mass();
+  set_mac_kernel_default_options(saved);
+  check(std::abs(mass1 + sunk_mass - mass0) < 1e-12L * mass0, "The layered room changed mass");
+  check(std::abs(surface_game::total_energy(world) + sunk_energy - energy0) < 1e-12L * std::abs(energy0),
+        "The layered room lost U+K+G");
+  check(late[0] < .3 && late[1] < .18, "One stir mixed the resting gas layers into the room");
+  check(late[0] - early[0] < .01 && late[1] - early[1] < .005, "The stirred room was still mixing its layers after five minutes");
+  std::cout << "PASS profile12 resting gas layers after one stir: " << 100 * late[0] << " % of the oxygen is above its rows and "
+            << 100 * late[1] << " % of the helium below its rows after 600 s (" << 100 * early[0] << " % and "
+            << 100 * early[1] << " % after 300 s); mass and U+K+G closed\n";
+}
 inline void run() {
   normal_controls();
   settling_control(false);
   settling_control(true);
   pool_step_control();
   side_opening_control();
+  resting_layers_control();
   levelling_pause_control();
   sealed_drain_control();
   liquid_interface_control();
