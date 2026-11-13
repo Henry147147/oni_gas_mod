@@ -1178,6 +1178,41 @@ previous revision; `mac_game_kernel` gains its control lines,
 with this rule alone
 (5.87 kg and 280.6 kPa; bounds more than 2.6 kg and below 500 kPa).
 
+### Gas through a one-cell opening
+
+The same single face stops two gases changing places through an opening one
+cell high in a side wall. A probe of everyday gas situations (2026-11-13)
+joined a room of carbon dioxide and a room of oxygen at one pressure by one
+opened wall cell: 0.13 % of the carbon dioxide crossed in the first seconds
+and nothing more in 300 s, where a two-cell opening passed 37 %. Two rooms
+at 266 K and 345 K behind a one-cell hole kept those temperatures for 900 s
+(inert walls), and a corridor one cell high kept a 20 K split. Net flow
+through such an opening was never the problem: pressures equalise in under
+a second. A hole in a floor was not affected either: the convective
+adjustment already exchanges across it (40 % of the heavy gas down in
+300 s).
+
+Layering now also exchanges gas sideways through such an opening (`layer`,
+with the `sinking` rule): across an open horizontal face one of whose cells
+is closed above and below (the cell in the wall, any cell of a corridor one
+cell high), the two cells swap equal volumes of their gas, each share with
+its own EOS energy and passives. The share is that of a lock exchange
+filling half the opening each way at
+`u = sqrt(g h |rho_l - rho_r| / rho_mean) / 2`, capped at a quarter a pass,
+and a face whose cells already move faster than `u` exchanges nothing. Gases
+of equal density do not exchange; only diffusion would mix them, and the
+game runs without it. Rooms more than one cell high and openings of two
+cells or more are untouched: there the flow resolves the exchange itself.
+
+The carbon dioxide now crosses (7 % in 60 s, 20 % in 300 s; the two-cell
+opening is unchanged at 37 %), and the hot and cold rooms close from 79 K to
+60 K apart in 900 s through their one hole. Layered gases at rest keep
+their layers to the digit (7e-6 of the carbon dioxide above its rows after
+1,800 s) and the two-cell door run is unchanged. Control:
+`side_opening_control` (17.4 % of a room's nitrogen is in the oxygen room
+beside it after 120 s, 7e-9 % before; rooms at 350 K and 250 K are 37 K
+apart after 300 s, 100 K before; mass and U+K+G closed).
+
 ### Sharpening never lifts net mass
 
 Interface sharpening moves a liquid from the cell holding less of it to its

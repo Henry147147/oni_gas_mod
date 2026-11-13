@@ -310,6 +310,80 @@ layer(const ma::experimental::MacGrid &source,
       parcels.push_back(std::move(falling));
       ++out.faces;
     }
+    // Profile 12 sub-grid exchange of gas through an opening one cell high.
+    // Where two rooms of different gas density meet (a heavy gas beside a
+    // light one, the same gas hot and cold), the dense gas really runs out
+    // along the floor of the opening while the light gas returns above it.
+    // Two cells or more of opening resolve that; one cell has one velocity
+    // on its face, so nothing passed at all: carbon dioxide stayed in its
+    // room beside an oxygen room at the same pressure, and two rooms joined
+    // by a one-cell hole kept an 80 K split. Across an open horizontal face
+    // one of whose cells is closed above and below (the cell in the wall,
+    // any cell of a corridor one cell high), the two cells swap equal
+    // volumes of their gas, each share carrying its own EOS energy and
+    // passives. The share is that of a lock exchange filling half the
+    // opening each way at u = sqrt(g h |rho_l - rho_r| / rho_mean) / 2,
+    // capped like layering, and, as for the convective adjustment, a face
+    // whose cells already move faster than u exchanges nothing. Gases of
+    // equal density do not exchange: only diffusion would mix them.
+    const auto shut = [&](std::size_t cell) {
+      const auto closed = [&](std::size_t face, bool up) {
+        const auto other = up ? g.yr[face] : g.yl[face];
+        return other == k::none || g.wall[other] || g.closed(true, face);
+      };
+      return closed(g.top_face(cell), true) && closed(g.bottom_face(cell), false);
+    };
+    for (std::size_t f = 0; f < g.NX; ++f) {
+      const auto l = g.xl[f], r = g.xr[f];
+      if (l == k::none || r == k::none || g.closed(false, f) || g.wall[l] ||
+          g.wall[r] || !(eos[l].gas_volume > 0) || !(eos[r].gas_volume > 0) ||
+          !(shut(l) || shut(r)))
+        continue;
+      const auto gas_density = [&](std::size_t i) {
+        double mass = 0;
+        for (std::size_t a = initial.masses.offsets[i];
+             a < initial.masses.offsets[i + 1]; ++a)
+          if (species[initial.masses.species[a]].gas)
+            mass += initial.masses.mass[a];
+        return mass / eos[i].gas_volume;
+      };
+      const double left = gas_density(l), right = gas_density(r);
+      if (!(left > 0) || !(right > 0) || left == right)
+        continue;
+      const double speed =
+          .5 * std::sqrt(std::abs(gravity) * h * std::abs(left - right) /
+                         (.5 * (left + right)));
+      bool quiescent = true;
+      for (const auto cell : {l, r})
+        quiescent = quiescent && face_speed(true, g.left_face(cell)) <= speed &&
+                    face_speed(true, g.right_face(cell)) <= speed &&
+                    face_speed(false, g.bottom_face(cell)) <= speed &&
+                    face_speed(false, g.top_face(cell)) <= speed;
+      if (!quiescent)
+        continue;
+      const double share = std::min(.25, -std::expm1(-dt * speed / (2 * h)));
+      const double volume =
+          share * std::min(eos[l].gas_volume, eos[r].gas_volume);
+      if (!(volume > 0))
+        continue;
+      for (const auto &[from, to] : {std::pair{l, r}, std::pair{r, l}}) {
+        Parcel parcel{from, to, {}};
+        const double taken = volume / eos[from].gas_volume;
+        for (std::size_t a = initial.masses.offsets[from];
+             a < initial.masses.offsets[from + 1]; ++a) {
+          const auto key = initial.masses.species[a];
+          const auto &s = species[key];
+          if (!s.gas)
+            continue;
+          const double moved = initial.masses.mass[a] * taken;
+          parcel.species.emplace_back(key, moved);
+          parcel.mass += moved;
+          parcel.energy += moved * (s.offset + s.cv * eos[from].temperature);
+        }
+        parcels.push_back(std::move(parcel));
+      }
+      ++out.faces;
+    }
   }
   if (parcels.empty())
     return out;

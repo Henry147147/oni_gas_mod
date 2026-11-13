@@ -799,11 +799,100 @@ inline void levelling_pause_control() {
             << step.range << " kg of range; at rest it pauses at " << rest.last_step << " s after " << rest.steps
             << " stepped frames; held frames leave the state alone; exact cold and 12-worker continuation; mass closed\n";
 }
+// Profile 12, two sealed rooms joined by one opened cell of the wall between
+// them, at one pressure. A face carries one velocity, so nothing could pass
+// both ways through an opening one cell high: nitrogen stayed beside oxygen
+// (7e-9 % of it crossed in two minutes) and rooms at 350 K and 250 K were
+// still 100 K apart after five. Across such an opening the two cells now
+// swap gas at the pace of a lock exchange (layering.hpp): 17.4 % and 37 K.
+inline void side_opening_control() {
+  const auto saved = mac_kernel_default_options();
+  auto options = saved;
+  options.threads = 1;
+  set_mac_kernel_default_options(options);
+  const auto &f = setup();
+  // Columns 1-5 and 7-11 are the rooms, column 6 the wall with its opening
+  // at floor level; four open rows.
+  constexpr std::size_t W = 13, H = 6, wall = 6, opening = wall + W;
+  constexpr double p = 130000;
+  const auto nitrogen = f.registry.index("nitrogen"), oxygen = f.registry.index("oxygen");
+  struct Sides { double crossed = 0, split = 0; };
+  // `gas`: the left room's gas (the right room and the opening hold oxygen);
+  // the rooms start at `left_k` and `right_k`.
+  const auto run = [&](std::size_t gas, double molar, double left_k, double right_k, unsigned ticks) {
+    MacTransportState state;
+    state.grid = {W, H, 1, 1, false, false, std::vector<std::uint8_t>(W * H)};
+    std::vector<double> temperatures(W * H, 300);
+    for (std::size_t i = 0; i < W * H; ++i) {
+      const auto x = i % W, y = i / W;
+      state.grid.walls[i] = x == 0 || x == W - 1 || y == 0 || y == H - 1 || (x == wall && i != opening);
+      MacMaterialCell cell{MixtureInventory(f.registry.size()), {}};
+      if (!state.grid.walls[i]) {
+        const bool left = x < wall;
+        temperatures[i] = left ? left_k : right_k;
+        cell.mixture.masses[left ? gas : oxygen] = p * (left ? molar : .032) / (gas_constant * temperatures[i]);
+      }
+      state.cells.push_back(std::move(cell));
+    }
+    state.momentum_x.resize((W + 1) * H);
+    state.momentum_y.resize(W * (H + 1));
+    MacClosedSettings cfg;
+    cfg.numerical_kernel = MacNumericalKernel::game;
+    cfg.game_profile = MacGameProfile::game_kernel_thin_drag;
+    cfg.vacuum = MacVacuumRepresentation::void_phase;
+    cfg.maximum_timestep_s = .2;
+    cfg.gravity_m_per_s2 = 9.81;
+    cfg.trace_sink_threshold_kg = 1e-11;
+    cfg.game.liquid_law = MacGameLiquidLaw::positive_segments;
+    cfg.game.pressure_maximum_iterations = 400;
+    cfg.game.heat_maximum_iterations = 800;
+    auto world = MacClosedWorld::game_colony(f.registry, f.eos, std::move(state), temperatures, cfg);
+    const auto energy0 = surface_game::total_energy(world);
+    long double mass0 = 0, sunk_mass = 0, sunk_energy = 0;
+    for (const auto &cell : world.state().cells) mass0 += cell.mixture.mass();
+    for (unsigned tick = 1; tick <= ticks; ++tick) {
+      auto next = std::move(world).advanced(.2);
+      for (const auto &m : next.report.trace_sink.mass_kg) sunk_mass += mac_energy_long_double(m);
+      const auto &sink = next.report.trace_sink;
+      sunk_energy += mac_energy_long_double(sink.internal_energy_j) + mac_energy_long_double(sink.kinetic_energy_j) +
+                     mac_energy_long_double(sink.potential_energy_j);
+      world = std::move(next.world);
+    }
+    // What of the left room's gas is now right of the wall, and the rooms'
+    // mass-mean temperatures.
+    double there = 0, all = 0;
+    std::array<double, 2> heat{}, weight{};
+    for (std::size_t i = 0; i < W * H; ++i) {
+      if (world.state().grid.walls[i] || i % W == wall) continue;
+      const auto &cell = world.state().cells[i];
+      all += cell.mixture.masses[gas];
+      if (i % W > wall) there += cell.mixture.masses[gas];
+      const double m = cell.mixture.mass();
+      heat[i % W > wall] += m * world.cell_reading(i).temperature_k;
+      weight[i % W > wall] += m;
+    }
+    long double mass1 = 0;
+    for (const auto &cell : world.state().cells) mass1 += cell.mixture.mass();
+    check(std::abs(mass1 + sunk_mass - mass0) < 1e-12L * mass0, "The joined rooms changed mass");
+    check(std::abs(surface_game::total_energy(world) + sunk_energy - energy0) < 1e-12L * std::abs(energy0),
+          "The joined rooms lost U+K+G");
+    return Sides{there / all, heat[0] / weight[0] - heat[1] / weight[1]};
+  };
+  const auto mixed = run(nitrogen, .028, 300, 300, 600);
+  const auto heated = run(oxygen, .032, 350, 250, 1500);
+  set_mac_kernel_default_options(saved);
+  check(mixed.crossed > .05, "Nitrogen did not pass a one-cell opening into an oxygen room at the same pressure");
+  check(heated.split < 60, "Hot and cold rooms joined by a one-cell opening kept their temperatures");
+  std::cout << "PASS profile12 gas through a one-cell opening: " << 100 * mixed.crossed
+            << " % of a room's nitrogen is in the oxygen room beside it after 120 s; rooms at 350 K and 250 K are "
+            << heated.split << " K apart after 300 s; mass and U+K+G closed\n";
+}
 inline void run() {
   normal_controls();
   settling_control(false);
   settling_control(true);
   pool_step_control();
+  side_opening_control();
   levelling_pause_control();
   sealed_drain_control();
   liquid_interface_control();

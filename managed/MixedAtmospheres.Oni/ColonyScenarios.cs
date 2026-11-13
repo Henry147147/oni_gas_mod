@@ -100,6 +100,7 @@ namespace MixedAtmospheres.Oni
                     case "liquid-settling": LiquidSettling(frame, status); break;
                     case "pool-step": PoolStep(frame, status); break;
                     case "sealed-drain": SealedDrain(frame, status); break;
+                    case "side-opening": SideOpening(frame, status); break;
                     case "electrolysis": Electrolysis(frame); break;
                     case "vent-overpressure": VentOverpressure(frame); break;
                     case "space-heater": SpaceHeater(frame); break;
