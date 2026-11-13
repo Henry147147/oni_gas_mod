@@ -132,6 +132,19 @@ On the working tree before the acceptance run:
 
   A replay has no owner inputs, so most of its regions go remote after two
   seconds; it shows the solver's cost on one state, not the game's speed.
+- **Speed in game** (`7b60dcb`, the Linux harness as for
+  [0.1.7](playtest-0.1.7.md#acceptance), the same day and the same other
+  work on the machine): the industrial base 2.066 game seconds per real
+  second (warmed windows: owner 63.2 ms, flow 50.7 ms a tick; 0.1.5 2.059,
+  0.1.7 2.006), the Spaced Out! full colony 0.895 (198.1 / 177.2 ms; 0.1.4
+  0.922, 0.1.5 0.905, 0.1.7 0.883). The industrial base is back at 0.1.5's
+  figures; the Spaced Out! colony's differences are within the spread
+  between windows of one run. That colony stays below 1× on this host (a
+  Ryzen 9 5900X; the playtest PC is a 9950X) on every version measured that
+  day.
+- **Saves** (`7b60dcb`): a colony saved by this build after the `germs` and
+  `pool-step` scenarios (233 germ cultures) loads and runs 200 frames; the
+  frozen 0.1.4 save is in the in-game check above.
 
 Not established: Windows itself, and the user's own look at a one-tile gap
 between rooms in play.
