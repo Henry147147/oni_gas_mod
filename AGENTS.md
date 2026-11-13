@@ -11,9 +11,11 @@ few that your task touches, starting here.
 - [docs/feature-completion-status.md](docs/feature-completion-status.md):
   **resume here** — current status toward the beta (sustained 1× on the
   full-colony saves; 3× stays the goal) and what remains open. The latest
-  private Windows candidate is [0.1.7](docs/playtest-0.1.7.md), which keeps
-  a pool levelling past the activity pause and says when evaporation below
-  boiling is on; [0.1.6](docs/playtest-0.1.6.md) let liquid fall through a
+  private Windows candidate is [0.1.8](docs/playtest-0.1.8.md), which lets
+  two gases change places through an opening one tile high;
+  [0.1.7](docs/playtest-0.1.7.md) kept a pool levelling past the activity
+  pause and said when evaporation below boiling is on;
+  [0.1.6](docs/playtest-0.1.6.md) (withdrawn) let liquid fall through a
   one-tile opening onto trapped gas, kept germs with their phase and stopped
   interface sharpening lifting mass;
   [0.1.5](docs/playtest-0.1.5.md) damped liquid motion after the user's

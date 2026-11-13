@@ -1,5 +1,13 @@
 # Feature completion work
 
+**Update, 2026-11-13, 0.1.8:** a probe of everyday gas situations on the
+solver alone found that two gases could not change places through a side
+opening one tile high (fixed:
+[game kernel](../native/MAC_GAME_KERNEL.md#gas-through-a-one-cell-opening)),
+and three things left for the user to weigh: released gases mix more than
+they layer, a pump cools the last of a room, and a quiet region pauses with
+its gas still moving ([0.1.8](playtest-0.1.8.md#what-the-probe-found)).
+
 **Update, 2026-11-13, 0.1.7:** the steam of the 0.1.4 recording is the
 humidity of "Evaporation below boiling", which the user's own logs show on
 in that installation; the start dialog now says when it is on. A pool that
