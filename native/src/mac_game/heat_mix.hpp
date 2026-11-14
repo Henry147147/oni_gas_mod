@@ -50,8 +50,21 @@ public:
     settings.preconditioner = ma::PressurePreconditioner::incomplete_cholesky;
     options.threads = threads;
   }
+  // The eddy term's share that survives a stable stratification (profile
+  // 12, `stratified` = gravity; MAC_GAME_KERNEL.md, "Gas heat mixing across
+  // a stable layer"): at this bulk Richardson number half of it is left.
+  static constexpr double critical_richardson = .25;
+  // Profile 12 liquid convection (MAC_GAME_KERNEL.md, "Liquid convection"):
+  // the liquids' density does not depend on temperature here, so the flow
+  // never carries heat up from a heated floor or sideways from a warm
+  // column. Between two cells holding liquid the heat solve therefore adds
+  // the exchange such convection would make, with a nominal thermal
+  // expansion: upwards where the lower cell is the warmer, at the
+  // free-convection speed sqrt(g beta dT h), and sideways at the
+  // lock-exchange speed, half of that. Warm liquid over cold stays.
+  static constexpr double liquid_expansion_per_k = 5e-4, liquid_share = .05;
   HeatResult advance(const State &state, const std::vector<Eos> &eos,
-                     double dt) {
+                     double dt, double stratified = 0) {
     namespace k = ma::experimental::mac_kernel;
     k::LinearSystem system;
     system.g = &g;
@@ -95,10 +108,42 @@ public:
               eos[r].liquid_nominal_volume == 0) {
             const double inertia = .5 * (eos[l].mass + eos[r].mass),
                          j = x ? state.jx[f] : state.jy[f];
-            if (inertia > 0)
+            if (inertia > 0) {
+              const double speed = std::abs(j / inertia);
               eddy = mixing * .5 * (eos[l].capacity + eos[r].capacity) / g.V *
-                     std::abs(j / inertia) * source.spacing_m;
+                     speed * source.spacing_m;
+              // Across a vertical face whose lower gas is the denser, mixing
+              // lifts mass and real turbulence pays for that from its
+              // motion: it is suppressed by the bulk Richardson number
+              // Ri = g h (rho_low - rho_up) / (rho_mean u^2), as
+              // 1 / (1 + Ri / Ri_c). Without this the term mixed a resting
+              // hot layer into the cold one below it for nothing, the
+              // uneven mixing drove flow, and the flow more mixing: a
+              // column at rest, 350 K over 290 K, moved at 4 cm/s after two
+              // minutes and was half mixed after ten.
+              if (!x && stratified != 0 && speed > 0) {
+                const double low = eos[stratified > 0 ? l : r].mass,
+                             high = eos[stratified > 0 ? r : l].mass;
+                if (low > high)
+                  eddy *= speed * speed /
+                          (speed * speed +
+                           std::abs(stratified) * source.spacing_m * (low - high) /
+                               (.5 * (low + high)) / critical_richardson);
+              }
+            }
           }
+        }
+        if (stratified != 0 && eos[l].liquid_nominal_volume > liquid_share * g.V &&
+            eos[r].liquid_nominal_volume > liquid_share * g.V) {
+          const double warmer_left = eos[l].temperature - eos[r].temperature;
+          const double difference =
+              x ? std::abs(warmer_left)
+                : (stratified > 0 ? warmer_left : -warmer_left);
+          if (difference > 0)
+            eddy = std::min(eos[l].capacity, eos[r].capacity) / g.V * (x ? .5 : 1.) *
+                   std::sqrt(std::abs(stratified) * liquid_expansion_per_k *
+                             difference * source.spacing_m) *
+                   source.spacing_m;
         }
         weights[f] =
             dt * g.A / source.spacing_m * (2 * kl * kr / (kl + kr) + eddy);

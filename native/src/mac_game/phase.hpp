@@ -131,11 +131,31 @@ public:
   // away: liquid in a mostly gas cell evaporates into that gas, and in a
   // cell whose own thin vapour or void sets its pressure the vapour volume
   // at that near-vacuum pressure would push out far more than boils.
+  // The vapour a plan may add in one flow part, as a share of the cell: the
+  // 0.4-cell transport scale until 2026-11-13, when a pool a few kelvin
+  // above its boiling point threw 800 kg of each surface cell's water into
+  // the air every tick and the falling water hammered its floor to a
+  // megapascal. A liquid that is most of its cell's liquid (a pool boiling)
+  // now adds 0.03 cell a flow part, so that such a pool boils its superheat
+  // off over tens of seconds and stays in place. A liquid that is the
+  // lesser part of its cell's liquid (liquid carbon dioxide let into warm
+  // water, which holds the heat to flash all of it) keeps the 0.4 cell and
+  // is gone within seconds.
+  static constexpr double planned_vapour_share = .03;
+  // `surface` and `gravity` (profile 12, 2026-11-13): the kernel grid, for
+  // a cell's neighbour against gravity across an open face. A cell its
+  // liquid fills has its surface on that face when the neighbour holds gas,
+  // and boils there as an interface cell does, without the nucleation
+  // superheat: a pool whose top row was exactly full could not boil at all
+  // until it was 5 K above its boiling point, and then flashed that whole
+  // superheat at once.
   std::vector<BoilPlan> plan_boiling(const State &state,
                                      const std::vector<Eos> &eos, double dt,
                                      double relaxation_time,
                                      unsigned flow_parts,
-                                     double weight_per_kg) {
+                                     double weight_per_kg,
+                                     const ma::experimental::mac_kernel::Grid *surface = nullptr,
+                                     double gravity = 0) {
     if (pairs_of_liquid.size() != species.size()) {
       pairs_of_liquid.assign(species.size(), {});
       boiling_at_atmosphere.assign(pairs.size(), 0);
@@ -159,7 +179,17 @@ public:
         if (!(e.pressure > 0) || !(e.liquid_volume >= .5 * V) ||
             e.pressure < e.mass * weight_per_kg)
           continue;
-        const bool interface = e.gas_volume > 1e-6 * V;
+        bool interface = e.gas_volume > 1e-6 * V;
+        if (!interface && surface && gravity != 0) {
+          const auto f = gravity > 0 ? surface->top_face(i) : surface->bottom_face(i);
+          const auto up = gravity > 0 ? surface->yr[f] : surface->yl[f];
+          interface = up != ma::experimental::mac_kernel::none && !surface->wall[up] &&
+                      !surface->closed(true, f) && eos[up].gas_volume > 1e-3 * V;
+        }
+        double liquid_mass = 0;
+        for (auto a = state.masses.offsets[i]; a < state.masses.offsets[i + 1]; ++a)
+          if (!species[state.masses.species[a]].gas)
+            liquid_mass += state.masses.mass[a];
         for (auto a = state.masses.offsets[i]; a < state.masses.offsets[i + 1]; ++a) {
           const auto key = state.masses.species[a];
           const double ml = state.masses.mass[a];
@@ -196,7 +226,9 @@ public:
             double mass = fraction * flash;
             if (!(mass > 0) || mass * volume_per_kg <= std::max(0., V - e.liquid_volume))
               continue;
-            mass = std::min(mass, .4 * V * flow_parts / volume_per_kg);
+            const double share =
+                !surface || ml < .5 * liquid_mass ? .4 : planned_vapour_share;
+            mass = std::min(mass, share * V * flow_parts / volume_per_kg);
             found[block].push_back({i, p, mass, volume_per_kg});
           }
         }

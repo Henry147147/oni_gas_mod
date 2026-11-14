@@ -468,6 +468,48 @@ void profile12_boiling_control(const Water& s) {
     std::cout << "PASS profile12 boiling with displacement: liquid-full superheated water boils within the tick without overpressure, "
                  "closed ledgers, checkpoint 32 cold continuation\n";
 }
+// Profile 12, a pool that boils at its surface (native/MAC_GAME_KERNEL.md,
+// "A pool boils at its surface"). Two rows of liquid-full water at 376 K, 1.5 K
+// above the boiling point of the upper row at its own pressure and below the
+// lower row's, under 1 atm of air at 300 K in a sealed box. A cell its
+// liquid fills needed the 5 K nucleation superheat although its surface was
+// the face above it: this pool did not boil at all (0 kg in 120 s), and in
+// a larger room, when something at last gave a surface cell a pocket of
+// gas, it flashed its whole superheat at 0.4 cell of vapour a flow part,
+// throwing the surface cells' water into the air (megapascal spikes, cells
+// at zero pressure, kilograms boiling and condensing every tick for as long
+// as it was watched). The surface row now boils from the first tick at
+// 0.03 cell a flow part, and the pool is quiet once the air above it has
+// reached the pool's boiling pressure.
+void profile12_surface_boiling_control(const Water& s) {
+    const auto masses = [&](double water, double steam, double air) { std::vector<double> m(3); m[s.water] = water; m[s.steam] = steam; m[s.air] = air; return m; };
+    const auto gas = [&](std::size_t k, double pressure, double t, double volume) { return pressure * volume * s.registry[k].molar_mass / (gas_constant * t); };
+    constexpr std::size_t W = 8, H = 10;
+    const auto pool = [&](std::size_t, std::size_t y) -> std::pair<std::vector<double>, double> {
+        // A fiftieth of a litre over full, as a settled pool is: with any void the
+        // cell counted as an interface cell and boiled before this change too.
+        if (y <= 2) return {masses(s.registry[s.water].density * 1.00002 * (1 + (101325 + 9810 * (2.5 - static_cast<double>(y))) / (.04 * 2.2e9)), 0, 0), 376};
+        return {masses(0, 0, gas(s.air, 101325, 300, 1)), 300};
+    };
+    auto world = game_box(s, MacPhaseRule::boil_only, W, H, 9.81, pool, MacGameProfile::game_kernel_thin_drag);
+    double first = 0, late = 0, total = 0, peak = 0;
+    for (int tick = 1; tick <= 600; ++tick) {
+        auto step = run_game(s, world, 1);
+        world = std::move(step.world);
+        total += step.evaporated;
+        if (tick <= 5) first += step.evaporated;
+        if (tick > 500) late += step.evaporated + step.condensed;
+        for (std::size_t i = 0; i < world.state().cells.size(); ++i)
+            if (!world.state().grid.walls[i] && world.state().cells[i].mixture.mass() > 0)
+                peak = std::max(peak, world.cell_reading(i).mechanical_pressure_pa);
+    }
+    std::cout << "PCGAME profile12 surface boiling: a 376 K pool under 1 atm of air boils " << first << " kg in its first second and "
+              << total << " kg in 120 s; " << late << " kg boils or condenses in the last 20 s; peak pressure " << peak / 1e3 << " kPa\n";
+    check(first > 1e-3, "A pool above its boiling point at the air's pressure did not boil at its surface");
+    check(late < 1e-2, "The boiling pool did not settle");
+    check(peak < 5e5, "The boiling pool hammered a cell");
+    std::cout << "PASS profile12 surface boiling: a full pool boils at its surface without the nucleation superheat and settles, closed ledgers\n";
+}
 void boil_only_control(const Water& s) {
     const auto masses = [&](double water, double steam, double air) { std::vector<double> m(3); m[s.water] = water; m[s.steam] = steam; m[s.air] = air; return m; };
     const auto gas = [&](std::size_t k, double pressure, double t, double volume) { return pressure * volume * s.registry[k].molar_mass / (gas_constant * t); };
@@ -576,6 +618,7 @@ void boil_only_control(const Water& s) {
     std::cout << "PASS boil-only game kernel: humid pool condenses with no evaporation, closed ledgers, core25 save/continuation, "
                  "hot and vacuum boiling, pure steam unchanged, rule entropy rises\n";
     profile12_boiling_control(s);
+    profile12_surface_boiling_control(s);
 }
 int main(int argc, char** argv) {
     try {

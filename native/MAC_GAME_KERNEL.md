@@ -1210,6 +1210,146 @@ mass and U+K+G closed). On replays of one world state of each full colony
 the flow advance costs what it did (Spaced Out! 47.4 ms for 47.3 ms a
 frame, industrial 28.6 ms for 30.5 ms).
 
+## Heat across layers and a boiling pool (profile 12, 2026-11-13)
+
+A probe of everyday heat and phase-change situations
+([0.1.9](../docs/playtest-0.1.9.md)) found two defects in how heat crosses
+layers and one in how a pool starts to boil. All three fixes change profile
+12 in place; the checkpoint format and version 32 do not change.
+
+### Gas heat mixing across a stable layer
+
+The heat solve adds an eddy term to gas faces, `mixing × |u| × h` times
+the gas's heat capacity (gas heat mixing 8, user decision 2026-10-24:
+moving gas mixes its temperature faster). The term acted across any face
+in proportion to the speed through it. Across a stable layer, hot gas over
+cold, such mixing lifts mass and in a real gas the motion pays for it;
+here it was free. A column of oxygen at rest, 350 K over 290 K, grew its
+own motion from round-off (doubling about every ten seconds: 4 cm/s after
+two minutes, up to 23 cm/s) and its halves were 302 K and 334 K after ten
+minutes; with the term off it stayed at rest, and the gas drag alone only
+slowed the growth (300 K and 337 K).
+
+Across a vertical face whose lower gas is the denser, the term now falls
+with the bulk Richardson number of the face,
+`Ri = g h (ρ_low − ρ_up) / (ρ_mean u²)`, as `1 / (1 + Ri / 0.25)`
+(`HeatSolver::advance`, `critical_richardson`). Fast gas through a weak
+layer mixes as before (1 K a cell: half the term is left at 0.37 m/s);
+slow gas across a strong one does not. Horizontal faces and unstable
+layers are untouched, and the convective adjustment still overturns hot gas
+under cold. The column now reads 350 K over 290 K after ten minutes
+(fastest gas 4e-7 m/s) and the same column the other way up is uniform at
+317 K after five, as before.
+
+What this changes in play: hot gas stays above cold gas. Rooms at 286 K
+and 315 K joined by a two-cell door at the floor were 3.7 K apart after ten
+minutes (1.7 K before the gas drag); they now stop 13 K apart, each room
+layered, the hot gas of both above the door. A steam release into a cool
+room leaves its hot layer under the ceiling and the floor at the room's
+temperature (290.5 K where it was 303.5 K after the 2 kg release).
+
+### Liquid convection
+
+A liquid's density does not depend on its temperature here, so no flow
+carries heat up from a heated floor, and a liquid cell passes its
+neighbour 0.6 W/K by conduction. 100 kW into one floor cell of a 40 t pool
+heated that cell alone (10.7 K in 450 s, the pool around it 0.27 K), a
+cold layer of water lay on a hot one for good, and cold water poured onto
+a hot pool never sank.
+
+The heat solve now adds, between two cells each holding liquid in more
+than a twentieth of the cell, the exchange such convection would make,
+with a nominal thermal expansion of 5e-4 /K (`liquid_expansion_per_k`):
+across a vertical face where the lower cell is the warmer, at the
+free-convection speed `sqrt(g β ΔT h)` (7 cm/s at 1 K), and across a
+horizontal face at half of it (a lock exchange between a warm and a cold
+column). The exchange is the smaller cell's heat capacity carried at that
+speed, in the same implicit solve as conduction, so it cannot overshoot.
+Warm liquid over cold exchanges nothing: hot water poured on a cold pool
+stays on top (as real water does), with conduction alone below it.
+
+The heated cell is now 1.2 K above the mean of the 40 t pool (0.4 K in a
+sealed 8 t pool), a cold layer over a hot one is within 1 K after 72 s,
+and cold water poured onto a hot pool has mixed in after 245 s. Two
+different liquids in contact exchange the same way (oil over warmer
+water); that is stronger than a real interface and has not been tuned.
+
+### A pool boils at its surface
+
+A cell its liquid fills, without a millilitre of gas of its own, needed
+the 5 K nucleation superheat to boil, although under an open face to gas
+its surface is that face. With the heat held in one cell, that cell
+reached its boiling point plus 5 K and burst (263 kg of pool water thrown
+into the air for 0.23 kg of steam), and the 370 K pool around it then
+erupted for five minutes (971 ticks with a pool cell below 50 kPa, 93 with
+a cell above 300 kPa, 1.08 MPa at one, cells gaining or losing up to
+445 kg in a tick, 763 g/s boiling for the 44 g/s the heater can boil). A
+pool a little above its boiling point could not boil at all until
+something gave a surface cell a pocket of gas, and then every surface cell
+flashed its superheat at the 0.4-cell transport scale: a 40 t pool at
+374 K under air waited 496 s and then erupted (287 ticks with a pool cell
+below 50 kPa, 804 kPa at a cell, 76 kg of steam, the air left at 389 K
+over a 373 K pool).
+
+Two changes (`plan_boiling`): a cell under an open face to gas (the
+neighbour holds more than a litre of it) boils without the nucleation
+superheat, like a cell with its own gas; and a liquid that is most of its
+cell's liquid adds at most 0.03 cell of vapour a flow part
+(`planned_vapour_share`), where every plan added 0.4. A liquid that is the
+lesser part of its cell's liquid keeps the 0.4: liquid carbon dioxide let
+into warm water is still gone within seconds, as `flood-co2-corner`
+requires.
+
+| Heat probe, 0.2 s ticks | Before | After |
+| --- | --- | --- |
+| 40 t pool at 374 K under 300 K gas: first boils | at 496 s | in the first tick |
+| ... steam made; highest pressure at a cell | 76 kg at once; 804 kPa | 1.1 kg; 384 kPa (at 5.8 s) |
+| ... ticks with a pool cell below 50 kPa / a cell above 300 kPa | 287 / 45 | 7 / 1 |
+| The same pool at 376 K and at 380 K: steam made; highest pressure | | 5.4 kg, 315 kPa; 20.4 kg, 331 kPa |
+| 100 kW into one floor cell of that pool at 370 K: first boils | at 465 s, the heated cell alone at 381 K | at 4,344 s, the pool at 372.6 K |
+| ... over 9,000 s: highest pressure; ticks below 50 kPa / above 300 kPa (of 45,000); largest change of a cell's liquid in a tick | 1.08 MPa; 8,240 / 1,025; 593 kg | 228 kPa; 14 / 0; 22 kg |
+| 100 kW into a sealed 8 t pool with four rows of gas over it, 6,000 s: the same (of 30,000) | 544 kPa; 264 / 13; 406 kg | 501 kPa; 388 / 23; 27 kg |
+
+The pools settle once the gas above them has reached their boiling
+pressure (no phase change in the last five minutes of each run at 374 K
+and 376 K). In the closed 280-cell room the heated pool does not boil at
+the heater's 44 g/s: its first steam condenses in the cool gas above
+(the boil-only rule), which warms and pressurises the room, and the pool
+then follows the rising boiling point (375.3 K at 113 kPa after 9,000 s);
+in the sealed vessel it ends as a pressure cooker (387.6 K at 165 kPa,
+5.4 kg of steam). That vessel knocks as it did: a cell is above 300 kPa
+on 23 of 30,000 ticks (13 before), which looks like steam pockets
+collapsing as the pressure rises past them (not examined further); what
+it no longer does is throw its water about (27 kg for 406 kg).
+
+Not changed: boiling starts at the boiling point of the cell's own
+pressure, which for a full surface cell is half a cell of liquid deeper
+than its surface (1.3 K higher under one atmosphere).
+
+Of the 62 `ma_mac_*` invocations 59 are identical to the gas drag's
+revision; `mac_production_kernel_oracle` differs only in its timings;
+`mac_game_kernel` gains the heat control's line and moves one line in its
+last digits (the pressure-systems mist front, 15.6019 for 15.605 kg);
+`mac_phase_change`'s profile-12 boiling line reads 3.48 kg and 159.5 kPa
+(6.80 kg and 226.6 kPa; bounds more than 2.6 kg and below 500 kPa) and it
+gains the surface-boiling lines. Controls: `heat_layer_game::run`
+(`mac_game_heat_layer_control.hpp`: oxygen at 350 K over 290 K reads
+349.8 K over 290.2 K after 600 s and the other way up 317.2 K in both
+halves after 300 s; water at 350 K over 290 K stays, the other way up it
+is within 0.2 K after 150 s; mass and U+K+G closed) and
+`profile12_surface_boiling_control` (`mac_phase_change_tests.cpp`: a full
+12 t pool at 376 K under one atmosphere of air boils 0.13 kg in its first
+second and is quiet after; the previous revision boiled nothing in 120 s).
+
+Cost, on replays of one world state of each full colony (the flow advance
+alone, 60 frames, 12 workers, three runs each on an idle machine): the
+industrial base 28.0 ms a frame for 27.9 ms, the Spaced Out! colony
+49.8 ms for 47.4 ms. The 5 % there is the liquid convection (46.0 ms with
+it switched off, 49.6 ms with the stable-layer rule off, 50.4 ms with the
+surface rule off): heat now reaches the surfaces of that world's warm
+pools and the pressure solve refines more often (0.69 times a frame for
+0.55). Not examined further.
+
 ## Liquid over gas (profile 12, 2026-11-12)
 
 A face carries one velocity, so it cannot pass liquid down and gas up in the

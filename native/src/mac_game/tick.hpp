@@ -278,7 +278,8 @@ public:
     std::vector<BoilPlan> plans;
     if (boil_in_flow)
       plans = phase.plan_boiling(out.state, out.eos, dt, phase_time, flow_parts,
-                                 std::abs(gravity) / flow.kernel_grid().A);
+                                 std::abs(gravity) / flow.kernel_grid().A,
+                                 &flow.kernel_grid(), gravity);
     std::vector<double> boil_source;
     double inflow_evaporated = 0, inflow_entropy = 0;
     // Profile 7 carries its proposal from one flow part into the next.
@@ -451,7 +452,7 @@ public:
       prune(true, true);
     stage_start = std::chrono::steady_clock::now();
     if (heat_enabled) {
-      auto heated = heat.advance(out.state, out.eos, dt);
+      auto heated = heat.advance(out.state, out.eos, dt, liquid_exchange ? gravity : 0);
       out.heat_ms = ms(stage_start);
       out.state.energy = std::move(heated.energy);
     }

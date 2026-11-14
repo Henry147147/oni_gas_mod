@@ -16,6 +16,7 @@
 #include "mac_game_plume_control.hpp"
 #include "mac_game_flood_control.hpp"
 #include "mac_game_surface_stability_control.hpp"
+#include "mac_game_heat_layer_control.hpp"
 #include "mac_game_pressure_system_control.hpp"
 #include "../src/mac_hypot.hpp"
 #include "../src/mac_game/account.hpp"
@@ -1148,6 +1149,7 @@ int main() {
     ma::testing::thin_heat_game::run();
     ma::testing::flood_game::run();
     ma::testing::surface_stability_game::run();
+    ma::testing::heat_layer_game::run();
     ma::testing::pressure_system_game::run();
     ma::testing::convective_plume_control();
     ma::testing::mac_game_patch_plan_control();
