@@ -1,5 +1,6 @@
 #pragma once
 #include "cached_ic.hpp"
+#include <limits>
 #include "flow_local.hpp"
 namespace ma::experimental::game_kernel {
 struct HeatResult {
@@ -61,7 +62,9 @@ public:
   // the exchange such convection would make, with a nominal thermal
   // expansion: upwards where the lower cell is the warmer, at the
   // free-convection speed sqrt(g beta dT h), and sideways at the
-  // lock-exchange speed, half of that. Warm liquid over cold stays.
+  // lock-exchange speed, half of that. Warm liquid over cold stays, and
+  // two different liquids (oil on water, water on magma) exchange nothing
+  // this way: their interface is not a convecting body.
   static constexpr double liquid_expansion_per_k = 5e-4, liquid_share = .05;
   HeatResult advance(const State &state, const std::vector<Eos> &eos,
                      double dt, double stratified = 0) {
@@ -73,12 +76,18 @@ public:
     system.wx.assign(g.NX, 0);
     system.wy.assign(g.NY, 0);
     std::vector<double> conductivity(g.N), rhs(g.N), increment;
+    // Each cell's main liquid (the species holding most of its liquid mass),
+    // for the liquid convection: only cells of one liquid exchange that way.
+    constexpr auto no_liquid = std::numeric_limits<std::uint32_t>::max();
+    std::vector<std::uint32_t> main_liquid;
+    if (stratified != 0)
+      main_liquid.assign(g.N, no_liquid);
     for (std::size_t i = 0; i < g.N; ++i) {
       if (g.wall[i] || eos[i].mass == 0)
         continue;
       system.active[i] = 1;
       system.diag[i] = eos[i].capacity;
-      double occupied = 0;
+      double occupied = 0, most = 0;
       for (std::size_t a = state.masses.offsets[i];
            a < state.masses.offsets[i + 1]; ++a) {
         const auto &s = species[state.masses.species[a]];
@@ -88,6 +97,10 @@ public:
                   : m / s.rho0 * liquid_volume_fraction(s,eos[i].pressure);
         conductivity[i] += s.conductivity * volume;
         occupied += volume;
+        if (stratified != 0 && !s.gas && m > most) {
+          most = m;
+          main_liquid[i] = static_cast<std::uint32_t>(state.masses.species[a]);
+        }
       }
       if (occupied > 0)
         conductivity[i] /= occupied;
@@ -133,7 +146,8 @@ public:
             }
           }
         }
-        if (stratified != 0 && eos[l].liquid_nominal_volume > liquid_share * g.V &&
+        if (stratified != 0 && main_liquid[l] != no_liquid && main_liquid[l] == main_liquid[r] &&
+            eos[l].liquid_nominal_volume > liquid_share * g.V &&
             eos[r].liquid_nominal_volume > liquid_share * g.V) {
           const double warmer_left = eos[l].temperature - eos[r].temperature;
           const double difference =

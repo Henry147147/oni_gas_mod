@@ -297,7 +297,11 @@ public:
           ++out.pressure_attempts;
           const auto trial_start = std::chrono::steady_clock::now();
           if (!plans.empty()) {
-            boil_source.assign(out.state.energy.size(), 0.);
+            // Only the plans' cells change between trials.
+            if (boil_source.size() != out.state.energy.size())
+              boil_source.assign(out.state.energy.size(), 0.);
+            for (const auto &plan : plans)
+              boil_source[plan.cell] = 0;
             for (const auto &plan : plans)
               boil_source[plan.cell] += plan.mass * (trial / dt) * plan.volume_per_kg;
           }
@@ -347,10 +351,9 @@ public:
         out.eos = std::move(advanced.eos);
         observe_entropy(out.flow_entropy);
         if (!plans.empty()) {
-          const auto masses_before = out.state.masses;
           const auto boiled = phase.boil_planned(out.state, out.eos, plans, trial / dt, advanced.pressure);
           if (!boiled.cells.empty()) {
-            regions.convert(masses_before, out.state.masses, conversion, &flow.worker_pool());
+            regions.convert(boiled.cells, boiled.before, out.state.masses, conversion);
             inflow_evaporated += boiled.evaporated;
             inflow_entropy += boiled.entropy_change;
             observe_entropy(out.phase_entropy_change);

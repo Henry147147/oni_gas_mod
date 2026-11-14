@@ -30,6 +30,9 @@ struct BoilPlan {
 };
 struct BoilResult {
   std::vector<std::size_t> cells; // changed, ascending
+  // Each changed cell's constituents before the conversion, for the region
+  // audit (RegionAudit::convert over these cells alone).
+  std::vector<std::vector<std::pair<std::uint32_t, double>>> before;
   double evaporated = 0, entropy_change = 0;
 };
 inline double saturation_pressure(const Species &liquid, const Species &vapour,
@@ -365,6 +368,31 @@ public:
     }
     if (changed.empty())
       return result;
+    result.before.reserve(changed.size());
+    bool same_keys = true;
+    for (const auto &[i, list] : changed) {
+      auto &before = result.before.emplace_back();
+      const auto first = state.masses.offsets[i], last = state.masses.offsets[i + 1];
+      before.reserve(last - first);
+      for (auto a = first; a < last; ++a)
+        before.emplace_back(state.masses.species[a], state.masses.mass[a]);
+      same_keys = same_keys && list.size() == last - first;
+      for (std::size_t n = 0; same_keys && n < list.size(); ++n)
+        same_keys = list[n].first == state.masses.species[first + n];
+    }
+    // A boil that keeps every changed cell's species (the usual case: the
+    // cell already holds its vapour) writes the new masses in place; a plan
+    // then costs its own cells, not a copy of the grid's inventories each
+    // interval.
+    if (same_keys) {
+      for (const auto &[i, list] : changed) {
+        const auto first = state.masses.offsets[i];
+        for (std::size_t n = 0; n < list.size(); ++n)
+          state.masses.mass[first + n] = list[n].second;
+        result.cells.push_back(i);
+      }
+      return result;
+    }
     // Rebuild the sparse inventories with the changed cells' new lists.
     SparseMass next;
     next.offsets.reserve(state.masses.offsets.size());
