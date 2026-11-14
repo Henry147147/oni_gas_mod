@@ -1257,9 +1257,8 @@ heated that cell alone (10.7 K in 450 s, the pool around it 0.27 K), a
 cold layer of water lay on a hot one for good, and cold water poured onto
 a hot pool never sank.
 
-The heat solve now adds, between two cells each holding the same main
-liquid in more than a twentieth of the cell, the exchange such convection
-would make,
+The heat solve now adds, between two cells each holding liquid in more
+than a twentieth of the cell, the exchange such convection would make,
 with a nominal thermal expansion of 5e-4 /K (`liquid_expansion_per_k`):
 across a vertical face where the lower cell is the warmer, at the
 free-convection speed `sqrt(g β ΔT h)` (7 cm/s at 1 K), and across a
@@ -1271,9 +1270,9 @@ stays on top (as real water does), with conduction alone below it.
 
 The heated cell is now 1.2 K above the mean of the 40 t pool (0.4 K in a
 sealed 8 t pool), a cold layer over a hot one is within 1 K after 72 s,
-and cold water poured onto a hot pool has mixed in after 245 s. Only
-cells with the same main liquid exchange this way: oil on warmer water, or
-water on magma, keep conduction alone across their interface, as before.
+and cold water poured onto a hot pool has mixed in after 245 s. Two
+different liquids in contact exchange the same way (oil over warmer
+water); that is stronger than a real interface and has not been tuned.
 
 ### A pool boils at its surface
 
@@ -1342,22 +1341,14 @@ is within 0.2 K after 150 s; mass and U+K+G closed) and
 12 t pool at 376 K under one atmosphere of air boils 0.13 kg in its first
 second and is quiet after; the previous revision boiled nothing in 120 s).
 
-Cost. Neither the convection nor the surface rule costs anything alone,
-but together they keep some pool of a colony at its boiling point with a
-plan every tick, and a plan's bookkeeping ran over the whole grid in every
-flow interval (a copy of the inventories, their rebuild, and a region audit
-pass). In game the industrial base's flow advance went from 49.5 ms to
-53.2 ms a tick with the same number of intervals (49.4 ms with the surface
-rule off, 50.0 ms with the convection off). A plan now costs its own
-cells: a boil that keeps its cells' species writes their masses in place,
-and the region audit books the changed cells alone
-(`RegionAudit::convert` over cells; the cells left out added nothing to a
-residual and their masses twice to its bound). 49.6 ms a tick, and no
-`ma_mac_*` output changes. On replays of one world state of each full
-colony, where most regions are stepped once a second, the Spaced Out!
-colony's flow advance stays about 5 % dearer than on 0.1.8's solver
-(48 ms a frame for 46 ms; the pressure solve refines 0.69 times a frame
-for 0.55 with the convection on) and the industrial base's is unchanged.
+Cost, on replays of one world state of each full colony (the flow advance
+alone, 60 frames, 12 workers, three runs each on an idle machine): the
+industrial base 28.0 ms a frame for 27.9 ms, the Spaced Out! colony
+49.8 ms for 47.4 ms. The 5 % there is the liquid convection (46.0 ms with
+it switched off, 49.6 ms with the stable-layer rule off, 50.4 ms with the
+surface rule off): heat now reaches the surfaces of that world's warm
+pools and the pressure solve refines more often (0.69 times a frame for
+0.55). Not examined further.
 
 ## Liquid over gas (profile 12, 2026-11-12)
 

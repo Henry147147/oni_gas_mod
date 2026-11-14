@@ -317,29 +317,6 @@ public:
         merge(conversion[key], sums[block][key]);
     }
   }
-  // The same for the cells a planned boil changed (ascending), each with its
-  // constituents before. The cells it leaves out would add equal and
-  // opposite terms: nothing to a residual, their masses twice to its bound.
-  void convert(std::span<const std::size_t> cells,
-               std::span<const std::vector<std::pair<std::uint32_t, double>>> before,
-               const SparseMass &after, std::vector<DoubleDouble> &conversion) {
-    RegionPartial part(topology);
-    std::vector<DoubleDouble> sums(conversion.size());
-    for (std::size_t n = 0; n < cells.size(); ++n) {
-      const auto i = cells[n];
-      for (const auto &[key, mass] : before[n]) {
-        sums.at(key).add(-mass);
-        part.mass(i, key, -mass);
-      }
-      for (std::size_t a = after.offsets[i]; a < after.offsets[i + 1]; ++a) {
-        sums.at(after.species[a]).add(after.mass[a]);
-        part.mass(i, after.species[a], after.mass[a]);
-      }
-    }
-    merge(part);
-    for (std::size_t key = 0; key < conversion.size(); ++key)
-      merge(conversion[key], sums[key]);
-  }
   double finish() const {
     double worst = 0;
     const auto check = [&](const Balance &b, std::size_t region,
