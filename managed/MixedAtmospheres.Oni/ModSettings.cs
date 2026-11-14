@@ -151,7 +151,8 @@ namespace MixedAtmospheres.Oni
             // change by default (user decision 2026-10-28).
             SettingDefinition.Toggle(EvaporationBelowBoiling, SettingScope.Colony, PhaseChange, "Evaporation below boiling",
                 "Off (default): liquids turn to vapour only by boiling, and vapour below its boiling point condenses back to liquid, as in ONI. The boiling point depends on the surrounding gas pressure: water boils at 100 °C at normal pressure, lower in thin air and even in vacuum. Air holds no humidity. " +
-                "On: liquids also evaporate slowly into drier air below boiling, and air keeps realistic humidity. Saved with each colony; a change in a colony applies from its next frame.", false),
+                "On: liquids also evaporate slowly into drier air below boiling, and air keeps realistic humidity. Turning it off in a running colony condenses the air's humidity at once and warms those rooms, about 10 °C for each 1% of steam. " +
+                "Saved with each colony; a change in a colony applies from its next frame.", false),
             // Gameplay, saved in the colony settings record (MACOLP03 section 3).
             SettingDefinition.Choice(SourceEnergy, SettingScope.Colony, GasSources, "Gas source energy",
                 "How gas from machines, vents, pumps and duplicants carries energy. Compensated (default): no cold spot where gas comes out and no warm spot where it is drawn in; " +

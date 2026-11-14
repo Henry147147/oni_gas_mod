@@ -53,6 +53,8 @@ static class Program
         Check(evaporation.Kind == SettingKind.Toggle && evaporation.Scope == SettingScope.Colony && !evaporation.Advanced &&
               evaporation.Group == SettingCatalog.PhaseChange && (bool)evaporation.Default == false && !evaporation.IsExperimental(true) &&
               evaporation.Label == "Evaporation below boiling", "phase rule definition");
+        Check(evaporation.Description.Contains("Turning it off in a running colony condenses the air's humidity at once and warms those rooms, about 10 °C for each 1% of steam."),
+              "phase rule description warns that turning it off warms humid rooms");
         var realistic = SettingValues.Defaults().With(SettingCatalog.EvaporationBelowBoiling, true);
         Check(realistic.ToNative().EvaporationBelowBoiling == 1 && NativeAccepts(realistic.ToNative()), "evaporation below boiling native value");
         Check(SettingValues.Defaults().WithNative(realistic.ToNative()).Toggle(SettingCatalog.EvaporationBelowBoiling) &&
