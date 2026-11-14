@@ -156,4 +156,32 @@ between rooms in play.
 
 ## Acceptance
 
-Pending.
+Code revision **`4a54761`** (the solver of `7b60dcb` and this record).
+Windows ZIP:
+`/mnt/data/share/oni/playtest/MixedAtmospheres-0.1.8-4a54761/MixedAtmospheres-private-windows-0.1.8-4a54761.zip`,
+SHA256 `4f00822ad7f3abc0db0dbafd9a9316531cc77c538c9eb1f1067e277e70392301`.
+Close ONI, extract and run `install_windows.ps1`. Colonies saved by 0.1.4,
+0.1.5 or 0.1.7 load.
+
+The quick tier of `tools/acceptance_suite.py` ran in full on `4a54761`
+(46 steps, tag `quick-v1`, 2026-11-13): 45 passed, 1 failed, none skipped.
+
+| Step | Result |
+| --- | --- |
+| Linux build; Windows (MinGW) build with its tests under Wine (94 of 94) | pass |
+| Linux batches 1-12, 14, 15 | pass |
+| Nine starting asteroids, 3,000 frames each | pass |
+| One cycle on the frozen prepared save (made by 0.1.4) | pass: 3,033 frames, a natural autosave, three duplicants alive, mass error 3.5e-15 |
+| Proton batches 2, 3, 4, 6, 7, 10, 11, 12 | pass |
+| Proton contact, base source, prepared cycle, autosave cold | pass |
+| Proton settings source and load, Spaced Out! source, cold load, menu reload, ordinary new game and its reload | pass |
+| Linux batch 13 | fail: `storage-ledger`, "the emptied gas brings its germs once": owner +53,396 germs against a floor of 68,000 |
+
+`linux-b13` is the check left for the user to rule on
+([0.1.6](playtest-0.1.6.md#open)), as in 0.1.7's run; its other thirteen
+checks and the batch's other three scenarios pass. The Proton steps are the
+WindowsPlayer under Proton, not Windows itself.
+
+A probe of everyday heat and phase-change situations run during this
+acceptance found defects that this build has; they are recorded and fixed
+in [0.1.9](playtest-0.1.9.md).
