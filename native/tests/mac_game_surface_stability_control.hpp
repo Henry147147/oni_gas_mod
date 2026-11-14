@@ -799,6 +799,91 @@ inline void levelling_pause_control() {
             << step.range << " kg of range; at rest it pauses at " << rest.last_step << " s after " << rest.steps
             << " stepped frames; held frames leave the state alone; exact cold and 12-worker continuation; mass closed\n";
 }
+// Profile 12, the transfer audit with carried germs. After a flow step the
+// world's germ sums are named by carrier, and the transfer audit read them
+// under plain names: a germ's world total was missing from its bound, which
+// rested on the transferred amount alone. A gas cell holding tens of
+// thousands of a germ on its gas and 1e-20 of it on a trace droplet then
+// failed when part of the droplet was drawn, on the eleventh digit of 3e-22
+// germs ("Game transfer passive audit failed"; it stopped a Spaced Out!
+// colony on 2026-11-14). Here three fixed sequences of 600 steps each put
+// trace droplets with a few germs into germy air, puff gas in, step the
+// flow and draw parts of what the cells hold; the first failed at its 17th
+// step before the audit read the sums by plain identity.
+inline void transfer_audit_control() {
+  const auto saved = mac_kernel_default_options();
+  auto options = saved;
+  options.threads = 1;
+  set_mac_kernel_default_options(options);
+  const auto &f = setup();
+  constexpr std::size_t W = 6, H = 6;
+  const std::size_t water = f.registry.index("water"),
+                    gases[3] = {f.registry.index("oxygen"), f.registry.index("nitrogen"), f.registry.index("helium")};
+  struct Sequence {
+    std::uint64_t s;
+    std::uint64_t next() { s = s * 6364136223846793005ULL + 1442695040888963407ULL; return s >> 11; }
+    double between(double a, double b) { return a + (b - a) * (static_cast<double>(next()) / 9007199254740992.); }
+    unsigned pick(unsigned n) { return static_cast<unsigned>(next() % n); }
+  };
+  unsigned transfers = 0;
+  for (unsigned seed = 1; seed <= 3; ++seed) {
+    Sequence r{seed * 0x9E3779B97F4A7C15ULL};
+    MacTransportState state;
+    state.grid = {W, H, 1, 1, false, false, std::vector<std::uint8_t>(W * H)};
+    for (std::size_t i = 0; i < W * H; ++i) {
+      const auto x = i % W, y = i / W;
+      state.grid.walls[i] = x == 0 || x == W - 1 || y == 0 || y == H - 1;
+      MacMaterialCell cell{MixtureInventory(f.registry.size()), {}};
+      if (!state.grid.walls[i]) {
+        cell.mixture.masses[gases[0]] = 100000 * .032 / (gas_constant * 300);
+        cell.passive_quantities.push_back({1 | passive_gas_carrier, r.between(1e4, 1e5)});
+        cell.passive_quantities.push_back({2 | passive_gas_carrier, r.between(1e4, 1e5)});
+      }
+      state.cells.push_back(std::move(cell));
+    }
+    state.momentum_x.resize((W + 1) * H);
+    state.momentum_y.resize(W * (H + 1));
+    MacClosedSettings cfg;
+    cfg.numerical_kernel = MacNumericalKernel::game;
+    cfg.game_profile = MacGameProfile::game_kernel_thin_drag;
+    cfg.vacuum = MacVacuumRepresentation::void_phase;
+    cfg.maximum_timestep_s = .2;
+    cfg.gravity_m_per_s2 = 9.81;
+    cfg.trace_sink_threshold_kg = 1e-11;
+    cfg.game.liquid_law = MacGameLiquidLaw::positive_segments;
+    cfg.game.pressure_maximum_iterations = 400;
+    cfg.game.heat_maximum_iterations = 800;
+    auto world = MacClosedWorld::game_colony(f.registry, f.eos, std::move(state), std::vector<double>(W * H, 300), cfg);
+    for (unsigned step = 0; step < 600; ++step) {
+      const unsigned kind = r.pick(8);
+      if (kind == 0) {
+        world = std::move(world).advanced(.2).world;
+        continue;
+      }
+      const std::size_t at = (1 + r.pick(W - 2)) + (1 + r.pick(H - 2)) * W;
+      MacFluidTransfer t{at, water, false, 0, 300, {}};
+      if (kind == 1) { // a trace droplet with a few germs
+        t.inject = true;
+        t.mass_kg = std::pow(10., r.between(-9, -6));
+        t.passives.push_back({static_cast<std::uint64_t>(1 + r.pick(2)), std::pow(10., r.between(-21, -6))});
+      } else if (kind == 2) { // a puff of gas
+        t.inject = true;
+        t.species_index = gases[r.pick(3)];
+        t.mass_kg = std::pow(10., r.between(-6, -2));
+      } else { // part, or all, of the cell's water or of one of its gases
+        t.species_index = kind <= 5 ? water : gases[r.pick(3)];
+        const double held = world.state().cells[at].mixture.masses[t.species_index];
+        if (!(held > 0)) continue;
+        t.mass_kg = held * (r.pick(4) == 0 ? 1. : std::pow(10., r.between(-3, -.1)));
+      }
+      world = std::move(world).with_fluid_transfers(std::span(&t, 1), MacFluidTransferTopology::occupied_mixture).world;
+      ++transfers;
+    }
+  }
+  set_mac_kernel_default_options(saved);
+  std::cout << "PASS profile12 transfer audit with carried germs: " << transfers
+            << " transfers of trace droplets, gas and their germs between flow steps, each audited against the world's totals\n";
+}
 // Profile 12, two sealed rooms joined by one opened cell of the wall between
 // them, at one pressure. A face carries one velocity, so nothing could pass
 // both ways through an opening one cell high: nitrogen stayed beside oxygen
@@ -985,5 +1070,6 @@ inline void run() {
   sealed_drain_control();
   liquid_interface_control();
   carried_passives_control();
+  transfer_audit_control();
 }
 } // namespace ma::testing::surface_stability_game

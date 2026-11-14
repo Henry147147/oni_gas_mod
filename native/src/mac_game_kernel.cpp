@@ -1285,12 +1285,30 @@ void audit_transfers(const k::Totals &old, const k::Totals &now,
                      y = balance(change.jy, old.jy, now.jy);
   energy.residual.add(-change.energy.hi);
   energy.residual.add(-change.energy.lo);
+  // The whole-world sums name a carried passive by its carrier after a flow
+  // step (the state's identities) and plainly after an edit, and the audit
+  // is per plain identity, as its parcels are. Read under the wrong name, a
+  // germ's world total was missing from its bound, which then rested on the
+  // transferred amount alone: a cell holding 5e4 of a germ on its gas and
+  // 1e-20 of it on a trace droplet failed when part of the droplet was
+  // drawn, on the eleventh digit of 3e-22 germs (2026-11-14; it stopped a
+  // Spaced Out! colony).
+  const auto plain = [](const std::map<std::uint64_t, k::DoubleDouble> &sums) {
+    std::map<std::uint64_t, k::DoubleDouble> out;
+    for (const auto &[id, value] : sums) {
+      auto &sum = out[plain_passive_identity(id)];
+      sum.add(value.hi);
+      sum.add(value.lo);
+    }
+    return out;
+  };
+  const auto old_passives = plain(old.passives), now_passives = plain(now.passives);
   std::map<std::uint64_t, k::Balance> passives;
-  for (const auto &[id, q] : now.passives) {
-    const auto o = old.passives.find(id);
+  for (const auto &[id, q] : now_passives) {
+    const auto o = old_passives.find(id);
     const auto d = change.passives.find(id);
     passives[id] = balance(d == change.passives.end() ? k::DoubleDouble{} : d->second,
-                           o == old.passives.end() ? k::DoubleDouble{} : o->second, q);
+                           o == old_passives.end() ? k::DoubleDouble{} : o->second, q);
   }
   for (const auto &parcel : parcels) {
     const double sign = parcel.injected ? 1 : -1;
