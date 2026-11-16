@@ -31,12 +31,16 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import platform
+import re
+import shutil
 import struct
 import subprocess
 import sys
+import tempfile
 import time
 import zlib
 
@@ -80,6 +84,8 @@ def saved_owner(save: bytes) -> bytes:
 
 def cut_journal(source: Path, target: Path, frames: int) -> int:
     """Copy a journal up to and including its first `frames` advanced frames."""
+    if frames < 1:
+        raise ValueError('Capture needs at least one frame')
     kept = 0
     with source.open('rb') as journal, target.open('wb') as out:
         for line in journal:
@@ -92,18 +98,37 @@ def cut_journal(source: Path, target: Path, frames: int) -> int:
 
 
 def capture(name: str, save: Path, home: Path, frames: int) -> Path:
+    if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_-]*', name):
+        raise ValueError('Capture name must contain only letters, numbers, _ or - and start with a letter or number')
+    if frames < 1:
+        raise ValueError('Capture needs at least one frame')
     folder = CAPTURES / name
     journals = sorted(home.glob('inputs-*.txt'))
     diseases = sorted(home.glob('diseases-*.bin'))
     if len(journals) != 1 or len(diseases) != 1:
         raise SystemExit(f'{home} must hold one inputs-*.txt and one diseases-*.bin')
-    folder.mkdir(parents=True, exist_ok=False)
-    (folder / 'owner').write_bytes(saved_owner(save.read_bytes()))
-    kept = cut_journal(journals[0], folder / 'inputs.txt', frames)
-    (folder / 'diseases.bin').write_bytes(diseases[0].read_bytes())
-    (folder / 'capture.json').write_text(json.dumps({
-        'save': save.name, 'save_sha256': hashlib.sha256(save.read_bytes()).hexdigest(), 'frames': kept,
-        'note': 'private capture: owner image of the save and the inputs the game journaled after loading it'}, indent=2) + '\n')
+    save_bytes = save.read_bytes()
+    owner = saved_owner(save_bytes)
+    disease_bytes = diseases[0].read_bytes()
+    if len(disease_bytes) < 12:
+        raise ValueError('Disease table is too short')
+    CAPTURES.mkdir(parents=True, exist_ok=True)
+    if folder.exists():
+        raise FileExistsError(folder)
+    temporary = Path(tempfile.mkdtemp(prefix='.capture-', dir=CAPTURES))
+    try:
+        (temporary / 'owner').write_bytes(owner)
+        kept = cut_journal(journals[0], temporary / 'inputs.txt', frames)
+        if kept == 0:
+            raise ValueError('The input journal has no advanced frames')
+        (temporary / 'diseases.bin').write_bytes(disease_bytes)
+        (temporary / 'capture.json').write_text(json.dumps({
+            'save': save.name, 'save_sha256': hashlib.sha256(save_bytes).hexdigest(), 'frames': kept,
+            'note': 'private capture: owner image of the save and the inputs the game journaled after loading it'}, indent=2) + '\n')
+        temporary.rename(folder)
+    finally:
+        if temporary.exists():
+            shutil.rmtree(temporary)
     return folder
 
 
@@ -111,6 +136,8 @@ def captures() -> dict[str, Path]:
     found = {}
     if CAPTURES.is_dir():
         for folder in sorted(CAPTURES.iterdir()):
+            if folder.name.startswith('.'):
+                continue
             if all((folder / part).is_file() for part in ('owner', 'inputs.txt', 'diseases.bin')):
                 found[f'replay-{folder.name}'] = folder
     return found
@@ -140,7 +167,7 @@ def row(case: str, result: dict) -> dict:
     owner = result['owner_ms']
     estimate = result.get('estimate', {})
     regions = flow.get('top_regions') or [{}]
-    return {
+    values = {
         'case': case, 'faulted': bool(result.get('faulted')),
         'owner_ms': owner['mean'], 'owner_p95_ms': owner['p95'],
         'flow_ms': result['stage_ms']['flow']['mean'],
@@ -152,6 +179,13 @@ def row(case: str, result: dict) -> dict:
         'speed': estimate.get('game_per_real_mean', 0.0), 'speed_p95_frame': estimate.get('game_per_real_p95_frame', 0.0),
         'budget_ms': estimate.get('owner_ms_budget_for_3x', 0.0),
     }
+    for key in ('owner_ms', 'owner_p95_ms', 'speed', 'speed_p95_frame'):
+        value = values[key]
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or value < 0:
+            raise ValueError(f'{case}: invalid {key}')
+    if not values['faulted'] and (values['owner_ms'] == 0 or values['speed'] == 0):
+        raise ValueError(f'{case}: a successful case needs measured owner time and speed')
+    return values
 
 
 def table(rows: list[dict]) -> str:
@@ -166,7 +200,7 @@ def table(rows: list[dict]) -> str:
 
 def below(rows: list[dict], required: float) -> list[str]:
     """Cases that faulted or whose estimated speed is under `required`."""
-    return [r['case'] for r in rows if r['faulted'] or r['speed'] < required]
+    return [r['case'] for r in rows if r['faulted'] or not math.isfinite(r['speed']) or r['speed'] < required]
 
 
 def compare(rows: list[dict], baseline: dict) -> str:
@@ -218,6 +252,12 @@ def main() -> int:
     parser.add_argument('--baseline', type=Path, help='summary.json of an earlier run to compare with')
     parser.add_argument('--require', type=float, help='Fail unless every case is estimated at this many game seconds per second')
     args = parser.parse_args()
+    if args.require is not None and (not math.isfinite(args.require) or args.require <= 0):
+        parser.error('--require must be a finite positive speed')
+    if args.frames is not None and args.frames < 1:
+        parser.error('--frames must be positive')
+    if args.warmup is not None and args.warmup < 0:
+        parser.error('--warmup cannot be negative')
     executable = (args.executable or args.build / 'ma_colony_benchmark').resolve(strict=True)
     folders = captures()
     cases = args.case or [*SYNTHETIC, *folders]
@@ -232,6 +272,7 @@ def main() -> int:
     rows, status = [], 0
     for case in cases:
         result = output / f'{case}.json'
+        result.unlink(missing_ok=True)  # An explicit --output may hold an earlier successful run.
         command = [str(executable), *arguments_for(case, folders, args.frames, args.warmup, args.workers), '--json', str(result)]
         before, start = load(), time.monotonic()
         run = subprocess.run(command, capture_output=True, text=True)
@@ -240,8 +281,17 @@ def main() -> int:
         if run.stderr.strip():
             record['stderr'] = run.stderr.strip()[-2000:]
         if result.is_file():
-            record['row'] = row(case, json.loads(result.read_text()))
-            rows.append(record['row'])
+            try:
+                record['row'] = row(case, json.loads(result.read_text()))
+                rows.append(record['row'])
+                if record['row']['faulted']:
+                    status = 1
+            except (ValueError, TypeError, KeyError, AttributeError) as error:
+                record['result_error'] = str(error)
+                status = 1
+        else:
+            record['result_error'] = 'benchmark wrote no result JSON'
+            status = 1
         if run.returncode != 0:
             status = 1
         summary['cases'][case] = record
@@ -255,8 +305,9 @@ def main() -> int:
     print(output / 'summary.json')
     if args.require is not None:
         slow = below(rows, args.require)
-        if slow or len(rows) != len(cases):
-            print(f'Below {args.require}x: {slow}', file=sys.stderr)
+        missing = [case for case in cases if 'row' not in summary['cases'][case]]
+        if slow or missing:
+            print(f'Below {args.require}x: {slow}; missing results: {missing}', file=sys.stderr)
             status = 1
     return status
 

@@ -1,10 +1,17 @@
 """Controls for the game-free colony speed check's own logic; no timing claims."""
+import contextlib
 import hashlib
 import importlib.util
+import io
+import json
+import math
 from pathlib import Path
 import struct
+import sys
 import tempfile
 import unittest
+from types import SimpleNamespace
+from unittest.mock import patch
 import zlib
 
 TOOLS = Path(__file__).resolve().parents[1]
@@ -73,6 +80,51 @@ class JournalTests(unittest.TestCase):
             self.assertEqual(speed.cut_journal(source, target, 1), 1)
             self.assertEqual(target.read_bytes(), b''.join(lines[:4]))
 
+    def test_zero_frames_are_not_a_capture(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            source, target = Path(temporary) / 'in.txt', Path(temporary) / 'out.txt'
+            source.write_bytes(b'frame 1 flush 0 seconds 0x1p-3\n')
+            with self.assertRaises(ValueError):
+                speed.cut_journal(source, target, 0)
+
+
+class CaptureTests(unittest.TestCase):
+    def inputs(self, folder: Path, journal: bytes = b'session 1 restored_frames 0\nframe 1 flush 0 seconds 0x1p-3\n'):
+        save = folder / 'game.sav'
+        save.write_bytes(owner_image())
+        home = folder / 'home'
+        home.mkdir()
+        (home / 'inputs-1.txt').write_bytes(journal)
+        (home / 'diseases-1.bin').write_bytes(b'\0' * 12)
+        return save, home
+
+    def test_capture_stays_under_private_root_and_is_complete(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            save, home = self.inputs(root)
+            with patch.object(speed, 'CAPTURES', root / 'private'):
+                for name in ('../leak', 'nested/leak', '.hidden', 'bad name'):
+                    with self.subTest(name=name), self.assertRaises(ValueError):
+                        speed.capture(name, save, home, 1)
+                self.assertFalse((root / 'leak').exists())
+                folder = speed.capture('colony_1', save, home, 1)
+                self.assertEqual(set(p.name for p in folder.iterdir()), {'owner', 'inputs.txt', 'diseases.bin', 'capture.json'})
+                self.assertEqual(json.loads((folder / 'capture.json').read_text())['frames'], 1)
+                self.assertEqual(list((root / 'private').glob('.capture-*')), [])
+
+    def test_invalid_inputs_leave_no_visible_or_temporary_capture(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            save, home = self.inputs(root, journal=b'session 1 restored_frames 0\n')
+            with patch.object(speed, 'CAPTURES', root / 'private'):
+                with self.assertRaisesRegex(ValueError, 'no advanced frames'):
+                    speed.capture('empty', save, home, 1)
+                self.assertEqual(list((root / 'private').iterdir()), [])
+                save.write_bytes(b'not a save')
+                with self.assertRaises(ValueError):
+                    speed.capture('invalid', save, home, 1)
+                self.assertEqual(list((root / 'private').iterdir()), [])
+
 
 class ReportTests(unittest.TestCase):
     def test_rows_carry_the_figures(self):
@@ -87,6 +139,12 @@ class ReportTests(unittest.TestCase):
         self.assertEqual(speed.below(rows, 3.0), ['slow', 'broken'])
         self.assertEqual(speed.below(rows, 2.0), ['broken'])
 
+    def test_nonfinite_measurement_cannot_pass_the_speed_gate(self):
+        invalid = result(speed_mean=math.nan)
+        with self.assertRaisesRegex(ValueError, 'invalid speed'):
+            speed.row('invalid', invalid)
+        self.assertEqual(speed.below([{'case': 'invalid', 'faulted': False, 'speed': math.nan}], 3.0), ['invalid'])
+
     def test_the_comparison_skips_cases_the_baseline_lacks(self):
         rows = [speed.row('a', result(owner=40.0)), speed.row('b', result())]
         text = speed.compare(rows, {'a': speed.row('a', result(owner=50.0))})
@@ -99,6 +157,29 @@ class ReportTests(unittest.TestCase):
         self.assertEqual(speed.arguments_for('late-largest-sealed', {}, None, None, 0), ['--preset', 'late-largest', '--no-vented-hall'])
         replay = speed.arguments_for('replay-x', {'replay-x': Path('/captures/x')}, None, None, 0)
         self.assertEqual(replay[:4], ['--owner-replay', '/captures/x/owner', '/captures/x/inputs.txt', '/captures/x/diseases.bin'])
+
+    def test_failed_or_incomplete_replay_does_not_reuse_a_previous_result(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            folder = Path(temporary)
+            executable = folder / 'benchmark'
+            executable.touch()
+            output = folder / 'results'
+            output.mkdir()
+            (output / 'late-base.json').write_text(json.dumps(result(speed_mean=4.0)))
+            options = ['colony_speed.py', '--executable', str(executable), '--case', 'late-base', '--output', str(output), '--require', '3']
+            for exit_code in (1, 0):
+                (output / 'late-base.json').write_text(json.dumps(result(speed_mean=4.0)))
+                with self.subTest(exit_code=exit_code), patch.object(sys, 'argv', options), \
+                     patch.object(speed, 'captures', return_value={}), \
+                     patch.object(speed.subprocess, 'run', return_value=SimpleNamespace(returncode=exit_code, stderr='replay failed')), \
+                     patch.object(speed.subprocess, 'check_output', side_effect=['revision\n', '']), \
+                     patch.object(speed, 'host', return_value={}), patch.object(speed, 'load', return_value=None), \
+                     contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                    self.assertEqual(speed.main(), 1)
+                self.assertFalse((output / 'late-base.json').exists())
+                summary = json.loads((output / 'summary.json').read_text())
+                self.assertNotIn('row', summary['cases']['late-base'])
+                self.assertIn('result_error', summary['cases']['late-base'])
 
 
 if __name__ == '__main__':
