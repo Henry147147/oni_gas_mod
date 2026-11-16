@@ -145,6 +145,19 @@ class ReportTests(unittest.TestCase):
             speed.row('invalid', invalid)
         self.assertEqual(speed.below([{'case': 'invalid', 'faulted': False, 'speed': math.nan}], 3.0), ['invalid'])
 
+    def test_reported_speed_must_agree_with_measured_owner_frames(self):
+        measured = result(owner=50.0, p95=60.0, speed_mean=2.667, speed_p95=2.353)
+        measured['frame_seconds'] = .2
+        measured['estimate']['native_overhead_ms'] = 25.0
+        speed.validate_estimate('replay-colony', measured)
+        measured['estimate']['game_per_real_mean'] = 3.1
+        with self.assertRaisesRegex(ValueError, 'inconsistent game_per_real_mean'):
+            speed.validate_estimate('replay-colony', measured)
+        measured['estimate']['game_per_real_mean'] = 2.667
+        measured['estimate']['game_per_real_p95_frame'] = 3.1
+        with self.assertRaisesRegex(ValueError, 'inconsistent game_per_real_p95_frame'):
+            speed.validate_estimate('replay-colony', measured)
+
     def test_the_comparison_skips_cases_the_baseline_lacks(self):
         rows = [speed.row('a', result(owner=40.0)), speed.row('b', result())]
         text = speed.compare(rows, {'a': speed.row('a', result(owner=50.0))})
@@ -180,6 +193,32 @@ class ReportTests(unittest.TestCase):
                 summary = json.loads((output / 'summary.json').read_text())
                 self.assertNotIn('row', summary['cases']['late-base'])
                 self.assertIn('result_error', summary['cases']['late-base'])
+
+    def test_impossible_three_x_claim_fails_the_cli_gate(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            folder = Path(temporary)
+            executable = folder / 'benchmark'
+            executable.touch()
+            output = folder / 'results'
+            measured = result(owner=200.0, p95=220.0, speed_mean=3.5, speed_p95=3.2)
+            measured['frame_seconds'] = .2
+            measured['estimate']['native_overhead_ms'] = 25.0
+
+            def forge(command, **_):
+                Path(command[command.index('--json') + 1]).write_text(json.dumps(measured))
+                return SimpleNamespace(returncode=0, stderr='')
+
+            options = ['colony_speed.py', '--executable', str(executable), '--case', 'late-base',
+                       '--output', str(output), '--require', '3']
+            with patch.object(sys, 'argv', options), patch.object(speed, 'captures', return_value={}), \
+                 patch.object(speed.subprocess, 'run', side_effect=forge), \
+                 patch.object(speed.subprocess, 'check_output', side_effect=['revision\n', '']), \
+                 patch.object(speed, 'host', return_value={}), patch.object(speed, 'load', return_value=None), \
+                 contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                self.assertEqual(speed.main(), 1)
+            record = json.loads((output / 'summary.json').read_text())['cases']['late-base']
+            self.assertNotIn('row', record)
+            self.assertIn('inconsistent game_per_real_mean', record['result_error'])
 
 
 if __name__ == '__main__':

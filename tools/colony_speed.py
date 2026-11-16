@@ -188,6 +188,24 @@ def row(case: str, result: dict) -> dict:
     return values
 
 
+def validate_estimate(case: str, result: dict) -> None:
+    """Reject a benchmark speed that disagrees with its measured frame time."""
+    owner = result['owner_ms']
+    estimate = result['estimate']
+    frame_seconds = result['frame_seconds']
+    overhead = estimate['native_overhead_ms']
+    if any(isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value)
+           for value in (frame_seconds, overhead, owner['mean'], owner['p95'])) or frame_seconds <= 0 or overhead < 0:
+        raise ValueError(f'{case}: invalid speed estimate inputs')
+    frame_ms = frame_seconds * 1000
+    for name, owner_ms in (('game_per_real_mean', owner['mean']),
+                           ('game_per_real_p95_frame', owner['p95'])):
+        reported = estimate[name]
+        if (isinstance(reported, bool) or not isinstance(reported, (int, float)) or not math.isfinite(reported)
+                or owner_ms + overhead <= 0 or abs(reported - frame_ms / (owner_ms + overhead)) > .01):
+            raise ValueError(f'{case}: inconsistent {name} speed estimate')
+
+
 def table(rows: list[dict]) -> str:
     lines = ['case                 owner ms  (p95)   flow  slowest region (intervals)  all regions  est. speed (p95 frame)',
              '-' * 104]
@@ -282,7 +300,9 @@ def main() -> int:
             record['stderr'] = run.stderr.strip()[-2000:]
         if result.is_file():
             try:
-                record['row'] = row(case, json.loads(result.read_text()))
+                measured = json.loads(result.read_text())
+                validate_estimate(case, measured)
+                record['row'] = row(case, measured)
                 rows.append(record['row'])
                 if record['row']['faulted']:
                     status = 1
