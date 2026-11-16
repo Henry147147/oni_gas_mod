@@ -31,7 +31,11 @@ class ResultCollectionTests(unittest.TestCase):
         p = self.root / name
         p.mkdir()
         values = dict(zip(suite.SETTINGS_KEYS, suite.SETTINGS_EXPECTED))
-        d = {'status': status, 'source_revision': REVISION, 'source_dirty': False, 'observed_player_exit_code': 0, 'mod_failure_lines': [], 'colony_owner': {'State': 1, 'Faulted': False, 'Error': '', 'ColonySettings': {'Values': values}}}
+        d = {'status': status, 'source_revision': REVISION, 'source_dirty': False,
+             'inspection_seconds_requested': suite.SETTINGS_INSPECTION_SECONDS,
+             'exit_code': 0, 'timed_out': False, 'stopped_early_for_mod_failure': False,
+             'observed_player_exit_code': 0, 'mod_failure_lines': [],
+             'colony_owner': {'State': 1, 'Faulted': False, 'Error': '', 'ColonySettings': {'Values': values}}}
         (p / 'result.json').write_text(json.dumps(d))
         for name in suite.SETTINGS_SHOTS:
             (p / (name + '.png')).write_bytes(b'fixture')
