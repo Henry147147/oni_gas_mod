@@ -229,7 +229,7 @@ namespace MixedAtmospheres.Oni
                 Debug.Log(FormattableString.Invariant($"[Mixed Atmospheres] storage-ledger emptier f{ColonyFrame()}: air germs pool room {left:F0}, emptier room {right:F0}, stored {(step == 64 ? StoredGerms(powered.Last().GetComponent<Storage>(), food) : 0):F0}, CO2 in the arena {ArenaSpecies(SimHashes.CarbonDioxide):G4} kg, water in rows 2+ {Enumerable.Range(0, Width).Sum(x => Enumerable.Range(2, Height - 2).Sum(y => SpeciesMass(Cell(x, y), SimHashes.Water))):G4} kg"));
             }
             // The emptier works at its own rate: wait until its store is empty, then a few frames for the last injection.
-            if (step <= 101 && ColonyFrame() >= 63 && powered.Last().GetComponent<Storage>().MassStored() < 1e-6f && ColonyFrame() >= 70) recorded["emptier done"] = ColonyFrame();
+            if (step <= 101 && ColonyFrame() >= 63 && powered.Last().GetComponent<Storage>().MassStored() < 1e-6f && ColonyFrame() >= 70 && !recorded.ContainsKey("emptier done")) recorded["emptier done"] = ColonyFrame();
             if (ColonyFrame() >= 100 && (ColonyFrame() >= recorded.GetValueOrDefault("emptier done", 1e9) + 6 || ColonyFrame() >= 400) && Once(100, "emptier check"))
             {
                 var emptier = powered.Last();
