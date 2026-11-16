@@ -26,6 +26,10 @@ Build the normal managed adapter first, or supply its directory with
 directory for every native build. Build and test parallelism both follow
 `--jobs`. The image can be reused with
 `--skip-image-build` after its first build.
+GCC 11 reports copies of pointer pairs in the game kernel as
+`-Wrange-loop-construct`; the builder makes only that warning nonfatal,
+matching the Windows MinGW toolchain. Other warnings remain errors and the
+solver's floating-point flags are unchanged.
 
 `compatibility-build.json` records every frozen source hash, the source revision
 and working-tree status (tracked files deleted in the working tree are skipped

@@ -69,7 +69,11 @@ def main():
     base=['docker','run','--rm','--platform','linux/amd64','--network','host','--user',f'{os.getuid()}:{os.getgid()}',
         '--mount',f'type=bind,src={source},dst=/source,readonly',
         '--mount',f'type=bind,src={output},dst=/build','--workdir','/build',image_id]
+    # GCC 11 warns when a structured binding copies a pair of pointers in the
+    # game kernel. MinGW uses the same targeted diagnostic exception; keep all
+    # other warnings as errors and leave floating-point/solver flags untouched.
     run([*base,'cmake','-S','/source','-B','/build/native','-G','Ninja','-DCMAKE_BUILD_TYPE=Release',
+        '-DCMAKE_CXX_FLAGS=-Wno-error=range-loop-construct',
         '-DMA_BUILD_ONI_NATIVE_BACKEND=ON','-DMA_BUILD_STAGGERED_EXPERIMENTS=OFF','-DMA_SANITIZERS=OFF',
         '-DCMAKE_BUILD_RPATH_USE_ORIGIN=ON'])
     run([*base,'cmake','--build','/build/native','--parallel',str(args.jobs)])
