@@ -75,6 +75,13 @@ internal static class Program
   ColonySaveBarrier.StepSeconds=0;ColonyOwner.CommitTestPublication(18,4);
   Check(OniNativeColony.Pending.Count==0&&TestRuntime.Dispatches.SequenceEqual(expected.Select(r=>r.Sequence)),"native-faulted session spawned acknowledged debris again");NoAdvance();
  }
+ static void PassThroughControls()
+ {
+  TestRuntime.Reset();ColonyOwner.Active=false;TestRuntime.FailAt="sim-step";
+  Exception? escaped=null;try{Game.Instance.StepTheSim(.2f);}catch(InvalidOperationException error){escaped=error;}
+  Check(escaped?.Message=="injected sim-step"&&!ColonyFault.Faulted&&ColonySaveBarrier.CanRunLifecycle,
+   "inactive owner's step finalizer swallowed or contained an external exception");
+ }
  // Spawned debris is acknowledged exactly once on every early exit whose own
  // native session survives; a replaced session or latched fault is untouched.
  static void CustodyControls()
@@ -194,7 +201,7 @@ internal static class Program
    ColonySaveBarrier.StepSeconds=0;ColonyOwner.CommitTestPublication(18,4);Check(OniNativeColony.Pending.Count==0,"opt-out changed original zero-time full publication");NoAdvance();Console.WriteLine("PASS receipt pump opt-out: "+checks+" assertions; original publication drains, idle pump does not.");return 0;
   }
   if(args.Length!=0)throw new ArgumentException("Unknown receipt pump control argument");
-  StateControls();PrefixControls();GuardControls();ReentryControls();FaultControls();CustodyControls();ThermalSaveControls();BatchSaveControls();EmptyPumpAllocation();PacketControls();NativePublicationControls();
+  StateControls();PrefixControls();GuardControls();ReentryControls();FaultControls();PassThroughControls();CustodyControls();ThermalSaveControls();BatchSaveControls();EmptyPumpAllocation();PacketControls();NativePublicationControls();
   Console.WriteLine("PASS idle receipt pump: "+checks+" assertions; actual delivery, arming, pump, native-publication and save-barrier bodies with deterministic clock/fake endpoints.");
 #if GAME_MONO
   Console.WriteLine("Game Mono allocation counter unsupported; allocation assertions omitted, functional controls retained.");

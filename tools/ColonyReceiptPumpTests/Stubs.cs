@@ -99,6 +99,7 @@ namespace MixedAtmospheres.Oni {
   internal static void Inject(string where)=>TestRuntime.Fail(where);
   internal static void Raise(string where,Exception error){Faulted=true;Failure=where+":"+error.Message;OniNativeColony.Current.State=2;}
   internal static Exception? Contain(Exception? error,string where){if(error!=null)Raise(where,error);return null;}
+ internal static Exception? Pass(Exception? error)=>error;
  }
  internal static class TestRuntime {
   internal static bool PublicationFails;internal static readonly object Element=new();internal static int Copies,RawReads;internal static Action? AfterCopy,BeforeRawRead;internal static readonly Dictionary<ulong,int> Outcomes=new();

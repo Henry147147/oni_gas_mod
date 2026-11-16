@@ -17,6 +17,7 @@ public sealed class Game
 namespace MixedAtmospheres.Oni
 {
     internal static class ColonyOwner {internal static bool Active=true;internal static StatusValue Status=new(){Session=1,State=1,CompletedFrames=0};internal struct StatusValue{public ulong Session,CompletedFrames;public uint State;}}
+    internal static class ColonyFault {internal static Exception? Pass(Exception? error)=>error;}
     internal static class ColonyLoadRefusal {internal static bool Refused;}
     internal static class ColonyCallbackRequests {internal static bool Pending;}
     internal static class ColonyOwnerPausedResave {internal static bool Holding;}
