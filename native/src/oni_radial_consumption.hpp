@@ -51,6 +51,45 @@ inline Plan allocate_order(std::span<const double> masses,std::span<const std::s
     }
     result.mass=std::ldexp(static_cast<double>(units-remaining),result.quantum_exponent);return result;
 }
+// A gas batch taken evenly (docs/colony-owner.md#gas-batches): every cell of
+// the order gives the same share of its mass, in the plan's quantum; what
+// that rounding leaves is taken nearest first. The total, its quantum and
+// each parcel's bound are allocate_order's.
+inline Plan allocate_spread(std::span<const double> masses,std::span<const std::size_t> order,double requested) {
+    using namespace ma::experimental;
+    MacEnergySum available;
+    for (const auto cell:order) available.add(masses[cell]);
+    auto residual=available;residual.add(-requested);float target=static_cast<float>(requested);
+    if (residual.sign()<0) {
+        target=static_cast<float>(available.value().project().value);auto check=available;check.add(-static_cast<double>(target));
+        if (check.sign()<0) target=std::nextafter(target,0.0F);
+    }
+    Plan result;if (target==0) return result;
+    int exponent=0;(void)std::frexp(static_cast<double>(target),&exponent);
+    result.quantum_exponent=std::max(-149,exponent-24);
+    const auto units=static_cast<std::uint32_t>(std::ldexp(static_cast<double>(target),-result.quantum_exponent));
+    // The most whole quanta a cell can give.
+    const auto most=[&](double mass) {
+        auto count=static_cast<std::uint32_t>(std::min<double>(units,std::floor(std::ldexp(mass,-result.quantum_exponent))));
+        if (count && std::ldexp(static_cast<double>(count),result.quantum_exponent)>mass) --count;
+        return count;
+    };
+    const double total=available.value().project().value;
+    std::vector<std::uint32_t> counts(order.size());auto remaining=units;
+    for (std::size_t n=0;n<order.size() && total>0;++n) {
+        const double mass=masses[order[n]];
+        const auto share=static_cast<std::uint32_t>(std::floor(static_cast<double>(units)*(mass/total)));
+        counts[n]=std::min({share,most(mass),remaining});remaining-=counts[n];
+    }
+    for (std::size_t n=0;n<order.size() && remaining;++n) {
+        const auto limit=most(masses[order[n]]);
+        const auto extra=std::min(remaining,limit>counts[n]?limit-counts[n]:0U);
+        counts[n]+=extra;remaining-=extra;
+    }
+    for (std::size_t n=0;n<order.size();++n)
+        if (counts[n]) result.allocations.push_back({order[n],std::ldexp(static_cast<double>(counts[n]),result.quantum_exponent)});
+    result.mass=std::ldexp(static_cast<double>(units-remaining),result.quantum_exponent);return result;
+}
 inline Plan prepare(std::size_t width,std::size_t height,std::span<const std::uint8_t> walls,
     std::span<const double> masses,std::size_t centre,std::uint32_t radius,double requested) {
     validate_sources(width,height,walls,masses,requested);

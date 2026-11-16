@@ -886,6 +886,9 @@ if(MA_BUILD_TESTS)
     endif()
     add_test(NAME colony_benchmark_smoke COMMAND "${Python3_EXECUTABLE}"
         "${PROJECT_SOURCE_DIR}/tools/check_colony_benchmark.py" -- ${ma_colony_smoke_command})
+    # A small generated late-game colony (tools/colony_speed.py runs the
+    # full-size ones): the owner must run it without a fault.
+    add_test(NAME colony_benchmark_late_smoke COMMAND ma_colony_benchmark --preset late-smoke)
 endif()
 
 add_executable(ma_fluid_benchmark native/apps/fluid_benchmark.cpp)

@@ -1,5 +1,166 @@
 # Performance acceptance measurements
 
+<a id="game-free-speed-check-2026-11-16"></a>
+## Game-free speed check and what sets the frame, 2026-11-16
+
+The user asked for 3× real time in the largest colonies the game offers,
+measured by tests that need no game run. This section records the tests,
+what they show sets the owner's frame, and the first change made with them.
+Everything here is the Linux host (Ryzen 9 5900X, twelve workers on CPUs
+12-23); nothing is measured on Windows.
+
+### The tests
+
+`tools/colony_speed.py` runs `ma_colony_benchmark` on two kinds of workload
+and prints one table (`--baseline` compares two runs, `--require 3` fails
+below an estimated speed):
+
+- **Generated late-game colonies** (`--preset late-base`, `late-largest`,
+  `late-spacedout`; `late-smoke` is the CTest `colony_benchmark_late_smoke`),
+  on the game's own profile and activity tiers. Each asteroid has a
+  multi-floor base that is one connected atmosphere, a wing of sealed
+  industrial rooms with running machines (electrolysers, steam, hydrogen,
+  natural gas, tanks and pools), tamed geysers on a duty cycle, hundreds of
+  natural caves nothing touches, mined-out caverns where digging goes on, and
+  a surface open to space with a vacuum gallery and silos. A hall whose thin
+  air leaks to space is part of each; the `-sealed` cases leave it out. Sizes
+  follow the game's largest maps: 256×384 (every base-game asteroid),
+  384×384 (the two largest asteroids of the later DLCs) and a 500×390 grid
+  holding the eight worlds of a classic-size Spaced Out! cluster (170,000
+  world cells). 48 duplicants. They are workloads shaped after what the
+  captures below show costs the owner, not played colonies.
+- **Replays of real colonies** (`--owner-replay OWNER JOURNAL DISEASES`): the
+  owner image of a save, fed the inputs the game journaled after loading it
+  (`MA_COLONY_INPUT_JOURNAL_DIR`). The owner's whole frame runs (inputs,
+  flow, sinks, ledgers, projection, publication) with no game process.
+  `colony_speed.py capture NAME SAVE RUN_HOME` builds one in the private
+  `local/perf/<name>/` from a save and one journaled harness run of it. Two
+  exist: the 32-duplicant industrial base and the Spaced Out! full colony,
+  600 frames each. Their owner frame times agree with the game's own
+  (industrial 56-59 ms replayed, 63 ms in game on 2026-11-13; Spaced Out!
+  195-198 ms replayed, 198 ms in game).
+
+Every result lists the owner's stages, the flow stage's wall time, and for
+each region the frames it stepped, its flow intervals, pressure attempts
+and iterations and its time by kernel stage
+(`mac_game/region_samples.hpp`, `oni_colony_diagnostics.hpp`; off unless a
+tool turns it on, never saved). Interval and iteration counts repeat exactly
+from run to run, so a change is judged first by them and then by time.
+
+The estimated speed is 0.2 s of game time over the owner frame plus 25 ms:
+with overlapped pacing a tick takes the owner frame plus the part of ONI's
+native frame before the hand-off (18-27 ms in the harness runs
+[above](#overlapped-pacing-2026-11-06)). It is an estimate, not a
+measurement of the game; 3× needs an owner frame of about 42 ms.
+
+### What sets the frame
+
+Not the number of cells. In every workload one or two regions take most of
+the frame, on one core each, while the other workers wait:
+
+| Workload | Cells stepped a frame | Owner frame ms (95th) | Slowest region: cells, intervals a frame, ms | All regions, ms | Estimated speed |
+| --- | ---: | ---: | --- | ---: | ---: |
+| Generated, 256×384 | 32,354 | 71.0 (91.8) | 10,369, 33.0, 51.0 | 123.0 | 2.08× |
+| Generated, 384×384 | 49,301 | 121.3 (132.6) | 15,441, 31.6, 86.3 | 196.5 | 1.37× |
+| Generated, eight-world cluster | 49,554 | 117.4 (129.3) | 9,729, 33.0, 62.5 | 234.3 | 1.41× |
+| Industrial base, 32 duplicants (replay) | 8,126 | 58.5 (96.2) | 4,802, 5.5, 38.2 | 56.0 | 2.40× |
+| Spaced Out! full colony (replay) | 12,055 | 194.7 (233.3) | 1,553, 74.1, 147.0 | 275.4 | 0.91× |
+
+A region's tick costs 1 to 2.5 µs a cell for each flow interval (the higher
+figure where it holds pools), and a region that takes the minimum of two
+intervals a frame fits a 3× frame up to about 12,000 cells. The regions above take more intervals, for two
+reasons that the journals show:
+
+- **Machines deliver gas in lumps.** ONI's emitters and consumers act about
+  once a second at one cell: an electrolyser adds 0.888 kg of oxygen and
+  0.112 kg of hydrogen to a cell holding one or two kilograms, a wheezewort
+  takes a kilogram from one. Each lump is a local shock above the flow
+  stage's bound on a cell's net volume change (0.4 cell an interval), and
+  the whole region is then stepped at millisecond intervals until it has
+  spread. On the industrial base the refused intervals sit on five such
+  cells and its 4,800-cell region runs 5.5 intervals a frame.
+- **Gas at cells exposed to space.** The Spaced Out! colony's second base
+  stands in a space-exposed zone: ONI's native simulation empties about 240
+  of its cells every frame (the journal holds a take of the cell's whole
+  gas for each, every frame), while two electrolysers keep feeding the base.
+  Gas races into the emptied cells every frame, and that 1,553-cell region
+  runs 74 intervals a frame: three quarters of the frame. Raising the mass
+  below which the bound ignores a cell from 1 mg to 10 g (not adopted)
+  still leaves 40. The generated colonies' leaking hall is the same case
+  with an open-sky region: 32-33 intervals a frame.
+
+More inner workers do not help a region: forcing 1, 2, 4 and 8 on the
+industrial base's large region gives 56, 51, 45 and 45 ms (measured beside
+a running game). About four fifths of a region's tick is serial at this
+size: its row blocks are too few for the pressure solve's parallel paths.
+Its multigrid hierarchy is not the cost; it was rebuilt fewer than sixteen
+times in 240 solves.
+
+### Gas batches shared by nearby cells
+
+[Colony owner](colony-owner.md#gas-batches): a gas batch above a quarter of
+its cell's gas is shared by the open cells within two, when that changes
+none of them by more than a half. Same binary, the one-cell rule selected
+with `MA_COLONY_GAS_BATCHES=cell`, 300 frames:
+
+| Workload | Owner frame ms: one cell → shared | 95th percentile | Slowest region, intervals a frame | Slowest region ms | Estimated speed |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Industrial base, 32 duplicants (replay) | 58.5 → 45.1 | 96.2 → 49.8 | 5.5 → 2.0 | 38.2 → 24.4 | 2.40× → 2.85× |
+| Spaced Out! full colony (replay) | 194.7 → 196.9 | 233.3 → 238.7 | 74.1 → 74.1 | 147.0 → 148.6 | 0.91× → 0.90× |
+| Generated, 256×384 | 71.0 → 70.5 | 91.8 → 91.0 | 33.0 → 33.0 | 51.0 → 50.4 | 2.08× → 2.09× |
+| Generated, 384×384 | 121.3 → 121.4 | 132.6 → 132.5 | 31.6 → 31.6 | 86.3 → 86.9 | 1.37× → 1.37× |
+| Generated, eight-world cluster | 117.4 → 113.8 | 129.3 → 125.0 | 33.0 → 33.0 | 62.5 → 62.1 | 1.41× → 1.44× |
+
+The industrial base's large region now takes the minimum of two intervals,
+and the frame's 95th percentile falls with it; its transfer stage goes from
+5.0 to 5.2 ms for the extra edits. The Spaced Out! colony and the
+generated colonies' leaking halls do not change: their gas is thin, where the
+rule keeps one cell. The one-cell switch reproduces the previous owner
+exactly (the replays end on the parent revision's owner image). Ledgers stay
+closed in every case (relative mass and energy errors at most 5e-15 and
+3e-15). `ma_oni_colony_tests` adds `gas_batch_control` and
+`ma_oni_radial_consumption_tests` the even take's controls; the 94 native
+tests pass, and of the 62 `ma_mac_*` test commands 61 print what the parent
+revision prints and `mac_production_kernel_oracle` differs in its timings
+only (the solver's arithmetic and checkpoint bytes are unchanged; a colony's
+trajectory changes because its inputs enter differently).
+
+Without the leaking hall the generated colonies show what the size of the
+base itself costs:
+
+| Workload (shared batches) | Cells stepped a frame | Owner frame ms (95th) | Largest region: cells, ms | Estimated speed |
+| --- | ---: | ---: | --- | ---: |
+| Generated, 256×384, no leaking hall | 21,985 | 40.1 (48.4) | 12,088, 23.3 | 3.07× |
+| Generated, 384×384, no leaking hall | 33,860 | 62.3 (72.7) | 18,259, 35.3 | 2.29× |
+| Generated, eight-world cluster, no leaking hall | 36,610 | 56.9 (66.4) | 11,036, 22.1 | 2.44× |
+
+Not established: the rule in game (no in-game scenario or acceptance step
+has run on it), and all of it on Windows.
+
+### Open
+
+In order of what the measurements say is worth most:
+
+1. **Gas at space-exposed cells and in near vacuum.** The Spaced Out!
+   colony's frame is this alone, and so is every generated colony's with a
+   leaking hall. The cause is physical speed, not a defect: gas next to a
+   cell that is emptied every frame leaves at the speed of sound, and the
+   flow resolves it. What would remove it is a rule for how fast space may
+   take gas (a cap on the speed through the faces of an emptied or open-sky
+   cell, as an implicit drag like the thin-gas drag's), which is a change of
+   behaviour for the user to decide; raising the thin-gas drag's mass or the
+   bound's mass floor alone does not (40 intervals a frame at 10 g).
+2. **One large region on one core.** At two intervals a frame an
+   18,000-cell base still takes 35 ms by itself (pressure 44 %, transport
+   21 %, audits 11 %). Its pressure solve and transport run in
+   row blocks too few to share among workers; a region that size needs its
+   own decomposition, or a cheaper interval.
+3. **Batches still entering one cell:** a gas vent's pipe packet (it answers
+   a pipe job) and additions that carry germs.
+4. **The owner's stages outside the flow:** transfers 5 to 12 ms a frame on
+   the replays, heat 3 ms, ledger and projection 2 to 3 ms; together a
+   quarter to a third of a 3× frame.
+
 ## Review measurements and 0.1.3, 2026-11-11
 
 A project review profiled the two large-colony replays (the 32-duplicant

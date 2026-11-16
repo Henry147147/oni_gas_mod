@@ -1,6 +1,7 @@
 // Colony owner control (docs/colony-owner.md). Made-up materials and
 // inventories, not game data.
 #include "../src/oni_colony.hpp"
+#include "../src/oni_colony_diagnostics.hpp"
 #include "../src/oni_world_biology.hpp"
 #include <functional>
 #include <limits>
@@ -696,6 +697,99 @@ void open_sky_presink_control() {
 // gas cell, or in vacuum cut from the sky by gas, stays exactly as a plain
 // injection (identical checkpoint bytes), as does every case in profile 8.
 // Saves keep a queued exhaust parcel as a plain injection.
+// A large gas batch is shared by the cells within two; a small one, a take
+// meant to empty a thin cell, an owner without an activity profile and the
+// one-cell switch keep the one-cell rule (docs/colony-owner.md#gas-batches).
+void gas_batch_control() {
+    using namespace ma::oni::colony;
+    constexpr std::uint32_t width=9,height=10,hydrogen=8;
+    const auto at=[](std::uint32_t x,std::uint32_t y){return x+y*width;};
+    const auto start_rooms=[&](bool activity) {
+        MAOniColonyConfig cfg{};cfg.struct_size=sizeof(cfg);cfg.abi_version=MA_ONI_COLONY_ABI_VERSION;cfg.vacuum_index=vacuum;
+        cfg.flags=MA_ONI_COLONY_GAME_KERNEL|MA_ONI_COLONY_GAME_SURFACE|(activity?MA_ONI_COLONY_GAME_ACTIVITY:0U);
+        cfg.grid_width=cfg.width=width;cfg.grid_height=cfg.height=height;cfg.maximum_timestep_s=.1;cfg.gravity_m_per_s2=9.81;
+        const std::vector<MAOniColonyMaterial> mats{material("Oxygen",11,oxygen,true,.032,1000),material("Hydrogen",14,hydrogen,true,.002,10000)};
+        // A 7 x 5 room of oxygen at 1 kg a cell, and over a solid row a 7 x 2 room at 1 g a cell.
+        std::vector<MAOniColonyCell> cells(width*height,MAOniColonyCell{0,MA_ONI_COLONY_SOLID,0,0,0,0});
+        for(std::uint32_t x=1;x<=7;++x) {
+            for(std::uint32_t y=1;y<=5;++y)cells[at(x,y)]={oxygen,MA_ONI_COLONY_FLUID,1,300,0,0};
+            for(std::uint32_t y=7;y<=8;++y)cells[at(x,y)]={oxygen,MA_ONI_COLONY_FLUID,.001f,300,0,0};
+        }
+        set_diseases({},{},0);start(cfg,mats,cells,1);
+    };
+    const auto held=[&](std::uint32_t cell,std::uint32_t element) {
+        std::array<std::uint32_t,4> ids{};std::array<double,4> masses{};
+        const auto count=composition(cell,ids.data(),masses.data(),4);
+        for(std::uint32_t k=0;k<count && k<4;++k)if(ids[k]==element)return masses[k];
+        return 0.;
+    };
+    const auto apply=[&](const MAOniColonyTransfer& t) {
+        queue_transfers(std::span(&t,1));require(flush_inputs()==0,"A gas batch did not settle");
+        require(status().state==1,"A gas batch faulted the owner");
+    };
+    const auto total=[&](std::uint32_t element) {
+        double sum=0;for(std::uint32_t c=0;c<width*height;++c)sum+=held(c,element);return sum;
+    };
+    const auto close=[](double a,double b){return std::abs(a-b)<=1e-6*std::max(std::abs(a),std::abs(b));};
+    // The thirteen cells within two of (4,3), and the eleven within two of (2,4) (its room's wall cuts two off).
+    const auto within=[](std::uint32_t x,std::uint32_t y,std::uint32_t cx,std::uint32_t cy) {
+        return (x>cx?x-cx:cx-x)+(y>cy?y-cy:cy-y)<=2;
+    };
+    start_rooms(true);
+    // The import settles the rooms: compare with what each cell then holds.
+    const auto snapshot=[&](std::uint32_t element) {
+        std::vector<double> out(width*height);for(std::uint32_t c=0;c<width*height;++c)out[c]=held(c,element);return out;
+    };
+    const auto before=snapshot(oxygen);
+    double zone=0;
+    for(std::uint32_t y=1;y<=5;++y)for(std::uint32_t x=1;x<=7;++x)if(within(x,y,2,4))zone+=before[at(x,y)];
+    // A pump's take of half a cell's gas from one cell: every cell within two gives the same share.
+    const MAOniColonyTransfer take{at(2,4),0,MA_ONI_COLONY_EXTRACT_GAS,0,77,0,.5,0,0};
+    apply(take);
+    std::vector<MAOniColonyReceipt> receipts(8);const auto got=copy_receipts(receipts.data(),8);
+    require(got==1 && receipts[0].callback==77 && receipts[0].mass_kg==.5f,"An even gas take changed its receipt");
+    ack_receipts(receipts[0].sequence);
+    std::uint32_t givers=0;
+    for(std::uint32_t y=1;y<=5;++y)for(std::uint32_t x=1;x<=7;++x) {
+        const double oxygen_here=held(at(x,y),oxygen);
+        if(within(x,y,2,4)){++givers;require(close(oxygen_here,before[at(x,y)]*(1-.5/zone)),"A cell within two did not give its share of a gas take");}
+        else require(oxygen_here==before[at(x,y)],"A gas take reached beyond two cells");
+    }
+    double initial=0;for(const double mass:before)initial+=mass;
+    require(givers==11 && close(total(oxygen),initial-.5),"An even gas take lost or made mass");
+    // An electrolyser's hydrogen: 56 mol into a cell holding 31; shared in proportion to each cell's gas.
+    const MAOniColonyTransfer lump{at(4,3),hydrogen,MA_ONI_COLONY_INJECT,0,-1,0,.112,343,0};
+    apply(lump);
+    double moles=0;
+    for(std::uint32_t y=1;y<=5;++y)for(std::uint32_t x=1;x<=7;++x)if(within(x,y,4,3))moles+=held(at(x,y),oxygen)/.032;
+    std::uint32_t takers=0;
+    for(std::uint32_t y=1;y<=5;++y)for(std::uint32_t x=1;x<=7;++x) {
+        const double hydrogen_here=held(at(x,y),hydrogen);
+        if(within(x,y,4,3)){++takers;require(close(hydrogen_here,.112*(held(at(x,y),oxygen)/.032)/moles),"A cell within two did not take its share of a gas batch");}
+        else require(hydrogen_here==0,"A gas batch reached beyond two cells");
+    }
+    require(takers==13 && close(total(hydrogen),.112),"A shared gas batch lost or made mass");
+    // A small addition stays in its cell.
+    const MAOniColonyTransfer breath{at(7,1),hydrogen,MA_ONI_COLONY_INJECT,0,-1,0,.0001,300,0};
+    apply(breath);
+    require(close(held(at(7,1),hydrogen),.0001) && held(at(6,1),hydrogen)==0 && held(at(7,2),hydrogen)==0,"A small gas addition was spread");
+    // ONI deleting a thin cell's gas (a take larger than the cells around hold): that cell only.
+    const MAOniColonyTransfer exposed{at(4,7),0,MA_ONI_COLONY_EXTRACT_GAS,0,-1,0,1.004,0,0};
+    apply(exposed);
+    require(before[at(4,7)]>0 && held(at(4,7),oxygen)==0 && held(at(3,7),oxygen)==before[at(3,7)] && held(at(4,8),oxygen)==before[at(4,8)],
+        "A take meant to empty its cell took from its neighbours");
+    require(status().maximum_relative_mass_error<1e-12 && status().maximum_relative_energy_error<1e-12,"Gas batches opened the ledgers");
+    stop();
+    // The one-cell switch, and an owner without an activity profile.
+    for(const bool activity:{true,false}) {
+        set_gas_batch_spreading(!activity);start_rooms(activity);apply(lump);
+        require(close(held(at(4,3),hydrogen),.112) && held(at(4,4),hydrogen)==0 && held(at(3,3),hydrogen)==0,
+            activity?"The one-cell switch did not keep a gas batch in its cell":"An owner without an activity profile spread a gas batch");
+        stop();
+    }
+    set_gas_batch_spreading(true);
+    std::cout<<"PASS gas batches: a large take and a large addition shared within two cells in proportion, receipts and totals exact; small, thin, switched-off and non-activity cases keep one cell\n";
+}
 void comet_exhaust_sky_control() {
     using namespace ma::oni::colony;
     constexpr std::uint32_t width=9,height=6;
@@ -2711,6 +2805,7 @@ int main(int argc, char** argv) {
         if (argc == 2 && std::strcmp(argv[1], "--sublimation-cost") == 0) { natural_sublimation_cost(); return 0; }
         if (argc == 2 && std::strcmp(argv[1], "--sample-only") == 0) { sample_control(); return 0; }
         if (argc == 2 && std::strcmp(argv[1], "--comet-exhaust-only") == 0) { comet_exhaust_sky_control(); return 0; }
+        if (argc == 2 && std::strcmp(argv[1], "--gas-batches-only") == 0) { gas_batch_control(); return 0; }
         if (argc == 2 && std::strcmp(argv[1], "--view-cache-only") == 0) { view_cache_control(); return 0; }
         if (argc == 2 && std::strcmp(argv[1], "--wrapped-handle-only") == 0) { wrapped_handle_control(); return 0; }
         if (argc == 2 && std::strcmp(argv[1], "--actor-batch-only") == 0) { actor_batch_control(); return 0; }
@@ -2718,6 +2813,7 @@ int main(int argc, char** argv) {
         if (argc == 2 && std::strcmp(argv[1], "--sample-history-only") == 0) { sample_history_control();native_sample_history_control();region_energy_control();return 0; }
         require(argc == 1, "Usage: ma_oni_colony_tests [--projection-only|--timestep-only|--precise-receipts-only]");
         heat_neighbour_bounds_control();
+        gas_batch_control();
         activity_owner_control();
         overlapped_pacing_control();
         terrain_order_control();

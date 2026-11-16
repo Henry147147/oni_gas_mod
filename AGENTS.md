@@ -70,6 +70,10 @@ ctest --test-dir build-production -j 8          # about 90 tests, a few minutes
 python3 tools/build.py                           # full native + managed + Python suites
 ```
 
+- Speed of large colonies without the game: `tools/run_locked.sh high python3
+  tools/colony_speed.py --build build-production` runs generated late-game
+  colonies and the private captures in `local/perf/`
+  ([what it measures](docs/performance-acceptance.md#game-free-speed-check-2026-11-16)).
 - Long gates run on request: `ma_mac_multiphase_gates M5 --run`,
   `ma_mac_free_surface_gates M2`/`M3` (full grids), `ma_mac_riemann_tests`.
 - For any solver change, state in the commit message whether solver arithmetic or

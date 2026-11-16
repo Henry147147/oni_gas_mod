@@ -1,5 +1,24 @@
 # Feature completion work
 
+**Update, 2026-11-16, speed of large colonies:** the user asked for 3× real
+time in the largest colonies the game offers, measured by tests that need no
+game run. `tools/colony_speed.py` now measures the owner's frame on generated
+late-game colonies at the size of the game's largest maps and on replays of
+the journaled inputs of the two full-colony saves
+([tests and findings](performance-acceptance.md#game-free-speed-check-2026-11-16)).
+They show that the frame is set by one or two regions taking many flow
+intervals on one core, not by the number of cells. Two causes: machines hand
+over gas in once-a-second lumps at one cell, and gas keeps racing into cells
+that space empties every frame. The first is answered: a large gas batch is
+now shared by the cells within two tiles
+([colony owner](colony-owner.md#gas-batches)), and the 32-duplicant
+industrial base's replayed frame falls from 58.5 to 45.1 ms (an estimated
+2.4 to 2.85 game seconds a second; 3× needs about 42 ms). The Spaced Out!
+full colony is unchanged at about 0.9×, and a generated 384×384 colony runs
+an estimated 2.3× sealed and 1.4× with a hall leaking to space. What remains
+is listed there; its first item, how fast space may take gas, is the user's
+to decide. None of this has run in game or on Windows.
+
 **Update, 2026-11-13, 0.1.8:** a probe of everyday gas situations on the
 solver alone found that two gases could not change places through a side
 opening one tile high (fixed:

@@ -47,6 +47,36 @@ void planner_controls() {
     rejects([&] {(void)radial::prepare(3,2,walls,values,0,256,1);});
     std::cout<<"PASS radial allocation across binary32 range, exact aggregate lattice, retained positive trace, connected order and solid barrier\n";
 }
+// An even take (docs/colony-owner.md#gas-batches): the callback total and its
+// lattice are the nearest-first plan's; every cell gives the same share.
+void spread_controls() {
+    const std::vector<std::size_t> order={2,0,1,3,4,5};
+    for (int exponent=-149;exponent<=100;++exponent) {
+        const double request=static_cast<double>(std::ldexp(.75F,exponent));
+        // More than the request, exactly the request, less than it.
+        for (const double scale:{8.,1.,.25}) {
+            const std::vector<double> source={scale*request/2,scale*request/3,scale*request/7,scale*request/11,scale*request/13,scale*request/17};
+            const auto spread=radial::allocate_spread(source,order,request),nearest=radial::allocate_order(source,order,request);
+            inspect_plan(source,request,spread);
+            require(spread.mass==nearest.mass && spread.quantum_exponent==nearest.quantum_exponent,"An even take's callback differs from the nearest-first take's");
+        }
+    }
+    // Sixteen kilograms in five cells, one of them empty: four give a quarter each.
+    const std::vector<double> room={8,4,0,2,2};const std::vector<std::size_t> cells={0,1,2,3,4};
+    const auto even=radial::allocate_spread(room,cells,4);inspect_plan(room,4,even);
+    require(even.mass==4 && even.allocations.size()==4 && even.allocations[0].cell==0 && even.allocations[0].mass==2 &&
+        even.allocations[1].cell==1 && even.allocations[1].mass==1 && even.allocations[2].cell==3 && even.allocations[2].mass==.5 &&
+        even.allocations[3].cell==4 && even.allocations[3].mass==.5,"An even take did not take the same share of every cell");
+    // Shares that do not divide the quantum: the rest is taken nearest first, and no cell gives more than it has.
+    const std::vector<double> uneven={1,1,1};const std::vector<std::size_t> three={1,0,2};
+    const auto rest=radial::allocate_spread(uneven,three,static_cast<double>(1.F));inspect_plan(uneven,1,rest);
+    require(rest.mass==1 && rest.allocations.size()==3 && rest.allocations[0].cell==1 && rest.allocations[0].mass>=rest.allocations[1].mass &&
+        rest.allocations[1].mass==rest.allocations[2].mass,"An even take's rounding rest did not go to the nearest cell");
+    const auto all=radial::allocate_spread(uneven,three,8);inspect_plan(uneven,8,all);
+    require(all.mass==3 && all.allocations.size()==3,"An even take larger than its sources did not take them whole");
+    require(radial::allocate_spread(room,cells,0).allocations.empty(),"An empty even take allocated mass");
+    std::cout<<"PASS even gas take: the nearest-first callback and lattice across the binary32 range, equal shares, nearest-first rounding rest, bounded by each source\n";
+}
 void rectangle_planner_controls() {
     std::vector<std::uint8_t> walls(12);std::vector<double> source(12,.03125);
     auto plan=radial::prepare_rectangle(4,3,walls,source,5,2,2,.09375);inspect_plan(source,.09375,plan);
@@ -123,6 +153,6 @@ void owner_controls() {
 }
 }
 int main() {
-    try {std::cout<<std::setprecision(17);planner_controls();rectangle_planner_controls();owner_controls();return 0;}
+    try {std::cout<<std::setprecision(17);planner_controls();spread_controls();rectangle_planner_controls();owner_controls();return 0;}
     catch (const std::exception& error) {std::cerr<<error.what()<<'\n';return 1;}
 }

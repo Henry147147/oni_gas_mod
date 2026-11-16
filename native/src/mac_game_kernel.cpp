@@ -723,6 +723,8 @@ MacClosedAdvance MacGameKernelAccess::advance_guarded(
     cache.thin = thin;
   }
   MacClosedAdvance result{source, {}};
+  if (k::region_samples::enabled().load(std::memory_order_relaxed))
+    k::region_samples::last().clear();
   result.report.game_threads_used = bounded?cache.regional->threads_used():cache.tick->threads_used();
   auto& execution_pool=bounded?cache.regional->worker_pool():cache.tick->worker_pool();
   auto &stages = result.report.game_stages;

@@ -1,0 +1,265 @@
+#!/usr/bin/env python3
+"""Game-free speed check of large colonies (docs/performance-acceptance.md).
+
+Runs `ma_colony_benchmark` on generated late-game colonies and on private
+captures of real colonies, and reports the owner's frame time, what the flow
+stage's regions cost and an estimate of the game speed that frame time allows.
+No game process is involved.
+
+  tools/run_locked.sh high python3 tools/colony_speed.py --build build-production
+
+Cases:
+  late-base, late-largest, late-spacedout   generated colonies (reproducible
+                                            from the source); each has a hall
+                                            whose thin air leaks to space
+  late-*-sealed                             the same colonies without that hall
+  replay-<name>                             every folder local/perf/<name>/
+                                            holding `owner`, `inputs.txt` and
+                                            `diseases.bin` (private captures)
+
+`colony_speed.py capture NAME SAVE RUN_HOME` makes such a folder from a save
+and the home folder of one harness run of it made with
+MA_COLONY_INPUT_JOURNAL_DIR=/home/henry (see docs/colony-owner.md): the
+owner image is taken from the save itself, the journal is cut to --frames.
+Captures hold game state and stay private (local/ is ignored).
+
+The estimate assumes a tick takes the owner frame plus the part of ONI's
+native frame that precedes each hand-off (about 25 ms on the Linux harness);
+it is calibrated on harness runs and is not a measurement of the game.
+"""
+from __future__ import annotations
+import argparse
+import hashlib
+import json
+import os
+from pathlib import Path
+import platform
+import struct
+import subprocess
+import sys
+import time
+import zlib
+
+ROOT = Path(__file__).resolve().parents[1]
+PRESETS = ('late-base', 'late-largest', 'late-spacedout')
+SYNTHETIC = (*PRESETS, *(f'{preset}-sealed' for preset in PRESETS))
+CAPTURES = ROOT / 'local' / 'perf'
+
+
+def saved_owner(save: bytes) -> bytes:
+    """The colony owner's image (MACOLN01 ... SHA-256) inside a save file."""
+    if save.startswith(b'MACOLN01'):
+        image = save
+    else:
+        if len(save) < 8:
+            raise ValueError('Not a save file')
+        image = None
+        for at in range(16 + struct.unpack_from('<I', save, 4)[0], len(save) - 2):
+            # A zlib stream starts with 0x78 and a header that is a multiple of 31.
+            if save[at] != 0x78 or (save[at] * 256 + save[at + 1]) % 31:
+                continue
+            try:
+                stream = zlib.decompressobj()
+                body = stream.decompress(save[at:], 256 << 20)
+                if not stream.eof or stream.unused_data:
+                    continue
+            except zlib.error:
+                continue
+            start = body.find(b'MACOLN01')
+            if start < 4:
+                continue
+            size = struct.unpack_from('<I', body, start - 4)[0]
+            image = body[start:start + size]
+            break
+        if image is None:
+            raise ValueError('The save holds no colony owner')
+    if len(image) < 80 or hashlib.sha256(image[:-64]).hexdigest().encode() != image[-64:]:
+        raise ValueError('The colony owner image does not match its digest')
+    return image
+
+
+def cut_journal(source: Path, target: Path, frames: int) -> int:
+    """Copy a journal up to and including its first `frames` advanced frames."""
+    kept = 0
+    with source.open('rb') as journal, target.open('wb') as out:
+        for line in journal:
+            if line.startswith(b'frame ') and b' flush 0 ' in line:
+                if kept == frames:
+                    break
+                kept += 1
+            out.write(line)
+    return kept
+
+
+def capture(name: str, save: Path, home: Path, frames: int) -> Path:
+    folder = CAPTURES / name
+    journals = sorted(home.glob('inputs-*.txt'))
+    diseases = sorted(home.glob('diseases-*.bin'))
+    if len(journals) != 1 or len(diseases) != 1:
+        raise SystemExit(f'{home} must hold one inputs-*.txt and one diseases-*.bin')
+    folder.mkdir(parents=True, exist_ok=False)
+    (folder / 'owner').write_bytes(saved_owner(save.read_bytes()))
+    kept = cut_journal(journals[0], folder / 'inputs.txt', frames)
+    (folder / 'diseases.bin').write_bytes(diseases[0].read_bytes())
+    (folder / 'capture.json').write_text(json.dumps({
+        'save': save.name, 'save_sha256': hashlib.sha256(save.read_bytes()).hexdigest(), 'frames': kept,
+        'note': 'private capture: owner image of the save and the inputs the game journaled after loading it'}, indent=2) + '\n')
+    return folder
+
+
+def captures() -> dict[str, Path]:
+    found = {}
+    if CAPTURES.is_dir():
+        for folder in sorted(CAPTURES.iterdir()):
+            if all((folder / part).is_file() for part in ('owner', 'inputs.txt', 'diseases.bin')):
+                found[f'replay-{folder.name}'] = folder
+    return found
+
+
+def arguments_for(case: str, folders: dict[str, Path], frames: int | None, warmup: int | None, workers: int) -> list[str]:
+    if case in SYNTHETIC:
+        arguments = ['--preset', case.removesuffix('-sealed')]
+        if case.endswith('-sealed'):
+            arguments.append('--no-vented-hall')
+    else:
+        folder = folders[case]
+        arguments = ['--owner-replay', str(folder / 'owner'), str(folder / 'inputs.txt'), str(folder / 'diseases.bin'),
+                     '--frames', '300', '--warmup', '20']
+    if frames is not None:
+        arguments += ['--frames', str(frames)]
+    if warmup is not None:
+        arguments += ['--warmup', str(warmup)]
+    if workers:
+        arguments += ['--workers', str(workers)]
+    return arguments
+
+
+def row(case: str, result: dict) -> dict:
+    """The figures the table and the comparison use."""
+    flow = result.get('flow', {})
+    owner = result['owner_ms']
+    estimate = result.get('estimate', {})
+    regions = flow.get('top_regions') or [{}]
+    return {
+        'case': case, 'faulted': bool(result.get('faulted')),
+        'owner_ms': owner['mean'], 'owner_p95_ms': owner['p95'],
+        'flow_ms': result['stage_ms']['flow']['mean'],
+        'slowest_region_ms': flow.get('summed_region_ms', {}).get('slowest_region', {}).get('mean', 0.0),
+        'all_regions_ms': flow.get('summed_region_ms', {}).get('all_regions', {}).get('mean', 0.0),
+        'worst_region_intervals': regions[0].get('intervals_per_frame', 0.0),
+        'flow_intervals': flow.get('per_frame', {}).get('flow_intervals', 0.0),
+        'pressure_iterations': flow.get('per_frame', {}).get('pressure_iterations', 0.0),
+        'speed': estimate.get('game_per_real_mean', 0.0), 'speed_p95_frame': estimate.get('game_per_real_p95_frame', 0.0),
+        'budget_ms': estimate.get('owner_ms_budget_for_3x', 0.0),
+    }
+
+
+def table(rows: list[dict]) -> str:
+    lines = ['case                 owner ms  (p95)   flow  slowest region (intervals)  all regions  est. speed (p95 frame)',
+             '-' * 104]
+    for r in rows:
+        lines.append(f"{r['case']:<20} {r['owner_ms']:>8.1f} {r['owner_p95_ms']:>6.1f} {r['flow_ms']:>6.1f} "
+                     f"{r['slowest_region_ms']:>15.1f} ({r['worst_region_intervals']:>5.1f}) {r['all_regions_ms']:>12.1f} "
+                     f"{r['speed']:>10.2f}x ({r['speed_p95_frame']:.2f}x)" + ('  FAULTED' if r['faulted'] else ''))
+    return '\n'.join(lines)
+
+
+def below(rows: list[dict], required: float) -> list[str]:
+    """Cases that faulted or whose estimated speed is under `required`."""
+    return [r['case'] for r in rows if r['faulted'] or r['speed'] < required]
+
+
+def compare(rows: list[dict], baseline: dict) -> str:
+    lines = ['case                 owner ms: before -> now      flow intervals: before -> now']
+    for r in rows:
+        old = baseline.get(r['case'])
+        if not old:
+            continue
+        change = 100 * (r['owner_ms'] / old['owner_ms'] - 1) if old['owner_ms'] else 0.0
+        lines.append(f"{r['case']:<20} {old['owner_ms']:>8.1f} -> {r['owner_ms']:<8.1f} ({change:+.1f} %)   "
+                     f"{old['flow_intervals']:>8.1f} -> {r['flow_intervals']:<8.1f}")
+    return '\n'.join(lines)
+
+
+def host() -> dict:
+    model = platform.processor()
+    cpuinfo = Path('/proc/cpuinfo')
+    if cpuinfo.is_file():
+        model = next((line.split(':', 1)[1].strip() for line in cpuinfo.read_text().splitlines()
+                      if line.startswith('model name')), model)
+    return {'cpu': model, 'logical_cpus': os.cpu_count(), 'system': platform.platform()}
+
+
+def load() -> list[float] | None:
+    try:
+        return [float(v) for v in Path('/proc/loadavg').read_text().split()[:3]]
+    except OSError:
+        return None
+
+
+def main() -> int:
+    if len(sys.argv) > 1 and sys.argv[1] == 'capture':
+        parser = argparse.ArgumentParser(prog='colony_speed.py capture', description='Make a private replay capture from a save and a journaled run of it')
+        parser.add_argument('name')
+        parser.add_argument('save', type=Path)
+        parser.add_argument('home', type=Path, help="The run's home folder (holds inputs-*.txt and diseases-*.bin)")
+        parser.add_argument('--frames', type=int, default=600, help='Journaled frames to keep')
+        args = parser.parse_args(sys.argv[2:])
+        print(capture(args.name, args.save, args.home, args.frames))
+        return 0
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument('--build', type=Path, default=ROOT / 'build-production', help='Build folder holding ma_colony_benchmark')
+    parser.add_argument('--executable', type=Path, help='A specific ma_colony_benchmark (overrides --build)')
+    parser.add_argument('--case', action='append', help='Run only these cases (default: all generated colonies and every capture)')
+    parser.add_argument('--frames', type=int, help='Frames per case (default: 300)')
+    parser.add_argument('--warmup', type=int, help='Frames left out of the figures (default: 50 generated, 20 replayed)')
+    parser.add_argument('--workers', type=int, default=0, help='0: physical cores (the game default)')
+    parser.add_argument('--output', type=Path, help='Result folder (default artifacts/performance/speed-<revision>-<time>)')
+    parser.add_argument('--baseline', type=Path, help='summary.json of an earlier run to compare with')
+    parser.add_argument('--require', type=float, help='Fail unless every case is estimated at this many game seconds per second')
+    args = parser.parse_args()
+    executable = (args.executable or args.build / 'ma_colony_benchmark').resolve(strict=True)
+    folders = captures()
+    cases = args.case or [*SYNTHETIC, *folders]
+    unknown = [c for c in cases if c not in SYNTHETIC and c not in folders]
+    if unknown:
+        parser.error(f'Unknown cases: {unknown} (captures found: {sorted(folders)})')
+    revision = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip()
+    dirty = bool(subprocess.check_output(['git', 'status', '--porcelain', '--untracked-files=no'], cwd=ROOT, text=True).strip())
+    output = args.output or ROOT / 'artifacts' / 'performance' / f'speed-{revision[:12]}-{time.strftime("%Y%m%d-%H%M%S")}'
+    output.mkdir(parents=True, exist_ok=True)
+    summary = {'revision': revision, 'dirty': dirty, 'host': host(), 'executable': str(executable), 'workers': args.workers, 'cases': {}}
+    rows, status = [], 0
+    for case in cases:
+        result = output / f'{case}.json'
+        command = [str(executable), *arguments_for(case, folders, args.frames, args.warmup, args.workers), '--json', str(result)]
+        before, start = load(), time.monotonic()
+        run = subprocess.run(command, capture_output=True, text=True)
+        record = {'command': command[1:], 'exit': run.returncode, 'wall_s': round(time.monotonic() - start, 3),
+                  'load_before': before, 'load_after': load()}
+        if run.stderr.strip():
+            record['stderr'] = run.stderr.strip()[-2000:]
+        if result.is_file():
+            record['row'] = row(case, json.loads(result.read_text()))
+            rows.append(record['row'])
+        if run.returncode != 0:
+            status = 1
+        summary['cases'][case] = record
+        print(f'{case}: exit {run.returncode}, {record["wall_s"]} s', file=sys.stderr)
+    (output / 'summary.json').write_text(json.dumps(summary, indent=2) + '\n')
+    print(table(rows))
+    if args.baseline:
+        earlier = json.loads(args.baseline.read_text())
+        print()
+        print(compare(rows, {name: record['row'] for name, record in earlier['cases'].items() if 'row' in record}))
+    print(output / 'summary.json')
+    if args.require is not None:
+        slow = below(rows, args.require)
+        if slow or len(rows) != len(cases):
+            print(f'Below {args.require}x: {slow}', file=sys.stderr)
+            status = 1
+    return status
+
+
+if __name__ == '__main__':
+    sys.exit(main())

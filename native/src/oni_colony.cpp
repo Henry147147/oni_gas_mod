@@ -1,4 +1,5 @@
 #include "oni_colony.hpp"
+#include "oni_colony_diagnostics.hpp"
 #include "oni_cpu_topology.hpp"
 #include "oni_windows_lifecycle_trace.hpp"
 #include "mac_kernel_detail.hpp"
@@ -56,6 +57,7 @@
 #include <stdexcept>
 #include <string>
 #include <thread>
+#include <tuple>
 #include <unordered_map>
 #include <unordered_set>
 #include <xmmintrin.h>
@@ -217,6 +219,10 @@ std::uint64_t retirement_sequence=0;
 std::mutex lifecycle; // start, restore, stop, advance and checkpoint
 std::mutex inputs;    // queued transfers and heat, receipts
 std::mutex publication;
+std::mutex flow_diagnostics_mutex; FlowDiagnostics flow_diagnostics_value; // performance tools only
+// MA_COLONY_GAS_BATCHES=cell restores the one-cell rule for every gas batch
+// (a diagnostic for comparisons; docs/colony-owner.md#gas-batches).
+std::atomic<bool> gas_batch_spreading{[] { const char* value = std::getenv("MA_COLONY_GAS_BATCHES"); return !(value && std::strcmp(value, "cell") == 0); }()};
 std::atomic<bool> enabled{};
 std::unique_ptr<Session> session;
 std::shared_ptr<const Published> latest;
@@ -1568,6 +1574,9 @@ std::uint32_t handoff_terrain(std::uint64_t session_id,std::uint64_t sequence,MA
     }
     return 0;
 }
+void set_gas_batch_spreading(bool on) noexcept { gas_batch_spreading.store(on, std::memory_order_relaxed); }
+void enable_flow_diagnostics(bool on) noexcept { ma::experimental::game_kernel::region_samples::enabled().store(on); }
+FlowDiagnostics flow_diagnostics() { std::lock_guard held(flow_diagnostics_mutex); return flow_diagnostics_value; }
 void take_tick_timing(double* out) noexcept {
     for (std::size_t k=0;k<tick_timing_phases;++k) {
         auto& stat=tick_timing::stats[k];
@@ -4164,22 +4173,80 @@ void run_frame(std::uint64_t ticket,double seconds,std::uint64_t frames,const ch
             for (const auto i : order) available_buffer[i] = 0.;
             return available_buffer;
         };
+        // Gas batches (docs/colony-owner.md#gas-batches). ONI's machines hand
+        // over their gas in lumps, most of them once a second at one cell:
+        // 0.888 kg of oxygen from an electrolyser, a kilogram into a
+        // wheezewort. Put into or taken from one cell, a lump that is a large
+        // part of that cell's gas is a local shock that the whole region's
+        // flow then resolves in millisecond intervals (a 4,800-cell base ran
+        // 5.5 flow intervals a frame for a few such cells instead of 2). A
+        // gas batch above a quarter of its cell's gas is therefore shared by
+        // the open cells within two, each in proportion to the gas it holds,
+        // provided that changes none of them by more than half; thinner
+        // surroundings, a batch whose own cell is open sky, and a take meant
+        // to empty its cell, keep the one-cell rule. Shares are counted in moles, as the pressure sees
+        // them: an electrolyser's 0.112 kg of hydrogen is twice the amount of
+        // its 0.888 kg of oxygen. Liquids are never spread: a lump is a small
+        // part of a liquid cell.
+        const bool spread_gas = gas_batch_spreading.load(std::memory_order_relaxed) && (s.config.flags & MA_ONI_COLONY_GAME_ACTIVITY) != 0;
+        constexpr double batch_share = .25, spread_share = .5;
+        constexpr std::uint32_t spread_radius = 2;
         for (const auto& t : transfers) {
             if(moving_jobs.contains(static_cast<std::size_t>(&t-transfers.data())))continue;
             const auto centre = rect_index(s.config, t.public_cell);
             const auto& st = world.state();
             const auto kind = t.kind & ~(MA_ONI_COLONY_CONSUMER | MA_ONI_COLONY_COMET_EXHAUST);
+            const auto gas_moles = [&](std::size_t cell) {
+                double moles = 0;
+                for (std::size_t q = 0; q < cat.materials.size(); ++q)
+                    if (cat.materials[q].game.gas && st.cells[cell].mixture.masses[q] > 0) moles += st.cells[cell].mixture.masses[q] / cat.materials[q].game.molar_mass_kg_per_mol;
+                return moles;
+            };
+            // The order and allocation of a gas take of `requested` kg
+            // (`moles` of gas) whose per-cell sources `fill` writes: spread
+            // when the rule above allows.
+            const auto gas_take = [&](double requested, double moles, auto&& fill) -> std::pair<std::vector<std::size_t>, radial::Plan> {
+                auto order = nearby(st, centre, t.radius);
+                auto* available = &sources(order);
+                fill(*available, order);
+                if (spread_gas && !order.empty() && !s.space[order.front()] && t.radius <= spread_radius && moles > batch_share * gas_moles(order.front())) {
+                    auto wide = t.radius == spread_radius ? order : nearby(st, centre, spread_radius);
+                    std::erase_if(wide, [&](std::size_t i) { return s.space[i] != 0; });
+                    available = &sources(wide);
+                    fill(*available, wide);
+                    double total = 0;
+                    for (const auto i : wide) total += (*available)[i];
+                    if (wide.size() > 1 && requested <= spread_share * total)
+                        return {wide, radial::allocate_spread(*available, wide, requested)};
+                    available = &sources(order);
+                    fill(*available, order);
+                }
+                return {order, radial::allocate_order(*available, order, requested)};
+            };
             const bool precise = job_tokens.contains(static_cast<std::size_t>(&t - transfers.data()));
             if (kind == MA_ONI_COLONY_EXTRACT_GAS || kind == MA_ONI_COLONY_EXTRACT_LIQUID) {
                 // A phase's mixture (a pump or an any-gas consumer): the cells'
                 // totals of that phase, nearest first, each cell's share split
                 // over its constituents by mass.
                 const bool gas = kind == MA_ONI_COLONY_EXTRACT_GAS;
-                const auto order = nearby(st, centre, t.radius);
-                auto& available = sources(order);
-                for (const auto i : order) for (std::size_t k = 0; k < cat.materials.size(); ++k)
-                    if (cat.materials[k].game.gas == gas) available[i] += st.cells[i].mixture.masses[k];
-                const auto plan = radial::allocate_order(available, order, static_cast<double>(static_cast<float>(t.mass_kg)));
+                const auto phase_masses = [&](std::vector<double>& out, const std::vector<std::size_t>& cells) {
+                    for (const auto i : cells) for (std::size_t k = 0; k < cat.materials.size(); ++k)
+                        if (cat.materials[k].game.gas == gas) out[i] += st.cells[i].mixture.masses[k];
+                };
+                std::vector<std::size_t> order; radial::Plan plan;
+                if (gas) {
+                    // A mixture leaves in its cell's proportions: its share of the mass is its share of the moles.
+                    const double requested = static_cast<double>(static_cast<float>(t.mass_kg));
+                    double here = 0;
+                    if (!st.grid.walls[centre]) for (std::size_t k = 0; k < cat.materials.size(); ++k) if (cat.materials[k].game.gas) here += st.cells[centre].mixture.masses[k];
+                    std::tie(order, plan) = gas_take(requested, here > 0 ? gas_moles(centre) * (requested / here) : std::numeric_limits<double>::infinity(), phase_masses);
+                }
+                else {
+                    order = nearby(st, centre, t.radius);
+                    phase_masses(sources(order), order);
+                    plan = radial::allocate_order(available_buffer, order, static_cast<double>(static_cast<float>(t.mass_kg)));
+                }
+                auto& available = available_buffer;
                 const double quantum = std::ldexp(1.0, plan.quantum_exponent);
                 const auto first = edits.size();
                 for (const auto& a : plan.allocations) {
@@ -4223,15 +4290,56 @@ void run_frame(std::uint64_t ticket,double seconds,std::uint64_t frames,const ch
                     ++exhaust_sunk; exhaust_sunk_kg += t.mass_kg;
                     plans.push_back({edits.size(), 0, &t}); continue;
                 }
+                if (spread_gas && cat.materials[k].game.gas && order.size() > 1 && !s.space[order.front()] && t.callback == -1 && t.disease == 0 &&
+                    !(t.kind & MA_ONI_COLONY_COMET_EXHAUST) && !job_tokens.contains(static_cast<std::size_t>(&t-transfers.data()))) {
+                    // A batch no one is told about (a machine's own output),
+                    // free of germs: shared by the gas cells within two that
+                    // liquid fills less than half of.
+                    const auto mostly_liquid = [&](std::size_t cell) {
+                        double volume = 0;
+                        for (std::size_t q = 0; q < cat.materials.size(); ++q)
+                            if (!cat.materials[q].game.gas && st.cells[cell].mixture.masses[q] > 0 && cat.materials[q].game.density_kg_per_m3 > 0)
+                                volume += st.cells[cell].mixture.masses[q] / cat.materials[q].game.density_kg_per_m3;
+                        return volume > .5 * st.grid.volume_m3();
+                    };
+                    const double moles = t.mass_kg / cat.materials[k].game.molar_mass_kg_per_mol;
+                    if (moles > batch_share * gas_moles(order.front())) {
+                        std::vector<std::pair<std::size_t, double>> targets; double total = 0;
+                        for (const auto cell : order) {
+                            const double held = gas_moles(cell);
+                            if (s.space[cell] || !(held > 0) || mostly_liquid(cell)) continue;
+                            targets.push_back({cell, held}); total += held;
+                        }
+                        if (targets.size() > 1 && moles <= spread_share * total) {
+                            const auto first = edits.size(); double left = t.mass_kg;
+                            for (std::size_t n = 0; n < targets.size() && left > 0; ++n) {
+                                const double share = n + 1 == targets.size() ? left : std::min(left, t.mass_kg * (targets[n].second / total));
+                                left -= share;
+                                if (share > 0) plan_edit({targets[n].first, k, true, share, t.temperature_k});
+                            }
+                            plans.push_back({first, edits.size() - first, &t});
+                            continue;
+                        }
+                    }
+                }
                 plans.push_back({edits.size(), 1, &t}); plan_edit({order.front(), k, true, t.mass_kg, t.temperature_k});
                 const auto input=job_passives.find(static_cast<std::size_t>(&t-transfers.data()));
                 if (input!=job_passives.end()) edits.back().passives=input->second;
                 else if (t.disease != 0 && t.disease_count >= 1) edits.back().passives = {{t.disease, t.disease_count}};
             } else {
-                const auto order = nearby(st, centre, t.radius);
-                auto& available = sources(order);
-                for (const auto i : order) available[i] = st.cells[i].mixture.masses[k];
-                const auto plan = radial::allocate_order(available, order, static_cast<double>(static_cast<float>(t.mass_kg)));
+                const auto species_masses = [&](std::vector<double>& out, const std::vector<std::size_t>& cells) {
+                    for (const auto i : cells) out[i] = st.cells[i].mixture.masses[k];
+                };
+                std::vector<std::size_t> order; radial::Plan plan;
+                if (cat.materials[k].game.gas)
+                    std::tie(order, plan) = gas_take(static_cast<double>(static_cast<float>(t.mass_kg)),
+                        static_cast<double>(static_cast<float>(t.mass_kg)) / cat.materials[k].game.molar_mass_kg_per_mol, species_masses);
+                else {
+                    order = nearby(st, centre, t.radius);
+                    species_masses(sources(order), order);
+                    plan = radial::allocate_order(available_buffer, order, static_cast<double>(static_cast<float>(t.mass_kg)));
+                }
+                auto& available = available_buffer;
                 const double quantum = std::ldexp(1.0, plan.quantum_exponent);
                 const auto first = edits.size();
                 for (const auto& a : plan.allocations) {
@@ -4770,6 +4878,12 @@ void run_frame(std::uint64_t ticket,double seconds,std::uint64_t frames,const ch
         s.status.evaporated_kg += advanced.evaporated_kg; s.status.condensed_kg += advanced.condensed_kg;
         world = std::move(advanced.world);
         if (stage_log) { const auto& g = MacGameKernelAccess::last_stages(); refused_totals.first += g.pressure_refinements; refused_totals.second += g.refused_trial_ms; }
+        if (ma::experimental::game_kernel::region_samples::enabled().load(std::memory_order_relaxed)) {
+            std::lock_guard held(flow_diagnostics_mutex);
+            flow_diagnostics_value.frame = s.status.completed_frames + 1;
+            flow_diagnostics_value.stages = MacGameKernelAccess::last_stages();
+            flow_diagnostics_value.regions = ma::experimental::game_kernel::region_samples::last();
+        }
         // Phase change (the production kernel has none): each cell holding a
         // liquid/vapour pair relaxes toward saturation at fixed U and volume.
         step("phase change");

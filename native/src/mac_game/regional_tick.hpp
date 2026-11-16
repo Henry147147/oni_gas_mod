@@ -1,6 +1,7 @@
 #pragma once
 #include "tick.hpp"
 #include "regional_execution.hpp"
+#include "region_samples.hpp"
 #include <exception>
 #include <memory>
 #include <thread>
@@ -259,6 +260,10 @@ private:
       const auto& r=regions[id];const auto& next=results[id];const auto cell=r.representative;
       attempt_depth=std::max(attempt_depth,next.pressure_attempts);
       refinement_depth=std::max(refinement_depth,next.pressure_refinements);
+      if(region_samples::enabled().load(std::memory_order_relaxed))
+        region_samples::last().push_back({cell,r.x,r.y,r.box.width,r.box.height,execution_keys[id].cells,steps[id],region_ms[id],
+          next.flow_substeps,next.pressure_attempts,next.pressure_refinements,next.pressure_iterations,
+          next.pressure_ms,next.transport_ms,next.layering_ms,next.interface_ms,next.heat_ms,next.phase_ms,next.trace_audit_ms});
       const double height=gravity*static_cast<double>(r.y)*source.spacing_m;
       DoubleDouble removed_mass;
       for(std::size_t key=0;key<species_count;++key) {

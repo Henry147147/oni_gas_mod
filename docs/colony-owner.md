@@ -309,6 +309,51 @@ space; booked as takes of the projected element, they left the other gases of
 Terra's space-exposed pockets as near-empty traces, and frames took 17 to 90 s
 by frame 50.
 
+<a id="gas-batches"></a>
+### Gas batches
+
+ONI's machines hand over gas in lumps, most of them once a second at one
+cell: 0.888 kg of oxygen and 0.112 kg of hydrogen from an electrolyser, a
+kilogram into a wheezewort. Put into or taken from that one cell, a lump that
+is a large part of the cell's gas is a local shock. The flow stage bounds the
+net volume a cell may gain or lose in one interval, so it then steps the
+whole connected region at millisecond intervals until the shock has spread:
+on the 32-duplicant industrial base a 4,800-cell region ran 5.5 flow
+intervals a frame instead of 2 for a handful of such cells, and that region
+alone took two thirds of the owner's frame. With the rule below it runs 2,
+and the frame falls from 56 to 43 ms
+([measurements](performance-acceptance.md#game-free-speed-check-2026-11-16)).
+
+With an activity profile (new colonies) the transfer stage therefore shares
+a large gas batch among the cells around it. A batch is large when it is
+more than a quarter of the gas of its cell, counted in moles as the pressure
+sees it: an electrolyser's 0.112 kg of hydrogen is twice the amount of its
+0.888 kg of oxygen.
+
+- **A take** (a gas element or the whole gas mixture, radius at most two)
+  that large is taken from the open cells within two (breadth first, never
+  through a wall, never from an open-sky cell), each giving the same share of
+  what it holds, provided that share is at most a half. The total, its
+  binary32 quantum and the receipts are those of the one-cell rule
+  (`radial::allocate_spread`).
+- **An addition** that large, of a gas that no one is told about (a
+  machine's own output: no callback, no pipe job, no germs, not comet
+  exhaust), enters the gas cells within two that liquid fills less than half
+  of, in proportion to the moles of gas each holds and at its own
+  temperature, again provided none gains more than a half.
+
+Everything else keeps the one-cell rule: liquids (a lump is a small part of
+a liquid cell), additions that carry germs or answer a pipe, a batch whose
+own cell is open sky (it leaves through the sky as before), and thin
+surroundings, where a share of a half would not cover the batch. A take meant
+to empty its cell, as ONI's deletion of gas exposed to space is booked, is
+such a case and still empties that cell only. Mass, energy and germs are
+booked parcel by parcel as before; only which cells give or receive changes.
+`MA_COLONY_GAS_BATCHES=cell` restores the one-cell rule for comparisons.
+
+Not spread yet, and still a shock where the gas is dense: a gas vent's pipe
+packet (it answers a pipe job) and additions that carry germs.
+
 ## Natural sublimation
 
 ONI lets a natural tile whose element sublimates (oxylite, polluted dirt and
