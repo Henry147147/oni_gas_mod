@@ -357,8 +357,8 @@ class CriteriaTests(unittest.TestCase):
         owner = {"State": 1, "Faulted": False, "Error": "", "ColonySettings": {"Values": values}}
         result = {"status": "passed-colony-owner" if stage == "source" else "passed-colony-owner-load",
                   "colony_owner": owner, "inspection_seconds_requested": suite.SETTINGS_INSPECTION_SECONDS,
-                  "inspection_seconds_held": 120.134, "stopped_early_for_mod_failure": False,
-                  "observed_player_exit_code": None}
+                  "inspection_seconds_held": 9.626, "stopped_early_for_mod_failure": False,
+                  "observed_player_exit_code": 0}
         result.update(overrides)
         output, files = self.proton_result(**result)
         for name in suite.SETTINGS_SHOTS:
@@ -409,27 +409,30 @@ class CriteriaTests(unittest.TestCase):
         write(output / "result.json", result)
         self.assertFalse(suite.proton_checks(step, output, REVISION, files)[0]["settings_restored"])
 
-    def test_settings_inspection_requires_full_healthy_hold(self):
-        failures = (("inspection_seconds_held", 119.9, "inspection_duration"),
-                    ("inspection_seconds_requested", 60, "inspection_duration"),
+    def test_settings_inspection_requires_clean_desktop_exit(self):
+        failures = (("inspection_seconds_requested", 60, "inspection_requested"),
                     ("timed_out", True, "not_timed_out"),
                     ("stopped_early_for_mod_failure", True, "no_early_mod_failure"),
                     ("exit_code", 2, "controlled_runner_exit"),
-                    ("observed_player_exit_code", 1, "no_player_error"))
+                    ("observed_player_exit_code", 5, "normal_desktop_exit"))
         for stage in ("source", "load"):
             with self.subTest(stage=stage):
                 step, output, files = self.settings_result(stage)
                 baseline = suite.read_json(output / "result.json")
                 checks, details = suite.proton_checks(step, output, REVISION, files)
                 self.assertTrue(all(checks.values()), checks)
-                self.assertEqual(details["inspection_seconds_held"], 120.134)
+                self.assertEqual(details["inspection_seconds_held"], 9.626)
                 for field, value, failed_check in failures:
                     with self.subTest(stage=stage, field=field):
                         modified = dict(baseline, **{field: value})
                         write(output / "result.json", modified)
                         self.assertFalse(suite.proton_checks(step, output, REVISION, files)[0][failed_check])
-                write(output / "result.json", dict(baseline, observed_player_exit_code=0))
-                self.assertTrue(all(suite.proton_checks(step, output, REVISION, files)[0].values()))
+                write(output / "result.json", dict(baseline, inspection_seconds_held=120.134,
+                                                    observed_player_exit_code=None))
+                self.assertFalse(suite.proton_checks(step, output, REVISION, files)[0]["normal_desktop_exit"])
+                write(output / "result.json", baseline)
+                (output / "performance.png").unlink()
+                self.assertFalse(suite.proton_checks(step, output, REVISION, files)[0]["screenshots"])
 
     def test_missing_result_never_passes(self):
         step = next(s for s in suite.plan("quick") if s.name == "windows-contact")

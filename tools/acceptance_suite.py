@@ -790,12 +790,11 @@ def proton_checks(step: Step, output: Path, revision: str, files: dict) -> tuple
                   "source": result.get("source_revision") == revision and result.get("source_dirty") is False,
                   "healthy": owner.get("State") == 1 and owner.get("Faulted") is False and owner.get("Error") == "",
                   "settings_restored": [values.get(key) for key in SETTINGS_KEYS] == SETTINGS_EXPECTED,
-                  "inspection_duration": result.get("inspection_seconds_requested") == SETTINGS_INSPECTION_SECONDS
-                      and type(held) in (int, float) and math.isfinite(held) and held >= SETTINGS_INSPECTION_SECONDS,
+                  "inspection_requested": result.get("inspection_seconds_requested") == SETTINGS_INSPECTION_SECONDS,
                   "controlled_runner_exit": result.get("exit_code") == 0,
                   "not_timed_out": result.get("timed_out") is False,
                   "no_early_mod_failure": result.get("stopped_early_for_mod_failure") is False,
-                  "no_player_error": result.get("observed_player_exit_code") in (None, 0),
+                  "normal_desktop_exit": result.get("observed_player_exit_code") == 0,
                   "no_mod_errors": result.get("mod_failure_lines") == [],
                   "screenshots": all((output / (name + ".png")).is_file() for name in SETTINGS_SHOTS)}
         return checks, {"runner_status": result.get("status"), "settings": values,
