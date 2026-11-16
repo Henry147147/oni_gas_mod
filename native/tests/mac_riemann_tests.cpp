@@ -198,7 +198,18 @@ void refinement(int control) {
     Errors previous;
     for(const auto n:{std::size_t(64),std::size_t(128),std::size_t(256)}) {
         const auto current=run(control,n);
-        if(n!=64) check(current.rho<.85*previous.rho&&current.p<.85*previous.p&&current.u<.85*previous.u,"Strong-flow joint rho/p/u refinement exceeds .85");
+        if(n!=64) {
+            const auto check_metric=[&](const char* metric,double value,double prior) {
+                if(value<.85*prior) return;
+                std::ostringstream message;
+                message<<"Strong-flow control "<<control<<" N"<<n<<' '<<metric<<" refinement ratio "
+                    <<std::setprecision(17)<<value/prior<<" exceeds .85";
+                throw std::runtime_error(message.str());
+            };
+            check_metric("density",current.rho,previous.rho);
+            check_metric("pressure",current.p,previous.p);
+            check_metric("velocity",current.u,previous.u);
+        }
         previous=current;
     }
 }
