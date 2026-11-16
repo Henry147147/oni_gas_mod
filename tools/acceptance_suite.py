@@ -105,6 +105,7 @@ SETTINGS_KEYS = ("solver.stepsPerFrame", "solver.pressureTolerance", "solver.pre
                  "breathing.maximumCo2Fraction", "breathing.maximumCo2PressurePa")
 SETTINGS_EXPECTED = [2, 1e-10, 1600, 3200, .18, 18000, .003, 300]
 SETTINGS_SHOTS = ("solver-readonly", "breathing-readonly", "performance")
+SETTINGS_INSPECTION_SECONDS = 120
 UI_SHOTS = ("menu", "destination", "colony-owner-active", "saved")
 
 
@@ -586,7 +587,7 @@ def proton_arguments(step: Step, load: Path | None = None) -> list[str]:
         return ["--mode", "colony-owner-load", "--load-save", str(load), "--frames", "120", "--reload-in-process",
                 "--quit-from-menu", "--timeout", "1800"]
     if kind == "proton-settings":
-        common = ["--settings-open", "2", "--inspection-seconds", "120", "--timeout", "900"]
+        common = ["--settings-open", "2", "--inspection-seconds", str(SETTINGS_INSPECTION_SECONDS), "--timeout", "900"]
         if step.options["stage"] == "source":
             return common + ["--mode", "colony-owner", "--frames", "40", "--save-colony", "--settings-preset", str(load)]
         return common + ["--mode", "colony-owner-load", "--frames", "32", "--load-save", str(load)]
@@ -784,14 +785,22 @@ def proton_checks(step: Step, output: Path, revision: str, files: dict) -> tuple
     elif kind == "proton-settings":
         source = step.options["stage"] == "source"
         values = (owner.get("ColonySettings") or {}).get("Values", {})
+        held = result.get("inspection_seconds_held")
         checks = {"passed": result.get("status") == ("passed-colony-owner" if source else "passed-colony-owner-load"),
                   "source": result.get("source_revision") == revision and result.get("source_dirty") is False,
                   "healthy": owner.get("State") == 1 and owner.get("Faulted") is False and owner.get("Error") == "",
                   "settings_restored": [values.get(key) for key in SETTINGS_KEYS] == SETTINGS_EXPECTED,
-                  "normal_desktop_exit": result.get("observed_player_exit_code") == 0,
+                  "inspection_duration": result.get("inspection_seconds_requested") == SETTINGS_INSPECTION_SECONDS
+                      and type(held) in (int, float) and math.isfinite(held) and held >= SETTINGS_INSPECTION_SECONDS,
+                  "controlled_runner_exit": result.get("exit_code") == 0,
+                  "not_timed_out": result.get("timed_out") is False,
+                  "no_early_mod_failure": result.get("stopped_early_for_mod_failure") is False,
+                  "no_player_error": result.get("observed_player_exit_code") in (None, 0),
                   "no_mod_errors": result.get("mod_failure_lines") == [],
                   "screenshots": all((output / (name + ".png")).is_file() for name in SETTINGS_SHOTS)}
-        return checks, {"runner_status": result.get("status"), "settings": values}
+        return checks, {"runner_status": result.get("status"), "settings": values,
+                        "inspection_seconds_held": held,
+                        "observed_player_exit_code": result.get("observed_player_exit_code")}
     elif kind in ("proton-spacedout", "proton-spacedout-ui-load"):
         sys.path.insert(0, str(TOOLS))
         import oni_dlc_matrix

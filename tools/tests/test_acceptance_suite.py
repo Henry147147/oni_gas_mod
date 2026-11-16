@@ -133,6 +133,8 @@ class CommandTests(unittest.TestCase):
         self.assertIn("--reload-in-process", cold)
         settings = suite.windows_command(steps["windows-settings-source"], Path("/w"), out, self.infra, source, Path("/preset.json"))
         self.assertEqual(settings[settings.index("--settings-preset") + 1], "/preset.json")
+        self.assertEqual(settings[settings.index("--inspection-seconds") + 1], "120")
+        self.assertNotIn("--quit-from-menu", settings)
         batch = suite.windows_command(steps["windows-b11"], Path("/w"), out, self.infra, source)
         self.assertEqual(batch[batch.index("--scenario") + 1], suite.LINUX_BATCHES[10])
         self.assertEqual(batch[batch.index("--timeout") + 1], "1800")
@@ -349,6 +351,20 @@ class CriteriaTests(unittest.TestCase):
         write(output / "result.json", result)
         return output, files
 
+    def settings_result(self, stage="load", **overrides):
+        step = next(s for s in suite.plan("quick") if s.name == "windows-settings-" + stage)
+        values = dict(zip(suite.SETTINGS_KEYS, suite.SETTINGS_EXPECTED))
+        owner = {"State": 1, "Faulted": False, "Error": "", "ColonySettings": {"Values": values}}
+        result = {"status": "passed-colony-owner" if stage == "source" else "passed-colony-owner-load",
+                  "colony_owner": owner, "inspection_seconds_requested": suite.SETTINGS_INSPECTION_SECONDS,
+                  "inspection_seconds_held": 120.134, "stopped_early_for_mod_failure": False,
+                  "observed_player_exit_code": None}
+        result.update(overrides)
+        output, files = self.proton_result(**result)
+        for name in suite.SETTINGS_SHOTS:
+            (output / (name + ".png")).write_bytes(b"png")
+        return step, output, files
+
     def test_windows_batch_checks_follow_the_summary_driver(self):
         step = next(s for s in suite.plan("quick") if s.name == "windows-b2")
         output, files = self.proton_result()
@@ -386,16 +402,34 @@ class CriteriaTests(unittest.TestCase):
                 self.assertFalse(suite.proton_owner(result, "passed-colony-owner", REVISION, files)["default_config_flags"])
 
     def test_settings_must_restore_the_explicit_preset(self):
-        step = next(s for s in suite.plan("quick") if s.name == "windows-settings-load")
-        values = dict(zip(suite.SETTINGS_KEYS, suite.SETTINGS_EXPECTED))
-        owner = {"State": 1, "Faulted": False, "Error": "", "ColonySettings": {"Values": values}}
-        output, files = self.proton_result(status="passed-colony-owner-load", colony_owner=owner)
-        for name in suite.SETTINGS_SHOTS:
-            (output / (name + ".png")).write_bytes(b"png")
+        step, output, files = self.settings_result()
         self.assertTrue(all(suite.proton_checks(step, output, REVISION, files)[0].values()))
-        owner["ColonySettings"]["Values"]["solver.heatIterationCap"] = 800
-        output, files = self.proton_result(status="passed-colony-owner-load", colony_owner=owner)
+        result = suite.read_json(output / "result.json")
+        result["colony_owner"]["ColonySettings"]["Values"]["solver.heatIterationCap"] = 800
+        write(output / "result.json", result)
         self.assertFalse(suite.proton_checks(step, output, REVISION, files)[0]["settings_restored"])
+
+    def test_settings_inspection_requires_full_healthy_hold(self):
+        failures = (("inspection_seconds_held", 119.9, "inspection_duration"),
+                    ("inspection_seconds_requested", 60, "inspection_duration"),
+                    ("timed_out", True, "not_timed_out"),
+                    ("stopped_early_for_mod_failure", True, "no_early_mod_failure"),
+                    ("exit_code", 2, "controlled_runner_exit"),
+                    ("observed_player_exit_code", 1, "no_player_error"))
+        for stage in ("source", "load"):
+            with self.subTest(stage=stage):
+                step, output, files = self.settings_result(stage)
+                baseline = suite.read_json(output / "result.json")
+                checks, details = suite.proton_checks(step, output, REVISION, files)
+                self.assertTrue(all(checks.values()), checks)
+                self.assertEqual(details["inspection_seconds_held"], 120.134)
+                for field, value, failed_check in failures:
+                    with self.subTest(stage=stage, field=field):
+                        modified = dict(baseline, **{field: value})
+                        write(output / "result.json", modified)
+                        self.assertFalse(suite.proton_checks(step, output, REVISION, files)[0][failed_check])
+                write(output / "result.json", dict(baseline, observed_player_exit_code=0))
+                self.assertTrue(all(suite.proton_checks(step, output, REVISION, files)[0].values()))
 
     def test_missing_result_never_passes(self):
         step = next(s for s in suite.plan("quick") if s.name == "windows-contact")
