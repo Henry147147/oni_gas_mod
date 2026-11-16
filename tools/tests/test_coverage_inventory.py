@@ -1,9 +1,13 @@
 """Regression checks for inventory omissions and false acceptance claims."""
 import copy
+import contextlib
+import io
 import json
 from pathlib import Path
 import sys
+import tempfile
 import unittest
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import coverage_inventory as coverage
@@ -129,6 +133,48 @@ class CoverageTests(unittest.TestCase):
         small["registry_captures"] = [self.proof(config=config, entries=[entry["id"]], unresolved=[])]
         self.assertTrue(coverage.blockers(small, self.policy)["gate_passed"])
         self.assertFalse(coverage.blockers(small, self.policy, release=True)["gate_passed"])
+
+    def test_failed_in_game_proof_does_not_satisfy_acceptance(self):
+        small = copy.deepcopy(self.inventory)
+        entry = next(item for item in small["entries"] if item["status"] == "implemented")
+        small["entries"] = [entry]
+        small["configurations"] = [small["configurations"][0]]
+        config = small["configurations"][0]["id"]
+        small["registry_captures"] = [self.proof(config=config, entries=[entry["id"]], unresolved=[])]
+        small["evidence"] = [self.proof(entry, config, result="failed")]
+        report = coverage.blockers(small, self.policy)
+        self.assertFalse(report["gate_passed"])
+        self.assertEqual(report["missing_in_game_acceptances"], 1)
+
+    def test_cli_distinguishes_incomplete_gate_from_invalid_inventory(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            inventory = Path(temporary) / "inventory.json"
+            inventory.write_text(json.dumps(self.inventory))
+
+            def run(action):
+                stdout, stderr = io.StringIO(), io.StringIO()
+                with patch.object(sys, "argv", ["coverage_inventory.py", action, "--inventory", str(inventory)]), \
+                     contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+                    return coverage.main(), stdout.getvalue(), stderr.getvalue()
+
+            status, output, error = run("status")
+            self.assertEqual(status, 0)
+            self.assertFalse(json.loads(output)["gate_passed"])
+            self.assertEqual(error, "")
+            gate, output, error = run("gate")
+            self.assertEqual(gate, 1)
+            self.assertFalse(json.loads(output)["gate_passed"])
+            self.assertEqual(error, "")
+
+            invalid = copy.deepcopy(self.inventory)
+            invalid["source_hashes"]["interop_contract"] = "0" * 64
+            inventory.write_text(json.dumps(invalid))
+            for action in ("status", "gate"):
+                with self.subTest(action=action):
+                    code, output, error = run(action)
+                    self.assertEqual(code, 2)
+                    self.assertEqual(output, "")
+                    self.assertIn("Coverage inventory rejected", error)
 
 
 if __name__ == "__main__":
