@@ -1145,6 +1145,42 @@ def longrun_wrapper(source: Path, arguments: list[str]) -> int:
     return code
 
 
+def pin_ui_resolution(runner) -> None:
+    """Keep recorded UI clicks on the same 1920x1080 game and GPU desktop."""
+    original_display = runner.start_display
+    original_command = runner.sandbox_command
+
+    def display(state, out, gpu_display=None):
+        result = original_display(state, out, gpu_display)
+        if gpu_display:
+            subprocess.run(["xrandr", "--display", gpu_display, "--fb", "1920x1080"], check=True)
+        return result
+
+    def command(home, state, out, game, proton, tail):
+        tail = list(tail)
+        if "-screen-width" in tail or "-screen-height" in tail:
+            if "-screen-width" not in tail or "-screen-height" not in tail:
+                raise RuntimeError("The UI game command has incomplete resolution arguments")
+            tail[tail.index("-screen-width") + 1] = "1920"
+            tail[tail.index("-screen-height") + 1] = "1080"
+        return original_command(home, state, out, game, proton, tail)
+
+    runner.start_display = display
+    runner.sandbox_command = command
+
+
+def settings_ui_wrapper(source: Path, arguments: list[str]) -> int:
+    """Pin the settings click control to the game resolution used by its recorded coordinates."""
+    if "--mode" not in arguments or arguments[arguments.index("--mode") + 1] not in ("colony-owner", "colony-owner-load"):
+        raise SystemExit("Settings UI owner only")
+    if "--settings-open" not in arguments or "--inspection-seconds" not in arguments:
+        raise SystemExit("Settings UI control arguments required")
+    runner = proton_runner(source)
+    pin_ui_resolution(runner)
+    sys.argv = ["oni_proton_headless.py", *arguments]
+    return runner.main()
+
+
 def ordinary_ui_wrapper(source: Path, arguments: list[str]) -> int:
     """Normal New Game with Spaced Out! preferences, no colony validation and no MA_ variables."""
     runner = proton_runner(source)
@@ -1164,26 +1200,9 @@ def ordinary_ui_wrapper(source: Path, arguments: list[str]) -> int:
         runner.common.oni_dlc.write_preferences(profile, 1)
 
     original_env = runner.game_env
-    original_display = runner.start_display
-    original_command = runner.sandbox_command
-
-    def display(state, out, gpu_display=None):
-        result = original_display(state, out, gpu_display)
-        if gpu_display:
-            subprocess.run(["xrandr", "--display", gpu_display, "--fb", "1920x1080"], check=True)
-        return result
-
-    def command(home, state, out, game, proton, tail):
-        tail = list(tail)
-        if "-screen-width" in tail:
-            tail[tail.index("-screen-width") + 1] = "1920"
-            tail[tail.index("-screen-height") + 1] = "1080"
-        return original_command(home, state, out, game, proton, tail)
-
     runner.initialize_prefix = initialize
     runner.game_env = lambda *a, **k: {key: value for key, value in original_env(*a, **k).items() if not key.startswith("MA_")}
-    runner.start_display = display
-    runner.sandbox_command = command
+    pin_ui_resolution(runner)
     sys.argv = ["oni_proton_headless.py", *arguments]
     code = runner.main()
     path = output / "result.json"
@@ -1229,8 +1248,8 @@ class Desktop:
 def ui_stage(stage: str, source: Path, output: Path, display: str, arguments: list[str]) -> int:
     """Run one WindowsPlayer UI control and drive it with the recorded clicks, in one game-slot hold."""
     this = [sys.executable, str(Path(__file__).resolve())]
-    runner = [sys.executable, "tools/oni_proton_headless.py", *arguments] if stage == "settings" else \
-        [*this, "_proton-ordinary-ui", "--source", str(source), "--", *arguments]
+    wrapper = "_proton-settings-ui" if stage == "settings" else "_proton-ordinary-ui"
+    runner = [*this, wrapper, "--source", str(source), "--", *arguments]
     console = output.parent / (output.name + ".runner.log")
     with console.open("x") as stream:
         process = subprocess.Popen(runner, cwd=source, stdout=stream, stderr=subprocess.STDOUT)
@@ -1273,6 +1292,12 @@ def ui_stage(stage: str, source: Path, output: Path, display: str, arguments: li
 
 def settings_clicks(desktop: Desktop, output: Path, log, wait) -> None:
     wait(lambda: "Settings window opened (Advanced)" in log())
+    resolutions = re.findall(r"Applying resolution (\d+x\d+)", log())
+    if not resolutions or resolutions[-1] != "1920x1080":
+        raise RuntimeError("Settings UI did not run at the recorded 1920x1080 game resolution")
+    geometry = desktop.run(str(desktop.bin / "xdotool"), "getdisplaygeometry").strip()
+    if geometry != "1920 1080":
+        raise RuntimeError(f"Settings UI desktop geometry changed: {geometry}")
     ids = desktop.run(str(desktop.bin / "xdotool"), "search", "--onlyvisible", "--name", "Oxygen Not Included").split()
     desktop.run(str(desktop.bin / "xdotool"), "windowfocus", "--sync", ids[-1])
     desktop.run(str(desktop.bin / "xdotool"), "key", "Escape")
@@ -1289,9 +1314,16 @@ def settings_clicks(desktop: Desktop, output: Path, log, wait) -> None:
     desktop.click(637, 280); time.sleep(.5)
     desktop.shot("performance")
     desktop.key("Escape"); time.sleep(.5)
-    desktop.click(1255, 40); time.sleep(.5)
-    desktop.click(641, 487); time.sleep(.5)
-    desktop.click(641, 406)
+    for attempt in range(2):
+        desktop.click(1255, 40); time.sleep(1.5)
+        desktop.click(641, 487); time.sleep(1.5)
+        desktop.click(641, 406)
+        try:
+            wait(lambda: "Game.OnApplicationQuit()" in log(), 15, False)
+            return
+        except TimeoutError:
+            desktop.shot(f"settings-quit-attempt-{attempt + 1}")
+    raise TimeoutError("Settings Quit to Desktop did not reach Game.OnApplicationQuit()")
 
 
 def ordinary_clicks(desktop: Desktop, log, wait) -> None:
@@ -1416,6 +1448,8 @@ def parser() -> argparse.ArgumentParser:
     longrun.add_argument("--source", type=Path, required=True)
     ordinary = sub.add_parser("_proton-ordinary-ui")
     ordinary.add_argument("--source", type=Path, required=True)
+    settings = sub.add_parser("_proton-settings-ui")
+    settings.add_argument("--source", type=Path, required=True)
     ui = sub.add_parser("_ui-stage")
     ui.add_argument("stage", choices=("settings", "ordinary-ui"))
     ui.add_argument("--source", type=Path, required=True)
@@ -1441,6 +1475,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "_proton-ordinary-ui":
         os.chdir(args.source)
         return ordinary_ui_wrapper(args.source.resolve(), runner)
+    if args.command == "_proton-settings-ui":
+        os.chdir(args.source)
+        return settings_ui_wrapper(args.source.resolve(), runner)
     if args.command == "_ui-stage":
         return ui_stage(args.stage, args.source.resolve(), args.output.resolve(), args.gpu_display, runner)
     if runner:

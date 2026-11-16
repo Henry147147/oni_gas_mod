@@ -5,6 +5,7 @@ from pathlib import Path
 import struct
 import sys
 import tempfile
+from types import SimpleNamespace
 import unittest
 from unittest import mock
 
@@ -144,6 +145,109 @@ class CommandTests(unittest.TestCase):
             env = suite.clean_env({"MA_COLONY_FAULT_DUMP": "/x"})
         self.assertNotIn("MA_COLONY_SPACED_OUT_CONTROL", env)
         self.assertEqual((env["KEEP"], env["MA_COLONY_FAULT_DUMP"]), ("1", "/x"))
+
+    def test_settings_ui_pins_game_and_desktop_resolution(self):
+        runner = SimpleNamespace(
+            start_display=lambda state, out, gpu: (None, gpu, {}),
+            sandbox_command=lambda home, state, out, game, proton, tail: tail)
+        suite.pin_ui_resolution(runner)
+        with mock.patch.object(suite.subprocess, "run") as run:
+            self.assertEqual(runner.start_display(None, None, ":99"), (None, ":99", {}))
+        run.assert_called_once_with(["xrandr", "--display", ":99", "--fb", "1920x1080"], check=True)
+        game = runner.sandbox_command(None, None, None, None, None,
+                                      ["run", "game", "-screen-width", "1280", "-screen-height", "720"])
+        self.assertEqual(game[-4:], ["-screen-width", "1920", "-screen-height", "1080"])
+        self.assertEqual(runner.sandbox_command(None, None, None, None, None, ["run", "wineboot", "-u"]),
+                         ["run", "wineboot", "-u"])
+        with self.assertRaises(RuntimeError):
+            runner.sandbox_command(None, None, None, None, None, ["run", "game", "-screen-width", "1280"])
+
+    def test_settings_ui_stage_uses_the_resolution_wrapper(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "settings"
+            output.mkdir()
+            process = mock.Mock()
+            process.wait.return_value = 0
+            with mock.patch.object(suite.subprocess, "Popen", return_value=process) as popen, \
+                 mock.patch.object(suite, "Desktop"), mock.patch.object(suite, "settings_clicks"):
+                self.assertEqual(suite.ui_stage("settings", Path(directory), output, ":99", ["--mode", "colony-owner"]), 0)
+        self.assertEqual(popen.call_args.args[0][2:5], ["_proton-settings-ui", "--source", directory])
+
+
+class SettingsClickTests(unittest.TestCase):
+    class Desktop:
+        bin = Path("/bin")
+
+        def __init__(self, quit_after: int | None = None, geometry: str = "1920 1080"):
+            self.quit_after, self.geometry = quit_after, geometry
+            self.clicks, self.shots = [], []
+            self.quit_clicks = 0
+
+        def run(self, *command):
+            if "getdisplaygeometry" in command:
+                return self.geometry
+            if "search" in command:
+                return "12345"
+            return ""
+
+        def click(self, x, y):
+            self.clicks.append((x, y))
+            if (x, y) == (641, 406):
+                self.quit_clicks += 1
+
+        def key(self, key):
+            pass
+
+        def shot(self, name):
+            self.shots.append(name)
+
+    def setUp(self):
+        self.directory = tempfile.TemporaryDirectory()
+        self.output = Path(self.directory.name)
+        report = self.output / suite.PROTON_PROFILE / suite.VALIDATION / "colony-validation.json"
+        write(report, {"Status": "passed"})
+
+    def tearDown(self):
+        self.directory.cleanup()
+
+    def run_clicks(self, desktop, resolution="1920x1080"):
+        def log():
+            value = (f"Applying resolution {resolution}\nSettings window opened (Advanced)\n"
+                     "Settings window opened (Advanced, this colony's settings)\n")
+            if desktop.quit_after is not None and desktop.quit_clicks >= desktop.quit_after:
+                value += "Game.OnApplicationQuit()\n"
+            return value
+
+        def wait(predicate, limit=900, stop_on_exit=True):
+            if not predicate():
+                raise TimeoutError("expected evidence was absent")
+
+        with mock.patch.object(suite.time, "sleep"):
+            suite.settings_clicks(desktop, self.output, log, wait)
+
+    def test_wrong_resolution_aborts_before_clicking_game(self):
+        for resolution, geometry in (("640x480", "1920 1080"),
+                                     ("1920x1080\nApplying resolution 640x480", "1920 1080"),
+                                     ("1920x1080", "640 480")):
+            with self.subTest(resolution=resolution, geometry=geometry):
+                desktop = self.Desktop(geometry=geometry)
+                with self.assertRaises(RuntimeError):
+                    self.run_clicks(desktop, resolution)
+                self.assertEqual(desktop.clicks, [])
+
+    def test_quit_is_observed_and_missed_first_attempt_is_retried(self):
+        desktop = self.Desktop(quit_after=2)
+        self.run_clicks(desktop)
+        self.assertEqual(desktop.quit_clicks, 2)
+        self.assertIn("settings-quit-attempt-1", desktop.shots)
+        self.assertNotIn("settings-quit-attempt-2", desktop.shots)
+
+    def test_missing_quit_fails_with_diagnostic_screenshots(self):
+        desktop = self.Desktop()
+        with self.assertRaisesRegex(TimeoutError, "Settings Quit to Desktop"):
+            self.run_clicks(desktop)
+        self.assertEqual(desktop.quit_clicks, 2)
+        self.assertEqual(desktop.shots[-2:], ["settings-quit-attempt-1", "settings-quit-attempt-2"])
 
 
 class GuardTests(unittest.TestCase):
