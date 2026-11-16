@@ -164,6 +164,9 @@ struct Session {
     std::vector<MAOniColonyMaterial> materials;
     std::shared_ptr<const Catalogue> catalogue;
     std::vector<std::uint8_t> space; // per owned cell
+    // EXPERIMENT (MA_COLONY_SPACE_SPEED): the frame after which a cell ONI
+    // last deleted the gas of stops counting as emptied by space. Not saved.
+    std::vector<std::uint64_t> exposed_until;
     std::vector<std::uint8_t> blocking; // per owned cell: passes gas, not liquid (airflow tile)
     std::vector<ReservoirEntry> reservoir;
     std::vector<detail::PrecisionParcel> precision;
@@ -222,6 +225,11 @@ std::mutex publication;
 std::mutex flow_diagnostics_mutex; FlowDiagnostics flow_diagnostics_value; // performance tools only
 // MA_COLONY_GAS_BATCHES=cell restores the one-cell rule for every gas batch
 // (a diagnostic for comparisons; docs/colony-owner.md#gas-batches).
+// EXPERIMENT, off by default: MA_COLONY_SPACE_SPEED=<m/s> caps the speed of
+// gas through the faces of cells space empties (open-sky cells and, for five
+// seconds after each take, cells ONI deletes the gas of). See
+// docs/performance-acceptance.md#game-free-speed-check-2026-11-16.
+std::atomic<double> space_speed_setting{[] { const char* value = std::getenv("MA_COLONY_SPACE_SPEED"); const double v = value ? std::atof(value) : 0; return std::isfinite(v) && v > 0 ? v : 0.; }()};
 std::atomic<bool> gas_batch_spreading{[] { const char* value = std::getenv("MA_COLONY_GAS_BATCHES"); return !(value && std::strcmp(value, "cell") == 0); }()};
 std::atomic<bool> enabled{};
 std::unique_ptr<Session> session;
@@ -1574,6 +1582,7 @@ std::uint32_t handoff_terrain(std::uint64_t session_id,std::uint64_t sequence,MA
     }
     return 0;
 }
+void set_space_speed(double speed) noexcept { space_speed_setting.store(std::isfinite(speed) && speed > 0 ? speed : 0., std::memory_order_relaxed); }
 void set_gas_batch_spreading(bool on) noexcept { gas_batch_spreading.store(on, std::memory_order_relaxed); }
 void enable_flow_diagnostics(bool on) noexcept { ma::experimental::game_kernel::region_samples::enabled().store(on); }
 FlowDiagnostics flow_diagnostics() { std::lock_guard held(flow_diagnostics_mutex); return flow_diagnostics_value; }
@@ -4188,6 +4197,7 @@ void run_frame(std::uint64_t ticket,double seconds,std::uint64_t frames,const ch
         // them: an electrolyser's 0.112 kg of hydrogen is twice the amount of
         // its 0.888 kg of oxygen. Liquids are never spread: a lump is a small
         // part of a liquid cell.
+        const double space_speed = space_speed_setting.load(std::memory_order_relaxed);
         const bool spread_gas = gas_batch_spreading.load(std::memory_order_relaxed) && (s.config.flags & MA_ONI_COLONY_GAME_ACTIVITY) != 0;
         constexpr double batch_share = .25, spread_share = .5;
         constexpr std::uint32_t spread_radius = 2;
@@ -4240,6 +4250,11 @@ void run_frame(std::uint64_t ticket,double seconds,std::uint64_t frames,const ch
                     double here = 0;
                     if (!st.grid.walls[centre]) for (std::size_t k = 0; k < cat.materials.size(); ++k) if (cat.materials[k].game.gas) here += st.cells[centre].mixture.masses[k];
                     std::tie(order, plan) = gas_take(requested, here > 0 ? gas_moles(centre) * (requested / here) : std::numeric_limits<double>::infinity(), phase_masses);
+                    // ONI deleting a cell's gas: a take no one is told about that asks for all of it.
+                    if (space_speed > 0 && t.callback == -1 && t.radius == 0 && here > 0 && requested >= here) {
+                        if (s.exposed_until.size() != st.cells.size()) s.exposed_until.assign(st.cells.size(), 0);
+                        s.exposed_until[centre] = s.status.completed_frames + 25;
+                    }
                 }
                 else {
                     order = nearby(st, centre, t.radius);
@@ -4815,6 +4830,13 @@ void run_frame(std::uint64_t ticket,double seconds,std::uint64_t frames,const ch
         }
         if (const char* frame = std::getenv("MA_COLONY_DUMP_FRAME"); frame && s.status.completed_frames + 1 == std::strtoull(frame, nullptr, 10))
             dump(std::getenv("MA_COLONY_FAULT_DUMP"));
+        MacGameKernelAccess::sinks().speed = 0;
+        if (space_speed > 0) {
+            auto& sinks = MacGameKernelAccess::sinks();
+            sinks.speed = space_speed; sinks.cells.assign(s.space.begin(), s.space.end());
+            for (std::size_t i = 0; i < s.exposed_until.size() && i < sinks.cells.size(); ++i)
+                if (s.exposed_until[i] > s.status.completed_frames) sinks.cells[i] = 1;
+        }
         std::optional<MacPhaseFlow> flowed;
         // MA_COLONY_SLOW_DUMP=s also writes the world before the first flow
         // step still running after s seconds (a watchdog, so a step that

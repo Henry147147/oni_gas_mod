@@ -137,6 +137,54 @@ base itself costs:
 Not established: the rule in game (no in-game scenario or acceptance step
 has run on it), and all of it on Windows.
 
+<a id="space-speed-experiment"></a>
+### A speed for space (experiment, off by default)
+
+`MA_COLONY_SPACE_SPEED=<m/s>` targets a speed for gas crossing the faces
+of cells that space empties: the owner's open-sky cells and, for five
+seconds after each such take, cells whose gas ONI deletes. Such a face takes
+an implicit drag in the pressure step, sized so that the speed its
+start-of-interval pressures predict is the target. The solved pressure can
+change the final speed, so this is not a strict per-face limit. Momentum and
+heat are booked as the thin-gas drag's are, and the net-volume bound skips the
+emptied cells themselves, whose contents are deleted at the end of the frame
+([game kernel](../native/MAC_GAME_KERNEL.md#gas-at-cells-space-empties-experiment-2026-11-16)).
+Only profile 12 applies it; older profiles are unchanged. Nothing changes
+while it is unset. With shared gas batches in both columns,
+300 frames, measured beside a running acceptance build (the intervals are
+exact, the times a little high):
+
+| Workload | Owner frame ms: off → 3 m/s | 95th percentile | Slowest region, intervals a frame | Estimated speed |
+| --- | ---: | ---: | ---: | ---: |
+| Spaced Out! full colony (replay) | 196.9 → 82.3 | 238.7 → 125.8 | 74.1 → 12.1 | 0.90× → 1.86× |
+| Generated, 256×384 | 70.5 → 61.8 | 91.0 → 68.6 | 33.0 → 17.1 | 2.09× → 2.30× |
+| Generated, 384×384 | 121.4 → 94.4 | 132.5 → 109.8 | 31.6 → 18.0 | 1.37× → 1.68× |
+| Generated, eight-world cluster | 113.8 → 94.2 | 125.0 → 104.8 | 33.0 → 16.9 | 1.44× → 1.68× |
+| Industrial base, 32 duplicants (replay) | 45.1 → 45.2 | 49.8 → 52.3 | 2.0 → 2.0 | 2.85× → 2.85× |
+
+The Spaced Out! colony's second region (5,091 cells) falls from 23 to 2
+intervals a frame and its worst from 74 to 12; 1 and 10 m/s give the same
+counts within one, so the result does not hang on the value. Ledgers stay
+closed (4.4e-15 and 2.0e-15). `ma_oni_colony_tests` `space_speed_control`: a
+room of air open to the sky through one cell loses 5.7 kg in two seconds in
+20 flow intervals at 3 m/s, against 17.4 kg in 120 intervals without a cap.
+
+A separate locked 100-frame recheck (20 warmup frames, on the shared host)
+returns 202.3 → 102.7 ms on the Spaced Out! replay and 131.6 → 115.1 ms
+on the generated 384×384 colony. `colony_speed.py --require 3` correctly
+fails every replay and generated case in that recheck. These shorter timings
+show the same direction, with a smaller estimated gain under host load.
+With the experiment off, clean builds of this revision and `ee4064d` give
+the same non-timing output for all 146 `ma_mac_*` test and diagnostic
+commands (143 byte-identical outputs, three differing only in runtime fields).
+
+What it changes in play: a room opened to space through one tile takes ten
+seconds or more to empty instead of two or three, and a base standing in a
+space-exposed zone holds a little more gas near its openings. What it is not yet: the cells ONI deletes
+the gas of are known only from the takes, so the mark is not saved and a
+loaded colony relearns it over its first frames; a version for release would
+take the exposed cells from the game.
+
 ### Open
 
 In order of what the measurements say is worth most:
@@ -145,11 +193,10 @@ In order of what the measurements say is worth most:
    colony's frame is this alone, and so is every generated colony's with a
    leaking hall. The cause is physical speed, not a defect: gas next to a
    cell that is emptied every frame leaves at the speed of sound, and the
-   flow resolves it. What would remove it is a rule for how fast space may
-   take gas (a cap on the speed through the faces of an emptied or open-sky
-   cell, as an implicit drag like the thin-gas drag's), which is a change of
-   behaviour for the user to decide; raising the thin-gas drag's mass or the
-   bound's mass floor alone does not (40 intervals a frame at 10 g).
+   flow resolves it. An experiment that caps that speed is measured
+   [below](#space-speed-experiment); adopting it, and at what speed, is the
+   user's decision. What it leaves in those regions is machines' lumps
+   entering thin air, where sharing among nearby cells cannot help.
 2. **One large region on one core.** At two intervals a frame an
    18,000-cell base still takes 35 ms by itself (pressure 44 %, transport
    21 %, audits 11 %). Its pressure solve and transport run in

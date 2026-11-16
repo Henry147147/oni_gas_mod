@@ -790,6 +790,51 @@ void gas_batch_control() {
     set_gas_batch_spreading(true);
     std::cout<<"PASS gas batches: a large take and a large addition shared within two cells in proportion, receipts and totals exact; small, thin, switched-off and non-activity cases keep one cell\n";
 }
+// EXPERIMENT (MA_COLONY_SPACE_SPEED): a room of air open to the sky through
+// one cell. With the cap the opening passes no more than its speed allows and
+// the frames need far fewer flow intervals; without it the room empties at
+// the speed of sound. Mass and energy stay booked either way.
+void space_speed_control() {
+    using namespace ma::oni::colony;
+    constexpr std::uint32_t width=12,height=5;
+    const auto at=[](std::uint32_t x,std::uint32_t y){return x+y*width;};
+    struct Outcome { double sunk,mass_error,energy_error; std::uint64_t substeps; };
+    const auto run=[&](double speed,bool activity=true) {
+        set_space_speed(speed);
+        MAOniColonyConfig cfg{};cfg.struct_size=sizeof(cfg);cfg.abi_version=MA_ONI_COLONY_ABI_VERSION;cfg.vacuum_index=vacuum;
+        cfg.flags=MA_ONI_COLONY_GAME_KERNEL|MA_ONI_COLONY_GAME_SURFACE|
+            (activity?MA_ONI_COLONY_GAME_ACTIVITY:0U);
+        cfg.grid_width=cfg.width=width;cfg.grid_height=cfg.height=height;cfg.maximum_timestep_s=.1;cfg.gravity_m_per_s2=9.81;
+        const std::vector<MAOniColonyMaterial> mats{material("Oxygen",11,oxygen,true,.032,1000)};
+        // An 8 x 3 room at 1.2 kg a cell, a wall with one open cell, a column of open sky.
+        std::vector<MAOniColonyCell> cells(width*height,MAOniColonyCell{0,MA_ONI_COLONY_SOLID,0,0,0,0});
+        for(std::uint32_t y=1;y<=3;++y) {
+            for(std::uint32_t x=1;x<=8;++x)cells[at(x,y)]={oxygen,MA_ONI_COLONY_FLUID,1.2f,300,0,0};
+            cells[at(10,y)]={0,MA_ONI_COLONY_SPACE,0,0,0,0};
+        }
+        cells[at(9,2)]={vacuum,MA_ONI_COLONY_FLUID,0,0,0,0};
+        set_diseases({},{},0);start(cfg,mats,cells,1);
+        const std::vector<std::uint32_t> actors{at(2,2)};
+        for(std::uint64_t frame=1;frame<=10;++frame) {
+            if(activity)(void)queue_activity(status().session,static_cast<double>(.2f),actors,{});
+            advance(frame,static_cast<double>(.2f),2);wait();
+            if(status().state!=1)throw std::runtime_error("space speed control faulted: "+std::string(status().error));
+        }
+        const auto st=status();stop();
+        return Outcome{st.space_sink_kg,st.maximum_relative_mass_error,st.maximum_relative_energy_error,st.substeps};
+    };
+    const auto capped=run(3),free=run(0);
+    set_space_speed(0);
+    // 1.2 kg/m3 through one square metre at 3 m/s for two seconds is 7.2 kg; the room holds 28.8 kg.
+    require(capped.sunk>.5 && capped.sunk<7.3,"The space speed did not hold the opening's flow");
+    require(free.sunk>3*capped.sunk,"Without a space speed the room did not empty at its own pace");
+    require(2*capped.substeps<free.substeps,"The space speed did not save flow intervals");
+    const auto older_capped=run(3,false),older_free=run(0,false);
+    require(older_capped.sunk==older_free.sunk && older_capped.substeps==older_free.substeps,
+            "A space speed changed an older profile without the drag's heat booking");
+    for(const auto& o:{capped,free})require(o.mass_error<1e-12 && o.energy_error<1e-12,"A room open to the sky opened the ledgers");
+    std::cout<<"PASS space speed (experiment): 3 m/s passes "<<capped.sunk<<" kg in 2 s in "<<capped.substeps<<" flow intervals; uncapped "<<free.sunk<<" kg in "<<free.substeps<<"\n";
+}
 void comet_exhaust_sky_control() {
     using namespace ma::oni::colony;
     constexpr std::uint32_t width=9,height=6;
@@ -2806,6 +2851,7 @@ int main(int argc, char** argv) {
         if (argc == 2 && std::strcmp(argv[1], "--sample-only") == 0) { sample_control(); return 0; }
         if (argc == 2 && std::strcmp(argv[1], "--comet-exhaust-only") == 0) { comet_exhaust_sky_control(); return 0; }
         if (argc == 2 && std::strcmp(argv[1], "--gas-batches-only") == 0) { gas_batch_control(); return 0; }
+        if (argc == 2 && std::strcmp(argv[1], "--space-speed-only") == 0) { space_speed_control(); return 0; }
         if (argc == 2 && std::strcmp(argv[1], "--view-cache-only") == 0) { view_cache_control(); return 0; }
         if (argc == 2 && std::strcmp(argv[1], "--wrapped-handle-only") == 0) { wrapped_handle_control(); return 0; }
         if (argc == 2 && std::strcmp(argv[1], "--actor-batch-only") == 0) { actor_batch_control(); return 0; }
@@ -2814,6 +2860,7 @@ int main(int argc, char** argv) {
         require(argc == 1, "Usage: ma_oni_colony_tests [--projection-only|--timestep-only|--precise-receipts-only]");
         heat_neighbour_bounds_control();
         gas_batch_control();
+        space_speed_control();
         activity_owner_control();
         overlapped_pacing_control();
         terrain_order_control();

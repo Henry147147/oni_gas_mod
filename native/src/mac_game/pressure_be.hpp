@@ -35,6 +35,16 @@ struct Stiffened {
 // Component prototype only: transport, positivity and receipts follow.
 // Vacuum is a zero-pressure boundary until material arrives there.
 class PressureSolver {
+public:
+  // EXPERIMENT, off unless set (MAC_GAME_KERNEL.md, "Gas at cells space
+  // empties"): cells the owner empties every frame (open sky, cells ONI
+  // deletes the gas of), one flag a cell, and the speed gas may reach through
+  // their faces. Such a face takes the implicit drag that holds the speed its
+  // start-of-interval pressures predict at that cap; momentum and heat are
+  // booked as for the thin-gas drag.
+  const std::vector<std::uint8_t> *sinks = nullptr;
+  double sink_speed = 0;
+private:
   ma::experimental::MacGrid source;
   kernel::Grid grid;
   kernel::Workspace workspace;
@@ -275,6 +285,12 @@ public:
         // Gas drag: the rest of the face, relaxed at 1/gas_drag_time.
         if (liquid < 1)
           gamma += dt / gas_drag_time * (1 - std::max(0., liquid));
+        if (sinks && sink_speed > 0 && ((*sinks)[l] || (*sinks)[r])) {
+          const double pl = system.active[l] ? states[l].pressure : 0,
+                       pr = system.active[r] ? states[r].pressure : 0;
+          const double predicted = std::abs(old + body + dt * g.A * (pl - pr));
+          gamma = std::max(gamma, predicted / (inertia * sink_speed) - 1);
+        }
         if (gamma > 0) {
           (x ? w.gamma_x : w.gamma_y)[f] = gamma;
           effective = inertia * (1 + gamma);

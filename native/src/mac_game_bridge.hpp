@@ -32,6 +32,14 @@ struct MacGameKernelAccess {
     thread_local MacClosedAdvanceReport::GameStages stages;
     return stages;
   }
+  // EXPERIMENT (mac_game/flow_local.hpp, Flow::set_sinks): the cells the
+  // owner empties every frame and the speed cap of their faces, for this
+  // thread's following game advances. Empty or zero: off. Never saved.
+  struct Sinks { std::vector<std::uint8_t> cells; double speed = 0; };
+  static Sinks &sinks() noexcept {
+    thread_local Sinks value;
+    return value;
+  }
   // PRIVATE test observations; inline, immutable, no extra object fields.
   static const void* heat_totals_identity(const MacClosedWorld &source) noexcept { return source.game_totals_.get(); }
   static const void* heat_activity_identity(const MacClosedWorld &source) noexcept { return source.game_activity_.get(); }

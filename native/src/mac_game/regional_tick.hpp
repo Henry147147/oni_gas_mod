@@ -18,6 +18,7 @@ class RegionalTick {
   Topology topology;
   std::size_t species_count;
   std::size_t attempt_depth=0,refinement_depth=0;
+  std::vector<std::uint8_t> sink_cells;double sink_speed=0;
   struct Region {
     std::size_t x=0,y=0,representative=0;
     MacGrid box;
@@ -131,6 +132,12 @@ public:
   std::size_t pressure_attempt_depth() const {return attempt_depth;}
   std::size_t pressure_refinement_depth() const {return refinement_depth;}
   ma::experimental::mac_kernel::Pool& worker_pool() {return pool;}
+  // EXPERIMENT (Flow::set_sinks): owner-grid cells the owner empties every
+  // frame, and their faces' speed cap; an empty mask or zero switches it off.
+  void set_sinks(std::span<const std::uint8_t> cells,double speed) {
+    if(!cells.empty() && cells.size()!=grid.N)throw std::invalid_argument("Game sink coverage differs");
+    sink_cells.assign(cells.begin(),cells.end());sink_speed=cells.empty()?0:speed;
+  }
   TickResult advance(const State& initial,double dt,double gravity,double threshold,
                      std::span<const std::uint8_t> blocked={},std::size_t budget=65536,
                      std::span<const double> due={},double maximum_active_interval=0) {
@@ -222,6 +229,9 @@ private:
         try {
           if(reject_log::level())reject_log::region={r.x,r.y,static_cast<std::size_t>(r.box.width),static_cast<std::size_t>(source.width)};
           auto& tick=execution.parallel_region==id?*parallel_tick:*r.tick;
+          std::vector<std::uint8_t> local_sinks;
+          if(sink_speed>0) {local_sinks.resize(r.box.walls.size());for(std::size_t i=0;i<local_sinks.size();++i)local_sinks[i]=sink_cells[global_cell(r,i)];}
+          tick.set_sinks(std::move(local_sinks),sink_speed);
           results[id]=tick.advance(state,steps[id],gravity,threshold,local_blocked,budget,maximum_active_interval);
         }
         catch(const LiquidBoundaryConflict& e) {

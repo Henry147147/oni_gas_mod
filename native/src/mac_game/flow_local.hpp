@@ -61,6 +61,7 @@ class Flow {
   PatchTransport patch;
   // Capacity of the previous pressure result, lent to the next solve.
   Pressure pressure_storage;
+  std::vector<std::uint8_t> sink_cells;
   // Scratch capacity; every entry is written before it is read.
   std::vector<double> body_heat;
   struct ThinCell {
@@ -327,6 +328,19 @@ public:
         volume_consistent(bound_pressure_volume && bound_room),
         patch(grid, &eos_pool, &topology) {}
   ma::experimental::mac_kernel::Pool &worker_pool() const { return eos_pool; }
+  // EXPERIMENT (PressureSolver::sinks): the cells the owner empties every
+  // frame and the speed cap of their faces; empty or zero switches it off.
+  // The net-volume bound does not apply to those cells: what enters them is
+  // deleted at the end of the frame.
+  void set_sinks(std::vector<std::uint8_t> cells, double speed) {
+    sink_cells = std::move(cells);
+    // The drag and its heat booking exist only on the profile-12 path.
+    // Earlier profiles must not skip the sink-cell volume bound without it.
+    const bool on = speed > 0 && thin_mass > 0 && sink_cells.size() == g.N &&
+                    std::any_of(sink_cells.begin(), sink_cells.end(), [](std::uint8_t v) { return v != 0; });
+    pressure.sinks = on ? &sink_cells : nullptr;
+    pressure.sink_speed = on ? speed : 0;
+  }
   const auto &region_topology() const { return topology; }
   const auto &kernel_grid() const { return g; }
   // `storage` lends the capacity of readings the caller no longer needs.
@@ -648,7 +662,7 @@ public:
       rows([&](std::size_t y0, std::size_t y1, std::size_t block) {
         double largest = 0;
         for (std::size_t i = y0 * g.W; i < y1 * g.W; ++i) {
-          if (g.wall[i]) continue;
+          if (g.wall[i] || (pressure.sinks && (*pressure.sinks)[i])) continue;
           const double divergence = projected.qx[g.right_face(i)] - projected.qx[g.left_face(i)] +
                                     projected.qy[g.top_face(i)] - projected.qy[g.bottom_face(i)];
           if (!std::isfinite(divergence)) {
@@ -691,7 +705,7 @@ public:
           // Diagnostic rescan (same bound as above) for the offending cell.
           double worst = -1;
           for (std::size_t i = 0; i < g.N; ++i) {
-            if (g.wall[i]) continue;
+            if (g.wall[i] || (pressure.sinks && (*pressure.sinks)[i])) continue;
             const double divergence = projected.qx[g.right_face(i)] - projected.qx[g.left_face(i)] +
                                       projected.qy[g.top_face(i)] - projected.qy[g.bottom_face(i)];
             const double magnitude = std::isfinite(divergence) ? std::abs(divergence) : std::numeric_limits<double>::infinity();

@@ -17,7 +17,11 @@ industrial base's replayed frame falls from 58.5 to 45.1 ms (an estimated
 full colony is unchanged at about 0.9×, and a generated 384×384 colony runs
 an estimated 2.3× sealed and 1.4× with a hall leaking to space. What remains
 is listed there; its first item, how fast space may take gas, is the user's
-to decide. None of this has run in game or on Windows.
+to decide. An experiment that limits the predicted speed (off by default,
+`MA_COLONY_SPACE_SPEED`) takes the Spaced Out! colony's replayed frame from
+197 to 82 ms, an estimated 1.9×
+([measured](performance-acceptance.md#space-speed-experiment)). None of this
+has run in game or on Windows.
 
 **Update, 2026-11-13, 0.1.8:** a probe of everyday gas situations on the
 solver alone found that two gases could not change places through a side

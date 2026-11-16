@@ -725,6 +725,11 @@ MacClosedAdvance MacGameKernelAccess::advance_guarded(
   MacClosedAdvance result{source, {}};
   if (k::region_samples::enabled().load(std::memory_order_relaxed))
     k::region_samples::last().clear();
+  if (cache.regional) {
+    const auto &requested = sinks();
+    const bool on = requested.speed > 0 && requested.cells.size() == source.state().cells.size();
+    cache.regional->set_sinks(on ? std::span<const std::uint8_t>(requested.cells) : std::span<const std::uint8_t>{}, on ? requested.speed : 0);
+  }
   result.report.game_threads_used = bounded?cache.regional->threads_used():cache.tick->threads_used();
   auto& execution_pool=bounded?cache.regional->worker_pool():cache.tick->worker_pool();
   auto &stages = result.report.game_stages;

@@ -1145,6 +1145,27 @@ simulation takes (1.0 s before). The question itself took 2.1 ms on a resting
 convecting gas, keep their bytes. Profiles 2-11 are unchanged. Control:
 `levelling_pause_control` in `mac_game_surface_stability_control.hpp`.
 
+## Gas at cells space empties (experiment, 2026-11-16)
+
+Off unless the owner asks for it (`MA_COLONY_SPACE_SPEED`,
+[colony speed](../docs/performance-acceptance.md#space-speed-experiment)); no
+profile sets it and nothing of it is saved. Only profile 12 applies it;
+earlier profiles lack the drag and heat booking. The owner marks the cells it
+empties every frame (open sky, cells ONI deletes the gas of) and gives a
+speed `u`. In the pressure step (`pressure_be.hpp`) a face touching a marked
+cell takes the implicit drag `gamma = |J_old + body + dt A (p_l - p_r)| /
+(I u) - 1` when that is larger than its other drags. This targets `u` for
+the start-of-interval pressure impulse; the solved pressures can change the
+final speed, so it is not a strict per-face bound. The momentum the drag takes
+is an external load and its work local heat, as for the
+[thin-gas drag](#thin-gas-drag-profile-12--checkpoint-32).
+The net swept-volume bound (`flow_local.hpp`) skips the marked cells: what
+enters them is deleted at the end of the frame, so their own linearisation
+needs no interval. Their neighbours stay bounded, and at 3 m/s a cell beside
+one emptied cell sweeps 0.3 cell in a 0.1 s interval, inside the bound.
+Without the mark gas beside an emptied cell leaves at the speed of sound and
+the region is stepped at millisecond intervals for it.
+
 ## Gas drag (profile 12, 2026-11-13)
 
 The gas probe of 0.1.8 found that released gases mix more than they layer:
