@@ -164,6 +164,23 @@ class ReleaseAssemblyTests(unittest.TestCase):
             for name, digest in manifest["files"].items():
                 self.assertEqual(hashlib.sha256((output / name).read_bytes()).hexdigest(), digest)
 
+    def test_release_test_folder_is_visibly_unqualified(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            builds, info, managed = self.fixture(root / "inputs")
+            arguments = self.arguments(root, root / "test", builds, info, managed)
+            arguments.release_test = True
+            with mock.patch.object(RELEASE.package_probe, "source_state", return_value=("a" * 40, False, [])):
+                manifest = RELEASE.assemble(arguments)
+            self.assertEqual((manifest["kind"], manifest["release_ready"]), ("release-test", False))
+            self.assertEqual((root / "test/mod_info.yaml").read_text(),
+                             mod_identity.mod_info(mod_identity.version() + "-release-test"))
+            self.assertIn("not approved for Steam publication", (root / "test/README.txt").read_text())
+            self.assertEqual(set(manifest["files"]),
+                             {p.relative_to(root / "test").as_posix() for p in (root / "test").rglob("*")
+                              if p.is_file()} - {"package-manifest.json"})
+            self.assertRegex(RELEASE.write_zip(root / "test", root / "test.zip"), r"^[0-9a-f]{64}$")
+
     def test_zip_is_deterministic(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)

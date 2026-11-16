@@ -60,6 +60,29 @@ def main():
         "After playing, send Player.log from:\n"
         "%USERPROFILE%\\AppData\\LocalLow\\Klei\\Oxygen Not Included\\Player.log\n"
     ).encode("utf-8")
+    payload["TESTING.txt"] = (
+        "Mixed Atmospheres: private Windows release test\n\n"
+        "1. Close ONI, extract this ZIP, run install_windows.ps1 as INSTALL.txt describes,\n"
+        "   enable the mod, and restart ONI. Leave Frosty, Bionic, Prehistoric and\n"
+        "   Aquatic disabled. Keep the ZIP and record its SHA-256.\n"
+        "2. Start a NEW base-game colony. Check ordinary movement, breathing,\n"
+        "   gases, liquids, pipes, hover readings, camera and menus. Save normally,\n"
+        "   exit ONI, restart it and load the save. Repeat with a NEW Spaced Out!\n"
+        "   colony, including an asteroid transition if available.\n"
+        "3. In each representative full colony, select 3x and turn on Mods >\n"
+        "   Mixed Atmospheres > Settings > Advanced > Performance > Log frame timing.\n"
+        "   After a one-minute warm-up, record the in-game cycle/second count and\n"
+        "   wall-clock start and end times over at least two minutes. Pan the\n"
+        "   camera, open menus and issue normal commands during the interval.\n"
+        "   A 3x button or status-panel pace alone does not prove actual 3x: the\n"
+        "   simulated clock must advance at least three seconds per real second.\n"
+        "4. Report the ZIP SHA-256, Windows/ONI versions, DLC selection, colony\n"
+        "   size and duplicant count, start/end clocks and wall times, whether\n"
+        "   input stayed smooth, any failed save/load or visible defects, and\n"
+        "   Player.log (or its perf frames and frame-log lines). Player.log is at\n"
+        "   %USERPROFILE%\\AppData\\LocalLow\\Klei\\Oxygen Not Included\\Player.log\n"
+        "   Keep private saves and game files out of public uploads.\n"
+    ).encode("utf-8")
     args.output.parent.mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(args.output, "x", zipfile.ZIP_DEFLATED) as archive:
         for name, data in sorted(payload.items()):

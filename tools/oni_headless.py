@@ -484,9 +484,9 @@ def verify_package(package: Path, platform: str = "linux-x64") -> dict:
         raise ValueError("Expected a supported Linux or Windows x64 probe platform")
     package = package.resolve()
     manifest = read_json(package / "package-manifest.json")
-    release = is_release(manifest)
-    if not release and (manifest.get("kind") != "integration-probe" or manifest.get("release_ready") is not False):
-        raise ValueError("Supply a private integration probe package or a release folder.")
+    distribution = is_distribution_package(manifest)
+    if not distribution and (manifest.get("kind") != "integration-probe" or manifest.get("release_ready") is not False):
+        raise ValueError("Supply a private integration probe, release test, or release folder.")
     revision = manifest.get("source_revision")
     if (not isinstance(revision, str) or not MANIFEST_REVISION.fullmatch(revision)
             or not isinstance(manifest.get("source_dirty"), bool)):
@@ -499,7 +499,7 @@ def verify_package(package: Path, platform: str = "linux-x64") -> dict:
     required = {"MixedAtmospheres.Oni.dll", "MixedAtmospheres.Core.dll", libraries[platform]}
     if not required.issubset(manifest["files"]):
         raise ValueError("The package must include pinned " + ("Linux" if platform=="linux-x64" else "Windows") + " native and managed libraries.")
-    if release and (not set(RELEASE_FILES).issubset(manifest["files"]) or manifest.get("native_observer_enabled") is not True
+    if distribution and (not set(RELEASE_FILES).issubset(manifest["files"]) or manifest.get("native_observer_enabled") is not True
                     or any(PurePosixPath(name).name == "development.json" for name in manifest["files"])):
         raise ValueError("A release folder must pin both platforms' native pairs, the managed DLLs and their game "
                          "contract, and no development marker.")
@@ -517,9 +517,15 @@ def is_release(manifest: dict) -> bool:
     return manifest.get("kind") == "release" and manifest.get("release_ready") is True
 
 
+def is_distribution_package(manifest: dict) -> bool:
+    """A clean two-platform folder, including a private release test candidate."""
+    return is_release(manifest) or (manifest.get("kind") == "release-test" and
+                                    manifest.get("release_ready") is False)
+
+
 def release_mode_error(manifest: dict, mode: str) -> str | None:
     """A release writes reports only beside a validation request, which menu mode does not stage."""
-    if is_release(manifest) and mode == "menu":
+    if is_distribution_package(manifest) and mode == "menu":
         return "A release folder runs in colony modes: only their validation request makes it report beside the mod."
     return None
 
@@ -725,7 +731,7 @@ def screenshot(state: Path, session: dict, path: Path) -> None:
 def native_observer_passed(manifest: dict, report: dict | None, log: str = "") -> bool:
     if not manifest.get("native_observer_enabled", False):
         return True
-    if is_release(manifest):
+    if is_distribution_package(manifest):
         # A release carries no observation request: the attached observer
         # writes no report, and Player.log records the attachment.
         return report is None and OBSERVER_ATTACHED_MARKER in log

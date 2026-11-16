@@ -1891,6 +1891,22 @@ class PackageTests(unittest.TestCase):
         self.assertIn("colony modes", runner.release_mode_error(self.manifest, "menu"))
         self.assertIsNone(runner.release_mode_error({"kind": "integration-probe", "release_ready": False}, "menu"))
 
+    def test_release_test_folder_uses_distribution_checks_without_readiness_claim(self):
+        self.make_release()
+        self.manifest.update(kind="release-test", release_ready=False)
+        self.write_manifest()
+        for platform in ("linux-x64", "win-x64"):
+            verified = runner.verify_package(self.root, platform)
+            self.assertTrue(runner.is_distribution_package(verified))
+            self.assertFalse(runner.is_release(verified))
+        self.assertIn("colony modes", runner.release_mode_error(self.manifest, "menu"))
+        self.assertTrue(runner.native_observer_passed(
+            self.manifest, None, runner.OBSERVER_ATTACHED_MARKER))
+        self.manifest["release_ready"] = True
+        self.write_manifest()
+        with self.assertRaisesRegex(ValueError, "release test"):
+            runner.verify_package(self.root)
+
     def test_release_folder_needs_both_native_pairs_and_no_development_marker(self):
         self.make_release()
         missing = "native/win-x64/mixed_atmospheres_oni.dll"
@@ -1910,7 +1926,7 @@ class PackageTests(unittest.TestCase):
         self.make_release()
         self.manifest["release_ready"] = False
         self.write_manifest()
-        with self.assertRaisesRegex(ValueError, "integration probe package or a release folder"):
+        with self.assertRaisesRegex(ValueError, "integration probe, release test, or release folder"):
             runner.verify_package(self.root)
 
     def test_symlinks_are_rejected_even_with_matching_hash(self):

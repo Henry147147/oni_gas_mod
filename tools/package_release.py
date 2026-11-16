@@ -266,6 +266,7 @@ Third-party components and their licences are in the third-party folder.
 
 def assemble(args: argparse.Namespace) -> dict:
     version = mod_identity.version()
+    release_test = getattr(args, "release_test", False) is True
     output = args.output.resolve()
     if output.exists() and any(output.iterdir()):
         raise ValueError("Output must be a new or empty folder")
@@ -305,12 +306,16 @@ def assemble(args: argparse.Namespace) -> dict:
                 raise ValueError("The preview must be a PNG image")
             (output / "preview.png").write_bytes(data)
         (output / "mod.yaml").write_text(mod_identity.mod_yaml(DESCRIPTION), encoding="utf-8")
-        (output / "mod_info.yaml").write_text(mod_identity.mod_info(version), encoding="utf-8")
-        (output / "README.txt").write_text(player_readme(version), encoding="utf-8")
+        (output / "mod_info.yaml").write_text(
+            mod_identity.mod_info(version + ("-release-test" if release_test else "")), encoding="utf-8")
+        (output / "README.txt").write_text(
+            ("PRIVATE RELEASE TEST — not approved for Steam publication.\n\n" if release_test else "")
+            + player_readme(version), encoding="utf-8")
         files = sorted(p for p in output.rglob("*") if p.is_file())
         check_release_contents(output, files)
         manifest = {
-            "kind": "release", "release_ready": True, "static_id": mod_identity.STATIC_ID, "version": version,
+            "kind": "release-test" if release_test else "release", "release_ready": not release_test,
+            "static_id": mod_identity.STATIC_ID, "version": version,
             "minimum_supported_build": mod_identity.MINIMUM_SUPPORTED_BUILD, "platforms": sorted(NATIVE),
             "native_observer_enabled": True, "source_revision": revision, "source_dirty": dirty, "source_status": status,
             "managed_builds": equivalence,
@@ -369,6 +374,8 @@ def main() -> None:
     parser.add_argument("--output", type=Path, required=True, help="New Workshop-shaped folder")
     parser.add_argument("--zip", type=Path, help="Fresh deterministic ZIP of the folder")
     parser.add_argument("--allow-dirty", action="store_true", help="Package uncommitted sources (recorded in the manifest)")
+    parser.add_argument("--release-test", action="store_true",
+                        help="Workshop-shaped private test package, explicitly marked not ready for Steam publication")
     args = parser.parse_args()
     try:
         assemble(args)

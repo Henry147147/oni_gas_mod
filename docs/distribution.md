@@ -12,6 +12,7 @@ chooses one.
 | Package | Tool | For | Shape |
 | --- | --- | --- | --- |
 | Release | `tools/package_release.py` | Steam Workshop and manual installs | One folder for Windows x64 and Linux x64, plus a deterministic ZIP; no installer |
+| Release test | `tools/package_release.py --release-test` | Private two-platform game checks before release acceptance | Same Workshop-shaped folder and ZIP, with `release_ready: false`, a test version label and a README warning |
 | Development probe | `tools/package_probe.py` | Harnesses and private playtests | One platform; carries `development.json` |
 | Private Windows ZIP | `tools/package_windows.py` | The user's Windows playtest | A probe package plus `install_windows.ps1` |
 
@@ -26,6 +27,13 @@ python3 tools/package_release.py \
   --windows-native build-windows \
   --output artifacts/release/MixedAtmospheres --zip artifacts/release/MixedAtmospheres.zip
 ```
+
+For an unqualified candidate, use `--release-test` and a fresh output path.
+Its manifest records `kind: release-test` and `release_ready: false`; the
+player version and README visibly identify the test. The Linux and Proton
+colony harnesses accept this shape for private game checks, applying the same
+complete-file and hash checks as a release folder. A release test is not a
+release gate pass or an upload artifact.
 
 The folder is what the Workshop serves into `mods/Steam/<id>`:
 
