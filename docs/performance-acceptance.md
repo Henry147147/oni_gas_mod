@@ -1,5 +1,54 @@
 # Performance acceptance measurements
 
+<a id="live-full-colony-speed-2026-11-17"></a>
+## Full-colony game-clock measurement, 2026-11-17
+
+The exact `b8d7b94` Linux and Windows test packages pass 94/94 and 95/95
+native tests respectively. The targeted WindowsPlayer-under-Proton settings
+source and cold load pass all three selected acceptance steps. Both timed
+games used the private, material-model-4 saves that supplied the game-free
+replays, requested the game's 3× speed, and rendered at the observed
+1920×1080 resolution on the same Linux host. Each game ran alone through
+`tools/game_slot.sh whole`; there were no concurrent builds. The first
+150-frame timing window, which includes startup pause time, is excluded from
+the warmed figures.
+
+| Save and player | Frames after load | Warmed windows | Game seconds / real second | Owner ms / tick | Whole interval ms / tick |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 32-duplicant industrial base v4, native Linux | 2,100 | 13 | 2.387 mean; 2.327–2.472 range | 52.5 | 83.8 |
+| 14-duplicant Spaced Out! colony v3, WindowsPlayer under Proton | 900 | 5 | 0.777 mean; 0.758–0.801 range | 235.1 | 257.5 |
+
+Commands from the project root, with each output directory fresh and each
+game run separately after the preceding game slot releases:
+
+```sh
+tools/game_slot.sh whole python3 tools/oni_headless.py run --package artifacts/acceptance/b8d7b94/packages/linux --mode colony-owner-load --load-save local/saves/large-industrial-base-32-v4.sav --dlc-mask 0 --frames 2100 --speed 3 --timeout 5400 --gpu-display :99 --resolution 1920x1080 --output artifacts/performance-live-b8d7b94/industrial-v4-2100-1080p
+tools/game_slot.sh whole python3 tools/oni_proton_headless.py --proton build-proton-official10/proton-10.0-4b --package artifacts/acceptance/b8d7b94/packages/windows --gpu-display :99 --mode colony-owner-load --load-save local/saves/full-colony-spacedout-v3.sav --dlc-mask 1 --frames 900 --speed 3 --timeout 5400 --output artifacts/performance-live-b8d7b94/spacedout-v3-proton-900
+```
+
+Every warmed window reports `speed_button 3`, no pause and zero dropped
+submission or publication samples. Both owners remain active and fault-free,
+complete the requested frames with zero skipped relaxations, and keep relative
+mass and energy errors below 6e-15. The source saves match their staged
+copies byte for byte. The base-game run's 420 game seconds include about
+180 seconds of total wall time; the separate warmed-window rate excludes
+its initial pause. The Spaced Out! run has five full warmed windows of
+30 game seconds each. These are actual game-clock measurements, while the
+earlier `colony_speed.py` figures below are estimates from owner replays.
+Both fail the requested sustained 3×, and Spaced Out! also fails the 1×
+beta bar on this host. WindowsPlayer under Proton is not Windows OS evidence.
+
+The first Linux attempt used the older industrial v3 save and was correctly
+refused for its obsolete material model. The Linux Spaced Out! attempt with
+the current v3 save stopped before loading: the installed Linux game reported
+`EXPANSION1_ID loaded: False` despite the disposable profile requesting it.
+The installed WindowsPlayer reported the DLC loaded and accepted the same
+save under Proton. No game content or Steam licensing state was changed.
+Private run records and the per-window verification are in
+`artifacts/performance-live-b8d7b94/verified-summary.json`; the settings
+acceptance summary is in
+`artifacts/acceptance/b8d7b94/runs/settings-geometry-v4/summary.json`.
+
 <a id="game-free-speed-check-2026-11-16"></a>
 ## Game-free speed check and what sets the frame, 2026-11-16
 

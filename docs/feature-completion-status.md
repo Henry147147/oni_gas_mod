@@ -1,5 +1,19 @@
 # Feature completion work
 
+**Update, 2026-11-17, live full-colony speed and Windows release test:**
+the exact `b8d7b94` packages pass 94/94 Linux and 95/95 Wine native tests;
+the targeted WindowsPlayer-under-Proton settings source and cold load pass all
+three selected steps. At requested speed 3 and 1920×1080, the 32-duplicant
+industrial colony advances at 2.39 game seconds per real second across 13
+warmed Linux game windows. The 14-duplicant Spaced Out! colony advances at
+0.78× across five warmed WindowsPlayer-under-Proton windows. Both owners stay
+healthy with closed ledgers and no dropped timing samples. The latter remains
+below the sustained 1× beta bar; neither reaches the requested 3×. The Linux
+game installation lacks active Spaced Out! content, so its attempt refused
+the DLC selection before loading; the installed WindowsPlayer under Proton
+loaded that save. Actual Windows OS performance is still unmeasured
+([commands, bounds and results](performance-acceptance.md#live-full-colony-speed-2026-11-17)).
+
 **Update, 2026-11-16, speed of large colonies:** the user asked for 3× real
 time in the largest colonies the game offers, measured by tests that need no
 game run. `tools/colony_speed.py` now measures the owner's frame on generated
@@ -21,7 +35,7 @@ to decide. An experiment that limits the predicted speed (off by default,
 `MA_COLONY_SPACE_SPEED`) takes the Spaced Out! colony's replayed frame from
 197 to 82 ms, an estimated 1.9×
 ([measured](performance-acceptance.md#space-speed-experiment)). None of this
-has run in game or on Windows.
+had run in game or on Windows at the time of this measurement.
 
 **Update, 2026-11-13, 0.1.8:** a probe of everyday gas situations on the
 solver alone found that two gases could not change places through a side
