@@ -32,7 +32,14 @@ class ProtonIsolationTests(unittest.TestCase):
             header = "session 1 restored_frames 21\n"
             frames = "frame 22 flush 0 seconds 0.2\nframe 22 flush 1 seconds 0\nframe 23 flush 0 seconds 0.2\n"
             journal.write_text(header + frames)
-            self.assertEqual(runner.check_replay_capture(output, 2), {"restored_frame": 21, "advanced_frames": 2})
+            self.assertEqual(runner.check_replay_capture(output, 2), {"restored_frame": 21, "advanced_frames": 2,
+                                                                      "ticks_with_exposed_vents": 0, "peak_exposed_vents": 0})
+            with self.assertRaisesRegex(ValueError, "expected exposed surface"):
+                runner.check_replay_capture(output, 2, require_exposed_vents=True)
+            journal.write_text(header + "vents\n" + frames.replace("frame 23", "vents 7 9\nframe 23") + "vents\n")
+            self.assertEqual(runner.check_replay_capture(output, 2, True)["ticks_with_exposed_vents"], 1)
+            with self.assertRaisesRegex(ValueError, "expected exposed surface"):
+                runner.check_replay_capture(output, 1, True)
             with self.assertRaisesRegex(ValueError, "requested"):
                 runner.check_replay_capture(output, 3)
             journal.write_text(header + frames.replace("frame 23", "frame 24"))

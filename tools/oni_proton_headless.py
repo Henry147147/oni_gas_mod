@@ -275,7 +275,7 @@ def cleanup_run(record, xvfb, prefix_started: bool, proton: Path, output: Path) 
         raise RuntimeError("Run cleanup failed: " + "; ".join(errors))
 
 
-def check_replay_capture(output: Path, required_frames: int) -> dict:
+def check_replay_capture(output: Path, required_frames: int, require_exposed_vents: bool = False) -> dict:
     journals = list(output.glob("inputs-*.txt"))
     diseases = list(output.glob("diseases-*.bin"))
     if len(journals) != 1 or len(diseases) != 1:
@@ -292,7 +292,12 @@ def check_replay_capture(output: Path, required_frames: int) -> dict:
             raise ValueError("Missing restored owner frame")
         restored = int(header[3])
         advanced = 0
+        vent_cells = peak_vent_cells = 0
+        exposed_ticks = 0
         for line in stream:
+            if line.rstrip() == b"vents" or line.startswith(b"vents "):
+                vent_cells = len(line.split()) - 1
+                continue
             if not line.startswith(b"frame "):
                 continue
             fields = line.split()
@@ -300,11 +305,17 @@ def check_replay_capture(output: Path, required_frames: int) -> dict:
                 raise ValueError("Malformed owner frame")
             if fields[3] == b"0":
                 advanced += 1
+                if advanced <= required_frames and vent_cells:
+                    peak_vent_cells = max(peak_vent_cells, vent_cells)
+                    exposed_ticks += 1
                 if int(fields[1]) != restored + advanced:
                     raise ValueError("Gap in owner replay frames")
     if advanced < required_frames:
         raise ValueError(f"Captured {advanced} of {required_frames} requested frames")
-    return {"restored_frame": restored, "advanced_frames": advanced}
+    if require_exposed_vents and exposed_ticks == 0:
+        raise ValueError("No advanced frame saw the expected exposed surface")
+    return {"restored_frame": restored, "advanced_frames": advanced,
+            "ticks_with_exposed_vents": exposed_ticks, "peak_exposed_vents": peak_vent_cells}
 
 
 def playtest(args, state: Path, session: dict) -> int:
@@ -365,7 +376,8 @@ def playtest(args, state: Path, session: dict) -> int:
         env=owner_fault_environment(env,args,output,result)
         env=storage_heat_environment(env,args,output,result)
         measured=measurement_environment(getattr(args,"measurement_env",None) or [])
-        if getattr(args, "capture_inputs", False):
+        capture_inputs = getattr(args, "capture_inputs", False) or getattr(args, "require_exposed_vents", False)
+        if capture_inputs:
             if args.mode != "colony-owner-load":
                 raise ValueError("--capture-inputs requires colony-owner-load")
             measured["MA_COLONY_INPUT_JOURNAL_DIR"] = windows_path(output)
@@ -524,9 +536,9 @@ def playtest(args, state: Path, session: dict) -> int:
         owner_ok = args.mode in OWNER_MODES and colony_owner_passed(owner)
         if code == 0 and args.mode in OWNER_MODES and not owner_ok:
             status, code = "failed-colony-owner-evidence", 2
-        if code == 0 and getattr(args, "capture_inputs", False):
+        if code == 0 and capture_inputs:
             try:
-                result["replay_capture"] = check_replay_capture(output, args.frames)
+                result["replay_capture"] = check_replay_capture(output, args.frames, getattr(args, "require_exposed_vents", False))
             except (OSError, ValueError) as error:
                 result["replay_capture_error"] = str(error)
                 status, code = "failed-replay-capture", 2
@@ -670,6 +682,8 @@ def main() -> int:
     parser.add_argument("--package", type=Path, required=True)
     parser.add_argument("--capture-inputs", action="store_true",
                         help="Write private owner replay inputs and disease table into this load run directory")
+    parser.add_argument("--require-exposed-vents", action="store_true",
+                        help="Capture inputs and require a nonempty live exposure map on a tick of a known surface save")
     parser.add_argument("--measurement-env", action="append", metavar="NAME=VALUE",
                         help="Pass a development measurement variable to the game (repeatable): " + ", ".join(MEASUREMENT_VARIABLES))
     parser.add_argument("--spaced-out-control", action="store_true",

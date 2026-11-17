@@ -127,6 +127,10 @@ namespace MixedAtmospheres.Oni
             ColonyPacing.Reset(); ColonyOwnerPersistence.Reset(); ModSettingsRuntime.Reset();
             ColonyClusterWorlds.Reset();ColonyStartingAir.Reset();OwnedCells=0;
             publicationCells=Array.Empty<int>();CellMapComparisons=0;ColonyOverlay.Reset();
+            exposureWorldIds = spaceZoneCells = Array.Empty<int>();
+            exposureZones = null;
+            exposedCells = Array.Empty<uint>();
+            exposureState = Array.Empty<bool>();
             passiveSession=0;passiveFrame=ulong.MaxValue;WorldPassiveComparisons=WorldPassiveRows=WorldPassiveBusy=0;
             Active = false; considered = false; restoreAttempted = false; StartFailure = ""; loggedFault = ""; ColonyFault.Reset(); Publications = 0; PublicationMilliseconds = MaximumPublicationMilliseconds = 0; Census.Clear(); molarMass = Array.Empty<double>();
             completionObservedAt = 0; completionObservedFrame = ulong.MaxValue; frameTiming.Reset();
@@ -300,40 +304,57 @@ namespace MixedAtmospheres.Oni
                 throw new InvalidOperationException("World membership grid differs from the owner.");
             var identities=layout.CellWorldIds();
             var membership=new byte[publicationCells.Length];
-            var spaceZone = new List<int>();
-            var zones = World.Instance.zoneRenderData;
             for(var i=0;i<membership.Length;++i)
             {
                 var cell=publicationCells[i];
-                if(identities[cell]<0 || Grid.WorldIdx[cell]!=identities[cell])continue;
-                membership[i]=1;
-                if(zones!=null && zones.GetSubWorldZoneType(cell)==ProcGen.SubWorld.ZoneType.Space)
-                    spaceZone.Add(cell);
+                if(identities[cell]>=0 && Grid.WorldIdx[cell]==identities[cell])membership[i]=1;
             }
             OniNativeColony.Check(OniNativeColony.SetWorldMask(membership,(uint)membership.Length));
-            spaceZoneCells = spaceZone.ToArray();
-            exposedCells = new uint[spaceZoneCells.Length];
-            exposureState = new bool[spaceZoneCells.Length];
+            exposureWorldIds = identities;
+            exposureZones = null;
             RefreshSpaceExposure(true);
         }
+
+        private static int[] exposureWorldIds = Array.Empty<int>();
+        private static ProcGen.SubWorld.ZoneType[]? exposureZones;
         private static int[] spaceZoneCells = Array.Empty<int>();
         private static uint[] exposedCells = Array.Empty<uint>();
         private static bool[] exposureState = Array.Empty<bool>();
-        // Backwalls, buildings and doors can change exposure without changing
-        // fluid topology. Check the game's own predicate before a positive tick.
-        // The owner is fenced only when the answer actually changed.
+
         private static void RefreshSpaceExposure(bool changed = false)
         {
-            uint count = 0;
-            for(int i=0;i<spaceZoneCells.Length;++i)
+            // Restore may precede SubworldZoneRenderData.OnSpawn. GenerateTexture
+            // replaces the game's zone array when the real map becomes available.
+            var zones = World.Instance.zoneRenderData?.worldZoneTypes;
+            if (changed || !ReferenceEquals(zones, exposureZones))
+            {
+                var candidates = new List<int>();
+                if (zones != null)
+                    foreach (var cell in publicationCells)
+                        if (cell < zones.Length && exposureWorldIds[cell] >= 0 && zones[cell] == ProcGen.SubWorld.ZoneType.Space)
+                            candidates.Add(cell);
+                exposureZones = zones;
+                spaceZoneCells = candidates.ToArray();
+                exposedCells = new uint[spaceZoneCells.Length];
+                exposureState = new bool[spaceZoneCells.Length];
+                changed = true;
+            }
+
+            // Doors and backwalls change independently of the biome map. Check
+            // exposure at the current tick and fence native only on a change.
+            for (int i = 0; i < spaceZoneCells.Length; ++i)
             {
                 var cell = spaceZoneCells[i];
-                var exposed = !Grid.Solid[cell] && CellSelectionObject.IsExposedToSpace(cell);
-                if(exposureState[i]!=exposed)changed=true;
-                exposureState[i]=exposed;
-                if(exposed)exposedCells[count++]=(uint)cell;
+                var exposed = Grid.WorldIdx[cell] == exposureWorldIds[cell] &&
+                    !Grid.Solid[cell] && CellSelectionObject.IsExposedToSpace(cell);
+                if (exposureState[i] != exposed) changed = true;
+                exposureState[i] = exposed;
             }
-            if(changed)OniNativeColony.Check(OniNativeColony.SetVentCells(exposedCells,count));
+            if (!changed) return;
+            uint count = 0;
+            for (int i = 0; i < spaceZoneCells.Length; ++i)
+                if (exposureState[i]) exposedCells[count++] = (uint)spaceZoneCells[i];
+            OniNativeColony.Check(OniNativeColony.SetVentCells(exposedCells,count));
         }
         // The configuration and catalogue the running game would give this asteroid.
         internal static (OniNativeColony.Config config, OniNativeColony.Material[] materials) Describe(uint? savedFlags = null)
