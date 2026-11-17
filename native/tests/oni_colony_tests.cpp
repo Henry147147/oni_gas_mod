@@ -778,6 +778,18 @@ void gas_batch_control() {
     apply(exposed);
     require(before[at(4,7)]>0 && held(at(4,7),oxygen)==0 && held(at(3,7),oxygen)==before[at(3,7)] && held(at(4,8),oxygen)==before[at(4,8)],
         "A take meant to empty its cell took from its neighbours");
+    // The native shadow asks for more than the target holds to remove
+    // binary32 residue. A rich neighbourhood must not fund the excess,
+    // including when the same empty tile is reported again.
+    const auto rich = snapshot(oxygen);
+    const auto centre = at(3,2);
+    const MAOniColonyTransfer drain{centre,0,MA_ONI_COLONY_EXTRACT_GAS,0,-1,0,2*rich[centre]+1,0,0};
+    apply(drain);
+    apply(drain);
+    const auto drained = snapshot(oxygen);
+    require(rich[centre]>0 && drained[centre]==0,"Whole-cell drain left gas in its target");
+    for(std::size_t cell=0;cell<rich.size();++cell)
+        require(cell==centre || drained[cell]==rich[cell],"Whole-cell drain consumed neighbouring gas");
     require(status().maximum_relative_mass_error<1e-12 && status().maximum_relative_energy_error<1e-12,"Gas batches opened the ledgers");
     stop();
     // The one-cell switch, and an owner without an activity profile.
@@ -790,7 +802,7 @@ void gas_batch_control() {
     set_gas_batch_spreading(true);
     std::cout<<"PASS gas batches: a large take and a large addition shared within two cells in proportion, receipts and totals exact; small, thin, switched-off and non-activity cases keep one cell\n";
 }
-// EXPERIMENT (MA_COLONY_SPACE_SPEED): a room of air open to the sky through
+// Space venting (MA_COLONY_SPACE_SPEED): a room of air open to the sky through
 // one cell. With the cap the opening passes no more than its speed allows and
 // the frames need far fewer flow intervals; without it the room empties at
 // the speed of sound. Mass and energy stay booked either way.
@@ -798,32 +810,46 @@ void space_speed_control() {
     using namespace ma::oni::colony;
     constexpr std::uint32_t width=12,height=5;
     const auto at=[](std::uint32_t x,std::uint32_t y){return x+y*width;};
-    struct Outcome { double sunk,mass_error,energy_error; std::uint64_t substeps; };
-    const auto run=[&](double speed,bool activity=true) {
-        set_space_speed(speed);
+    struct Outcome { double sunk,mass_error,energy_error,extracted; std::uint64_t substeps; };
+    const auto run=[&](std::optional<double> speed,bool activity=true,bool live_sky=false,bool covered=false,bool liquid_room=false) {
+        if(speed)set_space_speed(*speed);
         MAOniColonyConfig cfg{};cfg.struct_size=sizeof(cfg);cfg.abi_version=MA_ONI_COLONY_ABI_VERSION;cfg.vacuum_index=vacuum;
         cfg.flags=MA_ONI_COLONY_GAME_KERNEL|MA_ONI_COLONY_GAME_SURFACE|
             (activity?MA_ONI_COLONY_GAME_ACTIVITY:0U);
         cfg.grid_width=cfg.width=width;cfg.grid_height=cfg.height=height;cfg.maximum_timestep_s=.1;cfg.gravity_m_per_s2=9.81;
-        const std::vector<MAOniColonyMaterial> mats{material("Oxygen",11,oxygen,true,.032,1000)};
+        std::vector<MAOniColonyMaterial> mats{material("Oxygen",11,oxygen,true,.032,1000)};
+        if(liquid_room)mats.push_back(material("Water",13,water,false,.018,4180,1000));
         // An 8 x 3 room at 1.2 kg a cell, a wall with one open cell, a column of open sky.
         std::vector<MAOniColonyCell> cells(width*height,MAOniColonyCell{0,MA_ONI_COLONY_SOLID,0,0,0,0});
         for(std::uint32_t y=1;y<=3;++y) {
             for(std::uint32_t x=1;x<=8;++x)cells[at(x,y)]={oxygen,MA_ONI_COLONY_FLUID,1.2f,300,0,0};
-            cells[at(10,y)]={0,MA_ONI_COLONY_SPACE,0,0,0,0};
+            if(liquid_room)for(std::uint32_t x=1;x<=8;++x)cells[at(x,y)]={water,MA_ONI_COLONY_FLUID,999.f,300,0,0};
+            cells[at(10,y)]={0,live_sky?MA_ONI_COLONY_FLUID:MA_ONI_COLONY_SPACE,0,0,0,0};
+            if(live_sky)cells[at(10,y)].native_index=vacuum;
         }
         cells[at(9,2)]={vacuum,MA_ONI_COLONY_FLUID,0,0,0,0};
         set_diseases({},{},0);start(cfg,mats,cells,1);
+        if(live_sky) {
+            const std::array<std::uint32_t,3> open{at(10,1),at(10,2),at(10,3)};
+            set_vent_cells(open);
+            if(covered)set_vent_cells({});
+        }
         const std::vector<std::uint32_t> actors{at(2,2)};
         for(std::uint64_t frame=1;frame<=10;++frame) {
+            if(live_sky) {
+                std::array<MAOniColonyTransfer,3> takes{};
+                for(std::uint32_t y=1;y<=3;++y)
+                    takes[y-1]={at(10,y),0,MA_ONI_COLONY_EXTRACT_GAS,0,-1,0,100,0,0};
+                queue_transfers(takes);
+            }
             if(activity)(void)queue_activity(status().session,static_cast<double>(.2f),actors,{});
             advance(frame,static_cast<double>(.2f),2);wait();
             if(status().state!=1)throw std::runtime_error("space speed control faulted: "+std::string(status().error));
         }
         const auto st=status();stop();
-        return Outcome{st.space_sink_kg,st.maximum_relative_mass_error,st.maximum_relative_energy_error,st.substeps};
+        return Outcome{st.space_sink_kg,st.maximum_relative_mass_error,st.maximum_relative_energy_error,st.extracted_kg,st.substeps};
     };
-    const auto capped=run(3),free=run(0);
+    const auto initial=run(std::nullopt),capped=run(3),free=run(0);
     set_space_speed(0);
     // 1.2 kg/m3 through one square metre at 3 m/s for two seconds is 7.2 kg; the room holds 28.8 kg.
     require(capped.sunk>.5 && capped.sunk<7.3,"The space speed did not hold the opening's flow");
@@ -832,8 +858,16 @@ void space_speed_control() {
     const auto older_capped=run(3,false),older_free=run(0,false);
     require(older_capped.sunk==older_free.sunk && older_capped.substeps==older_free.substeps,
             "A space speed changed an older profile without the drag's heat booking");
-    for(const auto& o:{capped,free})require(o.mass_error<1e-12 && o.energy_error<1e-12,"A room open to the sky opened the ledgers");
-    std::cout<<"PASS space speed (experiment): 3 m/s passes "<<capped.sunk<<" kg in 2 s in "<<capped.substeps<<" flow intervals; uncapped "<<free.sunk<<" kg in "<<free.substeps<<"\n";
+    if(!std::getenv("MA_COLONY_SPACE_SPEED"))
+        require(initial.sunk==capped.sunk && initial.substeps==capped.substeps,"Default space vent differs from 3 m/s");
+    const auto live=run(3,true,true), sealed=run(3,true,true,true), unmarked=run(0,true,true,true);
+    require(live.sunk==0 && live.extracted<sealed.extracted && sealed.extracted==unmarked.extracted && sealed.substeps==unmarked.substeps,
+            "Live vent exposure must affect flow, clear on covering, and never remove inventory");
+    const auto wet=run(3,true,false,false,true), wet_free=run(0,true,false,false,true);
+    require(wet.sunk==wet_free.sunk && wet.substeps==wet_free.substeps,"Gas vent drag changed a liquid outflow");
+    set_space_speed(3);
+    for(const auto& o:{capped,free,live,sealed,wet})require(o.mass_error<1e-12 && o.energy_error<1e-12,"A room open to the sky opened the ledgers");
+    std::cout<<"PASS space speed: 3 m/s passes "<<capped.sunk<<" kg in 2 s in "<<capped.substeps<<" flow intervals; uncapped "<<free.sunk<<" kg in "<<free.substeps<<"\n";
 }
 void comet_exhaust_sky_control() {
     using namespace ma::oni::colony;

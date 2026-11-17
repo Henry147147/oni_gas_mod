@@ -903,7 +903,11 @@ internal static unsafe class Program
             // One changed byte of one plane changes only that plane's identity.
             publisher.TryGetTextureContent(fourth.Pointer->propertyTextureLiquid, 24, out var liquidBefore);
             ((byte*)source.Pointer->propertyTextureFlow)[flowBytes - 1] ^= 0x55;
-            var fifth = publisher.Publish(source.Pointer, 3, 2);
+            // A paused StepTheSim can still acknowledge native frames. A real
+            // byte change must upload while other planes remain reusable.
+            source.Pointer->numFramesProcessed = 1;
+            var fifth = publisher.Begin(source.Pointer, 3, 2);
+            publisher.Commit(fifth, paused: true);
             Check(publisher.TryGetTextureContent(fifth.Pointer->propertyTextureFlow, flowBytes, out var changed) && changed != processed &&
                 publisher.TryGetTextureContent(fifth.Pointer->propertyTextureLiquid, 24, out var liquidAfter) && liquidAfter == liquidBefore);
             // Only the snapshot the game holds answers.

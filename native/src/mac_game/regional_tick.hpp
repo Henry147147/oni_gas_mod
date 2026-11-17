@@ -132,7 +132,7 @@ public:
   std::size_t pressure_attempt_depth() const {return attempt_depth;}
   std::size_t pressure_refinement_depth() const {return refinement_depth;}
   ma::experimental::mac_kernel::Pool& worker_pool() {return pool;}
-  // EXPERIMENT (Flow::set_sinks): owner-grid cells the owner empties every
+  // Space venting (Flow::set_sinks): owner-grid cells the owner empties every
   // frame, and their faces' speed cap; an empty mask or zero switches it off.
   void set_sinks(std::span<const std::uint8_t> cells,double speed) {
     if(!cells.empty() && cells.size()!=grid.N)throw std::invalid_argument("Game sink coverage differs");

@@ -20,6 +20,12 @@ Amendments:
   ([MAC_GAME_KERNEL.md](../native/MAC_GAME_KERNEL.md#source-energy),
   [settings](settings.md)). The playtest candidate stays version 0.1.2.
 
+- **Space vent speed, user decision 2026-11-17.** Use 3 m/s by default for
+  profile 12 gas entering cells exposed to space. A room vented through a
+  single opening depressurizes more slowly. The game supplies the current
+  exposure when loading an existing colony and as the player builds or digs.
+  [Gas at cells space empties](../native/MAC_GAME_KERNEL.md#gas-at-cells-space-empties)
+
 - **Profile 12 thin-gas heating (option C), user decision 2026-11-07:** keep
   the 1 g / 10 ms drag and keep thin gas near the temperature of the gas it
   touches, so a thin front can no longer heat itself step by step (the

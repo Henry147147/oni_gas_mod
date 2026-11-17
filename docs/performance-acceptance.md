@@ -187,7 +187,10 @@ Not established: the rule in game (no in-game scenario or acceptance step
 has run on it), and all of it on Windows.
 
 <a id="space-speed-experiment"></a>
-### A speed for space (experiment, off by default)
+### A speed for space (November 16 experiment)
+
+The November 17 playtest adopted 3 m/s with the live exposure map. The
+measurements below describe the original opt-in experiment.
 
 `MA_COLONY_SPACE_SPEED=<m/s>` targets a speed for gas crossing the faces
 of cells that space empties: the owner's open-sky cells and, for five
@@ -243,8 +246,7 @@ In order of what the measurements say is worth most:
    leaking hall. The cause is physical speed, not a defect: gas next to a
    cell that is emptied every frame leaves at the speed of sound, and the
    flow resolves it. An experiment that caps that speed is measured
-   [below](#space-speed-experiment); adopting it, and at what speed, is the
-   user's decision. What it leaves in those regions is machines' lumps
+   [above](#space-speed-experiment). The user subsequently chose 3 m/s. What it leaves in those regions is machines' lumps
    entering thin air, where sharing among nearby cells cannot help.
 2. **One large region on one core.** At two intervals a frame an
    18,000-cell base still takes 35 ms by itself (pressure 44 %, transport

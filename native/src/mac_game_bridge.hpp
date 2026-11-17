@@ -32,7 +32,7 @@ struct MacGameKernelAccess {
     thread_local MacClosedAdvanceReport::GameStages stages;
     return stages;
   }
-  // EXPERIMENT (mac_game/flow_local.hpp, Flow::set_sinks): the cells the
+  // Space venting (mac_game/flow_local.hpp, Flow::set_sinks): the cells the
   // owner empties every frame and the speed cap of their faces, for this
   // thread's following game advances. Empty or zero: off. Never saved.
   struct Sinks { std::vector<std::uint8_t> cells; double speed = 0; };

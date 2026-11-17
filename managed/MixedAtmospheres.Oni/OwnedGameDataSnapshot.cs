@@ -200,14 +200,12 @@ namespace MixedAtmospheres.Oni
 
         // Gives each texture plane the identity of the same plane in `previous`
         // when its bytes are equal, a new one otherwise. Only a copy of a
-        // zero-time data request (no native frame processed: every paused
-        // Unity frame) is compared; a processed frame gets new identities
-        // without a comparison, as its planes were rewritten. Returns the last
-        // identity issued.
-        internal long IdentifyTextures(OwnedGameDataSnapshot? previous, long issued)
+        // paused or zero-frame publication is compared. Active simulation
+        // issues new identities directly to avoid scanning the texture planes.
+        internal long IdentifyTextures(OwnedGameDataSnapshot? previous, long issued, bool paused)
         {
             RequireOpen();
-            var compare = Pointer->numFramesProcessed == 0;
+            var compare = paused || Pointer->numFramesProcessed == 0;
             for (var index = 0; index < Channels.Length; ++index)
             {
                 if (!Channels[index].Texture) continue;
@@ -540,7 +538,7 @@ namespace MixedAtmospheres.Oni
         }
         // Hands the candidate over; only then is the previous snapshot retired
         // (kept as the spare, or freed).
-        internal IntPtr Commit(OwnedGameDataSnapshot completed)
+        internal IntPtr Commit(OwnedGameDataSnapshot completed, bool paused = false)
         {
             if (disposed || !ReferenceEquals(completed, candidate))
             {
@@ -549,7 +547,7 @@ namespace MixedAtmospheres.Oni
                 throw new InvalidOperationException("The snapshot publication is no longer being built.");
             }
             var pointer = (IntPtr)completed.Pointer;
-            if (reuseBuffers) textureContents = completed.IdentifyTextures(current, textureContents);
+            if (reuseBuffers) textureContents = completed.IdentifyTextures(current, textureContents, paused);
             candidate = null;
             var previous = current;
             current = completed;

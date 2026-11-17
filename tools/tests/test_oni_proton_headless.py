@@ -23,6 +23,25 @@ common = runner.common
 
 
 class ProtonIsolationTests(unittest.TestCase):
+    def test_replay_capture_checks_consecutive_advanced_frames_and_complete_table(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp)
+            table = output / "diseases-1.bin"
+            table.write_bytes(bytes(12))
+            journal = output / "inputs-1.txt"
+            header = "session 1 restored_frames 21\n"
+            frames = "frame 22 flush 0 seconds 0.2\nframe 22 flush 1 seconds 0\nframe 23 flush 0 seconds 0.2\n"
+            journal.write_text(header + frames)
+            self.assertEqual(runner.check_replay_capture(output, 2), {"restored_frame": 21, "advanced_frames": 2})
+            with self.assertRaisesRegex(ValueError, "requested"):
+                runner.check_replay_capture(output, 3)
+            journal.write_text(header + frames.replace("frame 23", "frame 24"))
+            with self.assertRaisesRegex(ValueError, "Gap"):
+                runner.check_replay_capture(output, 2)
+            table.write_bytes(bytes(13))
+            with self.assertRaisesRegex(ValueError, "Incomplete disease"):
+                runner.check_replay_capture(output, 2)
+
     def test_measurement_variables_are_named_explicitly_and_limited(self):
         self.assertEqual(runner.measurement_environment(["MA_FRAME_LOG=1", "MA_COLONY_WORKERS=8"]),
                          {"MA_FRAME_LOG": "1", "MA_COLONY_WORKERS": "8"})

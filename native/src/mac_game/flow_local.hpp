@@ -328,7 +328,7 @@ public:
         volume_consistent(bound_pressure_volume && bound_room),
         patch(grid, &eos_pool, &topology) {}
   ma::experimental::mac_kernel::Pool &worker_pool() const { return eos_pool; }
-  // EXPERIMENT (PressureSolver::sinks): the cells the owner empties every
+  // Space venting (PressureSolver::sinks): the cells the owner empties every
   // frame and the speed cap of their faces; empty or zero switches it off.
   // The net-volume bound does not apply to those cells: what enters them is
   // deleted at the end of the frame.
@@ -658,11 +658,26 @@ public:
         request_refinement();
         return result;
       }
+      // Space venting only relaxes the bound for gas. Keep the normal
+      // volume check on liquid and on an empty tile receiving liquid.
+      const auto gas_sink = [&](std::size_t i) {
+        if (!pressure.sinks || !(*pressure.sinks)[i] || eos[i].liquid_nominal_volume > 0)
+          return false;
+        const auto liquid = [&](k::Index cell) {
+          return cell != k::none && eos[cell].liquid_nominal_volume > 0;
+        };
+        const auto l = g.left_face(i), r = g.right_face(i);
+        const auto b = g.bottom_face(i), t = g.top_face(i);
+        return !(projected.qx[l] > 0 && liquid(g.xl[l])) &&
+               !(projected.qx[r] < 0 && liquid(g.xr[r])) &&
+               !(projected.qy[b] > 0 && liquid(g.yl[b])) &&
+               !(projected.qy[t] < 0 && liquid(g.yr[t]));
+      };
       std::vector<double> maxima(g.blocks);
       rows([&](std::size_t y0, std::size_t y1, std::size_t block) {
         double largest = 0;
         for (std::size_t i = y0 * g.W; i < y1 * g.W; ++i) {
-          if (g.wall[i] || (pressure.sinks && (*pressure.sinks)[i])) continue;
+          if (g.wall[i] || gas_sink(i)) continue;
           const double divergence = projected.qx[g.right_face(i)] - projected.qx[g.left_face(i)] +
                                     projected.qy[g.top_face(i)] - projected.qy[g.bottom_face(i)];
           if (!std::isfinite(divergence)) {
@@ -705,7 +720,7 @@ public:
           // Diagnostic rescan (same bound as above) for the offending cell.
           double worst = -1;
           for (std::size_t i = 0; i < g.N; ++i) {
-            if (g.wall[i] || (pressure.sinks && (*pressure.sinks)[i])) continue;
+            if (g.wall[i] || gas_sink(i)) continue;
             const double divergence = projected.qx[g.right_face(i)] - projected.qx[g.left_face(i)] +
                                       projected.qy[g.top_face(i)] - projected.qy[g.bottom_face(i)];
             const double magnitude = std::isfinite(divergence) ? std::abs(divergence) : std::numeric_limits<double>::infinity();

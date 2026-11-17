@@ -16,8 +16,8 @@ void enable_flow_diagnostics(bool) noexcept;
 // Gas batches shared by nearby cells (docs/colony-owner.md#gas-batches); on
 // unless MA_COLONY_GAS_BATCHES=cell. Controls and comparisons switch it.
 void set_gas_batch_spreading(bool) noexcept;
-// EXPERIMENT, off (zero) unless MA_COLONY_SPACE_SPEED sets it: the speed in
-// m/s that gas may reach through the faces of cells space empties
+// Profile 12 targets 3 m/s for gas leaving through space-exposed faces.
+// MA_COLONY_SPACE_SPEED or this benchmark override can select zero for comparison
 // (docs/performance-acceptance.md#game-free-speed-check-2026-11-16).
 void set_space_speed(double) noexcept;
 // The last completed frame's flow stages and stepped regions.

@@ -300,12 +300,40 @@ namespace MixedAtmospheres.Oni
                 throw new InvalidOperationException("World membership grid differs from the owner.");
             var identities=layout.CellWorldIds();
             var membership=new byte[publicationCells.Length];
+            var spaceZone = new List<int>();
+            var zones = World.Instance.zoneRenderData;
             for(var i=0;i<membership.Length;++i)
             {
                 var cell=publicationCells[i];
-                if(identities[cell]>=0&&Grid.WorldIdx[cell]==identities[cell])membership[i]=1;
+                if(identities[cell]<0 || Grid.WorldIdx[cell]!=identities[cell])continue;
+                membership[i]=1;
+                if(zones!=null && zones.GetSubWorldZoneType(cell)==ProcGen.SubWorld.ZoneType.Space)
+                    spaceZone.Add(cell);
             }
             OniNativeColony.Check(OniNativeColony.SetWorldMask(membership,(uint)membership.Length));
+            spaceZoneCells = spaceZone.ToArray();
+            exposedCells = new uint[spaceZoneCells.Length];
+            exposureState = new bool[spaceZoneCells.Length];
+            RefreshSpaceExposure(true);
+        }
+        private static int[] spaceZoneCells = Array.Empty<int>();
+        private static uint[] exposedCells = Array.Empty<uint>();
+        private static bool[] exposureState = Array.Empty<bool>();
+        // Backwalls, buildings and doors can change exposure without changing
+        // fluid topology. Check the game's own predicate before a positive tick.
+        // The owner is fenced only when the answer actually changed.
+        private static void RefreshSpaceExposure(bool changed = false)
+        {
+            uint count = 0;
+            for(int i=0;i<spaceZoneCells.Length;++i)
+            {
+                var cell = spaceZoneCells[i];
+                var exposed = !Grid.Solid[cell] && CellSelectionObject.IsExposedToSpace(cell);
+                if(exposureState[i]!=exposed)changed=true;
+                exposureState[i]=exposed;
+                if(exposed)exposedCells[count++]=(uint)cell;
+            }
+            if(changed)OniNativeColony.Check(OniNativeColony.SetVentCells(exposedCells,count));
         }
         // The configuration and catalogue the running game would give this asteroid.
         internal static (OniNativeColony.Config config, OniNativeColony.Material[] materials) Describe(uint? savedFlags = null)
@@ -542,7 +570,7 @@ namespace MixedAtmospheres.Oni
             // The last step: until here a failure (the caller returns no data,
             // so the game keeps reading the snapshot it already has) leaves
             // that snapshot current and readable. Nothing may follow it.
-            return publication.Commit(copy);
+            return publication.Commit(copy, SpeedControlScreen.Instance != null && SpeedControlScreen.Instance.IsPaused);
         }
 
         // Only a completed publication whose receipt epoch, owner and fault
@@ -738,6 +766,7 @@ namespace MixedAtmospheres.Oni
             if (message == NewGameFrame && length >= 4)
             {
                 var begun = publicationLog ? System.Diagnostics.Stopwatch.GetTimestamp() : 0;
+                if (*(float*)payload > 0) RefreshSpaceExposure();
                 ColonyActivity.QueueFrame(*(float*)payload, settle: true);
                 if ((publicationLog || ColonyPerformanceLog.Enabled) && *(float*)payload > 0)
                 {

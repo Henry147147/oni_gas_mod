@@ -15,6 +15,7 @@ import os
 from pathlib import Path, PureWindowsPath
 import secrets
 import shutil
+import struct
 import subprocess
 import sys
 import time
@@ -274,6 +275,38 @@ def cleanup_run(record, xvfb, prefix_started: bool, proton: Path, output: Path) 
         raise RuntimeError("Run cleanup failed: " + "; ".join(errors))
 
 
+def check_replay_capture(output: Path, required_frames: int) -> dict:
+    journals = list(output.glob("inputs-*.txt"))
+    diseases = list(output.glob("diseases-*.bin"))
+    if len(journals) != 1 or len(diseases) != 1:
+        raise ValueError("Expected one owner journal and one disease table")
+    table = diseases[0].read_bytes()
+    if len(table) < 12:
+        raise ValueError("Truncated disease table")
+    count, growth, elements = struct.unpack_from("<III", table)
+    if growth != count * elements or len(table) != 12 + 48 * count + 32 * growth:
+        raise ValueError("Incomplete disease table")
+    with journals[0].open("rb") as stream:
+        header = stream.readline().split()
+        if len(header) != 4 or header[0] != b"session" or header[2] != b"restored_frames":
+            raise ValueError("Missing restored owner frame")
+        restored = int(header[3])
+        advanced = 0
+        for line in stream:
+            if not line.startswith(b"frame "):
+                continue
+            fields = line.split()
+            if len(fields) < 6 or fields[2] != b"flush" or fields[3] not in (b"0", b"1"):
+                raise ValueError("Malformed owner frame")
+            if fields[3] == b"0":
+                advanced += 1
+                if int(fields[1]) != restored + advanced:
+                    raise ValueError("Gap in owner replay frames")
+    if advanced < required_frames:
+        raise ValueError(f"Captured {advanced} of {required_frames} requested frames")
+    return {"restored_frame": restored, "advanced_frames": advanced}
+
+
 def playtest(args, state: Path, session: dict) -> int:
     dlc_mask = getattr(args, "dlc_mask", None)
     if dlc_mask is not None:
@@ -332,6 +365,10 @@ def playtest(args, state: Path, session: dict) -> int:
         env=owner_fault_environment(env,args,output,result)
         env=storage_heat_environment(env,args,output,result)
         measured=measurement_environment(getattr(args,"measurement_env",None) or [])
+        if getattr(args, "capture_inputs", False):
+            if args.mode != "colony-owner-load":
+                raise ValueError("--capture-inputs requires colony-owner-load")
+            measured["MA_COLONY_INPUT_JOURNAL_DIR"] = windows_path(output)
         if measured:
             env.update(measured)
             result["measurement_environment"]=measured
@@ -487,6 +524,12 @@ def playtest(args, state: Path, session: dict) -> int:
         owner_ok = args.mode in OWNER_MODES and colony_owner_passed(owner)
         if code == 0 and args.mode in OWNER_MODES and not owner_ok:
             status, code = "failed-colony-owner-evidence", 2
+        if code == 0 and getattr(args, "capture_inputs", False):
+            try:
+                result["replay_capture"] = check_replay_capture(output, args.frames)
+            except (OSError, ValueError) as error:
+                result["replay_capture_error"] = str(error)
+                status, code = "failed-replay-capture", 2
         result["dlc_selection_verified"] = False
         if dlc_mask is not None:
             try:
@@ -625,6 +668,8 @@ def main() -> int:
     parser.add_argument("--game-dir", type=Path, default="/mnt/data/share/oni/OxygenNotIncluded")
     parser.add_argument("--proton", type=Path, required=True, help="Installed complete Proton tool root")
     parser.add_argument("--package", type=Path, required=True)
+    parser.add_argument("--capture-inputs", action="store_true",
+                        help="Write private owner replay inputs and disease table into this load run directory")
     parser.add_argument("--measurement-env", action="append", metavar="NAME=VALUE",
                         help="Pass a development measurement variable to the game (repeatable): " + ", ".join(MEASUREMENT_VARIABLES))
     parser.add_argument("--spaced-out-control", action="store_true",

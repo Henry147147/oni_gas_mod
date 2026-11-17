@@ -166,9 +166,10 @@ and 100 fps is one frame in six or seven. A transpiler replaces the five
 and size match the upload made since the latest `StepTheSim` skips the copy
 and the upload, and an upload is forced at least every half second. Under the
 colony owner the source is a plane of its published snapshot, which carries a
-content identity: a zero-time data request (every paused Unity frame) whose
-plane has the same bytes as the snapshot the game held keeps that identity,
-anything else gets a new one. An upload of the same identity is reused across
+content identity. Paused publications and requests with zero processed frames
+compare each plane with the snapshot the game held. Equal bytes retain their
+identity, even when a paused request acknowledges native frames. Changed
+planes and active simulation steps receive new identities. An upload of the same identity is reused across
 data requests too, so a paused game uploads a plane only when it changed (and
 every half second). If the
 method no longer has exactly five copies and one upload, it is left as the

@@ -184,6 +184,9 @@ MA_ONI_API uint32_t ma_oni_colony_game_kernel_version(void);
  * This metadata changes no fluid inventory, time or checkpoint bytes. */
 MA_ONI_API uint32_t ma_oni_colony_world_mask_version(void);
 MA_ONI_API MAOniResult ma_oni_colony_set_world_mask(const uint8_t*, uint32_t count);
+/* Replace the sorted public cells ONI currently exposes to space. Empty clears
+ * the additional vent faces. This affects gas drag only, never custody. */
+MA_ONI_API MAOniResult ma_oni_colony_set_vent_cells(const uint32_t*, uint32_t count);
 /* Dynamic cluster-world boundary metadata. The caller holds the game
  * submitter; this waits for the owner and atomically replaces only the named
  * space flags. No inventory or physical time is changed. These flags already

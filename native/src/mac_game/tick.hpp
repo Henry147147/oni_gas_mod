@@ -137,7 +137,7 @@ public:
   ma::experimental::mac_kernel::Pool &worker_pool() const {
     return flow.worker_pool();
   }
-  // EXPERIMENT (Flow::set_sinks).
+  // Space venting (Flow::set_sinks).
   void set_sinks(std::vector<std::uint8_t> cells, double speed) { flow.set_sinks(std::move(cells), speed); }
   TickResult advance(const State &initial, double dt, double gravity,
                      double threshold,

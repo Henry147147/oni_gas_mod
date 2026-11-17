@@ -1248,6 +1248,14 @@ MAOniResult ma_oni_colony_set_world_mask(const std::uint8_t* membership,std::uin
         catch(const std::invalid_argument& error){throw Failure(MA_ONI_INVALID_ARGUMENT,error.what());}
     });
 }
+MAOniResult ma_oni_colony_set_vent_cells(const std::uint32_t* cells,std::uint32_t count) {
+    return boundary([&] {
+        if((count && !cells) || count>MA_ONI_COLONY_MAXIMUM_CELLS)
+            throw Failure(MA_ONI_INVALID_ARGUMENT,"Invalid space exposure cells");
+        try {ma::oni::colony::set_vent_cells(std::span(cells,count));}
+        catch(const std::invalid_argument& error){throw Failure(MA_ONI_INVALID_ARGUMENT,error.what());}
+    });
+}
 std::uint32_t ma_oni_colony_cluster_world_version() {return 1;}
 MAOniResult ma_oni_colony_set_space_cells(const std::uint32_t* cells,std::uint32_t count,std::uint32_t space) {
     return boundary([&] {

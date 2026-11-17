@@ -176,6 +176,8 @@ namespace MixedAtmospheres.Oni
         internal static extern uint WorldMaskVersion();
         [DllImport(Library, EntryPoint = "ma_oni_colony_set_world_mask", CallingConvention = CallingConvention.Cdecl)]
         internal static extern int SetWorldMask([In] byte[] membership,uint count);
+        [DllImport(Library, EntryPoint = "ma_oni_colony_set_vent_cells", CallingConvention = CallingConvention.Cdecl)]
+        internal static extern int SetVentCells([In] uint[] cells, uint count);
         [DllImport(Library, EntryPoint = "ma_oni_colony_cluster_world_version", CallingConvention = CallingConvention.Cdecl)]
         internal static extern uint ClusterWorldVersion();
         [DllImport(Library, EntryPoint = "ma_oni_colony_set_space_cells", CallingConvention = CallingConvention.Cdecl)]

@@ -103,6 +103,11 @@ play.
   save is saved, and after a load injected, as a plain injection, so
   checkpoint bytes are unchanged. The stage log prints `open-sky exhaust frame
   N: parcels P kg M` for each frame that sinks some.
+  Profile 12 targets 3 m/s on gas faces at open sky and on additional cells
+  where ONI reports exposure to space. Its exposure map is refreshed at load
+  and when exposure changes. Windows input captures include the map for
+  game-free replays. The existing sink and native takes account for all
+  material leaving through those cells.
 - **Trace sink** ([base-game floor](base-game-floor.md)). A colony started with
   `MA_ONI_COLONY_GAME_FLOOR` runs the saved game-floor profile: constituents
   below its threshold (1e-11 kg per cell, the smallest passing tested decade)
@@ -345,9 +350,9 @@ sees it: an electrolyser's 0.112 kg of hydrogen is twice the amount of its
 Everything else keeps the one-cell rule: liquids (a lump is a small part of
 a liquid cell), additions that carry germs or answer a pipe, a batch whose
 own cell is open sky (it leaves through the sky as before), and thin
-surroundings, where a share of a half would not cover the batch. A take meant
-to empty its cell, as ONI's deletion of gas exposed to space is booked, is
-such a case and still empties that cell only. Mass, energy and germs are
+surroundings, where a share of a half would not cover the batch. An anonymous zero-radius gas-mixture take that empties its cell also stays
+local, even when neighbouring cells contain enough gas to cover the request.
+Repeating that deletion on an empty cell takes zero. Mass, energy and germs are
 booked parcel by parcel as before; only which cells give or receive changes.
 `MA_COLONY_GAS_BATCHES=cell` restores the one-cell rule for comparisons.
 
