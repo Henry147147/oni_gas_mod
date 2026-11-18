@@ -417,6 +417,17 @@ namespace MixedAtmospheres.Oni
         // A normal new colony with the colony owner (docs/colony-owner.md): pass
         // after the requested owner frames without a fault.
         private static readonly ColonyFrameWindow colonyWindow = new ColonyFrameWindow();
+        // Machine pipe ports since this report's first sample, so a loaded
+        // colony's run shows what its machines passed into and out of pipes.
+        private static (ulong Frame, long Intakes, long Outputs, double In, double Out)? firstPipePorts;
+        private static object? PipePortReport(ulong frame)
+        {
+            if (!ColonyMachinePorts.Enabled) return null;
+            var now = (Frame: frame, Intakes: ColonyMachinePorts.Consumed, Outputs: ColonyMachinePorts.Dispensed, In: ColonyMachinePorts.ToStorage.Mass, Out: ColonyMachinePorts.FromStorage.Mass);
+            var first = firstPipePorts ??= now;
+            return new { Mode = ColonyPipeRuntime.StatusLine, SinceFrame = first.Frame, Frames = now.Frame - first.Frame, Intakes = now.Intakes - first.Intakes, Outputs = now.Outputs - first.Outputs,
+                ToStorageKg = now.In - first.In, FromStorageKg = now.Out - first.Out };
+        }
         private static System.DateTime colonyOwnerWallStart;
         private static void ColonyOwnerScene()
         {
@@ -487,7 +498,7 @@ namespace MixedAtmospheres.Oni
                 BlockedMilliseconds = ColonyOwner.BlockedMilliseconds.ToDictionary(item => item.Key.ToString(), item => item.Value),
                 LongestBlockMilliseconds = ColonyOwner.LongestBlockMilliseconds.ToDictionary(item => item.Key.ToString(), item => item.Value),
                 Census = ColonyOwner.Census.OrderByDescending(item => item.Value).ToDictionary(item => item.Key.ToString(), item => item.Value),
-                Scenario = ColonyScenarios.Current, Scenarios = ColonyScenarios.Results, OwnerMenuReload = OwnerReloadReport(), RestoredOwner = ColonyOwnerPersistence.RestoredReport(), SaveBarrier = ColonySaveBarrier.Report(), SavedParticles = ColonySavedParticles.Report(), PipeSave = ColonyPipeSave.Report(), SaveControl = ColonySaveControls.Report(), Continuation = ColonyContinuationProbe.Report(), CallbackRequests = ColonyCallbackRequests.Report(),
+                Scenario = ColonyScenarios.Current, Scenarios = ColonyScenarios.Results, OwnerMenuReload = OwnerReloadReport(), RestoredOwner = ColonyOwnerPersistence.RestoredReport(), SaveBarrier = ColonySaveBarrier.Report(), SavedParticles = ColonySavedParticles.Report(), PipeSave = ColonyPipeSave.Report(), PipePorts = PipePortReport(status.CompletedFrames), SaveControl = ColonySaveControls.Report(), Continuation = ColonyContinuationProbe.Report(), CallbackRequests = ColonyCallbackRequests.Report(),
                 Consumers = ColonyActors.Consumers, Emitters = ColonyActors.Emitters, NativeActors = ColonyActors.Native, ActorTransfers = ColonyActors.Queued, ConsumerEvents = ColonyActors.Delivered,
                 Error = status.Error
             };

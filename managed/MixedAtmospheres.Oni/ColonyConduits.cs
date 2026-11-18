@@ -350,14 +350,17 @@ namespace MixedAtmospheres.Oni
             {if(committed||!ReferenceEquals(cell.Inventory,before))throw new InvalidOperationException("An owned pipe changed during its prepared storage transfer.");}
             internal void Commit(){Validate();cell.Inventory=after;committed=true;}
             internal void Publish()
-            {if(!committed)throw new InvalidOperationException("An uncommitted pipe transfer cannot publish.");ColonyConduits.Publish(flow,index,removed?MassPublication.Removed:MassPublication.Staged);}
+            {if(!committed)throw new InvalidOperationException("An uncommitted pipe transfer cannot publish.");ColonyConduits.Publish(flow,index,removed?MassPublication.Removed:MassPublication.Added);}
         }
         internal static PreparedPortChange PrepareReceiveExact(ConduitFlow flow,int cell,PipeInventory incoming)
         {
             if(!Owns(flow,cell)||!flow.HasConduit(cell))throw new InvalidOperationException("A machine port wrote outside an owned pipe.");
             SyncNative(flow,cell);var target=Ensure(flow,cell);var joined=target.Inventory.Joined(incoming);
             if(joined.Total.Minus(new PipeAmount(Flows[flow].Capacity)).Sign>0)throw new InvalidOperationException("A machine port exceeded its pipe capacity.");
-            // Like native AddElement, the new mass is not movable this tick.
+            // Native AddElement consolidates the cell's mass stages, so what a
+            // machine adds after this tick's moves can move on the next tick.
+            // Left staged it waited one tick more and every machine outlet
+            // passed half a pipe (Windows playtest, 2026-11-18).
             return new PreparedPortChange(flow,cell,target,joined);
         }
         internal static void AdjustGerms(ConduitFlow flow,int cell,int disease,double delta,bool exchange=false)
@@ -378,7 +381,8 @@ namespace MixedAtmospheres.Oni
             var from=Ensure(flow,source);var to=Ensure(flow,target);
             var moved=PipeInventory.Transfer(from.Inventory,to.Inventory,Math.Min(maximum,(double)Flows[flow].Capacity),Flows[flow].Capacity,MaterialLookup);
             from.Inventory=moved.Source;to.Inventory=moved.Target;
-            if(moved.Parcel.Count>0){Publish(flow,source,MassPublication.Removed);Publish(flow,target);}
+            // The native bridges add through AddElement, which consolidates.
+            if(moved.Parcel.Count>0){Publish(flow,source,MassPublication.Removed);Publish(flow,target,(float)moved.Parcel.Mass>0?MassPublication.Added:MassPublication.Staged);}
             return moved.Parcel;
         }
         internal static bool Owns(ConduitFlow flow,int cell) => Active && geometry.Contains(cell) && Flows.ContainsKey(flow);

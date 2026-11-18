@@ -707,7 +707,8 @@ namespace MixedAtmospheres.Oni
             if (mass <= 0) return;
             var element = ElementLoader.FindElementByHash(id);
             if (element == null || (!element.IsGas && !element.IsLiquid) || element.IsVacuum) return;
-            output.Add(label + ": " + element.name + " · " + Number(mass) + " kg · " + Number(temperature) + " K");
+            // The player's mass and temperature units, as the pipe and cell readings use.
+            output.Add(label + ": " + element.name + " · " + PacketMass(mass, true) + " · " + PacketTemperature(temperature));
         }
         internal static string Number(double value) => ExactReadings ? value.ToString("G10", CultureInfo.InvariantCulture) : Friendly(value);
         // Ordinary packet amounts retain readable mass units. Very small

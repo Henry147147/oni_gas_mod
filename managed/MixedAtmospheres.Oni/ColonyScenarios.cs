@@ -172,6 +172,7 @@ namespace MixedAtmospheres.Oni
                     case "mixed-pipe-catalogue": MixedPipeCatalogue(frame); break;
                     case "pacu": Pacu(frame); break;
                     case "liquid-pump": LiquidPump(frame); break;
+                    case "pipe-throughput": PipeThroughput(frame); break;
                     case "base": Base(frame, status); break;
                     case "full-colony-base": FullColonyBase(frame, status); break;
                     case "full-colony-spacedout": FullColonySpacedOut(frame, status); break;

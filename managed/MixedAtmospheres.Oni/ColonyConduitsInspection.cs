@@ -19,7 +19,9 @@ namespace MixedAtmospheres.Oni
             if(inventory.Count==0)return new MixturePipeReading(label,new[]{"Empty"},new[]{"Empty"},flow,cell);
             var temperature=inventory.Temperature(ColonyConduits.Material);
             var state=MixtureInspection.PacketTemperature(temperature)+" · "+MixtureInspection.PacketMass(inventory.Mass,inventory.Total.Sign>0);
-            hover.Add(state);detail.Add(state+" · "+temperature.ToString("R",CultureInfo.InvariantCulture)+" K");
+            // The kelvin figure belongs to the Exact reading precision, as in
+            // the cell readings; the rounded line already gives the player's unit.
+            hover.Add(state);detail.Add(MixtureInspection.ExactReadings&&GameUtil.temperatureUnit!=GameUtil.TemperatureUnit.Kelvin?state+" · "+Number(temperature)+" K":state);
             var traces=false;
             var shares=new List<string>();
             foreach(var part in inventory.Parts)

@@ -1,5 +1,17 @@
 # Feature completion work
 
+**Update, 2026-11-18, pipes behind machines.** The user's 91-minute Windows
+recording of release test `c9e73d2` showed every pipe behind a reservoir or
+refinery carrying a packet in every other cell. Machine outlets published
+their packets as mass still in transit, so each waited a tick too long:
+every machine outlet passed half a pipe. Outlets now consolidate as ONI's
+do, and the in-game check `pipe-throughput` holds the full rate
+([throughput](mixed-pipes.md#throughput)). The same session ran at 2.84×
+on average with 3× selected on the user's PC. Seen and left for the user:
+a natural hydrogen pocket at 1,320 kPa that chills to −179 °C when opened,
+a garbage-collection freeze about every half minute
+([the recording](playtest-2026-11-18.md)).
+
 **November 18 speed experiments.** The private Windows test `c9e73d2`
 keeps the 3 m/s space vent drag on gas carrying trace droplets. The
 14-duplicant Spaced Out! colony now sustains 1.43× on the Windows player

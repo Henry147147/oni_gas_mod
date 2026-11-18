@@ -244,6 +244,30 @@ runs stopped on fixture setup errors (read a dispenser the conditioner lacks;
 an output route that shared the input pipe made the conditioner recirculate
 until the water froze); the criteria did not change.
 
+### Throughput
+
+ONI moves pipe contents once a second and then runs every machine port.
+A packet that a port adds is whole again at once (`ConduitFlow.AddElement`
+consolidates the cell's mass stages), so the next tick moves it on and the
+port finds its outlet cell free: a liquid outlet passes 10 kg a second and a
+gas outlet 1 kg. Until 2026-11-18 a machine outlet published its packet
+staged, as mass received during the tick. The packet then waited one tick
+more before it could move, the outlet cell was still full when the port
+ran again, and every machine outlet (reservoirs, refineries, conditioners,
+the conduction panel bridge, the morb rover maker) passed a packet every
+other tick: half a pipe, with full and empty cells alternating. Pumps, valves
+and filters publish consolidated mass and were not affected. The user's
+Windows recording of 2026-11-18 showed it behind a liquid reservoir
+([what the recording showed](playtest-2026-11-18.md)). Outlets and the two
+bridges now consolidate as the game does.
+
+`pipe-throughput` checks it in game: a liquid pump in a pool feeds reservoir
+A, whose outlet feeds reservoir B. Over 50 pipe ticks each stage must pass
+at least 475 kg (95 % of a full pipe). On the playtest build the pump drew
+500.0 kg and A passed 250.0 kg, its pipe holding 10, 0, 10, 0, 10, 0 kg by
+cell. With the change the pump draws 500.0 kg and B gains 500.0 kg, every
+cell of the pipe full, and every pipe account closes exactly.
+
 ### Readers
 
 Element, germ and thermo sensors read the owned mixture (element true at or
