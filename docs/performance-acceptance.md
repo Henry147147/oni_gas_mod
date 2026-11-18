@@ -1,5 +1,105 @@
 # Performance acceptance measurements
 
+## November 18 speed experiments
+
+The adopted change at `c9e73d2` keeps the 3 m/s vent drag on a face carrying gas and at most
+1 mL of entrained liquid per cubic metre. The previous build switched off the drag as soon
+as any liquid appeared. Liquid moving through vacuum receives its ordinary drag, including
+when the liquid is a lone droplet. The full liquid swept-volume check still applies to a
+cell containing or receiving any liquid. The checkpoint format is compatible. A
+deterministic pressure test exercises both orientations, either exposed endpoint, dry gas, a
+trace, exactly the cutoff, the next representable fraction above it, a wetter face and
+liquid without gas. The old implementation fails the trace case.
+
+The meteor journal contains 1,485 marked injections of about 1.67 kg after its restore
+frame. Of these, 1,253 landed in cells reported as exposed that tick. A prototype recognized
+an exposed, entirely empty cell as an endpoint when searching for sky-connected vacuum. On
+155 identical storm ticks its final serialized owner hash and regional step counts matched
+the control. This shortcut did not address the stall.
+
+For the matched game-free runs, each executable starts from the same private owner and reads
+the same 155 frame inputs per colony. Ten ticks warm the solver and 145 supply the times.
+The Ryzen 9 5900X test host reserves both CPU halves for these comparisons, pins the
+benchmark to CPUs 0–11 and uses 12 workers except in the worker-count test. Each entry is
+mean owner milliseconds per 0.2 game seconds. Real 3× also needs time for the player.
+
+| Replay option | Uploaded storm | 14-duplicant Spaced Out! | 32-duplicant industrial |
+| --- | ---: | ---: | ---: |
+| Previous release, 3 m/s on gas-only faces | 140.6 | 215.8 | 44.9 |
+| Adopted gas and mist, 3 m/s | 140.1 | 99.6 | 45.0 |
+| Repeat of adopted setting | 140.2 | 100.7 | — |
+| Four workers | 155.9 | 93.1 | 48.0 |
+| Compile for x86-64-v3 with strict floating point | 137.8 | 89.8 | 44.5 |
+| Reduce vent speed to 1 m/s | 112.6 | 86.3 | — |
+
+With the adopted change the slowest Spaced Out! region went from 113.57 to 21.41 flow
+intervals per tick. The other two replays retained their final owner hashes. Four workers
+helped one colony but cost time in the other two. The x86-64-v3 executable retained all
+three owner hashes and gained about 10% on Spaced Out!, with smaller gains elsewhere. The
+private Windows package retains the project's x64 CPU baseline. The additional 1 m/s setting
+cut the mass discharged through the controlled single-tile opening from 5.70 kg to 3.18 kg
+over two game seconds. The selected default stays 3 m/s.
+
+The surface region contained material in only 2,405 of 15,381 open cells on the first storm
+tick. All 46 upper rows were empty then. A prototype retained the lower part and retried the
+full tick if a moving front reached its margin. A 40-row trial touched the margin on 43 of
+its first 60 attempts, and cost 174 ms per warmed owner tick. Keeping 56 rows avoided the
+retries on the 155-tick replay, but changed the final owner hash. Neither variant is enabled
+in the Windows package.
+
+The wider margin's repeat measured 141.0 ms over the full rectangle and 133.5 ms with the
+shorter rectangle. Of 55,280 sampled cells, 2,399 had some difference after 155 ticks. The
+maximum differences were 1.62e-5 K, 1.18e-6 Pa and 2.39e-10 kg of one constituent in one
+cell. The roughly 5% saving changed the numerical trajectory, so the wider margin remains
+experimental.
+
+A second prototype used independent pressure and transport timesteps on opposite sides of an
+initially empty vertical gap. The trial guarded both sides throughout flow and layering and
+restored the full-region calculation on contact. On 143 of 155 storm ticks it found a
+candidate gap. The gas reached the guard on all 143 attempts. The final owner hash matched
+the full solve and warmed owner time rose from 140.1 to 151.1 ms. A method that exchanges
+conserved flux across an occupied interface remains untested.
+
+The generated 384×384 colony with a vented hall measured an estimated 1.59×, and the same
+sealed layout measured 2.34× (100 frames with 10 warmup). Both correctly failed the
+standalone 3× gate.
+
+### Private player results
+
+| Colony with 3× selected | Previous package | Adopted package | Adopted package, 1 m/s override |
+| --- | ---: | ---: | ---: |
+| 14 duplicants, Spaced Out!, Windows player under Proton | 0.803× | 1.432× | — |
+| Uploaded meteor shower, Windows player under Proton | 0.712× | 0.833× | 1.015× |
+| 32 duplicants, industrial base, Linux player | 2.544× | 2.523× | — |
+
+These are game seconds divided by wall seconds across three complete unpaused 150-tick
+windows on each full colony and two on the storm. The uploaded save ran for 455 ticks per
+trial and the other two for 605 each. Each trial used the same save and renderer settings as
+its previous package comparison and exited normally. The Windows runs captured inputs and
+checked for exposed vents over every requested tick. No performance samples were dropped.
+The gas-and-mist change alone made no difference in the matched storm input replay, so the
+higher live storm result cannot be attributed to it. At 1 m/s the two storm windows measured
+1.028× and 1.002×. These are short tests under Proton on Linux. Sustained 3× and native
+Windows OS timings remain open.
+
+Run the three private input replays on this workspace without starting ONI.
+
+```sh
+cmake --build build-production --target ma_colony_benchmark -j 8
+tools/run_locked.sh high python3 tools/colony_speed.py --build build-production \
+  --case replay-playtest-nov17-surface --case replay-spacedout-full-surface \
+  --case replay-industrial-32 --frames 155 --warmup 10 --workers 12 --require 3
+```
+
+For a controlled WindowsPlayer comparison, the Proton harness accepts `--measurement-env
+MA_COLONY_SPACE_SPEED=1` and records it in the run result. The shipped default is 3 m/s.
+
+The exact Windows package passed 95 native tests under Wine, the managed hook tests and
+system DLL import checks. The Linux package passed 94 native tests. Across 146 commands from
+clean solver builds all exits and non-timing output agreed, and all 62 registered solver
+commands passed. The Python suite ran 544 tests with 11 platform skips. The Windows ZIP
+SHA-256 is `9b4bebc5015c847cdfbf031a2b3602b09bfe6e1f2fafc74aef22e71bad911188`.
+
 ## Surface slowdown in the November 17 Windows playtest
 
 The submitted Windows log records a fall to 0.336 game seconds per real second

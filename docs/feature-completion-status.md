@@ -1,5 +1,13 @@
 # Feature completion work
 
+**November 18 speed experiments.** The private Windows test `c9e73d2`
+keeps the 3 m/s space vent drag on gas carrying trace droplets. The
+14-duplicant Spaced Out! colony now sustains 1.43× on the Windows player
+under Proton, up from 0.80×. The uploaded meteor shower measured 0.83×
+at the default and 1.015× with an experimental 1 m/s vent. The
+32-duplicant industrial base measured 2.52× on Linux. Sustained 3×
+remains open. [Player and standalone experiments](performance-acceptance.md#november-18-speed-experiments)
+
 **Update, 2026-11-18, Windows playtest slowdown.** The private release test
 `c87a65e` uses the chosen 3 m/s default for gas venting to space. In the
 uploaded meteor-shower save, the original and patched Windows players ran
