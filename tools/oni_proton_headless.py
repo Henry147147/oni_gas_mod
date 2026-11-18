@@ -603,7 +603,8 @@ def playtest(args, state: Path, session: dict) -> int:
 # Development measurement controls (docs/colony-owner.md#main-thread-smoothness):
 # the owner environment above strips every MA_ variable, so a frame-time run
 # names these explicitly and the result records them.
-MEASUREMENT_VARIABLES = ("MA_FRAME_LOG", "MA_COLONY_PRESENTATION_EAGER", "MA_COLONY_RECEIPT_BUDGET_MS", "MA_COLONY_WORKERS")
+MEASUREMENT_VARIABLES = ("MA_FRAME_LOG", "MA_COLONY_PRESENTATION_EAGER", "MA_COLONY_RECEIPT_BUDGET_MS",
+                         "MA_COLONY_WORKERS", "MA_COLONY_SPACE_SPEED")
 
 
 def measurement_environment(assignments):
@@ -612,6 +613,11 @@ def measurement_environment(assignments):
         name, separator, value = item.partition("=")
         if not separator or name not in MEASUREMENT_VARIABLES:
             raise ValueError("--measurement-env takes NAME=VALUE with NAME one of " + ", ".join(MEASUREMENT_VARIABLES))
+        if name == "MA_COLONY_SPACE_SPEED":
+            speed = float(value)
+            if not math.isfinite(speed) or speed < 0:
+                raise ValueError("MA_COLONY_SPACE_SPEED must be a finite nonnegative speed in m/s")
+            value = str(speed)
         result[name] = value
     return result
 

@@ -55,7 +55,13 @@ class ProtonIsolationTests(unittest.TestCase):
         for bad in ("MA_FRAME_LOG", "MA_COLONY_KERNEL3=1", "PATH=x"):
             with self.assertRaises(ValueError):
                 runner.measurement_environment([bad])
-        env = runner.owner_environment({"PATH": "fixture", "MA_FRAME_LOG": "1"}, SimpleNamespace(mode="colony-owner"))
+        self.assertEqual(runner.measurement_environment(["MA_COLONY_SPACE_SPEED=1"]),
+                         {"MA_COLONY_SPACE_SPEED": "1.0"})
+        for speed in ("-1", "nan", "inf", "1m/s"):
+            with self.assertRaises(ValueError):
+                runner.measurement_environment(["MA_COLONY_SPACE_SPEED=" + speed])
+        env = runner.owner_environment({"PATH": "fixture", "MA_FRAME_LOG": "1", "MA_COLONY_SPACE_SPEED": "1"},
+                                       SimpleNamespace(mode="colony-owner"))
         self.assertEqual(env, {"PATH": "fixture"})
 
     def test_exact_storage_control_is_explicit_and_keeps_other_overrides_out(self):
