@@ -1,5 +1,15 @@
 # Feature completion work
 
+**Update, 2026-11-18, Windows playtest slowdown.** The private release test
+`c87a65e` uses the chosen 3 m/s default for gas venting to space. In the
+uploaded meteor-shower save, the original and patched Windows players ran
+the same first 150 ticks at 0.265× and 0.636× on Proton with 3× selected.
+The patched player sustained 0.712× across two subsequent unpaused windows.
+The 14-duplicant Spaced Out! save averaged 0.803× on Proton and the
+32-duplicant industrial base 2.544× on Linux. The 3× target remains open.
+The logged inputs from both Windows saves can now be replayed without ONI.
+[Reproduction, fixed defects and measurements](performance-acceptance.md#surface-slowdown-in-the-november-17-windows-playtest)
+
 **Update, 2026-11-17, live full-colony speed and Windows release test:**
 the exact `b8d7b94` packages pass 94/94 Linux and 95/95 Wine native tests;
 the targeted WindowsPlayer-under-Proton settings source and cold load pass all

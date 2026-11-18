@@ -1,5 +1,110 @@
 # Performance acceptance measurements
 
+## Surface slowdown in the November 17 Windows playtest
+
+The submitted Windows log records a fall to 0.336 game seconds per real second
+on the 1× button, with no pause or dropped performance samples over frames
+30521–30670. Of the 577 ms average owner tick, flow used 545 ms. The final
+636×404 Spaced Out! save restores at owner frame 30942. On its first resumed
+tick, the 15,381-cell surface region alone took 242 flow intervals and 6.19 s.
+The underground base needed three intervals. The live input journal contains
+repeated 1.67 kg comet releases of polluted oxygen carrying germs at the surface.
+These keep the gas moving into vacuum while the player works underground.
+
+The selected 3 m/s gas vent target is active in profile 12. A controlled
+single-tile opening passed 5.70 kg in two simulated seconds with the new
+default and 17.38 kg with unrestricted venting. The same test checks identical
+liquid outflow, closing a live vent, local whole-cell gas removal and balanced
+mass and energy. Paused map publications also compare texture bytes when
+the native simulation acknowledges frames. The original recording's log had
+4,975 map uploads and zero reuses in 995 consecutive paused frames. With
+the release ZIP, the game saved the uploaded colony to a private test file
+and paused. Across three complete 15-second windows at time scale zero,
+2,161 rendered frames recorded 440 map uploads and 10,365 reuses (95.9%).
+Mean mod time while paused was still 13.3–13.5 ms per rendered frame.
+
+| Same 155 recorded input ticks, owner frames 30943–31097 | Original | Patched |
+| --- | ---: | ---: |
+| Average owner tick | 695 ms | 208 ms |
+| 95th percentile | 5,580 ms | 521 ms |
+| Longest tick | 8,818 ms | 2,017 ms |
+| Average flow stage | 658 ms | 175 ms |
+| Estimated game seconds per real second | 0.28× | 0.86× |
+
+Both columns used the same private journal recorded by the original Windows
+player. It predates live exposure records. A second A/B on the new player’s
+journal compared unrestricted venting and 3 m/s with the same patched native
+binary, 12 workers, and the same 155 input ticks. Mean owner time fell from
+667 to 164 ms, the 95th percentile from 4,321 to 400 ms and the longest tick
+from 9,156 to 1,672 ms. Maximum relative mass and energy errors were below
+1e-15 and 2.2e-15 in both. The game-free estimate increased from 0.29× to
+1.06×. Each live exposure record can be replayed on a machine without ONI.
+
+The first integration trial found an empty exposure map on all 305 ticks.
+ONI restores the owner before it generates its biome map. The adapter now
+detects the replacement array and refreshes the cached space cells before the
+first tick. The corrected run found 38,876 exposed cells and recorded exposure
+on all 305 ticks. The harness option `--require-exposed-vents` rejects the
+first trial and passes the corrected one.
+
+With the 3 m/s default, the largest surface region still averaged 26 flow
+intervals per tick, including 49 ms on pressure and 31 ms on transport.
+At 3× the entire 0.2 s tick has 66.7 ms of wall time. A remaining numerical
+option is to give the plume shorter local steps while conserving flux where it
+meets the rest of the region. This requires new solver work and validation.
+
+Reproduce the input replay on this machine without launching ONI:
+
+```sh
+cmake --build build-production --target ma_colony_benchmark -j 8
+tools/run_locked.sh high python3 tools/colony_speed.py --build build-production --case replay-playtest-nov17-surface --frames 155 --warmup 0 --workers 12 --require 3
+```
+
+For a new Windows capture, use the Proton runner's `--capture-inputs` with
+`--mode colony-owner-load`, then run
+`python3 tools/colony_speed.py capture NAME SAVE RUN_DIRECTORY --frames N`.
+The save, journal and disease table stay private. The runner checks frame
+continuity, the requested count and the length of the disease table.
+
+The Windows build at `c87a65e` passed 95/95 native tests under Wine and the
+packaged Windows dependency check. The corresponding Linux build passed
+94/94 native tests. Clean solver builds
+before and after the change agreed on all non-timing output and exit codes
+across 146 test and diagnostic commands. All 62 registered solver commands
+passed. The raw output of three diagnostics differed only in timing fields.
+
+Both Windows packages ran under Proton on the Ryzen 9 5900X test host, at
+1920×1080, with the same save, isolated mod profile, 3× button and input
+capture. The first full window (frames 30943–31092) includes the load pause.
+The original player advanced at 0.265× and the release ZIP at 0.636×. Mean
+owner time fell from 701 to 248 ms, the 95th percentile from 3,277 to 673 ms,
+and the worst tick from 6,644 to 1,806 ms. These are measurements of the
+Windows player on Linux. The user’s native Windows log is the separate 0.336×
+observation above.
+
+| Full-colony save, 3× requested | Tested ticks | Warmed unpaused windows | Game seconds per real second |
+| --- | ---: | ---: | ---: |
+| Uploaded meteor shower, Windows player | 455 | 2 | 0.712 (0.703–0.721) |
+| 14-duplicant Spaced Out!, Windows player | 605 | 3 | 0.803 (0.735–0.954) |
+| 32-duplicant industrial base, Linux | 605 | 3 | 2.544 (2.526–2.561) |
+
+All three players exited normally without dropped timing samples in these
+windows. The storm and Spaced Out! runs captured inputs. The industrial run
+used ordinary release settings without input capture. The release ZIP does
+not meet the 3× goal, and both Windows fixtures fall below 1× on this host.
+
+The Spaced Out! replay localizes its cost to a second base of 1,553 cells.
+All 22,090 anonymous radius-zero gas takes in its first 155 ticks were on
+cells reported as exposed. The first rejected interval occurred at a cell
+holding 2.7e-11 cubic metres of liquid. Even this trace disables the gas drag
+at its faces. An isolated 100-tick A/B, discarding ten ticks for warmup, let
+gas drag apply when the mean liquid volume fraction across a vent face was
+at most one part per million. The ordinary liquid volume check still ran.
+Region intervals fell from 113.6 to 19.6 per tick, and mean owner time from
+214 to 86 ms (estimated 0.84× to 1.80×). On the meteor shower the same trial
+gave 136 and 135 ms, respectively. This possible change to entrained droplets
+is absent from the tested ZIP.
+
 <a id="live-full-colony-speed-2026-11-17"></a>
 ## Full-colony game-clock measurement, 2026-11-17
 
