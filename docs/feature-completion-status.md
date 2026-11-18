@@ -10,7 +10,11 @@ do, and the in-game check `pipe-throughput` holds the full rate
 on average with 3× selected on the user's PC. Seen and left for the user:
 a natural hydrogen pocket at 1,320 kPa that chills to −179 °C when opened,
 a garbage-collection freeze about every half minute
-([the recording](playtest-2026-11-18.md)).
+([the recording](playtest-2026-11-18.md)). The fix `4bdfceb` passed the
+quick acceptance tier 46 of 46 and is on the share as a private Windows
+ZIP and, at the user's request, as a Workshop release folder with its page
+material; nothing has been uploaded
+([delivered](playtest-2026-11-18.md#delivered)).
 
 **November 18 speed experiments.** The private Windows test `c9e73d2`
 keeps the 3 m/s space vent drag on gas carrying trace droplets. The
