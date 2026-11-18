@@ -6,6 +6,8 @@
 namespace ma::experimental::game_kernel {
 inline constexpr double liquid_drag_time = 1; // seconds; profile 12, see PressureSolver
 inline constexpr double gas_drag_time = 20;   // seconds; profile 12, see PressureSolver
+// Entrained liquid at a gas vent, in m³ of liquid per m³ of face volume.
+inline constexpr double vent_mist_fraction = 1e-6;
 
 namespace kernel = ma::experimental::mac_kernel;
 struct Pressure {
@@ -39,7 +41,7 @@ public:
   // Space venting (MAC_GAME_KERNEL.md, "Gas at cells space
   // empties"): cells the owner empties every frame (open sky, cells ONI
   // deletes the gas of), one flag a cell, and the speed gas may reach through
-  // their gas-only faces. Such a face takes the implicit drag that holds the speed its
+  // their gas or mist faces. Such a face takes the implicit drag that holds the speed its
   // start-of-interval pressures predict at that cap; momentum and heat are
   // booked as for the thin-gas drag.
   const std::vector<std::uint8_t> *sinks = nullptr;
@@ -285,7 +287,8 @@ public:
         // Gas drag: the rest of the face, relaxed at 1/gas_drag_time.
         if (liquid < 1)
           gamma += dt / gas_drag_time * (1 - std::max(0., liquid));
-        if (sinks && sink_speed > 0 && liquid == 0 && ((*sinks)[l] || (*sinks)[r])) {
+        if (sinks && sink_speed > 0 && liquid <= vent_mist_fraction && ((*sinks)[l] || (*sinks)[r]) &&
+            (states[l].nR > 0 || states[r].nR > 0)) {
           const double pl = system.active[l] ? states[l].pressure : 0,
                        pr = system.active[r] ? states[r].pressure : 0;
           const double predicted = std::abs(old + body + dt * g.A * (pl - pr));

@@ -1153,8 +1153,12 @@ Profile 12 targets `u = 3 m/s` at open sky and tiles the game identifies as
 exposed to space. ONI supplies the exposure again on load and after a change
 to a door, building or backwall. Replays record the same map. A development
 run can set `MA_COLONY_SPACE_SPEED=0` to use the former unrestricted flow.
-Earlier profiles lack the drag and heat booking. In the pressure step (`pressure_be.hpp`) a gas-only face touching a marked
-cell takes the implicit drag `gamma = |J_old + body + dt A (p_l - p_r)| /
+Earlier profiles lack the drag and heat booking. In the pressure step
+(`pressure_be.hpp`) a face touching a marked cell takes the vent drag when
+gas is present and the mean nominal liquid volume across its two cells is
+at most 1 mL per cubic metre. Entrained droplets then move with the gas.
+A gas-free droplet in vacuum and a wetter face keep their ordinary drag.
+The vent drag is `gamma = |J_old + body + dt A (p_l - p_r)| /
 (I u) - 1` when that is larger than its other drags. This targets `u` for
 the start-of-interval pressure impulse; the solved pressures can change the
 final speed, so it is not a strict per-face bound. The momentum the drag takes

@@ -739,10 +739,10 @@ struct FlowTally {
             char text[640];
             const double f = frames ? static_cast<double>(frames) : 1.;
             std::snprintf(text, sizeof text,
-                "%s{\"cell\": %zu, \"x\": %zu, \"y\": %zu, \"box\": [%zu, %zu], \"cells\": %zu, \"frames_stepped\": %llu, \"ms_per_frame\": %.3f, \"worst_frame_ms\": %.3f, "
+                "%s{\"cell\": %zu, \"x\": %zu, \"y\": %zu, \"box\": [%zu, %zu], \"box_origin\": [%zu, %zu], \"cells\": %zu, \"frames_stepped\": %llu, \"ms_per_frame\": %.3f, \"worst_frame_ms\": %.3f, "
                 "\"game_seconds_per_frame\": %.4f, \"intervals_per_frame\": %.2f, \"attempts_per_frame\": %.2f, \"refinements_per_frame\": %.2f, \"iterations_per_frame\": %.1f, "
                 "\"ms\": {\"pressure\": %.3f, \"transport\": %.3f, \"layering\": %.3f, \"interface\": %.3f, \"heat\": %.3f, \"phase\": %.3f, \"audit_and_other\": %.3f}}",
-                n ? ", " : "", key, grid_width ? key % grid_width : 0, grid_width ? key / grid_width : 0, r.width, r.height, r.cells,
+                n ? ", " : "", key, grid_width ? key % grid_width : 0, grid_width ? key / grid_width : 0, r.width, r.height, r.x, r.y, r.cells,
                 static_cast<unsigned long long>(r.frames), r.ms / f, r.worst_ms, r.seconds / f, static_cast<double>(r.substeps) / f,
                 static_cast<double>(r.attempts) / f, static_cast<double>(r.refinements) / f, static_cast<double>(r.iterations) / f,
                 r.pressure_ms / f, r.transport_ms / f, r.layering_ms / f, r.interface_ms / f, r.heat_ms / f, r.phase_ms / f, r.audit_ms / f);

@@ -860,6 +860,57 @@ void source_energy_controls() {
                "the sealed tube's cold source and compression heating; a deep draw beside a droplet stays in its EOS domain; "
                "a draw that empties its cell returns no more than its own cooling; an extraction's trace and a deep draw's remainder keep their temperature; a trace beside a deep draw is not overheated\n";
 }
+// Compare the same face with and without a space mark. Only droplet-sized
+// liquid inventories travel with the vented gas, in either orientation.
+void mist_at_space_vent() {
+  namespace k = ma::experimental::game_kernel;
+  for (const bool horizontal : {true, false}) {
+    MacGrid grid;
+    grid.width = horizontal ? 2 : 1;
+    grid.height = horizontal ? 1 : 2;
+    grid.depth_m = 2;
+    grid.walls.assign(2, 0);
+    k::PressureSolver solver(grid, 1, ma::PressurePreconditioner::incomplete_cholesky,
+                             1e-8, 0, nullptr, 400, true, .001, .01);
+    const auto face = horizontal ? grid.x_face(1, 0) : grid.y_face(0, 1);
+    std::vector<double> jx(grid.x_width() * grid.height), jy(grid.width * grid.y_height());
+    (horizontal ? jx : jy)[face] = 40;
+    for (double fraction : {0., 1e-9, 1e-6, std::nextafter(1e-6, 1.), .1}) {
+      std::vector<k::Eos> states(2);
+      // Put all water on one side so the boundary is the mean across the face.
+      states[0].liquid_nominal_volume = 2 * grid.volume_m3() * fraction;
+      for (auto &s : states) {
+        s.mass = 1 + 1000 * s.liquid_nominal_volume;
+        s.gas_volume = grid.volume_m3() - s.liquid_nominal_volume;
+        s.capacity = 750 + 4180 * 1000 * s.liquid_nominal_volume;
+        s.nR = 287;
+        s.pressure = 300 * s.nR / s.gas_volume;
+      }
+      const auto flux = [&](std::uint8_t first, std::uint8_t second) {
+        const std::vector<std::uint8_t> marks{first, second};
+        solver.sinks = &marks;
+        solver.sink_speed = 3;
+        const auto result = solver.advance(states, jx, jy, .001, 0.);
+        solver.sinks = nullptr;
+        return (horizontal ? result.qx : result.qy)[face];
+      };
+      const double ordinary = flux(0, 0);
+      for (const double vented : {flux(1, 0), flux(0, 1)}) {
+        if (fraction <= 1e-6)
+          require(vented > 0 && vented < .25 * ordinary, "Mist disabled the space vent drag");
+        else
+          require(vented == ordinary, "Space gas drag slowed a wet face");
+      }
+      if (fraction > 0) {
+        states[1] = {};
+        auto &droplet = states[0];
+        droplet.mass = 1000 * droplet.liquid_nominal_volume;
+        droplet.nR = droplet.pressure = droplet.gas_volume = 0;
+        require(flux(0, 0) == flux(0, 1), "Space gas drag slowed liquid alone in vacuum");
+      }
+    }
+  }
+}
 } // namespace
 int main() {
   try {
@@ -874,6 +925,7 @@ int main() {
     ma::testing::regional_execution_control();
     absent_liquid_transfer_rejection();
     heat_reading_controls();
+    mist_at_space_vent();
     ma::testing::component_cache_control();
     full_worker_continuation();
     source_energy_controls();
