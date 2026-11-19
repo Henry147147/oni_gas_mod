@@ -7,10 +7,13 @@ starting asteroid's left edge, ONI wrote its exhaust into grid columns that
 belong to no asteroid, and the mod took that gas. 0.1.9 never takes fluid
 outside every world and loads colonies already saved that way
 ([cells outside every world](colony-owner.md#cells-outside-every-world)).
-Open from the same session: with 3× selected the game ran at 1.34×, the
-solver's time going to the second asteroid's surface, where a pool boils
-into space, and the mod created about 21 debris items a second
-([the session](playtest-2026-11-19.md)). The development leftovers were
+Open from the same session: with 3× selected the game ran at 1.34×. The
+solver's time goes to the second asteroid's surface, where the top face of
+a half-full puddle under vacuum falls freely at 34 m/s and cuts its
+7,088-cell region into 21 intervals a tick; a prototype closure brings that
+to 7.6 and has not been through the gates. The mod also created about 21
+debris items a second, from several cold sites and a volcano
+([the session](playtest-2026-11-19.md#speed-fell-to-half-the-previous-sessions)). The development leftovers were
 removed the same day (`AGENTS.md`, workspace hygiene).
 
 **Update, 2026-11-18, pipes behind machines.** The user's 91-minute Windows
