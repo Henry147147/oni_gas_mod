@@ -45,13 +45,18 @@ namespace MixedAtmospheres.Oni
             var region=new ColonyWorldRegion(world.id,world.WorldOffset.x,world.WorldOffset.y,
                 world.WorldSize.x,world.WorldSize.y,world.IsModuleInterior);
             if(!region.RocketInterior)throw new NotSupportedException("Only a rocket interior can be allocated after cluster import.");
-            _=new ColonyWorldLayout(layout.GridWidth,layout.GridHeight,layout.Worlds.Concat(new[]{region}));
+            var placing=new ColonyWorldLayout(layout.GridWidth,layout.GridHeight,layout.Worlds.Concat(new[]{region}));
             var cells=new uint[checked(region.Width*region.Height)];var i=0;
             for(var y=region.Y;y<region.Y+region.Height;++y)
                 for(var x=region.X;x<region.X+region.Width;++x)cells[i++]=(uint)(x+y*layout.GridWidth);
             // A reused grid slot must not inherit an earlier rocket's space
             // sink while native template sources are still arriving.
             OniNativeColony.Check(OniNativeColony.SetSpaceCells(cells,(uint)cells.Length,0));
+            // The game has already given these cells the new world's identity.
+            // The owner takes native fluid only inside a world, so the interior
+            // joins the membership before its template's gases arrive;
+            // Synchronize registers the world itself when the template is done.
+            ColonyOwner.ConfigureWorldMembership(placing,exposure:false);
         }
         internal static System.Action? AfterTemplate(System.Action? completed)=>layout==null?completed:
             ()=>{Changed();completed?.Invoke();};

@@ -225,7 +225,7 @@ namespace MixedAtmospheres.Oni
         internal static void RestoreOwner(OniNativeColony.Config saved, byte[] image)
         {
             if (ColonyLoadRefusal.Refused) return;
-            try { ColonyOwner.Restore(saved, image); Restored(image); ColonyPipeSave.TryRestore(); }
+            try { ColonyOwner.Restore(saved, image); Restored(image); ColonyOwner.ReleaseCellsOutsideWorlds(); ColonyPipeSave.TryRestore(); }
             catch (Exception error) { ColonyLoadRefusal.Refuse(error); }
         }
 

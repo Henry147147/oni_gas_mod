@@ -2440,15 +2440,30 @@ void set_world_mask(std::span<const std::uint8_t> membership) {
     require(active() && session && session->status.state==1,"A healthy colony owner is required for world membership");
     require(membership.size()==owned_count,"World membership mask differs from the owner rectangle");
     const auto& walls=session->world->state().grid.walls;
+    // 2 marks an open cell outside every world that the caller releases with
+    // its next terrain edits (a restored colony may hold such cells, see the
+    // capture below); any other open cell must stay in a world.
+    std::size_t abandoned=0,first=0,x_low=SIZE_MAX,x_high=0,y_low=SIZE_MAX,y_high=0;
+    const std::size_t row=session->config.width;
     for(std::size_t i=0;i<membership.size();++i) {
-        require(membership[i]<=1,"Invalid world membership value");
-        require(membership[i] || walls[i] || retiring[i].load(std::memory_order_relaxed)!=0,
-            "World membership cannot abandon an open owner cell");
+        require(membership[i]<=2,"Invalid world membership value");
+        if(membership[i] || walls[i] || retiring[i].load(std::memory_order_relaxed)!=0)continue;
+        if(!abandoned++)first=i;
+        x_low=std::min(x_low,i%row);x_high=std::max(x_high,i%row);
+        y_low=std::min(y_low,i/row);y_high=std::max(y_high,i/row);
+    }
+    if(abandoned) {
+        // Name the cells: a refused load is otherwise undiagnosable from a player's log.
+        char why[192];
+        std::snprintf(why,sizeof why,"World membership cannot abandon an open owner cell (%zu cells, first at %zu,%zu, within %zu,%zu to %zu,%zu)",
+            abandoned,first%row+session->config.offset_x,first/row+session->config.offset_y,
+            x_low+session->config.offset_x,y_low+session->config.offset_y,x_high+session->config.offset_x,y_high+session->config.offset_y);
+        throw std::invalid_argument(why);
     }
     // Validate the complete batch before changing any exclusion. Retirement's
     // quarantine still wins in write/capture_shadow even for a retained world.
     for(std::size_t i=0;i<membership.size();++i)
-        outside_world[i].store(membership[i]?0:1,std::memory_order_relaxed);
+        outside_world[i].store(membership[i]==1?0:1,std::memory_order_relaxed);
     outside_known.store(true,std::memory_order_release);
 }
 void set_vent_cells(std::span<const std::uint32_t> cells) {
@@ -3094,6 +3109,11 @@ void capture_shadow(const NativeCells& n,std::uint64_t native_ticket,std::span<c
                     // melted within the same native update. The owner opens the
                     // cell again and takes ONI's fluid.
                     if (state != 0 || e == vacuum || !(std::isfinite(m) && m > 0 && std::isfinite(t) && t > 0)) continue;
+                    // Never a wall outside every world: ONI lets a meteor leave
+                    // the grid's left edge still emitting exhaust, and the cell
+                    // index wraps to the last columns, which belong to no
+                    // asteroid. That gas stays ONI's, as without the mod.
+                    if (outside_known.load(std::memory_order_relaxed) && outside_world[i].load(std::memory_order_relaxed) != 0) continue;
                 } else if (state == 2) {
                     // A solid placed over owned fluid and gone before the owner
                     // closed the cell (unstable sand falling at once): the close is

@@ -1239,7 +1239,7 @@ MAOniResult ma_oni_colony_sample_activity(std::uint64_t session,std::uint64_t fr
           catch(const std::invalid_argument& error) {throw Failure(MA_ONI_INVALID_ARGUMENT,error.what());}
     });
 }
-std::uint32_t ma_oni_colony_world_mask_version() {return 1;}
+std::uint32_t ma_oni_colony_world_mask_version() {return 2;} // 2: mask value 2 (an open cell released after restore)
 MAOniResult ma_oni_colony_set_world_mask(const std::uint8_t* membership,std::uint32_t count) {
     return boundary([&] {
         if(!membership || !count || count>MA_ONI_COLONY_MAXIMUM_CELLS)

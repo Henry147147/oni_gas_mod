@@ -10,8 +10,11 @@ few that your task touches, starting here.
 
 - [docs/feature-completion-status.md](docs/feature-completion-status.md):
   **resume here** — current status toward the beta (sustained 1× on the
-  full-colony saves; 3× stays the goal) and what remains open. The latest
-  private Windows candidate is [0.1.8](docs/playtest-0.1.8.md), which lets
+  full-colony saves; 3× stays the goal) and what remains open. The user
+  published 0.1.8 (`4bdfceb`) on the Steam Workshop on 2026-11-18;
+  [0.1.9](docs/playtest-2026-11-19.md) answers the first session on it (a
+  save that no longer loaded after a meteor left the map's edge).
+  [0.1.8](docs/playtest-0.1.8.md) lets
   two gases change places through an opening one tile high;
   [0.1.7](docs/playtest-0.1.7.md) kept a pool levelling past the activity
   pause and said when evaporation below boiling is on;
@@ -92,6 +95,23 @@ python3 tools/build.py                           # full native + managed + Pytho
 Build folders (`build*/`), `artifacts/` and `local/` are ignored. Delete one-off
 build folders when you are done, keep scratch work outside the repository, and do
 not leave stashes or uncommitted work behind. All project work lives in this
-folder: older clones, agent folders and run records are in `archive/` (excluded
-through `.git/info/exclude`; `archive/MANIFEST.txt` maps original paths). Do not
-create clones or work folders elsewhere.
+folder; do not create clones, worktrees or work folders elsewhere.
+
+The leftovers of the development phases were removed on 2026-11-19, after the
+Workshop release. What is kept on purpose:
+
+- `build-production` (Linux) and `build-windows` (MinGW cross build); the tool
+  installs `build-proton-official10`, `build-wine`, `build-oni-cross-tools` and
+  `build-powershell`; `build-linux-ubuntu2204-4bdfceb`, the native libraries of
+  the published package.
+- `artifacts/acceptance/4bdfceb/packages` and `artifacts/release-4bdfceb` (the
+  published build), `artifacts/steam-media` (the Workshop page's pictures).
+- `local/locks`, `local/saves` (prepared and playtest saves), `local/perf`
+  (private replay captures), `local/perf-tools` (the sampling profiler and
+  capture helpers of the speed work) and `local/retired-2026-11-19` (uncommitted
+  diffs of the removed worktrees and the few archived commits that never reached
+  `main`).
+- `archive/`: the handoff notes, the agents' board and the helper scripts of the
+  first phases (excluded through `.git/info/exclude`; `archive/MANIFEST.txt`
+  lists where they came from). The archived clones themselves are gone: every
+  commit of theirs is on `main` or in `local/retired-2026-11-19`.

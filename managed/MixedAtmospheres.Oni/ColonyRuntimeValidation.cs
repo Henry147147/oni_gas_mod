@@ -468,6 +468,7 @@ namespace MixedAtmospheres.Oni
                 ColonyOwner.OwnedCells, ColonyOwner.Publications, ColonyOwnerPersistence.Saves, ColonyOwnerPersistence.Loads,
                 DlcFluidReaders=new {ColonyDlcFluidReaders.AquaticReads,ColonyDlcFluidReaders.BionicSamples},
                 ClusterWorlds=ColonyClusterWorlds.Report(),
+                ReleasedOutsideCells=ColonyOwner.ReleasedOutsideCells,ReleasedOutsideKg=ColonyOwner.ReleasedOutsideKg,
                 ColonyPacing.HeldTicks, ColonyPacing.UnityFrames, ColonyPacing.OwnerRate, ColonyPacing.TimeScale,
                 WallSeconds = (System.DateTime.UtcNow - colonyOwnerWallStart).TotalSeconds,
                 Performance = ColonyPerformanceLog.Timerun(),

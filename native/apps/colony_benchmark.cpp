@@ -805,6 +805,24 @@ int owner_replay(const Options& o) {
     });
     if (advanced <= o.warmup) throw std::runtime_error("The journal covers no measured frame after the warm-up");
     const auto final_status = c::status();
+    if (const char* box = std::getenv("MA_COLONY_REPLAY_DUMP_BOX")) {
+        // "X Y W H": the final frame's cells of that rectangle on stderr, one
+        // line a cell (constituents by native index), for looking at what a
+        // slow region holds. A diagnostic; not part of any measurement.
+        unsigned bx = 0, by = 0, bw = 0, bh = 0;
+        if (std::sscanf(box, "%u %u %u %u", &bx, &by, &bw, &bh) != 4) throw std::invalid_argument("MA_COLONY_REPLAY_DUMP_BOX needs X Y W H");
+        std::vector<MAOniColonyCellView> views(static_cast<std::size_t>(parts.config.width) * parts.config.height);
+        auto shown = c::status(); c::copy(shown, views.data(), static_cast<std::uint32_t>(views.size()));
+        for (unsigned y = by; y < by + bh; ++y) for (unsigned x = bx; x < bx + bw; ++x) {
+            if (x < parts.config.offset_x || y < parts.config.offset_y || x >= parts.config.offset_x + parts.config.width || y >= parts.config.offset_y + parts.config.height) continue;
+            const auto& v = views[(x - parts.config.offset_x) + static_cast<std::size_t>(y - parts.config.offset_y) * parts.config.width];
+            std::uint32_t indices[8]{}; double masses[8]{};
+            const auto n = (v.flags & MA_ONI_COLONY_VIEW_OWNED) ? c::composition(x + y * parts.config.grid_width, indices, masses, 8) : 0u;
+            std::fprintf(stderr, "CELL %u %u flags %u element %u kg %.6g K %.2f Pa %.4g liquid %.3g :", x, y, v.flags, v.element_index, v.mass_kg, v.temperature_k, v.pressure_pa, v.liquid_fraction);
+            for (std::uint32_t k = 0; k < std::min<std::uint32_t>(n, 8); ++k) std::fprintf(stderr, " %u=%.6g", indices[k], masses[k]);
+            std::fputc('\n', stderr);
+        }
+    }
     const auto image = c::checkpoint();
     std::uint64_t hash = 1469598103934665603ULL;
     for (auto b : image) { hash ^= b; hash *= 1099511628211ULL; }

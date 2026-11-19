@@ -126,6 +126,7 @@ namespace MixedAtmospheres.Oni
             if (Active) { var s = OniNativeColony.Status.Empty; _ = OniNativeColony.Stop(ref s); }
             ColonyPacing.Reset(); ColonyOwnerPersistence.Reset(); ModSettingsRuntime.Reset();
             ColonyClusterWorlds.Reset();ColonyStartingAir.Reset();OwnedCells=0;
+            outsideCells=Array.Empty<int>();outsideKg=0;ReleasedOutsideCells=0;ReleasedOutsideKg=0;
             publicationCells=Array.Empty<int>();CellMapComparisons=0;ColonyOverlay.Reset();
             exposureWorldIds = spaceZoneCells = Array.Empty<int>();
             exposureZones = null;
@@ -285,9 +286,13 @@ namespace MixedAtmospheres.Oni
                 ClusterManager.Instance.WorldContainers.Select(world=>new ColonyWorldRegion(world.id,
                     world.WorldOffset.x,world.WorldOffset.y,world.WorldSize.x,world.WorldSize.y,world.IsModuleInterior)));
         }
-        private static void ConfigureInitialWorldMembership(ColonyWorldLayout layout)
+        private static void ConfigureInitialWorldMembership(ColonyWorldLayout layout, bool restored = false)
         {
-            try { ConfigureWorldMembership(layout); }
+            try
+            {
+                outsideCells = restored ? OpenCellsOutsideWorlds(layout, out outsideKg) : Array.Empty<int>();
+                ConfigureWorldMembership(layout);
+            }
             catch
             {
                 // Do not leave a native owner running if actual world identity
@@ -298,7 +303,9 @@ namespace MixedAtmospheres.Oni
         // Native vacuum is also used in empty cluster slots. Prove actual
         // registered-world membership independently of the saved fluid mask,
         // so a room cell closed in an old owner can be repaired after loading.
-        internal static void ConfigureWorldMembership(ColonyWorldLayout layout)
+        // `exposure` false leaves the space-exposure map as it is (a rocket
+        // interior whose template is still being placed).
+        internal static void ConfigureWorldMembership(ColonyWorldLayout layout, bool exposure = true)
         {
             if(layout.GridWidth!=Grid.WidthInCells||layout.GridHeight!=Grid.HeightInCells)
                 throw new InvalidOperationException("World membership grid differs from the owner.");
@@ -309,11 +316,57 @@ namespace MixedAtmospheres.Oni
                 var cell=publicationCells[i];
                 if(identities[cell]>=0 && Grid.WorldIdx[cell]==identities[cell])membership[i]=1;
             }
+            // 2: an open cell outside every world, released after the restore.
+            foreach(var i in outsideCells)if(membership[i]==0)membership[i]=2;
             OniNativeColony.Check(OniNativeColony.SetWorldMask(membership,(uint)membership.Length));
+            if(!exposure)return;
             exposureWorldIds = identities;
             exposureZones = null;
             RefreshSpaceExposure(true);
         }
+
+        // A colony saved by a build before 0.1.9 can hold open cells outside
+        // every world (docs/colony-owner.md#cells-outside-every-world): ONI
+        // lets a meteor leave the grid's left edge still emitting exhaust, the
+        // cell index wraps to the grid's last columns, and those builds took
+        // the gas found there. The restore keeps the saved image; then these
+        // cells give up their gas and close, and ONI holds them as it does
+        // without the mod.
+        private static int[] outsideCells = Array.Empty<int>();
+        private static double outsideKg;
+        private static int[] OpenCellsOutsideWorlds(ColonyWorldLayout layout, out double kg)
+        {
+            kg = 0;
+            var identities=layout.CellWorldIds(); var current=OniNativeColony.Status.Empty; var cells=new OniNativeColony.CellView[width*height];
+            OniNativeColony.Check(OniNativeColony.Copy(ref current, cells, (uint)cells.Length));
+            var found=new List<int>();
+            for(var i=0;i<cells.Length;++i)
+            {
+                var cell=publicationCells[i];
+                if((cells[i].Flags&OniNativeColony.ViewOwned)==0||(identities[cell]>=0&&Grid.WorldIdx[cell]==identities[cell]))continue;
+                found.Add(i); kg+=cells[i].MassKg;
+            }
+            return found.ToArray();
+        }
+        // After the restored image has been verified, before any advance.
+        internal static void ReleaseCellsOutsideWorlds()
+        {
+            if(outsideCells.Length==0)return;
+            var edits=new OniNativeColony.Terrain[outsideCells.Length*2];
+            for(var k=0;k<outsideCells.Length;++k)
+            {
+                var cell=(uint)publicationCells[outsideCells[k]];
+                edits[2*k]=new OniNativeColony.Terrain{PublicCell=cell,Kind=OniNativeColony.Clear};
+                edits[2*k+1]=new OniNativeColony.Terrain{PublicCell=cell,Kind=OniNativeColony.Close};
+            }
+            OniNativeColony.Check(OniNativeColony.QueueTerrain(edits,(uint)edits.Length));
+            foreach(var i in outsideCells)ColonyRouting.Queued(publicationCells[i],OniNativeColony.Close);
+            ReleasedOutsideCells=outsideCells.Length; ReleasedOutsideKg=outsideKg;
+            Debug.Log($"[Mixed Atmospheres] Released {outsideCells.Length} cells holding {outsideKg:F1} kg outside every asteroid " +
+                "(meteor exhaust an earlier build took over past the map's edge). Nothing inside an asteroid changes.");
+        }
+        internal static int ReleasedOutsideCells { get; private set; }
+        internal static double ReleasedOutsideKg { get; private set; }
 
         private static int[] exposureWorldIds = Array.Empty<int>();
         private static ProcGen.SubWorld.ZoneType[]? exposureZones;
@@ -405,7 +458,7 @@ namespace MixedAtmospheres.Oni
                 // A save that evolves world germs needs the disease table; say why it is missing.
                 throw new InvalidOperationException(error.Message + " (world germ rules unavailable: " + ColonyWorldGerms.ConfigureFailure + ")", error);
             }
-            ConfigureInitialWorldMembership(CaptureWorldLayout());
+            ConfigureInitialWorldMembership(CaptureWorldLayout(), restored: true);
             ModSettingsRuntime.Restored(); // the settings this colony recorded (docs/settings.md)
             status = output; views = new OniNativeColony.CellView[width * height]; considered = true; Active = true; ColonyActivity.Started(config.Flags, status.Session); ColonyPacingDriver.Ensure(); ConfigurePresentation();
             ColonyClusterWorlds.Initialize(DlcManager.IsExpansion1Active()?CaptureWorldLayout():null);

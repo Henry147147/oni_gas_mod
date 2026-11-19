@@ -6,6 +6,7 @@
 // (a vacuum hole in a breathable room).
 
 void restored_custody_control();
+void outside_world_control();
 
 void terrain_order_control() {
     using namespace ma::oni::colony;
@@ -121,6 +122,7 @@ void terrain_order_control() {
         stop();
     }
     restored_custody_control();
+    outside_world_control();
     set_options(nullptr);set_activity_tiers(0,true);
     std::cout<<"PASS terrain order: the owner ends where ONI does (close/open and open/close either way, native close undone), a freeze stays closed; custody reopens an open wall beside owned cells and never a hole\n";
 }
@@ -150,7 +152,7 @@ void restored_custody_control() {
         if(explicit_membership) {
             set_world_mask(membership);
             require(checkpoint()==saved,"World membership changed checkpoint bytes or physical state");
-            auto invalid=membership;invalid[13]=1;invalid.back()=2;
+            auto invalid=membership;invalid[13]=1;invalid.back()=3;
             bool refused=false;try{set_world_mask(invalid);}catch(const std::invalid_argument&){refused=true;}
             require(refused && checkpoint()==saved,"An invalid world-mask value changed its valid prefix");
             refused=false;try{set_world_mask(std::span(membership.data(),membership.size()-1));}catch(const std::invalid_argument&){refused=true;}
@@ -211,4 +213,80 @@ void restored_custody_control() {
         stop();
     }
     std::cout<<"PASS restored custody: explicit world identity repairs a saved room hole, preserves adjacent cluster holes and retiring/retired slots, admits new worlds; atomic validation, exact metadata-only checkpoint and closed ledgers\n";
+}
+
+// A cell outside every world is ONI's (docs/colony-owner.md#cells-outside-every-world).
+// ONI lets a meteor leave the grid's left edge still emitting exhaust; the cell
+// index wraps to the grid's last columns, which belong to no asteroid. Builds
+// before 0.1.9 took that gas and saved open owner cells there, and the load
+// then refused the colony. Fixed before the first run: fluid ONI holds in a
+// wall outside every world is never taken, and an open cell a saved colony
+// holds there is accepted when marked 2, gives up its gas through the ordinary
+// clear and close, and stays closed although ONI still holds gas in it.
+void outside_world_control() {
+    using namespace ma::oni::colony;
+    constexpr double dt=static_cast<double>(.2f);
+    constexpr std::uint32_t solid=1,width=7,height=3,pitch=width+2,rows=height+2;
+    const auto nat=[](std::uint32_t cell){return static_cast<int>((cell%width+1)+(cell/width+1)*pitch);};
+    for(const bool activity:{true,false}) {
+        MAOniColonyConfig cfg{};cfg.struct_size=sizeof(cfg);cfg.abi_version=1;
+        cfg.flags=MA_ONI_COLONY_GAME_KERNEL|MA_ONI_COLONY_GAME_SURFACE|(activity?MA_ONI_COLONY_GAME_ACTIVITY:0u);
+        cfg.vacuum_index=vacuum;cfg.grid_width=cfg.width=width;cfg.grid_height=cfg.height=height;cfg.maximum_timestep_s=static_cast<double>(.1f);
+        const std::vector<MAOniColonyMaterial> mats{material("Oxygen",11,oxygen,true,.032,1005)};
+        // A room of four cells (8..11); behind the wall 12, cell 13 is open
+        // with 1 kg of oxygen and lies outside every world, as does wall 5.
+        std::vector<MAOniColonyCell> cells(width*height,MAOniColonyCell{0,MA_ONI_COLONY_SOLID,0,0,0,0});
+        for(const auto cell:{8u,9u,10u,11u,13u})cells[cell]={oxygen,MA_ONI_COLONY_FLUID,1,300,0,0};
+        start(cfg,mats,cells,1);const auto saved=checkpoint();stop();restore(cfg,mats,saved,1);
+        require(checkpoint()==saved,"Outside-world fixture failed exact restore");
+        std::vector<std::uint8_t> membership(width*height,1);membership[5]=0;membership[13]=2;
+        auto invalid=membership;invalid[13]=0;
+        bool refused=false;try{set_world_mask(invalid);}catch(const std::invalid_argument&){refused=true;}
+        require(refused && checkpoint()==saved,"An unmarked open cell outside every world was abandoned");
+        invalid=membership;invalid[13]=3;
+        refused=false;try{set_world_mask(invalid);}catch(const std::invalid_argument&){refused=true;}
+        require(refused && checkpoint()==saved,"An invalid world-mask value was accepted");
+        set_world_mask(membership);
+        require(checkpoint()==saved,"Marking a cell for release changed checkpoint bytes or physical state");
+        std::array<std::vector<std::uint16_t>,2> element;std::array<std::vector<float>,2> mass,temperature;
+        NativeCells native{};native.pitch=pitch;native.rows=rows;
+        for(unsigned b=0;b<2;++b) {
+            element[b].assign(pitch*rows,solid);mass[b].assign(pitch*rows,1000);temperature[b].assign(pitch*rows,300);
+            for(const auto cell:{8u,9u,10u,11u,13u}){element[b][nat(cell)]=vacuum;mass[b][nat(cell)]=temperature[b][nat(cell)]=0;}
+            native.element[b]=element[b].data();native.mass[b]=mass[b].data();native.temperature[b]=temperature[b].data();
+        }
+        const auto set=[&](std::uint32_t cell,std::uint16_t e,float m) {
+            for(unsigned b=0;b<2;++b){element[b][nat(cell)]=e;mass[b][nat(cell)]=m;temperature[b][nat(cell)]=e==vacuum?0.f:300.f;}
+        };
+        std::uint64_t ticket=0;
+        const auto frame=[&](const std::function<void()>& messages=[]{}) {
+            std::copy(element[1].begin(),element[1].end(),element[0].begin());std::copy(mass[1].begin(),mass[1].end(),mass[0].begin());
+            std::copy(temperature[1].begin(),temperature[1].end(),temperature[0].begin());
+            ++ticket;if(activity)(void)queue_activity(status().session,dt,{},{});
+            messages();write_shadow(native);capture_shadow(native,ticket);advance(ticket,dt,2);wait();
+            require(status().state==1,status().error);
+        };
+        const auto held=[&] {
+            double total=0;
+            for(std::uint32_t cell=0;cell<width*height;++cell){std::uint32_t index=0;double kg=0;if(composition(cell,&index,&kg,1))total+=kg;}
+            return total;
+        };
+        frame();frame();
+        require(owns(nat(13)) && std::abs(held()-5)<1e-12,"The marked cell left the owner before its release was queued");
+        const auto extracted=status().extracted_kg;
+        const MAOniColonyTerrain release[]{{13,MA_ONI_COLONY_CLEAR},{13,MA_ONI_COLONY_CLOSE}};
+        queue_terrain(release);frame();frame();
+        require(!owns(nat(13)) && std::abs(status().extracted_kg-extracted-1)<1e-12 && std::abs(held()-4)<1e-12,
+            "A cell outside every world kept its gas or stayed open");
+        // ONI still holds the released cell's oxygen, and exhaust arrives in wall 5.
+        require(element[1][nat(13)]==oxygen && mass[1][nat(13)]>0,"The fixture's released cell holds no native gas");
+        const auto opened=status().opened_cells;
+        frame([&]{set(5,oxygen,2);});frame();frame();
+        const auto result=status();
+        require(!owns(nat(13)) && !owns(nat(5)) && result.opened_cells==opened && result.native_mass_in_kg==0 && std::abs(held()-4)<1e-12,
+            "The owner took native fluid outside every world");
+        require(result.maximum_relative_mass_error<1e-12 && result.maximum_relative_energy_error<1e-9,"Releasing a cell outside every world broke the ledgers");
+        stop();
+    }
+    std::cout<<"PASS outside every world: a marked open cell restores exactly, gives up its gas and closes; native fluid in walls outside every world is never taken\n";
 }

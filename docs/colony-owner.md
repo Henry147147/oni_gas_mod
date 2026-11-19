@@ -833,6 +833,39 @@ checkpoint layout; membership is reconstructed session metadata. Standalone
 callers without game-world metadata retain conservative first-shadow
 inference. See [the playtest follow-up](windows-playtest-video-fixes.md).
 
+### Cells outside every world
+
+A wall outside every registered world is ONI's. Since 0.1.9 the capture never
+takes fluid that ONI holds in such a wall (`world_mask_version = 2`). ONI
+itself puts gas there: a meteor is destroyed only a tenth of the grid beyond
+its edge and emits its exhaust at `Grid.PosToCell` of its position until then,
+so one that leaves the grid's left edge writes into the last columns of the
+row below (the cell index wraps), which in a Spaced Out! cluster belong to no
+asteroid. Earlier builds treated that gas like a native solid that had melted
+in a closed cell: the owner opened the cell and took the gas. Nothing a player
+sees changed, but the next load refused the colony ("World membership cannot
+abandon an open owner cell"). The published 0.1.8 did this to the save of the
+[playtest of 2026-11-19](playtest-2026-11-19.md): 360 cells with 1,090 kg of
+oxygen along one meteor's path, in columns 601 to 635 of a 636-column grid.
+
+A colony saved in that state loads again. The restore reproduces the saved
+image first; the membership mask marks each open owner cell outside every
+world with 2 instead of refusing it, and the adapter then queues the ordinary
+clear and close for those cells. Their gas leaves the owner booked as
+extracted, the cells close, and ONI holds them as it does without the mod.
+`Player.log` says how many cells and kilograms were released. The refusal
+itself now names the number of cells and where they are.
+
+A rocket interior under construction is the one place where the owner must
+take fluid from cells that were outside every world a moment earlier. The game
+gives the interior's cells their world identity before it places the template,
+so the adapter adds them to the membership at that point (without touching the
+space-exposure map), and registers the world when the template is complete, as
+before.
+
+`ma_oni_colony_tests --terrain-order-only` covers the three rules ("outside
+every world"): it fails on the capture of 0.1.8.
+
 ## Airflow tiles
 
 ONI marks an airflow tile's cell liquid-impermeable (`SetCellProperties`); the

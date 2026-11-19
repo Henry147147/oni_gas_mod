@@ -1,5 +1,18 @@
 # Feature completion work
 
+**Update, 2026-11-19, first session on the published build.** The user
+published 0.1.8 (`4bdfceb`) on the Steam Workshop and played it for 103
+minutes. The session's last save no longer loaded: a meteor had left the
+starting asteroid's left edge, ONI wrote its exhaust into grid columns that
+belong to no asteroid, and the mod took that gas. 0.1.9 never takes fluid
+outside every world and loads colonies already saved that way
+([cells outside every world](colony-owner.md#cells-outside-every-world)).
+Open from the same session: with 3× selected the game ran at 1.34×, the
+solver's time going to the second asteroid's surface, where a pool boils
+into space, and the mod created about 21 debris items a second
+([the session](playtest-2026-11-19.md)). The development leftovers were
+removed the same day (`AGENTS.md`, workspace hygiene).
+
 **Update, 2026-11-18, pipes behind machines.** The user's 91-minute Windows
 recording of release test `c9e73d2` showed every pipe behind a reservoir or
 refinery carrying a packet in every other cell. Machine outlets published

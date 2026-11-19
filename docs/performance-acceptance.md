@@ -166,6 +166,10 @@ For a new Windows capture, use the Proton runner's `--capture-inputs` with
 The save, journal and disease table stay private. The runner checks frame
 continuity, the requested count and the length of the disease table.
 
+To see what a slow region holds, `MA_COLONY_REPLAY_DUMP_BOX="X Y W H"` makes
+an owner replay print the final frame's cells of that rectangle on stderr,
+one line a cell with its constituents by native element index.
+
 The Windows build at `c87a65e` passed 95/95 native tests under Wine and the
 packaged Windows dependency check. The corresponding Linux build passed
 94/94 native tests. Clean solver builds

@@ -126,7 +126,7 @@ namespace MixedAtmospheres.Oni
             if (Version() != AbiVersion) throw new InvalidOperationException("Colony owner ABI version differs from the native library.");
             try
             {
-                if (WorldMaskVersion() == 1) return;
+                if (WorldMaskVersion() == 2) return;
             }
             catch (EntryPointNotFoundException) { }
             throw new NotSupportedException("World membership requires a matching native/managed bundle.");
