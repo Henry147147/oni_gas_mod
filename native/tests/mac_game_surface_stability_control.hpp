@@ -1059,7 +1059,117 @@ inline void resting_layers_control() {
             << 100 * late[1] << " % of the helium below its rows after 600 s (" << 100 * early[0] << " % and "
             << 100 * early[1] << " % after 300 s); mass and U+K+G closed\n";
 }
+// Profile 12 liquid surface under thin gas (MAC_GAME_KERNEL.md, "A liquid
+// surface under thin gas"): two columns of water whose top cell is half full
+// and gas-free, under five rows of thin oxygen (10 ng a cell, a trace the
+// face is closed against, or 2 mg, whose own weight the face then takes and
+// which fills the half cell's room by its own pressure).
+// The half cell is out of the pressure solve; before this rule its top face
+// fell under the weight of half the cell's water with only drag against it
+// (34 m/s terminal), sweeping near-vacuum into the cell every interval, since
+// the profile 4 closure acts only when the cell above is exactly empty. The
+// face must stay at rest, no gas may be swept into the half cell, mass and
+// U+K+G must close, and 1 and 12 workers and a cold restore must agree.
+inline MacClosedWorld held_surface_box(double above_kg) {
+  const auto &f = setup();
+  constexpr std::size_t W = 4, H = 10;
+  MacTransportState state;
+  state.grid = {W, H, 1, 1, false, false, std::vector<std::uint8_t>(W * H)};
+  const auto water = f.registry.index("water"), oxygen = f.registry.index("oxygen");
+  for (std::size_t i = 0; i < W * H; ++i) {
+    const auto x = i % W, y = i / W;
+    state.grid.walls[i] = x == 0 || x == W - 1 || y == 0 || y == H - 1;
+    MacMaterialCell cell{MixtureInventory(f.registry.size()), {}};
+    if (!state.grid.walls[i]) {
+      if (y <= 2) cell.mixture.masses[water] = 1000.05;
+      else if (y == 3) cell.mixture.masses[water] = 500;
+      else cell.mixture.masses[oxygen] = above_kg;
+    }
+    state.cells.push_back(std::move(cell));
+  }
+  state.momentum_x.resize((W + 1) * H);
+  state.momentum_y.resize(W * (H + 1));
+  MacClosedSettings cfg;
+  cfg.numerical_kernel = MacNumericalKernel::game;
+  cfg.game_profile = MacGameProfile::game_kernel_thin_drag;
+  cfg.vacuum = MacVacuumRepresentation::void_phase;
+  cfg.thermal_conduction = true;
+  cfg.maximum_timestep_s = .2;
+  cfg.gravity_m_per_s2 = 9.81;
+  cfg.trace_sink_threshold_kg = 1e-11;
+  cfg.game.liquid_law = MacGameLiquidLaw::positive_segments;
+  cfg.game.pressure_maximum_iterations = 400;
+  cfg.game.heat_maximum_iterations = 800;
+  return MacClosedWorld::game_colony(f.registry, f.eos, std::move(state),
+                                     std::vector<double>(W * H, 300), cfg);
+}
+inline double held_surface_case(double above_kg) {
+  const auto saved = mac_kernel_default_options();
+  auto one = saved, many = saved;
+  one.threads = 1;
+  many.threads = 12;
+  set_mac_kernel_default_options(one);
+  const auto &f = setup();
+  const auto oxygen = f.registry.index("oxygen");
+  constexpr std::size_t W = 4;
+  auto world = held_surface_box(above_kg);
+  const auto total_mass = [](const MacClosedWorld &w) {
+    long double sum = 0;
+    for (const auto &cell : w.state().cells) sum += cell.mixture.mass();
+    return sum;
+  };
+  const auto mass0 = total_mass(world);
+  const auto energy0 = surface_game::total_energy(world);
+  long double sunk_mass = 0, sunk_energy = 0;
+  double fastest = 0;
+  MacClosedWorld half = world;
+  for (unsigned tick = 1; tick <= 10; ++tick) {
+    auto next = std::move(world).advanced(.2);
+    for (const auto &m : next.report.trace_sink.mass_kg) sunk_mass += mac_energy_long_double(m);
+    const auto &sink = next.report.trace_sink;
+    sunk_energy += mac_energy_long_double(sink.internal_energy_j) + mac_energy_long_double(sink.kinetic_energy_j) +
+                   mac_energy_long_double(sink.potential_energy_j);
+    world = std::move(next.world);
+    const auto &s = world.state();
+    const auto iy = surface_game::inertias(s).second;
+    for (const std::size_t x : {1U, 2U}) {
+      const auto top = x + 4 * W;
+      fastest = std::max(fastest, std::abs(s.momentum_y.at(top)) / iy.at(top));
+    }
+    if (tick == 5) half = world;
+  }
+  // The gas may fill the half cell's room by its own pressure, never be
+  // swept into it: the half cell holds no more oxygen than the cell above.
+  bool swept = false;
+  for (const std::size_t x : {1U, 2U})
+    swept = swept || world.state().cells[x + 3 * W].mixture.masses[oxygen] >
+                         world.state().cells[x + 4 * W].mixture.masses[oxygen];
+  check(fastest < .01, "Profile 12 liquid surface under thin gas fell freely");
+  check(!swept, "The thin gas was swept into the liquid surface cell");
+  check(std::abs(total_mass(world) + sunk_mass - mass0) < 1e-12L * mass0, "The thin-gas surface box changed mass");
+  check(std::abs(surface_game::total_energy(world) + sunk_energy - energy0) < 1e-12L * std::abs(energy0),
+        "The thin-gas surface box lost U+K+G");
+  const auto image = half.checkpoint();
+  const auto cold = MacClosedWorld::from_checkpoint(f.registry, f.eos, image);
+  check(cold.checkpoint() == image, "Thin-gas surface checkpoint round trip differs");
+  auto from_one = half;
+  for (unsigned tick = 0; tick < 5; ++tick) from_one = from_one.advanced(.2).world;
+  set_mac_kernel_default_options(many);
+  auto from_many = cold;
+  for (unsigned tick = 0; tick < 5; ++tick) from_many = from_many.advanced(.2).world;
+  set_mac_kernel_default_options(saved);
+  check(from_one.checkpoint() == world.checkpoint() && from_many.checkpoint() == world.checkpoint(),
+        "Thin-gas surface 1/12-worker cold continuation differs");
+  return fastest;
+}
+inline void held_surface_control() {
+  const double trace = held_surface_case(1e-8), thin = held_surface_case(2e-6);
+  std::cout << "PASS profile12 liquid surface under thin gas stays at rest (fastest top face " << trace
+            << " m/s under 10 ng of oxygen, " << thin << " m/s under 2 mg), no gas swept into the surface cell, mass and "
+               "U+K+G closed, workers 1/12 cold continuation\n";
+}
 inline void run() {
+  held_surface_control();
   normal_controls();
   settling_control(false);
   settling_control(true);

@@ -1,13 +1,15 @@
 #pragma once
 #include "mixed_atmospheres/mac_energy.hpp"
 #include <algorithm>
+#include <array>
+#include <atomic>
 #include <cmath>
 #include <compare>
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
 #include <map>
 #include <exception>
-#include <thread>
 #include <optional>
 #include <set>
 #include <span>
@@ -33,68 +35,120 @@ struct RegionExecutionCost {
   unsigned samples=0;
 };
 enum class RegionExecutionReason {
-  serial_budget, held, unknown, too_small, competing, parallel, serial_probe
+  serial_budget, held, unknown, too_small, parallel, serial_probe
+};
+// Which regions run on workers of their own this interval. Every other
+// stepped region shares the residual workers, one region to a worker.
+struct RegionExecutionShare {
+  std::size_t region=0;
+  unsigned threads=1;
 };
 struct RegionExecutionDecision {
-  std::optional<std::size_t> parallel_region,probe_region;
-  unsigned inner_threads=1;
+  // Costliest first. Their thread counts and `residual_threads` add up to at
+  // most the budget.
+  std::vector<RegionExecutionShare> parallel;
+  // A selected region that runs on one residual worker this interval, so that
+  // its serial cost is measured again.
+  std::optional<std::size_t> probe_region;
+  unsigned residual_threads=0;
   RegionExecutionReason reason=RegionExecutionReason::serial_budget;
+  [[nodiscard]] unsigned threads_of(std::size_t region) const noexcept {
+    for(const auto& share:parallel)if(share.region==region)return share.threads;
+    return 0;
+  }
 };
-// The coordinator must report failures outside a region job as well (pool
-// allocation and worker arithmetic-environment checks). Always join before a
-// failure escapes the calling thread. Infrastructure failures retain the pool's
-// precedence; numerical region errors are ordered by the caller afterward.
-// The coordinator is a fresh thread: like every kernel worker it checks its
-// arithmetic environment before it runs region arithmetic (Pool::run also
-// executes blocks on its calling thread).
-template<class Main,class Residual>
-void run_regional_pair(Main&& main,Residual&& residual) {
-  std::exception_ptr residual_error,main_error;
-  std::thread coordinator([&]{try{ma::experimental::require_mac_energy_environment();residual();}catch(...){residual_error=std::current_exception();}});
-  try{main();}catch(...){main_error=std::current_exception();}
-  coordinator.join();
-  if(residual_error)std::rethrow_exception(residual_error);
-  if(main_error)std::rethrow_exception(main_error);
+// Diagnostic for the performance tools, process-wide: committed regional
+// intervals by the number of regions that had workers of their own (the last
+// entry counts four or more) and the inner workers handed out. Nothing reads
+// it back into a decision.
+namespace execution_counts {
+inline std::array<std::atomic<std::uint64_t>,5>& intervals() noexcept {static std::array<std::atomic<std::uint64_t>,5> counts{};return counts;}
+inline std::atomic<std::uint64_t>& inner_threads() noexcept {static std::atomic<std::uint64_t> count{0};return count;}
 }
 class RegionalExecutionHistory {
 public:
+  // A region enters with this much predicted serial work an interval and
+  // stays while it has three quarters of it.
   static constexpr double minimum_work_ms=20;
+  static constexpr double retained_work_ms=15;
   static constexpr unsigned probe_interval=16;
+  // More inner workers than this bought nothing on the measured colonies:
+  // most of a region's interval is serial (MAC_GAME_KERNEL.md, regional
+  // execution).
+  static constexpr unsigned maximum_inner_threads=4;
+  // MA_REGION_WORKERS overrides the limit for measurements (2 to 64).
+  [[nodiscard]] static unsigned inner_limit() noexcept {
+    static const unsigned limit=[] {
+      const char* value=std::getenv("MA_REGION_WORKERS");
+      const long parsed=value && *value?std::strtol(value,nullptr,10):0;
+      return parsed>=2 && parsed<=64?static_cast<unsigned>(parsed):maximum_inner_threads;
+    }();
+    return limit;
+  }
   std::map<RegionExecutionKey,RegionExecutionCost> costs;
-  std::optional<RegionExecutionKey> selected;
-  unsigned selected_intervals=0;
+  // Regions that ran on their own workers in the last interval that stepped
+  // them, with the number of such intervals since their last serial sample.
+  std::map<RegionExecutionKey,unsigned> selected;
 
   void retain(std::span<const RegionExecutionKey> keys) {
     const std::set<RegionExecutionKey> live(keys.begin(),keys.end());
     std::erase_if(costs,[&](const auto& entry){return !live.contains(entry.first);});
-    if(selected && !live.contains(*selected)){selected.reset();selected_intervals=0;}
+    std::erase_if(selected,[&](const auto& entry){return !live.contains(entry.first);});
   }
+  // Every region with enough measured serial work gets workers of its own:
+  // the budget, less one worker for the other regions when there are any, is
+  // divided evenly among them, at most `maximum_inner_threads` each and never
+  // more than a region has row blocks. When the budget cannot give each two
+  // workers, the cheapest wait their turn on the residual workers.
   [[nodiscard]] RegionExecutionDecision plan(std::span<const RegionExecutionWork> work,unsigned budget) const {
     RegionExecutionDecision result;
     if(budget<=2 || work.size()<=1)return result;
     result.reason=RegionExecutionReason::held;
-    std::optional<std::size_t> largest;
-    double first=0,second=0;
+    struct Candidate {std::size_t region;double predicted;};
+    std::vector<Candidate> candidates;std::size_t stepped=0;bool unknown=false;
     for(std::size_t i=0;i<work.size();++i) {
       const auto& item=work[i];if(item.seconds==0)continue;
+      ++stepped;
+      // A region without two serial samples (new, or changed by a dig or a
+      // door) runs on a residual worker until it has them; it does not keep
+      // the measured regions from their workers.
       const auto known=costs.find(item.key);
-      if(known==costs.end() || known->second.samples==0){result.reason=RegionExecutionReason::unknown;return result;}
+      if(known==costs.end() || known->second.samples<2){unknown=true;continue;}
       const double predicted=known->second.serial_ms_per_second*item.seconds;
-      if(!std::isfinite(predicted) || predicted<0){result.reason=RegionExecutionReason::unknown;return result;}
-      if(!largest || predicted>first){second=first;first=predicted;largest=i;}
-      else second=std::max(second,predicted);
+      if(!std::isfinite(predicted) || predicted<0){unknown=true;continue;}
+      if(item.maximum_threads<2)continue;
+      if(predicted>=(selected.contains(item.key)?retained_work_ms:minimum_work_ms))candidates.push_back({i,predicted});
     }
-    if(!largest)return result;
-    const auto& candidate=work[*largest];const auto& cost=costs.at(candidate.key);
-    const unsigned inner=std::min({4U,budget/2,candidate.maximum_threads});
-    if(cost.samples<2){result.reason=RegionExecutionReason::unknown;return result;}
-    if(first<minimum_work_ms || inner<2){result.reason=RegionExecutionReason::too_small;return result;}
-    const bool same=selected && *selected==candidate.key;
-    if(first<(same?1.5:2.)*second){result.reason=RegionExecutionReason::competing;return result;}
-    if(same && selected_intervals>=probe_interval) {
-      result.reason=RegionExecutionReason::serial_probe;result.probe_region=largest;return result;
+    if(stepped==0)return result;
+    if(candidates.empty()){result.reason=unknown?RegionExecutionReason::unknown:RegionExecutionReason::too_small;return result;}
+    std::stable_sort(candidates.begin(),candidates.end(),[](const Candidate& a,const Candidate& b){return a.predicted>b.predicted;});
+    // One selected region at a time gives up its workers for an interval to
+    // have its serial cost measured again: the one that has waited longest.
+    std::optional<std::size_t> probe;unsigned waited=0;
+    for(const auto& candidate:candidates) {
+      const auto age=selected.find(work[candidate.region].key);
+      if(age!=selected.end() && age->second>=probe_interval && age->second>waited){waited=age->second;probe=candidate.region;}
     }
-    result.parallel_region=largest;result.inner_threads=inner;result.reason=RegionExecutionReason::parallel;return result;
+    if(probe) {
+      std::erase_if(candidates,[&](const Candidate& c){return c.region==*probe;});
+      result.probe_region=probe;
+    }
+    // Two workers a region at least; the residual regions keep one worker.
+    std::size_t count=candidates.size();
+    const auto residual_needed=[&](std::size_t parallel){return stepped>parallel?1U:0U;};
+    while(count>0 && budget<residual_needed(count)+2*count)--count;
+    if(count==0) {
+      result.reason=probe?RegionExecutionReason::serial_probe:RegionExecutionReason::serial_budget;return result;
+    }
+    const unsigned share=std::min<unsigned>(inner_limit(),(budget-residual_needed(count))/static_cast<unsigned>(count));
+    unsigned used=0;
+    for(std::size_t c=0;c<count;++c) {
+      const auto region=candidates[c].region;
+      const unsigned threads=std::min(share,work[region].maximum_threads);
+      result.parallel.push_back({region,threads});used+=threads;
+    }
+    result.residual_threads=budget-used;
+    result.reason=RegionExecutionReason::parallel;return result;
   }
   // Called only after the complete regional result and its audits succeed.
   // Parallel observations do not pretend to be serial costs; an occasional
@@ -104,21 +158,21 @@ public:
     if(work.size()!=elapsed_ms.size())throw std::invalid_argument("Regional execution timing coverage differs");
     for(std::size_t i=0;i<work.size();++i)
       if(work[i].seconds>0 && (!std::isfinite(elapsed_ms[i]) || elapsed_ms[i]<0))return;
+    execution_counts::intervals()[std::min<std::size_t>(decision.parallel.size(),execution_counts::intervals().size()-1)].fetch_add(1,std::memory_order_relaxed);
+    for(const auto& share:decision.parallel)execution_counts::inner_threads().fetch_add(share.threads,std::memory_order_relaxed);
     for(std::size_t i=0;i<work.size();++i) {
-      if(work[i].seconds==0 || decision.parallel_region==i)continue;
+      if(work[i].seconds==0)continue;
+      const auto& key=work[i].key;
+      if(decision.threads_of(i)!=0) {++selected[key];continue;}
       const double rate=elapsed_ms[i]/work[i].seconds;
-      if(!std::isfinite(rate) || rate<0)continue;
-      auto& cost=costs[work[i].key];
-      cost.serial_ms_per_second=cost.samples?.5*cost.serial_ms_per_second+.5*rate:rate;
-      cost.samples=std::min(32U,cost.samples+1);
-    }
-    if(decision.parallel_region) {
-      const auto& key=work[*decision.parallel_region].key;
-      selected_intervals=selected && *selected==key?selected_intervals+1:1;selected=key;
-    } else if(decision.probe_region) {
-      selected=work[*decision.probe_region].key;selected_intervals=0;
-    } else if(selected) {
-      for(const auto& item:work)if(item.key==*selected && item.seconds>0){selected.reset();selected_intervals=0;break;}
+      if(std::isfinite(rate) && rate>=0) {
+        auto& cost=costs[key];
+        cost.serial_ms_per_second=cost.samples?.5*cost.serial_ms_per_second+.5*rate:rate;
+        cost.samples=std::min(32U,cost.samples+1);
+      }
+      // A probed region stays selected with a fresh sample; any other stepped
+      // region that ran serially is no longer selected.
+      if(decision.probe_region==i)selected[key]=0;else selected.erase(key);
     }
   }
 };

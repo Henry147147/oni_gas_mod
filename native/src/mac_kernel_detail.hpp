@@ -226,6 +226,9 @@ private:
     std::atomic<std::size_t> done_{0};
     std::atomic<unsigned> sleeping_{0};
     std::atomic<bool> stop_{false};
+    // The caller of run(), asleep until its last block is done (see run()).
+    std::condition_variable finished_;
+    std::atomic<bool> waiting_{false};
     // Written only while the ticket is closed (see run()).
     std::atomic<std::size_t> blocks_{0};
     const std::function<void(std::size_t)>* job_ = nullptr;

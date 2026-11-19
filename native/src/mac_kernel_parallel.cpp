@@ -89,7 +89,14 @@ void Pool::claim(std::uint64_t generation) {
         if (block >= blocks_.load(std::memory_order_acquire)) return;
         if (!ticket_.compare_exchange_weak(t, t + 1, std::memory_order_acq_rel, std::memory_order_acquire)) continue;
         try { (*job_)(block); } catch (...) { errors_[block] = std::current_exception(); }
-        done_.fetch_add(1, std::memory_order_acq_rel);
+        // Sequentially consistent with the caller's store to waiting_ and its
+        // read of done_: either this thread sees the caller waiting or the
+        // caller sees this block done.
+        const auto finished = done_.fetch_add(1) + 1;
+        if (waiting_.load() && finished == blocks_.load(std::memory_order_acquire)) {
+            std::lock_guard lock(mutex_);
+            finished_.notify_one();
+        }
         t = ticket_.load(std::memory_order_acquire);
     }
 }
@@ -152,8 +159,21 @@ void Pool::run(std::size_t blocks, const std::function<void(std::size_t)>& job) 
         }
         if (sleeping_.load(std::memory_order_acquire) != 0) start_.notify_all();
         claim(generation);
+        // Wait for the blocks other threads hold: briefly awake, as an idle
+        // worker does, then asleep. A caller that kept yielding held a core
+        // for as long as its slowest block ran (a region of 100 ms beside
+        // regions of 1 ms), and on a machine with fewer free cores than
+        // workers it took that core from the very thread it waited for.
+        const auto waiting_since = std::chrono::steady_clock::now();
         for (int spin = 0; done_.load(std::memory_order_acquire) != blocks; ++spin) {
-            if (spin < pause_spins) MA_KERNEL_PAUSE(); else std::this_thread::yield();
+            if (spin < pause_spins) MA_KERNEL_PAUSE();
+            else if (spin % 64 != 0 || std::chrono::steady_clock::now() - waiting_since < awake_before_sleep) std::this_thread::yield();
+            else {
+                std::unique_lock lock(mutex_);
+                waiting_.store(true);
+                finished_.wait(lock, [&] { return done_.load() == blocks; });
+                waiting_.store(false);
+            }
         }
         job_ = nullptr;
     }

@@ -35,9 +35,13 @@ class RegionalTick {
   double execution_thin_mass=0,execution_thin_time=0;
   bool execution_room=false;
   std::shared_ptr<RegionalExecutionHistory> execution_history;
-  std::unique_ptr<Tick> parallel_tick;
-  std::optional<std::size_t> parallel_region;
-  std::unique_ptr<ma::experimental::mac_kernel::Pool> residual_pool;
+  // Ticks with inner workers, by region, for the regions the execution plan
+  // gives workers of their own. A region keeps its single-worker Tick too.
+  std::map<std::size_t,std::unique_ptr<Tick>> parallel_ticks;
+  // The other regions' workers, and one coordinator for each region with
+  // workers of its own and for the residual pool. Both are kept between
+  // intervals: no thread is created or ended while the plan stays the same.
+  std::unique_ptr<ma::experimental::mac_kernel::Pool> residual_pool,coordinator_pool;
   std::unique_ptr<Tick> make_tick(const Region& r,unsigned threads) const {
     const auto& cfg=execution_settings;
     return std::make_unique<Tick>(r.box,execution_species,execution_pairs,threads,cfg.flow_parts,
@@ -183,15 +187,28 @@ private:
       execution_work.push_back({execution_keys[id],steps[id],static_cast<unsigned>((box.height+rows-1)/rows)});
     }
     const auto execution=execution_history->plan(execution_work,pool.size());
-    if(execution.parallel_region) {
-      const auto id=*execution.parallel_region;
-      if(parallel_region!=id || !parallel_tick || parallel_tick->threads_used()!=execution.inner_threads) {
-        auto candidate=make_tick(regions[id],execution.inner_threads);
-        const auto remaining=pool.size()-candidate->threads_used();
-        if(!residual_pool || residual_pool->size()!=remaining)
-          residual_pool=std::make_unique<ma::experimental::mac_kernel::Pool>(remaining);
-        parallel_tick=std::move(candidate);parallel_region=id;
+    if(!execution.parallel.empty()) {
+      // Build what is missing before anything is replaced: a failed
+      // allocation leaves the previous Ticks and pool in place.
+      std::map<std::size_t,std::unique_ptr<Tick>> next;
+      for(const auto& share:execution.parallel) {
+        const auto held=parallel_ticks.find(share.region);
+        if(held==parallel_ticks.end() || held->second->threads_used()!=share.threads)
+          next[share.region]=make_tick(regions[share.region],share.threads);
       }
+      const auto remaining=std::max(1U,execution.residual_threads);
+      std::unique_ptr<ma::experimental::mac_kernel::Pool> residual;
+      if(!residual_pool || residual_pool->size()!=remaining)
+        residual=std::make_unique<ma::experimental::mac_kernel::Pool>(remaining);
+      const auto jobs=static_cast<unsigned>(execution.parallel.size()+1);
+      std::unique_ptr<ma::experimental::mac_kernel::Pool> coordinators;
+      if(!coordinator_pool || coordinator_pool->size()!=jobs)
+        coordinators=std::make_unique<ma::experimental::mac_kernel::Pool>(jobs);
+      // A region that lost its workers gives its Tick up; the others keep theirs.
+      std::erase_if(parallel_ticks,[&](const auto& entry){return execution.threads_of(entry.first)==0 && execution.probe_region!=entry.first;});
+      for(auto& [id,tick]:next)parallel_ticks[id]=std::move(tick);
+      if(residual)residual_pool=std::move(residual);
+      if(coordinators)coordinator_pool=std::move(coordinators);
     }
     attempt_depth=refinement_depth=0;
     setup_ms=lap();
@@ -228,7 +245,7 @@ private:
         if(!blocked.empty()) {local_blocked.resize(r.box.walls.size());for(std::size_t i=0;i<local_blocked.size();++i)local_blocked[i]=blocked[global_cell(r,i)];}
         try {
           if(reject_log::level())reject_log::region={r.x,r.y,static_cast<std::size_t>(r.box.width),static_cast<std::size_t>(source.width)};
-          auto& tick=execution.parallel_region==id?*parallel_tick:*r.tick;
+          auto& tick=execution.threads_of(id)!=0?*parallel_ticks.at(id):*r.tick;
           std::vector<std::uint8_t> local_sinks;
           if(sink_speed>0) {local_sinks.resize(r.box.walls.size());for(std::size_t i=0;i<local_sinks.size();++i)local_sinks[i]=sink_cells[global_cell(r,i)];}
           tick.set_sinks(std::move(local_sinks),sink_speed);
@@ -245,10 +262,17 @@ private:
       }catch(...){errors[id]=std::current_exception();}
       region_ms[id]=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-started).count();
     };
-    if(execution.parallel_region) {
-      const auto selected=*execution.parallel_region;
-      run_regional_pair([&]{run_region(selected);},[&]{
-        residual_pool->run(regions.size()-1,[&](std::size_t block){run_region(block<selected?block:block+1);});
+    if(!execution.parallel.empty()) {
+      // One coordinator a region with workers of its own, and one for the
+      // residual pool with every other region. The residual job is block 0:
+      // the pool rethrows its lowest failing block, so a failure of the
+      // residual pool itself (not of a region, which run_region records)
+      // keeps its precedence. Every job is finished before run returns.
+      std::vector<std::size_t> others;others.reserve(regions.size());
+      for(std::size_t id=0;id<regions.size();++id)if(execution.threads_of(id)==0)others.push_back(id);
+      coordinator_pool->run(execution.parallel.size()+1,[&](std::size_t job) {
+        if(job==0)residual_pool->run(others.size(),[&](std::size_t block){run_region(others[block]);});
+        else run_region(execution.parallel[job-1].region);
       });
     } else pool.run(regions.size(),run_region);
     run_ms=lap();

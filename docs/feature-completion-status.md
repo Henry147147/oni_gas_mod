@@ -1,5 +1,15 @@
 # Feature completion work
 
+**Update, 2026-11-19, version 1.10.0.** At the user's request the speed
+fixes began and were released as 1.10.0. The free-falling face that cut the
+session's surface region into 21 flow intervals a tick is repaired (7.7),
+and every expensive region now gets workers of its own instead of only a
+single dominant one. On the game-free replay of the session's save the owner
+tick falls from 153.5 to 111.4 ms with 12 workers on the test host; results
+are bit-identical for every worker count. What remains of the tick is mostly
+single-threaded work outside the regions, about 56 ms, the next target
+([1.10.0](playtest-1.10.0.md)).
+
 **Update, 2026-11-19, first session on the published build.** The user
 published 0.1.8 (`4bdfceb`) on the Steam Workshop and played it for 103
 minutes. The session's last save no longer loaded: a meteor had left the

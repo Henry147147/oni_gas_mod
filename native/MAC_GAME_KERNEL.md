@@ -1934,55 +1934,157 @@ Held regions reuse their physical state/EOS; solid topology is cached until
 walls change. Global reconstruction, publication and full conservation audits
 remain costs. Skipping evolution alone is not a measured 3× gain.
 
+## A liquid surface under thin gas (profile 12, 2026-11-19)
+
+The published 0.1.8 session's colony (Spaced Out!, cycle 33) spent most of
+its flow stage in one 7,088-cell region on an asteroid surface, at 21.4 flow
+intervals a tick where a quiet region takes two. Every tick one face refused
+the first interval: the top face of a puddle cell, 494 kg of water in a cell
+half full (275 K), under a cell holding 4-16 ng of steam (0.4-2 mPa). ONI
+deletes the puddle cell's own vapour every frame (it shows as gas on an
+exposed tile), so at the start of the flow the cell holds no gas.
+
+The face above a partly filled liquid cell carries half that cell's liquid
+as inertia, `I = (m_below + m_above) / 2`, and gravity acts on all of it.
+Under a room's gas the cell's own gas holds that weight, compressed until
+`A (p_below - p_above)` carries it (about 2.4 kPa for a half-full water
+cell). Under a few nanograms of gas nothing can: the
+[profile 4 closure](#free-surface-profile-profile4core22) closes the face only
+when the cell above is exactly empty, so the face fell with only the drags
+against it, at the terminal speed
+`g / (φ / liquid_drag_time + (1 - φ) / gas_drag_time)` with φ the face's
+liquid share: 34.4 m/s for this puddle (φ = 0.2475), the speed every refused
+interval logged. It swept 3.4 m³ of near-vacuum a tenth of a second into a
+cell holding 494 kg while carrying nanograms, and the net swept-volume bound,
+which counts volume, asked for at least 18 intervals a tick for the whole
+region. A brine puddle on the same asteroid did the same at 54-78 m/s in its
+own 45-cell region (37 intervals a tick).
+
+Profile 12 now treats such a face as what it is, a free surface with only
+the material above it free to cross (`mac_game/pressure_be.hpp`). It applies
+where the cell below is partly filled with liquid and not flooding (no
+stiffened room), its gas pressure is below a tenth of the weight the face
+carries (`p_gas < 0.1 g (I - m_above) / A`, zero for a gas-free cell), the
+cell above holds no more liquid than the vent drag's mist (1 mL a cubic
+metre) and is lighter than the face's inertia, and the predicted momentum is
+downward. Then:
+
+- material above of at most 1 mg (the swept-volume bound's floor) is a
+  trace: the face is closed for the interval as the profile 4 closure closes
+  it against an empty cell, and momentum stranded on it becomes heat;
+- heavier material above (thin gas) gives the face its own weight only, not
+  the face's inertia; its work is booked from that impulse as gravity rule 1
+  books it (`flow_local.hpp`).
+
+Mass, U+K+G and the momentum accounts close as before. A surface whose gas
+holds it (every pool under a room's air, and a pool in vacuum whose vapour
+the face's weight has compressed: its gas is then at the full weight, ten
+times the threshold) keeps the face's full weight, bit for bit, and so does
+liquid falling onto a surface. The tenth is a margin: a balanced surface sits
+at the full weight, so it never crosses the threshold, and a surface that
+does cross it is pushed by at most a tenth of its weight. (A threshold at
+the full weight was tried first: pools in vacuum sit exactly there, flipped
+between the two rules and sprayed their top cells' water across the surface.)
+
+On the published colony's 600 recorded ticks (game-free replay) the surface
+region falls from 21.4 to 7.7 flow intervals a tick and the brine region
+(37.1) drops out of the twelve costliest; the colony's regions take 561
+intervals a tick for 609. The pool, the puddle and the polluted-water pools keep their masses and
+temperatures (pool 17,060 kg throughout, puddle 495 to 497 kg at 275 K).
+Nothing else in the 600 ticks pointed at these faces: what remains in the
+region are the space-exposed cell (378,126), into which three neighbours
+flow at the 3 m/s vent target while its gas carries nanolitres of mist, and
+the off-gassing lumps of polluted oxygen at y 126. With the face no longer
+falling, the brine row it sat in moves again: it had stood still for the
+whole baseline (1,195 kg beside 4 kg), and now flows toward its open left
+edge and over it into the shaft below, where the 249 K pocket freezes what
+arrives (290 kg of brine ice debris in 120 s, against 12 kg). The other
+captures: the 32-duplicant industrial base has one such face (a 48-cell
+region from 4.5 to 2 intervals), the 14-duplicant Spaced Out! colony's
+second base takes 50.1 intervals for 52.0 (18.4 for 19.0 with its surface
+map), and the two November 17 playtest captures and every generated colony
+are bit for bit unchanged.
+
+Solver arithmetic: profile 12 changes on these faces only; profiles 2-11,
+the checkpoint format and version 32 are unchanged, and a 0.1.8 or 0.1.9 save
+restores to its exact image. Control: `held_surface_control` in
+`mac_game_surface_stability_control.hpp` (two half-full gas-free water cells
+under five rows of thin oxygen, 10 ng a cell, which closes the face, and 2 mg,
+whose weight the face takes: the top faces stay below 0.01 m/s, no gas is
+swept into the half cells, mass and U+K+G close, workers 1/12 and a cold restore agree; on
+the previous revision the control fails, the faces falling freely).
+
 ## Bounded regional worker scheduling
 
-Regional pressure kernels retain the original serial-per-region path and its
-outer worker pool. A nonsaved execution history now allows one expensive,
-dominant due region to use inner workers while the remaining regions keep
-serial Ticks on a residual pool. Actual inner plus residual workers never exceed
-the configured budget; an outer region job never invokes an inner parallel Tick.
-Budgets of 1–2 retain original dispatch. Larger budgets allow at most four inner
-workers and at most half the total budget, capped by the unchanged fixed blocks.
+Regions (connected open cells; the asteroids of a cluster are always separate
+regions) run side by side on the worker pool, one region to a worker. Since
+1.10.0 every region with enough measured work also gets workers of its own;
+until then only one region could, and only when it cost twice as much as the
+next one, so a colony with two expensive regions ran both on one worker each
+and left the rest idle (the published session of 2026-11-19: 100 and 86 ms a
+tick on two of twelve workers).
 
-The policy requires two serial measurements, predicts at least 20 ms of regional
-work for the requested interval, and requires a 2× lead over the next due region.
-Retention uses 1.5× hysteresis. Unknown systems use the original serial fallback.
-After 16 selected intervals a serial probe refreshes that system's cost; paused
-systems neither execute nor age the probe. Costs scale with actual due duration,
-so a held region cannot borrow a cadence or force physical work. Successful
-regional audits alone commit samples; errors and invalid measurements do not
-poison timing history. Coordinator infrastructure failures join and rethrow on
-the caller, retaining ordered region-error handling.
+The policy (`regional_execution.hpp`), decided anew each interval from a
+nonsaved execution history:
+
+- A region is a candidate once it has two serial measurements and at least
+  20 ms of predicted serial work for the requested interval; a selected
+  region stays a candidate down to 15 ms. Costs scale with the due duration,
+  so a held region cannot borrow a cadence or force physical work.
+- The budget is the configured worker count. One worker is kept for all
+  other regions when there are any; the rest is divided evenly among the
+  candidates, at most four workers each (more bought nothing: most of a
+  region's interval is serial) and never more than a region has row blocks.
+  When the budget cannot give every candidate two workers, the cheapest
+  candidates wait on the residual workers. Budgets of one and two keep the
+  original dispatch.
+- A region that is new or changed (a dig, a door) has no measurements: it
+  runs on a residual worker until it has two, and no longer keeps the
+  measured regions from their workers.
+- After 16 selected intervals a region runs serially once so that its cost
+  is measured again. At most one region does so in an interval, the one that
+  has waited longest; the others keep their workers. Paused regions neither
+  run nor age.
+- Successful regional audits alone commit samples; errors and invalid
+  measurements do not change the history.
+
+Each selected region has a second Tick with a pool of its share; its serial
+Tick is kept for probes. One coordinator pool runs a job for each selected
+region and one for the residual pool, which runs every other region. All
+pools persist between intervals: no thread is created or ended while the plan
+stays the same. The inner workers, the coordinators and the residual workers
+together never exceed the budget. A failure of the residual pool itself is
+the coordinator pool's lowest block and is rethrown first; region errors are
+recorded per region and ordered by the caller as before.
 
 Keys contain each region's global representative, cell count and membership
-fingerprint. Temporary face barriers retain history; split/merged membership
-starts with serial sampling. Each regional cache keeps its original serial Ticks
-and at most one additional parallel Tick. History is never serialized, and cold
+fingerprint. Temporary face barriers retain history; split or merged
+membership starts with serial sampling. History is never serialized, and cold
 execution can use a different worker route while retaining identical physical
-bytes. Equations, pressure caps/tolerances, reductions, timesteps, activity clocks
-and all checkpoint layouts are unchanged.
+bytes. Equations, pressure caps and tolerances, reductions, timesteps,
+activity clocks and all checkpoint layouts are unchanged: which thread runs a
+region, and with how many workers, never changes a result.
 
-The native control supplies measured costs explicitly and verifies the gates,
-hysteresis/probes, budgets, coordinator failures, worker 1/4/8/12 physical bytes,
-failed-work isolation, due-mask sleep/wake, topology remapping and cold equality.
-The private WHOLE-lock owner replay uses the original saved Spaced Out! and
-digging states with their recorded heat/terrain/actor inputs. Two matched 12-frame
-repetitions compare every physical image to the original profile8 bytes. The
-automatic policy selects no fresh-scene frames and six digging-scene frames per
-repetition; the others conservatively sample new/changed regions. Excluding the
-first two frames gives 20 samples/configuration: fresh owner mean 586.8→592.1 ms
-and kernel 481.3→486.3 ms (no meaningful gain); digging owner 842.3→690.6 ms and
-kernel 767.4→617.2 ms (18.0%/19.6% less). Digging process CPU increases 16.6%.
-These short windows precede most of the twelve digs and omit the actual game
-loop. They establish an exact execution opportunity, not sustained 3× acceptance.
+The native control (`ma_mac_game_kernel_tests`, "bounded regional execution")
+supplies measured costs explicitly and verifies the gates, the even division
+for budgets 3 to 40, admission costliest first, hysteresis, staggered probes,
+failed-work isolation, due-mask sleep and wake, topology remapping and cold
+equality; three expensive regions beside a cheap one give the single-worker
+physical bytes for 3, 4, 5, 7, 8, 12 and 16 workers, warm, cold, when a
+region loses its workers or is probed, and over 40 intervals with the host's
+own timing deciding. ThreadSanitizer reports nothing on the kernel tests or
+on 40 ticks of a real colony with three regions on their own workers.
 
-The competing fresh regions explain its flat result. A fixed inner 4 experiment
-reduced one region 416→322 ms, but another remained 444–450 ms; even an infinitely
-fast selected region could improve that owner's mean by only about 1.6%. Parallel
-pressure currently leaves the cached IC path (`solve_components_cached` routes
-pools larger than one to the general assembly). Caching the parallel component
-layout/sweep plan and reusing remaining `PatchTransport` scratch capacity are
-follow-ups; neither is part of this scheduler.
+Measured on the published session's colony (game-free replay, six reserved
+cores of the Ryzen 9 5900X, 150 ticks): with two or three regions selected in
+all but two intervals, the regional run falls from 96.1 to 76.5 ms a tick
+with 12 workers (the two expensive regions from 94.5 and 77.6 to 75.6 and
+56.4 ms) and the owner tick from 158.8 to 139.1 ms; beside two busy threads
+165.6 to 149.8 ms, beside four 203.0 to 186.5 ms. A limit of two workers a
+region gives 84.7 ms of regional run and a limit of six 80.8 ms, so four
+stays. Six captures and six generated colonies end on the previous binary's
+final hash at every worker count from 1 to 24
+([1.10.0](../docs/playtest-1.10.0.md)).
 
 ## Exact transfer reading reuse
 

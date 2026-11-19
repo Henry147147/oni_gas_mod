@@ -89,9 +89,9 @@ struct RegionalSetup {
     static k::TickResult advance(k::RegionalTick& tick, k::RegionalExecutionHistory& history, const k::State& state) {
         const auto keys = tick.execution_region_keys();
         history.costs[keys[0]] = {100 / .02, 2}; history.costs[keys[1]] = {1 / .02, 2};
-        history.selected_intervals = 0;
+        for (auto& entry : history.selected) entry.second = 0;
         auto result = tick.advance(state, .02, 0, 1e-11);
-        if (history.selected != keys[0]) throw std::runtime_error("Allocator control did not use the parallel regional path");
+        if (!history.selected.contains(keys[0])) throw std::runtime_error("Allocator control did not use the parallel regional path");
         return result;
     }
 };

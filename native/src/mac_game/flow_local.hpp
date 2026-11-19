@@ -759,7 +759,10 @@ public:
           continue;
         }
         const double I = .5 * (eos[l].mass + eos[r].mass);
-        body_heat[f] = gravity_rule == 0 ? gravity * dt * projected.jy[f]
+        // A profile 12 held surface's face (pressure_be.hpp) carries its own
+        // body impulse; its work is booked as gravity rule 1 books it.
+        const bool own = !projected.held_y.empty() && projected.held_y[f];
+        body_heat[f] = gravity_rule == 0 && !own ? gravity * dt * projected.jy[f]
                        : I > 0
                            ? -projected.body_impulses_y[f] * (projected.jy[f] / I)
                            : 0;
@@ -923,7 +926,7 @@ public:
           } else {
             if (!x)
               regions->momentum(l, false,
-                                gravity_rule == 0
+                                gravity_rule == 0 && (projected.held_y.empty() || !projected.held_y[f])
                                     ? -gravity * dt * .5 *
                                           (eos[l].mass + eos[r].mass)
                                     : projected.body_impulses_y[f]);

@@ -8,6 +8,7 @@
 #include "../src/oni_colony_diagnostics.hpp"
 #include "../src/oni_colony_journal.hpp"
 #include "../src/oni_catalogue.hpp"
+#include "../src/mac_game/regional_execution.hpp"
 #include "mixed_atmospheres/mac_closed_world.hpp"
 #include "mixed_atmospheres/mac_kernel.hpp"
 #include <algorithm>
@@ -765,6 +766,16 @@ double estimated_speed(double owner_ms, double native_overhead_ms, double frame_
 // sinks, ledgers, projection, publication) under the game's own workload,
 // without the game. The files are private captures and stay out of the
 // repository.
+
+// How the regional intervals of this process were dispatched (diagnostic).
+std::string regional_execution_json() {
+    namespace counts = ma::experimental::game_kernel::execution_counts;
+    std::ostringstream out;
+    out << "{\"intervals_by_regions_with_own_workers\": [";
+    for (std::size_t i = 0; i < counts::intervals().size(); ++i) out << (i ? ", " : "") << counts::intervals()[i].load();
+    out << "], \"inner_workers_handed_out\": " << counts::inner_threads().load() << "}";
+    return out.str();
+}
 int owner_replay(const Options& o) {
     namespace jr = c::journal_replay;
     const auto saved = jr::read_file(o.replay_owner);
@@ -842,7 +853,8 @@ int owner_replay(const Options& o) {
         << ", \"stage_ms\": {\"terrain\": " << json(summarize(stage[0])) << ", \"heat\": " << json(summarize(stage[1]))
         << ", \"transfers\": " << json(summarize(stage[2])) << ", \"flow\": " << json(summarize(stage[3]))
         << ", \"space_sink\": " << json(summarize(stage[4])) << ", \"ledger_and_projection\": " << json(summarize(stage[5])) << "}"
-        << ", \"flow\": " << tally.json_text(o.top_regions, parts.config.grid_width);
+        << ", \"flow\": " << tally.json_text(o.top_regions, parts.config.grid_width)
+        << ", \"regional_execution\": " << regional_execution_json();
     std::snprintf(estimate, sizeof estimate,
         ", \"estimate\": {\"scope\": \"game seconds per real second if a tick takes the owner frame plus native_overhead_ms; calibrated on Linux harness runs, not measured in game\", "
         "\"native_overhead_ms\": %.1f, \"game_per_real_mean\": %.3f, \"game_per_real_p95_frame\": %.3f, \"owner_ms_budget_for_3x\": %.1f}",
@@ -1117,7 +1129,8 @@ int run(const Options& o) {
             "\"native_overhead_ms\": %.1f, \"game_per_real_mean\": %.3f, \"game_per_real_p95_frame\": %.3f, \"owner_ms_budget_for_3x\": %.1f}",
             o.native_overhead_ms, estimated_speed(owner.mean, o.native_overhead_ms, seconds), estimated_speed(owner.p95, o.native_overhead_ms, seconds),
             1000 * seconds / 3 - o.native_overhead_ms);
-        out << ", \"preset\": \"" << o.late_preset << "\", \"flow\": " << tally.json_text(o.top_regions, layout.width) << estimate;
+        out << ", \"preset\": \"" << o.late_preset << "\", \"flow\": " << tally.json_text(o.top_regions, layout.width)
+            << ", \"regional_execution\": " << regional_execution_json() << estimate;
     } else {
         out << ", \"budget_ms\": " << o.budget_ms << ", \"sustain_frames\": " << o.sustain_frames << ", \"events\": [";
         for (std::size_t n = 0; n < events.size(); ++n) {

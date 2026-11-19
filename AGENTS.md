@@ -13,7 +13,10 @@ few that your task touches, starting here.
   full-colony saves; 3× stays the goal) and what remains open. The user
   published 0.1.8 (`4bdfceb`) on the Steam Workshop on 2026-11-18;
   [0.1.9](docs/playtest-2026-11-19.md) answers the first session on it (a
-  save that no longer loaded after a meteor left the map's edge).
+  save that no longer loaded after a meteor left the map's edge), and
+  [1.10.0](docs/playtest-1.10.0.md) (the user's version number) begins the
+  speed fixes: a liquid surface under thin gas no longer falls freely, and
+  every expensive region gets workers of its own.
   [0.1.8](docs/playtest-0.1.8.md) lets
   two gases change places through an opening one tile high;
   [0.1.7](docs/playtest-0.1.7.md) kept a pool levelling past the activity

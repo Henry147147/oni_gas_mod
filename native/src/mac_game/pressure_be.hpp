@@ -8,6 +8,13 @@ inline constexpr double liquid_drag_time = 1; // seconds; profile 12, see Pressu
 inline constexpr double gas_drag_time = 20;   // seconds; profile 12, see PressureSolver
 // Entrained liquid at a gas vent, in m³ of liquid per m³ of face volume.
 inline constexpr double vent_mist_fraction = 1e-6;
+// Profile 12 liquid surfaces under thin gas (PressureSolver::advance): a
+// partly filled liquid cell whose gas pressure is below this share of the
+// weight its top face carries cannot hold that face up, and material above
+// it of at most held_surface_trace_kg (the net swept-volume bound's 1 mg
+// floor) is a trace the face is closed against.
+inline constexpr double held_surface_gas_share = .1;
+inline constexpr double held_surface_trace_kg = 1e-6;
 
 namespace kernel = ma::experimental::mac_kernel;
 struct Pressure {
@@ -18,6 +25,11 @@ struct Pressure {
   // Faces closed for this interval: one side empty and the predicted
   // momentum would carry material out of that empty cell.
   std::vector<std::uint8_t> blocked_x, blocked_y;
+  // Profile 12: vertical faces above a liquid surface its gas cannot hold
+  // up, whose body impulse is the weight of the material above rather than
+  // of the face's inertia (see advance). Their body work is booked from
+  // body_impulses_y. Empty without the profile.
+  std::vector<std::uint8_t> held_y;
   // geometric: solves (of this result and its correction) the geometric PCG made.
   std::size_t iterations = 0, corrections = 0, geometric = 0;
   double residual = 0;
@@ -189,6 +201,7 @@ public:
       v->resize(g.NY);
     result.blocked_x.resize(g.NX);
     result.blocked_y.resize(g.NY);
+    result.held_y.assign(thin ? g.NY : 0, 0);
     result.drag_x.assign(thin ? g.NX : 0, 0.);
     result.drag_y.assign(thin ? g.NY : 0, 0.);
     const auto x_faces = [&](std::size_t y0, std::size_t y1) {
@@ -260,9 +273,50 @@ public:
             blocked = 1;
         }
       }
+      // Profile 12 (MAC_GAME_KERNEL.md, "A liquid surface under thin gas"):
+      // the face above a partly filled liquid cell carries half that cell's
+      // liquid as inertia, and gravity acts on all of it. Under a room's gas
+      // the cell's own gas holds that weight, compressed until it carries it.
+      // Where the cell's gas could not carry even a tenth of it (vacuum, a
+      // few nanograms of vapour) the weight had nothing to oppose it but
+      // drag: the face fell at a terminal 30-80 m/s, sweeping cells of
+      // near-vacuum into the cell every interval while carrying no material
+      // (the profile 4 closure above acts only when the cell above is exactly
+      // empty). Downward across such a face only the material above can move:
+      // when that material holds no more liquid than the vent drag's mist
+      // and is lighter than the face's inertia, the face is closed for the
+      // interval like an empty cell's if the material is a trace (at most
+      // held_surface_trace_kg; momentum stranded on it becomes heat), and
+      // otherwise takes the weight of that material only. Liquid falling onto
+      // the surface, and a surface its gas can hold (a pool under air), keep
+      // the face's full weight.
+      bool held_face = false;
+      if (!x && thin && close_empty_inflow && gravity_rule == 0 && gravity != 0 && fluid && !blocked && inertia > 0) {
+        const auto below = gravity > 0 ? l : r, above = gravity > 0 ? r : l;
+        const auto &held = states[below], &over = states[above];
+        if (held.mass > 0 && held.liquid_nominal_volume > 0 && held.liquid_nominal_volume < g.V &&
+            !held.fixed_pressure && !(fixed && (*fixed)[below]) &&
+            !(stiffened && (*stiffened)[below].compliance > 0) &&
+            !(over.liquid_nominal_volume > vent_mist_fraction * g.V) && over.mass < inertia &&
+            (held.nR > 0 ? held.pressure : 0.) <
+                held_surface_gas_share * std::abs(gravity) * (inertia - over.mass) / g.A) {
+          const double pl = system.active[l] ? states[l].pressure : 0,
+                       pr = system.active[r] ? states[r].pressure : 0;
+          if ((old - gravity * dt * inertia + dt * g.A * (pl - pr)) * gravity < 0) {
+            if (over.mass <= held_surface_trace_kg)
+              blocked = 1;
+            else
+              held_face = true;
+          }
+        }
+      }
       if (!fluid || inertia == 0 || blocked)
         return;
       double body = x ? 0 : -gravity * dt * inertia;
+      if (held_face) {
+        body = -gravity * dt * states[gravity > 0 ? r : l].mass;
+        result.held_y[f] = 1;
+      }
       if (!x && gravity_rule == 1) {
         const double predicted =
             old + dt * g.A * (states[l].pressure - states[r].pressure) + body;
