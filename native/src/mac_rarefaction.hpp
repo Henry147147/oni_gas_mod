@@ -1,5 +1,6 @@
 // Compatible pressure work on the two normal faces of an expanding gas cell.
 #pragma once
+#include "mac_hypot.hpp"
 #include <algorithm>
 #include <cmath>
 
@@ -28,7 +29,7 @@ inline MacExpansionImpulse expansion_impulse(double pressure, double sound, doub
     if (!(work > 0)) return {};
     const double smaller_inertia = std::min(il, ir);
     const double reduced_mass = smaller_inertia / (1 + smaller_inertia / std::max(il, ir));
-    const double speed = std::hypot(separating, std::sqrt(2.) * (std::sqrt(work) / std::sqrt(reduced_mass)));
+    const double speed = ma::rounded_hypot(separating, std::sqrt(2.) * (std::sqrt(work) / std::sqrt(reduced_mass)));
     const double impulse = work / (.5 * separating + .5 * speed);
     // A transfer that cannot move either stored momentum cannot consume heat.
     if (!(impulse > 0) || !std::isfinite(impulse) || jl - impulse == jl || jr + impulse == jr) return {};

@@ -11,6 +11,7 @@ from unittest import mock
 sys.path.insert(0, str(Path(__file__).parents[1]))
 import oni_dlc as dlc
 import oni_dlc_matrix as matrix
+import oni_version_matrix as versions
 
 
 def result(mask, target="linux", loading=False, menu=False):
@@ -32,6 +33,16 @@ def result(mask, target="linux", loading=False, menu=False):
 
 
 class CompatibilityEvidenceTests(unittest.TestCase):
+    def test_game_version_reload_requires_the_expected_build_and_source_save(self):
+        data = result(0, loading=True, menu=True)
+        data["integration_probe"]["RunningOniBuild"] = 744825
+        data["load_save_fixture"] = {"sha256": "source"}
+        versions.verify_reload(data, "linux", 744825, "source")
+        with self.assertRaisesRegex(ValueError, "game build"):
+            versions.verify_reload(data, "linux", 763796, "source")
+        with self.assertRaisesRegex(ValueError, "source save"):
+            versions.verify_reload(data, "linux", 744825, "different")
+
     def test_plan_has_all_64_unique_os_content_rows_and_claims_no_execution(self):
         plan = matrix.plan()
         self.assertFalse(plan["passed"])

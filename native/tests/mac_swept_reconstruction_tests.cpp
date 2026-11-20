@@ -190,9 +190,12 @@ void owner_and_checkpoint() {
                 expected.report.substeps == resumed.report.substeps && expected.report.rejected_attempts == resumed.report.rejected_attempts,
                 "Swept checkpoint continuation or source atomicity differs");
             auto options = source.settings(); options.gravity_m_per_s2 = 0;
+            // Compare the isolated swept remap with its standalone entry point.
+            // The owner also applies post-remap expansion work for selector 6.
+            options.momentum_reconstruction = MacMomentumReconstruction::limited_linear;
             const auto direct = advance_mac_closed_substep(setup.registry, *setup.eos, source.state(), 1e-5, options);
             const auto plan = reconstruct_mac_swept_parcels(setup.registry, *setup.eos, direct.pressure_state, direct.material_volumes_m3, direct.volume_fluxes_m3);
-            const auto result = advance_mac_parcel_transport(setup.registry, direct.pressure_state, *setup.eos, plan, source.settings().momentum_reconstruction);
+            const auto result = advance_mac_parcel_transport(setup.registry, direct.pressure_state, *setup.eos, plan, options.momentum_reconstruction);
             check(direct.reconstruction && ma::testing::fingerprint(result.state) == ma::testing::fingerprint(direct.state),
                 "Closed owner did not dispatch the swept material reconstruction");
             std::cout << "SCHECKPOINT " << wet << ' ' << static_cast<int>(heat) << ' ' << static_cast<int>(compression) << ' '

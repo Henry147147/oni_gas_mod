@@ -93,9 +93,18 @@ void rejections(const testing::Setup& fixture) {
     try { (void)liquid.with_fluid_transfers(std::span(&void_edit,1),mixed); } catch (const std::exception&) { void_rejected=true; }
     require(void_rejected && liquid.checkpoint()==liquid_held,"Mixed policy admitted a liquid free surface or changed its source");
     auto state=fixture.state(2,2,false,true);const MacClosedWorld passive(fixture.registry,fixture.eos,state);const auto passive_held=passive.checkpoint();
+    // An injection with no passive payload leaves both existing inventories intact.
+    const auto added=passive.with_fluid_transfers(std::span(&valid,1),mixed);
+    const auto& kept=added.world.state().cells[0].passive_quantities;
+    const auto& original=state.cells[0].passive_quantities;
+    require(kept.size()==original.size() && added.parcels[0].passives.empty(), "Mixed injection lost its passive inventory");
+    for (std::size_t k=0;k<kept.size();++k)
+        require(kept[k].identity==original[k].identity && kept[k].quantity==original[k].quantity, "Mixed injection changed a passive");
+    auto malformed=valid;
+    malformed.passives={{17,-1}};
     bool passive_rejected=false;
-    try { (void)passive.with_fluid_transfers(std::span(&valid,1),mixed); } catch (const std::invalid_argument&) { passive_rejected=true; }
-    require(passive_rejected && passive.checkpoint()==passive_held,"Mixed policy discarded unadapted passive quantities");
+    try { (void)passive.with_fluid_transfers(std::span(&malformed,1),mixed); } catch (const std::invalid_argument&) { passive_rejected=true; }
+    require(passive_rejected && passive.checkpoint()==passive_held,"Mixed policy admitted an invalid passive payload or changed the source");
     std::cout << "REJECTIONS 8\n";
 }
 }

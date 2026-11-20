@@ -65,6 +65,9 @@ public:
     }
     void add(MacEnergy);
     void add(double);
+    // Merge exact sums in magnitude order. Individual expansion components
+    // may be regrouped, while their signed sum is preserved.
+    void add_expansion(const MacEnergySum&);
     [[nodiscard]] std::size_t size() const noexcept { return used_; }
     [[nodiscard]] MacEnergy component(std::size_t) const;
     [[nodiscard]] int sign() const noexcept;

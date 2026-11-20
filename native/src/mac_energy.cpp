@@ -192,6 +192,34 @@ void MacEnergySum::add(double value) {
     if(try_native_add(value))return;
     promote();add_extended(MacEnergy::from_double(value));
 }
+void MacEnergySum::add_expansion(const MacEnergySum& other) {
+    if (!other.used_) return;
+    if (!used_) { *this = other; return; }
+    if (other.used_ == 1) { add(other.at(0)); return; }
+    // Fast expansion sum. Take each nonoverlapping input in increasing
+    // magnitude and emit the exact low part before carrying the high part.
+    // Build separately so the same input can also appear on both sides.
+    std::vector<MacEnergy> merged;
+    if (other.used_ > merged.max_size() - used_) throw std::length_error("MAC energy expansion too large");
+    merged.reserve(used_ + other.used_);
+    MacEnergy carry;
+    std::size_t left = 0, right = 0;
+    while (left < used_ || right < other.used_) {
+        bool take_left = right == other.used_;
+        if (!take_left && left < used_) {
+            const auto a = at(left), b = other.at(right);
+            take_left = a.exponent() < b.exponent() ||
+                (a.exponent() == b.exponent() && std::abs(a.mantissa()) <= std::abs(b.mantissa()));
+        }
+        auto pair = add_mac_energy(std::move(carry), take_left ? at(left++) : other.at(right++));
+        if (!pair.low.is_zero()) merged.push_back(std::move(pair.low));
+        carry = std::move(pair.high);
+    }
+    if (!carry.is_zero()) merged.push_back(std::move(carry));
+    extended_ = std::move(merged);
+    used_ = extended_.size();
+    extended_mode_ = true;
+}
 void MacEnergySum::add_extended(MacEnergy value) {
     std::size_t written = 0;
     if (used_ > 16) {

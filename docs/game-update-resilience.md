@@ -40,8 +40,15 @@ game build or a later supported one.
    and `--windows-game` installations to `tools/acceptance_suite.py run REV
    --tier release --keep-going`. Results and single-build test packages for
    earlier games are stored separately under the revision and build number.
-   Also run the complete distribution folder on each game and platform to
-   exercise ONI's archive selection, including saving and reloading.
+   Exercise the distribution through ONI's archive selection with one base-game
+   save from the oldest supported build. The same command covers every registry
+   row on Linux and in the Windows player under Proton, including a menu reload.
+
+   ```sh
+   python3 tools/oni_version_matrix.py --package path/to/MixedAtmospheres \
+     --save path/to/oldest-colony.sav --output artifacts/version-reloads \
+     --proton build-proton-official10/proton-10.0-4b
+   ```
 
 The records below describe the original verification mechanism and the
 single-build packages through 1.10.2.

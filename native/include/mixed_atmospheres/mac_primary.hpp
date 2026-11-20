@@ -77,8 +77,8 @@ struct MacPrimaryRoundingCounts {
         if (other.rounded > std::numeric_limits<std::size_t>::max() - rounded ||
             other.discarded > std::numeric_limits<std::size_t>::max() - discarded)
             throw std::overflow_error("MAC primary rounding counter overflow");
+        error_j.add_expansion(other.error_j);
         rounded += other.rounded; discarded += other.discarded;
-        for(std::size_t k=0;k<other.error_j.size();++k)error_j.add(other.error_j.component(k));
     }
 };
 

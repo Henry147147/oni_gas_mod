@@ -36,8 +36,9 @@ retired a landed rocket interior and an in-flight one on each build. The adapter
 checked both platform contracts for each build, including rejection of
 altered contracts.
 
-With the repaired scientific solver, the binary64 production kernel passes
+With the repaired scientific solver, both the reference and binary64 production kernels pass
 all nine fixed shock-tube, collision and expansion profiles. The collision
 density refinement ratio is 0.74723 (limit 0.85). The finest separating-gas
 velocity error is 0.058333 (limit 0.06). The independent saved-state review passed 3,201,611 checks and
-rejected all five corruptions. See the [strong-flow measurements](../native/MAC_STRONG_FLOW.md).
+rejected all five corruptions for each kernel. The reference run took 96 seconds
+against the 180-second limit. See the [strong-flow measurements](../native/MAC_STRONG_FLOW.md).

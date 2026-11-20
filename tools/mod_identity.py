@@ -25,6 +25,10 @@ MINIMUM_SUPPORTED_BUILD = min(GAME_BUILDS)
 SUPPORTED_NATIVE_BUILDS = tuple(sorted(GAME_BUILDS))
 
 
+def reference_installation(current: Path, build: int) -> Path:
+    return current if build == INSPECTED_ONI_BUILD else current.with_name(f"{current.name}-{build}")
+
+
 def installed_build(game: Path, platform: str) -> int:
     managed = game / "OxygenNotIncluded_Data/Managed/Assembly-CSharp.dll"
     key = {"linux-x64": "LinuxManaged", "windows-x64": "WindowsManaged"}[platform]

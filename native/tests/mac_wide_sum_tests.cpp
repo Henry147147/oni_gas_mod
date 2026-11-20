@@ -140,11 +140,39 @@ void account_tail() {
         "Remote sign decision changed after wide cancellation");
     std::cout << "ACCOUNT_TAIL 2 1 -1\n";
 }
+void merged_expansions() {
+    MacEnergySum left, right;
+    Reference expected;
+    const auto base = MacExponent::from_decimal("-40000000000000000000");
+    for (int i = 0; i < 100; ++i) {
+        const auto term = MacEnergy::from_parts(.625, base + 140 * i);
+        left.add(term);
+        expected.add(term);
+        const auto opposite = i % 3 ? term.negated() : term.shifted(-53);
+        right.add(opposite);
+        expected.add(opposite);
+    }
+    auto check_value = [](MacEnergySum sum, const Reference& value) {
+        for (const auto& term : value.terms) sum.add(term.negated());
+        check(sum.size() == 0, "Batch merge differs from the exact scalar sum");
+    };
+    MacEnergySum sum;
+    sum.add_expansion(left);
+    sum.add_expansion(right);
+    sum.add_expansion({});
+    check_value(sum, expected);
+    sum.add_expansion(sum);
+    const auto once = expected;
+    for (const auto& term : once.terms) expected.add(term);
+    check_value(sum, expected);
+    right.add_expansion(left);
+    check_value(right, once);
+}
 }
 int main() { try {
     require_mac_energy_environment(); std::cout << std::setprecision(17);
     for (int id = 0; id < 3; ++id) wide_reference(id);
-    large_exponents(); colony_count(); account_tail();
+    large_exponents(); colony_count(); account_tail(); merged_expansions();
     std::cout << "REFERENCE_PREFIXES " << comparisons << '\n';
     std::cout << "PASS uncapped exact expansions, original recurrence, colony-count retention and wide cancellation\n";
     return 0;

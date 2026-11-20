@@ -32,6 +32,12 @@ half a low-part quantum. The production interval still uses the original
 128-epsilon operand audit. Small positive heat can now reach the low part;
 `unresolved` counts changes unresolved across both parts.
 
+Reference stages retain the signed sum of all discarded parts. When two
+stage reports are combined, a magnitude-ordered merge carries the exact high
+part and emits each low part once. This keeps distant exponent tails in the
+audit without repeatedly scanning the accumulated report. The Riemann suite
+produced byte-identical physical output before and after this change.
+
 Reconstructed void prototypes scale their carried U with their material share.
 The reference transport path subtracts and adds one shared energy transfer at
 both endpoints, including when a retained mass fraction rounds to one.

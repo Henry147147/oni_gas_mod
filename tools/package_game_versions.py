@@ -38,7 +38,7 @@ def write_archives(output: Path, games: dict[str, Path], version: str, compare_m
             continue
         archive = output / "archived_versions" / str(build)
         archive.mkdir(parents=True)
-        roots = {platform: root.with_name(f"{root.name}-{build}") for platform, root in games.items()}
+        roots = {platform: mod_identity.reference_installation(root, build) for platform, root in games.items()}
         with tempfile.TemporaryDirectory(prefix="ma-oni-managed-") as temporary:
             managed = {platform: compile_adapter(game, Path(temporary) / platform) for platform, game in roots.items()}
             if compare_managed is not None:
