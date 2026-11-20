@@ -150,8 +150,8 @@ struct Ledger {
     std::vector<long double> initial, injected, extracted, sunk;
     std::vector<long double> converted; // phase change: + to the product species
     // Gross phase change per species (evaporated plus condensed), the scale of
-    // a species whose only flow is phase change. Not saved: a restored owner
-    // starts it at |converted|.
+    // a species whose only flow is phase change. The checkpoint stores lower
+    // bounds on this total in its net conversion and historical audit.
     std::vector<long double> converted_gross;
     long double initial_energy = 0, heat = 0, energy_in = 0, energy_out = 0, energy_sunk = 0;
     // The saved game profile's trace sink (MacTraceSinkReport): removed mass
@@ -5265,6 +5265,29 @@ struct Reader {
     double f64() { double v; raw(&v, 8); return v; }
     long double ld() { const double hi = f64(), lo = f64(); return static_cast<long double>(hi) + lo; }
 };
+// A legacy owner records net phase change, the total mass evaporated and
+// condensed, and the largest per-species relative discrepancy seen at an audit.
+// If the booked mass B is negative, the held mass H >= 0 gives |H-B| >= -B.
+// Thus the original denominator was at least -B / peak. Recover only that
+// provable lower bound, rounded conservatively, when the phase totals allow it.
+void restore_phase_audit_scale(Ledger& ledger, std::span<const MacSaturationPair> pairs, const MAOniColonyStatus& saved) {
+    ledger.converted_gross.resize(ledger.converted.size());
+    std::transform(ledger.converted.begin(), ledger.converted.end(), ledger.converted_gross.begin(),
+                   [](long double net) { return std::abs(net); });
+    const double peak = std::nextafter(saved.maximum_relative_mass_error, std::numeric_limits<double>::infinity());
+    const long double all_phase = static_cast<long double>(saved.evaporated_kg) + saved.condensed_kg;
+    if (!(saved.maximum_relative_mass_error > 0 && std::isfinite(peak) && all_phase > 0 && std::isfinite(all_phase))) return;
+    for (const auto& pair : pairs) {
+        for (const auto k : {pair.liquid, pair.vapour}) {
+            const long double booked = ledger.initial[k] + ledger.injected[k] - ledger.extracted[k]
+                - ledger.sunk[k] - ledger.trace[k] + ledger.converted[k];
+            if (booked >= 0) continue;
+            const long double base = ledger.initial[k] + ledger.injected[k] + ledger.extracted[k] + ledger.sunk[k] + ledger.trace[k];
+            const long double lower = std::nextafter(-booked / peak - base, 0.L);
+            if (lower > ledger.converted_gross[k] && lower <= all_phase) ledger.converted_gross[k] = lower;
+        }
+    }
+}
 constexpr char magic[8] = {'M', 'A', 'C', 'O', 'L', 'N', '0', '1'};
 // Version 10 adds world germ evolution (owner mode 1): after the version 9 job
 // list, u32 mode, u64 biology frames, the culture clocks (u32 count; u32 cell
@@ -5506,7 +5529,6 @@ void restore(const MAOniColonyConfig& config, std::span<const MAOniColonyMateria
     }
     const auto K = next->catalogue->registry.size(); auto& L = next->ledger;
     for (auto* v : {&L.initial, &L.injected, &L.extracted, &L.sunk, &L.converted}) { v->resize(K); for (auto& x : *v) x = r.ld(); }
-    L.converted_gross.resize(K); for (std::size_t k = 0; k < K; ++k) L.converted_gross[k] = std::abs(L.converted[k]);
     next->pairs = with_critical(*next->catalogue, mac_saturation_pairs(next->catalogue->registry, *next->catalogue->eos));
     for (auto* x : {&L.initial_energy, &L.heat, &L.energy_in, &L.energy_out, &L.energy_sunk}) *x = r.ld();
     L.trace.assign(K, 0);
@@ -5521,6 +5543,7 @@ void restore(const MAOniColonyConfig& config, std::span<const MAOniColonyMateria
                     &saved_status.committed_heat, &saved_status.opened_cells, &saved_status.closed_cells}) *v = r.u64();
     for (auto* v : {&saved_status.maximum_relative_mass_error, &saved_status.maximum_relative_energy_error, &saved_status.space_sink_kg,
                     &saved_status.injected_kg, &saved_status.extracted_kg, &saved_status.evaporated_kg, &saved_status.condensed_kg}) *v = r.f64();
+    restore_phase_audit_scale(L, next->pairs, saved_status);
     const auto read_array = [&](auto& out) {
         const auto n = r.u32(); require(n <= 1u << 20, "Colony checkpoint holds too many queued inputs");
         out.resize(n); r.raw(out.data(), n * sizeof(out[0]));

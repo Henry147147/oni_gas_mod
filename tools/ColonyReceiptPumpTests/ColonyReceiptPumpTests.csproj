@@ -4,6 +4,9 @@
     <TargetFramework Condition="'$(ReceiptPumpMono)' != 'true'">net10.0</TargetFramework>
     <TargetFramework Condition="'$(ReceiptPumpMono)' == 'true'">netstandard2.1</TargetFramework>
     <DefineConstants Condition="'$(ReceiptPumpMono)' == 'true'">$(DefineConstants);GAME_MONO</DefineConstants>
+    <!-- Measure warmed allocations with stable compiled code. CoreCLR's tier
+         transition can allocate inside the measurement on the calling thread. -->
+    <TieredCompilation Condition="'$(ReceiptPumpMono)' != 'true'">false</TieredCompilation>
     <LangVersion>latest</LangVersion><Nullable>enable</Nullable><ImplicitUsings>enable</ImplicitUsings>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks><TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <ReceiptPumpPython Condition="'$(ReceiptPumpPython)' == ''">python3</ReceiptPumpPython>

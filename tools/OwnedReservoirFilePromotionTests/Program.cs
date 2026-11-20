@@ -328,9 +328,15 @@ internal static class Program
         catch (Skip reason) { ++skipped; Results.Add(new { Name = name, Status = "skipped", Reason = reason.Message }); Console.WriteLine("SKIP " + name + ": " + reason.Message); }
         catch (Exception error) { fixture.Keep = true; ++failed; Results.Add(new { Name = name, Status = "failed", Error = error.ToString(), Directory = fixture.Root }); Console.WriteLine("FAIL " + name + ": " + error); }
     }
-    private static void TryLink(Action create)
+    private static void TryLink(Func<FileSystemInfo> create)
     {
-        try { create(); }
+        try
+        {
+            var link = create();
+            link.Refresh();
+            if (!link.Exists) throw new Skip("The filesystem returned from symbolic-link creation without creating the fixture.");
+            Require((link.Attributes & FileAttributes.ReparsePoint) != 0, "The test fixture exists but is not a symbolic link.");
+        }
         catch (UnauthorizedAccessException error) { throw new Skip("Symlink creation unavailable to this account: " + error.Message); }
         catch (PlatformNotSupportedException error) { throw new Skip("Symlink creation unavailable on this filesystem: " + error.Message); }
     }

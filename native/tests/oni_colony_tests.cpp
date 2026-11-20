@@ -2224,6 +2224,58 @@ void flooded_pocket_control() {
     require(ma::oni::colony::checkpoint()==before,"reservoir inventory observation changed checkpoint");
     ma::oni::colony::stop();
 }
+// Owner wrappers through 14 saved the net phase transfer and the worst
+// audited error. An extinct species can retain a tiny signed rounding residue.
+void legacy_phase_ledger_control() {
+    using namespace ma::oni::colony;
+    std::vector<MAOniColonyMaterial> mats{material("Oxygen",11,oxygen,true,.032,1000),
+        material("Water",13,water,false,.018,4180,1000), material("Steam",14,steam,true,.018,2000)};
+    mats[1].high_target=14; mats[1].high_temperature_k=373;
+    mats[2].low_target=13; mats[2].low_temperature_k=373;
+    MAOniColonyConfig cfg{}; cfg.struct_size=sizeof(cfg); cfg.abi_version=MA_ONI_COLONY_ABI_VERSION;
+    cfg.grid_width=cfg.width=3; cfg.grid_height=cfg.height=3; cfg.vacuum_index=vacuum; cfg.maximum_timestep_s=.01;
+    const double residue=std::ldexp(1.,-46);
+    enum class History { valid, insufficient_turnover, missing_peak, unbooked_vapour, zero_net };
+    for (const auto trial : {History::valid, History::insufficient_turnover, History::missing_peak,
+                             History::unbooked_vapour, History::zero_net}) {
+        const double net=trial==History::zero_net?0.:.25;
+        const double trace=net+residue;
+        const double peak=residue/(1.+trace+1.25); // 1 kg of transfers and 1.25 kg of gross phase change
+        std::vector<MAOniColonyCell> cells(9);
+        cells[4]={oxygen,MA_ONI_COLONY_FLUID,1.f,500.f,0,0};
+        if (trial==History::unbooked_vapour) cells[5]={steam,MA_ONI_COLONY_FLUID,.001f,500.f,0,0};
+        start(cfg,mats,cells,1); auto image=checkpoint(); stop();
+        detail::ParcelWireReader r{image}; (void)r.raw(8);
+        require(r.u32()==8,"Expected a legacy, queue-free owner");
+        (void)r.raw(sizeof(cfg)); const auto count=r.u32(); require(count==3,"Unexpected fixture catalogue");
+        (void)r.raw(count*sizeof(MAOniColonyMaterial));
+        (void)r.raw(r.u32()); (void)r.raw(r.u32()); require(r.u32()==0,"Unexpected fixture reservoir");
+        const auto ledger=r.at;
+        const auto set=[&](std::size_t at,double value){std::memcpy(image.data()+at,&value,sizeof(value));};
+        constexpr std::size_t vapour=2;
+        set(ledger+16*vapour,0.); // no imported steam was booked
+        set(ledger+16*(count+vapour),.5); // injected
+        set(ledger+16*(2*count+vapour),.5); // extracted
+        set(ledger+16*(4*count+vapour),net);
+        set(ledger+16*(5*count+5+vapour),trace);
+        const auto status_at=ledger+16*(6*count+8)+16+7*8;
+        set(status_at,trial==History::missing_peak?0.:peak);
+        set(status_at+5*8,trial==History::insufficient_turnover?.25:(1.25+net)/2);
+        set(status_at+6*8,trial==History::insufficient_turnover?0.:(1.25-net)/2);
+        const auto hash=ma::oni::hash_memory(image.data(),image.size()-64);
+        std::copy(hash.begin(),hash.end(),image.end()-64);
+        restore(cfg,mats,image,1);
+        require(checkpoint()==image,"Restoring audit history changed saved bytes");
+        advance(1,.01,2);wait();const auto check=status();stop();
+        if (trial==History::unbooked_vapour) require(check.state==2 && std::strstr(check.error,"ledger bound"),"New unbooked vapour escaped the lifetime ledger");
+        else if (trial==History::valid || trial==History::zero_net) require(check.state==1 && check.maximum_relative_mass_error<=peak*(1+4*std::numeric_limits<double>::epsilon()),
+            "Reload lost the certified gross phase transfer of an extinct species");
+        else require(check.state==1 && check.maximum_relative_mass_error>1.5*peak,
+            "A missing or physically inconsistent history suppressed a real discrepancy");
+    }
+    std::cout<<"PASS legacy phase ledger: conservative recovery, unchanged save bytes and new discrepancies detected\n";
+}
+
 // The game-floor profile's trace sink: a sealed cell holding only a trace
 // below the threshold loses it at the next frame, booked as its own ledger
 // term (the ledgers stay closed), and the total survives a save and restore.
@@ -2941,6 +2993,7 @@ int main(int argc, char** argv) {
         timestep_control();
         projection_control();
         flooded_pocket_control();
+        legacy_phase_ledger_control();
         trace_sink_control();
         shared_cell_trace_control();
         pipe_trace_heat_control();

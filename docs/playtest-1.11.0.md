@@ -28,6 +28,17 @@ methods. Colonies keep their saved game profile. Older colony profiles also
 seed new regions with their original transport and compression laws. See [face momentum reconstruction](../native/MAC_MOMENTUM.md#gas-expansion-work).
 
 
+## Legacy colony accounting
+
+A cycle-40, eight-asteroid playtest colony exposed a rounding residue of
+about 10⁻¹⁸ kg in its account for gold vapour. The physical inventory was
+zero. Both 1.10.2 and the first 1.11.0 candidate reported a larger relative
+error after loading because the old file retained only net phase change.
+The reader now recovers the minimum historical phase turnover that the
+saved accounts prove. A 300-frame replay kept every physical checkpoint
+byte and held the reported mass error at its prior value of 8.782 × 10⁻¹³.
+The existing save format and audit limits continue to apply.
+
 ## Verification
 
 The compatibility candidate loaded a colony created on 744825 in all three

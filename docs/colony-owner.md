@@ -79,6 +79,12 @@ play.
   species' booked flows, its phase change counted gross) or 1e-6 (energy)
   faults the owner. `MA_COLONY_LEDGER_LOG=1` reports on stderr each frame
   that raises the worst species' mass drift above 1e-12.
+  Saves keep the net change of each phase and the worst error seen. When a
+  legacy ledger books a tiny negative mass for a species that has disappeared,
+  the physical inventory is at least zero. Dividing the magnitude of that
+  negative balance by the saved peak error gives a lower bound on the original
+  audit scale. The reader uses this information only for liquid/vapour pairs
+  and only when the saved totals for evaporation and condensation support it.
 - **Open sky.** Whatever reaches a Space cell leaves through the sink, booked.
   The sink empties each due Space cell after flow; with activity tiers
   (profiles 9 and 10) it also empties them before flow, so material placed in
