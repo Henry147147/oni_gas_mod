@@ -9,14 +9,27 @@ namespace MixedAtmospheres.Oni
     // The game recovers resources one Unity frame after dismantling interior
     // buildings. Let the game's world list shed destroyed Unity objects while
     // reserving their identities and grid rectangles until evacuation finishes.
+    //
+    // Since build 763796 the game queues a PendingRocketInteriorDestruction
+    // for each dismantled interior, with a save blocker, and one UI frame
+    // later DeleteWorldObjects() handles every queued record at once:
+    // recover the resources, destroy the world objects, free the grid slot,
+    // remove the blocker. For a world the owner is retiring the adapter keeps
+    // the record back from that call, runs the game's own recovery at once
+    // (which exports the complete mixture through the patches below) and does
+    // the rest itself a frame later, once the export is in both grids: close
+    // the cells, destroy the objects, free the slot, remove the blocker. The
+    // record stays in the game's list meanwhile, so the grid allocator and
+    // the save blocker keep treating the slot as pending.
     internal static class ColonyClusterRetirement
     {
         private sealed class Retirement
         {
             internal readonly WorldContainer World;
             internal readonly ColonyWorldRegion Region;
-            internal bool Exported,Unregistered,DeleteRequested,AllowDelete,InDelete;
+            internal bool Exported,Unregistered,DeleteRequested,InDelete,Held;
             internal int RequestedUnityFrame;
+            internal PendingRocketInteriorDestruction Record;
             internal Retirement(WorldContainer world)
             {World=world;Region=new ColonyWorldRegion(world.id,world.WorldOffset.x,world.WorldOffset.y,world.WorldSize.x,world.WorldSize.y,true);}
             internal uint Origin=>(uint)Grid.XYToCell(Region.X,Region.Y);
@@ -40,23 +53,61 @@ namespace MixedAtmospheres.Oni
         {if(Worlds.TryGetValue(world.id,out var state))state.Unregistered=true;}
         internal static int AvailableWorldId(int proposed)=>!Pending?proposed:
             ColonyWorldLayout.AvailableWorldId(proposed,ClusterManager.Instance.WorldContainers.Select(world=>world.id),Worlds.Keys);
-        internal static bool DeferDelete(WorldContainer world)
+        // Before the game's DeleteWorldObjects(): take the records of retiring
+        // worlds out of its list. A record seen for the first time has its
+        // resources recovered now, exactly as the game would.
+        private static readonly List<PendingRocketInteriorDestruction> held=new List<PendingRocketInteriorDestruction>();
+        internal static void TakePending(ClusterManager cluster)
         {
-            if(!Worlds.TryGetValue(world.id,out var state))return false;
-            if(state.InDelete)return true;
-            if(state.AllowDelete)return false;
-            state.DeleteRequested=true;state.RequestedUnityFrame=Time.frameCount;return true;
+            held.Clear();
+            var pending=cluster.PendingRocketInteriorDestructions;
+            for(var i=0;i<pending.Count;)
+            {
+                var record=pending[i];var world=record.container;
+                if(ReferenceEquals(world,null)||!Worlds.TryGetValue(world.id,out var state)||!ReferenceEquals(state.World,world)){++i;continue;}
+                pending.RemoveAt(i);held.Add(record);
+                if(state.Held)continue;
+                state.Held=true;state.Record=record;
+                try
+                {
+                    if(!record.inFlight)world.TransferResourcesToParentWorld(record.rocketModuleWorldPos+new Vector3(0f,.5f,0f),record.noRefundTiles);
+                    else world.TransferResourcesToDebris(record.clusterLocation,record.noRefundTiles,record.elementID);
+                }
+                catch
+                {
+                    // As the game does when its recovery throws: the blocker goes, the slot stays.
+                    held.Remove(record);state.Held=false;cluster.RemoveSaveBlocker(record.saveBlockerID);throw;
+                }
+                state.DeleteRequested=true;state.RequestedUnityFrame=Time.frameCount;
+            }
+        }
+        // After it: the kept records go back, so that the game's grid allocator
+        // and save blocker still count them.
+        internal static void RestorePending(ClusterManager cluster)
+        {
+            if(held.Count==0)return;
+            cluster.PendingRocketInteriorDestructions.AddRange(held);held.Clear();
         }
         internal static void PumpDeletes()
         {
             if(!ColonyOwner.Active||ColonyOwner.Status.State!=1||!ColonySaveBarrier.CanRunLifecycle)return;
             foreach(var state in Worlds.Values.ToArray())
             {
-                if(!state.DeleteRequested||!state.Exported||Time.frameCount<=state.RequestedUnityFrame)continue;
-                state.DeleteRequested=false;state.AllowDelete=true;
-                try{AccessTools.Method(typeof(ClusterManager),"DeleteWorldObjects").Invoke(ClusterManager.Instance,new object[]{state.World});}
+                if(!state.Held||!state.DeleteRequested||!state.Exported||Time.frameCount<=state.RequestedUnityFrame)continue;
+                state.DeleteRequested=false;
+                var record=state.Record;var cluster=ClusterManager.Instance;var world=state.World;
+                try
+                {
+                    if(!BeforeDelete(world))throw new InvalidOperationException("Rocket grid cleanup lost its retirement transaction.");
+                    // The rest of the game's DeleteWorldObjects() for this record.
+                    cluster.PendingRocketInteriorDestructions.RemoveAll(other=>other.saveBlockerID==record.saveBlockerID);
+                    if(!record.inventory.IsNullOrDestroyed())UnityEngine.Object.Destroy(record.inventory);
+                    UnityEngine.Object.Destroy(world);
+                    Grid.FreeGridSpace(record.size,record.position);
+                    AfterDelete(world);
+                }
                 catch(Exception error){ColonyFault.Raise("deferred rocket grid cleanup",error);return;}
-                finally{state.AllowDelete=false;}
+                finally{cluster.RemoveSaveBlocker(record.saveBlockerID);}
             }
         }
         private static Retirement State(WorldContainer world)
@@ -174,17 +225,14 @@ namespace MixedAtmospheres.Oni
     [HarmonyPatch(typeof(ClusterManager),"DeleteWorldObjects")]
     internal static class ColonyRocketDeletePatch
     {
-        private static bool Prefix(WorldContainer __0,out bool __state)
+        private static void Prefix(ClusterManager __instance)
         {
-            __state=false;if(!ColonyClusterWorlds.Enabled)return true;
-            try
-            {
-                if(ColonyClusterRetirement.DeferDelete(__0))return false;
-                __state=ColonyClusterRetirement.BeforeDelete(__0);return true;
-            }
-            catch(Exception error){ColonyFault.Raise("rocket grid cleanup",error);return false;}
+            if(!ColonyClusterWorlds.Enabled)return;
+            try{ColonyClusterRetirement.TakePending(__instance);}
+            catch(Exception error){ColonyFault.Raise("rocket fluid recovery",error);}
         }
-        private static void Postfix(WorldContainer __0,bool __state)
-        {if(__state)try{ColonyClusterRetirement.AfterDelete(__0);}catch(Exception error){ColonyFault.Raise("rocket grid cleanup",error);}}
+        // A finalizer, so that the records return even when the game's own
+        // handling of another record throws.
+        private static void Finalizer(ClusterManager __instance)=>ColonyClusterRetirement.RestorePending(__instance);
     }
 }

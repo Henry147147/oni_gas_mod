@@ -5,6 +5,9 @@ Steam authentication stays in Steam. Every game run gets a new disposable
 profile; reports never equate a scoped probe with a completed overhaul.
 """
 from __future__ import annotations
+import sys as _sys
+_sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parent))
+import mod_identity  # noqa: E402
 
 import argparse
 from contextlib import contextmanager
@@ -741,7 +744,7 @@ def native_observer_passed(manifest: dict, report: dict | None, log: str = "") -
     return (report.get("Status") == "observing" and report.get("OriginalNativePhysicsActive") is True
             and report.get("AuthoritativeFluidOwner") is False and reading.get("ForwardingOnly") is True
             and reading.get("Attached") is True and reading.get("RecoveryRequired") is False
-            and reading.get("AuthoritativeFluidOwner") is False and reading.get("OniBuild") == 744825)
+            and reading.get("AuthoritativeFluidOwner") is False and reading.get("OniBuild") in mod_identity.SUPPORTED_NATIVE_BUILDS)
 
 
 def run_limits_error(args) -> str | None:
@@ -1225,7 +1228,10 @@ def playtest(args, state: Path, session: dict) -> int:
                 "development_telemetry": telemetry, "development_telemetry_passed": telemetry_ok,
                 "load_save_fixture": {"path": str(load_fixture), "sha256": digest(load_fixture)} if load_fixture else None,
                 "game_hashes": {p: digest(game / p) for p in (
-                    "OxygenNotIncluded_Data/Managed/Assembly-CSharp.dll", "OxygenNotIncluded_Data/Plugins/libSimDLL.so")},
+                    "OxygenNotIncluded_Data/Managed/Assembly-CSharp.dll",
+                    # Plugins/ up to build 744825, Plugins/x86_64/ since 763796.
+                    next(p for p in ("OxygenNotIncluded_Data/Plugins/x86_64/libSimDLL.so", "OxygenNotIncluded_Data/Plugins/libSimDLL.so")
+                         if (game / p).is_file() or p.endswith("Plugins/libSimDLL.so")))},
                 **revision_fields(manifest),
                 "command": arguments, "retained_game": retain_on_success,
             }

@@ -134,6 +134,47 @@ installation and writes a private report under `artifacts/`:
 Candidate profiles are written for review. Licensed captures and reports stay
 private, under `local/` or `artifacts/`.
 
+## Build 763796 (2026-11-19)
+
+The first real game update since the contract existed: Steam replaced 744825
+by 763796 (Unity 6000.3.5f2 to 6000.3.17f1). Every earlier package refused
+the new build at the menu, as designed. What the retarget found and what was
+changed is in [the release note of 1.10.1](playtest-1.10.1.md); the points
+that matter for the next update:
+
+- **Native.** The Linux image is byte for byte the old one in a new folder
+  (`Plugins/x86_64/`), so its profile and the build number it reports stay
+  744825's (`SUPPORTED_NATIVE_BUILDS` lists both). The Windows image was
+  rebuilt: 378 bytes differ, stamps and the constant of
+  `AppVersion::GetRevision`. All 27 hooks are byte-identical at their old
+  addresses, the PDB's 4,230 structures are identical in fields, offsets and
+  size, and the save writer still writes `SIMSAVE` v15. Six `SIM_*` entry
+  points contain calls through a register and were carried with
+  `--accept-indirect` after reading them. The forwarding probe passes on the
+  new DLL under Wine in all six modes with reports equal to 744825's.
+- **Managed.** The same mod source gave contracts that differ in 35 changed
+  and 6 removed patched methods, 27 changed members, 11 changed types and 67
+  changed named lookups. The removed patch targets stopped the mod at
+  start-up, one after the other; contract generation and the patch-target
+  check now report every missing target at once.
+- **What no check reported.** Three things would have gone unnoticed without
+  reading the diff and the logs:
+  - a patch with `Prepare()` on a compiler-named lambda skipped itself (the
+    pipe status line); such targets are no longer used;
+  - a method the mod calls by name had become a delegate field of the same
+    name (`CO2Manager.OnDestroyCO2`): the named lookup still "exists", the
+    call would have failed at run time. A named entry whose kind changes is
+    a break;
+  - the pipe biology guard compares a hash of the raw IL of five game
+    methods, which changes with every rebuilt assembly because metadata
+    tokens move. It fell back with one warning in `Player.log` ("Mixed pipes
+    started with fallbacks"). The five bodies were compared with resolved
+    tokens (identical apart from the framework assembly's name) and the two
+    new signatures accepted. After a retarget, compare the warnings of a run
+    on the new build with those of a run on the old one.
+- **Saves.** The element files are unchanged, so the catalogue hash and every
+  colony save stay valid; saves written on 744825 load on 763796.
+
 ## Refusals
 
 | Situation | Behaviour |
@@ -153,16 +194,32 @@ dotnet run --project tools/GameContract -c Release -- verify   --mod DIR --game 
 dotnet run --project tools/GameContract -c Release -- controls --mod DIR --game linux-x64=ROOT --contract DIR/game-contract.json
 python3 tools/game_mono_contract_check.py --mod DIR [--managed-game WINDOWS_ROOT --platform windows-x64]
 python3 tools/retarget_oni.py --windows-game NEW_WINDOWS_ROOT --linux-game NEW_LINUX_ROOT \
-  --managed-dir DIR [--write-profiles --build N]
+  --managed-dir DIR [--accept-indirect] [--write-profiles --build N]
 ```
 
-`retarget_oni.py` compares against the team's 744825 copies by default
-(`--reference-windows`, `--reference-linux`). It exits 0 only when nothing needs
+`retarget_oni.py` compares against the team's copies of the inspected build by
+default (`--reference-windows`, `--reference-linux`), and takes as reference
+profile the one whose identity the reference installation has. On Windows the
+names of call and data targets come from the installation's `SimDLL.pdb`
+(objdump prints none for a PE image). A call through a register keeps a hook
+in review unless `--accept-indirect` is given after reading it: the hook is
+then carried only when everything else is equivalent and the indirect calls
+are written identically in both images, and the report lists each acceptance. It exits 0 only when nothing needs
 review. `--write-profiles --build N` appends carried candidate profiles to
 `docs/native-hook-profiles.json`. Review, then rebuild the native library and
 run a game check before committing them. The Linux private chunk-heat location
 (`CHUNK_HEAT_LOCATIONS` in `tools/oni_hook_profiles.py`) is keyed by image hash,
-so a carried Linux image also needs its new hash added there.
+so a carried Linux image also needs its new hash added there; the Windows one
+is found again from its PDB record and registered the same way.
+
+After the profiles: set `INSPECTED_ONI_BUILD` and `SUPPORTED_NATIVE_BUILDS` in
+`tools/mod_identity.py`, the build constants in `IntegrationProbe.cs` and
+`ColonyRuntimeValidation.cs`, the pinned file hashes in
+`tools/oni_proton_headless.py` and `tools/NativeShadowProbe/Program.cs`, and
+the native-hook facts and the profile file's hash in
+`docs/coverage-inventory.json`. The team's copies of the new build take the
+default folder names; the previous build's copies are kept beside them under
+their build number ([installations](../tools/ONI_ENVIRONMENT.md#installations-and-pinned-build)).
 
 ## Implementation
 

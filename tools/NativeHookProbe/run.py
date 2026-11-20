@@ -85,6 +85,8 @@ def main() -> int:
     if args.native_body_heat:os.environ['MA_VERIFY_CHUNK_HEAT_FORWARDING']='1'
     runtime = ProbeRuntime(args, parser)
     native = args.game / "OxygenNotIncluded_Data/Plugins" / ("x86_64/SimDLL.dll" if runtime.windows_binary else "libSimDLL.so")
+    if not runtime.windows_binary and (args.game / "OxygenNotIncluded_Data/Plugins/x86_64/libSimDLL.so").is_file():
+        native = args.game / "OxygenNotIncluded_Data/Plugins/x86_64/libSimDLL.so"  # since build 763796
     for path in (native, args.observer, args.probe, *(args.contract / name for name in ("contract.json", "elements.bin", "diseases.bin"))):
         if not path.is_file(): parser.error(f"Required input missing: {path}")
     output = args.output.resolve()

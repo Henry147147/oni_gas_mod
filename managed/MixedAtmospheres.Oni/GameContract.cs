@@ -289,34 +289,49 @@ namespace MixedAtmospheres.Oni
         internal static List<MethodBase> PatchTargets(Assembly mod)
         {
             var targets = new List<MethodBase>();
+            // Every target that cannot be found is reported at once: after a
+            // game update the whole list is what retargeting needs.
+            var missing = new List<string>();
             foreach (var type in AccessTools.GetTypesFromAssembly(mod))
             {
                 // PatchAll processes only classes with a Harmony attribute.
                 if (HarmonyMethodExtensions.GetFromType(type).Count == 0) continue;
                 var patches = AccessTools.GetDeclaredMethods(type).Where(IsPatchMethod).ToList();
                 if (patches.Count == 0) continue;
-                var bulk = Auxiliary(type, "TargetMethods");
-                if (bulk != null)
+                try
                 {
-                    var found = ((IEnumerable<MethodBase>?)bulk.Invoke(null, Array.Empty<object>()))?.ToList();
-                    if (found == null || found.Any(m => m == null)) throw new InvalidOperationException("TargetMethods of " + type.FullName + " returned a null target.");
-                    targets.AddRange(found);
-                    continue;
+                    var bulk = Auxiliary(type, "TargetMethods");
+                    if (bulk != null)
+                    {
+                        var found = ((IEnumerable<MethodBase>?)bulk.Invoke(null, Array.Empty<object>()))?.ToList();
+                        if (found == null || found.Any(m => m == null)) throw new InvalidOperationException("TargetMethods of " + type.FullName + " returned a null target.");
+                        targets.AddRange(found);
+                        continue;
+                    }
+                    var single = Auxiliary(type, "TargetMethod");
+                    if (single != null)
+                    {
+                        if (single.Invoke(null, Array.Empty<object>()) is MethodBase target) targets.Add(target);
+                        continue;
+                    }
                 }
-                var single = Auxiliary(type, "TargetMethod");
-                if (single != null)
+                catch (Exception error)
                 {
-                    if (single.Invoke(null, Array.Empty<object>()) is MethodBase target) targets.Add(target);
-                    continue;
+                    var cause = error is TargetInvocationException invoked && invoked.InnerException != null ? invoked.InnerException : error;
+                    missing.Add(type.FullName + ": " + cause.GetType().Name + ": " + cause.Message); continue;
                 }
                 var container = HarmonyMethod.Merge(HarmonyMethodExtensions.GetFromType(type));
                 if (!container.methodType.HasValue) container.methodType = MethodType.Normal;
                 foreach (var patch in patches)
                 {
-                    var info = container.Merge(HarmonyMethod.Merge(HarmonyMethodExtensions.GetFromMethod(patch)));
-                    targets.Add(Original(info) ?? throw new InvalidOperationException("Undefined target method for patch " + type.FullName + "." + patch.Name));
+                    MethodBase? original = null; string why = "";
+                    try { original = Original(container.Merge(HarmonyMethod.Merge(HarmonyMethodExtensions.GetFromMethod(patch)))); }
+                    catch (Exception error) { why = " (" + error.GetType().Name + ": " + error.Message + ")"; }
+                    if (original != null) targets.Add(original);
+                    else missing.Add("Undefined target method for patch " + type.FullName + "." + patch.Name + why);
                 }
             }
+            if (missing.Count != 0) throw new InvalidOperationException(string.Join("\n", missing.Distinct()));
             return targets.Distinct().ToList();
         }
 

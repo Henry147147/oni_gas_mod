@@ -24,6 +24,9 @@ records every step.
     python3 tools/acceptance_suite.py run REVISION --tier quick --keep-going
 """
 from __future__ import annotations
+import sys as _sys
+_sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parent))
+import mod_identity  # noqa: E402
 
 import argparse
 from dataclasses import dataclass, field
@@ -897,7 +900,7 @@ def prepared_autosave(output: Path, revision: str) -> Path:
         raise Refused(f"Expected exactly one natural autosave; found {len(autos)}")
     save = autos[0].resolve()
     build, header = save_header(save.read_bytes())
-    if (not save.is_relative_to(output.resolve()) or build != 744825 or header.get("isAutoSave") is not True
+    if (not save.is_relative_to(output.resolve()) or build != mod_identity.INSPECTED_ONI_BUILD or header.get("isAutoSave") is not True
             or header.get("numberOfCycles", 0) < 1 or header.get("numberOfDuplicants") != 3):
         raise Refused("The autosave header does not prove a day rollover with three duplicants")
     return save

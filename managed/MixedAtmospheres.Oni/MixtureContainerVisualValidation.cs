@@ -1,4 +1,5 @@
 using System;
+using System.Reflection;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.Linq;
@@ -457,10 +458,28 @@ namespace MixedAtmospheres.Oni
         {
             if (text == null) throw new ArgumentNullException(nameof(text));
             var type = typeof(DetailLabel).GetField("label")!.FieldType;
-            var parsed = AccessTools.Method(type, "ParseText").Invoke(null, new object[] { text }) as string
-                ?? throw new NotSupportedException("Native label ParseText did not return text.");
-            return AccessTools.Method(type, "ModifyLinkStrings").Invoke(null, new object[] { parsed }) as string
-                ?? throw new NotSupportedException("Native label ModifyLinkStrings did not return text.");
+            const BindingFlags flags = BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic;
+            // ParseText(string) up to build 744825; ParseText(string, out string) since 763796.
+            var parse = type.GetMethods(flags).SingleOrDefault(method => method.Name == "ParseText")
+                ?? throw new NotSupportedException("Native label ParseText is missing or ambiguous.");
+            string parsed;
+            if (parse.GetParameters().Length == 1)
+                parsed = parse.Invoke(null, new object[] { text }) as string ?? throw new NotSupportedException("Native label ParseText did not return text.");
+            else
+            {
+                var arguments = new object?[] { text, null };
+                if (!(parse.Invoke(null, arguments) is bool) || !(arguments[1] is string output))
+                    throw new NotSupportedException("Native label ParseText did not return text.");
+                parsed = output;
+            }
+            var links = type.GetMethod("ModifyLinkStrings", flags);
+            if (links != null)
+                return links.Invoke(null, new object[] { parsed }) as string ?? throw new NotSupportedException("Native label ModifyLinkStrings did not return text.");
+            // Since 763796 the link styling writes into a pooled builder; its
+            // two replacements are repeated here with the game's own strings.
+            if (!(type.GetField("combinedPrefix", flags)?.GetValue(null) is string prefix) || !(type.GetField("combinedSuffix", flags)?.GetValue(null) is string suffix))
+                throw new NotSupportedException("Native label link styling changed.");
+            return parsed.Contains("<b><style=\"KLink\">") || !parsed.Contains("<link=\"") ? parsed : parsed.Replace("<link=\"", prefix).Replace("</link>", suffix);
         }
 
         internal static bool DescriptionIsPreserved(string raw, LabelEvidence? activeDescription) => raw.Length == 0

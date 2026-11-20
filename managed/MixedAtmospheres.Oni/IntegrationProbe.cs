@@ -14,7 +14,7 @@ namespace MixedAtmospheres.Oni
     public sealed class IntegrationReport
     {
         [DataMember] public string PackageKind = "integration-probe";
-        [DataMember] public string InspectedOniBuild = "744825";
+        [DataMember] public string InspectedOniBuild = "763796";
         [DataMember] public int RunningOniBuild = GameBuildCheck.RunningBuild;
         [DataMember] public int GameContractEntries = GameBuildCheck.CheckedEntries;
         [DataMember] public string AssemblySha256 = "";

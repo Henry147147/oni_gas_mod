@@ -54,7 +54,7 @@ internal static class Program
         var supportsScheduling=biology.GetMethod("IsSupportedSchedulingSignature",BindingFlags.Static|BindingFlags.NonPublic)!;
         Check((bool)supportsScheduling.Invoke(null,new object[]{scheduling})!,
             "Pipe worker scheduling changed: the supported game must join prior conduit jobs and run disease updates before the next gas/liquid flows.");
-        foreach(var name in new[]{"ExpectedSchedulingSignature","ExpectedWindowsSchedulingSignature"})
+        foreach(var name in new[]{"ExpectedSchedulingSignature","ExpectedWindowsSchedulingSignature","ExpectedSchedulingSignature763796","ExpectedWindowsSchedulingSignature763796"})
         {
             var signature=(string)biology.GetField(name,BindingFlags.Static|BindingFlags.NonPublic)!.GetRawConstantValue()!;
             Check((bool)supportsScheduling.Invoke(null,new object[]{signature})!,"An inspected worker boundary was refused.");
@@ -288,12 +288,17 @@ internal static class Program
         Check(!hash.SequenceEqual((byte[])hashMethod.Invoke(null,new object[]{catalogue})!),"Catalogue identity omitted element hash mapping.");
         Console.WriteLine("PASS pipe identity: negative hashes project from ordinals; saved catalogue hash covers both ordinal and element hash");
         // Production port/phase/status hooks bind the installed declarations.
-        var statusTarget=AccessTools.Method(typeof(Database.BuildingStatusItems).GetNestedType("<>c",BindingFlags.NonPublic|BindingFlags.Public),"<CreateStatusItems>b__337_35");
-        var statusBody=statusTarget?.GetMethodBody()?.GetILAsByteArray();
-        var getContents=AccessTools.Method(typeof(ConduitFlow),nameof(ConduitFlow.GetContents));
-        Check(statusTarget!=null&&statusTarget.ReturnType==typeof(string)&&statusBody!=null&&
-            Enumerable.Range(0,statusBody.Length-4).Any(i=>(statusBody[i]==0x6F||statusBody[i]==0x28)&&BitConverter.ToInt32(statusBody,i+1)==getContents.MetadataToken),
-            $"Pipe contents status closure no longer reads ConduitFlow.GetContents ({statusTarget?.Name}, {statusBody?.Length}, token {getContents.MetadataToken:X}).");
+        // The pipe status line: the mod wraps the status item's text callback once
+        // the database exists (no compiler-named closure, which every game build renames).
+        Check(typeof(Database.BuildingStatusItems).GetField("Pipe")?.FieldType==typeof(StatusItem)&&
+            typeof(StatusItem).GetField("resolveStringCallback")?.FieldType==typeof(Func<string,object,string>),
+            "The pipe status item or its text callback changed.");
+        var statusPatch=assembly.GetType("MixedAtmospheres.Oni.ColonyMixedPipeStatusPatch")!;
+        Check(statusPatch.GetCustomAttributes<HarmonyPatch>().Any(p=>p.info.declaringType==typeof(Db)&&p.info.methodName=="Initialize")&&
+            statusPatch.GetMethod("Postfix",flags)?.GetParameters().Single().ParameterType==typeof(Db)&&
+            statusPatch.GetMethod("Resolve",flags)?.ReturnType==typeof(string),"The pipe status wrapper is not installed after the database.");
+        Check(statusPatch.GetMethod("Resolve",flags)!.Invoke(null,new object[]{"{Contents}",new object()})==null,
+            "The pipe status wrapper answered for something that is not an owned pipe.");
         foreach(var (type,name) in new[]{(typeof(ConduitConsumer),"Consume"),(typeof(ConduitDispenser),"Dispense"),(typeof(ConduitDispenser),"FindSuitableElement"),
             (typeof(AirConditioner),"UpdateState"),(typeof(EmptyConduitWorkable),"EmptyContents"),(typeof(ConduitFlow),"FreezeConduitContents"),(typeof(ConduitFlow),"MeltConduitContents"),
             (typeof(ContactConductivePipeBridge.Instance),"Flow"),(typeof(ContactConductivePipeBridge.Instance),"ExchangeStorageTemperatureWithBuilding"),

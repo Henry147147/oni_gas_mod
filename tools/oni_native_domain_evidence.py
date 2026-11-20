@@ -12,6 +12,9 @@ import math
 from pathlib import Path
 import struct
 from oni_world_appearance_evidence import configured_solid_mask, world_appearance_passed
+import sys as _sys
+_sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parent))
+import mod_identity  # noqa: E402
 
 def _sha256(value) -> bool:
     return isinstance(value, str) and len(value) == 64 and all(char in "0123456789abcdef" for char in value)
@@ -1375,7 +1378,7 @@ def native_domain_passed(report: dict | None, observation: dict | None, frames: 
                 "NativeRendererAdvanced", "SaveGuardVerified", "NativeSaveGuardVerified", "GameGridProjectionVerified"))
             and observation.get("BoundedNativeDomainActive") is True and observed.get("Attached") is True
             and observed.get("ForwardingOnly") is False and observed.get("RecoveryRequired") is False
-            and observed.get("AuthoritativeFluidOwner") is False and observed.get("OniBuild") == 744825)
+            and observed.get("AuthoritativeFluidOwner") is False and observed.get("OniBuild") in mod_identity.SUPPORTED_NATIVE_BUILDS)
 
 
 def main() -> int:

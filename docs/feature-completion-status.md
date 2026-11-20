@@ -1,5 +1,14 @@
 # Feature completion work
 
+**Update, 2026-11-19, version 1.10.1: game build 763796.** Steam updated
+Oxygen Not Included from build 744825 to 763796, which every earlier package
+refuses. The new build was fetched into the private copies and the mod
+retargeted: the simulator library is the same code (a profile for the rebuilt
+Windows image was added), the element definitions and so the saves are
+unchanged, and eight places where the game's C# code changed were repaired,
+among them the removal of a rocket interior, which Klei restructured
+([1.10.1](playtest-1.10.1.md)). No solver arithmetic changes.
+
 **Update, 2026-11-19, version 1.10.0.** At the user's request the speed
 fixes began and were released as 1.10.0. The free-falling face that cut the
 session's surface region into 21 flow intervals a tick is repaired (7.7),

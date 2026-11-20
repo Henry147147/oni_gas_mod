@@ -29,29 +29,37 @@ native boundary is in [the interop contract](../docs/interop-contract.md).
 | Copy | Location | Use |
 | --- | --- | --- |
 | Windows Steam install | `D:\SteamLibrary\steamapps\common\OxygenNotIncluded` (Windows machine) | Windows builds and Unity runs |
-| Copy of the Windows install | `/mnt/data/share/oni/OxygenNotIncluded` | Inspecting Windows files from Linux |
-| Linux depot copy | `/mnt/data/share/oni/OxygenNotIncluded-linux` | Linux builds; `oni_headless.py` default |
+| Copy of the Windows install | `/mnt/data/share/oni/OxygenNotIncluded` | Inspecting Windows files from Linux; the Windows player under Proton |
+| Copy of the Linux install | `/mnt/data/share/oni/OxygenNotIncluded-linux` | Linux builds; `oni_headless.py` default |
+| Copies of the previous build (744825) | `/mnt/data/share/oni/OxygenNotIncluded-744825`, `…-linux-744825` | Reference for the profile tests and for comparing builds |
 | Linux Steam install | `<state>/steam-home/.local/share/Steam/steamapps/common/OxygenNotIncluded` | Updates with Steam; see [ONI_HEADLESS.md](ONI_HEADLESS.md) |
 
 `/mnt/data/share` is the Linux host's Samba share, `\\192.168.1.24\share` from
 Windows. Pass the game root to builds as `ONI_GAME_DIR` or `-p:OniGameDir`.
 `tools/build.py --game-dir` passes both.
 
-Game-facing code was inspected against ONI build **744825** (shown in game as U59-744825,
-[released 2026-07-28](https://kleiforums.com/game-updates/oni-alpha/744825-r2776/)),
-Unity 6000.3.5f2 and Harmony 2.4.2.0. A package with a game contract accepts any
-build in which every member the mod uses is unchanged and whose SimDLL matches a
-verified profile; anything else is refused with a notice
-([game-update resilience](../docs/game-update-resilience.md)). Steam BuildID 24423041 is a separate identifier. The adapter targets
-.NET Standard 2.1, which Klei's
+Game-facing code was inspected against ONI build **763796** (Steam BuildID
+26770249, fetched 2026-11-19; **744825** until then), Unity 6000.3.17f1 and
+Harmony 2.4.2.0. A package with a game contract accepts any build in which
+every member the mod uses is unchanged and whose SimDLL matches a verified
+profile; anything else is refused with a notice
+([game-update resilience](../docs/game-update-resilience.md)). The adapter
+targets .NET Standard 2.1, which Klei's
 [March 2026 update](https://kleiforums.com/game-updates/oni-alpha/719533-r2701/)
 recommends.
 
 | File (under `OxygenNotIncluded_Data/`) | Windows x64 SHA256 | Linux x64 SHA256 |
 | --- | --- | --- |
-| Native simulator (`Plugins/x86_64/SimDLL.dll`, `Plugins/libSimDLL.so`) | `031960f120ac1d59fd8e43f6e1a7369111c629b90c24d52186b691dfe2d8a727` | `85111cd0b1fc14c79c785581d6c055280b9d48ba705776f3d14eb0a7b239c12d` |
-| `Managed/Assembly-CSharp.dll` | `a58e04d0ffdf89b86fb28b71ad900625b3b539db30d67f8c6269f73a9f5ae599` | `6db652990ad1038e86b3493ed43004e12bfd61e62a4be60c787a9a9b9ac52ee1` |
-| `Managed/Assembly-CSharp-firstpass.dll` | `72d21f51cda136443bfa1a2f6eadb08167a4c508c3d03f558b8cdb60160f249c` | `117fcc6962eeed82b4929347b9a466fb41e807a01b5a9a7acc8bdc446da276c7` |
+| Native simulator (`Plugins/x86_64/SimDLL.dll`, `Plugins/x86_64/libSimDLL.so`) | `1216e026693230dfc567fbbed7da8a3ae019641a2c5f6e332c297ecf610f4971` | `85111cd0b1fc14c79c785581d6c055280b9d48ba705776f3d14eb0a7b239c12d` |
+| `Managed/Assembly-CSharp.dll` | `4dd6a2c87bb6fa4f211a9bbfc4bc033cc734ff09e62e917f39517ae8a066b370` | `801207a0e194ad11892c86af754ad4d3218d89de3a079c2179e24723947135d4` |
+| `Managed/Assembly-CSharp-firstpass.dll` | `ec4dada9437739ec8c3253a8884ba9165a56e80fba97a6494dd42f78148cad89` | `33028961e62386c9deb59acd85f334e7d36f38c55f59f5e36df3fd5c8688d7ab` |
+
+The Linux simulator is byte for byte the 744825 one and moved from `Plugins/`
+to `Plugins/x86_64/`; the Windows one differs from 744825 only in its revision
+constant and build stamps
+([retarget record](../docs/game-update-resilience.md#build-763796-2026-11-19)).
+The copy of the Linux install now includes Spaced Out! (the earlier depot copy
+did not), so Spaced Out! colonies also load in the Linux harness.
 
 The build number is the compiled literal in `BuildWatermark.GetBuildText`. The
 Unity version comes from `globalgamemanagers`. Windows ships a matching

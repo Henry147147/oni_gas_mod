@@ -11,7 +11,26 @@ internal static class ClusterRetirementTests
         var destroy=typeof(ClusterManager).GetMethod("DestoryRocketInteriorWorld",all)!;
         Check(destroy.GetParameters().Select(p=>p.ParameterType).SequenceEqual(new[]{typeof(int),typeof(ClustercraftExteriorDoor)}),"Rocket destruction signature changed.");
         var delete=typeof(ClusterManager).GetMethod("DeleteWorldObjects",all)!;
-        Check(delete.GetParameters().Single().ParameterType==typeof(WorldContainer),"Rocket native cleanup lost its world parameter.");
+        // Since build 763796 the cleanup takes no world: it handles the queue of
+        // pending records, each with the fields the adapter finishes a held one with.
+        Check(delete.GetParameters().Length==0&&delete.ReturnType==typeof(void),"Rocket native cleanup no longer handles the pending queue.");
+        Check(typeof(ClusterManager).GetProperty("PendingRocketInteriorDestructions",all)?.PropertyType==typeof(List<PendingRocketInteriorDestruction>),
+            "The pending rocket interior queue changed.");
+        var record=typeof(PendingRocketInteriorDestruction);
+        Check(record.IsValueType&&new (string name,Type type)[]{("container",typeof(WorldContainer)),("inventory",typeof(WorldInventory)),("position",typeof(Vector2I)),
+            ("size",typeof(Vector2I)),("inFlight",typeof(bool)),("noRefundTiles",typeof(HashSet<int>)),
+            ("clusterLocation",typeof(AxialI)),("elementID",typeof(SimHashes)),("saveBlockerID",typeof(int))}.All(field=>record.GetField(field.name,all)?.FieldType==field.type)&&
+            record.GetField("rocketModuleWorldPos",all)?.FieldType.FullName=="UnityEngine.Vector3"&&record.GetFields(all).Length==10,"A pending rocket interior record changed; the adapter finishes held records field by field.");
+        Check(typeof(ClusterManager).GetMethod("RemoveSaveBlocker",all)?.GetParameters().Single().ParameterType==typeof(int)&&
+            typeof(ClusterManager).GetMethod("AddSaveBlocker",all)?.ReturnType==typeof(int),"Save blockers changed.");
+        Check(typeof(Grid).GetMethod("FreeGridSpace",all)?.GetParameters().Select(p=>p.ParameterType).SequenceEqual(new[]{typeof(Vector2I),typeof(Vector2I)})==true,
+            "Grid slot release changed.");
+        foreach(var name in new[]{"TransferResourcesToParentWorld","TransferResourcesToDebris"})
+            Check(typeof(WorldContainer).GetMethod(name,all)?.IsPublic==true,"The game's resource recovery entry "+name+" changed.");
+        var deletePatch=assembly.GetType("MixedAtmospheres.Oni.ColonyRocketDeletePatch")!;
+        Check(deletePatch.GetMethod("Prefix",all)?.GetParameters().Single().ParameterType==typeof(ClusterManager)&&deletePatch.GetMethod("Prefix",all)!.ReturnType==typeof(void)&&
+            deletePatch.GetMethod("Finalizer",all)?.GetParameters().Single().ParameterType==typeof(ClusterManager),
+            "The cleanup patch must take held records out before the game's call and return them after it, whatever it throws.");
         var resources=typeof(WorldContainer).GetMethod("TransferLiquidsSolidsAndGases",all)!;
         Check(resources.GetParameters().Length==2&&resources.GetParameters()[1].ParameterType==typeof(HashSet<int>),"Landed recovery signature changed.");
         var debris=typeof(WorldContainer).GetMethod("TransferLiquidsSolidsAndGasesToDebris",all)!;

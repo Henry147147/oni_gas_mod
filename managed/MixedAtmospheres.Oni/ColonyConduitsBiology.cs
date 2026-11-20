@@ -206,8 +206,15 @@ namespace MixedAtmospheres.Oni
         // ONI 744825 Windows has different metadata tokens. Resolved instructions,
         // locals, branches and exception regions match the inspected Linux bodies.
         internal const string ExpectedWindowsSchedulingSignature="75DCE186C3ABD9CA04D77941BC9B33EF1A7CF2A7870326266B9D9E79171E262B";
+        // ONI 763796: the five bodies have the lengths and the decompiled text of
+        // 744825 on both platforms; only metadata tokens moved (the signature is
+        // over raw IL, so every rebuilt game assembly needs its own; the values
+        // are reproduced from the assemblies on disk, docs/game-update-resilience.md).
+        internal const string ExpectedSchedulingSignature763796="C1382C8AB2E19F8AFF6A318A6D867BA4D110C92C4D415806E6B1B9559B942D4A";
+        internal const string ExpectedWindowsSchedulingSignature763796="390E13AF521FEEE37A02DE1EBE9F8E132B82D8733ADA51CA4167014689D5E631";
         internal static bool IsSupportedSchedulingSignature(string signature)=>
-            signature==ExpectedSchedulingSignature||signature==ExpectedWindowsSchedulingSignature;
+            signature==ExpectedSchedulingSignature||signature==ExpectedWindowsSchedulingSignature||
+            signature==ExpectedSchedulingSignature763796||signature==ExpectedWindowsSchedulingSignature763796;
         internal static string SchedulingSignature()
         {
             using var bytes=new MemoryStream();using(var writer=new BinaryWriter(bytes,System.Text.Encoding.UTF8,true))

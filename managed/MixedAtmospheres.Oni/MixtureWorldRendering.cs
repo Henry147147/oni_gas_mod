@@ -113,9 +113,9 @@ namespace MixedAtmospheres.Oni
         {
             AccessTools.Method(typeof(PropertyTextures), "LateUpdate"), AccessTools.Method(typeof(PropertyTextures), "OnReset"),
             AccessTools.Method(typeof(PropertyTextures), "OnShadersReloaded"), AccessTools.Method(typeof(PropertyTextures), nameof(PropertyTextures.DestroyInstance)),
-            AccessTools.Method(typeof(PropertyTextures), "UpdateGasColour", new[] { typeof(TextureRegion), typeof(int), typeof(int), typeof(int), typeof(int) }),
-            AccessTools.Method(typeof(PropertyTextures), "UpdatePressure", new[] { typeof(TextureRegion), typeof(int), typeof(int), typeof(int), typeof(int) }),
-            AccessTools.Method(typeof(PropertyTextures), "UpdateDanger", new[] { typeof(TextureRegion), typeof(int), typeof(int), typeof(int), typeof(int) }),
+            TextureCallback("UpdateGasColour"),
+            TextureCallback("UpdatePressure"),
+            TextureCallback("UpdateDanger"),
             AccessTools.Method(typeof(TextureBuffer), nameof(TextureBuffer.Unlock), new[] { typeof(TextureRegion) }),
             AccessTools.Method(typeof(SimDebugView), nameof(SimDebugView.UpdateData), new[] { typeof(Texture2D), typeof(byte[]), typeof(HashedString), typeof(byte) }),
             AccessTools.Method(typeof(SimDebugView), "GetOxygenMapColour", new[] { typeof(SimDebugView), typeof(int) }),
@@ -136,9 +136,9 @@ namespace MixedAtmospheres.Oni
             var reset = AccessTools.Method(typeof(PropertyTextures), "OnReset") ?? throw new NotSupportedException("Missing property-texture reset hook.");
             var shaders = Require(typeof(PropertyTextures), "OnShadersReloaded", typeof(void));
             var destroy = Require(typeof(PropertyTextures), nameof(PropertyTextures.DestroyInstance), typeof(void));
-            var colour = Require(typeof(PropertyTextures), "UpdateGasColour", typeof(void), typeof(TextureRegion), typeof(int), typeof(int), typeof(int), typeof(int));
-            var pressure = Require(typeof(PropertyTextures), "UpdatePressure", typeof(void), typeof(TextureRegion), typeof(int), typeof(int), typeof(int), typeof(int));
-            var danger = Require(typeof(PropertyTextures), "UpdateDanger", typeof(void), typeof(TextureRegion), typeof(int), typeof(int), typeof(int), typeof(int));
+            var colour = TextureCallback("UpdateGasColour") ?? throw new NotSupportedException("Mixture renderer requires inspected managed method PropertyTextures.UpdateGasColour");
+            var pressure = TextureCallback("UpdatePressure") ?? throw new NotSupportedException("Mixture renderer requires inspected managed method PropertyTextures.UpdatePressure");
+            var danger = TextureCallback("UpdateDanger") ?? throw new NotSupportedException("Mixture renderer requires inspected managed method PropertyTextures.UpdateDanger");
             var unlock = Require(typeof(TextureBuffer), nameof(TextureBuffer.Unlock), typeof(void), typeof(TextureRegion));
             var overlay = Require(typeof(SimDebugView), nameof(SimDebugView.UpdateData), typeof(void), typeof(Texture2D), typeof(byte[]), typeof(HashedString), typeof(byte));
             var oxygenMap = Require(typeof(SimDebugView), "GetOxygenMapColour", typeof(Color), typeof(SimDebugView), typeof(int));
@@ -180,6 +180,39 @@ namespace MixedAtmospheres.Oni
 
         // Failed OnLoad teardown: Mod has already removed this owner's patches.
         internal static void ResetAfterFailedLoad() => installedOwner = null;
+
+        // The body of one of PropertyTextures' region updates. Up to build
+        // 744825 a static method of that name; since 763796 a lambda held in a
+        // static field of that name, whose method is read from the type
+        // initializer's IL (ldftn, newobj, stsfld) without running it.
+        internal static MethodInfo? TextureCallback(string name)
+        {
+            var parameters = new[] { typeof(TextureRegion), typeof(int), typeof(int), typeof(int), typeof(int) };
+            bool suits(MethodInfo? method) => method != null && method.ReturnType == typeof(void) && method.GetMethodBody() != null &&
+                method.GetParameters().Select(parameter => parameter.ParameterType).SequenceEqual(parameters);
+            var direct = AccessTools.Method(typeof(PropertyTextures), name, parameters);
+            if (direct != null) return suits(direct) ? direct : null;
+            var field = AccessTools.Field(typeof(PropertyTextures), name);
+            var initializer = typeof(PropertyTextures).TypeInitializer;
+            if (field == null || !field.IsStatic || initializer == null) return null;
+            MethodInfo? body = null;
+            // Harmony's reader, found by reflection as in NativeMessagePatch
+            // (its ILGenerator parameter binds Unity's mscorlib); kept here so
+            // this file compiles alone in the offline tests.
+            var reader = typeof(PatchProcessor).GetMethods(BindingFlags.Public | BindingFlags.Static)
+                .Single(candidate => candidate.Name == "GetOriginalInstructions" && candidate.GetParameters().Length == 2
+                    && candidate.GetParameters()[0].ParameterType == typeof(MethodBase) && !candidate.GetParameters()[1].ParameterType.IsByRef);
+            foreach (var instruction in (IEnumerable<CodeInstruction>)reader.Invoke(null, new object?[] { initializer, null })!)
+            {
+                if (instruction.opcode == System.Reflection.Emit.OpCodes.Ldftn) body = instruction.operand as MethodInfo;
+                else if (instruction.opcode == System.Reflection.Emit.OpCodes.Stsfld)
+                {
+                    if (Equals(instruction.operand, field)) return suits(body) ? body : null;
+                    body = null;
+                }
+            }
+            return null;
+        }
 
         private static MethodInfo Require(Type type, string name, Type result, params Type[] parameters)
         {

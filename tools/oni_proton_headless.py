@@ -31,13 +31,29 @@ CONFIGURED_MODES = ("native-configured-domain", "native-configured-water-domain"
 OWNER_MODES = ("colony-owner", "colony-owner-load")
 FORWARD_MODES = ("menu", "colony-owner-inactive")
 MODES = tuple(SCENES.values()) + CONFIGURED_MODES + OWNER_MODES + FORWARD_MODES + ("native-load-domain",)
+# The Windows files of the inspected build (763796; 744825 until 2026-11-19).
 GAME_FILES = {
     "OxygenNotIncluded_Data/Managed/Assembly-CSharp.dll":
-        "a58e04d0ffdf89b86fb28b71ad900625b3b539db30d67f8c6269f73a9f5ae599",
+        "4dd6a2c87bb6fa4f211a9bbfc4bc033cc734ff09e62e917f39517ae8a066b370",
     "OxygenNotIncluded_Data/Plugins/x86_64/SimDLL.dll":
-        "031960f120ac1d59fd8e43f6e1a7369111c629b90c24d52186b691dfe2d8a727",
+        "1216e026693230dfc567fbbed7da8a3ae019641a2c5f6e332c297ecf610f4971",
 }
 BASE_GAME_DISABLED_DLC = common.oni_dlc.DLC_IDS
+# The one Wine gap accepted at the player's exit (see proton_exit_abort).
+WINE_EXIT_ABORT = "UIAutomationCore.DLL.UiaDisconnectAllProviders"
+UNITY_SHUTDOWN_COMPLETE = "Input System module state changed to: Shutdown."
+
+
+def proton_exit_abort(output: Path, log: str) -> bool:
+    """True when the player's non-zero exit is Wine aborting on the one known
+    unimplemented function, after Unity logged the end of its shutdown: every
+    "unimplemented function" line of the Proton log names it, and nothing
+    follows the shutdown line in Player.log but blank lines."""
+    aborts = [line for file in sorted(output.glob("steam-*.log"))
+              for line in file.read_text(errors="replace").splitlines() if "to unimplemented function" in line]
+    tail = log.rstrip().rsplit("\n", 1)[-1].strip()
+    return bool(aborts) and all(line.rstrip().endswith(WINE_EXIT_ABORT + ", aborting") for line in aborts) \
+        and tail == UNITY_SHUTDOWN_COMPLETE
 
 
 def base_game_preferences(profile: Path) -> None:
@@ -522,6 +538,15 @@ def playtest(args, state: Path, session: dict) -> int:
         observation = optional_json(mod / "native-backend-observation-report.json")
         log = (output / "Player.log").read_text(errors="replace") if (output / "Player.log").exists() else ""
         player_exit = common.CHILDREN[record["pid"]].poll()
+        # Unity 6000.3.17 (ONI 763796) calls UiaDisconnectAllProviders as its last
+        # act of quitting. Proton 10's Wine has no such function and aborts the
+        # process there, so the player ends with a non-zero code after a complete
+        # shutdown. Windows has the function. Recorded, never hidden.
+        result["raw_player_exit_code"] = player_exit
+        result["proton_exit_abort"] = None
+        if player_exit not in (None, 0) and proton_exit_abort(output, log):
+            result["proton_exit_abort"] = WINE_EXIT_ABORT
+            player_exit = 0
         result["completion_to_player_exit_seconds"] = time.monotonic()-completion_seen if completion_seen is not None and player_exit is not None else None
         result["quit_from_menu_requested"] = getattr(args,"quit_from_menu",False)
         result["quit_from_menu_observed"] = "Quit control reached the main menu after its colony." in log

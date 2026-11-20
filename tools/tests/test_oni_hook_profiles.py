@@ -2,9 +2,11 @@
 import copy
 import json
 from pathlib import Path
+import re
 import sys
 import struct
 import unittest
+import unittest.mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import oni_hook_profiles as profiles
@@ -13,10 +15,14 @@ import oni_hook_profiles as profiles
 class NativeProfileTests(unittest.TestCase):
     def setUp(self):
         self.value = json.loads(profiles.PROFILE.read_text())
+        # Profiles accumulate per platform (Windows first); index the first
+        # image of each platform and the Linux one that owns trampolines.
+        platforms = [p["platform"] for p in self.value["profiles"]]
+        self.windows, self.linux = platforms.index("windows-x64"), platforms.index("linux-x64")
 
     def test_pinned_profiles_and_platform_specific_step(self):
         profiles.validate(self.value)
-        win, linux = self.value["profiles"]
+        win, linux = self.value["profiles"][self.windows], self.value["profiles"][self.linux]
         self.assertEqual(len(win["hooks"]), 25)
         self.assertEqual(len(linux["hooks"]), 29)
         a,b=(next(h for h in p['hooks'] if h['role']=='chunk-heat') for p in (win,linux))
@@ -36,17 +42,21 @@ class NativeProfileTests(unittest.TestCase):
                        lambda p: p["hooks"][0].update(role="other"),
                        lambda p: p["hooks"][0].update(signature="int()"),
                        lambda p: p["hooks"][0].update(symbol="unknown")):
-            value = copy.deepcopy(self.value)
-            mutate(value["profiles"][1])
-            with self.assertRaises(ValueError): profiles.validate(value)
+            for index in range(len(self.value["profiles"])):
+                value = copy.deepcopy(self.value)
+                mutate(value["profiles"][index])
+                with self.assertRaises(ValueError): profiles.validate(value)
 
     def test_unknown_build_abi_or_fingerprint_rejected(self):
         for key in ("oni_build", "schema_version"):
             value = copy.deepcopy(self.value); value[key] += 1
             with self.assertRaises(ValueError): profiles.validate(value)
         for update in ({"rva": 0}, {"fingerprint_bytes": 8}, {"fingerprint_sha256": "0" * 63}):
-            value = copy.deepcopy(self.value); value["profiles"][1]["hooks"][0].update(update)
-            with self.assertRaises(ValueError): profiles.validate(value)
+            for index in range(len(self.value["profiles"])):
+                value = copy.deepcopy(self.value); value["profiles"][index]["hooks"][0].update(update)
+                with self.assertRaises(ValueError): profiles.validate(value)
+        value = copy.deepcopy(self.value); value["profiles"][-1]["oni_build"] = 744824
+        with self.assertRaises(ValueError): profiles.validate(value)
 
     def test_codegen_contains_hashes_without_game_code(self):
         text = profiles.header(self.value)
@@ -59,7 +69,7 @@ class NativeProfileTests(unittest.TestCase):
         self.assertNotIn("0x48,", text)
 
     def test_publication_bindings_preserve_observer_abi_and_reject_drift(self):
-        for platform in range(2):
+        for platform in range(len(self.value["profiles"])):
             bindings=self.value['profiles'][platform]['publication_bindings']
             self.assertEqual([h['role'] for h in bindings],['copy-to-game','prepare-game-data-update'])
             for update in ({'rva':0},{'signature':'void()'},{'symbol':'other'},{'fingerprint_sha256':'bad'},
@@ -75,7 +85,7 @@ class NativeProfileTests(unittest.TestCase):
         self.assertIn('std::array<HookProfile, 2> profile_0_bindings',profiles.header(self.value))
 
     def test_native_body_layout_and_private_location_drift_rejected(self):
-        for platform in range(2):
+        for platform in range(len(self.value["profiles"])):
             for key in profiles.CHUNK_HEAT_LAYOUT:
                 value=copy.deepcopy(self.value)
                 next(h for h in value['profiles'][platform]['hooks'] if h['role']=='chunk-heat')['native_layout'][key]+=4
@@ -84,17 +94,34 @@ class NativeProfileTests(unittest.TestCase):
             next(h for h in value['profiles'][platform]['hooks'] if h['role']=='chunk-heat')['rva']+=16
             with self.assertRaises(ValueError):profiles.validate(value)
 
+    def test_private_locations_are_registered_per_inspected_image(self):
+        # Each platform may hold several inspected images, each with its own
+        # whole-file SHA-256; a profile for any other image is refused.
+        for platform, locations in profiles.CHUNK_HEAT_LOCATIONS.items():
+            self.assertIsInstance(locations, dict)
+            self.assertTrue(locations and all(re.fullmatch("[0-9a-f]{64}", key) and value > 0 for key, value in locations.items()))
+        for profile in self.value["profiles"]:
+            hook = next(h for h in profile["hooks"] if h["role"] == "chunk-heat")
+            self.assertEqual(profiles.CHUNK_HEAT_LOCATIONS[profile["platform"]][profile["native_sha256"]], hook["rva"])
+        extra = copy.deepcopy(self.value["profiles"][self.windows])
+        extra.update(native_identity="e" * 64, native_sha256="e" * 64, oni_build=744826)
+        value = copy.deepcopy(self.value); value["profiles"].insert(self.windows + 1, extra)
+        with self.assertRaisesRegex(ValueError, "Private chunk contact"): profiles.validate(value)
+        rva = next(h["rva"] for h in extra["hooks"] if h["role"] == "chunk-heat")
+        with unittest.mock.patch.dict(profiles.CHUNK_HEAT_LOCATIONS["windows-x64"], {"e" * 64: rva}):
+            profiles.validate(value)
+
     def test_invalid_trampoline_storage_rejected(self):
-        original=self.value["profiles"][1]["trampoline_storage"]
+        original=self.value["profiles"][self.linux]["trampoline_storage"]
         for update in ({"rva": original["rva"]-16}, {"bytes": original["bytes"]+16},
                        {"bytes": -1}, {"bytes": True}, {"bytes": 1 << 64},
                        {"page_bytes": 8192}, {"fill_byte": 1}, {"sha256": "0"*64},
                        {"load_segment_memory_bytes": 1 << 64}, {"load_segment_file_offset": 1}):
             with self.subTest(update=update):
                 value=copy.deepcopy(self.value)
-                value["profiles"][1]["trampoline_storage"].update(update)
+                value["profiles"][self.linux]["trampoline_storage"].update(update)
                 with self.assertRaises(ValueError): profiles.validate(value)
-        value=copy.deepcopy(self.value);del value["profiles"][1]["trampoline_storage"]
+        value=copy.deepcopy(self.value);del value["profiles"][self.linux]["trampoline_storage"]
         with self.assertRaises(ValueError): profiles.validate(value)
 
     @staticmethod
@@ -198,23 +225,31 @@ class NormalisedIdentityTests(unittest.TestCase):
         self.assertIn("profile_1_hooks", header)
 
 
-GAMES = {"windows-x64": Path("/mnt/data/share/oni/OxygenNotIncluded/OxygenNotIncluded_Data/Plugins/x86_64/SimDLL.dll"),
-         "linux-x64": Path("/mnt/data/share/oni/OxygenNotIncluded-linux/OxygenNotIncluded_Data/Plugins/libSimDLL.so")}
+# The private installations of each verified build, first the 744825 ones.
+GAMES = {"windows-x64": [Path("/mnt/data/share/oni/OxygenNotIncluded-744825/OxygenNotIncluded_Data/Plugins/x86_64/SimDLL.dll"),
+                         Path("/mnt/data/share/oni/OxygenNotIncluded/OxygenNotIncluded_Data/Plugins/x86_64/SimDLL.dll")],
+         "linux-x64": [Path("/mnt/data/share/oni/OxygenNotIncluded-linux-744825/OxygenNotIncluded_Data/Plugins/libSimDLL.so")]}
 
 
 class InstalledImageControls(unittest.TestCase):
-    """Synthetic changes to the private 744825 images (skipped without them)."""
+    """Synthetic changes to the private verified images (skipped without them)."""
 
-    def image(self, platform):
-        path = GAMES[platform]
-        if not path.is_file():
-            self.skipTest("licensed " + platform + " SimDLL not available")
-        return bytearray(path.read_bytes())
+    def image(self, platform, identity=None):
+        for path in GAMES[platform]:
+            if path.is_file():
+                data = bytearray(path.read_bytes())
+                if identity is None or profiles.normalized_identity(bytes(data)) == identity:
+                    return data
+        return None
 
     def test_identity_ignores_stamps_and_catches_code(self):
         value = json.loads(profiles.PROFILE.read_text())
+        checked = 0
         for profile in value["profiles"]:
-            data = self.image(profile["platform"])
+            data = self.image(profile["platform"], profile["native_identity"])
+            if data is None:
+                continue  # that build's licensed image is not kept here
+            checked += 1
             self.assertEqual(profiles.normalized_identity(bytes(data)), profile["native_identity"])
             hook = profile["hooks"][3]
             if profile["platform"] == "windows-x64":
@@ -229,6 +264,8 @@ class InstalledImageControls(unittest.TestCase):
             self.assertNotEqual(profiles.normalized_identity(bytes(changed)), profile["native_identity"])
             elsewhere = bytearray(data); elsewhere[len(data) // 2] ^= 0x01
             self.assertNotEqual(profiles.normalized_identity(bytes(elsewhere)), profile["native_identity"])
+        if not checked:
+            self.skipTest("no licensed SimDLL of a verified profile is available")
 
     def test_backend_probe_accepts_only_verified_images(self):
         import ctypes, os, shutil, tempfile
@@ -236,6 +273,8 @@ class InstalledImageControls(unittest.TestCase):
         if not library or not Path(library).is_file():
             self.skipTest("set MA_TEST_ONI_BACKEND_LIBRARY to a built libmixed_atmospheres_oni.so")
         data = self.image("linux-x64")
+        if data is None:
+            self.skipTest("licensed linux-x64 SimDLL not available")
         backend = ctypes.CDLL(library)
         backend.ma_oni_last_error.restype = ctypes.c_char_p
 

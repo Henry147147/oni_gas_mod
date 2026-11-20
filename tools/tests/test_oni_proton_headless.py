@@ -483,6 +483,29 @@ class WindowsEvidenceTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,"initial domain"):
             runner.validate_arguments(args)
 
+class ProtonExitAbortTests(unittest.TestCase):
+    """The one Wine gap accepted at the player's exit (Unity 6000.3.17)."""
+    ABORT = "wine: Call from 00006FFFFFFA4E48 to unimplemented function UIAutomationCore.DLL.UiaDisconnectAllProviders, aborting"
+    LOG = "Game.OnApplicationQuit()\n[Physics::Module] Cleanup current backend.\nInput System module state changed to: Shutdown.\n\n"
+
+    def accepted(self, proton_log, player_log):
+        with tempfile.TemporaryDirectory() as tmp:
+            if proton_log is not None:
+                (Path(tmp) / "steam-457140.log").write_text(proton_log)
+            return runner.proton_exit_abort(Path(tmp), player_log)
+
+    def test_known_abort_after_complete_shutdown_is_recognised(self):
+        self.assertTrue(self.accepted("ALSA lib noise\n" + self.ABORT + "\n", self.LOG))
+
+    def test_anything_else_keeps_the_failed_exit(self):
+        self.assertFalse(self.accepted(None, self.LOG), "no Proton log")
+        self.assertFalse(self.accepted("ALSA lib noise\n", self.LOG), "no abort line")
+        self.assertFalse(self.accepted(self.ABORT.replace("UiaDisconnectAllProviders", "UiaRaiseAutomationEvent") + "\n", self.LOG), "another function")
+        self.assertFalse(self.accepted(self.ABORT + "\n" + self.ABORT.replace("UIAutomationCore.DLL.UiaDisconnectAllProviders", "KERNEL32.dll.Other") + "\n", self.LOG),
+                         "a second unimplemented function")
+        self.assertFalse(self.accepted(self.ABORT + "\n", "Game.OnApplicationQuit()\n[Physics::Module] Cleanup current backend.\n"), "shutdown not finished")
+        self.assertFalse(self.accepted(self.ABORT + "\n", self.LOG + "NullReferenceException\n"), "something logged after the shutdown")
+
 
 if __name__ == "__main__":
     unittest.main()

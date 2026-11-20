@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
 using HarmonyLib;
 using UnityEngine;
 
@@ -57,8 +58,17 @@ namespace MixedAtmospheres.Oni
                 if(!world.Contains(cell%Grid.WidthInCells,cell/Grid.WidthInCells))continue;
                 if(particle.mass>0)recover(particle.mass,particle.temperature);
                 Live().Remove(particle);inFlight.Remove(particle);
-                AccessTools.Method(typeof(CO2Manager),"OnDestroyCO2").Invoke(CO2Manager.instance,new object[]{particle.gameObject});
+                ReleaseParticle(particle.gameObject);
             }
+        }
+        // The game's own return of a particle to its pool: a static delegate
+        // field since build 763796, an instance method before.
+        private static void ReleaseParticle(GameObject particle)
+        {
+            const BindingFlags flags=BindingFlags.Static|BindingFlags.Instance|BindingFlags.Public|BindingFlags.NonPublic;
+            if(typeof(CO2Manager).GetField("OnDestroyCO2",flags)?.GetValue(null) is System.Action<GameObject> release){release(particle);return;}
+            var method=typeof(CO2Manager).GetMethod("OnDestroyCO2",flags)??throw new MissingMemberException(nameof(CO2Manager),"OnDestroyCO2");
+            method.Invoke(CO2Manager.instance,new object[]{particle});
         }
         private static OniNativeDomain.Configuration Geometry(OniNativeColony.Config config) => new OniNativeDomain.Configuration
         { GridWidth = config.GridWidth, X = config.OffsetX, Y = config.OffsetY, Width = config.Width, Height = config.Height };

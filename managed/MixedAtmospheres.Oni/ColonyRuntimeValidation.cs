@@ -27,7 +27,7 @@ namespace MixedAtmospheres.Oni
             // ONI's own Sim.Load result for a colony save loaded without the mod's loader (-1: refused).
             public int? VanillaLoadResult;
             public bool LoadRefusalExpected, LoadRefusedWithoutOwner;
-            public string OniBuild = "744825";
+            public string OniBuild = "763796";
             public bool AuthoritativeColonySimulationReady = false;
             public string PhysicsOwner = "native ONI";
             public string Status = "pending";

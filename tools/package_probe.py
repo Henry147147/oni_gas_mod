@@ -164,18 +164,18 @@ def main() -> None:
     parser.add_argument("--coupled-reference", type=Path, help="Optional explicit closed-reference library for private presentation validation")
     parser.add_argument("--native-observer", type=Path, help="Opt-in SimDLL backend from its CMake build directory; forwards by default, experimental sealed domains require separate validation")
     parser.add_argument("--native-build-info", type=Path, help="Completed Linux compatibility build report, checked against all supplied native binaries")
-    parser.add_argument("--oni-build", type=int, default=744825, help="Verified ONI build number, not Steam BuildID")
+    parser.add_argument("--oni-build", type=int, default=mod_identity.INSPECTED_ONI_BUILD, help="Verified ONI build number, not Steam BuildID")
     parser.add_argument("--game-dir", type=Path, help="Licensed installation for the managed game contract "
                         "(default: ONI_GAME_DIR_WINDOWS/ONI_GAME_DIR_LINUX/ONI_GAME_DIR or the team's share copy)")
     parser.add_argument("--no-game-contract", action="store_true",
-                        help="Omit game-contract.json: the mod then accepts only the exact inspected 744825 assemblies")
+                        help="Omit game-contract.json: the mod then accepts only the exact assemblies of the first inspected build")
     parser.add_argument("--allow-stale-managed", action="store_true",
                         help="Package a repository managed build older than its sources (the pair may mismatch the native library)")
     parser.add_argument("--private-file-protocol-validator", type=Path,
                         help="Optional normal-source Windows Mono fixture DLL; never a save/load permission")
     args = parser.parse_args()
-    if args.oni_build != 744825:
-        parser.error("This probe was inspected against ONI 744825. Reinspect and update the contract before packaging another build.")
+    if args.oni_build != mod_identity.INSPECTED_ONI_BUILD:
+        parser.error(f"This probe was inspected against ONI {mod_identity.INSPECTED_ONI_BUILD}. Reinspect and update the contract before packaging another build.")
     if args.native.name not in ("libmixed_atmospheres.so", "mixed_atmospheres.dll") or not args.native.is_file():
         parser.error("Supply a built Linux or Windows native library")
     coupled = args.coupled_reference

@@ -60,11 +60,15 @@ SPECS = (
 )
 
 # These private procedure locations are supported only in the independently
-# inspected files. Windows PDB 0xCFFD retains six arguments; GCC specializes
-# away the unused SimData/Handle arguments and reorders the remaining ones.
+# inspected files (whole-file SHA-256 -> RVA). Windows PDB 0xCFFD retains six
+# arguments; GCC specializes away the unused SimData/Handle arguments and
+# reorders the remaining ones. Windows 763796 (2026-11-19): the same S_LPROC32
+# record (type 0xCFFD, 756 code bytes) at the same RVA; the image differs from
+# 744825 only in its header, toolchain stamps and AppVersion::GetRevision.
 CHUNK_HEAT_LOCATIONS={
-    "windows-x64":("031960f120ac1d59fd8e43f6e1a7369111c629b90c24d52186b691dfe2d8a727",258448),
-    "linux-x64":("85111cd0b1fc14c79c785581d6c055280b9d48ba705776f3d14eb0a7b239c12d",398624),
+    "windows-x64":{"031960f120ac1d59fd8e43f6e1a7369111c629b90c24d52186b691dfe2d8a727":258448,
+                   "1216e026693230dfc567fbbed7da8a3ae019641a2c5f6e332c297ecf610f4971":258448},
+    "linux-x64":{"85111cd0b1fc14c79c785581d6c055280b9d48ba705776f3d14eb0a7b239c12d":398624},
 }
 CHUNK_HEAT_LAYOUT=dict(accessor_bytes=16,cell_index_offset=8,chunk_bytes=44,temperature_offset=4,
     heat_capacity_offset=8,conductivity_offset=12,transfer_scale_offset=16)
@@ -213,6 +217,41 @@ def windows_symbols(data: bytes, pdb: Path, utility: str) -> tuple[dict, list, d
     return symbols, sections, {"pdb_guid": guid[1].lower(), "pdb_age": int(age[1])}
 
 
+# Module symbol records that name a location: procedures (with code size),
+# static/global data and thread-local data.
+PDB_LOCATION_RECORD = re.compile(r"^\s*\d+ \| (S_[GL]PROC32|S_[GL]DATA32|S_[GL]THREAD32) \[size = \d+\] `(.*)`\s*$")
+
+
+def windows_module_symbols(pdb: Path, sections: list, utility: str) -> list[tuple[str, str, int, int]]:
+    """(kind, name, RVA, code size) of every procedure and data record in the
+    PDB's module streams; private (static) procedures are only here, not in
+    the publics. Names may contain backticks (funclets), so lines are parsed
+    one record at a time."""
+    text = subprocess.check_output([utility, "dump", "-symbols", str(pdb)], text=True)
+    result, pending = [], None
+    for line in text.splitlines():
+        record = PDB_LOCATION_RECORD.match(line)
+        if record:
+            pending = (record[1], record[2])
+            continue
+        if pending is not None:
+            location = re.search(r"addr = (\d+):(\d+)(?:, code size = (\d+))?", line)
+            if location and 1 <= int(location[1]) <= len(sections):
+                result.append((pending[0], pending[1], sections[int(location[1]) - 1][0] + int(location[2]),
+                               int(location[3] or 0)))
+            pending = None
+    return result
+
+
+def windows_private_procedure(pdb: Path, sections: list, utility: str, name: str) -> int:
+    """The RVA of the one module procedure record with this exact name."""
+    found = sorted({rva for kind, symbol, rva, _ in windows_module_symbols(pdb, sections, utility)
+                    if kind.endswith("PROC32") and symbol == name})
+    if len(found) != 1:
+        raise ValueError(f"Private PDB procedure {name} is missing or ambiguous ({len(found)} locations)")
+    return found[0]
+
+
 def linux_load_segments(data: bytes) -> list[dict]:
     if data[:6] != b"\x7fELF\x02\x01" or struct.unpack_from("<H", data, 18)[0] != 62:
         raise ValueError("Expected little-endian Linux x86-64 ELF")
@@ -274,9 +313,18 @@ def linux_symbols(data: bytes, image: Path) -> tuple[dict, list, dict]:
     return symbols, sections, {"trampoline_storage": linux_trampoline_storage(data)}
 
 
+def sim_image(game: Path, platform: str) -> Path:
+    """The game's native simulator. Linux builds up to 744825 keep it in
+    Plugins/, later ones (Unity 6000.3.17, build 763796) in Plugins/x86_64/."""
+    plugins = game / "OxygenNotIncluded_Data/Plugins"
+    if platform == "windows-x64":
+        return plugins / "x86_64/SimDLL.dll"
+    current = plugins / "x86_64/libSimDLL.so"
+    return current if current.is_file() else plugins / "libSimDLL.so"
+
+
 def inspect(game: Path, platform: str, utility: str) -> dict:
-    relative = "OxygenNotIncluded_Data/Plugins/" + ("x86_64/SimDLL.dll" if platform == "windows-x64" else "libSimDLL.so")
-    image = game / relative
+    image = sim_image(game, platform)
     data = image.read_bytes()
     symbols, sections, evidence = (windows_symbols(data, image.with_suffix(".pdb"), utility)
                                     if platform == "windows-x64" else linux_symbols(data, image))
@@ -287,12 +335,10 @@ def inspect(game: Path, platform: str, utility: str) -> dict:
         if symbol is None:
             continue  # Windows Step is inlined; never invent an address.
         if role=="chunk-heat":
-            identity,rva=CHUNK_HEAT_LOCATIONS[platform]
-            if sha(data)!=identity:raise ValueError("Private chunk heat contact requires the exact inspected native image")
+            rva=CHUNK_HEAT_LOCATIONS[platform].get(sha(data))
+            if rva is None:raise ValueError("Private chunk heat contact requires the exact inspected native image")
             if platform=="windows-x64":
-                private=subprocess.check_output([utility,"dump","-symbols",str(image.with_suffix('.pdb'))],text=True)
-                found=re.findall(r'S_[LG]PROC32[^\n]*`ExchangeHeatEnergyWithWorld`\s*\n[^\n]*addr = (\d+):(\d+)',private)
-                if len(found)!=1 or sections[int(found[0][0])-1][0]+int(found[0][1])!=rva:
+                if windows_private_procedure(image.with_suffix('.pdb'),sections,utility,symbol)!=rva:
                     raise ValueError("Private PDB chunk heat procedure differs from its inspected location")
             else:
                 call=0x61f27;start=file_offset(sections,call,5,executable=True);instruction=data[start:start+5]
@@ -317,6 +363,7 @@ def inspect(game: Path, platform: str, utility: str) -> dict:
         # Lifecycle pointers may reside in zero-initialized, non-file-backed BSS.
         globals_.append({"name": name, "rva": rva})
     storage = evidence.pop("trampoline_storage", None)
+    relative = image.relative_to(game).as_posix()
     return {"platform": platform, "native_relative_path": relative, "native_identity": normalized_identity(data),
             "native_sha256": sha(data), "assembly_sha256": sha((game / "OxygenNotIncluded_Data/Managed/Assembly-CSharp.dll").read_bytes()),
             "native_bytes": len(data), "symbols": evidence, "globals": globals_, "hooks": hooks,
@@ -365,7 +412,7 @@ def validate(value: dict) -> None:
             if (hook["role"], hook["symbol"], hook["signature"]) != (role, win if profile["platform"] == "windows-x64" else linux, signature):
                 raise ValueError("Hook identity/signature mismatch")
             if role=='chunk-heat' and (hook.get('native_layout')!=CHUNK_HEAT_LAYOUT or
-                    (profile['native_sha256'],hook['rva'])!=CHUNK_HEAT_LOCATIONS[profile['platform']]):
+                    CHUNK_HEAT_LOCATIONS[profile['platform']].get(profile['native_sha256'])!=hook['rva']):
                 raise ValueError("Private chunk contact layout/location differs from its inspected image")
             if not 0 < hook["rva"] < profile["native_bytes"] or hook["fingerprint_bytes"] != 32:
                 raise ValueError("Invalid hook location/fingerprint size")

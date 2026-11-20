@@ -82,29 +82,27 @@ namespace MixedAtmospheres.Oni
             return text;
         }
     }
-    [HarmonyPatch]
+    // The pipe's status line. The game builds it in a compiler-named lambda
+    // whose name changes with every game build (b__337_35 in 744825), so the
+    // status item's callback is wrapped once the database exists instead.
+    [HarmonyPatch(typeof(Db),nameof(Db.Initialize))]
     internal static class ColonyMixedPipeStatusPatch
     {
-        private static MethodBase? Target()
+        private static void Postfix(Db __instance)
         {
-            var method=AccessTools.Method(typeof(Database.BuildingStatusItems).GetNestedType("<>c",BindingFlags.NonPublic|BindingFlags.Public),"<CreateStatusItems>b__337_35");
-            return method!=null&&method.ReturnType==typeof(string)&&method.GetParameters().Length==2?method:null;
+            var item=__instance.BuildingStatusItems?.Pipe;var native=item?.resolveStringCallback;
+            if(item==null||native==null){Debug.LogWarning("[Mixed Atmospheres] The pipe status item has no text callback; pipes show the game's own contents line.");return;}
+            item.resolveStringCallback=(text,data)=>Resolve(text,data)??native(text,data);
         }
-        private static bool Prepare()=>Target()!=null;
-        private static MethodBase TargetMethod()=>Target()!;
-        private static bool Prefix(string __0,object __1,ref string __result)
+        private static string? Resolve(string text,object data)
         {
-            if(!ColonyConduits.Active||!(__1 is Conduit conduit))return true;
+            if(!ColonyConduits.Active||!(data is Conduit conduit))return null;
             try
             {
                 var line=ColonyPipeInspection.ContentsLine(conduit.GetFlowManager(),Grid.PosToCell(conduit));
-                // The native callback rewrites its string argument in place.
-                // Resolve from the incoming template before that replacement
-                // removes the token, rather than examining it in a postfix.
-                if(line!=null){__result=__0.Replace("{Contents}",line);return false;}
+                return line!=null?text.Replace("{Contents}",line):null;
             }
-            catch(InvalidOperationException){} // keep the native line for an unrepresentable trace
-            return true;
+            catch(InvalidOperationException){return null;} // keep the native line for an unrepresentable trace
         }
     }
 }

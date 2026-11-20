@@ -25,7 +25,7 @@ def write(path: Path, value) -> Path:
     return path
 
 
-def save_bytes(header: dict, build: int = 744825) -> bytes:
+def save_bytes(header: dict, build: int = suite.mod_identity.INSPECTED_ONI_BUILD) -> bytes:
     info = json.dumps(header).encode()
     return struct.pack("<IiIi", build, len(info), 1, 0) + info + b"\0" * 32
 

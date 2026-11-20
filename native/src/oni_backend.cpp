@@ -830,6 +830,17 @@ void output_valid(const MAOniObserverStatus* output) {
     if (!output || output->struct_size != sizeof(MAOniObserverStatus) || output->abi_version != MA_ONI_ABI_VERSION)
         throw Failure(MA_ONI_INVALID_ARGUMENT,"Invalid observer status size/version");
 }
+// Where the game keeps its simulator. The Linux game has it in Plugins/ up
+// to build 744825 and in Plugins/x86_64/ since 763796 (the image itself is
+// unchanged); Windows always in Plugins/x86_64/.
+std::filesystem::path native_image(const std::filesystem::path& root) {
+#if defined(__linux__)
+    const auto current = root / "OxygenNotIncluded_Data/Plugins/x86_64/libSimDLL.so";
+    std::error_code ignored;
+    if (std::filesystem::is_regular_file(current, ignored)) return current;
+#endif
+    return root / native_relative_path;
+}
 std::filesystem::path verify_files(const MAOniObserverConfig* config) {
     if (!config || config->struct_size != sizeof(MAOniObserverConfig) || config->abi_version != MA_ONI_ABI_VERSION
         || config->flags != MA_ONI_OBSERVER_ONLY || config->reserved || !config->game_directory_utf8
@@ -841,7 +852,7 @@ std::filesystem::path verify_files(const MAOniObserverConfig* config) {
     // this library depends only on the SimDLL image, which must be one of
     // the verified profiles (stamps aside, byte for byte).
     std::string identity;
-    try { identity=ma::oni::normalized_file_identity(root / native_relative_path); }
+    try { identity=ma::oni::normalized_file_identity(native_image(root)); }
     catch (const std::exception& error) { throw Failure(MA_ONI_INCOMPATIBLE,error.what()); }
     for (const auto& profile : native_profiles)
         if (identity == profile.identity) { selected=&profile; return root; }
@@ -1812,7 +1823,7 @@ MAOniResult ma_oni_attach_observer(const MAOniObserverConfig* config,MAOniObserv
         output_valid(output);
         if (installed || recovery_required || detours) throw Failure(MA_ONI_BUSY,"Observer already attached or native recovery is required");
         const auto root=verify_files(config);
-        image_base=load_original(root/native_relative_path);
+        image_base=load_original(native_image(root));
         require_quiescent();
         if (!fingerprints_match()) throw Failure(MA_ONI_INCOMPATIBLE,"Loaded native entry fingerprint differs; refusing all hooks");
         reset_observations();

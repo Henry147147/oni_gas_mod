@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using System.Collections.Generic;
 using System.Globalization;
 using HarmonyLib;
@@ -72,9 +73,14 @@ namespace MixedAtmospheres.Oni
             Debug.LogWarning("[Mixed Atmospheres] The top-bar status panel button is unavailable: " + error.Message);
         }
 
-        [HarmonyPatch(typeof(KIconToggleMenu), nameof(KIconToggleMenu.Setup), new[] { typeof(IList<KIconToggleMenu.ToggleInfo>) })]
+        // Setup(IList<ToggleInfo>) up to build 744825, Setup(List<ToggleInfo>)
+        // since 763796: the one-argument overload, whatever its list type.
+        [HarmonyPatch]
         private static class SetupPatch
         {
+            private static System.Reflection.MethodBase TargetMethod() =>
+                AccessTools.GetDeclaredMethods(typeof(KIconToggleMenu)).Single(method => method.Name == nameof(KIconToggleMenu.Setup) &&
+                    method.GetParameters().Length == 1 && typeof(IList<KIconToggleMenu.ToggleInfo>).IsAssignableFrom(method.GetParameters()[0].ParameterType));
             private static void Prefix(KIconToggleMenu __instance, IList<KIconToggleMenu.ToggleInfo> __0)
             {
                 if (!(__instance is ManagementMenu menu) || __0 == null || __0.IsReadOnly) return;

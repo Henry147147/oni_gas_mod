@@ -30,8 +30,10 @@ internal static class UiInspectionTests
     private static void TopBarButton(Assembly assembly)
     {
         void Check(bool condition, string why) { if (!condition) throw new Exception(why); }
-        var setup = AccessTools.Method(typeof(KIconToggleMenu), "Setup", new[] { typeof(IList<KIconToggleMenu.ToggleInfo>) });
-        Check(setup != null && setup.IsPublic, "KIconToggleMenu.Setup(IList<ToggleInfo>) is missing.");
+        // Setup(IList<ToggleInfo>) up to build 744825, Setup(List<ToggleInfo>) since 763796.
+        var setups = AccessTools.GetDeclaredMethods(typeof(KIconToggleMenu)).Where(method => method.Name == "Setup" && method.GetParameters().Length == 1 &&
+            typeof(IList<KIconToggleMenu.ToggleInfo>).IsAssignableFrom(method.GetParameters()[0].ParameterType)).ToArray();
+        Check(setups.Length == 1 && setups[0].IsPublic, "KIconToggleMenu has no single public Setup taking a list of toggles.");
         var refresh = AccessTools.Method(typeof(KIconToggleMenu), "RefreshButtons");
         Check(refresh != null && refresh.IsVirtual && refresh.GetParameters().Length == 0, "KIconToggleMenu.RefreshButtons() changed.");
         Check(AccessTools.Field(typeof(ManagementMenu), "vitalsInfo")?.FieldType == typeof(ManagementMenu.ManagementMenuToggleInfo),
@@ -42,7 +44,8 @@ internal static class UiInspectionTests
             "KToggle click callbacks changed.");
         var button = assembly.GetType("MixedAtmospheres.Oni.StatusPanelMenuButton")!;
         var patches = button.GetNestedTypes(BindingFlags.NonPublic).SelectMany(t => t.GetCustomAttributes<HarmonyPatch>()).ToArray();
-        Check(patches.Any(p => p.info.methodName == "Setup") && patches.Any(p => p.info.methodName == "RefreshButtons"),
+        var setupTarget = button.GetNestedType("SetupPatch", BindingFlags.NonPublic)?.GetMethod("TargetMethod", BindingFlags.NonPublic | BindingFlags.Static);
+        Check(setupTarget != null && ReferenceEquals(setupTarget.Invoke(null, null), setups[0]) && patches.Any(p => p.info.methodName == "RefreshButtons"),
             "The top-bar button patches are missing.");
         var display = assembly.GetType("MixedAtmospheres.Oni.MixtureStatusDisplay")!;
         Check(display.GetMethod("ToggleVisible", BindingFlags.NonPublic | BindingFlags.Static)?.ReturnType == typeof(bool),
