@@ -99,3 +99,46 @@ observation frame. The game shows that state as a status item and applies
 damage periodically. A duplicant can therefore be scalding while still at
 full health. The test also records the monitor's state, average exposure and
 temperature threshold alongside the cell temperature and health reading.
+
+### Staged package `ff95138`
+
+The package staged for upload on 2026-11-20 is built from `ff95138`
+(`/mnt/data/share/oni/publish/update-1.11.0`; nothing was uploaded by the
+project). The user asked for it to be staged before the acceptance run
+finished. That run was stopped at 19:40 UTC, part-way and without a
+failure, when the test environment was restarted for a shorter test suite.
+The acceptance of this revision is therefore incomplete.
+
+Passed on `ff95138`:
+
+- 94 of 94 native tests on Linux and 95 of 95 for Windows under Wine, the
+  pipe hook tests on both, and the full offline suite against each of the
+  three game builds.
+- The game-free pipe tests (`tools/ColonyConduitTests`), which include the
+  cases raised in three review passes of the pipe change.
+- All 14 altered game contracts refused, on each build and platform.
+- The eight-asteroid 1.10.2 playtest colony: loads, runs 300 frames, saves
+  and reloads from the menu on the Linux player and on the Windows player
+  under Proton (764025), with its mass error unchanged at 8.782 × 10⁻¹³.
+- A 744825 colony loads and reloads from the menu on the 744825 Linux and
+  Windows players and the 763796 Linux player (three of six players ran).
+- Landed and in-flight rocket interiors retire on the 744825 and 763796
+  Windows players (four of six runs; 764025 did not run).
+- Acceptance batches 1 to 3 on 764025 and batch 1 on each of 744825 and
+  763796, on Linux.
+- The reference and production shock-tube runs of the Windows build under
+  Wine (reference 150 s against the 180-second limit).
+
+The solver evidence is that of `a2c9193`, which no native file separates
+from `ff95138`: gates M2, M3 and M5, the Linux shock-tube runs (reference
+96 s) and the comparison of every registered solver test with the first
+1.11.0 candidate. On the pipe code before its final comment and document
+corrections (`2cefeb9`), Linux batches 5, 6, 7, 9 to 13 and 15 passed on
+764025, and `vent-duty` passed in the mod and in ONI's own simulation.
+
+Not run on `ff95138`: acceptance batches 4 to 15, asteroid generation, the
+one-cycle and ten-cycle runs and every Windows acceptance step on 764025;
+everything after batch 1 on the two older builds (for which the user chose
+a reduced set without asteroid generation and the ten-cycle run); the
+744825 colony on the remaining three players; rocket retirement on 764025.
+Windows was exercised under Proton and Wine only.

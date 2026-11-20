@@ -24,6 +24,11 @@ few that your task touches, starting here.
   hotfix build 764025 of 2026-11-20. Starting with **1.11.0**, one
   package supports all three builds back to 744825. Preserve their entries
   when [adding a supported build](docs/game-update-resilience.md#keeping-an-earlier-build-working).
+  [1.11.0](docs/playtest-1.11.0.md) (`ff95138`) also lets pumps that share a
+  pipe run steadily; it has been staged for upload since 2026-11-20 with
+  its acceptance run incomplete
+  ([what ran](docs/playtest-1.11.0.md#staged-package-ff95138)). The Workshop
+  copy was 1.10.2 at that time (the user uploads).
   [0.1.8](docs/playtest-0.1.8.md) lets
   two gases change places through an opening one tile high;
   [0.1.7](docs/playtest-0.1.7.md) kept a pool levelling past the activity
@@ -112,10 +117,13 @@ Workshop release. What is kept on purpose:
 
 - `build-production` (Linux) and `build-windows` (MinGW cross build); the tool
   installs `build-proton-official10`, `build-wine`, `build-oni-cross-tools` and
-  `build-powershell`; `build-linux-ubuntu2204-4bdfceb`, the native libraries of
-  the published package.
+  `build-powershell`; `build-linux-ubuntu2204-4bdfceb`, `-f51be6a` and
+  `-ff95138`, the native libraries of the 0.1.8, 1.10.2 and 1.11.0 packages.
 - `artifacts/acceptance/4bdfceb/packages` and `artifacts/release-4bdfceb` (the
   published build), `artifacts/steam-media` (the Workshop page's pictures).
+- `artifacts/release-ff95138` and `artifacts/acceptance/ff95138` (the staged
+  1.11.0 package and its runs) and `artifacts/compat-1.11.0` (its evidence;
+  `hazard` holds the solver runs of `a2c9193`, `final` those of `ff95138`).
 - `local/locks`, `local/saves` (prepared and playtest saves), `local/perf`
   (private replay captures), `local/perf-tools` (the sampling profiler and
   capture helpers of the speed work) and `local/retired-2026-11-19` (uncommitted
