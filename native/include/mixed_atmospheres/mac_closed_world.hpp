@@ -25,11 +25,10 @@ struct MacGameAuditTotals {
 enum class MacMaterialReconstruction { donor_cell = 0, limited_linear = 1, swept_first_moment = 2, interface_plic = 3 };
 // Value 4 is the split pressure-sensed acoustic law with the monotonic
 // (Christensen/LULESH) limiter: linear term * (1 - phi), quadratic * (1 - phi^2).
-// Reference path only; the production kernel falls back to the reference.
 enum class MacCompressionViscosity { none = 0, quadratic = 1, acoustic_quadratic = 2, coupled_pressure = 3, monotone_acoustic_quadratic = 4 };
 // Persisted values: 0 disabled, 1 closing-speed, 2 matched Cp/max-speed,
 // 3 matched Cp with two half-cell resistances, 4 value 2 matched to the
-// monotone compression law (reference path only). Older values keep their laws.
+// monotone compression law. Older values keep their laws.
 enum class MacShockHeatRegularization {
     none = 0, compression_activated = 1, pressure_sensed_acoustic = 2, pressure_sensed_series = 3, monotone_pressure_sensed = 4
 };
@@ -119,10 +118,10 @@ struct MacClosedSettings {
     PressurePreconditioner preconditioner = PressurePreconditioner::automatic;
     double gravity_m_per_s2 = 0; // downward, constant; vertical periodicity is unsupported
     MacMaterialReconstruction reconstruction = MacMaterialReconstruction::limited_linear;
-    // Modes 1/2 use split compression half steps. Explicit mode 3 couples
+    // Modes 1/2/4 use split compression half steps. Explicit mode 3 couples
     // compressive stress and its heat to the material pressure/volume root.
-    MacCompressionViscosity compression_viscosity = MacCompressionViscosity::acoustic_quadratic;
-    MacMomentumReconstruction momentum_reconstruction = MacMomentumReconstruction::limited_linear;
+    MacCompressionViscosity compression_viscosity = MacCompressionViscosity::monotone_acoustic_quadratic;
+    MacMomentumReconstruction momentum_reconstruction = MacMomentumReconstruction::gas_rarefaction;
     bool thermal_conduction = false;
     MacShockHeatRegularization shock_heat = MacShockHeatRegularization::pressure_sensed_acoustic;
     MacViscosity viscosity;
@@ -183,6 +182,7 @@ struct MacClosedSubstep {
     double pressure_energy_residual_j = 0, pressure_energy_bound_j = 0;
     double energy_residual_j = 0, energy_bound_j = 0;
     MacEnergy pressure_energy_residual_wide_j, pressure_energy_bound_wide_j;
+    MacEnergy expansion_work, expansion_work_bound;
     MacEnergy energy_residual_wide_j, energy_bound_wide_j;
     std::size_t rounded_energy_projections = 0;
     double pressure_wall_impulse_x = 0, pressure_wall_impulse_y = 0;

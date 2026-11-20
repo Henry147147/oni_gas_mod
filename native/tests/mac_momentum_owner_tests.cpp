@@ -46,7 +46,7 @@ void positive(const MacTransportState& s) {
 void default_and_material() {
     const auto& set = ma::testing::setup(); const auto s = source(); const auto held = ma::testing::fingerprint(s);
     const auto options = settings(); const auto step = advance_mac_closed_substep(set.registry, *set.eos, s, dt, options);
-    check(MacClosedSettings{}.momentum_reconstruction == MacMomentumReconstruction::limited_linear &&
+    check(MacClosedSettings{}.momentum_reconstruction == MacMomentumReconstruction::gas_rarefaction &&
         options.momentum_reconstruction == mode && step.reconstruction.has_value() &&
         !step.transport.x.corrections.empty() && !step.transport.y.corrections.empty(), "Default owner did not reconstruct both momentum components");
     const auto direct = advance_mac_parcel_transport(set.registry, step.pressure_state, *set.eos, *step.reconstruction, mode);

@@ -105,7 +105,7 @@ void continuation() {
                         !resumed.world.state().cells[i].passive_quantities.empty(),"Swept continuation lost EOS, trace or passive state");
                 ++count;
             }
-    check(count==72 && MacClosedSettings{}.momentum_reconstruction==MacMomentumReconstruction::limited_linear,"Continuation coverage or default changed");
+    check(count==72 && MacClosedSettings{}.momentum_reconstruction==MacMomentumReconstruction::gas_rarefaction,"Continuation coverage or default changed");
     std::cout << "SWCONTINUATION " << count << '\n';
 }
 void eos_boundary() {

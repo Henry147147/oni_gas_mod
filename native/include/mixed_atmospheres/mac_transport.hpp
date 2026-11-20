@@ -14,7 +14,7 @@ namespace ma { class FluidThermodynamics; }
 
 namespace ma::experimental {
 enum class MacMomentumReconstruction { donor_cell = 0, limited_linear = 1, quadratic_limited_linear = 2,
-    swept_physical = 3, swept_energy_flux = 4, swept_nodal_1d = 5 };
+    swept_physical = 3, swept_energy_flux = 4, swept_nodal_1d = 5, gas_rarefaction = 6 };
 // Closed rectangular MAC transport component. Periodicity is explicit; solids
 // and exterior boundaries are impermeable. No pressure, body force or timestep
 // selection is performed here. Exact vacuum has zero inventory and zero

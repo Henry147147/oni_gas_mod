@@ -66,17 +66,15 @@ void require_supported(const MacClosedSettings& s) {
     s.validate();
     require(s.reconstruction == MacMaterialReconstruction::donor_cell || s.reconstruction == MacMaterialReconstruction::limited_linear ||
         s.reconstruction == MacMaterialReconstruction::interface_plic, "Production kernel supports material reconstruction selectors 0, 1 and 3");
-    require(s.momentum_reconstruction == MacMomentumReconstruction::donor_cell || s.momentum_reconstruction == MacMomentumReconstruction::limited_linear,
-        "Production kernel supports momentum reconstruction selectors 0 and 1");
+    require(s.momentum_reconstruction == MacMomentumReconstruction::donor_cell || s.momentum_reconstruction == MacMomentumReconstruction::limited_linear ||
+        s.momentum_reconstruction == MacMomentumReconstruction::gas_rarefaction,
+        "Production kernel supports momentum reconstruction selectors 0, 1 and 6");
     require(s.preconditioner != PressurePreconditioner::incomplete_cholesky ||
         s.pressure_integration == MacPressureIntegration::discrete_gradient_midpoint,
         "Production incomplete Cholesky requires midpoint pressure integration");
     require(s.compression_viscosity != MacCompressionViscosity::coupled_pressure,
         "Production kernel does not support coupled compressive pressure (compression selector 3)");
     require(!sharp_gravity_moments(s), "Sharp-interface gravity weights require midpoint pressure integration");
-    require(s.compression_viscosity != MacCompressionViscosity::monotone_acoustic_quadratic &&
-        s.shock_heat != MacShockHeatRegularization::monotone_pressure_sensed,
-        "Production kernel does not support monotone regularization (compression/heat selector 4)");
 }
 Model build_model(const SpeciesRegistry& registry, const FluidThermodynamics& eos, const MacTransportState& state) {
     eos.validate_registry(registry);
@@ -506,7 +504,7 @@ std::size_t retained_bytes(const Workspaces& w) {
         &ws.Vmat, &ws.dU, &ws.tdU, &ws.qx, &ws.qy, &ws.body_work_y, &ws.lr, &ws.lz, &ws.lp, &ws.lq, &ws.lAp, &ws.ldiag, &ws.px, &ws.py,
         &ws.retained, &ws.fx, &ws.fy, &ws.theta, &ws.keep, &ws.jsum, &ws.ktr, &ws.mix, &ws.wheat, &ws.v0, &ws.vprov, &ws.slope0,
         &ws.slope1, &ws.cour0, &ws.cour1, &ws.face_heat_x, &ws.face_heat_y, &ws.dual_en, &ws.dual_et, &ws.dual_j1, &ws.speed,
-        &ws.pressure, &ws.sensor0, &ws.sensor1, &ws.closing, &ws.diffusion, &ws.cp, &ws.ceq, &ws.temperature, &ws.heat, &ws.proxy,
+        &ws.pressure, &ws.sensor0, &ws.sensor1, &ws.closing, &ws.compression_limiter, &ws.expansion_work, &ws.diffusion, &ws.cp, &ws.ceq, &ws.temperature, &ws.heat, &ws.proxy,
         &ws.phase_alpha, &ws.phase_gas, &ws.phase_liquid_energy, &ws.phase_gas_energy, &ws.phase_total, &ws.phase_liquid_fraction,
         &ws.gravity_weight_start, &ws.gravity_weight_end, &ws.gravity_alpha, &ws.gravity_total, &ws.gravity_lower, &ws.gravity_mass,
         &ws.gravity_fraction, &ws.px_energy_remainder, &ws.py_energy_remainder, &ws.retained_energy_remainder,
@@ -801,6 +799,11 @@ MacKernelReport& last_report() { static thread_local MacKernelReport r; return r
 
 namespace ma::experimental {
 bool mac_kernel_supports(const MacClosedSettings& s) {
+    // Before momentum selector 6 existed, saved owners requesting monotone
+    // regularization continued on the reference kernel. Preserve that choice.
+    if (s.momentum_reconstruction != MacMomentumReconstruction::gas_rarefaction &&
+        (s.compression_viscosity == MacCompressionViscosity::monotone_acoustic_quadratic ||
+         s.shock_heat == MacShockHeatRegularization::monotone_pressure_sensed)) return false;
     if (s.step_control == MacStepControl::regional_predictive &&
         (s.phase_change != MacPhaseChange::none || s.vacuum != MacVacuumRepresentation::void_phase ||
          s.pressure_integration != MacPressureIntegration::discrete_gradient_midpoint)) return false;
@@ -808,10 +811,9 @@ bool mac_kernel_supports(const MacClosedSettings& s) {
         s.pressure_integration == MacPressureIntegration::discrete_gradient_midpoint) &&
         (s.reconstruction == MacMaterialReconstruction::donor_cell || s.reconstruction == MacMaterialReconstruction::limited_linear ||
         s.reconstruction == MacMaterialReconstruction::interface_plic) &&
-        (s.momentum_reconstruction == MacMomentumReconstruction::donor_cell || s.momentum_reconstruction == MacMomentumReconstruction::limited_linear) &&
-        s.compression_viscosity != MacCompressionViscosity::coupled_pressure && !mac_kernel::sharp_gravity_moments(s) &&
-        s.compression_viscosity != MacCompressionViscosity::monotone_acoustic_quadratic &&
-        s.shock_heat != MacShockHeatRegularization::monotone_pressure_sensed;
+        (s.momentum_reconstruction == MacMomentumReconstruction::donor_cell || s.momentum_reconstruction == MacMomentumReconstruction::limited_linear ||
+        s.momentum_reconstruction == MacMomentumReconstruction::gas_rarefaction) &&
+        s.compression_viscosity != MacCompressionViscosity::coupled_pressure && !mac_kernel::sharp_gravity_moments(s);
 }
 bool mac_kernel_normal_range(const MacTransportState& state) {
     for (const auto& cell : state.cells) if (!cell.energy_remainder_j.full.is_zero()) return false;

@@ -130,7 +130,7 @@ void rejection(){
 }
 int main(){try{
     require_mac_energy_environment();std::cout<<std::setprecision(17);ma::testing::export_compressive_definitions(0,*ma::testing::setup().eos);
-    check(MacClosedSettings{}.compression_viscosity==MacCompressionViscosity::acoustic_quadratic,"Default compression mode changed");
+    check(MacClosedSettings{}.compression_viscosity==MacCompressionViscosity::monotone_acoustic_quadratic,"Default compression mode changed");
     scene(0,source(),settings());std::cout<<"PASS coupled dry two-dimensional pressure and remap\n";
     auto gravity=settings();gravity.gravity_m_per_s2=9.81;scene(1,source(true),gravity);std::cout<<"PASS coupled wet gravity walls and traces\n";
     scene(2,source(false,true),settings());std::cout<<"PASS coupled filled water pressure and remap\n";

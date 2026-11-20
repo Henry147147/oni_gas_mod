@@ -463,14 +463,17 @@ implicitly; new-profile ten-cycle acceptance needs a fresh prepared base.
 | Setting | Production kernel |
 | --- | --- |
 | Material reconstruction | 0 donor cell, 1 limited linear, 3 sharp interface |
-| Momentum reconstruction | 0 donor cell, 1 limited linear |
-| Compression | 0 none, 1 quadratic, 2 pressure-sensed acoustic |
-| Shock heat | 0, 1, 2, 3 |
+| Momentum reconstruction | 0 donor cell, 1 limited linear, 6 gas rarefaction |
+| Compression | 0 none, 1 quadratic, 2 pressure-sensed acoustic, 4 monotone pressure-sensed |
+| Shock heat | 0, 1, 2, 3, 4 |
 | Conduction, gravity, viscosity | yes |
 | Cells | gas, filled liquid (single or several liquids), gas/liquid mixtures, exact empty cells, solids |
 | Vacuum representation | 0 empty cells, 1 [void phase](MAC_VACUUM.md#void-phase) (gas and [liquid surfaces](MAC_VACUUM.md#liquid-surfaces); midpoint pressure) |
 | Unresolved subcell void | 0 exact geometry (default), 1 [audited gas expansion](MAC_VACUUM.md#unresolved-gas-opt-in), persisted in version 12; supported production void-phase selectors only, no reference fallback |
 | Closed faces | `MacGrid::closed_x/closed_y` between two open cells: fixed like a wall face (no flow, pressure and weight go to the wall account, no viscous slip) but still conducting; set by `MacClosedWorld::with_closed_faces`, not persisted by this production kernel (game-kernel core20–23 checkpoints do persist them), discrete-gradient pressure only, no reference fallback |
+
+A saved production owner using momentum 0 or 1 with monotone compression or
+heat retains its original reference-kernel continuation.
 
 Swept (2) material reconstruction, momentum selectors 2–5, coupled
 compressive pressure (3), and incomplete Cholesky with moment pressure are
@@ -621,8 +624,8 @@ third-part counts in the interval audit and version-10 checkpoints. Retained
 constituent/passive subtractions, ordinary products and momentum writes outside
 pressure still need their remaining ledgers.
 
-**Regularization and physical stages.** Compression (modes 1/2), shock heat
-(modes 1–3), conduction (backward Euler for temperature changes; with mixtures
+**Regularization and physical stages.** Compression (modes 1/2/4), shock heat
+(modes 1–4), conduction (backward Euler for temperature changes; with mixtures
 present, Newton relinearizes each mixed cell against the complete EOS and
 warm-starts each correction solve to 1e-13 of the first residual) and viscosity
 (rank-one modes) use the reference pair/mode laws. With phase change and

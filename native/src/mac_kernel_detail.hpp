@@ -394,7 +394,7 @@ struct Workspace {
     std::vector<double> dual_en, dual_et, dual_j1;
     std::vector<std::uint8_t> dual_has_n, dual_has_t;
     // Regularization scratch.
-    std::vector<double> speed, pressure, sensor0, sensor1, closing, diffusion, cp, ceq, temperature, heat;
+    std::vector<double> speed, pressure, sensor0, sensor1, closing, compression_limiter, expansion_work, diffusion, cp, ceq, temperature, heat;
     std::vector<std::uint8_t> flag;
     // Reconstruction proxy (thermal + elastic energy) per cell.
     std::vector<double> proxy;

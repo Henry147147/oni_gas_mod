@@ -1,4 +1,5 @@
 #include "mac_game_bridge.hpp"
+#include "mac_rarefaction.hpp"
 #include "mixed_atmospheres/mac_closed_world.hpp"
 #include "mixed_atmospheres/mac_phase_change.hpp"
 #include "mixed_atmospheres/mac_kernel.hpp"
@@ -126,6 +127,81 @@ MacEnergyAccount energy_difference(const MacTransportState& old, const MacTransp
     }
     return balance;
 }
+// Restore only resolved normal expansion work from the mixing heat that was
+// just deposited in this cell. Each axis has its own immutable heat shares.
+MacEnergy recover_expansion(const FluidThermodynamics& model, const MacTransportState& source,
+    const Topology& topology, MacClosedSubstep& step) {
+    const auto& g = source.grid;
+    MacEnergySum recovered, bounds;
+    for (int axis = 0; axis < 2; ++axis) {
+        const bool vertical = axis != 0;
+        const auto& pairs = vertical ? topology.y : topology.x;
+        const auto& faces = vertical ? step.transport.y : step.transport.x;
+        const auto& initial = vertical ? step.pressure_state.momentum_y : step.pressure_state.momentum_x;
+        const auto& initial_full = vertical ? step.pressure_state.full_momentum_y : step.pressure_state.full_momentum_x;
+        auto& final = vertical ? step.state.momentum_y : step.state.momentum_x;
+        auto& final_full = vertical ? step.state.full_momentum_y : step.state.full_momentum_x;
+        const auto free = [&](std::size_t f) {
+            return pairs[f].left != none && pairs[f].right != none && faces.old_inertia[f] > 0;
+        };
+        const auto rounded = [](const auto& full, std::size_t f) { return !full.empty() && full[f].project().rounded; };
+        const auto velocity = [&](std::size_t f) { return initial[f] / faces.old_inertia[f]; };
+        const auto face = [&](std::size_t i, bool upper) {
+            const auto x = i % g.width, y = i / g.width;
+            return vertical ? g.y_face(x, (y + upper) % g.y_height()) : g.x_face((x + upper) % g.x_width(), y);
+        };
+        for (const auto i : topology.active) {
+            const auto l = face(i, false), r = face(i, true);
+            if (!free(l) || !free(r) || !(faces.new_inertia[l] > 0 && faces.new_inertia[r] > 0)) continue;
+            if (rounded(initial_full,l) || rounded(initial_full,r) || rounded(final_full,l) || rounded(final_full,r)) continue;
+            const double dv = velocity(r) - velocity(l);
+            if (!(dv > 0)) continue;
+            // A neighbouring compression belongs to the shock regularizer.
+            const auto before = face(pairs[l].left, false), after = face(pairs[r].right, true);
+            if (rounded(initial_full,before) || rounded(initial_full,after)) continue;
+            if ((free(before) && velocity(before) > velocity(l)) || (free(after) && velocity(after) < velocity(r))) continue;
+            const auto x = i % g.width, y = i / g.width;
+            const auto& q = step.volume_fluxes_m3;
+            const double volume = expansion_volume(q.x[g.x_face((x+1)%g.x_width(),y)] - q.x[g.x_face(x,y)],
+                q.y[g.y_face(x,(y+1)%g.y_height())] - q.y[g.y_face(x,y)], vertical);
+            if (!(volume > 0)) continue;
+            const auto mass = step.state.cells[i].mixture.mass();
+            if (!(mass > 0)) continue;
+            MacEnergySum share;
+            for (const auto f : {l,r}) share.add(faces.energies[f].mixing_heat.shared(.5 * mass, faces.new_inertia[f]));
+            const double heat = share.value().project().value;
+            if (!(heat > 0)) continue;
+            const auto& mixture = source.cells[i].mixture;
+            const auto gas = model.evaluate(mixture, mac_material_volume(source,i));
+            if (!gas.has_gas || gas.liquid_volume_m3 > 0) continue;
+            const double pv = gas.gas_pressure_pa * gas.gas_volume_m3;
+            const double gamma = 1 + (pv / gas.temperature_k) / gas.intrinsic_heat_capacity_j_per_k;
+            const double sound = std::sqrt(gamma * (pv / mixture.mass()));
+            const auto correction = expansion_impulse(gas.gas_pressure_pa,sound,volume,dv,heat,
+                faces.new_inertia[l],faces.new_inertia[r],final[l],final[r]);
+            if (correction.impulse == 0) continue;
+            MacEnergyAccount balance;
+            balance.add(MacEnergy::kinetic(faces.new_inertia[l], final[l]).negated());
+            balance.add(MacEnergy::kinetic(faces.new_inertia[r], final[r]).negated());
+            final[l] -= correction.impulse;
+            final[r] += correction.impulse;
+            if (!final_full.empty()) {
+                final_full[l] = MacScaled::from_double(final[l]);
+                final_full[r] = MacScaled::from_double(final[r]);
+            }
+            const auto work = MacEnergy::from_double(correction.work);
+            (void)add_mac_cell_internal_energy(step.state.cells[i], work.negated(), &step.primary_energy);
+            balance.add(MacEnergy::kinetic(faces.new_inertia[l], final[l]));
+            balance.add(MacEnergy::kinetic(faces.new_inertia[r], final[r]));
+            balance.add(work.negated());
+            if (!balance.within_bound()) throw std::domain_error("MAC expansion impulse exceeded its local work budget");
+            bounds.add(balance.bound());
+            recovered.add(work);
+        }
+    }
+    step.expansion_work_bound = bounds.value();
+    return recovered.value();
+}
 struct StaticEquilibrium { MacScaled body_force_y; };
 std::optional<StaticEquilibrium> exact_static_equilibrium(const SpeciesRegistry& registry, const MacTransportState& state,
     const MacClosedSettings& settings, const FluidThermodynamics& model) {
@@ -218,6 +294,13 @@ void MacClosedSettings::validate() const {
             game_profile==MacGameProfile::game_kernel_carried_momentum ||
             mac_game_activity_profile(game_profile)) &&
             game.liquid_law==MacGameLiquidLaw::positive_segments;
+        // The dedicated game kernel has its own velocity, compression and heat
+        // laws. Its checkpoint omits these three scientific-kernel settings.
+        const MacClosedSettings defaults;
+        const bool unused_defaults = momentum_reconstruction == defaults.momentum_reconstruction &&
+            compression_viscosity == defaults.compression_viscosity && shock_heat == defaults.shock_heat;
+        const bool unused_legacy = momentum_reconstruction == MacMomentumReconstruction::limited_linear &&
+            compression_viscosity == MacCompressionViscosity::acoustic_quadratic && shock_heat == MacShockHeatRegularization::pressure_sensed_acoustic;
         require((original || positive) && vacuum==MacVacuumRepresentation::void_phase &&
             step_control==MacStepControl::doubling && subcell_void==MacSubcellVoidPolicy::exact_geometry &&
             !compatible_void_pressure_work && !recover_mixed_eos_endpoint && !trace_sink_per_substep && !fast_phase_trial_eos &&
@@ -227,8 +310,7 @@ void MacClosedSettings::validate() const {
             std::isfinite(maximum_timestep_s) && maximum_timestep_s>0 && maximum_timestep_s<=1 &&
             std::isfinite(trace_sink_threshold_kg) && trace_sink_threshold_kg>=0 && trace_sink_threshold_kg<=1e-6 &&
             preconditioner==PressurePreconditioner::automatic && maximum_outgoing_volume_fraction==.4 &&
-            reconstruction==MacMaterialReconstruction::limited_linear && momentum_reconstruction==MacMomentumReconstruction::limited_linear &&
-            compression_viscosity==MacCompressionViscosity::acoustic_quadratic && shock_heat==MacShockHeatRegularization::pressure_sensed_acoustic &&
+            reconstruction==MacMaterialReconstruction::limited_linear && (unused_defaults || unused_legacy) &&
             gas_expansion_volume_fraction==16*eps && viscosity.shear_pa_s==0 && viscosity.bulk_pa_s==0,
             "Invalid diagnostic game-kernel settings");
         require(game.phase_rule==MacPhaseRule::equilibrium || game_profile==MacGameProfile::game_kernel_bounded_pressure ||
@@ -308,7 +390,8 @@ void MacClosedSettings::validate() const {
             momentum_reconstruction == MacMomentumReconstruction::quadratic_limited_linear ||
             momentum_reconstruction == MacMomentumReconstruction::swept_physical ||
             momentum_reconstruction == MacMomentumReconstruction::swept_energy_flux ||
-            momentum_reconstruction == MacMomentumReconstruction::swept_nodal_1d) &&
+            momentum_reconstruction == MacMomentumReconstruction::swept_nodal_1d ||
+            momentum_reconstruction == MacMomentumReconstruction::gas_rarefaction) &&
         (compression_viscosity == MacCompressionViscosity::none || compression_viscosity == MacCompressionViscosity::quadratic ||
          compression_viscosity == MacCompressionViscosity::acoustic_quadratic ||
          compression_viscosity == MacCompressionViscosity::coupled_pressure ||
@@ -566,6 +649,8 @@ MacClosedSubstep advance_mac_closed_substep(const SpeciesRegistry& registry, con
     } else transported = advance_mac_transport(registry, result.pressure_state, result.mass_fluxes_kg, model,
         result.material_volumes_m3, settings.momentum_reconstruction);
     result.transport = std::move(transported.report); result.state = std::move(transported.state);
+    if (settings.momentum_reconstruction == MacMomentumReconstruction::gas_rarefaction)
+        result.expansion_work = recover_expansion(model, source, topology, result);
     // Time-centred sharp-interface weight: the pressure stage applied
     // -g W_start dt; each y face now receives -g (W_end - W_start) dt / 2.
     // It vanishes at rest, so hydrostatic balance is unchanged. Its body work
@@ -690,7 +775,7 @@ MacClosedSubstep advance_mac_closed_substep(const SpeciesRegistry& registry, con
     }
     const auto total = energy_difference(source, result.state, inertia, mac_face_inertias(registry, result.state, model), settings.gravity_m_per_s2);
     MacEnergySum budget; budget.add(result.pressure_energy_bound_wide_j); budget.add(result.transport.energy_bound_wide_j);
-    budget.add(result.gravity_internal_bound_wide_j); budget.add(result.potential_transport_bound_wide_j); budget.add(kick_bound);
+    budget.add(result.expansion_work_bound); budget.add(result.gravity_internal_bound_wide_j); budget.add(result.potential_transport_bound_wide_j); budget.add(kick_bound);
     if (!within_energy_budget(total.terms(), budget)) throw std::domain_error("MAC composed energy exceeds the stage operand bounds");
     result.energy_residual_wide_j = total.residual(); result.energy_bound_wide_j = budget.value();
     result.rounded_energy_projections += result.transport.rounded_energy_projections;
@@ -1283,7 +1368,7 @@ MacClosedAdvance MacClosedWorld::advanced_flow(double seconds, std::size_t budge
                     auto changed = advance_mac_phase_change(registry_, *thermodynamics_, candidate.state, saturation_pairs);
                     candidate.state = std::move(changed.state); phase = changed.report;
                 }
-                bounds.add(candidate.energy_bound_wide_j); mix.add(candidate.transport.mixing_heat_wide_j); wall.add(candidate.transport.wall_heat_wide_j);
+                bounds.add(candidate.energy_bound_wide_j); mix.add(candidate.transport.mixing_heat_wide_j); mix.add(candidate.expansion_work.negated()); wall.add(candidate.transport.wall_heat_wide_j);
                 remap_work.add(candidate.transport.remap_work_wide_j);
                 result.report.primary_energy.merge(candidate.primary_energy);
                 result.report.primary_energy.merge(candidate.pressure.primary_energy);

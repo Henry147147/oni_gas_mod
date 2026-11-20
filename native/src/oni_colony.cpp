@@ -702,6 +702,10 @@ MacClosedSettings settings_of(const MAOniColonyConfig& c, const MAOniColonyOptio
         return game;
     }
     MacClosedSettings s; s.maximum_timestep_s = c.maximum_timestep_s; s.numerical_kernel = MacNumericalKernel::production;
+    // Newly seeded regions of the older colony profiles must use the same
+    // transport and compression laws as their checkpointed neighbours.
+    s.momentum_reconstruction = MacMomentumReconstruction::limited_linear;
+    s.compression_viscosity = MacCompressionViscosity::acoustic_quadratic;
     s.gravity_m_per_s2 = c.gravity_m_per_s2; s.thermal_conduction = (c.flags & MA_ONI_COLONY_PHYSICS_CONDUCTION) != 0;
     s.vacuum = MacVacuumRepresentation::void_phase; s.reconstruction = MacMaterialReconstruction::interface_plic;
     s.subcell_void = MacSubcellVoidPolicy::expand_unresolved_gas;

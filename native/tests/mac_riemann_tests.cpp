@@ -90,6 +90,7 @@ struct Errors { double rho=0, p=0, u=0; };
 // Optional opt-in selectors (material, momentum, compression, heat) from
 // --selectors M,P,C,H. Without it the gate uses the default MacClosedSettings.
 std::optional<std::array<int,4>> selectors;
+bool production_kernel = false;
 Errors run(int control,std::size_t n) {
     const auto& set=ma::testing::setup(); const auto ni=set.registry.index("nitrogen"), he=set.registry.index("helium");
     const auto& nitrogen=set.registry[ni]; const auto& helium=set.registry[he];
@@ -115,6 +116,7 @@ Errors run(int control,std::size_t n) {
     for(std::size_t y=0;y<2;++y) for(std::size_t x=1;x<n;++x) source.momentum_x[source.grid.x_face(x,y)]=
         initial_inertia.x[source.grid.x_face(x,y)]*(x==n/2 ? .5*(left.u+right.u) : x<n/2 ? left.u : right.u);
     const auto held=ma::testing::fingerprint(source); MacClosedSettings settings;
+    if (production_kernel) settings.numerical_kernel = MacNumericalKernel::production;
     if(selectors) {
         settings.reconstruction=static_cast<MacMaterialReconstruction>((*selectors)[0]);
         settings.momentum_reconstruction=static_cast<MacMomentumReconstruction>((*selectors)[1]);
@@ -123,6 +125,8 @@ Errors run(int control,std::size_t n) {
     }
     settings.maximum_timestep_s=.25*h/((control==0 ? 2 : 1+mach)*sound);
     const MacClosedWorld world(set.registry,set.eos,source,settings); const auto result=world.advanced(duration,16384);
+    if (production_kernel) check(result.report.interval_kernel_intervals == 1 && result.report.interval_reference_fallbacks == 0,
+        "Strong-flow production run fell back to the reference kernel");
     const auto& final=result.world.state(); const auto final_inertia=mac_face_inertias(set.registry,final,*set.eos);
     Errors error; long double entropy=0, entropy_bound=0; double centre_rho=0, centre_p=0;
     for(int endpoint=0;endpoint<2;++endpoint) {
@@ -221,7 +225,9 @@ int main(int argc,char** argv) {
             text>>values[0]>>separator[0]>>values[1]>>separator[1]>>values[2]>>separator[2]>>values[3];
             check(text&&text.peek()==std::char_traits<char>::eof()&&separator[0]==','&&separator[1]==','&&separator[2]==',',"Usage: --selectors material,momentum,compression,heat");
             selectors=values; std::cerr<<"SELECTORS "<<values[0]<<' '<<values[1]<<' '<<values[2]<<' '<<values[3]<<'\n';
-        } else check(argc==1,"Usage: ma_mac_riemann_tests [--selectors material,momentum,compression,heat]");
+        } else if (argc == 2 && std::string(argv[1]) == "--production") {
+            production_kernel = true;
+        } else check(argc==1,"Usage: ma_mac_riemann_tests [--production | --selectors material,momentum,compression,heat]");
         std::cout<<std::setprecision(17);
         for(const auto& m:ma::testing::setup().eos->reference().materials()) std::cout<<"MATERIAL "<<ma::testing::setup().registry.index(m.id)<<' '<<
             (m.phase==ReferencePhase::ideal_gas ? 0 : 1)<<' '<<m.molar_mass_kg_per_mol<<' '<<m.cv_j_per_kg_k<<' '<<m.energy_offset_j_per_kg<<' '<<

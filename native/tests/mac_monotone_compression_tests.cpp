@@ -1,6 +1,6 @@
 // Monotone (Christensen/LULESH-limited) compression and matched shock heat:
 // limiter values, identity with the pressure-sensed law where phi = 0, no
-// regularization in uniform compression, and owner reference fallback and
+// regularization in uniform compression, and production agreement and
 // checkpoint continuation for the opt-in selectors.
 #include "mac_fixture.hpp"
 #include "mixed_atmospheres/mac_kernel.hpp"
@@ -82,6 +82,67 @@ void uniform_compression() {
     std::cout << "PASS uniform compression is unregularized away from its edges (" << edge_events << '/' << base.report.events.size()
               << " compression events)\n";
 }
+void expansion() {
+    const auto& set = ma::testing::setup();
+    MacClosedSettings settings;
+    settings.maximum_timestep_s = 1e-5;
+    std::array<double, 2> work{};
+    for (int axis = 0; axis < 2; ++axis) {
+        auto source = set.state(8, 8, false);
+        const auto inertia = mac_face_inertias(set.registry, source, *set.eos);
+        const auto rest = advance_mac_closed_substep(set.registry, *set.eos, source, settings.maximum_timestep_s, settings);
+        check(rest.expansion_work.is_zero(), "Resting gas generated expansion work");
+        for (std::size_t y = 0; y < 8; ++y) for (std::size_t x = 0; x < 8; ++x) {
+            const auto n = axis == 0 ? x : y;
+            if (n == 0 || n == 4) continue;
+            const double velocity = n < 4 ? -1200. : 1200.;
+            if (axis == 0) {
+                const auto f = source.grid.x_face(x,y);
+                source.momentum_x[f] = velocity * inertia.x[f];
+            } else {
+                const auto f = source.grid.y_face(x,y);
+                source.momentum_y[f] = velocity * inertia.y[f];
+            }
+        }
+        const auto step = advance_mac_closed_substep(set.registry, *set.eos, source, settings.maximum_timestep_s, settings);
+        work[axis] = step.expansion_work.require_representable();
+        check(work[axis] > 0 && work[axis] <= step.transport.mixing_heat_j, "Expansion exceeded available remap heat");
+        check(std::abs(step.energy_residual_j) <= step.energy_bound_j, "Expansion failed the complete mass/energy step");
+        auto legacy = settings;
+        legacy.momentum_reconstruction = MacMomentumReconstruction::limited_linear;
+        const auto old = advance_mac_closed_substep(set.registry, *set.eos, source, settings.maximum_timestep_s, legacy);
+        check(old.expansion_work.is_zero(), "Legacy momentum setting generated expansion work");
+        const MacClosedWorld world(set.registry, set.eos, source, settings);
+        const auto restored = MacClosedWorld::from_checkpoint(set.registry,set.eos,world.checkpoint());
+        const auto advanced = world.advanced(settings.maximum_timestep_s);
+        check(restored.settings().momentum_reconstruction == settings.momentum_reconstruction &&
+            restored.advanced(settings.maximum_timestep_s).world.checkpoint() == advanced.world.checkpoint(),
+            "Restored expanding gas changed its scheme or continuation");
+        auto production = settings;
+        production.numerical_kernel = MacNumericalKernel::production;
+        const MacClosedWorld accelerated(set.registry, set.eos, source, production);
+        const auto candidate = accelerated.advanced(settings.maximum_timestep_s);
+        check(candidate.report.interval_kernel_intervals == 1 && candidate.report.interval_reference_fallbacks == 0,
+            "Expansion did not run in the production kernel");
+        const auto& reference_state = advanced.world.state();
+        const auto& production_state = candidate.world.state();
+        const auto& ref_j = axis == 0 ? reference_state.momentum_x : reference_state.momentum_y;
+        const auto& fast_j = axis == 0 ? production_state.momentum_x : production_state.momentum_y;
+        for (std::size_t i = 0; i < ref_j.size(); ++i)
+            check(std::abs(ref_j[i] - fast_j[i]) <= 1e-9 * std::max(1., std::abs(ref_j[i])),
+                "Expanding production face momentum differs from reference");
+        for (std::size_t i = 0; i < source.cells.size(); ++i) {
+            const double energy = reference_state.cells[i].mixture.energy;
+            const double other = production_state.cells[i].mixture.energy;
+            if (std::abs(energy - other) > 1e-9 * std::max(1., std::abs(energy))) {
+                std::cerr << "axis " << axis << " cell " << i << " reference U " << energy << " production U " << other << '\n';
+                throw std::runtime_error("Expanding production internal energy differs from reference");
+            }
+        }
+    }
+    check(std::abs(work[0] - work[1]) < 1e-10 * work[0], "Expansion work depends on axis");
+    std::cout << "PASS gas expansion work in both axes and saved continuation\n";
+}
 void owner() {
     const auto& set = ma::testing::setup(); auto s = column(10);
     std::vector<double> u(11, 0); for (std::size_t f = 1; f < 10; ++f) u[f] = f < 5 ? 30 : f > 5 ? -30 : 0; set_velocity(s, u);
@@ -94,31 +155,53 @@ void owner() {
     auto production = settings; production.numerical_kernel = MacNumericalKernel::production;
     auto compression_only = MacClosedSettings{}, heat_only = MacClosedSettings{};
     compression_only.compression_viscosity = settings.compression_viscosity; heat_only.shock_heat = settings.shock_heat;
-    check(mac_kernel_supports(MacClosedSettings{}) && !mac_kernel_supports(compression_only) && !mac_kernel_supports(heat_only),
-        "Production kernel claimed a monotone selector");
-    const MacClosedWorld fallback(set.registry, set.eos, s, production);
-    const auto b = fallback.advanced(1e-4);
-    check(b.report.interval_reference_fallbacks == 1 && ma::testing::fingerprint(a.world.state()) == ma::testing::fingerprint(b.world.state()),
-        "Production setting did not take the identical reference interval");
+    check(mac_kernel_supports(compression_only) && mac_kernel_supports(heat_only), "Production rejected a monotone selector");
+    const MacClosedWorld accelerated(set.registry, set.eos, s, production);
+    const auto b = accelerated.advanced(1e-4);
+    check(b.report.interval_reference_fallbacks == 0 && b.report.interval_kernel_intervals == 1 &&
+        b.report.compression_events > 0 && b.report.shock_heat_events > 0, "Monotone production stages inactive");
+    const auto close = [](double lhs, double rhs) {
+        return std::abs(lhs - rhs) <= 1e-9 * std::max({1., std::abs(lhs), std::abs(rhs)});
+    };
+    for (std::size_t i = 0; i < s.cells.size(); ++i) {
+        const auto& lhs = a.world.state().cells[i].mixture;
+        const auto& rhs = b.world.state().cells[i].mixture;
+        check(close(lhs.energy, rhs.energy), "Monotone production energy differs from reference");
+        for (std::size_t k = 0; k < lhs.masses.size(); ++k)
+            check(close(lhs.masses[k], rhs.masses[k]), "Monotone production mass differs from reference");
+    }
+    for (std::size_t i = 0; i < s.momentum_x.size(); ++i)
+        check(close(a.world.state().momentum_x[i], b.world.state().momentum_x[i]), "Monotone production momentum differs from reference");
     const auto image = a.world.checkpoint();
     const auto restored = MacClosedWorld::from_checkpoint(set.registry, set.eos, image);
     check(restored.settings().compression_viscosity == settings.compression_viscosity && restored.settings().shock_heat == settings.shock_heat &&
         restored.checkpoint() == image, "Monotone selectors did not round-trip");
     check(ma::testing::fingerprint(a.world.advanced(1e-4).world.state()) == ma::testing::fingerprint(restored.advanced(1e-4).world.state()),
         "Restored monotone owner diverged");
+    auto historical = production;
+    historical.momentum_reconstruction = MacMomentumReconstruction::limited_linear;
+    const MacClosedWorld old_owner(set.registry, set.eos, s, historical);
+    const auto saved_old = MacClosedWorld::from_checkpoint(set.registry, set.eos, old_owner.checkpoint());
+    const auto continued = saved_old.advanced(1e-4);
+    check(continued.report.interval_reference_fallbacks == 1 && continued.report.interval_kernel_intervals == 0,
+        "Saved historical monotone owner changed its numerical kernel");
+    historical.numerical_kernel = MacNumericalKernel::reference;
+    const MacClosedWorld old_reference(set.registry, set.eos, s, historical);
+    check(ma::testing::fingerprint(continued.world.state()) == ma::testing::fingerprint(old_reference.advanced(1e-4).world.state()),
+        "Historical monotone checkpoint changed its trajectory");
     auto invalid = settings; invalid.compression_viscosity = static_cast<MacCompressionViscosity>(5);
     bool rejected = false; try { invalid.validate(); } catch (const std::invalid_argument&) { rejected = true; }
     invalid = settings; invalid.shock_heat = static_cast<MacShockHeatRegularization>(5);
     bool heat_rejected = false; try { invalid.validate(); } catch (const std::invalid_argument&) { heat_rejected = true; }
     check(rejected && heat_rejected, "Unknown regularization selector accepted");
-    std::cout << "PASS owner reference fallback and checkpoint continuation (" << a.report.substeps << " substeps, "
+    std::cout << "PASS owner production agreement and checkpoint continuation (" << a.report.substeps << " substeps, "
               << a.report.compression_events << " compression events)\n";
 }
 }
 int main() {
     try {
         std::cout << std::setprecision(17);
-        limiter_values(); isolated_identity(); uniform_compression(); owner();
+        limiter_values(); isolated_identity(); uniform_compression(); owner(); expansion();
         return 0;
     } catch (const std::exception& error) { std::cerr << "FAIL " << error.what() << '\n'; return 1; }
 }

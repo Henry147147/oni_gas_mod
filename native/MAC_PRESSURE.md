@@ -109,9 +109,9 @@ physical viscosity:
 | --- | --- | --- | --- |
 | 0 | `none` | — | — |
 | 1 | `quadratic` | Split half steps around pressure/transport | `q = ρ v²` |
-| 2 | `acoustic_quadratic` (default) | Split half steps | `q = ρ (v² + c v)`, pressure-sensed |
+| 2 | `acoustic_quadratic` | Split half steps | `q = ρ (v² + c v)`, pressure-sensed |
 | 3 | `coupled_pressure` | Inside the material pressure root | Same stress, coupled to volume and U |
-| 4 | `monotone_acoustic_quadratic` | Split half steps | `q = ρ ((1 − φ²) v² + (1 − φ) c v)`, pressure-sensed, monotonic limiter φ |
+| 4 | `monotone_acoustic_quadratic` (new scientific owners) | Split half steps | `q = ρ ((1 − φ²) v² + (1 − φ) c v)`, pressure-sensed, monotonic limiter φ |
 
 Here `v` is the positive closing speed `u_left − u_right` across a cell's two normal
 faces. Expansion, uniform normal velocity and tangential shear produce no force.
@@ -204,11 +204,10 @@ clamped to ±2 before projection. φ is frozen once per half step from the incom
 `J/I`, like the sound speeds and pressure sensors, and enters the same exact pair
 relaxation as `B (1 − φ²)` and linear speed `c / (1 + φ)`. The coefficients (one
 grid spacing, half sound speed) are unchanged. Heat mode 4 is the matched thermal
-regularization ([heat](MAC_HEAT.md#face-conductance-laws)). Mode 4 has no
-production-kernel port; owners selecting it take the audited reference interval.
+regularization ([heat](MAC_HEAT.md#face-conductance-laws)). The production kernel freezes the same per-axis limiter before its line sweeps.
 `ma_mac_monotone_compression_tests` (CTest `mac_monotone_compression`) checks the
 limiter values, bit identity with mode 2 at an isolated jump, the unregularized
-interior of a uniform compression, owner reference fallback and checkpoint
+interior of a uniform compression, agreement with the production kernel and checkpoint
 continuation. Strong-flow results are in [strong flow](MAC_STRONG_FLOW.md#monotone-regularization-modes-4).
 
 ### Coupled compressive pressure work (mode 3)

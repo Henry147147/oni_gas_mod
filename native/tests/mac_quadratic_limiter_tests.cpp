@@ -138,7 +138,7 @@ void continuation() {
                         !resumed.world.state().cells[i].passive_quantities.empty(), "Owner lost EOS domain, trace constituent or passive inventory");
                 ++count;
             }
-    check(count == 72 && MacClosedSettings{}.momentum_reconstruction == MacMomentumReconstruction::limited_linear, "Coverage count or legacy default changed");
+    check(count == 72 && MacClosedSettings{}.momentum_reconstruction == MacMomentumReconstruction::gas_rarefaction, "Coverage count or legacy default changed");
     std::cout << "QCONTINUATION " << count << '\n';
 }
 void invalid() {

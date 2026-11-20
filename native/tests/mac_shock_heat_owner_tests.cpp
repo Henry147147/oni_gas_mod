@@ -170,7 +170,11 @@ int main(int argc, char** argv) { try {
     }
     MacClosedSettings baseline;
     check(baseline.shock_heat == MacShockHeatRegularization::pressure_sensed_acoustic &&
-        baseline.compression_viscosity == MacCompressionViscosity::acoustic_quadratic, "Default regularization setting differs");
+        baseline.compression_viscosity == MacCompressionViscosity::monotone_acoustic_quadratic, "Default regularization setting differs");
+    // This saved-operand diagnostic replays the original split laws and
+    // compares each stage with its independent reader.
+    baseline.compression_viscosity = MacCompressionViscosity::acoustic_quadratic;
+    baseline.momentum_reconstruction = MacMomentumReconstruction::limited_linear;
     if (argc == 2 && std::string_view(argv[1]) == "--quadratic-compression") {
         baseline.compression_viscosity = MacCompressionViscosity::quadratic; baseline.shock_heat = MacShockHeatRegularization::compression_activated;
     } else if (argc == 2 && std::string_view(argv[1]) == "--legacy-heat") baseline.shock_heat = MacShockHeatRegularization::compression_activated;

@@ -22,8 +22,8 @@ Topic documents:
 | Document | Contents |
 | --- | --- |
 | [Transport and material reconstruction](MAC_TRANSPORT.md) | Primal/dual MAC transport, parcel plans, material selectors 0–2 |
-| [Pressure, gravity and compression](MAC_PRESSURE.md) | Implicit EOS pressure work, gravity, compression regularization modes 0–3 |
-| [Face momentum reconstruction](MAC_MOMENTUM.md) | Compatible momentum corrections, momentum selectors 0–5 |
+| [Pressure, gravity and compression](MAC_PRESSURE.md) | Implicit EOS pressure work, gravity, compression regularization modes 0–4 |
+| [Face momentum reconstruction](MAC_MOMENTUM.md) | Compatible momentum corrections, momentum selectors 0–6 |
 | [One-dimensional nodal conversion](MAC_NODAL_CONVERSION.md) | Opt-in point-to-dual momentum/kinetic conversion and its remaining limits |
 | [Heat and entropy](MAC_HEAT.md) | Shock-heat regularization modes 0–3, physical conduction, entropy checks |
 | [Gas diffusion](MAC_DIFFUSION.md) | Conservative mixture-averaged fluxes, physical/accelerated modes, transport data and validation |
@@ -116,13 +116,13 @@ this order (`MacClosedWorld::advanced` in `mac_closed_world.cpp`):
 1. Physical viscosity, dt/2, when either coefficient is positive.
 2. Physical conduction, dt/2, when `thermal_conduction` is set.
 3. Shock-heat regularization, dt/2, unless `shock_heat` is `none`.
-4. Split compression regularization, dt/2, for compression modes 1 and 2.
+4. Split compression regularization, dt/2, for compression modes 1, 2 and 4.
 5. Pressure and transport (`advance_mac_closed_substep`): implicit EOS pressure work
    and body force on moving material cells (with coupled compressive stress in
    compression mode 3), material reconstruction into parcels, then MAC transport of
    parcels, face momentum and kinetic energy with the selected momentum
    reconstruction.
-6. Split compression, dt/2 (modes 1 and 2).
+6. Split compression, dt/2 (modes 1, 2 and 4).
 7. Shock-heat regularization, dt/2.
 8. Physical conduction, dt/2.
 9. Physical viscosity, dt/2.
@@ -146,8 +146,8 @@ in checkpoints and never change meaning; new methods get new values.
 | `preconditioner` | `automatic` | `jacobi`, `incomplete_cholesky` |
 | `gravity_m_per_s2` | 0 | ≥ 0, constant and downward; requires nonperiodic y |
 | `reconstruction` (material) | 1 `limited_linear` | 0 `donor_cell` (reference), 2 `swept_first_moment`, 3 `interface_plic` (sharp gas/liquid interfaces) |
-| `momentum_reconstruction` | 1 `limited_linear` | 0 `donor_cell` (reference), 2 `quadratic_limited_linear`, 3 `swept_physical`, 4 `swept_energy_flux`, 5 `swept_nodal_1d` (1-D only) |
-| `compression_viscosity` | 2 `acoustic_quadratic` (pressure-sensed) | 0 `none`, 1 `quadratic`, 3 `coupled_pressure`, 4 `monotone_acoustic_quadratic` |
+| `momentum_reconstruction` | 6 `gas_rarefaction` | 0 `donor_cell` (reference), 1 `limited_linear`, 2 `quadratic_limited_linear`, 3 `swept_physical`, 4 `swept_energy_flux`, 5 `swept_nodal_1d` (1-D only) |
+| `compression_viscosity` | 4 `monotone_acoustic_quadratic` | 0 `none`, 1 `quadratic`, 2 `acoustic_quadratic` (pressure-sensed), 3 `coupled_pressure` |
 | `shock_heat` | 2 `pressure_sensed_acoustic` | 0 `none`, 1 `compression_activated`, 3 `pressure_sensed_series`, 4 `monotone_pressure_sensed` |
 | `thermal_conduction` | false | true |
 | `viscosity` (shear, bulk Pa·s) | 0, 0 (disabled) | nonnegative coefficients |
@@ -162,11 +162,12 @@ Legacy scenarios enable conduction except in scenario 4, use 9.81 m/s² in the g
 scenarios and viscosity 0.5/0.25 Pa·s in scenario 6. Configured sessions take
 conduction, viscosity and gravity from their physics flags.
 
-Selectors 2 (material), 2–4 (momentum), 3–4 (compression) and 3–4 (heat) are opt-in
-experiments. Compression 4 and heat 4 have no production-kernel port: an owner that
-selects either always takes the audited reference interval. Material 2 with momentum 4 and compression 3 is the most accurate
-tracked combination on the strong-flow benchmark, but it does not pass that gate
-either and is not the default.
+Historical scientific checkpoints restore their saved momentum, compression and
+heat selections. The reference and binary64 implementations both support
+monotone regularization with the new momentum selector. Historical production
+owners that used the reference fallback for mode 4 still take that fallback.
+The dedicated colony game profiles use their own flow laws and checkpoint
+format.
 
 Standalone component functions have their own reference defaults, which differ from
 the owner's: `advance_mac_transport` and `advance_mac_parcel_transport` default to

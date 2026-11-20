@@ -1,5 +1,5 @@
-// Production compression regularization (modes 1/2) and shock-heat
-// regularization (modes 1/2/3) (MAC_KERNEL.md, "Regularization"). The pair
+// Production compression regularization (modes 1/2/4) and shock-heat
+// regularization (modes 1/2/3/4) (MAC_KERNEL.md, "Regularization"). The pair
 // laws are the reference ones (mac_compression.cpp, mac_shock_heat.cpp); the
 // forward/reverse Gauss-Seidel sweeps keep the reference order exactly: a
 // sweep only chains along grid lines, so independent lines run in parallel.
@@ -25,7 +25,7 @@ double fraction(double x) {
 bool occupied(std::uint8_t kind) { return kind == gas_cell || kind == liquid_cell || kind == mixed_cell; }
 // Frozen half-sound speed (acoustic laws) and per-axis pressure sensors,
 // from the stage's incoming state (reference freeze_mac_compression_coefficients).
-void compression_coefficients(Context& c, const Fields& f, bool acoustic) {
+void compression_coefficients(Context& c, const Fields& f, bool acoustic, bool monotone) {
     auto& ws = c.ws; const auto& g = c.g; const auto& e = ws.eos; const auto N = g.N;
     for (auto* v : {&ws.speed, &ws.pressure, &ws.sensor0, &ws.sensor1}) v->resize(N);
     ws.closing.resize(2 * N);
@@ -68,6 +68,37 @@ void compression_coefficients(Context& c, const Fields& f, bool acoustic) {
             sensor[i] = std::max({curvature[i], curvature[neighbour(i, x, y, axis, false)], curvature[neighbour(i, x, y, axis, true)]});
         }
     });
+    if (!monotone) return;
+    // Reuse curvature storage after the pressure sensors are frozen. Each cell
+    // owns the closing velocity across its pair of normal faces.
+    ws.compression_limiter.resize(2 * N);
+    c.exec.rows([&](std::size_t y0, std::size_t y1, std::size_t) {
+        for (std::size_t i = y0 * g.W; i < y1 * g.W; ++i) {
+            const bool active = !g.wall[i] && occupied(e.kind[i]);
+            ws.closing[i] = active ? f.jx[g.left_face(i)] * ws.inv_ix[g.left_face(i)]
+                - f.jx[g.right_face(i)] * ws.inv_ix[g.right_face(i)] : 0;
+            ws.closing[N + i] = active ? f.jy[g.bottom_face(i)] * ws.inv_iy[g.bottom_face(i)]
+                - f.jy[g.top_face(i)] * ws.inv_iy[g.top_face(i)] : 0;
+        }
+    });
+    c.exec.rows([&](std::size_t y0, std::size_t y1, std::size_t) {
+        for (std::size_t y = y0; y < y1; ++y) for (std::size_t x = 0; x < g.W; ++x) {
+            const auto i = x + y * g.W;
+            for (int axis = 0; axis < 2; ++axis) {
+                const auto offset = static_cast<std::size_t>(axis) * N;
+                auto& limiter = ws.compression_limiter[offset + i];
+                limiter = 0;
+                const double jump = ws.closing[offset + i];
+                if (!(jump > 0)) continue;
+                const auto left = neighbour(i, x, y, axis, false);
+                const auto right = neighbour(i, x, y, axis, true);
+                if (left == i || right == i) continue;
+                const double a = std::clamp(ws.closing[offset + left] / jump, 0., 2.);
+                const double b = std::clamp(ws.closing[offset + right] / jump, 0., 2.);
+                limiter = std::min({.5 * (a + b), 2 * a, 2 * b, 1.});
+            }
+        }
+    });
 }
 double linear_speed(const Workspace& ws, int axis, std::size_t i) { return ws.speed[i] * (axis == 0 ? ws.sensor0[i] : ws.sensor1[i]); }
 }
@@ -75,11 +106,12 @@ double linear_speed(const Workspace& ws, int axis, std::size_t i) { return ws.sp
 void stage_compression(Context& c, Fields& f, double dt, Accounts& acc) {
     prepare_primary_remainders(f);
     const auto mode = c.settings.compression_viscosity;
-    if (mode != MacCompressionViscosity::quadratic && mode != MacCompressionViscosity::acoustic_quadratic) return;
+    const bool monotone = mode == MacCompressionViscosity::monotone_acoustic_quadratic;
+    if (mode != MacCompressionViscosity::quadratic && mode != MacCompressionViscosity::acoustic_quadratic && !monotone) return;
     auto& ws = c.ws; const auto& g = c.g;
     evaluate_cells(c, f, ws.eos);
     const auto& e = ws.eos;
-    compression_coefficients(c, f, mode == MacCompressionViscosity::acoustic_quadratic);
+    compression_coefficients(c, f, mode != MacCompressionViscosity::quadratic, monotone);
     double heat_total = 0, wall_x = 0, wall_y = 0;
     std::size_t events = 0, unresolved = 0;
     // Reference order: per axis, a forward then a reverse sweep over cells in
@@ -98,12 +130,13 @@ void stage_compression(Context& c, Fields& f, double dt, Accounts& acc) {
             const double closing = J[l] * inv[l] - J[r] * inv[r];
             if (!(closing > 0)) return;
             const bool fixl = fl[l] == none || fr[l] == none || g.closed(axis != 0, l), fixr = fl[r] == none || fr[r] == none || g.closed(axis != 0, r);
-            const double B = e.M[i] * half / g.h;
+            const double limiter = monotone ? ws.compression_limiter[static_cast<std::size_t>(axis) * g.N + i] : 0;
+            const double B = (e.M[i] * half / g.h) * (1 - limiter * limiter);
             if (B == 0) return;
             const double a = (fixl ? 0 : inv[l]) + (fixr ? 0 : inv[r]);
             if (!(a > 0)) return;
             const double rel = B * closing * a;
-            const double lin = linear_speed(ws, axis, i);
+            const double lin = linear_speed(ws, axis, i) / (1 + limiter);
             double d;
             if (lin == 0) d = B * closing * closing / (1 + rel);
             else {
@@ -161,7 +194,8 @@ void stage_shock_heat(Context& c, Fields& f, double dt, Accounts& acc) {
     auto& ws = c.ws; const auto& g = c.g; const auto N = g.N;
     evaluate_cells(c, f, ws.eos);
     auto& e = ws.eos;
-    if (sensed) compression_coefficients(c, f, true);
+    const bool monotone = mode == MacShockHeatRegularization::monotone_pressure_sensed;
+    if (sensed) compression_coefficients(c, f, true, monotone);
     ws.cp.resize(N); ws.diffusion.resize(2 * N); ws.heat.resize(2 * N);
     // Per cell: Cp (sensed laws) and, per axis, closing and diffusion speeds.
     c.exec.rows([&](std::size_t y0, std::size_t y1, std::size_t) {
@@ -179,6 +213,11 @@ void stage_shock_heat(Context& c, Fields& f, double dt, Accounts& acc) {
                 ws.heat[k] = jump;
                 // The acoustic term ramps in with the compression (MAC_HEAT.md,
                 // "Face conductance laws"): rest and rounding-level motion move nothing.
+                if (monotone) {
+                    const double limiter = ws.compression_limiter[k];
+                    ws.diffusion[k] = jump * (1 - limiter * limiter) + linear_speed(ws, axis, i) * (1 - limiter);
+                    continue;
+                }
                 ws.diffusion[k] = sensed ? jump + linear_speed(ws, axis, i) * (jump / (jump + .02 * ws.speed[i])) : jump;
             }
         }

@@ -1,42 +1,33 @@
 # Strong-flow accuracy investigation
 
-This is the accuracy gate for [`MacClosedWorld`](MAC_SOLVER.md) on strong ideal-gas
-shocks and rarefactions. It is **failed**. With the production defaults, collision
-density refinement fails only from N64 to N128 (0.860 at `2a7377c` on Linux, 0.856
-at earlier revisions, against 0.85). Since the
-2026-10-19 user decision, separation is judged against a fine
-[resting-slab reference](#resting-slab-separation-reference) of the gate's own
-discrete start rather than the textbook Riemann core; against it the defaults fail
-only the N256 velocity bound (0.0759 against 0.06). The central pressure bound remains
-the [classical reference](#acceptance-criteria) error. The opt-in monotone
-regularization (compression 4, heat 4) lowers every Sod and collision error and passes
-both, with a phase-sensitive collision margin; separation is unchanged, so it fails
-the same velocity bound. The latest diagnosis localizes a convention mismatch between
-the pressure step and the momentum remap under curved deformation; its share of the
-separation error is not yet quantified. The separation velocity failure is
-[localized](#start-up-resolution-of-the-resting-slab) to the unresolved start-up of
-the one-cell resting slab: the same MAC passes the bound from a start the gate grid
-resolves, and at twice the gate resolution of the same slab. Gate 2 in
-[playtesting readiness](../docs/playtesting-readiness.md) requires this gate and the
-vacuum gate to pass with production defaults.
+The fixed strong-flow suite exercises a shock tube (Sod), an opposed Mach-1.5
+collision and a Mach-4 expansion at 64, 128 and 256 cells. In 1.11.0 the
+binary64 production kernel passes all nine profiles using the new scientific
+defaults (material 1, momentum 6, compression 4, heat 2). Collision density
+error falls from 0.0518301 at N64 to 0.0387288 at N128, a ratio of 0.74723
+against the 0.85 limit. The old ratio was 0.86019. At N256 the expansion
+velocity error against the resting-slab reference is 0.058333 against the
+0.06 limit, down from 0.075869. All nine runs took their nominal timesteps.
 
-The tracked test is `native/tests/mac_riemann_tests.cpp`. Its scientific inputs,
-grids, timesteps and limits below are fixed; no failed result may be fixed by
-changing them. Unless stated otherwise, results are single Windows/MSVC runs; a
-method that failed was not repeated on Linux.
+| Production kernel at N256 | Density L1 | Pressure L1 | Velocity L1 |
+| --- | ---: | ---: | ---: |
+| Sod | 0.003374 | 0.002106 | 0.004780 |
+| Collision | 0.015455 | 0.027618 | 0.019822 |
+| Expansion against the resting slab | 0.009238 | 0.015673 | 0.058333 |
 
-The latest GNU Release/IPO 2/4/3/2 sequence also completes all nine profiles on Linux
-in 144.96 seconds after [remap preparation reuse](MAC_TRANSPORT.md#prepared-admission-and-reusable-candidates).
-Its saved accounts pass independent analysis and its finest separation errors
-reproduce the failure below. The production defaults still fail collision density
-refinement with byte-identical saved output. See [evidence and limits](../docs/production-timestep-progress.md#prepared-remap-admission).
+Compression uses the existing monotone stress law. For expanding gas, the
+[remap](MAC_MOMENTUM.md#gas-expansion-work) can recover directed motion from
+locally available numerical mixing heat. Scientific checkpoints record these
+choices. Colonies use their own saved game profiles.
 
-The opt-in coupled two-moment production pressure method also fails the
+## Earlier investigations
+
+The following method comparisons and investigations record the earlier defaults
+and experimental selectors. The opt-in coupled two-moment production pressure method also fails the
 original collision density refinement: N64/N128 errors 0.04256384/0.03668006
 give 0.86176589 against 0.85. Scientific inputs, schedules and bounds are
 unchanged. It stops after five profiles; the saved partial account review
-passes 59,205 checks and cannot certify the gate. This does not change the
-production-default results below.
+passes 59,205 checks and cannot certify the gate. The older default results follow below.
 
 ## Benchmark
 
@@ -595,33 +586,12 @@ Findings:
 Better scalar reconstruction lowers the density and pressure L1 errors but leaves the
 velocity and central criteria failing.
 
-## Next step
+## Further diagnostics
 
-Separation cannot pass at the gate grid by any tracked selector; its remaining
-error is the [slab start-up](#start-up-resolution-of-the-resting-slab). The
-choices are:
-
-1. *No decision needed, research scope.* Give the remap a momentum
-   representation that carries a resting dual's subcell expansion kinetic energy
-   from its own pdV work (a consistent rather than lumped dual kinetic energy),
-   with exact conservation and no local entropy decrease. This is a new method,
-   not a selector tweak. Then port it, and monotone compression/heat for
-   collision, to the production kernel. Promote a selector to default only after
-   the full gate, the vacuum gate and every other gate pass.
-2. *User decision.* The gate's inputs and the 2026-10-19 resting-slab decision are
-   fixed. Only the user can decide to judge separation from a start the gate grid
-   resolves, or otherwise reconsider that start. The measurements above are the
-   evidence for that choice; nothing here adopts it.
-
-Independently of separation, monotone modes 4 pass collision in the gate ([above](#monotone-regularization-modes-4))
-but have no production-kernel port. Making them defaults would send every
-production-kernel owner and gate (G1–V) to the audited reference interval until
-they are ported.
-
-Earlier items remain open: the curved-nodal conversion between the pressure
-step's face-value velocity and the remapper's dual-volume mean, and expansion-fan
-transport (scalar reconstruction near the separating core and signed-work
-deposition order).
+The [curved-nodal diagnostic](#curved-deformation-pressure-and-remap-convention)
+tracks a separate question about face velocity and dual-volume mean velocity.
+The new expansion-work term and the monotone compression tests compare both
+implementations on expanding and compressing gas, including saved continuation.
 
 ## Reproduce
 
@@ -629,6 +599,8 @@ deposition order).
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --config Release --target ma_mac_riemann_tests ma_mac_curved_nodal_diagnostic
 build/ma_mac_riemann_tests > riemann.stdout 2> riemann.stderr
+build/ma_mac_riemann_tests --production > production.stdout 2> production.stderr
+python3 native/tests/review_mac_riemann.py production.stdout
 python3 native/tests/review_mac_riemann.py riemann.stdout            # add --partial if it stopped early (about 40 s with separation N256)
 build/ma_mac_curved_nodal_diagnostic > curved.stdout 2> curved.stderr
 python3 native/tests/review_mac_curved_nodal.py curved.stdout

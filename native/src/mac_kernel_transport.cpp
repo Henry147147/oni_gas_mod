@@ -6,14 +6,17 @@
 // new half-mass shares. Every transfer is a shared face quantity, so each
 // constituent, passive and J component is conserved by construction.
 #include "mac_kernel_detail.hpp"
+#include "mac_rarefaction.hpp"
 #include "mac_interface_geometry.hpp"
 #include <chrono>
 
 namespace ma::experimental::mac_kernel {
 namespace {
-double limited_slope(double a, double b) {
+double limited_slope(double a, double b, bool centered) {
     if (a == 0 || b == 0 || (a < 0) != (b < 0)) return 0;
-    return std::abs(a) > std::abs(b) ? b : a;
+    const double smaller = std::abs(a) > std::abs(b) ? b : a;
+    if (!centered) return smaller;
+    return std::copysign(std::min(2 * std::abs(smaller), std::abs(.5 * a + .5 * b)), a);
 }
 double kinetic(double inertia, double j) { return j == 0 ? 0 : .5 * j * (j / inertia); }
 double variance(double mass, double du) { return mass == 0 || du == 0 ? 0 : .5 * mass * du * du; }
@@ -780,7 +783,9 @@ void transport_after_pressure(Context& c, Fields& f, double dt, Accounts& acc) {
     const auto t_dual = std::chrono::steady_clock::now();
     // ---- dual transport of J and K for both components.
     face_inertias(c, ws.mass_after, ws.ix1, ws.iy1);
-    const bool corrected = c.settings.momentum_reconstruction == MacMomentumReconstruction::limited_linear;
+    const bool rarefaction = c.settings.momentum_reconstruction == MacMomentumReconstruction::gas_rarefaction;
+    const bool corrected = rarefaction || c.settings.momentum_reconstruction == MacMomentumReconstruction::limited_linear;
+    if (rarefaction) ws.expansion_work.assign(N, 0);
     ws.face_heat_x.assign(g.NX, 0); ws.face_heat_y.assign(g.NY, 0);
     double mixing = 0, wall_heat = 0, wall_x = 0, wall_y = 0, energy_ops = 0, jx_ops = 0, jy_ops = 0;
     std::size_t limited = 0;
@@ -927,8 +932,8 @@ void transport_after_pressure(Context& c, Fields& f, double dt, Accounts& acc) {
                 if (!corrected || !is_free(fidx)) continue;
                 // Lattice x and y neighbours for limited velocity slopes.
                 const auto xprev = xc ? np : tp, xnext = xc ? nn : tn, yprev = xc ? tp : np, ynext = xc ? tn : nn;
-                if (is_free(xprev) && is_free(xnext)) s0[fidx] = limited_slope(v0[fidx] - v0[xprev], v0[xnext] - v0[fidx]);
-                if (is_free(yprev) && is_free(ynext)) s1[fidx] = limited_slope(v0[fidx] - v0[yprev], v0[ynext] - v0[fidx]);
+                if (is_free(xprev) && is_free(xnext)) s0[fidx] = limited_slope(v0[fidx] - v0[xprev], v0[xnext] - v0[fidx], rarefaction);
+                if (is_free(yprev) && is_free(ynext)) s1[fidx] = limited_slope(v0[fidx] - v0[yprev], v0[ynext] - v0[fidx], rarefaction);
                 // Signed centred dual flux per lattice axis.
                 double cx = 0, cy = 0;
                 for (int k = 0; k < n; ++k) {
@@ -1011,6 +1016,40 @@ void transport_after_pressure(Context& c, Fields& f, double dt, Accounts& acc) {
                     for (std::size_t x = g.px ? 0 : 1; x < g.W; ++x) apply_edge(g.yface(x, y), x, y, false, lim);
                 });
             }
+        }
+        if (rarefaction) {
+            // Each row (x) or column (y) owns its normal faces. Neighbour
+            // sensing reads the frozen velocities, never another line's work.
+            const auto line = [&](std::size_t first, std::size_t stride, std::size_t count) {
+                double total = 0;
+                for (std::size_t n = 0, i = first; n < count; ++n, i += stride) {
+                    if (e.kind[i] != gas_cell || !(ws.mass_after[i] > 0)) continue;
+                    const auto l = xc ? g.left_face(i) : g.bottom_face(i), r = xc ? g.right_face(i) : g.top_face(i);
+                    if (!is_free(l) || !is_free(r) || !(m1[l] > 0 && m1[r] > 0)) continue;
+                    const double jump = v0[r] - v0[l];
+                    if (!(jump > 0) || (mix[l] == 0 && mix[r] == 0)) continue;
+                    const auto before = normal_prev(l,l % cw,l / cw), after = normal_next(r,r % cw,r / cw);
+                    if ((is_free(before) && v0[before] > v0[l]) || (is_free(after) && v0[after] < v0[r])) continue;
+                    const double volume = expansion_volume(ws.qx[g.right_face(i)] - ws.qx[g.left_face(i)],
+                        ws.qy[g.top_face(i)] - ws.qy[g.bottom_face(i)], !xc);
+                    const double share = (.5 * ws.mass_after[i] / m1[l]) * mix[l] + (.5 * ws.mass_after[i] / m1[r]) * mix[r];
+                    const double sound = std::sqrt((1 + e.nR[i] / e.Cv[i]) * (e.p[i] * e.Vg[i] / e.M[i]));
+                    const auto change = expansion_impulse(e.p[i],sound,volume,jump,share,m1[l],m1[r],J1[l],J1[r]);
+                    J1[l] -= change.impulse; J1[r] += change.impulse;
+                    ws.expansion_work[i] += change.work; total += change.work;
+                }
+                return total;
+            };
+            const auto parts = xc ? c.exec.partials<double>([&](std::size_t y0, std::size_t y1, std::size_t) {
+                double total = 0;
+                for (auto y = y0; y < y1; ++y) total += line(y * g.W,1,g.W);
+                return total;
+            }) : c.exec.column_partials<double>(g.W,[&](std::size_t x0, std::size_t x1, std::size_t) {
+                double total = 0;
+                for (auto x = x0; x < x1; ++x) total += line(x,g.W,g.H);
+                return total;
+            });
+            for (double work : parts) mixing -= work;
         }
         struct Finish { double mixing = 0, wall = 0, energy = 0, momentum = 0; };
         auto finished = c.exec.partials<Finish>([&](std::size_t y0, std::size_t y1, std::size_t blk) {
@@ -1096,6 +1135,7 @@ void transport_after_pressure(Context& c, Fields& f, double dt, Accounts& acc) {
             DD heat; double gravity_share = 0;
             heat.add(share(ws.face_heat_x[lf], g.xl[lf], g.xr[lf])); heat.add(share(ws.face_heat_x[rf], g.xl[rf], g.xr[rf]));
             heat.add(share(ws.face_heat_y[bf], g.yl[bf], g.yr[bf])); heat.add(share(ws.face_heat_y[tf], g.yl[tf], g.yr[tf]));
+            if (rarefaction) heat.add(-ws.expansion_work[i]);
             const double mixing_increment = heat.value();
             if (mixing_increment != 0 && add_internal_energy(f, i, mixing_increment, d.energy)) ++local;
             if (gravity != 0) {

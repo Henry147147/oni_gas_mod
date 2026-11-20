@@ -194,9 +194,13 @@ MacScaled signed_product(MacScaled a, MacScaled b) {
     return (b.mantissa() < 0 ? a.negated() : a).shared(b.magnitude(), MacScaled::from_double(1));
 }
 bool exceeds(MacScaled a, MacScaled b) { MacScaledSum sum; sum.add(a); sum.add(b.negated()); return sum.sign() > 0; }
-MacScaled limited_slope(MacScaled left, MacScaled right) {
+MacScaled limited_slope(MacScaled left, MacScaled right, bool centered) {
     if (left.is_zero() || right.is_zero() || (left.mantissa() < 0) != (right.mantissa() < 0)) return {};
-    return exceeds(left.magnitude(), right.magnitude()) ? right : left;
+    const auto smaller = exceeds(left.magnitude(), right.magnitude()) ? right : left;
+    if (!centered) return smaller;
+    MacScaledSum sum; sum.add(left); sum.add(right);
+    const auto average = sum.value().shifted(-1), bound = smaller.shifted(1);
+    return exceeds(average.magnitude(), bound.magnitude()) ? bound : average;
 }
 MacEnergyAccount face_energy_account(const MacFaceEnergy& values) {
     MacEnergyAccount balance; balance.add(values.transported_kinetic); balance.add(values.new_kinetic.negated());
@@ -268,7 +272,8 @@ void reconstruct_momentum(const MacGrid& grid, bool x_component, const std::vect
             auto& courant = axis == 0 ? report.centered_courant_x[i] : report.centered_courant_y[i];
             const auto before = neighbor(i, axis, false), after = neighbor(i, axis, true);
             if (before != absent && after != absent)
-                slope = limited_slope(mac_scaled_difference(old_velocity[i], old_velocity[before]), mac_scaled_difference(old_velocity[after], old_velocity[i]));
+                slope = limited_slope(mac_scaled_difference(old_velocity[i], old_velocity[before]), mac_scaled_difference(old_velocity[after], old_velocity[i]),
+                    reconstruction == MacMomentumReconstruction::gas_rarefaction);
             courant = centered[i][axis].value().shared(1, report.old_inertia[i]);
         }
     }
@@ -597,7 +602,8 @@ PreparedTransport prepare_transport(const SpeciesRegistry& registry, const MacTr
     require_mac_energy_environment();
     require(reconstruction == MacMomentumReconstruction::donor_cell || reconstruction == MacMomentumReconstruction::limited_linear ||
         reconstruction == MacMomentumReconstruction::quadratic_limited_linear || reconstruction == MacMomentumReconstruction::swept_physical ||
-        reconstruction == MacMomentumReconstruction::swept_energy_flux || reconstruction == MacMomentumReconstruction::swept_nodal_1d,
+        reconstruction == MacMomentumReconstruction::swept_energy_flux || reconstruction == MacMomentumReconstruction::swept_nodal_1d ||
+        reconstruction == MacMomentumReconstruction::gas_rarefaction,
         "Invalid MAC momentum reconstruction mode");
     const bool physical = reconstruction == MacMomentumReconstruction::swept_physical ||
         reconstruction == MacMomentumReconstruction::swept_energy_flux || reconstruction == MacMomentumReconstruction::swept_nodal_1d;

@@ -15,11 +15,34 @@ Code: `mac_momentum_limiter.hpp`/`.cpp`, the momentum paths in `mac_transport.cp
 | Value | Name | Status | Summary |
 | --- | --- | --- | --- |
 | 0 | `donor_cell` | Reference; standalone transport default | Upwind J and K only |
-| 1 | `limited_linear` | Owner default | Geometric predictor with the sufficient linear heat limiter |
+| 1 | `limited_linear` | Historical owner setting | Geometric predictor with the sufficient linear heat limiter |
 | 2 | `quadratic_limited_linear` | Opt-in | Same predictor with exact quadratic heat admission |
 | 3 | `swept_physical` | Opt-in | Swept dual geometry, signed remap work, completed-state admission |
 | 4 | `swept_energy_flux` | Opt-in | Selector 3 with the carried kinetic-energy flux bounded separately |
 | 5 | `swept_nodal_1d` | Opt-in, 1-D only | Conservative point-to-dual conversion with compatible kinetic work carried by the material |
+| 6 | `gas_rarefaction` | New scientific owners | Monotonized central velocity reconstruction and compatible expansion work |
+
+### Gas expansion work
+
+A staggered face stores the mean velocity of its dual cell. In an expansion,
+material crossing into a faster stream can lose kinetic energy through numerical
+mixing. The remap first computes its usual nonnegative mixing heat. An expanding
+gas cell can return part of its own share to the two normal face velocities.
+Both neighbouring velocity differences must also allow expansion. Walls and
+neighbouring compressions bound the reconstruction.
+
+Let `dV` be the axis contribution to the positive net swept volume, `du` the
+separating velocity at the end of the pressure stage and `c` the initial sound
+speed. The budget is the smaller of the cell's share of normal mixing heat and
+`p dV min(1, du/c)`. It vanishes at rest and for compression. The Mach factor
+reduces the available pressure work in a resolved smooth fan. With new face
+inertias `Il, Ir` and the remapped relative velocity `v > 0`, the equal and
+opposite impulse solves `W = v P + P²(1/Il + 1/Ir)/2`. The work is subtracted
+from the same cell's mixing heat. Masses and passive quantities of the
+transported parcels do not enter the impulse update. The reference path
+audits the two kinetic energies and work locally. The production path uses the
+same impulse and its usual interval conservation checks.
+
 
 Selectors 3 and 4 fix the two defects found by the
 [affine remap diagnosis](#affine-remap-diagnosis). Selector 4 with material selector 2
