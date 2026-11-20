@@ -276,6 +276,15 @@ python3 tools/acceptance_suite.py run HEAD --tier patch --keep-going
 | Linux player | The original terrain/heat/phase/freeze-melt/door batch and the mixed-pipe colony/storage-ledger/throughput batch. |
 | Windows player under Proton | A hash-checked copy of the original meteor-edge playtest save must restore at frame 101524, advance at least 300 frames, save, and verify a second load through the main menu. The Windows package also runs its Wine native tests during the build. |
 
+On game build 764025, the first complete patch run (`9fa1e45`,
+`patch-v1`) passed in **30 min 15 s** on the private Linux host with existing
+compiler build directories and fresh packages. Standalone checks and benchmarks
+took 10 min 50 s, package builds and checks 4 min 42 s, and the three games
+including their slot cooldowns 14 min 43 s. All 12 final fingerprints matched
+`ff95138`. The two Linux batches passed 58 checks and the Windows player
+verified the meteor save through frame 101824. For comparison, the completed
+46-step quick tier on `4bdfceb` took 4 h 34 min on this host.
+
 Use `--scenario airflow`, for example, to add the existing batch containing
 airflow on each selected player that has it. Repeat the option for multiple
 affected systems. `plan --tier patch` accepts the same scenario selection.
