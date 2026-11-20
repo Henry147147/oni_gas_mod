@@ -644,12 +644,12 @@ MacClosedSubstep advance_mac_closed_substep(const SpeciesRegistry& registry, con
         auto plan = voids ? reconstruct(registry, model, result.pressure_state, result.swept_volumes_m3, result.volume_fluxes_m3,
                 settings.maximum_outgoing_volume_fraction, held_volumes) :
             reconstruct(registry, model, result.pressure_state, result.material_volumes_m3, result.volume_fluxes_m3, settings.maximum_outgoing_volume_fraction, {});
-        transported = advance_mac_parcel_transport(registry, result.pressure_state, model, plan, settings.momentum_reconstruction);
+        transported = advance_mac_parcel_transport(registry, result.pressure_state, model, plan, settings.flow_momentum());
         result.mass_fluxes_kg = std::move(transported.report.primal_mass_fluxes_kg); result.reconstruction = std::move(plan);
     } else transported = advance_mac_transport(registry, result.pressure_state, result.mass_fluxes_kg, model,
-        result.material_volumes_m3, settings.momentum_reconstruction);
+        result.material_volumes_m3, settings.flow_momentum());
     result.transport = std::move(transported.report); result.state = std::move(transported.state);
-    if (settings.momentum_reconstruction == MacMomentumReconstruction::gas_rarefaction)
+    if (settings.flow_momentum() == MacMomentumReconstruction::gas_rarefaction)
         result.expansion_work = recover_expansion(model, source, topology, result);
     // Time-centred sharp-interface weight: the pressure stage applied
     // -g W_start dt; each y face now receives -g (W_end - W_start) dt / 2.
@@ -1338,14 +1338,14 @@ MacClosedAdvance MacClosedWorld::advanced_flow(double seconds, std::size_t budge
                 if (settings_.compression_viscosity != MacCompressionViscosity::none &&
                     settings_.compression_viscosity != MacCompressionViscosity::coupled_pressure) {
                     auto damped = advance_mac_compression(registry_, *thermodynamics_, *pressure_source, .5 * dt,
-                        split_compression_law(settings_.compression_viscosity));
+                        split_compression_law(settings_.flow_compression()));
                     before_compression = std::move(damped.report); prepared = std::move(damped.state); pressure_source = &prepared;
                 }
                 auto candidate = advance_mac_closed_substep(registry_, *thermodynamics_, *pressure_source, dt, settings_);
                 if (settings_.compression_viscosity != MacCompressionViscosity::none &&
                     settings_.compression_viscosity != MacCompressionViscosity::coupled_pressure) {
                     auto damped = advance_mac_compression(registry_, *thermodynamics_, candidate.state, .5 * dt,
-                        split_compression_law(settings_.compression_viscosity));
+                        split_compression_law(settings_.flow_compression()));
                     after_compression = std::move(damped.report); candidate.state = std::move(damped.state);
                 }
                 if (settings_.shock_heat != MacShockHeatRegularization::none) {

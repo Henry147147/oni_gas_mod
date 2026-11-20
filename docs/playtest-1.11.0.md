@@ -22,7 +22,8 @@ New scientific MAC worlds use monotone compression and a gas expansion
 correction. Where neighbouring gas velocities are separating, the remap can
 return part of the numerical mixing heat to directed motion. It applies equal
 and opposite impulses to the cell's two normal faces and debits the work from
-the same cell. Existing scientific checkpoints carry their chosen numerical
+the same cell. Worlds with saturation phase change use the existing momentum
+and stress laws for boiling and condensation. Existing scientific checkpoints carry their chosen numerical
 methods. Colonies keep their saved game profile. Older colony profiles also
 seed new regions with their original transport and compression laws. See [face momentum reconstruction](../native/MAC_MOMENTUM.md#gas-expansion-work).
 

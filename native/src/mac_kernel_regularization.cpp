@@ -105,7 +105,7 @@ double linear_speed(const Workspace& ws, int axis, std::size_t i) { return ws.sp
 
 void stage_compression(Context& c, Fields& f, double dt, Accounts& acc) {
     prepare_primary_remainders(f);
-    const auto mode = c.settings.compression_viscosity;
+    const auto mode = c.settings.flow_compression();
     const bool monotone = mode == MacCompressionViscosity::monotone_acoustic_quadratic;
     if (mode != MacCompressionViscosity::quadratic && mode != MacCompressionViscosity::acoustic_quadratic && !monotone) return;
     auto& ws = c.ws; const auto& g = c.g;

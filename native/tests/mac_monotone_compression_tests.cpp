@@ -86,6 +86,15 @@ void expansion() {
     const auto& set = ma::testing::setup();
     MacClosedSettings settings;
     settings.maximum_timestep_s = 1e-5;
+    auto boiling = settings;
+    boiling.phase_change = MacPhaseChange::saturation;
+    check(boiling.flow_momentum() == MacMomentumReconstruction::limited_linear &&
+        boiling.flow_compression() == MacCompressionViscosity::acoustic_quadratic,
+        "Saturation selected a dry-gas expansion closure");
+    boiling.momentum_reconstruction = MacMomentumReconstruction::donor_cell;
+    check(boiling.flow_momentum() == MacMomentumReconstruction::donor_cell &&
+        boiling.flow_compression() == MacCompressionViscosity::monotone_acoustic_quadratic,
+        "Saturation changed an explicitly selected historical combination");
     std::array<double, 2> work{};
     for (int axis = 0; axis < 2; ++axis) {
         auto source = set.state(8, 8, false);

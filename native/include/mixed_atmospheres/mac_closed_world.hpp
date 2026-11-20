@@ -153,6 +153,19 @@ struct MacClosedSettings {
     // still use the strict reference EOS. Older profiles keep strict trials.
     bool fast_phase_trial_eos = false;
     MacGameSettings game;
+    // Saturation changes gas volume through mass transfer and latent heat.
+    // Its interface uses the limited-linear momentum remap and acoustic stress.
+    [[nodiscard]] MacMomentumReconstruction flow_momentum() const {
+        if (phase_change == MacPhaseChange::saturation && momentum_reconstruction == MacMomentumReconstruction::gas_rarefaction)
+            return MacMomentumReconstruction::limited_linear;
+        return momentum_reconstruction;
+    }
+    [[nodiscard]] MacCompressionViscosity flow_compression() const {
+        if (phase_change == MacPhaseChange::saturation && momentum_reconstruction == MacMomentumReconstruction::gas_rarefaction &&
+            compression_viscosity == MacCompressionViscosity::monotone_acoustic_quadratic)
+            return MacCompressionViscosity::acoustic_quadratic;
+        return compression_viscosity;
+    }
     void resolve_caloric_trial_policy();
     // An explicit reference-to-production transition chooses today's law.
     // A saved production owner retains its already resolved admission policy.

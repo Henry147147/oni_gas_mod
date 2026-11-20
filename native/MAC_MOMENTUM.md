@@ -288,3 +288,8 @@ each requested correction; `review_mac_dual_affine_energy.py` computes the
 full-correction counterfactual. The swept readers rebuild dual first moments, slab
 predictors, upwind transport, every compatible-work event, signed material deposition,
 EOS and entropy from saved operands.
+
+With saturation phase change enabled, a change of vapour volume includes mass
+transfer and latent heat. The gas-rarefaction selector then uses limited-linear
+momentum transport and its paired acoustic stress. Both kernels use this
+interface law for evaporation and condensation.

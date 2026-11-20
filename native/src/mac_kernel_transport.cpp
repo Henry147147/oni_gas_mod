@@ -783,8 +783,9 @@ void transport_after_pressure(Context& c, Fields& f, double dt, Accounts& acc) {
     const auto t_dual = std::chrono::steady_clock::now();
     // ---- dual transport of J and K for both components.
     face_inertias(c, ws.mass_after, ws.ix1, ws.iy1);
-    const bool rarefaction = c.settings.momentum_reconstruction == MacMomentumReconstruction::gas_rarefaction;
-    const bool corrected = rarefaction || c.settings.momentum_reconstruction == MacMomentumReconstruction::limited_linear;
+    const auto momentum = c.settings.flow_momentum();
+    const bool rarefaction = momentum == MacMomentumReconstruction::gas_rarefaction;
+    const bool corrected = rarefaction || momentum == MacMomentumReconstruction::limited_linear;
     if (rarefaction) ws.expansion_work.assign(N, 0);
     ws.face_heat_x.assign(g.NX, 0); ws.face_heat_y.assign(g.NY, 0);
     double mixing = 0, wall_heat = 0, wall_x = 0, wall_y = 0, energy_ops = 0, jx_ops = 0, jy_ops = 0;
