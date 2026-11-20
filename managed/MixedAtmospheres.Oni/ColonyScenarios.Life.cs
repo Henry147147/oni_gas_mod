@@ -60,8 +60,12 @@ namespace MixedAtmospheres.Oni
                 var hot = visitors[0].minion; var dense = visitors[1].minion; var wet = visitors[2].minion;
                 var hotCell = Grid.PosToCell(hot);
                 var health = hot.GetComponent<Health>().hitPoints;
-                Record("hot air scalds", health < recorded["hot-health"] || HasEffect(hot, "Scalding"),
-                    $"health {recorded["hot-health"]:F1} -> {health:F1}; cell {Grid.Element[hotCell].id} {Grid.Temperature[hotCell]:F1} K");
+                // ONI shows a status item on entering the scalding state. Health damage is periodic.
+                var scalding = hot.GetSMI<ScaldingMonitor.Instance>();
+                var activelyScalding = scalding != null && scalding.IsInsideState(scalding.sm.scalding);
+                Record("hot air scalds", health < recorded["hot-health"] || activelyScalding,
+                    $"health {recorded["hot-health"]:F1} -> {health:F1}; cell {Grid.Element[hotCell].id} {Grid.Temperature[hotCell]:F1} K; " +
+                    $"monitor {scalding?.GetCurrentState()?.name}, average {scalding?.AverageExternalTemperature:F1} K, threshold {scalding?.GetScaldingThreshold():F1} K");
                 var denseCell = Grid.PosToCell(dense);
                 Record("dense air pops eardrums", HasEffect(dense, "PoppedEarDrums"),
                     $"cell {Grid.Element[denseCell].id} {Grid.Mass[denseCell]:G4} kg, {Grid.Pressure[denseCell]:G4} kPa; effects {string.Join(",", dense.GetComponent<Klei.AI.Effects>().GetTimeLimitedEffects().Select(e => e.effect.Id))}");

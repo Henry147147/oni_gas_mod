@@ -54,3 +54,9 @@ density refinement ratio is 0.74723 (limit 0.85). The finest separating-gas
 velocity error is 0.058333 (limit 0.06). The independent saved-state review passed 3,201,611 checks and
 rejected all five corruptions for each kernel. The reference run took 96 seconds
 against the 180-second limit. See the [strong-flow measurements](../native/MAC_STRONG_FLOW.md).
+
+The hot-air hazard test reads ONI's active scalding state at its fixed
+observation frame. The game shows that state as a status item and applies
+damage periodically. A duplicant can therefore be scalding while still at
+full health. The test also records the monitor's state, average exposure and
+temperature threshold alongside the cell temperature and health reading.

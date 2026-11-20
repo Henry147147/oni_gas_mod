@@ -127,9 +127,9 @@ compatible version.
   a table of verified native profiles. A profile holds several builds per
   platform, so supported builds can accumulate.
 
-Result: a Klei update that leaves `SimDLL` code unchanged and does not touch
-any member the mod uses is accepted **without a mod update**. This is the usual
-managed-only hotfix. Any other update is refused until it is retargeted.
+When a hotfix preserves both native identities and the managed dependencies,
+its registry entry can reuse the existing native profile and managed implementation.
+Each new game build still needs its own contracts, packaged variant and verification.
 
 ### Where the contract comes from
 
@@ -168,8 +168,9 @@ game code. The native profiles stay committed in `docs/native-hook-profiles.json
 installation and writes a private report under `artifacts/`:
 
 1. **Build and identity**: the `KleiVersion.ChangeList`, the normalised
-   identities, and whether they already match a supported profile. If they
-   match and the managed contract verifies, nothing needs to be done.
+   identities, and whether they already match a registered profile. A match
+   lets the new registry entry reuse that profile. Generate the build-specific
+   contracts, package the new variant and run the tests in [Keeping an earlier build working](#keeping-an-earlier-build-working).
 2. **Native**: each hook, binding and global is located by symbol (PDB or
    dynamic symbols) and its fingerprint recomputed. The tool compares, against
    the reference build, the normalised disassembly of every hooked function
