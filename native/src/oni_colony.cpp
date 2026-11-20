@@ -53,6 +53,7 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include <numeric>
 #include <optional>
 #include <stdexcept>
 #include <string>
@@ -1417,35 +1418,35 @@ MacClosedWorld convert_identities(Session& s, MacClosedWorld world, double secon
     const double share = 1 - std::exp(-seconds / phase_relaxation_time_s);
     std::vector<MacFluidTransfer> edits; struct Product { std::size_t cell, species; double mass; std::int32_t byproduct; double byproduct_kg; };
     std::vector<Product> products;
-    // Cells holding a species some rule converts, read in parallel (each
-    // reading is the cell's own; the order of use below is the cells').
-    struct Candidate { std::size_t cell; double t = 0, liquid_volume = 0; bool read = false; };
-    std::vector<Candidate> candidates;
+    // Scan independent row-major blocks. Only cells crossing a transition
+    // need serial admission. The presentation reading supplies exactly the
+    // two scalars used here without computing entropy or specific energies.
+    struct Candidate { std::size_t cell; double t, liquid_volume; };
+    constexpr std::size_t block_size = 1024;
+    const auto blocks = (st.cells.size() + block_size - 1) / block_size;
+    std::vector<std::vector<Candidate>> candidates(blocks);
     const auto scan_start = std::chrono::steady_clock::now();
-    for (std::size_t i = 0; i < st.cells.size(); ++i) {
-        if (st.grid.walls[i] || s.space[i] || (!due.empty() && due[i]==0)) continue;
-        const auto& m = st.cells[i].mixture;
-        bool candidate = false; for (const auto& r : rules) candidate = candidate || m.masses[r.from] > 0;
-        if (candidate) candidates.push_back({i});
-    }
-    {
-        constexpr std::size_t block_size = 256;
-        const auto blocks = (candidates.size() + block_size - 1) / block_size;
-        const auto options = mac_kernel_default_options();
-        const auto threads = static_cast<unsigned>(std::min<std::size_t>(options.threads, std::max<std::size_t>(1, blocks)));
-        if (blocks > 0) mac_kernel::pool_for(threads).run(blocks, [&](std::size_t block) {
-            for (std::size_t q = block * block_size; q < std::min(candidates.size(), (block + 1) * block_size); ++q) {
-                auto& c = candidates[q];
-                try { const auto e = world.settings().numerical_kernel==MacNumericalKernel::game?world.cell_reading(c.cell):evaluate_cell(*cat.eos, st.cells[c.cell].mixture, mac_material_volume(st, c.cell)); c.t = e.temperature_k; c.liquid_volume = e.liquid_volume_m3; c.read = true; }
-                catch (...) {}
-            }
-        });
-    }
+    const auto threads = static_cast<unsigned>(std::min<std::size_t>(mac_kernel_default_options().threads, std::max<std::size_t>(1, blocks)));
+    mac_kernel::pool_for(threads).run(blocks, [&](std::size_t block) {
+        ReferenceEquilibriumState reading;
+        for (auto i = block * block_size; i < std::min(st.cells.size(), (block + 1) * block_size); ++i) {
+            if (st.grid.walls[i] || s.space[i] || (!due.empty() && due[i] == 0)) continue;
+            const auto& m = st.cells[i].mixture;
+            if (std::none_of(rules.begin(), rules.end(), [&](const Rule& r) { return m.masses[r.from] > 0; })) continue;
+            try {
+                if (world.settings().numerical_kernel == MacNumericalKernel::game) world.cell_presentation(i, reading);
+                else reading = evaluate_cell(*cat.eos, m, mac_material_volume(st, i));
+            } catch (...) { continue; }
+            const auto t = reading.temperature_k;
+            if (std::any_of(rules.begin(), rules.end(), [&](const Rule& r) {
+                return (r.high ? t > r.threshold : t < r.threshold) && m.masses[r.from] > 0;
+            })) candidates[block].push_back({i, t, reading.liquid_volume_m3});
+        }
+    });
     const auto read_done = std::chrono::steady_clock::now();
     std::vector<double> temperature;
-    for (const auto& c : candidates) {
+    for (const auto& block : candidates) for (const auto& c : block) {
         if (edits.size() >= 4000) break;
-        if (!c.read) continue;
         const auto i = c.cell; const auto& m = st.cells[i].mixture;
         const double t = c.t, liquid_volume = c.liquid_volume;
         // The liquid the projection shows (as project() picks it).
@@ -1523,7 +1524,7 @@ MacClosedWorld convert_identities(Session& s, MacClosedWorld world, double secon
     if (stage_log && s.status.completed_frames % 10 == 9) {
         const auto ms = [](auto a, auto b) { return std::chrono::duration<double, std::milli>(b - a).count(); };
         std::fprintf(stderr, "[Mixed Atmospheres] conversions: %zu candidates read %.1f ms, plan %.1f ms, %zu edits applied %.1f ms, joined %zu\n",
-            candidates.size(), ms(scan_start, read_done), ms(read_done, plan_done), edits.size(), ms(plan_done, std::chrono::steady_clock::now()), joined_gives);
+            std::accumulate(candidates.begin(), candidates.end(), std::size_t{}, [](auto n, const auto& block) { return n + block.size(); }), ms(scan_start, read_done), ms(read_done, plan_done), edits.size(), ms(plan_done, std::chrono::steady_clock::now()), joined_gives);
     }
     return world;
 }
@@ -3464,8 +3465,9 @@ MacClosedWorld evolve_germs(Session& s, MacClosedWorld world, std::span<const Ge
         const auto threads = static_cast<unsigned>(std::min<std::size_t>(options.threads, std::max<std::size_t>(1, blocks / options.minimum_blocks_per_thread)));
         if (blocks > 0) mac_kernel::pool_for(threads).run(blocks, [&](std::size_t block) {
             for (std::size_t i = block * block_size; i < std::min(state.cells.size(), (block + 1) * block_size) && !stale[block]; ++i) {
+                if (state.grid.walls[i]) continue;
                 const auto& passives = state.cells[i].passive_quantities;
-                if (passives.empty() || state.grid.walls[i]) continue;
+                if (passives.empty()) continue;
                 bool gas_needed = false, liquid_needed = false;
                 for (const auto& q : passives) {
                     if ((q.identity & passive_carrier_mask) == 0) stale[block] = 1;
