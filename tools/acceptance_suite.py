@@ -69,7 +69,7 @@ LINUX_BATCHES = (
     "mixed-pipe-filter,mixed-pipe-boundary,mixed-pipe-output,mixed-pipe-teardown,mixed-pipe-valves",
     "mixed-pipe-gas-vents,mixed-pipe-biology,mixed-pipe-all-germs,mixed-pipe-pumps,mixed-pipe-thermal",
     "mixed-pipe-cold,mixed-pipe-machines,mixed-pipe-heat-machines,mixed-pipe-retire,mixed-pipe-readers",
-    "mixed-pipe-colony,mixed-pipe-catalogue,pitcher-pump,storage-ledger,pipe-throughput",
+    "mixed-pipe-colony,mixed-pipe-catalogue,pitcher-pump,storage-ledger,pipe-throughput,vent-duty",
     "fault-containment",
     "base",
 )

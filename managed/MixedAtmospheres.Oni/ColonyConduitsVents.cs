@@ -111,13 +111,18 @@ namespace MixedAtmospheres.Oni
             if(consuming.Writes!=0)throw new InvalidOperationException("A vent consumed a second packet before its storage notification.");
             var room=new PipeAmount(state.Storage.capacityKg).Minus(state.Inventory.Total);
             if(room.Sign<=0||!ColonyConduits.TryRead(flow,cell,out var source)||source.Count==0){result=ConduitFlow.ConduitContents.Empty;return true;}
+            // A request for at least the packet the cell shows takes the whole
+            // exact inventory, so no sub-float remainder stays in the inlet
+            // (PipeMoves, docs/mixed-pipes.md#throughput).
+            var whole=requested>=PipeMoves.Shown(source,(float)ColonyConduits.PortCapacity(flow))&&room.Minus(source.Total).Sign>=0;
             var amount=(float)Math.Min(requested,Math.Min(room.Value,source.Total.Value));
-            while(amount>0&&(new PipeAmount(amount).Minus(room).Sign>0||new PipeAmount(amount).Minus(source.Total).Sign>0))
+            while(!whole&&amount>0&&(new PipeAmount(amount).Minus(room).Sign>0||new PipeAmount(amount).Minus(source.Total).Sign>0))
                 amount=BitConverter.Int32BitsToSingle(BitConverter.SingleToInt32Bits(amount)-1);
             if(!(amount>0)){result=ConduitFlow.ConduitContents.Empty;return true;}
-            var id=ColonyPipePorts.HoldForPort(flow,cell,amount);var parcel=ColonyPipePorts.BufferInventory(id);
+            var id=ColonyPipePorts.HoldForPort(flow,cell,whole?double.MaxValue:amount);var parcel=ColonyPipePorts.BufferInventory(id);
             if(id==0||parcel.Count==0)throw new InvalidOperationException("An admitted vent request produced no owned inventory.");
-            state.Buffers.Add(id);Consolidate(state);result=ColonyConduits.Compatibility(parcel);
+            // ONI is told the mass it was shown (never more than the capacity).
+            state.Buffers.Add(id);Consolidate(state);result=ColonyConduits.Compatibility(parcel,flow);
             consuming.Writes=1;consuming.Element=result.element;consuming.Mass=result.mass;return true;
         }
         internal static bool SuppressStorage(Storage storage,SimHashes element,float mass)

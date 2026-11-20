@@ -209,7 +209,11 @@ namespace MixedAtmospheres.Oni
                     foreach(var part in item.Inventory.Parts)if(!Materials.ContainsKey(part.Id))throw new System.IO.InvalidDataException("Saved pipe constituent is not in the catalogue.");
                     // Conduit networks may rebuild after this point; the
                     // contents ONI deserialized are already in its grid.
-                    var native=ReadRaw(flow,item.Cell);var cell=new Cell(item.Inventory,default);var expected=Project(cell,native,true);
+                    // A cell holds at most its capacity plus the whole-move bound
+                    // (PipeMoves); its packet shows no more than the capacity.
+                    if(!PipeMoves.WithinBound(item.Inventory,Flows[flow].Capacity))
+                        throw new System.IO.InvalidDataException($"Saved conduit {item.Cell} holds {item.Inventory.Mass:R} kg, beyond its capacity of {Flows[flow].Capacity:R} kg.");
+                    var native=ReadRaw(flow,item.Cell);var cell=new Cell(item.Inventory,default);var expected=Project(cell,native,Flows[flow].Capacity,true);
                     if(!SameContents(native,expected))
                         throw new System.IO.InvalidDataException($"Restored conduit {item.Cell} differs from its saved mixture: native {native.element}/{native.mass:R}/{native.temperature:R}/{native.diseaseIdx}/{native.diseaseCount}, saved {expected.element}/{expected.mass:R}/{expected.temperature:R}/{expected.diseaseIdx}/{expected.diseaseCount}.");
                     cell.Shadow=native;Flows[flow].Allocate(item.Cell,cell);saved.Add((flow,item.Cell));
@@ -437,12 +441,14 @@ namespace MixedAtmospheres.Oni
             lock(Accounts) initial=initial.Joined(inventory);
             return current;
         }
-        private static ConduitFlow.ConduitContents Project(Cell cell,ConduitFlow.ConduitContents contents,bool consolidate=false)
+        // A cell shows its exact mass in binary32 and never more than its
+        // capacity (PipeMoves.Shown); a parcel has no capacity to show.
+        private static ConduitFlow.ConduitContents Project(Cell cell,ConduitFlow.ConduitContents contents,float capacity,bool consolidate=false)
         {
             if(cell.Inventory.Count==0)return ConduitFlow.ConduitContents.Empty;
             // Preserve native initial/added/removed bookkeeping whenever its
             // rounded mass already represents the authoritative inventory.
-            var mass=(float)cell.Inventory.Mass;
+            var mass=PipeMoves.Shown(cell.Inventory,capacity);
             if(mass==0)return ConduitFlow.ConduitContents.Empty; // inventory retains the unrepresentable trace
             var element=NativeElements[cell.Inventory.Dominant];
             if(consolidate)SetStages(ref contents,mass,0);
@@ -468,7 +474,9 @@ namespace MixedAtmospheres.Oni
                 {contents.diseaseIdx=checked((byte)germ.Id);contents.diseaseCount=(int)Math.Min(int.MaxValue,germ.Mass);}
             return contents;
         }
-        internal static ConduitFlow.ConduitContents Compatibility(PipeInventory inventory)=>Project(new Cell(inventory,default),default,true);
+        internal static ConduitFlow.ConduitContents Compatibility(PipeInventory inventory)=>Project(new Cell(inventory,default),default,float.PositiveInfinity,true);
+        // A whole packet taken from a cell, as ONI was shown it.
+        internal static ConduitFlow.ConduitContents Compatibility(PipeInventory inventory,ConduitFlow flow)=>Project(new Cell(inventory,default),default,Flows[flow].Capacity,true);
         internal static void BookGermExchange(IEnumerable<PipePart> changes)
         {
             foreach(var change in changes)
@@ -500,9 +508,9 @@ namespace MixedAtmospheres.Oni
         }
         private static void Publish(ConduitFlow flow,int index,MassPublication mode=MassPublication.Staged)
         {
-            var cell=Ensure(flow,index);var contents=ReadGrid(flow,index);var mass=(float)cell.Inventory.Mass;
+            var cell=Ensure(flow,index);var contents=ReadGrid(flow,index);var mass=PipeMoves.Shown(cell.Inventory,Flows[flow].Capacity);
             if(mode==MassPublication.Removed&&contents.mass>mass)RemoveNative(ref contents,contents.mass-mass);
-            var projection=Project(cell,contents,mode==MassPublication.Added);
+            var projection=Project(cell,contents,Flows[flow].Capacity,mode==MassPublication.Added);
             ++projecting;try{SetNative(flow,index,projection);}finally{--projecting;}
             cell.Shadow=projection;ColonyPipePumps.ProjectPipe(flow,index);
         }
@@ -516,7 +524,7 @@ namespace MixedAtmospheres.Oni
             // Unallocated empty managed cells are inspected without importing
             // a native packet or changing initial physical inventory/accounts.
             var cell=Flows[flow].Cells[index]??new Cell(PipeInventory.Empty,default);
-            if(!SameContents(contents,Project(cell,contents)))
+            if(!SameContents(contents,Project(cell,contents,Flows[flow].Capacity)))
                 throw new System.IO.InvalidDataException("Saved native staging does not project the exact pipe inventory.");
         }
         internal static void RestoreNativeProjection(ConduitFlow flow,int index,ConduitFlow.ConduitContents contents)
@@ -537,7 +545,7 @@ namespace MixedAtmospheres.Oni
             try
             {
                 var cell=Flows[flow].Cells[index];
-                if(cell!=null){ColonyFault.Inject("pipe-read");result=Project(cell,result);}
+                if(cell!=null){ColonyFault.Inject("pipe-read");result=Project(cell,result,Flows[flow].Capacity);}
                 else if(result.mass>0)throw new InvalidOperationException("A nonempty native pipe was not registered at a physical boundary.");
             }
             catch(Exception error){ColonyFault.Raise("pipe reader",error);}
@@ -579,7 +587,7 @@ namespace MixedAtmospheres.Oni
                     DiseaseDelta(cell.Shadow.diseaseIdx,(result.diseaseIdx==cell.Shadow.diseaseIdx?(double)result.diseaseCount:0)-cell.Shadow.diseaseCount);
                 if(result.diseaseIdx!=byte.MaxValue&&result.diseaseIdx!=cell.Shadow.diseaseIdx)DiseaseDelta(result.diseaseIdx,result.diseaseCount);
             }
-            result=Project(cell,result);cell.Shadow=result;
+            result=Project(cell,result,Flows[flow].Capacity);cell.Shadow=result;
             if(changed)
             {
                 ++projecting;try{SetNative(flow,index,result);}finally{--projecting;}
@@ -658,28 +666,33 @@ namespace MixedAtmospheres.Oni
             var ownsSource=Owns(flow,source);var ownsTarget=Owns(flow,target);
             return ownsSource&&ownsTarget || !ownsSource&&!ownsTarget&&native;
         }
+        // ONI decides each pipe move in binary32 from the masses the two cells
+        // show; an owned cell holds its inventory exactly. Through 1.10.2 the
+        // owned move of a whole packet took only that float, and the exact
+        // capacity could stop it a float step short: a cell ONI emptied kept
+        // micrograms, read 0 g and was not empty to RequireOutputs, which held
+        // the pump or machine whose outlet it was for a pipe tick (two gas
+        // pumps on one pipe passed half of what ONI passes in the same
+        // layout). A whole packet now moves whole (PipeMoves,
+        // docs/mixed-pipes.md#throughput); other moves keep their exact caps.
         internal static float Limit(ConduitFlow flow,int source,int target,float request)
         {
             var ownsSource=Owns(flow,source);var ownsTarget=Owns(flow,target);
             if(ownsSource!=ownsTarget)return 0;
             if(!ownsSource)return request;
             SyncNative(flow,target);
-            var available=Ensure(flow,source).Inventory.Total;
-            var room=new PipeAmount(Flows[flow].Capacity).Minus(Ensure(flow,target).Inventory.Total);
-            if(available.Sign<=0||room.Sign<=0)return 0;
-            request=Math.Min(request,(float)Math.Min(available.Value,room.Value));
-            while(request>0 && (new PipeAmount(request).Minus(available).Sign>0 || new PipeAmount(request).Minus(room).Sign>0))
-                request=BitConverter.Int32BitsToSingle(BitConverter.SingleToInt32Bits(request)-1);
-            return request;
+            return PipeMoves.Accepted(request,Ensure(flow,source).Inventory,Ensure(flow,target).Inventory,Flows[flow].Capacity);
         }
-        internal static void Move(ConduitFlow flow,int source,int target,float amount)
+        internal static void Move(ConduitFlow flow,int source,int target,float amount)=>MoveParcel(flow,source,target,amount);
+        // The exact parcel a native move of `amount` carries (the float Limit
+        // returned for the same two cells).
+        private static PipeInventory MoveParcel(ConduitFlow flow,int source,int target,float amount)
         {
-            if(!Owns(flow,source)||!Owns(flow,target))return;
-            if(source==target)return;
+            if(!Owns(flow,source)||!Owns(flow,target))return PipeInventory.Empty;
+            if(source==target)return PipeInventory.Empty;
             var from=Ensure(flow,source);var to=Ensure(flow,target);
-            var transfer=PipeInventory.Transfer(from.Inventory,to.Inventory,amount,Flows[flow].Capacity,MaterialLookup);
-            if(transfer.Parcel.Mass!=amount)throw new InvalidOperationException("Native pipe move exceeded owned inventory/capacity.");
-            from.Inventory=transfer.Source;to.Inventory=transfer.Target;
+            var moved=PipeMoves.Move(from.Inventory,to.Inventory,amount,Flows[flow].Capacity,MaterialLookup);
+            from.Inventory=moved.Source;to.Inventory=moved.Target;return moved.Parcel;
         }
         internal static void BeginFlow(ConduitFlow flow) { if(OwnsFlow(flow))flowing=true; }
         internal static void EndFlow() { flowing=false; }
@@ -763,9 +776,11 @@ namespace MixedAtmospheres.Oni
             if(transferScope is var scope&&scope!=null&&scope.Flow==flow&&scope.Target>=0)
             {
                 if(scope.Source!=cell||mass!=scope.Amount)throw new InvalidOperationException("Native pipe edge removed a different staged source/amount.");
-                var parcel=Ensure(flow,cell).Inventory.Split(mass,MaterialLookup).Parcel;
-                Move(flow,cell,scope.Target,mass);Publish(flow,cell,MassPublication.Removed);Publish(flow,scope.Target,MassPublication.Added);scope.Target=-1;
-                var shadow=new Cell(parcel,default);result=Project(shadow,default);return true;
+                // ONI's caller receives what moved: the whole packet with all its
+                // germs when the source showed exactly the mass removed.
+                var parcel=MoveParcel(flow,cell,scope.Target,mass);
+                Publish(flow,cell,MassPublication.Removed);Publish(flow,scope.Target,MassPublication.Added);scope.Target=-1;
+                var shadow=new Cell(parcel,default);result=Project(shadow,default,Flows[flow].Capacity);return true;
             }
             // No float-only world/storage dispatch from an unfinished control.
             result=ConduitFlow.ConduitContents.Empty;return true;

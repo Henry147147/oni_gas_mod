@@ -268,6 +268,108 @@ at least 475 kg (95 % of a full pipe). On the playtest build the pump drew
 cell. With the change the pump draws 500.0 kg and B gains 500.0 kg, every
 cell of the pipe full, and every pipe account closes exactly.
 
+**Two pumps on one pipe (2026-11-20).** The user's report on 1.10.2: "two
+pumps to one pipe should have a 100% duty cycle, but the vent kept getting
+clogged". The colony itself was not examined in the game; the reproduction
+is the `vent-duty` fixture below, built from the layout of the user's save
+(two gas pumps side by side on one pipe). In that fixture the vent was not
+the cause: ONI runs a pump (and any machine with `RequireOutputs`) only
+while its outlet pipe cell is empty, checked on the cell's raw mass after
+each tick's moves. An owned pipe holds its inventory exactly in binary64,
+while ONI decides and moves each packet as one binary32 mass: five 0.1 kg
+pump intakes make 0.50000000745 kg, which ONI shows and moves as 0.5 kg.
+The owned move took only the float, so 7.45 µg stayed behind; or the exact
+capacity of a cell still holding its own packet stopped the move a float
+step short (37 µg stayed). The outlet read 0 g but its raw mass was
+positive, so ONI stopped the pump for that pipe tick, and its intake with
+it.
+
+The change is confined to the moves ONI makes between two owned pipe
+cells (the network move, and the bridges, valves, overflow and
+preferential-flow edges): `PipeMoves` in `ColonyConduitMoves.cs`, unit
+tested in `tools/ColonyConduitTests`. ONI's decision is unchanged: at most
+the request, the packet the source shows and the room the target shows,
+in ONI's binary32 arithmetic. A cell shows its exact mass rounded to
+binary64 and then to binary32, never more than its capacity.
+
+- **A move of the whole packet the source shows takes the whole exact
+  inventory**, provided the target then holds at most its capacity plus a
+  bound, so a cell ONI empties is empty.
+- **Every other move takes exactly the float decided**, capped by the
+  source's exact inventory and the target's exact room, so such a move
+  never takes a target over its capacity. For the network move this is as
+  before. A bridge, valve, overflow or preferential-flow edge is now also
+  held to what the two cells show (1.10.2 used the exact amounts alone): it
+  passes at most the packet the source shows and nothing into a cell that
+  shows no room, so the float it accepts can differ from 1.10.2's by under
+  a float step of the capacity. What stays behind is a packet ONI also
+  shows, unless it is below half the smallest binary32 mass (7e-46 kg):
+  such a trace projects as an empty cell, as it did before, and leaves
+  with the next packet through the cell.
+- **The bound.** With s the binary32 step just below the capacity, a whole
+  move between cells within their capacity exceeds it by at most 1.25 s
+  (each shown mass is within half a step of its exact mass, a target below
+  half the capacity within a quarter, and ONI's free space rounds by at most
+  half a step, only for such a target), plus binary64 rounding: 7.45e-8 kg
+  in a 1 kg gas pipe, 1.19e-6 kg in a 10 kg liquid pipe. A cell over its
+  capacity shows exactly its capacity, so ONI gives it no room. It moves on
+  whole into a cell that shows room for a full packet, and its excess can
+  grow in successive whole moves only up to the bound: a whole move that
+  would pass the bound takes the exact-room-capped part instead and leaves
+  a remainder ONI shows, so every move ONI decides moves mass. A restored
+  colony refuses a cell beyond the bound.
+- A gas or liquid vent takes a whole packet whole when it asks for at
+  least the packet the cell shows and its storage has exact room for it,
+  and tells ONI the mass it was shown.
+- A valve (meter) is told the float ONI shows it pass. When it passes a
+  whole packet, the exact mass differs from that float by the packet's
+  rounding (at most half a step plus binary64 rounding, either way), and
+  exceeds it by up to the bound for a packet over its capacity. The
+  meter's running total is ONI's own binary32 sum and rounds as it does
+  without the mod.
+- Machine outlets, pumps and reservoir outlets still place at most the
+  exact room of their outlet; what does not fit stays in the machine.
+
+**What is not guaranteed.** A pump's outlet (or any machine's) can still
+keep a remainder for a tick, and ONI then stops that pump for the tick:
+
+- when the next cell shows less room than the outlet's packet, so ONI
+  itself moves the packet only in part (as without the mod);
+- when the next cell holds a trace that narrows the room ONI shows by a
+  float step. Traces come from consumers that keep the arithmetic of
+  1.10.2. A machine inlet, the conduction panel bridge and the morb rover
+  maker take the float they are asked for, so from a packet whose exact
+  mass exceeds its shown mass they leave the difference (at most half a
+  step for a packet within capacity, which narrows no room; up to the
+  bound for one over its capacity, which can). A filter moves its exact
+  selection up to the exact capacity of its outlet, so it leaves only the
+  excess of a packet over its capacity;
+- when an outlet's packet over its capacity would pass the bound on the
+  next cell's trace (the remainder of the bullet above).
+
+In each case the remainder is a packet ONI shows, and every reader agrees
+with it. It moves on when the next cell shows room for it: at the next
+pipe tick in a flowing line, later behind a full cell or a closed valve.
+It can be as small as one float step, which the pipe's hover text shows as
+0 g (like the residues of the report). `vent-duty` meets none of these
+cases.
+
+`vent-duty` checks it in game, with ONI's own simulation as reference
+(`--mode colony-vanilla`). Two gas pumps on one pipe feed a gas vent in a
+closed room of oxygen at 1.75 kg a cell. In this layout ONI's flow
+scheduling keeps the first pump's outlet packet in place (0.8 kg, in both
+simulations), so only the second pump runs: ONI releases 25.0 kg in 50 s.
+On 1.10.2's pipe code the mod released 13.0 kg; the second pump lost its
+outlet to a residue on about half the ticks. With the change it releases
+25.0 kg, the pipe holds by cell what ONI's does, and no outlet that reads
+0 g stops its pump. Its pressure check bounds the room's mean only. In the
+mod's runs the vent cell stayed below 2 kg (a vent's 1 kg packet spreads
+within the frame it arrives in) and the vent never read blocked; in ONI's
+own runs the vent cell reached 2.41 to 2.42 kg after a packet and the vent
+read blocked in 88 to 96 of 250 frames, a frame or two after each packet,
+open again before the next pipe tick. This does not show that no vent
+blocked in the user's colony.
+
 ### Readers
 
 Element, germ and thermo sensors read the owned mixture (element true at or

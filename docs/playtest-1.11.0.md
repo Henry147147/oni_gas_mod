@@ -39,6 +39,29 @@ saved accounts prove. A 300-frame replay kept every physical checkpoint
 byte and held the reported mass error at its prior value of 8.782 × 10⁻¹³.
 The existing save format and audit limits continue to apply.
 
+## Pumps sharing a pipe
+
+Playtest report on 1.10.2: two gas pumps on one pipe did not pump
+steadily, "but the vent kept getting clogged". In a reproduction of that
+layout the vent was not the cause. ONI runs a pump only while its outlet
+pipe cell is empty. The mod keeps pipe contents exactly while ONI moves
+each packet as a single-precision mass, so a few micrograms stayed behind
+when a packet moved on. The cell read 0 g, was not empty, and ONI stopped
+the pump for that pipe tick.
+
+A packet that ONI moves whole now takes its whole contents with it. The
+receiving cell may then hold up to 0.075 mg (gas) or 1.2 mg (liquid) more
+than its capacity; it reads exactly full. All other pipe moves keep their
+exact limits. See [throughput](mixed-pipes.md#throughput) for the rule and
+for the cases in which a pump can still wait one tick.
+
+The in-game scenario `vent-duty` runs the layout in the mod and in ONI's
+own simulation. Over 50 pipe ticks ONI's vent releases 25.0 kg. The mod
+released 13.0 kg on 1.10.2's pipe code and releases 25.0 kg now. With the
+two pumps in series on one pipe ONI itself holds the first pump's packet in
+its outlet, so this layout passes one pump's flow (0.5 kg/s) with or
+without the mod. The user's colony itself was not examined in the game.
+
 ## Verification
 
 The compatibility candidate loaded a colony created on 744825 in all three

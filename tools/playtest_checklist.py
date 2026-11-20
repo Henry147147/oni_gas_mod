@@ -92,9 +92,9 @@ SCENARIO_SYSTEMS: dict[str, tuple[list[str], tuple[str, ...]]] = {
     "terrain-construction": (OWNER, ("terrain", "door", "airflow")),
     "heating-cooling": ([*SHADOW, *ACTORS[:1]], ("heat", "space-heater", "wheezewort")),
     "cell-transitions": (OWNER, ("phase", "freeze-melt")),
-    "pumps": (ACTORS, ("pipes", "liquid-pump")),
-    "conduits": (MACHINES, ("pipes", "liquid-pump", "vent-overpressure")),
-    "fans-vents": (OWNER, ("pipes", "vent-overpressure")),
+    "pumps": (ACTORS, ("pipes", "liquid-pump", "vent-duty")),
+    "conduits": (MACHINES, ("pipes", "liquid-pump", "vent-overpressure", "vent-duty")),
+    "fans-vents": (OWNER, ("pipes", "vent-overpressure", "vent-duty")),
     "element-converters": (MACHINES, ("deoxidizer", "life-support", "skimmer", "terrarium", "deodorizer")),
     "refineries": (MACHINES, ("polymer-press", "rust-deoxidizer")),
     "electrolysis": (MACHINES, ("electrolysis", "electrolyzer-blocked")),
@@ -166,6 +166,8 @@ PASSED_SCENARIOS: set[str] = {
     "germ-exposure", "germ-oracle",
     # Natural tiles and polluted water sublimating into owned cells, base game, cf2ecbe (2026-11-09).
     "natural-sublimation",
+    # Two gas pumps on one pipe to a vent, owner and ONI reference, base game (2026-11-20, docs/mixed-pipes.md#throughput).
+    "vent-duty",
     # Spaced Out!: WindowsPlayer under Proton on the recorded revisions, source plus cold/menu loads
     # (docs/dlc-compatibility.md; docs/spaced-out-private-playtest.md; docs/release-candidate-2026-10-30.md).
     "spaced-out-worlds", "spaced-out-rocket", "spaced-out-rocket-ports", "spaced-out-input-flush", "spaced-out-rocket-retire",

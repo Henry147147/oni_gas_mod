@@ -670,7 +670,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure`, `vent-duty` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "callsite/048acf66b819d28c29d7",
@@ -692,7 +692,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure`, `vent-duty` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "callsite/06d195dd78b458a9b2d0",
@@ -862,7 +862,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure`, `vent-duty` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "callsite/1252d7d4f3de5512f6f0",
@@ -1949,7 +1949,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure`, `vent-duty` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "callsite/4a102b6541c9f72b3ac0",
@@ -2896,7 +2896,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure`, `vent-duty` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "callsite/82651d017fc818055382",
@@ -3264,7 +3264,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure`, `vent-duty` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "callsite/8f58d38dd55b14ed6052",
@@ -3515,7 +3515,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure`, `vent-duty` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "callsite/9b123eb3b30e1ff89f70",
@@ -3982,7 +3982,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure`, `vent-duty` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "callsite/aea62d9b3bfe071e0de4",
@@ -4004,7 +4004,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure`, `vent-duty` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "callsite/afde9611fab21c4b2439",
@@ -4216,7 +4216,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure`, `vent-duty` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "callsite/b96e7f52dc3d999fc6df",
@@ -4342,7 +4342,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure`, `vent-duty` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "callsite/c0a51d2cf23a5741e71c",
@@ -4410,7 +4410,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure`, `vent-duty` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "callsite/c466f673506e9d9f9fd3",
@@ -4582,7 +4582,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure`, `vent-duty` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "callsite/ce127381360d76d67219",
@@ -5892,7 +5892,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure`, `vent-duty` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "import/ConduitTemperatureManager.ConduitTemperatureManager_Clear",
@@ -5914,7 +5914,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure`, `vent-duty` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "import/ConduitTemperatureManager.ConduitTemperatureManager_Initialize",
@@ -5936,7 +5936,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure`, `vent-duty` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "import/ConduitTemperatureManager.ConduitTemperatureManager_Remove",
@@ -5958,7 +5958,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure`, `vent-duty` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "import/ConduitTemperatureManager.ConduitTemperatureManager_Set",
@@ -5980,7 +5980,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure`, `vent-duty` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "import/ConduitTemperatureManager.ConduitTemperatureManager_Shutdown",
@@ -6002,7 +6002,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure`, `vent-duty` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "import/ConduitTemperatureManager.ConduitTemperatureManager_Update",
@@ -6024,7 +6024,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure`, `vent-duty` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "import/Sim.SIM_BeginSave",
@@ -13735,7 +13735,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure`, `vent-duty` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "prefab/AirConditionerPreview/0",
@@ -13935,7 +13935,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure`, `vent-duty` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "prefab/AlgaeDistilleryPreview/0",
@@ -14670,7 +14670,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure`, `vent-duty` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "prefab/AtomicGardenPreview/0",
@@ -15779,7 +15779,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure`, `vent-duty` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "prefab/BottleEmptierConduitGasPreview/0",
@@ -15834,7 +15834,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure`, `vent-duty` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "prefab/BottleEmptierConduitLiquidPreview/0",
@@ -17010,7 +17010,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure`, `vent-duty` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "prefab/ChemicalRefineryPreview/0",
@@ -17640,7 +17640,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure`, `vent-duty` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "prefab/ClusterTelescopeEnclosedPreview/0",
@@ -20321,7 +20321,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure`, `vent-duty` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "prefab/CrewCapsulePreview/0",
@@ -20945,7 +20945,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure`, `vent-duty` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "prefab/DecontaminationShowerPreview/0",
@@ -21239,7 +21239,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure`, `vent-duty` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "prefab/DesalinatorPreview/0",
@@ -21567,7 +21567,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure`, `vent-duty` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "prefab/DevPumpGasPreview/0",
@@ -21622,7 +21622,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure`, `vent-duty` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "prefab/DevPumpLiquidPreview/0",
@@ -22753,7 +22753,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure`, `vent-duty` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "prefab/EspressoMachinePreview/0",
@@ -22826,7 +22826,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure`, `vent-duty` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "prefab/EthanolDistilleryPreview/0",
@@ -23118,7 +23118,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure`, `vent-duty` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "prefab/FabricatedWoodMakerPreview/0",
@@ -23389,7 +23389,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure`, `vent-duty` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "prefab/FertilizerMakerPreview/0",
@@ -24202,7 +24202,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure`, `vent-duty` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "prefab/FlushToiletPreview/0",
@@ -24365,7 +24365,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure`, `vent-duty` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "prefab/FoodDehydratorPreview/0",
@@ -24420,7 +24420,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure`, `vent-duty` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "prefab/FoodRehydratorPreview/0",
@@ -25033,7 +25033,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure`, `vent-duty` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "prefab/GasBottlerPreview/0",
@@ -25254,7 +25254,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure`, `vent-duty` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "prefab/GasConduitBridge/0",
@@ -25273,7 +25273,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure`, `vent-duty` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "prefab/GasConduitBridgePreview/0",
@@ -25434,7 +25434,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure`, `vent-duty` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "prefab/GasConduitOverflowPreview/0",
@@ -25489,7 +25489,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure`, `vent-duty` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "prefab/GasConduitPreferentialFlowPreview/0",
@@ -25562,7 +25562,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure`, `vent-duty` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "prefab/GasConduitRadiantPreview/0",
@@ -25815,7 +25815,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure`, `vent-duty` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "prefab/GasLimitValvePreview/0",
@@ -25870,7 +25870,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure`, `vent-duty` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "prefab/GasLogicValvePreview/0",
@@ -25924,7 +25924,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `pipes`, `liquid-pump` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-duty` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "prefab/GasMiniPumpPreview/0",
@@ -26032,7 +26032,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `pipes`, `liquid-pump` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-duty` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "prefab/GasPumpPreview/0",
@@ -26087,7 +26087,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure`, `vent-duty` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "prefab/GasReservoirPreview/0",
@@ -26142,7 +26142,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure`, `vent-duty` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "prefab/GasValvePreview/0",
@@ -26196,7 +26196,7 @@
         "managed/MixedAtmospheres.Oni/ColonyOwner.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `pipes`, `vent-overpressure` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `pipes`, `vent-overpressure`, `vent-duty` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "prefab/GasVentHighPressure/0",
@@ -26214,7 +26214,7 @@
         "managed/MixedAtmospheres.Oni/ColonyOwner.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `pipes`, `vent-overpressure` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `pipes`, `vent-overpressure`, `vent-duty` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "prefab/GasVentHighPressurePreview/0",
@@ -27118,7 +27118,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure`, `vent-duty` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "prefab/GlassForgePreview/0",
@@ -27317,7 +27317,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure`, `vent-duty` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "prefab/GourmetCookingStationPreview/0",
@@ -29096,7 +29096,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure`, `vent-duty` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "prefab/HeatCompressorPreview/0",
@@ -29430,7 +29430,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure`, `vent-duty` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "prefab/HotTubPreview/0",
@@ -29613,7 +29613,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure`, `vent-duty` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "prefab/HydrogenGeneratorPreview/0",
@@ -29668,7 +29668,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure`, `vent-duty` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "prefab/HydroponicFarmPreview/0",
@@ -29994,7 +29994,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure`, `vent-duty` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "prefab/InsulatedGasConduitPreview/0",
@@ -30049,7 +30049,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure`, `vent-duty` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "prefab/InsulatedLiquidConduitPreview/0",
@@ -30375,7 +30375,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure`, `vent-duty` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "prefab/JetSuitLockerPreview/0",
@@ -30502,7 +30502,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure`, `vent-duty` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "prefab/JuicerPreview/0",
@@ -31162,7 +31162,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure`, `vent-duty` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "prefab/LeadSuitLockerPreview/0",
@@ -31861,7 +31861,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure`, `vent-duty` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "prefab/LiquidBottlerPreview/0",
@@ -32100,7 +32100,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure`, `vent-duty` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "prefab/LiquidConditionerPreview/0",
@@ -32155,7 +32155,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure`, `vent-duty` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "prefab/LiquidConduitBridge/0",
@@ -32174,7 +32174,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure`, `vent-duty` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "prefab/LiquidConduitBridgePreview/0",
@@ -32335,7 +32335,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure`, `vent-duty` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "prefab/LiquidConduitOverflowPreview/0",
@@ -32390,7 +32390,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure`, `vent-duty` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "prefab/LiquidConduitPreferentialFlowPreview/0",
@@ -32463,7 +32463,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure`, `vent-duty` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "prefab/LiquidConduitRadiantPreview/0",
@@ -32918,7 +32918,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure`, `vent-duty` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "prefab/LiquidLimitValvePreview/0",
@@ -32973,7 +32973,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure`, `vent-duty` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "prefab/LiquidLogicValvePreview/0",
@@ -33045,7 +33045,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `pipes`, `liquid-pump` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-duty` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "prefab/LiquidMiniPumpPreview/0",
@@ -33153,7 +33153,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `pipes`, `liquid-pump` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-duty` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "prefab/LiquidPumpPreview/0",
@@ -33207,7 +33207,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `pipes`, `liquid-pump` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-duty` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "prefab/LiquidPumpingStationPreview/0",
@@ -33262,7 +33262,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure`, `vent-duty` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "prefab/LiquidReservoirPreview/0",
@@ -33335,7 +33335,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure`, `vent-duty` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "prefab/LiquidValvePreview/0",
@@ -33389,7 +33389,7 @@
         "managed/MixedAtmospheres.Oni/ColonyOwner.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `pipes`, `vent-overpressure` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `pipes`, `vent-overpressure`, `vent-duty` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "prefab/LiquidVentPreview/0",
@@ -36031,7 +36031,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure`, `vent-duty` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "prefab/MassiveHeatSinkPreview/0",
@@ -36104,7 +36104,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure`, `vent-duty` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "prefab/MechanicalSurfboardPreview/0",
@@ -36213,7 +36213,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure`, `vent-duty` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "prefab/MegaBrainTankPreview/0",
@@ -36358,7 +36358,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure`, `vent-duty` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "prefab/MetalRefineryPreview/0",
@@ -36557,7 +36557,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure`, `vent-duty` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "prefab/MethaneGeneratorPreview/0",
@@ -36720,7 +36720,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure`, `vent-duty` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "prefab/MilkFatSeparatorPreview/0",
@@ -36775,7 +36775,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure`, `vent-duty` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "prefab/MilkFeederPreview/0",
@@ -36848,7 +36848,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure`, `vent-duty` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "prefab/MilkPressPreview/0",
@@ -36903,7 +36903,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure`, `vent-duty` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "prefab/MilkingStationPreview/0",
@@ -37121,7 +37121,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure`, `vent-duty` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "prefab/MissileFabricatorPreview/0",
@@ -39296,7 +39296,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure`, `vent-duty` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "prefab/OilRefineryPreview/0",
@@ -39369,7 +39369,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure`, `vent-duty` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "prefab/OilWellCapPreview/0",
@@ -39771,7 +39771,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure`, `vent-duty` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "prefab/OreScrubberPreview/0",
@@ -40191,7 +40191,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure`, `vent-duty` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "prefab/OxygenMaskLockerPreview/0",
@@ -40391,7 +40391,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure`, `vent-duty` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "prefab/OxyliteRefineryPreview/0",
@@ -40968,7 +40968,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure`, `vent-duty` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "prefab/PetroleumGeneratorPreview/0",
@@ -41535,7 +41535,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure`, `vent-duty` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "prefab/PolymerizerPreview/0",
@@ -45452,7 +45452,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure`, `vent-duty` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "prefab/SaunaPreview/0",
@@ -46023,7 +46023,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure`, `vent-duty` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "prefab/ShowerPreview/0",
@@ -46407,7 +46407,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure`, `vent-duty` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "prefab/SodaFountainPreview/0",
@@ -48638,7 +48638,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure`, `vent-duty` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "prefab/SteamTurbine2Preview/0",
@@ -49165,7 +49165,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure`, `vent-duty` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "prefab/SuitLockerPreview/0",
@@ -50020,7 +50020,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure`, `vent-duty` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "prefab/TelescopePreview/0",
@@ -50820,7 +50820,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure`, `vent-duty` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "prefab/UnderwaterMilkFeederPreview/0",
@@ -51077,7 +51077,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure`, `vent-duty` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "prefab/WallToiletPreview/0",
@@ -51353,7 +51353,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure`, `vent-duty` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "prefab/WashSinkPreview/0",
@@ -51516,7 +51516,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure`, `vent-duty` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "prefab/WaterPurifierPreview/0",
@@ -59735,7 +59735,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-overpressure`, `vent-duty` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "system/critters",
@@ -59887,7 +59887,7 @@
         "managed/MixedAtmospheres.Oni/ColonyOwner.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `pipes`, `vent-overpressure` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `pipes`, `vent-overpressure`, `vent-duty` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "system/filters-separators",
@@ -60128,7 +60128,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `pipes`, `liquid-pump` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `pipes`, `liquid-pump`, `vent-duty` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "system/radiation",
