@@ -197,6 +197,7 @@ namespace MixedAtmospheres.Oni
         // Preferences that live elsewhere follow the current values.
         private static void ApplyPreferences()
         {
+            DebrisSublimationPatch.Configure(Current);
             ApplyWorkers();
             ColonyFrameLog.SetPreference(Current.Toggle("performance.logFrameTiming"));
             var precision = Current.Choice("display.readingPrecision");

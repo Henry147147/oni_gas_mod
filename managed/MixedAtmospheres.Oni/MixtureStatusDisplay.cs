@@ -40,7 +40,7 @@ namespace MixedAtmospheres.Oni
         private int sampleCell = -1;
         private string state = "Loaded", scope = "", measurement = "", composition = "", warning = "", failure = "";
         private GUIStyle? titleStyle, textStyle, hintStyle, buttonStyle;
-        private static readonly Color Accent = new Color(.35f, .91f, .91f);
+        private static readonly Color Accent = Color.white;
         // Shortcut keys (Shift or Ctrl plus the key) and panel defaults are
         // preferences (docs/settings.md); KeyCode.None disables a shortcut.
         private KeyCode overlayKey = KeyCode.F5, detailsKey = KeyCode.F8, findKey = KeyCode.F9, boundaryKey = KeyCode.F10, settingsKey = KeyCode.None;
@@ -137,8 +137,8 @@ namespace MixedAtmospheres.Oni
             catch (Exception error) when (!(error is OutOfMemoryException))
             { Debug.LogWarning("[Mixed Atmospheres] Could not remember the status panel position: " + error.Message); }
         }
-        private static float PanelScale => Mathf.Max(1, Screen.height / 900f);
-        private float PanelWidth(float scale) => Mathf.Min(328, Screen.width / scale - 24);
+        private static float PanelScale => AtmospherePanelStyle.Scale;
+        private float PanelWidth(float scale) => Mathf.Min(280, Screen.width / scale - 24);
 
         internal static void Remove()
         {
@@ -396,10 +396,10 @@ namespace MixedAtmospheres.Oni
             {
                 // ONI's IMGUI skin supplies an italic debug font. Use Unity's
                 // shipped runtime font so this persistent panel stays legible.
-                var font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
-                titleStyle = new GUIStyle(GUI.skin.label) { font = font, fontSize = 15, fontStyle = FontStyle.Bold, wordWrap = false, clipping = TextClipping.Clip };
-                buttonStyle = new GUIStyle(GUI.skin.button) { font = font, fontSize = 12 };
-                textStyle = new GUIStyle(GUI.skin.label) { font = font, fontSize = 14, fontStyle = FontStyle.Normal, wordWrap = true };
+                var font = AtmospherePanelStyle.Font;
+                titleStyle = new GUIStyle(GUI.skin.label) { font = font, fontSize = 13, fontStyle = FontStyle.Bold, wordWrap = false, clipping = TextClipping.Clip };
+                buttonStyle = AtmospherePanelStyle.Button(font);
+                textStyle = new GUIStyle(GUI.skin.label) { font = font, fontSize = 13, fontStyle = FontStyle.Normal, wordWrap = true };
                 hintStyle = new GUIStyle(GUI.skin.label) { font = font, fontSize = 12, fontStyle = FontStyle.Normal, wordWrap = true };
             }
             var previousMatrix = GUI.matrix;
@@ -438,8 +438,7 @@ namespace MixedAtmospheres.Oni
                 top = Mathf.Clamp(top, 0, Mathf.Max(0, screenHeight - height));
                 var rect = new Rect(left, top, width, height);
                 panelRect = new Rect(rect.x * scale, rect.y * scale, rect.width * scale, rect.height * scale);
-                GUI.color = new Color(.08f, .11f, .16f, .97f);
-                GUI.DrawTexture(rect, Texture2D.whiteTexture);
+                AtmospherePanelStyle.DrawWindow(rect, TitleHeight);
                 // Title bar buttons, right to left: close and collapse (colony
                 // only), then Settings (docs/settings.md).
                 GUI.color = Color.white;

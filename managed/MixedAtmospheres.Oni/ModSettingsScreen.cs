@@ -20,9 +20,9 @@ namespace MixedAtmospheres.Oni
     internal sealed class ModSettingsScreen : MonoBehaviour
     {
         private static ModSettingsScreen? instance;
-        private static readonly Color Accent = new Color(.35f, .91f, .91f), Warn = new Color(1, .62f, .3f), Muted = new Color(.72f, .79f, .86f),
-            Panel = new Color(.08f, .11f, .16f, .98f), Row = new Color(.12f, .16f, .22f, 1);
-        private static readonly string[] Tabs = { "Gameplay", "Display & keys", "Advanced" };
+        private static readonly Color Accent = Color.white, Warn = new Color(1, .62f, .3f), Muted = new Color(.72f, .79f, .86f),
+            Row = AtmospherePanelStyle.Rule;
+        private static readonly string[] Tabs = { "Gameplay", "Display & keys", "Advanced", "Storage" };
         private static readonly string[] AdvancedTabs = { "Solver", "Breathing thresholds", "Performance", "Display", "Saved presets" };
         private int advancedTab;
         private bool open, openedInColony;
@@ -141,18 +141,34 @@ namespace MixedAtmospheres.Oni
         }
 
         // The values the colony tabs show and a new preset saves.
-        private static SettingValues Shown => InColony ?
-            (ModSettingsRuntime.Colony ?? SettingValues.Defaults()).WithScope(SettingScope.Preference, ModSettingsRuntime.Current) : ModSettingsRuntime.Current;
+        private static readonly SettingValues emptyColony = SettingValues.Defaults();
+        private static SettingValues? shownColony, shownPreferences, combined;
+        private static SettingValues Shown
+        {
+            get
+            {
+                var preferences = ModSettingsRuntime.Current;
+                if (!InColony) return preferences;
+                var colony = ModSettingsRuntime.Colony ?? emptyColony;
+                if (!ReferenceEquals(colony, shownColony) || !ReferenceEquals(preferences, shownPreferences))
+                {
+                    combined = colony.WithScope(SettingScope.Preference, preferences);
+                    shownColony = colony;
+                    shownPreferences = preferences;
+                }
+                return combined!;
+            }
+        }
 
         private void Styles()
         {
             if (title != null) return;
-            var font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+            var font = AtmospherePanelStyle.Font;
             title = new GUIStyle(GUI.skin.label) { font = font, fontSize = 17, fontStyle = FontStyle.Bold };
             text = new GUIStyle(GUI.skin.label) { font = font, fontSize = 14, fontStyle = FontStyle.Normal, wordWrap = true, richText = false };
             small = new GUIStyle(GUI.skin.label) { font = font, fontSize = 12, fontStyle = FontStyle.Normal, wordWrap = true };
             tagStyle = new GUIStyle(GUI.skin.label) { font = font, fontSize = 12, fontStyle = FontStyle.Bold, wordWrap = false };
-            button = new GUIStyle(GUI.skin.button) { font = font, fontSize = 13, fontStyle = FontStyle.Normal };
+            button = AtmospherePanelStyle.Button(font);
             field = new GUIStyle(GUI.skin.textField) { font = font, fontSize = 14, fontStyle = FontStyle.Normal };
         }
 
@@ -161,14 +177,14 @@ namespace MixedAtmospheres.Oni
             if (!open) return;
             GUI.depth = -1000; // above the status panel
             Styles();
-            var scale = Mathf.Max(1, Screen.height / 900f);
+            var scale = AtmospherePanelStyle.Scale;
             var previousMatrix = GUI.matrix; var previousColor = GUI.color; var previousContent = GUI.contentColor;
             try
             {
                 GUI.matrix = Matrix4x4.Scale(new Vector3(scale, scale, 1));
-                var width = Mathf.Min(860, Screen.width / scale - 32); var height = Mathf.Min(680, Screen.height / scale - 48);
+                var width = Mathf.Min(700, Screen.width / scale - 32); var height = Mathf.Min(530, Screen.height / scale - 48);
                 var rect = new Rect((Screen.width / scale - width) / 2, (Screen.height / scale - height) / 2, width, height);
-                GUI.color = Panel; GUI.DrawTexture(rect, Texture2D.whiteTexture); GUI.color = Color.white;
+                AtmospherePanelStyle.DrawWindow(rect, 39);
                 GUILayout.BeginArea(new Rect(rect.x + 16, rect.y + 12, rect.width - 32, rect.height - 24));
                 Header();
                 GUILayout.Space(6);
@@ -193,6 +209,11 @@ namespace MixedAtmospheres.Oni
                         break;
                     case 1:
                         SettingsTab(SettingCatalog.Display, false); SettingsTab(SettingCatalog.Panel, false); SettingsTab(SettingCatalog.Keys, false); break;
+                    case 3:
+                        SettingsTab(SettingCatalog.Sublimation, false);
+                        GUILayout.Label("Capacity multipliers apply to all colonies after restarting the game. Each building type starts at 1×. Existing contents and delivery limits are kept.", small!);
+                        SettingsTab(SettingCatalog.Containers, false);
+                        break;
                     case 2:
                         Section("Advanced settings");
                         GUILayout.Label("Technical controls for tuning and experiments. The default solver is recommended for ordinary play.", small!);
@@ -254,7 +275,7 @@ namespace MixedAtmospheres.Oni
             GUI.contentColor = Muted;
             GUILayout.Label("Settings folder: " + (ModSettingsRuntime.Store?.Root ?? "unavailable") + (ModSettingsRuntime.Validation ? " (ignored in this validation run)" : ""), small!);
             GUI.contentColor = Color.white;
-            if (GUILayout.Button("Open settings folder", button!, GUILayout.Width(170), GUILayout.Height(26))) ModSettingsRuntime.OpenFolder();
+            if (GUILayout.Button("Open settings folder", button!, GUILayout.Width(142), GUILayout.Height(26))) ModSettingsRuntime.OpenFolder();
             GUILayout.EndHorizontal();
         }
 
@@ -317,7 +338,7 @@ namespace MixedAtmospheres.Oni
                 else if (renaming == entry.Id)
                 {
                     GUILayout.BeginHorizontal();
-                    renameText = GUILayout.TextField(renameText, ModSettingsStore.MaximumNameLength, field!, GUILayout.Width(300));
+                    renameText = GUILayout.TextField(renameText, ModSettingsStore.MaximumNameLength, field!, GUILayout.Width(216));
                     if (GUILayout.Button("Rename", button!, GUILayout.Width(80))) Act(() => { var id = ModSettingsRuntime.Store!.RenamePreset(entry.Id, renameText); Follow(entry.Id, id); renaming = null; return "Renamed to \"" + renameText.Trim() + "\"."; });
                     if (GUILayout.Button("Cancel", button!, GUILayout.Width(80))) renaming = null;
                     GUILayout.EndHorizontal();
@@ -354,13 +375,13 @@ namespace MixedAtmospheres.Oni
             Section("Save and share");
             GUILayout.BeginHorizontal();
             GUILayout.Label("Name", text!, GUILayout.Width(90));
-            newName = GUILayout.TextField(newName, ModSettingsStore.MaximumNameLength, field!, GUILayout.Width(300));
+            newName = GUILayout.TextField(newName, ModSettingsStore.MaximumNameLength, field!, GUILayout.Width(216));
             if (GUILayout.Button(colonyLocked ? "Save this colony's settings" : "Save current settings", button!, GUILayout.Width(220), GUILayout.Height(26)))
                 Act(() => { var id = ModSettingsRuntime.Store!.SavePreset(newName, newDescription, Shown, false); if (!colonyLocked) ModSettingsRuntime.Set(ModSettingsRuntime.Current, id); newName = newDescription = ""; return "Saved preset \"" + id + "\"."; });
             GUILayout.EndHorizontal();
             GUILayout.BeginHorizontal();
             GUILayout.Label("Description", text!, GUILayout.Width(90));
-            newDescription = GUILayout.TextField(newDescription, 200, field!, GUILayout.Width(520));
+            newDescription = GUILayout.TextField(newDescription, 200, field!, GUILayout.ExpandWidth(true));
             GUILayout.EndHorizontal();
             GUILayout.Space(4);
             GUILayout.BeginHorizontal();
@@ -428,10 +449,10 @@ namespace MixedAtmospheres.Oni
                 RowStart();
                 GUILayout.BeginVertical();
                 GUILayout.BeginHorizontal();
-                GUILayout.Label(d.Label, text!, GUILayout.Width(300));
+                GUILayout.Label(d.Label, text!, GUILayout.Width(216));
                 if (d.Key == "performance.workerThreads")
                 {
-                    GUILayout.Label(Display(d, value), text!, GUILayout.Width(170));
+                    GUILayout.Label(Display(d, value), text!, GUILayout.Width(142));
                     workerInput = GUILayout.TextField(workerInput, 3, field!, GUILayout.Width(55));
                     if (GUILayout.Button("Set", button!, GUILayout.Width(44), GUILayout.Height(24)))
                     {
@@ -444,20 +465,20 @@ namespace MixedAtmospheres.Oni
                 else if (d.Kind == SettingKind.Toggle)
                 {
                     GUI.enabled = reason == null;
-                    if (GUILayout.Button((bool)value ? "On" : "Off", button!, GUILayout.Width(170), GUILayout.Height(26))) Change(d, !(bool)value);
+                    if (GUILayout.Button((bool)value ? "On" : "Off", button!, GUILayout.Width(142), GUILayout.Height(26))) Change(d, !(bool)value);
                     GUI.enabled = true;
                 }
                 else
                 {
                     if (reason == null && GUILayout.Button("<", button!, GUILayout.Width(30), GUILayout.Height(24))) Change(d, Step(d, value, -1));
-                    GUILayout.Label(Display(d, value), text!, GUILayout.Width(170));
+                    GUILayout.Label(Display(d, value), text!, GUILayout.Width(142));
                     if (reason == null && GUILayout.Button(">", button!, GUILayout.Width(30), GUILayout.Height(24))) Change(d, Step(d, value, 1));
                 }
                 if (d.IsExperimental(value)) { GUI.contentColor = Warn; GUILayout.Label("experimental", tagStyle!, GUILayout.ExpandWidth(false)); GUI.contentColor = Color.white; }
                 else if (d.Key != "performance.workerThreads" && !Same(value, d.Default)) { GUI.contentColor = Muted; GUILayout.Label("default " + Display(d, d.Default), tagStyle!, GUILayout.ExpandWidth(false)); GUI.contentColor = Color.white; }
                 GUILayout.FlexibleSpace();
                 GUILayout.EndHorizontal();
-                GUI.contentColor = Muted; GUILayout.Label(d.Description, small!);
+                GUI.contentColor = Muted; if (d.Description.Length != 0) GUILayout.Label(d.Description, small!);
                 if (reason != null) GUILayout.Label("Read-only in this colony: " + reason, small!);
                 GUI.contentColor = Color.white;
                 GUILayout.EndVertical();
@@ -492,7 +513,7 @@ namespace MixedAtmospheres.Oni
                 var values = ModSettingsRuntime.Current.With(d.Key, value);
                 var id = d.Scope == SettingScope.Colony ? Matching(values) : ModSettingsRuntime.CurrentPresetId;
                 ModSettingsRuntime.Set(values, id);
-                Say(d.Label + ": " + Display(d, value) + (d.Scope == SettingScope.Colony ? " (for new colonies)." : "."));
+                Say(d.Label + ": " + Display(d, value) + (d.Scope == SettingScope.Colony ? " (for new colonies)." : d.Group == SettingCatalog.Containers ? " (after restart)." : "."));
             }
             catch (FormatException error) { Say(error.Message, true); }
         }

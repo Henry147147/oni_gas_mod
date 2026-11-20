@@ -109,8 +109,28 @@ namespace MixedAtmospheres.Oni
         private static double[] Decades(int from, int to) { var r = new List<double>(); for (var e = from; e <= to; ++e) r.Add(double.Parse("1e" + e.ToString(CultureInfo.InvariantCulture), CultureInfo.InvariantCulture)); return r.ToArray(); }
         internal static readonly string[] KeyChoices = { "None", "F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9", "F10", "F11", "F12" };
 
+        internal const string Sublimation = "Debris sublimation", Containers = "Container capacity";
+        internal const string KeepDebris = "storage.keepLooseDebris", KeepStored = "storage.keepStoredItems";
+        internal const string CapacityPrefix = "storage.capacity.";
+        private static readonly (string Id, string Name)[] ContainerTypes = {
+            ("StorageLocker", "Storage bin"), ("StorageLockerSmart", "Smart storage bin"),
+            ("StorageTile", "Storage tile"), ("ObjectDispenser", "Automatic dispenser"),
+            ("RationBox", "Ration box"), ("Refrigerator", "Refrigerator"),
+            ("GasReservoir", "Gas reservoir"), ("LiquidReservoir", "Liquid reservoir"),
+            ("SolidConduitInbox", "Conveyor loader"), ("SolidConduitOutbox", "Conveyor receptacle"),
+            ("CargoBay", "Solid cargo bay (base game)"), ("GasCargoBay", "Gas cargo bay (base game)"),
+            ("LiquidCargoBay", "Liquid cargo bay (base game)"), ("CargoBayCluster", "Solid cargo bay"),
+            ("GasCargoBayCluster", "Gas cargo canister"), ("LiquidCargoBayCluster", "Liquid cargo tank"),
+            ("SolidCargoBaySmall", "Small solid cargo bay"), ("GasCargoBaySmall", "Small gas cargo canister"),
+            ("LiquidCargoBaySmall", "Small liquid cargo tank")
+        };
+
         internal static readonly IReadOnlyList<SettingDefinition> All = new[]
         {
+            SettingDefinition.Toggle(KeepDebris, SettingScope.Preference, Sublimation, "Stop loose debris sublimation",
+                "Loose items keep their mass. Oxylite on the ground still emits oxygen.", false),
+            SettingDefinition.Toggle(KeepStored, SettingScope.Preference, Sublimation, "Stop sublimation in storage",
+                "Stored items, including oxylite, keep their mass until removed.", false),
             // Profile-5 solver tunables, saved in the colony's physical image.
             SettingDefinition.Number("solver.stepsPerFrame", SettingScope.Colony, Solver, "Solver steps per game tick",
                 "How many solver steps cover each 0.2 s game tick. 2 or 4 resolve fast flow more finely and cost about 2 or 4 times the solver time.",
@@ -211,7 +231,8 @@ namespace MixedAtmospheres.Oni
             SettingDefinition.Choice("keys.findFluid", SettingScope.Preference, Keys, "Find simulated fluid", "Shift or Ctrl plus this key.", "F9", KeyChoices, KeyChoices),
             SettingDefinition.Choice("keys.toggleBoundary", SettingScope.Preference, Keys, "Region outline", "Shift or Ctrl plus this key.", "F10", KeyChoices, KeyChoices),
             SettingDefinition.Choice("keys.openSettings", SettingScope.Preference, Keys, "Open settings", "Shift or Ctrl plus this key.", "None", KeyChoices, KeyChoices),
-        };
+        }.Concat(ContainerTypes.Select(type => SettingDefinition.Number(CapacityPrefix + type.Id, SettingScope.Preference,
+            Containers, type.Name, "", 1, 1, 100, new double[] { 1, 1.5, 2, 3, 5, 10, 20, 50, 100 }, "×"))).ToArray();
         private static readonly Dictionary<string, SettingDefinition> byKey = All.ToDictionary(d => d.Key, StringComparer.Ordinal);
         internal static SettingDefinition Get(string key) => byKey.TryGetValue(key, out var d) ? d : throw new KeyNotFoundException("Unknown setting " + key + ".");
         internal static bool TryGet(string key, out SettingDefinition definition) => byKey.TryGetValue(key, out definition!);

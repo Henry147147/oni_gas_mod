@@ -65,6 +65,19 @@ it. Code: `ModSettings*.cs` (model, files, window, runtime); tests:
   regions only; outside a development session (a sealed development domain or
   a validation scene) the window leaves them out and their shortcuts do
   nothing. Their saved values stay valid in `config.json` and presets.
+- **Storage** has two independent switches, both off initially. One stops
+  loose debris and bottles from sublimating, with an exception for loose
+  oxylite. The other stops stored items, including oxylite, from sublimating.
+  Moving an item changes which switch applies. These preferences apply
+  immediately across colonies. Natural tiles and pools use their usual rules.
+- **Storage → Container capacity** sets a separate multiplier for each bin,
+  storage tile, dispenser, food container, reservoir, conveyor loader or
+  receptacle, and solid, gas or liquid rocket cargo bay type. Each starts
+  at 1×. Choose a step up to 100× in the window or enter a decimal from 1 to
+  100 in the corresponding `storage.capacity.<building ID>` preference in
+  `config.json`. Restart ONI to apply the new capacities to existing and
+  newly built containers. A lower capacity keeps the items already inside.
+  Buildings with a saved delivery limit may also need their slider raised.
 - **Advanced** contains **Solver** (including solver presets), **Breathing
   thresholds** (oxygen minimums, the toxic gas limit, CO₂ thresholds and the
   oxygen ceiling), **Performance**, **Display** and **Saved presets**. Each technical section

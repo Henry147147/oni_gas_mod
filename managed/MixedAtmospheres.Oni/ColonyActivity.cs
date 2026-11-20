@@ -12,6 +12,7 @@ namespace MixedAtmospheres.Oni
         private sealed class Entry
         {
             internal readonly Component Component;
+            internal readonly Transform Transform;
             internal readonly Building? Building;
             internal readonly OccupyArea? Occupancy;
             internal readonly bool Living, Plant;
@@ -23,7 +24,7 @@ namespace MixedAtmospheres.Oni
             internal int Anchor = int.MinValue; // the cell Previous was built around
             internal Entry(Component component)
             {
-                Component = component; var go = component.gameObject;
+                Component = component; Transform = component.transform; var go = component.gameObject;
                 Building = go.GetComponent<Building>(); Occupancy = go.GetComponent<OccupyArea>();
                 Living = go.GetComponent<Brain>() != null || go.GetComponent<MinionIdentity>() != null;
                 Plant = go.GetComponent<Uprootable>() != null || go.GetComponent<Growing>() != null || go.HasTag(GameTags.Plant);
@@ -32,6 +33,10 @@ namespace MixedAtmospheres.Oni
             }
         }
         private static readonly Dictionary<int, Entry> entries = new Dictionary<int, Entry>();
+        // A completed fixed building keeps its grid anchor until cleanup.
+        // Rocket modules (CanMove), creatures and unfinished registrations
+        // still need their transforms inspected during a zero-time refresh.
+        private static readonly List<Entry> mobile = new List<Entry>();
         private static readonly List<int> dead = new List<int>();
         private static readonly Dictionary<int, GameObject> retired = new Dictionary<int, GameObject>();
         private static readonly ColonyActivityCells census = new ColonyActivityCells();
@@ -79,7 +84,7 @@ namespace MixedAtmospheres.Oni
 
         internal static void Reset()
         {
-            entries.Clear(); dead.Clear(); retired.Clear(); census.Reset(); seeded = false; session = 0; Active = false; latestCensus = null; stagedSequence = 0; stagedSeconds = 0; ReplayMigratedActors = StagedFrames = StagedDeliveries = 0;
+            entries.Clear(); mobile.Clear(); dead.Clear(); retired.Clear(); census.Reset(); seeded = false; session = 0; Active = false; latestCensus = null; stagedSequence = 0; stagedSeconds = 0; ReplayMigratedActors = StagedFrames = StagedDeliveries = 0;
             QueuedFrames = ClaimedFrames = LifecycleRefreshes = 0; ActorCount = ActorCells = TouchedCells = LivingActors = Buildings = Plants = InactiveActors = 0; LastSubmittedSequence = 0; Frames.Reset();
             pendingChecks.Clear(); MaskChecks = MaskCellsChecked = MaskBusy = DroppedChecks = 0;
             ++inputs; censusInputs = -1; SettledRefreshes = 0;
@@ -109,13 +114,20 @@ namespace MixedAtmospheres.Oni
             entries.Add(identity, new Entry(component)); ++inputs;
         }
         internal static void Spawned(Component component)
-        { ++inputs; retired.Remove(component.gameObject.GetInstanceID()); Register(component); }
+        {
+            // A tracked prefab can finish spawning more components. Debris
+            // spawning elsewhere changes none of the registered footprints.
+            var id = component.gameObject.GetInstanceID();
+            if (entries.ContainsKey(id)) ++inputs;
+            retired.Remove(id);
+            Register(component);
+        }
         internal static void Retire(Component component)
         {
             if (component == null) return;
-            ++inputs;
             var id = component.gameObject.GetInstanceID();
             if (!entries.Remove(id)) return;
+            ++inputs;
             retired[id] = component.gameObject; census.Retire(id);
         }
         private static void SeedAndUnion()
@@ -153,12 +165,14 @@ namespace MixedAtmospheres.Oni
             censusInputs = -1;
             SeedAndUnion(); census.Begin(Grid.WidthInCells, Grid.HeightInCells); dead.Clear();
             LivingActors = Buildings = Plants = InactiveActors = 0;
+            mobile.Clear();
             foreach (var pair in entries)
             {
                 var e = pair.Value; if (e.Component == null) { dead.Add(pair.Key); continue; }
                 if (e.Living) ++LivingActors; if (e.Building != null) ++Buildings; if (e.Plant) ++Plants;
                 if (!e.Component.gameObject.activeInHierarchy) ++InactiveActors;
-                var anchor = Grid.PosToCell(e.Component.transform.position);
+                if (e.Living || e.Building == null || !e.Building.isSpawned || e.Building.Def == null || e.Building.Def.CanMove) mobile.Add(e);
+                var anchor = Grid.PosToCell(e.Transform.position);
                 e.Anchor = anchor;
                 BeginFootprint(footprint); footprint.Add(anchor);
                 if (e.Living)
@@ -219,11 +233,8 @@ namespace MixedAtmospheres.Oni
                 BitConverter.DoubleToInt64Bits(censusTime) != BitConverter.DoubleToInt64Bits(Time.timeAsDouble) ||
                 censusMinions != Components.LiveMinionIdentities.Count || censusBrains != Components.Brains.Count ||
                 censusBuildings != Components.BuildingCompletes.Count || censusUprootables != Components.Uprootables.Count) return false;
-            foreach (var pair in entries)
-            {
-                var e = pair.Value;
-                if (e.Component == null || Grid.PosToCell(e.Component.transform.position) != e.Anchor) return false;
-            }
+            foreach (var e in mobile)
+                if (e.Component == null || Grid.PosToCell(e.Transform.position) != e.Anchor) return false;
             return true;
         }
         private static void ValidateGameFootprint(Entry entry)

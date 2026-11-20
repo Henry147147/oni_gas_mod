@@ -40,6 +40,11 @@ static class Program
                 d.Scope == SettingScope.Preference,
                 "colony keys are solver, breathing, activity, the phase rule or the source energy: " + d.Key);
         }
+        var capacities = SettingCatalog.All.Where(d => d.Group == SettingCatalog.Containers).ToArray();
+        var defaults = SettingValues.Defaults();
+        Check(capacities.Length > 0 && capacities.All(d => defaults.Number(d.Key) == 1) &&
+            !defaults.Toggle(SettingCatalog.KeepDebris) && !defaults.Toggle(SettingCatalog.KeepStored), "storage options default to ONI behaviour");
+        Throws<FormatException>(() => defaults.With("storage.capacity.StorageLocker", .5), "shrinking the base storage capacity");
         // Default reproduces today's profile 5 exactly (oni_colony.cpp default_options_value).
         var native = SettingValues.Defaults().ToNative();
         Check(native.PressureMaximumIterations == 400 && native.HeatMaximumIterations == 800 && native.FlowParts == 2 && native.SharpenLiquidInterfaces == 1 &&
@@ -191,7 +196,8 @@ static class Program
         File.WriteAllText(Path.Combine(root, "appearance.json"), "{\"PatternEnabled\":true,\"PatternContrast\":0.08}");
         Check(store.Load().Values.Number("display.patternContrast") == .08, "appearance contrast migrates");
         // Round trip of every value.
-        var values = BuiltInPresets.Find("strict-breathing")!.Values.With("display.readingPrecision", "exact").With("keys.findFluid", "F7").With("panel.expanded", false).With("performance.workerThreads", 30.0);
+        var values = BuiltInPresets.Find("strict-breathing")!.Values.With("display.readingPrecision", "exact").With("keys.findFluid", "F7").With("panel.expanded", false).With("performance.workerThreads", 30.0)
+            .With(SettingCatalog.KeepStored, true).With("storage.capacity.StorageLocker", 2.5);
         store.Save(values, "strict-breathing");
         loaded = store.Load();
         Check(loaded.Values.Equals(values) && loaded.PresetId == "strict-breathing" && loaded.Notices.Count == 0, "config round trip");

@@ -88,6 +88,7 @@ namespace MixedAtmospheres.Oni
                     case "playtest-pump-vent": PlaytestPumpVent(frame, status); break;
                     case "pipes": Pipes(frame); break;
                     case "door": DoorCycle(frame, status); break;
+                    case "storage-options": StorageOptions(frame); break;
                     case "sublimation": Sublimation(frame, status); break;
                     case "natural-sublimation": NaturalSublimation(frame); break;
                     case "falling": Falling(frame); break;
