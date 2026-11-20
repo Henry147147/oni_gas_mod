@@ -89,8 +89,25 @@ lookups, 230 patched methods).
   old build (140 and 141): the game update costs no speed. The same save
   loads and runs in the Linux player; the status panel, the Atmospheres
   button beside Vitals and the colony render as before.
-- The quick acceptance tier runs on the release commit; its result is added
-  here when it ends.
+- **The quick acceptance tier on the release commit was not completed.** It
+  ended when the session that started it restarted, after 20 of its 46
+  steps: both builds, twelve of the fifteen Linux scenario batches and three
+  worldgen clusters passed; none of the Windows steps had started. Three
+  Linux batches failed (`linux-b2` in building-melt, `linux-b9` in
+  rocket-exhaust, `linux-b13` in storage-ledger), and the cause is the
+  suite, not the mod: its Linux batch and cluster steps did not select the
+  game content, the Linux copy of the game includes Spaced Out! since this
+  build, and so the base-game scenarios ran in a Spaced Out! cluster (the
+  step's log shows the expansion loaded; rocket-exhaust builds a base-game
+  rocket that does not exist there). `linux-b2` passes again from the
+  suite's own package with the base game selected; the other two were not
+  re-run, because a newer game build replaced 763796 in the copies first.
+  The suite now pins the base game for these steps, as the Proton runner
+  always did. Whether building-melt and storage-ledger also show something
+  real inside a Spaced Out! cluster has not been looked into.
+- 1.10.1 was superseded the same night: Steam delivered the hotfix build
+  764025, which 1.10.1 refuses like any unverified build
+  ([1.10.2](playtest-1.10.2.md)).
 
 Not tested: Windows itself. The Windows player ran under Proton only.
 
