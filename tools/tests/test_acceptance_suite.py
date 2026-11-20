@@ -314,6 +314,7 @@ class GuardTests(unittest.TestCase):
         output = self.root / "prepared"
         write(output / "result.json", {"status": "passed-colony-owner-load", "exit_code": 0, "source_revision": REVISION,
                                         "source_dirty": False, "owner_environment_overrides": False,
+                                        "game_build": suite.mod_identity.INSPECTED_ONI_BUILD,
                                         "colony_report": {"LongRun": True, "Duplicants": 3}})
         (output / "input-colony.sav").write_bytes(save_bytes({"isAutoSave": False, "numberOfDuplicants": 3}))
         with self.assertRaises(suite.Refused):

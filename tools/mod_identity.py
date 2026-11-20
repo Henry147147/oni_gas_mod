@@ -10,21 +10,31 @@ from __future__ import annotations
 
 from pathlib import Path
 import re
+import hashlib
+import xml.etree.ElementTree as ET
 
 ROOT = Path(__file__).resolve().parents[1]
 STATIC_ID = "MixedAtmospheres"
 TITLE = "Mixed Atmospheres"
 DEV_FOLDER = "MixedAtmospheres.IntegrationProbe"
-# The game build the managed contract and the packages are written against,
-# which is also the only build a package accepts: the game compiles its build
-# number into the save and load methods the mod patches, so the contract of
-# one build never verifies on another. Retargeting: docs/game-update-resilience.md.
-INSPECTED_ONI_BUILD = 764025
-MINIMUM_SUPPORTED_BUILD = INSPECTED_ONI_BUILD
-# Builds whose SimDLL images have a verified native profile. The Linux image
-# of 763796 and 764025 is byte for byte that of 744825, so its profile reports
-# 744825.
-SUPPORTED_NATIVE_BUILDS = (744825, 763796, 764025)
+# Shared with MSBuild so the packaged builds and their API variants agree.
+GAME_BUILDS = {int(node.attrib["Include"]): node.attrib
+               for node in ET.parse(ROOT / "managed/OniBuilds.targets").findall("./ItemGroup/OniRelease")}
+INSPECTED_ONI_BUILD = max(GAME_BUILDS)
+MINIMUM_SUPPORTED_BUILD = min(GAME_BUILDS)
+SUPPORTED_NATIVE_BUILDS = tuple(sorted(GAME_BUILDS))
+
+
+def installed_build(game: Path, platform: str) -> int:
+    managed = game / "OxygenNotIncluded_Data/Managed/Assembly-CSharp.dll"
+    key = {"linux-x64": "LinuxManaged", "windows-x64": "WindowsManaged"}[platform]
+    digest = hashlib.sha256(managed.read_bytes()).hexdigest()
+    for build, files in GAME_BUILDS.items():
+        if files[key] == digest:
+            return build
+    raise ValueError(f"Unregistered {platform} game assembly in {game}")
+
+
 API_VERSION = 2
 PROJECT = ROOT / "managed/MixedAtmospheres.Oni/MixedAtmospheres.Oni.csproj"
 
@@ -41,8 +51,8 @@ def version(project: Path = PROJECT) -> str:
     return found[0]
 
 
-def mod_info(version_text: str) -> str:
-    return (f"minimumSupportedBuild: {MINIMUM_SUPPORTED_BUILD}\n"
+def mod_info(version_text: str, build: int = INSPECTED_ONI_BUILD) -> str:
+    return (f"minimumSupportedBuild: {build}\n"
             f'version: "{version_text}"\nAPIVersion: {API_VERSION}\n')
 
 

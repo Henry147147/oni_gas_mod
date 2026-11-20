@@ -11,6 +11,9 @@ internal static class ClusterRetirementTests
         var destroy=typeof(ClusterManager).GetMethod("DestoryRocketInteriorWorld",all)!;
         Check(destroy.GetParameters().Select(p=>p.ParameterType).SequenceEqual(new[]{typeof(int),typeof(ClustercraftExteriorDoor)}),"Rocket destruction signature changed.");
         var delete=typeof(ClusterManager).GetMethod("DeleteWorldObjects",all)!;
+#if ONI_DIRECT_ROCKET_DELETE
+        Check(delete.GetParameters().Single().ParameterType==typeof(WorldContainer),"Rocket native cleanup lost its world parameter.");
+#else
         // Since build 763796 the cleanup takes no world: it handles the queue of
         // pending records, each with the fields the adapter finishes a held one with.
         Check(delete.GetParameters().Length==0&&delete.ReturnType==typeof(void),"Rocket native cleanup no longer handles the pending queue.");
@@ -31,6 +34,7 @@ internal static class ClusterRetirementTests
         Check(deletePatch.GetMethod("Prefix",all)?.GetParameters().Single().ParameterType==typeof(ClusterManager)&&deletePatch.GetMethod("Prefix",all)!.ReturnType==typeof(void)&&
             deletePatch.GetMethod("Finalizer",all)?.GetParameters().Single().ParameterType==typeof(ClusterManager),
             "The cleanup patch must take held records out before the game's call and return them after it, whatever it throws.");
+#endif
         var resources=typeof(WorldContainer).GetMethod("TransferLiquidsSolidsAndGases",all)!;
         Check(resources.GetParameters().Length==2&&resources.GetParameters()[1].ParameterType==typeof(HashSet<int>),"Landed recovery signature changed.");
         var debris=typeof(WorldContainer).GetMethod("TransferLiquidsSolidsAndGasesToDebris",all)!;

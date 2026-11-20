@@ -1,5 +1,51 @@
 # Game-update resilience
 
+## Supported builds in 1.11.0
+
+One installation serves ONI 744825, 763796 and 764025 on Windows and Linux x64.
+The package root targets the newest build. Every earlier build has a complete
+loadable content folder under `archived_versions/<build>/`. ONI selects the
+highest eligible `minimumSupportedBuild`. The selected adapter checks its
+compiled game build, the build in its platform contract, the running game,
+and the existing managed dependencies and native profiles. A build between
+two registered numbers or newer than the last one is refused. The mod ID,
+settings directory and save format are shared across the three builds.
+Mixture saves can move forward across these builds under the existing
+catalogue and format checks. Saves from a newer game still require that
+game build or a later supported one.
+
+### Keeping an earlier build working
+
+1. Keep both licensed reference installations for the outgoing build beside
+   the latest ones, with `-<build>` appended to each directory name. Keep
+   the outgoing entry in [the build registry](../managed/OniBuilds.targets).
+2. Inspect the incoming game with the [retarget procedure](#retargeting-a-new-build).
+   For initial comparisons, the offline contract generator can inspect new
+   installations before a package exists. Review game API, native profile and
+   catalogue differences, then add one registry row with the new build number,
+   both managed assembly hashes and the Windows simulator hash. Keep the native
+   profile for each distinct inspected simulator. If an API needs a different
+   implementation, name the feature in the affected rows. The managed build
+   selects it by the reference assembly hash. Both rocket-removal paths share
+   the same recovery and save-barrier code.
+3. Build the current managed adapter against the newest Windows and Linux
+   installations and run the normal release packager. It rebuilds every older
+   adapter from the same source tree, compares both platforms' managed outputs,
+   generates contracts against their own games and checks them before writing
+   the manifest. Every runtime payload is covered by that manifest. A private
+   probe also includes its platform's archives by default. For development
+   with one game installation, use `package_probe.py --single-build --game-dir DIR`.
+4. Run `tools/build.py --game-dir DIR --oni-native-observer` and the
+   release acceptance tier. To test an earlier game, pass its `--linux-game`
+   and `--windows-game` installations to `tools/acceptance_suite.py run REV
+   --tier release --keep-going`. Results and single-build test packages for
+   earlier games are stored separately under the revision and build number.
+   Also run the complete distribution folder on each game and platform to
+   exercise ONI's archive selection, including saving and reloading.
+
+The records below describe the original verification mechanism and the
+single-build packages through 1.10.2.
+
 **Status (2026-10-27): implemented.** Packages carry `game-contract.json`, the
 native library selects SimDLL profiles by normalised identity, and mixture saves
 load across verified builds. The in-game run and remaining gaps are under
@@ -253,14 +299,10 @@ run a game check before committing them. The Linux private chunk-heat location
 so a carried Linux image also needs its new hash added there; the Windows one
 is found again from its PDB record and registered the same way.
 
-After the profiles: set `INSPECTED_ONI_BUILD` and `SUPPORTED_NATIVE_BUILDS` in
-`tools/mod_identity.py`, the build constants in `IntegrationProbe.cs` and
-`ColonyRuntimeValidation.cs`, the pinned file hashes in
-`tools/oni_proton_headless.py` and `tools/NativeShadowProbe/Program.cs`, and
-the native-hook facts and the profile file's hash in
-`docs/coverage-inventory.json`. The team's copies of the new build take the
-default folder names; the previous build's copies are kept beside them under
-their build number ([installations](../tools/ONI_ENVIRONMENT.md#installations-and-pinned-build)).
+After the profiles, add the new reference hashes to `managed/OniBuilds.targets`
+and update the native-hook facts in `docs/coverage-inventory.json` and the
+shadow probe's reference if it changes. Keep the older builds as described
+[above](#keeping-an-earlier-build-working).
 
 ## Implementation
 

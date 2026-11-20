@@ -8,7 +8,7 @@ New colonies keep vanilla generated oxygen and polluted oxygen. Nitrogen content
 
 Plan sustainable oxygen production early. CO₂ still displaces oxygen, so an oxygen-poor room remains unsafe with CO₂ limits off. If you enable the limits, arrange CO₂ removal too. Use the Oxygen margin overlay to see how much oxygen a room has to spare, and the Breathability overlay to see why a tile cannot be breathed.
 
-Mixed Atmospheres is a private playtest build for Windows x64 and Linux. It applies to new base-game and Spaced Out! colonies, ONI build 764025, licensed through Steam. Spaced Out! can remain enabled; keep the other gameplay packs disabled for this playtest. Existing vanilla saves keep their vanilla simulation. The Windows build has been tested under Proton; Windows validation is part of your own playtest. Final release-candidate acceptance is still in progress, so this is preparation for private playtesting, not a public release. There is no Workshop release.
+Mixed Atmospheres is a private playtest build for Windows x64 and Linux. It applies to new base-game and Spaced Out! colonies, ONI builds 744825, 763796 and 764025, licensed through Steam. Spaced Out! can remain enabled; keep the other gameplay packs disabled for this playtest. Existing vanilla saves keep their vanilla simulation. The Windows build has been tested under Proton; Windows validation is part of your own playtest. Final release-candidate acceptance is still in progress, so this is preparation for private playtesting, not a public release. There is no Workshop release.
 
 ![Mixed Atmospheres gameplay during development](docs/images/mixed-atmospheres-gameplay.png)
 
@@ -68,7 +68,7 @@ requirements below.
    cmake -S . -B build-production -DCMAKE_BUILD_TYPE=Release -DMA_BUILD_ONI_NATIVE_BACKEND=ON
    cmake --build build-production -j 8
    dotnet build managed/MixedAtmospheres.Oni -c Release -p:OniGameDir="$ONI_GAME_DIR"
-   python3 tools/package_probe.py --native build-production/libmixed_atmospheres.so \
+   python3 tools/package_probe.py --single-build --native build-production/libmixed_atmospheres.so \
      --native-observer build-production/libmixed_atmospheres_oni.so --output artifacts/play
    ```
 

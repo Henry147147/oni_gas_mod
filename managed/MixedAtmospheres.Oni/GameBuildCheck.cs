@@ -15,6 +15,8 @@ namespace MixedAtmospheres.Oni
     // original exact-build check in IntegrationProbe.VerifyContract.
     internal static class GameBuildCheck
     {
+        // Embedded from the references used to compile this adapter, also checked by the packager.
+        internal const int CompiledBuild = (int)KleiVersion.ChangeList;
         internal static string Platform => RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? "windows-x64" : "linux-x64";
         internal static GameContractPlatform? Contract { get; private set; }
         internal static int CheckedEntries { get; private set; }
@@ -38,7 +40,12 @@ namespace MixedAtmospheres.Oni
         {
             Contract = null;
             var file = Path.Combine(modDirectory, GameContractFile.FileName);
-            if (!File.Exists(file)) return null;
+            if (!File.Exists(file))
+            {
+                if (File.Exists(Path.Combine(modDirectory, "development.json")) && RunningBuild == 744825 && CompiledBuild == 744825)
+                    return null;
+                return new List<string> { "the game contract is missing; reinstall the mod" };
+            }
             var started = System.Diagnostics.Stopwatch.StartNew();
             GameContractFile contract;
             try { contract = GameContractFile.Parse(File.ReadAllText(file)); }
@@ -48,6 +55,10 @@ namespace MixedAtmospheres.Oni
                 return new List<string> { "the mod's game contract belongs to a different build of the mod; reinstall the mod" };
             if (!contract.Platforms.TryGetValue(Platform, out var platform))
                 return new List<string> { "this package has no game contract for " + Platform };
+            if (platform.GameBuild != CompiledBuild)
+                return new List<string> { $"the packaged contract is for build {platform.GameBuild}, but the adapter targets {CompiledBuild}" };
+            if (platform.GameBuild != RunningBuild)
+                return new List<string> { $"this adapter was verified for build {platform.GameBuild}" };
             var differences = GameContractCheck.Verify(platform, typeof(GameBuildCheck).Assembly, out var checkedEntries);
             CheckedEntries = checkedEntries; Milliseconds = started.Elapsed.TotalMilliseconds;
             if (differences.Count != 0) return differences;

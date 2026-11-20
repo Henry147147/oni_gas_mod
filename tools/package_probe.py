@@ -12,6 +12,7 @@ import subprocess
 import tarfile
 from build_linux_compat import glibc_versions_within_limit
 import game_contract
+import package_game_versions
 import mod_identity
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -164,9 +165,10 @@ def main() -> None:
     parser.add_argument("--coupled-reference", type=Path, help="Optional explicit closed-reference library for private presentation validation")
     parser.add_argument("--native-observer", type=Path, help="Opt-in SimDLL backend from its CMake build directory; forwards by default, experimental sealed domains require separate validation")
     parser.add_argument("--native-build-info", type=Path, help="Completed Linux compatibility build report, checked against all supplied native binaries")
-    parser.add_argument("--oni-build", type=int, default=mod_identity.INSPECTED_ONI_BUILD, help="Verified ONI build number, not Steam BuildID")
+    parser.add_argument("--oni-build", type=int, help="Require this ONI build (default: identify the game installation)")
     parser.add_argument("--game-dir", type=Path, help="Licensed installation for the managed game contract "
                         "(default: ONI_GAME_DIR_WINDOWS/ONI_GAME_DIR_LINUX/ONI_GAME_DIR or the team's share copy)")
+    parser.add_argument("--single-build", action="store_true", help="Build a targeted development probe without older game archives")
     parser.add_argument("--no-game-contract", action="store_true",
                         help="Omit game-contract.json: the mod then accepts only the exact assemblies of the first inspected build")
     parser.add_argument("--allow-stale-managed", action="store_true",
@@ -174,8 +176,6 @@ def main() -> None:
     parser.add_argument("--private-file-protocol-validator", type=Path,
                         help="Optional normal-source Windows Mono fixture DLL; never a save/load permission")
     args = parser.parse_args()
-    if args.oni_build != mod_identity.INSPECTED_ONI_BUILD:
-        parser.error(f"This probe was inspected against ONI {mod_identity.INSPECTED_ONI_BUILD}. Reinspect and update the contract before packaging another build.")
     if args.native.name not in ("libmixed_atmospheres.so", "mixed_atmospheres.dll") or not args.native.is_file():
         parser.error("Supply a built Linux or Windows native library")
     coupled = args.coupled_reference
@@ -221,14 +221,26 @@ def main() -> None:
     output.mkdir(parents=True, exist_ok=True)
     if any(output.iterdir()):
         parser.error("Output must be empty so a previous package cannot leave stale or game-owned DLLs")
+    platform = "windows-x64" if args.native.suffix == ".dll" else "linux-x64"
+    if args.no_game_contract:
+        if args.oni_build not in (None, 744825):
+            parser.error("The contract-free development mode requires build 744825")
+        args.oni_build = 744825
+    else:
+        games = {platform: game_contract.game_root(platform, args.game_dir)}
+        installed = mod_identity.installed_build(games[platform], platform)
+        if args.oni_build is not None and args.oni_build != installed:
+            parser.error(f"The reference game is build {installed}, expected {args.oni_build}")
+        if not args.single_build and installed != mod_identity.INSPECTED_ONI_BUILD:
+            parser.error("Use the latest installation for a multi-build package or select --single-build")
+        args.oni_build = installed
     for file in files[:2]:
         shutil.copy2(file, output / file.name)
     rid = "win-x64" if args.native.suffix == ".dll" else "linux-x64"
     if not args.no_game_contract:
         # The managed game contract for exactly these DLLs (docs/game-update-resilience.md).
-        platform = "windows-x64" if rid == "win-x64" else "linux-x64"
         try:
-            game_contract.generate(managed, {platform: game_contract.game_root(platform, args.game_dir)}, output / game_contract.FILE_NAME)
+            package_game_versions.write_contract(output, games, output, args.oni_build)
         except ValueError as error:
             shutil.rmtree(output, ignore_errors=True)
             parser.error(str(error))
@@ -258,7 +270,7 @@ def main() -> None:
     (output / "mod.yaml").write_text(mod_identity.mod_yaml(
         f"Private base-game and Spaced Out! playtest build ({platform_name}). The mod's own solver runs every gas and "
         "liquid of a new colony; existing saves keep ONI's simulation."), encoding="utf-8")
-    (output / "mod_info.yaml").write_text(mod_identity.mod_info(mod_identity.version() + "-probe"), encoding="utf-8")
+    (output / "mod_info.yaml").write_text(mod_identity.mod_info(mod_identity.version() + "-probe", args.oni_build), encoding="utf-8")
     # Development packages keep the reports and licensed-data exports the
     # harnesses read beside the mod; release packages never carry this file.
     (output / "development.json").write_text(json.dumps(
@@ -279,7 +291,15 @@ def main() -> None:
         encoding="utf-8")
     if build_info is not None:
         (output / "native-build-provenance.json").write_text(json.dumps(build_info, indent=2) + "\n", encoding="utf-8")
-    manifest = {"kind": "integration-probe", "release_ready": False, "inspected_oni_build": args.oni_build,
+    supported = [args.oni_build]
+    if not args.single_build and not args.no_game_contract:
+        try:
+            package_game_versions.write_archives(output, games, mod_identity.version() + "-probe")
+        except (OSError, ValueError, subprocess.CalledProcessError):
+            shutil.rmtree(output, ignore_errors=True)
+            raise
+        supported = sorted(mod_identity.GAME_BUILDS)
+    manifest = {"supported_builds": supported, "kind": "integration-probe", "release_ready": False, "inspected_oni_build": args.oni_build,
                 "source_revision": revision, "source_dirty": dirty, "source_status": status,
                 "native_observer_enabled": observer is not None,
                 "native_build_provenance": "native-build-provenance.json" if build_info is not None else None,

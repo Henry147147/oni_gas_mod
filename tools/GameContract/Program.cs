@@ -18,7 +18,7 @@ static class Program
     static int Main(string[] args)
     {
         if (args.Length == 0) return Usage();
-        string? modDirectory = null, output = null, contract = null; var raw = false;
+        string? modDirectory = null, output = null, contract = null, packageVersion = null; var raw = false;
         var games = new List<(string platform, string root)>();
         for (var i = 1; i < args.Length; ++i)
         {
@@ -28,6 +28,7 @@ static class Program
                 case "--mod": modDirectory = Next(); break;
                 case "--output": output = Next(); break;
                 case "--contract": contract = Next(); break;
+                case "--package-version": packageVersion = Next(); break;
                 case "--raw": raw = true; break;
                 case "--game":
                     var value = Next(); var split = value.IndexOf('=');
@@ -41,7 +42,7 @@ static class Program
         var modPath = Path.GetFullPath(Path.Combine(modDirectory, "MixedAtmospheres.Oni.dll"));
         switch (args[0])
         {
-            case "generate" when output != null: return Generate(modPath, games, output, raw);
+            case "generate" when output != null: return Generate(modPath, games, output, raw, packageVersion);
             case "verify" when contract != null: return Verify(modPath, games, contract, controls: false);
             case "controls" when contract != null: return Verify(modPath, games, contract, controls: true);
             default: return Usage();
@@ -86,7 +87,7 @@ static class Program
         catch (TargetInvocationException error) { Console.Error.WriteLine((error.InnerException ?? error).ToString()); throw error.InnerException ?? error; }
     }
 
-    static int Generate(string modPath, List<(string platform, string root)> games, string output, bool raw)
+    static int Generate(string modPath, List<(string platform, string root)> games, string output, bool raw, string? packageVersion)
     {
         var file = new JsonObject { ["SchemaVersion"] = 1, ["ModuleVersionId"] = "", ["Platforms"] = new JsonObject() };
         if (games.Count > 1)
@@ -101,6 +102,7 @@ static class Program
                 if (Path.GetFileNameWithoutExtension(self) == "dotnet") start.ArgumentList.Add(Assembly.GetEntryAssembly()!.Location);
                 foreach (var argument in new[] { "generate", "--mod", Path.GetDirectoryName(modPath)!, "--game", platform + "=" + root, "--output", part }) start.ArgumentList.Add(argument);
                 if (raw) start.ArgumentList.Add("--raw");
+                if (packageVersion != null) { start.ArgumentList.Add("--package-version"); start.ArgumentList.Add(packageVersion); }
                 using (var child = Process.Start(start)!) { child.WaitForExit(); if (child.ExitCode != 0) return child.ExitCode; }
                 var single = JsonNode.Parse(File.ReadAllText(part))!;
                 File.Delete(part);
@@ -113,6 +115,13 @@ static class Program
         foreach (var (platform, root) in games)
         {
             var host = Load(modPath, platform, root);
+            if (packageVersion != null)
+            {
+                var compiled = host.Mod.GetType("MixedAtmospheres.Oni.GameBuildCheck")?.GetField("CompiledBuild", BindingFlags.Static | BindingFlags.NonPublic)?.GetRawConstantValue();
+                var version = host.Mod.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion;
+                if (!Equals(compiled, host.Build) || version != packageVersion)
+                    throw new InvalidDataException($"Adapter targets game {compiled}, mod {version}. Packaging requires game {host.Build}, mod {packageVersion}.");
+            }
             var node = JsonNode.Parse((string)Call(host.Check, "Generate", host.Mod, host.Build, host.AssemblyHash, raw)!)!;
             file["ModuleVersionId"] = host.Mod.ManifestModule.ModuleVersionId.ToString("D");
             file["Platforms"]![platform] = node;

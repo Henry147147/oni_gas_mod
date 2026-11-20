@@ -541,6 +541,16 @@ def stage_package(package: Path, mod: Path, manifest: dict, platform: str = "lin
         raise ValueError("Copied package manifest differs from the verified source manifest.")
 
 
+def validation_folder(mod: Path, manifest: dict, game_build: int) -> Path:
+    """Write test requests where ONI will load this build's mod content."""
+    builds = manifest.get("supported_builds")
+    if builds is None:  # pre-1.11 packages have only root content
+        return mod
+    if game_build not in builds:
+        raise ValueError(f"The package does not support the test game build {game_build}")
+    return mod if game_build == max(builds) else mod / "archived_versions" / str(game_build)
+
+
 def mono_label_version(value: str) -> int:
     # KMod's local labels use this pinned Mono string hash.
     first = second = 5381
@@ -1058,6 +1068,8 @@ def playtest(args, state: Path, session: dict) -> int:
         raise ValueError("Test mod ID must be one safe local directory name")
     mod = profile / "mods/Dev" / mod_id
     stage_package(package, mod, manifest)
+    if manifest.get("supported_builds"):
+        mod = validation_folder(mod, manifest, mod_identity.installed_build(game, "linux-x64"))
     if dlc_mask is not None:
         oni_dlc.write_preferences(profile, dlc_mask)
     write_json(profile / "mods/mods.json", {"version": 1, "mods": [{

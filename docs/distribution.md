@@ -35,6 +35,12 @@ colony harnesses accept this shape for private game checks, applying the same
 complete-file and hash checks as a release folder. A release test is not a
 release gate pass or an upload artifact.
 
+For 1.11.0, the packager reads all supported builds from `managed/OniBuilds.targets`.
+The root is the newest build. Each earlier build has its own managed pair, exact
+contract, native libraries and `mod_info.yaml` under `archived_versions/<build>`.
+Keep all these folders together in an installation. The archive procedure is in
+[game-update resilience](game-update-resilience.md#keeping-an-earlier-build-working).
+
 The folder is what the Workshop serves into `mods/Steam/<id>`:
 
 - `MixedAtmospheres.Oni.dll` and `MixedAtmospheres.Core.dll` at the root. ONI
@@ -140,7 +146,7 @@ load of that save passes `passed-colony-owner-load`. These are smoke runs only.
 | `staticID` | `MixedAtmospheres` (every package) | Harmony owner ID and Mods-screen lookup only |
 | Title | Mixed Atmospheres | Mods list |
 | Version | the managed project's `<Version>` | DLL version and `mod_info.yaml`; probe packages add `-probe` |
-| `minimumSupportedBuild` | 744825 | The earliest verified game build |
+| `minimumSupportedBuild` | Per content folder | ONI selects the highest eligible build. The manifest lists every supported build back to 744825. |
 | Private Dev folder | `mods/Dev/MixedAtmospheres.IntegrationProbe` | Unchanged, so the user's `mods.json` entry stays enabled |
 
 All of these come from `tools/mod_identity.py`. Inspection of ONI 744825's

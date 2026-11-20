@@ -9,7 +9,7 @@
     <OniManagedDir>$(OniGameDir)/OxygenNotIncluded_Data/Managed</OniManagedDir>
     <!-- The one version (tools/mod_identity.py): the DLL carries it and every
          package's mod_info.yaml is written from it; private probe packages add "-probe". -->
-    <Version>1.10.2</Version>
+    <Version>1.11.0</Version>
     <InformationalVersion>$(Version)</InformationalVersion>
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
   </PropertyGroup>
@@ -35,4 +35,5 @@
     <Error Condition="!Exists('$(OniManagedDir)/Assembly-CSharp.dll')" Text="A licensed ONI installation is required. Set ONI_GAME_DIR or /p:OniGameDir to its root. Run tools/inspect_oni.py first." />
   </Target>
   <ItemGroup><InternalsVisibleTo Include="MixedAtmospheres.Tests" /></ItemGroup>
+  <Import Project="../OniBuilds.targets" />
 </Project>

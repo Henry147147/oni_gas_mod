@@ -99,7 +99,7 @@ namespace MixedAtmospheres.Oni
     internal sealed class RuntimeCoverageReport
     {
         [DataMember] public int SchemaVersion = 1;
-        [DataMember] public string OniBuild = "744825", Kind = "runtime-registry-discovery", AssemblySha256 = "", Platform = "";
+        [DataMember] public string OniBuild = KleiVersion.ChangeList.ToString(System.Globalization.CultureInfo.InvariantCulture), Kind = "runtime-registry-discovery", AssemblySha256 = "", Platform = "";
         [DataMember] public bool CoverageComplete = false, AuthoritativeColonySimulationReady = false;
         [DataMember] public bool PrefabRegistryInitialized, RecipeRegistryInitialized;
         // Main-menu loaded content is not a colony's selected content mask.

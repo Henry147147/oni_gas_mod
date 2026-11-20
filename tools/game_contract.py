@@ -10,6 +10,8 @@ import os
 from pathlib import Path
 import subprocess
 
+import mod_identity
+
 ROOT = Path(__file__).resolve().parents[1]
 PROJECT = ROOT / "tools/GameContract"
 FILE_NAME = "game-contract.json"
@@ -20,7 +22,11 @@ DEFAULT_GAMES = {"windows-x64": Path("/mnt/data/share/oni/OxygenNotIncluded"),
 
 def game_root(platform: str, explicit: Path | None = None) -> Path:
     """The installation to write a platform's contract against."""
-    candidates = [explicit] if explicit else []
+    if explicit is not None:
+        if not (explicit / "OxygenNotIncluded_Data/Managed/Assembly-CSharp.dll").is_file():
+            raise ValueError(f"No {platform} game installation at the requested path {explicit}")
+        return explicit.resolve()
+    candidates = []
     environment = os.environ.get("ONI_GAME_DIR_WINDOWS" if platform == "windows-x64" else "ONI_GAME_DIR_LINUX")
     if environment:
         candidates.append(Path(environment))
@@ -46,7 +52,7 @@ def generate(managed: Path, games: dict[str, Path], output: Path) -> None:
     arguments = ["generate", "--mod", str(managed.resolve())]
     for platform, root in sorted(games.items()):
         arguments += ["--game", f"{platform}={root}"]
-    _run(*arguments, "--output", str(output.resolve()))
+    _run(*arguments, "--output", str(output.resolve()), "--package-version", mod_identity.version())
     for platform, root in sorted(games.items()):
         _run("verify", "--mod", str(managed.resolve()), "--game", f"{platform}={root}", "--contract", str(output.resolve()))
 

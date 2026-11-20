@@ -41,12 +41,10 @@ Windows. Pass the game root to builds as `ONI_GAME_DIR` or `-p:OniGameDir`.
 Game-facing code was inspected against ONI build **764025** (Steam BuildID
 26798728, fetched 2026-11-20; **763796**, BuildID 26770249, for one day
 before it and **744825** until 2026-11-19), Unity 6000.3.17f1 and
-Harmony 2.4.2.0. A package with a game contract accepts any build in which
-every member the mod uses is unchanged and whose SimDLL matches a verified
-profile; anything else is refused with a notice
-([game-update resilience](../docs/game-update-resilience.md)). In practice
-that is the one inspected build: the game compiles its build number into the
-save and load methods the mod patches. The adapter
+Harmony 2.4.2.0. Starting with 1.11.0, one package includes the current build and the
+two earlier builds. Each selected adapter checks the exact running build,
+its managed dependencies and the native profile
+([maintaining support](../docs/game-update-resilience.md#keeping-an-earlier-build-working)). The adapter
 targets .NET Standard 2.1, which Klei's
 [March 2026 update](https://kleiforums.com/game-updates/oni-alpha/719533-r2701/)
 recommends.

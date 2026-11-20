@@ -31,13 +31,6 @@ CONFIGURED_MODES = ("native-configured-domain", "native-configured-water-domain"
 OWNER_MODES = ("colony-owner", "colony-owner-load")
 FORWARD_MODES = ("menu", "colony-owner-inactive")
 MODES = tuple(SCENES.values()) + CONFIGURED_MODES + OWNER_MODES + FORWARD_MODES + ("native-load-domain",)
-# The Windows files of the inspected build (764025 since 2026-11-20).
-GAME_FILES = {
-    "OxygenNotIncluded_Data/Managed/Assembly-CSharp.dll":
-        "96b192e45e044aa591e7143bbe1126d685dd1a195db7ba1632fdf4abd8fe3036",
-    "OxygenNotIncluded_Data/Plugins/x86_64/SimDLL.dll":
-        "02c18a626fd10b7253792a3f0e6e361d8ff54ba1db020b2c6af96b83c86f8bfd",
-}
 BASE_GAME_DISABLED_DLC = common.oni_dlc.DLC_IDS
 # The one Wine gap accepted at the player's exit (see proton_exit_abort).
 WINE_EXIT_ABORT = "UIAutomationCore.DLL.UiaDisconnectAllProviders"
@@ -350,9 +343,13 @@ def playtest(args, state: Path, session: dict) -> int:
         raise ValueError("Native scenes require a Windows package built with --native-observer")
     if (game / "OxygenNotIncluded.exe").read_bytes()[:2] != b"MZ":
         raise ValueError("Supply the licensed Windows ONI installation")
-    game_hashes = {name: common.digest(game / name) for name in GAME_FILES}
-    if game_hashes != GAME_FILES:
-        raise ValueError("The installed Windows game does not match the pinned native/managed profile")
+    build = common.mod_identity.installed_build(game, "windows-x64")
+    reference = common.mod_identity.GAME_BUILDS[build]
+    native_image = "OxygenNotIncluded_Data/Plugins/x86_64/SimDLL.dll"
+    game_hashes = {"OxygenNotIncluded_Data/Managed/Assembly-CSharp.dll": reference["WindowsManaged"],
+                   native_image: common.digest(game / native_image)}
+    if game_hashes[native_image] != reference["WindowsNative"]:
+        raise ValueError(f"The installed Windows simulator does not match build {build}")
     for name in ("proton", "version", "files/bin/wineserver"):
         if not (proton / name).is_file():
             raise ValueError("Supply a complete installed Proton tool directory")
@@ -374,7 +371,7 @@ def playtest(args, state: Path, session: dict) -> int:
         "actual_windows_os": False, "real_unity_player": False, "software_rendering": not getattr(args,"gpu_display",None),
         "first_playable_colony_passed": False, "whole_colony_fluid_authority": False,
         "authoritative_colony_simulation_ready": False, "full_mod_completion_verified": False,
-        "package_manifest": manifest, "game_hashes": game_hashes,
+        "package_manifest": manifest, "game_hashes": game_hashes, "game_build": build,
         "proton_version": (proton / "version").read_text().strip(), **common.revision_fields(manifest)}
     common.write_json(output / "result.json", result)
     xvfb = record = None
@@ -428,6 +425,7 @@ def playtest(args, state: Path, session: dict) -> int:
             raise ValueError("Proton profile escaped this run")
         mod = profile / "mods/Dev" / MOD_ID
         common.stage_package(package, mod, manifest, "win-x64")
+        mod = common.validation_folder(mod, manifest, build)
         if dlc_mask is not None:
             common.oni_dlc.write_preferences(profile, dlc_mask)
             result["requested_dlc"] = common.oni_dlc.selection(dlc_mask)

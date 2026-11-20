@@ -431,6 +431,7 @@ def build_linux(layout: Layout, revision: str, infra: Infra) -> tuple[dict, dict
                         "--", game]),
         ("package", [sys.executable, "tools/package_probe.py", "--native", "build-linux/libmixed_atmospheres.so",
                      "--native-observer", "build-linux/libmixed_atmospheres_oni.so",
+                     "--single-build", "--game-dir", game,
                      "--managed-dir", str(managed / "bin/MixedAtmospheres.Oni/release"), "--output", str(package)]),
     ]
     passed = run_build(commands, layout.source, env, layout.packages / "linux-build.log", record)
@@ -534,6 +535,7 @@ def build_windows(layout: Layout, revision: str, infra: Infra) -> tuple[dict, di
             commands = [
                 ("package", [sys.executable, "tools/package_probe.py", "--native", "build-windows/mixed_atmospheres.dll",
                              "--native-observer", "build-windows/mixed_atmospheres_oni.dll",
+                             "--single-build", "--game-dir", game,
                              "--managed-dir", str(managed / "bin/MixedAtmospheres.Oni/release"), "--output", str(package)]),
                 ("zip", [sys.executable, "tools/package_windows.py", "--package", str(package), "--output", str(archive)]),
             ]
@@ -554,7 +556,7 @@ def build_windows(layout: Layout, revision: str, infra: Infra) -> tuple[dict, di
 # ---------------------------------------------------------------- game commands
 
 def linux_command(step: Step, package: Path, output: Path, infra: Infra, load: Path | None = None) -> list[str]:
-    command = [sys.executable, "tools/oni_headless.py", "run", "--package", str(package)]
+    command = [sys.executable, "tools/oni_headless.py", "run", "--game-dir", str(infra.linux_game), "--package", str(package)]
     if step.kind == "cycle":
         # The frozen save is a base-game colony: pin the content so the run does not depend on which
         # game install the harness defaults to (a Spaced Out!-enabled install would otherwise be the
@@ -573,7 +575,7 @@ def linux_command(step: Step, package: Path, output: Path, infra: Infra, load: P
 
 
 def proton_command(package: Path, output: Path, infra: Infra, *arguments: str) -> list[str]:
-    return [sys.executable, "tools/oni_proton_headless.py", "--proton", str(infra.proton), "--package", str(package),
+    return [sys.executable, "tools/oni_proton_headless.py", "--game-dir", str(infra.windows_game), "--proton", str(infra.proton), "--package", str(package),
             "--gpu-display", infra.gpu_display, *arguments, "--output", str(output)]
 
 
@@ -903,7 +905,7 @@ def prepared_autosave(output: Path, revision: str) -> Path:
         raise Refused(f"Expected exactly one natural autosave; found {len(autos)}")
     save = autos[0].resolve()
     build, header = save_header(save.read_bytes())
-    if (not save.is_relative_to(output.resolve()) or build != mod_identity.INSPECTED_ONI_BUILD or header.get("isAutoSave") is not True
+    if (not save.is_relative_to(output.resolve()) or build not in mod_identity.GAME_BUILDS or build != result.get("game_build") or header.get("isAutoSave") is not True
             or header.get("numberOfCycles", 0) < 1 or header.get("numberOfDuplicants") != 3):
         raise Refused("The autosave header does not prove a day rollover with three duplicants")
     return save
@@ -1495,13 +1497,20 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     revision = resolve_revision(args.revision, fetch=not args.no_fetch)
     base = ROOT / "artifacts/acceptance" / revision[:7]
+    infra = infra_from(args)
+    games = {"linux": (infra.linux_game, "linux-x64"), "windows": (infra.windows_game, "windows-x64")}
+    builds = {mod_identity.installed_build(*games[platform]) for platform in platforms}
+    if len(builds) != 1:
+        raise Refused("Select the same ONI build on both platforms for a two-platform run")
+    build = builds.pop()
+    if build != mod_identity.INSPECTED_ONI_BUILD:
+        base = base / str(build)
     tag = args.tag or next_tag(base, args.tier)
     if not re.fullmatch(r"[A-Za-z0-9_-]+", tag):
         raise SystemExit("unsafe tag")
     layout = Layout(base, tag)
     if layout.runs.exists():
         raise Refused(f"Refusing to reuse {layout.runs}")
-    infra = infra_from(args)
     needed = [("linux game", infra.linux_game)] if "linux" in platforms else []
     if "windows" in platforms:
         needed += [("windows game", infra.windows_game), ("proton", infra.proton), ("mingw", infra.mingw_root),

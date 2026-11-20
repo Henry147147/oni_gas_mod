@@ -1,5 +1,10 @@
 # Feature completion work
 
+**1.11.0 compatibility work.** The same package serves game builds 744825,
+763796 and 764025 on Linux and Windows x64. Each adapter is built from the
+current mod source and checked against its own game. For the next retarget,
+keep the earlier games in the [build registry and packaging procedure](game-update-resilience.md#keeping-an-earlier-build-working).
+
 **Update, 2026-11-20, version 1.10.2: game build 764025.** A hotfix of the
 game one day after 763796, which 1.10.1 refused at the menu on the user's
 PC. The game changed nothing the mod uses: its build number is compiled

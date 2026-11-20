@@ -46,14 +46,28 @@ def managed_image(stamp=0, guid=b"\x11" * 16, debug=b"RSDS" + b"\x22" * 28, il=b
     return bytes(data)
 
 
+def fixture_build(game, platform):
+    suffix = game.name.rsplit("-", 1)[-1]
+    return int(suffix) if suffix.isdigit() else mod_identity.INSPECTED_ONI_BUILD
+
+
 def fake_contract(managed, games, output):
-    """Stands in for tools/GameContract, which needs the real mod and game."""
-    output.write_text(json.dumps({"SchemaVersion": 1, "ModuleVersionId": "fixture", "Platforms": {p: {} for p in games}}))
+    output.write_text(json.dumps({"SchemaVersion": 1, "ModuleVersionId": "fixture", "Platforms": {
+        p: {"GameBuild": fixture_build(root, p)} for p, root in games.items()}}))
+
+
+def fake_adapter(game, artifacts):
+    artifacts.mkdir()
+    for name in RELEASE.MANAGED:
+        (artifacts / name).write_bytes(managed_image())
+    return artifacts
 
 
 def setUpModule():
     global CONTRACT_PATCHES
     CONTRACT_PATCHES = [mock.patch.object(RELEASE.game_contract, "generate", side_effect=fake_contract),
+                        mock.patch.object(mod_identity, "installed_build", side_effect=fixture_build),
+                        mock.patch.object(RELEASE.package_game_versions, "compile_adapter", side_effect=fake_adapter),
                         mock.patch.object(RELEASE.game_contract, "game_root", side_effect=lambda platform, explicit=None: Path("/game/" + platform))]
     for patch in CONTRACT_PATCHES:
         patch.start()
@@ -164,6 +178,32 @@ class ReleaseAssemblyTests(unittest.TestCase):
             for name, digest in manifest["files"].items():
                 self.assertEqual(hashlib.sha256((output / name).read_bytes()).hexdigest(), digest)
 
+    def test_archives_are_self_contained_and_match_the_registered_game(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root, manifest = self.build(Path(folder))
+            builds = manifest["supported_builds"]
+            self.assertEqual(builds, sorted(mod_identity.GAME_BUILDS))
+            self.assertEqual(manifest["minimum_supported_build"], 744825)
+            for build in builds:
+                content = root if build == max(builds) else root / "archived_versions" / str(build)
+                self.assertEqual((content / "mod_info.yaml").read_text(), mod_identity.mod_info(mod_identity.version(), build))
+                platforms = json.loads((content / "game-contract.json").read_text())["Platforms"]
+                self.assertEqual({p: data["GameBuild"] for p, data in platforms.items()},
+                                 {"linux-x64": build, "windows-x64": build})
+                for name in RELEASE.MANAGED:
+                    self.assertTrue((content / name).is_file())
+                for rid, names in RELEASE.NATIVE.items():
+                    for name in names:
+                        self.assertEqual((content / "native" / rid / name).read_bytes(),
+                                         (root / "native" / rid / name).read_bytes())
+
+    def test_archive_with_wrong_reference_is_refused(self):
+        with tempfile.TemporaryDirectory() as folder, mock.patch.object(
+                mod_identity, "installed_build", return_value=mod_identity.INSPECTED_ONI_BUILD):
+            with self.assertRaisesRegex(ValueError, "Expected .*744825"):
+                self.build(Path(folder))
+            self.assertFalse((Path(folder) / "release").exists())
+
     def test_release_test_folder_is_visibly_unqualified(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
@@ -229,7 +269,7 @@ class ReleaseAssemblyTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
             for name in ("development.json", "game-contract-local/elements.bin", "private-validation/x.dll",
-                         "native/win-x64/mixed_atmospheres_coupled.dll", "Extra.dll", "install_windows.ps1"):
+                         "native/win-x64/mixed_atmospheres_coupled.dll", "Extra.dll", "archived_versions/744825/Extra.dll", "install_windows.ps1"):
                 path = root / name; path.parent.mkdir(parents=True, exist_ok=True); path.write_text("x")
                 with self.subTest(name=name), self.assertRaises(ValueError):
                     RELEASE.check_release_contents(root, [path])

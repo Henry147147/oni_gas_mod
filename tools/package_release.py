@@ -25,12 +25,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import game_contract  # noqa: E402
 import mod_identity  # noqa: E402
 import package_probe  # noqa: E402
+import package_game_versions
 
 ROOT = mod_identity.ROOT
 # Fixed archive metadata: identical inputs give identical bytes.
 ZIP_DATE = (2026, 1, 1, 0, 0, 0)
 TAR_MTIME = 1767225600  # 2026-01-01T00:00:00Z
-MANAGED = ("MixedAtmospheres.Oni.dll", "MixedAtmospheres.Core.dll")
+MANAGED = package_game_versions.MANAGED
 NATIVE = {"linux-x64": ("libmixed_atmospheres.so", "libmixed_atmospheres_oni.so"),
           "win-x64": ("mixed_atmospheres.dll", "mixed_atmospheres_oni.dll")}
 # Files that must never reach a release (development, validation or reports).
@@ -240,11 +241,9 @@ Saves
   something the colony depends on), it says why and leaves the save unchanged.
 
 Game updates
-Mixed Atmospheres checks every part of the game it depends on each time ONI
-starts. After a Klei update that changes any of them, the mod stays inactive
-and says so at the main menu; your colonies are not touched until a matching
-Mixed Atmospheres update is available. Updates that do not touch those parts
-need no mod update.
+This package supports ONI builds {", ".join(str(build) for build in sorted(mod_identity.GAME_BUILDS))}.
+ONI selects the matching adapter when the game starts. Each adapter verifies
+its game dependencies. A new game build needs a verified mod update.
 
 Only one copy
 Keep one copy of Mixed Atmospheres under mods. If two are enabled, the second
@@ -289,13 +288,15 @@ def assemble(args: argparse.Namespace) -> dict:
         for name in MANAGED:
             shutil.copyfile(args.managed_linux.resolve() / name, output / name)
         # The shipped DLLs' managed game contract for both platforms' games.
-        game_contract.generate(args.managed_linux.resolve(), {
-            "windows-x64": game_contract.game_root("windows-x64", args.windows_game),
-            "linux-x64": game_contract.game_root("linux-x64", args.linux_game)}, output / game_contract.FILE_NAME)
+        games = {platform: game_contract.game_root(platform, root) for platform, root in
+                 (("windows-x64", args.windows_game), ("linux-x64", args.linux_game))}
+        package_game_versions.write_contract(output, games, output, mod_identity.INSPECTED_ONI_BUILD)
         for rid, files in natives.items():
             (output / "native" / rid).mkdir(parents=True)
             for file in files:
                 package_probe.copy_native_binary(file, output / "native" / rid / file.name)
+        version_label = version + ("-release-test" if release_test else "")
+        package_game_versions.write_archives(output, games, version_label, managed_equivalence)
         third_party(roots, output / "third-party")
         mingw_notices((args.mingw_root or default_mingw_root()).resolve(), output / "third-party")
         if build_info is not None:
@@ -307,7 +308,7 @@ def assemble(args: argparse.Namespace) -> dict:
             (output / "preview.png").write_bytes(data)
         (output / "mod.yaml").write_text(mod_identity.mod_yaml(DESCRIPTION), encoding="utf-8")
         (output / "mod_info.yaml").write_text(
-            mod_identity.mod_info(version + ("-release-test" if release_test else "")), encoding="utf-8")
+            mod_identity.mod_info(version_label), encoding="utf-8")
         (output / "README.txt").write_text(
             ("PRIVATE RELEASE TEST — not approved for Steam publication.\n\n" if release_test else "")
             + player_readme(version), encoding="utf-8")
@@ -316,6 +317,7 @@ def assemble(args: argparse.Namespace) -> dict:
         manifest = {
             "kind": "release-test" if release_test else "release", "release_ready": not release_test,
             "static_id": mod_identity.STATIC_ID, "version": version,
+            "supported_builds": sorted(mod_identity.GAME_BUILDS),
             "minimum_supported_build": mod_identity.MINIMUM_SUPPORTED_BUILD, "platforms": sorted(NATIVE),
             "native_observer_enabled": True, "source_revision": revision, "source_dirty": dirty, "source_status": status,
             "managed_builds": equivalence,
@@ -333,7 +335,8 @@ def check_release_contents(output: Path, files: list[Path]) -> None:
         relative = PurePosixPath(file.relative_to(output).as_posix())
         if file.is_symlink() or relative.name in FORBIDDEN or FORBIDDEN_PARTS.intersection(relative.parts):
             raise ValueError(f"A release must not contain {relative}")
-        if relative.suffix == ".dll" and len(relative.parts) == 1 and relative.name not in MANAGED:
+        content_root = len(relative.parts) == 1 or len(relative.parts) == 3 and relative.parts[0] == "archived_versions"
+        if relative.suffix == ".dll" and content_root and relative.name not in MANAGED:
             raise ValueError(f"Unexpected root DLL {relative}: ONI loads every root DLL as managed code")
         if "coupled" in relative.name:
             raise ValueError(f"Validation-only library {relative} must not be released")
