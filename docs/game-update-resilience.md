@@ -175,6 +175,47 @@ that matter for the next update:
 - **Saves.** The element files are unchanged, so the catalogue hash and every
   colony save stay valid; saves written on 744825 load on 763796.
 
+## Build 764025 (2026-11-20)
+
+A hotfix one day after 763796. Version 1.10.1 refused it with seven contract
+differences; [1.10.2](playtest-1.10.2.md) is the retarget. What it showed:
+
+- **Every game build changes the contract, however small.** The game
+  compiles its build number into `Game.Save`, `SaveGame.GetSaveHeader` and
+  `LoadScreen.DoLoad(string)`, three methods the mod patches, so their
+  normalised IL differs in every build, and `KleiVersion.ChangeList` is also
+  recorded as a member found by name. Those were the seven differences;
+  nothing else among the 2,848 dependencies changed. A package therefore
+  accepts exactly the build it was written against, and each hotfix needs a
+  new version of the mod even when, as here, the game changed nothing the mod
+  uses. Because `LoadScreen.DoLoad` is one of the three, the refusing mod's
+  own load guard is never installed on a newer build either; a mixture save
+  is then refused by ONI's native loader, as without the mod.
+  Treating the build number as a wildcard in the contract (and the constant
+  of `AppVersion::GetRevision` in the Windows image identity) would let such
+  a hotfix through; that changes what "verified" means and is a user decision.
+- **Native.** Linux: the same file again. Windows: 30 bytes differ from
+  763796, the stamps and the constant of `AppVersion::GetRevision`; the
+  profile was carried with `--accept-indirect` (the same six `SIM_*` entry
+  points with identical calls through a register).
+- **Managed.** The decompiled sources of both builds differ in 13 files: 11
+  only in the compiled build number, and `Movable.OnClickCancel` became
+  public so that the Move To button of `UserMenuScreen` cancels a pending
+  move. The five bodies of the pipe biology guard have the same raw IL as in
+  763796 on both platforms, so its signatures still match.
+- **Order of the steps.** `--write-profiles` writes only when the managed
+  contract has no differences, so the mod is first built against the new
+  game and packaged (`package_probe.py`), and that package is given as
+  `--managed-dir`. A package of one platform carries that platform's
+  contract only; the report now says "not checked" for the other one
+  instead of "0 contract differences".
+- **Fetching.** The private Steam client is taken online from its Steam
+  menu (friends presence stays offline), updates the Linux install by
+  itself, and fetches the Windows files from its console
+  (`download_depot 457140 457141`, `download_depot 457140 1452491`); then
+  it goes back to Offline Mode. The copies on the share are renamed so that
+  the default folders hold the new build and `-763796` the previous one.
+
 ## Refusals
 
 | Situation | Behaviour |

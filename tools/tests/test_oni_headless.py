@@ -9,6 +9,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shutil
 import signal
 import subprocess
 import struct
@@ -1703,8 +1704,9 @@ class PrivateDisplayTests(unittest.TestCase):
 class SandboxTests(unittest.TestCase):
     def test_game_shares_host_pid_namespace_and_keeps_filesystem_sandbox(self):
         root = Path("/srv/state")
-        command = runner.sandbox_command(root / "runs/r/home", root, root / "runs/r", Path("/games/oni"),
-                                         root / "runs/r/game", keep_open=False)
+        with mock.patch.object(runner, "idle_automounts", return_value=[]):
+            command = runner.sandbox_command(root / "runs/r/home", root, root / "runs/r", Path("/games/oni"),
+                                             root / "runs/r/game", keep_open=False)
         self.assertNotIn("--unshare-pid", command)
         self.assertNotIn("--unshare-all", command)
         self.assertNotIn("--proc", command)
@@ -1717,6 +1719,40 @@ class SandboxTests(unittest.TestCase):
         self.assertEqual(command[:2], ["bwrap", "--die-with-parent"])
         self.assertNotIn("--die-with-parent", runner.sandbox_command(
             root / "h", root, root / "o", Path("/g"), root / "t", keep_open=True))
+
+    def test_root_view_leaves_out_an_automount_point_with_nothing_mounted(self):
+        # mountinfo: the trigger alone (idle), a trigger with its share mounted, and one inside /proc.
+        info = "\n".join((
+            "30 1 8:2 / / rw,relatime shared:1 - ext4 /dev/sda2 rw",
+            "39 28 0:33 / /proc/sys/fs/binfmt_misc rw,relatime shared:13 - autofs systemd-1 rw,fd=40,direct",
+            "51 30 0:45 / /mnt/z rw,relatime shared:124 - autofs systemd-1 rw,fd=73,direct",
+            "52 30 0:46 / /mnt/with\\040space rw,relatime shared:125 - autofs systemd-1 rw,fd=74,direct",
+            "60 30 0:47 / /mnt/y rw,relatime shared:126 - autofs systemd-1 rw,fd=75,direct",
+            "61 60 0:48 / /mnt/y rw,relatime shared:127 - cifs //pc/y rw,vers=3.1.1"))
+        self.assertEqual(runner.idle_automounts(info), [Path("/mnt/with space"), Path("/mnt/z"), Path("/proc/sys/fs/binfmt_misc")])
+        self.assertEqual(runner.root_binds(info.split("\n51 ")[0]), ["--ro-bind", "/", "/"])
+        self.assertEqual(runner.root_binds("30 1 8:2 / / rw - ext4 /dev/sda2 rw"), ["--ro-bind", "/", "/"])
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            for name in ("usr/bin", "mnt/data", "mnt/z", "etc"):
+                (root / name).mkdir(parents=True)
+            (root / "bin").symlink_to("usr/bin"); (root / "mnt/note").write_text("x")
+            fake = info.replace(" /mnt/", f" {root}/mnt/").replace("/ / rw,relatime shared:1 ", f"/ {root} rw,relatime shared:1 ")
+            arguments = runner.root_binds(fake, root)
+            groups = [tuple(arguments[i:i + 3]) for i in range(len(arguments)) if arguments[i].startswith("--")]
+            self.assertIn(("--symlink", "usr/bin", str(root / "bin")), groups)
+            for kept in ("usr", "etc", "mnt/data", "mnt/note"):
+                self.assertIn(("--ro-bind", str(root / kept), str(root / kept)), groups)
+            self.assertEqual([g[1] for g in groups if g[0] == "--dir"], [str(root / "mnt"), str(root / "mnt/z")])
+            self.assertNotIn(str(root), [g[1] for g in groups if g[0] == "--ro-bind"])
+            self.assertFalse(any(g[0] == "--ro-bind" and g[1] in (str(root / "mnt"), str(root / "mnt/z")) for g in groups))
+            # The view works as a sandbox root for a real bwrap.
+            listed = subprocess.run(["bwrap", *arguments, "--ro-bind", "/usr", "/usr", "--symlink", "usr/lib", "/lib",
+                                     "--symlink", "usr/lib64", "/lib64", "--symlink", "usr/bin", "/bin",
+                                     "ls", str(root / "mnt"), str(root / "mnt/z")], capture_output=True, text=True, timeout=30)
+            if shutil.which("bwrap"):
+                self.assertEqual(listed.returncode, 0, listed.stderr)
+                self.assertEqual(listed.stdout.split(), [str(root / "mnt") + ":", "data", "note", "z", str(root / "mnt/z") + ":"])
 
     def test_window_resolution_defaults_to_720p_and_accepts_capture_sizes(self):
         root = Path("/srv/state")

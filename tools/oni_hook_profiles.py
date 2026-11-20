@@ -65,9 +65,12 @@ SPECS = (
 # reorders the remaining ones. Windows 763796 (2026-11-19): the same S_LPROC32
 # record (type 0xCFFD, 756 code bytes) at the same RVA; the image differs from
 # 744825 only in its header, toolchain stamps and AppVersion::GetRevision.
+# Windows 764025 (2026-11-20): 30 bytes differ from 763796, the stamps and the
+# constant of AppVersion::GetRevision; the procedure is at the same RVA.
 CHUNK_HEAT_LOCATIONS={
     "windows-x64":{"031960f120ac1d59fd8e43f6e1a7369111c629b90c24d52186b691dfe2d8a727":258448,
-                   "1216e026693230dfc567fbbed7da8a3ae019641a2c5f6e332c297ecf610f4971":258448},
+                   "1216e026693230dfc567fbbed7da8a3ae019641a2c5f6e332c297ecf610f4971":258448,
+                   "02c18a626fd10b7253792a3f0e6e361d8ff54ba1db020b2c6af96b83c86f8bfd":258448},
     "linux-x64":{"85111cd0b1fc14c79c785581d6c055280b9d48ba705776f3d14eb0a7b239c12d":398624},
 }
 CHUNK_HEAT_LAYOUT=dict(accessor_bytes=16,cell_index_offset=8,chunk_bytes=44,temperature_offset=4,

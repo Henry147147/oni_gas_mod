@@ -31,33 +31,36 @@ native boundary is in [the interop contract](../docs/interop-contract.md).
 | Windows Steam install | `D:\SteamLibrary\steamapps\common\OxygenNotIncluded` (Windows machine) | Windows builds and Unity runs |
 | Copy of the Windows install | `/mnt/data/share/oni/OxygenNotIncluded` | Inspecting Windows files from Linux; the Windows player under Proton |
 | Copy of the Linux install | `/mnt/data/share/oni/OxygenNotIncluded-linux` | Linux builds; `oni_headless.py` default |
-| Copies of the previous build (744825) | `/mnt/data/share/oni/OxygenNotIncluded-744825`, `…-linux-744825` | Reference for the profile tests and for comparing builds |
+| Copies of the previous builds (744825, 763796) | `/mnt/data/share/oni/OxygenNotIncluded-744825`, `…-linux-744825`, `…-763796`, `…-linux-763796` | Reference for the profile tests and for comparing builds |
 | Linux Steam install | `<state>/steam-home/.local/share/Steam/steamapps/common/OxygenNotIncluded` | Updates with Steam; see [ONI_HEADLESS.md](ONI_HEADLESS.md) |
 
 `/mnt/data/share` is the Linux host's Samba share, `\\192.168.1.24\share` from
 Windows. Pass the game root to builds as `ONI_GAME_DIR` or `-p:OniGameDir`.
 `tools/build.py --game-dir` passes both.
 
-Game-facing code was inspected against ONI build **763796** (Steam BuildID
-26770249, fetched 2026-11-19; **744825** until then), Unity 6000.3.17f1 and
+Game-facing code was inspected against ONI build **764025** (Steam BuildID
+26798728, fetched 2026-11-20; **763796**, BuildID 26770249, for one day
+before it and **744825** until 2026-11-19), Unity 6000.3.17f1 and
 Harmony 2.4.2.0. A package with a game contract accepts any build in which
 every member the mod uses is unchanged and whose SimDLL matches a verified
 profile; anything else is refused with a notice
-([game-update resilience](../docs/game-update-resilience.md)). The adapter
+([game-update resilience](../docs/game-update-resilience.md)). In practice
+that is the one inspected build: the game compiles its build number into the
+save and load methods the mod patches. The adapter
 targets .NET Standard 2.1, which Klei's
 [March 2026 update](https://kleiforums.com/game-updates/oni-alpha/719533-r2701/)
 recommends.
 
 | File (under `OxygenNotIncluded_Data/`) | Windows x64 SHA256 | Linux x64 SHA256 |
 | --- | --- | --- |
-| Native simulator (`Plugins/x86_64/SimDLL.dll`, `Plugins/x86_64/libSimDLL.so`) | `1216e026693230dfc567fbbed7da8a3ae019641a2c5f6e332c297ecf610f4971` | `85111cd0b1fc14c79c785581d6c055280b9d48ba705776f3d14eb0a7b239c12d` |
-| `Managed/Assembly-CSharp.dll` | `4dd6a2c87bb6fa4f211a9bbfc4bc033cc734ff09e62e917f39517ae8a066b370` | `801207a0e194ad11892c86af754ad4d3218d89de3a079c2179e24723947135d4` |
+| Native simulator (`Plugins/x86_64/SimDLL.dll`, `Plugins/x86_64/libSimDLL.so`) | `02c18a626fd10b7253792a3f0e6e361d8ff54ba1db020b2c6af96b83c86f8bfd` | `85111cd0b1fc14c79c785581d6c055280b9d48ba705776f3d14eb0a7b239c12d` |
+| `Managed/Assembly-CSharp.dll` | `96b192e45e044aa591e7143bbe1126d685dd1a195db7ba1632fdf4abd8fe3036` | `39dc204f0ec52e9e6af2f2c65fec27b6b928fa6d362e041c6592501f4925ae07` |
 | `Managed/Assembly-CSharp-firstpass.dll` | `ec4dada9437739ec8c3253a8884ba9165a56e80fba97a6494dd42f78148cad89` | `33028961e62386c9deb59acd85f334e7d36f38c55f59f5e36df3fd5c8688d7ab` |
 
 The Linux simulator is byte for byte the 744825 one and moved from `Plugins/`
 to `Plugins/x86_64/`; the Windows one differs from 744825 only in its revision
 constant and build stamps
-([retarget record](../docs/game-update-resilience.md#build-763796-2026-11-19)).
+([retarget records](../docs/game-update-resilience.md#build-763796-2026-11-19)).
 The copy of the Linux install now includes Spaced Out! (the earlier depot copy
 did not), so Spaced Out! colonies also load in the Linux harness.
 

@@ -430,8 +430,10 @@ def main() -> int:
         if native.get("accepted_indirect"):
             lines.append(f"- {platform} native: indirect branches accepted after review in " + ", ".join(native["accepted_indirect"]))
     for platform, managed in report["managed"].items():
-        count = len(managed["differences"] or [])
-        lines.append(f"- {platform} managed: {count} contract differences")
+        # A package of one platform carries that platform's contract only.
+        checked = (f"{len(managed['differences'])} contract differences" if managed["differences"] is not None
+                   else "not checked, the package's contract does not cover this platform")
+        lines.append(f"- {platform} managed: {checked}; {len(managed['raw_changes'])} entries differ from the reference build")
     for platform, elements in report["elements"].items():
         lines.append(f"- {platform} element definitions: " + (", ".join(elements.get("changed", [])) or "unchanged" if elements["compared"] else "not compared"))
     nothing = ("- Nothing: the carried candidate profiles can be written (--write-profiles --build N)."

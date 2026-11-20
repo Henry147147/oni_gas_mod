@@ -292,7 +292,8 @@ class ProtonIsolationTests(unittest.TestCase):
 
     def test_sandbox_keeps_game_steam_and_root_read_only_and_masks_user_home(self):
         home, state, output, game, proton = [self.root / name for name in ("home", "steam", "run", "game", "proton")]
-        command = runner.sandbox_command(home, state, output, game, proton, ["run", "wineboot", "-u"])
+        with mock.patch.object(runner.common, "idle_automounts", return_value=[]):
+            command = runner.sandbox_command(home, state, output, game, proton, ["run", "wineboot", "-u"])
         mounts = {command[index + 1]: (value, command[index + 2]) for index, value in enumerate(command)
                   if value in ("--bind", "--ro-bind", "--dev-bind")}
         for source in (state, game):

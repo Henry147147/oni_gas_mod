@@ -31,12 +31,12 @@ CONFIGURED_MODES = ("native-configured-domain", "native-configured-water-domain"
 OWNER_MODES = ("colony-owner", "colony-owner-load")
 FORWARD_MODES = ("menu", "colony-owner-inactive")
 MODES = tuple(SCENES.values()) + CONFIGURED_MODES + OWNER_MODES + FORWARD_MODES + ("native-load-domain",)
-# The Windows files of the inspected build (763796; 744825 until 2026-11-19).
+# The Windows files of the inspected build (764025 since 2026-11-20).
 GAME_FILES = {
     "OxygenNotIncluded_Data/Managed/Assembly-CSharp.dll":
-        "4dd6a2c87bb6fa4f211a9bbfc4bc033cc734ff09e62e917f39517ae8a066b370",
+        "96b192e45e044aa591e7143bbe1126d685dd1a195db7ba1632fdf4abd8fe3036",
     "OxygenNotIncluded_Data/Plugins/x86_64/SimDLL.dll":
-        "1216e026693230dfc567fbbed7da8a3ae019641a2c5f6e332c297ecf610f4971",
+        "02c18a626fd10b7253792a3f0e6e361d8ff54ba1db020b2c6af96b83c86f8bfd",
 }
 BASE_GAME_DISABLED_DLC = common.oni_dlc.DLC_IDS
 # The one Wine gap accepted at the player's exit (see proton_exit_abort).
@@ -94,7 +94,7 @@ def sandbox_command(home: Path, state: Path, output: Path, game: Path,
                     proton: Path, tail: list[str]) -> list[str]:
     # Steam IPC stays in the host PID namespace, /tmp and /dev/shm. Only the
     # disposable profile/evidence and Proton's dist.lock/fixups are writable.
-    return ["bwrap", "--die-with-parent", "--ro-bind", "/", "/",
+    return ["bwrap", "--die-with-parent", *common.root_binds(),
             "--bind", str(home), str(Path.home()), "--bind", str(output), str(output),
             "--ro-bind", str(state), str(state), "--ro-bind", str(game), str(game),
             # A Steam-installed Proton lies inside state. Mount its writable

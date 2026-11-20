@@ -668,6 +668,52 @@ def parse_resolution(text: str) -> tuple[int, int]:
     return width, height
 
 
+def idle_automounts(mountinfo: str) -> list[Path]:
+    """Mount points whose topmost mount is an automount trigger with nothing
+    mounted on it yet."""
+    top: dict[str, str] = {}
+    for line in mountinfo.splitlines():
+        fields = line.split()
+        if " - " in line and len(fields) > 6:
+            # Mount points are octal-escaped (a space is \040).
+            point = re.sub(r"\\([0-7]{3})", lambda m: chr(int(m.group(1), 8)), fields[4])
+            top[point] = line.split(" - ", 1)[1].split()[0]
+    return sorted(Path(point) for point, kind in top.items() if kind == "autofs")
+
+
+def root_binds(mountinfo: str | None = None, root: Path = Path("/")) -> list[str]:
+    """The bwrap arguments for a read-only view of the whole root.
+
+    That is --ro-bind / /, unless an automount point has nothing mounted: bwrap
+    remounts every mount below a bind, which triggers the automount, and when
+    its server does not answer (the Windows share /mnt/z while that PC is off)
+    bwrap fails before the game starts. Such a point is left out as an empty
+    directory and what lies beside it is bound entry by entry."""
+    idle = idle_automounts(Path("/proc/self/mountinfo").read_text(errors="replace") if mountinfo is None else mountinfo)
+    # The kernel's own trees keep their triggers (binfmt_misc under /proc answers at once).
+    kernel = [root / name for name in ("proc", "dev", "sys")]
+    idle = [point for point in idle if point != root and point.is_relative_to(root)
+            and not any(point.is_relative_to(own) for own in kernel)]
+    if not idle:
+        return ["--ro-bind", str(root), str(root)]
+
+    def bind(folder: Path) -> list[str]:
+        if folder in idle:
+            return ["--dir", str(folder)]
+        if not any(point.is_relative_to(folder) for point in idle):
+            return ["--ro-bind", str(folder), str(folder)]
+        arguments = [] if folder == root else ["--dir", str(folder)]
+        for entry in sorted(folder.iterdir()):
+            if entry.is_symlink():
+                arguments += ["--symlink", os.readlink(entry), str(entry)]
+            elif entry.is_dir():
+                arguments += bind(entry)
+            elif entry.is_file() and os.access(entry, os.R_OK):
+                arguments += ["--ro-bind", str(entry), str(entry)]
+        return arguments
+    return bind(root)
+
+
 def sandbox_command(home: Path, state: Path, output: Path, game: Path, thin: Path, keep_open: bool,
                     resolution: tuple[int, int] = (1280, 720)) -> list[str]:
     """Return the bwrap command for one game run.
@@ -679,7 +725,7 @@ def sandbox_command(home: Path, state: Path, output: Path, game: Path, thin: Pat
     objects) and /tmp are shared. Steam's own initialization and ownership
     checks are unchanged.
     """
-    arguments = ["bwrap", "--ro-bind", "/", "/", "--bind", str(home), str(Path.home()),
+    arguments = ["bwrap", *root_binds(), "--bind", str(home), str(Path.home()),
                  "--ro-bind", str(state), str(state), "--bind", str(output), str(output),
                  "--bind", "/tmp", "/tmp", "--bind", "/proc", "/proc", "--dev-bind", "/dev", "/dev",
                  "--ro-bind", str(game), str(game),

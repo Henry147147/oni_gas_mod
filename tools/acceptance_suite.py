@@ -562,7 +562,10 @@ def linux_command(step: Step, package: Path, output: Path, infra: Infra, load: P
         return command + ["--dlc-mask", "0", "--mode", "colony-owner-load", "--load-save", str(load), "--long-run",
                           "--frames", str(step.options["frames"]), "--timeout", str(LONG_RUN_TIMEOUT),
                           "--gpu-display", infra.gpu_display, "--output", str(output)]
-    command += ["--mode", "colony-owner", "--gpu-display", infra.gpu_display, "--timeout", str(LINUX_TIMEOUT),
+    # The scenario batches and the worldgen clusters are base-game runs. The Linux copy of the game
+    # includes Spaced Out! since build 763796 and the Linux runner leaves the game's own selection
+    # alone unless told, so pin the base game here as the Proton runner does by default.
+    command += ["--dlc-mask", "0", "--mode", "colony-owner", "--gpu-display", infra.gpu_display, "--timeout", str(LINUX_TIMEOUT),
                 "--output", str(output)]
     if step.kind == "batch":
         return command + ["--scenario", step.options["scenario"]]

@@ -20,6 +20,9 @@ few that your task touches, starting here.
   [1.10.1](docs/playtest-1.10.1.md) is 1.10.0 retargeted to game build
   763796, which Steam delivered on 2026-11-19 and every earlier package
   refuses ([how a new game build is retargeted](docs/game-update-resilience.md#retargeting-a-new-build)).
+  [1.10.2](docs/playtest-1.10.2.md) is the same code retargeted to the
+  hotfix build 764025 of 2026-11-20; a package accepts exactly one game
+  build.
   [0.1.8](docs/playtest-0.1.8.md) lets
   two gases change places through an opening one tile high;
   [0.1.7](docs/playtest-0.1.7.md) kept a pool levelling past the activity

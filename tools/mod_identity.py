@@ -16,13 +16,15 @@ STATIC_ID = "MixedAtmospheres"
 TITLE = "Mixed Atmospheres"
 DEV_FOLDER = "MixedAtmospheres.IntegrationProbe"
 # The game build the managed contract and the packages are written against,
-# which is also the earliest build a package accepts (the contract of 763796
-# does not verify on 744825). Retargeting: docs/game-update-resilience.md.
-INSPECTED_ONI_BUILD = 763796
+# which is also the only build a package accepts: the game compiles its build
+# number into the save and load methods the mod patches, so the contract of
+# one build never verifies on another. Retargeting: docs/game-update-resilience.md.
+INSPECTED_ONI_BUILD = 764025
 MINIMUM_SUPPORTED_BUILD = INSPECTED_ONI_BUILD
 # Builds whose SimDLL images have a verified native profile. The Linux image
-# of 763796 is byte for byte that of 744825, so its profile reports 744825.
-SUPPORTED_NATIVE_BUILDS = (744825, 763796)
+# of 763796 and 764025 is byte for byte that of 744825, so its profile reports
+# 744825.
+SUPPORTED_NATIVE_BUILDS = (744825, 763796, 764025)
 API_VERSION = 2
 PROJECT = ROOT / "managed/MixedAtmospheres.Oni/MixedAtmospheres.Oni.csproj"
 

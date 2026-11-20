@@ -227,6 +227,7 @@ class NormalisedIdentityTests(unittest.TestCase):
 
 # The private installations of each verified build, first the 744825 ones.
 GAMES = {"windows-x64": [Path("/mnt/data/share/oni/OxygenNotIncluded-744825/OxygenNotIncluded_Data/Plugins/x86_64/SimDLL.dll"),
+                         Path("/mnt/data/share/oni/OxygenNotIncluded-763796/OxygenNotIncluded_Data/Plugins/x86_64/SimDLL.dll"),
                          Path("/mnt/data/share/oni/OxygenNotIncluded/OxygenNotIncluded_Data/Plugins/x86_64/SimDLL.dll")],
          "linux-x64": [Path("/mnt/data/share/oni/OxygenNotIncluded-linux-744825/OxygenNotIncluded_Data/Plugins/libSimDLL.so")]}
 

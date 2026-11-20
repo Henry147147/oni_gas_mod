@@ -1,5 +1,16 @@
 # Feature completion work
 
+**Update, 2026-11-20, version 1.10.2: game build 764025.** A hotfix of the
+game one day after 763796, which 1.10.1 refused at the menu on the user's
+PC. The game changed nothing the mod uses: its build number is compiled
+into three save and load methods the mod patches, and the Windows simulator
+library differs in that constant alone. 1.10.2 is 1.10.1 with the new build
+number, contract and Windows profile; no solver arithmetic and no
+checkpoint bytes change ([1.10.2](playtest-1.10.2.md)). Open as a user
+decision: whether a build that differs only in its number should be
+accepted without a new version of the mod
+([why each build needs one today](game-update-resilience.md#build-764025-2026-11-20)).
+
 **Update, 2026-11-19, version 1.10.1: game build 763796.** Steam updated
 Oxygen Not Included from build 744825 to 763796, which every earlier package
 refuses. The new build was fetched into the private copies and the mod
