@@ -33,11 +33,14 @@ def main() -> None:
     if platform.system() not in ("Windows", "Linux"):
         parser.error("Only Windows and Linux are targeted at this milestone")
     run([sys.executable, "tools/coverage_inventory.py", "validate"])
-    run([sys.executable, "-m", "unittest", "discover", "-s", "tools/tests", "-v"])
     run(["cmake", "-S", str(ROOT), "-B", str(directory), "-G", "Ninja", "-DCMAKE_BUILD_TYPE=Release",
          "-DMA_SANITIZERS=" + ("ON" if args.sanitizers else "OFF"), "-DMA_BUILD_STAGGERED_EXPERIMENTS=OFF",
          "-DMA_BUILD_ONI_NATIVE_BACKEND=" + ("ON" if args.oni_native_observer else "OFF")])
     run(["cmake", "--build", str(directory), "--parallel", "8"])
+    test_env = os.environ.copy()
+    if args.oni_native_observer and platform.system() == "Linux" and not args.sanitizers:
+        test_env["MA_TEST_ONI_BACKEND_LIBRARY"] = str(directory / "libmixed_atmospheres_oni.so")
+    run([sys.executable, "-m", "unittest", "discover", "-s", "tools/tests", "-v"], test_env)
     run(["ctest", "--test-dir", str(directory), "--output-on-failure"])
     if args.native_only:
         return

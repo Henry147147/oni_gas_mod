@@ -92,6 +92,10 @@ python3 tools/build.py                           # full native + managed + Pytho
   tools/colony_speed.py --build build-production` runs generated late-game
   colonies and the private captures in `local/perf/`
   ([what it measures](docs/performance-acceptance.md#game-free-speed-check-2026-11-16)).
+- For patch feedback on a pushed revision, run `python3 tools/acceptance_suite.py
+  run HEAD --tier patch --keep-going`. This covers the standalone suites, fixed
+  colony comparisons and three live games. Use `--scenario NAME` to include the
+  original batches for affected gameplay. [Scope, commands and timing](docs/performance-acceptance.md#patch-regression).
 - Long gates run on request: `ma_mac_multiphase_gates M5 --run`,
   `ma_mac_free_surface_gates M2`/`M3` (full grids), `ma_mac_riemann_tests`.
 - For any solver change, state in the commit message whether solver arithmetic or

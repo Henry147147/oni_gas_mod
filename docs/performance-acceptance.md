@@ -259,6 +259,56 @@ acceptance summary is in
 `artifacts/acceptance/b8d7b94/runs/settings-geometry-v4/summary.json`.
 
 <a id="game-free-speed-check-2026-11-16"></a>
+## Patch regression
+
+Run the patch tier on the current installed build for feedback between releases.
+Each run writes its own step results, start and finish times, and failure logs
+under `artifacts/acceptance/<revision>/runs/patch-vN/`.
+
+```sh
+python3 tools/acceptance_suite.py run HEAD --tier patch --keep-going
+```
+
+| Part | What it checks |
+| --- | --- |
+| Standalone | Linux CTest, Python and managed suites, including the installed game's contract and hooks. The production kernel controls exercise a pool through the activity pause. The owner continuation self-test drops an in-flight callback as a negative control and must detect the first divergent frame. |
+| Colony benchmarks | Six generated late-game configurations and six real input journals run through the native owner without ONI. Checks cover the inputs, frame window, final state fingerprint and the existing mass and energy bounds. Each case records mean and p95 owner time. |
+| Linux player | The original terrain/heat/phase/freeze-melt/door batch and the mixed-pipe colony/storage-ledger/throughput batch. |
+| Windows player under Proton | A hash-checked copy of the original meteor-edge playtest save must restore at frame 101524, advance at least 300 frames, save, and verify a second load through the main menu. The Windows package also runs its Wine native tests during the build. |
+
+Use `--scenario airflow`, for example, to add the existing batch containing
+airflow on each selected player that has it. Repeat the option for multiple
+affected systems. `plan --tier patch` accepts the same scenario selection.
+Use the quick/release tiers for the complete gameplay and starting-asteroid
+matrix, UI, DLC and long-run coverage. Sustained player speed still requires
+a live colony measurement. Historical-build qualification runs separately.
+
+To run just the fixed benchmarks on the private regression host:
+
+```sh
+cmake --build build-production --target ma_colony_benchmark -j 8
+tools/run_locked.sh high python3 tools/colony_speed.py --build build-production --regression
+```
+
+The compact reference in `tools/colony_regression_reference.json` comes from
+the successful `ff95138` run on the high CPU lock. It pins 12 workers, each
+case's warmup and measured window (155 total frames for the shorter November
+17 journal, 300 for the other cases), SHA-256 for each private input, and the
+benchmark's final fingerprint. Generated cases hash published cell views.
+Replay cases hash the complete final owner checkpoint. A missing capture on
+another machine makes the complete check unavailable. To run one generated
+case there, append `--case late-base`.
+
+On the reference host and affinity, the runner also reports percentage changes
+in mean and p95 owner time. To enforce a local performance budget, pass
+`--max-slowdown-percent N`; a slowdown above N in either measure fails that
+case. Shared-host timings vary. Repeat an unexpected slowdown under the lock
+and inspect the stage timings in the case JSON. A deliberate numerical or
+serialization change can change a fingerprint. Inspect that difference against
+the fixed physics gates before reviewing any reference update. For a capture
+with uninterrupted per-frame reference images, `ma_oni_colony_replay` reports
+the first differing frame and state byte ([continuation checks](colony-owner.md#saves)).
+
 ## Game-free speed check and what sets the frame, 2026-11-16
 
 The user asked for 3× real time in the largest colonies the game offers,

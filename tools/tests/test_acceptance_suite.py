@@ -31,6 +31,27 @@ def save_bytes(header: dict, build: int = suite.mod_identity.INSPECTED_ONI_BUILD
 
 
 class PlanTests(unittest.TestCase):
+    def test_patch_uses_original_gameplay_batches_and_a_separate_real_save_reload(self):
+        steps = suite.plan("patch")
+        self.assertEqual(names(steps), ["linux-offline", "linux-build", "windows-build", "linux-b1",
+                                        "linux-b13", "windows-meteor-reload"])
+        batches = [s.options["scenario"] for s in steps if s.kind == "batch"]
+        self.assertEqual(batches, [suite.LINUX_BATCHES[0], suite.LINUX_BATCHES[12]])
+        self.assertEqual(names(suite.select(steps, "windows-meteor-reload")), ["windows-build", "windows-meteor-reload"])
+        command = suite.describe(steps[-1])["command"]
+        self.assertEqual(command[:2], [str(suite.GAME_SLOT), "low"])
+        self.assertIn("--load-save", command)
+        self.assertIn("--reload-in-process", command)
+        self.assertTrue(all(cmd[:2] == [str(suite.RUN_LOCKED), "high"] for cmd in suite.describe(steps[0])["commands"]))
+
+    def test_affected_scenario_adds_its_whole_batch_once_on_each_applicable_player(self):
+        steps = suite.plan("patch", scenarios=("airflow", "airflow", "falling"))
+        added = [s for s in steps if s.name not in names(suite.plan("patch"))]
+        self.assertEqual(names(added), ["linux-b2", "windows-b2"])
+        self.assertTrue(all(s.options["scenario"] == suite.LINUX_BATCHES[1] for s in added))
+        with self.assertRaisesRegex(ValueError, "No gameplay batch"):
+            suite.plan("patch", scenarios=("typo",))
+
     def test_quick_tier_runs_every_linux_batch_asteroid_and_one_cycle(self):
         steps = suite.plan("quick")
         batches = [s for s in steps if s.kind == "batch"]

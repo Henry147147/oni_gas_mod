@@ -9,6 +9,9 @@ Tiers (user decision 2026-10-26):
 - ``release``: everything in ``quick`` plus the 30,000-frame ten-cycle run on
   the same frozen save.
 
+The separate ``patch`` tier runs standalone tests, fixed colony replays and
+timings, two Linux gameplay batches and a WindowsPlayer real-save reload.
+
 The pushed revision must already be checked out, clean, in the runner checkout: the main checkout
 or any worktree, at a HEAD that is on ``origin/main``.
 The suite verifies it before builds and games and never checks out a revision,
@@ -52,6 +55,8 @@ RUN_LOCKED = TOOLS / "run_locked.sh"
 # masses), game profile 12. The earlier `base-defaults-p11-v1` holds model 3, which 0.1.4 refuses.
 FROZEN_SAVE = Path("local/saves/base-defaults-p12-v1.sav")
 FROZEN_SAVE_SHA256 = "2fb8701dcc2ecf1ba5eb4db16fff91b409c35f77a449c4a5dbe9ef285e94037b"
+METEOR_SAVE = Path("local/saves/published-nov19.sav")
+METEOR_SAVE_SHA256 = "b074667d9a02408ae02e1d4fcc5dc63c506ec9beb6abadf5218768f11930bb19"
 VALIDATION = "mods/Dev/MixedAtmospheres.IntegrationProbe/game-contract-local/colony-validation"
 LINUX_PROFILE = "home/.config/unity3d/Klei/Oxygen Not Included"
 PROTON_PROFILE = "compatdata/pfx/drive_c/users/steamuser/Documents/Klei/OxygenNotIncluded"
@@ -83,7 +88,7 @@ PREPARED_CYCLE_FRAMES = 3132
 LINUX_TIMEOUT = 6800
 PROTON_BATCH_TIMEOUT = 1800
 LONG_RUN_TIMEOUT = 172800
-TIERS = ("quick", "release")
+TIERS = ("patch", "quick", "release")
 PLATFORMS = ("linux", "windows")
 FORBIDDEN_DLL_IMPORTS = ("libstdc++", "libgcc", "libwinpthread")
 
@@ -162,11 +167,31 @@ class Layout:
 
 # ---------------------------------------------------------------- the plan
 
-def plan(tier: str, platforms: tuple[str, ...] = PLATFORMS) -> list[Step]:
+def plan(tier: str, platforms: tuple[str, ...] = PLATFORMS, scenarios: tuple[str, ...] = ()) -> list[Step]:
     if tier not in TIERS:
-        raise ValueError("tier is quick or release")
+        raise ValueError("unknown acceptance tier: " + tier)
     if not platforms or any(p not in PLATFORMS for p in platforms):
         raise ValueError("platforms are linux and/or windows")
+    if scenarios and tier != "patch":
+        raise ValueError("--scenario extends the patch tier")
+    if tier == "patch":
+        steps = []
+        if "linux" in platforms:
+            steps.append(Step("linux-offline", "linux", "offline"))
+        quick = plan("quick", platforms)
+        wanted = ["linux-b1", "linux-b13"] if "linux" in platforms else []
+        if "windows" in platforms:
+            wanted.append("windows-build")
+        for scenario in scenarios:
+            matches = [s.name for s in quick if s.kind in ("batch", "proton-batch")
+                       and scenario in s.options["scenario"].split(",")]
+            if not matches:
+                raise ValueError(f"No gameplay batch for {scenario!r} on the selected platform(s)")
+            wanted.extend(matches)
+        steps.extend(select(quick, ",".join(wanted)))
+        if "windows" in platforms:
+            steps.append(Step("windows-meteor-reload", "windows", "meteor-reload", ("windows-build",)))
+        return steps
     steps: list[Step] = []
     if "linux" in platforms:
         steps.append(Step("linux-build", "linux", "build"))
@@ -369,6 +394,11 @@ def build_command(command: list[str]) -> list[str]:
     return [str(RUN_LOCKED), "high", "nice", "-n", "10", *command]
 
 
+def locked_check(name: str, command: list[str]) -> list[str]:
+    # Time the same way as the recorded high-lock colony reference.
+    return [str(RUN_LOCKED), "high", *command] if name == "colonies" else build_command(command)
+
+
 def run_build(commands: list[tuple[str, list[str]]], cwd: Path, env: dict, log: Path, record: dict) -> bool:
     record.setdefault("commands", [])
     with log.open("a") as stream:
@@ -376,13 +406,14 @@ def run_build(commands: list[tuple[str, list[str]]], cwd: Path, env: dict, log: 
             stream.write(f"\n[{now()}] {name}: {' '.join(command)}\n")
             stream.flush()
             start = stream.tell()
-            returncode = subprocess.run(build_command(command), cwd=cwd, env=env, stdout=stream,
+            started = time.monotonic()
+            returncode = subprocess.run(locked_check(name, command), cwd=cwd, env=env, stdout=stream,
                                         stderr=subprocess.STDOUT).returncode
             stream.flush()
             with log.open(errors="replace") as reader:
                 reader.seek(start)
                 output = reader.read()
-            entry = {"name": name, "returncode": returncode}
+            entry = {"name": name, "returncode": returncode, "wall_s": round(time.monotonic() - started, 3)}
             if name == "ctest":
                 match = re.search(r"(\d+)% tests passed, (\d+) tests failed out of (\d+)", output)
                 entry["summary"] = match.group(0) if match else None
@@ -581,6 +612,9 @@ def proton_command(package: Path, output: Path, infra: Infra, *arguments: str) -
 
 def proton_arguments(step: Step, load: Path | None = None) -> list[str]:
     kind = step.kind
+    if kind == "meteor-reload":
+        return ["--mode", "colony-owner-load", "--dlc-mask", "1", "--load-save", str(load),
+                "--frames", "300", "--speed", "3", "--save-colony", "--reload-in-process", "--timeout", "1800"]
     if kind == "proton-batch":
         return ["--mode", "colony-owner", "--scenario", step.options["scenario"], "--timeout", str(PROTON_BATCH_TIMEOUT)]
     if kind == "proton-contact":
@@ -775,6 +809,17 @@ def proton_checks(step: Step, output: Path, revision: str, files: dict) -> tuple
                   # had five each until natural-sublimation joined b2).
                   "requested_scenarios_ran": [s.get("Name") for s in owner.get("Scenarios", [])] ==
                       step.options.get("scenario", "").split(",")}
+    elif kind == "meteor-reload":
+        reload = owner.get("OwnerMenuReload") or {}
+        restored = report.get("RestoredFrame")
+        checks = {**proton_owner(result, "passed-colony-owner-load", revision, files),
+                  "meteor_save_loaded": (result.get("load_save_fixture") or {}).get("sha256") == METEOR_SAVE_SHA256,
+                  "spaced_out_active": result.get("dlc_selection_verified") is True
+                      and report.get("RequiredLoadDlcIds") == ["EXPANSION1_ID"],
+                  "advanced_after_restore": restored == 101524 and owner.get("CompletedFrames", 0) >= restored + 300,
+                  "saved_again": owner.get("Saves", 0) >= 1,
+                  "menu_reload_verified": all(reload.get(k) is True for k in
+                                              ("Requested", "Verified", "ShutdownObserved", "MainMenuObserved"))}
     elif kind == "proton-contact":
         checks = {**proton_owner(result, "passed-colony-owner", revision, files), **quit_menu,
                   "windows_contact_scenario": [s.get("Name") for s in owner.get("Scenarios", [])] == ["windows-contact"]}
@@ -973,7 +1018,7 @@ class Suite:
                         "proton": str(infra.proton), "linux_game": str(infra.linux_game),
                         "windows_game": str(infra.windows_game),
                         "frozen_save": {"path": str(FROZEN_SAVE), "sha256": FROZEN_SAVE_SHA256},
-                        "tier_steps": [step.name for step in plan(tier, PLATFORMS)],
+                        "tier_steps": list(dict.fromkeys(step.name for step in [*plan(tier, PLATFORMS), *steps])),
                         "requested_steps": [step.name for step in steps], "steps": []}
 
     def save(self) -> None:
@@ -1030,6 +1075,20 @@ class Suite:
 
     # Each step returns (checks, details).
     def execute(self, step: Step) -> tuple[dict, dict]:
+        if step.kind == "offline":
+            verify_source(self.layout, self.revision)
+            output = self.layout.runs / step.name
+            output.mkdir()
+            build = ROOT / "build-production"
+            env = clean_env({"CTEST_PARALLEL_LEVEL": "8"})
+            powershell = common_root() / "build-powershell"
+            if (powershell / "pwsh").is_file():
+                env["PATH"] = str(powershell) + os.pathsep + env["PATH"]
+            record = {"output": str(output)}
+            passed = run_build(offline_commands(build, output, self.infra.linux_game), ROOT, env,
+                               output / "checks.log", record)
+            verify_source(self.layout, self.revision)
+            return {"standalone_and_colonies": passed}, record
         if step.kind == "build":
             build = build_linux if step.platform == "linux" else build_windows
             checks, record = build(self.layout, self.revision, self.infra)
@@ -1078,7 +1137,9 @@ class Suite:
     def windows(self, step: Step, package: Path, manifest: dict, output: Path, log: Path) -> tuple[dict, dict]:
         runs, kind = self.layout.runs, step.kind
         load = None
-        if kind == "proton-prepared-cycle":
+        if kind == "meteor-reload":
+            load = stage_frozen_save(ROOT / METEOR_SAVE, runs / "meteor-input.sav", METEOR_SAVE_SHA256)
+        elif kind == "proton-prepared-cycle":
             load = base_source_save(runs / "windows-base-source", self.revision)
         elif kind == "proton-autosave-cold":
             load = prepared_autosave(runs / "windows-prepared-cycle", self.revision)
@@ -1418,11 +1479,24 @@ def infra_from(args) -> Infra:
         gpu_display=args.gpu_display)
 
 
+def offline_commands(build: Path, output: Path, game: Path) -> list[tuple[str, list[str]]]:
+    return [
+        ("standalone", [sys.executable, "tools/build.py", "--build-dir", str(build),
+                        "--oni-native-observer", "--game-dir", str(game)]),
+        ("benchmark-build", ["cmake", "--build", str(build), "--target", "ma_colony_benchmark", "-j", "8"]),
+        ("colonies", [sys.executable, "tools/colony_speed.py", "--regression", "--build", str(build),
+                      "--output", str(output / "colonies")]),
+    ]
+
+
 def describe(step: Step) -> dict:
     """A dry-run description of one step's game command (paths are placeholders)."""
     package = Path("<package>")
     output = Path("<runs>") / step.name
     infra = Infra(Path("<linux-game>"), Path("<windows-game>"), Path("<proton>"), Path("<mingw>"), Path("<wine>"), ":99")
+    if step.kind == "offline":
+        return {"name": step.name, "kind": step.kind, "deps": list(step.deps),
+                "commands": [locked_check(name, cmd) for name, cmd in offline_commands(Path("build-production"), output, infra.linux_game)]}
     if step.kind == "build":
         command = ["<build, CTest, hook tests and package>"]
     elif step.platform == "linux":
@@ -1446,6 +1520,8 @@ def parser() -> argparse.ArgumentParser:
         command.add_argument("--tier", choices=TIERS, default="quick")
         command.add_argument("--platform", choices=("both", *PLATFORMS), default="both")
         command.add_argument("--only", help="Comma-separated step names (see plan)")
+        command.add_argument("--scenario", action="append", default=[],
+                             help="Also run each original gameplay batch containing this scenario (patch tier, repeatable)")
         command.add_argument("--gpu-display", default=os.environ.get("ONI_GPU_DISPLAY") or ":99")
         command.add_argument("--linux-game")
         command.add_argument("--windows-game")
@@ -1491,7 +1567,9 @@ def main(argv: list[str] | None = None) -> int:
     if runner:
         raise SystemExit("Unexpected arguments after --")
     platforms = PLATFORMS if args.platform == "both" else (args.platform,)
-    steps = select(plan(args.tier, platforms), args.only)
+    if args.scenario and args.only:
+        raise SystemExit("--scenario extends a patch run; use --only separately to select individual steps")
+    steps = select(plan(args.tier, platforms, tuple(args.scenario)), args.only)
     if args.command == "plan":
         print(json.dumps({"tier": args.tier, "platforms": list(platforms), "steps": [describe(s) for s in steps]}, indent=2))
         return 0

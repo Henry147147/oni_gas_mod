@@ -48,6 +48,7 @@ ROOT = Path(__file__).resolve().parents[1]
 PRESETS = ('late-base', 'late-largest', 'late-spacedout')
 SYNTHETIC = (*PRESETS, *(f'{preset}-sealed' for preset in PRESETS))
 CAPTURES = ROOT / 'local' / 'perf'
+REGRESSION_REFERENCE = ROOT / 'tools' / 'colony_regression_reference.json'
 
 
 def saved_owner(save: bytes) -> bytes:
@@ -233,6 +234,33 @@ def compare(rows: list[dict], baseline: dict) -> str:
     return '\n'.join(lines)
 
 
+def verify_capture(folder: Path, expected: dict) -> None:
+    for name in ('owner', 'inputs.txt', 'diseases.bin'):
+        digest = hashlib.sha256()
+        with (folder / name).open('rb') as stream:
+            for block in iter(lambda: stream.read(1 << 20), b''):
+                digest.update(block)
+        if digest.hexdigest() != expected[name]:
+            raise ValueError(f'{folder.name}/{name} differs from the reference input')
+
+
+def verify_regression(result: dict, expected: dict, workers: int) -> None:
+    keys = ['mode', 'frames', 'warmup']
+    if expected['mode'] == 'owner-replay':
+        keys.extend(('first_frame', 'last_frame', 'final_owner_fnv'))
+    else:
+        keys.append('final_views_fnv')
+    for key in keys:
+        if result.get(key) != expected[key]:
+            raise ValueError(f'{key}: expected {expected[key]}, got {result.get(key)}')
+    if result.get('workers') != workers or result.get('faulted') is not False:
+        raise ValueError('Incorrect worker count or faulted owner')
+    for key, bound in [('relative_mass_error', 1e-8), ('relative_energy_error', 1e-6)]:
+        value = result.get(key)
+        if type(value) not in (int, float) or not 0 <= value <= bound:
+            raise ValueError(f'{key}: {value} outside [0, {bound}]')
+
+
 def host() -> dict:
     model = platform.processor()
     cpuinfo = Path('/proc/cpuinfo')
@@ -269,7 +297,17 @@ def main() -> int:
     parser.add_argument('--output', type=Path, help='Result folder (default artifacts/performance/speed-<revision>-<time>)')
     parser.add_argument('--baseline', type=Path, help='summary.json of an earlier run to compare with')
     parser.add_argument('--require', type=float, help='Fail unless every case is estimated at this many game seconds per second')
+    parser.add_argument('--regression', action='store_true',
+                        help='Verify the fixed generated and private replay windows against the checked-in reference')
+    parser.add_argument('--max-slowdown-percent', type=float,
+                        help='With --regression on the reference host, fail on a larger mean or p95 owner slowdown')
     args = parser.parse_args()
+    reference = json.loads(REGRESSION_REFERENCE.read_text()) if args.regression else None
+    if reference and (args.frames is not None or args.warmup is not None or args.workers):
+        parser.error('--regression sets the frames, warmup and worker count from the reference')
+    if args.max_slowdown_percent is not None and (not reference or not math.isfinite(args.max_slowdown_percent)
+                                                  or args.max_slowdown_percent < 0):
+        parser.error('--max-slowdown-percent requires --regression and a finite nonnegative percentage')
     if args.require is not None and (not math.isfinite(args.require) or args.require <= 0):
         parser.error('--require must be a finite positive speed')
     if args.frames is not None and args.frames < 1:
@@ -278,20 +316,40 @@ def main() -> int:
         parser.error('--warmup cannot be negative')
     executable = (args.executable or args.build / 'ma_colony_benchmark').resolve(strict=True)
     folders = captures()
-    cases = args.case or [*SYNTHETIC, *folders]
+    cases = args.case or (list(reference['cases']) if reference else [*SYNTHETIC, *folders])
+    if reference and any(case not in reference['cases'] for case in cases):
+        parser.error('No regression reference for a requested case')
     unknown = [c for c in cases if c not in SYNTHETIC and c not in folders]
     if unknown:
         parser.error(f'Unknown cases: {unknown} (captures found: {sorted(folders)})')
     revision = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip()
     dirty = bool(subprocess.check_output(['git', 'status', '--porcelain', '--untracked-files=no'], cwd=ROOT, text=True).strip())
     output = args.output or ROOT / 'artifacts' / 'performance' / f'speed-{revision[:12]}-{time.strftime("%Y%m%d-%H%M%S")}'
-    output.mkdir(parents=True, exist_ok=True)
-    summary = {'revision': revision, 'dirty': dirty, 'host': host(), 'executable': str(executable), 'workers': args.workers, 'cases': {}}
+    output.mkdir(parents=True, exist_ok=not args.regression)
+    workers = reference['workers'] if reference else args.workers
+    summary = {'revision': revision, 'dirty': dirty, 'host': host(), 'executable': str(executable), 'workers': workers, 'cases': {}}
+    comparable = False
+    if reference:
+        summary['cpu_affinity'] = sorted(os.sched_getaffinity(0)) if hasattr(os, 'sched_getaffinity') else None
+        comparable = summary['host'] == reference['host'] and summary['cpu_affinity'] == reference['cpu_affinity']
+        summary.update(reference_revision=reference['revision'], comparable_timing_host=comparable,
+                       max_slowdown_percent=args.max_slowdown_percent)
+        if args.max_slowdown_percent is not None and not comparable:
+            parser.error('Timing gate requires the same host configuration and high CPU lock as the reference')
+        for case in cases:
+            if case in folders:
+                try:
+                    verify_capture(folders[case], reference['cases'][case]['sha256'])
+                except (OSError, ValueError) as error:
+                    parser.error(str(error))
     rows, status = [], 0
     for case in cases:
         result = output / f'{case}.json'
         result.unlink(missing_ok=True)  # An explicit --output may hold an earlier successful run.
-        command = [str(executable), *arguments_for(case, folders, args.frames, args.warmup, args.workers), '--json', str(result)]
+        expected = reference['cases'][case] if reference else None
+        frames = expected['frames'] if expected else args.frames
+        warmup = expected['warmup'] if expected else args.warmup
+        command = [str(executable), *arguments_for(case, folders, frames, warmup, workers), '--json', str(result)]
         before, start = load(), time.monotonic()
         run = subprocess.run(command, capture_output=True, text=True)
         record = {'command': command[1:], 'exit': run.returncode, 'wall_s': round(time.monotonic() - start, 3),
@@ -302,6 +360,14 @@ def main() -> int:
             try:
                 measured = json.loads(result.read_text())
                 validate_estimate(case, measured)
+                if expected:
+                    verify_regression(measured, expected, workers)
+                    if comparable:
+                        delta = {k: 100 * (measured['owner_ms'][k] / expected['owner_ms'][k] - 1) for k in ('mean', 'p95')}
+                        record['owner_change_percent'] = delta
+                        print(f"{case}: owner mean {delta['mean']:+.1f}%, p95 {delta['p95']:+.1f}% vs reference", file=sys.stderr)
+                        if args.max_slowdown_percent is not None and max(delta.values()) > args.max_slowdown_percent:
+                            raise ValueError('Owner slowdown exceeds requested percentage')
                 record['row'] = row(case, measured)
                 rows.append(record['row'])
                 if record['row']['faulted']:
@@ -315,7 +381,7 @@ def main() -> int:
         if run.returncode != 0:
             status = 1
         summary['cases'][case] = record
-        print(f'{case}: exit {run.returncode}, {record["wall_s"]} s', file=sys.stderr)
+        print(f'{case}: exit {run.returncode}, {record["wall_s"]} s', record.get('result_error', ''), file=sys.stderr)
     (output / 'summary.json').write_text(json.dumps(summary, indent=2) + '\n')
     print(table(rows))
     if args.baseline:

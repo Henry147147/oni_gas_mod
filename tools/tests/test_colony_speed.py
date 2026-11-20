@@ -127,6 +127,60 @@ class CaptureTests(unittest.TestCase):
 
 
 class ReportTests(unittest.TestCase):
+    def test_regression_rejects_a_short_shifted_or_divergent_healthy_replay(self):
+        expected = dict(mode='owner-replay', first_frame=700, last_frame=719, frames=20,
+                        warmup=5, final_owner_fnv='0123456789abcdef')
+        valid = dict(expected, workers=12, faulted=False, relative_mass_error=0., relative_energy_error=0.)
+        speed.verify_regression(valid, expected, 12)
+        for field, value in [('frames', 19), ('first_frame', 701), ('last_frame', 718),
+                             ('final_owner_fnv', 'fedcba9876543210'), ('relative_mass_error', math.nan),
+                             ('relative_energy_error', 1.1e-6), ('faulted', True), ('workers', 1)]:
+            with self.subTest(field=field), self.assertRaises(ValueError):
+                speed.verify_regression({**valid, field: value}, expected, 12)
+
+    def test_swapped_journal_fails_input_identity_before_replay(self):
+        with tempfile.TemporaryDirectory() as temp:
+            folder = Path(temp)
+            expected = {}
+            for name in ('owner', 'inputs.txt', 'diseases.bin'):
+                (folder / name).write_bytes(name.encode())
+                expected[name] = hashlib.sha256(name.encode()).hexdigest()
+            speed.verify_capture(folder, expected)
+            (folder / 'inputs.txt').write_bytes(b'other journal from the same save')
+            with self.assertRaisesRegex(ValueError, 'inputs.txt differs'):
+                speed.verify_capture(folder, expected)
+
+    def test_p95_slowdown_alone_can_fail_an_explicit_performance_budget(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            exe = root / 'benchmark'
+            exe.touch()
+            expected = dict(mode='steady', frames=20, warmup=5, final_views_fnv='abc')
+            reference = root / 'reference.json'
+            affinity = sorted(speed.os.sched_getaffinity(0)) if hasattr(speed.os, 'sched_getaffinity') else None
+            reference.write_text(json.dumps(dict(revision='parent', host={}, cpu_affinity=affinity, workers=12,
+                cases={'late-base': dict(expected, owner_ms={'mean': 50, 'p95': 50})})))
+            measured = dict(result(speed_mean=2.667, speed_p95=2.353), **expected, workers=12,
+                            frame_seconds=.2, relative_mass_error=0, relative_energy_error=0)
+            measured['estimate']['native_overhead_ms'] = 25
+
+            def run(command, **_):
+                Path(command[command.index('--json') + 1]).write_text(json.dumps(measured))
+                return SimpleNamespace(returncode=0, stderr='')
+
+            output = root / 'report'
+            options = ['colony_speed.py', '--executable', str(exe), '--output', str(output),
+                       '--regression', '--max-slowdown-percent', '10']
+            with patch.object(speed, 'REGRESSION_REFERENCE', reference), patch.object(sys, 'argv', options), \
+                 patch.object(speed, 'host', return_value={}), patch.object(speed, 'captures', return_value={}), \
+                 patch.object(speed.subprocess, 'run', side_effect=run), \
+                 patch.object(speed.subprocess, 'check_output', side_effect=['candidate', '']), \
+                 contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                self.assertEqual(speed.main(), 1)
+            record = json.loads((output / 'summary.json').read_text())['cases']['late-base']
+            self.assertAlmostEqual(record['owner_change_percent']['p95'], 20)
+            self.assertIn('slowdown', record['result_error'])
+
     def test_rows_carry_the_figures(self):
         r = speed.row('late-base', result())
         self.assertEqual((r['owner_ms'], r['owner_p95_ms'], r['flow_ms'], r['slowest_region_ms'], r['worst_region_intervals'], r['speed']),
