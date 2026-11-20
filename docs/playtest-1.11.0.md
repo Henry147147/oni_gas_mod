@@ -62,6 +62,22 @@ two pumps in series on one pipe ONI itself holds the first pump's packet in
 its outlet, so this layout passes one pump's flow (0.5 kg/s) with or
 without the mod. The user's colony itself was not examined in the game.
 
+## Storage ledger check
+
+The `storage-ledger` scenario compared what the owner lost to a mop, a
+pitcher pump, a demolished storage or a released chunk with the change of
+ONI's water items in the whole world. In acceptance batch 13 a carbon
+dioxide scrubber of the preceding `mixed-pipe-colony` base keeps running
+elsewhere on the map: it turns 1 kg of its stored water into polluted water
+at a time and refills from its pipe one pipe tick later. Whenever exactly
+one of those steps fell inside a measuring window, the world-wide sum was
+off by 1 kg and the check failed although the mop was exact: about half of
+the batch runs on the 1.11.0 candidates, none of six on 1.10.2, whose
+scenario code is the same (which change moved the base's timing onto the
+failing frames was not determined). The check now counts the items inside
+its own arena (user decision, 2026-11-20). Its frames, inputs and
+tolerance are unchanged.
+
 ## Verification
 
 The compatibility candidate loaded a colony created on 744825 in all three

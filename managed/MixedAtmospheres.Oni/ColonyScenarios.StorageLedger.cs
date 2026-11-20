@@ -50,9 +50,14 @@ namespace MixedAtmospheres.Oni
         private static double WaterAndSteam(int cell) => SpeciesMass(cell, SimHashes.Water) + SpeciesMass(cell, SimHashes.Steam);
         private static double PoolWater() => Enumerable.Range(0, 3).Sum(x => WaterAndSteam(Cell(x, 1)));
         private static double CellGerms(int cell, byte disease) => Grid.DiseaseIdx[cell] == disease && Grid.DiseaseCount[cell] > 0 ? Grid.DiseaseCount[cell] : 0;
-        // ONI's own items of an element, wherever they are (floor, storage, carried).
+        // ONI's own items of an element in this arena (floor or storage): each crossing below makes or takes its items here,
+        // and none leaves the arena within its window. Machines of earlier scenarios of the batch keep running elsewhere:
+        // a carbon dioxide scrubber of the mixed-pipe-colony base turns 1 kg of its stored water into polluted water at a
+        // time (ONI's converter, once a second) and refills it from its pipe a pipe tick later, which moved a world-wide
+        // sum by 1 kg whenever one of those steps fell inside a window.
         private static IEnumerable<PrimaryElement> Items(SimHashes element) =>
             Components.Pickupables.Items.Where(item => item != null && !item.wasAbsorbed && !item.GetComponent<KPrefabID>().pendingDestruction &&
+                InArena(Grid.PosToCell(item)) &&
                 // The pitcher pump's stored chunks are placeholders for the pool beneath it, not mass.
                 (item.storage == null || item.storage.GetComponent<LiquidPumpingStation>() == null))
                 .Select(item => item.GetComponent<PrimaryElement>()).Where(primary => primary != null && primary.ElementID == element);
