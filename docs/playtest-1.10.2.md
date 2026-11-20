@@ -67,8 +67,20 @@ each platform. No acceptance tier was run.
   declaration checks of the hooks). `tools/retarget_oni.py` on the packaged
   mod: no contract difference on either platform, the Windows profile
   carried, the Linux image already verified, element definitions unchanged.
-- **In the game** (results below are added after the release commit, from
-  the exact packages).
+- **In the game, build 764025.** With a package of the working tree, the
+  user's save of 2026-11-19 in the Linux player: "Game build 764025
+  verified", restored, the 360 stray cells released, 300 ticks at 3×, no
+  fault and no warning from the mod. Then the exact packages of the release
+  commit `f51be6a`:
+  - the Workshop folder in the Linux player: a new base-game colony starts
+    and completes the base scenario;
+  - the Workshop folder and the private Windows package in the Windows
+    player under Proton, each with the user's save: verified, restored at
+    frame 101,524, the 360 cells released, 450 ticks at 3× with an autosave
+    on the way, relative mass and energy errors of 9e-13 and 2e-14, no
+    fault. The owner tick is 138 to 148 ms a window, as 1.10.1 measured on
+    763796 (141 to 148).
+  No run logs "started with fallbacks" or "is not active".
 
 Not tested: Windows itself; the Windows player ran under Proton only. The
 acceptance tier of 1.10.1 was cut off at 17 of 46 steps by a session restart
