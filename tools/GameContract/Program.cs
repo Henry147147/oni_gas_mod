@@ -213,6 +213,11 @@ static class Program
             e["Token"] = (int)other["Token"]!; e["Context"] = (int)other["Context"]!; return (string)e["Key"]! + " -> "; });
         Case("absent named member", copy => { var e = First(copy, "named", x => ((string)x["Key"]!).Contains("::", StringComparison.Ordinal) && !((string)x["Key"]!).EndsWith("::*", StringComparison.Ordinal));
             e["Name"] = (string)e["Name"]! + "Removed"; return (string)e["Key"]!; });
+        Case("renamed field injected by Harmony", copy => {
+            var e = copy["Entries"]!.AsArray().FirstOrDefault(x => (string?)x?["Key"] == "named Sublimates::primaryElement");
+            if (e == null) return null; // Older adapters did not record injected fields.
+            e["Name"] = "RemovedPrimaryElement"; return (string)e["Key"]!;
+        });
         Case("unexpected patch target", copy => { var entries = copy["Entries"]!.AsArray(); var e = First(copy, "patched"); var key = (string)e["Key"]!; entries.Remove(e); return "new patch target " + key; });
         Case("vanished patch target", copy => { copy["Entries"]!.AsArray().Add(new JsonObject { ["Kind"] = "patched", ["Token"] = 0, ["Context"] = 0, ["TypeName"] = "", ["Name"] = "",
             ["Key"] = "static Game::RemovedMethod()System.Void", ["Value"] = "sha256:" + new string('3', 64) }); return "missing patch target static Game::RemovedMethod()System.Void"; });

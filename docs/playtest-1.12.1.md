@@ -21,6 +21,12 @@ the median game speed was 0.99× on the player's machine.
 - The status bar measures its title in the game font and reserves room for
   Settings, collapse and close. Compact buttons have explicit text padding.
 
+Build 744825 exposes the pickupable as a component of sublimating debris.
+The mod now reads that component when a sublimation preference is enabled.
+The package contract also checks fields Harmony injects into patch methods.
+This catches an adapter that would fail while opening the oldest supported
+game build.
+
 ## Simulation cost
 
 Frequent terrain edits in the submitted colony changed the outline of the

@@ -65,8 +65,17 @@ namespace MixedAtmospheres.Oni
                 (entry.Key, entry.Value) = Named(type, site.Name);
                 named[entry.Key] = entry;
             }
+            // Harmony resolves triple-underscore parameters by field name while building
+            // a patch. The adapter has no metadata member reference for these fields.
+            var targets = Targets(mod, field =>
+            {
+                var owner = field.DeclaringType!;
+                var entry = new GameContractEntry { Kind = GameContractScope.Kind_Named, TypeName = owner.FullName!, Name = field.Name };
+                (entry.Key, entry.Value) = Named(owner, field.Name);
+                named[entry.Key] = entry;
+            });
             platform.Entries.AddRange(named.Values);
-            foreach (var target in Targets(mod).OrderBy(GameContractCanon.Method, StringComparer.Ordinal))
+            foreach (var target in targets.OrderBy(GameContractCanon.Method, StringComparer.Ordinal))
                 platform.Entries.Add(new GameContractEntry { Kind = GameContractScope.Kind_Patched, Key = GameContractCanon.Method(target), Value = GameContractCanon.Body(target) });
             if (!raw) foreach (var entry in platform.Entries) entry.Value = GameContractCanon.Compact(entry.Value);
             return platform.ToJson();
@@ -147,7 +156,7 @@ namespace MixedAtmospheres.Oni
         private static IEnumerable<GameContractCanon.Instruction> Instructions(MethodBase method) =>
             GameContractCanon.Decode(method.GetMethodBody()?.GetILAsByteArray() ?? Array.Empty<byte>());
 
-        private static List<MethodBase> Targets(Assembly mod) => GameContractScope.PatchTargets(mod).Concat(GameContractScope.ManualTargets()).Distinct().ToList();
+        private static List<MethodBase> Targets(Assembly mod, Action<FieldInfo>? onInjectedField = null) => GameContractScope.PatchTargets(mod, onInjectedField).Concat(GameContractScope.ManualTargets()).Distinct().ToList();
 
         private const string AllMembers = "*";
         private static bool IsMemberName(string text) => System.Text.RegularExpressions.Regex.IsMatch(text, @"^[A-Za-z_<][A-Za-z0-9_`<>$]*$");

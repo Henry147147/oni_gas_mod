@@ -14,10 +14,13 @@ namespace MixedAtmospheres.Oni
             loose = settings.Toggle(SettingCatalog.KeepDebris);
             stored = settings.Toggle(SettingCatalog.KeepStored);
         }
-        private static bool Prefix(Pickupable ___pickupable, PrimaryElement ___primaryElement)
+        private static bool Prefix(Sublimates __instance, PrimaryElement ___primaryElement)
         {
-            if ((!loose && !stored) || ___pickupable == null) return true;
-            return ___pickupable.storage != null ? !stored : !loose || ___primaryElement.ElementID == SimHashes.OxyRock;
+            if (!loose && !stored) return true;
+            // The pickupable component is available on all three supported game builds.
+            var pickupable = __instance.GetComponent<Pickupable>();
+            if (pickupable == null) return true;
+            return pickupable.storage != null ? !stored : !loose || ___primaryElement.ElementID == SimHashes.OxyRock;
         }
     }
 

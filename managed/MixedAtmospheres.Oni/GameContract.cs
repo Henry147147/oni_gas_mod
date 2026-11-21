@@ -286,12 +286,30 @@ namespace MixedAtmospheres.Oni
         // (mirrors Harmony 2.4's PatchClassProcessor; Prepare is not run, so
         // conditional patches are included). The game run checks afterwards
         // that every patched original is one of these.
-        internal static List<MethodBase> PatchTargets(Assembly mod)
+        internal static List<MethodBase> PatchTargets(Assembly mod, Action<FieldInfo>? onInjectedField = null)
         {
             var targets = new List<MethodBase>();
             // Every target that cannot be found is reported at once: after a
             // game update the whole list is what retargeting needs.
             var missing = new List<string>();
+            void AddTarget(MethodBase target, IEnumerable<MethodInfo> patchMethods)
+            {
+                targets.Add(target);
+                foreach (var patch in patchMethods)
+                    foreach (var parameter in patch.GetParameters())
+                    {
+                        var name = parameter.Name;
+                        if (name == null || !name.StartsWith("___", StringComparison.Ordinal)) continue;
+                        var fieldName = name.Substring(3);
+                        var owner = target.DeclaringType!;
+                        var field = int.TryParse(fieldName, System.Globalization.NumberStyles.None,
+                            System.Globalization.CultureInfo.InvariantCulture, out var index)
+                            ? AccessTools.DeclaredField(owner, index) : AccessTools.Field(owner, fieldName);
+                        if (field == null)
+                            missing.Add($"Undefined injected field {owner.FullName}::{fieldName} for {patch.DeclaringType!.FullName}.{patch.Name}");
+                        else onInjectedField?.Invoke(field);
+                    }
+            }
             foreach (var type in AccessTools.GetTypesFromAssembly(mod))
             {
                 // PatchAll processes only classes with a Harmony attribute.
@@ -305,13 +323,13 @@ namespace MixedAtmospheres.Oni
                     {
                         var found = ((IEnumerable<MethodBase>?)bulk.Invoke(null, Array.Empty<object>()))?.ToList();
                         if (found == null || found.Any(m => m == null)) throw new InvalidOperationException("TargetMethods of " + type.FullName + " returned a null target.");
-                        targets.AddRange(found);
+                        foreach (var target in found) AddTarget(target, patches);
                         continue;
                     }
                     var single = Auxiliary(type, "TargetMethod");
                     if (single != null)
                     {
-                        if (single.Invoke(null, Array.Empty<object>()) is MethodBase target) targets.Add(target);
+                        if (single.Invoke(null, Array.Empty<object>()) is MethodBase target) AddTarget(target, patches);
                         continue;
                     }
                 }
@@ -327,7 +345,7 @@ namespace MixedAtmospheres.Oni
                     MethodBase? original = null; string why = "";
                     try { original = Original(container.Merge(HarmonyMethod.Merge(HarmonyMethodExtensions.GetFromMethod(patch)))); }
                     catch (Exception error) { why = " (" + error.GetType().Name + ": " + error.Message + ")"; }
-                    if (original != null) targets.Add(original);
+                    if (original != null) AddTarget(original, new[] { patch });
                     else missing.Add("Undefined target method for patch " + type.FullName + "." + patch.Name + why);
                 }
             }

@@ -76,7 +76,7 @@ compatible version.
 | Side | Dependency | Where recorded |
 | --- | --- | --- |
 | Native `SimDLL` | 27 hooked or bound functions (entry address and 32-byte fingerprint), the `gSim`/`gSimData` globals, private layouts (`SimData` header, `CellSOA` vectors, `SimFrameInfo` message vectors, chunk registry), the Linux GCC-specialised chunk-heat ABI, the `SIMSAVE` v15 world format | `native-hook-profiles.json`, `native/src/oni_*` |
-| Managed | Harmony patch targets: attribute, `TargetMethod(s)` and manual patches, including the native-message callers that `NativeMessagePatch` finds by scanning `Sim`/`SimMessages` | mod assembly |
+| Managed | Harmony patch targets, including attribute targets, `TargetMethod(s)`, the fields injected through `___field` parameters and manual patches. `NativeMessagePatch` finds native-message callers by scanning `Sim` and `SimMessages`. | mod assembly |
 | Managed | Game members the mod calls or reads directly (MemberRef table) or finds by name (`AccessTools`, `typeof(T).GetX("name")` with constant arguments) | mod assembly |
 | Managed | Layouts of game structs that cross the native boundary or that the mod reads through pointers (`Sim.Cell`, `Sim.GameDataUpdate`, `Sim.Element`, message structs), and enum and `const` values compiled into the mod | game assemblies |
 | Data | The gas and liquid catalogue (material model 3) that every colony save is bound to | computed at colony start |
