@@ -26,7 +26,7 @@ namespace MixedAtmospheres.Oni
     internal static class ColonyCheckpointMetadata
     {
         private static readonly byte[] OwnerMagic={77,65,67,79,76,78,48,49}, PhysicalMagic={77,65,67,67,76,83,48,49};
-        private const int TransferBytes=48, HeatBytes=24, TerrainBytes=8, FreezeBytes=16, DigestBytes=64;
+        private const int ConfigBytes=56, TransferBytes=48, HeatBytes=24, TerrainBytes=8, FreezeBytes=16, DigestBytes=64;
         private const int GermClockBytes=18, GermEditBytes=16, GermAccountBytes=8+6*16;
         // Removed custom game element hashes; these are refusal markers only.
         internal static void RefuseRemovedNitrogen(ReadOnlySpan<byte> image)
@@ -162,7 +162,7 @@ namespace MixedAtmospheres.Oni
                 throw new InvalidDataException("Missing colony checkpoint framing.");
             version=BinaryPrimitives.ReadUInt32LittleEndian(image.Slice(8,4));
             var at=12;
-            // Wrapper13 encloses a base wrapper 8..12 whose queue keeps
+            // Wrapper13 encloses a supported base wrapper whose queue keeps
             // callback-owned requests: base version, request count, then the
             // base layout unchanged. Metadata reports the base framing.
             if(version==13)
@@ -176,7 +176,12 @@ namespace MixedAtmospheres.Oni
             // Wrapper12 selects the conservative owner boundary law and keeps
             // wrapper11's complete framing, including its precision block.
             else if(version<6 || version>15) throw new InvalidDataException("Unsupported colony checkpoint metadata version.");
-            Skip(image,ref at,56); // MAOniColonyConfig
+            var configAt=at;
+            Skip(image,ref at,ConfigBytes);
+            // A sampled owner starts directly with MAOniColonyConfig. Only
+            // the callback wrapper has a base version and request count first.
+            if(version==15 && (U32(image,ref configAt)!=ConfigBytes || U32(image,ref configAt)!=1))
+                throw new InvalidDataException("Invalid sampled colony configuration header.");
             materials=U32(image,ref at);materialTable=at;
             Skip(image,ref at,(long)materials*168);
             var cells=U32(image,ref at);Skip(image,ref at,cells);

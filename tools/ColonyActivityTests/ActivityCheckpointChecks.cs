@@ -61,6 +61,17 @@ internal static class ActivityCheckpointChecks
             if((ColonyCheckpointMetadata.CallbackRequestCount(image)>0)!=(name=="native-wrapper13-base14.owner") || !image.SequenceEqual(original))
                 throw new Exception("Native callback framing or source bytes differ: " + name);
             ++checks;
+            if (profile.OwnerVersion == 15)
+            {
+                foreach (var offset in new[] { 12, 16 })
+                {
+                    var malformed = (byte[])image.Clone();
+                    Array.Clear(malformed, offset, 4);
+                    try { ColonyCheckpointMetadata.CompletedFrames(malformed); }
+                    catch (InvalidDataException) { ++checks; continue; }
+                    throw new Exception("A sampled owner with an invalid configuration header supplied a frame count.");
+                }
+            }
         }
         return checks;
     }
