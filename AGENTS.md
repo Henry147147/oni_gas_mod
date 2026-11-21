@@ -36,6 +36,9 @@ few that your task touches, starting here.
   existing storage capacities and compact UI clipping. It retains region
   worker estimates across small terrain edits. All release and patch steps
   passed. The private share holds `publish/update-1.12.1`.
+  [1.12.1.1](docs/playtest-1.12.1.1.md) (`3a7ebfd`) fixes the pipe-heat
+  autosave crash. The submitted Cycle 49 save passed the Cycle 50 rollover.
+  The private share holds `publish/update-1.12.1.1`.
   [0.1.8](docs/playtest-0.1.8.md) lets
   two gases change places through an opening one tile high;
   [0.1.7](docs/playtest-0.1.7.md) kept a pool levelling past the activity

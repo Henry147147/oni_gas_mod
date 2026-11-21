@@ -1,5 +1,11 @@
 # Feature completion work
 
+**[1.12.1.1 save hotfix](playtest-1.12.1.1.md).** The pipe heat tracker
+now follows the native sender’s energy cutoff. The Windows player under
+Proton wrote the Cycle 50 autosave from the player’s Cycle 49 save and
+continued to a successful manual save. The hotfix uses the 1.12.1 native
+libraries and save format.
+
 **[1.12.1 playtest](playtest-1.12.1.md).** Stranded Pacu suffocate, storage
 limits and pending deliveries follow preference changes on existing saves,
 and the compact status bar fits its title. All 47 release and seven patch
