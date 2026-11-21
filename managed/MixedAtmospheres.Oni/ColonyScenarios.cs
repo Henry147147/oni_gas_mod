@@ -1305,6 +1305,17 @@ namespace MixedAtmospheres.Oni
 
         // A pacu in an owned pool stays in its water.
         private static GameObject? pacu;
+
+        private static void MoveTestPacu(int cell)
+        {
+            // The navigator can finish an earlier swim after a direct move and
+            // put the fish back in the pool before its next breathing check.
+            var fish = pacu!;
+            var navigator = fish.GetComponent<Navigator>();
+            stopActivityNavigator.Invoke(navigator, new object[] { true, false });
+            MoveActivityCreature(fish, cell);
+        }
+
         private static void Pacu(int frame)
         {
             if (Once(0, "arena")) Arena((x, y) => y <= 3 ? (SimHashes.Water, 990f, 300f) : (SimHashes.Oxygen, 1.2f, 300f));
@@ -1325,20 +1336,21 @@ namespace MixedAtmospheres.Oni
                 for (var x = 0; x < Width; ++x)
                     SimMessages.ReplaceElement(Cell(x, 4), SimHashes.Unobtanium, CellEventLogger.Instance.SandBoxTool, 20000, 300);
             }
-            if (Once(37, "beach pacu")) MoveActivityCreature(pacu!, Cell(3, 5));
+            if (Once(37, "beach pacu")) MoveTestPacu(Cell(3, 5));
             if (Once(58, "rescue pacu"))
             {
                 var monitor = pacu!.GetSMI<AquaticCreatureSuffocationMonitor.Instance>();
-                Record("stranded pacu accumulates exposure", !monitor.CanBreath() && monitor.DeathTimerValue > 0,
-                    $"exposure {monitor.DeathTimerValue} s");
-                MoveActivityCreature(pacu!, Cell(3, 1));
+                var canBreathe = monitor.CanBreath();
+                Record("stranded pacu accumulates exposure", !canBreathe && monitor.DeathTimerValue > 0,
+                    $"cell {Grid.PosToCell(pacu)}, ledge {Cell(3, 5)}, can breathe {canBreathe}, exposure {monitor.DeathTimerValue} s");
+                MoveTestPacu(Cell(3, 1));
             }
             if (Once(80, "check recovery"))
             {
                 var monitor = pacu!.GetSMI<AquaticCreatureSuffocationMonitor.Instance>();
                 Record("rescued pacu recovers in water", monitor.CanBreath() && monitor.DeathTimerValue == 0,
                     $"exposure {monitor.DeathTimerValue} s");
-                MoveActivityCreature(pacu!, Cell(3, 5));
+                MoveTestPacu(Cell(3, 5));
             }
             if (Once(94, "near expiry"))
             {
