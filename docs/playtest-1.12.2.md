@@ -40,3 +40,14 @@ When that prevents any progress, the affected room retries from its opening
 state with its scheduled fluid conduction first. Heat comes from neighbouring
 fluid and the complete interval still has one conduction step. Both attempts
 share the pressure budget and the same mass, energy and temperature checks.
+
+On a tick between fluid updates, a germ or terrain edit can invalidate the
+previous inventory audit. The owner now counts the current cells and face
+momenta once in fixed row blocks and reuses that result for the following
+transfer. With fluids advancing every eighth tick, the 450-tick replay
+of the submitted colony retained identical physical state, germs, machine
+queues and mass totals. In the 19.5 MB saved owner, only the recorded peak
+relative energy discrepancy and its checksum changed. The peak was
+3.38348 × 10⁻¹⁴. In that run the median owner tick fell from 50.0 to
+37.9 ms. These are native replay times. Game speed includes Unity and is
+measured separately in the Windows player.

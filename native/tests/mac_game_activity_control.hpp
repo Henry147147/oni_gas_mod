@@ -127,6 +127,49 @@ inline void game_activity_control() {
     cadence=cadence.advanced(.1).world;
   }
   check(staggered && held,"Remote regions did not retain and stagger their fractional clocks");
+  // Biology invalidates the preceding germ audit. A held fluid interval must
+  // still account for the edited inventory before the next machine transfer.
+  {
+    auto material = f.state(64, 64, false);
+    auto settings = cfg;
+    settings.game.activity_tiers = true;
+    settings.gravity_m_per_s2 = 9.81;
+    const auto cell = material.grid.width + 2;
+    material.momentum_y[material.grid.y_face(2, 1)] = .0125;
+    auto initial = MacClosedWorld::game_colony(f.registry, f.eos, std::move(material),
+                                              std::vector<double>(64 * 64, 300), settings);
+    const auto saved_options = mac_kernel_default_options();
+    std::vector<std::uint8_t> single_worker;
+    for (unsigned threads : {1u, 4u}) {
+      auto options = saved_options;
+      options.threads = threads;
+      set_mac_kernel_default_options(options);
+      const auto pristine = initial.advanced(frame).world;
+      const auto expected = pristine.game_audit_totals().value();
+      const auto edited = pristine.with_passive_edits(std::array{MacPassiveEdit{cell, 31, 32.5}});
+      check(!edited.game_audit_totals(), "Passive edit retained its old germ audit");
+      const auto held = MacGameKernelAccess::advance_guarded(edited, frame, 32, {}, MacGameFlowFrame::held).world;
+      const auto observed = held.game_audit_totals();
+      check(observed && observed->species_kg == expected.species_kg && observed->energy_j == expected.energy_j &&
+            &held.state() == &edited.state(), "Held interval lost inventory or changed physical fields");
+      const auto cold = MacClosedWorld::from_checkpoint(f.registry, f.eos, held.checkpoint());
+      const MacFluidTransfer draw{cell, f.registry.index("oxygen"), false, .001, 0};
+      const auto draw_from = [&](const MacClosedWorld& world) {
+        return world.with_fluid_transfers(std::span(&draw, 1), MacFluidTransferTopology::occupied_mixture);
+      };
+      const auto cached_draw = draw_from(held);
+      const auto cold_draw = draw_from(cold);
+      const auto image = cached_draw.world.checkpoint();
+      check(image == cold_draw.world.checkpoint(), "Held audit changed the following extraction at cold reload");
+      const auto cached_sum = cached_draw.world.game_audit_totals().value();
+      const auto cold_sum = cold_draw.world.game_audit_totals().value();
+      check(cached_sum.species_kg == cold_sum.species_kg && cached_sum.energy_j == cold_sum.energy_j,
+            "Held audit differs from a fresh sum after extraction");
+      if (threads == 1) single_worker = image;
+      else check(image == single_worker, "Worker count changed the held interval or the following extraction");
+    }
+    set_mac_kernel_default_options(saved_options);
+  }
   const auto saved=cadence.checkpoint();
   const auto records=saved.size()-8-25*state.cells.size();
   const auto corrupt=[&](std::size_t offset,std::uint64_t bits,unsigned bytes,std::size_t other=0,std::uint64_t other_bits=0) {

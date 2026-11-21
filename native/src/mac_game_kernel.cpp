@@ -49,6 +49,9 @@ std::vector<k::Species> table(const SpeciesRegistry &registry,
   }
   return result;
 }
+k::Totals dense_totals(const MacTransportState &, std::size_t, double,
+                       mac_kernel::Pool *pool = nullptr);
+
 // Fixed chunks of cells for the conversions below, on the pool if any.
 constexpr std::size_t conversion_chunk = 1024;
 void chunks(mac_kernel::Pool *pool, std::size_t cells,
@@ -640,9 +643,21 @@ MacClosedAdvance MacGameKernelAccess::advance_guarded(
   require(std::isfinite(seconds) && seconds > 0 && seconds <= 10 &&
               budget > 0 && budget <= 65536,
           "Invalid game interval/budget");
+  struct Cache {
+    std::shared_ptr<const FluidThermodynamics> eos;
+    MacGrid grid;
+    MacGameSettings settings;
+    unsigned threads = 0;
+    bool conduction = true, closure = false, trace_heat = false, bounded = false, sized = false, carried = false, layered = false, convective = false, thin = false;
+    std::unique_ptr<k::Tick> tick;
+    std::unique_ptr<k::RegionalTick> regional;
+    std::shared_ptr<k::RegionalExecutionHistory> regional_execution;
+    SparseCache sparse;
+  };
+  thread_local Cache cache;
   if (frame == MacGameFlowFrame::held) {
     // Actors, game inputs, and the remote-region clocks continue each tick.
-    // Holding the physical fields also preserves their cached energy totals.
+    // The clock advances even when this interval transports no material.
     const auto& grid = source.state().grid;
     require(mac_game_activity_profile(source.settings_.game_profile), "Held fluid frame needs colony activity");
     k::validate_activity(source.game_activity(), grid.walls.size(), source.time_s_, grid.walls);
@@ -658,28 +673,23 @@ MacClosedAdvance MacGameKernelAccess::advance_guarded(
                             levelling ? &*levelling : nullptr);
       elapsed += dt;
     }
-    MacClosedAdvance held{source, {}};
+    MacClosedAdvance held{MacClosedWorld(MacClosedWorld::Derived{}, source, source.state_snapshot_), {}};
+    held.world.game_totals_ = source.game_totals_;
     held.world.game_activity_ = std::make_shared<const std::vector<MacGameActivityCell>>(std::move(clocks));
+    if (!source.game_totals_) {
+      // A germ or terrain edit can invalidate the opening audit. Recount
+      // once so both the closing ledger and the next transfer see this state.
+      auto *pool = cache.regional ? &cache.regional->worker_pool() : nullptr;
+      held.world.game_totals_ = std::make_shared<const k::Totals>(dense_totals(
+          source.state(), source.registry_.size(), source.settings_.gravity_m_per_s2, pool));
+    }
     held.world.time_s_ = source.time_s_ + seconds;
     require(held.world.time_s_ > source.time_s_ && std::isfinite(held.world.time_s_), "Game clock cannot advance");
-    ++held.world.revision_;
     held.report.game_converted_mass_kg.assign(source.registry_.size(), 0.);
     last_stages() = {};
     if (k::region_samples::enabled().load(std::memory_order_relaxed)) k::region_samples::last().clear();
     return held;
   }
-  struct Cache {
-    std::shared_ptr<const FluidThermodynamics> eos;
-    MacGrid grid;
-    MacGameSettings settings;
-    unsigned threads = 0;
-    bool conduction = true, closure = false, trace_heat = false, bounded = false, sized = false, carried = false, layered = false, convective = false, thin = false;
-    std::unique_ptr<k::Tick> tick;
-    std::unique_ptr<k::RegionalTick> regional;
-    std::shared_ptr<k::RegionalExecutionHistory> regional_execution;
-    SparseCache sparse;
-  };
-  thread_local Cache cache;
   const auto &cfg = source.settings_.game;
   const auto options = mac_kernel_default_options();
   const unsigned threads = options.threads;
@@ -1056,17 +1066,19 @@ void occupied(const MacClosedWorld &source, MacTransportState &state,
 // dense cells: the same additions in the same fixed row blocks, merged in
 // block order, without converting the state or building a kernel grid.
 k::Totals dense_totals(const MacTransportState &state, std::size_t count,
-                       double gravity) {
+                       double gravity, mac_kernel::Pool *pool) {
   const auto &grid = state.grid;
   constexpr auto none = std::numeric_limits<std::size_t>::max();
   std::vector<double> mass(state.cells.size());
-  for (std::size_t i = 0; i < state.cells.size(); ++i) {
-    const auto &cell = state.cells[i];
-    if (!cell.mixture.masses.implicit_zero())
-      for (const double m : static_cast<const std::vector<double> &>(cell.mixture.masses))
-        if (m > 0)
-          mass[i] += m;
-  }
+  chunks(pool, state.cells.size(), [&](std::size_t, std::size_t begin, std::size_t end) {
+    for (std::size_t i = begin; i < end; ++i) {
+      const auto &cell = state.cells[i];
+      if (!cell.mixture.masses.implicit_zero())
+        for (const double m : static_cast<const std::vector<double> &>(cell.mixture.masses))
+          if (m > 0)
+            mass[i] += m;
+    }
+  });
   const auto rows = mac_kernel::Grid::block_rows(grid.width);
   const auto merge = [](k::DoubleDouble &into, const k::DoubleDouble &part) {
     into.add(part.hi);
@@ -1074,9 +1086,10 @@ k::Totals dense_totals(const MacTransportState &state, std::size_t count,
   };
   k::Totals result;
   result.species.resize(count);
-  for (std::size_t y0 = 0; y0 < grid.height; y0 += rows) {
+  const auto blocks = (grid.height + rows - 1) / rows;
+  const auto accumulate = [&](std::size_t block, k::Totals &sum) {
+    const auto y0 = block * rows;
     const auto y1 = std::min(grid.height, y0 + rows);
-    k::Totals sum;
     sum.species.resize(count);
     for (std::size_t i = y0 * grid.width; i < y1 * grid.width; ++i) {
       const auto &cell = state.cells[i];
@@ -1118,6 +1131,8 @@ k::Totals dense_totals(const MacTransportState &state, std::size_t count,
     faces(true, y0 * grid.x_width(), y1 * grid.x_width());
     faces(false, y0 * grid.width,
           (y1 == grid.height ? grid.y_height() : y1) * grid.width);
+  };
+  const auto combine = [&](const k::Totals &sum) {
     for (std::size_t key = 0; key < count; ++key)
       merge(result.species[key], sum.species[key]);
     for (auto [into, part] :
@@ -1129,6 +1144,17 @@ k::Totals dense_totals(const MacTransportState &state, std::size_t count,
       merge(*into, *part);
     for (const auto &[key, value] : sum.passives)
       merge(result.passives[key], value);
+  };
+  if (pool) {
+    std::vector<k::Totals> partial(blocks);
+    pool->run(blocks, [&](std::size_t block) { accumulate(block, partial[block]); });
+    for (const auto& sum : partial) combine(sum);
+  } else {
+    for (std::size_t block = 0; block < blocks; ++block) {
+      k::Totals sum;
+      accumulate(block, sum);
+      combine(sum);
+    }
   }
   return result;
 }
