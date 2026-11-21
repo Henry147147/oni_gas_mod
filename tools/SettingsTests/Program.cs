@@ -18,7 +18,7 @@ static class Program
 
     // The native refusal ranges (native/src/oni_colony.cpp validate_options).
     private static bool NativeAccepts(NativeColonyOptions o) =>
-        o.Size == 88 && o.Version == 2 && o.EvaporationBelowBoiling <= 1 && o.Reserved == 0 && o.PressureMaximumIterations >= 400 && o.PressureMaximumIterations <= 65536 &&
+        o.Size == 88 && o.Version == 3 && o.EvaporationBelowBoiling <= 1 && (o.FluidTickStride == 0 || o.FluidTickStride == 4 || o.FluidTickStride == 8 || o.FluidTickStride == 16) && o.PressureMaximumIterations >= 400 && o.PressureMaximumIterations <= 65536 &&
         o.HeatMaximumIterations >= 800 && o.HeatMaximumIterations <= 65536 && o.FlowParts >= 1 && o.FlowParts <= 8 && o.SharpenLiquidInterfaces <= 1 &&
         (o.MaximumTimestepSeconds == (double).2f || o.MaximumTimestepSeconds == (double).1f || o.MaximumTimestepSeconds == (double).05f) &&
         o.TraceSinkThresholdKg >= 1e-11 && o.TraceSinkThresholdKg <= 1e-6 && o.LiquidStiffnessRatio >= .01 && o.LiquidStiffnessRatio <= 1 &&
@@ -50,7 +50,7 @@ static class Program
         Check(native.PressureMaximumIterations == 400 && native.HeatMaximumIterations == 800 && native.FlowParts == 2 && native.SharpenLiquidInterfaces == 1 &&
               native.MaximumTimestepSeconds == (double).2f && native.TraceSinkThresholdKg == 1e-11 && native.LiquidStiffnessRatio == .04 &&
               native.PressureRelativeTolerance == 1e-8 && native.GasHeatMixing == 8 && native.InterfaceDetailFraction == 0 && native.PhaseRelaxationSeconds == 1 &&
-              native.Size == 88 && native.Version == 2 && native.EvaporationBelowBoiling == 0 && native.Reserved == 0,
+              native.Size == 88 && native.Version == 3 && native.EvaporationBelowBoiling == 0 && native.FluidTickStride == 0,
               "Default native options differ from today's profile 6 with boil-only phase change");
         // Boil-only phase change: on by default (no evaporation below boiling), a basic Gameplay
         // colony setting saved in the physical image (not the breathing record), never experimental.
@@ -72,8 +72,14 @@ static class Program
         var activity = SettingCatalog.Get(SettingCatalog.RegionActivity);
         Check(activity.Kind == SettingKind.Choice && activity.Scope == SettingScope.Colony && !activity.Advanced &&
               activity.Group == SettingCatalog.Simulation && (string)activity.Default == "tiers", "activity policy definition");
+        foreach (var rate in SettingCatalog.FluidUpdateChoices)
+        {
+            var rateValues = defaults.With(SettingCatalog.FluidUpdateRate, rate);
+            Check(NativeAccepts(rateValues.ToNative()) && defaults.WithNative(rateValues.ToNative()).Choice(SettingCatalog.FluidUpdateRate) == rate,
+                "fluid rate options failed to round-trip " + rate);
+        }
         var always = SettingValues.Defaults().With(SettingCatalog.RegionActivity, "always");
-        Check(always.Choice(SettingCatalog.RegionActivity) == "always" && always.ToNative().Reserved == 0, "activity policy leaves options ABI unchanged");
+        Check(always.Choice(SettingCatalog.RegionActivity) == "always" && always.ToNative().FluidTickStride == 0, "activity policy leaves options ABI unchanged");
         Check(ColonySettingsRecord.Encode(always).SequenceEqual(ColonySettingsRecord.Encode(SettingValues.Defaults())), "activity policy entered breathing record");
         Check(always.WithGroup(SettingCatalog.Solver, BuiltInPresets.Find("precise")!.Values).Choice(SettingCatalog.RegionActivity) == "always", "solver preset changed activity policy");
         Throws<FormatException>(() => always.With(SettingCatalog.RegionActivity, "sometimes"), "invalid activity policy");
@@ -87,7 +93,7 @@ static class Program
         foreach (var choice in SettingCatalog.SourceEnergyChoices)
         {
             var chosenEnergy = SettingValues.Defaults().With(SettingCatalog.SourceEnergy, choice);
-            Check(chosenEnergy.ToNative().Reserved == 0 && NativeAccepts(chosenEnergy.ToNative()) &&
+            Check(chosenEnergy.ToNative().FluidTickStride == 0 && NativeAccepts(chosenEnergy.ToNative()) &&
                   ColonySettingsRecord.Decode(ColonySettingsRecord.Encode(chosenEnergy), SettingValues.Defaults()).Choice(SettingCatalog.SourceEnergy) == choice &&
                   chosenEnergy.WithGroup(SettingCatalog.Solver, BuiltInPresets.Find("precise")!.Values).Choice(SettingCatalog.SourceEnergy) == choice,
                   "gas source energy record, options ABI or solver preset: " + choice);
@@ -315,8 +321,9 @@ static class Program
         var development = ColonyCapabilities.Of(false, false, false, false);
         var colonyKeys = SettingCatalog.All.Where(d => d.Scope == SettingScope.Colony).Select(d => d.Key).ToArray();
         Check(colonyKeys.All(k => profile12.Lock(k) == null), "an activity profile locks a colony setting");
-        Check(colonyKeys.All(k => (profile8.Lock(k) == null) == (k != SettingCatalog.RegionActivity)) &&
-              profile8.Lock(SettingCatalog.RegionActivity)!.Contains("always simulates"), "profiles 6-8 lock only region simulation");
+        Check(colonyKeys.All(k => (profile8.Lock(k) == null) == (k != SettingCatalog.RegionActivity && k != SettingCatalog.FluidUpdateRate)) &&
+              profile8.Lock(SettingCatalog.RegionActivity)!.Contains("always simulates") &&
+              profile8.Lock(SettingCatalog.FluidUpdateRate)!.Contains("fluid update rates"), "profiles 6-8 lock region simulation and fluid rate");
         Check(colonyKeys.All(k => (older.Lock(k) == null) == (k.StartsWith("breathing.", StringComparison.Ordinal) || k == SettingCatalog.SourceEnergy)) &&
               colonyKeys.All(k => (development.Lock(k) == null) == (k.StartsWith("breathing.", StringComparison.Ordinal) || k == SettingCatalog.SourceEnergy)),
               "older and development solvers keep only breathing and the gas source energy editable");
@@ -332,6 +339,8 @@ static class Program
         Check(plan.Options && !plan.Activity && !plan.Breathing && plan.Refusal == null, "evaporation below boiling is an owner option on profile 8");
         plan = ColonyChange.Plan(basis, basis.With(SettingCatalog.RegionActivity, "always"), profile12);
         Check(plan.Activity && !plan.Options && !plan.Breathing && plan.Refusal == null, "region simulation is the activity policy");
+        plan = ColonyChange.Plan(basis, basis.With(SettingCatalog.FluidUpdateRate, "eighth"), profile12);
+        Check(plan.Options && !plan.Activity && plan.Refusal == null, "a live change of fluid rate reaches the owner options");
         Check(ColonyChange.Plan(basis, basis.With(SettingCatalog.RegionActivity, "always"), profile8).Refusal ==
               "Region simulation: " + profile8.ActivityReason, "profile 8 refuses region simulation with its reason");
         foreach (var key in new[] { "breathing.minimumOxygenFraction", "breathing.maximumCo2PressurePa", SettingCatalog.Co2Limits, SettingCatalog.ToxicLimit })

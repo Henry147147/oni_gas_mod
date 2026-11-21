@@ -197,7 +197,9 @@ or idle pause discards held evolution time rather than catching up.
 
 Owner wrapper14 saves logical sequence watermarks, each queued census and its
 input cuts, pending policy, lifecycle census/touch union, contact touches and
-per-cell biological fractions. Callback wrapper13 may enclose base 14. On
+per-cell biological fractions. From 1.12.2, a reduced fluid update rate uses
+wrapper15, which also saves the interval. The completed frame counter sets the
+phase of the next fluid step. Callback wrapper13 can enclose either version. On
 restore, saved positive packets are exposed as unclaimed. The adapter validates
 the exact saved timestep, claims each packet in order, skips its already-saved
 actor input generation/census, and resubmits the native frame. A lifecycle

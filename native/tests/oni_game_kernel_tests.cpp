@@ -236,8 +236,14 @@ int main() {
       (void)run(&defaults,0,&set_created,nullptr,nullptr,nullptr);
       require(plain_created==reset_created && plain_created==set_created && core_version(set_created)==27 && heat_mixing(set_created)==8 &&
               phase_selector(set_created)==1 &&
-              defaults.evaporation_below_boiling==0 && defaults.reserved==0 && defaults.abi_version==2 && defaults.struct_size==88,
+              defaults.evaporation_below_boiling==0 && defaults.fluid_tick_stride==0 && defaults.abi_version==3 && defaults.struct_size==88,
               "Default options changed the new profile8 colony");
+      auto v2=defaults;v2.abi_version=2;
+      require(run(&v2,0,nullptr,nullptr,nullptr,nullptr)==plain_created,"Earlier options ABI changed an ordinary colony");
+      v2.fluid_tick_stride=4;
+      bool reserved_refused=false;
+      try{c::set_options(&v2);}catch(const std::invalid_argument&){reserved_refused=true;}
+      require(reserved_refused,"Earlier options ABI accepted a nonzero reserved word");
       {
         // Evaporation below boiling (the earlier equilibrium rule) writes
         // core27 with selector 0; without a liquid/vapour pair both rules
@@ -285,7 +291,7 @@ int main() {
         switch(k){case 0:bad.pressure_maximum_iterations=399;break;case 1:bad.heat_maximum_iterations=799;break;case 2:bad.flow_parts=0;break;
           case 3:bad.maximum_timestep_s=.2;break;case 4:bad.trace_sink_threshold_kg=1e-12;break;case 5:bad.liquid_stiffness_ratio=2;break;
           case 6:bad.pressure_relative_tolerance=std::nan("");break;case 7:bad.gas_heat_mixing=33;break;case 8:bad.sharpen_liquid_interfaces=2;break;
-          case 9:bad.evaporation_below_boiling=2;break;case 10:bad.reserved=1;break;default:bad.struct_size=0;break;}
+          case 9:bad.evaporation_below_boiling=2;break;case 10:bad.fluid_tick_stride=1;break;default:bad.struct_size=0;break;}
         bool refused=false;try{c::set_options(&bad);}catch(const std::invalid_argument&){refused=true;}
         require(refused,"Out-of-range colony options were accepted");
       }
@@ -347,7 +353,7 @@ int main() {
                 "The live change was not saved in the physical image");
         for(int k=0;k<4;++k){
           auto bad=changed;
-          switch(k){case 0:bad.flow_parts=0;break;case 1:bad.maximum_timestep_s=.2;break;case 2:bad.liquid_stiffness_ratio=2;break;default:bad.reserved=1;break;}
+          switch(k){case 0:bad.flow_parts=0;break;case 1:bad.maximum_timestep_s=.2;break;case 2:bad.liquid_stiffness_ratio=2;break;default:bad.fluid_tick_stride=1;break;}
           bool refused=false;try{(void)c::change_options(session,bad);}catch(const std::invalid_argument&){refused=true;}
           require(refused && c::copy_options(reported) && same(reported,changed) && c::checkpoint()==saved,"A refused live option changed the colony");
         }

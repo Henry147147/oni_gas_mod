@@ -67,16 +67,14 @@ inline void geometry_into(Geometry &result, const std::vector<Species> &species,
          (s.gas ? 0
                 : liquid_specific_elastic(s,eos.pressure)));
   }
-  std::stable_sort(result.phases.begin(), result.phases.end(),
-                   [&](const auto &a, const auto &b) {
-                     if (a.identity == gas_group)
-                       return false;
-                     if (b.identity == gas_group)
-                       return true;
-                     return gravity >= 0
-                                ? a.mass / a.volume > b.mass / b.volume
-                                : a.mass / a.volume < b.mass / b.volume;
-                   });
+  // The identity order already puts gas last. A single liquid phase,
+  // including a liquid under gas, has no density comparisons to make.
+  const auto liquids_end = phases.back().identity == gas_group ? phases.end() - 1 : phases.end();
+  if (liquids_end - phases.begin() > 1)
+    std::stable_sort(phases.begin(), liquids_end, [&](const auto &a, const auto &b) {
+      return gravity >= 0 ? a.mass / a.volume > b.mass / b.volume
+                          : a.mass / a.volume < b.mass / b.volume;
+    });
 }
 template <class Inventory>
 inline Geometry geometry(const std::vector<Species> &species,

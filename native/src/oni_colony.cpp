@@ -172,6 +172,7 @@ struct Session {
     std::vector<ReservoirEntry> reservoir;
     std::vector<detail::PrecisionParcel> precision;
     bool precision_used=false;
+    std::uint32_t fluid_tick_stride=0; // zero keeps the saved profile's ordinary schedule
     bool conservative_liquid_boundary=false; // saved by owner wrapper 12
     std::vector<MacSaturationPair> pairs; // liquid/vapour pairs that boil and condense
     std::shared_ptr<const MacClosedWorld> world;
@@ -634,16 +635,21 @@ constexpr double game_floor_trace_kg = 1e-11;
 // phase rule (user decision 2026-10-28).
 MAOniColonyOptions default_options_value() noexcept {
     MAOniColonyOptions o{};
-    o.struct_size=sizeof(o);o.abi_version=2;
+    o.struct_size=sizeof(o);o.abi_version=3;
     o.pressure_maximum_iterations=400;o.heat_maximum_iterations=800;o.flow_parts=2;o.sharpen_liquid_interfaces=1;
     o.maximum_timestep_s=static_cast<double>(.2f);o.trace_sink_threshold_kg=game_floor_trace_kg;o.liquid_stiffness_ratio=.04;
     o.pressure_relative_tolerance=1e-8;o.gas_heat_mixing=8;o.interface_detail_fraction=0;o.phase_relaxation_time_s=1;
     return o;
 }
+bool sampled_fluid_stride(std::uint32_t stride) noexcept {
+    return stride==4 || stride==8 || stride==16;
+}
 void validate_options(const MAOniColonyOptions& o) {
     const auto within=[](double v,double lo,double hi){return std::isfinite(v) && v>=lo && v<=hi;};
-    require(o.struct_size==sizeof(o) && o.abi_version==2,"Invalid colony options ABI");
-    require(o.evaporation_below_boiling<=1 && o.reserved==0,"Colony phase rule is outside its range");
+    require(o.struct_size==sizeof(o) && (o.abi_version==2 || o.abi_version==3),"Invalid colony options ABI");
+    require(o.evaporation_below_boiling<=1,"Colony phase rule is outside its range");
+    require(o.fluid_tick_stride==0 || (o.abi_version==3 && sampled_fluid_stride(o.fluid_tick_stride)),
+        "Invalid colony fluid update interval");
     require(o.pressure_maximum_iterations>=400 && o.pressure_maximum_iterations<=65536 &&
         o.heat_maximum_iterations>=800 && o.heat_maximum_iterations<=65536,"Colony solver caps are outside their range");
     require(o.flow_parts>=1 && o.flow_parts<=8 && o.sharpen_liquid_interfaces<=1,"Colony flow options are outside their range");
@@ -1621,6 +1627,7 @@ void start(const MAOniColonyConfig& config, std::span<const MAOniColonyMaterial>
     auto next = std::make_unique<Session>();
     next->config = config; next->materials.assign(materials.begin(), materials.end()); next->catalogue = catalogue_of(materials);
     next->conservative_liquid_boundary=(config.flags&MA_ONI_COLONY_GAME_KERNEL)!=0;
+    if(config.flags&MA_ONI_COLONY_GAME_ACTIVITY)next->fluid_tick_stride=next_options.fluid_tick_stride;
     const auto& cat = *next->catalogue;
     std::vector<ImportCell> imported(cells.size()); next->space.assign(cells.size(), 0); next->blocking.assign(cells.size(), 0);
     for (std::size_t i = 0; i < cells.size(); ++i) {
@@ -2232,7 +2239,7 @@ bool copy_options(MAOniColonyOptions& out) {
     require(session != nullptr && session->world != nullptr, "No colony owner is active");
     const auto& s=session->world->settings();
     if (s.numerical_kernel!=MacNumericalKernel::game) return false;
-    MAOniColonyOptions o{};o.struct_size=sizeof(o);o.abi_version=2;
+    MAOniColonyOptions o{};o.struct_size=sizeof(o);o.abi_version=3;
     o.pressure_maximum_iterations=s.game.pressure_maximum_iterations;o.heat_maximum_iterations=s.game.heat_maximum_iterations;
     o.flow_parts=s.game.flow_parts;o.sharpen_liquid_interfaces=s.game.sharpen_liquid_interfaces?1:0;
     o.maximum_timestep_s=s.maximum_timestep_s;o.trace_sink_threshold_kg=s.trace_sink_threshold_kg;
@@ -2240,6 +2247,7 @@ bool copy_options(MAOniColonyOptions& out) {
     o.gas_heat_mixing=s.game.gas_heat_mixing;o.interface_detail_fraction=s.game.interface_detail_fraction;
     o.phase_relaxation_time_s=s.game.phase_relaxation_time_s;
     o.evaporation_below_boiling=s.game.phase_rule==MacPhaseRule::equilibrium?1:0;
+    o.fluid_tick_stride=session->fluid_tick_stride;
     out=o;return true;
 }
 namespace { std::FILE* session_journal(const Session&) noexcept; }
@@ -2257,6 +2265,7 @@ bool change_options(std::uint64_t expected,const MAOniColonyOptions& o) {
     auto& s=*session;
     const auto& current=s.world->settings();
     const auto profile=current.game_profile;
+    if(o.fluid_tick_stride && !(s.config.flags&MA_ONI_COLONY_GAME_ACTIVITY))return false;
     if(current.numerical_kernel!=MacNumericalKernel::game || !(profile==MacGameProfile::game_kernel_bounded_pressure ||
         profile==MacGameProfile::game_kernel_sized_intervals || profile==MacGameProfile::game_kernel_carried_momentum ||
         mac_game_activity_profile(profile)))return false;
@@ -2270,14 +2279,15 @@ bool change_options(std::uint64_t expected,const MAOniColonyOptions& o) {
     g.interface_detail_fraction=o.interface_detail_fraction;g.phase_relaxation_time_s=o.phase_relaxation_time_s;
     g.phase_rule=o.evaporation_below_boiling?MacPhaseRule::equilibrium:MacPhaseRule::boil_only;
     auto next=s.world->with_game_tunables(tunables);
-    if(next.revision()==s.world->revision())return true;
+    if(next.revision()==s.world->revision() && s.fluid_tick_stride==o.fluid_tick_stride)return true;
     s.world=std::make_shared<const MacClosedWorld>(std::move(next));
+    s.fluid_tick_stride=o.fluid_tick_stride;
     s.prepared.reset();s.prepared_source.reset();
     // Input journal replays (oni_colony_replay) apply it before the next frame.
     if(auto* file=session_journal(s)) {
-        std::fprintf(file,"options %u %u %u %u %a %a %a %a %a %a %a %u\n",o.pressure_maximum_iterations,o.heat_maximum_iterations,o.flow_parts,
+        std::fprintf(file,"options %u %u %u %u %a %a %a %a %a %a %a %u %u\n",o.pressure_maximum_iterations,o.heat_maximum_iterations,o.flow_parts,
             o.sharpen_liquid_interfaces,o.maximum_timestep_s,o.trace_sink_threshold_kg,o.liquid_stiffness_ratio,o.pressure_relative_tolerance,
-            o.gas_heat_mixing,o.interface_detail_fraction,o.phase_relaxation_time_s,o.evaporation_below_boiling);
+            o.gas_heat_mixing,o.interface_detail_fraction,o.phase_relaxation_time_s,o.evaporation_below_boiling,o.fluid_tick_stride);
         std::fflush(file);
     }
     return true;
@@ -4898,9 +4908,12 @@ void run_frame(std::uint64_t ticket,double seconds,std::uint64_t frames,const ch
             { std::lock_guard held(watch); finished = true; }
             flow_done.notify_all(); if (watchdog.joinable()) watchdog.join();
         };
+        auto flow_frame=MacGameFlowFrame::normal;
+        if(s.fluid_tick_stride)
+            flow_frame=s.status.completed_frames%s.fluid_tick_stride==0 ? MacGameFlowFrame::sampled : MacGameFlowFrame::held;
         try {
             if(s.conservative_liquid_boundary) {
-                auto boundary=detail::advance_liquid_boundary(world,seconds,65536,s.blocking);
+                auto boundary=detail::advance_liquid_boundary(world,seconds,65536,s.blocking,flow_frame);
                 auto& report=boundary.advance.report;
                 MacPhaseFlow next{std::move(boundary.advance.world),std::move(report.trace_sink),
                     report.substeps,report.rejected_attempts,{}, {},report.evaporated_kg,report.condensed_kg};
@@ -4989,10 +5002,23 @@ void run_frame(std::uint64_t ticket,double seconds,std::uint64_t frames,const ch
         step("airflow tiles");
         world = expel_blocked_liquid(s, std::move(world),due);
         step("conversions");
-        world = convert_identities(s, std::move(world), seconds,due);
+        std::vector<double> sampled_due;
+        std::span<const double> fluid_due=due;
+        if(flow_frame==MacGameFlowFrame::sampled && !due.empty()) {
+            // Sample every awake remote room, including rooms whose ordinary
+            // one-second deadline fell between two movement frames.
+            sampled_due=due;
+            const auto clocks=world.game_activity();
+            for(std::size_t i=0;i<sampled_due.size();++i)
+                if(sampled_due[i]>0 || clocks[i].next_remote_s>0)sampled_due[i]=seconds;
+            fluid_due=sampled_due;
+        }
+        if(flow_frame!=MacGameFlowFrame::held)
+            world=convert_identities(s,std::move(world),seconds,fluid_due);
         { std::lock_guard q(inputs); byproduct_batches.release_due(world.time_s(), [&](const MAOniColonyReceipt& r) { queue_byproduct(r, completed_frame); }); }
         step("trace sink");
-        world = sink_traces(s, std::move(world),due);
+        if(flow_frame!=MacGameFlowFrame::held)
+            world=sink_traces(s,std::move(world),fluid_due);
         lap(3); step("space sink");
         // Open sky: whatever reaches a space cell leaves through the sink.
         sink_space();
@@ -5306,7 +5332,8 @@ constexpr char magic[8] = {'M', 'A', 'C', 'O', 'L', 'N', '0', '1'};
 // (version 2 the raw status struct).
 // Version 12 uses the version-11 layout and selects conservative liquid
 // boundaries. Versions <=11 retain their original owner boundary law.
-constexpr std::uint32_t checkpoint_version = 14;
+// Wrapper 15 adds the fluid update interval for an opt-in sampled colony.
+constexpr std::uint32_t checkpoint_version = 15;
 // Wrapper 13 encloses a base wrapper (8..12) whose queue keeps callback-owned
 // requests under ordinals: magic, 13, base version, request count, then the
 // base layout unchanged.
@@ -5334,7 +5361,7 @@ std::vector<std::uint8_t> checkpoint() {
     require(retiring_count.load(std::memory_order_relaxed)==0,"Finish native rocket grid cleanup before saving");
     const ArithmeticScope arithmetic;
     const auto& s = *session; Writer w;
-    const std::uint32_t saved_version=(s.config.flags&MA_ONI_COLONY_GAME_ACTIVITY)?14:s.conservative_liquid_boundary?12:s.precision_used?11:s.germ_mode==1?10:moving_protocol_used?9:8;
+    const std::uint32_t saved_version=s.fluid_tick_stride?15:(s.config.flags&MA_ONI_COLONY_GAME_ACTIVITY)?14:s.conservative_liquid_boundary?12:s.precision_used?11:s.germ_mode==1?10:moving_protocol_used?9:8;
     // Inputs queued for the next step are in flight at the save. A request
     // answering a game callback (a breath, a consumer, an emitter callback)
     // keeps its place in the queue; its session callback becomes an ordinal
@@ -5423,6 +5450,7 @@ std::vector<std::uint8_t> checkpoint() {
     if(saved_version>=11) {
         const auto held=detail::encode_precision_inventory(s.precision);w.u32(static_cast<std::uint32_t>(held.size()));w.raw(held.data(),held.size());
     }
+    if(saved_version>=15)w.u32(s.fluid_tick_stride);
     if(saved_version>=14) {
         require(!native_activity_capture_failed.load(std::memory_order_relaxed) && native_activity_ticket==0 && native_activity_inputs.transfers.empty() && native_activity_inputs.heat.empty() &&
             native_activity_inputs.terrain.empty() && native_activity_inputs.freezes.empty() && native_activity_inputs.germs.empty(),
@@ -5509,7 +5537,7 @@ void restore(const MAOniColonyConfig& config, std::span<const MAOniColonyMateria
         saved_requests <= 1u << 20), "Invalid callback-owned request wrapper");
     MAOniColonyConfig saved{}; r.raw(&saved, sizeof(saved));
     require(std::memcmp(&saved, &config, sizeof(config)) == 0, "Colony checkpoint geometry or physics differs from the loaded game");
-    require(((config.flags&MA_ONI_COLONY_GAME_ACTIVITY)!=0)==(version==14),"Activity owner needs integrated wrapper 14");
+    require(((config.flags&MA_ONI_COLONY_GAME_ACTIVITY)!=0)==(version>=14),"Activity owner needs an integrated activity wrapper");
     const auto count = r.u32(); require(count == materials.size(), "Colony checkpoint catalogue differs from the running game");
     std::vector<MAOniColonyMaterial> stored(count); r.raw(stored.data(), count * sizeof(MAOniColonyMaterial));
     require(std::memcmp(stored.data(), materials.data(), count * sizeof(MAOniColonyMaterial)) == 0, "Colony checkpoint catalogue differs from the running game");
@@ -5654,7 +5682,11 @@ void restore(const MAOniColonyConfig& config, std::span<const MAOniColonyMateria
     std::deque<ActivityPacket> restored_activity;std::optional<ActivityPacket> restored_lifecycle;
     std::optional<bool> restored_mode;bool restored_requested=false;std::uint64_t restored_activity_sequence=0;
     std::vector<std::uint32_t> restored_touches;
-    if(version==14) {
+    if(version>=15) {
+        next->fluid_tick_stride=r.u32();
+        require(sampled_fluid_stride(next->fluid_tick_stride),"Invalid saved fluid update interval");
+    }
+    if(version>=14) {
         next->activity_sequence=r.u64();restored_activity_sequence=r.u64();
         require(restored_activity_sequence>=next->activity_sequence && restored_activity_sequence<UINT64_MAX,"Invalid activity sequence watermark");
         const auto boolean=[&] {const auto value=r.u8();require(value<=1,"Invalid activity policy flag");return value!=0;};
@@ -5700,7 +5732,7 @@ void restore(const MAOniColonyConfig& config, std::span<const MAOniColonyMateria
     require(((config.flags&MA_ONI_COLONY_GAME_KERNEL)!=0)==(next->world->settings().numerical_kernel==MacNumericalKernel::game),"Saved core kernel differs from saved colony flags");
     require(((config.flags&MA_ONI_COLONY_GAME_ACTIVITY)!=0)==mac_game_activity_profile(next->world->settings().game_profile),
         "Saved activity core differs from owner integration");
-    if(version==14) {
+    if(version>=14) {
         const bool effective=restored_mode.value_or(next->world->settings().game.activity_tiers);
         require(restored_requested==effective,"Saved activity requested policy differs");
         if(effective)for(const auto& value:restored_activity)require(value.seconds==static_cast<double>(.2f),"Saved adaptive frame has an unsupported timestep");
@@ -5719,7 +5751,7 @@ void restore(const MAOniColonyConfig& config, std::span<const MAOniColonyMateria
         std::lock_guard q(inputs);
         pending_transfers = std::move(transfers); pending_heat = std::move(heat); pending_terrain = std::move(terrain); pending_freezes = std::move(freezes);
         pending_germs = std::move(restored_germs);
-        if(version==14){pending_activity=std::move(restored_activity);lifecycle_activity=std::move(restored_lifecycle);
+        if(version>=14){pending_activity=std::move(restored_activity);lifecycle_activity=std::move(restored_lifecycle);
             pending_activity_mode=restored_mode;requested_activity_tiers=restored_requested;accepted_activity_sequence=restored_activity_sequence;
             native_activity_touches=std::move(restored_touches);}
         pending_job_tokens=std::move(restored_tokens); pipe_jobs=std::move(restored_jobs); accepted_job_token=restored_watermark;

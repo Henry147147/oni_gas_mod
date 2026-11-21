@@ -1,4 +1,5 @@
 #pragma once
+#include <atomic>
 #include "patch.hpp"
 #include "pressure_be.hpp"
 #include "region.hpp"
@@ -24,6 +25,7 @@ struct FlowReport {
   // A pressure-only trial can request a shorter interval before any work,
   // transport or ledger entry. Its unchanged EOS storage returns to the caller.
   bool pressure_refinement_requested = false;
+  bool cold_liquid_contact = false;
   double pressure_volume_change = 0;
   // The solved pressures of an interval given a boiling source (profile 12).
   std::vector<double> pressure;
@@ -851,6 +853,7 @@ public:
       const bool comparable = initial.masses.offsets.size() == g.N + 1 &&
                               initial.energy.size() == g.N;
       std::vector<double> excess(g.blocks);
+      std::atomic<bool> cold_contact{false};
       checked.resize(g.blocks);
       rows([&](std::size_t y0, std::size_t y1, std::size_t block) {
         double worst = 0;
@@ -874,6 +877,16 @@ public:
                   [&](std::size_t a) { return result.state.masses.species[begin + a]; },
                   [&](std::size_t a) { return result.state.masses.mass[begin + a]; },
                   result.state.energy[i], g.V)) {
+            // Pure gas may expand below a liquid's admitted temperature.
+            // Smaller parcels cannot cool the liquid into this gas legally.
+            if (eos[i].nR > 0 && eos[i].liquid_nominal_volume == 0 && s.temperature > 0) {
+              const double warmer = std::max(eos[i].temperature, s.temperature);
+              for (std::size_t a = begin; a < begin + count; ++a) {
+                const auto& material = species[result.state.masses.species[a]];
+                if (!material.gas && result.state.masses.mass[a] > 0 && warmer < material.minimum_temperature)
+                  cold_contact.store(true, std::memory_order_relaxed);
+              }
+            }
             worst = std::numeric_limits<double>::infinity();
             continue;
           }
@@ -893,6 +906,7 @@ public:
       const double worst = *std::max_element(excess.begin(), excess.end());
       if (worst > 1) {
         result.pressure_refinement_requested = true;
+        result.cold_liquid_contact = cold_contact.load(std::memory_order_relaxed);
         result.reject_reason = reject_log::Reason::swept_volume;
         result.pressure_volume_change =
             std::max(result.pressure_volume_change, .4 * std::min(worst, 1024.));

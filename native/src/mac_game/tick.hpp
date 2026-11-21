@@ -94,6 +94,10 @@ class Tick {
         .count();
   }
 
+  struct ColdLiquidContact {
+    std::size_t attempts, refinements, iterations, corrections, geometric;
+    double pressure_ms, eos_ms, elapsed_ms;
+  };
 public:
   Tick(const ma::experimental::MacGrid &source, std::vector<Species> table,
        std::vector<PhasePair> pairs, unsigned threads, unsigned flow_parts = 2,
@@ -144,6 +148,30 @@ public:
                      std::span<const std::uint8_t> liquid_blocked = {},
                      std::size_t pressure_budget = 65536,
                      double maximum_active_interval = 0) {
+    try {
+      return advance_ordered(initial, dt, gravity, threshold, liquid_blocked, pressure_budget, maximum_active_interval, false);
+    } catch (const ColdLiquidContact& discarded) {
+      // Replay from the opening state, spending this interval's one conduction
+      // step before transport. All accepted flow still meets the same bounds.
+      if (discarded.attempts >= pressure_budget)
+        throw std::runtime_error("Game interval exceeds its pressure attempt budget");
+      auto retried = advance_ordered(initial, dt, gravity, threshold, liquid_blocked,
+                                     pressure_budget - discarded.attempts, maximum_active_interval, true);
+      retried.pressure_attempts += discarded.attempts;
+      retried.pressure_refinements += discarded.refinements;
+      retried.pressure_iterations += discarded.iterations;
+      retried.pressure_corrections += discarded.corrections;
+      retried.pressure_geometric += discarded.geometric;
+      retried.pressure_ms += discarded.pressure_ms;
+      retried.eos_ms += discarded.eos_ms;
+      retried.refused_trial_ms += discarded.elapsed_ms;
+      return retried;
+    }
+  }
+private:
+  TickResult advance_ordered(const State &initial, double dt, double gravity, double threshold,
+                             std::span<const std::uint8_t> liquid_blocked, std::size_t pressure_budget,
+                             double maximum_active_interval, bool heat_first) {
     if (bounded_pressure_volume && pressure_budget == 0)
       throw std::runtime_error("Game pressure interval has no attempt budget");
     // A remote region can owe several active intervals. Its liquid flow
@@ -274,6 +302,18 @@ public:
       out.state = std::move(sunk.state);
       return true;
     };
+    const auto conduct = [&] {
+      const auto heat_start = std::chrono::steady_clock::now();
+      auto heated = heat.advance(out.state, out.eos, dt, liquid_exchange ? gravity : 0);
+      out.heat_ms = ms(heat_start);
+      out.state.energy = std::move(heated.energy);
+    };
+    if (heat_first) {
+      if (prune_before_heat) prune(true, true);
+      conduct();
+      out.eos = flow.evaluate_state(out.state, std::move(out.eos));
+      observe_entropy(out.heat_entropy);
+    }
     // Profile 12: the tick's boiling in cells without room for its vapour,
     // planned from the opening state; each accepted flow interval pushes
     // out and converts its share (BoilPlan).
@@ -326,8 +366,13 @@ public:
               sized_intervals && ratio > 1
                   ? trial * std::clamp(.9 / ratio, 1. / 1024, .5)
                   : .5 * trial;
-          if (!(shorter > 0) || shorter == trial || remaining - shorter == remaining)
+          if (!(shorter > 0) || shorter == trial || remaining - shorter == remaining) {
+            if (advanced.cold_liquid_contact && heat_enabled && !heat_first)
+              throw ColdLiquidContact{out.pressure_attempts, out.pressure_refinements, out.pressure_iterations,
+                                      out.pressure_corrections, out.pressure_geometric, out.pressure_ms,
+                                      out.eos_ms, ms(start)};
             throw std::runtime_error("Game pressure refinement cannot advance time");
+          }
           trial = shorter;
         }
         ++out.flow_substeps;
@@ -452,12 +497,7 @@ public:
     }
     if (prune_before_heat)
       prune(true, true);
-    stage_start = std::chrono::steady_clock::now();
-    if (heat_enabled) {
-      auto heated = heat.advance(out.state, out.eos, dt, liquid_exchange ? gravity : 0);
-      out.heat_ms = ms(stage_start);
-      out.state.energy = std::move(heated.energy);
-    }
+    if (heat_enabled && !heat_first) conduct();
     stage_start = std::chrono::steady_clock::now();
     auto changed = phase.advance(out.state, dt, phase_time, plans);
     out.evaporated = changed.evaporated + inflow_evaporated;
@@ -495,6 +535,7 @@ public:
       heat_entropy.add(-current_entropy.hi);
       heat_entropy.add(-current_entropy.lo);
       heat_entropy.add(-changed.entropy_change);
+      if (heat_first) heat_entropy.add(out.heat_entropy);
       out.heat_entropy = heat_entropy.value();
     }
     out.entropy_change = entropy_change.value();

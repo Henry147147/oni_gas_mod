@@ -1,5 +1,6 @@
 #pragma once
 #include "mac_fixture.hpp"
+#include "../src/mac_game/tick.hpp"
 #include "mac_game_surface_control.hpp"
 #include "mixed_atmospheres/mac_kernel.hpp"
 #include <cmath>
@@ -16,7 +17,46 @@ using namespace ma::experimental;
 inline void check(bool ok, const char *message) {
   if (!ok) throw std::runtime_error(message);
 }
+// A moving drop touches a 0.5 K gas film. Even an infinitesimal parcel
+// would leave the liquid below its 1 K floor. The warmer liquid across
+// the room can supply the energy by ordinary conduction.
+inline void cold_liquid_contact() {
+  namespace k = ma::experimental::game_kernel;
+  MacGrid grid{3, 1, 1, 1, false, false, std::vector<std::uint8_t>(3)};
+  std::vector<k::Species> species(2);
+  species[0].minimum_temperature = 0;
+  species[0].cv = 1000;
+  species[0].conductivity = .1;
+  species[1].gas = false;
+  species[1].positive_liquid = true;
+  species[1].cv = 4000;
+  species[1].conductivity = .6;
+  k::State state;
+  state.masses.offsets = {0, 1, 2, 3};
+  state.masses.species = {1, 0, 1};
+  state.masses.mass = {1e-10, 1.6e-7, .001};
+  state.energy = {1e-10 * 4000 * 280, 1.6e-7 * 1000 * .5, .001 * 4000 * 280};
+  state.jx.resize(4);
+  state.jy.resize(6);
+  state.jx[1] = 1e-10;
+  const auto advance = [&](bool conduction) {
+    k::Tick tick(grid, species, {}, 1, 2, 8, false, 0, 1e-8, 0, false, 0, 2, 1,
+                 conduction, 400, 800, true, true, true, true, true, 1e-6, true, true, 1e-6, .2, .002);
+    return tick.advance(state, .2, 0, 1e-11);
+  };
+  bool refused = false;
+  try { (void)advance(false); }
+  catch (const std::runtime_error& error) {
+    refused = std::string_view(error.what()) == "Game pressure refinement cannot advance time";
+  }
+  check(refused, "The cold liquid contact accepted an inadmissible transfer with conduction disabled");
+  const auto result = advance(true);
+  check(result.eos[1].temperature >= species[1].minimum_temperature &&
+        result.mass_error < 1e-12 && result.energy_error < 1e-12 && result.pressure_refinements > 0,
+        "The cold liquid contact failed to advance within the thermal, mass or energy bounds");
+}
 inline void run() {
+  cold_liquid_contact();
   SpeciesRegistry registry;
   SpeciesDefinition gas;
   gas.id = "light_game_gas"; gas.name = "Light game gas"; gas.phase = Phase::gas;

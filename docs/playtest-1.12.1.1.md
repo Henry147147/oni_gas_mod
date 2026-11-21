@@ -41,3 +41,10 @@ contracts across the six game/platform combinations. All twelve distributed
 native libraries match the 1.12.1 release byte for byte. Both ZIP archives
 and the unpacked Workshop folder were verified. The private upload folder
 is `publish/update-1.12.1.1/MixedAtmospheres` (build `3a7ebfd`).
+
+A fresh Windows player restored that Cycle 50 autosave at frame 146775
+with 84,835 owned cells, advanced another 82 frames and saved again. The
+autosave handed to this second process matched the first player's file
+byte for byte. In the targeted control, restoring the previous pipe-tracking
+code on the same game reproduced the reported exception after 64 zero-time
+frames, with all 20 small contacts stuck. The fixed run cleared all 20.

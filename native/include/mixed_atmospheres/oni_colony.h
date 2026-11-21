@@ -443,7 +443,8 @@ MA_ONI_API MAOniResult ma_oni_colony_sublimation_totals(MAOniColonySublimationTo
  * previous options. copy_options reports the running game-kernel colony's
  * saved values (MA_ONI_INCOMPATIBLE for other profiles; older game profiles
  * report evaporation below boiling, their only rule). Version 2 (abi_version
- * 2, 88 bytes) adds the phase rule. */
+ * 2, 88 bytes) adds the phase rule. Version 3 uses the last word for the
+ * optional fluid sampling interval of an integrated activity colony. */
 typedef struct MAOniColonyOptions {
     uint32_t struct_size, abi_version;
     uint32_t pressure_maximum_iterations; /* 400..65536 */
@@ -461,7 +462,7 @@ typedef struct MAOniColonyOptions {
      * boiling point at the cell's total gas pressure and vapour below it
      * condenses; 1: evaporation into unsaturated gas (equilibrium humidity). */
     uint32_t evaporation_below_boiling;
-    uint32_t reserved;                    /* 0 */
+    uint32_t fluid_tick_stride;           /* 0: every tick (also required by v2), or 4, 8, 16 */
 } MAOniColonyOptions;
 MA_ONI_API uint32_t ma_oni_colony_options_version(void);
 MA_ONI_API MAOniResult ma_oni_colony_default_options(MAOniColonyOptions*);

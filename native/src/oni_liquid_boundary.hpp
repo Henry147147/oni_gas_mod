@@ -13,7 +13,8 @@ struct LiquidBoundaryAdvance {
 // grow across retries; each pressure/work solve starts from the same source.
 inline LiquidBoundaryAdvance advance_liquid_boundary(
     const ma::experimental::MacClosedWorld& source, double seconds,
-    std::size_t budget, std::span<const std::uint8_t> blocked) {
+    std::size_t budget, std::span<const std::uint8_t> blocked,
+    ma::experimental::MacGameFlowFrame frame=ma::experimental::MacGameFlowFrame::normal) {
     using namespace ma::experimental;
     const auto check=[](bool ok,const char* why) { if(!ok)throw std::invalid_argument(why); };
     const auto& state=source.state();const auto& grid=state.grid;
@@ -26,6 +27,8 @@ inline LiquidBoundaryAdvance advance_liquid_boundary(
     const auto has_marks=std::any_of(blocked.begin(),blocked.end(),[](auto value){return value!=0;});
     if(!has_marks) {
         auto open=grid.closed_x.empty() && grid.closed_y.empty()?source:source.with_closed_faces({},{});
+        if(frame!=MacGameFlowFrame::normal)
+            return {MacGameKernelAccess::advance_guarded(open,seconds,budget,{},frame),0,0};
         return {open.advanced(seconds,budget,MacExecutionPolicy::production),0,0};
     }
     const mac_kernel::Grid faces(grid);
@@ -60,7 +63,7 @@ inline LiquidBoundaryAdvance advance_liquid_boundary(
         const auto trial=actual_x==grid.closed_x && actual_y==grid.closed_y?source:
             source.with_closed_faces(std::move(actual_x),std::move(actual_y));
         try {
-            auto accepted=MacGameKernelAccess::advance_guarded(trial,seconds,budget,blocked);
+            auto accepted=MacGameKernelAccess::advance_guarded(trial,seconds,budget,blocked,frame);
             // Closing a moving face returns its K to U. Its signed impulse is
             // external wall work, alongside the accepted pressure-wall load.
             const auto settle=[](const auto& before,const auto& after,MacScaled& full,double& projected) {

@@ -103,6 +103,9 @@ namespace MixedAtmospheres.Oni
         internal const string Solver = "Solver", Simulation = "Region simulation", Breathing = "Breathing", PhaseChange = "Boiling and condensation", GasSources = "Gas sources", Performance = "Performance", Display = "Display", Panel = "Status panel", Keys = "Keyboard shortcuts";
         internal const string RegionActivity = "simulation.regionActivity", SourceEnergy = "gases.sourceEnergy";
         // ma_oni_colony_set_source_energy's modes, by choice.
+        internal const string FluidUpdateRate = "solver.fluidUpdateRate";
+        internal static readonly string[] FluidUpdateChoices = { "normal", "quarter", "eighth", "sixteenth" };
+        internal static readonly uint[] FluidUpdateStrides = { 0, 4, 8, 16 };
         internal static readonly string[] SourceEnergyChoices = { "internal", "enthalpy", "compensated" };
         internal const string Co2Limits = "breathing.co2Limits", EvaporationBelowBoiling = "liquids.evaporationBelowBoiling";
         internal const string ToxicLimit = "breathing.maximumToxicFraction";
@@ -144,6 +147,9 @@ namespace MixedAtmospheres.Oni
             SettingDefinition.Number("solver.heatIterationCap", SettingScope.Colony, Solver, "Heat iteration cap",
                 "Most iterations one heat solve may take; as for the pressure cap, higher only adds room.",
                 800, 800, 65536, new double[] { 800, 1600, 3200, 6400, 12800, 25600 }, "", true),
+            SettingDefinition.Choice(FluidUpdateRate, SettingScope.Colony, Simulation, "Fluid update rate",
+                "Slows tile fluid movement, fluid-to-fluid heat transfer and phase change. Duplicants, pumps and machines keep their normal clocks.",
+                "normal", FluidUpdateChoices, new[] { "Every tick", "1 in 4 ticks", "1 in 8 ticks", "1 in 16 ticks" }),
             SettingDefinition.Number("solver.flowParts", SettingScope.Colony, Solver, "Flow parts per step",
                 "Transport sub-steps inside each solver step. More follow fast flow more closely and cost more.",
                 2, 1, 8, new double[] { 1, 2, 3, 4, 6, 8 }, "", true, v => v == 2),
@@ -305,6 +311,7 @@ namespace MixedAtmospheres.Oni
         {
             Size = NativeColonyOptions.Bytes, Version = NativeColonyOptions.CurrentVersion,
             PressureMaximumIterations = (uint)Number("solver.pressureIterationCap"), HeatMaximumIterations = (uint)Number("solver.heatIterationCap"),
+            FluidTickStride = SettingCatalog.FluidUpdateStrides[Array.IndexOf(SettingCatalog.FluidUpdateChoices, Choice(SettingCatalog.FluidUpdateRate))],
             FlowParts = (uint)Number("solver.flowParts"), SharpenLiquidInterfaces = Toggle("solver.sharpenLiquidInterfaces") ? 1U : 0U,
             MaximumTimestepSeconds = Number("solver.stepsPerFrame") switch { 1 => .2f, 2 => .1f, 4 => .05f,
                 _ => throw new FormatException("Solver steps per game tick must be 1, 2 or 4.") },
@@ -320,6 +327,9 @@ namespace MixedAtmospheres.Oni
                 throw new FormatException("Unknown native colony options.");
             var steps = o.MaximumTimestepSeconds == (double).2f ? 1 : o.MaximumTimestepSeconds == (double).1f ? 2 : o.MaximumTimestepSeconds == (double).05f ? 4 : 0;
             var c = Copy();
+            var rate = Array.IndexOf(SettingCatalog.FluidUpdateStrides, o.FluidTickStride);
+            if (rate < 0) throw new FormatException("Unknown native fluid update rate.");
+            c.values[SettingCatalog.FluidUpdateRate] = SettingCatalog.FluidUpdateChoices[rate];
             // A loaded colony reports what it saved, even outside today's ranges.
             c.values["solver.stepsPerFrame"] = (double)steps; c.values["solver.pressureIterationCap"] = (double)o.PressureMaximumIterations;
             c.values["solver.heatIterationCap"] = (double)o.HeatMaximumIterations; c.values["solver.flowParts"] = (double)o.FlowParts;
@@ -336,21 +346,22 @@ namespace MixedAtmospheres.Oni
         };
     }
 
-    // MAOniColonyOptions (native/include/mixed_atmospheres/oni_colony.h), version 2, 88 bytes.
+    // MAOniColonyOptions (native/include/mixed_atmospheres/oni_colony.h), version 3, 88 bytes.
     [StructLayout(LayoutKind.Sequential)]
     internal struct NativeColonyOptions
     {
-        internal const uint Bytes = 88, CurrentVersion = 2;
+        internal const uint Bytes = 88, CurrentVersion = 3;
         public uint Size, Version, PressureMaximumIterations, HeatMaximumIterations, FlowParts, SharpenLiquidInterfaces;
         public double MaximumTimestepSeconds, TraceSinkThresholdKg, LiquidStiffnessRatio, PressureRelativeTolerance, GasHeatMixing,
             InterfaceDetailFraction, PhaseRelaxationSeconds;
         // 0: boil-only phase change (default); 1: evaporation below boiling.
-        public uint EvaporationBelowBoiling, Reserved;
+        public uint EvaporationBelowBoiling, FluidTickStride;
         internal static void CheckLayout()
         {
             if (Marshal.SizeOf<NativeColonyOptions>() != Bytes || Marshal.OffsetOf<NativeColonyOptions>(nameof(MaximumTimestepSeconds)).ToInt32() != 24 ||
                 Marshal.OffsetOf<NativeColonyOptions>(nameof(PhaseRelaxationSeconds)).ToInt32() != 72 ||
-                Marshal.OffsetOf<NativeColonyOptions>(nameof(EvaporationBelowBoiling)).ToInt32() != 80)
+                Marshal.OffsetOf<NativeColonyOptions>(nameof(EvaporationBelowBoiling)).ToInt32() != 80 ||
+                Marshal.OffsetOf<NativeColonyOptions>(nameof(FluidTickStride)).ToInt32() != 84)
                 throw new InvalidOperationException("Colony options layout differs from the native library.");
         }
     }
@@ -517,6 +528,8 @@ namespace MixedAtmospheres.Oni
             if (d.Scope != SettingScope.Colony) return null;
             if (d.Group == SettingCatalog.Breathing) return Breathing ? null : NotSimulated;
             if (key == SettingCatalog.RegionActivity) return Activity ? null : ActivityReason;
+            if (key == SettingCatalog.FluidUpdateRate && !Activity)
+                return Breathing ? "This colony predates adjustable fluid update rates." : NotSimulated;
             if (key == SettingCatalog.SourceEnergy) return Breathing ? null : NotSimulated;
             return Options ? null : OptionsReason;
         }
@@ -535,7 +548,7 @@ namespace MixedAtmospheres.Oni
         private ColonyChange(List<string> keys, string? refusal)
         {
             Keys = keys; Refusal = refusal;
-            Options = keys.Any(k => SettingCatalog.Get(k).Group == SettingCatalog.Solver || k == SettingCatalog.EvaporationBelowBoiling);
+            Options = keys.Any(k => SettingCatalog.Get(k).Group == SettingCatalog.Solver || k == SettingCatalog.EvaporationBelowBoiling || k == SettingCatalog.FluidUpdateRate);
             Activity = keys.Contains(SettingCatalog.RegionActivity);
             SourceEnergy = keys.Contains(SettingCatalog.SourceEnergy);
             Breathing = keys.Any(k => SettingCatalog.Get(k).Group == SettingCatalog.Breathing);

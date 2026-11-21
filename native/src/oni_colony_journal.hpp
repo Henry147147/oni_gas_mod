@@ -33,13 +33,13 @@ struct ActivityPacket { std::uint64_t sequence=0;double seconds=0;std::vector<st
 struct OwnerParts { MAOniColonyConfig config{}; std::vector<MAOniColonyMaterial> materials; std::vector<std::uint8_t> state; std::vector<MAOniColonyTransfer> transfers;
     std::vector<MAOniColonyHeat> heat; std::vector<MAOniColonyTerrain> terrain; std::size_t freezes = 0, germs = 0; std::uint64_t completed = 0;
     std::uint32_t version=0;std::vector<ActivityPacket> activity; };
-// Split an owner wrapper (8..14) into committed state and queued inputs.
+// Split an owner wrapper (8..15) into committed state and queued inputs.
 inline OwnerParts parse(const std::vector<std::uint8_t>& image) {
     OwnerParts out; Cursor c{image};
     require(image.size() > 72 && std::memcmp(image.data(), "MACOLN01", 8) == 0, "Not an owner image");
     c.skip(8); auto version = c.get<std::uint32_t>();
     if (version == 13) { version = c.get<std::uint32_t>(); (void)c.get<std::uint32_t>(); }
-    require((version >= 8 && version <= 12) || version==14, "Unsupported owner wrapper");
+    require((version >= 8 && version <= 12) || version==14 || version==15, "Unsupported owner wrapper");
     out.version=version;
     auto& s = out.state; const auto keep = [&](std::size_t from) { s.insert(s.end(), image.begin() + static_cast<std::ptrdiff_t>(from), image.begin() + static_cast<std::ptrdiff_t>(c.at)); };
     s.insert(s.end(), reinterpret_cast<const std::uint8_t*>(&version), reinterpret_cast<const std::uint8_t*>(&version) + 4);
@@ -67,6 +67,7 @@ inline OwnerParts parse(const std::vector<std::uint8_t>& image) {
         from = c.at; c.skip(std::size_t{c.get<std::uint32_t>()} * (8 + 6 * 16)); c.skip(8); keep(from);
     }
     if (version >= 11) { from = c.at; c.skip(c.get<std::uint32_t>()); keep(from); }
+    if(version==15) { from=c.at;c.skip(4);keep(from); }
     if(version>=14) {
         from=c.at;c.skip(8);keep(from); // committed activity sequence
         c.skip(8+1);if(c.get<std::uint8_t>())c.skip(1); // accepted/requested policy and pending mode
@@ -123,12 +124,13 @@ inline std::vector<std::pair<std::uint64_t, Frame>> journal(const std::string& p
             energy_in_effect=static_cast<std::uint32_t>(std::stoul(f[1]));energy=energy_in_effect;continue;
         }
         if(f[0]=="options") {
-            require(f.size()==13,"Invalid options journal entry");
-            MAOniColonyOptions o{};o.struct_size=sizeof(o);o.abi_version=2;
+            require(f.size()==13 || f.size()==14,"Invalid options journal entry");
+            MAOniColonyOptions o{};o.struct_size=sizeof(o);o.abi_version=3;
             const auto u=[&](std::size_t k){return static_cast<std::uint32_t>(std::stoul(f[k]));};
             o.pressure_maximum_iterations=u(1);o.heat_maximum_iterations=u(2);o.flow_parts=u(3);o.sharpen_liquid_interfaces=u(4);
             o.maximum_timestep_s=hex(f[5]);o.trace_sink_threshold_kg=hex(f[6]);o.liquid_stiffness_ratio=hex(f[7]);o.pressure_relative_tolerance=hex(f[8]);
             o.gas_heat_mixing=hex(f[9]);o.interface_detail_fraction=hex(f[10]);o.phase_relaxation_time_s=hex(f[11]);o.evaporation_below_boiling=u(12);
+            if(f.size()==14)o.fluid_tick_stride=u(13);
             options=o;continue;
         }
         if (f[0] == "frame") {
