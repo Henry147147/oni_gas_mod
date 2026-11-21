@@ -1,5 +1,13 @@
 # Feature completion work
 
+**[1.12.0 playtest and measurements](playtest-1.12.0.md).** On the November 20
+colony, checking for motion while paused fell from 2.52 to 0.16 ms per call.
+Scanning for material conversions fell from 6.3 to 1.2 ms per tick in a replay
+with the same final state. Flow in the base and surface regions still limits
+active play. The compact settings window now includes optional controls for
+loose and stored items and a capacity multiplier for each storage building
+type. Both platform packages and the six-step patch tier passed.
+
 **[1.11.0 compatibility work](playtest-1.11.0.md).** The same package serves game builds 744825,
 763796 and 764025 on Linux and Windows x64. Each adapter is built from the
 current mod source and checked against its own game. For the next retarget,

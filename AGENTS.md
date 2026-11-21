@@ -29,6 +29,9 @@ few that your task touches, starting here.
   its acceptance run incomplete
   ([what ran](docs/playtest-1.11.0.md#staged-package-ff95138)). The Workshop
   copy was 1.10.2 at that time (the user uploads).
+  [1.12.0](docs/playtest-1.12.0.md) (`cb39fa5`) is staged on the private
+  share. It reduces paused activity checks and per-tick conversion work on
+  the November 20 colony and adds storage preferences and a smaller UI.
   [0.1.8](docs/playtest-0.1.8.md) lets
   two gases change places through an opening one tile high;
   [0.1.7](docs/playtest-0.1.7.md) kept a pool levelling past the activity
@@ -128,6 +131,9 @@ Workshop release. What is kept on purpose:
 - `artifacts/release-ff95138` and `artifacts/acceptance/ff95138` (the staged
   1.11.0 package and its runs) and `artifacts/compat-1.11.0` (its evidence;
   `hazard` holds the solver runs of `a2c9193`, `final` those of `ff95138`).
+- `artifacts/release-cb39fa5`, `artifacts/acceptance/cb39fa5`,
+  `artifacts/v1.12.0` and `build-linux-ubuntu2204-v112` hold the 1.12.0
+  packages, patch runs, playtest evidence and Linux compatibility build.
 - `local/locks`, `local/saves` (prepared and playtest saves), `local/perf`
   (private replay captures), `local/perf-tools` (the sampling profiler and
   capture helpers of the speed work) and `local/retired-2026-11-19` (uncommitted
