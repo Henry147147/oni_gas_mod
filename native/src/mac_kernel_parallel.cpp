@@ -138,12 +138,12 @@ void Pool::worker() {
 }
 void Pool::run(std::size_t blocks, const std::function<void(std::size_t)>& job) {
     std::lock_guard serial(run_mutex_);
-    errors_.assign(blocks, nullptr);
     if (threads_ == 1 || blocks <= 1) {
-        for (std::size_t b = 0; b < blocks; ++b) {
-            try { job(b); } catch (...) { errors_[b] = std::current_exception(); break; }
-        }
-    } else {
+        for (std::size_t b = 0; b < blocks; ++b) job(b);
+        return;
+    }
+    errors_.assign(blocks, nullptr);
+    {
         if (blocks >= closed) throw std::invalid_argument("Production kernel block count exceeds the pool ticket range");
         // Close the finished generation before blocks_ and job_ change: a
         // worker still in its claim loop that reads the new block count then

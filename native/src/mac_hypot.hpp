@@ -16,10 +16,19 @@ inline double rounded_hypot(double x, double y) {
     if (std::isnan(x) || std::isnan(y)) return x + y;
     if (x < y) std::swap(x, y);
     if (y == 0) return x;
-    // Scale the larger argument into [0.5, 1) by an exact power of two.
+    // In this exponent range even the split products and residuals are
+    // normal or exactly zero. Scaling by a power of two would commute with
+    // every operation, including the square root of the scaled squares.
     int exponent = 0;
-    (void)std::frexp(x, &exponent);
-    const double a = std::ldexp(x, -exponent), b = std::ldexp(y, -exponent);
+    double a = x, b = y;
+    if (x >= 0x1p-200 && x <= 0x1p200) {
+        // hypot(x,y) - x < y*y/(2*x), below half an ulp here.
+        if (y <= 0x1p-27 * x) return x;
+    } else {
+        (void)std::frexp(x, &exponent);
+        a = std::ldexp(x, -exponent);
+        b = std::ldexp(y, -exponent);
+    }
     const auto square = [](double v, double& error) {
         const double product = v * v, split = 134217729.0 * v;
         const double high = split - (split - v), low = v - high;
@@ -32,6 +41,6 @@ inline double rounded_hypot(double x, double y) {
     double root = std::sqrt(high), er = 0;
     const double rr = square(root, er);
     root += (((high - rr) - er) + low) / (2 * root);
-    return std::ldexp(root, exponent);
+    return exponent == 0 ? root : std::ldexp(root, exponent);
 }
 }
