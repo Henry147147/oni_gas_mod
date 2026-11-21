@@ -222,6 +222,9 @@ class SettingsClickTests(unittest.TestCase):
         def shot(self, name):
             self.shots.append(name)
 
+        def shot_settings_tab(self, name, selected):
+            self.shot(name)
+
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory()
         self.output = Path(self.directory.name)
@@ -245,6 +248,20 @@ class SettingsClickTests(unittest.TestCase):
 
         with mock.patch.object(suite.time, "sleep"):
             suite.settings_clicks(desktop, self.output, log, wait)
+
+    def test_settings_shot_requires_the_expected_tab_to_be_highlighted(self):
+        desktop = object.__new__(suite.Desktop)
+        desktop.output = self.output
+        # The stale clicks in the compact UI left Solver selected in all screenshots.
+        neutral, highlight = bytes((87, 87, 102)), bytes((140, 89, 118))
+        for selected, offset in enumerate((0, 86, 173)):
+            pixels = bytearray(neutral * 174)
+            pixels[3 * offset:3 * offset + 3] = highlight
+            with self.subTest(selected=selected), mock.patch.object(desktop, "shot"), \
+                    mock.patch.object(suite.subprocess, "check_output", return_value=bytes(pixels)):
+                desktop.shot_settings_tab(suite.SETTINGS_SHOTS[selected], selected)
+                with self.assertRaisesRegex(RuntimeError, "requested Settings tab"):
+                    desktop.shot_settings_tab("wrong-tab", (selected + 1) % 3)
 
     def test_wrong_resolution_aborts_before_clicking_game(self):
         for resolution, geometry in (("640x480", "1920 1080"),

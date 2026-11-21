@@ -32,6 +32,10 @@ few that your task touches, starting here.
   [1.12.0](docs/playtest-1.12.0.md) (`cb39fa5`) is staged on the private
   share. It reduces paused activity checks and per-tick conversion work on
   the November 20 colony and adds storage preferences and a smaller UI.
+  [1.12.1](docs/playtest-1.12.1.md) (`08faa66`) fixes stranded Pacu,
+  existing storage capacities and compact UI clipping. It retains region
+  worker estimates across small terrain edits. All release and patch steps
+  passed. The private share holds `publish/update-1.12.1`.
   [0.1.8](docs/playtest-0.1.8.md) lets
   two gases change places through an opening one tile high;
   [0.1.7](docs/playtest-0.1.7.md) kept a pool levelling past the activity
@@ -134,6 +138,9 @@ Workshop release. What is kept on purpose:
 - `artifacts/release-cb39fa5`, `artifacts/acceptance/cb39fa5`,
   `artifacts/v1.12.0` and `build-linux-ubuntu2204-v112` hold the 1.12.0
   packages, patch runs, playtest evidence and Linux compatibility build.
+- `artifacts/release-08faa66`, `artifacts/acceptance/08faa66`,
+  `artifacts/v1.12.1` and `build-linux-ubuntu2204-08faa66` hold the
+  1.12.1 packages, full release and patch runs, and native comparisons.
 - `local/locks`, `local/saves` (prepared and playtest saves), `local/perf`
   (private replay captures), `local/perf-tools` (the sampling profiler and
   capture helpers of the speed work) and `local/retired-2026-11-19` (uncommitted

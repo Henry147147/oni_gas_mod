@@ -17,6 +17,8 @@ class OrdinaryColony:
                          "Saved to previous-colony.sav", READONLY]
         self.begin_after = begin_after
         self.manual_save = manual_save
+        self.menu_settings_open = True
+        self.mod_events_open = True
         self.embarked = False
         self.begin_clicks = 0
         self.settings_open = False
@@ -29,7 +31,9 @@ class OrdinaryColony:
         return "\n".join(self.messages)
 
     def click(self, x, y):
-        if (x, y) == (903, 624):
+        if (x, y) == (641, 662) and not self.menu_settings_open:
+            self.mod_events_open = False
+        elif (x, y) == (903, 624) and not self.mod_events_open:
             self.embarked = True
         elif (x, y) == (637, 449) and self.embarked:
             self.begin_clicks += 1
@@ -37,10 +41,6 @@ class OrdinaryColony:
                 if not self.settings_open and not self.running:
                     self.settings_open = True
                     self.messages.append(READONLY)
-        elif (x, y) == (934, 128) and self.settings_open:
-            self.settings_open = False
-            self.running = True
-            self.messages.append("Saved to initial.sav")
         elif (x, y) == (641, 389) and self.running and self.manual_save:
             self.saved_manually = True
             self.messages.append("Saved to manual.sav")
@@ -48,7 +48,13 @@ class OrdinaryColony:
             self.quit = True
 
     def key(self, key):
-        pass
+        if key == "Escape":
+            if self.menu_settings_open:
+                self.menu_settings_open = False
+            elif self.settings_open:
+                self.settings_open = False
+                self.running = True
+                self.messages.append("Saved to initial.sav")
 
     def shot(self, name):
         self.shots[name] = (self.running, self.saved_manually)

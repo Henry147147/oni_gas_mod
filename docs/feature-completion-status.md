@@ -1,9 +1,13 @@
 # Feature completion work
 
-**[1.12.1 playtest](playtest-1.12.1.md).** Pacu suffocate on land and capacity
-preferences update existing buildings. The submitted colony replay costs
-20% less per owner tick after preserving worker assignments and reusing
-workspaces across local terrain edits.
+**[1.12.1 playtest](playtest-1.12.1.md).** Stranded Pacu suffocate, storage
+limits and pending deliveries follow preference changes on existing saves,
+and the compact status bar fits its title. All 47 release and seven patch
+acceptance steps passed. In the submitted colony the early native replay
+averaged 20% less time per tick. The later 300-tick window averaged 2.6%
+less. With the 2× button selected and validation reporting finished, the
+Windows player under Proton went from 0.784× to 0.781× on this host.
+Sustained 1× on this save and 3× remain open.
 
 **[1.12.0 playtest and measurements](playtest-1.12.0.md).** On the November 20
 colony, checking for motion while paused fell from 2.52 to 0.16 ms per call.

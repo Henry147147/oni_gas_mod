@@ -1313,6 +1313,20 @@ class Desktop:
         self.run("ffmpeg", "-loglevel", "error", "-y", "-i", str(full), "-vf", "scale=1280:720", str(self.output / (name + ".png")))
         full.unlink(missing_ok=True)
 
+    def shot_settings_tab(self, name: str, selected: int) -> None:
+        self.shot(name)
+        # On the pinned desktop the three leftmost Advanced tabs have flat
+        # fills. Sample inside their top edges, clear of text and the pointer.
+        # The selected tab must be the only one with a different background.
+        pixels = subprocess.check_output([
+            "ffmpeg", "-loglevel", "error", "-i", str(self.output / (name + ".png")),
+            "-vf", "format=rgb24,crop=174:1:430:350", "-frames:v", "1", "-f", "rawvideo", "-",
+        ])
+        colors = [pixels[x * 3:x * 3 + 3] for x in (0, 86, 173)]
+        inactive = [color for index, color in enumerate(colors) if index != selected]
+        if len(pixels) != 174 * 3 or inactive[0] != inactive[1] or colors[selected] == inactive[0]:
+            raise RuntimeError(f"{name} did not show the requested Settings tab (RGB samples {colors!r})")
+
 
 def ui_stage(stage: str, source: Path, output: Path, display: str, arguments: list[str]) -> int:
     """Run one WindowsPlayer UI control and drive it with the recorded clicks, in one game-slot hold."""
@@ -1377,11 +1391,11 @@ def settings_clicks(desktop: Desktop, output: Path, log, wait) -> None:
     wait(lambda: read_json(report).get("Status") == "passed")
     time.sleep(1)
     desktop.shot("advanced-readonly")
-    desktop.shot("solver-readonly")
-    desktop.click(507, 280); time.sleep(.5)
-    desktop.shot("breathing-readonly")
-    desktop.click(637, 280); time.sleep(.5)
-    desktop.shot("performance")
+    desktop.shot_settings_tab("solver-readonly", 0)
+    desktop.click(550, 356); time.sleep(.5)
+    desktop.shot_settings_tab("breathing-readonly", 1)
+    desktop.click(638, 356); time.sleep(.5)
+    desktop.shot_settings_tab("performance", 2)
     desktop.key("Escape"); time.sleep(.5)
     for attempt in range(2):
         desktop.click(1255, 40); time.sleep(1.5)
@@ -1400,8 +1414,8 @@ def ordinary_clicks(desktop: Desktop, log, wait) -> None:
     shot = lambda name: desktop.shot("ordinary-" + name)
     wait(lambda: "-- MAIN MENU --" in log())
     time.sleep(8); shot("menu-settings")
-    desktop.click(934, 128); time.sleep(1.5)
-    desktop.click(641, 534); time.sleep(1.5)
+    desktop.key("Escape"); time.sleep(1.5)
+    desktop.click(641, 662); time.sleep(1.5)
     desktop.click(1224, 78); time.sleep(2); shot("menu")
     desktop.click(119, 166); time.sleep(2)
     desktop.click(577, 360); time.sleep(2); shot("style")
@@ -1425,7 +1439,7 @@ def ordinary_clicks(desktop: Desktop, log, wait) -> None:
         if text.count("Saved to") > saved_before_begin:
             return True
         if text.count(readonly) > closed_openings:
-            desktop.click(934, 128); shot("settings-closed")
+            desktop.key("Escape"); shot("settings-closed")
             closed_openings = text.count(readonly)
             closed_settings = True
         else:
@@ -1442,7 +1456,7 @@ def ordinary_clicks(desktop: Desktop, log, wait) -> None:
     if not closed_settings:
         try:
             wait(lambda: log().count(readonly) > readonly_before_begin, 30)
-            desktop.click(934, 128); time.sleep(1.5); shot("settings-closed")
+            desktop.key("Escape"); time.sleep(1.5); shot("settings-closed")
         except TimeoutError:
             pass
     desktop.click(1255, 40); time.sleep(1.5); shot("pause")

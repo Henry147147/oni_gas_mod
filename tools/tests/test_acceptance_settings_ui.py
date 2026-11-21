@@ -17,17 +17,20 @@ class SettingsUiTests(unittest.TestCase):
         def click(x, y):
             nonlocal selected
             clicks.append((x, y))
-            selected = {(507, 280): "breathing", (637, 280): "performance"}.get((x, y), selected)
+            selected = {(550, 356): "breathing", (638, 356): "performance"}.get((x, y), selected)
         def key(value):
             keys.append(value)
         def shot(name):
             views[name] = selected
+        def shot_settings_tab(name, index):
+            self.assertEqual(selected, ("solver", "breathing", "performance")[index])
+            shot(name)
         def wait(predicate, *args):
             self.assertTrue(predicate())
         def run(*command):
             return "1920 1080" if "getdisplaygeometry" in command else "7"
         desktop = SimpleNamespace(bin=Path("/desktop/bin"), run=mock.Mock(side_effect=run),
-                                  click=click, key=key, shot=shot)
+                                  click=click, key=key, shot=shot, shot_settings_tab=shot_settings_tab)
         def log():
             events = "Applying resolution 1920x1080\nSettings window opened (Advanced)\nSettings window opened (Advanced, this colony's settings)"
             return events + ("\nGame.OnApplicationQuit()" if (641, 406) in clicks else "")
