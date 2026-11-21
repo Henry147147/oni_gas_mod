@@ -2038,9 +2038,10 @@ nonsaved execution history:
   When the budget cannot give every candidate two workers, the cheapest
   candidates wait on the residual workers. Budgets of one and two keep the
   original dispatch.
-- A region that is new or changed (a dig, a door) has no measurements: it
-  runs on a residual worker until it has two, and no longer keeps the
-  measured regions from their workers.
+- A new region starts on a residual worker until it has two serial samples.
+  An edited region can keep its measurements if its global representative
+  stays the same and its cell count changes by at most 1/256 of the previous
+  count. Larger changes restart sampling.
 - After 16 selected intervals a region runs serially once so that its cost
   is measured again. At most one region does so in an interval, the one that
   has waited longest; the others keep their workers. Paused regions neither
@@ -2058,8 +2059,10 @@ the coordinator pool's lowest block and is rethrown first; region errors are
 recorded per region and ordered by the caller as before.
 
 Keys contain each region's global representative, cell count and membership
-fingerprint. Temporary face barriers retain history; split or merged
-membership starts with serial sampling. History is never serialized, and cold
+fingerprint. An exact match keeps both the cost and the serial probe schedule.
+A small edit at the same representative can inherit that history for worker
+selection. Reusing a region's solver workspace separately requires identical
+local cells and grid geometry. History is never serialized, and cold
 execution can use a different worker route while retaining identical physical
 bytes. Equations, pressure caps and tolerances, reductions, timesteps,
 activity clocks and all checkpoint layouts are unchanged: which thread runs a

@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Linq;
 using HarmonyLib;
 using UnityEngine;
@@ -74,6 +75,15 @@ namespace MixedAtmospheres.Oni
                 var binKey = SettingCatalog.CapacityPrefix + StorageLockerConfig.ID;
                 var gasKey = SettingCatalog.CapacityPrefix + GasReservoirConfig.ID;
                 var slider = bin.GetComponent<IUserControlledCapacity>();
+                var tag = SimHashes.Granite.CreateTag();
+                bin.GetComponent<TreeFilterable>().UpdateFilters(new HashSet<Tag> { tag });
+                var filter = Traverse.Create(bin.GetComponent<StorageLocker>()).Field<FilteredStorage>("filteredStorage").Value;
+                float Pending() => Traverse.Create(filter).Field<FetchList2>("fetchList").Value?.GetMinimumAmount(tag) ?? 0;
+                var initialRequest = Pending();
+                ModSettingsRuntime.SetPreference(binKey, 3.0, false);
+                var resizedRequest = Pending();
+                Record("an outstanding delivery request resizes immediately", initialRequest == 20000f * settings.Number(binKey) && resizedRequest == 60000,
+                    $"requested {initialRequest} to {resizedRequest} kg, capacity {bin.capacityKg}");
                 slider.UserMaxCapacity = bin.capacityKg;
                 ModSettingsRuntime.SetPreference(binKey, 5.0, false);
                 Record("an existing full-limit bin follows a capacity increase", bin.capacityKg == 100000 && slider.UserMaxCapacity == 100000,

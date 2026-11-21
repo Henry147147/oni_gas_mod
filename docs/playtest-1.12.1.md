@@ -16,7 +16,8 @@ the median game speed was 0.99× on the player's machine.
   constructed and when the player changes the preference. Delivery sliders
   at the previous maximum follow the new capacity. Smaller custom limits
   stay in effect up to the new maximum. Lowering capacity leaves stored
-  material in place. Reservoir inlets resize with their storage.
+  material in place. Pending deliveries update immediately and reservoir
+  inlets resize with their storage.
 - The status bar measures its title in the game font and reserves room for
   Settings, collapse and close. Compact buttons have explicit text padding.
 

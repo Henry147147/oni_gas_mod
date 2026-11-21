@@ -55,6 +55,8 @@ namespace MixedAtmospheres.Oni
                     // on a decrease so an older hidden limit cannot return later.
                     if (limit != desired || (previous > maximum && limit == maximum)) slider.UserMaxCapacity = desired;
                 }
+                // Reissue outstanding fetch orders with the new remaining capacity.
+                storage.Trigger((int)GameHashes.UserSettingsChanged);
                 storage.Trigger((int)GameHashes.OnStorageChange, storage.gameObject);
             }
             lastCapacity = maximum;
