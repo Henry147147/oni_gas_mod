@@ -838,6 +838,8 @@ int owner_replay(const Options& o) {
     std::uint64_t hash = 1469598103934665603ULL;
     for (auto b : image) { hash ^= b; hash *= 1099511628211ULL; }
     const auto workers = ma::experimental::mac_kernel_default_options().threads;
+    MAOniColonyOptions replay_options{};
+    const bool has_options = c::copy_options(replay_options);
     c::stop();
     const auto owner = summarize(owner_ms);
     double seconds = 0;
@@ -861,6 +863,7 @@ int owner_replay(const Options& o) {
         o.native_overhead_ms, estimated_speed(owner.mean, o.native_overhead_ms, seconds), estimated_speed(owner.p95, o.native_overhead_ms, seconds),
         1000 * seconds / 3 - o.native_overhead_ms);
     out << estimate;
+    if (has_options) out << ", \"fluid_tick_stride\": " << replay_options.fluid_tick_stride;
     char errors[256];
     std::snprintf(errors, sizeof errors, ", \"relative_mass_error\": %.3e, \"relative_energy_error\": %.3e", final_status.maximum_relative_mass_error,
                   final_status.maximum_relative_energy_error);
@@ -1100,6 +1103,7 @@ int run(const Options& o) {
         << ", \"outside_frame_timer_ms\": " << observation_ms << "}"
         << ", \"effective_options\": {\"pressure_cap\": " << effective.pressure_maximum_iterations << ", \"heat_cap\": " << effective.heat_maximum_iterations
         << ", \"flow_parts\": " << effective.flow_parts << ", \"sharpen_interfaces\": " << effective.sharpen_liquid_interfaces
+        << ", \"fluid_tick_stride\": " << effective.fluid_tick_stride
         << ", \"maximum_dt_s\": " << effective.maximum_timestep_s << ", \"pressure_relative_tolerance\": " << effective.pressure_relative_tolerance
         << ", \"trace_threshold_kg\": " << effective.trace_sink_threshold_kg << ", \"liquid_stiffness_ratio\": " << effective.liquid_stiffness_ratio
         << ", \"gas_heat_mixing\": " << effective.gas_heat_mixing << ", \"interface_detail_fraction\": " << effective.interface_detail_fraction

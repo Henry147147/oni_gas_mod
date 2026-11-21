@@ -15,6 +15,20 @@ when its inventory and energy bits are unchanged. The pressure solver can
 reuse a connectivity check while all active cells and open pressure faces
 match. Each solve still uses the current conductances and checks the residual.
 
-The save format, player settings and fluid update frequency are unchanged.
-Measurements of alternative simulation settings use private copies of the
-journal and save.
+## Optional fluid update rate
+
+Settings → Gameplay → Simulation → Fluid update rate controls how often the colony moves
+its gases and liquids. Every tick is the default for new and existing saves.
+At **1 in 8 ticks**, an awake room advances 0.2 seconds of fluid simulation
+per 1.6 game seconds. The other choices are 1 in 4 and 1 in 16. Fluid-carried
+heat, fluid-to-fluid conduction, phase changes and removal of traces follow
+the selected rate. Duplicants, machines, pipe transfers, solid contacts and
+world germ activity keep their game clocks. A pump can empty the tile by its
+intake before surrounding fluid flows back to refill it.
+
+The choice takes effect in a running colony. With a reduced rate the ONI
+owner writes wrapper 15, including the interval. The saved frame count
+determines the next fluid update after reload. Switching back to Every tick
+resumes fluid updates immediately and the next save uses the ordinary
+wrapper. The embedded MAC solver checkpoint uses the same format.
+Measurements use private copies of the submitted save and its input journal.

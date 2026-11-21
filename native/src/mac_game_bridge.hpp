@@ -1,6 +1,8 @@
 #pragma once
 #include "mixed_atmospheres/mac_closed_world.hpp"
 namespace ma::experimental {
+// What portion of the colony's fluid law this owner frame schedules.
+enum class MacGameFlowFrame { normal, held, sampled };
 struct MacGameKernelAccess {
   static MacFaceInertias inertias(const SpeciesRegistry &,
                                   const MacTransportState &);
@@ -18,7 +20,8 @@ struct MacGameKernelAccess {
   // Call-scoped owner boundary law; ordinary advance remains unguarded.
   static MacClosedAdvance advance_guarded(const MacClosedWorld &, double,
                                          std::size_t,
-                                         std::span<const std::uint8_t>);
+                                         std::span<const std::uint8_t>,
+                                         MacGameFlowFrame = MacGameFlowFrame::normal);
   static MacTraceSink trace(const MacClosedWorld &, std::span<const std::uint8_t> eligible = {});
   // PRIVATE execution-only preparation for the owner heat retry loop.
   // Copy only shared physical state, leaving revision/time/totals/metadata intact.
