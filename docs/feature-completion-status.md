@@ -1,5 +1,10 @@
 # Feature completion work
 
+**[1.12.1 playtest](playtest-1.12.1.md).** Pacu suffocate on land and capacity
+preferences update existing buildings. The submitted colony replay costs
+20% less per owner tick after preserving worker assignments and reusing
+workspaces across local terrain edits.
+
 **[1.12.0 playtest and measurements](playtest-1.12.0.md).** On the November 20
 colony, checking for motion while paused fell from 2.52 to 0.16 ms per call.
 Scanning for material conversions fell from 6.3 to 1.2 ms per tick in a replay

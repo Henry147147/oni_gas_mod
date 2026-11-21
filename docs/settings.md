@@ -75,9 +75,10 @@ it. Code: `ModSettings*.cs` (model, files, window, runtime); tests:
   receptacle, and solid, gas or liquid rocket cargo bay type. Each starts
   at 1×. Choose a step up to 100× in the window or enter a decimal from 1 to
   100 in the corresponding `storage.capacity.<building ID>` preference in
-  `config.json`. Restart ONI to apply the new capacities to existing and
-  newly built containers. A lower capacity keeps the items already inside.
-  Buildings with a saved delivery limit may also need their slider raised.
+  `config.json`. In-game changes take effect immediately on existing containers and
+  new construction. A delivery limit set to the previous full capacity follows
+  the new maximum. A lower custom limit stays in effect up to the new maximum.
+  Lowering capacity preserves material already in storage.
 - **Advanced** contains **Solver** (including solver presets), **Breathing
   thresholds** (oxygen minimums, the toxic gas limit, CO₂ thresholds and the
   oxygen ceiling), **Performance**, **Display** and **Saved presets**. Each technical section

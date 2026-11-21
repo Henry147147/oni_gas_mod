@@ -120,6 +120,14 @@ inline void regional_execution_control() {
   const auto before=h.costs[left];h.committed(work,std::array<double,2>{1,std::numeric_limits<double>::quiet_NaN()},{});
   check(h.costs[left].serial_ms_per_second==before.serial_ms_per_second && h.costs[left].samples==before.samples,"Invalid elapsed samples partially changed execution history");
   h.committed(work,parallel,h.plan(work,12));check(h.selected.contains(left),"Dispatch was not selected again");
+  {History resized=h;
+    const k::RegionExecutionKey dug{left.representative,left.cells+1,17};
+    resized.retain(std::array{dug,right});
+    check(!resized.costs.contains(left) && resized.costs.at(dug).samples==before.samples &&
+      resized.selected.at(dug)==h.selected.at(left),"One dug tile lost the region's worker history");
+    const k::RegionExecutionKey split{dug.representative,dug.cells/2,19};
+    resized.retain(std::array{split,right});
+    check(!resized.costs.contains(split) && !resized.selected.contains(split),"A large split inherited the former region's workers");}
   const std::array<k::RegionExecutionKey,1> retained{right};h.retain(retained);
   check(h.costs.size()==1 && h.selected.empty(),"Split/merged membership retained an old execution selection");
 
@@ -182,6 +190,7 @@ inline void regional_execution_control() {
     auto split=grid;for(std::size_t y=0;y<split.height;++y)split.walls[16+y*split.width]=1;
     const auto unaffected=keys[1];auto split_tick=make_tick(split,workers,history);
     check(history->costs.contains(unaffected) && !history->costs.contains(keys[0]),"Topology rebuild lost unaffected cost or reused split cost");
+    split_tick->reuse_workspaces(*tick);
     auto split_serial=make_tick(split,1);const auto split_state=state_of(split);
     check(same(split_tick->advance(split_state,dt,0,1e-11).state,split_serial->advance(split_state,dt,0,1e-11).state),"Topology remap changed bounded regional arithmetic");
   }

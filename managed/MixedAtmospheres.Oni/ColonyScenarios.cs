@@ -1317,6 +1317,37 @@ namespace MixedAtmospheres.Oni
                 var cell = pacu != null ? Grid.PosToCell(pacu) : -1;
                 Record("the pacu swims in the owner's water", pacu != null && Grid.IsValidCell(cell) && Grid.IsSubstantialLiquid(cell),
                     pacu == null ? "gone" : $"at {cell}: {Grid.Element[cell].id} {Grid.Mass[cell]:G4} kg");
+                var wet = pacu?.GetSMI<AquaticCreatureSuffocationMonitor.Instance>();
+                Record("submerged pacu can breathe", wet != null && wet.CanBreath() && wet.DeathTimerValue == 0,
+                    $"timer {wet?.DeathTimerValue}");
+                // Enclose a dry ledge above the original pool after the swimming check.
+                for (var x = 0; x < Width; ++x)
+                    SimMessages.ReplaceElement(Cell(x, 4), SimHashes.Unobtanium, CellEventLogger.Instance.SandBoxTool, 20000, 300);
+            }
+            if (Once(37, "beach pacu")) MoveActivityCreature(pacu!, Cell(3, 5));
+            if (Once(58, "rescue pacu"))
+            {
+                var monitor = pacu!.GetSMI<AquaticCreatureSuffocationMonitor.Instance>();
+                Record("stranded pacu accumulates exposure", !monitor.CanBreath() && monitor.DeathTimerValue > 0,
+                    $"exposure {monitor.DeathTimerValue} s");
+                MoveActivityCreature(pacu!, Cell(3, 1));
+            }
+            if (Once(80, "check recovery"))
+            {
+                var monitor = pacu!.GetSMI<AquaticCreatureSuffocationMonitor.Instance>();
+                Record("rescued pacu recovers in water", monitor.CanBreath() && monitor.DeathTimerValue == 0,
+                    $"exposure {monitor.DeathTimerValue} s");
+                MoveActivityCreature(pacu!, Cell(3, 5));
+            }
+            if (Once(94, "near expiry"))
+            {
+                var monitor = pacu!.GetSMI<AquaticCreatureSuffocationMonitor.Instance>();
+                // Advance only this test fish to one second before expiry.
+                monitor.sm.DeathTimer.Set(monitor.def.DeathTimerDuration - 1, monitor);
+            }
+            if (Once(120, "check suffocation"))
+            {
+                Record("stranded pacu dies at expiry", pacu == null || pacu.HasTag(GameTags.Dead), $"fish {pacu}");
                 Finish();
             }
         }

@@ -198,6 +198,7 @@ namespace MixedAtmospheres.Oni
         private static void ApplyPreferences()
         {
             DebrisSublimationPatch.Configure(Current);
+            ContainerCapacityPatch.Configure(Current);
             ApplyWorkers();
             ColonyFrameLog.SetPreference(Current.Toggle("performance.logFrameTiming"));
             var precision = Current.Choice("display.readingPrecision");

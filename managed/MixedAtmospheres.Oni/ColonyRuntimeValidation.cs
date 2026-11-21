@@ -541,6 +541,8 @@ namespace MixedAtmospheres.Oni
                 if (Time.frameCount % 60 == 0) WriteReport();
                 return;
             }
+            if (loading && ModSettingsRuntime.ValidationPreset.Length != 0)
+                ReportJson.WriteAtomic(Path.Combine(OutputDirectory, "container-capacities.json"), ColonyScenarios.RestoredContainerCapacities());
             if (configuration.SaveOnComplete && Report.ColonySavePath.Length == 0) { SaveColony(); Report.ColonySaveFrame = ColonyOwnerPersistence.LastSavedFrame; }
             if (System.Environment.GetEnvironmentVariable("MA_COLONY_CENSUS") == "1")
                 ReportJson.WriteAtomic(Path.Combine(OutputDirectory, "colony-census.json"), ColonyScenarios.Census(status));

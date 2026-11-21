@@ -35,7 +35,7 @@ namespace MixedAtmospheres.Oni
             if (normal == null) normal = Background(new Color32(87, 87, 102, 255));
             if (hover == null) hover = Background(new Color32(111, 110, 128, 255));
             if (pressed == null) pressed = Background(new Color32(140, 89, 118, 255));
-            var style = new GUIStyle(GUI.skin.button) { font = font, fontSize = 12, border = new RectOffset() };
+            var style = new GUIStyle(GUI.skin.button) { font = font, fontSize = 12, border = new RectOffset(), padding = new RectOffset(4, 4, 2, 2) };
             style.normal.background = normal;
             style.hover.background = hover;
             style.active.background = style.onNormal.background = style.onHover.background = style.onActive.background = pressed;

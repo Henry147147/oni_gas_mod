@@ -347,13 +347,6 @@ void fill_trace(MacTraceSinkReport &out, const std::vector<double> &species,
     if (value != 0)
       out.passives.push_back({id, value});
 }
-bool same_grid(const MacGrid &a, const MacGrid &b) {
-  return a.width == b.width && a.height == b.height &&
-         a.spacing_m == b.spacing_m && a.depth_m == b.depth_m &&
-         a.periodic_x == b.periodic_x && a.periodic_y == b.periodic_y &&
-         a.walls == b.walls && a.closed_x == b.closed_x &&
-         a.closed_y == b.closed_y;
-}
 bool same_settings(const MacGameSettings &a, const MacGameSettings &b) {
   if (a.liquid_law != b.liquid_law ||
       a.pressure_maximum_iterations != b.pressure_maximum_iterations ||
@@ -679,12 +672,14 @@ MacClosedAdvance MacGameKernelAccess::advance_guarded(
   const bool closure =
       trace_heat ||
       source.settings_.game_profile == MacGameProfile::game_kernel_free_surface;
-  if ((bounded ? !cache.regional : !cache.tick) || cache.eos != source.thermodynamics_ ||
+  const bool settings_changed = cache.eos != source.thermodynamics_ ||
       cache.threads != threads || cache.closure != closure ||
-      cache.trace_heat != trace_heat || cache.bounded != bounded || cache.sized != sized || cache.carried != carried || cache.layered != layered || cache.convective != convective || cache.thin != thin ||
-      cache.conduction != source.settings_.thermal_conduction ||
-      !same_grid(cache.grid, source.state().grid) ||
-      !same_settings(cache.settings, cfg)) {
+      cache.trace_heat != trace_heat || cache.bounded != bounded || cache.sized != sized ||
+      cache.carried != carried || cache.layered != layered || cache.convective != convective ||
+      cache.thin != thin || cache.conduction != source.settings_.thermal_conduction ||
+      !same_settings(cache.settings, cfg);
+  if ((bounded ? !cache.regional : !cache.tick) || settings_changed ||
+      !k::same_grid(cache.grid, source.state().grid)) {
     const auto species = table(source.registry_, *source.thermodynamics_,
                                cfg.liquid_stiffness_ratio, cfg.liquid_law);
     std::vector<k::PhasePair> pairs;
@@ -694,9 +689,11 @@ MacClosedAdvance MacGameKernelAccess::advance_guarded(
     if(bounded) {
       if(!cache.regional_execution || cache.eos!=source.thermodynamics_ || cache.threads!=threads)
         cache.regional_execution=std::make_shared<k::RegionalExecutionHistory>();
-      cache.regional=std::make_unique<k::RegionalTick>(source.state().grid,species,pairs,threads,cfg,source.settings_.thermal_conduction,sized,
+      auto next=std::make_unique<k::RegionalTick>(source.state().grid,species,pairs,threads,cfg,source.settings_.thermal_conduction,sized,
                                                        carried,carried?1e-6:0.,cache.regional_execution,layered,convective,
                                                        thin?thin_gas_drag_mass_kg:0.,thin?thin_gas_drag_time_s:0.,thin);
+      if (cache.regional && !settings_changed) next->reuse_workspaces(*cache.regional);
+      cache.regional=std::move(next);
       cache.tick.reset();
     } else {
     cache.tick = std::make_unique<k::Tick>(

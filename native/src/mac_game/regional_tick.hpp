@@ -7,6 +7,14 @@
 #include <thread>
 
 namespace ma::experimental::game_kernel {
+inline bool same_grid(const MacGrid &a, const MacGrid &b) {
+  return a.width == b.width && a.height == b.height &&
+         a.spacing_m == b.spacing_m && a.depth_m == b.depth_m &&
+         a.periodic_x == b.periodic_x && a.periodic_y == b.periodic_y &&
+         a.walls == b.walls && a.closed_x == b.closed_x &&
+         a.closed_y == b.closed_y;
+}
+
 // Solid walls make these systems independent. Keep explicit face barriers
 // inside their common system so a closed face with two fluid neighbours is
 // never represented twice. Each system advances the full requested interval.
@@ -124,9 +132,26 @@ public:
       for(std::size_t i=0;i<b.walls.size();++i)b.walls[i]=topology.labels[global_cell(r,i)]!=id;
       if(!g.closed_x.empty()) {b.closed_x.resize(b.x_width()*b.height);for(std::size_t f=0;f<b.closed_x.size();++f)b.closed_x[f]=g.closed_x[global_face(r,true,f)];}
       if(!g.closed_y.empty()) {b.closed_y.resize(b.width*b.y_height());for(std::size_t f=0;f<b.closed_y.size();++f)b.closed_y[f]=g.closed_y[global_face(r,false,f)];}
-      r.tick=make_tick(r,regions.size()==1?threads:1);
+      if (regions.size()==1) r.tick=make_tick(r,threads);
     }
     execution_history->retain(execution_keys);
+  }
+  // Only geometry changed. Reuse scratch and worker pools for identical
+  // local grids. Extract still reads every stepped region from the new state.
+  void reuse_workspaces(RegionalTick& previous) {
+    if (source.width != previous.source.width || source.height != previous.source.height) return;
+    residual_pool=std::move(previous.residual_pool);
+    coordinator_pool=std::move(previous.coordinator_pool);
+    for (std::size_t id=0; id<regions.size(); ++id) {
+      auto& region=regions[id];
+      const auto old_id=previous.topology.labels[region.representative];
+      if (old_id>=previous.regions.size()) continue;
+      auto& old=previous.regions[old_id];
+      if (region.x!=old.x || region.y!=old.y || !same_grid(region.box,old.box)) continue;
+      if (regions.size()>1 && previous.regions.size()>1) region.tick=std::move(old.tick);
+      if (auto found=previous.parallel_ticks.find(old_id); found!=previous.parallel_ticks.end())
+        parallel_ticks.emplace(id,std::move(found->second));
+    }
   }
   std::span<const RegionExecutionKey> execution_region_keys() const noexcept {return execution_keys;}
   unsigned threads_used() const noexcept {
@@ -245,7 +270,11 @@ private:
         if(!blocked.empty()) {local_blocked.resize(r.box.walls.size());for(std::size_t i=0;i<local_blocked.size();++i)local_blocked[i]=blocked[global_cell(r,i)];}
         try {
           if(reject_log::level())reject_log::region={r.x,r.y,static_cast<std::size_t>(r.box.width),static_cast<std::size_t>(source.width)};
-          auto& tick=execution.threads_of(id)!=0?*parallel_ticks.at(id):*r.tick;
+          // A sleeping region needs no solver workspace. Each stepped region
+          // runs once, on exactly one worker or coordinator.
+          const bool parallel=execution.threads_of(id)!=0;
+          if (!parallel && !r.tick) r.tick=make_tick(r,1);
+          auto& tick=parallel?*parallel_ticks.at(id):*r.tick;
           std::vector<std::uint8_t> local_sinks;
           if(sink_speed>0) {local_sinks.resize(r.box.walls.size());for(std::size_t i=0;i<local_sinks.size();++i)local_sinks[i]=sink_cells[global_cell(r,i)];}
           tick.set_sinks(std::move(local_sinks),sink_speed);

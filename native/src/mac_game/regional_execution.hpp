@@ -18,8 +18,9 @@
 
 namespace ma::experimental::game_kernel {
 // Execution history only. It never enters a physical checkpoint or a timestep,
-// pressure cap, tolerance or activity decision. Membership keys survive changes
-// to temporary face barriers and discard split/merged systems' old costs.
+// pressure cap, tolerance or activity decision. Membership keys identify exact
+// regions. A small change in the outline can
+// inherit a scheduling estimate.
 struct RegionExecutionKey {
   std::size_t representative=0,cells=0;
   std::uint64_t membership=1469598103934665603ULL;
@@ -92,6 +93,21 @@ public:
 
   void retain(std::span<const RegionExecutionKey> keys) {
     const std::set<RegionExecutionKey> live(keys.begin(),keys.end());
+    // Digging or adding one tile used to make the large colony region run
+    // serially for two ticks after every edit. Carry its cost estimate and
+    // probe age across a small resize at the same anchor. A new or substantially
+    // resized region still earns its own samples. Only thread assignment uses
+    // these hints. Geometry, pressure data and clocks always use the new grid.
+    for (const auto& key : keys) {
+      if (costs.contains(key)) continue;
+      auto prior = costs.lower_bound({key.representative, 0, 0});
+      if (prior == costs.end() || prior->first.representative != key.representative) continue;
+      const auto old_size = prior->first.cells;
+      if (std::max(old_size, key.cells) - std::min(old_size, key.cells) > old_size / 256) continue;
+      costs.emplace(key, prior->second);
+      if (const auto age = selected.find(prior->first); age != selected.end())
+        selected.emplace(key, age->second);
+    }
     std::erase_if(costs,[&](const auto& entry){return !live.contains(entry.first);});
     std::erase_if(selected,[&](const auto& entry){return !live.contains(entry.first);});
   }
@@ -109,8 +125,8 @@ public:
     for(std::size_t i=0;i<work.size();++i) {
       const auto& item=work[i];if(item.seconds==0)continue;
       ++stepped;
-      // A region without two serial samples (new, or changed by a dig or a
-      // door) runs on a residual worker until it has them; it does not keep
+      // A region without two serial samples runs on a residual worker
+      // until it has them; it does not keep
       // the measured regions from their workers.
       const auto known=costs.find(item.key);
       if(known==costs.end() || known->second.samples<2){unknown=true;continue;}

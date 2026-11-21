@@ -211,7 +211,7 @@ namespace MixedAtmospheres.Oni
                         SettingsTab(SettingCatalog.Display, false); SettingsTab(SettingCatalog.Panel, false); SettingsTab(SettingCatalog.Keys, false); break;
                     case 3:
                         SettingsTab(SettingCatalog.Sublimation, false);
-                        GUILayout.Label("Capacity multipliers apply to all colonies after restarting the game. Each building type starts at 1×. Existing contents and delivery limits are kept.", small!);
+                        GUILayout.Label("Capacity changes apply immediately to existing and new buildings. Full delivery limits follow capacity. Lower limits and stored items are kept.", small!);
                         SettingsTab(SettingCatalog.Containers, false);
                         break;
                     case 2:
@@ -513,7 +513,7 @@ namespace MixedAtmospheres.Oni
                 var values = ModSettingsRuntime.Current.With(d.Key, value);
                 var id = d.Scope == SettingScope.Colony ? Matching(values) : ModSettingsRuntime.CurrentPresetId;
                 ModSettingsRuntime.Set(values, id);
-                Say(d.Label + ": " + Display(d, value) + (d.Scope == SettingScope.Colony ? " (for new colonies)." : d.Group == SettingCatalog.Containers ? " (after restart)." : "."));
+                Say(d.Label + ": " + Display(d, value) + (d.Scope == SettingScope.Colony ? " (for new colonies)." : "."));
             }
             catch (FormatException error) { Say(error.Message, true); }
         }

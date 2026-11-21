@@ -250,8 +250,8 @@ def validate_arguments(args) -> None:
     if getattr(args,"quit_from_menu",False) and (args.mode not in OWNER_MODES or inspection):
         raise ValueError("--quit-from-menu requires an owner mode without inspection")
     settings_preset=getattr(args,"settings_preset",None)
-    if settings_preset and (args.mode!="colony-owner" or not settings_preset.is_file()):
-        raise ValueError("--settings-preset requires colony-owner and an existing preset file")
+    if settings_preset and (args.mode not in OWNER_MODES or not settings_preset.is_file()):
+        raise ValueError("--settings-preset requires an owner mode and an existing preset file")
 
 
 def cleanup_run(record, xvfb, prefix_started: bool, proton: Path, output: Path) -> None:

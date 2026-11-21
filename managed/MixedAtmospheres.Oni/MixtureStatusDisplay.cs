@@ -26,6 +26,7 @@ namespace MixedAtmospheres.Oni
         private float panelX, panelY;
         private const string PositionX = "MixedAtmospheres.StatusPanel.X", PositionY = "MixedAtmospheres.StatusPanel.Y";
         private const float TitleHeight = 30;
+        private static readonly GUIContent panelTitle = new GUIContent("MIXED ATMOSPHERES");
         private Rect panelRect; // last drawn, screen pixels (validation reports)
         private float nextRefresh;
         private float nextDiagnostic;
@@ -138,7 +139,8 @@ namespace MixedAtmospheres.Oni
             { Debug.LogWarning("[Mixed Atmospheres] Could not remember the status panel position: " + error.Message); }
         }
         private static float PanelScale => AtmospherePanelStyle.Scale;
-        private float PanelWidth(float scale) => Mathf.Min(280, Screen.width / scale - 24);
+        private float preferredWidth = 280;
+        private float PanelWidth(float scale) => Mathf.Min(preferredWidth, Screen.width / scale - 24);
 
         internal static void Remove()
         {
@@ -398,6 +400,8 @@ namespace MixedAtmospheres.Oni
                 // shipped runtime font so this persistent panel stays legible.
                 var font = AtmospherePanelStyle.Font;
                 titleStyle = new GUIStyle(GUI.skin.label) { font = font, fontSize = 13, fontStyle = FontStyle.Bold, wordWrap = false, clipping = TextClipping.Clip };
+                // The left inset, title gap and three buttons occupy 128 logical pixels.
+                preferredWidth = Mathf.Max(280, Mathf.Ceil(titleStyle.CalcSize(panelTitle).x) + 132);
                 buttonStyle = AtmospherePanelStyle.Button(font);
                 textStyle = new GUIStyle(GUI.skin.label) { font = font, fontSize = 13, fontStyle = FontStyle.Normal, wordWrap = true };
                 hintStyle = new GUIStyle(GUI.skin.label) { font = font, fontSize = 12, fontStyle = FontStyle.Normal, wordWrap = true };
@@ -459,7 +463,7 @@ namespace MixedAtmospheres.Oni
                     if (title.Contains(mouse)) { dragging = true; dragOffset = mouse - rect.position; panelX = rect.x; panelY = rect.y; input.Use(); }
                 }
                 GUI.color = failure.Length == 0 ? Accent : new Color(1, .55f, .35f);
-                GUI.Label(new Rect(rect.x + 12, rect.y + 6, title.width - 12, 22), "MIXED ATMOSPHERES", titleStyle);
+                GUI.Label(new Rect(rect.x + 12, rect.y + 6, title.width - 12, 22), panelTitle, titleStyle);
                 GUI.color = Color.white;
                 if (GUI.Button(settings, "Settings", buttonStyle!)) ModSettingsScreen.Open(0);
                 if (InColony)

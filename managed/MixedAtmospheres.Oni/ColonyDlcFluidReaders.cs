@@ -45,6 +45,18 @@ namespace MixedAtmospheres.Oni
             if(changed)ratio=value;
         }
     }
+    // Pacu variants share the flopping chore but lack the aquatic survival
+    // monitor. Its normal timer also handles rescue, storage and save/load.
+    [HarmonyPatch(typeof(BasePacuConfig), nameof(BasePacuConfig.CreatePrefab))]
+    internal static class PacuSurvivalPatch
+    {
+        private static void Postfix(UnityEngine.GameObject __result)
+        {
+            if (ColonyOwner.Available && GameplayPacks.ActiveUnsupported().Length == 0)
+                __result.AddOrGetDef<AquaticCreatureSuffocationMonitor.Def>();
+        }
+    }
+
     [HarmonyPatch(typeof(Grid),nameof(Grid.IsSubstantialLiquidUnsafe))]
     internal static class ColonyAquaticHabitatPatch
     {

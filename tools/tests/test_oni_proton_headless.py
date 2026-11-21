@@ -226,7 +226,7 @@ class ProtonIsolationTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Completed inspection"):
             runner.validate_arguments(SimpleNamespace(inspection_seconds=1, mode="menu"))
 
-    def test_preset_control_requires_an_existing_file_and_a_new_colony(self):
+    def test_preset_control_accepts_new_and_restored_colonies_with_an_existing_file(self):
         args=SimpleNamespace(mode="colony-owner",frames=32,load_save=None,save_colony=True,
             scenario="base",cluster=None,resave_before_resume=False,reload_in_process=False,
             verify_save_io_recovery=False,settings_preset=self.root/"preset.json")
@@ -234,7 +234,12 @@ class ProtonIsolationTests(unittest.TestCase):
             runner.validate_arguments(args)
         args.settings_preset.write_text('{}')
         runner.validate_arguments(args)
-        args.mode="menu";args.scenario=None;args.save_colony=False
+        args.scenario=None
+        args.mode="colony-owner-load"
+        args.load_save=self.root/"colony.sav"
+        args.load_save.write_bytes(b"saved colony fixture")
+        runner.validate_arguments(args)
+        args.mode="menu";args.load_save=None;args.save_colony=False
         with self.assertRaisesRegex(ValueError,"--settings-preset"):
             runner.validate_arguments(args)
 
