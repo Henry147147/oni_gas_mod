@@ -47,8 +47,8 @@ def version(project: Path = PROJECT) -> str:
     """The one version: the managed project's <Version>, which the DLL carries."""
     text = project.read_text(encoding="utf-8")
     found = re.findall(r"<Version>([^<]*)</Version>", text)
-    if len(found) != 1 or not re.fullmatch(r"\d+\.\d+\.\d+", found[0]):
-        raise ValueError(f"{project} must declare exactly one <Version>MAJOR.MINOR.PATCH</Version>")
+    if len(found) != 1 or not re.fullmatch(r"\d+\.\d+\.\d+(?:\.\d+)?", found[0]):
+        raise ValueError(f"{project} must declare one numeric MAJOR.MINOR.PATCH version with an optional hotfix revision")
     informational = re.findall(r"<InformationalVersion>([^<]*)</InformationalVersion>", text)
     if informational != ["$(Version)"]:
         raise ValueError(f"{project} must set <InformationalVersion>$(Version)</InformationalVersion>")

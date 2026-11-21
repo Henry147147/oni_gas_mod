@@ -51,7 +51,7 @@ namespace MixedAtmospheres.Oni
         internal static void RefuseExperimentalActivity(ReadOnlySpan<byte> image)
         {
             var profile = Profile(image);
-            if((profile.PhysicalVersion==28 || profile.PhysicalVersion==30 || profile.PhysicalVersion==31 || profile.PhysicalVersion==32) && profile.OwnerVersion!=14 && profile.OwnerVersion!=15)
+            if((profile.PhysicalVersion==28 || profile.PhysicalVersion==30 || profile.PhysicalVersion==31 || profile.PhysicalVersion==32) && profile.OwnerVersion!=14)
                 throw new NotSupportedException("This save uses experimental region activity tiers. " +
                     "It lacks the integrated owner frame and lifecycle records required by this build.");
         }
@@ -86,7 +86,7 @@ namespace MixedAtmospheres.Oni
             var p=8;var physicalVersion=U32(body,ref p);
             // Versions 30, 31 and 32 (profiles 10, 11 and 12) keep version 28's layout.
             var activity=physicalVersion==28 || physicalVersion==30 || physicalVersion==31 || physicalVersion==32;
-            if(physicalVersion<20 || physicalVersion>28 && !activity || activity && version<14) return new ColonyPhysicalProfile(version,physicalVersion,0,0,0);
+            if(physicalVersion<20 || physicalVersion>28 && !activity || activity && version!=14) return new ColonyPhysicalProfile(version,physicalVersion,0,0,0);
             var model=U32(body,ref p);Skip(body,ref p,model);
             // time, revision, width/height, spacing/depth, timestep, gravity,
             // conduction, trace threshold, stiffness, flow parts, tolerance;
@@ -131,12 +131,7 @@ namespace MixedAtmospheres.Oni
                 if(held<12 || held>16*1024*1024 || !image.Slice(heldAt,8).SequenceEqual(new byte[]{77,65,80,82,69,67,48,49}))
                     throw new InvalidDataException("Invalid owner precision inventory framing.");
             }
-            if(version==15)
-            {
-                var stride=U32(image,ref at);
-                if(stride!=4 && stride!=8 && stride!=16)throw new InvalidDataException("Invalid fluid update interval.");
-            }
-            if(version>=14)
+            if(version==14)
             {
                 Skip(image,ref at,16); // committed and accepted activity sequence
                 _=Boolean(image,ref at);if(Boolean(image,ref at))_=Boolean(image,ref at);
@@ -170,12 +165,12 @@ namespace MixedAtmospheres.Oni
                 if(image.Length<20) throw new InvalidDataException("Truncated colony checkpoint framing.");
                 version=BinaryPrimitives.ReadUInt32LittleEndian(image.Slice(12,4));
                 var requests=BinaryPrimitives.ReadUInt32LittleEndian(image.Slice(16,4));
-                if(version<8 || version>15 || version==13 || requests==0 || requests>1u<<20) throw new InvalidDataException("Invalid callback-owned request framing.");
+                if(version<8 || version>14 || version==13 || requests==0 || requests>1u<<20) throw new InvalidDataException("Invalid callback-owned request framing.");
                 at=20;
             }
             // Wrapper12 selects the conservative owner boundary law and keeps
             // wrapper11's complete framing, including its precision block.
-            else if(version<6 || version>15) throw new InvalidDataException("Unsupported colony checkpoint metadata version.");
+            else if(version<6 || version>14) throw new InvalidDataException("Unsupported colony checkpoint metadata version.");
             Skip(image,ref at,56); // MAOniColonyConfig
             materials=U32(image,ref at);materialTable=at;
             Skip(image,ref at,(long)materials*168);

@@ -289,12 +289,14 @@ class ReleaseAssemblyTests(unittest.TestCase):
 
 class IdentityTests(unittest.TestCase):
     def test_single_version_source(self):
-        self.assertRegex(mod_identity.version(), r"^\d+\.\d+\.\d+$")
+        self.assertRegex(mod_identity.version(), r"^\d+\.\d+\.\d+(?:\.\d+)?$")
         with tempfile.TemporaryDirectory() as folder:
             project = Path(folder) / "p.csproj"
             project.write_text("<Version>1.2.3</Version><InformationalVersion>1.2.3-x</InformationalVersion>")
             with self.assertRaises(ValueError):
                 mod_identity.version(project)
+            project.write_text("<Version>1.12.1.1</Version><InformationalVersion>$(Version)</InformationalVersion>")
+            self.assertEqual(mod_identity.version(project), "1.12.1.1")
 
     def test_probe_and_release_share_the_static_id(self):
         self.assertEqual(mod_identity.STATIC_ID, "MixedAtmospheres")

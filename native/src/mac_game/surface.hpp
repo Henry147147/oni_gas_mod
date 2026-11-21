@@ -235,6 +235,8 @@ sharpen(const ma::experimental::MacGrid &source,
       if (!(low > detail_fraction * g.V && room > detail_fraction * g.V))
         continue;
       const double gradient = std::min(1., (high - low) / (.1 * g.V));
+      double weight = .5 * (height_weight(l, group, x_axis) +
+                            height_weight(r, group, x_axis));
       // Profile 12: between two liquids, a horizontal face is sharpened only
       // where both cells' normals lie along it, reckoned without reflecting
       // the floor. At the edge of a thin water film on the floor under oil
@@ -244,9 +246,9 @@ sharpen(const ma::experimental::MacGrid &source,
       // edge every tick, cancelling the flow that spreads it. Gas-liquid
       // faces keep the mean: this rule there lifted the profile-12 boiling
       // control's peak pressure past its bound.
-      const double weight = normal_sharpening && x_axis && groups.size() > 1
-          ? std::min(height_weight(l, group, x_axis, true), height_weight(r, group, x_axis, true))
-          : .5 * (height_weight(l, group, x_axis) + height_weight(r, group, x_axis));
+      if (normal_sharpening && x_axis && groups.size() > 1)
+        weight = std::min(height_weight(l, group, x_axis, true),
+                          height_weight(r, group, x_axis, true));
       const double requested =
           fraction * std::min(low, room) * gradient * weight;
       if (requested > volume) {
@@ -260,16 +262,13 @@ sharpen(const ma::experimental::MacGrid &source,
       return;
     const double from_volume = phase_volume(donor, chosen),
                  remaining = g.V - phase_volume(target, chosen);
-    // The two parcels contain disjoint species: one holds only the chosen
-    // phase and the other holds its complement. Keep the delta in key order.
-    Inventory delta;
-    delta.reserve(cells[donor].size() + cells[target].size());
+    std::map<std::uint32_t, double> delta;
     double forward_energy = 0, back_energy = 0, forward_mass = 0, back_mass = 0;
     for (const auto &[key, value] : cells[donor])
       if (phase_group(species, key) == chosen) {
         const auto &s = species[key];
         const double moved = value * volume / from_volume;
-        delta.emplace_back(key, 0. - moved);
+        delta[key] -= moved;
         forward_mass += moved;
         forward_energy +=
             moved * (s.offset + s.cv * eos[donor].temperature +
@@ -280,14 +279,13 @@ sharpen(const ma::experimental::MacGrid &source,
       if (phase_group(species, key) != chosen) {
         const auto &s = species[key];
         const double moved = value * volume / remaining;
-        delta.emplace_back(key, 0. + moved);
+        delta[key] += moved;
         back_mass += moved;
         back_energy +=
             moved * (s.offset + s.cv * eos[target].temperature +
                      (s.gas ? 0
                             : liquid_specific_elastic(s,eos[target].pressure)));
       }
-    std::sort(delta.begin(), delta.end());
     // Anti-diffusion may not reinforce an inverted full-liquid layer.
     // Buoyant exchange remains responsible for its density ordering.
     // Profile 12 refuses every vertical exchange that lifts net mass. The
@@ -330,7 +328,6 @@ sharpen(const ma::experimental::MacGrid &source,
       Inventory inventory;
       double energy = 0, mass = 0;
       Eos eos;
-      bool changed = true;
     };
     // Profile 8: the momentum the trial leaves on `faces`, and what moved
     // material carried into closed faces.
@@ -348,20 +345,13 @@ sharpen(const ma::experimental::MacGrid &source,
         row.energy = energy[i];
         row.mass = mass[i];
         if (i == donor || i == target) {
-          // Both inventories are ordered by species. Merge them in that
-          // same order on every limiter trial, including delta-only species.
-          const auto &base = cells[i];
-          row.inventory.reserve(base.size() + delta.size());
-          auto held = base.begin();
-          auto change = delta.cbegin();
+          std::map<std::uint32_t, double> inventory;
+          for (const auto &[key, value] : cells[i])
+            inventory[key] = value;
+          for (const auto &[key, value] : delta)
+            inventory[key] += (i == donor ? 1 : -1) * theta * value;
           row.mass = 0;
-          while (held != base.end() || change != delta.cend()) {
-            const auto key = held == base.end() ? change->first :
-                change == delta.cend() ? held->first : std::min(held->first, change->first);
-            double value = 0;
-            if (held != base.end() && held->first == key) value = (held++)->second;
-            if (change != delta.cend() && change->first == key)
-              value += (i == donor ? 1 : -1) * theta * (change++)->second;
+          for (const auto &[key, value] : inventory) {
             if (value < 0 || !std::isfinite(value))
               return std::nullopt;
             if (value > 0) {
@@ -486,11 +476,6 @@ sharpen(const ma::experimental::MacGrid &source,
       }
       try {
         for (auto &row : local) {
-          // A neighbouring cell only exchanges kinetic heat. If its energy
-          // bits are unchanged, both its reading and geometry are current.
-          row.changed = row.i == donor || row.i == target ||
-              std::bit_cast<std::uint64_t>(row.energy) != std::bit_cast<std::uint64_t>(energy[row.i]);
-          if (!row.changed) continue;
           const auto &inventory =
               row.i == donor || row.i == target ? row.inventory : cells[row.i];
           row.eos = evaluate_selected(
@@ -566,7 +551,6 @@ sharpen(const ma::experimental::MacGrid &source,
       }
     }
     for (const auto i : {donor, target}) {
-      if (passives[i].empty() && passive_delta.empty()) continue;
       std::map<std::uint64_t, double> inventory;
       for (const auto &[identity, quantity] : passives[i])
         inventory[identity] = quantity;
@@ -588,7 +572,6 @@ sharpen(const ma::experimental::MacGrid &source,
                              candidate->walls.end());
     }
     for (auto &row : candidate->rows) {
-      if (!row.changed) continue;
       if (row.i == donor || row.i == target)
         cells[row.i] = std::move(row.inventory);
       mass[row.i] = row.mass;

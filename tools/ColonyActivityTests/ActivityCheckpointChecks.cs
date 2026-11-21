@@ -49,11 +49,11 @@ internal static class ActivityCheckpointChecks
     internal static int ReadNativeImages(string directory)
     {
         var checks=0;
-        foreach(var name in new[]{"native-wrapper14.owner","native-wrapper14-pending.owner","native-wrapper13-base14.owner","native-wrapper15-sampled.owner"})
+        foreach(var name in new[]{"native-wrapper14.owner","native-wrapper14-pending.owner","native-wrapper13-base14.owner"})
         {
             var image=File.ReadAllBytes(Path.Combine(directory,name));var original=(byte[])image.Clone();
             var profile=ColonyCheckpointMetadata.Profile(image);
-            if(profile.OwnerVersion!=(name=="native-wrapper15-sampled.owner" ? 15 : 14) || profile.PhysicalVersion!=28 && profile.PhysicalVersion!=30 && profile.PhysicalVersion!=31 && profile.PhysicalVersion!=32 || profile.PressureIterationCap<400 || profile.HeatIterationCap<800)
+            if(profile.OwnerVersion!=14 || profile.PhysicalVersion!=28 && profile.PhysicalVersion!=30 && profile.PhysicalVersion!=31 && profile.PhysicalVersion!=32 || profile.PressureIterationCap<400 || profile.HeatIterationCap<800)
                 throw new Exception("Native activity checkpoint metadata differs: " + name);
             ++checks;
             ColonyCheckpointMetadata.RefuseExperimentalActivity(image);++checks;

@@ -52,15 +52,6 @@ it. Code: `ModSettings*.cs` (model, files, window, runtime); tests:
   ONI, but strong sources leave cold spots and pumps warm spots. It is saved
   in the colony settings record and can be changed during play
   ([source energy](../native/MAC_GAME_KERNEL.md#source-energy)).
-- **Gameplay → Fluid update rate** defaults to **Every tick**. On an integrated
-  colony you can select one fluid update in 4, 8 or 16 game ticks. The game
-  still advances its normal clock and applies machine transfers, solid heat
-  contacts and actor inputs on each tick. At each fluid update every awake
-  room advances through one tick of flow, fluid heat exchange and phase
-  change. Pumps can empty their intake tile between fluid updates. A colony
-  using a reduced rate writes owner wrapper 15 and resumes at the saved
-  point in its update schedule. Switching back to Every tick restores the
-  ordinary schedule from the next tick.
 - **Gameplay → Region simulation** defaults to **Activity tiers** for new
   colonies. Regions around actors and recent inputs run each game tick;
   disturbed remote regions run at a reduced cadence and eventually pause.
@@ -144,7 +135,7 @@ still choose new colonies' settings and stay at the main menu.
 - As the CO₂ switch always did, a change in a colony does not change the
   main-menu choices (`config.json`) for new colonies.
 - Solver tunables and evaporation go to the owner's options
-  (`ma_oni_colony_change_options`, options version 3 also carries the fluid update rate). The call
+  (`ma_oni_colony_change_options`, additive to options version 2). The call
   waits for a frame in progress; every later frame, including frames already
   handed to the solver, uses the new values. Game frames stay 0.2 s; Solver
   steps per game tick only sets the largest step within each, and pacing
@@ -163,7 +154,7 @@ still choose new colonies' settings and stay at the main menu.
   before it restores (`ma_oni_colony_set_source_energy` with session 0).
 - Breathing thresholds and the CO₂ switch apply at once in managed code.
 - Game profiles 6–12 take solver and evaporation changes (profile 6 saves the
-  phase rule as core24 or core25); profiles 9–12 take region simulation and the fluid update rate.
+  phase rule as core24 or core25); profiles 9–12 take region simulation.
   Profiles 6–8 keep Region simulation read-only (they always simulate), and a
   development solver without saved options keeps its solver settings
   read-only; the window gives the reason on the row.
@@ -231,8 +222,8 @@ under `/tmp`.
 
 All are recorded per colony and can be changed in a loaded colony
 ([above](#changing-a-loaded-colony)). Native ranges are
-those of `MAOniColonyOptions` in `oni_colony.h`. Version 3 uses the last
-word of the 88-byte options record for the fluid update interval.
+those of `MAOniColonyOptions` (`oni_colony.h`, options version 2, 88 bytes,
+which adds `evaporation_below_boiling`).
 
 | Key | Name | Default | Range (window steps) | Effect | Storage |
 | --- | --- | --- | --- | --- | --- |
@@ -248,7 +239,6 @@ word of the 88-byte options record for the fluid update interval.
 | `solver.phaseRelaxationSeconds` | Boiling/condensation time | 1 s | 0.1–10 s (≠1 experimental) | Liquid/vapour relaxation time constant (other conversions keep 1 s) | core24/25 |
 | `solver.traceThresholdKg` | Trace removal threshold | 1e-11 kg | 1e-11–1e-6 kg (≠1e-11 experimental) | Per-constituent booked trace sink; 1 mg ceiling | core24/25 |
 | `simulation.regionActivity` | Region simulation (Gameplay) | Activity tiers | Activity tiers / Always simulate | Select adaptive regions or simulate every region each tick | core28 policy and owner wrapper14 |
-| `solver.fluidUpdateRate` | Fluid update rate (Gameplay) | Every tick | Every tick, 1 in 4, 1 in 8, 1 in 16 | Slows fluid movement, heat transport and phase changes relative to duplicants and machines | Owner wrapper 15 when a reduced rate is selected |
 | `liquids.evaporationBelowBoiling` | Evaporation below boiling (Gameplay) | off | on/off | Off: liquid/vapour pairs compare saturation with the total gas pressure (boil-only, ONI-like condensation, no humidity); on: the vapour's partial pressure (evaporation into unsaturated gas) | core27/28 phase-rule selector (1 off, 0 on) |
 | `gases.sourceEnergy` | Gas source energy (Gameplay) | Compensated | Compensated / Real physics / Internal energy | How machine, vent, pump, duplicant and sublimation gas carries energy: enthalpy at the cell with the room returning it; enthalpy (flow work); internal energy only | section 3 v4 (`ma_oni_colony_set_source_energy` modes 2/1/0) |
 | `breathing.co2Limits` | CO₂ breathing limits | off | on/off | Enforce the CO₂ share and partial pressure thresholds; oxygen and the toxic gas limit remain required when off | section 3 v3 |

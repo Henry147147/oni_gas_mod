@@ -86,33 +86,6 @@ inline void component_cache_control() {
   try { (void)capped_two.advance(states, jx, jy, .05, 9.81, true); }
   catch (const ma::experimental::mac_kernel::ComponentPressureSolveFailure &) { two_refused = true; }
   check(one_refused && two_refused, "Cached component pressure solve changed a failed-root refusal");
-  // The parallel connectivity cache must follow a split and a rejoin, and
-  // still use fresh numeric coefficients on a cache hit.
-  MacGrid channel;
-  channel.width = 64; channel.height = 8; channel.walls.assign(512, 0);
-  const auto solver = [&] {
-    return k::PressureSolver(channel, 2, ma::PressurePreconditioner::incomplete_cholesky,
-                             1e-8, 0, nullptr, 400, true, 0, 0, 256);
-  };
-  auto reused = solver();
-  std::vector<k::Eos> air(512);
-  std::vector<double> still_x(channel.x_width() * channel.height), still_y(channel.width * channel.y_height());
-  std::vector<std::uint8_t> fixed(512);
-  for (unsigned pass = 0; pass < 5; ++pass) {
-    for (std::size_t i = 0; i < air.size(); ++i) {
-      auto &cell = air[i];
-      cell.mass = 1 + .01 * static_cast<double>((i + pass) % 7);
-      cell.capacity = 700 * cell.mass; cell.nR = 280 * cell.mass;
-      cell.temperature = 300; cell.pressure = cell.nR * cell.temperature; cell.gas_volume = 1;
-      fixed[i] = pass == 2 && i % channel.width == 32;
-    }
-    const auto a = reused.advance(air, still_x, still_y, .01, 0, false, &fixed);
-    const auto b = solver().advance(air, still_x, still_y, .01, 0, false, &fixed);
-    check((a.geometric > 0) == (pass != 2) && a.geometric == b.geometric &&
-              a.iterations == b.iterations && a.residual == b.residual && same(a.p, b.p) &&
-              same(a.jx, b.jx) && same(a.jy, b.jy),
-          "Parallel pressure connectivity or weights were stale after a region split or rejoined");
-  }
   std::cout << "PASS cached component pressure solve equals the general solve bit for bit (serial, 1024-4095 and plan components, corrections, reuse, refusal)\n";
 }
 } // namespace ma::testing

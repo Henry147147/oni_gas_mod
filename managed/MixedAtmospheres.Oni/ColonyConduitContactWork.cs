@@ -4,6 +4,15 @@ namespace MixedAtmospheres.Oni
 {
     internal static class PipeContactWork
     {
+        // ONI tests the clamped contact work before it rounds the carrier
+        // endpoint difference into the message. Near this cutoff the two
+        // values can differ, even on whether the wire energy is zero.
+        internal static float BodyMessageKilojoules(float clampedWork, float carrierBefore, float carrierAfter, float carrierCapacity)
+        {
+            if (Math.Abs(clampedWork) <= 1e-6f) return 0f;
+            return (carrierBefore - carrierAfter) * carrierCapacity;
+        }
+
         // Two binary32 factors multiply exactly in binary64 (at most48 bits).
         // 1000=1024-16-8 then converts kJ to J without rounding away a low
         // product component. Every term is far inside binary64's exponent range.

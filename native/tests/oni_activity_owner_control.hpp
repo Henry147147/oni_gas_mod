@@ -389,57 +389,6 @@ void activity_owner_control() {
     require(status().state==2 && status().completed_frames==1 && native_fault.find("Adapter: paired heat failed")!=std::string::npos &&
         std::string(status().error)==native_fault,"A native adapter fault was lost or replaced by a later frame");stop();
     set_options(nullptr);set_activity_tiers(0,true);
-    // The sampled colony keeps applying game inputs between physical updates.
-    // Save at a held tick, then cross the same next moving tick after reload.
-    {
-        const std::vector<MAOniColonyMaterial> flow_materials{
-            material("Oxygen",11,oxygen,true,.032,1005), material("CarbonDioxide",12,carbon,true,.044,850)};
-        std::vector<MAOniColonyCell> fluid_cells(21,MAOniColonyCell{0,MA_ONI_COLONY_SOLID,0,0,0,0});
-        for(const auto cell:{8,9,10})fluid_cells[cell]={oxygen,MA_ONI_COLONY_FLUID,1,300,0,0};
-        set_options(nullptr);
-        start(cfg,flow_materials,fluid_cells,1);
-        auto sampled=default_options();sampled.fluid_tick_stride=4;
-        require(change_options(status().session,sampled),"Running colony refused sampled flow");
-        require(checkpoint()[8]==15,"Sampled activity colony lost its update interval");
-        tick(1,std::span(selection.data(),1));
-        const MAOniColonyTransfer inject{8,carbon,MA_ONI_COLONY_INJECT,0,-1,0,.015625,300,0};
-        queue_transfers(std::span(&inject,1));tick(2,std::span(selection.data(),1));
-        require(held(8,carbon)==.015625 && held(9,carbon)==0,"Held fluid update did not apply a machine transfer at its game tick");
-        tick(3,std::span(selection.data(),1));
-        const auto image=checkpoint();
-        export_image("native-wrapper15-sampled.owner",image);
-        const auto cross_sample=[&] {
-            tick(4,std::span(selection.data(),1));
-            require(held(8,carbon)==.015625 && held(9,carbon)==0 && status().time_seconds==4*dt,
-                "Held flow changed the gas parcel or lost game time");
-            tick(5,std::span(selection.data(),1));
-            require(held(9,carbon)>0 && status().completed_frames==5 && status().time_seconds==5*dt,
-                "Sampled flow never transported the gas parcel");
-        };
-        cross_sample();const auto sampled_continuation=checkpoint();stop();
-        restore(cfg,flow_materials,image,1);
-        MAOniColonyOptions reported{};
-        require(copy_options(reported) && reported.fluid_tick_stride==4 && checkpoint()==image,"Sampled update interval lost on load");
-        cross_sample();
-        require(sampled_continuation==checkpoint(),"A cold load shifted the next fluid update");
-        auto full=default_options();require(change_options(status().session,full) && checkpoint()[8]==14,
-            "Returning to full flow lost the ordinary save layout");
-        const auto before=held(9,carbon);tick(6,std::span(selection.data(),1));
-        require(held(9,carbon)!=before,"Turning sampled flow off did not resume the next tick");
-        require(change_options(status().session,sampled),"Reselecting sampled flow failed");
-        bool remote_moved=false;
-        for(std::uint64_t ticket=7;ticket<=50 && !remote_moved;++ticket) {
-            const auto previous=status();
-            const bool between_deadlines=sample()[0].next_remote_s > previous.time_seconds+dt;
-            tick(ticket);
-            if(previous.completed_frames%4==0 && between_deadlines) {
-                require(status().substeps>previous.substeps,"An awake remote room missed its sampled fluid update");
-                remote_moved=true;
-            }
-        }
-        require(remote_moved,"Remote-fluid control missed the interval between ordinary deadlines");
-        stop();
-    }
     activity_biology_frame_control();
     std::cout<<"PASS owner activity: pristine hold, isolated FIFO cuts, two claims/cold continuation, lifecycle touch union, policies, terrain visibility, passive/contact heat, selective biology/conversion/trace, remote clocks, pinned readings, fail closed\n";
 }

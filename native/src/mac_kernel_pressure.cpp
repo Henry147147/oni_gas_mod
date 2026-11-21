@@ -60,7 +60,7 @@ void apply_direction(const Context& c, const LinearSystem& sys, const std::vecto
                 const double xi = dir(i);
                 if (!sys.active[i]) { y[i] = 0; q[i] = xi; continue; }
                 const auto left = col > 0 ? i - 1 : i + g.W - 1, right = col + 1 < g.W ? i + 1 : i + 1 - g.W;
-                const double wl = wx[xb + col], wr = wx[xb + (col + 1 == g.XW ? 0 : col + 1)], wb = wy[yb + col], wt = wy[yt + col];
+                const double wl = wx[xb + col], wr = wx[xb + (col + 1) % g.XW], wb = wy[yb + col], wt = wy[yt + col];
                 const double value = d[i] * xi + wl * (xi - dir(left)) + wr * (xi - dir(right)) + wb * (xi - dir(down + col)) + wt * (xi - dir(up + col));
                 q[i] = xi; y[i] = value; local += xi * value;
             }
@@ -87,7 +87,7 @@ void apply(const Context& c, const LinearSystem& sys, const std::vector<double>&
                 if (!sys.active[i]) { y[i] = 0; continue; }
                 const double xi = xv[i];
                 const auto left = col > 0 ? i - 1 : i + g.W - 1, right = col + 1 < g.W ? i + 1 : i + 1 - g.W;
-                const double wl = wx[xb + col], wr = wx[xb + (col + 1 == g.XW ? 0 : col + 1)], wb = wy[yb + col], wt = wy[yt + col];
+                const double wl = wx[xb + col], wr = wx[xb + (col + 1) % g.XW], wb = wy[yb + col], wt = wy[yt + col];
                 const double value = d[i] * xi + wl * (xi - xv[left]) + wr * (xi - xv[right]) + wb * (xi - xv[down + col]) + wt * (xi - xv[up + col]);
                 y[i] = value;
                 if (dot_with) local += (*dot_with)[i] * value;
@@ -334,11 +334,6 @@ struct ComponentSolveCache::Impl {
     std::vector<std::uint8_t> active, open_x, open_y;
     std::size_t parallel_rows = 0;
     bool valid = false, boundary = false;
-    // A parallel solve can go straight to geometric PCG when these masks
-    // still describe the previously proven single connected component.
-    const Grid* geometric_grid = nullptr;
-    std::size_t connected_cells = 0;
-    std::vector<std::uint8_t> geometric_active, geometric_x, geometric_y;
     std::vector<Component> components;
     // Values, rebuilt every solve.
     std::vector<double> compliance, conductance, inverse_diagonal, rhs, lower_values, inverse_pivots;
@@ -616,29 +611,9 @@ LinearSolveResult solve_components_cached(Context& c, ComponentSolveCache& handl
         if (!geometric) return solve_components(c, sys, b, x, rtol, atol, maximum, parallel_rows);
         if (c.settings.preconditioner != PressurePreconditioner::incomplete_cholesky || parallel_rows == 0)
             throw std::invalid_argument("Parallel component solves need the IC preconditioner and a size");
-        auto& cache = *handle.impl;
-        const auto same_faces = [](const auto& mask, const auto& weights) {
-            return mask.size() == weights.size() && std::equal(mask.begin(), mask.end(), weights.begin(),
-                [](std::uint8_t open, double weight) { return static_cast<bool>(open) == (weight != 0); });
-        };
-        const bool known = cache.geometric_grid == &c.g && cache.connected_cells >= geometric_cells &&
-            cache.geometric_active == sys.active &&
-            same_faces(cache.geometric_x, sys.wx) && same_faces(cache.geometric_y, sys.wy);
-        if (known)
-            if (const auto solved = solve_geometric_checked(c, sys, b, x, .5 * atol, maximum)) return *solved;
         const auto layout = component_layout(c, sys);
-        cache.connected_cells = layout.size() == 1 && layout.cells.size() >= geometric_cells ? layout.cells.size() : 0;
-        if (cache.connected_cells >= geometric_cells && !known) {
-            cache.geometric_grid = &c.g;
-            cache.geometric_active = sys.active;
-            const auto remember = [](auto& mask, const auto& weights) {
-                mask.resize(weights.size());
-                std::transform(weights.begin(), weights.end(), mask.begin(), [](double weight) { return weight != 0; });
-            };
-            remember(cache.geometric_x, sys.wx);
-            remember(cache.geometric_y, sys.wy);
+        if (layout.size() == 1 && layout.cells.size() >= geometric_cells)
             if (const auto solved = solve_geometric_checked(c, sys, b, x, .5 * atol, maximum)) return *solved;
-        }
         return solve_component_ic(c, sys, b, x, rtol, atol, maximum, &layout, parallel_rows);
     }
     if (c.settings.preconditioner != PressurePreconditioner::incomplete_cholesky || parallel_rows == 0)
@@ -736,8 +711,8 @@ LinearSolveResult solve_linear_selected(Context& c, const LinearSystem& sys, con
     const bool probe = try_jacobi && preconditioner != PressurePreconditioner::jacobi && g.N >= 256;
     const bool multigrid = !probe && preconditioner == PressurePreconditioner::automatic && g.N >= 256 && prepare_multigrid(c, sys);
     if (geometric && !multigrid) return {};
-    // Only the Jacobi preconditioner needs the inverse full diagonal.
-    if (!multigrid) c.exec.rows([&](std::size_t y0, std::size_t y1, std::size_t) {
+    // Jacobi: inverse of the full operator diagonal.
+    c.exec.rows([&](std::size_t y0, std::size_t y1, std::size_t) {
         for (std::size_t i = y0 * g.W; i < y1 * g.W; ++i) {
             if (!sys.active[i]) { ws.ldiag[i] = 0; continue; }
             const double d = sys.diag[i] + sys.wx[g.left_face(i)] + sys.wx[g.right_face(i)] + sys.wy[g.bottom_face(i)] + sys.wy[g.top_face(i)];

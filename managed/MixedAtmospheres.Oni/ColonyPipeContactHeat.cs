@@ -143,16 +143,15 @@ namespace MixedAtmospheres.Oni
                 {invalid.Add(row);Mismatch();return false;}
                 var carrier=ElementLoader.FindElementByHash(row.Shadow.element);
                 var lagged=new PipeAmount((double)row.Shadow.mass*carrier.specificHeatCapacity*1000*((double)row.Before.temperature-row.Shadow.temperature));
-                var contact=PipeContactWork.IntoFluid(row.Input.BodyCapacity,row.Input.BodyTemperature,row.Result.BodyTemperature);
-                // The native sender forms its queued energy from the rounded
-                // carrier endpoints. Reproduce those two binary32 operations
-                // for message identity; the represented-work credit below
-                // retains its existing body-endpoint arithmetic.
-                var carrierDelta=row.Input.FluidTemperature-row.Result.CarrierTemperature;
-                var queuedEnergy=carrierDelta*row.Input.FluidCapacity;
+                var queuedEnergy=PipeContactWork.BodyMessageKilojoules(row.Result.NativeHeatToBody,
+                    row.Input.FluidTemperature,row.Result.CarrierTemperature,row.Input.FluidCapacity);
+                var contact=PipeAmount.Zero;
                 if(queuedEnergy!=0)
+                {
                     OniNativeColony.Check(ExpectCompletion(row.Handle,queuedEnergy,
                         Math.Min(row.Input.BodyTemperature,row.Input.FluidTemperature),Math.Max(row.Input.BodyTemperature,row.Input.FluidTemperature)));
+                    contact=PipeContactWork.IntoFluid(row.Input.BodyCapacity,row.Input.BodyTemperature,row.Result.BodyTemperature);
+                }
                 heat=lagged.Plus(contact);row.Consumed=true;ContactHeat=ContactHeat.Plus(contact);LaggedHeat=LaggedHeat.Plus(lagged);
                 // Restore/topology/save callbacks can validate at zero time.
                 // Retained work still settles, while the diagnostic counts

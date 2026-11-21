@@ -94,19 +94,6 @@ class PatchTransport {
   // donor as if its material filled the cell.
   std::vector<double> swept;
   double held(std::size_t i) const { return swept.empty() ? g.V : swept[i]; }
-  // Cell and face gathers read an event's frozen inputs. Keep the serial
-  // order within each block so the pool rethrows the first failing entry.
-  template<class F> void independent_entries(std::size_t count, const F &entry) {
-    constexpr std::size_t chunk = 128;
-    const auto run = [&](std::size_t block) {
-      for (auto i = block * chunk; i < std::min(count, (block + 1) * chunk); ++i)
-        entry(i);
-    };
-    if (executor && executor->size() > 1 && count >= 1024)
-      executor->run((count + chunk - 1) / chunk, run);
-    else
-      for (std::size_t i = 0; i < count; ++i) entry(i);
-  }
   // Runs job(block) over the grid's fixed row blocks, on the pool if any.
   void blocks(const std::function<void(std::size_t)> &job) {
     if (executor)
@@ -174,7 +161,10 @@ class PatchTransport {
     // never exceed a proportional sweep's mass). Where the layered one would
     // export more than the interval's 0.39 outgoing mass bound the dual
     // remap relies on, the donor uses the convex combination that meets it.
-    const auto allocate = [&](std::vector<LayeredPhase>& phases, bool bottom_layered) {
+    std::array<std::vector<LayeredPhase>, 2> allocation;
+    std::array<double, 2> exported{};
+    for (const bool bottom_layered : {true, false}) {
+      auto &phases = allocation[bottom_layered ? 0 : 1];
       const double keep = 1 - (bottom_layered ? qh : qh + qd) / V;
       phases.resize(n);
       for (std::size_t p = 0; p < n; ++p)
@@ -208,29 +198,30 @@ class PatchTransport {
           phase.keep -= phase.down;
         }
       }
-      double sum = out.horizontal * out.mass;
+      auto &sum = exported[bottom_layered ? 0 : 1];
+      sum = out.horizontal * out.mass;
       for (std::size_t q = 0; q < n; ++q)
         sum += (phases[q].up + phases[q].down) * geo.phases[q].mass;
-      return sum;
-    };
-    // Most donors can use the layered allocation in full. Only donors that
-    // exceed the mass bound need the proportional alternative and its mix.
+    }
     const double bound = .39 * out.mass;
-    const double layered_mass = allocate(out.phases, true);
-    if (!(layered_mass <= bound)) {
-      std::vector<LayeredPhase> proportional;
-      const double fallback_mass = allocate(proportional, false);
-      const double theta = fallback_mass >= bound ? 0 :
-          (bound - fallback_mass) / (layered_mass - fallback_mass);
-      for (std::size_t q = 0; q < n; ++q) {
-        auto &phase = out.phases[q];
-        const auto &b = proportional[q];
-        if (theta == 0) phase = b;
-        else if (theta != 1) {
-          phase.up = theta * phase.up + (1 - theta) * b.up;
-          phase.down = theta * phase.down + (1 - theta) * b.down;
-          phase.keep = std::max(0., 1 - out.horizontal - phase.up - phase.down);
-        }
+    const double theta =
+        exported[0] <= bound ? 1
+        : exported[1] >= bound ? 0
+                               : (bound - exported[1]) / (exported[0] - exported[1]);
+    out.phases.resize(n);
+    for (std::size_t q = 0; q < n; ++q) {
+      const auto &a = allocation[0][q], &b = allocation[1][q];
+      auto &phase = out.phases[q];
+      phase.identity = a.identity;
+      if (theta == 1)
+        phase = a;
+      else if (theta == 0)
+        phase = b;
+      else {
+        phase.up = theta * a.up + (1 - theta) * b.up;
+        phase.down = theta * a.down + (1 - theta) * b.down;
+        // The retained share is the remainder, so no phase is over-drawn.
+        phase.keep = std::max(0., 1 - out.horizontal - phase.up - phase.down);
       }
     }
     out.up_mass = out.down_mass = out.up_energy = out.down_energy = 0;
@@ -410,7 +401,6 @@ public:
     // subsequent active/affected/dual lists are subsets. No buffer survives
     // this advance, and every logical dual entry is assigned before use.
     std::vector<Face> active;
-    std::vector<std::size_t> vertical_donors;
     std::vector<std::size_t> affected;
     std::vector<std::pair<bool,std::size_t>> dual_faces;
     std::vector<DualUpdate> dual_storage;
@@ -461,19 +451,15 @@ public:
         const auto donor_of = [&](const Face &face) {
           return face.q > 0 ? g.yl[face.index] : g.yr[face.index];
         };
-        vertical_donors.clear();
         for (const auto &face : active)
           if (!face.x) {
             const auto d = donor_of(face);
             if (layered_stamp[d] != stamp) {
               layered_stamp[d] = stamp;
-              vertical_donors.push_back(d);
+              layer_donor(d, cells[d], result.energy[d], dx, dy,
+                          *layered_species, gravity);
             }
           }
-        independent_entries(vertical_donors.size(), [&](std::size_t index) {
-          const auto d = vertical_donors[index];
-          layer_donor(d, cells[d], result.energy[d], dx, dy, *layered_species, gravity);
-        });
         // The dual momentum remap and the potential work use the mass
         // that actually crosses each face.
         for (const auto &face : active)
@@ -620,7 +606,25 @@ public:
                                                  : split[a]->keep_energy)
                            : c[a].fraction * result.energy[c[a].cell];
       };
-      independent_entries(affected.size(), fill_cell);
+      if (executor && affected.size() >= 1024) {
+        const auto blocks = (affected.size() + 127) / 128;
+        std::vector<std::exception_ptr> errors(blocks);
+        executor->run(blocks, [&](std::size_t block) {
+          try {
+            for (std::size_t position = block * 128;
+                 position < std::min(affected.size(), (block + 1) * 128);
+                 ++position)
+              fill_cell(position);
+          } catch (...) {
+            errors[block] = std::current_exception();
+          }
+        });
+        for (const auto &error : errors)
+          if (error)
+            std::rethrow_exception(error);
+      } else
+        for (std::size_t position = 0; position < affected.size(); ++position)
+          fill_cell(position);
       for (const auto &entry : updated)
         next_mass[entry.i] = entry.mass;
       dual_faces.clear();
@@ -775,7 +779,25 @@ public:
                           right_wall_operands,
                           isolated};
       };
-      independent_entries(dual_faces.size(), gather);
+      if (executor && dual_faces.size() >= 1024) {
+        const auto blocks = (dual_faces.size() + 127) / 128;
+        std::vector<std::exception_ptr> errors(blocks);
+        executor->run(blocks, [&](std::size_t block) {
+          try {
+            for (std::size_t position = block * 128;
+                 position < std::min(dual_faces.size(), (block + 1) * 128);
+                 ++position)
+              gather(position);
+          } catch (...) {
+            errors[block] = std::current_exception();
+          }
+        });
+        for (const auto &error : errors)
+          if (error)
+            std::rethrow_exception(error);
+      } else
+        for (std::size_t position = 0; position < dual_faces.size(); ++position)
+          gather(position);
       // Under the 0.4-cell net-volume bound a cell's swept volume, less any
       // one event's outgoing sweep (at most 0.39 of a cell), stays above 0.2
       // of a cell. The floor keeps the retained fraction positive where the

@@ -25,6 +25,26 @@ static class ContactWorkTests
     }
     internal static void Run()
     {
+        const float cutoff = 1e-6f;
+        var smaller = BitConverter.Int32BitsToSingle(BitConverter.SingleToInt32Bits(cutoff)-1);
+        var larger = BitConverter.Int32BitsToSingle(BitConverter.SingleToInt32Bits(cutoff)+1);
+        var cooler = BitConverter.Int32BitsToSingle(BitConverter.SingleToInt32Bits(300f)-1);
+        foreach (var sign in new[]{1f,-1f})
+        {
+            var before=sign>0 ? 300f : cooler;
+            var after=sign>0 ? cooler : 300f;
+            // Both endpoint temperatures are representable, so the earlier
+            // nonzero-wire test declared a message ONI never submitted.
+            var wire=(before-after)*.03125f;
+            Check(wire!=0 && Math.Abs(wire)<cutoff,"The small conduit control must have nonzero wire energy");
+            foreach (var work in new[]{0f,smaller,cutoff})
+                Check(PipeContactWork.BodyMessageKilojoules(sign*work,before,after,.03125f)==0,
+                    "A sub-threshold conduit contact left a phantom save receipt");
+            Check(PipeContactWork.BodyMessageKilojoules(sign*larger,before,after,.03125f)==wire,
+                "A genuine message below the cutoff after carrier rounding lost its exact wire energy");
+            Check(PipeContactWork.BodyMessageKilojoules(sign*larger,before,before,.03125f)==0,
+                "An unchanged carrier endpoint left pending body work");
+        }
         Check(PipeContactWork.IntoFluid(1.5f,400,300).Value==150000,"Registered body heat units/sign changed");
         var random=new Random(912037);
         for(var i=0;i<2000;++i)

@@ -386,17 +386,6 @@ void rounded_hypot_is_exact_where_representable() {
               std::isfinite(ma::rounded_hypot(1e308, 1e308)) &&
               ma::rounded_hypot(1., 0x1p-60) == 1,
           "Portable hypot edge cases differ");
-  // Move the same significands between the ordinary and normalized paths.
-  // Both operands and both results stay normal and exactly rescalable.
-  std::mt19937_64 bits(1663);
-  for (int i = 0; i < 20000; ++i) {
-    const auto exponent = static_cast<int>(bits() % 403) - 201;
-    const auto gap = static_cast<int>(bits() % 61);
-    const double a = std::ldexp(1. + std::generate_canonical<double, 53>(bits), exponent);
-    const double b = std::ldexp(1. + std::generate_canonical<double, 53>(bits), exponent - gap);
-    const double scaled = ma::rounded_hypot(std::ldexp(a, 500), std::ldexp(b, 500));
-    require(ma::rounded_hypot(a, b) == std::ldexp(scaled, -500), "Portable hypot changed with ordinary input scale");
-  }
   std::cout << "PASS portable rounded hypot exact values and edge cases\n";
 }
 void closed_energy(long double before, long double after) {

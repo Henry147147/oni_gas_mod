@@ -628,7 +628,7 @@ MacClosedAdvance MacGameKernelAccess::advance(const MacClosedWorld &source,
 }
 MacClosedAdvance MacGameKernelAccess::advance_guarded(
     const MacClosedWorld &source, double seconds, std::size_t budget,
-    std::span<const std::uint8_t> liquid_blocked, MacGameFlowFrame frame) {
+    std::span<const std::uint8_t> liquid_blocked) {
   require_mac_energy_environment();
   source.settings_.validate();
   require(liquid_blocked.empty() ||
@@ -640,34 +640,6 @@ MacClosedAdvance MacGameKernelAccess::advance_guarded(
   require(std::isfinite(seconds) && seconds > 0 && seconds <= 10 &&
               budget > 0 && budget <= 65536,
           "Invalid game interval/budget");
-  if (frame == MacGameFlowFrame::held) {
-    // Actors, game inputs, and the remote-region clocks continue each tick.
-    // Holding the physical fields also preserves their cached energy totals.
-    const auto& grid = source.state().grid;
-    require(mac_game_activity_profile(source.settings_.game_profile), "Held fluid frame needs colony activity");
-    k::validate_activity(source.game_activity(), grid.walls.size(), source.time_s_, grid.walls);
-    k::validate_activity_interval(seconds, source.settings_.maximum_timestep_s, budget);
-    const auto& regions = k::cached_activity_regions(grid);
-    auto clocks = std::vector<MacGameActivityCell>(source.game_activity().begin(), source.game_activity().end());
-    std::optional<k::Levelling> levelling;
-    if (source.settings_.game_profile == MacGameProfile::game_kernel_thin_drag && source.settings_.game.activity_tiers)
-      levelling.emplace(source.state(), source.registry_, *source.thermodynamics_, regions.cells.size());
-    for (double elapsed = 0; elapsed < seconds;) {
-      const double dt = std::min(seconds - elapsed, source.settings_.maximum_timestep_s);
-      (void)k::activity_step(grid, regions, clocks, source.settings_.game, source.time_s_ + elapsed, dt,
-                            levelling ? &*levelling : nullptr);
-      elapsed += dt;
-    }
-    MacClosedAdvance held{source, {}};
-    held.world.game_activity_ = std::make_shared<const std::vector<MacGameActivityCell>>(std::move(clocks));
-    held.world.time_s_ = source.time_s_ + seconds;
-    require(held.world.time_s_ > source.time_s_ && std::isfinite(held.world.time_s_), "Game clock cannot advance");
-    ++held.world.revision_;
-    held.report.game_converted_mass_kg.assign(source.registry_.size(), 0.);
-    last_stages() = {};
-    if (k::region_samples::enabled().load(std::memory_order_relaxed)) k::region_samples::last().clear();
-    return held;
-  }
   struct Cache {
     std::shared_ptr<const FluidThermodynamics> eos;
     MacGrid grid;
@@ -793,15 +765,8 @@ MacClosedAdvance MacGameKernelAccess::advance_guarded(
             "Game interval exceeds its tick budget");
     const double dt =
         std::min(source.settings_.maximum_timestep_s, seconds - elapsed);
-    auto due=activity?k::activity_step(source.state().grid,*activity_regions,
+    const auto due=activity?k::activity_step(source.state().grid,*activity_regions,
         activity_state,cfg,source.time_s_+elapsed,dt,levelling?&*levelling:nullptr):std::vector<double>{};
-    if (frame == MacGameFlowFrame::sampled) {
-      // A remote room's normal one-second deadline can fall between all of
-      // the sampled ticks. Give every still-awake room this tick's dt once.
-      // Paused rooms stay paused. Elapsed time on held ticks is never repaid.
-      for (std::size_t i = 0; i < due.size(); ++i)
-        if (due[i] > 0 || activity_state[i].next_remote_s > 0) due[i] = dt;
-    }
     if(activity)for(std::size_t i=0;i<due.size();++i)if(due[i]>0)evolved[i]=1;
     stamp = std::chrono::steady_clock::now();
     // With activity the regional tick takes the interval's state and writes
