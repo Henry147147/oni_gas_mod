@@ -190,8 +190,15 @@ path that the commit uses.
   Steam declares for Linux and Windows.
 - Every Steam function the tool calls is exported by the `libsteam_api.so` of
   ONI 764025.
+- `preflight` against the private client in Offline Mode (2026-11-22): Steam
+  accepts the process as the uploader (636750) although the tool is not
+  installed there, the signed-in account has its licence and owns the item,
+  and the uploader's Steam Cloud is on with its whole quota free. This client
+  holds no copy of the upload file yet. The only blocker reported was Offline
+  Mode, as intended.
 
-Not yet run: `preflight` against an online client, and the writing calls. No
-upload has been made with this tool. The first authorized upload is their
-first run; if Steam refuses a step, the item keeps its file, and the upload by
-hand above remains available.
+Not yet run: `preflight` against an online client (Steam's own record of the
+item, which is the first asynchronous call), and the writing calls. No upload
+has been made with this tool. The first authorized upload is their first run;
+if Steam refuses a step, the item keeps its file, and the upload by hand above
+remains available.
