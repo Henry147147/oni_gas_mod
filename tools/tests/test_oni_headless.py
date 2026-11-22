@@ -1640,6 +1640,17 @@ class EvidenceTests(unittest.TestCase):
             self.assertEqual(runner.classify("menu", log, self.probe, None, False, 0),
                              ("failed-mod-log-errors", 2), log)
 
+    def test_game_attribution_after_a_native_named_stack(self):
+        header = "[ERROR] RationBoxComplete ~~~!System.NullReferenceException: object missing"
+        frame = "  at Storage.MassStored () <0x1234 + 0x00000>"
+        attribution = ("[INFO] Mixed Atmospheres's patched_method Storage:MassStored "
+                       "appears in the stack trace, adding to referenced mods list")
+        log = "\n".join((header, frame, attribution))
+        self.assertEqual(runner.mod_failure_lines(log), [header, attribution])
+        self.assertEqual(runner.mod_failure_lines(log.replace("Mixed Atmospheres", "Other mod")), [])
+        self.assertEqual(runner.mod_failure_lines(log.replace(header, "[ERROR] UNEXPECTED!")), [])
+        self.assertEqual(runner.mod_failure_lines(log.replace(header, "ThreadAbortException: Thread was being aborted")), [])
+
     def test_worker_thread_abort_exception_stack_remains_ignored(self):
         for prefix in ("", "[ERROR] Fatal parse error in /x/game/templates/worker.yaml\n"
                             "Exception during deserialization\n"):

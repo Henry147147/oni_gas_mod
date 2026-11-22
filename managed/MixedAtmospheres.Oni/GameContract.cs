@@ -379,7 +379,12 @@ namespace MixedAtmospheres.Oni
 
         // Manual Harmony.Patch targets installed during OnLoad, declared by
         // their installers so they are verified before they are patched.
-        internal static IEnumerable<MethodBase> ManualTargets() => MixtureWorldRendering.ContractTargets().Concat(OwnedReservoirOwnerMarker.ContractTargets());
+        internal static IEnumerable<MethodBase> ManualTargets()
+        {
+            var targets = MixtureWorldRendering.ContractTargets().Concat(OwnedReservoirOwnerMarker.ContractTargets());
+            var pageAllocation = WindowsHarmonyPageAllocation.Target();
+            return pageAllocation == null ? targets : targets.Append(pageAllocation);
+        }
     }
 
     [JsonObject(MemberSerialization.OptIn)]

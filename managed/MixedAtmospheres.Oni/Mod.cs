@@ -80,6 +80,8 @@ namespace MixedAtmospheres.Oni
                 UnityEngine.Debug.Log("[Mixed Atmospheres] Original enum tag helpers passed before patching.");
                 if (ColonyRuntimeValidation.Settings?.Mode == "load-rejection")
                     OwnedReservoirLoadVisualValidation.Install(harmony);
+                if (UnityEngine.Application.platform == UnityEngine.RuntimePlatform.WindowsPlayer)
+                    WindowsHarmonyPageAllocation.Install(harmony);
                 base.OnLoad(harmony);
                 NativeElementTagChecks.VerifyCalls();
                 UnityEngine.Debug.Log("[Mixed Atmospheres] Native enum tag helpers passed.");

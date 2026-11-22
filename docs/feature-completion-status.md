@@ -1,5 +1,7 @@
 # Feature completion work
 
+**[1.12.2.2 Windows loading hotfix](playtest-1.12.2.2.md).** A Windows allocation error in the bundled Harmony runtime could stop a ration box from loading on build 744825. The 1.12.2.1 Steam candidate was held. The new version includes both fixes. [Resuming the colony speed work](performance-handoff.md).
+
 **[1.12.2.1 Cycle 55 hotfix](playtest-1.12.2.1.md).** The solver accounts for momentum as a liquid pocket comes to rest. The original Windows save reproduced the 1.12.2 failure after exactly 2,928 fluid ticks.
 
 **[1.12.2 colony performance](playtest-1.12.2.md).** The Windows player ran the November 21 colony at 2.078 game seconds per real second for a full cycle at the 3× button, with full-detail fluid movement every eighth tick. The same cycle on 1.12.1 averaged 0.886×.

@@ -587,7 +587,8 @@ def mod_failure_lines(log: str, identifiers: tuple[str, ...] = ()) -> list[str]:
 
     A line fails when it names the mod and says fail/error/exception, or is a
     Harmony patching exception. An exception header fails when its stack has a
-    mod, Harmony or Harmony-patched (DMD<...>) frame. Game-only lines are
+    mod, Harmony or Harmony-patched (DMD<...>) frame, or ONI attributes
+    the exception stack to one of this mod's patches. Game-only lines are
     ignored, as is a worker exception whose own header says "Thread was being
     aborted". A nearby abort never suppresses a mod or Harmony failure.
     """
@@ -597,13 +598,19 @@ def mod_failure_lines(log: str, identifiers: tuple[str, ...] = ()) -> list[str]:
     header = None
     attributed: set[int] = set()
     for index, line in enumerate(lines):
-        if STACK_FRAME.match(line):
-            if (header is not None and header not in attributed and MOD_FRAME.search(line)
+        stack_frame = STACK_FRAME.match(line)
+        # The Windows player sometimes prints the original method name in
+        # every frame, then reports the patch owner on the next log line.
+        game_attribution = ("in the stack trace, adding to referenced mods list" in line
+                            and any(name + "'s patched_method " in line for name in names))
+        if stack_frame or game_attribution:
+            if (header is not None and header not in attributed and (game_attribution or MOD_FRAME.search(line))
                     and "exception" in lines[header].lower() and SHUTDOWN_ABORT not in lines[header]):
                 attributed.add(header)
                 found[header] = lines[header]
                 found[index] = line
-            continue
+            if stack_frame:
+                continue
         header = index
         if HARMONY_FAILURE.search(line) or (any(name in line for name in names) and FAILURE_WORDS.search(line)):
             found[index] = line
