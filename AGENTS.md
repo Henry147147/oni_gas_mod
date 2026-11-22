@@ -58,6 +58,10 @@ few that your task touches, starting here.
   2026-11-10/11 and [0.1.2](docs/playtest-0.1.2.md) answered
   [the 0.1.1 playtest review](docs/playtest-0.1.1-review.md).
   The `docs/handoff-codex-*.md` files are historical; continue on `main`.
+- [docs/workshop-upload.md](docs/workshop-upload.md): the Steam Workshop item,
+  what it serves (`python3 tools/workshop.py status`: 1.12.2, `0da7afd`, on
+  2026-11-22) and the upload procedure. The tool only reads unless it is given
+  `--execute` with the user's go-ahead for that version.
 - [docs/playtest-plan.md](docs/playtest-plan.md): the original first-playtest
   plan (the full base game on one asteroid, playable on Linux).
 - [docs/completion-plan.md](docs/completion-plan.md): the accepted plan. Its
@@ -87,7 +91,8 @@ few that your task touches, starting here.
   saves or native/memory captures. Gameplay screenshots and short clips for the
   README are allowed (user decision 2026-10-25). Never type Steam credentials or
   bypass Steam's checks; if sign-in is needed, ask the user. No public release or
-  Workshop upload without the user's authorization.
+  Workshop upload without the user's authorization, given for that version
+  ([procedure](docs/workshop-upload.md#uploading-a-version)).
 - Linux and Windows x64 (user decision 2026-10-25: the private playtest runs on
   the user's Windows PC). Keep evidence light
   ([playtest plan](docs/playtest-plan.md#evidence)).

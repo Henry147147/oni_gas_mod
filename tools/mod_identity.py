@@ -17,6 +17,12 @@ ROOT = Path(__file__).resolve().parents[1]
 STATIC_ID = "MixedAtmospheres"
 TITLE = "Mixed Atmospheres"
 DEV_FOLDER = "MixedAtmospheres.IntegrationProbe"
+# The Steam Workshop item (docs/workshop-upload.md). Klei's uploader, a Steam tool of its own,
+# created it as one ZIP in that tool's Steam Cloud; ONI is the app that consumes it.
+ONI_APP = 457140
+WORKSHOP_ITEM = 3842047795
+WORKSHOP_UPLOADER_APP = 636750
+WORKSHOP_FILE = "mod_publish_data_file.zip"
 # Shared with MSBuild so the packaged builds and their API variants agree.
 GAME_BUILDS = {int(node.attrib["Include"]): node.attrib
                for node in ET.parse(ROOT / "managed/OniBuilds.targets").findall("./ItemGroup/OniRelease")}

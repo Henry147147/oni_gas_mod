@@ -3,9 +3,10 @@
 This page covers how Mixed Atmospheres is packaged for players: the Steam
 Workshop release folder, the mod's identity, where it keeps player data, and
 what it refuses to run on. How game updates are verified is in
-[game-update resilience](game-update-resilience.md). Nothing is published
-without the user's authorization, and no licence file is added until the user
-chooses one.
+[game-update resilience](game-update-resilience.md). How a release folder is
+uploaded, and how to check what the Workshop serves, is in
+[Workshop upload](workshop-upload.md). Nothing is published without the user's
+authorization, and no licence file is added until the user chooses one.
 
 ## Packages
 
