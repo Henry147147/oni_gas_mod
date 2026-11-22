@@ -1,5 +1,9 @@
 # Feature completion work
 
+**[1.12.2.1 Cycle 55 hotfix](playtest-1.12.2.1.md).** The solver accounts for momentum as a liquid pocket comes to rest. The original Windows save reproduced the 1.12.2 failure after exactly 2,928 fluid ticks.
+
+**[1.12.2 colony performance](playtest-1.12.2.md).** The Windows player ran the November 21 colony at 2.078 game seconds per real second for a full cycle at the 3× button, with full-detail fluid movement every eighth tick. The same cycle on 1.12.1 averaged 0.886×.
+
 **[1.12.1.1 save hotfix](playtest-1.12.1.1.md).** The pipe heat tracker
 now follows the native sender’s energy cutoff. The Windows player under
 Proton wrote the Cycle 50 autosave from the player’s Cycle 49 save and

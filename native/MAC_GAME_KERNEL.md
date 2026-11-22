@@ -23,6 +23,13 @@ region audits check species, passives, U+K+G and canonical momentum with wall
 and body impulses, at the accepted relative1e-12 operand bound. Traces enter
 the named sink. Entropy is reported as a diagnostic, without admission retries.
 
+At subnormal face momentum, drag books the representable difference between
+the pressure-updated momentum and the momentum retained after drag. When
+momentum or face velocity is subnormal, the dual remap starts with the stored
+momentum and subtracts the same outgoing impulses its neighbours receive.
+This keeps the regional momentum balance exact at the bottom of the binary64
+range. See the [Cycle 55 reproduction](../docs/playtest-1.12.2.1.md).
+
 The owner bridge retains dense compatibility state around the sparse tick.
 Its per-edit copies and audit passes are now mostly removed; see
 [parallel owner thread](#parallel-owner-thread-and-in-place-owner-edits). Native shadow/body heat remains an external booked exchange; duplicate

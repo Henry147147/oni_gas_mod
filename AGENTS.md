@@ -39,6 +39,10 @@ few that your task touches, starting here.
   [1.12.1.1](docs/playtest-1.12.1.1.md) (`3a7ebfd`) fixes the pipe-heat
   autosave crash. The submitted Cycle 49 save passed the Cycle 50 rollover.
   The private share holds `publish/update-1.12.1.1`.
+  [1.12.2](docs/playtest-1.12.2.md) reached 2.078× on the November 21
+  colony with full-detail fluids every eighth tick.
+  [1.12.2.1](docs/playtest-1.12.2.1.md) fixes the Cycle 55 momentum failure
+  when motion decays in an almost still liquid pocket.
   [0.1.8](docs/playtest-0.1.8.md) lets
   two gases change places through an opening one tile high;
   [0.1.7](docs/playtest-0.1.7.md) kept a pool levelling past the activity

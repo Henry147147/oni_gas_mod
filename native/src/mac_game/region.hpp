@@ -3,6 +3,7 @@
 #include "account.hpp"
 #include "state.hpp"
 #include <map>
+#include <sstream>
 namespace ma::experimental::game_kernel {
 struct Topology {
   std::vector<std::size_t> labels;
@@ -325,11 +326,14 @@ public:
       if (b.operands.hi == 0 && b.operands.lo == 0 && b.residual.hi == 0 &&
           b.residual.lo == 0)
         return;
-      if (!b.closed())
-        throw std::runtime_error(
-            "Private connected-region " + std::to_string(region) + " " + kind +
-            " audit failed: residual=" + std::to_string(b.residual.value()) +
-            " scale=" + std::to_string(b.operands.value()));
+      if (!b.closed()) {
+        std::ostringstream message;
+        message.precision(std::numeric_limits<double>::max_digits10);
+        message << "Private connected-region " << region << ' ' << kind
+                << " audit failed: residual=" << b.residual.value()
+                << " scale=" << b.operands.value();
+        throw std::runtime_error(message.str());
+      }
       if (b.operands.value())
         worst =
             std::max(worst, std::abs(b.residual.value()) / b.operands.value());

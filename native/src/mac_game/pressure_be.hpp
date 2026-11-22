@@ -474,8 +474,13 @@ public:
       if (gamma > 0) {
         // The drag takes gamma J of momentum, an external load, and its
         // kinetic work gamma J^2 / I becomes local heat with the damping.
+        const double before_drag = next;
         next /= 1 + gamma;
-        const double taken = gamma * next;
+        // At subnormal J, rounding the retained and removed momenta
+        // independently can give the wall one more unit than the face lost.
+        const double taken = std::abs(next) < std::numeric_limits<double>::min()
+                                 ? before_drag - next
+                                 : gamma * next;
         auto &wall = x ? loads.wall_x : loads.wall_y;
         auto &scale = x ? loads.wall_scale_x : loads.wall_scale_y;
         wall.add(-taken);
@@ -486,7 +491,7 @@ public:
       const double impulse = next - old;
       damping = .5 * impulse * (impulse / inertia);
       if (gamma > 0)
-        damping += gamma * next * (next / inertia);
+        damping += (x ? result.drag_x : result.drag_y)[f] * (next / inertia);
     };
     context.exec.rows([&](std::size_t y0, std::size_t y1, std::size_t block) {
       auto &loads = w.loads[block];

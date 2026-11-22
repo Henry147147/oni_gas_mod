@@ -704,6 +704,14 @@ public:
             topology->labels[left[f]] != topology->labels[right[f]];
         if (isolated && j[f] != 0)
           throw std::runtime_error("Private isolated closed face has momentum");
+        const double v = velocity(f);
+        // A subnormal momentum can lose units in the J -> velocity -> J
+        // round trip even when no momentum leaves. Retain the stored J and
+        // subtract each outgoing impulse as computed by its receiver.
+        const double normal_min = std::numeric_limits<double>::min();
+        const bool retain_from_momentum = j[f] != 0 &&
+            (std::abs(j[f]) < normal_min || std::abs(v) < normal_min);
+        double outgoing_j = 0;
         double outgoing = 0, jin = 0, kin = 0, left_heat = 0, right_heat = 0,
                left_wall = 0, right_wall = 0, wall_operands = 0,
                left_wall_operands = 0, right_wall_operands = 0;
@@ -711,11 +719,13 @@ public:
           if (flux == 0)
             return;
           const double part = std::abs(flux);
-          if ((upper && flux < 0) || (!upper && flux > 0))
+          if ((upper && flux < 0) || (!upper && flux > 0)) {
             outgoing += part;
-          else {
-            const double v = velocity(other), incoming_j = part * v,
-                         incoming_k = part * .5 * v * v;
+            if (retain_from_momentum)
+              outgoing_j += part * v;
+          } else {
+            const double donor_v = velocity(other), incoming_j = part * donor_v,
+                         incoming_k = part * .5 * donor_v * donor_v;
             jin += incoming_j;
             kin += incoming_k;
             if (incoming_j != 0 || incoming_k != 0) {
@@ -751,10 +761,11 @@ public:
         edge(transverse(f), transverse_prev(f), true);
         if (transverse_next(f) != NF)
           edge(transverse(transverse_next(f)), transverse_next(f), false);
-        const double keep = inertia(f, mass) - outgoing, v = velocity(f);
+        const double keep = inertia(f, mass) - outgoing;
         if (keep < 0)
           throw std::runtime_error("Private local dual CFL failed");
-        const double js = keep * v + jin, ktr = keep * .5 * v * v + kin,
+        const double js = (retain_from_momentum ? j[f] - outgoing_j : keep * v) + jin,
+                     ktr = keep * .5 * v * v + kin,
                      I1 = inertia(f, next_mass);
         if (js != 0 && I1 == 0)
           throw std::runtime_error("Private local dual J without new inertia");

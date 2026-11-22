@@ -54,19 +54,9 @@ measured separately in the Windows player.
 
 ## Measured game speed on the November 21 colony
 
-The player chose **1 in 8 ticks with full detail**. With the 3× speed button,
-packaged revision `bb3d6f2` ran 599.94 game seconds in 284.54 real seconds
-at that setting, averaging **2.108×**. The same colony and interval on 1.12.1
-took 676.82 real seconds and averaged 0.886×. The new setting
-ran 2.38 times as fast. The twenty consecutive windows ranged from
-1.837× to 2.281×. Both runs used ONI build 764025
-at 1920 × 1080 in the Windows player under Proton on a Ryzen 9 5900X.
-The first 150 ticks let the save load and the settings window close. The comparison covers every tick from
-134146 through 137145, including the Cycle 46 autosave. An independent
-wall clock on the host measured 284.56 seconds over those windows.
-With the **2× button** and the same fluid setting, the first 450 measured ticks
-advanced 90.01 game seconds in 45.75 real seconds
-(1.968×).
+The Steam package (`0da7afd`) averaged **2.078 game seconds per real second** with the 3× game speed and full-detail fluids every eighth tick. It advanced 599.91 game seconds in 288.67 real seconds. Version 1.12.1 averaged 0.886× over the same cycle, giving a **2.34× speedup**. The 20 consecutive 30-game-second windows ranged from 1.808× to 2.252× and included the Cycle 46 autosave. The independent host clock measured 288.70 seconds. With the 2× game speed selected, the first 450 measured ticks averaged 1.918×.
+
+The matched full-cycle runs used a Ryzen 9 5900X, the Windows player under Proton and ONI build 764025 at 1920 × 1080. Both retained the save's existing pressure-solve tolerance of 10⁻⁶. Every colony setting shared by the two versions had the same value. They covered every tick from frame 134146 through 137145 after 150 warm-up ticks. The shorter seven-option comparison below used candidate `bb3d6f2`. The final package changed the Pacu test fixture and retained the same native libraries.
 
 Open **Mixed Atmospheres → Settings → Gameplay → Region simulation → Fluid update rate**
 in the running colony and choose **1 in 8 ticks**. Under **Advanced → Solver**, full detail uses the standard
@@ -120,3 +110,11 @@ it on the ledge kept all 24 subsequent checks dry. The fixture now stops
 that path before moving the fish and reports its actual cell at the
 exposure check. The colony still uses the game's ordinary suffocation,
 rescue and death timers.
+
+Two additional Linux runs followed Pacu for the full four-cycle suffocation period at the selected fluid rate. Private scenario code placed one fish in a dry chamber and another in a pool, then read the game's aquatic suffocation timers. In the equipped colony the dry fish reached 2,400.16 seconds and died. The submerged fish had zero exposure and all three duplicants survived. In an initial unprovisioned colony, the whole-colony survival check stopped when a duplicant died. A fresh process loaded that colony's natural Cycle 4 autosave. The same dry fish resumed at 1,748.57 seconds of exposure and died at frame 12039 after reaching 2,400.13 seconds. The wet fish remained alive with zero exposure. Both fish kept their ordinary navigation and survival clocks throughout.
+
+## Save and release checks
+
+The packaged Windows player restored the submitted Cycle 49 file at frame 143777, saved the selected update rate and wrote the natural Cycle 50 autosave. A fresh player opened that autosave at frame 146782 and saved again at frame 146866. The 187 existing storage bins held 100,000 kg at 5×, then 200,000 kg after a cold load at 10×. The pump and receiving reservoir both transferred 500 kg over 50 game seconds with the selected fluid rate. Windows settings and the Linux status bar were inspected at 640 × 480.
+
+All seven patch steps and nine targeted test groups passed. The release suite completed 27 of its 47 steps. Its ten-cycle test was stopped after five cycles to investigate the subsequent Cycle 55 crash. The Windows player had stopped during fluid movement with Every tick selected. See the [1.12.2.1 hotfix](playtest-1.12.2.1.md).

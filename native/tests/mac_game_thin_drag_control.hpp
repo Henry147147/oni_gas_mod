@@ -58,6 +58,46 @@ inline long double beyond(const MacClosedWorld &w, std::size_t x0) {
     if (i % s.grid.width > x0) t += s.cells[i].mixture.mass();
   return t;
 }
+// A nearly still, partly filled pocket on Cycle 55 stopped on a one-unit
+// discrepancy between drag and face momentum. Exercise both axes, a liquid
+// next to vacuum, and a heavier face whose velocity loses precision in J/I.
+inline void subnormal_momentum(MacClosedSettings cfg) {
+  const auto &fixture = setup();
+  const auto water = fixture.registry.index("water");
+  cfg.gravity_m_per_s2 = 0;
+  for (bool vertical : {false, true})
+    for (bool vacuum : {false, true})
+      for (double initial : {4.0453269870806629e-313, -4.0453269870806629e-313,
+                             std::numeric_limits<double>::denorm_min()}) {
+        const unsigned w = vertical ? 1 : 2, h = vertical ? 2 : 1;
+        MacTransportState state;
+        state.grid = {w, h, 1, 1, false, false, std::vector<std::uint8_t>(2)};
+        for (unsigned i = 0; i < 2; ++i) {
+          MacMaterialCell cell{MixtureInventory(fixture.registry.size()), {}};
+          const bool donor = i == (initial < 0 ? 1U : 0U);
+          cell.mixture.masses[water] = vacuum ? (donor ? .265 : 0) : 100;
+          state.cells.push_back(std::move(cell));
+        }
+        state.momentum_x.resize((w + 1) * h);
+        state.momentum_y.resize(w * (h + 1));
+        (vertical ? state.momentum_y : state.momentum_x)[1] = initial;
+        auto world = MacClosedWorld::game_colony(fixture.registry, fixture.eos,
+            std::move(state), std::vector<double>(2, 300), cfg);
+        const auto face = [vertical](const MacClosedWorld &s) {
+          return (vertical ? s.state().momentum_y : s.state().momentum_x)[1];
+        };
+        for (unsigned step = 0; step < 12; ++step) {
+          const double before = face(world);
+          auto next = std::move(world).advanced(static_cast<double>(.2f));
+          const double after = face(next.world);
+          const double load = vertical ? next.report.wall_impulse_y : next.report.wall_impulse_x;
+          check(after != 0 && std::signbit(after) == std::signbit(initial) &&
+                    std::abs(after) <= std::abs(before) && load == after - before,
+                "Subnormal drag or remap lost face momentum");
+          world = std::move(next.world);
+        }
+      }
+}
 inline void run() {
   using convective_game::total_mass;
   const auto saved = mac_kernel_default_options();
@@ -66,6 +106,7 @@ inline void run() {
   set_mac_kernel_default_options(one);
   auto fast = channel(MacGameProfile::game_kernel_convective);
   auto thin = channel(MacGameProfile::game_kernel_thin_drag);
+  subnormal_momentum(thin.settings());
   const auto mass0 = total_mass(thin), energy0 = surface_game::total_energy(thin);
   std::size_t fast_substeps = 0, thin_substeps = 0;
   long double sunk_mass = 0, sunk_energy = 0; // the trace sink's share
