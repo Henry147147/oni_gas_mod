@@ -46,6 +46,8 @@ few that your task touches, starting here.
   [1.12.2.2](docs/playtest-1.12.2.2.md) addresses a second Windows crash
   found while qualifying that candidate. The [performance handoff](docs/performance-handoff.md)
   records how to repeat the November 21 colony measurement.
+  [1.12.2.3](docs/playtest-1.12.2.3.md) also handles a critter's pending
+  fluid meal when a colony reloads.
   [0.1.8](docs/playtest-0.1.8.md) lets
   two gases change places through an opening one tile high;
   [0.1.7](docs/playtest-0.1.7.md) kept a pool levelling past the activity

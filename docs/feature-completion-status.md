@@ -1,5 +1,7 @@
 # Feature completion work
 
+**[1.12.2.3 critter reload hotfix](playtest-1.12.2.3.md).** The November 21 colony stopped after a save made with a critter's meal in flight. The critter now credits the element the simulation delivered. The candidate includes the Cycle 55 and ration-box fixes.
+
 **[1.12.2.2 Windows loading hotfix](playtest-1.12.2.2.md).** A Windows allocation error in the bundled Harmony runtime could stop a ration box from loading on build 744825. The 1.12.2.1 Steam candidate was held. The new version includes both fixes. [Resuming the colony speed work](performance-handoff.md).
 
 **[1.12.2.1 Cycle 55 hotfix](playtest-1.12.2.1.md).** The solver accounts for momentum as a liquid pocket comes to rest. The original Windows save reproduced the 1.12.2 failure after exactly 2,928 fluid ticks.
