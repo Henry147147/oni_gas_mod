@@ -431,6 +431,94 @@ the region bookkeeping. The prototype answers what the simple form buys
 (regions 53 → 16 ms) and what it costs (the table), which is the case for
 or against doing either.
 
+### Cuts with walls do not carry convection (the probe)
+
+On 2026-11-23 the user put release preparation on hold until the speed
+target is met, so the prototype was measured again without the acceptance
+run beside it and then tested for what the 90-second replay comparison
+cannot show: slow exchange across a cut.
+
+Clean timings, November 22 colony, 12 workers (two rounds; "bookkeeping
+commits" are the six exact commits listed under the next heading):
+
+| Configuration | Owner tick | Estimate | Regions' flow |
+| --- | ---: | ---: | ---: |
+| As saved (1.13.1) | 140 to 151 ms | 1.14 to 1.21× | 94 to 101 ms |
+| Fast settings | 91.7 ms | 1.71× | 50 ms |
+| Fast settings, 1,600-cell pieces | 65 to 66 ms | 2.2× | 15 to 16 ms |
+| Fast settings, 800-cell pieces | 63.5 to 66 ms | 2.2× | 12 to 13 ms |
+| Saved settings, 1,600-cell pieces | 85 ms | 1.8× | 26 ms |
+| Fast settings with the bookkeeping commits | 83.1 ms | 1.85× | 49 ms |
+| The same with 1,600-cell pieces | 53.6 ms | 2.54× | 15.4 ms |
+| The same, largest regions stepped first | 51.2 to 51.5 ms | 2.62× | 13.6 ms |
+
+The result does not depend on the number of workers (6 and 12 give the same
+state), and the prototype ran the other captures (`industrial-32`,
+`spacedout-full`, `published-nov19` and the surface captures) without a
+fault.
+
+The probe (`native/tests/oni_cut_probe.hpp` in the prototype patch, run as
+`ma_oni_colony_tests --cut-probe`) is a sealed room 80 cells wide and 20
+high, oxygen at 350 K in its left half and at 290 K in its right half, cut
+into 400-cell pieces. Mean temperature of the two halves:
+
+| After | Uncut | Cut (the law above) | Cuts alternating between two sets of lines, momentum kept on cut faces | The same, the kept momentum carrying gas |
+| --- | --- | --- | --- | --- |
+| 10 s | 337.3 / 300.5 K | 348.4 / 291.3 K | 346.5 / 292.8 K | 346.9 / 292.4 K |
+| 50 s | 312.4 / 323.3 K | 348.3 / 291.4 K | 338.7 / 299.3 K | 342.1 / 296.2 K |
+| 100 s | 318.9 / 316.6 K | 348.3 / 291.4 K | 334.9 / 302.1 K | 339.5 / 298.2 K |
+| 600 s | 317.7 / 317.7 K | 348.3 / 291.4 K | 322.7 / 311.6 K | 333.7 / 302.6 K |
+
+Uncut, the hot air runs over the cold as a current and the room is mixed in
+about 100 s. With the cut it never mixes: the two halves level their
+pressure once and then stand side by side at 348 K and 291 K for good, an
+invisible wall for heat. A player would see that. The cause is not the
+missing conduction but the wall: a piece's pressure solve brings the flow
+toward a cut to rest within one tick (sound crosses a piece many times in a
+tick), so no current can run through a cut line, and the exchange law only
+answers a difference of the pieces' mean pressures.
+
+Two repairs were tried in the prototype
+(`artifacts/v1.13.1/study/cut-regions-prototype-v2-alternate-keep.patch`):
+a second set of pieces cut along other lines that steps every other
+interval, so that every face is an ordinary face half the time
+(`MA_X_CUT_ALTERNATE`), and momentum kept on a cut face while it is a wall
+(`MA_X_CUT_KEEP`, with its kinetic energy settled as the cells' masses
+change). They let heat cross, about ten times too slowly (the last two
+columns), because every other interval still stops the current inside each
+piece; they cost about 5 ms of the tick (57 against 51.5 ms) and change the
+90-second figures little (pressure 0.048 % against 0.040 %).
+
+The conclusion: a cut that is a wall to the pressure solve cannot be made
+faithful by an exchange step. Coupling the pieces' momentum explicitly
+across the cut is unstable at this time step (sound crosses 68 cells a
+tick, which is why the pressure solve is implicit in the first place). What
+remains sound is the second opinion's form: **one pressure solve for the
+whole region and every other stage split over workers inside the one
+tick**, with identical results. That route is being built now: a faster
+pressure solve for the large region (multigrid convergence, a direct solve)
+and stage-by-stage parallelism in `Tick`. The cut prototype stays as the
+measure of what such a split can buy (regions 49 → 14 ms).
+
+### Bookkeeping around the regions, second round
+
+Six further commits with identical results (fingerprints of the saved,
+fast, every-eighth-tick and November 21 replays unchanged), 83.1 ms against
+92.6 ms with the fast settings over three interleaved rounds:
+
+| Change | Measured |
+| --- | --- |
+| The trace sink after the flow works on the traced cells, their faces and the germ cells alone, in place when nothing shares the world | 6.8 → 1.3 ms on its frames |
+| A reaper thread frees the replaced publication and the world before the flow | 4 ms of the time between ticks, 2 ms of the tick |
+| Activity regions are refilled only around changed walls | 4.9 → 2.7 ms on frames that dig or build |
+| `dense()` keeps a stepped cell that the rebuild would give back bit for bit (48 % of cells, 16 % of chunks) | 0.5 ms, and 0.4 ms of projection |
+| Germs whose carrier left their cell are relabelled in place | 0.8 ms on half the frames |
+| Heat-edited chunks are copied on the pool when no prepared world is ready (a game that waits on the owner) | 9 → 2.3 ms of the heat stage in that case; nothing in the replay |
+
+And one in the regional tick: the regions of a tick are handed to the
+workers largest first (13.6 against 15.4 ms of regions' flow with pieces;
+no change where two regions have workers of their own).
+
 ## Tried and dropped
 
 | Idea | Result |
