@@ -1144,16 +1144,26 @@ k::Totals dense_totals(const MacTransportState &state, std::size_t count,
                        double gravity, mac_kernel::Pool *pool) {
   const auto &grid = state.grid;
   constexpr auto none = std::numeric_limits<std::size_t>::max();
-  std::vector<double> mass(state.cells.size());
-  chunks(pool, state.cells.size(), [&](std::size_t, std::size_t begin, std::size_t end) {
-    for (std::size_t i = begin; i < end; ++i) {
-      const auto &cell = state.cells[i];
-      if (!cell.mixture.masses.implicit_zero())
-        for (const double m : static_cast<const std::vector<double> &>(cell.mixture.masses))
-          if (m > 0)
-            mass[i] += m;
-    }
-  });
+  // A cell's mass: its positive entries summed in species order from +0.
+  const auto cell_mass = [&](std::size_t i) {
+    double total = 0;
+    const auto &cell = state.cells[i];
+    if (!cell.mixture.masses.implicit_zero())
+      for (const double m : static_cast<const std::vector<double> &>(cell.mixture.masses))
+        if (m > 0)
+          total += m;
+    return total;
+  };
+  // Without vertical periodicity a block's faces join only its own rows and
+  // the row below its first, so each block reads those cells' masses itself
+  // (in the same pass as its sums) rather than from a grid-wide first pass.
+  const bool local_masses = !grid.periodic_y;
+  std::vector<double> mass(local_masses ? 0 : state.cells.size());
+  if (!local_masses)
+    chunks(pool, state.cells.size(), [&](std::size_t, std::size_t begin, std::size_t end) {
+      for (std::size_t i = begin; i < end; ++i)
+        mass[i] = cell_mass(i);
+    });
   const auto rows = mac_kernel::Grid::block_rows(grid.width);
   const auto merge = [](k::DoubleDouble &into, const k::DoubleDouble &part) {
     into.add(part.hi);
@@ -1166,6 +1176,15 @@ k::Totals dense_totals(const MacTransportState &state, std::size_t count,
     const auto y0 = block * rows;
     const auto y1 = std::min(grid.height, y0 + rows);
     sum.species.resize(count);
+    // The masses this block reads: rows y0 - 1 (if any) to y1 - 1.
+    const auto mass_first = (y0 > 0 ? y0 - 1 : 0) * grid.width;
+    std::vector<double> local;
+    if (local_masses) {
+      local.resize(y1 * grid.width - mass_first);
+      for (std::size_t i = mass_first; i < y1 * grid.width; ++i)
+        local[i - mass_first] = cell_mass(i);
+    }
+    const auto mass_at = [&](std::size_t i) { return local_masses ? local[i - mass_first] : mass[i]; };
     for (std::size_t i = y0 * grid.width; i < y1 * grid.width; ++i) {
       const auto &cell = state.cells[i];
       if (!cell.mixture.masses.implicit_zero()) {
@@ -1174,7 +1193,7 @@ k::Totals dense_totals(const MacTransportState &state, std::size_t count,
           if (masses[key] > 0)
             sum.species[key].add(masses[key]);
       }
-      const double potential = mass[i] * gravity *
+      const double potential = mass_at(i) * gravity *
                                (static_cast<double>(i / grid.width) + .5) *
                                grid.spacing_m;
       sum.energy.add(cell.mixture.energy);
@@ -1193,7 +1212,7 @@ k::Totals dense_totals(const MacTransportState &state, std::size_t count,
         if (j[f] != 0) {
           const auto [l, r] = endpoints(grid, x, f);
           const double inertia =
-              .5 * ((l == none ? 0 : mass[l]) + (r == none ? 0 : mass[r]));
+              .5 * ((l == none ? 0 : mass_at(l)) + (r == none ? 0 : mass_at(r)));
           if (!(inertia > 0))
             throw std::runtime_error("Private totals J without inertia");
           const double kinetic = .5 * j[f] * (j[f] / inertia);
