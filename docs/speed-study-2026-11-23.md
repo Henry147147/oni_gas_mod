@@ -217,6 +217,70 @@ to the game speed:
   regions with duplicants to carry pending time, which the saved clocks do
   not allow today.
 
+### Larger steps, tested further
+
+The user ruled out slowing the fluid and asked for larger steps tested in
+its place. Two prototypes, both keeping the fluid at game time
+(`artifacts/v1.13.1/study/larger-step-prototypes.patch`):
+
+- **A, per region:** a region with duplicants or recent activity steps
+  every N ticks by N ticks' time.
+- **B, whole colony:** the existing held and sampled ticks of the fluid
+  update rate, but a sampled tick advances every awake room by the N ticks
+  elapsed instead of one. The ticks between do no fluid work at all.
+
+Each was run with the solver's present rule for long steps (a region with
+liquid keeps intervals of one tick) and with the swept-volume bound left to
+size the intervals ("sized"). Fast settings throughout unless noted;
+measured while the acceptance run used the host, so the tick is given
+relative to the fast settings alone in the same batch. "Real tiles" are the
+tiles that hold at least 100 g in both runs: the earlier whole-grid figures
+were dominated by near-vacuum cells.
+
+| Step | Prototype | Tick, of fast settings alone | Est. speed (quiet host) | Longest ticks (95th pct) | Real tiles: temperature mean / 99th pct | Liquid in other cells |
+| --- | --- | ---: | ---: | ---: | --- | ---: |
+| every tick | fast settings alone | 100 % (90 ms) | 1.74× | 120 ms | 0.15 K / 2.0 K | 0.007 % |
+| 2 ticks | A, sized | 77 % | 2.1× | 162 ms | 0.17 K / 2.4 K | 0.04 % |
+| 2 ticks | B | 80 % | 2.0× | 171 ms | 0.16 K / 2.1 K | 0.009 % |
+| 2 ticks | B, sized | 80 % | 2.0× | 195 ms | 0.16 K / 2.3 K | 0.01 % |
+| 3 ticks | A | 82 % | 2.0× | 223 ms | 0.17 K / 2.3 K | 0.009 % |
+| 3 ticks | A, sized | 71 % | 2.2× | 204 ms | 0.22 K / 3.8 K | 0.15 % |
+| 4 ticks | A, sized | 73 % | 2.2× | 275 ms | 0.29 K / 4.9 K | 0.4 % |
+| 4 ticks | B | 82 % | 2.0× | 304 ms | 0.18 K / 2.6 K | 0.01 % |
+| 5 ticks | A, sized | 79 % | 2.0× | 347 ms | 0.43 K / 7.0 K | 0.7 % |
+| 8 ticks | B, sized | 69 % | 2.2× | 413 ms | 0.56 K / 8.6 K | 1.0 % |
+| 2 ticks, saved settings (no fast) | B | 83 % of 137 ms | 1.45× | 291 ms | 0.05 K / 0.8 K | 0.003 % |
+| 2 ticks, regions on alternate ticks | A | 98 % | 1.7× | 165 ms | 0.16 K / 2.1 K | 0.009 % |
+
+What this shows:
+
+- **A step every two ticks is the useful one**: about a fifth off the tick
+  (2.0× to 2.1× with the fast settings, 1.45× without), and on the tiles
+  that hold real mass the result is as close to the every-tick run as the
+  fast settings alone are. The cost is unevenness: ticks alternate between
+  about 25 and about 125 ms.
+- **Longer steps do not pay.** At 3 to 8 ticks the average tick stays
+  between 69 % and 82 % while the long tick grows to 0.3 or 0.4 s (a
+  visible stall), liquid starts to end up in other cells, and the surface
+  plume returns between trace removals. A region's update costs almost in
+  proportion to the time it covers: its flow intervals are set by how fast
+  the fluid moves, and the stages that run once an update (layering, the
+  liquid exchange, phase change) repeat for each tick's length of it. Only
+  the audits and bookkeeping are saved.
+- **Letting the solver size its intervals** is worth a few percent at 3 and
+  4 ticks and costs liquid accuracy; with the present rule liquid stays
+  where the every-tick run puts it.
+- **Putting regions on alternate ticks** evens the ticks but loses the
+  gain: regions already run side by side, so spreading them over ticks
+  makes each tick as long as its largest region again.
+- B is the form to build if this becomes a setting: it reuses the tested
+  held and sampled ticks, needs no change to the saved activity clocks, and
+  measures the same as A.
+
+So larger steps buy about 2× on this colony with the fluid at full speed,
+and no cadence buys more. Beyond that the regions themselves must get
+cheaper.
+
 So with what exists or is nearly free, game speed above about 2× is bought
 by simulating less fluid time. 3× with the fluid at full speed needs the
 regions themselves to cost a third of what they do, which is the next
