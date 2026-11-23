@@ -176,6 +176,52 @@ fast settings. 2× and more at the full fluid rate needs the regions
 themselves to get cheaper, which is the next section.
 
 
+## A gentler rate, and larger steps in game time
+
+Follow-up to the user's questions on the table above (can the reduced rate
+be more accurate, or take a larger step instead). Both were prototyped on
+1.13.1 behind switches (`artifacts/v1.13.1/study/rate2-and-true-time-step-prototype.patch`;
+not in any release) and measured while the acceptance run shared the host,
+so each figure may be about 7 % high.
+
+What a reduced fluid rate does is skip fluid time: on 1 tick in N the fluid
+advances 0.2 s while the game advances N × 0.2 s. The honest measure of an
+option is therefore how much *fluid* time it simulates per real second, next
+to the game speed:
+
+| Configuration | Owner tick | Game speed | Fluid seconds per real second |
+| --- | ---: | ---: | ---: |
+| 1.13.1 as saved | 137 ms | 1.24× | 1.24 |
+| Fast settings | 90 ms | 1.74× | 1.74 |
+| Fast settings, a full 0.4 s fluid step every 2 ticks (prototype) | 74 ms | 2.02× | 2.02 |
+| Fast settings, fluid 1 tick in 2 (prototype: the solver accepts 4, 8, 16) | 58 ms | 2.40× | 1.20 |
+| Fast settings, fluid 1 in 4 | 40 ms | 3.09× | 0.77 |
+| Fluid 1 in 8 | 38.5 ms | 3.15× | 0.39 |
+
+- **1 tick in 2** would be a small change (one more choice in the existing
+  setting): 2.4× with the fluid at half speed, which is about as much fluid
+  per real second as the user's colony gets today at 1.24×. Without the fast
+  settings it gives 83 ms, 1.85×.
+- **A larger step in true game time** (the fluid advances the whole elapsed
+  time every N ticks, so nothing is slowed): every 2 ticks it gives 74 ms
+  with the fast settings (2.02×) and 111 ms without (1.48×). Every 4 or 5
+  ticks gives nothing more (73 and 72 ms) and the tick that does the step
+  takes 265 to 410 ms, a visible hitch. The reason is that the solver needs
+  its flow intervals per game second whatever the cadence (a region with
+  liquid keeps 0.1 s intervals, a fast flow more), so a longer step only
+  saves the work done once per update. Temperatures differ from the
+  every-tick run by 0.7 K on average and 41 K at the 99th percentile after
+  90 s (fast settings alone: 0.13 K and 1.9 K): machines still put their
+  heat and gas into single cells every tick and the flow now spreads them
+  every 0.4 s. A product version would also need the activity clocks of
+  regions with duplicants to carry pending time, which the saved clocks do
+  not allow today.
+
+So with what exists or is nearly free, game speed above about 2× is bought
+by simulating less fluid time. 3× with the fluid at full speed needs the
+regions themselves to cost a third of what they do, which is the next
+section.
+
 ## Simulating each enclosed space separately
 
 **This is already how the solver works.** Every space enclosed by solid
