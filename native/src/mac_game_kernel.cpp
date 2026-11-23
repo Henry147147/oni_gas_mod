@@ -1528,17 +1528,22 @@ MacMaterialCell &apply_heat_edit(MacTransportState &next, const MacCellHeat &edi
 // then holds every change made.
 void apply_heat(const MacClosedWorld &source, MacTransportState &next,
                 std::span<const MacCellHeat> edits, HeatJournal &journal) {
+  auto &failure = MacGameKernelAccess::heat_failure();
+  failure = std::numeric_limits<std::size_t>::max();
   require(!edits.empty() && edits.size() <= 4096, "Invalid game heat batch");
   journal.energies.reserve(edits.size());
   // Building the table pays off on batches; keep one-off/refused-edit
   // retries on the original cached reading path.
   if (edits.size() < 32) {
-    for (const auto &edit : edits) {
+    for (std::size_t q = 0; q < edits.size(); ++q) {
+      const auto &edit = edits[q];
+      failure = q;
       const auto &cell = apply_heat_edit(next, edit, journal);
       const double temperature = MacGameKernelAccess::reading(source, cell).temperature_k;
       require(edit.joules <= 0 || temperature <= edit.maximum_temperature_k,
               "Game heat exceeds reserved temperature limit");
     }
+    failure = std::numeric_limits<std::size_t>::max();
     return;
   }
   // A batch: every edit first, each one's cell energy noted, up to the
@@ -1581,6 +1586,7 @@ void apply_heat(const MacClosedWorld &source, MacTransportState &next,
     }
   });
   for (std::size_t q = 0; q < applied; ++q) {
+    failure = q;
     if (failed[q])
       std::rethrow_exception(failed[q]);
     if (full[q]) {
@@ -1592,8 +1598,10 @@ void apply_heat(const MacClosedWorld &source, MacTransportState &next,
     require(edits[q].joules <= 0 || temperature[q] <= edits[q].maximum_temperature_k,
             "Game heat exceeds reserved temperature limit");
   }
+  failure = applied;
   if (stopped)
     std::rethrow_exception(stopped);
+  failure = std::numeric_limits<std::size_t>::max();
 }
 // A world's audit totals after a heat edit, when it had them: totals_change
 // over the changed cells, from their energies before the batch. Only U
@@ -1612,23 +1620,37 @@ heated_totals(const k::Totals *kept, const HeatJournal &journal,
     order[r] = {journal.energies[r].first, r};
   std::sort(order.begin(), order.end());
   const auto &grid = next.grid;
+  std::vector<std::pair<std::size_t, std::size_t>> unique;
+  unique.reserve(order.size());
+  for (std::size_t n = 0; n < order.size(); ++n)
+    if (n == 0 || order[n - 1].first != order[n].first)
+      unique.push_back(order[n]);
+  // Each cell's potential, on the pool (each reads the cell's whole mass
+  // list); the sums below then run in cell order.
+  std::vector<double> potentials(unique.size());
+  constexpr std::size_t block = 256;
+  mac_kernel::pool_for(mac_kernel_default_options().threads).run((unique.size() + block - 1) / block, [&](std::size_t b) {
+    for (std::size_t u = b * block, end = std::min(unique.size(), u + block); u < end; ++u) {
+      const auto i = unique[u].first;
+      const auto &cell = std::as_const(next).cells[i];
+      double total = 0;
+      if (!cell.mixture.masses.implicit_zero())
+        for (const double m : static_cast<const std::vector<double> &>(cell.mixture.masses))
+          if (m > 0)
+            total += m;
+      potentials[u] = total * gravity *
+                      (static_cast<double>(i / grid.width) + .5) *
+                      grid.spacing_m;
+    }
+  });
   TotalsChange change;
   change.species.resize(count);
-  for (std::size_t n = 0; n < order.size(); ++n) {
-    const auto i = order[n].first;
-    if (n > 0 && order[n - 1].first == i)
-      continue;
+  for (std::size_t u = 0; u < unique.size(); ++u) {
+    const auto i = unique[u].first;
     const auto &cell = std::as_const(next).cells[i];
-    double total = 0;
-    if (!cell.mixture.masses.implicit_zero())
-      for (const double m : static_cast<const std::vector<double> &>(cell.mixture.masses))
-        if (m > 0)
-          total += m;
-    const double potential = total * gravity *
-                             (static_cast<double>(i / grid.width) + .5) *
-                             grid.spacing_m;
+    const double potential = potentials[u];
     for (const auto &[energy, sign] :
-         {std::pair{journal.energies[order[n].second].second, -1.},
+         {std::pair{journal.energies[unique[u].second].second, -1.},
           std::pair{cell.mixture.energy, 1.}}) {
       change.energy.add(sign * energy);
       change.energy.add(sign * potential);

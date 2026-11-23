@@ -4189,29 +4189,61 @@ void run_frame(std::uint64_t ticket,double seconds,std::uint64_t frames,const ch
             const auto& st0 = world.state(); const auto W = st0.grid.width;
             const auto cell_count = st0.cells.size();
             std::vector<MacCellHeat> edits; std::vector<std::size_t> source;
+            // Which edits name an open cell holding mass: judged on the pool
+            // (each reads its cell's whole mass list), then taken in order.
+            std::vector<std::uint8_t> open_cell(heat.size());
+            {
+                constexpr std::size_t block = 256;
+                const auto blocks = (heat.size() + block - 1) / block;
+                const auto threads = static_cast<unsigned>(std::min<std::size_t>(mac_kernel_default_options().threads, std::max<std::size_t>(1, blocks)));
+                mac_kernel::pool_for(threads).run(blocks, [&](std::size_t b) {
+                    // A cell outside the rectangle is left to the loop below,
+                    // which throws there as before.
+                    for (std::size_t k = b * block, end = std::min(heat.size(), k + block); k < end; ++k) try {
+                        const auto i = rect_index(s.config, heat[k].public_cell);
+                        open_cell[k] = !st0.grid.walls[i] && st0.cells[i].mixture.mass() > 0;
+                    } catch (const std::exception&) {}
+                });
+            }
             for (std::size_t k = 0; k < heat.size(); ++k) {
                 const auto i = rect_index(s.config, heat[k].public_cell);
-                if (st0.grid.walls[i] || !(st0.cells[i].mixture.mass() > 0) || heat[k].joules == 0) continue;
+                if (!open_cell[k] || heat[k].joules == 0) continue;
                 edits.push_back({i, heat[k].joules, heat[k].maximum_temperature_k > 0 ? heat[k].maximum_temperature_k : 1e5});
                 source.push_back(k); L.heat += heat[k].joules;
             }
             std::vector<std::size_t> refused;
-            const auto apply = [&](const auto& self, std::size_t from, std::size_t count) -> void {
-                if (count == 0) return;
+            // `known`: an edit at which the range's edits, run from the
+            // current state as one batch of 32 or more, fail first (learned
+            // from a failed larger batch that began where this range begins,
+            // or that ran every edit before it; SIZE_MAX if none is known).
+            // Such a batch holding it is not tried: it would fail there and
+            // leave the world as it was. The batches that are applied, and
+            // their order, are those of trying every one. Returns whether
+            // every edit of the range was applied.
+            const auto apply = [&](const auto& self, std::size_t from, std::size_t count, std::size_t known) -> bool {
+                if (count == 0) return true;
                 const auto hook = refused_heat.load(std::memory_order_relaxed);
                 const bool control = std::any_of(edits.begin() + static_cast<std::ptrdiff_t>(from), edits.begin() + static_cast<std::ptrdiff_t>(from + count),
                     [&](const MacCellHeat& e) { return e.cell_index == hook; });
-                if (!control) try {
+                const bool batch = count >= 32;
+                std::size_t failed = batch && known >= from && known < from + count ? known : SIZE_MAX;
+                if (!control && failed == SIZE_MAX) try {
+                    MacGameKernelAccess::heat_failure() = SIZE_MAX;
                     (void)MacGameKernelAccess::detach_heat_state(world);
                     world = std::move(world).with_cell_heat(std::span(edits.data() + from, count));
                     if(activity)for(std::size_t q=from;q<from+count;++q)if(heat[source[q]].reserved==0)touched[edits[q].cell_index]=1;
-                    return;
+                    return true;
                 }
-                catch (const std::exception&) {}
-                if (count == 1) { refused.push_back(from); return; }
-                self(self, from, count / 2); self(self, from + count / 2, count - count / 2);
+                catch (const std::exception&) {
+                    const auto at = MacGameKernelAccess::heat_failure();
+                    if (batch && world.settings().numerical_kernel == MacNumericalKernel::game && at < count) failed = from + at;
+                }
+                if (count == 1) { refused.push_back(from); return false; }
+                const auto half = count / 2;
+                const bool whole = self(self, from, half, failed);
+                return self(self, from + half, count - half, whole && failed != SIZE_MAX && failed >= from + half ? failed : SIZE_MAX) && whole;
             };
-            for (std::size_t first = 0; first < edits.size(); first += 4096) apply(apply, first, std::min<std::size_t>(4096, edits.size() - first));
+            for (std::size_t first = 0; first < edits.size(); first += 4096) apply(apply, first, std::min<std::size_t>(4096, edits.size() - first), SIZE_MAX);
             if (!flush_only) {
                 s.heat_chunks.assign((cell_count >> MacChunkStore<MacMaterialCell>::chunk_shift) + 1, 0);
                 for (const auto& e : edits) s.heat_chunks[e.cell_index >> MacChunkStore<MacMaterialCell>::chunk_shift] = 1;

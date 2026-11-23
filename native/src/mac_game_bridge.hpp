@@ -1,5 +1,6 @@
 #pragma once
 #include "mixed_atmospheres/mac_closed_world.hpp"
+#include <cstdint>
 namespace ma::experimental {
 // What portion of the colony's fluid law this owner frame schedules.
 enum class MacGameFlowFrame { normal, held, sampled };
@@ -57,6 +58,13 @@ struct MacGameKernelAccess {
   static const void* heat_activity_identity(const MacClosedWorld &source) noexcept { return source.game_activity_.get(); }
   static MacClosedWorld heat(const MacClosedWorld &,
                              std::span<const MacCellHeat>);
+  // The edit (its index in the batch) at which this thread's last game heat
+  // batch failed, or SIZE_MAX when it did not fail at an edit: the first
+  // edit that fails when the batch's edits run one by one.
+  static std::size_t &heat_failure() noexcept {
+    thread_local std::size_t index = SIZE_MAX;
+    return index;
+  }
   static MacFluidTransferResult transfers(const MacClosedWorld &,
                                           std::span<const MacFluidTransfer>,
                                           MacFluidTransferTopology,
