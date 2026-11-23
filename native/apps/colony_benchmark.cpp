@@ -907,7 +907,17 @@ int owner_replay(const Options& o) {
         o.native_overhead_ms, estimated_speed(owner.mean, o.native_overhead_ms, seconds), estimated_speed(owner.p95, o.native_overhead_ms, seconds),
         1000 * seconds / 3 - o.native_overhead_ms);
     out << estimate;
-    if (has_options) out << ", \"fluid_tick_stride\": " << replay_options.fluid_tick_stride;
+    if (has_options) out << ", \"fluid_tick_stride\": " << replay_options.fluid_tick_stride
+        << ", \"options\": {\"flow_parts\": " << replay_options.flow_parts << ", \"maximum_timestep_s\": " << replay_options.maximum_timestep_s
+        << ", \"pressure_relative_tolerance\": " << replay_options.pressure_relative_tolerance
+        << ", \"pressure_maximum_iterations\": " << replay_options.pressure_maximum_iterations
+        << ", \"sharpen_liquid_interfaces\": " << replay_options.sharpen_liquid_interfaces
+        << ", \"interface_detail_fraction\": " << replay_options.interface_detail_fraction
+        << ", \"liquid_stiffness_ratio\": " << replay_options.liquid_stiffness_ratio
+        << ", \"gas_heat_mixing\": " << replay_options.gas_heat_mixing
+        << ", \"phase_relaxation_time_s\": " << replay_options.phase_relaxation_time_s
+        << ", \"trace_sink_threshold_kg\": " << replay_options.trace_sink_threshold_kg
+        << ", \"evaporation_below_boiling\": " << replay_options.evaporation_below_boiling << "}";
     char errors[256];
     std::snprintf(errors, sizeof errors, ", \"relative_mass_error\": %.3e, \"relative_energy_error\": %.3e", final_status.maximum_relative_mass_error,
                   final_status.maximum_relative_energy_error);
