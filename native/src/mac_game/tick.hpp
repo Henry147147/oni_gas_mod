@@ -131,6 +131,8 @@ class Tick {
   LayerScratch layer_scratch;
   // The state the last flow interval replaced: its buffers serve the next.
   State flow_spare;
+  // The inventory phase change last replaced, likewise.
+  SparseMass phase_spare;
   static double ms(std::chrono::steady_clock::time_point start) {
     return std::chrono::duration<double, std::milli>(
                std::chrono::steady_clock::now() - start)
@@ -558,7 +560,7 @@ private:
       prune(true, true);
     if (heat_enabled && !heat_first) conduct();
     stage_start = std::chrono::steady_clock::now();
-    auto changed = phase.advance(out.state, dt, phase_time, plans);
+    auto changed = phase.advance(out.state, dt, phase_time, plans, &phase_spare);
     out.evaporated = changed.evaporated + inflow_evaporated;
     out.condensed = changed.condensed;
     out.phase_ms = ms(stage_start);
@@ -569,7 +571,8 @@ private:
     if (!detailed_entropy)
       out.phase_entropy_change = inflow_entropy;
     out.phase_entropy_change += changed.entropy_change;
-    out.state.masses = std::move(changed.masses);
+    std::swap(out.state.masses, changed.masses);
+    phase_spare = std::move(changed.masses);
     const auto pre_final_sink = sink_entropy;
     prune(false);
     out.eos = flow.evaluate_state(out.state, std::move(out.eos));

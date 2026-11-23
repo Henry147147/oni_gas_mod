@@ -77,6 +77,24 @@ class PhaseSolver {
   // at or above that pressure does not boil below it).
   std::vector<std::vector<std::size_t>> pairs_of_liquid;
   std::vector<double> boiling_at_atmosphere;
+  // advance's scratch, kept for its capacity: every entry is written
+  // before it is read.
+  struct Receipt {
+    double evaporated = 0, condensed = 0, entropy = 0, mass_error = 0;
+    std::size_t trials = 0;
+    bool changed = false;
+  };
+  std::vector<Receipt> receipts;
+  struct Block {
+    std::vector<double> masses;
+    std::vector<std::uint32_t> keys;
+    // The block's cells' new constituents in cell order, how many each
+    // cell has, and where the block's start in the result.
+    std::vector<std::pair<std::uint32_t, double>> constituents;
+    std::vector<std::uint32_t> counts;
+    std::size_t start = 0;
+  };
+  std::vector<Block> cell_blocks;
 
 public:
   PhaseSolver(const ma::experimental::MacGrid &source,
@@ -388,27 +406,30 @@ public:
     state.masses = std::move(next);
     return result;
   }
+  // `recycle` lends the buffers of an inventory the caller no longer needs
+  // to the result.
   PhaseResult advance(const State &state, double dt,
                       double relaxation_time = 1,
-                      std::span<const BoilPlan> planned = {}) {
+                      std::span<const BoilPlan> planned = {},
+                      SparseMass *recycle = nullptr) {
     const auto N = state.masses.cells();
-    std::vector<std::vector<std::pair<std::uint32_t, double>>> cells(N);
-    struct Receipt {
-      double evaporated = 0, condensed = 0, entropy = 0, mass_error = 0;
-      std::size_t trials = 0;
-      bool changed = false;
-    };
-    std::vector<Receipt> receipts(N);
+    receipts.resize(N);
     const double fraction = -std::expm1(-dt / relaxation_time);
-    const auto blocks = (N + 127) / 128;
-    pool.run(blocks, [&](std::size_t block) {
-      std::vector<double> masses(species.size());
+    const auto block_count = (N + 127) / 128;
+    cell_blocks.resize(block_count);
+    pool.run(block_count, [&](std::size_t block) {
+      auto &scratch = cell_blocks[block];
+      scratch.constituents.clear();
+      scratch.counts.assign(std::min(N, (block + 1) * 128) - block * 128, 0);
+      auto &masses = scratch.masses;
+      masses.resize(species.size());
       // The cell's constituents and the species of every pair it has
       // entered, in ascending order. Every other mass stays zero, which the
       // EOS skips, so reading these keys repeats the full-table reading.
-      std::vector<std::uint32_t> keys;
+      auto &keys = scratch.keys;
       for (std::size_t i = block * 128; i < std::min(N, (block + 1) * 128);
            ++i) {
+        receipts[i] = {};
         if (grid.walls[i] ||
             state.masses.offsets[i] == state.masses.offsets[i + 1])
           continue;
@@ -540,20 +561,44 @@ public:
         }
         if (receipt.changed)
           receipt.entropy = entropy(species, masses, before) - initial_entropy;
+        std::uint32_t count = 0;
         for (std::size_t key = 0; key < species.size(); ++key)
-          if (masses[key] > 0)
-            cells[i].emplace_back(key, masses[key]);
+          if (masses[key] > 0) {
+            scratch.constituents.emplace_back(static_cast<std::uint32_t>(key), masses[key]);
+            ++count;
+          }
+        scratch.counts[i - block * 128] = count;
       }
     });
+    // The new inventories in cell order, each block filling its own slice.
     PhaseResult result;
-    result.masses.offsets.push_back(0);
+    if (recycle) {
+      result.masses = std::move(*recycle);
+      *recycle = {};
+    }
+    std::size_t total = 0;
+    for (auto &block : cell_blocks) {
+      block.start = total;
+      total += block.constituents.size();
+    }
+    result.masses.offsets.resize(N + 1);
+    result.masses.species.resize(total);
+    result.masses.mass.resize(total);
+    result.masses.offsets[0] = 0;
+    pool.run(block_count, [&](std::size_t block) {
+      const auto &in = cell_blocks[block];
+      auto at = in.start;
+      std::size_t next = 0;
+      for (std::size_t i = block * 128; i < std::min(N, (block + 1) * 128); ++i) {
+        for (std::uint32_t n = 0; n < in.counts[i - block * 128]; ++n, ++at, ++next) {
+          result.masses.species[at] = in.constituents[next].first;
+          result.masses.mass[at] = in.constituents[next].second;
+        }
+        result.masses.offsets[i + 1] = at;
+      }
+    });
     DoubleDouble evaporated, condensed, entropy_total;
     for (std::size_t i = 0; i < N; ++i) {
-      for (const auto &[key, mass] : cells[i]) {
-        result.masses.species.push_back(key);
-        result.masses.mass.push_back(mass);
-      }
-      result.masses.offsets.push_back(result.masses.mass.size());
       const auto &receipt = receipts[i];
       evaporated.add(receipt.evaporated);
       condensed.add(receipt.condensed);
