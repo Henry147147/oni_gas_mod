@@ -133,6 +133,7 @@ class Tick {
   State flow_spare;
   // The inventory phase change last replaced, likewise.
   SparseMass phase_spare;
+  TraceScratch trace_scratch;
   static double ms(std::chrono::steady_clock::time_point start) {
     return std::chrono::duration<double, std::milli>(
                std::chrono::steady_clock::now() - start)
@@ -327,7 +328,8 @@ private:
                        [&](double mass) { return mass < threshold; }))
         return false;
       auto sunk = trace_sink(grid, species, out.state, threshold, gravity,
-                             &regions, &flow.kernel_grid(), &flow.worker_pool());
+                             &regions, &flow.kernel_grid(), &flow.worker_pool(),
+                             {}, &trace_scratch);
       out.trace_constituents += sunk.constituents;
       out.trace_cells += sunk.cells;
       for (std::size_t key = 0; key < species.size(); ++key)
@@ -348,7 +350,9 @@ private:
       if (refresh)
         out.eos = flow.evaluate_changed(out.state.masses, out.state.energy,
                                         sunk.state, std::move(out.eos));
-      out.state = std::move(sunk.state);
+      // The replaced state's buffers serve the next sink.
+      std::swap(out.state, sunk.state);
+      trace_scratch.spare = std::move(sunk.state);
       return true;
     };
     const auto conduct = [&] {
