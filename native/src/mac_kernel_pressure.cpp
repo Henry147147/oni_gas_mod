@@ -783,6 +783,87 @@ LinearSolveResult solve_linear_selected(Context& c, const LinearSystem& sys, con
     const double threshold = std::max(atol, rtol * std::sqrt(bb));
     LinearSolveResult result; result.residual = std::sqrt(bb);
     if (!(result.residual > threshold)) { result.converged = true; return result; }
+    // The multigrid PCG's loops visit only the runs of active cells in each
+    // fixed row block (a region's box holds about four slots per cell). Every
+    // skipped term is an exact zero: the right-hand side is zero outside the
+    // system (checked; otherwise the full loops run), the V-cycle writes zero
+    // there, and r, p, q and A p start and stay zero there. Each block thus
+    // sums the same terms in the same order and every iterate is bit for bit
+    // that of loops over the whole box.
+    bool compact = multigrid;
+    std::vector<std::size_t> run_offsets; std::vector<std::array<std::size_t, 2>> runs;
+    if (compact) {
+        for (std::size_t i = 0; i < N && compact; ++i) if (!sys.active[i] && b[i] != 0) compact = false;
+    }
+    if (compact) {
+        run_offsets.assign(g.blocks + 1, 0);
+        for (std::size_t block = 0; block < g.blocks; ++block) {
+            for (std::size_t row = g.block_row_begin(block); row < g.block_row_end(block); ++row)
+                for (std::size_t col = 0; col < g.W;) {
+                    if (!sys.active[row * g.W + col]) { ++col; continue; }
+                    const auto begin = col;
+                    while (col < g.W && sys.active[row * g.W + col]) ++col;
+                    runs.push_back({row * g.W + begin, row * g.W + col});
+                }
+            run_offsets[block + 1] = runs.size();
+        }
+        for (auto* v : {&ws.lp, &ws.lq, &ws.lAp}) std::fill(v->begin(), v->end(), 0.);
+        const auto compact_partials = [&](auto&& body) {
+            return combine(c.exec.partials<double>([&](std::size_t, std::size_t, std::size_t block) {
+                double local = 0;
+                for (auto k = run_offsets[block]; k < run_offsets[block + 1]; ++k) {
+                    const auto [begin, end] = runs[k];
+                    const auto row = begin / g.W;
+                    for (auto i = begin; i < end; ++i) local += body(i, row, i - row * g.W);
+                }
+                return local;
+            }));
+        };
+        // A row of the operator in `apply`'s summation order.
+        const auto stencil = [&](const auto& value, std::size_t i, std::size_t row, std::size_t col) {
+            const std::size_t base = row * g.W, xb = row * g.XW;
+            const std::size_t down = row > 0 ? base - g.W : base + (g.H - 1) * g.W;
+            const std::size_t up = row + 1 < g.H ? base + g.W : base - (g.H - 1) * g.W;
+            const std::size_t yb = row * g.W, yt = ((row + 1) % g.YH) * g.W;
+            const double xi = value(i);
+            const auto left = col > 0 ? i - 1 : i + g.W - 1, right = col + 1 < g.W ? i + 1 : i + 1 - g.W;
+            const double wl = sys.wx[xb + col], wr = sys.wx[xb + (col + 1 == g.XW ? 0 : col + 1)], wb = sys.wy[yb + col], wt = sys.wy[yt + col];
+            return sys.diag[i] * xi + wl * (xi - value(left)) + wr * (xi - value(right)) + wb * (xi - value(down + col)) + wt * (xi - value(up + col));
+        };
+        const auto compact_dot = [&](const std::vector<double>& a, const std::vector<double>& v) {
+            return compact_partials([&](std::size_t i, std::size_t, std::size_t) { return a[i] * v[i]; });
+        };
+        precondition();
+        std::copy(ws.lz.begin(), ws.lz.end(), ws.lp.begin());
+        double rz = compact_dot(ws.lr, ws.lz), beta = 0;
+        for (std::size_t it = 1; it <= maximum; ++it) {
+            double pAp;
+            if (it == 1) pAp = compact_partials([&](std::size_t i, std::size_t row, std::size_t col) {
+                const double value = stencil([&](std::size_t j) { return ws.lp[j]; }, i, row, col);
+                ws.lAp[i] = value; return ws.lp[i] * value;
+            });
+            else {
+                // p = z + beta p_old (double buffered), fused with A p and p.Ap.
+                const double* zv = ws.lz.data(); const double* pv = ws.lp.data();
+                pAp = compact_partials([&](std::size_t i, std::size_t row, std::size_t col) {
+                    const auto dir = [&](std::size_t j) { return zv[j] + beta * pv[j]; };
+                    const double xi = dir(i), value = stencil(dir, i, row, col);
+                    ws.lq[i] = xi; ws.lAp[i] = value; return xi * value;
+                });
+                ws.lp.swap(ws.lq);
+            }
+            if (!(pAp > 0)) break;
+            const double alpha = rz / pAp;
+            const double rr = compact_partials([&](std::size_t i, std::size_t, std::size_t) {
+                x[i] += alpha * ws.lp[i]; ws.lr[i] -= alpha * ws.lAp[i]; return ws.lr[i] * ws.lr[i];
+            });
+            result.iterations = it; result.residual = std::sqrt(rr);
+            if (result.residual <= threshold) { result.converged = true; break; }
+            precondition();
+            const double rz1 = compact_dot(ws.lr, ws.lz); beta = rz1 / rz; rz = rz1;
+        }
+        return result;
+    }
     precondition();
     std::copy(ws.lz.begin(), ws.lz.end(), ws.lp.begin());
     double rz = dot(ws.lr, ws.lz);
