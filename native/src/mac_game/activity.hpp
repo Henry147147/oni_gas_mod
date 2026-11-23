@@ -4,6 +4,7 @@
 #include <cmath>
 #include <memory>
 #include <mutex>
+#include <span>
 #include <stdexcept>
 
 namespace ma::experimental::game_kernel {
@@ -84,6 +85,53 @@ inline void validate_activity_in_blocks(Run&& run, std::span<const MacGameActivi
   });
   if (std::find(invalid.begin(), invalid.end(), std::uint8_t{1}) != invalid.end())
     throw std::invalid_argument("Invalid saved game activity clock");
+}
+// Copies of the clocks for a world to keep (8 MB on a 256,000-cell map, a
+// few a frame). A vector a world held comes back here when the last world
+// drops it, and the next copy overwrites it, `run(blocks, job)` (a worker
+// pool's run) copying fixed blocks of cells: the values are the copy's.
+struct ClockRecycler {
+  std::mutex mutex;
+  std::vector<std::vector<MacGameActivityCell>> spare;
+};
+inline ClockRecycler& clock_recycler() {
+  static auto* recycler = new ClockRecycler; // never destroyed: worlds may outlive statics
+  return *recycler;
+}
+// `to` made a copy of `from`, in fixed blocks by `run`.
+template <class Run>
+inline void copy_clocks(Run&& run, std::span<const MacGameActivityCell> from, std::vector<MacGameActivityCell>& to) {
+  if (to.size() != from.size()) to.resize(from.size());
+  constexpr std::size_t block = 16384;
+  run((from.size() + block - 1) / block, [&](std::size_t b) {
+    const auto first = b * block, end = std::min(from.size(), first + block);
+    std::copy(from.begin() + static_cast<std::ptrdiff_t>(first), from.begin() + static_cast<std::ptrdiff_t>(end),
+              to.begin() + static_cast<std::ptrdiff_t>(first));
+  });
+}
+template <class Run>
+inline std::vector<MacGameActivityCell> copied_clocks(Run&& run, std::span<const MacGameActivityCell> from) {
+  std::vector<MacGameActivityCell> to;
+  {
+    auto& recycler = clock_recycler();
+    std::lock_guard lock(recycler.mutex);
+    for (auto at = recycler.spare.begin(); at != recycler.spare.end(); ++at)
+      if (at->size() == from.size()) { to = std::move(*at); recycler.spare.erase(at); break; }
+  }
+  copy_clocks(run, from, to);
+  return to;
+}
+inline std::shared_ptr<const std::vector<MacGameActivityCell>> shared_clocks(std::vector<MacGameActivityCell>&& clocks) {
+  auto* held = new std::vector<MacGameActivityCell>(std::move(clocks));
+  return std::shared_ptr<const std::vector<MacGameActivityCell>>(held, [](const std::vector<MacGameActivityCell>* done) {
+    auto* owned = const_cast<std::vector<MacGameActivityCell>*>(done);
+    try {
+      auto& recycler = clock_recycler();
+      std::lock_guard lock(recycler.mutex);
+      if (recycler.spare.size() < 4) recycler.spare.push_back(std::move(*owned));
+    } catch (...) {}
+    delete owned;
+  });
 }
 inline void validate_activity_interval(double seconds,double maximum,std::size_t budget=65536) {
   const double intervals=std::ceil(seconds/maximum);

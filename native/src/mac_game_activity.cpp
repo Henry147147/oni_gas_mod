@@ -36,7 +36,7 @@ MacClosedWorld MacClosedWorld::with_game_activity(std::span<const std::uint8_t> 
     if (std::find(invalid.begin(), invalid.end(), std::uint8_t{1}) != invalid.end())
       throw std::invalid_argument("Invalid game activity input masks");
   }
-  auto cells = std::vector<MacGameActivityCell>(game_activity().begin(),game_activity().end());
+  auto cells = game_kernel::copied_clocks([&](std::size_t blocks,const std::function<void(std::size_t)>& job){pool.run(blocks,job);},game_activity());
   std::vector<std::uint8_t> active(N), present(N);
   const auto& g = state().grid;
   const auto mark = [&](std::size_t i, auto& mask) {
@@ -76,7 +76,7 @@ MacClosedWorld MacClosedWorld::with_game_activity(std::span<const std::uint8_t> 
   });
   if(std::find(differs.begin(), differs.end(), std::uint8_t{1}) == differs.end())return *this;
   auto out=MacClosedWorld(Derived{},*this,state_snapshot_);out.game_totals_=game_totals_;
-  out.game_activity_=std::make_shared<const std::vector<MacGameActivityCell>>(std::move(cells));
+  out.game_activity_=game_kernel::shared_clocks(std::move(cells));
   return out;
 }
 MacClosedWorld MacClosedWorld::with_game_activity_tiers(bool enabled) const {
@@ -109,7 +109,7 @@ std::vector<double> MacClosedWorld::game_activity_steps(double seconds) const {
   // The clocks this query steps and then drops: a scratch copy kept between
   // queries (a fresh 8 MB vector a frame on a 256,000-cell map).
   thread_local std::vector<MacGameActivityCell> cells;
-  cells.assign(game_activity().begin(),game_activity().end());
+  game_kernel::copy_clocks(on_pool,game_activity(),cells);
   std::optional<game_kernel::Levelling> levelling;
   if(settings_.game_profile==MacGameProfile::game_kernel_thin_drag && settings_.game.activity_tiers)
     levelling.emplace(state(),registry_,*thermodynamics_,regions.cells.size());

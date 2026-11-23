@@ -684,7 +684,7 @@ MacClosedAdvance MacGameKernelAccess::advance_guarded(
     k::validate_activity_in_blocks(activity_blocks, source.game_activity(), grid.walls.size(), source.time_s_, grid.walls);
     k::validate_activity_interval(seconds, source.settings_.maximum_timestep_s, budget);
     const auto& regions = k::cached_activity_regions(grid);
-    auto clocks = std::vector<MacGameActivityCell>(source.game_activity().begin(), source.game_activity().end());
+    auto clocks = k::copied_clocks(activity_blocks, source.game_activity());
     std::optional<k::Levelling> levelling;
     if (source.settings_.game_profile == MacGameProfile::game_kernel_thin_drag && source.settings_.game.activity_tiers)
       levelling.emplace(source.state(), source.registry_, *source.thermodynamics_, regions.cells.size());
@@ -696,7 +696,7 @@ MacClosedAdvance MacGameKernelAccess::advance_guarded(
     }
     MacClosedAdvance held{MacClosedWorld(MacClosedWorld::Derived{}, source, source.state_snapshot_), {}};
     held.world.game_totals_ = source.game_totals_;
-    held.world.game_activity_ = std::make_shared<const std::vector<MacGameActivityCell>>(std::move(clocks));
+    held.world.game_activity_ = k::shared_clocks(std::move(clocks));
     if (!source.game_totals_) {
       // A germ or terrain edit can invalidate the opening audit. Recount
       // once so both the closing ledger and the next transfer see this state.
@@ -836,7 +836,7 @@ MacClosedAdvance MacGameKernelAccess::advance_guarded(
     evolved.resize(source.state().cells.size());
     k::validate_activity_in_blocks(activity_blocks,source.game_activity(),source.state().cells.size(),source.time_s_,source.state().grid.walls);
     k::validate_activity_interval(seconds,source.settings_.maximum_timestep_s,budget);
-    activity_state.assign(source.game_activity().begin(),source.game_activity().end());
+    activity_state=k::copied_clocks(activity_blocks,source.game_activity());
     activity_regions=&k::cached_activity_regions(source.state().grid);
     if(thin && cfg.activity_tiers)
       levelling.emplace(source.state(),source.registry_,*source.thermodynamics_,activity_regions->cells.size());
@@ -942,8 +942,7 @@ MacClosedAdvance MacGameKernelAccess::advance_guarded(
   result.world.game_totals_ =
       std::make_shared<const k::Totals>(std::move(last_totals));
   result.world.time_s_ = source.time_s_ + seconds;
-  if(activity)result.world.game_activity_=
-      std::make_shared<const std::vector<MacGameActivityCell>>(std::move(activity_state));
+  if(activity)result.world.game_activity_=k::shared_clocks(std::move(activity_state));
   require(std::isfinite(result.world.time_s_) &&
               result.world.time_s_ > source.time_s_,
           "Game clock cannot advance");
