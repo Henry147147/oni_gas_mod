@@ -540,6 +540,11 @@ struct Options {
     std::uint32_t dig_frames = 25;
     // --owner-replay OWNER JOURNAL DISEASES: a saved owner fed its journaled inputs.
     std::string replay_owner, replay_journal, replay_diseases;
+    // Experiments on a replay (docs/performance-acceptance.md): option
+    // overrides applied after the first replayed frame, and the final
+    // published cell views written out for comparison with another run.
+    std::vector<std::pair<std::string, double>> replay_set;
+    std::string views_dump;
     std::uint32_t top_regions = 12;
     // The part of ONI's native frame that precedes each hand-off to the
     // owner (measured in game on the Linux harness, 18 to 27 ms); only the
@@ -588,6 +593,13 @@ Options parse(int argc, char** argv) {
             if (i + 3 >= argc) throw std::invalid_argument("--owner-replay needs OWNER JOURNAL DISEASES");
             o.replay_owner = argv[++i]; o.replay_journal = argv[++i]; o.replay_diseases = argv[++i];
         }
+        else if (a == "--set") {
+            if (i + 1 >= argc) throw std::invalid_argument("--set needs NAME=VALUE");
+            const std::string text = argv[++i]; const auto eq = text.find('=');
+            if (eq == std::string::npos) throw std::invalid_argument("--set needs NAME=VALUE");
+            o.replay_set.push_back({text.substr(0, eq), std::stod(text.substr(eq + 1))});
+        }
+        else if (a == "--views-dump") { if (i + 1 >= argc) throw std::invalid_argument("Missing path"); o.views_dump = argv[++i]; }
         else if (a == "--top-regions") o.top_regions = static_cast<std::uint32_t>(number(i));
         else if (a == "--native-overhead-ms") o.native_overhead_ms = number(i);
         else throw std::invalid_argument("Unknown option " + a);
@@ -802,7 +814,29 @@ int owner_replay(const Options& o) {
     const auto advanced = jr::replay(saved, frames, o.frames, false, ticket, [&](std::uint64_t number, const jr::Frame& frame) {
         const double wall = since(mark);
         const auto status = c::status();
-        if (!first_frame) first_frame = number;
+        if (!first_frame) {
+            first_frame = number;
+            if (!o.replay_set.empty()) {
+                MAOniColonyOptions changed{};
+                if (!c::copy_options(changed)) throw std::runtime_error("The replayed colony has no changeable options");
+                for (const auto& [name, value] : o.replay_set) {
+                    const auto u = static_cast<std::uint32_t>(value);
+                    if (name == "flow_parts") changed.flow_parts = u;
+                    else if (name == "pressure_relative_tolerance") changed.pressure_relative_tolerance = value;
+                    else if (name == "maximum_timestep_s") changed.maximum_timestep_s = value;
+                    else if (name == "fluid_tick_stride") changed.fluid_tick_stride = u;
+                    else if (name == "pressure_maximum_iterations") changed.pressure_maximum_iterations = u;
+                    else if (name == "sharpen_liquid_interfaces") changed.sharpen_liquid_interfaces = u;
+                    else if (name == "liquid_stiffness_ratio") changed.liquid_stiffness_ratio = value;
+                    else if (name == "interface_detail_fraction") changed.interface_detail_fraction = value;
+                    else if (name == "gas_heat_mixing") changed.gas_heat_mixing = value;
+                    else if (name == "phase_relaxation_time_s") changed.phase_relaxation_time_s = value;
+                    else if (name == "trace_sink_threshold_kg") changed.trace_sink_threshold_kg = value;
+                    else throw std::invalid_argument("Unknown --set option " + name);
+                }
+                if (!c::change_options(status.session, changed)) throw std::runtime_error("The replayed colony refused the --set options");
+            }
+        }
         last_frame = number;
         if (++measured > o.warmup) {
             owner_ms.push_back(status.last_advance_ms);
@@ -833,6 +867,16 @@ int owner_replay(const Options& o) {
             for (std::uint32_t k = 0; k < std::min<std::uint32_t>(n, 8); ++k) std::fprintf(stderr, " %u=%.6g", indices[k], masses[k]);
             std::fputc('\n', stderr);
         }
+    }
+    if (!o.views_dump.empty()) {
+        // width, height, then the final frame's cell views (MAOniColonyCellView).
+        std::vector<MAOniColonyCellView> views(static_cast<std::size_t>(parts.config.width) * parts.config.height);
+        auto shown = c::status(); c::copy(shown, views.data(), static_cast<std::uint32_t>(views.size()));
+        std::ofstream dump(o.views_dump, std::ios::binary);
+        const std::uint32_t size[2]{parts.config.width, parts.config.height};
+        dump.write(reinterpret_cast<const char*>(size), sizeof size);
+        dump.write(reinterpret_cast<const char*>(views.data()), static_cast<std::streamsize>(views.size() * sizeof(MAOniColonyCellView)));
+        if (!dump) throw std::runtime_error("Could not write the views dump");
     }
     const auto image = c::checkpoint();
     std::uint64_t hash = 1469598103934665603ULL;
