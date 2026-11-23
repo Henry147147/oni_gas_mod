@@ -403,12 +403,16 @@ on average and 2.0 K at the 99th percentile):
 | **All pieces levelled at once from each piece's mean pressure carried to the cut's height**, at most 20 % of a donor cell a tick, half relaxed | **0.044 % / 0.9 %** (0.041 % / 0.35 % with 1,600-cell pieces) | **0.32 K / 3.9 K** (0.28 K / 3.3 K) | nothing visible in these figures |
 
 So the last law keeps rooms level through narrow passages, and with it the
-cut costs about as much accuracy again as the fast settings do. What the
-prototype still leaves out, each of which a real version needs:
+cut costs about as much accuracy again as the fast settings do. The
+prototype was then given the two things a colony cannot do without: germs
+cross with the phase that carries them, and liquid levels across a vertical
+cut (half the difference a tick) as well as falling across a horizontal one.
+With both, 1,600-cell pieces and the fast settings: 73 ms against 106 ms for
+the fast settings alone in the same batch (69 %; about 62 ms and 2.3× on a
+quiet host by that ratio), pressure 0.040 % and temperature 0.28 K on
+average, liquid placed as the fast settings place it. What it still leaves
+out, each of which a real version needs:
 
-- **Germs do not cross a cut** with the gas that carries them.
-- **Liquid crosses only downward.** A pool that a vertical cut runs through
-  cannot level across it.
 - **Momentum does not cross**: a draught through an opening is stopped at a
   cut and restarted by the pressure it builds.
 - **Heat crosses only with the gas**, not by conduction through the cut
