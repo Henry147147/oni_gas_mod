@@ -203,14 +203,20 @@ private:
     const auto lap=[&mark]{const auto now=std::chrono::steady_clock::now();const double ms=std::chrono::duration<double,std::milli>(now-mark).count();mark=now;return ms;};
     double setup_ms=0,capture_ms=0,run_ms=0,merge_ms=0,rebuild_ms=0;
     std::vector<double> steps(regions.size(),dt);
-    for(std::size_t id=0;id<regions.size();++id) {
+    // Each region's step and its clock check, on the pool; the first region
+    // (in order) that fails throws what the serial checks threw.
+    std::vector<std::uint8_t> invalid(regions.size());
+    pool.run(regions.size(),[&](std::size_t id) {
       const auto& r=regions[id];
       const double step=due.empty()?dt:due[r.representative];
-      if(!std::isfinite(step) || step<0)throw std::invalid_argument("Invalid game activity step");
+      if(!std::isfinite(step) || step<0){invalid[id]=1;return;}
       if(!due.empty())for(std::size_t i=0;i<r.box.walls.size();++i)
-        if(!r.box.walls[i] && due[global_cell(r,i)]!=step)
-          throw std::invalid_argument("Game activity region clocks differ");
+        if(!r.box.walls[i] && due[global_cell(r,i)]!=step){invalid[id]=2;return;}
       steps[id]=step;
+    });
+    for(const auto verdict:invalid) {
+      if(verdict==1)throw std::invalid_argument("Invalid game activity step");
+      if(verdict==2)throw std::invalid_argument("Game activity region clocks differ");
     }
     std::vector<RegionExecutionWork> execution_work;execution_work.reserve(regions.size());
     for(std::size_t id=0;id<regions.size();++id) {
@@ -382,6 +388,12 @@ private:
       out.flow_substeps=std::max(out.flow_substeps,next.flow_substeps);
       out.largest_interface_cluster=std::max(out.largest_interface_cluster,next.largest_interface_cluster);
       out.mass_error=std::max(out.mass_error,next.mass_error);out.passive_error=std::max(out.passive_error,next.passive_error);
+    }
+    // Each stepped region's cells and faces into the grid, one region a job:
+    // walls separate regions, so no two regions write the same cell or face.
+    pool.run(regions.size(),[&](std::size_t id) {
+      if(steps[id]==0)return;
+      const auto& r=regions[id];const auto& next=results[id];
       for(std::size_t i=0;i<r.box.walls.size();++i)if(!r.box.walls[i]) {
         const auto g=global_cell(r,i);out.state.energy[g]=next.state.energy[i];eos[g]=next.eos[i];
       }
@@ -390,22 +402,47 @@ private:
         const auto& left=x?grid.xl:grid.yl;const auto& right=x?grid.xr:grid.yr;
         for(std::size_t f=0;f<field.size();++f) {const auto g=global_face(r,x,f);if(belongs(left[g],id)||belongs(right[g],id))global[g]=field[f];}
       }
-    }
+    });
     merge_ms=lap();
-    // Capacity only (the lists' contents are unchanged): about the initial sizes.
-    out.state.masses.offsets.reserve(grid.N+1);out.state.passives.offsets.reserve(grid.N+1);
-    out.state.masses.species.reserve(initial.masses.species.size()+64);out.state.masses.mass.reserve(initial.masses.mass.size()+64);
-    out.state.passives.species.reserve(initial.passives.species.size());out.state.passives.mass.reserve(initial.passives.mass.size());
-    for(std::size_t i=0;i<grid.N;++i) {
-      out.state.masses.offsets.push_back(out.state.masses.mass.size());out.state.passives.offsets.push_back(out.state.passives.mass.size());
-      if(grid.wall[i])continue;
-      const auto id=topology.labels[i];const auto& r=regions[id];const auto local=i%source.width-r.x+(i/source.width-r.y)*r.box.width;
-      const auto& state=steps[id]>0?results[id].state:initial;
-      const auto source_cell=steps[id]>0?local:i;
-      for(auto a=state.masses.offsets[source_cell];a<state.masses.offsets[source_cell+1];++a) {out.state.masses.species.push_back(state.masses.species[a]);out.state.masses.mass.push_back(state.masses.mass[a]);}
-      if(!state.passives.offsets.empty())for(auto a=state.passives.offsets[source_cell];a<state.passives.offsets[source_cell+1];++a) {out.state.passives.species.push_back(state.passives.species[a]);out.state.passives.mass.push_back(state.passives.mass[a]);}
+    // The grid's lists, cell by cell from each cell's stepped region or the
+    // initial state: counted per fixed block of cells on the pool, then each
+    // block fills its own slices (the lists a serial pass appends).
+    {
+      constexpr std::size_t cell_block=4096;
+      const auto cell_blocks=(grid.N+cell_block-1)/cell_block;
+      // A cell's source state and its cell there (none for a wall).
+      const auto source_of=[&](std::size_t i)->std::pair<const State*,std::size_t> {
+        if(grid.wall[i])return {nullptr,0};
+        const auto id=topology.labels[i];const auto& r=regions[id];
+        if(steps[id]>0)return {&results[id].state,i%source.width-r.x+(i/source.width-r.y)*r.box.width};
+        return {&initial,i};
+      };
+      std::vector<std::size_t> mass_start(cell_blocks+1),passive_start(cell_blocks+1);
+      pool.run(cell_blocks,[&](std::size_t b) {
+        std::size_t masses=0,passives=0;
+        for(std::size_t i=b*cell_block,end=std::min(grid.N,i+cell_block);i<end;++i) {
+          const auto [state,at]=source_of(i);if(!state)continue;
+          masses+=state->masses.offsets[at+1]-state->masses.offsets[at];
+          if(!state->passives.offsets.empty())passives+=state->passives.offsets[at+1]-state->passives.offsets[at];
+        }
+        mass_start[b+1]=masses;passive_start[b+1]=passives;
+      });
+      for(std::size_t b=0;b<cell_blocks;++b){mass_start[b+1]+=mass_start[b];passive_start[b+1]+=passive_start[b];}
+      auto& masses=out.state.masses;auto& passives=out.state.passives;
+      masses.offsets.resize(grid.N+1);passives.offsets.resize(grid.N+1);
+      masses.species.resize(mass_start.back());masses.mass.resize(mass_start.back());
+      passives.species.resize(passive_start.back());passives.mass.resize(passive_start.back());
+      pool.run(cell_blocks,[&](std::size_t b) {
+        auto mass_at=mass_start[b],passive_at=passive_start[b];
+        for(std::size_t i=b*cell_block,end=std::min(grid.N,i+cell_block);i<end;++i) {
+          masses.offsets[i]=mass_at;passives.offsets[i]=passive_at;
+          const auto [state,at]=source_of(i);if(!state)continue;
+          for(auto a=state->masses.offsets[at];a<state->masses.offsets[at+1];++a,++mass_at) {masses.species[mass_at]=state->masses.species[a];masses.mass[mass_at]=state->masses.mass[a];}
+          if(!state->passives.offsets.empty())for(auto a=state->passives.offsets[at];a<state->passives.offsets[at+1];++a,++passive_at) {passives.species[passive_at]=state->passives.species[a];passives.mass[passive_at]=state->passives.mass[a];}
+        }
+      });
+      masses.offsets[grid.N]=mass_start.back();passives.offsets[grid.N]=passive_start.back();
     }
-    out.state.masses.offsets.push_back(out.state.masses.mass.size());out.state.passives.offsets.push_back(out.state.passives.mass.size());
     rebuild_ms=lap();
     Totals after;audit.capture(out.state,gravity,-1,&after,&pool,stepped,&block_sums,unchanged);out.region_error=audit.finish();
     capture_ms+=lap();
