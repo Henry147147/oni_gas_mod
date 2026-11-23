@@ -519,6 +519,46 @@ And one in the regional tick: the regions of a tick are handed to the
 workers largest first (13.6 against 15.4 ms of regions' flow with pieces;
 no change where two regions have workers of their own).
 
+### The exact route, measured
+
+Built and on `main` after the probe, with the equations untouched:
+
+| Step (November 22 colony, fast settings, 12 workers, quiet host) | Owner tick | Estimate | Regions' flow | Main region |
+| --- | ---: | ---: | ---: | ---: |
+| Bookkeeping commits and largest regions first | 83 to 84 ms | 1.85× | 49 to 50 ms | 47 ms (pressure 18.7) |
+| Sparse Cholesky for large cave-like pressure systems, interpolation along fine faces, compact loops (`78e5874`) | 71.2 ms | 2.08× | 37.3 ms | 34.4 ms (pressure 6.1) |
+| The tick's stages in row blocks and workers divided by predicted work (`c15d769`) | 64.9 ms | 2.22× | 31.5 ms | 26.7 ms |
+
+With the saved settings the same build takes 108 ms (1.50×) against 140 to
+151 ms for 1.13.1; there the open surface region, which the fill cap keeps
+on the multigrid, is now the costliest (53 ms at 7.6 intervals).
+
+- **Pressure.** The multigrid's slow tail was not a few small eigenvalues
+  but a coarse correction that overshoots at wall corners and across a
+  liquid cell (eigenvalues of the preconditioned operator up to 12). A
+  nested-dissection Cholesky factor solves the 12,374-cell system in about
+  5 ms where the multigrid took 18; it is used for grids of at least 5,300
+  cells whose factor fills less than 700 multiply-adds a cell, which keeps
+  every regular room on the old routes. That matters: an exact solve no
+  longer supplies the solver noise that starts the overturning of a
+  perfectly even unstable layer, so a regular room must not take it
+  ([the pressure routes](../native/MAC_GAME_KERNEL.md)). Against the
+  iterative solve the results differ at the level of a tolerance change
+  (temperature 0.008 K on average at the fast settings).
+- **Stages.** Layering, transport, heat assembly, phase change, the trace
+  sink and the tick's opening and closing passes now work in row blocks
+  with their scratch kept, with identical results. The main region's work
+  outside the pressure solve went from about 28 to 21 ms, not to a third:
+  one heat solve and the largest sharpening cluster stay on one thread
+  because splitting them would change sums, and the passes still walk the
+  region's whole box (45,568 slots for 12,374 fluid cells).
+- **Where the tick is now.** Regions' flow 31.5 ms and about 33 ms of
+  serial work around it, in items of 1 to 4 ms: the conversions between the
+  world's chunks and the solver's flat arrays (sparse 2.8, dense 4.3,
+  capture 2.7, merge and rebuild 2.4), germ evolution 3.4, transfers 3.0,
+  conversions 2.2, heat 2.3 and smaller ones. The target of 41.7 ms needs
+  both halves cut by a third again; a third round on each is under way.
+
 ## Tried and dropped
 
 | Idea | Result |
