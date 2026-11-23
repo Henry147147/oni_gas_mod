@@ -188,9 +188,24 @@ public:
                std::span<const std::uint8_t> booked = {},
                std::vector<Totals> *block_sums = nullptr,
                std::span<const std::uint8_t> reuse = {}) {
-    namespace k = ma::experimental::mac_kernel;
     std::vector<RegionPartial> parts(grid.blocks, RegionPartial(topology));
     std::vector<Totals> sums(totals ? grid.blocks : 0);
+    blocks(pool, [&](std::size_t block) {
+      if (!reuse.empty() && reuse[block]) {
+        if (totals) sums[block] = (*block_sums)[block];
+        return;
+      }
+      capture_block(state, gravity, sign, block, parts[block],
+                    totals ? &sums[block] : nullptr, booked);
+    });
+    capture_merge(parts, totals ? &sums : nullptr, totals, block_sums);
+  }
+  // One row block of capture(): books its cells' and faces' accounts into
+  // `part` and, with `sum`, sums the block's totals.
+  void capture_block(const State &state, double gravity, double sign,
+                     std::size_t block, RegionPartial &part, Totals *sum,
+                     std::span<const std::uint8_t> booked = {}) const {
+    namespace k = ma::experimental::mac_kernel;
     const auto books = [&](std::size_t cell) {
       return booked.empty() || booked[topology.labels[cell]] != 0;
     };
@@ -202,81 +217,79 @@ public:
           total += state.masses.mass[a];
       return total;
     };
-    blocks(pool, [&](std::size_t block) {
-      auto &part = parts[block];
-      if (!reuse.empty() && reuse[block]) {
-        if (totals) sums[block] = (*block_sums)[block];
-        return;
+    if (sum)
+      sum->species.resize(species_count);
+    const auto y0 = grid.block_row_begin(block), y1 = grid.block_row_end(block);
+    for (std::size_t i = y0 * grid.W; i < y1 * grid.W; ++i) {
+      double mass = 0;
+      for (std::size_t a = state.masses.offsets[i];
+           a < state.masses.offsets[i + 1]; ++a) {
+        const double m = state.masses.mass[a];
+        mass += m;
+        if (!grid.wall[i] && books(i))
+          part.mass(i, state.masses.species[a], sign * m);
+        if (sum)
+          sum->species[state.masses.species[a]].add(m);
       }
-      Totals *sum = totals ? &sums[block] : nullptr;
-      if (sum)
-        sum->species.resize(species_count);
-      const auto y0 = grid.block_row_begin(block), y1 = grid.block_row_end(block);
-      for (std::size_t i = y0 * grid.W; i < y1 * grid.W; ++i) {
-        double mass = 0;
-        for (std::size_t a = state.masses.offsets[i];
-             a < state.masses.offsets[i + 1]; ++a) {
-          const double m = state.masses.mass[a];
-          mass += m;
+      const double potential =
+          mass * gravity * (static_cast<double>(i / grid.W) + .5) * grid.h;
+      if (!grid.wall[i] && books(i)) {
+        part.energy(i, sign * state.energy[i]);
+        part.energy(i, sign * potential);
+      }
+      if (sum) {
+        sum->energy.add(state.energy[i]);
+        sum->energy.add(potential);
+        sum->energy_operands.add(std::abs(state.energy[i]));
+        sum->energy_operands.add(std::abs(potential));
+      }
+      if (!state.passives.mass.empty())
+        for (std::size_t a = state.passives.offsets[i];
+             a < state.passives.offsets[i + 1]; ++a) {
           if (!grid.wall[i] && books(i))
-            part.mass(i, state.masses.species[a], sign * m);
+            part.passive(i, state.passives.species[a],
+                         sign * state.passives.mass[a]);
           if (sum)
-            sum->species[state.masses.species[a]].add(m);
+            sum->passives[state.passives.species[a]].add(state.passives.mass[a]);
         }
-        const double potential =
-            mass * gravity * (static_cast<double>(i / grid.W) + .5) * grid.h;
-        if (!grid.wall[i] && books(i)) {
-          part.energy(i, sign * state.energy[i]);
-          part.energy(i, sign * potential);
-        }
-        if (sum) {
-          sum->energy.add(state.energy[i]);
-          sum->energy.add(potential);
-          sum->energy_operands.add(std::abs(state.energy[i]));
-          sum->energy_operands.add(std::abs(potential));
-        }
-        if (!state.passives.mass.empty())
-          for (std::size_t a = state.passives.offsets[i];
-               a < state.passives.offsets[i + 1]; ++a) {
-            if (!grid.wall[i] && books(i))
-              part.passive(i, state.passives.species[a],
-                           sign * state.passives.mass[a]);
-            if (sum)
-              sum->passives[state.passives.species[a]].add(state.passives.mass[a]);
+    }
+    const auto faces = [&](bool x, std::size_t first, std::size_t end) {
+      const auto &l = x ? grid.xl : grid.yl, &r = x ? grid.xr : grid.yr;
+      const auto &j = x ? state.jx : state.jy;
+      for (std::size_t f = first; f < end; ++f)
+        if (j[f] != 0) {
+          const auto i = face_cell(x, f);
+          const double inertia = .5 * (inventory(l[f]) + inventory(r[f]));
+          if (!(inertia > 0))
+            throw std::runtime_error("Private region J without inertia");
+          const double kinetic = .5 * j[f] * (j[f] / inertia);
+          if (books(i)) {
+            part.energy(i, sign * kinetic);
+            part.momentum(i, x, sign * j[f]);
           }
-      }
-      const auto faces = [&](bool x, std::size_t first, std::size_t end) {
-        const auto &l = x ? grid.xl : grid.yl, &r = x ? grid.xr : grid.yr;
-        const auto &j = x ? state.jx : state.jy;
-        for (std::size_t f = first; f < end; ++f)
-          if (j[f] != 0) {
-            const auto i = face_cell(x, f);
-            const double inertia = .5 * (inventory(l[f]) + inventory(r[f]));
-            if (!(inertia > 0))
-              throw std::runtime_error("Private region J without inertia");
-            const double kinetic = .5 * j[f] * (j[f] / inertia);
-            if (books(i)) {
-              part.energy(i, sign * kinetic);
-              part.momentum(i, x, sign * j[f]);
-            }
-            if (sum) {
-              sum->energy.add(kinetic);
-              sum->energy_operands.add(kinetic);
-              (x ? sum->jx : sum->jy).add(j[f]);
-              (x ? sum->jx_operands : sum->jy_operands).add(std::abs(j[f]));
-            }
+          if (sum) {
+            sum->energy.add(kinetic);
+            sum->energy_operands.add(kinetic);
+            (x ? sum->jx : sum->jy).add(j[f]);
+            (x ? sum->jx_operands : sum->jy_operands).add(std::abs(j[f]));
           }
-      };
-      faces(true, y0 * grid.XW, y1 * grid.XW);
-      faces(false, y0 * grid.W, grid.block_yrow_end(block) * grid.W);
-    });
+        }
+    };
+    faces(true, y0 * grid.XW, y1 * grid.XW);
+    faces(false, y0 * grid.W, grid.block_yrow_end(block) * grid.W);
+  }
+  // capture()'s merge of its block partials (and `sums`, with `totals`),
+  // in block order.
+  void capture_merge(const std::vector<RegionPartial> &parts,
+                     std::vector<Totals> *sums, Totals *totals,
+                     std::vector<Totals> *block_sums = nullptr) {
     for (const auto &part : parts)
       merge(part);
     if (!totals)
       return;
     if (block_sums)
-      *block_sums = std::move(sums);
-    const auto &partials = block_sums ? *block_sums : sums;
+      *block_sums = std::move(*sums);
+    const auto &partials = block_sums ? *block_sums : *sums;
     *totals = {};
     totals->species.resize(species_count);
     for (const auto &sum : partials) {
@@ -293,6 +306,7 @@ public:
         merge(totals->passives[key], value);
     }
   }
+  const Topology &regions_topology() const { return topology; }
   // Phase conversion of every cell: each region loses its constituents
   // before and gains those after; `conversion` sums the same per species.
   void convert(const SparseMass &before, const SparseMass &after,

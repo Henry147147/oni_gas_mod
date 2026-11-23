@@ -180,6 +180,74 @@ class Tick {
                   std::min(chunk, pieces[p].bytes - offset));
     });
   }
+  // Flow::evaluate_state of `state` into `storage` and, from those
+  // readings, total_entropy of `state`, in one pass over the fixed row
+  // blocks; `also(block)` (optional) runs for each block in the same pass.
+  // Each block's cells are read and their entropies summed in cell order,
+  // and the block sums merged in block order, as the two separate passes
+  // did. Errors keep their precedence: the first block's reading error, then
+  // the first block's entropy error, then the first block's error of `also`.
+  std::vector<Eos> read_with_entropy(const State &state, std::vector<Eos> storage,
+                                     DoubleDouble &entropy,
+                                     const std::function<void(std::size_t)> &also = {}) const {
+    const auto &g = flow.kernel_grid();
+    auto result = std::move(storage);
+    result.resize(g.N);
+    std::vector<std::string> errors(g.blocks);
+    std::vector<std::exception_ptr> entropy_errors(g.blocks), also_errors(g.blocks);
+    std::vector<DoubleDouble> block_entropy(g.blocks);
+    flow.worker_pool().run(g.blocks, [&](std::size_t block) {
+      bool sums = true;
+      for (std::size_t i = g.block_row_begin(block) * g.W;
+           i < g.block_row_end(block) * g.W; ++i) {
+        if (g.wall[i]) {
+          result[i] = Eos{};
+          continue;
+        }
+        const auto begin = state.masses.offsets[i],
+                   count = state.masses.offsets[i + 1] - begin;
+        const auto key = [&](std::size_t a) { return state.masses.species[begin + a]; };
+        const auto mass = [&](std::size_t a) { return state.masses.mass[begin + a]; };
+        try {
+          result[i] = evaluate_selected(species, count, key, mass, state.energy[i], g.V);
+        } catch (const std::exception &e) {
+          errors[block] =
+              "Private flow EOS cell " + std::to_string(i) + " (" + std::to_string(i % g.W) + "," + std::to_string(i / g.W) + " of " + std::to_string(g.W) + "x" + std::to_string(g.N / g.W) + "): " + e.what();
+          break;
+        }
+        if (!sums)
+          continue;
+        try {
+          block_entropy[block].add(entropy_selected(species, count, key, mass, result[i]));
+        } catch (...) {
+          entropy_errors[block] = std::current_exception();
+          sums = false;
+        }
+      }
+      if (!also)
+        return;
+      try {
+        also(block);
+      } catch (...) {
+        also_errors[block] = std::current_exception();
+      }
+    });
+    for (const auto &error : errors)
+      if (!error.empty())
+        throw std::runtime_error(error);
+    for (const auto &error : entropy_errors)
+      if (error)
+        std::rethrow_exception(error);
+    for (const auto &error : also_errors)
+      if (error)
+        std::rethrow_exception(error);
+    entropy = {};
+    for (const auto &part : block_entropy) {
+      entropy.add(part.hi);
+      entropy.add(part.lo);
+    }
+    return result;
+  }
   struct ColdLiquidContact {
     std::size_t attempts, refinements, iterations, corrections, geometric, direct;
     double pressure_ms, eos_ms, elapsed_ms;
@@ -323,11 +391,35 @@ private:
     RegionAudit regions(flow.kernel_grid(), flow.region_topology(),
                         species.size());
     Totals before;
-    regions.capture(initial, gravity, 1, &before, &flow.worker_pool());
+    const auto &kg = flow.kernel_grid();
+    // The opening accounts in row blocks, and the storage of the opening
+    // readings made alongside them, as a job of its own (its error, if
+    // any, comes after the accounts' errors, as it did when made after them).
+    std::vector<Eos> storage;
+    {
+      std::vector<RegionPartial> opening(kg.blocks, RegionPartial(flow.region_topology()));
+      std::vector<Totals> sums(kg.blocks);
+      std::vector<std::exception_ptr> errors(kg.blocks + 1);
+      flow.worker_pool().run(kg.blocks + 1, [&](std::size_t job) {
+        try {
+          if (job == 0)
+            storage.resize(kg.N);
+          else
+            regions.capture_block(initial, gravity, 1, job - 1, opening[job - 1], &sums[job - 1]);
+        } catch (...) {
+          errors[job] = std::current_exception();
+        }
+      });
+      for (std::size_t job = 1; job <= kg.blocks; ++job)
+        if (errors[job])
+          std::rethrow_exception(errors[job]);
+      if (errors[0])
+        std::rethrow_exception(errors[0]);
+      regions.capture_merge(opening, &sums, &before);
+    }
     auto entropy_start = std::chrono::steady_clock::now();
-    auto readings = flow.evaluate_state(initial);
-    const auto initial_entropy = total_entropy(
-        flow.kernel_grid(), species, initial, readings, flow.worker_pool());
+    DoubleDouble initial_entropy;
+    auto readings = read_with_entropy(initial, std::move(storage), initial_entropy);
     TickResult out;
     out.entropy_ms = ms(entropy_start);
     out.regions = regions.count();
@@ -645,10 +737,15 @@ private:
     phase_spare = std::move(changed.masses);
     const auto pre_final_sink = sink_entropy;
     prune(false);
-    out.eos = flow.evaluate_state(out.state, std::move(out.eos));
     entropy_start = std::chrono::steady_clock::now();
-    const auto final_entropy = total_entropy(
-        flow.kernel_grid(), species, out.state, out.eos, flow.worker_pool());
+    // The closing readings, entropy and accounts in one row-block pass; the
+    // accounts are merged below, where they were captured.
+    std::vector<RegionPartial> closing(kg.blocks, RegionPartial(flow.region_topology()));
+    std::vector<Totals> closing_sums(kg.blocks);
+    DoubleDouble final_entropy;
+    out.eos = read_with_entropy(out.state, std::move(out.eos), final_entropy, [&](std::size_t block) {
+      regions.capture_block(out.state, gravity, -1, block, closing[block], &closing_sums[block]);
+    });
     DoubleDouble entropy_change;
     entropy_change.add(final_entropy.hi);
     entropy_change.add(final_entropy.lo);
@@ -674,7 +771,7 @@ private:
     out.trace_entropy = sink_entropy.value();
     out.entropy_ms += ms(entropy_start);
     Totals after;
-    regions.capture(out.state, gravity, -1, &after, &flow.worker_pool());
+    regions.capture_merge(closing, &closing_sums, &after);
     out.region_error = regions.finish();
     Balance energy, mx, my;
     add(energy, before.energy);
