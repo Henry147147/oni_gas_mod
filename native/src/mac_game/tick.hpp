@@ -6,6 +6,7 @@
 #include "totals.hpp"
 #include "trace.hpp"
 #include "velocity_filter.hpp"
+#include <cstring>
 namespace ma::experimental::game_kernel {
 struct TickResult {
   State state;
@@ -140,6 +141,45 @@ class Tick {
         .count();
   }
 
+  // `into` becomes a copy of `from` (the bytes a copy assignment writes),
+  // reusing its capacity and copied in fixed pieces on the pool.
+  static void copy_state(const State &from, State &into,
+                         ma::experimental::mac_kernel::Pool &pool) {
+    struct Piece {
+      const void *from;
+      void *into;
+      std::size_t bytes;
+    };
+    std::array<Piece, 9> pieces{};
+    std::size_t count = 0;
+    const auto take = [&](const auto &source, auto &target) {
+      target.resize(source.size());
+      pieces[count++] = {source.data(), target.data(),
+                         source.size() * sizeof(source[0])};
+    };
+    take(from.masses.offsets, into.masses.offsets);
+    take(from.masses.species, into.masses.species);
+    take(from.masses.mass, into.masses.mass);
+    take(from.energy, into.energy);
+    take(from.jx, into.jx);
+    take(from.jy, into.jy);
+    take(from.passives.offsets, into.passives.offsets);
+    take(from.passives.species, into.passives.species);
+    take(from.passives.mass, into.passives.mass);
+    constexpr std::size_t chunk = std::size_t(1) << 17;
+    std::array<std::size_t, 10> start{};
+    for (std::size_t p = 0; p < pieces.size(); ++p)
+      start[p + 1] = start[p] + (pieces[p].bytes + chunk - 1) / chunk;
+    pool.run(start.back(), [&](std::size_t c) {
+      std::size_t p = 0;
+      while (start[p + 1] <= c)
+        ++p;
+      const auto offset = (c - start[p]) * chunk;
+      std::memcpy(static_cast<char *>(pieces[p].into) + offset,
+                  static_cast<const char *>(pieces[p].from) + offset,
+                  std::min(chunk, pieces[p].bytes - offset));
+    });
+  }
   struct ColdLiquidContact {
     std::size_t attempts, refinements, iterations, corrections, geometric, direct;
     double pressure_ms, eos_ms, elapsed_ms;
@@ -291,7 +331,31 @@ private:
     TickResult out;
     out.entropy_ms = ms(entropy_start);
     out.regions = regions.count();
-    out.state = initial;
+    // The state the stages have reached: the opening state until a stage
+    // first replaces it (the trace sink or the first flow interval), and
+    // out.state after that. Nothing changes the opening state in place, so
+    // it is copied only where a stage would change it in place (`own`).
+    bool opened = false;
+    const auto current = [&]() -> const State & { return opened ? out.state : initial; };
+    const auto own = [&] {
+      if (opened)
+        return;
+      out.state = std::move(flow_spare);
+      flow_spare = {};
+      copy_state(initial, out.state, flow.worker_pool());
+      opened = true;
+    };
+    // A stage's result becomes the current state; the state it replaces
+    // lends its buffers to that stage's next result.
+    const auto replace = [&](State &next, State &spare) {
+      if (opened) {
+        std::swap(out.state, next);
+        spare = std::move(next);
+      } else {
+        out.state = std::move(next);
+        opened = true;
+      }
+    };
     // Until the final reading, out.eos holds the readings of out.state.
     out.eos = std::move(readings);
     double wall_x = 0, wall_y = 0, body_y = 0, wall_ops_x = 0, wall_ops_y = 0,
@@ -307,7 +371,7 @@ private:
       if (!detailed_entropy)
         return;
       const auto stamp = std::chrono::steady_clock::now();
-      const auto next = total_entropy(flow.kernel_grid(), species, out.state,
+      const auto next = total_entropy(flow.kernel_grid(), species, current(),
                                       out.eos, flow.worker_pool());
       DoubleDouble delta;
       delta.add(next.hi);
@@ -323,11 +387,11 @@ private:
     const auto prune = [&](bool tracking = true, bool refresh = false) {
       // On an already valid state with no sub-threshold constituents,
       // the sink is exactly the identity, including passives and J.
-      if (std::none_of(out.state.masses.mass.begin(),
-                       out.state.masses.mass.end(),
+      if (std::none_of(current().masses.mass.begin(),
+                       current().masses.mass.end(),
                        [&](double mass) { return mass < threshold; }))
         return false;
-      auto sunk = trace_sink(grid, species, out.state, threshold, gravity,
+      auto sunk = trace_sink(grid, species, current(), threshold, gravity,
                              &regions, &flow.kernel_grid(), &flow.worker_pool(),
                              {}, &trace_scratch);
       out.trace_constituents += sunk.constituents;
@@ -348,14 +412,13 @@ private:
       sink_x.add(sunk.jx);
       sink_y.add(sunk.jy);
       if (refresh)
-        out.eos = flow.evaluate_changed(out.state.masses, out.state.energy,
+        out.eos = flow.evaluate_changed(current().masses, current().energy,
                                         sunk.state, std::move(out.eos));
-      // The replaced state's buffers serve the next sink.
-      std::swap(out.state, sunk.state);
-      trace_scratch.spare = std::move(sunk.state);
+      replace(sunk.state, trace_scratch.spare);
       return true;
     };
     const auto conduct = [&] {
+      own();
       const auto heat_start = std::chrono::steady_clock::now();
       auto heated = heat.advance(out.state, out.eos, dt, liquid_exchange ? gravity : 0);
       out.heat_ms = ms(heat_start);
@@ -372,7 +435,7 @@ private:
     // out and converts its share (BoilPlan).
     std::vector<BoilPlan> plans;
     if (boil_in_flow)
-      plans = phase.plan_boiling(out.state, out.eos, dt, phase_time, flow_parts,
+      plans = phase.plan_boiling(current(), out.eos, dt, phase_time, flow_parts,
                                  std::abs(gravity) / flow.kernel_grid().A,
                                  &flow.kernel_grid(), gravity);
     std::vector<double> boil_source;
@@ -392,11 +455,11 @@ private:
           ++out.pressure_attempts;
           const auto trial_start = std::chrono::steady_clock::now();
           if (!plans.empty()) {
-            boil_source.assign(out.state.energy.size(), 0.);
+            boil_source.assign(current().energy.size(), 0.);
             for (const auto &plan : plans)
               boil_source[plan.cell] += plan.mass * (trial / dt) * plan.volume_per_kg;
           }
-          advanced = flow.advance(out.state, trial, gravity, &regions,
+          advanced = flow.advance(current(), trial, gravity, &regions,
                                   liquid_blocked.empty() ? nullptr : &boundary,
                                   std::move(out.eos),
                                   plans.empty() ? nullptr : &boil_source,
@@ -451,8 +514,7 @@ private:
           for (std::size_t k = 0; k < force_work.size(); ++k)
             force_work[k].add(advanced.force_work[k]);
         }
-        std::swap(out.state, advanced.state);
-        flow_spare = std::move(advanced.state);
+        replace(advanced.state, flow_spare);
         out.eos = std::move(advanced.eos);
         observe_entropy(out.flow_entropy);
         if (!plans.empty()) {
@@ -501,6 +563,7 @@ private:
           trial = std::min(remaining, 2 * trial);
       }
     }
+    own();
     auto stage_start = std::chrono::steady_clock::now();
     // The exchange shares are capped per call, and a remote step (activity
     // tiers) covers several frames at once. Where such a step exchanges

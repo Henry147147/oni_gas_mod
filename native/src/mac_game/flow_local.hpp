@@ -816,9 +816,22 @@ public:
                            : 0;
       }
     });
-    std::vector<double> work = initial.energy;
+    // The energies after the work start as copies of the initial ones, made
+    // in the row-block pass below into a lent buffer when they cover the grid.
+    std::vector<double> work;
+    const bool whole = initial.energy.size() == g.N;
+    if (whole) {
+      if (recycle) {
+        work = std::move(recycle->energy);
+        recycle->energy = {};
+      }
+      work.resize(g.N);
+    } else
+      work = initial.energy;
     rows([&](std::size_t y0, std::size_t y1, std::size_t) {
       for (std::size_t i = y0 * g.W; i < y1 * g.W; ++i) {
+        if (whole)
+          work[i] = initial.energy[i];
         if (g.wall[i])
           continue;
         const auto l = g.left_face(i), r = g.right_face(i),
@@ -997,8 +1010,14 @@ public:
           }
         }
       };
-      book(true, g.xl, g.xr);
-      book(false, g.yl, g.yr);
+      // x faces book only x momenta and y faces only y momenta, so the two
+      // face orders run side by side, each in face order.
+      eos_pool.run(2, [&](std::size_t axis) {
+        if (axis == 0)
+          book(true, g.xl, g.xr);
+        else
+          book(false, g.yl, g.yr);
+      });
       // Face forces: each one's impulse and work come from outside.
       for (std::size_t k = 0; k < projected.force_impulse.size(); ++k)
         if (projected.force_impulse[k] != 0) {
