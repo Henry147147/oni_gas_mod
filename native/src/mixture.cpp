@@ -5,7 +5,17 @@
 #include <stdexcept>
 
 namespace ma {
-double MixtureInventory::mass() const { return masses.implicit_zero() ? 0.0 : std::accumulate(masses.begin(), masses.end(), 0.0); }
+// The sum in species order from +0, as std::accumulate. A zero entry is
+// passed over: adding a zero of either sign leaves a sum that is not -0
+// unchanged, and this sum never is -0 (it starts at +0, and a nonzero
+// addition that cancels exactly gives +0). Most entries are zero, and the
+// additions they skip were a chain of dependent ones.
+double MixtureInventory::mass() const {
+    if (masses.implicit_zero()) return 0.0;
+    double total = 0.0;
+    for (const double m : static_cast<const std::vector<double>&>(masses)) if (m != 0) total += m;
+    return total;
+}
 
 double MixtureInventory::heat_capacity(const SpeciesRegistry& registry) const {
     if (masses.size() != registry.size()) throw std::invalid_argument("Registry/inventory size mismatch");
