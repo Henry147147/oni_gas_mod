@@ -248,6 +248,51 @@ k::State sparse(const MacTransportState &state, mac_kernel::Pool *pool = nullptr
   });
   return result;
 }
+// Whether dense()'s rebuild of cell i from `state` would give back `cell` bit
+// for bit and in the same form: its energy; its masses (the shared zeros when
+// the state lists none for it, otherwise `species` entries holding the listed
+// masses and +0 elsewhere); no energy remainder; and its passives as listed.
+bool same_rebuilt_cell(const MacMaterialCell &cell, const k::State &state,
+                       std::size_t i, std::size_t species) {
+  // Structured bindings also refuse a future unhandled cell field.
+  const auto &[mixture, passives, remainder] = cell;
+  const auto &[masses, energy] = mixture;
+  const auto bits = [](double x) { return std::bit_cast<std::uint64_t>(x); };
+  if (bits(energy) != bits(state.energy[i]) || bits(remainder.projected) != 0 ||
+      bits(remainder.full.mantissa()) != 0 || !(remainder.full.exponent() == MacExponent{}))
+    return false;
+  if (masses.size() != species)
+    return false;
+  const auto from = state.masses.offsets[i], to = state.masses.offsets[i + 1];
+  if (from == to) {
+    if (!masses.implicit_zero())
+      return false;
+  } else {
+    if (masses.implicit_zero())
+      return false;
+    const std::vector<double> &values = masses;
+    auto at = from;
+    for (std::size_t key = 0; key < species; ++key) {
+      double expected = 0;
+      if (at < to && state.masses.species[at] == key)
+        expected = state.masses.mass[at++];
+      if (bits(values[key]) != bits(expected))
+        return false;
+    }
+    if (at != to)
+      return false;
+  }
+  const bool listed = !state.passives.mass.empty();
+  const auto first = listed ? state.passives.offsets[i] : 0, last = listed ? state.passives.offsets[i + 1] : 0;
+  if (passives.size() != last - first)
+    return false;
+  for (auto a = first; a < last; ++a) {
+    const auto &q = passives[a - first];
+    if (q.identity != state.passives.species[a] || bits(q.quantity) != bits(state.passives.mass[a]))
+      return false;
+  }
+  return true;
+}
 // Sparse fields back to dense cells. The full rebuild runs serially: on the
 // pool, the cells' allocations in worker arenas made 12-thread frames about
 // 3% slower. A partial rebuild (`rebuilt`) builds each cell chunk that holds
@@ -270,12 +315,17 @@ MacTransportState dense(const MacTransportState &source, k::State &state,
     result.cells = source.cells;
     const auto &before = std::as_const(source).cells;
     // One job a cell chunk: a chunk with rebuilt cells is built directly
-    // (MacChunkStore::rewrite_chunk), the others stay shared.
+    // (MacChunkStore::rewrite_chunk), the others stay shared. A rebuilt cell
+    // whose rebuild would give back the cell it was, bit for bit and in the
+    // same form, is kept as it was (with its stamp), and a chunk all of whose
+    // rebuilt cells are kept stays shared (with its serial): about half the
+    // stepped cells of a large colony come out of an interval unchanged.
     chunks(pool, state.energy.size(), [&](std::size_t chunk, std::size_t first, std::size_t end) {
+      std::array<std::uint8_t, conversion_chunk> fresh{};
       bool any = false;
       for (std::size_t i = first; i < end; ++i) {
         if (rebuilt[i]) {
-          any = true;
+          if (!same_rebuilt_cell(before[i], state, i, species)) { fresh[i - first] = 1; any = true; }
           result.occupied_volumes_m3[i] = readings[i].mass == 0 ? 0
                                           : readings[i].nR > 0
                                               ? result.grid.volume_m3()
@@ -288,7 +338,7 @@ MacTransportState dense(const MacTransportState &source, k::State &state,
       if (!any)
         return;
       result.cells.rewrite_chunk(
-          chunk, [&](std::size_t i) { return rebuilt[i] != 0; },
+          chunk, [&](std::size_t i) { return fresh[i - first] != 0; },
           [&](std::size_t i) {
             MacMaterialCell cell{MixtureInventory(species), {}, {}};
             cell.mixture.energy = state.energy[i];
