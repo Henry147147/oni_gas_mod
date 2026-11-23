@@ -13,6 +13,23 @@ namespace {
 constexpr auto none = std::numeric_limits<std::size_t>::max();
 constexpr std::size_t dense_limit = 24;
 void require(bool ok, const char* reason) { if (!ok) throw std::invalid_argument(reason); }
+// The node of `fine` that `node` reaches by one edge along `axis` towards
+// `sign` and whose parent is `target`; none if there is no such edge.
+// Periodic axes wrap.
+std::size_t reached(const MultigridLevel& fine, const MacGrid& grid, std::size_t node, std::size_t axis, int sign, std::size_t target) {
+    if (node == none || target == none) return none;
+    const auto extent = axis == 0 ? grid.width : grid.height;
+    const bool periodic = axis == 0 ? grid.periodic_x : grid.periodic_y;
+    const auto count = (extent + fine.stride - 1) / fine.stride, coordinate = fine.coordinates[node][axis];
+    if (!periodic && (sign < 0 ? coordinate == 0 : coordinate + 1 == count)) return none;
+    const auto wanted = sign < 0 ? (coordinate + count - 1) % count : (coordinate + 1) % count;
+    for (auto k = fine.adjacent_offsets[node]; k < fine.adjacent_offsets[node + 1]; ++k) {
+        const auto& candidate = fine.adjacent[k];
+        if (fine.edges[candidate.edge].axis != axis) continue;
+        if (fine.coordinates[candidate.node][axis] == wanted && fine.parent[candidate.node] == target) return candidate.node;
+    }
+    return none;
+}
 void adjacency(MultigridLevel& level) {
     const auto n = level.coordinates.size(); level.adjacent_offsets.assign(n + 1, 0);
     for (const auto& edge : level.edges) { ++level.adjacent_offsets[edge.left + 1]; ++level.adjacent_offsets[edge.right + 1]; }
@@ -62,12 +79,33 @@ std::pair<std::size_t, double> interpolation(const MultigridLevel& fine, const M
 }
 void transfers(MultigridLevel& fine, const MultigridLevel& coarse, const MacGrid& grid) {
     fine.prolong_offsets.reserve(fine.coordinates.size() + 1); fine.prolong_offsets.push_back(0);
+    const auto side = [&](std::size_t node, std::size_t parent, std::size_t axis) {
+        const auto extent = axis == 0 ? grid.width : grid.height;
+        return centre(fine.coordinates[node][axis], fine.stride, extent) < centre(coarse.coordinates[parent][axis], coarse.stride, extent) ? -1 : 1;
+    };
     for (std::size_t i = 0; i < fine.coordinates.size(); ++i) {
-        const auto p = fine.parent[i]; const auto [nx, wx] = interpolation(fine, coarse, grid, i, p, 0);
+        // A node takes a coarse neighbour's correction only through one of
+        // its own edges into that neighbour's aggregate, and the diagonal
+        // neighbour's only through a path of two such edges. A neighbour the
+        // coarse graph links around a wall corner would otherwise give a
+        // node behind the corner a quarter of an unrelated correction: the
+        // coarse operator does not see that energy, and the V-cycle
+        // overshoots (MAC_MULTIGRID.md, "Operator and transfers").
+        const auto p = fine.parent[i]; auto [nx, wx] = interpolation(fine, coarse, grid, i, p, 0);
+        const int sx = side(i, p, 0);
+        const auto across = nx != none ? reached(fine, grid, i, 0, sx, nx) : none;
+        if (across == none) { nx = none; wx = 0; }
         std::array<MultigridTerm, 2> horizontal{{{p, 1 - wx}, {nx, wx}}};
         std::array<MultigridTerm, 4> row{}; std::size_t used = 0;
         for (const auto& term : horizontal) if (term.node != none && term.weight > 0) {
-            const auto [ny, wy] = interpolation(fine, coarse, grid, i, term.node, 1);
+            auto [ny, wy] = interpolation(fine, coarse, grid, i, term.node, 1);
+            if (ny != none) {
+                const int sy = side(i, term.node, 1);
+                const bool linked = term.node == p ? reached(fine, grid, i, 1, sy, ny) != none
+                    : reached(fine, grid, across, 1, sy, ny) != none ||
+                      reached(fine, grid, reached(fine, grid, i, 1, sy, neighbor(coarse, grid, p, 1, sy)), 0, sx, ny) != none;
+                if (!linked) { ny = none; wy = 0; }
+            }
             row[used++] = {term.node, term.weight * (1 - wy)};
             if (ny != none && wy > 0) row[used++] = {ny, term.weight * wy};
         }
