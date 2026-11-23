@@ -384,8 +384,15 @@ public:
     }
     const bool has_passives =
         initial_passives && !initial_passives->mass.empty();
+    const auto parts = [&](std::size_t count, const std::function<void(std::size_t)> &job) {
+      if (executor)
+        executor->run(count, job);
+      else
+        for (std::size_t part = 0; part < count; ++part)
+          job(part);
+    };
     if (has_passives)
-      initial_passives->validate(g.N);
+      validate_parts(*initial_passives, g.N, g.blocks, parts);
     passive_storage.resize(has_passives ? g.N : 0);
     auto &passive_cells = passive_storage;
     cells_storage.resize(g.N);
@@ -1244,7 +1251,7 @@ public:
     pack(cells, result.masses);
     if (has_passives) {
       pack(passive_cells, result.passives);
-      result.passives.validate(g.N);
+      validate_parts(result.passives, g.N, g.blocks, parts);
     } else
       result.passives = {};
     result.wall_x = wall_x.value();

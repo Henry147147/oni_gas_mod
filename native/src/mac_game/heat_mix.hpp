@@ -240,12 +240,17 @@ public:
         }
         nonpositive[block] = any;
       });
+      // The ledger's residual and operand sums are separate chains, each
+      // over the cells in cell order; they run side by side.
       Balance audit;
-      for (std::size_t i = 0; i < g.N; ++i)
-        if (!g.wall[i]) {
-          audit.add(state.energy[i]);
-          audit.add(-result.energy[i]);
-        }
+      pool.run(2, [&](std::size_t chain) {
+        auto &sum = chain == 0 ? audit.residual : audit.operands;
+        for (std::size_t i = 0; i < g.N; ++i)
+          if (!g.wall[i]) {
+            sum.add(chain == 0 ? state.energy[i] : std::abs(state.energy[i]));
+            sum.add(chain == 0 ? -result.energy[i] : std::abs(-result.energy[i]));
+          }
+      });
       if (!audit.closed())
         throw std::runtime_error("Private shared heat flux ledger failed");
       result.error = audit.operands.value() ? std::abs(audit.residual.value()) /

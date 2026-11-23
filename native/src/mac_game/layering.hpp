@@ -124,7 +124,7 @@ layer(const ma::experimental::MacGrid &source,
   heavy.resize(g.N);
   old_mass.resize(g.N);
   new_mass.resize(g.N);
-  if (convective)
+  if (convective && !count_only)
     gas_mass.resize(g.N);
   scratch.blocks.resize(g.blocks);
   // Call stamps: arrays sized anew start from zero.
@@ -176,7 +176,7 @@ layer(const ma::experimental::MacGrid &source,
       if (!heavy[i].valid || p.density() > heavy[i].density())
         heavy[i] = p;
     }
-    if (convective) {
+    if (convective && !count_only) {
       gas_mass[i] = 0;
       for (std::size_t a = initial.masses.offsets[i];
            a < initial.masses.offsets[i + 1]; ++a)
@@ -479,7 +479,7 @@ layer(const ma::experimental::MacGrid &source,
     const auto y0 = g.block_row_begin(block);
     for (std::size_t f = y0 * g.W; f < g.block_yrow_end(block) * g.W; ++f) {
       liquid_face(f, b);
-      if (convective)
+      if (convective && !count_only)
         convective_face(f, b);
       if (sinking)
         sinking_face(f, b);
@@ -503,7 +503,8 @@ layer(const ma::experimental::MacGrid &source,
     out.capped_faces += b.capped;
   }
   // `count_only`: the faces that would exchange, and nothing else (no state,
-  // no audit receipt).
+  // no audit receipt); the convective adjustment's faces, which are not
+  // capped, are not looked for.
   if (count_only || parcels.empty())
     return out;
   const bool has_passives = !initial.passives.mass.empty();

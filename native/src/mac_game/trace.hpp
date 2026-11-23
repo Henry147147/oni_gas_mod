@@ -219,7 +219,14 @@ trace_sink(const ma::experimental::MacGrid &source,
     }
   }
   if (!initial.passives.mass.empty()) {
-    initial.passives.validate(g.N);
+    validate_parts(initial.passives, g.N, g.blocks,
+                   [&](std::size_t count, const std::function<void(std::size_t)> &job) {
+                     if (executor)
+                       executor->run(count, job);
+                     else
+                       for (std::size_t part = 0; part < count; ++part)
+                         job(part);
+                   });
     // Each kept passive's share, in row blocks; then the sink account and
     // the region bookings in cell order.
     const auto share_of = [&](std::size_t i, double quantity) {
