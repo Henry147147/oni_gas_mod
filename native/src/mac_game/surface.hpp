@@ -29,6 +29,11 @@ struct SurfaceScratch {
   std::vector<std::size_t> normal_start;
   std::vector<std::pair<std::uint64_t, double>> normal_phases;
   std::vector<std::size_t> parent;
+  // A cluster root's place in the cluster list (read only at roots).
+  std::vector<std::size_t> cluster_of;
+  std::vector<std::vector<std::size_t>> liquid_x, liquid_y;
+  // A state the caller no longer needs: its buffers serve the next result.
+  State spare;
 };
 inline SurfaceResult
 sharpen(const ma::experimental::MacGrid &source,
@@ -76,14 +81,43 @@ sharpen(const ma::experimental::MacGrid &source,
   passives.resize(g.N);
   geom.resize(g.N);
   mass.resize(g.N);
-  std::vector<double> energy = initial.energy;
+  auto &parent = scratch.parent;
+  parent.resize(g.N);
+  // The energies and (profile 8) face momenta the corrections change start
+  // as copies of the initial state's, made in the cell pass below into the
+  // spare state's buffers when they cover the grid.
+  State recycled = std::move(scratch.spare);
+  scratch.spare = {};
+  const bool whole_rows = initial.energy.size() == g.N && initial.jx.size() == g.NX &&
+                          initial.jy.size() == g.NY;
+  std::vector<double> energy = std::move(recycled.energy);
   // Profile 8 moves face momentum with the material; otherwise J is read
   // from the initial state and never changes here.
   std::vector<double> carried_x, carried_y;
-  if (carry_momentum) {
-    carried_x = initial.jx;
-    carried_y = initial.jy;
+  if (whole_rows) {
+    energy.resize(g.N);
+    if (carry_momentum) {
+      carried_x = std::move(recycled.jx);
+      carried_y = std::move(recycled.jy);
+      carried_x.resize(g.NX);
+      carried_y.resize(g.NY);
+    }
+  } else {
+    energy = initial.energy;
+    if (carry_momentum) {
+      carried_x = initial.jx;
+      carried_y = initial.jy;
+    }
   }
+  const auto copy_rows = [&](std::size_t block, const std::vector<double> &from,
+                             std::vector<double> &into, bool x) {
+    const auto y0 = g.block_row_begin(block);
+    const auto first = x ? y0 * g.XW : y0 * g.W,
+               end = x ? g.block_row_end(block) * g.XW : g.block_yrow_end(block) * g.W;
+    std::copy(from.begin() + static_cast<std::ptrdiff_t>(first),
+              from.begin() + static_cast<std::ptrdiff_t>(end),
+              into.begin() + static_cast<std::ptrdiff_t>(first));
+  };
   const auto &JX = carry_momentum ? carried_x : initial.jx;
   const auto &JY = carry_momentum ? carried_y : initial.jy;
   const auto fluid_face = [&](bool x, std::size_t f) {
@@ -92,7 +126,18 @@ sharpen(const ma::experimental::MacGrid &source,
            !g.closed(!x, f);
   };
   blocks([&](std::size_t block) {
+    if (whole_rows) {
+      const auto [first, last] = block_cells(block);
+      std::copy(initial.energy.begin() + static_cast<std::ptrdiff_t>(first),
+                initial.energy.begin() + static_cast<std::ptrdiff_t>(last),
+                energy.begin() + static_cast<std::ptrdiff_t>(first));
+      if (carry_momentum) {
+        copy_rows(block, initial.jx, carried_x, true);
+        copy_rows(block, initial.jy, carried_y, false);
+      }
+    }
     for (auto [i, end] = block_cells(block); i < end; ++i) {
+      parent[i] = i;
       cells[i].clear();
       double total = 0;
       for (std::size_t a = initial.masses.offsets[i];
@@ -215,8 +260,9 @@ sharpen(const ma::experimental::MacGrid &source,
     std::uint64_t chosen = gas_group;
     std::size_t donor = 0, target = 0;
     double volume = 0;
-    std::vector<std::uint64_t> groups;
-    groups.reserve(geom[l].phases.size() + geom[r].phases.size());
+    // Per-thread capacity for the lists below; each is cleared first.
+    thread_local std::vector<std::uint64_t> groups;
+    groups.clear();
     for (const auto &phase : geom[l].phases)
       if (phase.identity != gas_group)
         groups.push_back(phase.identity);
@@ -262,8 +308,8 @@ sharpen(const ma::experimental::MacGrid &source,
                  remaining = g.V - phase_volume(target, chosen);
     // The two parcels contain disjoint species: one holds only the chosen
     // phase and the other holds its complement. Keep the delta in key order.
-    Inventory delta;
-    delta.reserve(cells[donor].size() + cells[target].size());
+    thread_local Inventory delta;
+    delta.clear();
     double forward_energy = 0, back_energy = 0, forward_mass = 0, back_mass = 0;
     for (const auto &[key, value] : cells[donor])
       if (phase_group(species, key) == chosen) {
@@ -306,8 +352,8 @@ sharpen(const ma::experimental::MacGrid &source,
                 (forward_mass - back_mass) >
             0)
       return;
-    std::vector<std::pair<bool, std::size_t>> faces;
-    faces.reserve(8);
+    thread_local std::vector<std::pair<bool, std::size_t>> faces;
+    faces.clear();
     for (const auto i : {donor, target})
       for (const auto &entry :
            {std::pair{true, g.left_face(i)}, std::pair{true, g.right_face(i)},
@@ -316,8 +362,8 @@ sharpen(const ma::experimental::MacGrid &source,
         faces.push_back(entry);
     std::sort(faces.begin(), faces.end());
     faces.erase(std::unique(faces.begin(), faces.end()), faces.end());
-    std::vector<std::size_t> touched{donor, target};
-    touched.reserve(10);
+    thread_local std::vector<std::size_t> touched;
+    touched.assign({donor, target});
     for (const auto &[x, f] : faces)
       if (carry_momentum || (x ? JX : JY)[f] != 0)
         for (const auto i : {(x ? g.xl : g.yl)[f], (x ? g.xr : g.yr)[f]})
@@ -607,10 +653,6 @@ sharpen(const ma::experimental::MacGrid &source,
     std::size_t face;
   };
   std::vector<Action> actions;
-  auto &parent = scratch.parent;
-  parent.resize(g.N);
-  for (std::size_t i = 0; i < g.N; ++i)
-    parent[i] = i;
   const auto root = [&](std::size_t i) {
     while (parent[i] != i) {
       parent[i] = parent[parent[i]];
@@ -647,8 +689,12 @@ sharpen(const ma::experimental::MacGrid &source,
   };
   // Liquid/liquid faces are found in row blocks, then registered in face
   // order: x faces, then y faces.
-  std::vector<std::vector<std::size_t>> liquid_x(g.blocks), liquid_y(g.blocks);
+  auto &liquid_x = scratch.liquid_x, &liquid_y = scratch.liquid_y;
+  liquid_x.resize(g.blocks);
+  liquid_y.resize(g.blocks);
   blocks([&](std::size_t block) {
+    liquid_x[block].clear();
+    liquid_y[block].clear();
     const auto y0 = g.block_row_begin(block);
     for (std::size_t f = y0 * g.XW; f < g.block_row_end(block) * g.XW; ++f)
       if (liquid_face(true, f))
@@ -663,14 +709,25 @@ sharpen(const ma::experimental::MacGrid &source,
   for (const auto &list : liquid_y)
     for (const auto f : list)
       register_face(false, f);
-  std::map<std::size_t, std::vector<Action>> grouped;
-  for (const auto action : actions)
-    grouped[root((action.x ? g.xl : g.yl)[action.face])].push_back(action);
-  std::vector<std::vector<Action>> clusters;
-  for (auto &[identity, list] : grouped) {
-    out.largest_cluster = std::max(out.largest_cluster, list.size());
-    clusters.push_back(std::move(list));
+  // Clusters in order of their root (lowest) cell, each with its actions
+  // in registration order.
+  std::vector<std::size_t> roots;
+  for (const auto action : actions) {
+    const auto at = root((action.x ? g.xl : g.yl)[action.face]);
+    if (roots.empty() || roots.back() != at)
+      roots.push_back(at);
   }
+  std::sort(roots.begin(), roots.end());
+  roots.erase(std::unique(roots.begin(), roots.end()), roots.end());
+  auto &cluster_of = scratch.cluster_of;
+  cluster_of.resize(g.N);
+  for (std::size_t c = 0; c < roots.size(); ++c)
+    cluster_of[roots[c]] = c;
+  std::vector<std::vector<Action>> clusters(roots.size());
+  for (const auto action : actions)
+    clusters[cluster_of[root((action.x ? g.xl : g.yl)[action.face])]].push_back(action);
+  for (const auto &list : clusters)
+    out.largest_cluster = std::max(out.largest_cluster, list.size());
   out.clusters = clusters.size();
   std::vector<Counts> counts(clusters.size());
   std::vector<std::exception_ptr> errors(clusters.size());
@@ -694,6 +751,13 @@ sharpen(const ma::experimental::MacGrid &source,
     out.limited += counts[index].limited;
   }
   if (out.faces == 0) {
+    // Nothing moved: the buffers serve the next call.
+    recycled.energy = std::move(energy);
+    if (carry_momentum) {
+      recycled.jx = std::move(carried_x);
+      recycled.jy = std::move(carried_y);
+    }
+    scratch.spare = std::move(recycled);
     out.eos = std::move(eos);
     return out;
   }
@@ -712,8 +776,25 @@ sharpen(const ma::experimental::MacGrid &source,
   out.wall_ops_x = ops_x.value();
   out.wall_ops_y = ops_y.value();
   out.state.energy = std::move(energy);
-  out.state.jx = carry_momentum ? std::move(carried_x) : initial.jx;
-  out.state.jy = carry_momentum ? std::move(carried_y) : initial.jy;
+  if (carry_momentum) {
+    out.state.jx = std::move(carried_x);
+    out.state.jy = std::move(carried_y);
+  } else if (whole_rows) {
+    out.state.jx = std::move(recycled.jx);
+    out.state.jy = std::move(recycled.jy);
+    out.state.jx.resize(g.NX);
+    out.state.jy.resize(g.NY);
+    blocks([&](std::size_t block) {
+      copy_rows(block, initial.jx, out.state.jx, true);
+      copy_rows(block, initial.jy, out.state.jy, false);
+    });
+  } else {
+    out.state.jx = initial.jx;
+    out.state.jy = initial.jy;
+  }
+  out.state.masses = std::move(recycled.masses);
+  if (has_passives)
+    out.state.passives = std::move(recycled.passives);
   // Corrected inventories back to sparse form, from per-block counts.
   const auto pack = [&](const auto &rows, auto &into) {
     std::vector<std::size_t> start(g.blocks + 1);

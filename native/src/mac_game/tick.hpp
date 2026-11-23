@@ -550,8 +550,11 @@ private:
       wall_y += sharpened.wall_y;
       wall_ops_x += sharpened.wall_ops_x;
       wall_ops_y += sharpened.wall_ops_y;
-      if (sharpened.faces)
-        out.state = std::move(sharpened.state);
+      if (sharpened.faces) {
+        // The replaced state's buffers serve the next correction.
+        std::swap(out.state, sharpened.state);
+        surface_scratch.spare = std::move(sharpened.state);
+      }
       out.eos = std::move(sharpened.eos);
       out.interface_clusters = sharpened.clusters;
       out.largest_interface_cluster = sharpened.largest_cluster;
