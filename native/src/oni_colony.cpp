@@ -521,6 +521,49 @@ constexpr std::uint64_t sublimation_rescan_frames = 5;
 std::vector<std::uint8_t> sublimation_candidates;
 std::uint64_t sublimation_scan_frame = 0, sublimation_scan_session = 0;
 
+// What the solver thread lets go of at the end of a frame (the replaced
+// publication, the world before the flow: the last holders of a frame's worth
+// of cells, several ms to free) is freed on a thread of its own, so the next
+// frame does not wait for it. Freeing reads and writes no value any frame
+// uses: a cell chunk shared with a live world is only released.
+struct Reaper {
+    std::mutex m; std::condition_variable wake;
+    std::vector<std::shared_ptr<const void>> queue;
+    std::thread thread; bool quit = false;
+    void retire(std::shared_ptr<const void> held) noexcept {
+        if (!held) return;
+        try {
+            std::lock_guard l(m);
+            if (quit) return; // freed here, on the caller's thread
+            if (!thread.joinable()) thread = std::thread([this] { loop(); });
+            queue.push_back(std::move(held));
+        } catch (...) { return; } // no thread or no room: freed here
+        wake.notify_one();
+    }
+    void loop() noexcept {
+        std::unique_lock l(m);
+        for (;;) {
+            wake.wait(l, [&] { return quit || !queue.empty(); });
+            auto taken = std::move(queue); queue.clear();
+            l.unlock(); taken.clear(); l.lock();
+            if (quit && queue.empty()) return;
+        }
+    }
+    // Every retired object is freed before the thread ends.
+    ~Reaper() { { std::lock_guard l(m); quit = true; } wake.notify_all(); if (thread.joinable()) thread.join(); }
+};
+#if defined(_WIN32)
+// As the solver: never joined from a Windows static destructor (the loader
+// lock); the module is pinned while a colony runs.
+Reaper& reaper=*new Reaper;
+#else
+Reaper reaper; // declared before the solver, so destroyed after its thread
+#endif
+template <class T> void retire(T value) noexcept {
+    try { reaper.retire(std::make_shared<T>(std::move(value))); } catch (...) {}
+}
+template <class T> void retire(std::shared_ptr<T> value) noexcept { reaper.retire(std::move(value)); }
+
 // Solver thread (docs/colony-owner.md#pacing). ONI's game thread waits for
 // each native frame right after posting it, so a positive frame only hands its
 // timestep here and returns. Frames that arrive while a step runs add their
@@ -1075,14 +1118,17 @@ void publish(const Session& s, Projection projection, bool same_frame_edit=false
     auto p=make_publication(s,std::move(projection),same_frame_edit);
     // The replaced publication (often the last holder of the previous
     // frame's cells, several ms to free) is released after the lock, so
-    // readers never wait for it.
+    // readers never wait for it, and freed by the reaper.
     std::shared_ptr<const Published> replaced;
-    std::lock_guard lock(publication);
-    if (retained_sample_frames) {
-        sample_frames.insert_or_assign(p->status.completed_frames,p);
-        while (sample_frames.size()>retained_sample_frames) sample_frames.erase(sample_frames.begin());
+    {
+        std::lock_guard lock(publication);
+        if (retained_sample_frames) {
+            sample_frames.insert_or_assign(p->status.completed_frames,p);
+            while (sample_frames.size()>retained_sample_frames) sample_frames.erase(sample_frames.begin());
+        }
+        replaced = std::exchange(latest, std::move(p));
     }
-    replaced = std::exchange(latest, std::move(p));
+    retire(std::move(replaced));
 }
 void publish(const Session& s) { publish(s, project(s, *s.world)); }
 void fault(Session& s, const char* why) noexcept {
@@ -1632,7 +1678,11 @@ void follow_frames(std::uint64_t session_id,bool follow) {
     readers_pinned=!follow; visible=latest;
 }
 bool show_frame(std::uint64_t session_id,std::uint64_t sequence) {
-    std::vector<Handoff> expired; std::shared_ptr<const Published> previous; // freed after unlocking
+    std::vector<Handoff> expired; std::shared_ptr<const Published> previous; // freed after unlocking, by the reaper
+    struct Released {
+        std::vector<Handoff>& expired; std::shared_ptr<const Published>& previous;
+        ~Released() { retire(std::move(previous)); for (auto& h : expired) retire(std::move(h.start)); }
+    } released{expired, previous};
     std::lock_guard lock(publication);
     require(latest && latest->status.session==session_id,"Stale colony reader session");
     if(!readers_pinned || !visible || visible->status.session!=session_id){readers_pinned=true;previous=std::exchange(visible,latest);}
@@ -5199,7 +5249,9 @@ void run_frame(std::uint64_t ticket,double seconds,std::uint64_t frames,const ch
             L.converted[k] += advanced.converted[k]; L.converted_gross[k] += advanced.converted_gross[k];
         }
         s.status.evaporated_kg += advanced.evaporated_kg; s.status.condensed_kg += advanced.condensed_kg;
-        world = std::move(advanced.world);
+        // The world before the flow holds the chunks this frame's edits
+        // copied: the reaper frees them.
+        retire(std::exchange(world, std::move(advanced.world)));
         if (stage_log) { const auto& g = MacGameKernelAccess::last_stages(); refused_totals.first += g.pressure_refinements; refused_totals.second += g.refused_trial_ms; }
         if (ma::experimental::game_kernel::region_samples::enabled().load(std::memory_order_relaxed)) {
             std::lock_guard held(flow_diagnostics_mutex);
