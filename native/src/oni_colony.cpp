@@ -4997,10 +4997,27 @@ void run_frame(std::uint64_t ticket,double seconds,std::uint64_t frames,const ch
         // 2026-11-02/03). Older profiles keep the after-flow sink only;
         // MA_COLONY_SPACE_PRESINK=1 forces it there for diagnostics.
         const auto sink_space=[&] {
+            // The due space cells' constituents, in cell order: found per
+            // fixed block of cells on the pool, joined in block order.
             std::vector<MacFluidTransfer> sink;
-            for (std::size_t i = 0; i < s.space.size(); ++i) if (s.space[i] && (due.empty() || due[i]>0)) {
-                const auto& m = world.state().cells[i].mixture;
-                for (std::size_t k = 0; k < m.masses.size(); ++k) if (m.masses[k] > 0) sink.push_back({i, k, false, m.masses[k], 0});
+            {
+                constexpr std::size_t block = 4096;
+                const auto& cells = world.state().cells;
+                const auto blocks = (s.space.size() + block - 1) / block;
+                std::vector<std::vector<MacFluidTransfer>> found(blocks);
+                const auto threads = static_cast<unsigned>(std::min<std::size_t>(mac_kernel_default_options().threads, std::max<std::size_t>(1, blocks)));
+                mac_kernel::pool_for(threads).run(blocks, [&](std::size_t b) {
+                    for (std::size_t i = b * block, end = std::min(s.space.size(), i + block); i < end; ++i) if (s.space[i] && (due.empty() || due[i]>0)) {
+                        const auto& m = cells[i].mixture;
+                        if (m.masses.implicit_zero()) continue;
+                        const std::vector<double>& masses = m.masses;
+                        for (std::size_t k = 0; k < masses.size(); ++k) if (masses[k] > 0) found[b].push_back({i, k, false, masses[k], 0});
+                    }
+                });
+                std::size_t count = 0;
+                for (const auto& list : found) count += list.size();
+                sink.reserve(count);
+                for (auto& list : found) for (auto& edit : list) sink.push_back(std::move(edit));
             }
             for (std::size_t first = 0; first < sink.size(); first += 4096) {
                 const std::span<const MacFluidTransfer> batch(sink.data() + first, std::min<std::size_t>(4096, sink.size() - first));

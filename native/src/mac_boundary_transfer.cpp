@@ -1,6 +1,8 @@
 #include <map>
 #include <type_traits>
 #include "mac_game_bridge.hpp"
+#include "mac_kernel_detail.hpp"
+#include "mixed_atmospheres/mac_kernel.hpp"
 #include "mixed_atmospheres/mac_closed_world.hpp"
 #include "mixed_atmospheres/fluid_thermodynamics.hpp"
 #include "mixed_atmospheres/passive_quantities.hpp"
@@ -691,13 +693,24 @@ MacClosedWorld MacClosedWorld::with_carried_passives() const {
         if (named==passive_gas_carrier) return gas>0 ? passive_gas_carrier : passive_liquid_carrier;
         return liquid>=gas && liquid>0 ? passive_liquid_carrier : passive_gas_carrier;
     };
+    // The cells to relabel, in cell order: found per fixed block of cells
+    // on the pool, joined in block order.
     std::vector<std::size_t> changed;
-    for (std::size_t i=0;i<before.cells.size();++i) {
-        const auto& cell=before.cells[i];
-        if (cell.passive_quantities.empty()) continue;
-        const auto [gas,liquid]=phases(cell.mixture);
-        for (const auto& q : cell.passive_quantities)
-            if ((q.identity & passive_carrier_mask)!=carrier(q.identity,gas,liquid)) { changed.push_back(i); break; }
+    {
+        constexpr std::size_t block=4096;
+        const auto blocks=(before.cells.size()+block-1)/block;
+        std::vector<std::vector<std::size_t>> found(blocks);
+        const auto threads=static_cast<unsigned>(std::min<std::size_t>(mac_kernel_default_options().threads,std::max<std::size_t>(1,blocks)));
+        mac_kernel::pool_for(threads).run(blocks,[&](std::size_t b) {
+            for (std::size_t i=b*block,end=std::min(before.cells.size(),i+block);i<end;++i) {
+                const auto& cell=before.cells[i];
+                if (cell.passive_quantities.empty()) continue;
+                const auto [gas,liquid]=phases(cell.mixture);
+                for (const auto& q : cell.passive_quantities)
+                    if ((q.identity & passive_carrier_mask)!=carrier(q.identity,gas,liquid)) { found[b].push_back(i); break; }
+            }
+        });
+        for (const auto& list : found) changed.insert(changed.end(),list.begin(),list.end());
     }
     if (changed.empty()) return *this;
     auto next=before;
