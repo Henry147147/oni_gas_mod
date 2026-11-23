@@ -55,8 +55,17 @@ few that your task touches, starting here.
   and begins the speed work on the November 22 colony
   (`local/perf/nov22-session`), whose findings and open levers its notes list.
   Its packages (`7b521cb`) are staged on the private share as
-  `publish/update-1.13.0` and `releases/1.13.0`, on hold while the acceptance
-  tiers run ([what ran](docs/playtest-1.13.0.md#staged-package)).
+  `publish/update-1.13.0` and `releases/1.13.0`; every release step has
+  passed ([what ran](docs/playtest-1.13.0.md#staged-package)) and the upload
+  waits for the user's go-ahead.
+  [1.13.1](docs/playtest-1.13.1.md) is 1.13.0 with less work around each
+  tick and identical results. The
+  [speed study of 2026-11-23](docs/speed-study-2026-11-23.md) is where to
+  continue the speed work: it has the measured cost of each part of the
+  tick on the November 22 colony, what every accuracy setting buys and
+  costs, the two routes to an estimated 3× on that colony, the ideas that
+  did not work, and the next structural step (cutting large open regions
+  into pieces solved side by side).
   [0.1.8](docs/playtest-0.1.8.md) lets
   two gases change places through an opening one tile high;
   [0.1.7](docs/playtest-0.1.7.md) kept a pool levelling past the activity

@@ -202,7 +202,10 @@ frames rose from 62 to 114 MB in the largest generated case (peak 591 to
 
 ### What is left
 
-Ranked by what the November 22 replay still spends:
+The [speed study of 2026-11-23](speed-study-2026-11-23.md) took this
+further: it measures each item below, the accuracy settings, and what was
+tried. The list as it stood when 1.13.0 was cut, ranked by what the
+November 22 replay still spends:
 
 1. **The main base region's pressure solves** (about 85 ms on 4 workers of its
    own): 20 multigrid-preconditioned iterations a solve. The coarse correction
@@ -274,4 +277,9 @@ Checks on this revision's packages:
 | Linux game, `shown-liquid` and `face-forces` with the patched fan mod | 14 of 14 and 23 of 23 (Swivel Fan 29.85 of 30 Pa, Wall Fan 59.98 of 60 Pa) |
 | Windows player under Proton, `shown-liquid` and `face-forces` (no fan mod) | 14 of 14 and 13 of 13 |
 | Workshop upload dry run | the upload file equals the staged `mod_publish_data_file.zip`; nothing sent |
-| Load matrix on the three game builds, patch tier, release tier | running when this was written; results in `RELEASE-STATUS.txt` on the share |
+| Load matrix on the three game builds, Linux and Windows player | 6 of 6 |
+| Patch acceptance tier, with the batches for plants, vents, electrolysis and the storage ledger | 11 of 11 |
+| Release acceptance tier | 47 of 47 steps. 43 passed in the first run; two Windows steps that drive the settings screen with the mouse (`windows-settings-source`: a tab colour check with the pointer resting on a tab; `windows-spacedout-ui`: a click sequence that began while the Spaced Out! intro dialog was open) and the two steps that depend on them passed when run again (`settings-repair`, `ui-repair-2`), as for 1.12.1 |
+
+The hold was lifted on 2026-11-23 14:50 UTC. The upload itself waits for the
+user's go-ahead for this version.

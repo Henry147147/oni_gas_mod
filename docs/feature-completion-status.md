@@ -1,5 +1,7 @@
 # Feature completion work
 
+**[1.13.1 and the speed study](speed-study-2026-11-23.md).** The same results with less work around each tick: 151 to 137 ms on the November 22 colony with the fluid on every tick, 51 to 38.5 ms on 1 tick in 8, which is the first configuration at an estimated 3×. The study measures every accuracy setting, finds that the trace removal threshold at 1 mg and one flow part per step take the full-rate tick to 90 ms (1.74×), and names cutting large open regions into pieces as the next structural step toward 2× and more without slowing the fluid.
+
 **[1.13.0: fans, visible liquids and the November 22 colony](playtest-1.13.0.md).** Another mod can now push the fluid on a tile face through the public [face forces](face-forces.md) interface; in the game the fan mod's Swivel Fan holds its stall pressure through it. A tile shows its liquid whenever it holds any, so puddles, films and pool surfaces are visible and the mop finds them. The owner tick on the November 22 colony falls from 170.5 to 155 ms in the game-free replay with unchanged results; sustained 2× and 3× on that colony remain open, and the notes rank what is left.
 
 **[1.12.2.3 critter reload hotfix](playtest-1.12.2.3.md).** The November 21 colony stopped after a save made with a critter's meal in flight. The critter now credits the element the simulation delivered. The candidate includes the Cycle 55 and ration-box fixes.
