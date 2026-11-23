@@ -3589,7 +3589,7 @@ MacClosedWorld sink_traces(Session& s, MacClosedWorld world,std::span<const doub
     std::vector<std::uint8_t> eligible(due.size()); bool any = false;
     for (std::size_t i = 0; i < due.size(); ++i) if (due[i] > 0) { eligible[i] = 1; any = true; }
     if (!any) return world;
-    auto sunk = MacGameKernelAccess::trace(world, eligible);
+    auto sunk = MacGameKernelAccess::trace(std::move(world), eligible);
     book_trace(s, sunk.report);
     return std::move(sunk.world);
 }

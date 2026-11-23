@@ -24,6 +24,9 @@ struct MacGameKernelAccess {
                                          std::span<const std::uint8_t>,
                                          MacGameFlowFrame = MacGameFlowFrame::normal);
   static MacTraceSink trace(const MacClosedWorld &, std::span<const std::uint8_t> eligible = {});
+  // In place when no other world shares the source's state; the result is
+  // that of the copying form.
+  static MacTraceSink trace(MacClosedWorld &&, std::span<const std::uint8_t> eligible = {});
   // PRIVATE execution-only preparation for the owner heat retry loop.
   // Copy only shared physical state, leaving revision/time/totals/metadata intact.
   // owned_chunks (one flag per cell chunk, optional): chunks to copy now

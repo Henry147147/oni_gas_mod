@@ -51,6 +51,8 @@ std::vector<k::Species> table(const SpeciesRegistry &registry,
 }
 k::Totals dense_totals(const MacTransportState &, std::size_t, double,
                        mac_kernel::Pool *pool = nullptr);
+std::pair<std::size_t, std::size_t> endpoints(const MacGrid &, bool, std::size_t);
+std::array<std::size_t, 2> cell_faces(const MacGrid &, std::size_t, bool);
 
 // Fixed chunks of cells for the conversions below, on the pool if any.
 constexpr std::size_t conversion_chunk = 1024;
@@ -991,64 +993,307 @@ MacTraceSink MacClosedWorld::with_trace_sink_in_cells(std::span<const std::size_
   }
   return MacGameKernelAccess::trace(*this, eligible);
 }
+namespace {
+// The game kernel's trace sink (MacGameKernelAccess::trace): trace.hpp's
+// trace_sink with dense() of its traced cells, worked on those cells, their
+// faces and the cells holding passives alone. Every value, sum, check and
+// booking order is theirs: a cell without a trace keeps its masses (so its
+// kept mass is its mass, bit for bit, and its passives share back exactly what
+// they held), and only a face of a traced cell can change its inertia. Until
+// 1.13.1 the whole grid was converted to sparse fields, given a kernel grid
+// and copied twice, 6 ms a frame that removes anything on a 256,000-cell map.
+// Returns false, changing nothing, when no eligible cell holds a trace.
+// Otherwise every check has passed when `target()` is called; it gives the
+// state to write (a copy of the world's, or the world's own when no other
+// world shares it), whose cells, momenta and volumes are then the source's.
+bool sink_traced_cells(const MacClosedWorld &world, std::span<const std::uint8_t> eligible,
+                       const std::function<MacTransportState &()> &target,
+                       MacTraceSinkReport &report) {
+  const double threshold = world.settings().trace_sink_threshold_kg;
+  if (threshold == 0)
+    return false;
+  const auto &source = world.state();
+  const auto N = source.cells.size();
+  auto &pool = mac_kernel::pool_for(mac_kernel_default_options().threads);
+  const auto chunk_count = (N + conversion_chunk - 1) / conversion_chunk;
+  // Per chunk, in cell order: the traced cells; then, when there are any, the
+  // cells holding passives and whether a cell keeps an energy remainder
+  // (sparse() refuses it).
+  std::vector<std::vector<std::size_t>> traced_in(chunk_count), passive_in(chunk_count);
+  std::vector<std::uint8_t> remainder(chunk_count);
+  const auto eligible_cell = [&](std::size_t i) { return eligible.empty() || eligible[i] != 0; };
+  chunks(&pool, N, [&](std::size_t chunk, std::size_t first, std::size_t end) {
+    for (std::size_t i = first; i < end; ++i) {
+      if (!eligible_cell(i)) continue;
+      const auto &c = source.cells[i];
+      if (!c.mixture.masses.implicit_zero())
+        for (double m : c.mixture.masses)
+          if (m > 0 && m < threshold) { traced_in[chunk].push_back(i); break; }
+    }
+  });
+  std::vector<std::size_t> traced;
+  for (const auto &list : traced_in) traced.insert(traced.end(), list.begin(), list.end());
+  if (traced.empty())
+    return false;
+  chunks(&pool, N, [&](std::size_t chunk, std::size_t first, std::size_t end) {
+    for (std::size_t i = first; i < end; ++i) {
+      const auto &c = source.cells[i];
+      if (!c.energy_remainder_j.is_zero()) remainder[chunk] = 1;
+      if (!c.passive_quantities.empty()) passive_in[chunk].push_back(i);
+    }
+  });
+  require(std::find(remainder.begin(), remainder.end(), std::uint8_t{1}) == remainder.end(),
+          "Game kernel requires binary64 primary energy");
+  require(source.full_momentum_x.empty() && source.full_momentum_y.empty(),
+          "Game kernel requires binary64 canonical momentum");
+  const auto species = table(world.registry(), world.thermodynamics(),
+                             world.settings().game.liquid_stiffness_ratio, world.settings().game.liquid_law);
+  const auto &grid = source.grid;
+  const double volume = grid.volume_m3(), gravity = world.settings().gravity_m_per_s2;
+  // A cell's mass before and after (trace_sink's old_mass and new_mass): its
+  // positive entries in species order, and of them those it keeps.
+  const auto masses_of = [&](std::size_t i) -> const std::vector<double> * {
+    const auto &masses = source.cells[i].mixture.masses;
+    return masses.implicit_zero() ? nullptr : &static_cast<const std::vector<double> &>(masses);
+  };
+  const auto untraced_mass = [&](std::size_t i) {
+    double mass = 0;
+    if (const auto *values = masses_of(i))
+      for (const double m : *values)
+        if (m > 0) mass += m;
+    return mass;
+  };
+  // The traced cells' results, by position in `traced`.
+  struct Traced { double old_mass = 0, new_mass = 0, energy = 0; std::size_t kept = 0, kept_end = 0, passive = 0, passive_end = 0; };
+  std::vector<Traced> cells(traced.size());
+  std::vector<std::uint32_t> kept_species; std::vector<double> kept_mass;
+  std::vector<std::uint64_t> passive_species; std::vector<double> passive_mass;
+  std::vector<k::DoubleDouble> sunk(species.size());
+  k::DoubleDouble internal, potential, kinetic, jx, jy, entropy;
+  std::size_t constituents = 0;
+  // A traced cell's positive entries, for the entropy readings below.
+  std::vector<std::uint32_t> all_species; std::vector<double> all_mass;
+  for (std::size_t n = 0; n < traced.size(); ++n) {
+    const auto i = traced[n];
+    auto &t = cells[n];
+    t.kept = kept_mass.size();
+    all_species.clear(); all_mass.clear();
+    double cv0 = 0, cv1 = 0, off0 = 0, off1 = 0;
+    if (const auto *values = masses_of(i)) {
+      std::uint32_t key = 0;
+      for (const double m : *values) {
+        if (m > 0) {
+          all_species.push_back(key); all_mass.push_back(m);
+          t.old_mass += m;
+          const auto &s = species[key];
+          cv0 += m * s.cv;
+          off0 += m * s.offset;
+          if (m < threshold) {
+            sunk[key].add(m);
+            ++constituents;
+          } else {
+            t.new_mass += m;
+            cv1 += m * s.cv;
+            off1 += m * s.offset;
+            kept_species.push_back(key); kept_mass.push_back(m);
+          }
+        }
+        ++key;
+      }
+    }
+    t.kept_end = kept_mass.size();
+    const double energy = source.cells[i].mixture.energy;
+    t.energy = t.new_mass == 0 ? 0 : off1 + (energy - off0) * (cv1 / cv0);
+    internal.add(energy);
+    internal.add(-t.energy);
+    entropy.add(k::entropy_selected(
+        species, all_mass.size(), [&](std::size_t a) { return all_species[a]; }, [&](std::size_t a) { return all_mass[a]; },
+        k::evaluate_selected(species, all_mass.size(), [&](std::size_t a) { return all_species[a]; },
+                             [&](std::size_t a) { return all_mass[a]; }, energy, volume)));
+    {
+      const auto first = t.kept, count = t.kept_end - t.kept;
+      const auto key = [&](std::size_t a) { return kept_species[first + a]; };
+      const auto mass = [&](std::size_t a) { return kept_mass[first + a]; };
+      entropy.add(-k::entropy_selected(species, count, key, mass,
+                                       k::evaluate_selected(species, count, key, mass, t.energy, volume)));
+    }
+    const double factor = gravity * (static_cast<double>(i / grid.width) + .5) * grid.spacing_m;
+    potential.add(t.old_mass * factor);
+    potential.add(-t.new_mass * factor);
+  }
+  // Where a cell is in `traced`, if it is.
+  const auto traced_at = [&](std::size_t i) -> Traced * {
+    const auto at = std::lower_bound(traced.begin(), traced.end(), i);
+    return at != traced.end() && *at == i ? &cells[static_cast<std::size_t>(at - traced.begin())] : nullptr;
+  };
+  // Passives: every cell holding any, in cell order, as trace_sink shares
+  // them (a cell without a trace gets back exactly what it held).
+  std::vector<std::pair<std::uint64_t, double>> passives_out;
+  bool any_passive = false;
+  for (const auto &list : passive_in) any_passive = any_passive || !list.empty();
+  if (any_passive) {
+    std::map<std::uint64_t, k::DoubleDouble> passive_sink;
+    for (const auto &list : passive_in)
+      for (const auto i : list) {
+        auto *t = traced_at(i);
+        const double old_mass = t ? t->old_mass : untraced_mass(i);
+        const double new_mass = t ? t->new_mass : old_mass;
+        if (t) t->passive = passive_mass.size();
+        for (const auto &q : source.cells[i].passive_quantities) {
+          if (!(old_mass > 0))
+            throw std::runtime_error("Private trace passive without material");
+          const double share = new_mass == 0 ? 0 : q.quantity * (new_mass / old_mass);
+          if (t && share > 0) { passive_species.push_back(q.identity); passive_mass.push_back(share); }
+          passive_sink[q.identity].add(q.quantity);
+          passive_sink[q.identity].add(-share);
+        }
+        if (t) t->passive_end = passive_mass.size();
+      }
+    for (const auto &[identity, value] : passive_sink)
+      if (value.value() != 0)
+        passives_out.emplace_back(identity, value.value());
+  }
+  // Faces: a face's J follows its inertia where an endpoint lost a trace,
+  // every x face in face order, then every y face.
+  const auto mass_before = [&](std::size_t i) {
+    if (i == std::numeric_limits<std::size_t>::max()) return 0.;
+    const auto *t = traced_at(i);
+    return t ? t->old_mass : untraced_mass(i);
+  };
+  const auto mass_after = [&](std::size_t i) {
+    if (i == std::numeric_limits<std::size_t>::max()) return 0.;
+    const auto *t = traced_at(i);
+    return t ? t->new_mass : untraced_mass(i);
+  };
+  // The moved faces' new J, x faces first.
+  std::vector<std::pair<std::size_t, double>> moved_x, moved_y;
+  for (const bool x : {true, false}) {
+    std::vector<std::size_t> face_list;
+    face_list.reserve(2 * traced.size());
+    for (const auto i : traced) {
+      const auto [a, b] = cell_faces(grid, i, x);
+      face_list.push_back(a); face_list.push_back(b);
+    }
+    std::sort(face_list.begin(), face_list.end());
+    face_list.erase(std::unique(face_list.begin(), face_list.end()), face_list.end());
+    const auto &old = x ? source.momentum_x : source.momentum_y;
+    auto &next = x ? moved_x : moved_y;
+    auto &carried = x ? jx : jy;
+    std::vector<std::pair<std::size_t, std::pair<double, double>>> moved;
+    for (const auto f : face_list) {
+      if (old[f] == 0) continue;
+      const auto [l, r] = endpoints(grid, x, f);
+      const double I0 = .5 * (mass_before(l) + mass_before(r)), I1 = .5 * (mass_after(l) + mass_after(r));
+      if (I0 != I1) moved.push_back({f, {I0, I1}});
+    }
+    for (const auto &[f, inertia] : moved) {
+      const auto [I0, I1] = inertia;
+      if (!(I0 > 0))
+        throw std::runtime_error("Private trace J without inertia");
+      const double j = I1 == 0 ? 0 : old[f] * (I1 / I0);
+      next.push_back({f, j});
+      carried.add(old[f]);
+      carried.add(-j);
+      kinetic.add(.5 * old[f] * (old[f] / I0));
+      if (j != 0)
+        kinetic.add(-.5 * j * (j / I1));
+    }
+  }
+  // The traced cells' occupied volumes, from their readings.
+  std::vector<double> occupied(traced.size());
+  for (std::size_t n = 0; n < traced.size(); ++n) {
+    const auto i = traced[n]; const auto &t = cells[n];
+    k::Eos eos{};
+    if (!grid.walls[i])
+      eos = k::evaluate_selected(
+          species, t.kept_end - t.kept, [&](std::size_t a) { return kept_species[t.kept + a]; },
+          [&](std::size_t a) { return kept_mass[t.kept + a]; }, t.energy, volume);
+    occupied[n] = eos.mass == 0 ? 0 : eos.nR > 0 ? volume : eos.liquid_volume;
+  }
+  // The traced cells rebuilt (dense()'s partial rebuild, one chunk at a time)
+  // with their readings' occupied volumes; every other cell as it was.
+  auto &result = target();
+  for (const auto &[f, j] : moved_x) result.momentum_x[f] = j;
+  for (const auto &[f, j] : moved_y) result.momentum_y[f] = j;
+  if (result.occupied_volumes_m3.empty()) {
+    result.occupied_volumes_m3.resize(N);
+    const auto &before = std::as_const(result).cells;
+    for (std::size_t i = 0; i < N; ++i)
+      result.occupied_volumes_m3[i] = !grid.walls[i] && before[i].mixture.mass() > 0 ? volume : 0;
+  }
+  for (std::size_t n = 0; n < traced.size(); ++n) result.occupied_volumes_m3[traced[n]] = occupied[n];
+  const auto registry_size = world.registry().size();
+  std::vector<std::uint8_t> rebuilt(N);
+  for (const auto i : traced) rebuilt[i] = 1;
+  for (std::size_t first = 0; first < traced.size();) {
+    const auto chunk = traced[first] / conversion_chunk;
+    std::size_t end = first;
+    while (end < traced.size() && traced[end] / conversion_chunk == chunk) ++end;
+    result.cells.rewrite_chunk(
+        chunk, [&](std::size_t i) { return rebuilt[i] != 0; },
+        [&](std::size_t i) {
+          const auto &t = *traced_at(i);
+          MacMaterialCell cell{MixtureInventory(registry_size), {}, {}};
+          cell.mixture.energy = t.energy;
+          // The masses dense() writes, held frozen; a cell with no
+          // constituent keeps the shared zeros, as there.
+          if (t.kept < t.kept_end) {
+            std::vector<double> masses(registry_size, 0.0);
+            for (std::size_t a = t.kept; a < t.kept_end; ++a)
+              masses[kept_species[a]] = kept_mass[a];
+            cell.mixture.masses = MassStorage::frozen(std::move(masses));
+          }
+          for (std::size_t a = t.passive; a < t.passive_end; ++a)
+            cell.passive_quantities.push_back({passive_species[a], passive_mass[a]});
+          return cell;
+        });
+    first = end;
+  }
+  std::vector<double> sunk_mass(species.size());
+  for (std::size_t key = 0; key < species.size(); ++key)
+    sunk_mass[key] = sunk[key].value();
+  fill_trace(report, sunk_mass, internal.value(), kinetic.value(), potential.value(),
+             jx.value(), jy.value(), passives_out);
+  report.constituents = constituents;
+  report.cells = traced.size();
+  return true;
+}
+} // namespace
 MacTraceSink MacGameKernelAccess::trace(const MacClosedWorld &world,
                                        std::span<const std::uint8_t> eligible) {
   require(eligible.empty() || eligible.size() == world.state().cells.size(),
           "Trace activity coverage differs");
   MacTraceSink out{world, {}};
-  const double threshold = world.settings_.trace_sink_threshold_kg;
-  if (threshold == 0)
-    return out;
-  // The cells that hold a trace: the only cells the sink changes (trace.hpp).
-  // The scan, the sparse fields and the sink's cell passes run on the pool in
-  // fixed chunks and row blocks; every value is that of a serial pass.
-  const auto N = world.state().cells.size();
-  auto &pool = mac_kernel::pool_for(mac_kernel_default_options().threads);
-  std::vector<std::uint8_t> traced(N);
-  std::vector<std::uint8_t> any((N + conversion_chunk - 1) / conversion_chunk);
-  chunks(&pool, N, [&](std::size_t chunk, std::size_t first, std::size_t end) {
-    for (std::size_t i = first; i < end; ++i) {
-      if (!eligible.empty() && !eligible[i]) continue;
-      const auto &c = world.state().cells[i];
-      if (!c.mixture.masses.implicit_zero())
-        for (double m : c.mixture.masses)
-          if (m > 0 && m < threshold) { traced[i] = 1; any[chunk] = 1; break; }
-    }
-  });
-  if (std::find(any.begin(), any.end(), std::uint8_t{1}) == any.end())
-    return out;
-  const auto species = table(world.registry_, *world.thermodynamics_,
-                             world.settings_.game.liquid_stiffness_ratio, world.settings_.game.liquid_law);
-  const auto state = sparse(world.state(), &pool);
-  auto sunk = k::trace_sink(world.state().grid, species, state, threshold,
-                            world.settings_.gravity_m_per_s2, nullptr, nullptr, &pool, eligible);
-  // Only the traced cells are rewritten, and only they need a reading. (Until
-  // 1.13.0 every eligible cell was read and rewritten with the values it
-  // already held: in a colony with thin gas at open sky that was the whole
-  // stepped world, 15 ms a frame, and it cost the next frame its cached
-  // sparse lists.)
-  // dense() reads the readings of the rebuilt (traced) cells alone, all
-  // written here: a grid of readings is kept between calls rather than
-  // allocated and zeroed (25 MB on a 256,000-cell map) each time.
-  thread_local std::vector<k::Eos> readings;
-  if (readings.size() != state.energy.size()) readings.assign(state.energy.size(), k::Eos{});
-  for (std::size_t i = 0; i < readings.size(); ++i)
-    if (traced[i]) {
-      if (world.state().grid.walls[i]) { readings[i] = k::Eos{}; continue; }
-      const auto a = sunk.state.masses.offsets[i],
-                 n = sunk.state.masses.offsets[i + 1] - a;
-      readings[i] = k::evaluate_selected(
-          species, n, [&](auto p) { return sunk.state.masses.species[a + p]; },
-          [&](auto p) { return sunk.state.masses.mass[a + p]; },
-          sunk.state.energy[i], world.state().grid.volume_m3());
-    }
-  out.world = world.derived(
-      dense(world.state(), sunk.state, world.registry_.size(), readings, nullptr, traced));
-  fill_trace(out.report, sunk.mass, sunk.internal, sunk.kinetic, sunk.potential,
-             sunk.jx, sunk.jy, sunk.passives);
-  out.report.constituents = sunk.constituents;
-  out.report.cells = sunk.cells;
+  std::optional<MacTransportState> copy;
+  const auto copied = [&]() -> MacTransportState & {
+    const auto &source = world.state();
+    copy.emplace();
+    copy->grid = source.grid;
+    copy->cells = source.cells;
+    copy->momentum_x = source.momentum_x;
+    copy->momentum_y = source.momentum_y;
+    copy->occupied_volumes_m3 = source.occupied_volumes_m3;
+    return *copy;
+  };
+  if (sink_traced_cells(world, eligible, copied, out.report))
+    out.world = world.derived(std::move(*copy));
   return out;
+}
+MacTraceSink MacGameKernelAccess::trace(MacClosedWorld &&world,
+                                       std::span<const std::uint8_t> eligible) {
+  if (world.state_snapshot_.use_count() != 1)
+    return trace(std::as_const(world), eligible);
+  require(eligible.empty() || eligible.size() == world.state().cells.size(),
+          "Trace activity coverage differs");
+  // No other world shares this state: the sink writes it in place (after
+  // every check, so a refused sink leaves it as it was).
+  MacTraceSinkReport report;
+  auto &state = const_cast<MacTransportState &>(*world.state_snapshot_);
+  if (!sink_traced_cells(world, eligible, [&]() -> MacTransportState & { return state; }, report))
+    return {std::move(world), {}};
+  MacClosedWorld result(MacClosedWorld::Derived{}, world, world.state_snapshot_);
+  world.state_snapshot_.reset(); // the result now owns the state
+  return {std::move(result), std::move(report)};
 }
 namespace {
 std::pair<std::size_t, std::size_t> endpoints(const MacGrid &g, bool x,
