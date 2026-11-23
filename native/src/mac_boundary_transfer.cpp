@@ -694,53 +694,80 @@ MacClosedWorld MacClosedWorld::with_passive_edits(std::span<const MacPassiveEdit
 bool MacClosedWorld::carries_passives() const noexcept {
     return settings_.numerical_kernel==MacNumericalKernel::game && settings_.game_profile==MacGameProfile::game_kernel_thin_drag;
 }
+namespace {
+// with_carried_passives: the gas and liquid a cell holds.
+std::pair<double,double> carried_phases(const SpeciesRegistry& registry,const MixtureInventory& mixture) {
+    std::pair<double,double> held{};
+    for (std::size_t k=0;k<registry.size();++k) (registry[k].phase==Phase::gas ? held.first : held.second)+=mixture.masses[k];
+    return held;
+}
+// The carrier a cell leaves a passive: its own while the cell holds that
+// phase, otherwise the phase the cell does hold; a plain passive goes to
+// the phase holding most of the cell's mass.
+std::uint64_t carried_carrier(std::uint64_t identity,double gas,double liquid) {
+    const auto named=identity & passive_carrier_mask;
+    if (named==passive_liquid_carrier) return liquid>0 ? passive_liquid_carrier : passive_gas_carrier;
+    if (named==passive_gas_carrier) return gas>0 ? passive_gas_carrier : passive_liquid_carrier;
+    return liquid>=gas && liquid>0 ? passive_liquid_carrier : passive_gas_carrier;
+}
+// The cells to relabel, in cell order: found per fixed block of cells on
+// the pool, joined in block order.
+std::vector<std::size_t> recarried_cells(const MacTransportState& before,const SpeciesRegistry& registry) {
+    std::vector<std::size_t> changed;
+    constexpr std::size_t block=4096;
+    const auto blocks=(before.cells.size()+block-1)/block;
+    std::vector<std::vector<std::size_t>> found(blocks);
+    const auto threads=static_cast<unsigned>(std::min<std::size_t>(mac_kernel_default_options().threads,std::max<std::size_t>(1,blocks)));
+    mac_kernel::pool_for(threads).run(blocks,[&](std::size_t b) {
+        for (std::size_t i=b*block,end=std::min(before.cells.size(),i+block);i<end;++i) {
+            const auto& cell=before.cells[i];
+            if (cell.passive_quantities.empty()) continue;
+            const auto [gas,liquid]=carried_phases(registry,cell.mixture);
+            for (const auto& q : cell.passive_quantities)
+                if ((q.identity & passive_carrier_mask)!=carried_carrier(q.identity,gas,liquid)) { found[b].push_back(i); break; }
+        }
+    });
+    for (const auto& list : found) changed.insert(changed.end(),list.begin(),list.end());
+    return changed;
+}
+// A cell's passives under their carriers, merged per identity in order.
+PassiveQuantities recarried(const SpeciesRegistry& registry,const MacMaterialCell& cell) {
+    const auto [gas,liquid]=carried_phases(registry,cell.mixture);
+    std::map<std::uint64_t,double> held;
+    for (const auto& q : cell.passive_quantities) held[plain_passive_identity(q.identity)|carried_carrier(q.identity,gas,liquid)]+=q.quantity;
+    PassiveQuantities out;
+    for (const auto& [identity,quantity] : held) out.push_back({identity,quantity});
+    validate_passive_quantities(out);
+    return out;
+}
+}
 MacClosedWorld MacClosedWorld::with_carried_passives() const {
     if (!carries_passives()) return *this;
     const auto& before=state();
-    // The carrier a cell leaves a passive: its own while the cell holds that
-    // phase, otherwise the phase the cell does hold; a plain passive goes to
-    // the phase holding most of the cell's mass.
-    const auto phases=[&](const MixtureInventory& mixture) {
-        std::pair<double,double> held{};
-        for (std::size_t k=0;k<registry_.size();++k) (registry_[k].phase==Phase::gas ? held.first : held.second)+=mixture.masses[k];
-        return held;
-    };
-    const auto carrier=[](std::uint64_t identity,double gas,double liquid) {
-        const auto named=identity & passive_carrier_mask;
-        if (named==passive_liquid_carrier) return liquid>0 ? passive_liquid_carrier : passive_gas_carrier;
-        if (named==passive_gas_carrier) return gas>0 ? passive_gas_carrier : passive_liquid_carrier;
-        return liquid>=gas && liquid>0 ? passive_liquid_carrier : passive_gas_carrier;
-    };
-    // The cells to relabel, in cell order: found per fixed block of cells
-    // on the pool, joined in block order.
-    std::vector<std::size_t> changed;
-    {
-        constexpr std::size_t block=4096;
-        const auto blocks=(before.cells.size()+block-1)/block;
-        std::vector<std::vector<std::size_t>> found(blocks);
-        const auto threads=static_cast<unsigned>(std::min<std::size_t>(mac_kernel_default_options().threads,std::max<std::size_t>(1,blocks)));
-        mac_kernel::pool_for(threads).run(blocks,[&](std::size_t b) {
-            for (std::size_t i=b*block,end=std::min(before.cells.size(),i+block);i<end;++i) {
-                const auto& cell=before.cells[i];
-                if (cell.passive_quantities.empty()) continue;
-                const auto [gas,liquid]=phases(cell.mixture);
-                for (const auto& q : cell.passive_quantities)
-                    if ((q.identity & passive_carrier_mask)!=carrier(q.identity,gas,liquid)) { found[b].push_back(i); break; }
-            }
-        });
-        for (const auto& list : found) changed.insert(changed.end(),list.begin(),list.end());
-    }
+    const auto changed=recarried_cells(before,registry_);
     if (changed.empty()) return *this;
     auto next=before;
     for (const auto i : changed) {
         auto& cell=next.cells[i];
-        const auto [gas,liquid]=phases(cell.mixture);
-        std::map<std::uint64_t,double> held;
-        for (const auto& q : cell.passive_quantities) held[plain_passive_identity(q.identity)|carrier(q.identity,gas,liquid)]+=q.quantity;
-        cell.passive_quantities.clear();
-        for (const auto& [identity,quantity] : held) cell.passive_quantities.push_back({identity,quantity});
-        validate_passive_quantities(cell.passive_quantities);
+        cell.passive_quantities=recarried(registry_,cell);
     }
     return derived(std::move(next));
+}
+MacClosedWorld MacGameKernelAccess::carried_passives(MacClosedWorld&& world) {
+    if (!world.carries_passives()) return std::move(world);
+    if (world.state_snapshot_.use_count()!=1) return std::as_const(world).with_carried_passives();
+    const auto& before=world.state();
+    const auto changed=recarried_cells(before,world.registry_);
+    if (changed.empty()) return std::move(world);
+    // Every cell's new list first (a refused one leaves the world as it was),
+    // then written in place: no other world shares this state.
+    std::vector<PassiveQuantities> lists; lists.reserve(changed.size());
+    for (const auto i : changed) lists.push_back(recarried(world.registry_,before.cells[i]));
+    if (world.revision_ == std::numeric_limits<std::uint64_t>::max()) throw std::overflow_error("MAC closed revision overflow");
+    MacClosedWorld result(MacClosedWorld::Derived{},world,world.state_snapshot_);
+    auto& next=const_cast<MacTransportState&>(*world.state_snapshot_);
+    for (std::size_t n=0;n<changed.size();++n) next.cells[changed[n]].passive_quantities.swap(lists[n]);
+    world.state_snapshot_.reset(); // the result now owns the state
+    return result;
 }
 }

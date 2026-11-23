@@ -3690,7 +3690,7 @@ MacClosedWorld evolve_germs(Session& s, MacClosedWorld world, std::span<const Ge
                 if (gas_needed || liquid_needed) stale[block] = 1;
             }
         });
-        if (std::find(stale.begin(), stale.end(), 1) != stale.end()) world = world.with_carried_passives();
+        if (std::find(stale.begin(), stale.end(), 1) != stale.end()) world = MacGameKernelAccess::carried_passives(std::move(world));
     }
     const auto& st = world.state();
     // The germ cells of a state, in cell order: found per block on the pool,

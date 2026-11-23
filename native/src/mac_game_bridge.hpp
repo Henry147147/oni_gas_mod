@@ -34,6 +34,9 @@ struct MacGameKernelAccess {
   static bool detach_heat_state(MacClosedWorld &, std::span<const std::uint8_t> owned_chunks = {});
   static MacClosedWorld flow_return(const MacClosedWorld &, std::span<const MacFlowReturn>, long double *);
   static MacClosedWorld flow_return(MacClosedWorld &&, std::span<const MacFlowReturn>, long double *);
+  // MacClosedWorld::with_carried_passives, in place when no other world
+  // shares the source's state; the result is the copying form's.
+  static MacClosedWorld carried_passives(MacClosedWorld &&);
   // Diagnostics: the stage times of this thread's last game advance.
   static MacClosedAdvanceReport::GameStages &last_stages() noexcept {
     thread_local MacClosedAdvanceReport::GameStages stages;
