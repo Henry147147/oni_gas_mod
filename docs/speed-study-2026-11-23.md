@@ -350,6 +350,76 @@ equalise as the uncut room does within a stated bound; mass, energy and
 germs closed across cuts; cuts moving under a dig), not a change to slip
 into a point release.
 
+### The cut prototype, measured
+
+After the user ruled out the slower fluid and the step every N ticks, the
+cut was built as a prototype behind switches
+(`artifacts/v1.13.1/study/cut-regions-prototype.patch`, in
+`regional_tick.hpp` only; not in any release). A wall-separated region of
+more than twice the target size is cut by the straight cuts above into
+pieces; each piece is stepped as a region of its own with the cut faces as
+walls; after the step gas crosses the cut faces in an exchange step, and
+liquid above a horizontal cut falls into the piece below. Mass and energy
+close to the solver's audits (the exchange carries each gas with its
+enthalpy, pays the lift, and settles the change in the neighbouring faces'
+kinetic energy; momentum left on a face when it becomes a cut turns into
+heat and is booked as a wall's).
+
+Speed, fast settings, measured while the 1.13.1 acceptance run shared the
+host (the fast settings alone read 98 to 105 ms in the same batches, 90 ms
+on the quiet host):
+
+| Pieces of about | Regions' flow (`regional_run`) | Owner tick | Of the fast settings alone |
+| --- | ---: | ---: | ---: |
+| uncut | 53 to 57 ms | 98 to 105 ms | 100 % |
+| 3,000 cells | 23.5 ms | 71 ms | 72 % |
+| 1,600 cells | 16 to 21 ms | 65 to 77 ms | 62 to 78 % |
+| 800 cells | 12 to 17 ms | 57 to 80 ms | 58 to 76 % |
+
+With the saved settings the tick went from 162 to 84 ms in the same batch
+(regions 108 to 26 ms). The regions' flow falls as estimated; the spread in
+the tick is the busy host and the exchange's own cost, which is not yet
+optimised (a hash map and an equation-of-state read per transfer). What is
+left of the tick is then almost all owner-thread work: about 44 ms.
+
+Accuracy depends entirely on the law by which gas crosses a cut. Deviation
+from the uncut run after 90 s, fast settings, tiles holding at least 100 g
+(the fast settings alone: pressure 0.011 % on average, temperature 0.15 K
+on average and 2.0 K at the 99th percentile):
+
+| Exchange law | Pressure, mean / 99th pct | Temperature, mean / 99th pct | What goes wrong |
+| --- | --- | --- | --- |
+| Pieces sealed (no exchange) | 0.7 % / 4 % | 0.5 K / 4 K | rooms drift apart |
+| The two cells at each cut face equalised (carrying internal energy, faces beside a film closed) | 0.67 % / 3.2 % | 0.64 K / 7.5 K | a 248 K and a 308 K cell at a cut; pieces joined only by a wet shaft sealed off, 2 kPa steps |
+| The same, carrying enthalpy, wet faces open | 0.49 % / 2.1 % | 0.45 K / 4.6 K | the cut faces match (9.9 Pa mean step against 9.4 uncut), but a one-cell shaft passes only what levels two cells a tick: a chamber fed from below ran 2 % above and the one above it 1.7 % below their uncut pressures |
+| All pieces of a region levelled at once from the two cells at each cut | worse (1 % / 29 %) | 1.0 K / 9.5 K | the cells at the cut are disturbed by the last transfer, so the law chases its own spikes; pieces needed 6 intervals a tick |
+| **All pieces levelled at once from each piece's mean pressure carried to the cut's height**, at most 20 % of a donor cell a tick, half relaxed | **0.044 % / 0.9 %** (0.041 % / 0.35 % with 1,600-cell pieces) | **0.32 K / 3.9 K** (0.28 K / 3.3 K) | nothing visible in these figures |
+
+So the last law keeps rooms level through narrow passages, and with it the
+cut costs about as much accuracy again as the fast settings do. What the
+prototype still leaves out, each of which a real version needs:
+
+- **Germs do not cross a cut** with the gas that carries them.
+- **Liquid crosses only downward.** A pool that a vertical cut runs through
+  cannot level across it.
+- **Momentum does not cross**: a draught through an opening is stopped at a
+  cut and restarted by the pressure it builds.
+- **Heat crosses only with the gas**, not by conduction through the cut
+  face.
+- A face force (a fan) on a cut face is ignored.
+- The pieces are re-cut from scratch when the map changes.
+
+The second opinion asked for (Codex, `artifacts/v1.13.1/study/codex/answer1.txt`)
+argues for the exact form instead: keep one pressure system for the whole
+region, use the pieces as a two-level preconditioner for it, and split each
+other stage (transport, layering, sharpening, heat) over the pieces inside
+one tick, so that every face keeps one owner and the discrete physics is
+the uncut solver's. That removes the list above by construction and is the
+better end state; it is also a rewrite of the tick's stages rather than of
+the region bookkeeping. The prototype answers what the simple form buys
+(regions 53 → 16 ms) and what it costs (the table), which is the case for
+or against doing either.
+
 ## Tried and dropped
 
 | Idea | Result |
