@@ -4094,11 +4094,17 @@ void run_frame(std::uint64_t ticket,double seconds,std::uint64_t frames,const ch
         // The frame's first in-place edit detaches the state the published
         // world shares; an identical copy prepared while the owner was idle
         // saves that copy on the frame's critical path.
+        // Without one (the next frame was already waiting, as when the owner
+        // sets the pace), the same copy is made here: the state, and on the
+        // pool the cell chunks the last frame's heat edits wrote, which this
+        // frame's heat edits would otherwise copy one by one as they write.
         auto world = [&] {
             std::optional<MacClosedWorld> prepared; prepared.swap(s.prepared);
             const bool current = prepared && s.prepared_source == s.world; s.prepared_source.reset();
-            if (current) prepared_world_uses.fetch_add(1, std::memory_order_relaxed);
-            return current ? std::move(*prepared) : *s.world;
+            if (current) { prepared_world_uses.fetch_add(1, std::memory_order_relaxed); return std::move(*prepared); }
+            MacClosedWorld copy = *s.world;
+            if (!flush_only) try { (void)MacGameKernelAccess::detach_heat_state(copy, s.heat_chunks); } catch (...) {}
+            return copy;
         }();
         if(activity && activity->mode) {
             if(world.settings().game.activity_tiers!=*activity->mode)s.biology_pending_s.assign(world.state().cells.size(),0);
