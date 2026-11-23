@@ -2184,12 +2184,14 @@ nonsaved execution history:
   region stays a candidate down to 15 ms. Costs scale with the due duration,
   so a held region cannot borrow a cadence or force physical work.
 - The budget is the configured worker count. One worker is kept for all
-  other regions when there are any; the rest is divided evenly among the
-  candidates, at most four workers each (more bought nothing: most of a
-  region's interval is serial) and never more than a region has row blocks.
-  When the budget cannot give every candidate two workers, the cheapest
-  candidates wait on the residual workers. Budgets of one and two keep the
-  original dispatch.
+  other regions when there are any; the rest is divided among the
+  candidates by their predicted work: each starts with two, and every
+  further worker goes to the candidate with the most predicted work per
+  worker that can still take one (the costlier on a tie), at most four
+  workers each and never more than a region has row blocks. Workers no
+  candidate can take join the residual pool. When the budget cannot give
+  every candidate two workers, the cheapest candidates wait on the
+  residual workers. Budgets of one and two keep the original dispatch.
 - A new region starts on a residual worker until it has two serial samples.
   An edited region can keep its measurements if its global representative
   stays the same and its cell count changes by at most 1/256 of the previous
@@ -2221,7 +2223,7 @@ activity clocks and all checkpoint layouts are unchanged: which thread runs a
 region, and with how many workers, never changes a result.
 
 The native control (`ma_mac_game_kernel_tests`, "bounded regional execution")
-supplies measured costs explicitly and verifies the gates, the even division
+supplies measured costs explicitly and verifies the gates, the division by work
 for budgets 3 to 40, admission costliest first, hysteresis, staggered probes,
 failed-work isolation, due-mask sleep and wake, topology remapping and cold
 equality; three expensive regions beside a cheap one give the single-worker
@@ -2240,6 +2242,19 @@ region gives 84.7 ms of regional run and a limit of six 80.8 ms, so four
 stays. Six captures and six generated colonies end on the previous binary's
 final hash at every worker count from 1 to 24
 ([1.10.0](../docs/playtest-1.10.0.md)).
+
+Since 2026-11-23 the workers are divided by predicted work instead of
+evenly; before, three candidates on twelve workers got three each and the
+costliest region waited for the others. On the November 22 colony (fast
+settings, twelve workers, game-free replay on a host shared with other
+work, two interleaved runs each), the division by work takes the regional
+run from 42.8-44.8 to 40.2-41.3 ms and the owner tick from 76.8-79.5 to
+73.8-75.3 ms; its main region (12,374 cells) falls from 39.8-41.8 to
+36.3-37.4 ms. Limits of eight and eleven workers (MA_REGION_WORKERS) give
+44.0-45.6 and 45.5-49.5 ms of regional run against 40.6-41.9 ms for four:
+the main region takes 35-38 ms with four to eight workers alike on that
+host, and the workers it takes from the other regions slow them, so four
+stays.
 
 ## Exact transfer reading reuse
 

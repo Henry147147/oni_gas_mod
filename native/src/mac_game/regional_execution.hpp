@@ -73,9 +73,8 @@ public:
   static constexpr double minimum_work_ms=20;
   static constexpr double retained_work_ms=15;
   static constexpr unsigned probe_interval=16;
-  // More inner workers than this bought nothing on the measured colonies:
-  // most of a region's interval is serial (MAC_GAME_KERNEL.md, regional
-  // execution).
+  // The most inner workers a region gets: more bought nothing on the
+  // measured colonies (MAC_GAME_KERNEL.md, regional execution).
   static constexpr unsigned maximum_inner_threads=4;
   // MA_REGION_WORKERS overrides the limit for measurements (2 to 64).
   [[nodiscard]] static unsigned inner_limit() noexcept {
@@ -113,9 +112,12 @@ public:
   }
   // Every region with enough measured serial work gets workers of its own:
   // the budget, less one worker for the other regions when there are any, is
-  // divided evenly among them, at most `maximum_inner_threads` each and never
-  // more than a region has row blocks. When the budget cannot give each two
-  // workers, the cheapest wait their turn on the residual workers.
+  // divided among them, at most `maximum_inner_threads` each and never more
+  // than a region has row blocks. Each starts with two; every further worker
+  // goes to the region with the most predicted work per worker that can
+  // still take one (the costlier region on a tie), so the costliest region,
+  // which bounds the interval, gets the most. When the budget cannot give
+  // each two workers, the cheapest wait their turn on the residual workers.
   [[nodiscard]] RegionExecutionDecision plan(std::span<const RegionExecutionWork> work,unsigned budget) const {
     RegionExecutionDecision result;
     if(budget<=2 || work.size()<=1)return result;
@@ -156,12 +158,19 @@ public:
     if(count==0) {
       result.reason=probe?RegionExecutionReason::serial_probe:RegionExecutionReason::serial_budget;return result;
     }
-    const unsigned share=std::min<unsigned>(inner_limit(),(budget-residual_needed(count))/static_cast<unsigned>(count));
+    std::vector<unsigned> threads(count,2);
+    unsigned spare=budget-residual_needed(count)-2*static_cast<unsigned>(count);
+    const auto cap=[&](std::size_t c){return std::min(inner_limit(),work[candidates[c].region].maximum_threads);};
+    while(spare>0) {
+      std::optional<std::size_t> best;
+      for(std::size_t c=0;c<count;++c)
+        if(threads[c]<cap(c) && (!best || candidates[c].predicted*threads[*best]>candidates[*best].predicted*threads[c]))best=c;
+      if(!best)break;
+      ++threads[*best];--spare;
+    }
     unsigned used=0;
     for(std::size_t c=0;c<count;++c) {
-      const auto region=candidates[c].region;
-      const unsigned threads=std::min(share,work[region].maximum_threads);
-      result.parallel.push_back({region,threads});used+=threads;
+      result.parallel.push_back({candidates[c].region,threads[c]});used+=threads[c];
     }
     result.residual_threads=budget-used;
     result.reason=RegionExecutionReason::parallel;return result;

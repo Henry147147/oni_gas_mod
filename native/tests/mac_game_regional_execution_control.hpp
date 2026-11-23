@@ -60,7 +60,7 @@ inline void regional_execution_control() {
   const auto sound=[&](const k::RegionExecutionDecision& d,std::span<const k::RegionExecutionWork> items,unsigned budget) {
     unsigned used=d.residual_threads;std::set<std::size_t> seen;
     for(const auto& share:d.parallel) {
-      if(share.threads<2 || share.threads>History::maximum_inner_threads || share.threads>items[share.region].maximum_threads || !seen.insert(share.region).second)return false;
+      if(share.threads<2 || share.threads>History::inner_limit() || share.threads>items[share.region].maximum_threads || !seen.insert(share.region).second)return false;
       used+=share.threads;
     }
     return d.parallel.empty() || (used<=budget && (d.parallel.size()==items.size() || d.residual_threads>=1));
@@ -70,17 +70,24 @@ inline void regional_execution_control() {
   h.committed(work,serial,{});check(h.plan(work,12).parallel.empty(),"One timing sample selected inner workers");
   h.committed(work,serial,{});
   for(const unsigned workers:{1U,2U})check(h.plan(work,workers).parallel.empty(),"Small worker budget changed original dispatch");
+  const unsigned alone=std::min(History::inner_limit(),11U);
   check(h.plan(work,3).threads_of(0)==2 && h.plan(work,3).residual_threads==1 && h.plan(work,4).threads_of(0)==3 &&
-    h.plan(work,12).threads_of(0)==4 && h.plan(work,12).residual_threads==8,"Regional inner budget is not bounded");
+    h.plan(work,12).threads_of(0)==alone && h.plan(work,12).residual_threads==12-alone,"Regional inner budget is not bounded");
   auto decision=h.plan(work,12);check(decision.parallel.size()==1 && decision.parallel[0].region==0 && sound(decision,work,12),"Expensive region did not select inner workers");
   h.committed(work,parallel,decision);check(h.selected.contains(left) && !h.selected.contains(right),"Committed dispatch was not remembered");
   // A second expensive region no longer takes the first one's workers away:
-  // both get a set of their own, and the budget is divided between them.
+  // both get a set of their own, and the budget is divided between them by
+  // their work: the larger of the two works per worker is as small as any
+  // division of the budget makes it, and the costlier region gets at least
+  // as many workers.
   h.costs[right].serial_ms_per_second=70/.2;
   for(const unsigned budget:{4U,5U,6U,8U,12U,16U,32U}) {
     const auto both=h.plan(work,budget);
+    const unsigned a=both.threads_of(0),b=both.threads_of(1),cap=std::min(History::inner_limit(),8U);
+    double best=1e300;
+    for(unsigned x=2;x<=cap;++x)for(unsigned y=2;y<=cap && x+y<=budget;++y)best=std::min(best,std::max(100./x,70./y));
     check(both.parallel.size()==2 && both.parallel[0].region==0 && both.parallel[1].region==1 && sound(both,work,budget) &&
-      both.threads_of(0)==both.threads_of(1) && both.threads_of(0)==std::min(History::maximum_inner_threads,budget/2),"Two expensive regions did not share the workers evenly");
+      a>=b && a+b==std::min(budget,2*cap) && std::max(100./a,70./b)==best,"Two expensive regions did not divide the workers by their work");
   }
   check(h.plan(work,3).parallel.size()==1 && h.plan(work,3).parallel[0].region==0 && sound(h.plan(work,3),work,3),"A budget of three did not keep the residual worker");
   // Three expensive regions and one cheap one: the cheapest expensive region
@@ -91,7 +98,7 @@ inline void regional_execution_control() {
       const auto d=many.plan(four,budget);
       check(sound(d,four,budget) && !d.parallel.empty() && d.parallel[0].region==1 && d.threads_of(3)==0,"Several expensive regions broke the worker budget");
       check(d.parallel.size()==std::min<std::size_t>(3,(budget-1)/2),"Expensive regions were not admitted costliest first");
-      if(d.parallel.size()==3)check(d.threads_of(2)==std::min({3U,History::maximum_inner_threads,(budget-1)/3}),"A region received more workers than it has row blocks");
+      if(d.parallel.size()==3)check(d.threads_of(2)>=2 && d.threads_of(2)<=3 && d.threads_of(1)>=d.threads_of(0),"A region received more workers than it has row blocks");
     }
     auto all=four;all.pop_back();const auto d=many.plan(all,6);
     check(d.parallel.size()==3 && d.residual_threads==0 && sound(d,all,6),"Regions without a residual did not use the whole budget");}
@@ -101,17 +108,17 @@ inline void regional_execution_control() {
   const auto age=h.selected.at(left);h.committed(held_work,std::array<double,2>{0,0},h.plan(held_work,12));
   check(h.selected.at(left)==age && !h.plan(held_work,12).probe_region,"Paused region aged or ran a serial probe");
   decision=h.plan(work,12);check(decision.probe_region==0 && decision.parallel.empty(),"Selected region did not periodically refresh its serial cost");
-  h.committed(work,serial,decision);check(h.selected.at(left)==0 && h.plan(work,12).threads_of(0)==4,"Serial probe did not resume bounded dispatch");
+  h.committed(work,serial,decision);check(h.selected.at(left)==0 && h.plan(work,12).threads_of(0)==alone,"Serial probe did not resume bounded dispatch");
   // Two selected regions never probe in the same interval: the one that has
   // waited longer goes first and the other keeps its workers.
   {History two;two.costs[left]={100/.2,2};two.costs[right]={80/.2,2};
     two.selected[left]=History::probe_interval;two.selected[right]=History::probe_interval+3;
     auto d=two.plan(work,12);check(d.probe_region==1 && d.parallel.size()==1 && d.parallel[0].region==0,"Two regions probed together or out of turn");
     two.committed(work,std::array<double,2>{40,80},d);check(two.selected.at(right)==0 && two.selected.at(left)==History::probe_interval+1,"A probe did not reset only its own region");
-    d=two.plan(work,12);check(d.probe_region==0 && d.threads_of(1)==4,"The second region did not take its turn");}
+    d=two.plan(work,12);check(d.probe_region==0 && d.threads_of(1)==alone,"The second region did not take its turn");}
   // Entry needs 20 ms of predicted serial work; a selected region stays down to 15 ms.
   h.costs[left].serial_ms_per_second=19/.2;h.costs[right].serial_ms_per_second=1/.2;
-  check(h.plan(work,12).threads_of(0)==4,"A selected region lost its workers just below the entry threshold");
+  check(h.plan(work,12).threads_of(0)==alone,"A selected region lost its workers just below the entry threshold");
   {History fresh;fresh.costs[left]={19/.2,2};fresh.costs[right]={1/.2,2};check(fresh.plan(work,12).parallel.empty(),"Sub-20ms work entered inner parallelism");}
   h.costs[left].serial_ms_per_second=14/.2;check(h.plan(work,12).parallel.empty(),"Sub-15ms work kept inner workers");
   h.committed(work,serial,h.plan(work,12));check(!h.selected.contains(left),"A region that ran serially stayed selected");
@@ -238,6 +245,6 @@ inline void regional_execution_control() {
       a=timed->advance(a,dt,0,1e-11).state;b=serial_many->advance(b,dt,0,1e-11).state;
       check(same(a,b),"Host-timed regional dispatch changed physical binary64 fields");
     }}
-  std::cout<<"PASS bounded regional execution: sleeping pool callers and nested pools, measured-cost gates, a worker set for every expensive region, even budgets, hysteresis, staggered serial probes, workers 1 to 16, sleep/wake, errors, topology and cold physical bytes\n";
+  std::cout<<"PASS bounded regional execution: sleeping pool callers and nested pools, measured-cost gates, a worker set for every expensive region, budgets divided by work, hysteresis, staggered serial probes, workers 1 to 16, sleep/wake, errors, topology and cold physical bytes\n";
 }
 } // namespace ma::testing
