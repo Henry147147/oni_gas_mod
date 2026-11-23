@@ -241,16 +241,21 @@ public:
         nonpositive[block] = any;
       });
       // The ledger's residual and operand sums are separate chains, each
-      // over the cells in cell order; they run side by side.
+      // over the cells in cell order; they run side by side, each in a
+      // local sum of its own.
       Balance audit;
+      std::array<DoubleDouble, 2> chains;
       pool.run(2, [&](std::size_t chain) {
-        auto &sum = chain == 0 ? audit.residual : audit.operands;
+        DoubleDouble sum;
         for (std::size_t i = 0; i < g.N; ++i)
           if (!g.wall[i]) {
             sum.add(chain == 0 ? state.energy[i] : std::abs(state.energy[i]));
             sum.add(chain == 0 ? -result.energy[i] : std::abs(-result.energy[i]));
           }
+        chains[chain] = sum;
       });
+      audit.residual = chains[0];
+      audit.operands = chains[1];
       if (!audit.closed())
         throw std::runtime_error("Private shared heat flux ledger failed");
       result.error = audit.operands.value() ? std::abs(audit.residual.value()) /

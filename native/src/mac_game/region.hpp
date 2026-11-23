@@ -156,6 +156,18 @@ public:
   void momentum(std::size_t cell, bool x, double value) {
     (x ? jx_ : jy_)[region(cell)].add(value);
   }
+  // One axis's momentum accounts, for a caller that books a run of that
+  // axis's loads on another thread: copy them, add with momentum_into in
+  // the order momentum() would have added them, and store them back. The
+  // sums are momentum()'s, kept off the other axis's cache lines.
+  std::vector<Balance> momentum_accounts(bool x) const { return x ? jx_ : jy_; }
+  void momentum_into(std::vector<Balance> &accounts, std::size_t cell,
+                     double value) const {
+    accounts[region(cell)].add(value);
+  }
+  void set_momentum_accounts(bool x, std::vector<Balance> accounts) {
+    (x ? jx_ : jy_) = std::move(accounts);
+  }
   void momentum_receipt(std::size_t cell, bool x, double value,
                         double operands) {
     auto &b = (x ? jx_ : jy_)[region(cell)];

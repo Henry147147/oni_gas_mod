@@ -984,40 +984,45 @@ public:
     result.wall_ops_x += projected.wall_operands_x;
     result.wall_ops_y += projected.wall_operands_y;
     if (regions) {
+      // x faces book only x momenta and y faces only y momenta, so the two
+      // face orders run side by side, each in face order, each on its own
+      // copy of its axis's accounts.
       const auto book = [&](bool x, const auto &left, const auto &right) {
+        auto accounts = regions->momentum_accounts(x);
+        const auto momentum = [&](std::size_t cell, double value) {
+          regions->momentum_into(accounts, cell, value);
+        };
         const auto &blocked = x ? projected.blocked_x : projected.blocked_y;
         const auto &old = x ? initial.jx : initial.jy;
         for (std::size_t f = 0; f < left.size(); ++f) {
           const auto l = left[f], r = right[f];
           if (l == k::none || r == k::none || g.closed(!x, f) || blocked[f]) {
             if (l != k::none)
-              regions->momentum(l, x, -dt * g.A * projected.p[l]);
+              momentum(l, -dt * g.A * projected.p[l]);
             if (r != k::none)
-              regions->momentum(r, x, dt * g.A * projected.p[r]);
+              momentum(r, dt * g.A * projected.p[r]);
             if (blocked[f] && old[f] != 0)
-              regions->momentum(l, x, -old[f]);
+              momentum(l, -old[f]);
           } else {
             if (!x)
-              regions->momentum(l, false,
-                                gravity_rule == 0 && (projected.held_y.empty() || !projected.held_y[f])
-                                    ? -gravity * dt * .5 *
-                                          (eos[l].mass + eos[r].mass)
-                                    : projected.body_impulses_y[f]);
+              momentum(l, gravity_rule == 0 && (projected.held_y.empty() || !projected.held_y[f])
+                              ? -gravity * dt * .5 *
+                                    (eos[l].mass + eos[r].mass)
+                              : projected.body_impulses_y[f]);
             // Profile 12: the thin-gas drag's load on this open face.
             const auto &drag = x ? projected.drag_x : projected.drag_y;
             if (!drag.empty() && drag[f] != 0)
-              regions->momentum(l, x, -drag[f]);
+              momentum(l, -drag[f]);
           }
         }
+        return accounts;
       };
-      // x faces book only x momenta and y faces only y momenta, so the two
-      // face orders run side by side, each in face order.
+      std::array<std::vector<Balance>, 2> booked;
       eos_pool.run(2, [&](std::size_t axis) {
-        if (axis == 0)
-          book(true, g.xl, g.xr);
-        else
-          book(false, g.yl, g.yr);
+        booked[axis] = axis == 0 ? book(true, g.xl, g.xr) : book(false, g.yl, g.yr);
       });
+      regions->set_momentum_accounts(true, std::move(booked[0]));
+      regions->set_momentum_accounts(false, std::move(booked[1]));
       // Face forces: each one's impulse and work come from outside.
       for (std::size_t k = 0; k < projected.force_impulse.size(); ++k)
         if (projected.force_impulse[k] != 0) {
