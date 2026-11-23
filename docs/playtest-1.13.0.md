@@ -249,5 +249,29 @@ Windows game runs are recorded with the package
 
 ## Staged package
 
-The packages are built from the pushed revision; their folder, hashes and the
-acceptance results are added here when they exist.
+Built from `7b521cb` on 2026-11-23 and staged on the private share as
+`releases/1.13.0` (the Workshop upload folder `MixedAtmospheres`, the manual
+ZIP and Steam's single-file form `mod_publish_data_file.zip`) and
+`publish/update-1.13.0` (the same with the private Windows installer). Each
+folder holds this note, the interface documentation, the change note, the
+fan-mod patch and `RELEASE-STATUS.txt` with the test status; `HOLD.txt` stays
+until the release checks have passed. Nothing is uploaded: the Workshop serves
+1.12.2.3.
+
+| Archive | SHA-256 |
+| --- | --- |
+| `MixedAtmospheres-1.13.0.zip` | `dde404474debd2c2796bea04fa7de0302a01dd4f20566f623cec07cde9168ac9` |
+| `MixedAtmospheres-1.13.0-private-windows.zip` | `4eb38401c9fce762ebf2bbf39666298aa120835e1b2be19d637d59c00ab1ea7f` |
+| `mod_publish_data_file.zip` | `1b2c3e4b1494eca5f98ba1da3fab11ff0c63fdba25ab2122bea54d8bfb680337` |
+
+Checks on this revision's packages:
+
+| Check | Result |
+| --- | --- |
+| Linux compatibility build (Ubuntu 22.04 image) and its tests | passed |
+| Windows and Linux acceptance builds | passed |
+| Release folder and both ZIPs, file by file; contracts for builds 744825, 763796 and 764025 on both platforms | verified, 0 contract differences |
+| Linux game, `shown-liquid` and `face-forces` with the patched fan mod | 14 of 14 and 23 of 23 (Swivel Fan 29.85 of 30 Pa, Wall Fan 59.98 of 60 Pa) |
+| Windows player under Proton, `shown-liquid` and `face-forces` (no fan mod) | 14 of 14 and 13 of 13 |
+| Workshop upload dry run | the upload file equals the staged `mod_publish_data_file.zip`; nothing sent |
+| Load matrix on the three game builds, patch tier, release tier | running when this was written; results in `RELEASE-STATUS.txt` on the share |

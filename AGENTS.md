@@ -54,6 +54,9 @@ few that your task touches, starting here.
   decision 2026-11-23, [the shown phase](docs/colony-owner.md#the-shown-phase))
   and begins the speed work on the November 22 colony
   (`local/perf/nov22-session`), whose findings and open levers its notes list.
+  Its packages (`7b521cb`) are staged on the private share as
+  `publish/update-1.13.0` and `releases/1.13.0`, on hold while the acceptance
+  tiers run ([what ran](docs/playtest-1.13.0.md#staged-package)).
   [0.1.8](docs/playtest-0.1.8.md) lets
   two gases change places through an opening one tile high;
   [0.1.7](docs/playtest-0.1.7.md) kept a pool levelling past the activity
@@ -164,6 +167,10 @@ Workshop release. What is kept on purpose:
 - `artifacts/release-08faa66`, `artifacts/acceptance/08faa66`,
   `artifacts/v1.12.1` and `build-linux-ubuntu2204-08faa66` hold the
   1.12.1 packages, full release and patch runs, and native comparisons.
+- `artifacts/release-7b521cb`, `artifacts/acceptance/7b521cb`,
+  `artifacts/v1.13.0` and `build-linux-ubuntu2204-7b521cb` hold the 1.13.0
+  packages, runs, replay measurements and the review of the November 22
+  recording.
 - `local/locks`, `local/saves` (prepared and playtest saves), `local/perf`
   (private replay captures), `local/perf-tools` (the sampling profiler and
   capture helpers of the speed work) and `local/retired-2026-11-19` (uncommitted
