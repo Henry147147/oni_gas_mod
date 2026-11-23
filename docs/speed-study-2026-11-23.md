@@ -6,6 +6,13 @@ their save. They also asked whether simulating each enclosed space on its own
 thread would help. This note records what was measured, what was built, what
 was tried and dropped, and what would come next.
 
+A survey of published techniques read against this solver, requested by the
+user the same day, is in
+[fluid-optimization-research.md](fluid-optimization-research.md): it ranks
+what the literature offers (a pressure multigrid that is robust to the
+gas/liquid jump, a cheaper cycle, deflation, a direct solve as a yardstick,
+owner-computes subdomains) and is research only.
+
 ## How it was measured
 
 Everything is a game-free replay of the private capture
