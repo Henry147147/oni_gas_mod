@@ -1,7 +1,7 @@
 #pragma once
 #include "flow_local.hpp"
+#include <span>
 #include <sstream>
-#include <tuple>
 #include "totals.hpp"
 namespace ma::experimental::game_kernel {
 struct LayerResult {
@@ -22,13 +22,18 @@ struct Pick {
   bool valid = false;
   double density() const { return mass / volume; }
 };
+using Constituent = std::pair<std::uint32_t, double>;
+// A parcel's constituents are [begin, end) of its block's `constituents`
+// while the faces are scanned, then `data` points at them.
 struct Parcel {
-  std::size_t from, to;
-  std::vector<std::pair<std::uint32_t, double>> species;
+  std::size_t from, to, begin = 0, end = 0;
   double mass = 0, energy = 0;
+  const Constituent *data = nullptr;
+  std::span<const Constituent> species() const { return {data, end - begin}; }
 };
-// A cell that sends or receives a parcel: its new inventory (a slice of
-// LayerScratch::kept), energy after the parcels and mass.
+// A cell that sends or receives a parcel: its new inventory (slices of its
+// block's `kept` lists), its energy after the parcels and potential release,
+// and its mass.
 struct Changed {
   std::size_t cell = 0, mass_begin = 0, mass_end = 0, passive_begin = 0,
               passive_end = 0;
@@ -44,21 +49,28 @@ struct LayerScratch {
   std::vector<double> old_mass, new_mass, gas_mass;
   struct Block {
     // Parcels of the block's faces, by pass: liquid layering, convective
-    // adjustment, liquid resting on gas, gas through a one-cell opening.
+    // adjustment, liquid resting on gas, gas through a one-cell opening;
+    // their constituents; and each pass's first parcel in the joined list.
     std::array<std::vector<layering_detail::Parcel>, 4> parcels;
+    std::vector<layering_detail::Constituent> constituents;
+    std::array<std::size_t, 4> first{};
     std::size_t faces = 0, capped = 0, masses = 0, passives = 0;
     std::vector<layering_detail::Pick> phases;
+    // The block's exchanging cells and their new inventories.
+    std::vector<layering_detail::Changed> changed;
+    std::vector<std::uint32_t> kept_species;
+    std::vector<double> kept_mass, kept_passive_mass;
+    std::vector<std::uint64_t> kept_passive_species;
+    bool removed_inertia = false;
   };
   std::vector<Block> blocks;
   std::vector<layering_detail::Parcel> parcels;
-  // (cell, 0 outgoing / 1 incoming, parcel), sorted: each cell's outgoing
-  // parcels and then its incoming ones, in parcel order.
-  std::vector<std::tuple<std::size_t, unsigned, std::size_t>> touches;
-  std::vector<layering_detail::Changed> changed;
-  std::vector<std::uint32_t> kept_species;
-  std::vector<double> kept_mass, kept_passive_mass;
-  std::vector<std::uint64_t> kept_passive_species;
-  std::vector<std::pair<bool, std::size_t>> faces;
+  // Per pass and face, the call that last gave the face parcels (`call`
+  // counts calls) and the first of its two parcels in its block's list.
+  std::array<std::vector<std::uint32_t>, 4> face_call, face_parcel;
+  // Faces a call's carried momentum touched (stamped with `call`).
+  std::vector<std::uint32_t> touched_x, touched_y;
+  std::uint32_t call = 0;
   State spare;
 };
 // Jacobi equal-volume buoyant exchanges. Miscible constituents share one phase.
@@ -115,6 +127,19 @@ layer(const ma::experimental::MacGrid &source,
   if (convective)
     gas_mass.resize(g.N);
   scratch.blocks.resize(g.blocks);
+  // Call stamps: arrays sized anew start from zero.
+  if (scratch.face_call[0].size() != g.NY || scratch.face_call[3].size() != g.NX ||
+      scratch.touched_x.size() != g.NX || scratch.touched_y.size() != g.NY ||
+      scratch.call == std::numeric_limits<std::uint32_t>::max()) {
+    for (std::size_t pass = 0; pass < 4; ++pass) {
+      scratch.face_call[pass].assign(pass < 3 ? g.NY : g.NX, 0);
+      scratch.face_parcel[pass].assign(pass < 3 ? g.NY : g.NX, 0);
+    }
+    scratch.touched_x.assign(g.NX, 0);
+    scratch.touched_y.assign(g.NY, 0);
+    scratch.call = 0;
+  }
+  const auto call = ++scratch.call;
   const auto phase = [&](std::uint32_t key) {
     return species[key].liquid_group ? std::uint64_t(species[key].liquid_group)
                                      : (std::uint64_t(1) << 32) + key;
@@ -160,10 +185,15 @@ layer(const ma::experimental::MacGrid &source,
     }
   }
   });
-  using Parcels = std::vector<Parcel>;
   using Block = LayerScratch::Block;
+  // A face's two parcels in `pass` start at the block's next parcel.
+  const auto mark = [&](std::size_t pass, std::size_t f, Block &b) {
+    scratch.face_call[pass][f] = call;
+    scratch.face_parcel[pass][f] = static_cast<std::uint32_t>(b.parcels[pass].size());
+  };
   // Liquid layering across vertical face f.
-  const auto liquid_face = [&](std::size_t f, Parcels &parcels, Block &counts) {
+  const auto liquid_face = [&](std::size_t f, Block &counts) {
+    auto &parcels = counts.parcels[0];
     const auto lower = gravity > 0 ? g.yl[f] : g.yr[f],
                upper = gravity > 0 ? g.yr[f] : g.yl[f];
     if (lower == k::none || upper == k::none || g.closed(true, f))
@@ -174,9 +204,10 @@ layer(const ma::experimental::MacGrid &source,
         !(l.density() < top.density()))
       return;
     const double exchanged = fraction * std::min(l.volume, top.volume);
+    mark(0, f, counts);
     const auto add_parcel = [&](std::size_t from, std::size_t to,
                                 const Pick &chosen) {
-      Parcel parcel{from, to, {}};
+      Parcel parcel{from, to, counts.constituents.size()};
       const double share = exchanged / chosen.volume;
       const auto &state = eos[from];
       for (std::size_t a = initial.masses.offsets[from];
@@ -186,14 +217,15 @@ layer(const ma::experimental::MacGrid &source,
         if (s.gas || phase(key) != chosen.phase)
           continue;
         const double moved = initial.masses.mass[a] * share;
-        parcel.species.emplace_back(key, moved);
+        counts.constituents.emplace_back(key, moved);
         parcel.mass += moved;
         const double specific =
             s.offset + s.cv * state.temperature +
             liquid_specific_elastic(s,state.pressure);
         parcel.energy += moved * specific;
       }
-      parcels.push_back(std::move(parcel));
+      parcel.end = counts.constituents.size();
+      parcels.push_back(parcel);
     };
     add_parcel(lower, upper, l);
     add_parcel(upper, lower, top);
@@ -238,7 +270,8 @@ layer(const ma::experimental::MacGrid &source,
               face_speed(false, g.top_face(cell)) <= speed;
     return still;
   };
-  const auto convective_face = [&](std::size_t f, Parcels &parcels, Block &counts) {
+  const auto convective_face = [&](std::size_t f, Block &counts) {
+    auto &parcels = counts.parcels[1];
     const auto gas_density = [&](std::size_t i) {
       return !g.wall[i] && gas_mass[i] > 0 && eos[i].gas_volume > 0
                  ? gas_mass[i] / eos[i].gas_volume
@@ -260,8 +293,9 @@ layer(const ma::experimental::MacGrid &source,
         share * std::min(eos[lower].gas_volume, eos[upper].gas_volume);
     if (!(volume > 0))
       return;
+    mark(1, f, counts);
     const auto add_gas = [&](std::size_t from, std::size_t to) {
-      Parcel parcel{from, to, {}};
+      Parcel parcel{from, to, counts.constituents.size()};
       const double taken = volume / eos[from].gas_volume;
       for (std::size_t a = initial.masses.offsets[from];
            a < initial.masses.offsets[from + 1]; ++a) {
@@ -270,11 +304,12 @@ layer(const ma::experimental::MacGrid &source,
         if (!s.gas)
           continue;
         const double moved = initial.masses.mass[a] * taken;
-        parcel.species.emplace_back(key, moved);
+        counts.constituents.emplace_back(key, moved);
         parcel.mass += moved;
         parcel.energy += moved * (s.offset + s.cv * eos[from].temperature);
       }
-      parcels.push_back(std::move(parcel));
+      parcel.end = counts.constituents.size();
+      parcels.push_back(parcel);
     };
     add_gas(lower, upper);
     add_gas(upper, lower);
@@ -293,7 +328,8 @@ layer(const ma::experimental::MacGrid &source,
   // cell, w = sqrt(g h (rho_liquid - rho_gas) / rho_mean), capped like
   // layering; as for the convective adjustment, a face whose cells
   // already move faster than w exchanges nothing.
-  const auto sinking_face = [&](std::size_t f, Parcels &parcels, Block &counts) {
+  const auto sinking_face = [&](std::size_t f, Block &counts) {
+    auto &parcels = counts.parcels[2];
     const auto lower = gravity > 0 ? g.yl[f] : g.yr[f],
                upper = gravity > 0 ? g.yr[f] : g.yl[f];
     // A thousandth of a cell of liquid at least: mist and droplets fall
@@ -327,7 +363,8 @@ layer(const ma::experimental::MacGrid &source,
         share * std::min(eos[lower].gas_volume, eos[upper].liquid_volume);
     if (!(volume > 0))
       return;
-    Parcel rising{lower, upper, {}}, falling{upper, lower, {}};
+    mark(2, f, counts);
+    Parcel rising{lower, upper, counts.constituents.size()};
     for (std::size_t a = initial.masses.offsets[lower];
          a < initial.masses.offsets[lower + 1]; ++a) {
       const auto key = initial.masses.species[a];
@@ -336,10 +373,12 @@ layer(const ma::experimental::MacGrid &source,
         continue;
       const double moved =
           initial.masses.mass[a] * (volume / eos[lower].gas_volume);
-      rising.species.emplace_back(key, moved);
+      counts.constituents.emplace_back(key, moved);
       rising.mass += moved;
       rising.energy += moved * (s.offset + s.cv * eos[lower].temperature);
     }
+    rising.end = counts.constituents.size();
+    Parcel falling{upper, lower, counts.constituents.size()};
     for (std::size_t a = initial.masses.offsets[upper];
          a < initial.masses.offsets[upper + 1]; ++a) {
       const auto key = initial.masses.species[a];
@@ -348,14 +387,15 @@ layer(const ma::experimental::MacGrid &source,
         continue;
       const double moved =
           initial.masses.mass[a] * (volume / eos[upper].liquid_volume);
-      falling.species.emplace_back(key, moved);
+      counts.constituents.emplace_back(key, moved);
       falling.mass += moved;
       falling.energy +=
           moved * (s.offset + s.cv * eos[upper].temperature +
                    liquid_specific_elastic(s, eos[upper].pressure));
     }
-    parcels.push_back(std::move(rising));
-    parcels.push_back(std::move(falling));
+    falling.end = counts.constituents.size();
+    parcels.push_back(rising);
+    parcels.push_back(falling);
     ++counts.faces;
     ++counts.capped;
   };
@@ -375,7 +415,8 @@ layer(const ma::experimental::MacGrid &source,
   // capped like layering, and, as for the convective adjustment, a face
   // whose cells already move faster than u exchanges nothing. Gases of
   // equal density do not exchange: only diffusion would mix them.
-  const auto slot_face = [&](std::size_t f, Parcels &parcels, Block &counts) {
+  const auto slot_face = [&](std::size_t f, Block &counts) {
+    auto &parcels = counts.parcels[3];
     const auto l = g.xl[f], r = g.xr[f];
     if (l == k::none || r == k::none || !(g.slot[l] || g.slot[r]) ||
         g.closed(false, f) || !(eos[l].gas_volume > 0) ||
@@ -407,8 +448,9 @@ layer(const ma::experimental::MacGrid &source,
         share * std::min(eos[l].gas_volume, eos[r].gas_volume);
     if (!(volume > 0))
       return;
+    mark(3, f, counts);
     for (const auto &[from, to] : {std::pair{l, r}, std::pair{r, l}}) {
-      Parcel parcel{from, to, {}};
+      Parcel parcel{from, to, counts.constituents.size()};
       const double taken = volume / eos[from].gas_volume;
       for (std::size_t a = initial.masses.offsets[from];
            a < initial.masses.offsets[from + 1]; ++a) {
@@ -417,11 +459,12 @@ layer(const ma::experimental::MacGrid &source,
         if (!s.gas)
           continue;
         const double moved = initial.masses.mass[a] * taken;
-        parcel.species.emplace_back(key, moved);
+        counts.constituents.emplace_back(key, moved);
         parcel.mass += moved;
         parcel.energy += moved * (s.offset + s.cv * eos[from].temperature);
       }
-      parcels.push_back(std::move(parcel));
+      parcel.end = counts.constituents.size();
+      parcels.push_back(parcel);
     }
     ++counts.faces;
     ++counts.capped;
@@ -431,25 +474,30 @@ layer(const ma::experimental::MacGrid &source,
     auto &b = scratch.blocks[block];
     for (auto &list : b.parcels)
       list.clear();
+    b.constituents.clear();
     b.faces = b.capped = 0;
     const auto y0 = g.block_row_begin(block);
     for (std::size_t f = y0 * g.W; f < g.block_yrow_end(block) * g.W; ++f) {
-      liquid_face(f, b.parcels[0], b);
+      liquid_face(f, b);
       if (convective)
-        convective_face(f, b.parcels[1], b);
+        convective_face(f, b);
       if (sinking)
-        sinking_face(f, b.parcels[2], b);
+        sinking_face(f, b);
     }
     if (sinking)
       for (std::size_t f = y0 * g.XW; f < g.block_row_end(block) * g.XW; ++f)
-        slot_face(f, b.parcels[3], b);
+        slot_face(f, b);
   });
   auto &parcels = scratch.parcels;
   parcels.clear();
   for (std::size_t pass = 0; pass < 4; ++pass)
-    for (auto &b : scratch.blocks)
-      for (auto &parcel : b.parcels[pass])
-        parcels.push_back(std::move(parcel));
+    for (auto &b : scratch.blocks) {
+      b.first[pass] = parcels.size();
+      for (auto parcel : b.parcels[pass]) {
+        parcel.data = b.constituents.data() + parcel.begin;
+        parcels.push_back(parcel);
+      }
+    }
   for (const auto &b : scratch.blocks) {
     out.faces += b.faces;
     out.capped_faces += b.capped;
@@ -458,28 +506,69 @@ layer(const ma::experimental::MacGrid &source,
   // no audit receipt).
   if (count_only || parcels.empty())
     return out;
-  // Each cell's outgoing and then incoming parcels, in parcel order.
-  auto &touches = scratch.touches;
-  touches.clear();
-  for (std::size_t n = 0; n < parcels.size(); ++n) {
-    touches.emplace_back(parcels[n].from, 0u, n);
-    touches.emplace_back(parcels[n].to, 1u, n);
-  }
-  std::sort(touches.begin(), touches.end());
   const bool has_passives = !initial.passives.mass.empty();
-  // The new inventory and energy of each cell a parcel leaves or enters, in
-  // cell order (so the first failing cell throws, as a block pass would).
-  auto &changed = scratch.changed;
-  changed.clear();
-  scratch.kept_species.clear();
-  scratch.kept_mass.clear();
-  scratch.kept_passive_species.clear();
-  scratch.kept_passive_mass.clear();
-  {
+  // A cell's parcels come from its own faces: liquid layering, the
+  // convective adjustment and liquid on gas across its bottom and top faces,
+  // one-cell openings across its left and right faces. Each such face has
+  // two consecutive parcels in the joined list. Outgoing and incoming
+  // parcels are each listed in parcel order.
+  struct CellParcels {
+    std::array<std::size_t, 16> outgoing, incoming;
+    std::size_t out_count = 0, in_count = 0;
+  };
+  const auto block_of = [&](bool x, std::size_t f) {
+    const auto row = f / (x ? g.XW : g.W);
+    return std::min(g.blocks - 1, row / g.rows_per_block);
+  };
+  const auto cell_parcels = [&](std::size_t i, CellParcels &list) {
+    list.out_count = list.in_count = 0;
+    const auto take = [&](std::size_t pass, bool x, std::size_t f) {
+      if (scratch.face_call[pass][f] != call)
+        return;
+      const auto first = scratch.blocks[block_of(x, f)].first[pass] +
+                         scratch.face_parcel[pass][f];
+      for (const auto n : {first, first + 1}) {
+        if (parcels[n].from == i)
+          list.outgoing[list.out_count++] = n;
+        else
+          list.incoming[list.in_count++] = n;
+      }
+    };
+    const auto bottom = g.bottom_face(i), top = g.top_face(i);
+    for (std::size_t pass = 0; pass < 3; ++pass) {
+      take(pass, false, bottom);
+      take(pass, false, top);
+    }
+    take(3, true, g.left_face(i));
+    take(3, true, g.right_face(i));
+    std::sort(list.outgoing.begin(), list.outgoing.begin() + static_cast<std::ptrdiff_t>(list.out_count));
+    std::sort(list.incoming.begin(), list.incoming.begin() + static_cast<std::ptrdiff_t>(list.in_count));
+    return list.out_count + list.in_count != 0;
+  };
+  // Each exchanging cell's new inventory and energy, by row block in cell
+  // order (the first failing cell of the lowest block throws, as the serial
+  // pass would): its outgoing and then incoming parcels, then the potential
+  // energy each of its parcels releases, in parcel order.
+  const auto drop = [&](const Parcel &parcel) {
+    return parcel.mass * gravity * source.spacing_m *
+           (double(parcel.from / g.W) - double(parcel.to / g.W));
+  };
+  blocks([&](std::size_t block) {
+    auto &b = scratch.blocks[block];
+    b.changed.clear();
+    b.kept_species.clear();
+    b.kept_mass.clear();
+    b.kept_passive_species.clear();
+    b.kept_passive_mass.clear();
+    const auto [first, last] = block_cells(block);
+    b.masses = initial.masses.offsets[last] - initial.masses.offsets[first];
+    b.passives = has_passives ? initial.passives.offsets[last] - initial.passives.offsets[first] : 0;
     std::map<std::uint32_t, double> mass;
     std::map<std::uint64_t, double> passive;
-    for (std::size_t at = 0; at < touches.size();) {
-      const auto i = std::get<0>(touches[at]);
+    CellParcels list;
+    for (auto i = first; i < last; ++i) {
+      if (g.wall[i] || !cell_parcels(i, list))
+        continue;
       mass.clear();
       passive.clear();
       for (std::size_t a = initial.masses.offsets[i];
@@ -491,7 +580,7 @@ layer(const ma::experimental::MacGrid &source,
           passive[initial.passives.species[a]] = initial.passives.mass[a];
       double energy = initial.energy[i];
       const auto apply = [&](const Parcel &parcel, double sign) {
-        for (const auto &[key, value] : parcel.species)
+        for (const auto &[key, value] : parcel.species())
           mass[key] += sign * value;
         energy += sign * parcel.energy;
         if (has_passives &&
@@ -505,8 +594,8 @@ layer(const ma::experimental::MacGrid &source,
                a < initial.masses.offsets[parcel.from + 1]; ++a)
             (species[initial.masses.species[a]].gas ? gas : liquid) +=
                 initial.masses.mass[a];
-          const bool gas_parcel = !parcel.species.empty() &&
-                                  species[parcel.species.front().first].gas;
+          const bool gas_parcel = !parcel.species().empty() &&
+                                  species[parcel.species().front().first].gas;
           for (std::size_t a = initial.passives.offsets[parcel.from];
                a < initial.passives.offsets[parcel.from + 1]; ++a) {
             const auto identity = initial.passives.species[a];
@@ -522,38 +611,52 @@ layer(const ma::experimental::MacGrid &source,
           }
         }
       };
-      for (; at < touches.size() && std::get<0>(touches[at]) == i; ++at)
-        apply(parcels[std::get<2>(touches[at])], std::get<1>(touches[at]) ? 1 : -1);
+      for (std::size_t n = 0; n < list.out_count; ++n)
+        apply(parcels[list.outgoing[n]], -1);
+      for (std::size_t n = 0; n < list.in_count; ++n)
+        apply(parcels[list.incoming[n]], 1);
       layering_detail::Changed entry;
       entry.cell = i;
-      entry.energy = energy;
-      entry.mass_begin = scratch.kept_mass.size();
+      entry.mass_begin = b.kept_mass.size();
       double total = 0;
       for (const auto &[key, value] : mass) {
         if (value < 0)
           throw std::runtime_error("Private layering mass budget failed");
         if (value > 0) {
-          scratch.kept_species.push_back(key);
-          scratch.kept_mass.push_back(value);
+          b.kept_species.push_back(key);
+          b.kept_mass.push_back(value);
           total += value;
         }
       }
-      entry.mass_end = scratch.kept_mass.size();
+      entry.mass_end = b.kept_mass.size();
       entry.mass = total;
-      entry.passive_begin = scratch.kept_passive_mass.size();
+      entry.passive_begin = b.kept_passive_mass.size();
       if (has_passives)
         for (const auto &[key, value] : passive) {
           if (value < 0)
             throw std::runtime_error("Private layering passive budget failed");
           if (value > 0) {
-            scratch.kept_passive_species.push_back(key);
-            scratch.kept_passive_mass.push_back(value);
+            b.kept_passive_species.push_back(key);
+            b.kept_passive_mass.push_back(value);
           }
         }
-      entry.passive_end = scratch.kept_passive_mass.size();
-      changed.push_back(entry);
+      entry.passive_end = b.kept_passive_mass.size();
+      // The potential energy each parcel releases, half to each end.
+      for (std::size_t o = 0, n = 0; o < list.out_count || n < list.in_count;) {
+        const bool outgoing = n == list.in_count ||
+                              (o < list.out_count && list.outgoing[o] < list.incoming[n]);
+        energy += .5 * drop(parcels[outgoing ? list.outgoing[o++] : list.incoming[n++]]);
+      }
+      entry.energy = energy;
+      b.masses = b.masses - (initial.masses.offsets[i + 1] - initial.masses.offsets[i]) +
+                 (entry.mass_end - entry.mass_begin);
+      if (has_passives)
+        b.passives = b.passives -
+                     (initial.passives.offsets[i + 1] - initial.passives.offsets[i]) +
+                     (entry.passive_end - entry.passive_begin);
+      b.changed.push_back(entry);
     }
-  }
+  });
   // The result: the exchanging cells' new inventories and energies, every
   // other cell and face as it was, built in row blocks into the spare
   // state's buffers.
@@ -575,31 +678,6 @@ layer(const ma::experimental::MacGrid &source,
     result.passives.offsets.resize(g.N + 1);
   else
     result.passives = initial.passives;
-  const auto changed_in = [&](std::size_t block) {
-    const auto [first, last] = block_cells(block);
-    const auto by_cell = [](const layering_detail::Changed &c, std::size_t cell) {
-      return c.cell < cell;
-    };
-    return std::pair{
-        std::lower_bound(changed.begin(), changed.end(), first, by_cell) - changed.begin(),
-        std::lower_bound(changed.begin(), changed.end(), last, by_cell) - changed.begin()};
-  };
-  blocks([&](std::size_t block) {
-    auto &b = scratch.blocks[block];
-    const auto [first, last] = block_cells(block);
-    const auto [c0, c1] = changed_in(block);
-    b.masses = initial.masses.offsets[last] - initial.masses.offsets[first];
-    b.passives = has_passives ? initial.passives.offsets[last] - initial.passives.offsets[first] : 0;
-    for (auto c = c0; c < c1; ++c) {
-      const auto &entry = changed[static_cast<std::size_t>(c)];
-      b.masses = b.masses - (initial.masses.offsets[entry.cell + 1] - initial.masses.offsets[entry.cell]) +
-                 (entry.mass_end - entry.mass_begin);
-      if (has_passives)
-        b.passives = b.passives -
-                     (initial.passives.offsets[entry.cell + 1] - initial.passives.offsets[entry.cell]) +
-                     (entry.passive_end - entry.passive_begin);
-    }
-  });
   std::size_t mass_total = 0, passive_total = 0;
   for (auto &b : scratch.blocks) {
     const auto masses = b.masses, passives = b.passives;
@@ -617,19 +695,19 @@ layer(const ma::experimental::MacGrid &source,
   blocks([&](std::size_t block) {
     const auto &b = scratch.blocks[block];
     const auto [first, last] = block_cells(block);
-    auto [c, c1] = changed_in(block);
+    std::size_t c = 0;
     auto mass_at = b.masses, passive_at = b.passives;
     for (auto i = first; i < last; ++i) {
-      if (c < c1 && changed[static_cast<std::size_t>(c)].cell == i) {
-        const auto &entry = changed[static_cast<std::size_t>(c++)];
+      if (c < b.changed.size() && b.changed[c].cell == i) {
+        const auto &entry = b.changed[c++];
         for (auto a = entry.mass_begin; a < entry.mass_end; ++a, ++mass_at) {
-          result.masses.species[mass_at] = scratch.kept_species[a];
-          result.masses.mass[mass_at] = scratch.kept_mass[a];
+          result.masses.species[mass_at] = b.kept_species[a];
+          result.masses.mass[mass_at] = b.kept_mass[a];
         }
         if (has_passives)
           for (auto a = entry.passive_begin; a < entry.passive_end; ++a, ++passive_at) {
-            result.passives.species[passive_at] = scratch.kept_passive_species[a];
-            result.passives.mass[passive_at] = scratch.kept_passive_mass[a];
+            result.passives.species[passive_at] = b.kept_passive_species[a];
+            result.passives.mass[passive_at] = b.kept_passive_mass[a];
           }
         result.energy[i] = entry.energy;
         new_mass[i] = entry.mass;
@@ -664,55 +742,52 @@ layer(const ma::experimental::MacGrid &source,
   result.masses.offsets[0] = 0;
   if (has_passives)
     result.passives.offsets[0] = 0;
+  // The released potential energy's total, in parcel order (each cell took
+  // its share above).
   DoubleDouble released;
-  for (const auto &parcel : parcels) {
-    const double drop = parcel.mass * gravity * source.spacing_m *
-                        (double(parcel.from / g.W) - double(parcel.to / g.W));
-    out.state.energy[parcel.from] += .5 * drop;
-    out.state.energy[parcel.to] += .5 * drop;
-    released.add(drop);
-  }
+  for (const auto &parcel : parcels)
+    released.add(drop(parcel));
   out.released = released.value();
   const auto m = [](const std::vector<double> &values, k::Index i) {
     return i == k::none ? 0 : values[i];
   };
   // A cell this stage leaves without positive thermal energy is named with
   // what moved through it (the fault would otherwise surface a step later in
-  // the EOS with only the final state).
+  // the EOS with only the final state). Checked by row block in cell order.
   const auto audit_touched = [&]() {
     if (!convective && !sinking)
       return;
-    for (const auto &entry : changed) {
-      const auto i = entry.cell;
-      double offset = 0, mass_sum = 0;
-      for (auto a = out.state.masses.offsets[i]; a < out.state.masses.offsets[i + 1]; ++a) {
-        offset += out.state.masses.mass[a] * species[out.state.masses.species[a]].offset;
-        mass_sum += out.state.masses.mass[a];
-      }
-      if (mass_sum == 0 || out.state.energy[i] - offset > 0)
-        continue;
-      double was_offset = 0;
-      for (auto a = initial.masses.offsets[i]; a < initial.masses.offsets[i + 1]; ++a)
-        was_offset += initial.masses.mass[a] * species[initial.masses.species[a]].offset;
-      std::ostringstream text;
-      text.precision(4);
-      text << "Layering cell " << i << " no thermal U " << initial.energy[i] << ">" << out.state.energy[i]
-           << " off " << was_offset << ">" << offset << " T " << eos[i].temperature << " m " << old_mass[i]
-           << ">" << new_mass[i] << ";";
-      for (const auto &[cell, incoming, n] : touches) {
-        if (cell != i || incoming)
+    blocks([&](std::size_t block) {
+      for (const auto &entry : scratch.blocks[block].changed) {
+        const auto i = entry.cell;
+        double offset = 0, mass_sum = 0;
+        for (auto a = out.state.masses.offsets[i]; a < out.state.masses.offsets[i + 1]; ++a) {
+          offset += out.state.masses.mass[a] * species[out.state.masses.species[a]].offset;
+          mass_sum += out.state.masses.mass[a];
+        }
+        if (mass_sum == 0 || out.state.energy[i] - offset > 0)
           continue;
-        const auto &p = parcels[n];
-        text << " out>" << p.to << " " << p.mass << "kg " << p.energy << "J;";
+        double was_offset = 0;
+        for (auto a = initial.masses.offsets[i]; a < initial.masses.offsets[i + 1]; ++a)
+          was_offset += initial.masses.mass[a] * species[initial.masses.species[a]].offset;
+        std::ostringstream text;
+        text.precision(4);
+        text << "Layering cell " << i << " no thermal U " << initial.energy[i] << ">" << out.state.energy[i]
+             << " off " << was_offset << ">" << offset << " T " << eos[i].temperature << " m " << old_mass[i]
+             << ">" << new_mass[i] << ";";
+        CellParcels list;
+        cell_parcels(i, list);
+        for (std::size_t n = 0; n < list.out_count; ++n) {
+          const auto &p = parcels[list.outgoing[n]];
+          text << " out>" << p.to << " " << p.mass << "kg " << p.energy << "J;";
+        }
+        for (std::size_t n = 0; n < list.in_count; ++n) {
+          const auto &p = parcels[list.incoming[n]];
+          text << " in<" << p.from << " " << p.mass << "kg " << p.energy << "J T" << eos[p.from].temperature << ";";
+        }
+        throw std::runtime_error(text.str());
       }
-      for (const auto &[cell, incoming, n] : touches) {
-        if (cell != i || !incoming)
-          continue;
-        const auto &p = parcels[n];
-        text << " in<" << p.from << " " << p.mass << "kg " << p.energy << "J T" << eos[p.from].temperature << ";";
-      }
-      throw std::runtime_error(text.str());
-    }
+    });
   };
   if (carry_momentum) {
     // Profile 8: each parcel keeps the velocities of the faces it leaves.
@@ -744,14 +819,15 @@ layer(const ma::experimental::MacGrid &source,
                           : std::pair{false, g.top_face(cell)};
     };
     DoubleDouble wall_x, wall_y, ops_x, ops_y;
-    auto &touched = scratch.faces;
-    touched.clear();
+    const auto touch = [&](std::pair<bool, k::Index> face) {
+      (face.first ? scratch.touched_x : scratch.touched_y)[face.second] = call;
+    };
     for (const auto &parcel : parcels)
       for (unsigned which = 0; which < 4; ++which) {
         const auto from = side(parcel.from, which),
                    to = side(parcel.to, which);
-        touched.push_back(from);
-        touched.push_back(to);
+        touch(from);
+        touch(to);
         const double amount = .5 * parcel.mass * velocity(from.first, from.second);
         if (amount == 0)
           continue;
@@ -765,27 +841,57 @@ layer(const ma::experimental::MacGrid &source,
             audit->momentum_receipt(parcel.to, to.first, -amount, std::abs(amount));
         }
       }
-    std::sort(touched.begin(), touched.end(), [](const auto &a, const auto &b) {
-      return a.first != b.first ? a.first > b.first : a.second < b.second;
-    });
-    touched.erase(std::unique(touched.begin(), touched.end()), touched.end());
-    for (const auto &[x, f] : touched) {
+    // The kinetic energy change of each touched face (x faces in face
+    // order, then y faces): first whether any face lost its inertia, then
+    // each cell's shares in that face order (its left, right, bottom and
+    // top faces), as the serial loop added them.
+    const auto face_heat = [&](bool x, std::size_t f, double &heat, double &sum) {
       const double j0 = (x ? initial.jx : initial.jy)[f], j1 = (x ? jx : jy)[f];
       if (j0 == 0 && j1 == 0)
-        continue;
+        return false;
       const auto l = (x ? g.xl : g.yl)[f], r = (x ? g.xr : g.yr)[f];
       const double I0 = .5 * (m(old_mass, l) + m(old_mass, r)),
                    I1 = .5 * (m(new_mass, l) + m(new_mass, r));
       if ((j0 != 0 && !(I0 > 0)) || !(I1 > 0))
         throw std::runtime_error("Private layering removed face inertia");
-      const double heat = (j0 == 0 ? 0. : .5 * j0 * (j0 / I0)) -
-                          (j1 == 0 ? 0. : .5 * j1 * (j1 / I1)),
-                   sum = m(new_mass, l) + m(new_mass, r);
-      if (l != k::none)
-        out.state.energy[l] += heat * m(new_mass, l) / sum;
-      if (r != k::none)
-        out.state.energy[r] += heat * m(new_mass, r) / sum;
-    }
+      heat = (j0 == 0 ? 0. : .5 * j0 * (j0 / I0)) -
+             (j1 == 0 ? 0. : .5 * j1 * (j1 / I1));
+      sum = m(new_mass, l) + m(new_mass, r);
+      return true;
+    };
+    blocks([&](std::size_t block) {
+      auto &b = scratch.blocks[block];
+      b.removed_inertia = false;
+      double heat = 0, sum = 0;
+      const auto check = [&](bool x, std::size_t first, std::size_t end) {
+        const auto &touched = x ? scratch.touched_x : scratch.touched_y;
+        for (auto f = first; f < end && !b.removed_inertia; ++f)
+          if (touched[f] == call) {
+            try {
+              face_heat(x, f, heat, sum);
+            } catch (const std::runtime_error &) {
+              b.removed_inertia = true;
+            }
+          }
+      };
+      const auto y0 = g.block_row_begin(block);
+      check(true, y0 * g.XW, g.block_row_end(block) * g.XW);
+      check(false, y0 * g.W, g.block_yrow_end(block) * g.W);
+    });
+    for (const auto &b : scratch.blocks)
+      if (b.removed_inertia)
+        throw std::runtime_error("Private layering removed face inertia");
+    blocks([&](std::size_t block) {
+      double heat = 0, sum = 0;
+      for (auto [i, end] = block_cells(block); i < end; ++i) {
+        if (g.wall[i])
+          continue;
+        for (const auto &[x, f] : {std::pair{true, g.left_face(i)}, std::pair{true, g.right_face(i)},
+                                   std::pair{false, g.bottom_face(i)}, std::pair{false, g.top_face(i)}})
+          if ((x ? scratch.touched_x : scratch.touched_y)[f] == call && face_heat(x, f, heat, sum))
+            out.state.energy[i] += heat * new_mass[i] / sum;
+      }
+    });
     out.wall_x = wall_x.value();
     out.wall_y = wall_y.value();
     out.wall_ops_x = ops_x.value();
