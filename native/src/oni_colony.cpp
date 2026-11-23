@@ -1019,17 +1019,24 @@ Projection project(const Session& s, const MacClosedWorld& w) {
             if (!reuse || !reuse_cell(i, block, at)) project_cell(i, block);
     });
     out.cells_ms = lap_ms();
-    std::size_t reading_count = 0, part_count = 0;
-    for (std::size_t b = 0; b < blocks; ++b) { reading_count += block_readings[b].size(); part_count += block_parts[b].size(); }
-    out.readings.reserve(reading_count); out.parts.reserve(part_count);
-    out.block_readings.reserve(blocks + 1); out.block_parts.reserve(blocks + 1);
+    // The blocks' readings and parts joined in block order: each block's
+    // place found first, then each block copied into it on the pool.
+    std::vector<std::size_t> reading_start(blocks + 1), part_start(blocks + 1);
     for (std::size_t b = 0; b < blocks; ++b) {
-        const auto offset = static_cast<std::uint32_t>(out.parts.size());
-        out.block_readings.push_back(static_cast<std::uint32_t>(out.readings.size())); out.block_parts.push_back(offset);
-        for (auto r : block_readings[b]) { r.first_constituent += offset; out.readings.push_back(r); }
-        out.parts.insert(out.parts.end(), block_parts[b].begin(), block_parts[b].end());
+        reading_start[b + 1] = reading_start[b] + block_readings[b].size();
+        part_start[b + 1] = part_start[b] + block_parts[b].size();
     }
-    out.block_readings.push_back(static_cast<std::uint32_t>(out.readings.size())); out.block_parts.push_back(static_cast<std::uint32_t>(out.parts.size()));
+    out.readings.resize(reading_start[blocks]); out.parts.resize(part_start[blocks]);
+    out.block_readings.resize(blocks + 1); out.block_parts.resize(blocks + 1);
+    for (std::size_t b = 0; b <= blocks; ++b) {
+        out.block_readings[b] = static_cast<std::uint32_t>(reading_start[b]); out.block_parts[b] = static_cast<std::uint32_t>(part_start[b]);
+    }
+    mac_kernel::pool_for(threads).run(blocks, [&](std::size_t b) {
+        const auto offset = static_cast<std::uint32_t>(part_start[b]);
+        auto at = out.readings.begin() + static_cast<std::ptrdiff_t>(reading_start[b]);
+        for (auto r : block_readings[b]) { r.first_constituent += offset; *at++ = r; }
+        std::copy(block_parts[b].begin(), block_parts[b].end(), out.parts.begin() + static_cast<std::ptrdiff_t>(part_start[b]));
+    });
     out.blocks = blocks; for (const auto r : reused) out.reused_blocks += r;
     for (const auto n : reused_cells) out.reused_cells += n;
     projection_blocks_reused.fetch_add(out.reused_blocks, std::memory_order_relaxed);
@@ -1066,12 +1073,16 @@ std::shared_ptr<Published> make_publication(const Session& s, Projection project
 }
 void publish(const Session& s, Projection projection, bool same_frame_edit=false) {
     auto p=make_publication(s,std::move(projection),same_frame_edit);
+    // The replaced publication (often the last holder of the previous
+    // frame's cells, several ms to free) is released after the lock, so
+    // readers never wait for it.
+    std::shared_ptr<const Published> replaced;
     std::lock_guard lock(publication);
     if (retained_sample_frames) {
         sample_frames.insert_or_assign(p->status.completed_frames,p);
         while (sample_frames.size()>retained_sample_frames) sample_frames.erase(sample_frames.begin());
     }
-    latest = std::move(p);
+    replaced = std::exchange(latest, std::move(p));
 }
 void publish(const Session& s) { publish(s, project(s, *s.world)); }
 void fault(Session& s, const char* why) noexcept {
