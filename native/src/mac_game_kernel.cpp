@@ -2390,8 +2390,11 @@ bool MacGameKernelAccess::detach_heat_state(MacClosedWorld &source, std::span<co
   // This must be mutable storage, matching replace_state(), since the
   // unique heat path subsequently edits it through the existing journal.
   auto detached = std::make_shared<MacTransportState>(*source.state_snapshot_);
-  for (std::size_t k = 0; k < owned_chunks.size() && k < detached->cells.chunk_count(); ++k)
-    if (owned_chunks[k]) detached->cells.own_chunk(k);
+  // The chunks' copies are made on the pool (each holds the values the
+  // serial copy would).
+  detached->cells.own_chunks(owned_chunks, [](std::size_t count, const std::function<void(std::size_t)> &job) {
+    mac_kernel::pool_for(mac_kernel_default_options().threads).run(count, job);
+  });
   source.state_snapshot_ = std::move(detached);
   return true;
 }

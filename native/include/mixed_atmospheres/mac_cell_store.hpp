@@ -5,6 +5,7 @@
 #include <iterator>
 #include <memory>
 #include <mutex>
+#include <span>
 #include <stdexcept>
 #include <utility>
 #include <vector>
@@ -206,6 +207,33 @@ public:
     // Give this store its own copy of chunk k now (as a first write would),
     // so a later write to it does not copy. Values are unchanged.
     void own_chunk(std::size_t k) { if (!mine_[k].load(std::memory_order_acquire)) detach(k); }
+    // own_chunk(k) for every chunk k that `selected` marks, with the copies
+    // made by `run(count, job)` (job(n) makes the n-th; a worker pool's run,
+    // or a loop): each chunk is claimed or copied as own_chunk decides, and
+    // holds the same values. Single-threaded with respect to this store.
+    template <class Run> void own_chunks(std::span<const std::uint8_t> selected, Run&& run) {
+        std::vector<std::size_t> shared;
+        {
+            std::lock_guard lock(detach_mutex());
+            for (std::size_t k = 0; k < selected.size() && k < owners_.size(); ++k) {
+                if (!selected[k] || mine_[k].load(std::memory_order_relaxed)) continue;
+                if (owners_[k].use_count() != 1) shared.push_back(k);
+                else { owners_[k]->serial = next_serial(); mine_[k].store(true, std::memory_order_release); }
+            }
+        }
+        if (shared.empty()) return;
+        // A shared chunk is read only, by any number of threads.
+        std::vector<std::shared_ptr<Chunk>> copies(shared.size());
+        run(shared.size(), [&](std::size_t n) { copies[n] = copy_of(*owners_[shared[n]]); });
+        std::lock_guard lock(detach_mutex());
+        for (std::size_t n = 0; n < shared.size(); ++n) {
+            const auto k = shared[n];
+            copied_chunks().fetch_add(1, std::memory_order_relaxed);
+            owners_[k] = std::move(copies[n]);
+            pointers_[k].store(owners_[k].get(), std::memory_order_release);
+            mine_[k].store(true, std::memory_order_release);
+        }
+    }
     // Chunk identity: two stores hold the same values in chunk k when they
     // share it. Nothing else may be inferred from these pointers.
     [[nodiscard]] std::size_t chunk_count() const noexcept { return owners_.size(); }
