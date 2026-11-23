@@ -279,6 +279,7 @@ namespace MixedAtmospheres.Oni
             if(moves)DispenserCell.SetValue(dispenser,cell);
             if(ColonyOwnedStorage.Dispense(dispenser,flow,cell,out var exact))
             {if(exact.Count>0){FromStorage=FromStorage.Joined(exact);++Dispensed;}return true;}
+            if(dispenser.GetComponent<Reservoir>()!=null){DispenseMixture(dispenser,flow,cell);return true;}
             var item=(PrimaryElement)Suitable.Invoke(dispenser,null);
             if(item==null){dispenser.empty=true;return true;}
             item.KeepZeroMassObject=true;dispenser.empty=false;
@@ -293,6 +294,51 @@ namespace MixedAtmospheres.Oni
             BookTake(item,before,incoming);++Dispensed;
             dispenser.storage.Trigger(OnStorageChanged,item.gameObject);dispenser.storage.Trigger(OnStorageItemChanged,item.gameObject);
             return true;
+        }
+        // A liquid or gas reservoir gives out its stored mixture (user decision
+        // 2026-11-23): every stored item of the outlet's phase that the
+        // dispenser's filter admits leaves in proportion to its mass, as one
+        // parcel, where the game's dispenser takes one element a tick in turn.
+        // Each item is booked as a single take is (ColonyReservoirDraw has the
+        // shares).
+        private static void DispenseMixture(ConduitDispenser dispenser,ConduitFlow flow,int cell)
+        {
+            var liquid=flow.conduitType==ConduitType.Liquid;var filter=dispenser.elementFilter;
+            var items=new List<PrimaryElement>();var masses=new List<float>();double total=0;
+            foreach(var stored in dispenser.storage.items)
+            {
+                var item=stored==null?null:stored.GetComponent<PrimaryElement>();
+                if(item==null||!(item.Mass>0)||(liquid?!item.Element.IsLiquid:!item.Element.IsGas)||!ColonyConduits.Carries(item.ElementID))continue;
+                if(filter!=null&&filter.Length>0&&(Array.IndexOf(filter,item.ElementID)>=0)==dispenser.invertElementFilter)continue;
+                items.Add(item);masses.Add(item.Mass);total+=item.Mass;
+            }
+            if(items.Count==0){dispenser.empty=true;return;}
+            dispenser.empty=false;
+            foreach(var item in items)item.KeepZeroMassObject=true;
+            var accepted=ColonyConduits.Acceptable(flow,cell,(float)Math.Min(total,float.MaxValue),items[0].ElementID);
+            if(!(accepted>0)){dispenser.blocked=true;return;}
+            var takes=ColonyReservoirDraw.Takes(masses,accepted);
+            var before=new Observed[items.Count];var parts=new PipeInventory[items.Count];var germs=new int[items.Count];var parcel=PipeInventory.Empty;
+            for(var i=0;i<items.Count;++i)
+            {
+                parts[i]=PipeInventory.Empty;
+                if(!(takes[i]>0))continue;
+                before[i]=new Observed(items[i]);
+                germs[i]=before[i].Disease==byte.MaxValue?0:(int)(takes[i]/before[i].Mass*before[i].Count);
+                parts[i]=PipeInventory.Single(ColonyConduits.MaterialOf(items[i].ElementID),takes[i],before[i].Temperature,before[i].Disease==byte.MaxValue?0:before[i].Disease,germs[i]);
+                parcel=parcel.Joined(parts[i]);
+            }
+            if(parcel.Count==0){dispenser.blocked=true;return;}
+            ColonyConduits.ReceiveExact(flow,cell,parcel);
+            for(var i=0;i<items.Count;++i)
+            {
+                if(!(takes[i]>0))continue;
+                if(germs[i]>0)items[i].ModifyDiseaseCount(-germs[i],"ConduitDispenser.ConduitUpdate");
+                items[i].Mass-=takes[i];
+                BookTake(items[i],before[i],parts[i]);
+                dispenser.storage.Trigger(OnStorageChanged,items[i].gameObject);dispenser.storage.Trigger(OnStorageItemChanged,items[i].gameObject);
+            }
+            ++Dispensed;
         }
         // Native item -> owned pipe: book observed item loss minus pipe gain.
         private static void BookTake(PrimaryElement item,Observed before,PipeInventory incoming)

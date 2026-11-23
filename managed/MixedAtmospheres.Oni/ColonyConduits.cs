@@ -277,6 +277,8 @@ namespace MixedAtmospheres.Oni
         // computed with it until the catalogue changes (Initialize, Reset).
         private static readonly Func<int,PipeMaterial> MaterialLookup=Material;
         internal static PipeMaterial MaterialOf(SimHashes element)=>Material(NativeIndices[element]);
+        // Whether owned pipes hold this element (the catalogue's gases and liquids).
+        internal static bool Carries(SimHashes element)=>NativeIndices.ContainsKey(element);
         internal static SimHashes ElementHash(int ordinal)=>NativeElements[ordinal];
         internal static bool HasRoom(ConduitFlow flow,int cell)=>TryRead(flow,cell,out var inventory)&&flow.HasConduit(cell)&&
             inventory.Total.Minus(new PipeAmount(Flows[flow].Capacity)).Sign<0;

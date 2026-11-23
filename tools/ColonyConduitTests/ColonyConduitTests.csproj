@@ -28,5 +28,6 @@
     <Compile Include="../../managed/MixedAtmospheres.Oni/ColonyGermPopulation.cs" Link="ColonyGermPopulation.cs" />
     <Compile Include="../../managed/MixedAtmospheres.Oni/ColonyConduitContactWork.cs" Link="ColonyConduitContactWork.cs" />
     <Compile Include="../../managed/MixedAtmospheres.Oni/ColonySaveEnvelope.cs" Link="ColonySaveEnvelope.cs" />
+    <Compile Include="../../managed/MixedAtmospheres.Oni/ColonyReservoirDraw.cs" Link="ColonyReservoirDraw.cs" />
   </ItemGroup>
 </Project>

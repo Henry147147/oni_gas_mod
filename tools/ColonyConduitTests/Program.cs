@@ -431,6 +431,7 @@ static class Program
         ContactWorkTests.Run();
         ScalarProductTests.Run();
         MassStageTests.Run();
+        ReservoirDrawTests.Run();
         if(args.Contains("--biology-continuation"))BiologyContinuation.Run();
         if (args.Contains("--benchmark"))
         {

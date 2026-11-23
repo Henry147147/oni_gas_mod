@@ -66,6 +66,24 @@ at frame 71. The saved native scheduling gate remains open.
 
 ## Machine ports
 
+### Reservoirs
+
+A liquid or gas reservoir gives out its stored mixture (user decision
+2026-11-23). The game's dispenser takes one stored element a tick, in turn,
+so a reservoir holding three parts water and one part polluted water sent
+out whole packets of one and then the other. On an owned pipe the outlet of
+a building with the game's `Reservoir` component now takes the same share
+of every stored liquid (or gas) that its filter admits, as one packet: 7.5
+and 2.5 kg from that reservoir, at the mixture's temperature, with each
+item's germs in the same share. Each item is booked exactly as a single
+take is, so the storage accounts are unchanged. Other machine outlets keep
+the game's rule, since their recipes name what leaves. The shares are
+`ColonyReservoirDraw` (a unit test in `tools/ColonyConduitTests`); the
+in-game check is `reservoir-mix` (8 of 8: packets of 75/25 and 60/30/10 to
+one part in 10,000, liquid packets at 305 K from 300 K and 320 K, both
+reservoirs emptied and every constituent received by the world).
+
+
 The native-item storage path below has a confirmed gameplay gap: a 75/25
 reservoir can emit pure-species withdrawals because the dispenser selects one
 item. `StorageBoundary` retains numerical differences for accounting but never
