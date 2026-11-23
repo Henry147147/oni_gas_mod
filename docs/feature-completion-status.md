@@ -1,5 +1,7 @@
 # Feature completion work
 
+**[1.13.0: fans, visible liquids and the November 22 colony](playtest-1.13.0.md).** Another mod can now push the fluid on a tile face through the public [face forces](face-forces.md) interface; in the game the fan mod's Swivel Fan holds its stall pressure through it. A tile shows its liquid whenever it holds any, so puddles, films and pool surfaces are visible and the mop finds them. The owner tick on the November 22 colony falls from 170.5 to 155 ms in the game-free replay with unchanged results; sustained 2× and 3× on that colony remain open, and the notes rank what is left.
+
 **[1.12.2.3 critter reload hotfix](playtest-1.12.2.3.md).** The November 21 colony stopped after a save made with a critter's meal in flight. The critter now credits the element the simulation delivered. The candidate includes the Cycle 55 and ration-box fixes.
 
 **[1.12.2.2 Windows loading hotfix](playtest-1.12.2.2.md).** A Windows allocation error in the bundled Harmony runtime could stop a ration box from loading on build 744825. The 1.12.2.1 Steam candidate was held. The new version includes both fixes. [Resuming the colony speed work](performance-handoff.md).

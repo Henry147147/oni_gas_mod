@@ -410,9 +410,12 @@ namespace MixedAtmospheres.Core
 
     public sealed partial class MixturePresentationModel
     {
-        /// <summary>The liquid volume share from which a cell is liquid in ONI's grid (the owner's projection).</summary>
+        /// <summary>The liquid volume share from which liquid fills most of a cell: it is then named first, and a breathable
+        /// gas above it is reported as gas over liquid. (Since 1.13.0 ONI's grid shows a cell's liquid from
+        /// <see cref="MeaningfulLiquidVolumeFraction"/>.)</summary>
         public const double LiquidDominantVolumeFraction = .5;
-        /// <summary>Liquid below this share of a cell's volume (about 10 g of water) is a trace: names and friendly readings leave it out.</summary>
+        /// <summary>Liquid below this share of a cell's volume (about 10 g of water) is a trace: names and friendly readings leave it out,
+        /// and ONI's grid shows the cell's gas. From this share on the grid shows the liquid (the owner's projection).</summary>
         public const double MeaningfulLiquidVolumeFraction = 1e-5;
         private readonly FluidMaterialCatalog catalog;
         private readonly IReadOnlyDictionary<string, MixtureSpeciesStyle> styles;

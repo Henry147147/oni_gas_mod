@@ -755,6 +755,25 @@ MacClosedSettings settings_of(const MAOniColonyConfig& c, const MAOniColonyOptio
     }
     return s;
 }
+// Which phase ONI's grid shows for a cell that holds gas and liquid
+// (docs/colony-owner.md#the-shown-phase). Since 1.13.0 (user decision
+// 2026-11-23) a cell shows its liquid whenever it holds any: from the share of
+// its volume at which the readings report liquid at all (0.001 %, about 10 g
+// of water; below that it is a trace, as a trace gas is). Until then liquid
+// was shown only from half the cell, so a puddle under air, the top of a pool
+// and a film on a floor looked like air, and the game's own tools (the mop,
+// a liquid pump's intake) could not find them. A cell without gas shows its
+// liquid whatever its share.
+constexpr double shown_liquid_fraction = 1e-5;
+constexpr bool shows_liquid(double liquid_volume, double cell_volume, double gas_mass) noexcept {
+    return liquid_volume >= shown_liquid_fraction * cell_volume || gas_mass == 0;
+}
+// The liquid ONI's own freezing may take with its cell: it fills at least half
+// the cell, or the cell holds no gas (the cells that showed liquid before
+// 1.13.0). ONI freezes a shown liquid into a tile and the cell closes. A
+// smaller liquid beside gas freezes in the owner instead, into debris
+// (convert_identities), so a frozen film never walls off a room's tile.
+constexpr double tile_freezing_fraction = .5;
 std::size_t rect_index(const MAOniColonyConfig& c, std::uint32_t public_cell) {
     const auto x = public_cell % c.grid_width, y = public_cell / c.grid_width;
     require(public_cell < c.grid_width * c.grid_height && x >= c.offset_x && x < c.offset_x + c.width && y >= c.offset_y && y < c.offset_y + c.height,
@@ -963,7 +982,7 @@ Projection project(const Session& s, const MacClosedWorld& w) {
             if (registry[k].phase == Phase::gas) { gas += mass; if (mass > best_gas) { best_gas = mass; gas_k = k; } }
             else { liquid += mass; if (mass > best_liquid) { best_liquid = mass; liquid_k = k; } }
         }
-        const bool liquid_dominant = reading.liquid_volume_m3 >= .5 * st.grid.volume_m3() || gas == 0;
+        const bool liquid_dominant = shows_liquid(reading.liquid_volume_m3, st.grid.volume_m3(), gas);
         v.element_index = c.materials[liquid_dominant ? liquid_k : gas_k].game.native_index;
         v.flags |= (gas > 0 ? MA_ONI_COLONY_VIEW_GAS : 0U) | (liquid > 0 ? MA_ONI_COLONY_VIEW_LIQUID : 0U);
         v.mass_kg = static_cast<float>(liquid_dominant ? liquid : gas);
@@ -1435,9 +1454,10 @@ MacClosedWorld convert_identities(Session& s, MacClosedWorld world, double secon
             std::size_t to;
             try { to = cat.species_of_hash(target); }
             catch (...) {
-                // A solid target: ONI freezes the liquid its projection shows;
-                // a liquid the projection hides (a puddle under gas, a minority
-                // liquid) freezes here, all of it into the solid as debris.
+                // A solid target: ONI freezes the liquid that fills at least
+                // half its cell (allow_native_transition); a smaller liquid
+                // beside gas (a puddle, a film, a minority liquid) freezes
+                // here, all of it into the solid as debris.
                 if (!high && !g.gas) rules.push_back({k, k, target, 1.0, false, g.low_temperature_k, true});
                 continue;
             }
@@ -1483,9 +1503,9 @@ MacClosedWorld convert_identities(Session& s, MacClosedWorld world, double secon
         if (edits.size() >= 4000) break;
         const auto i = c.cell; const auto& m = st.cells[i].mixture;
         const double t = c.t, liquid_volume = c.liquid_volume;
-        // The liquid the projection shows (as project() picks it).
+        // The liquid ONI's own freezing takes (allow_native_transition).
         std::size_t shown = SIZE_MAX; double best = 0;
-        if (liquid_volume >= .5 * st.grid.volume_m3())
+        if (liquid_volume >= tile_freezing_fraction * st.grid.volume_m3())
             for (std::size_t k = 0; k < m.masses.size(); ++k) if (!cat.materials[k].game.gas && m.masses[k] > best) { best = m.masses[k]; shown = k; }
         for (const auto& r : rules) {
             if (!(m.masses[r.from] > 0) || (r.high ? !(t > r.threshold) : !(t < r.threshold))) continue;
@@ -3428,6 +3448,16 @@ bool allow_native_transition(int native_cell, std::uint16_t element, float tempe
         // A fluid target is the owner's (phase relaxation); a solid one native's.
         (void)cat.species_of_hash(target);
         return false;
+    } catch (...) {}
+    // A solid target. ONI takes the cell with the liquid, so only a liquid
+    // that fills at least half the cell, or a cell without gas, freezes this
+    // way; a film or puddle the grid shows beside gas is the owner's to
+    // freeze into debris (convert_identities).
+    try {
+        const auto pitch = geometry.grid_width + 2;
+        const auto& view = p->views.at(rect_index(geometry, public_of_native(static_cast<std::size_t>(native_cell), pitch)));
+        return !(view.flags & MA_ONI_COLONY_VIEW_GAS) || !(view.flags & MA_ONI_COLONY_VIEW_LIQUID) ||
+            static_cast<double>(view.liquid_fraction) >= tile_freezing_fraction;
     } catch (...) { return true; }
 }
 
@@ -3700,7 +3730,7 @@ MacClosedWorld evolve_germs(Session& s, MacClosedWorld world, std::span<const Ge
             if (const auto r = radiation.find(i); r != radiation.end()) m.radiation = r->second;
             if (pick && m.mass_kg > 0) {
                 world.cell_presentation(i, reading);m.temperature_k=static_cast<float>(std::clamp(reading.temperature_k,1.,9999.));
-                m.element=cat.materials[reading.liquid_volume_m3>=.5*st.grid.volume_m3() || gas==0?liquid_k:gas_k].game.native_index;
+                m.element=cat.materials[shows_liquid(reading.liquid_volume_m3,st.grid.volume_m3(),gas)?liquid_k:gas_k].game.native_index;
             }
             if (m.mass_kg > 0 && cat.has_native(m.element)) m.state = cat.materials[cat.species_of_native(m.element)].game.gas ? 1 : 2;
         }; };

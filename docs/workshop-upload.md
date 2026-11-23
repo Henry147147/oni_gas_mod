@@ -51,8 +51,10 @@ Uploads so far:
 | 2026-11-20 02:07 | 1.10.1 | `7d738d1` | the private client's downloaded copy, checked against its manifest |
 | 2026-11-20 | 1.10.2 | `f51be6a` | the user's statement |
 | 2026-11-21 23:10 | 1.12.2 | `0da7afd` | `status` on 2026-11-22: 39 files as the manifest pins them |
+| 2026-11-22 20:29 | 1.12.2.3 | `9c7bda6` | `status` on 2026-11-23: every file as the manifest pins it |
 
-All four were uploaded by the user with Klei's uploader. Add a line for each
+The first four were uploaded by the user with Klei's uploader; this project's
+record does not say how 1.12.2.3 was uploaded. Add a line for each
 later upload.
 
 ## Uploading a version

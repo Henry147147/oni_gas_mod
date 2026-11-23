@@ -48,6 +48,12 @@ few that your task touches, starting here.
   records how to repeat the November 21 colony measurement.
   [1.12.2.3](docs/playtest-1.12.2.3.md) also handles a critter's pending
   fluid meal when a colony reloads.
+  [1.13.0](docs/playtest-1.13.0.md) adds [face forces](docs/face-forces.md),
+  the public interface another mod's fans push air through (built for
+  `../oni_fan_mod`), shows a tile's liquid whenever it holds any (user
+  decision 2026-11-23, [the shown phase](docs/colony-owner.md#the-shown-phase))
+  and begins the speed work on the November 22 colony
+  (`local/perf/nov22-session`), whose findings and open levers its notes list.
   [0.1.8](docs/playtest-0.1.8.md) lets
   two gases change places through an opening one tile high;
   [0.1.7](docs/playtest-0.1.7.md) kept a pool levelling past the activity
@@ -64,8 +70,8 @@ few that your task touches, starting here.
   [the 0.1.1 playtest review](docs/playtest-0.1.1-review.md).
   The `docs/handoff-codex-*.md` files are historical; continue on `main`.
 - [docs/workshop-upload.md](docs/workshop-upload.md): the Steam Workshop item,
-  what it serves (`python3 tools/workshop.py status`: 1.12.2, `0da7afd`, on
-  2026-11-22) and the upload procedure. The tool only reads unless it is given
+  what it serves (`python3 tools/workshop.py status`: 1.12.2.3, `9c7bda6`, on
+  2026-11-23) and the upload procedure. The tool only reads unless it is given
   `--execute` with the user's go-ahead for that version.
 - [docs/playtest-plan.md](docs/playtest-plan.md): the original first-playtest
   plan (the full base game on one asteroid, playable on Linux).

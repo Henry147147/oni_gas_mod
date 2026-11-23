@@ -10,23 +10,28 @@ namespace MixedAtmospheres.Oni
     {
         // Face forces (docs/face-forces.md) in a real colony, through the public
         // class other mods bind. Two sealed rooms of oxygen, columns 0-2 and 4-7,
-        // joined by one open tile (column 3, row 2) in the wall between them.
+        // joined by one open tile (column 3, row 1) in the wall between them.
         //  1. A handle on the opening's right face with 120 Pa and 6 m/s must
         //     raise the right room by the stall pressure and then stop moving
         //     gas; closing it lets the rooms equalise.
-        //  2. With the Mixed Atmospheres: Fans mod installed, a Wall Fan built
-        //     in the opening and powered must do the same with its own step
-        //     (Medium: 60 Pa), found and driven through reflection as a player's
-        //     fan is. Without that mod the second part is reported as not run.
-        private const string WallFanId = "MixedAtmospheresWallFan";
+        //  2. With the Mixed Atmospheres: Fans mod installed (the harness's
+        //     --extra-mod), its buildings are built and powered as a player's
+        //     are, and found and driven through reflection:
+        //     a Swivel Fan standing in the left room with its head beside the
+        //     opening must hold its step's stall pressure (Medium: 30 Pa), and
+        //     after it is removed a Wall Fan built in the opening its own
+        //     (Medium: 60 Pa). A building that cannot be built is a failed
+        //     check of that mod, reported with its exception.
+        //     Without that mod the second part is reported as not run.
+        private const string WallFanId = "MixedAtmospheresWallFan", SwivelFanId = "MixedAtmospheresSwivelFan";
         private static int ffHandle, ffLogged;
         private static double ffWork, ffLastWork, ffPeakWork, ffStartMass;
         private static GameObject? ffFan;
         private static readonly List<string> ffLog = new List<string>();
         private static void FaceForceScenario(int frame, OniNativeColony.Status status)
         {
-            const int wall = 3, row = 2;
-            const int open = 6, stalled = 306, relaxed = 456, fanStalled = 906;
+            const int wall = 3, row = 1;
+            const int open = 6, stalled = 306, relaxed = 456, swivelStalled = 856, swivelGone = 1006, wallStalled = 1406;
             const double stall = 120, speed = 6;
             double Pressure(int cell) => MixturePresentationRuntime.TryGetCell(cell, out var r) && r != null ? (r.MechanicalPressurePa ?? r.TotalPressurePa) : double.NaN;
             double Rise() => Enumerable.Range(0, Height).Average(y => Pressure(Cell(6, y))) - Enumerable.Range(0, Height).Average(y => Pressure(Cell(1, y)));
@@ -87,28 +92,63 @@ namespace MixedAtmospheres.Oni
                 Record("the gas was retained and the ledgers closed", Math.Abs(ArenaMass() - ffStartMass) <= 1e-6 * ffStartMass &&
                     status.State == 1 && status.MaximumRelativeMassError <= 1e-12 && status.MaximumRelativeEnergyError <= 1e-10,
                     FormattableString.Invariant($"arena {ffStartMass:G9} -> {ArenaMass():G9} kg; mass {status.MaximumRelativeMassError:G3}, energy {status.MaximumRelativeEnergyError:G3}"));
-                if (Assets.GetBuildingDef(WallFanId) == null)
+                if (Assets.GetBuildingDef(SwivelFanId) == null && Assets.GetBuildingDef(WallFanId) == null)
                 {
                     recorded["fan mod installed"] = 0;
-                    Record("a Wall Fan of the fan mod (not installed in this run)", true, "not run: Mixed Atmospheres: Fans is not installed");
+                    Record("the fan mod's buildings (not installed in this run)", true, "not run: Mixed Atmospheres: Fans is not installed");
                     Finish(); return;
                 }
                 recorded["fan mod installed"] = 1;
-                ffFan = Build(WallFanId, Cell(wall, row));
+                // The Swivel Fan stands on the left room's floor beside the wall;
+                // its head, one tile up, faces the opening.
+                ffFan = TryBuildFan(SwivelFanId, Cell(wall - 1, row - 1));
             }
-            if (Once(fanStalled, "fan"))
+            void FanChecks(string name, double expected)
             {
                 var rise = Rise();
                 var operational = ffFan != null ? ffFan.GetComponent<Operational>() : null;
                 var temperature = ffFan != null ? ffFan.GetComponent<PrimaryElement>().Temperature : 0f;
-                Record("the Wall Fan runs", operational != null && operational.IsOperational && operational.IsActive, MachineState(ffFan));
-                // Medium, the step a new fan starts on: 60 Pa.
-                Record("the Wall Fan holds its stall pressure", Math.Abs(rise - 60) <= 0.1 * 60,
-                    FormattableString.Invariant($"right room minus left room {rise:F2} Pa for the fan's 60 Pa (limit 10 %)"));
-                Record("the Wall Fan's unused power warms it", temperature > 300.5f, FormattableString.Invariant($"fan at {temperature:F2} K, built at 300 K"));
-                Record("the colony stays closed with a fan running", status.State == 1 && status.MaximumRelativeMassError <= 1e-12 && status.MaximumRelativeEnergyError <= 1e-10,
+                Record("the " + name + " runs", operational != null && operational.IsOperational && operational.IsActive, MachineState(ffFan));
+                Record("the " + name + " holds its stall pressure", Math.Abs(rise - expected) <= 0.1 * expected,
+                    FormattableString.Invariant($"right room minus left room {rise:F2} Pa for the fan's {expected:F0} Pa (limit 10 %)"));
+                Record("the " + name + "'s unused power warms it", temperature > 300.005f, FormattableString.Invariant($"fan at {temperature:F3} K, built at 300 K"));
+                Record("the colony stays closed with the " + name + " running", status.State == 1 && status.MaximumRelativeMassError <= 1e-12 && status.MaximumRelativeEnergyError <= 1e-10,
                     FormattableString.Invariant($"mass {status.MaximumRelativeMassError:G3}, energy {status.MaximumRelativeEnergyError:G3}"));
+            }
+            if (Once(swivelStalled, "swivel fan"))
+            {
+                if (ffFan != null) FanChecks("Swivel Fan", 30); // Medium, the step a new fan starts on
+                if (ffFan != null) { Util.KDestroyGameObject(ffFan); ffFan = null; }
+            }
+            if (Once(swivelGone, "wall fan"))
+            {
+                var rise = Rise();
+                Record("removing a fan releases its face", Math.Abs(rise) <= 3, FormattableString.Invariant($"right room minus left room {rise:F2} Pa after the Swivel Fan was removed"));
+                ffFan = TryBuildFan(WallFanId, Cell(wall, row));
+                if (ffFan == null) { Finish(); return; }
+            }
+            if (Once(wallStalled, "wall fan stalled"))
+            {
+                FanChecks("Wall Fan", 60);
                 Finish();
+            }
+        }
+        // Builds one of the fan mod's buildings; a failure is that mod's, and
+        // is recorded with what it threw.
+        private static GameObject? TryBuildFan(string id, int cell)
+        {
+            if (Assets.GetBuildingDef(id) == null) { Record("the fan mod has " + id, false, "no such building"); return null; }
+            try
+            {
+                var fan = Build(id, cell);
+                Record(id + " can be built", fan != null, "built");
+                return fan;
+            }
+            catch (Exception error)
+            {
+                var first = (error.StackTrace ?? "").Split('\n').FirstOrDefault()?.Trim() ?? "";
+                Record(id + " can be built", false, error.GetType().Name + ": " + error.Message + " " + first);
+                return null;
             }
         }
     }

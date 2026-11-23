@@ -338,7 +338,8 @@ namespace MixedAtmospheres.Oni
                 if (!(a.Mass > 0) || !Grid.IsValidCell(a.Cell) || a.NativeIndex >= ElementLoader.elements.Count) continue;
                 var element = ElementLoader.elements[(int)a.NativeIndex];
                 if (!(element.IsGas || element.IsLiquid) || !ColonyOwner.TryReadView(a.Cell, out var view)) continue;
-                var blocked = view.MassKg >= a.MaximumKg;
+                // A gas emitter under a shown film is held back by the cell's gas, not by the film.
+                var blocked = (element.IsGas && ColonyAtmosphereReaders.Film(a.Cell, out _, out var air) ? air : view.MassKg) >= a.MaximumKg;
                 if (blocked != a.Blocked)
                 {
                     a.Blocked = blocked;

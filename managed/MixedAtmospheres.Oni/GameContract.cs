@@ -381,7 +381,7 @@ namespace MixedAtmospheres.Oni
         // their installers so they are verified before they are patched.
         internal static IEnumerable<MethodBase> ManualTargets()
         {
-            var targets = MixtureWorldRendering.ContractTargets().Concat(OwnedReservoirOwnerMarker.ContractTargets());
+            var targets = MixtureWorldRendering.ContractTargets().Concat(OwnedReservoirOwnerMarker.ContractTargets()).Concat(ColonyAtmosphereReaders.ContractTargets());
             var pageAllocation = WindowsHarmonyPageAllocation.Target();
             return pageAllocation == null ? targets : targets.Append(pageAllocation);
         }

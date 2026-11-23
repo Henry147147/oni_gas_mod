@@ -522,8 +522,7 @@ user decision 2026-11-05) and no setting is added.
   below saturation, so boiling into a sealed space stops at the saturation
   pressure. The relaxation at the tick's end does not evaporate those pairs
   again; the region audits book the conversions. Only a liquid body boils
-  this way: a cell its liquid fills at least half (as the game shows a
-  cell's liquid) whose pressure is at least the weight of its contents, so
+  this way: a cell its liquid fills at least half whose pressure is at least the weight of its contents, so
   that a column or atmosphere holds it. Liquid in a mostly gas cell, and
   liquid whose pressure its own thin vapour or void sets, boils in place up
   to the saturation pressure at the tick's end and the flow carries the

@@ -239,6 +239,66 @@ vanilla projection and is counted (when a reader first asks for it). The cell ho
 and a duplicant holding its breath or suffocating is told why the air at its
 head fails (the hover's breathing warnings, `ColonyBreathingStatus.cs`).
 
+### The shown phase
+
+ONI's grid holds one element a cell, and an owner cell can hold gas and
+liquid together, so the projection chooses which of the two the game sees
+(`project` and `shows_liquid` in `oni_colony.cpp`). **A cell that holds any
+liquid shows its liquid** (user decision 2026-11-23, version 1.13.0): the most
+massive liquid as the element and all the cell's liquid as the mass, from the
+share of the cell's volume at which the readings report liquid at all, 0.001 %
+(about 10 g of water). Below that the liquid is a trace, left out of names and
+friendly readings as a trace gas is, and the cell shows its gas. A cell without
+gas shows its liquid whatever its share.
+
+Until 1.13.0 a cell showed liquid only from half its volume. A puddle under
+air, a film on a floor and the top cell of a pool then looked like air, the
+hover reported a liquid nobody could see, and the game's own tools could not
+find it: the mop tool and a liquid pump's intake look for liquid tiles.
+
+What follows the shown element is what follows it in ONI: the tile's look, the
+mop, a liquid pump's intake, off-gassing of a shown polluted water, and every
+game rule that asks whether a tile is liquid, with ONI's own thresholds for how
+much (a building floods and a duplicant is submerged only in a substantial
+liquid). What does not:
+
+- **Breathing.** A duplicant breathes the gas of its cell, whatever the grid
+  shows (`TryReadBreathingCell` reads the cell's gas), so a film underfoot or a
+  droplet at head height takes no air away.
+- **Sensors and machines** read the owner: a gas element sensor finds a gas
+  beside a film, a pressure sensor reads the cell's pressure, and outputs and
+  intakes are settled against the cell's real contents.
+- **The game's readers of the air.** ONI's own components read the grid's
+  element and mass, and a room's air must not vanish for them because its
+  floor is wet. In a cell that holds gas and less than half a cell of liquid
+  (the cells that showed their gas before 1.13.0) the components that mean the
+  air read the cell's gas: its leading gas as the element and the mass of all
+  its gas (`ColonyAtmosphereReaders.cs`). They are plants (atmosphere, pressure
+  and temperature), gas vents, the over-pressure tests of the electrolyzer,
+  rust deoxidizer, oil refinery and of emission in general, a gas pump's
+  "no gas to pump", element emitters' pressure limit, the space heater, the
+  steam turbine's intake, the Ice-E fan, the mask station, a
+  building's exhaust heat, food's storage atmosphere, a duplicant's ear,
+  temperature and exposure monitors and the critters that breathe or emit gas.
+  The rewrite finds each of their reads of `Grid.Element`, `Grid.Mass`,
+  `Grid.ElementIdx`, `Grid.IsGas` and `Grid.IsLiquid` in the game's code; the
+  methods are part of the [game contract](game-update-resilience.md), so a
+  game update that changes one is noticed. Every reader not listed sees what
+  the grid shows, as it would see a puddle in ONI: a duplicant's feet get wet
+  in a film, and a building standing in one exchanges heat with water.
+- **Freezing into a tile.** ONI freezes a shown liquid by turning its cell
+  into a solid tile. It may do so only where the liquid fills at least half
+  the cell or no gas is beside it, the cells that showed liquid before
+  (`allow_native_transition`); a smaller liquid beside gas freezes in the
+  owner, into debris ([conversions](#conversions)), so a frozen film never
+  walls off a room's tile.
+
+The `shown-liquid` scenario spreads 30 kg of water over a floor under oxygen
+and checks the game's grid cell by cell, then stands a one-tile plant and a
+gas vent in the film and lets gas out into it; `shown_phase_control` in
+`ma_oni_colony_tests` covers a film, a trace, a pool, a gas-free drop and the
+freezing rule.
+
 ## Native bodies
 
 ONI's tiles, buildings, items (element chunks), pipes and element
@@ -646,7 +706,7 @@ room; `ConvertedKg` counts conversions gross.
 | Debris melting (`DoOreMeltTransition`, `DoMelt`) and sublimating (`Sublimates.Emit`) | injected, item destroyed or reduced | `energy_in` at the item's temperature | the item's disease |
 | Native tiles melting; items freezing or melting under native heat | shadow: `NativeMassInKg`/`NativeMassOutKg`, then injected/extracted | `NativeHeatJoules` for exchange without mass change | native cell's germ, booked as germ edits |
 | Natural tiles sublimating, polluted water off-gassing ([natural sublimation](#natural-sublimation)) | the product injected at the receiving cell (a used-up tile's own cell opens with it); the liquid's take extracted; both in the shadow's `NativeMassInKg`/`NativeMassOutKg` | `energy_in` at the tile's or liquid's temperature | the germs the tile gave up; the liquid's most numerous germ, in proportion |
-| Frozen liquid (owner freezes a hidden liquid) | extracted; the solid joins its cell's [byproduct batch](#byproduct-batches) and the game spawns the batch as debris | `energy_out`; the debris at the batch's mass-weighted temperature | the debris carries the batch's most numerous identity, its parts' counts summed (fixed 2026-11-04; the freeze lost them before) |
+| Frozen liquid (owner freezes a liquid that fills less than half its cell beside gas) | extracted; the solid joins its cell's [byproduct batch](#byproduct-batches) and the game spawns the batch as debris | `energy_out`; the debris at the batch's mass-weighted temperature | the debris carries the batch's most numerous identity, its parts' counts summed (fixed 2026-11-04; the freeze lost them before) |
 | Conversion byproduct (salt from boiling brine) | extracted gross (`ConvertedKg`); the product is injected back; the solid joins its cell's [byproduct batch](#byproduct-batches) and becomes debris | `energy_out` of the converted mass, `energy_in` of the product | the product keeps the germs; the solid carries none |
 | Addition with no open cell within two (callback −1) | held in the reservoir (`ReservoirKg`), released later (`ReleasedKg`) | held at its temperature | not kept (open) |
 
@@ -655,9 +715,9 @@ the other germ identities of a multi-germ parcel and fractions of a germ do not
 reach it; a consumer receipt whose target ONI has destroyed before delivery
 (a cancelled mop, a dead critter) lands nowhere, as the native simulation also
 dropped it; the pitcher pump's stored placeholder chunks are ONI's bookkeeping,
-not mass. Mopping reaches only a liquid the owner shows to ONI: a puddle under air
-is hidden (the shown liquid needs half a cell, or a cell without gas), so the mop
-tool finds none there; this is presentation, not a crossing, and is open. Addition into
+not mass. Mopping reaches a liquid the owner shows to ONI, which since 1.13.0 is any
+liquid above a trace ([the shown phase](#the-shown-phase)); until then a puddle under air
+was hidden and the mop tool found none there. Addition into
 a reservoir loses its germs (see the last row above). The `storage-ledger` scenario drives the mop, pitcher-pump bottle,
 demolition, chunk-release and gas-emptier paths and compares the owner's side with
 ONI's.
@@ -716,9 +776,10 @@ the temperature too). A solid byproduct (salt) leaves the owner, gathers in
 its cell's [byproduct batch](#byproduct-batches) and the game spawns it as
 debris. A conversion too small to change the cell's masses waits.
 
-A liquid below its freezing point freezes natively when the projection shows it
-(the cell closes, see [native bodies](#native-bodies)). A liquid the projection
-hides (a puddle under gas, a minority liquid) would never freeze that way, so it
+A liquid below its freezing point freezes natively when it fills at least half
+its cell or has no gas beside it (the cell closes, see [native bodies](#native-bodies)
+and [the shown phase](#the-shown-phase)). A smaller liquid beside gas (a puddle, a
+film, a minority liquid) must not take its cell with it, so it
 freezes here: the same share per step leaves the owner and the game spawns it
 as debris of its solid at the cell's temperature, through the same batches.
 

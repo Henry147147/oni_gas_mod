@@ -2906,8 +2906,10 @@ void heat_neighbour_bounds_control() {
 #include "oni_terrain_order_control.hpp"
 #include "../src/oni_colony_journal.hpp"
 #include "oni_face_force_control.hpp"
+#include "oni_shown_phase_control.hpp"
 int main(int argc, char** argv) {
     try {
+        if (argc == 2 && std::strcmp(argv[1], "--shown-phase-only") == 0) {shown_phase_control();return 0;}
         if (argc == 2 && std::strcmp(argv[1], "--face-forces-only") == 0) {face_force_control();return 0;}
         if (argc == 2 && std::strcmp(argv[1], "--overlapped-only") == 0) {overlapped_pacing_control();return 0;}
         if (argc == 2 && std::strcmp(argv[1], "--terrain-order-only") == 0) {terrain_order_control();return 0;}
@@ -2951,6 +2953,7 @@ int main(int argc, char** argv) {
         gas_batch_control();
         space_speed_control();
         face_force_control();
+        shown_phase_control();
         activity_owner_control();
         overlapped_pacing_control();
         terrain_order_control();

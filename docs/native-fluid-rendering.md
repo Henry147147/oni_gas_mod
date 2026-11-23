@@ -37,12 +37,13 @@ per real second over the last second) beside the requested clock, `game 2.98×
 (clock 3.00×)`, or `game paused`.
 
 A wet cell's name lists its liquid too, the phase that fills most of the cell
-first, as ONI's grid shows it (the owner projects a cell at least half liquid
-by volume as its liquid): `Water + Oxygen` for a cell two-thirds water,
+first: `Water + Oxygen` for a cell two-thirds water,
 `Oxygen + Water` for a damp one; liquid below 0.001% of the volume is left out
 of the name. When liquid fills most of the cell, a breathable gas reads
 `Breathable headspace`: duplicants still breathe it (the owner's breathing
-read uses the cell's gas), but the cell is water to ONI. It sits below ONI's notification list and hides while a
+read uses the cell's gas), but the cell is water to ONI, as is every cell
+that holds liquid above a trace since 1.13.0
+([the shown phase](colony-owner.md#the-shown-phase)). It sits below ONI's notification list and hides while a
 full-screen management screen (skills, research, starmap and the like) is
 open. The 2026-11-08 follow-up reads the management menu's actual active
 screen: the supported game's fullscreen helper misses the Research/Skills

@@ -87,6 +87,7 @@ namespace MixedAtmospheres.Oni
                 UnityEngine.Debug.Log("[Mixed Atmospheres] Native enum tag helpers passed.");
                 MixtureWorldRendering.Install(harmony);
                 OwnedReservoirOwnerMarker.Install(harmony);
+                ColonyAtmosphereReaders.Install(harmony);
                 GameBuildCheck.RequireVerifiedPatches(harmony);
                 var report = IntegrationProbe.Run(verifiedAssemblyHash);
                 var destination = Development ? ReportPath : "Player.log only (ordinary play writes nothing into the mod folder)";

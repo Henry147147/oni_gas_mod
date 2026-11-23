@@ -308,6 +308,14 @@ Replay cases hash the complete final owner checkpoint. A missing capture on
 another machine makes the complete check unavailable. To run one generated
 case there, append `--case late-base`.
 
+Version 1.13.0 replaced the six generated cases' view hashes: a cell now shows
+its liquid whenever it holds any ([the shown phase](colony-owner.md#the-shown-phase),
+user decision 2026-11-23), which changes the published views by design. In a
+run of two of the cases with the 1.12.2.3 and 1.13.0 builds every other
+reported value was equal (cell and interval counts, the mass and energy
+errors to their last digit), and the six replay cases still end on the
+`ff95138` owner checkpoints.
+
 On the reference host and affinity, the runner also reports percentage changes
 in mean and p95 owner time. To enforce a local performance budget, pass
 `--max-slowdown-percent N`; a slowdown above N in either measure fails that
