@@ -22,6 +22,15 @@ class HeatSolver {
   std::vector<Species> species;
   double mixing = 0;
   unsigned maximum_iterations = 200;
+  // Scratch kept for its capacity: every entry is written before it is read.
+  ma::experimental::mac_kernel::LinearSystem system;
+  std::vector<double> conductivity, rhs, increment, flux_x, flux_y,
+      transfer_x, transfer_y;
+  std::vector<std::uint8_t> coupled_x, coupled_y, nonpositive;
+  // Runs job(block) over the grid's fixed row blocks on the pool.
+  void blocks(const std::function<void(std::size_t)> &job) {
+    pool.run(g.blocks, job);
+  }
 
 public:
   HeatSolver(const ma::experimental::MacGrid &grid, std::vector<Species> table,
@@ -66,35 +75,51 @@ public:
   HeatResult advance(const State &state, const std::vector<Eos> &eos,
                      double dt, double stratified = 0) {
     namespace k = ma::experimental::mac_kernel;
-    k::LinearSystem system;
+    // Cells, then faces, then each cell's right-hand side, in the grid's
+    // fixed row blocks. A cell adds its faces' transfers in the order the
+    // serial face loops did (x faces, then y faces, each in face order: its
+    // left, right, bottom and top faces).
     system.g = &g;
-    system.active.assign(g.N, 0);
-    system.diag.assign(g.N, 0);
-    system.wx.assign(g.NX, 0);
-    system.wy.assign(g.NY, 0);
-    std::vector<double> conductivity(g.N), rhs(g.N), increment;
-    for (std::size_t i = 0; i < g.N; ++i) {
-      if (g.wall[i] || eos[i].mass == 0)
-        continue;
-      system.active[i] = 1;
-      system.diag[i] = eos[i].capacity;
-      double occupied = 0;
-      for (std::size_t a = state.masses.offsets[i];
-           a < state.masses.offsets[i + 1]; ++a) {
-        const auto &s = species[state.masses.species[a]];
-        const double m = state.masses.mass[a];
-        const double volume =
-            s.gas ? m * R / s.molar_mass * eos[i].temperature / eos[i].pressure
-                  : m / s.rho0 * liquid_volume_fraction(s,eos[i].pressure);
-        conductivity[i] += s.conductivity * volume;
-        occupied += volume;
+    system.active.resize(g.N);
+    system.diag.resize(g.N);
+    system.wx.resize(g.NX);
+    system.wy.resize(g.NY);
+    conductivity.resize(g.N);
+    rhs.resize(g.N);
+    transfer_x.resize(g.NX);
+    transfer_y.resize(g.NY);
+    coupled_x.resize(g.NX);
+    coupled_y.resize(g.NY);
+    blocks([&](std::size_t block) {
+      for (std::size_t i = g.block_row_begin(block) * g.W; i < g.block_row_end(block) * g.W; ++i) {
+        system.active[i] = 0;
+        system.diag[i] = 0;
+        conductivity[i] = 0;
+        if (g.wall[i] || eos[i].mass == 0)
+          continue;
+        system.active[i] = 1;
+        system.diag[i] = eos[i].capacity;
+        double occupied = 0;
+        for (std::size_t a = state.masses.offsets[i];
+             a < state.masses.offsets[i + 1]; ++a) {
+          const auto &s = species[state.masses.species[a]];
+          const double m = state.masses.mass[a];
+          const double volume =
+              s.gas ? m * R / s.molar_mass * eos[i].temperature / eos[i].pressure
+                    : m / s.rho0 * liquid_volume_fraction(s,eos[i].pressure);
+          conductivity[i] += s.conductivity * volume;
+          occupied += volume;
+        }
+        if (occupied > 0)
+          conductivity[i] /= occupied;
       }
-      if (occupied > 0)
-        conductivity[i] /= occupied;
-    }
+    });
     const auto faces = [&](bool x, const auto &left, const auto &right,
-                           auto &weights) {
-      for (std::size_t f = 0; f < weights.size(); ++f) {
+                           auto &weights, auto &transfers, auto &coupled,
+                           std::size_t first, std::size_t end) {
+      for (std::size_t f = first; f < end; ++f) {
+        weights[f] = 0;
+        coupled[f] = 0;
         const auto l = left[f], r = right[f];
         if (l == k::none || r == k::none || g.closed(!x, f) ||
             !system.active[l] || !system.active[r])
@@ -147,17 +172,33 @@ public:
         }
         weights[f] =
             dt * g.A / source.spacing_m * (2 * kl * kr / (kl + kr) + eddy);
-        const double transfer =
-            weights[f] * (eos[r].temperature - eos[l].temperature);
-        rhs[l] += transfer;
-        rhs[r] -= transfer;
+        transfers[f] = weights[f] * (eos[r].temperature - eos[l].temperature);
+        coupled[f] = 1;
       }
     };
-    faces(true, g.xl, g.xr, system.wx);
-    faces(false, g.yl, g.yr, system.wy);
-    DoubleDouble norm;
-    for (double value : rhs)
-      norm.add(value * value);
+    blocks([&](std::size_t block) {
+      const auto y0 = g.block_row_begin(block);
+      faces(true, g.xl, g.xr, system.wx, transfer_x, coupled_x, y0 * g.XW,
+            g.block_row_end(block) * g.XW);
+      faces(false, g.yl, g.yr, system.wy, transfer_y, coupled_y, y0 * g.W,
+            g.block_yrow_end(block) * g.W);
+    });
+    blocks([&](std::size_t block) {
+      for (std::size_t i = g.block_row_begin(block) * g.W; i < g.block_row_end(block) * g.W; ++i) {
+        const auto l = g.left_face(i), r = g.right_face(i), b = g.bottom_face(i),
+                   t = g.top_face(i);
+        double value = 0;
+        if (coupled_x[l])
+          value -= transfer_x[l];
+        if (coupled_x[r])
+          value += transfer_x[r];
+        if (coupled_y[b])
+          value -= transfer_y[b];
+        if (coupled_y[t])
+          value += transfer_y[t];
+        rhs[i] = value;
+      }
+    });
     std::vector<std::size_t> iterations_used;
     const auto solved = component_cache.solve(context, system, rhs, increment,
                                               1e-9, 1e-12, maximum_iterations,
@@ -166,35 +207,51 @@ public:
       throw std::runtime_error("Private heat linear solve failed");
     HeatResult result;
     result.iterations = solved.iterations;
-    result.energy = state.energy;
-    std::vector<double> flux_x(g.NX), flux_y(g.NY);
+    result.energy.resize(g.N);
+    flux_x.resize(g.NX);
+    flux_y.resize(g.NY);
+    nonpositive.resize(g.blocks);
     for (;;) {
-      const auto fluxes = [&](const auto &l, const auto &r, const auto &weights,
-                              auto &flux) {
-        for (std::size_t f = 0; f < weights.size(); ++f)
-          if (weights[f] != 0)
-            flux[f] = weights[f] * ((eos[l[f]].temperature + increment[l[f]]) -
-                                    (eos[r[f]].temperature + increment[r[f]]));
-      };
-      fluxes(g.xl, g.xr, system.wx, flux_x);
-      fluxes(g.yl, g.yr, system.wy, flux_y);
-      Balance audit;
-      bool nonpositive = false;
-      for (std::size_t i = 0; i < g.N; ++i)
-        if (!g.wall[i]) {
+      // Face fluxes, then each cell's new energy, in row blocks; the audit
+      // sums the cells in cell order.
+      blocks([&](std::size_t block) {
+        const auto fluxes = [&](const auto &l, const auto &r, const auto &weights,
+                                auto &flux, std::size_t first, std::size_t end) {
+          for (std::size_t f = first; f < end; ++f)
+            flux[f] = weights[f] != 0
+                          ? weights[f] * ((eos[l[f]].temperature + increment[l[f]]) -
+                                          (eos[r[f]].temperature + increment[r[f]]))
+                          : 0;
+        };
+        const auto y0 = g.block_row_begin(block);
+        fluxes(g.xl, g.xr, system.wx, flux_x, y0 * g.XW, g.block_row_end(block) * g.XW);
+        fluxes(g.yl, g.yr, system.wy, flux_y, y0 * g.W, g.block_yrow_end(block) * g.W);
+      });
+      blocks([&](std::size_t block) {
+        bool any = false;
+        for (std::size_t i = g.block_row_begin(block) * g.W; i < g.block_row_end(block) * g.W; ++i) {
+          result.energy[i] = state.energy[i];
+          if (g.wall[i])
+            continue;
           result.energy[i] += flux_x[g.left_face(i)] - flux_x[g.right_face(i)] +
                               flux_y[g.bottom_face(i)] - flux_y[g.top_face(i)];
+          if (system.active[i] && !(result.energy[i] - eos[i].offset > 0))
+            any = true;
+        }
+        nonpositive[block] = any;
+      });
+      Balance audit;
+      for (std::size_t i = 0; i < g.N; ++i)
+        if (!g.wall[i]) {
           audit.add(state.energy[i]);
           audit.add(-result.energy[i]);
-          if (system.active[i] && !(result.energy[i] - eos[i].offset > 0))
-            nonpositive = true;
         }
       if (!audit.closed())
         throw std::runtime_error("Private shared heat flux ledger failed");
       result.error = audit.operands.value() ? std::abs(audit.residual.value()) /
                                                   audit.operands.value()
                                             : 0;
-      if (!nonpositive)
+      if (std::none_of(nonpositive.begin(), nonpositive.end(), [](std::uint8_t v) { return v != 0; }))
         return result;
 
       // A global relative residual can exceed a near-vacuum cell's entire
@@ -221,7 +278,6 @@ public:
       }
       if (!changed)
         throw std::runtime_error("Private heat refinement made no progress");
-      result.energy = state.energy;
     }
   }
 };
