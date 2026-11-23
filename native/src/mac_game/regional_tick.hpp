@@ -284,6 +284,13 @@ private:
     capture_ms=lap();
     std::vector<TickResult> results(regions.size());std::vector<std::exception_ptr> errors(regions.size());
     std::vector<double> region_ms(regions.size());
+    // Workers claim regions in the order given: the largest go first, so that
+    // none of them starts when the others are nearly done. Each region's
+    // result is its own, so the order changes when a tick ends, not what it
+    // computes; errors are still reported in region order below.
+    const auto largest_first=[&](std::vector<std::size_t>& order) {
+      std::stable_sort(order.begin(),order.end(),[&](std::size_t a,std::size_t b){return execution_keys[a].cells>execution_keys[b].cells;});
+    };
     const auto run_region=[&](std::size_t id) {
       if(steps[id]==0)return;
       const auto started=std::chrono::steady_clock::now();
@@ -324,12 +331,18 @@ private:
       // residual pool itself (not of a region, which run_region records)
       // keeps its precedence. Every job is finished before run returns.
       std::vector<std::size_t> others;others.reserve(regions.size());
-      for(std::size_t id=0;id<regions.size();++id)if(execution.threads_of(id)==0)others.push_back(id);
+      for(std::size_t id=0;id<regions.size();++id)if(steps[id]!=0 && execution.threads_of(id)==0)others.push_back(id);
+      largest_first(others);
       coordinator_pool->run(execution.parallel.size()+1,[&](std::size_t job) {
         if(job==0)residual_pool->run(others.size(),[&](std::size_t block){run_region(others[block]);});
         else run_region(execution.parallel[job-1].region);
       });
-    } else pool.run(regions.size(),run_region);
+    } else {
+      std::vector<std::size_t> order;order.reserve(regions.size());
+      for(std::size_t id=0;id<regions.size();++id)if(steps[id]!=0)order.push_back(id);
+      largest_first(order);
+      pool.run(order.size(),[&](std::size_t block){run_region(order[block]);});
+    }
     run_ms=lap();
     for(const auto& error:errors)if(error)std::rethrow_exception(error);
     // The region runs have read `initial`; a consumed state's energy and face
