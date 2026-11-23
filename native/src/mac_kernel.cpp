@@ -496,6 +496,8 @@ std::size_t retained_bytes(const Workspaces& w) {
     }
     if (ws.pressure_topology) total += ws.pressure_topology->storage_bytes();
     if (ws.pressure_multigrid) total += ws.pressure_multigrid->storage_bytes();
+    for (const auto& [topology, multigrid] : ws.kept_pressure_hierarchies)
+        total += topology->storage_bytes() + multigrid->storage_bytes();
     for (const auto* v : {&e.M, &e.Cv, &e.off, &e.nR, &e.Nl, &e.T, &e.p, &e.Vg, &e.Eel, &e.Ceq, &e.comp, &e.lcomp}) add(*v);
     add(e.kind); add(ws.anchor);
     add(ws.full_qx.values); add(ws.full_qx.faces); add(ws.full_qy.values); add(ws.full_qy.faces);

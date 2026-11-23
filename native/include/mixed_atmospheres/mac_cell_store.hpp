@@ -165,6 +165,44 @@ public:
         return true;
     }
 
+    // Chunk k with the cells `rewritten(i)` selects replaced by `make(i)`,
+    // as writing those cells one by one would leave it: the other cells keep
+    // their values and stamps, the rewritten ones carry the chunk's new
+    // serial. A shared chunk is built directly, without first copying the
+    // cells it is about to replace, and outside the first-write lock, so
+    // different chunks of one store may be rewritten by different threads at
+    // once. `make` must not touch this store.
+    template <class Select, class Make> void rewrite_chunk(std::size_t k, Select&& rewritten, Make&& make) {
+        std::shared_ptr<Chunk> shared;
+        {
+            std::lock_guard lock(detach_mutex());
+            if (!mine_[k].load(std::memory_order_relaxed)) {
+                if (owners_[k].use_count() != 1) shared = owners_[k];
+                else { owners_[k]->serial = next_serial(); mine_[k].store(true, std::memory_order_release); }
+            }
+        }
+        const auto first = k << chunk_shift;
+        if (!shared) {
+            auto& chunk = *owners_[k];
+            for (std::size_t j = 0; j < chunk.values.size(); ++j)
+                if (rewritten(first + j)) { chunk.values[j] = make(first + j); chunk.stamps[j] = chunk.serial; }
+            return;
+        }
+        auto copy = std::make_shared<Chunk>();
+        copy->serial = next_serial();
+        copy->values.reserve(chunk_size); copy->stamps.reserve(chunk_size);
+        for (std::size_t j = 0; j < shared->values.size(); ++j) {
+            const bool fresh = rewritten(first + j);
+            if (fresh) copy->values.push_back(make(first + j));
+            else copy->values.push_back(mac_chunk_copy(shared->values[j]));
+            copy->stamps.push_back(fresh ? copy->serial : shared->stamps[j]);
+        }
+        std::lock_guard lock(detach_mutex());
+        copied_chunks().fetch_add(1, std::memory_order_relaxed);
+        owners_[k] = std::move(copy);
+        pointers_[k].store(owners_[k].get(), std::memory_order_release);
+        mine_[k].store(true, std::memory_order_release);
+    }
     // Give this store its own copy of chunk k now (as a first write would),
     // so a later write to it does not copy. Values are unchanged.
     void own_chunk(std::size_t k) { if (!mine_[k].load(std::memory_order_acquire)) detach(k); }

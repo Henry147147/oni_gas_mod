@@ -371,6 +371,12 @@ struct Workspace {
     // cells; a changed mask or geometry replaces the hierarchy before use.
     std::shared_ptr<const interval_detail::PressureMultigridTopology> pressure_topology;
     std::unique_ptr<interval_detail::PressureMultigrid> pressure_multigrid;
+    // The hierarchies of the other active sets this workspace solved most
+    // recently, latest first (prepare_multigrid). A hierarchy is a function
+    // of its active set alone, so taking one back computes what a rebuild
+    // would.
+    std::vector<std::pair<std::shared_ptr<const interval_detail::PressureMultigridTopology>,
+                          std::unique_ptr<interval_detail::PressureMultigrid>>> kept_pressure_hierarchies;
     EosCache eos;
     std::vector<Anchor> anchor;
     std::vector<double> cell_mass, mass_after, ix, iy, ix1, iy1, inv_ix, inv_iy, dp0x, dp0y, wx, wy, bdiag;

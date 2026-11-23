@@ -246,9 +246,10 @@ k::State sparse(const MacTransportState &state, mac_kernel::Pool *pool = nullptr
   });
   return result;
 }
-// Sparse fields back to dense cells. The advance builds them serially: on
-// the pool, the cells' allocations in worker arenas made 12-thread frames
-// about 3% slower.
+// Sparse fields back to dense cells. The full rebuild runs serially: on the
+// pool, the cells' allocations in worker arenas made 12-thread frames about
+// 3% slower. A partial rebuild (`rebuilt`) builds each cell chunk that holds
+// rebuilt cells in one piece and may run a chunk a worker.
 // Takes `state`'s face momenta (its other fields are only read).
 MacTransportState dense(const MacTransportState &source, k::State &state,
                         std::size_t species,
@@ -266,37 +267,47 @@ MacTransportState dense(const MacTransportState &source, k::State &state,
     // chunks alone are copied). Values are those of the full rebuild below.
     result.cells = source.cells;
     const auto &before = std::as_const(source).cells;
-    for (std::size_t i = 0; i < state.energy.size(); ++i) {
-      if (!rebuilt[i]) {
-        result.occupied_volumes_m3[i] = source.occupied_volumes_m3.empty()
-            ? (!source.grid.walls[i] && before[i].mixture.mass() > 0 ? source.grid.volume_m3() : 0)
-            : source.occupied_volumes_m3[i];
-        continue;
+    // One job a cell chunk: a chunk with rebuilt cells is built directly
+    // (MacChunkStore::rewrite_chunk), the others stay shared.
+    chunks(pool, state.energy.size(), [&](std::size_t chunk, std::size_t first, std::size_t end) {
+      bool any = false;
+      for (std::size_t i = first; i < end; ++i) {
+        if (rebuilt[i]) {
+          any = true;
+          result.occupied_volumes_m3[i] = readings[i].mass == 0 ? 0
+                                          : readings[i].nR > 0
+                                              ? result.grid.volume_m3()
+                                              : readings[i].liquid_volume;
+        } else
+          result.occupied_volumes_m3[i] = source.occupied_volumes_m3.empty()
+              ? (!source.grid.walls[i] && before[i].mixture.mass() > 0 ? source.grid.volume_m3() : 0)
+              : source.occupied_volumes_m3[i];
       }
-      auto &cell = result.cells[i];
-      cell = MacMaterialCell{MixtureInventory(0), {}, {}};
-      cell.mixture = MixtureInventory(species);
-      cell.mixture.energy = state.energy[i];
-      // The masses the full rebuild writes, held frozen so that later copies
-      // of this cell's chunk share them; a cell with no constituent keeps
-      // the shared zeros, as there.
-      if (state.masses.offsets[i] < state.masses.offsets[i + 1]) {
-        std::vector<double> masses(species, 0.0);
-        for (std::size_t a = state.masses.offsets[i];
-             a < state.masses.offsets[i + 1]; ++a)
-          masses[state.masses.species[a]] = state.masses.mass[a];
-        cell.mixture.masses = MassStorage::frozen(std::move(masses));
-      }
-      if (!state.passives.mass.empty())
-        for (std::size_t a = state.passives.offsets[i];
-             a < state.passives.offsets[i + 1]; ++a)
-          cell.passive_quantities.push_back(
-              {state.passives.species[a], state.passives.mass[a]});
-      result.occupied_volumes_m3[i] = readings[i].mass == 0 ? 0
-                                      : readings[i].nR > 0
-                                          ? result.grid.volume_m3()
-                                          : readings[i].liquid_volume;
-    }
+      if (!any)
+        return;
+      result.cells.rewrite_chunk(
+          chunk, [&](std::size_t i) { return rebuilt[i] != 0; },
+          [&](std::size_t i) {
+            MacMaterialCell cell{MixtureInventory(species), {}, {}};
+            cell.mixture.energy = state.energy[i];
+            // The masses the full rebuild writes, held frozen so that later
+            // copies of this cell's chunk share them; a cell with no
+            // constituent keeps the shared zeros, as there.
+            if (state.masses.offsets[i] < state.masses.offsets[i + 1]) {
+              std::vector<double> masses(species, 0.0);
+              for (std::size_t a = state.masses.offsets[i];
+                   a < state.masses.offsets[i + 1]; ++a)
+                masses[state.masses.species[a]] = state.masses.mass[a];
+              cell.mixture.masses = MassStorage::frozen(std::move(masses));
+            }
+            if (!state.passives.mass.empty())
+              for (std::size_t a = state.passives.offsets[i];
+                   a < state.passives.offsets[i + 1]; ++a)
+                cell.passive_quantities.push_back(
+                    {state.passives.species[a], state.passives.mass[a]});
+            return cell;
+          });
+    });
     return result;
   }
   result.cells.resize(state.energy.size());
@@ -906,7 +917,10 @@ MacClosedAdvance MacGameKernelAccess::advance_guarded(
   }
   stamp = std::chrono::steady_clock::now();
   result.world = source.derived(
-      dense(source.state(), state, source.registry_.size(), last, nullptr, evolved));
+      // With activity only the evolved cells are rebuilt, one cell chunk a
+      // job (the full rebuild stays serial: see dense).
+      dense(source.state(), state, source.registry_.size(), last,
+            evolved.empty() ? nullptr : &execution_pool, evolved));
   stages.dense_ms = since(stamp);
   last_stages() = stages;
   result.world.game_totals_ =
@@ -970,25 +984,37 @@ MacTraceSink MacGameKernelAccess::trace(const MacClosedWorld &world,
   const double threshold = world.settings_.trace_sink_threshold_kg;
   if (threshold == 0)
     return out;
-  bool found = false;
-  for (std::size_t i = 0; i < world.state().cells.size(); ++i) {
-    if (!eligible.empty() && !eligible[i]) continue;
-    const auto &c = world.state().cells[i];
-    if (!c.mixture.masses.implicit_zero())
-      for (double m : c.mixture.masses)
-        if (m > 0 && m < threshold)
-          found = true;
-  }
-  if (!found)
+  // The cells that hold a trace: the only cells the sink changes (trace.hpp).
+  // The scan, the sparse fields and the sink's cell passes run on the pool in
+  // fixed chunks and row blocks; every value is that of a serial pass.
+  const auto N = world.state().cells.size();
+  auto &pool = mac_kernel::pool_for(mac_kernel_default_options().threads);
+  std::vector<std::uint8_t> traced(N);
+  std::vector<std::uint8_t> any((N + conversion_chunk - 1) / conversion_chunk);
+  chunks(&pool, N, [&](std::size_t chunk, std::size_t first, std::size_t end) {
+    for (std::size_t i = first; i < end; ++i) {
+      if (!eligible.empty() && !eligible[i]) continue;
+      const auto &c = world.state().cells[i];
+      if (!c.mixture.masses.implicit_zero())
+        for (double m : c.mixture.masses)
+          if (m > 0 && m < threshold) { traced[i] = 1; any[chunk] = 1; break; }
+    }
+  });
+  if (std::find(any.begin(), any.end(), std::uint8_t{1}) == any.end())
     return out;
   const auto species = table(world.registry_, *world.thermodynamics_,
                              world.settings_.game.liquid_stiffness_ratio, world.settings_.game.liquid_law);
-  const auto state = sparse(world.state());
+  const auto state = sparse(world.state(), &pool);
   auto sunk = k::trace_sink(world.state().grid, species, state, threshold,
-                            world.settings_.gravity_m_per_s2, nullptr, nullptr, nullptr, eligible);
+                            world.settings_.gravity_m_per_s2, nullptr, nullptr, &pool, eligible);
+  // Only the traced cells are rewritten, and only they need a reading. (Until
+  // 1.13.0 every eligible cell was read and rewritten with the values it
+  // already held: in a colony with thin gas at open sky that was the whole
+  // stepped world, 15 ms a frame, and it cost the next frame its cached
+  // sparse lists.)
   std::vector<k::Eos> readings(state.energy.size());
   for (std::size_t i = 0; i < readings.size(); ++i)
-    if (!world.state().grid.walls[i]) {
+    if (traced[i] && !world.state().grid.walls[i]) {
       const auto a = sunk.state.masses.offsets[i],
                  n = sunk.state.masses.offsets[i + 1] - a;
       readings[i] = k::evaluate_selected(
@@ -997,7 +1023,7 @@ MacTraceSink MacGameKernelAccess::trace(const MacClosedWorld &world,
           sunk.state.energy[i], world.state().grid.volume_m3());
     }
   out.world = world.derived(
-      dense(world.state(), sunk.state, world.registry_.size(), readings, nullptr, eligible));
+      dense(world.state(), sunk.state, world.registry_.size(), readings, nullptr, traced));
   fill_trace(out.report, sunk.mass, sunk.internal, sunk.kinetic, sunk.potential,
              sunk.jx, sunk.jy, sunk.passives);
   out.report.constituents = sunk.constituents;
@@ -1192,8 +1218,13 @@ std::shared_ptr<const k::Totals> totals_of(const MacClosedWorld &world,
                                            const k::Totals *kept) {
   if (kept)
     return {std::shared_ptr<const k::Totals>{}, kept};
+  // On the pool: the sums are those of the fixed row blocks, combined in
+  // block order, so the totals are the serial pass's. (A world the trace
+  // sink rewrote keeps no totals; in a colony that sinks traces every frame
+  // the next transfer batch then summed 250,000 cells on the owner thread.)
   return std::make_shared<const k::Totals>(dense_totals(
-      world.state(), world.registry().size(), world.settings().gravity_m_per_s2));
+      world.state(), world.registry().size(), world.settings().gravity_m_per_s2,
+      &mac_kernel::pool_for(mac_kernel_default_options().threads)));
 }
 // A change of the audit sums.
 struct TotalsChange {

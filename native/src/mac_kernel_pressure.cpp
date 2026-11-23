@@ -110,9 +110,28 @@ static bool prepare_multigrid(Context& c, const LinearSystem& sys) {
             old.periodic_x == active_grid.periodic_x && old.periodic_y == active_grid.periodic_y && old.walls == active_grid.walls;
     };
     if (!ws.pressure_topology || !same(ws.pressure_topology->grid())) {
-        ws.pressure_topology = std::make_shared<const interval_detail::PressureMultigridTopology>(active_grid);
-        ws.pressure_multigrid = std::make_unique<interval_detail::PressureMultigrid>(ws.pressure_topology);
-        ++c.counters.topology_builds;
+        // A region's active set alternates: a liquid surface cell joins the
+        // system when a solve stiffens it and leaves again with the next
+        // interval, and a corrected solve holds cells out. With one hierarchy
+        // each change rebuilt it (in a played colony's main region, 694 times
+        // in 1476 solves, a tenth of its pressure time). Keep the last few
+        // and take back the one for this active set.
+        constexpr std::size_t kept_hierarchies = 3;
+        auto& kept = ws.kept_pressure_hierarchies;
+        const auto found = std::find_if(kept.begin(), kept.end(), [&](const auto& entry) { return same(entry.first->grid()); });
+        std::pair previous{std::move(ws.pressure_topology), std::move(ws.pressure_multigrid)};
+        if (found != kept.end()) {
+            ws.pressure_topology = std::move(found->first); ws.pressure_multigrid = std::move(found->second);
+            kept.erase(found);
+        } else {
+            ws.pressure_topology = std::make_shared<const interval_detail::PressureMultigridTopology>(active_grid);
+            ws.pressure_multigrid = std::make_unique<interval_detail::PressureMultigrid>(ws.pressure_topology);
+            ++c.counters.topology_builds;
+        }
+        if (previous.first) {
+            kept.insert(kept.begin(), std::move(previous));
+            if (kept.size() > kept_hierarchies) kept.pop_back();
+        }
     }
     ws.pressure_multigrid->set_executor([](const void* context, std::size_t blocks, interval_detail::BlockFunction function, const void* job_context) {
         // Small coarse levels stay serial; the block and row order is unchanged.
