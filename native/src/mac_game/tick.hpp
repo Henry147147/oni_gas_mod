@@ -128,6 +128,7 @@ class Tick {
   // The game's frame: the length one layering pass stands for.
   static constexpr double layering_frame_s = .2;
   SurfaceScratch surface_scratch;
+  LayerScratch layer_scratch;
   static double ms(std::chrono::steady_clock::time_point start) {
     return std::chrono::duration<double, std::milli>(
                std::chrono::steady_clock::now() - start)
@@ -506,7 +507,8 @@ private:
     const auto layer_for = [&](double seconds, bool count_only) {
       return layer(grid, species, out.state, out.eos, seconds, gravity,
                    &flow.kernel_grid(), &flow.worker_pool(), carry_momentum,
-                   &regions, convective, liquid_exchange, count_only);
+                   &regions, convective, liquid_exchange, count_only,
+                   &layer_scratch);
     };
     if (passes > 1 && !layer_for(dt, true).capped_faces)
       passes = 1;
@@ -521,7 +523,9 @@ private:
         break;
       out.eos = flow.evaluate_changed(out.state.masses, out.state.energy,
                                       layered.state, std::move(out.eos));
-      out.state = std::move(layered.state);
+      // The replaced state's buffers serve the next layering result.
+      std::swap(out.state, layered.state);
+      layer_scratch.spare = std::move(layered.state);
     }
     out.layering_ms = ms(stage_start);
     observe_entropy(out.layer_entropy);
