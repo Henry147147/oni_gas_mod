@@ -490,11 +490,14 @@ public:
     return readings;
   }
   // `readings` are those of `initial` when the caller already holds them.
+  // `recycle` lends the buffers of a state the caller no longer needs to the
+  // result.
   FlowReport advance(const State &initial, double dt, double gravity,
                      RegionAudit *regions = nullptr,
                      const LiquidBoundary *boundary = nullptr,
                      std::vector<Eos> readings = {},
-                     const std::vector<double> *boiling = nullptr) {
+                     const std::vector<double> *boiling = nullptr,
+                     State *recycle = nullptr) {
     namespace k = ma::experimental::mac_kernel;
     FlowReport result;
     auto start = std::chrono::steady_clock::now();
@@ -861,7 +864,7 @@ public:
                       projected.jy, projected.qx, projected.qy, gravity,
                       audit_mode, &initial.passives, regions, boundary,
                       layered_remap ? &species : nullptr,
-                      volume_consistent, volume_consistent);
+                      volume_consistent, volume_consistent, recycle);
     result.subcycles = remap.microticks;
     result.transport_cells = remap.cell_updates;
     result.transport_faces = remap.face_updates;

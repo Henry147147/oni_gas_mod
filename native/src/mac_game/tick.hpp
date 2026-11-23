@@ -129,6 +129,8 @@ class Tick {
   static constexpr double layering_frame_s = .2;
   SurfaceScratch surface_scratch;
   LayerScratch layer_scratch;
+  // The state the last flow interval replaced: its buffers serve the next.
+  State flow_spare;
   static double ms(std::chrono::steady_clock::time_point start) {
     return std::chrono::duration<double, std::milli>(
                std::chrono::steady_clock::now() - start)
@@ -391,7 +393,8 @@ private:
           advanced = flow.advance(out.state, trial, gravity, &regions,
                                   liquid_blocked.empty() ? nullptr : &boundary,
                                   std::move(out.eos),
-                                  plans.empty() ? nullptr : &boil_source);
+                                  plans.empty() ? nullptr : &boil_source,
+                                  &flow_spare);
           if (!advanced.pressure_refinement_requested) break;
           reject_log::count(advanced.reject_reason);
           if (reject_log::level())
@@ -442,7 +445,8 @@ private:
           for (std::size_t k = 0; k < force_work.size(); ++k)
             force_work[k].add(advanced.force_work[k]);
         }
-        out.state = std::move(advanced.state);
+        std::swap(out.state, advanced.state);
+        flow_spare = std::move(advanced.state);
         out.eos = std::move(advanced.eos);
         observe_entropy(out.flow_entropy);
         if (!plans.empty()) {

@@ -115,6 +115,52 @@ class PatchTransport {
       for (std::size_t block = 0; block < g.blocks; ++block)
         job(block);
   }
+  // Runs job(first, end) over [0, count) in fixed chunks, on the pool.
+  template <class F> void chunks(std::size_t count, const F &job) {
+    constexpr std::size_t chunk = 1024;
+    const auto run = [&](std::size_t block) {
+      job(block * chunk, std::min(count, (block + 1) * chunk));
+    };
+    if (executor)
+      executor->run((count + chunk - 1) / chunk, run);
+    else
+      for (std::size_t block = 0; block * chunk < count; ++block)
+        run(block);
+  }
+  struct DualUpdate {
+    bool x;
+    std::size_t f;
+    double j, heat, wall, left_heat, right_heat, left_wall, right_wall,
+        wall_operands, left_wall_operands, right_wall_operands;
+    bool isolated;
+  };
+  // Scratch kept across advances for its capacity. Nothing physical
+  // carries over: every entry an advance reads it writes first, except the
+  // invariants named here. The face fluxes and sweeps (fx, fy, dx, dy) are
+  // zero between advances (`swept_clean`): each event resets the faces it
+  // set. Event stamps count on across advances (`stamp_count`), so a stamp
+  // array never holds the current event's value before the event writes it.
+  std::vector<double> mass_scratch, next_mass_scratch, fx_scratch, fy_scratch,
+      dx_scratch, dy_scratch;
+  std::vector<unsigned> level_scratch;
+  bool sweeps_zero = false;
+  std::vector<std::uint32_t> cell_stamp, x_stamp, y_stamp, x_live, y_live;
+  std::uint32_t stamp_count = 0;
+  // A face's place in the current event's dual list (valid where its
+  // x_stamp/y_stamp is the event's).
+  std::vector<std::size_t> x_dual, y_dual;
+  std::vector<std::vector<Face>> groups_scratch;
+  struct BlockFaces {
+    std::vector<std::vector<Face>> x, y;
+    std::vector<std::size_t> cells;
+    bool crossed = false;
+  };
+  std::vector<BlockFaces> block_faces;
+  std::vector<Face> active_scratch;
+  std::vector<std::size_t> vertical_donors_scratch, affected_scratch,
+      owned_scratch;
+  std::vector<std::pair<bool, std::size_t>> dual_faces_scratch;
+  std::vector<DualUpdate> dual_storage;
 
   // Profile 10 layered vertical remap of one donor for one event. A cell
   // holding gas and liquid keeps its phases in gravity order: horizontal
@@ -287,6 +333,8 @@ public:
       : source(grid), g(source), executor(pool),
         own_topology(regions ? Topology{} : Topology(g)),
         topology(regions ? regions : &own_topology) {}
+  // `recycle` (optional) lends the buffers of a state the caller no longer
+  // needs to the result's inventories and face momenta.
   PatchResult
   advance(const SparseMass &initial, std::vector<double> energy,
           const std::vector<double> &jx, const std::vector<double> &jy,
@@ -296,9 +344,17 @@ public:
           RegionAudit *regions = nullptr,
           const LiquidBoundary *boundary = nullptr,
           const std::vector<Species> *layered_species = nullptr,
-          bool swept_volume = false, bool defer_receipts = false) {
+          bool swept_volume = false, bool defer_receipts = false,
+          State *recycle = nullptr) {
     namespace k = ma::experimental::mac_kernel;
     PatchResult result;
+    if (recycle) {
+      result.masses = std::move(recycle->masses);
+      result.passives = std::move(recycle->passives);
+      result.jx = std::move(recycle->jx);
+      result.jy = std::move(recycle->jy);
+      *recycle = {};
+    }
     // Profile 12 (MAC_GAME_KERNEL.md, "Volume-consistent remap"): faces run
     // on local dyadic clocks, so within one advance a cell can receive a
     // coarse face's whole sweep before its finer faces have sent theirs.
@@ -309,15 +365,23 @@ public:
     // the volume it has been swept to (the cell volume plus its sweeps so
     // far), so material keeps its density while it is moved and a cell ends
     // at the net volume change the pressure solve predicted. A one-event
-    // advance sweeps exactly as before.
+    // advance sweeps exactly as before. (Filled in the cell pass below.)
     if (swept_volume)
-      swept.assign(g.N, g.V);
+      swept.resize(g.N);
     else
       swept.clear();
     const bool layered = layered_species && gravity > 0;
     result.energy = std::move(energy);
-    result.jx = jx;
-    result.jy = jy;
+    // Face momenta are copied by row block in the cell pass below when they
+    // cover the grid.
+    const bool face_rows = jx.size() == g.NX && jy.size() == g.NY;
+    if (face_rows) {
+      result.jx.resize(g.NX);
+      result.jy.resize(g.NY);
+    } else {
+      result.jx = jx;
+      result.jy = jy;
+    }
     const bool has_passives =
         initial_passives && !initial_passives->mass.empty();
     if (has_passives)
@@ -326,14 +390,38 @@ public:
     auto &passive_cells = passive_storage;
     cells_storage.resize(g.N);
     auto &cells = cells_storage;
-    std::vector<double> mass(g.N), next_mass(g.N), fx(g.NX), fy(g.NY), dx(g.NX),
-        dy(g.NY);
+    auto &mass = mass_scratch, &next_mass = next_mass_scratch;
+    auto &fx = fx_scratch, &fy = fy_scratch, &dx = dx_scratch, &dy = dy_scratch;
+    mass.resize(g.N);
+    next_mass.resize(g.N);
+    if (!sweeps_zero || fx.size() != g.NX || fy.size() != g.NY) {
+      fx.assign(g.NX, 0);
+      fy.assign(g.NY, 0);
+      dx.assign(g.NX, 0);
+      dy.assign(g.NY, 0);
+    }
+    // Set again once every event has reset the faces it set.
+    sweeps_zero = false;
+    // At most 2^16 events an advance (the clock budget below).
+    if (cell_stamp.size() != g.N || x_stamp.size() != g.NX ||
+        y_stamp.size() != g.NY ||
+        stamp_count > std::numeric_limits<std::uint32_t>::max() - (std::uint32_t(1) << 17)) {
+      stamp_count = 0;
+      cell_stamp.assign(g.N, 0);
+      layered_stamp.assign(g.N, 0);
+      x_stamp.assign(g.NX, 0);
+      x_live.assign(g.NX, 0);
+      y_stamp.assign(g.NY, 0);
+      y_live.assign(g.NY, 0);
+      x_dual.assign(g.NX, 0);
+      y_dual.assign(g.NY, 0);
+    }
     if (layered) {
       layered_storage.resize(g.N);
-      layered_stamp.assign(g.N, 0);
       layered_geometry.resize(g.N);
     }
-    std::vector<unsigned> level(g.N);
+    auto &level = level_scratch;
+    level.resize(g.N);
     if (g.px || g.py)
       throw std::runtime_error(
           "Private local clocks currently require a nonperiodic grid");
@@ -352,6 +440,8 @@ public:
           total += initial.mass[a];
         }
         mass[i] = next_mass[i] = total;
+        if (swept_volume)
+          swept[i] = g.V;
         if (has_passives) {
           passive_cells[i].clear();
           for (std::size_t a = initial_passives->offsets[i];
@@ -361,6 +451,7 @@ public:
           if (!passive_cells[i].empty() && total == 0)
             throw std::runtime_error("Private passives in an empty cell");
         }
+        level[i] = 0;
         if (g.wall[i])
           continue;
         const double out = std::max(0., -qx[g.left_face(i)]) +
@@ -375,54 +466,104 @@ public:
         highest = std::max(highest, level[i]);
       }
       block_maximum[block] = highest;
+      if (face_rows) {
+        std::copy(jx.begin() + static_cast<std::ptrdiff_t>(y0 * g.XW),
+                  jx.begin() + static_cast<std::ptrdiff_t>(y1 * g.XW),
+                  result.jx.begin() + static_cast<std::ptrdiff_t>(y0 * g.XW));
+        std::copy(jy.begin() + static_cast<std::ptrdiff_t>(y0 * g.W),
+                  jy.begin() + static_cast<std::ptrdiff_t>(g.block_yrow_end(block) * g.W),
+                  result.jy.begin() + static_cast<std::ptrdiff_t>(y0 * g.W));
+      }
     });
     const unsigned maximum =
         *std::max_element(block_maximum.begin(), block_maximum.end());
     if (maximum > 16)
       throw std::runtime_error("Private local clocks exceed diagnostic budget; "
                                "front cap still required");
-    std::vector<std::vector<Face>> groups(maximum + 1);
-    const auto schedule = [&](bool x, const auto &left, const auto &right,
-                              const auto &q) {
-      for (std::size_t f = 0; f < q.size(); ++f)
-        if (q[f] != 0) {
-          if (left[f] == k::none || right[f] == k::none || g.closed(!x, f))
-            throw std::runtime_error("Private local clock crosses fixed face");
-          const auto lev = std::max(level[left[f]], level[right[f]]);
-          groups[lev].push_back(
-              {x, f, std::ldexp(q[f], -static_cast<int>(lev))});
-        }
-    };
-    schedule(true, g.xl, g.xr, qx);
-    schedule(false, g.yl, g.yr, qy);
-    std::vector<std::uint32_t> cell_stamp(g.N), x_stamp(g.NX), y_stamp(g.NY);
-    std::uint32_t stamp = 0;
-
-    struct DualUpdate {
-      bool x;
-      std::size_t f;
-      double j, heat, wall, left_heat, right_heat, left_wall, right_wall,
-          wall_operands, left_wall_operands, right_wall_operands;
-      bool isolated;
-    };
+    // Each clock level's faces: x faces in face order, then y faces, found
+    // in row blocks and joined in block order.
+    auto &groups = groups_scratch;
+    groups.resize(maximum + 1);
+    for (auto &group : groups)
+      group.clear();
+    block_faces.resize(g.blocks);
+    blocks([&](std::size_t block) {
+      auto &found = block_faces[block];
+      found.x.resize(maximum + 1);
+      found.y.resize(maximum + 1);
+      for (auto &list : found.x)
+        list.clear();
+      for (auto &list : found.y)
+        list.clear();
+      found.crossed = false;
+      const auto schedule = [&](bool x, const auto &left, const auto &right,
+                                const auto &q, std::size_t first, std::size_t end,
+                                auto &into) {
+        for (std::size_t f = first; f < end; ++f)
+          if (q[f] != 0) {
+            if (left[f] == k::none || right[f] == k::none || g.closed(!x, f)) {
+              found.crossed = true;
+              return;
+            }
+            const auto lev = std::max(level[left[f]], level[right[f]]);
+            into[lev].push_back(
+                {x, f, std::ldexp(q[f], -static_cast<int>(lev))});
+          }
+      };
+      const auto y0 = g.block_row_begin(block);
+      schedule(true, g.xl, g.xr, qx, y0 * g.XW, g.block_row_end(block) * g.XW, found.x);
+      schedule(false, g.yl, g.yr, qy, y0 * g.W, g.block_yrow_end(block) * g.W, found.y);
+    });
+    for (const auto &found : block_faces)
+      if (found.crossed)
+        throw std::runtime_error("Private local clock crosses fixed face");
+    for (unsigned lev = 0; lev <= maximum; ++lev) {
+      for (const auto &found : block_faces)
+        groups[lev].insert(groups[lev].end(), found.x[lev].begin(), found.x[lev].end());
+      for (const auto &found : block_faces)
+        groups[lev].insert(groups[lev].end(), found.y[lev].begin(), found.y[lev].end());
+    }
     DoubleDouble wall_x, wall_y, wall_ops_x, wall_ops_y;
-    // Call-local capacities only. Tick zero visits every scheduled face, so
-    // subsequent active/affected/dual lists are subsets. No buffer survives
-    // this advance, and every logical dual entry is assigned before use.
-    std::vector<Face> active;
-    std::vector<std::size_t> vertical_donors;
-    std::vector<std::size_t> affected;
-    std::vector<std::pair<bool,std::size_t>> dual_faces;
-    std::vector<DualUpdate> dual_storage;
+    // Capacities only. Tick zero visits every scheduled face, so subsequent
+    // active/affected/dual lists are subsets, and every logical dual entry
+    // is assigned before use.
+    auto &active = active_scratch;
+    auto &vertical_donors = vertical_donors_scratch;
+    auto &affected = affected_scratch;
+    auto &dual_faces = dual_faces_scratch;
+    // Events that move at least this many faces run their bookkeeping in
+    // row blocks and fixed chunks; smaller events keep the serial loops.
+    // Both give the same lists in the same order and the same arithmetic.
+    constexpr std::size_t wide_faces = 1024;
+    const bool parallel = executor && executor->size() > 1;
     for (std::size_t tick = 0; tick < (std::size_t(1) << maximum); ++tick) {
-      active.clear();
+      // This event's levels, coarsest first: its faces are those levels'
+      // groups in order.
+      std::array<unsigned, 17> levels{};
+      std::size_t level_count = 0, active_count = 0;
       for (unsigned lev = 0; lev <= maximum; ++lev)
-        if (tick % (std::size_t(1) << (maximum - lev)) == 0)
-          active.insert(active.end(), groups[lev].begin(), groups[lev].end());
-      if (active.empty())
+        if (tick % (std::size_t(1) << (maximum - lev)) == 0 && !groups[lev].empty()) {
+          levels[level_count++] = lev;
+          active_count += groups[lev].size();
+        }
+      if (active_count == 0)
         continue;
+      // The event's faces in order: face(n) for n in [0, active_count).
+      std::array<std::size_t, 18> level_start{};
+      for (std::size_t n = 0; n < level_count; ++n)
+        level_start[n + 1] = level_start[n] + groups[levels[n]].size();
+      const auto for_faces = [&](std::size_t first, std::size_t end, const auto &visit) {
+        std::size_t n = 0;
+        while (level_start[n + 1] <= first)
+          ++n;
+        for (auto at = first; at < end; ++at) {
+          while (level_start[n + 1] <= at)
+            ++n;
+          visit(groups[levels[n]][at - level_start[n]]);
+        }
+      };
       if (boundary)
-        for (const auto &face : active) {
+        for_faces(0, active_count, [&](const Face &face) {
           const auto &left = face.x ? g.xl : g.yl;
           const auto &right = face.x ? g.xr : g.yr;
           const auto donor = face.q > 0 ? left[face.index] : right[face.index];
@@ -435,62 +576,116 @@ public:
                           }))
             throw LiquidBoundaryConflict(face.x, face.index, donor, target,
                                          tick);
-        }
-      ++stamp;
+        });
+      const auto stamp = ++stamp_count;
       ++result.microticks;
-      affected.clear();
-      const auto affect = [&](std::size_t i) {
-        if (cell_stamp[i] != stamp) {
-          cell_stamp[i] = stamp;
-          affected.push_back(i);
-        }
-      };
-      for (const auto &face : active) {
+      const bool wide = parallel && active_count >= wide_faces;
+      const auto set_face = [&](const Face &face) {
         const auto &l = face.x ? g.xl : g.yl, &r = face.x ? g.xr : g.yr;
         auto &flux = face.x ? fx : fy;
         auto &sweep = face.x ? dx : dy;
         const auto donor = face.q > 0 ? l[face.index] : r[face.index];
         flux[face.index] = face.q / held(donor) * mass[donor];
         sweep[face.index] = face.q;
-        affect(l[face.index]);
-        affect(r[face.index]);
-      }
-      if (layered) {
-        // Donors of this event's vertical faces: their phase allocation and
-        // actual vertical mass fluxes, before any cell changes.
-        const auto donor_of = [&](const Face &face) {
-          return face.q > 0 ? g.yl[face.index] : g.yr[face.index];
+      };
+      const auto donor_of = [&](const Face &face) {
+        return face.q > 0 ? g.yl[face.index] : g.yr[face.index];
+      };
+      if (!wide) {
+        active.clear();
+        for (std::size_t n = 0; n < level_count; ++n)
+          active.insert(active.end(), groups[levels[n]].begin(), groups[levels[n]].end());
+        affected.clear();
+        const auto affect = [&](std::size_t i) {
+          if (cell_stamp[i] != stamp) {
+            cell_stamp[i] = stamp;
+            affected.push_back(i);
+          }
         };
-        vertical_donors.clear();
-        for (const auto &face : active)
-          if (!face.x) {
-            const auto d = donor_of(face);
-            if (layered_stamp[d] != stamp) {
-              layered_stamp[d] = stamp;
-              vertical_donors.push_back(d);
+        for (const auto &face : active) {
+          const auto &l = face.x ? g.xl : g.yl, &r = face.x ? g.xr : g.yr;
+          set_face(face);
+          affect(l[face.index]);
+          affect(r[face.index]);
+        }
+        if (layered) {
+          // Donors of this event's vertical faces: their phase allocation and
+          // actual vertical mass fluxes, before any cell changes.
+          vertical_donors.clear();
+          for (const auto &face : active)
+            if (!face.x) {
+              const auto d = donor_of(face);
+              if (layered_stamp[d] != stamp) {
+                layered_stamp[d] = stamp;
+                vertical_donors.push_back(d);
+              }
             }
-          }
-        independent_entries(vertical_donors.size(), [&](std::size_t index) {
-          const auto d = vertical_donors[index];
-          layer_donor(d, cells[d], result.energy[d], dx, dy, *layered_species, gravity);
+          independent_entries(vertical_donors.size(), [&](std::size_t index) {
+            const auto d = vertical_donors[index];
+            layer_donor(d, cells[d], result.energy[d], dx, dy, *layered_species, gravity);
+          });
+          // The dual momentum remap and the potential work use the mass
+          // that actually crosses each face.
+          for (const auto &face : active)
+            if (!face.x) {
+              const auto &donor = layered_storage[donor_of(face)];
+              if (donor.on)
+                fy[face.index] = face.q > 0 ? donor.up_mass : -donor.down_mass;
+            }
+        }
+        // affect() stamps each unique cell once. In a dense event, scanning
+        // those stamps emits exactly the original ascending-ID order without
+        // a comparison sort. Sparse events retain the original algorithm; the
+        // dense branch visits fewer than four grid slots per affected cell.
+        if(affected.size()>g.N/4) {
+          std::size_t at=0;
+          for(std::size_t i=0;i<g.N;++i)if(cell_stamp[i]==stamp)affected[at++]=i;
+        } else std::sort(affected.begin(), affected.end());
+      } else {
+        // The same event in passes: each face's flux and sweep; then, cell
+        // by cell, whether one of its faces moves (the affected cells in
+        // ascending order) and, for a vertical donor, its phase allocation
+        // and the actual mass flux of the faces it feeds. Each face has one
+        // donor, and a donor reads only its own cell and the sweeps.
+        chunks(active_count, [&](std::size_t first, std::size_t end) {
+          for_faces(first, end, [&](const Face &face) {
+            set_face(face);
+            (face.x ? x_live : y_live)[face.index] = stamp;
+          });
         });
-        // The dual momentum remap and the potential work use the mass
-        // that actually crosses each face.
-        for (const auto &face : active)
-          if (!face.x) {
-            const auto &donor = layered_storage[donor_of(face)];
-            if (donor.on)
-              fy[face.index] = face.q > 0 ? donor.up_mass : -donor.down_mass;
+        blocks([&](std::size_t block) {
+          auto &found = block_faces[block].cells;
+          found.clear();
+          for (auto i = g.block_row_begin(block) * g.W; i < g.block_row_end(block) * g.W; ++i) {
+            if (g.wall[i])
+              continue;
+            const auto l = g.left_face(i), r = g.right_face(i),
+                       b = g.bottom_face(i), t = g.top_face(i);
+            const bool up = y_live[t] == stamp, down = y_live[b] == stamp;
+            if (x_live[l] != stamp && x_live[r] != stamp && !up && !down)
+              continue;
+            cell_stamp[i] = stamp;
+            found.push_back(i);
+            // A face's donor is its lower cell when it moves up, else its
+            // upper cell (donor_of).
+            const bool feeds_up = up && dy[t] > 0, feeds_down = down && !(dy[b] > 0);
+            if (!layered || !(feeds_up || feeds_down))
+              continue;
+            layered_stamp[i] = stamp;
+            layer_donor(i, cells[i], result.energy[i], dx, dy, *layered_species, gravity);
+            const auto &donor = layered_storage[i];
+            if (!donor.on)
+              continue;
+            if (feeds_up)
+              fy[t] = donor.up_mass;
+            if (feeds_down)
+              fy[b] = -donor.down_mass;
           }
+        });
+        affected.clear();
+        for (const auto &found : block_faces)
+          affected.insert(affected.end(), found.cells.begin(), found.cells.end());
       }
-      // affect() stamps each unique cell once. In a dense event, scanning
-      // those stamps emits exactly the original ascending-ID order without
-      // a comparison sort. Sparse events retain the original algorithm; the
-      // dense branch visits fewer than four grid slots per affected cell.
-      if(affected.size()>g.N/4) {
-        std::size_t at=0;
-        for(std::size_t i=0;i<g.N;++i)if(cell_stamp[i]==stamp)affected[at++]=i;
-      } else std::sort(affected.begin(), affected.end());
       if (updates_storage.size() < affected.size())
         updates_storage.resize(affected.size());
       std::span<CellUpdate> updated(updates_storage.data(), affected.size());
@@ -621,22 +816,68 @@ public:
                            : c[a].fraction * result.energy[c[a].cell];
       };
       independent_entries(affected.size(), fill_cell);
-      for (const auto &entry : updated)
-        next_mass[entry.i] = entry.mass;
-      dual_faces.clear();
-      dual_faces.reserve(affected.size() * 4);
-      const auto select = [&](bool x, std::size_t f) {
-        auto &seen = x ? x_stamp : y_stamp;
-        if (seen[f] != stamp) {
-          seen[f] = stamp;
-          dual_faces.emplace_back(x, f);
+      if (!wide) {
+        for (const auto &entry : updated)
+          next_mass[entry.i] = entry.mass;
+        dual_faces.clear();
+        dual_faces.reserve(affected.size() * 4);
+        const auto select = [&](bool x, std::size_t f) {
+          auto &seen = x ? x_stamp : y_stamp;
+          if (seen[f] != stamp) {
+            seen[f] = stamp;
+            dual_faces.emplace_back(x, f);
+          }
+        };
+        for (const auto i : affected) {
+          select(true, g.left_face(i));
+          select(true, g.right_face(i));
+          select(false, g.bottom_face(i));
+          select(false, g.top_face(i));
         }
-      };
-      for (const auto i : affected) {
-        select(true, g.left_face(i));
-        select(true, g.right_face(i));
-        select(false, g.bottom_face(i));
-        select(false, g.top_face(i));
+      } else {
+        // The dual list in the serial order: each affected cell in turn
+        // adds those of its left, right, bottom and top faces not already
+        // added. Its right and top faces are always new (their other cell
+        // comes later); its left and bottom faces are new unless the cell
+        // there is affected. Counted per fixed chunk, then placed.
+        const auto owns = [&](std::size_t i, std::array<std::pair<bool, std::size_t>, 4> &faces) {
+          const auto l = g.left_face(i), b = g.bottom_face(i);
+          std::size_t count = 0;
+          if (g.xl[l] == k::none || cell_stamp[g.xl[l]] != stamp)
+            faces[count++] = {true, l};
+          faces[count++] = {true, g.right_face(i)};
+          if (g.yl[b] == k::none || cell_stamp[g.yl[b]] != stamp)
+            faces[count++] = {false, b};
+          faces[count++] = {false, g.top_face(i)};
+          return count;
+        };
+        constexpr std::size_t chunk = 1024;
+        auto &owned = owned_scratch;
+        owned.assign((affected.size() + chunk - 1) / chunk + 1, 0);
+        chunks(affected.size(), [&](std::size_t first, std::size_t end) {
+          std::array<std::pair<bool, std::size_t>, 4> faces;
+          std::size_t count = 0;
+          for (auto p = first; p < end; ++p)
+            count += owns(affected[p], faces);
+          owned[first / chunk + 1] = count;
+        });
+        for (std::size_t c = 1; c < owned.size(); ++c)
+          owned[c] += owned[c - 1];
+        dual_faces.resize(owned.back());
+        chunks(affected.size(), [&](std::size_t first, std::size_t end) {
+          std::array<std::pair<bool, std::size_t>, 4> faces;
+          auto at = owned[first / chunk];
+          for (auto p = first; p < end; ++p) {
+            next_mass[affected[p]] = updated[p].mass;
+            const auto count = owns(affected[p], faces);
+            for (std::size_t n = 0; n < count; ++n, ++at) {
+              dual_faces[at] = faces[n];
+              const auto [x, f] = faces[n];
+              (x ? x_stamp : y_stamp)[f] = stamp;
+              (x ? x_dual : y_dual)[f] = at;
+            }
+          }
+        });
       }
       if(dual_storage.size()<dual_faces.size())dual_storage.resize(dual_faces.size());
       std::span<DualUpdate> dual(dual_storage.data(),dual_faces.size());
@@ -787,30 +1028,12 @@ public:
                           isolated};
       };
       independent_entries(dual_faces.size(), gather);
-      // Under the 0.4-cell net-volume bound a cell's swept volume, less any
-      // one event's outgoing sweep (at most 0.39 of a cell), stays above 0.2
-      // of a cell. The floor keeps the retained fraction positive where the
-      // bound does not apply (cells below its mass floor).
-      if (!swept.empty())
-        for (const auto &entry : updated) {
-          const auto i = entry.i;
-          swept[i] = std::max(.4 * g.V, swept[i] + dx[g.left_face(i)] - dx[g.right_face(i)] +
-                                            dy[g.bottom_face(i)] - dy[g.top_face(i)]);
-        }
-      for (auto &entry : updated) {
-        cells[entry.i].swap(entry.inventory);
-        if (has_passives)
-          passive_cells[entry.i].swap(entry.passives);
-        result.energy[entry.i] = entry.energy;
-        mass[entry.i] = entry.mass;
-      }
-      for (const auto &entry : dual) {
-        const auto &left = entry.x ? g.xl : g.yl,
-                   &right = entry.x ? g.xr : g.yr;
-        auto &j = entry.x ? result.jx : result.jy;
-        j[entry.f] = entry.j;
+      // Wall loads in the dual list's order, and the region receipts.
+      const auto book_walls = [&](const DualUpdate &entry) {
         (entry.x ? wall_x : wall_y).add(entry.wall);
         (entry.x ? wall_ops_x : wall_ops_y).add(std::abs(entry.wall));
+        const auto &left = entry.x ? g.xl : g.yl,
+                   &right = entry.x ? g.xr : g.yr;
         const auto l = left[entry.f], r = right[entry.f];
         if (regions && entry.wall_operands != 0) {
           const auto receipt = [&](std::size_t cell, double value, double operands) {
@@ -825,41 +1048,170 @@ public:
           } else
             receipt(l != k::none ? l : r, entry.wall, entry.wall_operands);
         }
-        const double ml = l == k::none ? 0 : mass[l],
-                     mr = r == k::none ? 0 : mass[r], sum = ml + mr;
-        if (entry.isolated) {
-          // A sealed face is two independent walls. Return impact
-          // heat to its donor region rather than sharing it across
-          // the closed door according to unrelated opposite mass.
-          if (entry.left_heat != 0)
-            result.energy[l] += entry.left_heat;
-          if (entry.right_heat != 0)
-            result.energy[r] += entry.right_heat;
-        } else if (entry.heat != 0) {
-          if (sum == 0)
-            throw std::runtime_error("Private local heat without material");
-          if (l != k::none)
-            result.energy[l] += entry.heat * ml / sum;
-          if (r != k::none)
-            result.energy[r] += entry.heat * mr / sum;
+      };
+      if (!wide) {
+        // Under the 0.4-cell net-volume bound a cell's swept volume, less any
+        // one event's outgoing sweep (at most 0.39 of a cell), stays above 0.2
+        // of a cell. The floor keeps the retained fraction positive where the
+        // bound does not apply (cells below its mass floor).
+        if (!swept.empty())
+          for (const auto &entry : updated) {
+            const auto i = entry.i;
+            swept[i] = std::max(.4 * g.V, swept[i] + dx[g.left_face(i)] - dx[g.right_face(i)] +
+                                              dy[g.bottom_face(i)] - dy[g.top_face(i)]);
+          }
+        for (auto &entry : updated) {
+          cells[entry.i].swap(entry.inventory);
+          if (has_passives)
+            passive_cells[entry.i].swap(entry.passives);
+          result.energy[entry.i] = entry.energy;
+          mass[entry.i] = entry.mass;
         }
-      }
-      for (const auto &face : active) {
-        auto &flux = face.x ? fx : fy;
-        auto &sweep = face.x ? dx : dy;
-        if (!face.x && flux[face.index] != 0) {
-          const auto l = g.yl[face.index], r = g.yr[face.index];
-          const double work = -gravity * source.spacing_m * flux[face.index],
-                       sum = mass[l] + mass[r];
-          result.energy[l] += work * mass[l] / sum;
-          result.energy[r] += work * mass[r] / sum;
+        for (const auto &entry : dual) {
+          const auto &left = entry.x ? g.xl : g.yl,
+                     &right = entry.x ? g.xr : g.yr;
+          auto &j = entry.x ? result.jx : result.jy;
+          j[entry.f] = entry.j;
+          book_walls(entry);
+          const auto l = left[entry.f], r = right[entry.f];
+          const double ml = l == k::none ? 0 : mass[l],
+                       mr = r == k::none ? 0 : mass[r], sum = ml + mr;
+          if (entry.isolated) {
+            // A sealed face is two independent walls. Return impact
+            // heat to its donor region rather than sharing it across
+            // the closed door according to unrelated opposite mass.
+            if (entry.left_heat != 0)
+              result.energy[l] += entry.left_heat;
+            if (entry.right_heat != 0)
+              result.energy[r] += entry.right_heat;
+          } else if (entry.heat != 0) {
+            if (sum == 0)
+              throw std::runtime_error("Private local heat without material");
+            if (l != k::none)
+              result.energy[l] += entry.heat * ml / sum;
+            if (r != k::none)
+              result.energy[r] += entry.heat * mr / sum;
+          }
         }
-        flux[face.index] = 0;
-        sweep[face.index] = 0;
+        for (const auto &face : active) {
+          auto &flux = face.x ? fx : fy;
+          auto &sweep = face.x ? dx : dy;
+          if (!face.x && flux[face.index] != 0) {
+            const auto l = g.yl[face.index], r = g.yr[face.index];
+            const double work = -gravity * source.spacing_m * flux[face.index],
+                         sum = mass[l] + mass[r];
+            result.energy[l] += work * mass[l] / sum;
+            result.energy[r] += work * mass[r] / sum;
+          }
+          flux[face.index] = 0;
+          sweep[face.index] = 0;
+        }
+      } else {
+        // Each updated cell takes its new contents, and each dual face its
+        // momentum, independently.
+        chunks(affected.size(), [&](std::size_t first, std::size_t end) {
+          for (auto p = first; p < end; ++p) {
+            auto &entry = updated[p];
+            const auto i = entry.i;
+            if (!swept.empty())
+              swept[i] = std::max(.4 * g.V, swept[i] + dx[g.left_face(i)] - dx[g.right_face(i)] +
+                                                dy[g.bottom_face(i)] - dy[g.top_face(i)]);
+            cells[i].swap(entry.inventory);
+            if (has_passives)
+              passive_cells[i].swap(entry.passives);
+            result.energy[i] = entry.energy;
+            mass[i] = entry.mass;
+          }
+        });
+        chunks(dual.size(), [&](std::size_t first, std::size_t end) {
+          for (auto p = first; p < end; ++p)
+            (dual[p].x ? result.jx : result.jy)[dual[p].f] = dual[p].j;
+        });
+        for (const auto &entry : dual) {
+          book_walls(entry);
+          if (!entry.isolated && entry.heat != 0) {
+            const auto l = (entry.x ? g.xl : g.yl)[entry.f],
+                       r = (entry.x ? g.xr : g.yr)[entry.f];
+            if ((l == k::none ? 0 : mass[l]) + (r == k::none ? 0 : mass[r]) == 0)
+              throw std::runtime_error("Private local heat without material");
+          }
+        }
+        // Each cell's impact and kinetic heat from its dual faces in the
+        // dual list's order, then the potential work of its moving
+        // vertical faces in the event's face order (coarser level first,
+        // then face order): the additions the serial loops make to it, in
+        // their order.
+        blocks([&](std::size_t block) {
+          for (auto i = g.block_row_begin(block) * g.W; i < g.block_row_end(block) * g.W; ++i) {
+            if (g.wall[i])
+              continue;
+            const std::array<std::pair<bool, std::size_t>, 4> sides{
+                std::pair{true, std::size_t(g.left_face(i))},
+                std::pair{true, std::size_t(g.right_face(i))},
+                std::pair{false, std::size_t(g.bottom_face(i))},
+                std::pair{false, std::size_t(g.top_face(i))}};
+            std::array<std::size_t, 4> order{};
+            std::size_t count = 0;
+            for (const auto &[x, f] : sides)
+              if ((x ? x_stamp : y_stamp)[f] == stamp)
+                order[count++] = (x ? x_dual : y_dual)[f];
+            const bool below = y_live[sides[2].second] == stamp && fy[sides[2].second] != 0,
+                       above = y_live[sides[3].second] == stamp && fy[sides[3].second] != 0;
+            if (count == 0 && !below && !above)
+              continue;
+            std::sort(order.begin(), order.begin() + static_cast<std::ptrdiff_t>(count));
+            double energy_i = result.energy[i];
+            for (std::size_t n = 0; n < count; ++n) {
+              const auto &entry = dual[order[n]];
+              const auto l = (entry.x ? g.xl : g.yl)[entry.f],
+                         r = (entry.x ? g.xr : g.yr)[entry.f];
+              if (entry.isolated) {
+                if (l == i && entry.left_heat != 0)
+                  energy_i += entry.left_heat;
+                if (r == i && entry.right_heat != 0)
+                  energy_i += entry.right_heat;
+              } else if (entry.heat != 0) {
+                const double ml = l == k::none ? 0 : mass[l],
+                             mr = r == k::none ? 0 : mass[r], sum = ml + mr;
+                energy_i += entry.heat * (l == i ? ml : mr) / sum;
+              }
+            }
+            const auto work = [&](std::size_t f) {
+              const auto l = g.yl[f], r = g.yr[f];
+              const double moved = -gravity * source.spacing_m * fy[f],
+                           sum = mass[l] + mass[r];
+              energy_i += moved * mass[i] / sum;
+            };
+            if (below && above) {
+              const auto b = sides[2].second, t = sides[3].second;
+              const auto level_of = [&](std::size_t f) {
+                return std::max(level[g.yl[f]], level[g.yr[f]]);
+              };
+              if (level_of(t) < level_of(b)) {
+                work(t);
+                work(b);
+              } else {
+                work(b);
+                work(t);
+              }
+            } else if (below)
+              work(sides[2].second);
+            else if (above)
+              work(sides[3].second);
+            result.energy[i] = energy_i;
+          }
+        });
+        chunks(active_count, [&](std::size_t first, std::size_t end) {
+          for_faces(first, end, [&](const Face &face) {
+            (face.x ? fx : fy)[face.index] = 0;
+            (face.x ? dx : dy)[face.index] = 0;
+          });
+        });
       }
       result.cell_updates += affected.size();
       result.face_updates += dual.size();
     }
+    sweeps_zero = true;
     // Inventories back to sparse form, from per-block counts.
     const auto pack = [&](const auto &rows, auto &into) {
       std::vector<std::size_t> start(g.blocks + 1);
@@ -893,7 +1245,8 @@ public:
     if (has_passives) {
       pack(passive_cells, result.passives);
       result.passives.validate(g.N);
-    }
+    } else
+      result.passives = {};
     result.wall_x = wall_x.value();
     result.wall_y = wall_y.value();
     result.wall_ops_x = wall_ops_x.value();
