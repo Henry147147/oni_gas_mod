@@ -316,6 +316,16 @@ reported value was equal (cell and interval counts, the mass and energy
 errors to their last digit), and the six replay cases still end on the
 `ff95138` owner checkpoints.
 
+The pressure solves of 2026-11-23 replaced all twelve fingerprints: multigrid
+interpolation follows fine faces, and profile 12 systems of at least 5,300
+cells in regions that fill little are solved by sparse Cholesky
+([MAC_GAME_KERNEL.md](../native/MAC_GAME_KERNEL.md#sparse-cholesky-pressure-solves-profile-12-2026-11-23)).
+Both change the pressure iterates within the solve's tolerance and so every
+case's trajectory. The new run closed mass to at most 7e-14 and energy to at
+most 3e-14 relative in every case, none faulted, and frames, warmup and the
+inputs' hashes are unchanged; `6e8fb9d`, the revision before them, had passed the old
+reference just before.
+
 On the reference host and affinity, the runner also reports percentage changes
 in mean and p95 owner time. To enforce a local performance budget, pass
 `--max-slowdown-percent N`; a slowdown above N in either measure fails that
