@@ -664,6 +664,11 @@ MacClosedAdvance MacGameKernelAccess::advance_guarded(
     std::unique_ptr<k::RegionalTick> regional;
     std::shared_ptr<k::RegionalExecutionHistory> regional_execution;
     SparseCache sparse;
+    // The readings an activity advance writes for the cells it steps (see
+    // `last` below), kept between advances: a fresh grid of default readings
+    // cost about 2 ms a frame on a 256,000-cell map, and no entry is read
+    // unless this advance wrote it.
+    std::vector<k::Eos> readings;
   };
   thread_local Cache cache;
   if (frame == MacGameFlowFrame::held) {
@@ -807,7 +812,13 @@ MacClosedAdvance MacGameKernelAccess::advance_guarded(
   stages.sparse_ms = since(stamp);
   double elapsed = 0;
   MacEnergySum energy_residual, energy_bound;
-  std::vector<k::Eos> last;
+  // With activity and bounded regions (`into` below) the readings live in
+  // the cache: dense() reads only the evolved cells' entries, and every
+  // evolved cell's entry is written by this advance (a due cell is a cell of
+  // a stepped region), so what other entries hold from earlier advances is
+  // never read.
+  std::vector<k::Eos> fresh_readings;
+  auto &last = bounded && activity ? cache.readings : fresh_readings;
   k::Totals last_totals;
   std::vector<MacGameActivityCell> activity_state;
   std::vector<std::uint8_t> evolved;
@@ -850,7 +861,7 @@ MacClosedAdvance MacGameKernelAccess::advance_guarded(
     // copying its whole-grid readings at the due cells (a due cell is a cell
     // of a stepped region; the first interval's other readings are default).
     const bool into = bounded && activity;
-    if (into && last.empty()) last.assign(source.state().cells.size(), k::Eos{});
+    if (into && last.size() != source.state().cells.size()) last.assign(source.state().cells.size(), k::Eos{});
     auto next = into?
         cache.regional->advance_into(std::move(state),last,dt,source.settings_.gravity_m_per_s2,
                                source.settings_.trace_sink_threshold_kg,liquid_blocked,budget-result.report.attempts,due,
@@ -1012,9 +1023,14 @@ MacTraceSink MacGameKernelAccess::trace(const MacClosedWorld &world,
   // already held: in a colony with thin gas at open sky that was the whole
   // stepped world, 15 ms a frame, and it cost the next frame its cached
   // sparse lists.)
-  std::vector<k::Eos> readings(state.energy.size());
+  // dense() reads the readings of the rebuilt (traced) cells alone, all
+  // written here: a grid of readings is kept between calls rather than
+  // allocated and zeroed (25 MB on a 256,000-cell map) each time.
+  thread_local std::vector<k::Eos> readings;
+  if (readings.size() != state.energy.size()) readings.assign(state.energy.size(), k::Eos{});
   for (std::size_t i = 0; i < readings.size(); ++i)
-    if (traced[i] && !world.state().grid.walls[i]) {
+    if (traced[i]) {
+      if (world.state().grid.walls[i]) { readings[i] = k::Eos{}; continue; }
       const auto a = sunk.state.masses.offsets[i],
                  n = sunk.state.masses.offsets[i + 1] - a;
       readings[i] = k::evaluate_selected(

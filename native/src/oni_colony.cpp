@@ -3566,9 +3566,19 @@ void book_trace(Session& s, const MacTraceSinkReport& r) {
 // made by the edits before it leave there).
 MacClosedWorld sink_traces(Session& s, MacClosedWorld world,std::span<const double> due={}) {
     if (!(world.settings().trace_sink_threshold_kg > 0)) return world;
-    std::vector<std::size_t> selected;
-    if(!due.empty())for(std::size_t i=0;i<due.size();++i)if(due[i]>0)selected.push_back(i);
-    auto sunk = due.empty()?world.with_trace_sink():world.with_trace_sink_in_cells(selected);
+    if (due.empty()) {
+        auto sunk = world.with_trace_sink();
+        book_trace(s, sunk.report);
+        return std::move(sunk.world);
+    }
+    // The due cells, as with_trace_sink_in_cells would select them from
+    // their list: its eligibility mask, made directly.
+    require(world.settings().numerical_kernel == MacNumericalKernel::game, "Selected trace removal requires the game kernel");
+    require(due.size() == world.state().cells.size(), "Selected trace cells must be sorted, unique and in range");
+    std::vector<std::uint8_t> eligible(due.size()); bool any = false;
+    for (std::size_t i = 0; i < due.size(); ++i) if (due[i] > 0) { eligible[i] = 1; any = true; }
+    if (!any) return world;
+    auto sunk = MacGameKernelAccess::trace(world, eligible);
     book_trace(s, sunk.report);
     return std::move(sunk.world);
 }
