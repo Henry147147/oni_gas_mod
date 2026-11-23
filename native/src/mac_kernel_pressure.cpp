@@ -5,6 +5,8 @@
 // cancellation floor limits the Newton root. Linear systems use PCG with a
 // Jacobi or geometric-multigrid preconditioner.
 #include "mac_kernel_detail.hpp"
+#include "mac_direct_cholesky.hpp"
+#include <memory>
 #include <optional>
 #include "mixed_atmospheres/mac_phase_change.hpp"
 #include <algorithm>
@@ -12,6 +14,7 @@
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <exception>
 #include <numeric>
 #include <span>
@@ -359,6 +362,23 @@ struct ComponentSolveCache::Impl {
     std::size_t connected_cells = 0;
     std::vector<std::uint8_t> geometric_active, geometric_x, geometric_y;
     std::vector<Component> components;
+    // The direct route (DirectRoute): whether the grid's open cells factor
+    // within the fill limit, decided once for a grid, and the patterns of
+    // the last few systems with their orderings and symbolic factors. A
+    // system's route depends on the grid and the system alone, never on
+    // which patterns are kept.
+    const Grid* direct_grid = nullptr;
+    double direct_limit = 0;
+    bool direct_fits = false;
+    struct DirectPattern {
+        std::vector<std::uint8_t> active, open_x, open_y;
+        direct::Graph graph;
+        std::vector<std::size_t> cells, faces; // node -> cell; CSR position -> face (x: f, y: NX + f)
+        direct::Symbolic symbolic;
+    };
+    std::vector<std::unique_ptr<DirectPattern>> direct_patterns;
+    direct::Factor direct_factor;
+    std::vector<double> direct_diagonal, direct_off, direct_rhs, direct_out, direct_work;
     // Values, rebuilt every solve.
     std::vector<double> compliance, conductance, inverse_diagonal, rhs, lower_values, inverse_pivots;
     std::vector<double> pressure, residual, z, direction, product, next;
@@ -623,10 +643,132 @@ PressureSolveResult solve_cached_component(CacheImpl& cache, const CacheImpl::Co
 namespace {
 std::optional<LinearSolveResult> solve_geometric_checked(Context&, const LinearSystem&, const std::vector<double>& b,
     std::vector<double>& x, double bound, std::size_t maximum);
+std::atomic<bool>& direct_route_switch() {
+    static std::atomic<bool> on{[] {
+        const char* value = std::getenv("MA_PRESSURE_DIRECT");
+        return !(value && std::strcmp(value, "0") == 0);
+    }()};
+    return on;
+}
+// Whether the grid's open cells, coupled through every face that is not
+// closed, factor with at most `limit` multiply-adds a cell (the sum of the
+// factor's squared column counts over the cells). Kept for the grid: a
+// game region's grid never changes while its solver lives.
+bool direct_layout_fits(const Context& c, CacheImpl& cache, double limit) {
+    const auto& g = c.g;
+    if (cache.direct_grid == &g && cache.direct_limit == limit) return cache.direct_fits;
+    direct::Graph graph;
+    graph.offsets.assign(1, 0);
+    std::vector<std::size_t> node(g.N, direct::absent);
+    std::size_t open = 0;
+    for (std::size_t i = 0; i < g.N; ++i) if (!g.wall[i]) node[i] = open++;
+    for (std::size_t i = 0; i < g.N; ++i) {
+        if (g.wall[i]) continue;
+        const auto l = g.left_face(i), r = g.right_face(i), b = g.bottom_face(i), t = g.top_face(i);
+        const std::array<std::pair<Index, bool>, 4> sides{{{g.xl[l], g.closed(false, l)}, {g.xr[r], g.closed(false, r)},
+            {g.yl[b], g.closed(true, b)}, {g.yr[t], g.closed(true, t)}}};
+        for (const auto& [other, shut] : sides)
+            if (other != none && !g.wall[other] && !shut) graph.columns.push_back(node[other]);
+        graph.offsets.push_back(graph.columns.size());
+        graph.at.push_back({i % g.W, i / g.W});
+    }
+    const auto symbolic = direct::analyse(graph, direct::nested_dissection(graph));
+    cache.direct_grid = &g;
+    cache.direct_limit = limit;
+    cache.direct_fits = open > 0 && symbolic.flops <= limit * static_cast<double>(open);
+    return cache.direct_fits;
+}
+}
+bool pressure_direct_route() noexcept { return direct_route_switch().load(std::memory_order_relaxed); }
+void set_pressure_direct_route(bool on) noexcept { direct_route_switch().store(on, std::memory_order_relaxed); }
+std::optional<LinearSolveResult> solve_direct(Context& c, ComponentSolveCache& handle, const LinearSystem& sys,
+    const std::vector<double>& b, std::vector<double>& x, double bound, double maximum_fill) {
+    auto& cache = *handle.impl;
+    if (!direct_layout_fits(c, cache, maximum_fill)) return std::nullopt;
+    const auto& g = c.g;
+    using Pattern = CacheImpl::DirectPattern;
+    // The pattern: active cells and the faces between them with a nonzero
+    // weight. The last three are kept with their orderings.
+    const auto same = [&](const Pattern& p) {
+        if (p.active != sys.active || p.open_x.size() != g.NX || p.open_y.size() != g.NY) return false;
+        for (std::size_t f = 0; f < g.NX; ++f) if (static_cast<bool>(p.open_x[f]) != (sys.wx[f] != 0)) return false;
+        for (std::size_t f = 0; f < g.NY; ++f) if (static_cast<bool>(p.open_y[f]) != (sys.wy[f] != 0)) return false;
+        return true;
+    };
+    auto& kept = cache.direct_patterns;
+    std::unique_ptr<Pattern> pattern;
+    if (const auto found = std::find_if(kept.begin(), kept.end(), [&](const auto& p) { return same(*p); }); found != kept.end()) {
+        pattern = std::move(*found);
+        kept.erase(found);
+    } else {
+        pattern = std::make_unique<Pattern>();
+        auto& p = *pattern;
+        p.active.assign(sys.active.begin(), sys.active.end());
+        p.open_x.resize(g.NX); p.open_y.resize(g.NY);
+        for (std::size_t f = 0; f < g.NX; ++f) p.open_x[f] = sys.wx[f] != 0;
+        for (std::size_t f = 0; f < g.NY; ++f) p.open_y[f] = sys.wy[f] != 0;
+        std::vector<std::size_t> node(g.N, direct::absent);
+        for (std::size_t i = 0; i < g.N; ++i) if (sys.active[i]) { node[i] = p.cells.size(); p.cells.push_back(i); }
+        p.graph.offsets.assign(1, 0);
+        for (const auto i : p.cells) {
+            const std::array<std::pair<Index, std::size_t>, 4> sides{{{g.xl[g.left_face(i)], g.left_face(i)}, {g.xr[g.right_face(i)], g.right_face(i)},
+                {g.yl[g.bottom_face(i)], g.NX + g.bottom_face(i)}, {g.yr[g.top_face(i)], g.NX + g.top_face(i)}}};
+            for (const auto& [other, face] : sides) {
+                const double w = face < g.NX ? sys.wx[face] : sys.wy[face - g.NX];
+                if (w == 0 || other == none || !sys.active[other]) continue;
+                p.graph.columns.push_back(node[other]);
+                p.faces.push_back(face);
+            }
+            p.graph.offsets.push_back(p.graph.columns.size());
+            p.graph.at.push_back({i % g.W, i / g.W});
+        }
+        p.symbolic = direct::analyse(p.graph, direct::nested_dissection(p.graph));
+    }
+    // A = diag + sum of the cell's face weights, in apply's order; -w off
+    // the diagonal. A weight to a cell outside the system is a coupling to
+    // zero pressure: it stays in the diagonal only.
+    const auto& p = *pattern;
+    const auto n = p.cells.size();
+    auto& diagonal = cache.direct_diagonal; auto& off = cache.direct_off; auto& rhs = cache.direct_rhs;
+    diagonal.resize(n); off.resize(p.faces.size()); rhs.resize(n);
+    for (std::size_t k = 0; k < n; ++k) {
+        const auto i = p.cells[k];
+        diagonal[k] = sys.diag[i] + sys.wx[g.left_face(i)] + sys.wx[g.right_face(i)] + sys.wy[g.bottom_face(i)] + sys.wy[g.top_face(i)];
+        rhs[k] = b[i];
+        for (auto q = p.graph.offsets[k]; q < p.graph.offsets[k + 1]; ++q)
+            off[q] = -(p.faces[q] < g.NX ? sys.wx[p.faces[q]] : sys.wy[p.faces[q] - g.NX]);
+    }
+    const bool factored = direct::factor(p.symbolic, p.graph, diagonal, off, cache.direct_factor);
+    if (factored) direct::solve(p.symbolic, cache.direct_factor, rhs, cache.direct_out, cache.direct_work);
+    kept.insert(kept.begin(), std::move(pattern));
+    if (kept.size() > 3) kept.pop_back();
+    if (!factored) return std::nullopt;
+    const auto& cells = kept.front()->cells;
+    x.assign(g.N, 0);
+    for (std::size_t k = 0; k < n; ++k) x[cells[k]] = cache.direct_out[k];
+    // The residual of the result, recomputed from the system as for the
+    // geometric solve: it must meet the same bound.
+    auto& product = c.ws.lAp;
+    product.resize(g.N);
+    apply(c, sys, x, product, nullptr, nullptr);
+    long double squared = 0;
+    for (std::size_t i = 0; i < g.N; ++i) if (sys.active[i]) {
+        const double r = b[i] - product[i];
+        squared += static_cast<long double>(r) * r;
+    }
+    const double residual = std::sqrt(static_cast<double>(squared));
+    if (!(residual <= bound)) return std::nullopt;
+    LinearSolveResult result;
+    result.iterations = 1; result.residual = residual; result.converged = true; result.direct = true;
+    return result;
 }
 LinearSolveResult solve_components_cached(Context& c, ComponentSolveCache& handle, const LinearSystem& sys,
     const std::vector<double>& b, std::vector<double>& x, double rtol, double atol, std::size_t maximum,
-    std::size_t parallel_rows, std::size_t geometric_cells) {
+    std::size_t parallel_rows, std::size_t geometric_cells, DirectRoute route) {
+    // The direct route first, at the bound the geometric solve would meet.
+    if (route.minimum_cells != 0 && rtol == 0 && c.settings.game_profile != MacGameProfile::base_game_floor && pressure_direct_route() &&
+        static_cast<std::size_t>(std::count(sys.active.begin(), sys.active.end(), std::uint8_t{1})) >= route.minimum_cells)
+        if (const auto solved = solve_direct(c, handle, sys, b, x, .5 * atol, route.maximum_fill)) return *solved;
     // A single connected system of at least `geometric_cells` cells with an
     // absolute bound tries the geometric solve first, at the bound its
     // component solve would meet (half the limit; see solve_component_ic).

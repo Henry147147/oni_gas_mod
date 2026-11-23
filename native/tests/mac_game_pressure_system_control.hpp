@@ -3,6 +3,7 @@
 #include "mac_game_convective_control.hpp"
 #include "mac_game_surface_control.hpp"
 #include "mixed_atmospheres/mac_kernel.hpp"
+#include "../src/mac_kernel_detail.hpp"
 #include <cmath>
 #include <iostream>
 
@@ -20,6 +21,8 @@
 //   cells is solved by the geometric multigrid PCG, checked against the
 //   component solve's residual bound. A disturbed 66 x 34 room uses it,
 //   closes mass and U+K+G, and continues exactly cold and on 12 workers.
+//   The room would take the direct route (mac_game_direct_pressure_control.hpp):
+//   the override is off here so that the scenario proves the multigrid route.
 namespace ma::testing::pressure_system_game {
 using namespace ma::experimental;
 inline void check(bool ok, const char *message) {
@@ -138,7 +141,9 @@ inline void run() {
   check(std::abs(total_mass(wet) + sunk_mass - wet_mass0) <= 1e-12L * wet_mass0, "The mist front changed mass");
   check(std::abs(surface_game::total_energy(wet) + sunk_energy - wet_energy0) <= 1e-12L * std::abs(wet_energy0),
         "The mist front lost U+K+G");
-  // A large connected room.
+  // A large connected room, on the multigrid route.
+  const bool direct_route = mac_kernel::pressure_direct_route();
+  mac_kernel::set_pressure_direct_route(false);
   auto large = room();
   const auto mass0 = total_mass(large), energy0 = surface_game::total_energy(large);
   std::size_t geometric = 0, iterations = 0, attempts = 0;
@@ -168,6 +173,7 @@ inline void run() {
   // A small room keeps the component solve.
   auto small = convective_game::box(MacGameProfile::game_kernel_thin_drag, true);
   check(small.advanced(.2).report.game_stages.pressure_geometric == 0, "A small room used the geometric pressure solve");
+  mac_kernel::set_pressure_direct_route(direct_route);
   std::cout << "PASS profile12 pressure systems: gas beyond column 20 after 1 s dry/mist "
             << static_cast<double>(far_dry) << "/" << static_cast<double>(far_wet) << " kg, pressure iterations "
             << dry_iterations << "/" << wet_iterations << "; 2,048-cell room " << geometric << " geometric solves of "

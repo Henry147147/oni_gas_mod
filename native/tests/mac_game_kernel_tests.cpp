@@ -18,6 +18,7 @@
 #include "mac_game_surface_stability_control.hpp"
 #include "mac_game_heat_layer_control.hpp"
 #include "mac_game_pressure_system_control.hpp"
+#include "mac_game_direct_pressure_control.hpp"
 #include "../src/mac_hypot.hpp"
 #include "../src/mac_game/account.hpp"
 #include "../src/mac_game/entropy.hpp"
@@ -1214,6 +1215,7 @@ int main() {
     ma::testing::surface_stability_game::run();
     ma::testing::heat_layer_game::run();
     ma::testing::pressure_system_game::run();
+    ma::testing::direct_pressure_game::run();
     ma::testing::convective_plume_control();
     ma::testing::mac_game_patch_plan_control();
     std::cout

@@ -17,6 +17,7 @@
 #include <functional>
 #include <limits>
 #include <mutex>
+#include <optional>
 #include <stdexcept>
 #include <thread>
 #include <memory>
@@ -502,7 +503,8 @@ struct LinearSystem {
     std::vector<std::uint8_t> active;   // 1 = unknown
 };
 struct LinearSolveResult { std::size_t iterations = 0; double residual = 0; bool converged = false;
-    bool geometric = false; /* solved by the geometric PCG (solve_components_cached) */ };
+    bool geometric = false; /* solved by the geometric PCG (solve_components_cached) */
+    bool direct = false; /* solved by sparse Cholesky (solve_components_cached), counted as one iteration */ };
 // A failed numerical pressure root is distinct from malformed inputs or a
 // broken solver invariant. Legacy callers retain its domain_error contract.
 struct ComponentPressureSolveFailure final : std::domain_error {
@@ -538,8 +540,33 @@ public:
 // otherwise the component solve runs as before. The choice and its values
 // do not depend on the worker count (MAC_GAME_KERNEL.md, "Large connected
 // regions").
+// The sparse Cholesky route of solve_components_cached
+// (mac_direct_cholesky.hpp; MAC_GAME_KERNEL.md, "Large pressure and heat
+// components"). A system of at least `minimum_cells` active cells (0: never)
+// is factored when its grid's open cells, all coupled, factor with at most
+// `maximum_fill` multiply-adds a cell. That test depends on the grid's walls
+// and closed faces alone: it is made once for a grid, and a grid over the
+// limit never orders a system.
+struct DirectRoute { std::size_t minimum_cells = 0; double maximum_fill = 0; };
+// `direct` (minimum_cells 0: never): a system solved to an absolute bound is
+// first solved by sparse Cholesky when the route admits it. Its residual,
+// recomputed from the system, must meet the bound the geometric solve
+// would meet; otherwise, or when the factorisation meets a pivot that is
+// not positive, the solve continues as without the route. The result is
+// computed on the calling thread in a fixed order.
 LinearSolveResult solve_components_cached(Context&, ComponentSolveCache&, const LinearSystem&,
     const std::vector<double>& b, std::vector<double>& x, double relative_tolerance,
     double absolute_tolerance, std::size_t maximum_iterations, std::size_t parallel_rows,
-    std::size_t geometric_cells = 0);
+    std::size_t geometric_cells = 0, DirectRoute direct = {});
+// The direct route alone: the solution and its recomputed residual when the
+// grid admits the route (maximum_fill), the factorisation succeeds and the
+// residual meets `bound`; no result otherwise (x is then unspecified).
+std::optional<LinearSolveResult> solve_direct(Context&, ComponentSolveCache&, const LinearSystem&,
+    const std::vector<double>& b, std::vector<double>& x, double bound, double maximum_fill);
+// Measurement override of the direct route, process wide: on unless the
+// environment holds MA_PRESSURE_DIRECT=0 when it is first read. Tests that
+// must exercise the multigrid or component routes switch it off and restore
+// it; A/B runs set the variable.
+[[nodiscard]] bool pressure_direct_route() noexcept;
+void set_pressure_direct_route(bool on) noexcept;
 }

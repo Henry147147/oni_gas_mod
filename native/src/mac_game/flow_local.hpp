@@ -14,6 +14,7 @@ struct FlowReport {
   State state;
   std::vector<Eos> eos;
   std::size_t pressure_geometric = 0; // pressure solves by the geometric PCG
+  std::size_t pressure_direct = 0;    // pressure solves by sparse Cholesky
   std::size_t subcycles = 0, pressure_iterations = 0, pressure_corrections = 0,
               transport_cells = 0, transport_faces = 0;
   // Profile 12: thin gas cells whose heating the interval limited before
@@ -41,6 +42,28 @@ struct FlowReport {
 // multigrid PCG, checked against the component solve's residual bound
 // (MAC_GAME_KERNEL.md, "Large connected regions").
 inline constexpr std::size_t geometric_pressure_cells = 2000;
+// Profile 12 (MAC_GAME_KERNEL.md, "Sparse Cholesky pressure solves"): a
+// pressure system of at least direct_pressure_cells active cells is solved by
+// sparse Cholesky when its region's open cells factor with at most
+// direct_pressure_fill multiply-adds a cell; the multigrid and component
+// solves remain the fallback. The cave network of the November 22 colony's
+// largest region (12,374 cells) fills at 560 a cell and factors in 4.2 ms
+// against 12-19 ms of multigrid PCG; its second cave system (5,722 cells)
+// fills at about 190; its wide-open surface region fills at about 930.
+// An exact solve leaves a perfectly uniform unstable layer without the solver
+// noise that seeded its overturning: a 6 x 30 column of hot oxygen under cold
+// overturns in 150 s with the iterative solves and stays still for 20 minutes
+// with the factor. A sealed rectangular room heated evenly through its floor
+// must keep overturning, so open rooms stay off the route: the minimum lies
+// just above the largest open room under the fill limit. Of 62,720 open
+// rectangles of 1,500 to 9,000 cells with aspect ratios up to 1:8, both ways
+// up, with 0, 2, 4 or 8 single-cell pillars, the largest under 700 holds
+// 5,218 cells (201 x 26, 8 pillars, 699); every larger one fills above it.
+// Longer rooms pass the limit later (1:9 from about 5,600 cells, 1:10 from
+// 6,250). Below the minimum, and in open rooms above it, the old routes run;
+// above it only irregular, cave-like grids take the factor.
+inline constexpr std::size_t direct_pressure_cells = 5300;
+inline constexpr double direct_pressure_fill = 700;
 class Flow {
   ma::experimental::MacGrid source;
   ma::experimental::mac_kernel::Grid g;
@@ -326,7 +349,10 @@ public:
         pressure(grid, threads, ma::PressurePreconditioner::incomplete_cholesky,
                  pressure_tolerance, gravity_source, &eos_pool, pressure_iterations,
                  surface_closure, thin_gas_mass, thin_gas_time,
-                 bound_pressure_volume && bound_room ? geometric_pressure_cells : 0),
+                 bound_pressure_volume && bound_room ? geometric_pressure_cells : 0,
+                 bound_pressure_volume && bound_room
+                     ? ma::experimental::mac_kernel::DirectRoute{direct_pressure_cells, direct_pressure_fill}
+                     : ma::experimental::mac_kernel::DirectRoute{}),
         gravity_rule(gravity_source), audit_mode(auditing),
         bounded_pressure_volume(bound_pressure_volume),
         bound_mass_floor(bound_mass), layered_remap(layered),
@@ -492,6 +518,7 @@ public:
     result.pressure_iterations = projected.iterations;
     result.pressure_corrections = projected.corrections;
     result.pressure_geometric = projected.geometric;
+    result.pressure_direct = projected.direct;
     const auto request_refinement = [&] {
       result.pressure_refinement_requested = true;
       result.eos = std::move(eos);
@@ -651,6 +678,7 @@ public:
         result.pressure_iterations += projected.iterations;
         result.pressure_corrections += projected.corrections;
         result.pressure_geometric += projected.geometric;
+        result.pressure_direct += projected.direct;
         if (!projected.converged) {
           result.reject_reason = reject_log::Reason::pressure_not_converged;
           request_refinement();

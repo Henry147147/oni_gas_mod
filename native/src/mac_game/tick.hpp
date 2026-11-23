@@ -18,7 +18,7 @@ struct TickResult {
          pressure_ms = 0, transport_ms = 0, eos_ms = 0;
   std::size_t regions = 0, trace_constituents = 0, trace_cells = 0;
   // Execution diagnostics: pressure solver iterations and corrections.
-  std::size_t pressure_iterations = 0, pressure_corrections = 0, pressure_geometric = 0;
+  std::size_t pressure_iterations = 0, pressure_corrections = 0, pressure_geometric = 0, pressure_direct = 0;
   std::size_t pressure_attempts = 0, pressure_refinements = 0,
               flow_substeps = 0;
   // Execution diagnostic: time in flow trials a pressure refinement refused.
@@ -135,7 +135,7 @@ class Tick {
   }
 
   struct ColdLiquidContact {
-    std::size_t attempts, refinements, iterations, corrections, geometric;
+    std::size_t attempts, refinements, iterations, corrections, geometric, direct;
     double pressure_ms, eos_ms, elapsed_ms;
   };
 public:
@@ -204,6 +204,7 @@ public:
       retried.pressure_iterations += discarded.iterations;
       retried.pressure_corrections += discarded.corrections;
       retried.pressure_geometric += discarded.geometric;
+      retried.pressure_direct += discarded.direct;
       retried.pressure_ms += discarded.pressure_ms;
       retried.eos_ms += discarded.eos_ms;
       retried.refused_trial_ms += discarded.elapsed_ms;
@@ -401,6 +402,7 @@ private:
           out.pressure_iterations += advanced.pressure_iterations;
           out.pressure_corrections += advanced.pressure_corrections;
           out.pressure_geometric += advanced.pressure_geometric;
+          out.pressure_direct += advanced.pressure_direct;
           out.eos = std::move(advanced.eos);
           // A net-volume rejection (ratio above one) proposes the interval
           // its measured swept volume predicts; any other refinement halves.
@@ -412,7 +414,7 @@ private:
           if (!(shorter > 0) || shorter == trial || remaining - shorter == remaining) {
             if (advanced.cold_liquid_contact && heat_enabled && !heat_first)
               throw ColdLiquidContact{out.pressure_attempts, out.pressure_refinements, out.pressure_iterations,
-                                      out.pressure_corrections, out.pressure_geometric, out.pressure_ms,
+                                      out.pressure_corrections, out.pressure_geometric, out.pressure_direct, out.pressure_ms,
                                       out.eos_ms, ms(start)};
             throw std::runtime_error("Game pressure refinement cannot advance time");
           }
@@ -426,6 +428,7 @@ private:
         out.pressure_iterations += advanced.pressure_iterations;
         out.pressure_corrections += advanced.pressure_corrections;
         out.pressure_geometric += advanced.pressure_geometric;
+        out.pressure_direct += advanced.pressure_direct;
         out.microevents += advanced.subcycles;
         wall_x += advanced.wall_x;
         wall_y += advanced.wall_y;

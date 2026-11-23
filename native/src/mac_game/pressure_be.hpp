@@ -47,8 +47,10 @@ struct Pressure {
   // interval (an external load) and the work that impulse did (an external
   // energy input). Empty without forces.
   std::vector<double> force_impulse, force_work;
-  // geometric: solves (of this result and its correction) the geometric PCG made.
-  std::size_t iterations = 0, corrections = 0, geometric = 0;
+  // geometric, direct: solves (of this result and its correction) the
+  // geometric PCG and the sparse Cholesky made; a direct solve counts as one
+  // iteration.
+  std::size_t iterations = 0, corrections = 0, geometric = 0, direct = 0;
   double residual = 0;
   bool converged = false;
   double wall_impulse_x = 0, wall_impulse_y = 0, body_impulse_y = 0;
@@ -183,6 +185,9 @@ private:
   // Profile 12: a solve that is one connected system of at least this many
   // cells first tries the geometric PCG (solve_components_cached). 0: never.
   std::size_t geometric_cells = 0;
+  // Profile 12: the sparse Cholesky route (kernel::DirectRoute), tried
+  // before the others. Off by default.
+  kernel::DirectRoute direct_route;
   kernel::Context context;
   // Component structure of the last solve, and of the last corrected solve
   // (cells held at zero pressure); see solve_components_cached. Solves with
@@ -211,7 +216,8 @@ public:
                  double tolerance = 1e-8, unsigned gravity_source = 0,
                  kernel::Pool *executor = nullptr, unsigned maximum = 200,
                  bool surface_closure = false, double thin_gas_mass = 0,
-                 double thin_gas_time = 0, std::size_t geometric_system_cells = 0)
+                 double thin_gas_time = 0, std::size_t geometric_system_cells = 0,
+                 kernel::DirectRoute direct = {})
       : source(g), grid(source),
         owned_pool(executor
                        ? nullptr
@@ -220,7 +226,7 @@ public:
         pool(executor ? *executor : *owned_pool), relative_tolerance(tolerance),
         gravity_rule(gravity_source), maximum_iterations(maximum),
         close_empty_inflow(surface_closure), thin_mass(thin_gas_mass),
-        thin_time(thin_gas_time), geometric_cells(geometric_system_cells),
+        thin_time(thin_gas_time), geometric_cells(geometric_system_cells), direct_route(direct),
         context{workspace,
                                               source,
                                               model,
@@ -278,7 +284,7 @@ public:
     w.open_x.resize(g.NX);
     w.open_y.resize(g.NY);
     Pressure result = std::move(storage);
-    result.iterations = result.corrections = result.geometric = 0;
+    result.iterations = result.corrections = result.geometric = result.direct = 0;
     result.residual = 0;
     result.converged = false;
     for (auto *v : {&result.jx, &result.qx, &result.damping_x})
@@ -597,7 +603,7 @@ public:
     // products sum fixed 1024-cell blocks (PressureParallelPlan).
     const auto solved = kernel::solve_components_cached(
         context, component_cache[(fixed ? 1 : 0) + (stiffened ? 2 : 0)], system, w.increment_rhs,
-        result.p, 0, tolerance, maximum_iterations, 4096, geometric_cells);
+        result.p, 0, tolerance, maximum_iterations, 4096, geometric_cells, direct_route);
     context.exec.rows([&](std::size_t y0, std::size_t y1, std::size_t) {
       for (std::size_t i = y0 * g.W; i < y1 * g.W; ++i)
         if (system.active[i])
@@ -605,6 +611,7 @@ public:
     });
     result.iterations = solved.iterations;
     result.geometric = solved.geometric ? 1 : 0;
+    result.direct = solved.direct ? 1 : 0;
     result.residual = solved.residual;
     result.converged = solved.converged;
     // Wall and body impulse totals: double-double partials of the fixed row
@@ -737,13 +744,14 @@ public:
           changed = true;
         }
       if (changed) {
-        const auto iterations = result.iterations, geometric = result.geometric;
+        const auto iterations = result.iterations, geometric = result.geometric, direct = result.direct;
         const bool converged = result.converged;
         auto corrected = advance(states, old_x, old_y, dt, gravity, false,
                                  &constrained, std::move(result), boiling,
                                  stiffened);
         corrected.iterations += iterations;
         corrected.geometric += geometric;
+        corrected.direct += direct;
         corrected.corrections = 1;
         corrected.converged = corrected.converged && converged;
         return corrected;

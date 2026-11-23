@@ -281,6 +281,7 @@ struct MacClosedAdvanceReport {
         double layering_ms = 0, interface_ms = 0, heat_ms = 0, phase_ms = 0, entropy_ms = 0, audit_ms = 0;
         std::size_t pressure_iterations = 0, pressure_corrections = 0;
         std::size_t pressure_geometric = 0; // pressure solves made by the geometric PCG (profile 12)
+        std::size_t pressure_direct = 0;    // pressure solves made by sparse Cholesky (profile 12)
         std::size_t pressure_attempts = 0, pressure_refinements = 0;
         double refused_trial_ms = 0; // flow trials a pressure refinement refused
         // Regional tick wall time: planning and audit sums, the audit

@@ -43,6 +43,7 @@ inline MacClosedSettings settings() {
 }
 struct Halves {
   double lower = 0, upper = 0, speed = 0;
+  std::size_t direct = 0; // pressure solves by sparse Cholesky
 };
 // Advances `world` and returns the mass-mean temperatures of rows
 // [1, split) and [split, top] of its fluid of `species` and the fastest
@@ -54,6 +55,7 @@ inline Halves run(MacClosedWorld world, std::size_t species, std::size_t split, 
   Halves out;
   for (unsigned tick = 1; tick <= ticks; ++tick) {
     auto next = std::move(world).advanced(.2);
+    out.direct += next.report.game_stages.pressure_direct;
     for (const auto &m : next.report.trace_sink.mass_kg) sunk_mass += mac_energy_long_double(m);
     const auto &sink = next.report.trace_sink;
     sunk_energy += mac_energy_long_double(sink.internal_energy_j) + mac_energy_long_double(sink.kinetic_energy_j) +
@@ -149,6 +151,11 @@ inline void run() {
   check(std::abs(unstable.upper - unstable.lower) < 5, "Hot gas under cold gas did not overturn");
   check(warm_top.lower < 291 && warm_top.upper > 349, "Hot water over cold water did not stay");
   check(std::abs(cold_top.upper - cold_top.lower) < 1, "Cold water over hot water did not mix");
+  // An exact pressure solve would leave the unstable column without the
+  // solver noise that seeds its overturning (MAC_GAME_KERNEL.md, "Sparse
+  // Cholesky pressure solves"): these rooms keep the iterative solves.
+  check(stable.direct + unstable.direct + warm_top.direct + cold_top.direct == 0,
+        "A layered column or pool took the direct pressure route");
   std::cout << "PASS profile12 heat across layers: oxygen at 350 K over 290 K reads " << stable.upper << " K over "
             << stable.lower << " K after 600 s (fastest vertical gas " << stable.speed << " m/s) and the other way up "
             << unstable.upper << " K over " << unstable.lower << " K after 300 s; water at 350 K over 290 K reads "

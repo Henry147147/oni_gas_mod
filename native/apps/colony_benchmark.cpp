@@ -705,7 +705,7 @@ struct FlowTally {
     std::map<std::size_t, Region> regions;
     std::vector<double> stepped_regions, stepped_cells, region_sum_ms, region_max_ms, run_ms, tick_ms, sparse_ms, dense_ms, setup_ms, capture_ms, merge_ms, rebuild_ms,
         pressure_ms, transport_ms, layering_ms, interface_ms, heat_ms, phase_ms, audit_ms, eos_ms, refused_ms;
-    std::uint64_t iterations = 0, attempts = 0, refinements = 0, geometric = 0, intervals = 0, frames = 0;
+    std::uint64_t iterations = 0, attempts = 0, refinements = 0, geometric = 0, direct = 0, intervals = 0, frames = 0;
     void add(const c::FlowDiagnostics& d) {
         ++frames;
         double sum = 0, worst = 0, cells = 0;
@@ -725,7 +725,7 @@ struct FlowTally {
         setup_ms.push_back(g.regional_setup_ms); capture_ms.push_back(g.regional_capture_ms); merge_ms.push_back(g.regional_merge_ms); rebuild_ms.push_back(g.regional_rebuild_ms);
         pressure_ms.push_back(g.pressure_ms); transport_ms.push_back(g.transport_ms); layering_ms.push_back(g.layering_ms); interface_ms.push_back(g.interface_ms);
         heat_ms.push_back(g.heat_ms); phase_ms.push_back(g.phase_ms); audit_ms.push_back(g.audit_ms); eos_ms.push_back(g.eos_ms); refused_ms.push_back(g.refused_trial_ms);
-        iterations += g.pressure_iterations; attempts += g.pressure_attempts; refinements += g.pressure_refinements; geometric += g.pressure_geometric;
+        iterations += g.pressure_iterations; attempts += g.pressure_attempts; refinements += g.pressure_refinements; geometric += g.pressure_geometric; direct += g.pressure_direct;
     }
     std::string json_text(std::uint32_t top, std::size_t grid_width) const {
         std::ostringstream out;
@@ -744,7 +744,7 @@ struct FlowTally {
             << ", \"stepped_regions\": " << json(summarize(stepped_regions)) << ", \"stepped_cells\": " << json(summarize(stepped_cells))
             << ", \"per_frame\": {\"flow_intervals\": " << per_frame(intervals) << ", \"pressure_attempts\": " << per_frame(attempts)
             << ", \"pressure_refinements\": " << per_frame(refinements) << ", \"pressure_iterations\": " << per_frame(iterations)
-            << ", \"geometric_solves\": " << per_frame(geometric) << "}, \"top_regions\": [";
+            << ", \"geometric_solves\": " << per_frame(geometric) << ", \"direct_solves\": " << per_frame(direct) << "}, \"top_regions\": [";
         std::vector<std::pair<std::size_t, Region>> order(regions.begin(), regions.end());
         std::sort(order.begin(), order.end(), [](const auto& a, const auto& b) { return a.second.ms != b.second.ms ? a.second.ms > b.second.ms : a.first < b.first; });
         for (std::size_t n = 0; n < order.size() && n < top; ++n) {
