@@ -1480,51 +1480,160 @@ void audit_transfers(const k::Totals &old, const k::Totals &now,
 }
 } // namespace
 namespace {
-// Heat edits on `next`, the state of `source` or its copy, each cell recorded
-// in the journal before it changes.
+// The cells a heat batch changes, each with its energy before each of its
+// edits, in edit order. Heat changes only U, so these audit the batch and
+// undo it (an edit made in place) without copying whole cells.
+struct HeatJournal {
+  std::vector<std::pair<std::size_t, double>> energies;
+  // Restores every changed energy, the latest edit first, so each cell ends
+  // with its energy before the batch (a cell whose chunk was never made
+  // writable was never written).
+  void undo(MacTransportState &state) const {
+    for (auto at = energies.rbegin(); at != energies.rend(); ++at)
+      if (state.cells.writable(at->first))
+        state.cells[at->first].mixture.energy = at->second;
+  }
+};
+void require_heat_edit(const MacTransportState &next, const MacCellHeat &edit) {
+  require(edit.cell_index < next.cells.size() &&
+              !next.grid.walls[edit.cell_index] &&
+              std::isfinite(edit.joules) &&
+              std::isfinite(edit.maximum_temperature_k) &&
+              edit.maximum_temperature_k > 0,
+          "Invalid game heat edit");
+}
+// One heat edit on `next`, its cell's energy recorded first; returns the
+// cell, changed.
+MacMaterialCell &apply_heat_edit(MacTransportState &next, const MacCellHeat &edit,
+                                 HeatJournal &journal) {
+  require_heat_edit(next, edit);
+  journal.energies.emplace_back(edit.cell_index,
+                                std::as_const(next).cells[edit.cell_index].mixture.energy);
+  auto &cell = next.cells[edit.cell_index];
+  const double old = cell.mixture.energy;
+  cell.mixture.energy += edit.joules;
+  require(edit.joules == 0 || cell.mixture.energy != old,
+          "Game heat change is unrepresentable");
+  return cell;
+}
+// Heat edits on `next`, the state of `source` or its copy, each cell's
+// energy recorded in the journal before it changes. Each edit is judged on
+// its cell's reading just after it, and the first edit (in order) that
+// fails throws what it threw when the edits ran one by one; the journal
+// then holds every change made.
 void apply_heat(const MacClosedWorld &source, MacTransportState &next,
-                std::span<const MacCellHeat> edits, EditJournal &journal) {
+                std::span<const MacCellHeat> edits, HeatJournal &journal) {
   require(!edits.empty() && edits.size() <= 4096, "Invalid game heat batch");
+  journal.energies.reserve(edits.size());
   // Building the table pays off on batches; keep one-off/refused-edit
   // retries on the original cached reading path.
-  const bool batch_reading = edits.size() >= 32;
-  std::optional<std::vector<k::Species>> species;
-  for (const auto &edit : edits) {
-    require(edit.cell_index < next.cells.size() &&
-                !next.grid.walls[edit.cell_index] &&
-                std::isfinite(edit.joules) &&
-                std::isfinite(edit.maximum_temperature_k) &&
-                edit.maximum_temperature_k > 0,
-            "Invalid game heat edit");
-    journal.cell(next, edit.cell_index);
-    auto &cell = next.cells[edit.cell_index];
-    const double old = cell.mixture.energy;
-    cell.mixture.energy += edit.joules;
-    require(edit.joules == 0 || cell.mixture.energy != old,
-            "Game heat change is unrepresentable");
-    if (batch_reading && !species)
-      species.emplace(table(source.registry(), source.thermodynamics(),
-                            source.settings().game.liquid_stiffness_ratio,
-                            source.settings().game.liquid_law));
-    const double temperature = batch_reading
-        ? transfer_reading(source, *species, cell, next.grid.volume_m3()).temperature
-        : MacGameKernelAccess::reading(source, cell).temperature_k;
-    require(edit.joules <= 0 || temperature <= edit.maximum_temperature_k,
+  if (edits.size() < 32) {
+    for (const auto &edit : edits) {
+      const auto &cell = apply_heat_edit(next, edit, journal);
+      const double temperature = MacGameKernelAccess::reading(source, cell).temperature_k;
+      require(edit.joules <= 0 || temperature <= edit.maximum_temperature_k,
+              "Game heat exceeds reserved temperature limit");
+    }
+    return;
+  }
+  // A batch: every edit first, each one's cell energy noted, up to the
+  // first edit that is invalid or unrepresentable; then the readings, on
+  // the pool (a reading depends only on its cell's masses, which heat leaves
+  // alone, and that energy); then each edit's verdict in order.
+  std::vector<double> after;
+  after.reserve(edits.size());
+  std::exception_ptr stopped;
+  try {
+    for (const auto &edit : edits)
+      after.push_back(apply_heat_edit(next, edit, journal).mixture.energy);
+  } catch (...) {
+    stopped = std::current_exception();
+  }
+  // The edits that completed (one that throws adds no energy here).
+  const auto applied = after.size();
+  const auto species = table(source.registry(), source.thermodynamics(),
+                             source.settings().game.liquid_stiffness_ratio,
+                             source.settings().game.liquid_law);
+  const double volume = next.grid.volume_m3();
+  const auto &cells = std::as_const(next).cells;
+  std::vector<double> temperature(applied);
+  std::vector<std::uint8_t> full(applied);
+  std::vector<std::exception_ptr> failed(applied);
+  constexpr std::size_t block = 128;
+  const auto blocks = (applied + block - 1) / block;
+  mac_kernel::pool_for(mac_kernel_default_options().threads).run(blocks, [&](std::size_t b) {
+    for (std::size_t q = b * block, end = std::min(applied, q + block); q < end; ++q) {
+      try {
+        // transfer_reading's evaluation, at this edit's energy.
+        const auto e = k::evaluate(species, cells[edits[q].cell_index].mixture.masses, after[q], volume);
+        temperature[q] = e.temperature;
+        full[q] = std::any_of(species.begin(), species.end(), [&](const auto &x) {
+          return !x.gas && x.positive_liquid && e.pressure >= .5 * x.stiffness;
+        });
+      } catch (...) {
+        failed[q] = std::current_exception();
+      }
+    }
+  });
+  for (std::size_t q = 0; q < applied; ++q) {
+    if (failed[q])
+      std::rethrow_exception(failed[q]);
+    if (full[q]) {
+      // transfer_reading's full check, on the cell as this edit left it.
+      MacMaterialCell at = cells[edits[q].cell_index];
+      at.mixture.energy = after[q];
+      (void)MacGameKernelAccess::reading(source, at);
+    }
+    require(edits[q].joules <= 0 || temperature[q] <= edits[q].maximum_temperature_k,
             "Game heat exceeds reserved temperature limit");
   }
+  if (stopped)
+    std::rethrow_exception(stopped);
 }
-// A world's audit totals after a heat edit, when it had them. Only U changes.
+// A world's audit totals after a heat edit, when it had them: totals_change
+// over the changed cells, from their energies before the batch. Only U
+// changes, so a cell's masses, potential and passives are the same before
+// and after; each species' pair of opposite additions (from +0) returns its
+// change to +0 exactly, as in totals_change, so those additions are left out.
 std::shared_ptr<const k::Totals>
-heated_totals(const k::Totals *kept, const EditJournal &journal,
-              const MacTransportState &next, std::span<const MacCellHeat> edits,
-              std::size_t count, double gravity) {
+heated_totals(const k::Totals *kept, const HeatJournal &journal,
+              const MacTransportState &next, std::size_t count, double gravity) {
   if (!kept)
     return {};
-  std::vector<std::size_t> cells;
-  for (const auto &edit : edits)
-    cells.push_back(edit.cell_index);
-  return std::make_shared<const k::Totals>(changed_totals(
-      *kept, totals_change(journal, next, count, gravity, std::move(cells), {})));
+  // Each changed cell once, ascending, with its first record (its energy
+  // before the batch).
+  std::vector<std::pair<std::size_t, std::size_t>> order(journal.energies.size());
+  for (std::size_t r = 0; r < order.size(); ++r)
+    order[r] = {journal.energies[r].first, r};
+  std::sort(order.begin(), order.end());
+  const auto &grid = next.grid;
+  TotalsChange change;
+  change.species.resize(count);
+  for (std::size_t n = 0; n < order.size(); ++n) {
+    const auto i = order[n].first;
+    if (n > 0 && order[n - 1].first == i)
+      continue;
+    const auto &cell = std::as_const(next).cells[i];
+    double total = 0;
+    if (!cell.mixture.masses.implicit_zero())
+      for (const double m : static_cast<const std::vector<double> &>(cell.mixture.masses))
+        if (m > 0)
+          total += m;
+    const double potential = total * gravity *
+                             (static_cast<double>(i / grid.width) + .5) *
+                             grid.spacing_m;
+    for (const auto &[energy, sign] :
+         {std::pair{journal.energies[order[n].second].second, -1.},
+          std::pair{cell.mixture.energy, 1.}}) {
+      change.energy.add(sign * energy);
+      change.energy.add(sign * potential);
+      change.energy_operands.add(sign * std::abs(energy));
+      change.energy_operands.add(sign * std::abs(potential));
+      for (const auto &q : cell.passive_quantities)
+        change.passives[plain_passive_identity(q.identity)].add(sign * q.quantity);
+    }
+  }
+  return std::make_shared<const k::Totals>(changed_totals(*kept, change));
 }
 // The canonical void-phase volumes of a world's state (MacClosedWorld's
 // derived constructor): none unless an occupied cell is partly filled.
@@ -2284,9 +2393,9 @@ bool MacGameKernelAccess::detach_heat_state(MacClosedWorld &source, std::span<co
 MacClosedWorld MacGameKernelAccess::heat(const MacClosedWorld &source,
                                          std::span<const MacCellHeat> edits) {
   auto next = source.state();
-  EditJournal journal;
+  HeatJournal journal;
   apply_heat(source, next, edits, journal);
-  auto now = heated_totals(source.game_totals_.get(), journal, next, edits,
+  auto now = heated_totals(source.game_totals_.get(), journal, next,
                            source.registry_.size(),
                            source.settings_.gravity_m_per_s2);
   auto result = source.derived(std::move(next));
@@ -2299,10 +2408,10 @@ MacClosedWorld MacGameKernelAccess::heat(MacClosedWorld &&source,
     return heat(std::as_const(source), edits);
   // No other world shares this state: edit it in place, undoing on failure.
   auto &next = const_cast<MacTransportState &>(*source.state_snapshot_);
-  EditJournal journal;
+  HeatJournal journal;
   try {
     apply_heat(source, next, edits, journal);
-    auto now = heated_totals(source.game_totals_.get(), journal, next, edits,
+    auto now = heated_totals(source.game_totals_.get(), journal, next,
                              source.registry_.size(),
                              source.settings_.gravity_m_per_s2);
     MacClosedWorld result(MacClosedWorld::Derived{}, source,
