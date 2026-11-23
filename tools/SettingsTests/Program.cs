@@ -45,13 +45,29 @@ static class Program
         Check(capacities.Length > 0 && capacities.All(d => defaults.Number(d.Key) == 1) &&
             !defaults.Toggle(SettingCatalog.KeepDebris) && !defaults.Toggle(SettingCatalog.KeepStored), "storage options default to ONI behaviour");
         Throws<FormatException>(() => defaults.With("storage.capacity.StorageLocker", .5), "shrinking the base storage capacity");
-        // Default reproduces today's profile 5 exactly (oni_colony.cpp default_options_value).
-        var native = SettingValues.Defaults().ToNative();
+        // The Exact preset reproduces the native library's own defaults (oni_colony.cpp
+        // default_options_value), which were Default until 1.13.2.
+        var native = BuiltInPresets.Find("exact")!.Values.ToNative();
         Check(native.PressureMaximumIterations == 400 && native.HeatMaximumIterations == 800 && native.FlowParts == 2 && native.SharpenLiquidInterfaces == 1 &&
               native.MaximumTimestepSeconds == (double).2f && native.TraceSinkThresholdKg == 1e-11 && native.LiquidStiffnessRatio == .04 &&
               native.PressureRelativeTolerance == 1e-8 && native.GasHeatMixing == 8 && native.InterfaceDetailFraction == 0 && native.PhaseRelaxationSeconds == 1 &&
               native.Size == 88 && native.Version == 3 && native.EvaporationBelowBoiling == 0 && native.FluidTickStride == 0,
-              "Default native options differ from today's profile 6 with boil-only phase change");
+              "Exact native options differ from the native defaults with boil-only phase change");
+        // Default (user decision 2026-11-23) differs from Exact in three solver settings only.
+        var quick = SettingValues.Defaults().ToNative();
+        Check(quick.FlowParts == 1 && quick.TraceSinkThresholdKg == 1e-6 && quick.PressureRelativeTolerance == 1e-6, "Default is not the faster solver settings");
+        quick.FlowParts = native.FlowParts; quick.TraceSinkThresholdKg = native.TraceSinkThresholdKg; quick.PressureRelativeTolerance = native.PressureRelativeTolerance;
+        Check(quick.Equals(native), "Default differs from Exact beyond the three faster settings");
+        Check(BuiltInPresets.FasterDefaults.All(d => (double)SettingCatalog.Get(d.key).Default == d.now && BuiltInPresets.Find("exact")!.Values.Number(d.key) == d.before) &&
+              BuiltInPresets.Find("exact")!.Values.WithGroup(SettingCatalog.Solver, SettingValues.Defaults()).Equals(SettingValues.Defaults()), "the faster defaults' table");
+        // An earlier version's untouched colony (its Default or its Fast preset) takes the faster defaults; chosen values stay.
+        var earlier = BuiltInPresets.Find("exact")!.Values;
+        Check(ColonySettingsRecord.HoldsEarlierDefaults(earlier) && ColonySettingsRecord.HoldsEarlierDefaults(earlier.With("solver.pressureTolerance", 1e-6)) &&
+              ColonySettingsRecord.WithFasterDefaults(earlier).Equals(SettingValues.Defaults()) &&
+              ColonySettingsRecord.WithFasterDefaults(earlier.With("solver.gasHeatMixing", 4.0).With(SettingCatalog.Co2Limits, true)).Equals(SettingValues.Defaults().With("solver.gasHeatMixing", 4.0).With(SettingCatalog.Co2Limits, true)) &&
+              !ColonySettingsRecord.HoldsEarlierDefaults(SettingValues.Defaults()) && !ColonySettingsRecord.HoldsEarlierDefaults(earlier.With("solver.flowParts", 4.0)) &&
+              !ColonySettingsRecord.HoldsEarlierDefaults(earlier.With("solver.traceThresholdKg", 1e-9)) && !ColonySettingsRecord.HoldsEarlierDefaults(earlier.With("solver.pressureTolerance", 1e-10)),
+              "which colonies take the faster defaults");
         // Boil-only phase change: on by default (no evaporation below boiling), a basic Gameplay
         // colony setting saved in the physical image (not the breathing record), never experimental.
         var evaporation = SettingCatalog.Get(SettingCatalog.EvaporationBelowBoiling);
@@ -115,8 +131,9 @@ static class Program
                 Check(NativeAccepts(SettingValues.Defaults().With(d.Key, step).ToNative()), "native refuses " + d.Key + " = " + step);
         foreach (var p in BuiltInPresets.All) Check(NativeAccepts(p.Values.ToNative()), "native refuses preset " + p.Id);
         // Experimental marks.
-        Check(BuiltInPresets.All.Select(p => p.Id).SequenceEqual(new[] { "default", "robust", "fast", "precise", "relaxed-breathing", "strict-breathing" }), "built-in preset list");
-        foreach (var id in new[] { "default", "robust", "relaxed-breathing", "strict-breathing" }) Check(!BuiltInPresets.Find(id)!.Experimental, id + " marked experimental");
+        Check(BuiltInPresets.All.Select(p => p.Id).SequenceEqual(new[] { "default", "robust", "exact", "precise", "relaxed-breathing", "strict-breathing" }), "built-in preset list");
+        foreach (var id in new[] { "default", "robust", "exact", "relaxed-breathing", "strict-breathing" }) Check(!BuiltInPresets.Find(id)!.Experimental, id + " marked experimental");
+        Check(ReferenceEquals(BuiltInPresets.Find("fast"), BuiltInPresets.Default) && ReferenceEquals(BuiltInPresets.Find("FAST"), BuiltInPresets.Default), "the former Fast preset is Default");
         Check(!SettingValues.Defaults().Toggle(SettingCatalog.Co2Limits), "CO2 limits off by default");
         // When switched on, CO2 limits default to 4% and 5 kPa, which bind together in normal base air of
         // about 125 kPa (0.1.4, molecular oxygen; 2% and 5 kPa in 0.1.3, 0.5% and 500 Pa before).
@@ -130,7 +147,7 @@ static class Program
             var before = SettingValues.Defaults().With(SettingCatalog.Co2Limits, co2).With("solver.flowParts", 4.0).With("breathing.maximumCo2Fraction", .05);
             var after = relaxed.ApplyTo(before);
             Check(after.Toggle(SettingCatalog.Co2Limits) == co2 && after.Number("breathing.minimumOxygenFraction") == .1 &&
-                  after.Number("breathing.minimumOxygenPressurePa") == 10000 && after.Number("solver.flowParts") == 2 &&
+                  after.Number("breathing.minimumOxygenPressurePa") == 10000 && after.Number("solver.flowParts") == 1 &&
                   after.Number("breathing.maximumCo2Fraction") == .04 && relaxed.Matches(after) && !BuiltInPresets.Default.Matches(after),
                   "relaxed breathing kept the CO2 switch " + co2);
         }
@@ -143,14 +160,17 @@ static class Program
         Check(SettingCatalog.Get(SettingCatalog.Co2Limits).Advanced == false &&
             SettingCatalog.All.Where(d => d.Group == SettingCatalog.Solver).All(d => d.Advanced), "basic gameplay and advanced solver classification");
         var chosen = SettingValues.Defaults().With(SettingCatalog.Co2Limits, true);
-        Check(chosen.WithGroup(SettingCatalog.Solver, BuiltInPresets.Find("fast")!.Values).Toggle(SettingCatalog.Co2Limits), "solver preset preserves gameplay choice");
+        Check(chosen.WithGroup(SettingCatalog.Solver, BuiltInPresets.Find("exact")!.Values).Toggle(SettingCatalog.Co2Limits), "solver preset preserves gameplay choice");
         Check(!SettingCatalog.All.Any(d => d.Key == "breathing.nitrogenAir") && BuiltInPresets.Find("hard-mode") == null, "removed nitrogen controls");
         // Development-region controls stay settings (saved files keep them) but the window lists them only in development sessions.
         Check(SettingCatalog.All.Where(d => d.DevelopmentOnly).Select(d => d.Key).SequenceEqual(new[] { "panel.showBoundary", "keys.findFluid", "keys.toggleBoundary" }) &&
               SettingCatalog.All.Where(d => d.DevelopmentOnly).All(d => d.Scope == SettingScope.Preference), "development-only controls");
-        foreach (var id in new[] { "fast", "precise" }) Check(BuiltInPresets.Find(id)!.Experimental, id + " not marked experimental");
+        Check(BuiltInPresets.Find("precise")!.Experimental, "precise not marked experimental");
         Check(SettingValues.Defaults().With("solver.sharpenLiquidInterfaces", false).Experimental(SettingScope.Colony).Any(), "sharpening off not experimental");
-        Check(SettingValues.Defaults().With("solver.pressureTolerance", 1e-6).Experimental(SettingScope.Colony).Any(), "looser tolerance not experimental");
+        Check(SettingValues.Defaults().With("solver.pressureTolerance", 1e-5).Experimental(SettingScope.Colony).Any(), "looser tolerance not experimental");
+        Check(SettingValues.Defaults().With("solver.flowParts", 3.0).Experimental(SettingScope.Colony).Any() &&
+              SettingValues.Defaults().With("solver.traceThresholdKg", 1e-9).Experimental(SettingScope.Colony).Any() &&
+              !BuiltInPresets.Find("exact")!.Values.Experimental(SettingScope.Colony).Any(), "the earlier defaults are marked experimental, or untested values are not");
         Check(!SettingValues.Defaults().With("solver.pressureIterationCap", 6400.0).Experimental(SettingScope.Colony).Any(), "higher cap marked experimental");
         var workers = SettingCatalog.Get("performance.workerThreads");
         Check(workers.Scope == SettingScope.Preference && workers.Integer && (double)workers.Default == 0 &&
@@ -195,6 +215,23 @@ static class Program
         var store = new ModSettingsStore(root);
         var loaded = store.Load();
         Check(loaded.Values.Equals(SettingValues.Defaults()) && loaded.PresetId == "default" && loaded.Notices.Count == 0, "missing config is Default");
+        // A settings file from before 1.13.2 that names Default (or the former Fast) with that version's
+        // solver defaults takes the faster ones, once, with a notice; chosen values stay.
+        var olden = BuiltInPresets.Find("exact")!.Values.With("display.patternContrast", .12);
+        foreach (var (written, presetName) in new[] { (olden, "default"), (olden.With("solver.pressureTolerance", 1e-6), "fast") })
+        {
+            store.Save(written, presetName); var moved = store.Load();
+            Check(moved.Migrated && moved.PresetId == "default" && moved.Notices.Count == 1 && moved.Values.Equals(SettingValues.Defaults().With("display.patternContrast", .12)),
+                "an earlier " + presetName + " settings file did not take the faster defaults");
+            store.Save(moved.Values, moved.PresetId); var again = store.Load();
+            Check(!again.Migrated && again.Notices.Count == 0 && again.Values.Equals(moved.Values), "the faster defaults were applied twice");
+        }
+        foreach (var (written, presetName) in new[] { (olden, "exact"), (olden, "custom"), (olden.With("solver.flowParts", 4.0), "default"), (SettingValues.Defaults(), "default") })
+        {
+            store.Save(written, presetName); var kept = store.Load();
+            Check(!kept.Migrated && kept.PresetId == presetName && kept.Notices.Count == 0 && kept.Values.Equals(written), "chosen " + presetName + " settings were replaced");
+        }
+        File.Delete(Path.Combine(root, "config.json"));
         // The older appearance.json supplies the pattern contrast once.
         Directory.CreateDirectory(root);
         File.WriteAllText(Path.Combine(root, "appearance.json"), "{\"PatternEnabled\":false,\"PatternContrast\":0.08}");
@@ -260,7 +297,7 @@ static class Program
         // Applying: a built-in sets colony settings only; a saved preset also its preferences.
         var current = SettingValues.Defaults().With("display.readingPrecision", "exact").With("solver.flowParts", 4.0).With("performance.workerThreads", 30.0);
         var applied = BuiltInPresets.Find("strict-breathing")!.ApplyTo(current);
-        Check(applied.Choice("display.readingPrecision") == "exact" && applied.Number("solver.flowParts") == 2 && applied.Number("breathing.minimumOxygenFraction") == .18 && applied.Number("performance.workerThreads") == 30, "built-in apply");
+        Check(applied.Choice("display.readingPrecision") == "exact" && applied.Number("solver.flowParts") == 1 && applied.Number("breathing.minimumOxygenFraction") == .18 && applied.Number("performance.workerThreads") == 30, "built-in apply");
         applied = store.FindUserPreset("thin-air")!.ApplyTo(current);
         Check(applied.Choice("display.readingPrecision") == "friendly" && applied.Choice("keys.toggleDetails") == "F2" && applied.Number("solver.pressureIterationCap") == 1600 && applied.Number("performance.workerThreads") == 22, "saved preset apply");
         Check(ModSettingsStore.Slug("Ünïcode / ☃ name") == "n-code-name" && ModSettingsStore.Slug("***") == "preset", "slug");
@@ -273,8 +310,16 @@ static class Program
             SettingValues.Defaults().With(SettingCatalog.ToxicLimit, .2) })
         {
             var bytes = ColonySettingsRecord.Encode(values);
-            Check(bytes.Length == 72 && BitConverter.ToUInt32(bytes, 0) == 5 && BitConverter.ToUInt32(bytes, 4) == 8 &&
-                  BitConverter.ToDouble(bytes, 56) == 2 && BitConverter.ToDouble(bytes, 64) == values.Number(SettingCatalog.ToxicLimit), "v5 record layout");
+            Check(bytes.Length == 80 && BitConverter.ToUInt32(bytes, 0) == 6 && BitConverter.ToUInt32(bytes, 4) == 9 && ColonySettingsRecord.VersionOf(bytes) == 6 &&
+                  BitConverter.ToDouble(bytes, 56) == 2 && BitConverter.ToDouble(bytes, 64) == values.Number(SettingCatalog.ToxicLimit) && BitConverter.ToDouble(bytes, 72) == 1, "v6 record layout");
+            // A version 5 record (before 1.13.2) holds everything but the solver defaults' mark.
+            var v5 = bytes.AsSpan(0, 72).ToArray(); v5[0] = 5; v5[4] = 8;
+            Check(ColonySettingsRecord.VersionOf(v5) == 5 && ColonySettingsRecord.Decode(v5, SettingValues.Defaults()).ScopeEquals(SettingScope.Colony, values), "v5 record round trip");
+            foreach (var mark in new[] { 0.0, 2.0, double.NaN })
+            {
+                var badMark = (byte[])bytes.Clone(); BitConverter.GetBytes(mark).CopyTo(badMark, 72);
+                Throws<InvalidDataException>(() => ColonySettingsRecord.Decode(badMark, SettingValues.Defaults()), "invalid solver defaults mark");
+            }
             // A version 4 record (gas source energy, 0.1.2) loads with the basis toxic gas limit.
             var v4 = bytes.AsSpan(0, 64).ToArray(); v4[0] = 4; v4[4] = 7;
             var fromV4 = ColonySettingsRecord.Decode(v4, SettingValues.Defaults().With(SettingCatalog.ToxicLimit, .5));
@@ -301,12 +346,13 @@ static class Program
                 var bad = (byte[])bytes.Clone(); BitConverter.GetBytes(flag).CopyTo(bad, 48);
                 Throws<InvalidDataException>(() => ColonySettingsRecord.Decode(bad, SettingValues.Defaults()), "invalid switch");
             }
-            foreach (var version in new byte[] { 1, 2, 6 })
+            foreach (var version in new byte[] { 1, 2, 7 })
             {
                 var bad = (byte[])bytes.Clone(); bad[0] = version;
                 Throws<NotSupportedException>(() => ColonySettingsRecord.Decode(bad, SettingValues.Defaults()), "unsupported R&D record");
             }
             var wrongCount = (byte[])bytes.Clone(); wrongCount[4] = 5;
+            Throws<InvalidDataException>(() => ColonySettingsRecord.VersionOf(bytes.AsSpan(0, 4)), "truncated record version");
             Throws<InvalidDataException>(() => ColonySettingsRecord.Decode(wrongCount, SettingValues.Defaults()), "record count");
         }
     }
@@ -358,7 +404,7 @@ static class Program
         // A solver preset applied in a colony changes only its solver keys.
         var chosen = basis.With(SettingCatalog.Co2Limits, true).With(SettingCatalog.RegionActivity, "always").With(SettingCatalog.EvaporationBelowBoiling, true);
         plan = ColonyChange.Plan(chosen, chosen.WithGroup(SettingCatalog.Solver, BuiltInPresets.Find("precise")!.Values), profile8);
-        Check(plan.Keys.SequenceEqual(new[] { "solver.stepsPerFrame", "solver.pressureTolerance", "solver.pressureIterationCap", "solver.heatIterationCap" }) &&
+        Check(plan.Keys.SequenceEqual(new[] { "solver.stepsPerFrame", "solver.pressureTolerance", "solver.pressureIterationCap", "solver.heatIterationCap", "solver.flowParts", "solver.traceThresholdKg" }) &&
               plan.Options && !plan.Activity && !plan.Breathing && plan.Refusal == null, "a solver preset in a colony");
         Check(ColonyChange.Plan(chosen, chosen.Copy(), profile12).Empty && ColonyChange.Plan(chosen, chosen.With("performance.workerThreads", 3.0), profile12).Empty,
               "unchanged colony settings or a preference are no colony change");

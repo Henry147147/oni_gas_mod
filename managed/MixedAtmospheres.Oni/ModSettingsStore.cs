@@ -31,6 +31,7 @@ namespace MixedAtmospheres.Oni
         {
             internal SettingValues Values = SettingValues.Defaults();
             internal string PresetId = BuiltInPresets.DefaultId;
+            internal bool Migrated; // the file should be written again
             // Shown to the player: the file could not be used.
             internal readonly List<string> Notices = new List<string>();
             // Logged only: entries this build does not know were ignored.
@@ -49,6 +50,15 @@ namespace MixedAtmospheres.Oni
                 var parsed = ReadDocument(File.ReadAllText(ConfigPath, Encoding.UTF8), SettingsFormat, SettingValues.Defaults(), result.Warnings);
                 result.Values = parsed.values;
                 result.PresetId = parsed.preset ?? BuiltInPresets.DefaultId;
+                // A settings file from before 1.13.2 that still names Default (or
+                // the former Fast preset) with that version's solver defaults
+                // takes this version's; chosen values (any other preset id) stay.
+                if ((result.PresetId == BuiltInPresets.DefaultId || string.Equals(result.PresetId, "fast", StringComparison.OrdinalIgnoreCase)) &&
+                    ColonySettingsRecord.HoldsEarlierDefaults(result.Values))
+                {
+                    result.Values = ColonySettingsRecord.WithFasterDefaults(result.Values); result.PresetId = BuiltInPresets.DefaultId; result.Migrated = true;
+                    result.Notices.Add("New colonies now start with the faster solver defaults of version 1.13.2. Advanced → Solver → Exact brings back the earlier ones.");
+                }
             }
             catch (Exception error) when (error is IOException || error is UnauthorizedAccessException || error is FormatException || error is NotSupportedException)
             {

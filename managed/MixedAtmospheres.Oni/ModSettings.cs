@@ -139,8 +139,8 @@ namespace MixedAtmospheres.Oni
                 "How many solver steps cover each 0.2 s game tick. 2 or 4 resolve fast flow more finely and cost about 2 or 4 times the solver time.",
                 1, 1, 4, new double[] { 1, 2, 4 }, "", true, v => v == 1),
             SettingDefinition.Number("solver.pressureTolerance", SettingScope.Colony, Solver, "Pressure solve tolerance",
-                "Relative accuracy of each pressure solve. Looser is faster but lets pressures settle less exactly; tighter needs more iterations.",
-                1e-8, 1e-12, 1e-4, Decades(-12, -4), "", false, v => v == 1e-8),
+                "Relative accuracy of each pressure solve. Looser is faster but lets pressures settle less exactly; tighter needs more iterations. 1e-8 was the default before 1.13.2.",
+                1e-6, 1e-12, 1e-4, Decades(-12, -4), "", false, v => v == 1e-6 || v == 1e-8),
             SettingDefinition.Number("solver.pressureIterationCap", SettingScope.Colony, Solver, "Pressure iteration cap",
                 "Most iterations one pressure solve may take. A converged solve stops early, so a higher cap changes no result; reaching the cap stops the simulation. Lower caps are never faster and are not offered.",
                 400, 400, 65536, new double[] { 400, 800, 1600, 3200, 6400, 12800 }, "", true),
@@ -151,8 +151,8 @@ namespace MixedAtmospheres.Oni
                 "Slows tile fluid movement, fluid-to-fluid heat transfer and phase change. Duplicants, pumps and machines keep their normal clocks.",
                 "normal", FluidUpdateChoices, new[] { "Every tick", "1 in 4 ticks", "1 in 8 ticks", "1 in 16 ticks" }),
             SettingDefinition.Number("solver.flowParts", SettingScope.Colony, Solver, "Flow parts per step",
-                "Transport sub-steps inside each solver step. More follow fast flow more closely and cost more.",
-                2, 1, 8, new double[] { 1, 2, 3, 4, 6, 8 }, "", true, v => v == 2),
+                "Transport sub-steps inside each solver step. More follow fast flow more closely and cost more. 2 was the default before 1.13.2.",
+                1, 1, 8, new double[] { 1, 2, 3, 4, 6, 8 }, "", true, v => v == 1 || v == 2),
             SettingDefinition.Number("solver.gasHeatMixing", SettingScope.Colony, Solver, "Gas heat mixing",
                 "How strongly moving gas mixes its temperature (energy is conserved). 8 is the measured choice; 0 mixes only by conduction.",
                 8, 0, 32, new double[] { 0, 1, 2, 4, 8, 16, 32 }, "", false, v => v == 8),
@@ -168,8 +168,8 @@ namespace MixedAtmospheres.Oni
                 "Time constant with which a liquid and its vapour approach saturation: shorter boils and condenses faster.",
                 1, .1, 10, new double[] { .1, .25, .5, 1, 2, 5, 10 }, "s", false, v => v == 1),
             SettingDefinition.Number("solver.traceThresholdKg", SettingScope.Colony, Solver, "Trace removal threshold",
-                "A constituent below this mass in a cell leaves through the booked trace sink. 1e-11 kg is the smallest tested value; the ceiling is 1 mg.",
-                1e-11, 1e-11, 1e-6, Decades(-11, -6), "kg", false, v => v == 1e-11),
+                "A constituent below this mass in a cell leaves through the booked trace sink. 1 mg keeps thin films from boiling into near-vacuum tick after tick; 1e-11 kg, the smallest tested value, was the default before 1.13.2.",
+                1e-6, 1e-11, 1e-6, Decades(-11, -6), "kg", false, v => v == 1e-6 || v == 1e-11),
             SettingDefinition.Choice(RegionActivity, SettingScope.Colony, Simulation, "Region simulation",
                 "Activity tiers keep regions around actors active, update disturbed remote regions each second, and pause pristine regions. Always simulate updates every fluid region each game tick. Saved with each colony; a change in a colony applies from its next frame without catching up paused time.",
                 "tiers", new[] { "tiers", "always" }, new[] { "Activity tiers", "Always simulate" }),
@@ -394,7 +394,14 @@ namespace MixedAtmospheres.Oni
 
     internal static class BuiltInPresets
     {
-        internal const string DefaultId = "default";
+        internal const string DefaultId = "default", ExactId = "exact";
+        // The three solver settings whose defaults 1.13.2 changed (user decision
+        // 2026-11-23: the fast settings are the default), with the values every
+        // earlier version started a colony with.
+        internal static readonly (string key, double before, double now)[] FasterDefaults =
+        {
+            ("solver.pressureTolerance", 1e-8, 1e-6), ("solver.flowParts", 2, 1), ("solver.traceThresholdKg", 1e-11, 1e-6),
+        };
         private static SettingsPreset Make(string id, string name, string description, params (string key, object value)[] changes) =>
             Keeping(id, name, description, Array.Empty<string>(), changes);
         private static SettingsPreset Keeping(string id, string name, string description, string[] kept, params (string key, object value)[] changes)
@@ -405,13 +412,14 @@ namespace MixedAtmospheres.Oni
         }
         internal static readonly IReadOnlyList<SettingsPreset> All = new[]
         {
-            Make(DefaultId, "Default (recommended)", "Exactly what a new colony gets without any settings: the measured solver, normal oxygen requirements, CO₂ breathing limits off and no evaporation below boiling."),
+            Make(DefaultId, "Default (recommended)", "Exactly what a new colony gets without any settings: the measured solver at its faster settings (since 1.13.2), normal oxygen requirements, CO₂ breathing limits off and no evaporation below boiling."),
             Make("robust", "Robust", "Higher pressure and heat iteration caps. Identical results wherever Default completes; a difficult solve that would stop Default gets more room.",
                 ("solver.pressureIterationCap", 1600.0), ("solver.heatIterationCap", 3200.0)),
-            Make("fast", "Fast", "A looser pressure tolerance: fewer pressure iterations, pressures settle less exactly.",
-                ("solver.pressureTolerance", 1e-6)),
-            Make("precise", "Precise", "Two solver steps per game tick and a tighter pressure tolerance, with the Robust caps. About twice the solver time.",
-                ("solver.stepsPerFrame", 2.0), ("solver.pressureTolerance", 1e-10), ("solver.pressureIterationCap", 1600.0), ("solver.heatIterationCap", 3200.0)),
+            Make(ExactId, "Exact (the default before 1.13.2)", "Pressure tolerance 1e-8, two flow parts per step and trace removal from 1e-11 kg: pressures settle more exactly and thin traces are kept, for roughly half as much solver time again in a large colony.",
+                ("solver.pressureTolerance", 1e-8), ("solver.flowParts", 2.0), ("solver.traceThresholdKg", 1e-11)),
+            Make("precise", "Precise", "Two solver steps per game tick and a tighter pressure tolerance, with the Exact settings and the Robust caps. More than twice the solver time.",
+                ("solver.stepsPerFrame", 2.0), ("solver.pressureTolerance", 1e-10), ("solver.flowParts", 2.0), ("solver.traceThresholdKg", 1e-11),
+                ("solver.pressureIterationCap", 1600.0), ("solver.heatIterationCap", 3200.0)),
             // Relaxed only lowers the oxygen minimums: the CO2 switch stays as the player set it.
             Keeping("relaxed-breathing", "Relaxed breathing", "At least 10% and 10 kPa oxygen. CO₂ breathing limits stay as you set them.",
                 new[] { SettingCatalog.Co2Limits },
@@ -421,21 +429,26 @@ namespace MixedAtmospheres.Oni
                 (SettingCatalog.Co2Limits, true), ("breathing.maximumCo2Fraction", .02), ("breathing.maximumCo2PressurePa", 2500.0)),
         };
         internal static SettingsPreset Default => All[0];
-        internal static SettingsPreset? Find(string id) => All.FirstOrDefault(p => string.Equals(p.Id, id, StringComparison.OrdinalIgnoreCase));
+        // "fast" was a preset until 1.13.2, whose Default took its place.
+        internal static SettingsPreset? Find(string id) => string.Equals(id, "fast", StringComparison.OrdinalIgnoreCase) ? Default :
+            All.FirstOrDefault(p => string.Equals(p.Id, id, StringComparison.OrdinalIgnoreCase));
         internal static bool IsBuiltInId(string id) => Find(id) != null;
     }
 
-    // MACOLP03 section 3, version 5 (docs/settings.md): version 4 (version 3
-    // and the gas source energy) and the toxic gas limit. Always explicit for
+    // MACOLP03 section 3, version 6 (docs/settings.md): version 5 (version 4,
+    // that is version 3 and the gas source energy, and the toxic gas limit)
+    // and a mark that the colony was saved with 1.13.2's solver defaults in
+    // force, so that a colony from an earlier version takes them once and a
+    // colony whose player chose the earlier values keeps them. Always explicit for
     // new colonies: older builds must refuse the new behavior rather than
     // silently applying their former defaults. Version 3 and 4 records load
     // with the basis (the defaults) for what they lack; older records are
     // refused during R&D.
     internal static class ColonySettingsRecord
     {
-        internal const uint Tag = 3, Version = 5, OldestVersion = 3;
+        internal const uint Tag = 3, Version = 6, OldestVersion = 3, FasterDefaultsVersion = 6;
         // Numbers after the thresholds: the CO2 switch (v3), the gas source
-        // energy (v4), the toxic gas limit (v5).
+        // energy (v4), the toxic gas limit (v5), the solver defaults' mark (v6, always 1).
         private static int Count(uint version) => version >= OldestVersion && version <= Version ? Keys.Length + (int)(version - OldestVersion) + 1 : -1;
         internal static readonly string[] Keys =
         {
@@ -452,6 +465,7 @@ namespace MixedAtmospheres.Oni
             BinaryPrimitives.WriteInt64LittleEndian(bytes.AsSpan(8 + 8 * Keys.Length), BitConverter.DoubleToInt64Bits(values.Toggle(SettingCatalog.Co2Limits) ? 1.0 : 0.0));
             BinaryPrimitives.WriteInt64LittleEndian(bytes.AsSpan(16 + 8 * Keys.Length), BitConverter.DoubleToInt64Bits(SourceEnergyMode(values)));
             BinaryPrimitives.WriteInt64LittleEndian(bytes.AsSpan(24 + 8 * Keys.Length), BitConverter.DoubleToInt64Bits(values.Number(SettingCatalog.ToxicLimit)));
+            BinaryPrimitives.WriteInt64LittleEndian(bytes.AsSpan(32 + 8 * Keys.Length), BitConverter.DoubleToInt64Bits(1.0));
             return bytes;
         }
         // ma_oni_colony_set_source_energy's mode of a setting set.
@@ -463,6 +477,21 @@ namespace MixedAtmospheres.Oni
         internal static SettingValues WithSourceEnergyMode(SettingValues values, uint mode) =>
             mode < SettingCatalog.SourceEnergyChoices.Length ? values.With(SettingCatalog.SourceEnergy, SettingCatalog.SourceEnergyChoices[mode]) :
                 throw new FormatException("Unknown native gas source energy " + mode + ".");
+        // A record's version (Decode refuses what it does not support).
+        internal static uint VersionOf(ReadOnlySpan<byte> bytes) =>
+            bytes.Length < 8 ? throw new InvalidDataException("Truncated colony settings record.") : BinaryPrimitives.ReadUInt32LittleEndian(bytes);
+        // Whether a colony's solver settings are still the ones every version
+        // before 1.13.2 gave it (its Default, or its Fast preset, which only
+        // loosened the pressure tolerance), and those settings with 1.13.2's
+        // defaults in their place.
+        internal static bool HoldsEarlierDefaults(SettingValues colony) =>
+            (colony.Number("solver.pressureTolerance") == 1e-8 || colony.Number("solver.pressureTolerance") == 1e-6) &&
+            colony.Number("solver.flowParts") == 2 && colony.Number("solver.traceThresholdKg") == 1e-11;
+        internal static SettingValues WithFasterDefaults(SettingValues colony)
+        {
+            foreach (var (key, _, now) in BuiltInPresets.FasterDefaults) colony = colony.With(key, now);
+            return colony;
+        }
         internal static SettingValues Decode(ReadOnlySpan<byte> bytes, SettingValues basis)
         {
             if (bytes.Length < 8) throw new InvalidDataException("Truncated colony settings record.");
@@ -494,6 +523,9 @@ namespace MixedAtmospheres.Oni
                 try { result = result.With(SettingCatalog.ToxicLimit, toxic); }
                 catch (FormatException error) { throw new InvalidDataException("Invalid colony settings record: " + error.Message); }
             }
+            if (version >= FasterDefaultsVersion &&
+                BitConverter.Int64BitsToDouble(BinaryPrimitives.ReadInt64LittleEndian(bytes.Slice(32 + 8 * Keys.Length))) != 1)
+                throw new InvalidDataException("Invalid colony solver defaults mark.");
             return result;
         }
     }

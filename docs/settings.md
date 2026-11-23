@@ -107,8 +107,8 @@ before native loading. Start a new colony for the corrected pressure update.
 Colony settings are stored in the physical image (solver, evaporation rule and
 region policy), the integrated owner checkpoint (region delivery and lifecycle
 state), and MACOLP03 section 3 (breathing, the gas source energy and the toxic
-gas limit; version 5, and version 3 and 4 records load with the defaults for
-what they lack). Preferences live in the user's config and are not stored in
+gas limit; version 6 adds the mark of the [faster solver defaults](#the-faster-defaults-of-1132),
+and version 3 to 5 records load with the defaults for what they lack). Preferences live in the user's config and are not stored in
 colony saves.
 
 New colonies use game profile 12 (core32, owner wrapper14; profile 9 plus the
@@ -130,7 +130,7 @@ with Default and shows a notice.
 
 In a colony (user decision 2026-11-08) the window shows that colony's current
 colony settings and every one of them can be changed: solver tunables and the
-solver presets (Default/Robust/Fast/Precise) on Advanced → Solver, Region
+solver presets (Default/Robust/Exact/Precise) on Advanced → Solver, Region
 simulation, Evaporation below boiling, the CO₂ switch and the breathing
 thresholds. Loading complete presets and **Reset colony settings to Default**
 still choose new colonies' settings and stay at the main menu.
@@ -174,7 +174,7 @@ still choose new colonies' settings and stay at the main menu.
 
 ## Presets
 
-Under **Advanced → Solver**, Default, Robust, Fast and Precise apply only
+Under **Advanced → Solver**, Default, Robust, Exact and Precise apply only
 solver tunables, keeping your gameplay choice. Under **Advanced → Saved
 presets**, complete presets replace all colony rules, including breathing,
 and keep preferences unless a user preset explicitly contains them. Relaxed
@@ -183,12 +183,37 @@ it only lowers the oxygen minimums.
 
 | Preset | Colony settings |
 | --- | --- |
-| Default (recommended) | Default solver and oxygen rules; CO₂ limits off; no evaporation below boiling; Activity tiers. |
+| Default (recommended) | Default solver (since 1.13.2: pressure tolerance 1e-6, one flow part per step, trace removal from 1 mg) and oxygen rules; CO₂ limits off; no evaporation below boiling; Activity tiers. |
 | Robust | Pressure/heat iteration caps 1600/3200. A converged solve stops early, so results are identical wherever Default completes; a difficult solve gets more room before it faults. |
-| Fast (experimental) | Pressure tolerance 1e-6: fewer pressure iterations, pressures settle less exactly. |
-| Precise (experimental) | Two solver steps per game tick, pressure tolerance 1e-10 and the Robust caps; about twice the solver time. |
+| Exact (the default before 1.13.2) | Pressure tolerance 1e-8, two flow parts per step, trace removal from 1e-11 kg: pressures settle more exactly and thin traces are kept, for 1.7 times the solver time or more on the November 22 colony. |
+| Precise (experimental) | Two solver steps per game tick, pressure tolerance 1e-10, the Exact flow parts and trace threshold, and the Robust caps; more than twice the solver time. |
 | Relaxed breathing | Oxygen ≥ 10% and 10 kPa; keeps the CO₂ switch as the player set it (the CO₂ thresholds take their defaults). |
 | Strict breathing | Oxygen ≥ 18% and 18 kPa; enables CO₂ limits of 2% and 2.5 kPa (1% until 0.1.4). |
+
+### The faster defaults of 1.13.2
+
+Since 1.13.2 (user decision 2026-11-23) a new colony starts with the pressure
+tolerance at 1e-6, one flow part per step and trace removal from 1 mg; until
+then these were 1e-8, 2 and 1e-11 kg, and "Fast" was a preset that changed
+the tolerance alone. On the November 22 colony, whose tolerance was already
+1e-6, the other two take the solver from 108 to 65 ms a tick; against that
+colony's saved settings, pressures on
+tiles holding at least 100 g differ by 0.011 % on average after 90 s and
+temperatures by 0.15 K ([measurements](speed-study-2026-11-23.md)). The 1 mg
+threshold is also what stops a thin film from boiling into near-vacuum tick
+after tick. The earlier values are the **Exact** preset.
+
+- A colony saved by an earlier version whose three settings are still that
+  version's defaults (or its Fast preset) takes the new defaults when it
+  loads, as a settings change in the colony: Player.log and a notice say so,
+  and its next save records them with the record's mark (version 6), so it
+  happens once. A colony whose settings were changed keeps them, and so does
+  a colony whose player chooses Exact afterwards.
+- `config.json` from an earlier version that still names Default (or Fast)
+  with those values is rewritten with the new defaults, with a notice; any
+  other choice stays.
+- A saved preset keeps its own values, and the preset id `fast` (in
+  `MA_COLONY_SETTINGS_PRESET` or an older `config.json`) now means Default.
 
 Lower caps are not offered: they are never faster, and reaching a cap stops
 the simulation. Players save the shown settings (colony settings and
@@ -220,9 +245,12 @@ opens it.
   is listed with its error and can only be deleted.
 
 Validation scenes (a `colony-validation.json` request) never read these files:
-they use Default with exact readings, or the preset that
-`MA_COLONY_SETTINGS_PRESET` names (a built-in id or a preset file path; a
-file's own preferences, such as friendly readings for captures, then apply).
+they use the Exact preset with exact readings (the solver settings their
+checks were fixed with, Default until 1.13.2), or the preset that
+`MA_COLONY_SETTINGS_PRESET` names (a built-in id such as `default`, or a preset
+file path; a file's own preferences, such as friendly readings for captures,
+then apply). A colony they load keeps its saved solver settings unless
+`MA_COLONY_SETTINGS_MIGRATE=1`.
 Harness games see only `/tmp` and their output folder, so keep such a file
 under `/tmp`.
 `diffusion.json` belongs to the development configured domain only.
@@ -237,16 +265,16 @@ word of the 88-byte options record for the fluid update interval.
 | Key | Name | Default | Range (window steps) | Effect | Storage |
 | --- | --- | --- | --- | --- | --- |
 | `solver.stepsPerFrame` | Solver steps per game tick | 1 | 1, 2, 4 (≠1 experimental) | Maximum step 0.2/0.1/0.05 s (binary32): finer fast flow, 1×/2×/4× solver time | core24/25 timestep |
-| `solver.pressureTolerance` | Pressure solve tolerance | 1e-8 | 1e-12–1e-4 (decades; ≠1e-8 experimental) | Relative pressure-root accuracy | core24/25 |
+| `solver.pressureTolerance` | Pressure solve tolerance | 1e-6 (1e-8 before 1.13.2) | 1e-12–1e-4 (decades; other than 1e-6 and 1e-8 experimental) | Relative pressure-root accuracy | core24/25 |
 | `solver.pressureIterationCap` | Pressure iteration cap | 400 | 400–65536 (400…12800) | Room for difficult pressure solves; no result changes where Default converges | core24/25 |
 | `solver.heatIterationCap` | Heat iteration cap | 800 | 800–65536 (800…25600) | Same for heat solves | core24/25 |
-| `solver.flowParts` | Flow parts per step | 2 | 1–8 (≠2 experimental) | Transport sub-steps per solver step | core24/25 |
+| `solver.flowParts` | Flow parts per step | 1 (2 before 1.13.2) | 1–8 (above 2 experimental) | Transport sub-steps per solver step | core24/25 |
 | `solver.gasHeatMixing` | Gas heat mixing | 8 | 0–32 (≠8 experimental) | Temperature mixing by moving gas, energy conserved (user decision 2026-10-24) | core24/25 |
 | `solver.liquidStiffness` | Liquid stiffness | 0.04 | 0.01–1 (≠0.04 experimental) | Fraction of the catalogue bulk modulus; sealed liquids stiffer | core24/25 |
 | `solver.sharpenLiquidInterfaces` | Sharpen liquid surfaces | on | on/off (off experimental) | Bounded interface correction keeps surfaces crisp | core24/25 |
 | `solver.interfaceDetail` | Thinnest sharpened film | 0 | 0–0.5 of a cell (≠0 experimental) | Thinner films are left unsharpened | core24/25 |
 | `solver.phaseRelaxationSeconds` | Boiling/condensation time | 1 s | 0.1–10 s (≠1 experimental) | Liquid/vapour relaxation time constant (other conversions keep 1 s) | core24/25 |
-| `solver.traceThresholdKg` | Trace removal threshold | 1e-11 kg | 1e-11–1e-6 kg (≠1e-11 experimental) | Per-constituent booked trace sink; 1 mg ceiling | core24/25 |
+| `solver.traceThresholdKg` | Trace removal threshold | 1e-6 kg (1e-11 kg before 1.13.2) | 1e-11–1e-6 kg (values between experimental) | Per-constituent booked trace sink; 1 mg ceiling | core24/25 |
 | `simulation.regionActivity` | Region simulation (Gameplay) | Activity tiers | Activity tiers / Always simulate | Select adaptive regions or simulate every region each tick | core28 policy and owner wrapper14 |
 | `solver.fluidUpdateRate` | Fluid update rate (Gameplay) | Every tick | Every tick, 1 in 4, 1 in 8, 1 in 16 | Slows fluid movement, heat transport and phase changes relative to duplicants and machines | Owner wrapper 15 when a reduced rate is selected |
 | `liquids.evaporationBelowBoiling` | Evaporation below boiling (Gameplay) | off | on/off | Off: liquid/vapour pairs compare saturation with the total gas pressure (boil-only, ONI-like condensation, no humidity); on: the vapour's partial pressure (evaporation into unsaturated gas) | core27/28 phase-rule selector (1 off, 0 on) |

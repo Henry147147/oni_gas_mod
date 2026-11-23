@@ -287,7 +287,7 @@ namespace MixedAtmospheres.Oni
             var reason = ColonyLock(SettingCatalog.Get("solver.stepsPerFrame"));
             GUILayout.BeginHorizontal();
             GUI.enabled = reason == null;
-            foreach (var preset in BuiltInPresets.All.Where(p => p.Id == "default" || p.Id == "robust" || p.Id == "fast" || p.Id == "precise"))
+            foreach (var preset in BuiltInPresets.All.Where(p => p.Id == "default" || p.Id == "robust" || p.Id == BuiltInPresets.ExactId || p.Id == "precise"))
                 if (GUILayout.Button(preset.Name + (preset.Experimental ? " (experimental)" : ""), button!, GUILayout.Height(26))) ApplySolverPreset(preset);
             GUI.enabled = true;
             GUILayout.EndHorizontal();

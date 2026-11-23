@@ -60,7 +60,12 @@ namespace MixedAtmospheres.Oni
             if (Validation)
             {
                 ValidationPreset = Environment.GetEnvironmentVariable("MA_COLONY_SETTINGS_PRESET") ?? "";
-                var values = SettingValues.Defaults().With("display.readingPrecision", "exact");
+                // Validation scenes keep the solver settings their checks were
+                // fixed with, the Exact preset (every version's Default before
+                // 1.13.2); MA_COLONY_SETTINGS_PRESET=default runs a scene with
+                // what a player's new colony gets.
+                var values = BuiltInPresets.Find(BuiltInPresets.ExactId)!.Values.With("display.readingPrecision", "exact");
+                CurrentPresetId = BuiltInPresets.ExactId;
                 if (ValidationPreset.Length != 0)
                 {
                     var preset = BuiltInPresets.Find(ValidationPreset) ?? (File.Exists(ValidationPreset) ?
@@ -80,6 +85,7 @@ namespace MixedAtmospheres.Oni
                 {
                     var loaded = Store.Load();
                     Current = loaded.Values; CurrentPresetId = loaded.PresetId;
+                    if (loaded.Migrated) Persist();
                     foreach (var warning in loaded.Warnings) Debug.LogWarning("[Mixed Atmospheres] Settings: " + warning);
                     foreach (var notice in loaded.Notices) Notice(notice);
                 }
@@ -277,8 +283,32 @@ namespace MixedAtmospheres.Oni
         }
 
         // Every supported R&D save requires the current breathing record.
-        internal static void LoadRecord(byte[]? bytes) =>
+        internal static void LoadRecord(byte[]? bytes)
+        {
             loadedRecord = bytes == null ? throw new NotSupportedException("This R&D save predates the current breathing settings. Start a new colony.") : ColonySettingsRecord.Decode(bytes, SettingValues.Defaults());
+            loadedVersion = ColonySettingsRecord.VersionOf(bytes);
+        }
+        private static uint loadedVersion = ColonySettingsRecord.Version;
+        // Once the restored owner runs: a colony saved by a version before
+        // 1.13.2 whose solver settings are still that version's defaults takes
+        // 1.13.2's (user decision 2026-11-23), as a settings change in the
+        // colony, between owner frames; a colony whose settings were changed
+        // keeps them, and so does every colony saved since (its record's
+        // mark). Validation scenes keep a loaded colony's settings unless
+        // MA_COLONY_SETTINGS_MIGRATE=1.
+        internal static void AfterRestore()
+        {
+            var version = loadedVersion; loadedVersion = ColonySettingsRecord.Version;
+            var colony = Colony;
+            if (version >= ColonySettingsRecord.FasterDefaultsVersion || colony == null || !ColonySettingsRecord.HoldsEarlierDefaults(colony)) return;
+            if (Validation && Environment.GetEnvironmentVariable("MA_COLONY_SETTINGS_MIGRATE") != "1") return;
+            var (applied, message) = ChangeColony(ColonySettingsRecord.WithFasterDefaults(colony));
+            if (!applied) { Notice("This colony keeps its earlier solver settings (" + message + ")."); return; }
+            ColonyDescription = "Recorded in this colony's save, with the faster solver defaults of 1.13.2.";
+            const string text = "This colony now uses the faster solver defaults of version 1.13.2 (pressure tolerance 1e-6, one flow part per step, trace removal from 1 mg). Settings → Advanced → Solver → Exact restores the earlier ones.";
+            Debug.Log("[Mixed Atmospheres] " + text);
+            ColonyNotices.Show("Mixed Atmospheres settings", text);
+        }
         // Right before a loaded colony's owner restores: the owner does not
         // save the gas source energy, the colony's record does.
         internal static void BeforeRestore()
