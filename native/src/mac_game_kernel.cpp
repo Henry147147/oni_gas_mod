@@ -671,12 +671,17 @@ MacClosedAdvance MacGameKernelAccess::advance_guarded(
     std::vector<k::Eos> readings;
   };
   thread_local Cache cache;
+  // The saved clocks' checks (fixed blocks) and the clock steps (one region
+  // a job) on the pool: the same verdicts and values.
+  const auto activity_blocks = [](std::size_t blocks, const std::function<void(std::size_t)> &job) {
+    mac_kernel::pool_for(mac_kernel_default_options().threads).run(blocks, job);
+  };
   if (frame == MacGameFlowFrame::held) {
     // Actors, game inputs, and the remote-region clocks continue each tick.
     // The clock advances even when this interval transports no material.
     const auto& grid = source.state().grid;
     require(mac_game_activity_profile(source.settings_.game_profile), "Held fluid frame needs colony activity");
-    k::validate_activity(source.game_activity(), grid.walls.size(), source.time_s_, grid.walls);
+    k::validate_activity_in_blocks(activity_blocks, source.game_activity(), grid.walls.size(), source.time_s_, grid.walls);
     k::validate_activity_interval(seconds, source.settings_.maximum_timestep_s, budget);
     const auto& regions = k::cached_activity_regions(grid);
     auto clocks = std::vector<MacGameActivityCell>(source.game_activity().begin(), source.game_activity().end());
@@ -685,7 +690,7 @@ MacClosedAdvance MacGameKernelAccess::advance_guarded(
       levelling.emplace(source.state(), source.registry_, *source.thermodynamics_, regions.cells.size());
     for (double elapsed = 0; elapsed < seconds;) {
       const double dt = std::min(seconds - elapsed, source.settings_.maximum_timestep_s);
-      (void)k::activity_step(grid, regions, clocks, source.settings_.game, source.time_s_ + elapsed, dt,
+      (void)k::activity_step_in(activity_blocks, grid, regions, clocks, source.settings_.game, source.time_s_ + elapsed, dt,
                             levelling ? &*levelling : nullptr);
       elapsed += dt;
     }
@@ -829,7 +834,7 @@ MacClosedAdvance MacGameKernelAccess::advance_guarded(
   std::optional<k::Levelling> levelling;
   if(activity) {
     evolved.resize(source.state().cells.size());
-    k::validate_activity(source.game_activity(),source.state().cells.size(),source.time_s_,source.state().grid.walls);
+    k::validate_activity_in_blocks(activity_blocks,source.game_activity(),source.state().cells.size(),source.time_s_,source.state().grid.walls);
     k::validate_activity_interval(seconds,source.settings_.maximum_timestep_s,budget);
     activity_state.assign(source.game_activity().begin(),source.game_activity().end());
     activity_regions=&k::cached_activity_regions(source.state().grid);
@@ -845,7 +850,7 @@ MacClosedAdvance MacGameKernelAccess::advance_guarded(
             "Game interval exceeds its tick budget");
     const double dt =
         std::min(source.settings_.maximum_timestep_s, seconds - elapsed);
-    auto due=activity?k::activity_step(source.state().grid,*activity_regions,
+    auto due=activity?k::activity_step_in(activity_blocks,source.state().grid,*activity_regions,
         activity_state,cfg,source.time_s_+elapsed,dt,levelling?&*levelling:nullptr):std::vector<double>{};
     if (frame == MacGameFlowFrame::sampled) {
       // A remote room's normal one-second deadline can fall between all of

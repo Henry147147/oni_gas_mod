@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <memory>
+#include <mutex>
 #include <stdexcept>
 
 namespace ma::experimental::game_kernel {
@@ -44,13 +45,9 @@ inline const ActivityRegions& cached_activity_regions(const MacGrid& g) {
   }
   return *cache.regions;
 }
-inline void validate_activity(std::span<const MacGameActivityCell> state,
-                              std::size_t cells, double time,
-                              std::span<const std::uint8_t> walls = {}) {
-  if (state.size() != cells) throw std::invalid_argument("Game activity coverage differs");
-  for (std::size_t i=0;i<state.size();++i) {
-    const auto& c=state[i];
-    if (!std::isfinite(c.last_activity_s) || !std::isfinite(c.pending_s) ||
+// Whether one cell's saved clock is valid (`open`: not a solid cell).
+inline bool valid_activity_clock(const MacGameActivityCell& c, double time, bool open) {
+  return !(!std::isfinite(c.last_activity_s) || !std::isfinite(c.pending_s) ||
         !std::isfinite(c.next_remote_s) ||
         !(c.last_activity_s == -1 || (c.last_activity_s >= 0 && c.last_activity_s <= time)) ||
         c.pending_s < 0 || c.pending_s > 1.2 || c.next_remote_s < 0 || c.next_remote_s > time+1.2 ||
@@ -58,12 +55,35 @@ inline void validate_activity(std::span<const MacGameActivityCell> state,
         (c.pending_s == 0 && std::signbit(c.pending_s)) ||
         (c.next_remote_s == 0 && std::signbit(c.next_remote_s)) ||
         (c.actors && (c.pending_s != 0 || c.next_remote_s != 0)) ||
-        ((walls.empty() || !walls[i]) &&
+        (open &&
           ((c.pending_s > 0 && !(c.next_remote_s > time)) ||
            (c.next_remote_s > 0 && !(c.next_remote_s > time)))) ||
-        (c.last_activity_s == -1 && (c.actors || c.pending_s != 0 || c.next_remote_s != 0)))
+        (c.last_activity_s == -1 && (c.actors || c.pending_s != 0 || c.next_remote_s != 0)));
+}
+inline void validate_activity(std::span<const MacGameActivityCell> state,
+                              std::size_t cells, double time,
+                              std::span<const std::uint8_t> walls = {}) {
+  if (state.size() != cells) throw std::invalid_argument("Game activity coverage differs");
+  for (std::size_t i=0;i<state.size();++i)
+    if (!valid_activity_clock(state[i], time, walls.empty() || !walls[i]))
       throw std::invalid_argument("Invalid saved game activity clock");
-  }
+}
+// validate_activity with the cells checked in fixed blocks by `run(blocks,
+// job)` (a worker pool's run): the same verdict and the same exception.
+template <class Run>
+inline void validate_activity_in_blocks(Run&& run, std::span<const MacGameActivityCell> state,
+                                        std::size_t cells, double time,
+                                        std::span<const std::uint8_t> walls = {}) {
+  if (state.size() != cells) throw std::invalid_argument("Game activity coverage differs");
+  constexpr std::size_t block = 16384;
+  const auto blocks = (state.size() + block - 1) / block;
+  std::vector<std::uint8_t> invalid(blocks);
+  run(blocks, [&](std::size_t b) {
+    for (std::size_t i = b * block, end = std::min(state.size(), i + block); i < end; ++i)
+      if (!valid_activity_clock(state[i], time, walls.empty() || !walls[i])) { invalid[b] = 1; return; }
+  });
+  if (std::find(invalid.begin(), invalid.end(), std::uint8_t{1}) != invalid.end())
+    throw std::invalid_argument("Invalid saved game activity clock");
 }
 inline void validate_activity_interval(double seconds,double maximum,std::size_t budget=65536) {
   const double intervals=std::ceil(seconds/maximum);
@@ -125,25 +145,33 @@ public:
       if (m.phase != ReferencePhase::ideal_gas)
         specific_volume_[registry.index(m.id)] = 1 / m.zero_pressure_density_kg_per_m3;
   }
+  // Safe from several threads at once for different regions (a region's
+  // cells, and the left and lower neighbours it reads, are its own).
   bool operator()(std::size_t region, const std::vector<std::size_t>& cells) {
     if (known_[region] < 0) {
-      mass_.resize(state_.cells.size()); liquid_.resize(state_.cells.size());
+      std::call_once(sized_, [&] { mass_.resize(state_.cells.size()); liquid_.resize(state_.cells.size()); });
       known_[region] = moving(cells) ? 1 : 0;
     }
     return known_[region] != 0;
   }
+private:
+  std::once_flag sized_;
 };
 // Pure policy, shared by the owner query and physical advance. Only the caller's
 // private candidate is updated; publication commits it after all physics passes.
 // `levelling` (profile 12) keeps a remote region past its pause deadline in the
 // remote tier while its liquid still moves; a paused region stays paused.
-inline std::vector<double> activity_step(const MacGrid& g, const ActivityRegions& regions,
+// `run(count, job)` runs job(r) for every region r, in any order or at once:
+// each region reads and writes only its own cells (a worker pool's run; a
+// region that throws makes it throw the lowest such region's exception).
+template <class Run>
+inline std::vector<double> activity_step_in(Run&& run, const MacGrid& g, const ActivityRegions& regions,
     std::vector<MacGameActivityCell>& state, const MacGameSettings& cfg,
     double now, double dt, Levelling* levelling = nullptr) {
   if(!std::isfinite(now+dt) || !(now+dt>now))
     throw std::invalid_argument("Game activity clock cannot advance");
   std::vector<double> due(g.walls.size());
-  for (std::size_t region = 0; region < regions.cells.size(); ++region) {
+  run(regions.cells.size(), [&](std::size_t region) {
     const auto& cells = regions.cells[region];
     const auto& first = state[cells.front()];
     double last = first.last_activity_s, pending = first.pending_s,
@@ -189,7 +217,13 @@ inline std::vector<double> activity_step(const MacGrid& g, const ActivityRegions
       state[i].last_activity_s = last;
       state[i].pending_s = pending; state[i].next_remote_s = next;
     }
-  }
+  });
   return due;
+}
+inline std::vector<double> activity_step(const MacGrid& g, const ActivityRegions& regions,
+    std::vector<MacGameActivityCell>& state, const MacGameSettings& cfg,
+    double now, double dt, Levelling* levelling = nullptr) {
+  return activity_step_in([](std::size_t count, const auto& job) { for (std::size_t r = 0; r < count; ++r) job(r); },
+                          g, regions, state, cfg, now, dt, levelling);
 }
 } // namespace ma::experimental::game_kernel

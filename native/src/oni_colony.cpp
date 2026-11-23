@@ -4976,9 +4976,15 @@ void run_frame(std::uint64_t ticket,double seconds,std::uint64_t frames,const ch
                 if(adaptive) {
                     if(s.biology_pending_s.empty())s.biology_pending_s.assign(touched.size(),0);
                     const auto current=world.game_activity();
-                    for(std::size_t i=0;i<current.size();++i)
-                        if(current[i].next_remote_s==0 && (previous[i].next_remote_s>0 || current[i].last_activity_s>previous[i].last_activity_s || current[i].last_activity_s<0 ||
-                            (!current[i].actors && world.time_s()-current[i].last_activity_s>=world.settings().game.activity_pause_s)))s.biology_pending_s[i]=0;
+                    // Each cell on its own: fixed blocks on the pool.
+                    constexpr std::size_t block=16384;
+                    const auto blocks=(current.size()+block-1)/block;
+                    const auto threads=static_cast<unsigned>(std::min<std::size_t>(mac_kernel_default_options().threads,std::max<std::size_t>(1,blocks)));
+                    mac_kernel::pool_for(threads).run(blocks,[&](std::size_t b) {
+                        for(std::size_t i=b*block,end=std::min(current.size(),i+block);i<end;++i)
+                            if(current[i].next_remote_s==0 && (previous[i].next_remote_s>0 || current[i].last_activity_s>previous[i].last_activity_s || current[i].last_activity_s<0 ||
+                                (!current[i].actors && world.time_s()-current[i].last_activity_s>=world.settings().game.activity_pause_s)))s.biology_pending_s[i]=0;
+                    });
                 }
             }
             if(adaptive) {
