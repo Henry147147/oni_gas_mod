@@ -106,7 +106,10 @@ std::vector<double> MacClosedWorld::game_activity_steps(double seconds) const {
   game_kernel::validate_activity_in_blocks(on_pool,game_activity(),g.walls.size(),time_s_,g.walls);
   game_kernel::validate_activity_interval(seconds,settings_.maximum_timestep_s);
   const auto& regions=game_kernel::cached_activity_regions(g);
-  auto cells=std::vector<MacGameActivityCell>(game_activity().begin(),game_activity().end());
+  // The clocks this query steps and then drops: a scratch copy kept between
+  // queries (a fresh 8 MB vector a frame on a 256,000-cell map).
+  thread_local std::vector<MacGameActivityCell> cells;
+  cells.assign(game_activity().begin(),game_activity().end());
   std::optional<game_kernel::Levelling> levelling;
   if(settings_.game_profile==MacGameProfile::game_kernel_thin_drag && settings_.game.activity_tiers)
     levelling.emplace(state(),registry_,*thermodynamics_,regions.cells.size());

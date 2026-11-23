@@ -630,26 +630,44 @@ MacClosedWorld MacClosedWorld::with_passive_edits(std::span<const MacPassiveEdit
     const bool carried=carries_passives();
     struct Staged { std::size_t cell; PassiveQuantities after; };
     std::vector<Staged> staged;
-    std::map<std::size_t,std::size_t> indices;
     const auto& before=state();
+    // Each edited cell's place in `staged` (or that it holds no mass), by
+    // cell, kept between calls and cleared again at the cells it marked: a
+    // cell's mass is read once however many edits name it.
+    constexpr std::size_t unmarked=std::numeric_limits<std::size_t>::max(), massless=unmarked-1;
+    thread_local std::vector<std::size_t> slot;
+    thread_local std::vector<std::size_t> marked;
+    if (slot.size()<before.cells.size()) slot.resize(before.cells.size(),unmarked);
+    struct Clear { ~Clear() { for (const auto i : marked) slot[i]=unmarked; marked.clear(); } } clear;
     for (const auto& edit : edits) {
         require(edit.cell_index < before.cells.size() && !before.grid.walls[edit.cell_index] && edit.identity != 0 && std::isfinite(edit.change),
             "Invalid MAC passive edit");
         const auto& cell=before.cells[edit.cell_index];
-        if (!(cell.mixture.mass() > 0) || edit.change == 0) continue;
-        auto found=indices.find(edit.cell_index);
-        if(found==indices.end()) {
-            const auto index=staged.size();staged.push_back({edit.cell_index,cell.passive_quantities});
-            found=indices.emplace(edit.cell_index,index).first;
+        auto& at=slot[edit.cell_index];
+        if (at==unmarked) {
+            marked.push_back(edit.cell_index);
+            at=cell.mixture.mass() > 0 ? staged.size() : massless;
+            if (at!=massless && edit.change != 0) staged.push_back({edit.cell_index,cell.passive_quantities});
+            else if (at!=massless) at=unmarked, marked.pop_back();
         }
-        apply_passive_edit(staged[found->second].after,edit,carried,registry_,cell.mixture);
+        if (at==massless || edit.change == 0) continue;
+        apply_passive_edit(staged[at].after,edit,carried,registry_,cell.mixture);
     }
     // Registry allocation and canonicalization decisions precede every write.
     // Nonempty calls clear cached totals, including no-op calls, as before.
     MacClosedWorld result(Derived{},*this,state_snapshot_);
+    // Only whether some occupied cell is partly filled matters, so the
+    // search starts at the cell it last found (the same verdict).
     bool partial=false;
-    for(std::size_t i=0;i<before.occupied_volumes_m3.size() && !partial;++i)
-        partial=before.occupied_volumes_m3[i]<before.grid.volume_m3() && before.cells[i].mixture.mass()>0;
+    {
+        thread_local std::size_t hint=0;
+        const auto n=before.occupied_volumes_m3.size();
+        const std::size_t start=hint<n ? hint : 0;
+        for(std::size_t k=0;k<n && !partial;++k) {
+            const auto i=start+k<n ? start+k : start+k-n;
+            if(before.occupied_volumes_m3[i]<before.grid.volume_m3() && before.cells[i].mixture.mass()>0) { partial=true; hint=i; }
+        }
+    }
     auto& next=const_cast<MacTransportState&>(*state_snapshot_);
     static_assert(noexcept(std::declval<PassiveQuantities&>().swap(std::declval<PassiveQuantities&>())));
     static_assert(std::is_nothrow_move_constructible_v<MacClosedWorld>);

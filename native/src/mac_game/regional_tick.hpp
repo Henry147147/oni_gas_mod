@@ -111,7 +111,8 @@ public:
                std::shared_ptr<RegionalExecutionHistory> history={},bool layered_remap=false,
                bool convective=false,double thin_gas_mass=0,double thin_gas_time=0,bool room_bound=false)
     :source(g),grid(g),pool(static_cast<unsigned>(std::min<std::size_t>(threads,grid.blocks))),
-     topology(wall_topology(g)),species_count(species.size()),regions(topology.count),
+     // Without closed faces the wall-only grid is `grid` itself.
+     topology(g.closed_x.empty() && g.closed_y.empty() ? Topology(grid) : wall_topology(g)),species_count(species.size()),regions(topology.count),
      execution_keys(regions.size()),execution_species(std::move(species)),execution_pairs(std::move(pairs)),
      execution_settings(cfg),execution_conduction(conduction),execution_sized(sized_intervals),
      execution_carried(carry_momentum),execution_floor(bound_mass_floor),execution_layered(layered_remap),execution_convective(convective),
