@@ -28,6 +28,53 @@ classify_original = runner.classify
 import oni_native_domain_evidence as domain_evidence
 
 
+class ExtraModTests(unittest.TestCase):
+    """--extra-mod installs another mod's built folder beside the package (docs/face-forces.md)."""
+
+    def test_a_built_mod_folder_is_copied_and_enabled(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / "dist/MixedAtmospheresFans"
+            source.mkdir(parents=True)
+            (source / "mod.yaml").write_text('title: "Mixed Atmospheres: Fans"\nstaticID: "MixedAtmospheresFans"\n')
+            (source / "mod_info.yaml").write_text("minimumSupportedBuild: 744825\nAPIVersion: 2\n")
+            (source / "MixedAtmospheresFans.dll").write_bytes(b"MZ")
+            dev = root / "mods/Dev"
+            dev.mkdir(parents=True)
+            entry = runner.stage_extra_mod(source, dev, {"MixedAtmospheres.IntegrationProbe"})
+            self.assertEqual(sorted(path.name for path in (dev / "MixedAtmospheresFans").iterdir()),
+                             ["MixedAtmospheresFans.dll", "mod.yaml", "mod_info.yaml"])
+            self.assertEqual(entry["staticID"], "MixedAtmospheresFans")
+            self.assertEqual(entry["label"], {"distribution_platform": "Dev", "id": "MixedAtmospheresFans",
+                                              "title": "Mixed Atmospheres: Fans",
+                                              "version": runner.mono_label_version("MixedAtmospheresFans")})
+            self.assertTrue(entry["enabled"])
+            self.assertIn("", entry["enabledForDlc"])
+
+    def test_a_folder_that_is_not_a_mod_or_clashes_is_refused(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            dev = root / "mods/Dev"
+            dev.mkdir(parents=True)
+            empty = root / "empty"
+            empty.mkdir()
+            with self.assertRaisesRegex(ValueError, "not a built mod folder"):
+                runner.stage_extra_mod(empty, dev, set())
+            clash = root / "clash"
+            clash.mkdir()
+            (clash / "mod.yaml").write_text('staticID: "MixedAtmospheres.IntegrationProbe"\n')
+            (clash / "mod_info.yaml").write_text("APIVersion: 2\n")
+            with self.assertRaisesRegex(ValueError, "no other installed mod uses"):
+                runner.stage_extra_mod(clash, dev, {"MixedAtmospheres.IntegrationProbe"})
+            unsafe = root / "unsafe"
+            unsafe.mkdir()
+            (unsafe / "mod.yaml").write_text('staticID: "../outside"\n')
+            (unsafe / "mod_info.yaml").write_text("APIVersion: 2\n")
+            with self.assertRaisesRegex(ValueError, "safe staticID"):
+                runner.stage_extra_mod(unsafe, dev, set())
+            self.assertEqual(list(dev.iterdir()), [])
+
+
 class ScenarioContractTests(unittest.TestCase):
     def test_runner_and_game_admit_the_same_scenarios(self):
         configuration = (Path(__file__).parents[2] / "managed" / "MixedAtmospheres.Oni" /

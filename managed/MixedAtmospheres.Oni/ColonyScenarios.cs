@@ -102,6 +102,7 @@ namespace MixedAtmospheres.Oni
                     case "pool-step": PoolStep(frame, status); break;
                     case "sealed-drain": SealedDrain(frame, status); break;
                     case "side-opening": SideOpening(frame, status); break;
+                    case "face-forces": FaceForceScenario(frame, status); break;
                     case "electrolysis": Electrolysis(frame); break;
                     case "vent-overpressure": VentOverpressure(frame); break;
                     case "space-heater": SpaceHeater(frame); break;

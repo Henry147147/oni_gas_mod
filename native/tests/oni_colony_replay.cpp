@@ -118,7 +118,13 @@ std::vector<std::string> self_test(const std::string& parent,bool activity=false
             (void)queue_activity(status().session,static_cast<double>(.2f),actors,{});
         }
     };
+    // Face forces (docs/face-forces.md) are inputs too: driven from frame 2,
+    // so in effect at the save, changed after it and closed before the end.
+    std::uint32_t fan=0;
     for (std::uint64_t frame = 1; frame <= 8; ++frame) {
+        if(activity && frame==2){fan=open_face_force();require(fan!=0 && set_face_force(fan,width+2,1,0,80,5),"Self-test face force was refused");}
+        if(activity && frame==6)require(set_face_force(fan,width+3,-1,0,40,3),"Self-test face force change was refused");
+        if(activity && frame==8)close_face_force(fan);
         if(!activity || frame!=5)enqueue(frame);
         if (frame == 4) {
             if(activity)enqueue(5); // two immutable submissions survive cold/menu restore

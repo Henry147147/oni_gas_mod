@@ -80,7 +80,7 @@ RELEASE_RUN_MODES = ("colony-owner", "colony-owner-load", "colony-vanilla")
 VANILLA_SCENARIOS = ("spaced-out-reactor-meltdown", "natural-sublimation", "vent-duty")
 TELEMETRY_INTERVAL_DEFAULT, TELEMETRY_INTERVAL_LIMITS = 300, (10, 10000)
 SCENARIOS = ("activity-lifecycle", "spaced-out-worlds", "spaced-out-rocket", "spaced-out-rocket-ports", "spaced-out-input-flush", "spaced-out-rocket-retire", "spaced-out-warp-ports", "spaced-out-rocket-flight", "spaced-out-cargo-gas", "spaced-out-cargo-liquid", "spaced-out-rocket-abandon", "spaced-out-critters", "spaced-out-plants", "spaced-out-radiation", "spaced-out-hep", "spaced-out-reactor", "spaced-out-reactor-meltdown", "spaced-out-engine-exhaust", "spaced-out-sublimation-station", "spaced-out-centrifuge", "spaced-out-sludge-press", "spaced-out-landers", "spaced-out-poi-harvest", "spaced-out-rail-gun", "spaced-out-comets-geysers", "spaced-out-vacuum-pocket", "spaced-out-intakes", "spaced-out-dehydrator", "dlc-fluid-readers", "terrain", "heat", "phase", "freeze-melt", "deoxidizer", "playtest-ui", "playtest-diffusers", "playtest-pump-vent", "pipes", "door", "storage-options", "sublimation", "natural-sublimation", "falling", "terrain-order", "breathing", "breath-particle", "airflow", "flood-pocket", "flood-co2-corner",
-             "liquid-settling", "pool-step", "sealed-drain", "side-opening", "electrolysis", "vent-overpressure", "space-heater", "bottle-emptier", "gas-generator", "germs", "puft",
+             "liquid-settling", "pool-step", "sealed-drain", "side-opening", "face-forces", "electrolysis", "vent-overpressure", "space-heater", "bottle-emptier", "gas-generator", "germs", "puft",
              "plant", "wheezewort", "life-support", "mask-station", "polymer-press", "oxyfern", "debris-heat", "building-melt", "byproduct-merge", "geyser", "rocket-exhaust", "meteor", "sensor", "starting-air", "filter", "mixed-pipes", "mixed-pipe-filter", "mixed-pipe-boundary", "mixed-pipe-output", "mixed-pipe-teardown", "mixed-pipe-valves", "mixed-pipe-gas-vents", "mixed-pipe-biology", "mixed-pipe-all-germs", "mixed-pipe-save-guard", "mixed-pipe-pumps", "mixed-pipe-thermal", "mixed-pipe-cold", "windows-contact", "mixed-pipe-machines", "mixed-pipe-colony", "mixed-pipe-heat-machines", "mixed-pipe-retire", "mixed-pipe-readers", "mixed-pipe-owned-storage", "mixed-storage-transfer-heat", "mixed-storage-heat", "owned-storage-retirement", "owned-storage-active-outlet", "owned-storage-drained-save", "owned-storage-retired-save", "owned-storage-readers", "owned-storage-biology", "pipe-schedule", "pipe-body-rounding", "pipe-small-heat-save", "mixed-pipe-catalogue", "pacu", "liquid-pump", "pipe-throughput", "vent-duty", "world-germs", "germ-oracle", "skimmer", "terrarium", "deodorizer", "rust-deoxidizer", "coal-generator", "oil-refinery", "electrolyzer-blocked", "hazards", "germ-exposure", "suit", "pitcher-pump", "storage-ledger", "fault-containment", "base", "full-colony-base", "full-colony-spacedout")
 
 
@@ -524,6 +524,25 @@ def is_distribution_package(manifest: dict) -> bool:
     """A clean two-platform folder, including a private release test candidate."""
     return is_release(manifest) or (manifest.get("kind") == "release-test" and
                                     manifest.get("release_ready") is False)
+
+
+def stage_extra_mod(source: Path, dev: Path, taken: set[str]) -> dict:
+    """Copies another mod's built folder into the run's Dev mods and returns its mods.json entry."""
+    if not source.is_dir() or not (source / "mod.yaml").is_file() or not (source / "mod_info.yaml").is_file():
+        raise ValueError(f"--extra-mod {source} is not a built mod folder (mod.yaml and mod_info.yaml)")
+    fields = {}
+    for line in (source / "mod.yaml").read_text(encoding="utf-8").splitlines():
+        key, separator, value = line.partition(":")
+        if separator:
+            fields[key.strip()] = value.strip().strip('"')
+    identity = fields.get("staticID") or source.name
+    if not re.fullmatch(r"[A-Za-z0-9_.-]{1,128}", identity) or identity in (".", "..") or identity in taken:
+        raise ValueError(f"--extra-mod {source} needs a safe staticID that no other installed mod uses")
+    shutil.copytree(source, dev / identity)
+    return {"label": {"distribution_platform": "Dev", "id": identity, "title": fields.get("title") or identity,
+                      "version": mono_label_version(identity)},
+            "status": 1, "enabled": True, "enabledForDlc": ["", *oni_dlc.DLC_IDS], "crash_count": 0, "reinstall_path": None,
+            "staticID": identity}
 
 
 def release_mode_error(manifest: dict, mode: str) -> str | None:
@@ -1079,11 +1098,17 @@ def playtest(args, state: Path, session: dict) -> int:
         mod = validation_folder(mod, manifest, mod_identity.installed_build(game, "linux-x64"))
     if dlc_mask is not None:
         oni_dlc.write_preferences(profile, dlc_mask)
-    write_json(profile / "mods/mods.json", {"version": 1, "mods": [{
+    mods = [{
         "label": {"distribution_platform": "Dev", "id": mod_id, "title": "Mixed Atmospheres - Integration Probe",
                   "version": mono_label_version(mod_id)}, "status": 1, "enabled": True,
         "enabledForDlc": ["", *oni_dlc.DLC_IDS], "crash_count": 0, "reinstall_path": None,
-        "staticID": "MixedAtmospheres.IntegrationProbe"}]})
+        "staticID": "MixedAtmospheres.IntegrationProbe"}]
+    # Other mods to load after the package, each a built mod folder (mod.yaml,
+    # mod_info.yaml and its DLLs), e.g. a mod that uses docs/face-forces.md.
+    extra_mods = getattr(args, "extra_mod", None)
+    for extra in extra_mods if isinstance(extra_mods, (list, tuple)) else []:
+        mods.append(stage_extra_mod(extra.resolve(), profile / "mods/Dev", {entry["label"]["id"] for entry in mods}))
+    write_json(profile / "mods/mods.json", {"version": 1, "mods": mods})
     load_fixture = None
     load_save = getattr(args, "load_save", None)
     if load_save:
@@ -1362,6 +1387,8 @@ def main() -> int:
     play.add_argument("--verify-live-breathing",action="store_true",help="Place a real organic duplicant in the owned gas room, or observe its saved reload; source requires 20–25 frames")
     play.add_argument("--verify-save-io-recovery", action="store_true", help="Exercise a declined real disk write before the source colony save")
     play.add_argument("--mod-id", help="Stable private Dev mod identity; defaults to MixedAtmospheres.IntegrationProbe")
+    play.add_argument("--extra-mod", type=Path, action="append", metavar="FOLDER",
+                      help="Also install and enable this built mod folder (mod.yaml, mod_info.yaml, DLLs) after the package; repeatable")
     play.add_argument("--reload-in-process", action="store_true", help="Return through the main menu and load again in the same Unity process; requires initial autosave control")
     play.add_argument("--load-save", type=Path, help="Completed private colony save for native-load-domain")
     play.add_argument("--vanilla-load", action="store_true", help="colony-owner-load: hand the save to ONI's own loader, which must refuse it")

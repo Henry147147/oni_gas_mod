@@ -94,6 +94,7 @@ struct Input { char kind; std::vector<std::string> fields; std::vector<std::pair
 struct Frame { double seconds = 0; std::uint64_t frames = 1; bool flush = false,after_checkpoint=false; std::vector<Input> inputs;
     bool activity=false;std::uint64_t activity_sequence=0;int mode=-1;std::vector<std::uint32_t> actors,touched;
     std::optional<std::vector<std::uint32_t>> vents;
+    std::optional<std::vector<FaceForceEntry>> forces; // the driven face forces from this frame on
     std::optional<MAOniColonyOptions> options; // a player's options change just before this frame
     std::optional<std::uint32_t> energy; }; // the source energy rule set just before this frame
 inline double hex(const std::string& text) { return std::strtod(text.c_str(), nullptr); }
@@ -105,14 +106,25 @@ inline std::vector<std::pair<std::uint64_t, Frame>> journal(const std::string& p
     // matching checkpoint applies before its first replayed frame.
     std::uint32_t energy_in_effect=2;std::optional<std::uint32_t> energy;
     std::optional<std::vector<std::uint32_t>> vent_map, pending_vents;
+    // Face forces are not saved either: those in effect at a matching
+    // checkpoint apply before its first replayed frame.
+    std::optional<std::vector<FaceForceEntry>> force_map, pending_forces;
     while (std::getline(in, line)) {
         std::istringstream words(line); std::vector<std::string> f; for (std::string w; words >> w;) f.push_back(w);
         if (f.empty() || f[0] == "session") continue;
         if(f[0]=="checkpoint") {
             require(f.size()==3,"Invalid checkpoint journal marker");
             // The saved image already holds an earlier options change.
-            if(!after_checkpoint && f[2]==checkpoint_digest){frames.clear();options.reset();energy=energy_in_effect;pending_vents=vent_map;after_checkpoint=true;}
+            if(!after_checkpoint && f[2]==checkpoint_digest){frames.clear();options.reset();energy=energy_in_effect;pending_vents=vent_map;pending_forces=force_map;after_checkpoint=true;}
             continue;
+        }
+        if(f[0]=="forces") {
+            require(f.size()>=2 && f.size()==2+6*std::stoul(f[1]),"Invalid face force journal entry");
+            force_map.emplace();
+            for(std::size_t i=2;i<f.size();i+=6)
+                force_map->push_back({static_cast<std::uint32_t>(std::stoul(f[i])),static_cast<std::uint32_t>(std::stoul(f[i+1])),
+                    std::stoi(f[i+2]),std::stoi(f[i+3]),hex(f[i+4]),hex(f[i+5])});
+            pending_forces=force_map;continue;
         }
         if(f[0]=="vents") {
             vent_map.emplace();
@@ -137,6 +149,7 @@ inline std::vector<std::pair<std::uint64_t, Frame>> journal(const std::string& p
             Frame frame; frame.flush = f[3] == "1"; frame.seconds = hex(f[5]);frame.after_checkpoint=after_checkpoint;frame.options=std::exchange(options,{});frame.energy=std::exchange(energy,{});
             for (std::size_t k = 8; k + 1 < f.size(); k += 2) if (f[k] == "frames") frame.frames = std::stoull(f[k + 1]);
             frame.vents=std::exchange(pending_vents,{});
+            frame.forces=std::exchange(pending_forces,{});
             frames.emplace_back(std::stoull(f[1]), std::move(frame)); continue;
         }
         require(!frames.empty(), "Journal input precedes its frame");
@@ -263,6 +276,7 @@ std::size_t replay(const std::vector<std::uint8_t>& saved, const std::vector<std
         flush();
         require(skip_t+skip_h+skip_r+skip_f+skip_g==0,"Restored inputs exceed the committed journal frame");
         if(frame.vents)set_vent_cells(*frame.vents);
+        if(frame.forces)replace_face_forces(*frame.forces);
         if(frame.options)require(change_options(status().session,*frame.options),"Replayed options change was refused");
         if(frame.energy)set_source_energy(status().session,*frame.energy);
         if(frame.activity && frame.mode>=0)set_activity_tiers(status().session,frame.mode!=0);

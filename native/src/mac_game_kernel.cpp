@@ -765,6 +765,26 @@ MacClosedAdvance MacGameKernelAccess::advance_guarded(
     const bool on = requested.speed > 0 && requested.cells.size() == source.state().cells.size();
     cache.regional->set_sinks(on ? std::span<const std::uint8_t>(requested.cells) : std::span<const std::uint8_t>{}, on ? requested.speed : 0);
   }
+  // Face forces (docs/face-forces.md) of this thread's request.
+  std::vector<k::CellFaceForce> driven;
+  for (const auto &force : face_forces())
+    driven.push_back({force.cell, force.dx, force.dy, force.stall_pressure_pa, force.free_speed_m_per_s});
+  // The single-region tick's forces by request index.
+  std::vector<std::size_t> driven_index;
+  if (cache.regional)
+    cache.regional->set_face_forces(driven);
+  else {
+    std::vector<k::FaceForce> local;
+    const auto &grid = source.state().grid;
+    for (std::size_t n = 0; n < driven.size(); ++n) {
+      bool x = true; std::size_t fx = 0, fy = 0; double sign = 1;
+      if (!k::resolve_face_force(grid, driven[n], x, fx, fy, sign)) continue;
+      local.push_back({x ? grid.x_face(fx, fy) : grid.y_face(fx, fy), x, sign, driven[n].stall_pa, driven[n].free_speed});
+      driven_index.push_back(n);
+    }
+    cache.tick->set_face_forces(std::move(local));
+  }
+  std::vector<k::DoubleDouble> driven_work(driven.size());
   result.report.game_threads_used = bounded?cache.regional->threads_used():cache.tick->threads_used();
   auto& execution_pool=bounded?cache.regional->worker_pool():cache.tick->worker_pool();
   auto &stages = result.report.game_stages;
@@ -872,6 +892,8 @@ MacClosedAdvance MacGameKernelAccess::advance_guarded(
     result.report.wall_impulse_x += next.wall_px;
     result.report.wall_impulse_y += next.wall_py;
     result.report.body_impulse_y += next.body_py;
+    for (std::size_t n = 0; n < next.force_work.size(); ++n)
+      driven_work[cache.regional ? n : driven_index[n]].add(next.force_work[n]);
     energy_residual.add(next.energy_residual.hi);
     energy_residual.add(next.energy_residual.lo);
     energy_bound.add(1e-12 * next.energy_operands.value());
@@ -895,6 +917,12 @@ MacClosedAdvance MacGameKernelAccess::advance_guarded(
   require(std::isfinite(result.world.time_s_) &&
               result.world.time_s_ > source.time_s_,
           "Game clock cannot advance");
+  k::DoubleDouble driven_total;
+  for (const auto &work : driven_work) {
+    result.report.game_face_force_work_j.push_back(work.value());
+    driven_total.add(result.report.game_face_force_work_j.back());
+  }
+  result.report.game_face_force_work_total_j = driven_total.value();
   result.report.energy_residual_wide_j = energy_residual.value();
   result.report.energy_bound_wide_j = energy_bound.value();
   result.report.energy_residual_j =

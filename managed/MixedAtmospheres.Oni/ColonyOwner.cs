@@ -255,6 +255,7 @@ namespace MixedAtmospheres.Oni
                 ColonyStartingAir.Capture(source,
                     c => zones != null && ElementLoader.elements[source->elementIdx[c]].IsVacuum && zones.GetSubWorldZoneType(c) == ProcGen.SubWorld.ZoneType.Space);
                 OniNativeColony.Check(OniNativeColony.Start(ref config, materials, (uint)materials.Length, cells, (uint)cells.Length, ref output));
+                Interop.FaceForces.NativeStarted(); // other mods' fans (docs/face-forces.md)
                 ConfigureInitialWorldMembership(layout);
                 ModSettingsRuntime.AfterStart();
                 status = output; views = new OniNativeColony.CellView[cells.Length]; Active = true; ColonyActivity.Started(config.Flags, status.Session); ColonyPacingDriver.Ensure(); ConfigurePresentation();
@@ -458,6 +459,7 @@ namespace MixedAtmospheres.Oni
                 // A save that evolves world germs needs the disease table; say why it is missing.
                 throw new InvalidOperationException(error.Message + " (world germ rules unavailable: " + ColonyWorldGerms.ConfigureFailure + ")", error);
             }
+            Interop.FaceForces.NativeStarted(); // other mods' fans (docs/face-forces.md)
             ConfigureInitialWorldMembership(CaptureWorldLayout(), restored: true);
             ModSettingsRuntime.Restored(); // the settings this colony recorded (docs/settings.md)
             status = output; views = new OniNativeColony.CellView[width * height]; considered = true; Active = true; ColonyActivity.Started(config.Flags, status.Session); ColonyPacingDriver.Ensure(); ConfigurePresentation();

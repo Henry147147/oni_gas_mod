@@ -187,6 +187,39 @@ MA_ONI_API MAOniResult ma_oni_colony_set_world_mask(const uint8_t*, uint32_t cou
 /* Replace the sorted public cells ONI currently exposes to space. Empty clears
  * the additional vent faces. This affects gas drag only, never custody. */
 MA_ONI_API MAOniResult ma_oni_colony_set_vent_cells(const uint32_t*, uint32_t count);
+/* Face forces (docs/face-forces.md): handles another mod's building holds
+ * on cell faces, a fan's push for example. The force on the fluid of the
+ * face between public_cell and its neighbour at (dx, dy), exactly one of
+ * (1,0), (-1,0), (0,1), (0,-1) with y upwards, is
+ *   F = A * stall_pressure_pa * clamp(1 - u / free_speed_m_per_s, 0, 1)
+ * along (dx, dy), u being the fluid's velocity through the face that way.
+ * It acts in every owner frame from the next one until the handle is set
+ * again or closed. Its impulse is an external load and its work an external
+ * energy input, both in the owner's accounts. Nothing is saved: a restored
+ * colony has no handles, and every handle ends when the owner stops or
+ * faults. None of these calls waits for an owner frame or takes the
+ * backend's lifecycle lock; they may come from any thread. */
+MA_ONI_API uint32_t ma_oni_colony_face_force_version(void); /* 1 */
+/* 1 while a healthy colony owner runs and applies face forces, else 0. */
+MA_ONI_API uint32_t ma_oni_colony_face_forces_active(void);
+/* A new handle (never 0) with no force yet; 0 while not active. */
+MA_ONI_API uint32_t ma_oni_colony_face_force_open(void);
+#define MA_ONI_FACE_FORCE_UNKNOWN 0U /* no such handle: nothing changed */
+#define MA_ONI_FACE_FORCE_SET 1U
+#define MA_ONI_FACE_FORCE_INVALID 2U /* a step that is not a unit step, or a strength outside its range */
+/* stall_pressure_pa is 0..10000 and free_speed_m_per_s 0..100; with either
+ * below 1e-9 the handle applies no force and stays open. A cell outside the
+ * colony rectangle, a neighbour outside it or solid, and a face closed to
+ * flow are not errors: the handle is set and no force acts while that lasts. */
+MA_ONI_API uint32_t ma_oni_colony_face_force_set(uint32_t handle, int64_t public_cell, int32_t dx, int32_t dy,
+    double stall_pressure_pa, double free_speed_m_per_s);
+/* Stops and forgets the handle; unknown handles are ignored. */
+MA_ONI_API void ma_oni_colony_face_force_close(uint32_t handle);
+/* Joules the handle's force did on the fluid in the owner frames completed
+ * since the previous call (or since it was opened): the work the owner's
+ * energy ledger booked, negative when fluid is driven backwards through
+ * the face. 0 for an unknown handle. */
+MA_ONI_API double ma_oni_colony_face_force_take_work(uint32_t handle);
 /* Dynamic cluster-world boundary metadata. The caller holds the game
  * submitter; this waits for the owner and atomically replaces only the named
  * space flags. No inventory or physical time is changed. These flags already

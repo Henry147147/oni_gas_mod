@@ -12,6 +12,8 @@ struct MacPhaseFlow {
     std::size_t substeps = 0, rejected_attempts = 0;
     std::vector<long double> converted, converted_gross;
     double evaporated_kg = 0, condensed_kg = 0;
+    // Game kernel face forces: each requested force's work in this advance.
+    std::vector<double> face_force_work_j;
 };
 
 // The owner's ordinary phase relaxation follows its flow interval. An extreme
@@ -22,7 +24,7 @@ struct MacPhaseFlow {
 // published or booked by the caller unless the entire interval succeeds.
 inline MacPhaseFlow advance_mac_phase_flow(const MacClosedWorld& source, double seconds,
     std::size_t budget, std::span<const MacSaturationPair> pairs) {
-    MacPhaseFlow result{source, {}, 0, 0, {}, {}, 0, 0};
+    MacPhaseFlow result{source, {}, 0, 0, {}, {}, 0, 0, {}};
     if(source.settings().numerical_kernel==MacNumericalKernel::game) {
         auto next=source.advanced(seconds,budget,MacExecutionPolicy::production);
         result.trace_sink=next.report.trace_sink;result.substeps=next.report.substeps;
@@ -30,6 +32,7 @@ inline MacPhaseFlow advance_mac_phase_flow(const MacClosedWorld& source, double 
         result.evaporated_kg=next.report.evaporated_kg;result.condensed_kg=next.report.condensed_kg;
         result.converted.assign(next.report.game_converted_mass_kg.begin(),next.report.game_converted_mass_kg.end());
         for(auto mass:result.converted)result.converted_gross.push_back(std::abs(mass));
+        result.face_force_work_j=std::move(next.report.game_face_force_work_j);
         result.world=std::move(next.world);return result;
     }
     auto remaining = budget;

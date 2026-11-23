@@ -1,5 +1,14 @@
 # Implementation status
 
+**Face forces, 1.13.0 (2026-11-23):** another mod can drive the fluid on a
+cell face with a fan curve through the public class
+`MixedAtmospheres.Oni.Interop.FaceForces` ([interface and contract](face-forces.md),
+[kernel](../native/MAC_GAME_KERNEL.md#face-forces-1130)). The force's impulse
+and work are booked as external inputs, nothing is saved, and without a handle
+every solver output is unchanged. Game-free controls cover the kernel, the
+owner's handles and journal replay; the `face-forces` game scenario drives a
+face through the class and, with the fan mod installed, a real Wall Fan.
+
 **Release-candidate evaluation, 2026-10-30:** [the report](release-candidate-2026-10-30.md)
 records public Steam 24423041 / ONI 744825 compatibility, all 15 frozen gameplay
 batches (62/65 scenarios pass), nine asteroid stability runs and affected

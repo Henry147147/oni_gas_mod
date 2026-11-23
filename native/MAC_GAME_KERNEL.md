@@ -1178,6 +1178,63 @@ one emptied cell sweeps 0.3 cell in a 0.1 s interval, inside the bound.
 Without the mark gas beside an emptied cell leaves at the speed of sound and
 the region is stepped at millisecond intervals for it.
 
+## Face forces (1.13.0)
+
+Another mod can push the fluid on a cell face
+([docs/face-forces.md](../docs/face-forces.md) is the interface and its
+contract; `PressureSolver::set_forces` in `mac_game/pressure_be.hpp` is the
+arithmetic). A force names a face, a direction `s = ±1` on the face's axis, a
+stall pressure `P` and a free speed `v`, and acts on the fluid with
+`F = A P clamp(1 - s u / v, 0, 1)` along `s`: a fan's curve.
+
+In the pressure step it joins the drags' implicit update,
+`J (1 + γ) = J_old + body + pressure impulse`, with `B = dt A P`:
+
+- against backflow (`s u < 0`) the constant impulse `s B` is added to the
+  body impulse;
+- on the sloping part (`0 ≤ s u < v`) `s B` is added to the body impulse and
+  `B / (I v)` to `γ`, the force taken implicitly in the new velocity;
+- at or above the free speed nothing is added.
+
+The branch is not read from the velocity before the step. A face of thin gas
+drifting backwards at a millimetre a second would then take the whole constant
+impulse, `dt A P` on a milligram. `drive_face` instead solves the face's own
+scalar equation under the pressures at the start of the interval,
+`J (1 + γ_drag) = rest + Σ_k s_k B_k clamp(1 - s_k J / (I v_k), 0, 1)`, whose
+right side never rises with `J`, and takes each force's branch from the
+solution. The same solution replaces the predicted momentum in the test that
+closes a face against flow out of an empty cell, so a fan cannot blow vacuum
+out of an empty cell. A blocked or closed face, a held free surface that
+blocks, and a face without fluid take no force.
+
+Accounts. The drag's share of the update, `γ_drag J`, is taken and heats as on
+any face. The forces' share is their impulse on the fluid,
+`s B - γ_force J` for each, an external load added to the interval's wall
+impulse and booked on the face's region. Its work, that impulse times `J / I`
+with the new `J`, is what U+K+G gains: the step's kinetic change is
+`impulse · J / I - ½ impulse² / I`, the second term is the backward-Euler
+damping heat already returned to U, and the pressure and body terms cancel
+against U and G as before. `Flow::advance` books each force's work on its
+region's energy account; `Tick` and `RegionalTick` add the sum to their
+closing energy balance; the advance reports each force's work
+(`MacClosedAdvanceReport::game_face_force_work_j`), and the colony owner adds
+the sum to its ledger's booked heat.
+
+A region an interval leaves unstepped is not driven in it (the owner keeps a
+driven region awake). Forces live outside the world: `MacGameKernelAccess::
+face_forces()` holds one thread's request for its following advances, as the
+space-venting cells are held, and no checkpoint byte depends on it. With no
+force the solver takes none of these branches: every `ma_mac_*` output is that
+of the build before.
+
+`ma_mac_game_face_force_tests`: a 120 Pa force between two sealed rooms
+settles at 120.0 Pa with 2e-8 m/s through the face and 4e-6 J in the last
+frame; a 60 Pa, 4 m/s force in a ring of duct drives 2.14 m/s at 59.7 W of at
+most 60 W; driven backwards at 5.2 m/s by a stronger force, it does -311.8 W,
+its stall pressure times the flow; under water it moves the water; on cells of
+2 mg it stays below its free speed (5.58 of 6 m/s). Each frame of each case
+closes mass and finds U+K+G changed by the reported work.
+
 ## Gas drag (profile 12, 2026-11-13)
 
 The gas probe of 0.1.8 found that released gases mix more than they layer:

@@ -43,6 +43,15 @@ struct MacGameKernelAccess {
     thread_local Sinks value;
     return value;
   }
+  // Face forces (mac_game/pressure_be.hpp, docs/face-forces.md) for this
+  // thread's following game advances, each of which reports the work every
+  // force did (MacClosedAdvanceReport::game_face_force_work_j). Empty: none,
+  // and then an advance computes exactly what it did before forces existed.
+  // Never saved.
+  static std::vector<MacGameFaceForce> &face_forces() noexcept {
+    thread_local std::vector<MacGameFaceForce> value;
+    return value;
+  }
   // PRIVATE test observations; inline, immutable, no extra object fields.
   static const void* heat_totals_identity(const MacClosedWorld &source) noexcept { return source.game_totals_.get(); }
   static const void* heat_activity_identity(const MacClosedWorld &source) noexcept { return source.game_activity_.get(); }

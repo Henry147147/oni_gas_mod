@@ -32,6 +32,9 @@ struct FlowReport {
   // Why the refinement was requested (diagnostic, reject_log.hpp); no_cell where not applicable.
   reject_log::Reason reject_reason = reject_log::Reason::swept_volume;
   std::size_t reject_cell = reject_log::no_cell;
+  // Face forces (Flow::set_face_forces): the work each did on the fluid in
+  // this accepted interval, in the order given. Empty without forces.
+  std::vector<double> force_work;
 };
 // Profile 12 (2026-11-11): a region whose pressure system is one connected
 // component of at least this many cells solves it with the geometric
@@ -64,6 +67,7 @@ class Flow {
   // Capacity of the previous pressure result, lent to the next solve.
   Pressure pressure_storage;
   std::vector<std::uint8_t> sink_cells;
+  std::vector<FaceForce> face_forces;
   // Scratch capacity; every entry is written before it is read.
   std::vector<double> body_heat;
   struct ThinCell {
@@ -342,6 +346,17 @@ public:
                     std::any_of(sink_cells.begin(), sink_cells.end(), [](std::uint8_t v) { return v != 0; });
     pressure.sinks = on ? &sink_cells : nullptr;
     pressure.sink_speed = on ? speed : 0;
+  }
+  // Face forces (PressureSolver::set_forces, docs/face-forces.md): the
+  // faces driven in the following intervals, until the next call. Each
+  // accepted interval books a force's impulse as an external load and its
+  // work as an external energy input (FlowReport::force_work).
+  void set_face_forces(std::vector<FaceForce> forces) {
+    if (forces.empty() && face_forces.empty())
+      return;
+    pressure.set_forces(nullptr);
+    face_forces = std::move(forces);
+    pressure.set_forces(&face_forces);
   }
   const auto &region_topology() const { return topology; }
   const auto &kernel_grid() const { return g; }
@@ -953,11 +968,22 @@ public:
       };
       book(true, g.xl, g.xr);
       book(false, g.yl, g.yr);
+      // Face forces: each one's impulse and work come from outside.
+      for (std::size_t k = 0; k < projected.force_impulse.size(); ++k)
+        if (projected.force_impulse[k] != 0) {
+          const auto &force = face_forces[k];
+          const auto cell = (force.x ? g.xl : g.yl)[force.face];
+          regions->momentum(cell, force.x, projected.force_impulse[k]);
+          regions->energy(cell, projected.force_work[k]);
+        }
     }
+    result.force_work = projected.force_work;
     if (audit_mode) {
       Balance energy, mx, my;
       book_energy(energy, initial, gravity, 1);
       book_energy(energy, result.state, gravity, -1);
+      for (const double joules : projected.force_work)
+        energy.add(joules);
       for (double j : initial.jx)
         mx.add(j);
       for (double j : result.state.jx)

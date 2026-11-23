@@ -252,9 +252,26 @@ struct MacTraceSinkReport {
     MacPrimaryRoundingCounts primary_energy;
     void merge(const MacTraceSinkReport&);
 };
+// A driven cell face of the game kernel (docs/face-forces.md): the face
+// between `cell` and its neighbour at (dx, dy), exactly one of (1,0), (-1,0),
+// (0,1), (0,-1) with y upwards, pushed that way with
+//   F = A * stall_pressure_pa * clamp(1 - u / free_speed_m_per_s, 0, 1),
+// u being the fluid's velocity through the face in that direction. A zero
+// strength, a wall on either side, a neighbour outside the grid or a face
+// closed to flow drives nothing. Never part of a world or a checkpoint.
+struct MacGameFaceForce {
+    std::size_t cell = 0;
+    int dx = 0, dy = 0;
+    double stall_pressure_pa = 0, free_speed_m_per_s = 0;
+};
 struct MacClosedAdvanceReport {
     MacTraceSinkReport trace_sink;
     std::vector<double> game_converted_mass_kg;
+    // Game kernel face forces: the work each requested force did on the fluid
+    // in this advance (joules, in the order requested) and their sum. That
+    // sum entered U+K+G from outside; the advance's energy residual counts it.
+    std::vector<double> game_face_force_work_j;
+    double game_face_force_work_total_j = 0;
     // Execution diagnostic only; includes the caller and is limited by grid blocks.
     unsigned game_threads_used = 0;
     // Game-kernel execution diagnostics; never saved or audited. Profile6

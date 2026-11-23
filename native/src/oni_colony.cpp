@@ -168,6 +168,8 @@ struct Session {
     // Extra vent faces from the game's current space-exposure map. Restored
     // by the game at load, and recorded alongside replay inputs.
     std::vector<std::size_t> vent_cells;
+    // The driven face forces last written to the input journal.
+    std::vector<FaceForceEntry> journaled_face_forces;
     std::vector<std::uint8_t> blocking; // per owned cell: passes gas, not liquid (airflow tile)
     std::vector<ReservoirEntry> reservoir;
     std::vector<detail::PrecisionParcel> precision;
@@ -238,6 +240,30 @@ std::atomic<double> space_speed_setting{[] {
 }()};
 std::atomic<bool> gas_batch_spreading{[] { const char* value = std::getenv("MA_COLONY_GAS_BATCHES"); return !(value && std::strcmp(value, "cell") == 0); }()};
 std::atomic<bool> enabled{};
+// Face forces (docs/face-forces.md): the handles other mods hold on cell
+// faces, a fan's push for example. Their own mutex: the game thread calls
+// for every running fan on every simulation tick, and must never wait for
+// an owner frame, which holds `lifecycle` throughout. Lock order: lifecycle,
+// then this. Nothing here is saved; handles end with the owner.
+struct FaceForceHandle {
+    std::uint32_t public_cell=0; std::int32_t dx=0,dy=0;
+    double stall_pa=0,free_speed=0;
+    // The owned cell the face belongs to; none when the cell is outside the
+    // colony rectangle, which drives nothing.
+    std::size_t cell=SIZE_MAX;
+    long double work_j=0; // booked since the last take
+    bool driven() const noexcept { return cell!=SIZE_MAX && stall_pa>0 && free_speed>0; }
+};
+struct FaceForceRegistry {
+    std::mutex m;
+    bool accepting=false; // a healthy colony owner runs
+    std::uint32_t last=0;
+    std::map<std::uint32_t,FaceForceHandle> handles;
+} face_force_registry;
+void end_face_forces(bool accept) noexcept {
+    std::lock_guard lock(face_force_registry.m);
+    face_force_registry.handles.clear();face_force_registry.accepting=accept;
+}
 std::unique_ptr<Session> session;
 std::shared_ptr<const Published> latest;
 // What the game thread's readers see (docs/colony-owner.md#pacing). In follow
@@ -1034,6 +1060,7 @@ void fault(Session& s, const char* why) noexcept {
     // an adapter fault, and their missing frame inputs are only a consequence.
     if (s.status.state == 2) return;
     s.status.state = 2; write_error(s.status, why);
+    end_face_forces(false);
     try { auto p = std::make_shared<Published>(); p->serial=publication_serial.fetch_add(1,std::memory_order_relaxed)+1; p->config=s.config; p->status = s.status;
         { std::lock_guard lock(publication); if (latest) { p->views = latest->views; p->readings = latest->readings; p->parts = latest->parts; p->world = latest->world; p->catalogue = latest->catalogue; p->booked_mass_kg=latest->booked_mass_kg; p->booked_heat_j=latest->booked_heat_j; p->precision=latest->precision;
             p->biology = latest->biology; p->germ_accounts = latest->germ_accounts; } latest = std::move(p); } }
@@ -1079,6 +1106,7 @@ void activate(std::unique_ptr<Session> next, std::uint64_t thread) {
     ma::experimental::game_kernel::reject_log::reset_counts();
     live_parcel_session.store(session->status.session,std::memory_order_release);
     activity_owner.store(mac_game_activity_profile(session->world->settings().game_profile),std::memory_order_release);
+    end_face_forces(true);
     enabled.store(true, std::memory_order_release);
 }
 
@@ -1673,6 +1701,7 @@ void start(const MAOniColonyConfig& config, std::span<const MAOniColonyMaterial>
 void stop() noexcept {
     ma::oni::windows_lifecycle_trace("colony stop entered");
     enabled.store(false, std::memory_order_release);
+    end_face_forces(false);
     activity_owner.store(false,std::memory_order_release);
     capture_native_arena.store(false,std::memory_order_release);
     biology_mode.store(0, std::memory_order_relaxed);
@@ -2496,6 +2525,77 @@ void set_vent_cells(std::span<const std::uint32_t> cells) {
         std::fputs("vents",file);
         for(const auto cell:cells)std::fprintf(file," %u",cell);
         std::fputc('\n',file);std::fflush(file);
+    }
+}
+// Face forces (docs/face-forces.md). None of these waits for the owner.
+bool face_forces_active() noexcept {
+    std::lock_guard lock(face_force_registry.m);
+    return face_force_registry.accepting;
+}
+std::uint32_t open_face_force() {
+    auto& r=face_force_registry;
+    std::lock_guard lock(r.m);
+    if(!r.accepting)return 0;
+    do { if(++r.last==0)++r.last; } while(r.handles.count(r.last));
+    r.handles.emplace(r.last,FaceForceHandle{});
+    return r.last;
+}
+bool set_face_force(std::uint32_t handle,std::int64_t public_cell,std::int32_t dx,std::int32_t dy,double stall_pa,double free_speed) {
+    auto& r=face_force_registry;
+    std::lock_guard lock(r.m);
+    const auto found=r.handles.find(handle);
+    if(found==r.handles.end())return false;
+    require((dx==1 && dy==0) || (dx==-1 && dy==0) || (dx==0 && dy==1) || (dx==0 && dy==-1),"A face force needs a unit step to a neighbouring cell");
+    require(stall_pa>=0 && stall_pa<=face_force_maximum_stall_pa,"A face force's stall pressure is outside 0 to 10000 Pa");
+    require(free_speed>=0 && free_speed<=face_force_maximum_speed,"A face force's free speed is outside 0 to 100 m/s");
+    auto& h=found->second;
+    // geometry is the active session's: handles exist only while one accepts.
+    const auto& c=geometry;
+    std::size_t cell=SIZE_MAX;
+    if(public_cell>=0 && public_cell<static_cast<std::int64_t>(c.grid_width)*c.grid_height) {
+        const auto x=static_cast<std::uint32_t>(public_cell%c.grid_width),y=static_cast<std::uint32_t>(public_cell/c.grid_width);
+        if(x>=c.offset_x && x<c.offset_x+c.width && y>=c.offset_y && y<c.offset_y+c.height)
+            cell=(x-c.offset_x)+static_cast<std::size_t>(y-c.offset_y)*c.width;
+    }
+    h.public_cell=cell==SIZE_MAX?0:static_cast<std::uint32_t>(public_cell);h.cell=cell;h.dx=dx;h.dy=dy;
+    // Below these floors a strength is zero: the handle stays open and
+    // applies no force.
+    h.stall_pa=stall_pa<face_force_minimum?0:stall_pa;h.free_speed=free_speed<face_force_minimum?0:free_speed;
+    return true;
+}
+void close_face_force(std::uint32_t handle) noexcept {
+    std::lock_guard lock(face_force_registry.m);
+    face_force_registry.handles.erase(handle);
+}
+double take_face_force_work(std::uint32_t handle) noexcept {
+    std::lock_guard lock(face_force_registry.m);
+    const auto found=face_force_registry.handles.find(handle);
+    if(found==face_force_registry.handles.end())return 0;
+    const auto joules=static_cast<double>(found->second.work_j);
+    found->second.work_j=0;
+    return std::isfinite(joules)?joules:0;
+}
+std::vector<FaceForceEntry> face_force_entries() {
+    std::lock_guard lock(face_force_registry.m);
+    std::vector<FaceForceEntry> out;
+    for(const auto& [handle,h]:face_force_registry.handles)
+        if(h.driven())out.push_back({handle,h.public_cell,h.dx,h.dy,h.stall_pa,h.free_speed});
+    return out;
+}
+void replace_face_forces(std::span<const FaceForceEntry> entries) {
+    auto& r=face_force_registry;
+    std::lock_guard lock(r.m);
+    require(r.accepting,"A healthy colony owner is required for face forces");
+    r.handles.clear();
+    const auto& c=geometry;
+    for(const auto& e:entries) {
+        require(e.handle!=0 && !r.handles.count(e.handle),"Replayed face force handles must be unique");
+        const auto x=e.public_cell%c.grid_width,y=e.public_cell/c.grid_width;
+        require(e.public_cell<c.grid_width*c.grid_height && x>=c.offset_x && x<c.offset_x+c.width && y>=c.offset_y && y<c.offset_y+c.height,
+            "A replayed face force lies outside the colony rectangle");
+        FaceForceHandle h;h.public_cell=e.public_cell;h.dx=e.dx;h.dy=e.dy;h.stall_pa=e.stall_pa;h.free_speed=e.free_speed;
+        h.cell=(x-c.offset_x)+static_cast<std::size_t>(y-c.offset_y)*c.width;
+        r.handles.emplace(e.handle,h);r.last=std::max(r.last,e.handle);
     }
 }
 void set_space_cells(std::span<const std::uint32_t> cells,bool space) {
@@ -3877,6 +3977,18 @@ void run_frame(std::uint64_t ticket,double seconds,std::uint64_t frames,const ch
               if(job.moving_wire)moving_jobs.emplace(index,job.moving_wire);
               else job_passives.emplace(index,job.passives);
           } }
+        // Face forces driven in this frame (docs/face-forces.md), in handle
+        // order. A change is journaled ahead of its frame for replays.
+        const auto frame_forces=flush_only?std::vector<FaceForceEntry>{}:face_force_entries();
+        std::vector<double> frame_force_work; // by frame_forces index, once the flow has run
+        if(!flush_only && frame_forces!=s.journaled_face_forces) {
+            if(auto* file=session_journal(s)) {
+                std::fprintf(file,"forces %zu",frame_forces.size());
+                for(const auto& f:frame_forces)std::fprintf(file," %u %u %d %d %a %a",f.handle,f.public_cell,f.dx,f.dy,f.stall_pa,f.free_speed);
+                std::fputc('\n',file);
+            }
+            s.journaled_face_forces=frame_forces;
+        }
         journal_inputs(s,ticket,seconds,frames,flush_only,transfers,heat,terrain,freezes,germ_edits,job_tokens,activity.get());
         // The frame's first in-place edit detaches the state the published
         // world shares; an identical copy prepared while the owner was idle
@@ -3898,6 +4010,18 @@ void run_frame(std::uint64_t ticket,double seconds,std::uint64_t frames,const ch
         if(activity) {
             external_activity_touched=&touched;
             for(const auto cell:activity->packet.touched)touched[rect_index(s.config,cell)]=1;
+            // A driven face is activity: a fan switched on in a paused
+            // region wakes it and keeps it stepping every frame. A face with
+            // a solid cell on either side is not driven and wakes nothing.
+            for(const auto& f:frame_forces) {
+                const auto cell=rect_index(s.config,f.public_cell);
+                const auto x=cell%s.config.width,y=cell/s.config.width;
+                if((f.dx<0 && x==0) || (f.dx>0 && x+1>=s.config.width) || (f.dy<0 && y==0) || (f.dy>0 && y+1>=s.config.height))continue;
+                const auto other=cell+static_cast<std::size_t>(static_cast<std::ptrdiff_t>(f.dx)+static_cast<std::ptrdiff_t>(f.dy)*static_cast<std::ptrdiff_t>(s.config.width));
+                const auto& walls=world.state().grid.walls;
+                if(walls[cell] || walls[other])continue;
+                touched[cell]=1;touched[other]=1;
+            }
             for(const auto& e:terrain)touched[rect_index(s.config,e.public_cell)]=1;
             for(const auto& e:freezes)touched[rect_index(s.config,e.public_cell)]=1;
             for(const auto& e:germ_edits)touched[rect_index(s.config,e.public_cell)]=1;
@@ -4892,6 +5016,13 @@ void run_frame(std::uint64_t ticket,double seconds,std::uint64_t frames,const ch
             sinks.speed = space_speed; sinks.cells.assign(s.space.begin(), s.space.end());
             for (const auto i : s.vent_cells) sinks.cells[i] = 1;
         }
+        // Face forces: this frame's request to the kernel, cleared when the
+        // flow stage ends however it ends.
+        struct ForceScope { ~ForceScope(){MacGameKernelAccess::face_forces().clear();} } force_scope;
+        {
+            auto& requested=MacGameKernelAccess::face_forces();requested.clear();
+            for(const auto& f:frame_forces)requested.push_back({rect_index(s.config,f.public_cell),f.dx,f.dy,f.stall_pa,f.free_speed});
+        }
         std::optional<MacPhaseFlow> flowed;
         // MA_COLONY_SLOW_DUMP=s also writes the world before the first flow
         // step still running after s seconds (a watchdog, so a step that
@@ -4916,9 +5047,10 @@ void run_frame(std::uint64_t ticket,double seconds,std::uint64_t frames,const ch
                 auto boundary=detail::advance_liquid_boundary(world,seconds,65536,s.blocking,flow_frame);
                 auto& report=boundary.advance.report;
                 MacPhaseFlow next{std::move(boundary.advance.world),std::move(report.trace_sink),
-                    report.substeps,report.rejected_attempts,{}, {},report.evaporated_kg,report.condensed_kg};
+                    report.substeps,report.rejected_attempts,{}, {},report.evaporated_kg,report.condensed_kg,{}};
                 next.converted.assign(report.game_converted_mass_kg.begin(),report.game_converted_mass_kg.end());
                 for(auto mass:next.converted)next.converted_gross.push_back(std::abs(mass));
+                next.face_force_work_j=std::move(report.game_face_force_work_j);
                 flowed.emplace(std::move(next));
                 if(stage_log && boundary.retries)
                     std::fprintf(stderr,"[Mixed Atmospheres] liquid boundary frame %llu: retries %zu closed faces %zu\n",
@@ -4928,7 +5060,12 @@ void run_frame(std::uint64_t ticket,double seconds,std::uint64_t frames,const ch
         catch (...) { stop_watchdog(); dump(std::getenv("MA_COLONY_FAULT_DUMP")); throw; }
         stop_watchdog();
         auto advanced = std::move(*flowed);
+        MacGameKernelAccess::face_forces().clear();
         substeps=advanced.substeps;rejected_attempts=advanced.rejected_attempts;
+        // The forces' work entered the fluid from outside: the energy ledger
+        // books it with the heat. (A held fluid frame reports none.)
+        if(advanced.face_force_work_j.size()==frame_forces.size())
+            for(std::size_t k=0;k<frame_forces.size();++k){frame_force_work.push_back(advanced.face_force_work_j[k]);L.heat+=advanced.face_force_work_j[k];}
         if(ma::experimental::game_kernel::reject_log::level()) {
             // MA_COLONY_REJECT_LOG: why this advance's pressure refinements happened (diagnostic only).
             namespace rl=ma::experimental::game_kernel::reject_log;
@@ -5064,6 +5201,13 @@ void run_frame(std::uint64_t ticket,double seconds,std::uint64_t frames,const ch
         s.status.maximum_relative_energy_error = std::max(s.status.maximum_relative_energy_error, energy_error);
         if (mass_error > 1e-8 || energy_error > 1e-6) throw std::runtime_error("The colony exceeded its mass/energy ledger bound");
         (void)registry;
+        // The frame is committed: each handle is credited with its work.
+        if(!frame_force_work.empty()) {
+            std::lock_guard held(face_force_registry.m);
+            for(std::size_t k=0;k<frame_force_work.size();++k)
+                if(const auto found=face_force_registry.handles.find(frame_forces[k].handle);found!=face_force_registry.handles.end())
+                    found->second.work_j+=frame_force_work[k];
+        }
         s.world = std::make_shared<const MacClosedWorld>(std::move(world));
         if(!flush_only) {
             ++s.status.completed_frames; s.status.native_ticket = ticket; s.status.solver_thread = thread;

@@ -69,6 +69,38 @@ struct NativeHeatProjection {std::uint16_t element;float mass,temperature;bool v
 // native operations may already have changed before a contact is observed.
 [[nodiscard]] NativeHeatProjection native_heat_projection(int native_cell) noexcept;
 void set_vent_cells(std::span<const std::uint32_t> cells);
+// Face forces (docs/face-forces.md): handles on cell faces that another
+// mod's building drives, a fan's push for example. A handle's force,
+//   F = A * stall_pa * clamp(1 - u / free_speed, 0, 1)
+// on the fluid of the face between `public_cell` and its neighbour at
+// (dx, dy), acts in every following owner frame until it is set again or
+// closed; its work enters the colony's energy ledger with the booked heat.
+// Nothing is saved, and every handle ends when the owner stops or faults.
+// These calls take only the registry's own lock: they never wait for an
+// owner frame and may come from any thread.
+inline constexpr double face_force_maximum_stall_pa=10000,face_force_maximum_speed=100;
+// A stall pressure or free speed below this is zero: no force.
+inline constexpr double face_force_minimum=1e-9;
+[[nodiscard]] bool face_forces_active() noexcept;
+// A new handle (never 0) with no force yet; 0 while no healthy owner runs.
+[[nodiscard]] std::uint32_t open_face_force();
+// False for an unknown handle, which changes nothing. Throws
+// std::invalid_argument for a step that is not one of (1,0), (-1,0), (0,1),
+// (0,-1) or a strength outside 0..10000 Pa and 0..100 m/s. A cell outside
+// the colony rectangle is accepted and drives nothing.
+bool set_face_force(std::uint32_t handle,std::int64_t public_cell,std::int32_t dx,std::int32_t dy,double stall_pa,double free_speed);
+void close_face_force(std::uint32_t handle) noexcept;
+// Joules the handle's force did on the fluid in the owner frames completed
+// since the previous call (or since it was opened); 0 for an unknown handle.
+[[nodiscard]] double take_face_force_work(std::uint32_t handle) noexcept;
+// The driven handles in handle order: what the next frame applies and the
+// input journal records. replace_face_forces installs such a list (replays).
+struct FaceForceEntry {
+    std::uint32_t handle=0,public_cell=0; std::int32_t dx=0,dy=0; double stall_pa=0,free_speed=0;
+    bool operator==(const FaceForceEntry&) const=default;
+};
+[[nodiscard]] std::vector<FaceForceEntry> face_force_entries();
+void replace_face_forces(std::span<const FaceForceEntry>);
 void set_world_mask(std::span<const std::uint8_t> membership);
 void set_space_cells(std::span<const std::uint32_t>,bool space);
 // Receipts to deliver: with pinned readers, those of the frames they see.

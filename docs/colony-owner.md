@@ -1757,7 +1757,11 @@ exact hexadecimal values. `tools/colony_continuation.py --source-inputs/
 callback values, and reports the first frame whose inputs differ; a state may
 differ only from that frame on. The journal also writes the game's disease
 table (`diseases-<n>.bin`), each durable job's passives or moving payload and
-the number of native frames in each owner frame.
+the number of native frames in each owner frame. The handles another mod
+drives ([face forces](face-forces.md)) are inputs as well: a `forces` line
+lists them ahead of the first frame that uses a changed set, and a replay
+installs the set in effect at its checkpoint. A session without such handles
+writes no `forces` line.
 
 `ma_oni_colony_replay SAVED.owner JOURNAL DISEASES REFERENCE_PREFIX FRAMES
 [--menu]` proves owner continuation under identical inputs: it restores an

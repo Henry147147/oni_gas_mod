@@ -1267,6 +1267,24 @@ MAOniResult ma_oni_colony_set_vent_cells(const std::uint32_t* cells,std::uint32_
         catch(const std::invalid_argument& error){throw Failure(MA_ONI_INVALID_ARGUMENT,error.what());}
     });
 }
+// Face forces (docs/face-forces.md). Outside boundary(): no lifecycle lock,
+// nothing waits, nothing throws across the C boundary.
+std::uint32_t ma_oni_colony_face_force_version() {return 1;}
+std::uint32_t ma_oni_colony_face_forces_active() {return ma::oni::colony::face_forces_active()?1U:0U;}
+std::uint32_t ma_oni_colony_face_force_open() {
+    try {return ma::oni::colony::open_face_force();}
+    catch(...) {return 0;}
+}
+std::uint32_t ma_oni_colony_face_force_set(std::uint32_t handle,std::int64_t public_cell,std::int32_t dx,std::int32_t dy,
+    double stall_pressure_pa,double free_speed_m_per_s) {
+    try {
+        return ma::oni::colony::set_face_force(handle,public_cell,dx,dy,stall_pressure_pa,free_speed_m_per_s)?
+            MA_ONI_FACE_FORCE_SET:MA_ONI_FACE_FORCE_UNKNOWN;
+    }
+    catch(...) {return MA_ONI_FACE_FORCE_INVALID;}
+}
+void ma_oni_colony_face_force_close(std::uint32_t handle) {ma::oni::colony::close_face_force(handle);}
+double ma_oni_colony_face_force_take_work(std::uint32_t handle) {return ma::oni::colony::take_face_force_work(handle);}
 std::uint32_t ma_oni_colony_cluster_world_version() {return 1;}
 MAOniResult ma_oni_colony_set_space_cells(const std::uint32_t* cells,std::uint32_t count,std::uint32_t space) {
     return boundary([&] {

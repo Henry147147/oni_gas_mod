@@ -27,6 +27,7 @@ class RegionalTick {
   std::size_t species_count;
   std::size_t attempt_depth=0,refinement_depth=0;
   std::vector<std::uint8_t> sink_cells;double sink_speed=0;
+  std::vector<CellFaceForce> face_forces;
   struct Region {
     std::size_t x=0,y=0,representative=0;
     MacGrid box;
@@ -167,6 +168,11 @@ public:
     if(!cells.empty() && cells.size()!=grid.N)throw std::invalid_argument("Game sink coverage differs");
     sink_cells.assign(cells.begin(),cells.end());sink_speed=cells.empty()?0:speed;
   }
+  // Face forces (docs/face-forces.md) on owner-grid cells, for the following
+  // advances; empty: none. A stepped region books each force's work as an
+  // external energy input (TickResult::force_work, in this order); a region
+  // an interval leaves unstepped is not driven in it.
+  void set_face_forces(std::span<const CellFaceForce> forces) {face_forces.assign(forces.begin(),forces.end());}
   TickResult advance(const State& initial,double dt,double gravity,double threshold,
                      std::span<const std::uint8_t> blocked={},std::size_t budget=65536,
                      std::span<const double> due={},double maximum_active_interval=0) {
@@ -236,6 +242,16 @@ private:
       if(coordinators)coordinator_pool=std::move(coordinators);
     }
     attempt_depth=refinement_depth=0;
+    // Face forces by region: each one's index in face_forces and its face on
+    // the region's own grid. Walls separate regions, so a face between two
+    // fluid cells lies in one.
+    std::vector<std::vector<std::pair<std::size_t,FaceForce>>> region_forces(face_forces.empty()?0:regions.size());
+    for(std::size_t k=0;k<face_forces.size();++k) {
+      bool x=true;std::size_t fx=0,fy=0;double sign=1;
+      if(!resolve_face_force(source,face_forces[k],x,fx,fy,sign))continue;
+      const auto id=topology.labels[face_forces[k].cell];const auto& r=regions[id];
+      region_forces[id].push_back({k,FaceForce{(fx-r.x)+(fy-r.y)*(x?r.box.x_width():r.box.width),x,sign,face_forces[k].stall_pa,face_forces[k].free_speed}});
+    }
     setup_ms=lap();
     RegionAudit audit(grid,topology,species_count);Totals before;
     // The audit books only the regions this interval steps: an unstepped
@@ -278,6 +294,9 @@ private:
           std::vector<std::uint8_t> local_sinks;
           if(sink_speed>0) {local_sinks.resize(r.box.walls.size());for(std::size_t i=0;i<local_sinks.size();++i)local_sinks[i]=sink_cells[global_cell(r,i)];}
           tick.set_sinks(std::move(local_sinks),sink_speed);
+          std::vector<FaceForce> local_forces;
+          if(!region_forces.empty())for(const auto& [index,force]:region_forces[id])local_forces.push_back(force);
+          tick.set_face_forces(std::move(local_forces));
           results[id]=tick.advance(state,steps[id],gravity,threshold,local_blocked,budget,maximum_active_interval);
         }
         catch(const LiquidBoundaryConflict& e) {
@@ -316,7 +335,8 @@ private:
     auto& eos=readings?*readings:out.eos;
     std::vector<DoubleDouble> sinks(species_count),conversion(species_count);
     std::map<std::uint64_t,DoubleDouble> passive_sinks;
-    DoubleDouble sink_u,sink_k,sink_g,sink_x,sink_y,wall_x,wall_y,body_y;
+    DoubleDouble sink_u,sink_k,sink_g,sink_x,sink_y,wall_x,wall_y,body_y,forced_work,forced_operands;
+    out.force_work.assign(face_forces.size(),0.);
     out.regions=topology.count;
     for(std::size_t id=0;id<regions.size();++id) {
       if(steps[id]==0)continue;
@@ -342,6 +362,12 @@ private:
       audit.momentum_receipt(cell,false,next.wall_py,next.wall_operands_y);
       audit.momentum_receipt(cell,false,next.body_py,next.body_operands_y);
       wall_x.add(next.wall_px);wall_y.add(next.wall_py);body_y.add(next.body_py);
+      // Face forces: the region's energy account takes their work from outside.
+      for(std::size_t n=0;n<next.force_work.size();++n) {
+        const double work=next.force_work[n];
+        out.force_work[region_forces[id][n].first]=work;
+        audit.energy(cell,work);forced_work.add(work);forced_operands.add(std::abs(work));
+      }
       for(const auto& [identity,value]:next.sink_passive_quantities) {passive_sinks[identity].add(value);audit.passive(cell,identity,-value);}
 #define MA_REGIONAL_SUM(field) out.field+=next.field
       MA_REGIONAL_SUM(flow_ms);MA_REGIONAL_SUM(heat_ms);MA_REGIONAL_SUM(phase_ms);MA_REGIONAL_SUM(trace_audit_ms);
@@ -390,8 +416,9 @@ private:
     out.wall_px=wall_x.value();out.wall_py=wall_y.value();out.body_py=body_y.value();
     DoubleDouble removed_energy;removed_energy.add(sink_u.hi);removed_energy.add(sink_u.lo);removed_energy.add(sink_k.hi);removed_energy.add(sink_k.lo);removed_energy.add(sink_g.hi);removed_energy.add(sink_g.lo);
     Balance energy,mx,my;const auto add=[](Balance& b,const DoubleDouble& v,double sign=1){b.residual.add(sign*v.hi);b.residual.add(sign*v.lo);};
-    add(energy,before.energy);add(energy,after.energy,-1);add(energy,removed_energy,-1);
+    add(energy,before.energy);add(energy,after.energy,-1);add(energy,removed_energy,-1);add(energy,forced_work);
     energy.operands.add(before.energy_operands.value());energy.operands.add(after.energy_operands.value());energy.operands.add(std::abs(removed_energy.value()));
+    energy.operands.add(forced_operands.value());out.force_work_j=forced_work.value();
     add(mx,before.jx);add(mx,after.jx,-1);add(mx,wall_x);add(mx,sink_x,-1);
     mx.operands.add(before.jx_operands.value());mx.operands.add(after.jx_operands.value());mx.operands.add(out.wall_operands_x);mx.operands.add(std::abs(sink_x.value()));
     add(my,before.jy);add(my,after.jy,-1);add(my,wall_y);add(my,body_y);add(my,sink_y,-1);

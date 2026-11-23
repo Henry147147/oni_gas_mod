@@ -43,7 +43,47 @@ struct TickResult {
   std::size_t filter_exchanges = 0, filter_negative_heat = 0;
   std::size_t microevents = 0, interface_faces = 0, limited_faces = 0,
               interface_clusters = 0, largest_interface_cluster = 0;
+  // Face forces (Tick::set_face_forces): the work each did on the fluid in
+  // this advance, in the order given, and their sum, which the energy
+  // account books as an external input. Empty and zero without forces.
+  std::vector<double> force_work;
+  double force_work_j = 0;
 };
+// A driven face by its cell (docs/face-forces.md): the face between `cell`
+// and its neighbour at (dx, dy), exactly one of (1,0), (-1,0), (0,1), (0,-1)
+// with y upwards, pushed that way.
+struct CellFaceForce {
+  std::size_t cell = 0;
+  int dx = 0, dy = 0;
+  double stall_pa = 0, free_speed = 0;
+};
+// That face on `grid`, with the origin cell's and the neighbour's
+// coordinates; false when the neighbour is outside the grid or either cell
+// is a wall (nothing to drive), or the force is zero.
+inline bool resolve_face_force(const ma::experimental::MacGrid &grid, const CellFaceForce &force,
+                               bool &x, std::size_t &face_x, std::size_t &face_y, double &sign) {
+  if (force.cell >= grid.walls.size() || std::abs(force.dx) + std::abs(force.dy) != 1)
+    throw std::invalid_argument("Invalid face force cell or direction");
+  if (!(force.stall_pa >= 0) || !std::isfinite(force.stall_pa) ||
+      !(force.free_speed >= 0) || !std::isfinite(force.free_speed))
+    throw std::invalid_argument("Invalid face force strength");
+  if (force.stall_pa == 0 || force.free_speed == 0)
+    return false;
+  const auto cx = force.cell % grid.width, cy = force.cell / grid.width;
+  if ((force.dx < 0 && cx == 0) || (force.dx > 0 && cx + 1 >= grid.width) ||
+      (force.dy < 0 && cy == 0) || (force.dy > 0 && cy + 1 >= grid.height))
+    return false;
+  const auto other = force.cell + static_cast<std::size_t>(static_cast<std::ptrdiff_t>(force.dx) +
+                                                             static_cast<std::ptrdiff_t>(force.dy) * static_cast<std::ptrdiff_t>(grid.width));
+  if (grid.walls[force.cell] || grid.walls[other])
+    return false;
+  x = force.dx != 0;
+  // Face (x, y) lies on the low side of cell (x, y).
+  face_x = force.dx > 0 ? cx + 1 : cx;
+  face_y = force.dy > 0 ? cy + 1 : cy;
+  sign = force.dx + force.dy;
+  return true;
+}
 // Private coupled prototype: region audits and optional liquid correction.
 // Still missing sleep/front cap/checkpoint/owner integration. Heat and phase
 // run once per tick; two fixed flow half-steps follow the F3 convergence
@@ -143,6 +183,8 @@ public:
   }
   // Space venting (Flow::set_sinks).
   void set_sinks(std::vector<std::uint8_t> cells, double speed) { flow.set_sinks(std::move(cells), speed); }
+  // Face forces (Flow::set_face_forces), for the following advances.
+  void set_face_forces(std::vector<FaceForce> forces) { flow.set_face_forces(std::move(forces)); }
   TickResult advance(const State &initial, double dt, double gravity,
                      double threshold,
                      std::span<const std::uint8_t> liquid_blocked = {},
@@ -252,6 +294,7 @@ private:
     DoubleDouble sink_energy, sink_internal, sink_kinetic, sink_potential,
         sink_x, sink_y, sink_entropy;
     std::map<std::uint64_t, DoubleDouble> sink_passives;
+    std::vector<DoubleDouble> force_work;
     auto current_entropy = initial_entropy;
     const auto observe_entropy = [&](double &stage) {
       if (!detailed_entropy)
@@ -390,6 +433,11 @@ private:
         wall_ops_x += advanced.wall_ops_x;
         wall_ops_y += advanced.wall_ops_y;
         body_ops_y += std::abs(advanced.body_y);
+        if (!advanced.force_work.empty()) {
+          force_work.resize(advanced.force_work.size());
+          for (std::size_t k = 0; k < force_work.size(); ++k)
+            force_work[k].add(advanced.force_work[k]);
+        }
         out.state = std::move(advanced.state);
         out.eos = std::move(advanced.eos);
         observe_entropy(out.flow_entropy);
@@ -548,6 +596,17 @@ private:
     add(energy, before.energy);
     add(energy, after.energy, -1);
     add(energy, sink_energy, -1);
+    // Face forces: their work came from outside.
+    DoubleDouble forced_work, forced_operands;
+    out.force_work.reserve(force_work.size());
+    for (const auto &work : force_work) {
+      out.force_work.push_back(work.value());
+      forced_work.add(out.force_work.back());
+      forced_operands.add(std::abs(out.force_work.back()));
+    }
+    out.force_work_j = forced_work.value();
+    energy.residual.add(forced_work.hi);
+    energy.residual.add(forced_work.lo);
     add(mx, before.jx);
     add(mx, after.jx, -1);
     mx.add(wall_x);
@@ -563,6 +622,7 @@ private:
     energy.operands.add(before.energy_operands.value());
     energy.operands.add(after.energy_operands.value());
     energy.operands.add(std::abs(sink_energy.value()));
+    energy.operands.add(forced_operands.value());
     mx.operands = {};
     mx.operands.add(before.jx_operands.value());
     mx.operands.add(after.jx_operands.value());

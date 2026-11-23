@@ -69,6 +69,10 @@ def main() -> None:
     if args.oni_native_observer:
         run(["dotnet", "run", "--project", "tools/ColonyReceiptPumpInteropTests", "-c", "Release", "--",
              str(directory / ("mixed_atmospheres_oni.dll" if os.name == "nt" else "libmixed_atmospheres_oni.so"))], env)
+    if args.oni_native_observer:
+        # Other mods' interface (docs/face-forces.md), against the built backend.
+        run(["dotnet", "run", "--project", "tools/FaceForcesInteropTests", "-c", "Release", "--",
+             str(directory / ("mixed_atmospheres_oni.dll" if os.name == "nt" else "libmixed_atmospheres_oni.so"))], env)
     run(["dotnet", "run", "--project", "tools/ColonyActivityTests", "-c", "Release"], env)
     run(["dotnet", "run", "--project", "tools/ColonyBreathingProductionTests", "-c", "Release"], env)
     run(["dotnet", "run", "--project", "tools/ReadingEquivalenceTests", "-c", "Release"], env)

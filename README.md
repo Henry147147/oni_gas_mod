@@ -8,6 +8,8 @@ New colonies keep vanilla generated oxygen and polluted oxygen. Nitrogen content
 
 Plan sustainable oxygen production early. CO₂ still displaces oxygen, so an oxygen-poor room remains unsafe with CO₂ limits off. If you enable the limits, arrange CO₂ removal too. Use the Oxygen margin overlay to see how much oxygen a room has to spare, and the Breathability overlay to see why a tile cannot be breathed.
 
+Other mods can push air through the solver: since 1.13.0 a mod can put a fan's force on a tile face through a small public interface, and the gas then moves, piles up and stalls as the physics says. [Face forces](docs/face-forces.md) describes it; [Mixed Atmospheres: Fans](../oni_fan_mod) is the first mod built on it.
+
 Mixed Atmospheres is a private playtest build for Windows x64 and Linux. It applies to new base-game and Spaced Out! colonies, ONI builds 744825, 763796 and 764025, licensed through Steam. Spaced Out! can remain enabled; keep the other gameplay packs disabled for this playtest. Existing vanilla saves keep their vanilla simulation. The Windows build has been tested under Proton; Windows validation is part of your own playtest. Final release-candidate acceptance is still in progress, so this is preparation for private playtesting, not a public release. There is no Workshop release.
 
 ![Mixed Atmospheres gameplay during development](docs/images/mixed-atmospheres-gameplay.png)
