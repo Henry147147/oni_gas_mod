@@ -1621,7 +1621,9 @@ injection, extraction, edit and import rules).
 A region whose pressure system is one connected component of at least 2,000
 cells (`geometric_pressure_cells`) solves it with the geometric multigrid
 PCG of the production kernel ([MAC_MULTIGRID.md](MAC_MULTIGRID.md)) instead of
-IC(0)-PCG (`solve_components_cached`, `solve_geometric_checked`). The system,
+IC(0)-PCG (`solve_components_cached`, `solve_geometric_checked`), unless the
+[sparse Cholesky](#sparse-cholesky-pressure-solves-profile-12-2026-11-23)
+route takes it first. The system,
 its right-hand side and the residual bound are the same: the geometric solve
 runs to the absolute bound the component solve would meet, its residual is
 then recomputed from the system, and a result that misses the bound (or a
@@ -1651,6 +1653,93 @@ residual bound and the fixed controls are the criteria.
 geometric solve, close mass and U+K+G and continue exactly cold and on twelve
 workers, and a small room that must not use it. The advance report counts the
 solves (`pressure_geometric`).
+
+## Sparse Cholesky pressure solves (profile 12, 2026-11-23)
+
+A profile 12 pressure system of at least 5,300 active cells
+(`direct_pressure_cells`) is solved by sparse Cholesky
+(`mac_direct_cholesky.hpp`, `solve_components_cached` with a `DirectRoute`)
+before the geometric and component solves are tried. Nested dissection by the
+grid line with the fewest cells orders the unknowns, Liu's elimination tree and
+the rows' subtrees give the factor's pattern, and an up-looking factorisation
+fills it. The ordering and symbolic factor are kept for the last three
+patterns; the factor is recomputed every solve on the calling thread, in a
+fixed order, so its bytes do not depend on the worker count. (Factoring the
+independent subtrees of the elimination tree side by side gives the same bytes
+but saved only about 1 ms a frame on the colony's largest region, on its few
+workers, and was left out.)
+
+The route applies where the region's open cells, all coupled, factor with at
+most 700 multiply-adds a cell (`direct_pressure_fill`; the sum of the factor's
+squared column counts per cell). The test depends on the region grid's walls
+and closed faces alone; it is made once for a grid, and a grid over the limit
+never orders a system. A cave network fills at about 560 a cell; the
+November 22 colony's open surface region fills at about 930 and was no faster
+by the factor; an open square room passes 700 from about 2,400 cells (49 x 49:
+724), a room of aspect 1:8 from about 5,400. Those keep the geometric
+multigrid.
+
+The solution must meet, by its residual recomputed from the system, the bound
+the geometric solve would meet; it reaches a thousandth of it or less. Otherwise,
+or on a pivot that is not positive, the geometric and component solves run as
+before. `MA_PRESSURE_DIRECT=0` (read once) switches the route off for A/B runs;
+tests switch it with `set_pressure_direct_route` and restore it. Reports count
+its solves (`pressure_direct`, the colony benchmark's `direct_solves`); a
+direct solve counts as one pressure iteration.
+
+The minimum keeps open rooms off the route. An exact solve leaves a
+perfectly uniform unstable layer without the solver noise that seeded its
+overturning: the 6 x 30 column of hot oxygen under cold in the heat-layer
+control overturns in 150 s with the iterative solves, and with the factor it
+stays still for 20 minutes (fastest vertical gas 1e-5 m/s) while conduction
+alone evens it out. A sealed rectangular room heated evenly through its floor
+must keep overturning. Of 62,720 open rectangles of 1,500 to 9,000 cells with
+aspect ratios up to 1:8, both ways up, with 0, 2, 4 or 8 single-cell pillars,
+the largest that fills under 700 holds 5,218 cells (201 x 26 with 8 pillars,
+699); every larger one fills above it. The minimum, 5,300, lies 82 cells
+above it, so that below it the multigrid and component solves run as before,
+and above it only irregular grids such as cave networks pass the fill limit.
+Rooms longer than 1:8 pass the limit later (1:9 from about 5,600 cells, 1:10
+from 6,250) and could take the factor between 5,300 cells and that size. The
+colony's two cave systems (12,374 and 5,722 cells, filling at 560 and about
+190) take it. Below the minimum the factor would still be faster (0.08
+against 0.58 ms at 200-399 cells), but both cost under a millisecond there.
+
+The colony's largest region (12,374 cells) factors in 4.2 ms on one thread
+(227,000 entries in the factor, 7 million multiply-adds) and solves in 0.5 ms,
+against 26 multigrid PCG iterations of 0.47 ms on four workers; ordering and
+symbolic factor take 2.3 ms when its pattern changes. Trajectories differ from
+the iterative solves' at the level of the tolerance, as when the multigrid
+replaced IC(0).
+
+On the replay of the November 22 colony (`nov22-session`, 450 frames, 12
+workers, four runs each in two batches, interleaved with the revision
+before), the largest region's pressure fell from 31-35 to 13-15 ms a frame at
+the saved settings (52 multigrid iterations to two factorisations) and from
+18-22 to 6-8 ms at the fast settings; the second cave system's from 7-9 to
+4-5 and from 5-7 to 2.5-3 ms. The open surface region keeps the multigrid.
+Pressure summed over all regions fell from 81-96 to 59-75 ms (saved) and from
+34-43 to 19-25 ms (fast), the regions' run from 93-104 to 77-97 and from 49-59
+to 37-49 ms. After 90 s the gas pressures differ from the untouched build by
+8e-7 (saved) and 3e-6 (fast) relative on average, and the temperatures of
+tiles holding at least 100 g by 0.003 and 0.008 K on average, 0.05 and 0.19 K
+at the 99th percentile: no more than a change of the pressure tolerance gives.
+
+`ma_mac_direct_cholesky_tests` checks the factor against a dense long double
+factorisation on five shapes, new values on a kept pattern, a changed pattern,
+bit-identical repeats and the refusal of indefinite, singular and non-finite
+systems. In `ma_mac_game_kernel_tests`, with the game's minimum and fill
+limit, a 5,508-cell serpentine system takes the route to a hundredth of the
+bound and gives the same bytes on 1 and 12 workers, and the fill limit, the
+minimum size, a missed bound and the override each fall back to the geometric
+solve; a 5,408-cell serpentine cave region takes the route, closes mass and
+U+K+G and gives the same checkpoint on 1 and 12 workers and after a cold
+restore; an open 3,600-cell room and a sealed 208 x 26 room of hot oxygen
+under cold (5,408 cells, above the minimum, filling at about 717) keep the
+geometric multigrid. The heat-layer control checks that its column and pool
+never take the route, and the large-room and small-room checks of the
+pressure-system control run with the route off, so they still prove the
+multigrid and component routes.
 
 ## Large pressure and heat components
 

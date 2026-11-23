@@ -23,6 +23,29 @@ coarse centre spacing, including odd widths. This is a rediscretized
 preconditioner; it never replaces the fine physical equation. Cell-centred linear
 interpolation has nonnegative weights and preserves constants; restriction is
 its actual transpose. Missing or ambiguous neighbours use constant interpolation.
+A node takes a coarse neighbour's correction only through one of its own edges
+into that neighbour's aggregate, and the diagonal neighbour's only through a
+path of two such edges (periodic axes wrap); otherwise it uses constant
+interpolation in that direction, as for a missing neighbour.
+
+That rule (2026-11-23) answers a measurement on the November 22 colony's
+largest region, 12,374 cells of caves and shafts, a sixth of them liquid. The
+Ritz values of the preconditioned operator, taken from the PCG's own
+coefficients on sampled solves, ran from 0.08 to 12.2. A convergent V-cycle
+cannot give eigenvalues above 2: the coarse correction overshot. The largest
+modes lay on 5 to 100 cells at wall corners, where bilinear interpolation gave a
+cell a quarter of a coarse node that the coarse graph links to the cell's
+aggregate only around the corner; the rediscretized coarse operator does not see
+the energy of that correction. With the rule the largest value falls to about 8
+and a solve needs 23 instead of 28 iterations. The rest of the overshoot comes
+from single liquid cells interpolated from gas aggregates across faces a
+thousand times weaker. Galerkin coarse operators (PᵀAP) remove it (values 0.25
+to 1.0, 7 iterations), but building their pattern costs about six hierarchy
+builds, and hierarchies follow the active cells, so on the colony they cost more
+than they saved. The smallest value belongs to a gas pocket reached only through
+liquid; deflating even exact eigenvectors saves at most a fifth of the
+iterations. The game kernel solves the largest such systems directly instead
+([MAC_GAME_KERNEL.md](MAC_GAME_KERNEL.md#sparse-cholesky-pressure-solves-profile-12-2026-11-23)).
 
 One application is a fixed symmetric V-cycle. Two diagonal-relaxation stages use
 weights 1/2 and 3/2, reversed after coarse correction. Their error polynomial
@@ -45,6 +68,12 @@ pressure-active mask. A vacuum arrival rebuilds the mask before use; coarse cell
 never connect through solids or empty cells. Empty-side zero-traction terms stay
 in the fine diagonal. Every solve replaces all coefficients and starts corrections
 from zero. No workspace supplies physical continuation history or checkpoint data.
+
+The PCG around the V-cycle (`solve_linear_selected`) visits only the runs of
+active cells in each fixed row block. Every skipped term is an exact zero (the
+right-hand side is zero outside the system, which is checked; the V-cycle writes
+zero there; the search direction and its product stay zero there), so each block
+sums the same terms in the same order as loops over the whole grid.
 
 V-cycles use the production pool through a synchronous block executor. The retained
 component executor keeps its original arithmetic order. Row operations have unique
@@ -70,8 +99,10 @@ python3 native/tests/review_mac_kernel.py production.stdout
 
 The component reviewer reconstructs transfers, positive coarse operators and the
 full V-cycle at 100 decimal digits, then checks the manufactured fine residual
-with exact fractions. It checks 40,216 assertions and rejects eight altered
-captures. The production owner reader keeps all seven original gas scenes and
+with exact fractions. It checks 40,128 assertions and rejects eight altered
+captures (40,216 before interpolation followed fine faces: some prolongation
+rows now have fewer terms; the five manufactured cases take the same iteration
+counts). The production owner reader keeps all seven original gas scenes and
 their strict endpoint bounds, including the 10,000-step and catalogue controls;
 it checks 105,985 assertions and rejects seven altered captures. It also checks
 the production report's stage operands and below-range operand allowance.
