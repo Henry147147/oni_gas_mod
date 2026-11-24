@@ -257,7 +257,7 @@ namespace MixedAtmospheres.Oni
             var holder = new GameObject("Mixed Atmospheres colony pacing");
             DontDestroyOnLoad(holder); holder.AddComponent<ColonyPacingDriver>();
         }
-        private void Update() { UnityFrameTiming.Frame(); ColonyPacing.Update(); }
+        private void Update() { UnityFrameTiming.Frame(); ColonyPacing.Update(); ColonyOwner.SendSpaceExposureWhenIdle(); }
     }
     [HarmonyPatch(typeof(Game), "SimEveryTick")]
     internal static class ColonyPacingTickPatch

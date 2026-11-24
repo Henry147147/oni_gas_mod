@@ -132,6 +132,7 @@ namespace MixedAtmospheres.Oni
             exposureZones = null;
             exposedCells = Array.Empty<uint>();
             exposureState = Array.Empty<bool>();
+            exposureCount = 0; exposureUnsent = false; exposureTicksUnsent = 0;
             passiveSession=0;passiveFrame=ulong.MaxValue;WorldPassiveComparisons=WorldPassiveRows=WorldPassiveBusy=0;
             Active = false; considered = false; restoreAttempted = false; StartFailure = ""; loggedFault = ""; ColonyFault.Reset(); Publications = 0; PublicationMilliseconds = MaximumPublicationMilliseconds = 0; Census.Clear(); molarMass = Array.Empty<double>();
             completionObservedAt = 0; completionObservedFrame = ulong.MaxValue; frameTiming.Reset();
@@ -374,9 +375,37 @@ namespace MixedAtmospheres.Oni
         private static int[] spaceZoneCells = Array.Empty<int>();
         private static uint[] exposedCells = Array.Empty<uint>();
         private static bool[] exposureState = Array.Empty<bool>();
+        // The native call that takes the exposed cells waits for the owner to
+        // finish the step it is in, and at a tick that step is often still
+        // running: the game thread would stand still for the rest of it (100
+        // to 250 ms on a large colony whose solver sets the pace). A changed
+        // set therefore goes to the owner when it is idle: at the tick itself
+        // when it is (as before), else from the first Unity frame that finds
+        // it idle (SendSpaceExposureWhenIdle), and at the latest
+        // ExposureWaitTicks ticks later, waiting then as before.
+        // `configured` sets (a start, a restore, a new world layout) are sent
+        // at once: the owner is fenced and idle there.
+        private const int ExposureWaitTicks = 5;
+        private static uint exposureCount;
+        private static bool exposureUnsent;
+        private static int exposureTicksUnsent;
+        internal static long SpaceExposureDeferred { get; private set; }
+        private static void SendSpaceExposure()
+        {
+            OniNativeColony.Check(OniNativeColony.SetVentCells(exposedCells, exposureCount));
+            exposureUnsent = false; exposureTicksUnsent = 0;
+        }
+        // Once per Unity frame (the pacing driver).
+        internal static void SendSpaceExposureWhenIdle()
+        {
+            if (!exposureUnsent || !Active || ColonyFault.Faulted || OniNativeColony.Busy() != 0) return;
+            try { SendSpaceExposure(); }
+            catch (Exception error) { ColonyFault.Raise("space exposure", error); }
+        }
 
         private static void RefreshSpaceExposure(bool changed = false)
         {
+            var configured = changed;
             // Restore may precede SubworldZoneRenderData.OnSpawn. GenerateTexture
             // replaces the game's zone array when the real map becomes available.
             var zones = World.Instance.zoneRenderData?.worldZoneTypes;
@@ -404,11 +433,17 @@ namespace MixedAtmospheres.Oni
                 if (exposureState[i] != exposed) changed = true;
                 exposureState[i] = exposed;
             }
-            if (!changed) return;
-            uint count = 0;
-            for (int i = 0; i < spaceZoneCells.Length; ++i)
-                if (exposureState[i]) exposedCells[count++] = (uint)spaceZoneCells[i];
-            OniNativeColony.Check(OniNativeColony.SetVentCells(exposedCells,count));
+            if (changed)
+            {
+                uint count = 0;
+                for (int i = 0; i < spaceZoneCells.Length; ++i)
+                    if (exposureState[i]) exposedCells[count++] = (uint)spaceZoneCells[i];
+                exposureCount = count;
+                if (!exposureUnsent) { exposureUnsent = true; exposureTicksUnsent = 0; }
+            }
+            if (!exposureUnsent) return;
+            if (configured || OniNativeColony.Busy() == 0 || ++exposureTicksUnsent > ExposureWaitTicks) SendSpaceExposure();
+            else ++SpaceExposureDeferred;
         }
         // The configuration and catalogue the running game would give this asteroid.
         internal static (OniNativeColony.Config config, OniNativeColony.Material[] materials) Describe(uint? savedFlags = null)
@@ -842,7 +877,7 @@ namespace MixedAtmospheres.Oni
             if (message == NewGameFrame && length >= 4)
             {
                 var begun = publicationLog ? System.Diagnostics.Stopwatch.GetTimestamp() : 0;
-                if (*(float*)payload > 0) RefreshSpaceExposure();
+                if (*(float*)payload > 0) { ColonyFrameLog.TickPosted(); using (ColonyFrameLog.Track("tick_space_exposure")) RefreshSpaceExposure(); }
                 ColonyActivity.QueueFrame(*(float*)payload, settle: true);
                 if ((publicationLog || ColonyPerformanceLog.Enabled) && *(float*)payload > 0)
                 {
