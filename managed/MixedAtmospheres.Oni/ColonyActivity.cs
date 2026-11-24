@@ -310,6 +310,7 @@ namespace MixedAtmospheres.Oni
             var expected = reference.Finish();
             if (!expected.Actors.SequenceEqual(snapshot.Actors)) throw new InvalidOperationException("The actor census differs from a complete one in its actor cells: " + Difference(expected.Actors, snapshot.Actors));
             if (!expected.Touched.SequenceEqual(snapshot.Touched)) throw new InvalidOperationException("The actor census differs from a complete one in its touched cells: " + Difference(expected.Touched, snapshot.Touched));
+            if (reference.ActorCount != census.ActorCount) throw new InvalidOperationException("The actor census counts " + census.ActorCount + " actors and a complete one " + reference.ActorCount + ".");
             ++CensusComparisons;
         }
         private static string Difference(ReadOnlySpan<uint> expected, ReadOnlySpan<uint> actual)
