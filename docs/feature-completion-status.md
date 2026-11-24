@@ -1,5 +1,7 @@
 # Feature completion work
 
+**[1.13.4](playtest-1.13.4.md).** 1.13.3 with a shorter tick frame: the actor census reads only the actors that can have changed, the pipes' heat and germ bookkeeping no longer recomputes what a tick left unchanged, and a change of the space-exposed cells no longer holds the game thread until the solver finishes its step. Solver arithmetic and save format are unchanged.
+
 **[1.13.3](playtest-1.13.3.md).** 1.13.2 with the first fix from the user's Windows playtest: a liquid below 0.1 % of its tile shows only where it rests (a floor, an airflow tile, a pool), so the mist the solver carries in a colony's air no longer draws liquid tiles in mid-air.
 
 **[1.13.2](playtest-1.13.2.md).** The 1.13 candidate meant for play: 64.9 ms a tick (2.22× by the replay estimate) on the November 22 colony with the fluid on every tick, from a direct pressure solve for large cave-like regions, the tick's stages on several workers and the faster solver defaults (pressure tolerance 1e-6, one flow part, trace removal from 1 mg; the earlier values are the Exact preset). Reservoirs give out their stored mixture. 3× (41.7 ms) remains the goal; a further round of exact work on the regions and on the work around them is in progress.

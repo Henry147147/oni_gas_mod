@@ -1,5 +1,23 @@
 # Region activity integration controls
 
+**State on 2026-11-24.** This fixture and its control no longer pass, with
+1.13.3's code and with 1.13.4's alike, and no acceptance tier runs either:
+
+- `activity-lifecycle` without a control passes 12 of its 16 checks. The four
+  that fail concern paused (zero-time) refreshes and the staged frame: "OnSpawn
+  publishes the real creature's actor mask", "inactive moved actor remains in
+  the full census", "motion touches its previous footprint at zero time" and
+  "uninterrupted resume delivers the prepared frame once".
+- With `MA_COLONY_ACTIVITY_CONTROL=1` the comparison of the published activity
+  mask with the submitted census (described below) stops the owner at the
+  third frame, in the fixture (cell 45696) and on the November 22 colony
+  (cell 17252).
+
+The cause has not been looked for. The census itself has its own comparison
+since 1.13.4, `MA_COLONY_CENSUS_CONTROL=1`
+([what it checks](colony-owner.md#main-thread-smoothness)), which passes in the
+fixture, on that colony and in the gameplay batches.
+
 `activity-lifecycle` is a separate private game fixture. It does not change the
 inputs or bounds of an existing scenario. Run it against the integrated profile9
 bundle with `MA_COLONY_ACTIVITY_CONTROL=1`, through `tools/game_slot.sh`, after the

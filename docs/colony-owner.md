@@ -1448,12 +1448,57 @@ stuttering camera at 0.85x) and the fixes:
   full-map property textures are uploaded again only when a plane's bytes
   changed. The copy itself and the Grid.Element check of every unowned cell
   still run: native data can change on a zero-time frame.
+- **The tick frame** (version 1.13.4, [the measurements](playtest-1.13.4.md)).
+  A simulation tick's work lands in one Unity frame: ONI's own 200 ms
+  updates, and the mod's census, pipe bookkeeping and publication. On a
+  large colony that frame was several times as long as the frames between
+  ticks, five to ten times a second, which a player sees as a stutter while
+  the solver has time to spare. Three parts of it are gone:
+  - *The actor census read every actor.* Each tick it read the position and
+    footprint of every registered actor from the game. A colony has
+    thousands of fixed buildings (every built tile is one) and a few hundred
+    actors that can move. Now only the first census reads them all; a later
+    one reads the mobile actors (creatures, duplicants, plants, unfinished
+    and movable buildings), those registered or spawned since the last
+    census, and 128 fixed ones in turn, so every fixed actor is read again
+    within some hundred censuses should its footprint ever change without a
+    spawn. `ColonyActivityCells` keeps presence as a count per cell, so a
+    partial census gives the snapshot a complete one would; the engine-free
+    tests compare the two over 400 random rounds, and
+    `MA_COLONY_CENSUS_CONTROL=1` (or the activity control) compares every
+    census of a game with a complete one and faults on a difference. The census of a paused frame
+    in which something changed is cheaper by the same amount.
+  - *Pipe bookkeeping recomputed what had not changed.* Heat exchange gives
+    every filled pipe a new inventory each tick, and the constructor summed
+    its constituents again and `Temperature` recomputed their heat capacity
+    and energy offset, in exact arithmetic. An inventory made from another
+    with the same constituents now keeps their total, heat capacity and
+    offset. Amounts already in canonical form are no longer normalized
+    again, a germ count is compared with a density threshold through its
+    readout where that decides it, and a germ step computes its result
+    once. Every value is the one computed before (the pipe tests compare
+    with their independent oracles, bit for bit).
+  - *A change of the space-exposed cells waited for the solver.* The native
+    call that takes them waits until the owner has finished the step it is
+    in, and at a tick that step is often still running: the game thread
+    stood still for the rest of it. A changed set now goes to the owner when
+    it is idle: at the tick itself when it is, else from the first Unity
+    frame that finds it idle, and at the latest five ticks later (waiting
+    then as before). Sets made at a start, a restore or a new world layout
+    are still sent at once.
+  The frame log now times the pipe bookkeeping (`pipes`, part of `mod_ms`)
+  and reports the tick frames on their own (`tick_frames`, `tick_frame_ms`,
+  `tick_mod_ms`, `quiet_frame_ms`).
 - What remains on the game thread is ONI's own synchronous wait in
   `PrepareGameData` for the native frame (the end-of-frame projection, about
   9 ms and up to about 30 ms, which vanilla ONI also waits for its native
-  frame), publication (snapshot copy, overlay and receipts, 1-4 ms per Unity
-  frame that publishes) and the remaining allocation of ONI itself and of the
-  lazily built cells (a few MB per second).
+  frame), and on a tick frame the publication (the snapshot copy, the
+  overlay, receipts and the copies of views and readings: 14 ms on the
+  November 22 colony on the test host), the pipes' germ steps (exact sums
+  of about twenty binary64 words a culture, 80 µs a step), the gas map's
+  colours for the cells in view and the census of the mobile actors; then
+  the remaining allocation of ONI itself and of the lazily built cells (a
+  few MB per second).
 
 Measured on the Linux dev machine (Ryzen 9 5900X, RTX 5090, base-game Terra colony
 at fast speed, 900 owner frames, the game on cores 0-11 with other agents' jobs

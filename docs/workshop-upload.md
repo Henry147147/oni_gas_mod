@@ -52,9 +52,12 @@ Uploads so far:
 | 2026-11-20 | 1.10.2 | `f51be6a` | the user's statement |
 | 2026-11-21 23:10 | 1.12.2 | `0da7afd` | `status` on 2026-11-22: 39 files as the manifest pins them |
 | 2026-11-22 20:29 | 1.12.2.3 | `9c7bda6` | `status` on 2026-11-23: every file as the manifest pins it |
+| 2026-11-24 02:53 | 1.13.3 | `6a116e5` | `status` on 2026-11-24: every file as the manifest pins it |
 
 The first four were uploaded by the user with Klei's uploader; this project's
-record does not say how 1.12.2.3 was uploaded. Add a line for each
+record does not say how 1.12.2.3 and 1.13.3 were uploaded (1.13.3 went up
+while its acceptance run was still in progress; [its
+result](playtest-1.13.3.md#staged-package)). Add a line for each
 later upload.
 
 ## Uploading a version

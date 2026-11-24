@@ -58,9 +58,15 @@ few that your task touches, starting here.
   `publish/update-1.13.0` and `releases/1.13.0`; every release step has
   passed ([what ran](docs/playtest-1.13.0.md#staged-package)) and the upload
   waits for the user's go-ahead.
+  [1.13.4](docs/playtest-1.13.4.md) is 1.13.3 with less work on the game's
+  own thread in the frame of each simulation tick (the user's report of
+  2026-11-24: frames a little slow while the solver had time to spare); the
+  solver and the save format are those of 1.13.3. Its notes say how to
+  profile the game's main thread, what each part of a tick frame costs on
+  the November 22 colony and which parts remain.
   [1.13.3](docs/playtest-1.13.3.md) is 1.13.2 with the first fix from the
   user's Windows playtest of it (a liquid trace in mid-air no longer draws a
-  liquid tile) and is the candidate staged for upload.
+  liquid tile); the user uploaded it to the Workshop on 2026-11-24.
   [1.13.2](docs/playtest-1.13.2.md) is the 1.13 candidate meant for play
   (user decisions 2026-11-23; 1.13.0 and 1.13.1 were bookkeeping builds and
   were never uploaded): the speed work that keeps the fluid on every tick
@@ -92,8 +98,8 @@ few that your task touches, starting here.
   [the 0.1.1 playtest review](docs/playtest-0.1.1-review.md).
   The `docs/handoff-codex-*.md` files are historical; continue on `main`.
 - [docs/workshop-upload.md](docs/workshop-upload.md): the Steam Workshop item,
-  what it serves (`python3 tools/workshop.py status`: 1.12.2.3, `9c7bda6`, on
-  2026-11-23) and the upload procedure. The tool only reads unless it is given
+  what it serves (`python3 tools/workshop.py status`: 1.13.3, `6a116e5`, on
+  2026-11-24) and the upload procedure. The tool only reads unless it is given
   `--execute` with the user's go-ahead for that version.
 - [docs/playtest-plan.md](docs/playtest-plan.md): the original first-playtest
   plan (the full base game on one asteroid, playable on Linux).
