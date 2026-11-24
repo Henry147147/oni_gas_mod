@@ -89,64 +89,119 @@ namespace MixedAtmospheres.Oni
 
     // Full actor presence plus one-frame motion/retirement touches. First-time
     // seeding is presence only: loading an unchanged actor is not a new input.
+    //
+    // A complete census observes every actor: one it does not observe has
+    // left. A partial census observes only the actors that may have changed;
+    // the others keep the cells of their last observation. Presence is kept as
+    // a count per cell, so either kind costs what it observes, and both give
+    // the same snapshot for the same actor cells.
     internal sealed class ColonyActivityCells
     {
         private readonly Dictionary<long, uint[]> previous = new Dictionary<long, uint[]>();
         private readonly HashSet<long> seen = new HashSet<long>();
-        private readonly HashSet<uint> actors = new HashSet<uint>(), touched = new HashSet<uint>(), retired = new HashSet<uint>();
+        private readonly HashSet<uint> touched = new HashSet<uint>(), retired = new HashSet<uint>();
         private readonly List<long> missing = new List<long>();
+        // Cells whose count reached or left zero since the last snapshot.
+        private readonly List<uint> crossed = new List<uint>();
+        private readonly List<uint> changed = new List<uint>();
+        private int[] presence = Array.Empty<int>();
         private int width, height;
-        internal int ActorCount => seen.Count;
-        internal void Begin(int width, int height)
+        private bool partial;
+        internal int ActorCount => previous.Count;
+        internal void Begin(int width, int height, bool partial = false)
         {
             if (width <= 0 || height <= 0 || (long)width * height > int.MaxValue) throw new ArgumentOutOfRangeException(nameof(width));
-            if (this.width != width || this.height != height) { previous.Clear(); retired.Clear(); }
-            this.width = width; this.height = height;
-            actors.Clear(); touched.Clear(); seen.Clear(); missing.Clear();
+            if (this.width != width || this.height != height)
+            {
+                if (partial) throw new InvalidOperationException("A partial actor census needs the grid of the last complete one.");
+                // Nobody is present on the new grid until observed there.
+                previous.Clear(); retired.Clear(); crossed.AddRange(lastActors);
+                if (presence.Length == width * height) Array.Clear(presence, 0, presence.Length); else presence = new int[width * height];
+            }
+            this.width = width; this.height = height; this.partial = partial;
+            touched.Clear(); seen.Clear(); missing.Clear();
             foreach (var cell in retired) touched.Add(cell); retired.Clear();
         }
+        private void Enter(uint cell) { if (presence[cell]++ == 0) crossed.Add(cell); }
+        private void Leave(uint cell) { if (--presence[cell] == 0) crossed.Add(cell); }
         internal void Observe(long identity, ReadOnlySpan<uint> cells)
         {
             for (var i = 0; i < cells.Length; ++i)
                 if ((long)cells[i] >= (long)width * height || i != 0 && cells[i] <= cells[i - 1])
                     throw new ArgumentException("Actor cells must be sorted, unique and inside the grid.", nameof(cells));
             if (!seen.Add(identity)) throw new InvalidOperationException("Actor identity appeared twice in one census.");
-            foreach (var cell in cells) actors.Add(cell);
             if (previous.TryGetValue(identity, out var before))
             {
                 if (cells.SequenceEqual(before)) return;
-                foreach (var cell in before) touched.Add(cell);
-                foreach (var cell in cells) touched.Add(cell);
+                foreach (var cell in before) { touched.Add(cell); Leave(cell); }
+                foreach (var cell in cells) { touched.Add(cell); Enter(cell); }
             }
+            else foreach (var cell in cells) Enter(cell);
             previous[identity] = cells.ToArray();
         }
+        // An actor that left between two censuses: its cells are touched in the next one.
         internal void Retire(long identity)
         {
             if (!previous.TryGetValue(identity, out var before)) return;
-            foreach (var cell in before) retired.Add(cell);
+            foreach (var cell in before) { retired.Add(cell); Leave(cell); }
+            previous.Remove(identity);
+        }
+        // An actor found gone during this census: its cells are touched in this one.
+        internal void Drop(long identity)
+        {
+            if (!previous.TryGetValue(identity, out var before)) return;
+            foreach (var cell in before) { touched.Add(cell); Leave(cell); }
             previous.Remove(identity);
         }
         // Snapshot arrays are never written after Finish: presence equal to the
         // last census shares its array, and no touch shares the empty one.
         private uint[] lastActors = Array.Empty<uint>();
-        internal ColonyActivitySnapshot Finish()
+        // `always`: the identities a partial census observes every time, so
+        // one of them it did not observe has left (a complete census holds
+        // that for every identity).
+        internal ColonyActivitySnapshot Finish(Func<long, bool>? always = null)
         {
             foreach (var pair in previous)
-                if (!seen.Contains(pair.Key)) { foreach (var cell in pair.Value) touched.Add(cell); missing.Add(pair.Key); }
-            foreach (var identity in missing) previous.Remove(identity);
-            var a = Sorted(actors, lastActors); lastActors = a;
-            var t = Sorted(touched, Array.Empty<uint>());
+                if ((!partial || always != null && always(pair.Key)) && !seen.Contains(pair.Key)) missing.Add(pair.Key);
+            foreach (var identity in missing) Drop(identity);
+            missing.Clear();
+            var a = Actors(); lastActors = a;
+            uint[] t;
+            if (touched.Count == 0) t = Array.Empty<uint>();
+            else { t = new uint[touched.Count]; touched.CopyTo(t); Array.Sort(t); }
             return new ColonyActivitySnapshot(a, t);
         }
-        private static uint[] Sorted(HashSet<uint> cells, uint[] same)
+        // The cells with an actor, sorted: the last snapshot's with the cells
+        // that entered or left since merged in.
+        private uint[] Actors()
         {
-            if (same.Length == cells.Count)
+            if (crossed.Count == 0) return lastActors;
+            crossed.Sort(); changed.Clear();
+            var added = 0;
+            for (var i = 0; i < crossed.Count; ++i)
             {
-                var equal = true; foreach (var cell in same) if (!cells.Contains(cell)) { equal = false; break; }
-                if (equal) return same;
+                var cell = crossed[i];
+                if (i != 0 && cell == crossed[i - 1]) continue;
+                var now = cell < (uint)presence.Length && presence[cell] > 0;
+                if (now == Array.BinarySearch(lastActors, cell) >= 0) continue;
+                changed.Add(cell); if (now) ++added;
             }
-            var result = new uint[cells.Count]; cells.CopyTo(result); Array.Sort(result); return result;
+            crossed.Clear();
+            if (changed.Count == 0) return lastActors;
+            var result = new uint[lastActors.Length + added - (changed.Count - added)];
+            int from = 0, change = 0, to = 0;
+            while (from < lastActors.Length || change < changed.Count)
+            {
+                if (change == changed.Count || from < lastActors.Length && lastActors[from] < changed[change]) result[to++] = lastActors[from++];
+                else if (from < lastActors.Length && lastActors[from] == changed[change]) { ++from; ++change; }
+                else result[to++] = changed[change++];
+            }
+            return result;
         }
-        internal void Reset() { previous.Clear(); seen.Clear(); actors.Clear(); touched.Clear(); retired.Clear(); missing.Clear(); width = height = 0; lastActors = Array.Empty<uint>(); }
+        internal void Reset()
+        {
+            previous.Clear(); seen.Clear(); touched.Clear(); retired.Clear(); missing.Clear(); crossed.Clear(); changed.Clear();
+            presence = Array.Empty<int>(); width = height = 0; partial = false; lastActors = Array.Empty<uint>();
+        }
     }
 }

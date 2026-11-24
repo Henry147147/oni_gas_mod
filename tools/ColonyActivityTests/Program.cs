@@ -41,6 +41,36 @@ static class Program
         census.Begin(4,3);census.Observe(7,new uint[]{1});Refuse<InvalidOperationException>(()=>census.Observe(7,new uint[]{2}));
         census.Reset();census.Begin(3,4);census.Observe(7,new uint[]{2});Equal(census.Finish().Touched);
         census.Begin(4,3);census.Observe(7,new uint[]{2});Equal(census.Finish().Touched); // same cell count, different row layout
+        // A partial census (only the actors that may have changed are observed) gives the snapshot of a complete one.
+        Refuse<InvalidOperationException>(()=>new ColonyActivityCells().Begin(4,3,partial:true)); // no complete census of that grid yet
+        var complete=new ColonyActivityCells();var part=new ColonyActivityCells();var random=new Random(20261124);
+        const int gridWidth=24,gridHeight=16;var live=new Dictionary<long,uint[]>();long nextIdentity=1;
+        Func<long,bool> callbacks=identity=>identity>>32==1; // observed in every census, as ColonyActors' consumers and emitters are
+        uint[] Cells(){var set=new SortedSet<uint>();for(var k=random.Next(0,5);k>0;--k)set.Add((uint)random.Next(gridWidth*gridHeight));return set.ToArray();}
+        for(var round=0;round<400;++round)
+        {
+            var changedNow=new HashSet<long>();var droppedNow=new List<long>();
+            // Retirements between censuses reach both; an actor found gone during the census is dropped in it.
+            foreach(var identity in live.Keys.ToArray())
+            {
+                var roll=random.Next(100);
+                if(roll<3){live.Remove(identity);complete.Retire(identity);part.Retire(identity);}
+                else if(roll<6&&!callbacks(identity)){live.Remove(identity);droppedNow.Add(identity);}
+                else if(roll<8&&callbacks(identity))live.Remove(identity); // a callback that is simply no longer listed
+                else if(roll<25){live[identity]=Cells();changedNow.Add(identity);}
+            }
+            for(var k=random.Next(0,4);k>0;--k){var identity=random.Next(4)==0?(1L<<32)|(uint)nextIdentity++:nextIdentity++;live[identity]=Cells();changedNow.Add(identity);}
+            var regrid=round==200; // a new grid: both start again with a complete census
+            int w=regrid||round>200?gridWidth+1:gridWidth,h=gridHeight;
+            if(regrid){foreach(var identity in live.Keys.ToArray())live[identity]=live[identity].Where(c=>c<(uint)(w*h)).ToArray();}
+            complete.Begin(w,h);foreach(var pair in live)complete.Observe(pair.Key,pair.Value);var expected=complete.Finish();
+            part.Begin(w,h,partial:!regrid&&round!=0);
+            foreach(var pair in live)
+                if(regrid||round==0||changedNow.Contains(pair.Key)||callbacks(pair.Key)||random.Next(10)==0)part.Observe(pair.Key,pair.Value);
+            foreach(var identity in droppedNow)part.Drop(identity);
+            var actual=part.Finish(callbacks);
+            Check(actual.Actors.SequenceEqual(expected.Actors)&&actual.Touched.SequenceEqual(expected.Touched)&&part.ActorCount==complete.ActorCount&&part.ActorCount==live.Count);
+        }
         var fluid=new HashSet<uint>{1,3,4,5,7,9};
         Check(ColonyActivityMask.Project(new uint[]{4},4,3,fluid.Contains).SetEquals(new uint[]{4}));
         Check(ColonyActivityMask.Project(new uint[]{0},4,3,fluid.Contains).SetEquals(new uint[]{1,4}));

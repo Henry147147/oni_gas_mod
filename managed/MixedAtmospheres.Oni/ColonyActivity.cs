@@ -22,8 +22,13 @@ namespace MixedAtmospheres.Oni
             internal readonly ConduitDispenser[] Dispensers;
             internal uint[] Previous = Array.Empty<uint>();
             internal int Anchor = int.MinValue; // the cell Previous was built around
-            internal Entry(Component component)
+            internal readonly int Identity;
+            internal int Slot = -1;             // its place in `order`; -1 once removed
+            internal int Read;                  // the census that last read it
+            internal bool Mobile, Inactive, Waiting;
+            internal Entry(Component component, int identity)
             {
+                Identity = identity;
                 Component = component; Transform = component.transform; var go = component.gameObject;
                 Building = go.GetComponent<Building>(); Occupancy = go.GetComponent<OccupyArea>();
                 Living = go.GetComponent<Brain>() != null || go.GetComponent<MinionIdentity>() != null;
@@ -36,13 +41,37 @@ namespace MixedAtmospheres.Oni
         // A completed fixed building keeps its grid anchor until cleanup.
         // Rocket modules (CanMove), creatures and unfinished registrations
         // still need their transforms inspected during a zero-time refresh.
-        private static readonly List<Entry> mobile = new List<Entry>();
+        private static readonly HashSet<Entry> mobile = new HashSet<Entry>();
+        // The census reads an actor's footprint from the game. A colony has
+        // thousands of fixed buildings (every built tile is one) and a few
+        // hundred actors that can move, so only the first census reads them
+        // all. Each later one reads the mobile actors, the actors registered
+        // or spawned since the last (`waiting`), and a few fixed ones in turn
+        // (`FixedChecks`: every fixed actor is read again within some hundred
+        // censuses, should a footprint ever change without a spawn). The
+        // snapshot is that of a complete census whenever fixed footprints
+        // change only at a spawn, which MA_COLONY_CENSUS_CONTROL=1 (and the
+        // activity control) checks on every census
+        // (docs/colony-owner.md#main-thread-smoothness).
+        private static readonly List<Entry> order = new List<Entry>();
+        private static readonly List<Entry> waiting = new List<Entry>(), reading = new List<Entry>(), gone = new List<Entry>();
+        private const int FixedChecks = 128, RegistryChecks = 128;
+        private static int turn, censusNumber, registryAge, censusWidth, censusHeight;
+        private static bool completeNext = true;
+        internal static long CompleteCensuses { get; private set; }
+        internal static long PartialCensuses { get; private set; }
+        internal static long FootprintsRead { get; private set; }
+        private static readonly ColonyActivityCells reference = new ColonyActivityCells();
+        internal static long CensusComparisons { get; private set; }
         private static readonly List<int> dead = new List<int>();
         private static readonly Dictionary<int, GameObject> retired = new Dictionary<int, GameObject>();
         private static readonly ColonyActivityCells census = new ColonyActivityCells();
         private static readonly ColonyActivityFootprint footprint = new ColonyActivityFootprint();
         private static readonly ConduitType[] conduitTypes = { ConduitType.Gas, ConduitType.Liquid, ConduitType.Solid };
         private static readonly bool control = Environment.GetEnvironmentVariable("MA_COLONY_ACTIVITY_CONTROL") == "1";
+        // Only the comparison of every census with a complete one (any colony; the
+        // activity control's mask checks are made for its own fixture).
+        private static readonly bool censusControl = control || Environment.GetEnvironmentVariable("MA_COLONY_CENSUS_CONTROL") == "1";
         private static readonly SortedDictionary<ulong, ColonyActivitySnapshot> pendingChecks = new SortedDictionary<ulong, ColonyActivitySnapshot>();
         private static readonly AccessTools.FieldRef<Building, int[]> buildingCells = AccessTools.FieldRefAccess<Building, int[]>("placementCells");
         private static readonly AccessTools.FieldRef<OccupyArea, int[]> occupiedCells = AccessTools.FieldRefAccess<OccupyArea, int[]>("occupiedGridCells");
@@ -84,7 +113,9 @@ namespace MixedAtmospheres.Oni
 
         internal static void Reset()
         {
-            entries.Clear(); mobile.Clear(); dead.Clear(); retired.Clear(); census.Reset(); seeded = false; session = 0; Active = false; latestCensus = null; stagedSequence = 0; stagedSeconds = 0; ReplayMigratedActors = StagedFrames = StagedDeliveries = 0;
+            entries.Clear(); mobile.Clear(); dead.Clear(); retired.Clear(); census.Reset(); seeded = false;
+            order.Clear(); waiting.Clear(); reading.Clear(); gone.Clear(); reference.Reset(); turn = registryAge = censusWidth = censusHeight = 0; completeNext = true;
+            CompleteCensuses = PartialCensuses = FootprintsRead = CensusComparisons = 0; session = 0; Active = false; latestCensus = null; stagedSequence = 0; stagedSeconds = 0; ReplayMigratedActors = StagedFrames = StagedDeliveries = 0;
             QueuedFrames = ClaimedFrames = LifecycleRefreshes = 0; ActorCount = ActorCells = TouchedCells = LivingActors = Buildings = Plants = InactiveActors = 0; LastSubmittedSequence = 0; Frames.Reset();
             pendingChecks.Clear(); MaskChecks = MaskCellsChecked = MaskBusy = DroppedChecks = 0;
             ++inputs; censusInputs = -1; SettledRefreshes = 0;
@@ -111,14 +142,25 @@ namespace MixedAtmospheres.Oni
             if (!actor && go.GetComponent<Building>() == null && go.GetComponent<Brain>() == null &&
                 go.GetComponent<MinionIdentity>() == null && go.GetComponent<Uprootable>() == null &&
                 go.GetComponent<Growing>() == null && !go.HasTag(GameTags.Plant)) return;
-            entries.Add(identity, new Entry(component)); ++inputs;
+            var entry = new Entry(component, identity) { Slot = order.Count };
+            entries.Add(identity, entry); order.Add(entry); Await(entry); ++inputs;
+            if (entry.Living) ++LivingActors; if (entry.Building != null) ++Buildings; if (entry.Plant) ++Plants;
+        }
+        private static void Await(Entry entry) { if (!entry.Waiting) { entry.Waiting = true; waiting.Add(entry); } }
+        // Without a census entry: the caller retires or drops its cells.
+        private static void Remove(Entry entry)
+        {
+            entries.Remove(entry.Identity); mobile.Remove(entry);
+            var last = order[order.Count - 1]; order[entry.Slot] = last; last.Slot = entry.Slot; order.RemoveAt(order.Count - 1); entry.Slot = -1;
+            if (entry.Living) --LivingActors; if (entry.Building != null) --Buildings; if (entry.Plant) --Plants;
+            if (entry.Inactive) --InactiveActors;
         }
         internal static void Spawned(Component component)
         {
             // A tracked prefab can finish spawning more components. Debris
             // spawning elsewhere changes none of the registered footprints.
             var id = component.gameObject.GetInstanceID();
-            if (entries.ContainsKey(id)) ++inputs;
+            if (entries.TryGetValue(id, out var entry)) { ++inputs; Await(entry); }
             retired.Remove(id);
             Register(component);
         }
@@ -126,11 +168,14 @@ namespace MixedAtmospheres.Oni
         {
             if (component == null) return;
             var id = component.gameObject.GetInstanceID();
-            if (!entries.Remove(id)) return;
+            if (!entries.TryGetValue(id, out var entry)) return;
+            Remove(entry);
             ++inputs;
-            retired[id] = component.gameObject; census.Retire(id);
+            retired[id] = component.gameObject; census.Retire(id); if (censusControl) reference.Retire(id);
         }
-        private static void SeedAndUnion()
+        // `registries`: also walk the game's registries. A census does when
+        // one of them grew or shrank, and every RegistryChecks censuses.
+        private static void SeedAndUnion(bool registries)
         {
             dead.Clear(); foreach (var pair in retired) if (pair.Value == null) dead.Add(pair.Key);
             foreach (var id in dead) retired.Remove(id);
@@ -139,12 +184,15 @@ namespace MixedAtmospheres.Oni
                 foreach (var element in UnityEngine.Object.FindObjectsByType<PrimaryElement>(FindObjectsInactive.Include, FindObjectsSortMode.None)) Register(element);
                 seeded = true;
             }
-            // These authoritative registries also cover actors whose primary
-            // element is absent or whose inactive prefab spawned during load.
-            foreach (var actor in Components.LiveMinionIdentities.Items) Register(actor, true);
-            foreach (var actor in Components.Brains.Items) Register(actor, true);
-            foreach (var building in Components.BuildingCompletes.Items) Register(building, true);
-            foreach (var plant in Components.Uprootables.Items) Register(plant, true);
+            if (registries)
+            {
+                // These authoritative registries also cover actors whose primary
+                // element is absent or whose inactive prefab spawned during load.
+                foreach (var actor in Components.LiveMinionIdentities.Items) Register(actor, true);
+                foreach (var actor in Components.Brains.Items) Register(actor, true);
+                foreach (var building in Components.BuildingCompletes.Items) Register(building, true);
+                foreach (var plant in Components.Uprootables.Items) Register(plant, true);
+            }
             ColonyActors.RegisterActivityComponents();
         }
         internal static void BeginFootprint(ColonyActivityFootprint target)
@@ -160,63 +208,116 @@ namespace MixedAtmospheres.Oni
             return x>=config.OffsetX && y>=config.OffsetY && x<config.OffsetX+config.Width && y<config.OffsetY+config.Height;
         }
         private static void Offset(int anchor, CellOffset offset, int orientation = 0) => footprint.Offset(anchor, offset.x, offset.y, orientation);
+        // The cells the actor occupies or acts on, read from the game now.
+        private static uint[] Footprint(Entry e, uint[] previous, out int anchor)
+        {
+            anchor = Grid.PosToCell(e.Transform.position);
+            BeginFootprint(footprint); footprint.Add(anchor);
+            if (e.Living)
+            {
+                footprint.Radius(anchor, 1);
+                foreach (var offset in GasBreatherFromWorldProvider.DEFAULT_BREATHABLE_OFFSETS) Offset(anchor, offset);
+            }
+            if (e.Occupancy != null)
+            {
+                var offsets = e.Occupancy.OccupiedCellsOffsets;
+                if (offsets != null) foreach (var offset in offsets) Offset(anchor, offset);
+                var occupied = occupiedCells(e.Occupancy); if (occupied != null) foreach (var cell in occupied) footprint.Add(cell);
+            }
+            foreach (var consumer in e.Consumers) if (consumer.isSpawned && consumer.conduitType != ConduitType.None) footprint.Add(consumerCell(consumer));
+            foreach (var dispenser in e.Dispensers) if (dispenser.isSpawned && dispenser.conduitType != ConduitType.None) footprint.Add(dispenserCell(dispenser));
+            var building = e.Building;
+            if (building != null && building.Def != null)
+            {
+                var placed = buildingCells(building); if (placed != null) foreach (var cell in placed) footprint.Add(cell);
+                var definition = building.Def; var orientation = (int)building.Orientation;
+                foreach (var offset in definition.PlacementOffsets) Offset(anchor, offset, orientation);
+                if (definition.InputConduitType != ConduitType.None) Offset(anchor, definition.UtilityInputOffset, orientation);
+                if (definition.OutputConduitType != ConduitType.None) Offset(anchor, definition.UtilityOutputOffset, orientation);
+                if (definition.RequiresPowerInput) Offset(anchor, definition.PowerInputOffset, orientation);
+                if (definition.RequiresPowerOutput) Offset(anchor, definition.PowerOutputOffset, orientation);
+                foreach (var input in e.Inputs)
+                    foreach (var type in conduitTypes)
+                        if (input.HasSecondaryConduitType(type)) Offset(anchor, input.GetSecondaryConduitOffset(type), orientation);
+                foreach (var output in e.Outputs)
+                    foreach (var type in conduitTypes)
+                        if (output.HasSecondaryConduitType(type)) Offset(anchor, output.GetSecondaryConduitOffset(type), orientation);
+            }
+            return footprint.Finish(previous);
+        }
+        // Reads one actor into the census. False: its component is gone.
+        private static bool Read(Entry e)
+        {
+            e.Read = censusNumber; e.Waiting = false;
+            if (e.Component == null) return false;
+            ++FootprintsRead;
+            var inactive = !e.Component.gameObject.activeInHierarchy;
+            if (inactive != e.Inactive) { e.Inactive = inactive; InactiveActors += inactive ? 1 : -1; }
+            var moves = e.Living || e.Building == null || !e.Building.isSpawned || e.Building.Def == null || e.Building.Def.CanMove;
+            if (moves != e.Mobile) { e.Mobile = moves; if (moves) mobile.Add(e); else mobile.Remove(e); }
+            e.Previous = Footprint(e, e.Previous, out e.Anchor);
+            if (control) ValidateGameFootprint(e);
+            census.Observe(e.Identity, e.Previous);
+            return true;
+        }
+        // The actors of ColonyActors (consumers and emitters by callback): a
+        // census observes all of them, so one it did not observe has left.
+        private static readonly Func<long, bool> actorIdentity = identity => { var domain = identity >> 32; return domain >= 1 && domain <= 3; };
         private static ColonyActivitySnapshot Capture()
         {
             censusInputs = -1;
-            SeedAndUnion(); census.Begin(Grid.WidthInCells, Grid.HeightInCells); dead.Clear();
-            LivingActors = Buildings = Plants = InactiveActors = 0;
-            mobile.Clear();
-            foreach (var pair in entries)
+            int width = Grid.WidthInCells, height = Grid.HeightInCells;
+            int minions = Components.LiveMinionIdentities.Count, brains = Components.Brains.Count,
+                buildings = Components.BuildingCompletes.Count, uprootables = Components.Uprootables.Count;
+            var complete = completeNext || !seeded || width != censusWidth || height != censusHeight;
+            completeNext = true; // until this census has finished: one that throws is followed by a complete one
+            var registries = complete || minions != censusMinions || brains != censusBrains || buildings != censusBuildings ||
+                uprootables != censusUprootables || ++registryAge >= RegistryChecks;
+            if (registries) registryAge = 0;
+            SeedAndUnion(registries); census.Begin(width, height, partial: !complete);
+            ++censusNumber; reading.Clear(); gone.Clear();
+            if (complete) { ++CompleteCensuses; reading.AddRange(order); }
+            else
             {
-                var e = pair.Value; if (e.Component == null) { dead.Add(pair.Key); continue; }
-                if (e.Living) ++LivingActors; if (e.Building != null) ++Buildings; if (e.Plant) ++Plants;
-                if (!e.Component.gameObject.activeInHierarchy) ++InactiveActors;
-                if (e.Living || e.Building == null || !e.Building.isSpawned || e.Building.Def == null || e.Building.Def.CanMove) mobile.Add(e);
-                var anchor = Grid.PosToCell(e.Transform.position);
-                e.Anchor = anchor;
-                BeginFootprint(footprint); footprint.Add(anchor);
-                if (e.Living)
-                {
-                    footprint.Radius(anchor, 1);
-                    foreach (var offset in GasBreatherFromWorldProvider.DEFAULT_BREATHABLE_OFFSETS) Offset(anchor, offset);
-                }
-                if (e.Occupancy != null)
-                {
-                    var offsets = e.Occupancy.OccupiedCellsOffsets;
-                    if (offsets != null) foreach (var offset in offsets) Offset(anchor, offset);
-                    var occupied = occupiedCells(e.Occupancy); if (occupied != null) foreach (var cell in occupied) footprint.Add(cell);
-                }
-                foreach (var consumer in e.Consumers) if (consumer.isSpawned && consumer.conduitType != ConduitType.None) footprint.Add(consumerCell(consumer));
-                foreach (var dispenser in e.Dispensers) if (dispenser.isSpawned && dispenser.conduitType != ConduitType.None) footprint.Add(dispenserCell(dispenser));
-                var building = e.Building;
-                if (building != null && building.Def != null)
-                {
-                    var placed = buildingCells(building); if (placed != null) foreach (var cell in placed) footprint.Add(cell);
-                    var definition = building.Def; var orientation = (int)building.Orientation;
-                    foreach (var offset in definition.PlacementOffsets) Offset(anchor, offset, orientation);
-                    if (definition.InputConduitType != ConduitType.None) Offset(anchor, definition.UtilityInputOffset, orientation);
-                    if (definition.OutputConduitType != ConduitType.None) Offset(anchor, definition.UtilityOutputOffset, orientation);
-                    if (definition.RequiresPowerInput) Offset(anchor, definition.PowerInputOffset, orientation);
-                    if (definition.RequiresPowerOutput) Offset(anchor, definition.PowerOutputOffset, orientation);
-                    foreach (var input in e.Inputs)
-                        foreach (var type in conduitTypes)
-                            if (input.HasSecondaryConduitType(type)) Offset(anchor, input.GetSecondaryConduitOffset(type), orientation);
-                    foreach (var output in e.Outputs)
-                        foreach (var type in conduitTypes)
-                            if (output.HasSecondaryConduitType(type)) Offset(anchor, output.GetSecondaryConduitOffset(type), orientation);
-                }
-                e.Previous = footprint.Finish(e.Previous);
-                if (control) ValidateGameFootprint(e);
-                census.Observe(pair.Key, e.Previous);
+                ++PartialCensuses;
+                reading.AddRange(mobile); reading.AddRange(waiting);
+                for (var k = Math.Min(FixedChecks, order.Count); k > 0; --k) { if (turn >= order.Count) turn = 0; reading.Add(order[turn++]); }
             }
-            foreach (var id in dead) entries.Remove(id);
+            waiting.Clear();
+            foreach (var e in reading)
+            {
+                if (e.Slot < 0 || e.Read == censusNumber) { e.Waiting = false; continue; }
+                if (!Read(e)) gone.Add(e);
+            }
+            foreach (var e in gone) { Remove(e); census.Drop(e.Identity); }
+            reading.Clear(); gone.Clear();
             ColonyActors.CaptureActivity(census, footprint);
-            var snapshot = census.Finish(); ActorCount = census.ActorCount; ActorCells = snapshot.Actors.Length; TouchedCells = snapshot.Touched.Length;
+            var snapshot = census.Finish(actorIdentity); ActorCount = census.ActorCount; ActorCells = snapshot.Actors.Length; TouchedCells = snapshot.Touched.Length;
+            if (censusControl) CompareWithComplete(snapshot, width, height);
             censusTime = Time.timeAsDouble; censusActorInputs = ColonyActors.ActivityInputs;
-            censusMinions = Components.LiveMinionIdentities.Count; censusBrains = Components.Brains.Count;
-            censusBuildings = Components.BuildingCompletes.Count; censusUprootables = Components.Uprootables.Count;
+            censusMinions = minions; censusBrains = brains; censusBuildings = buildings; censusUprootables = uprootables;
+            censusWidth = width; censusHeight = height; completeNext = false;
             censusInputs = inputs;
             return snapshot;
+        }
+        // MA_COLONY_ACTIVITY_CONTROL=1 or MA_COLONY_CENSUS_CONTROL=1: a second
+        // census that reads every actor each time must give this census's snapshot.
+        private static void CompareWithComplete(ColonyActivitySnapshot snapshot, int width, int height)
+        {
+            reference.Begin(width, height);
+            foreach (var e in order) if (e.Component != null) reference.Observe(e.Identity, Footprint(e, Array.Empty<uint>(), out _));
+            ColonyActors.CaptureActivity(reference, footprint);
+            var expected = reference.Finish();
+            if (!expected.Actors.SequenceEqual(snapshot.Actors)) throw new InvalidOperationException("The actor census differs from a complete one in its actor cells: " + Difference(expected.Actors, snapshot.Actors));
+            if (!expected.Touched.SequenceEqual(snapshot.Touched)) throw new InvalidOperationException("The actor census differs from a complete one in its touched cells: " + Difference(expected.Touched, snapshot.Touched));
+            ++CensusComparisons;
+        }
+        private static string Difference(ReadOnlySpan<uint> expected, ReadOnlySpan<uint> actual)
+        {
+            var e = new HashSet<uint>(expected.ToArray()); var a = new HashSet<uint>(actual.ToArray());
+            foreach (var cell in expected) if (!a.Contains(cell)) return "cell " + cell + " is missing (" + expected.Length + " expected, " + actual.Length + " found)";
+            foreach (var cell in actual) if (!e.Contains(cell)) return "cell " + cell + " is extra (" + expected.Length + " expected, " + actual.Length + " found)";
+            return "order";
         }
         // Whether a census now would be built from exactly what the last one
         // was: no game time has passed (nothing moved under the simulation),
@@ -293,8 +394,9 @@ namespace MixedAtmospheres.Oni
                 OniNativeColony.Check(OniNativeColony.ClaimActivityFrame(session, state.PendingHeadSequence, seconds));
                 LastSubmittedSequence = state.PendingHeadSequence; Frames.Post(state.PendingHeadSequence); ++ClaimedFrames; return;
             }
-            ColonyActors.QueueFrame(seconds);
-            var snapshot = Capture();
+            using (ColonyFrameLog.Track("tick_actors")) ColonyActors.QueueFrame(seconds);
+            ColonyActivitySnapshot snapshot;
+            using (ColonyFrameLog.Track("tick_census")) snapshot = Capture();
             OniNativeColony.Check(OniNativeColony.QueueActivity(session, seconds, snapshot, out var sequence));
             latestCensus = snapshot;
             if (control)
@@ -365,7 +467,7 @@ namespace MixedAtmospheres.Oni
                 return true;
             }
         }
-        internal static object Report() => new { Active, PostedSequence = Frames.Posted, ShownSequence = Frames.Shown, QueuedFrames, ClaimedFrames, ReplayMigratedActors, StagedFrames, StagedDeliveries, StagedSequence = stagedSequence, LifecycleRefreshes, SettledRefreshes, ActorCount, LivingActors, Buildings, Plants, InactiveActors, ActorCells, TouchedCells, LastSubmittedSequence, MaskChecks, MaskCellsChecked, MaskBusy, DroppedChecks };
+        internal static object Report() => new { Active, PostedSequence = Frames.Posted, ShownSequence = Frames.Shown, QueuedFrames, ClaimedFrames, ReplayMigratedActors, StagedFrames, StagedDeliveries, StagedSequence = stagedSequence, LifecycleRefreshes, SettledRefreshes, ActorCount, LivingActors, Buildings, Plants, InactiveActors, ActorCells, TouchedCells, LastSubmittedSequence, MaskChecks, MaskCellsChecked, MaskBusy, DroppedChecks, CompleteCensuses, PartialCensuses, FootprintsRead, CensusComparisons };
     }
 
     [HarmonyPatch(typeof(PrimaryElement), "OnSpawn")]
