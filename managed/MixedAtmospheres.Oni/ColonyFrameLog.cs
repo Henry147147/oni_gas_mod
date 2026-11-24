@@ -27,10 +27,14 @@ namespace MixedAtmospheres.Oni
             // Publication sub-parts (included in Publication).
             Views, Snapshot, Overlay, Receipts, Actors, Presentation,
             // Independent main-thread idle work; not a publication sub-part.
-            ByproductPump, Count
+            ByproductPump,
+            // The mixed pipes' germ and heat bookkeeping around ONI's own pipe
+            // updates (the Harmony patches of ConduitDiseaseManager.Sim200ms
+            // and ConduitTemperatureManager.Sim200ms), once per tick.
+            Pipes, Count
         }
         private static readonly string[] Names =
-            { "submit", "wait", "native_other", "wait_gc", "publication", "messages", "pacing", "tick", "views", "snapshot", "overlay", "receipts", "actors", "presentation", "byproduct_pump" };
+            { "submit", "wait", "native_other", "wait_gc", "publication", "messages", "pacing", "tick", "views", "snapshot", "overlay", "receipts", "actors", "presentation", "byproduct_pump", "pipes" };
         // On with MA_FRAME_LOG=1 or the Advanced > Performance preference "Log frame timing".
         private static readonly bool environment = Environment.GetEnvironmentVariable("MA_FRAME_LOG") == "1";
         internal static bool Enabled = environment;
@@ -52,6 +56,16 @@ namespace MixedAtmospheres.Oni
         private static readonly long[] accumulated = new long[(int)Part.Count], worstParts = new long[(int)Part.Count];
         private static readonly double[] sums = new double[(int)Part.Count];
         private static readonly List<double> frames = new List<double>(2048), mod = new List<double>(2048), blocked = new List<double>(2048), other = new List<double>(2048);
+        // The frames in which the game posted a simulation tick, and the mod's
+        // time in them: a tick's work (ONI's and the mod's) lands in one frame,
+        // so these are the frames a player sees as a stutter.
+        private static readonly List<double> tickFrames = new List<double>(256), tickMod = new List<double>(256), quietFrames = new List<double>(2048);
+        private static bool tickPosted;
+        internal static void TickPosted() { if (Enabled) tickPosted = true; }
+        // The pipes' germ cultures stepped in the window and the binary64 words
+        // of their exact counts: a step's cost grows with the words.
+        private static long cultures, cultureWords; private static int cultureLongest;
+        internal static void Culture(int words) { if (Enabled) { ++cultures; cultureWords += words; if (words > cultureLongest) cultureLongest = words; } }
         private static readonly Stopwatch clock = Stopwatch.StartNew();
         private static long last, windowStart, hitch33, hitch50, hitch100, publications, worstFrameTicks;
         private static int collections0, collections1, collections2, lastCollections;
@@ -154,9 +168,11 @@ namespace MixedAtmospheres.Oni
             if (collected != lastCollections) { lastCollections = collected; ++gcFrames; gcFrameTicks += frame; gcWorstTicks = Math.Max(gcWorstTicks, frame); lastHeap = GC.GetTotalMemory(false); }
             else { var heap = GC.GetTotalMemory(false); if (heap > lastHeap) allocated += heap - lastHeap; lastHeap = heap; }
             var ms = 1000.0 / Stopwatch.Frequency;
-            double modTicks = accumulated[(int)Part.Publication] + accumulated[(int)Part.Messages] + accumulated[(int)Part.Pacing] + accumulated[(int)Part.Tick] + accumulated[(int)Part.ByproductPump];
+            double modTicks = accumulated[(int)Part.Publication] + accumulated[(int)Part.Messages] + accumulated[(int)Part.Pacing] + accumulated[(int)Part.Tick] + accumulated[(int)Part.ByproductPump] + accumulated[(int)Part.Pipes];
             double blockedTicks = accumulated[(int)Part.NativeSubmit] + accumulated[(int)Part.NativeWait] + accumulated[(int)Part.NativeOther];
             frames.Add(frame * ms); mod.Add(modTicks * ms); blocked.Add(blockedTicks * ms); other.Add(Math.Max(0, frame - modTicks - blockedTicks) * ms);
+            if (tickPosted) { tickFrames.Add(frame * ms); tickMod.Add(modTicks * ms); } else quietFrames.Add(frame * ms);
+            tickPosted = false;
             for (var k = 0; k < accumulated.Length; ++k) sums[k] += accumulated[k] * ms;
             if (frame > worstFrameTicks) { worstFrameTicks = frame; Array.Copy(accumulated, worstParts, accumulated.Length); }
             var frameMs = frame * ms;
@@ -168,6 +184,7 @@ namespace MixedAtmospheres.Oni
         private static void Restart()
         {
             frames.Clear(); mod.Clear(); blocked.Clear(); other.Clear(); Array.Clear(sums, 0, sums.Length);
+            tickFrames.Clear(); tickMod.Clear(); quietFrames.Clear(); cultures = cultureWords = 0; cultureLongest = 0;
             hitch33 = hitch50 = hitch100 = publications = worstFrameTicks = 0; gcFrames = gcFrameTicks = gcWorstTicks = allocated = publicationAllocated = mainAllocated = 0; Array.Clear(worstParts, 0, worstParts.Length);
             collections0 = GC.CollectionCount(0); collections1 = GC.CollectionCount(1); collections2 = GC.CollectionCount(2);
             heapStart = GC.GetTotalMemory(false);
@@ -201,6 +218,11 @@ namespace MixedAtmospheres.Oni
                 line.Append("[Mixed Atmospheres] frame-log frames ").Append(frames.Count.ToString(c)).Append(" owner ").Append(ColonyOwner.Active ? 1 : 0);
                 line.Append(" scale ").Append(Time.timeScale.ToString("0.00", c)).Append(" pace ").Append(ColonyPacing.OwnerRate.ToString("0.00", c));
                 Stats(line, "frame_ms", frames); Stats(line, "mod_ms", mod); Stats(line, "blocked_ms", blocked); Stats(line, "other_ms", other);
+                line.Append(" tick_frames ").Append(tickFrames.Count.ToString(c));
+                if (tickFrames.Count != 0) { Stats(line, "tick_frame_ms", tickFrames); Stats(line, "tick_mod_ms", tickMod); }
+                if (quietFrames.Count != 0) Stats(line, "quiet_frame_ms", quietFrames);
+                if (cultures != 0) line.Append(" pipe_germ_steps ").Append(cultures.ToString(c)).Append(" pipe_germ_words mean ").Append((cultureWords / (double)cultures).ToString("0.0", c))
+                    .Append(" max ").Append(cultureLongest.ToString(c));
                 line.Append(" hitch33 ").Append(hitch33.ToString(c)).Append(" hitch50 ").Append(hitch50.ToString(c)).Append(" hitch100 ").Append(hitch100.ToString(c));
                 line.Append(" gc0 ").Append((GC.CollectionCount(0) - collections0).ToString(c)).Append(" gc1 ").Append((GC.CollectionCount(1) - collections1).ToString(c))
                     .Append(" gc2 ").Append((GC.CollectionCount(2) - collections2).ToString(c)).Append(" heap_mb ").Append((GC.GetTotalMemory(false) / 1048576.0).ToString("0.0", c))

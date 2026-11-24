@@ -84,6 +84,7 @@ namespace MixedAtmospheres.Oni
                 foreach(var germ in held.Germs)
                 {
                     if(germ.Id<0||germ.Id>=byte.MaxValue||germ.Id>=Db.Get().Diseases.Count)return false;
+                    ColonyFrameLog.Culture(germ.Amount.Words);
                     var definition=Db.Get().Diseases[(byte)germ.Id];
                     var clock=state.Cultures.TryGetValue(germ.Id,out var existing)?existing.Clock:
                         new GermPopulationClock(false,data.diseaseIdx==germ.Id?data.accumulatedError:0);
@@ -282,9 +283,16 @@ namespace MixedAtmospheres.Oni
         private static bool Prefix(ConduitDiseaseManager __instance,float __0,ref ColonyPipeBiology.Scope? __state)
         {
             if(ColonyFault.Faulted&&ColonyConduits.Active)return false;
-            __state=ColonyPipeBiology.Begin(__instance,__0);return true;
+            var begun=ColonyFrameLog.Now;
+            try{__state=ColonyPipeBiology.Begin(__instance,__0);return true;}
+            finally{ColonyFrameLog.Add(ColonyFrameLog.Part.Pipes,begun);}
         }
-        private static void Postfix(ColonyPipeBiology.Scope? __state)=>__state?.Finish(true);
+        private static void Postfix(ColonyPipeBiology.Scope? __state)
+        {
+            var begun=ColonyFrameLog.Now;
+            try{__state?.Finish(true);}
+            finally{ColonyFrameLog.Add(ColonyFrameLog.Part.Pipes,begun);}
+        }
         private static Exception? Finalizer(Exception? __exception,ColonyPipeBiology.Scope? __state)
         {
             __state?.Finish(false);

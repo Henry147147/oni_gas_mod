@@ -824,20 +824,30 @@ namespace MixedAtmospheres.Oni
         private static bool Prefix(float __0,ref Scope? __state)
         {
             if(ColonyFault.Faulted&&ColonyConduits.Active)return false;
+            var begun=ColonyFrameLog.Now;
+            try
+            {
             var contact=ColonyPipeContactHeat.Begin(__0);
             if(contact!=null)__state=new Scope{Contact=contact};
             var probe=ColonyPipeThermalProbe.Begin(__0);
             if(probe!=null){__state??=new Scope();__state.Probe=probe;}
             return true;
+            }
+            finally{ColonyFrameLog.Add(ColonyFrameLog.Part.Pipes,begun);}
         }
         private static void Postfix(float __0,Scope? __state)
         {
             if(ColonyFault.Faulted&&ColonyConduits.Active)return;
+            var begun=ColonyFrameLog.Now;
+            try
+            {
             ColonyPipeThermalProbe.AfterNative(__state?.Probe);__state?.Contact?.Validate();
             ColonyConduits.ThermalBoundary();__state?.Contact?.Complete();ColonyPipeThermalProbe.AfterBook(__state?.Probe);
             // Network rebuilds call the thermal update with dt 0; phase
             // damage is a timed thermal event and waits for a real tick.
             if(__0>0)ColonyConduits.PhaseBoundary();
+            }
+            finally{ColonyFrameLog.Add(ColonyFrameLog.Part.Pipes,begun);}
         }
         private static Exception? Finalizer(Exception? __exception,Scope? __state)
         {
