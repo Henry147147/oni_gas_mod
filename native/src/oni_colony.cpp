@@ -371,7 +371,10 @@ struct GermEdit { std::uint32_t public_cell, germ; double change; };
 std::vector<GermEdit> pending_germs; // under inputs
 // rect index -> rads; under inputs; not saved. Each field is immutable once
 // set, so a frame takes the pointer instead of copying the map.
-std::shared_ptr<const std::unordered_map<std::size_t, float>> radiation_field = std::make_shared<const std::unordered_map<std::size_t, float>>();
+// The game's radiation at the owner's cells, by rectangle index (0: none; empty: no field).
+// A field arrives with every publication of a Spaced Out! colony: a plain array costs a fill,
+// where a hash map of its tens of thousands of cells cost the game thread 1.5 ms a tick.
+std::shared_ptr<const std::vector<float>> radiation_field = std::make_shared<const std::vector<float>>();
 // World germ evolution (docs/colony-owner.md#germs): the game's disease table
 // (lifecycle lock), and the running session's mode for the native worker.
 biology::Table disease_table;
@@ -1205,7 +1208,7 @@ void activate(std::unique_ptr<Session> next, std::uint64_t thread) {
     retiring=std::make_unique<std::atomic<std::uint8_t>[]>(owned_count);retiring_count=0;prepared_retirement.reset();
     outside_world=std::make_unique<std::atomic<std::uint8_t>[]>(owned_count);outside_known.store(false,std::memory_order_relaxed);custody_logged.store(0,std::memory_order_relaxed);
     for (std::size_t i = 0; i < owned_count; ++i) owned[i].store(next->world->state().grid.walls[i] ? 0 : 1, std::memory_order_relaxed);
-    { std::lock_guard lock(inputs); pending_transfers.clear(); pending_heat.clear(); pending_terrain.clear(); pending_freezes.clear(); pending_germs.clear(); radiation_field = std::make_shared<const std::unordered_map<std::size_t, float>>(); receipts.clear();
+    { std::lock_guard lock(inputs); pending_transfers.clear(); pending_heat.clear(); pending_terrain.clear(); pending_freezes.clear(); pending_germs.clear(); radiation_field = std::make_shared<const std::vector<float>>(); receipts.clear();
       pending_activity.clear();lifecycle_activity.reset();pending_activity_mode.reset();
       activity_session=next->status.session;accepted_activity_sequence=next->activity_sequence;
       requested_activity_tiers=next->world->settings().game.activity_tiers;
@@ -2542,12 +2545,13 @@ void queue_germs(std::span<const MAOniColonyGermEdit> edits) {
 void set_radiation(std::span<const std::uint32_t> cells, std::span<const float> rads) {
     require(active(), "No colony owner is active");
     require(cells.size() == rads.size() && cells.size() <= 1u << 22, "Invalid colony radiation field");
-    std::unordered_map<std::size_t, float> field; field.reserve(cells.size());
+    std::vector<float> field;
+    if (!cells.empty()) field.assign(static_cast<std::size_t>(geometry.width) * geometry.height, 0.0f);
     for (std::size_t k = 0; k < cells.size(); ++k) {
         require(std::isfinite(rads[k]) && rads[k] > 0, "Invalid colony radiation value");
         field[rect_index(geometry, cells[k])] = rads[k];
     }
-    auto shared = std::make_shared<const std::unordered_map<std::size_t, float>>(std::move(field));
+    auto shared = std::make_shared<const std::vector<float>>(std::move(field));
     std::lock_guard lock(inputs);
     radiation_field = std::move(shared);
 }
@@ -3805,7 +3809,7 @@ MacClosedWorld evolve_germs(Session& s, MacClosedWorld world, std::span<const Ge
     }
     std::shared_ptr<const Published> p; { std::lock_guard lock(publication); p = latest; }
     if (frames > 0 && !disease_table.empty() && p && p->views.size() == st.cells.size()) {
-        std::shared_ptr<const std::unordered_map<std::size_t, float>> field; { std::lock_guard lock(inputs); field = radiation_field; }
+        std::shared_ptr<const std::vector<float>> field; { std::lock_guard lock(inputs); field = radiation_field; }
         const auto& radiation = *field;
         // A cell's medium is read once per call, when the first frame needs it
         // (cell_presentation gives cell_reading's temperature and liquid volume
@@ -3836,12 +3840,12 @@ MacClosedWorld evolve_germs(Session& s, MacClosedWorld world, std::span<const Ge
                 if (!(held > 0)) return;
                 m.open = true; m.mass_kg = held; m.temperature_k = v.temperature_k; m.state = static_cast<std::uint8_t>(phase);
                 m.element = cat.materials[phase == 1 ? gas_k : liquid_k].game.native_index;
-                if (const auto r = radiation.find(i); r != radiation.end()) m.radiation = r->second;
+                if (i < radiation.size() && radiation[i] > 0) m.radiation = radiation[i];
                 if (pick) { world.cell_presentation(i, reading); m.temperature_k = static_cast<float>(std::clamp(reading.temperature_k, 1., 9999.)); }
                 return;
             }
             m.open = true; m.mass_kg = total; m.temperature_k = v.temperature_k; m.element = v.element_index;
-            if (const auto r = radiation.find(i); r != radiation.end()) m.radiation = r->second;
+            if (i < radiation.size() && radiation[i] > 0) m.radiation = radiation[i];
             if (pick && m.mass_kg > 0) {
                 world.cell_presentation(i, reading);m.temperature_k=static_cast<float>(std::clamp(reading.temperature_k,1.,9999.));
                 m.element=cat.materials[shows_liquid(reading.liquid_volume_m3,st.grid.volume_m3(),gas)?liquid_k:gas_k].game.native_index;

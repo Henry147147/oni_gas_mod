@@ -16,11 +16,19 @@ namespace MixedAtmospheres.Oni
         private static bool sentField;
         internal static long Fields { get; private set; }
         internal static long Cells { get; private set; }
+        // The field handed over last: the owner keeps it until the next one, and
+        // building its lookup there costs about as much as a copy of the views
+        // (1.5 ms a tick on a large Spaced Out! colony), so a publication whose
+        // field equals it hands nothing over.
+        private static uint[] lastCells = Array.Empty<uint>(); private static float[] lastRads = Array.Empty<float>(); private static int lastCount = -1;
+        internal static long Unchanged { get; private set; }
 
-        internal static void Reset() { Fields = 0; Cells = 0; sentField = false; }
+        internal static void Reset() { Fields = 0; Cells = 0; Unchanged = 0; sentField = false; lastCount = -1; }
 
+        // At every owner start and restore: a new owner holds no field.
         internal static void Configure()
         {
+            Reset();
             anyKiller = false;
             var table = Db.Get().Diseases;
             for (var i = 0; i < table.Count; ++i) anyKiller |= table[i].radiationKillRate > 0;
@@ -35,7 +43,13 @@ namespace MixedAtmospheres.Oni
             if (!Enabled) return;
             if (count == 0 && !sentField) return;
             if (count < 0 || count > cells.Length || count > rads.Length) throw new ArgumentOutOfRangeException(nameof(count));
+            if (count == lastCount && cells.AsSpan(0, count).SequenceEqual(lastCells.AsSpan(0, count)) &&
+                System.Runtime.InteropServices.MemoryMarshal.AsBytes(rads.AsSpan(0, count)).SequenceEqual(System.Runtime.InteropServices.MemoryMarshal.AsBytes(lastRads.AsSpan(0, count))))
+            { ++Unchanged; return; }
+            lastCount = -1; // not the owner's field until the call has returned
             OniNativeColony.Check(ColonyWorldGerms.SetRadiation(cells, rads, (uint)count));
+            if (lastCells.Length < count) { lastCells = new uint[cells.Length]; lastRads = new float[rads.Length]; }
+            Array.Copy(cells, lastCells, count); Array.Copy(rads, lastRads, count); lastCount = count;
             sentField = count != 0; ++Fields; Cells += count;
         }
     }
