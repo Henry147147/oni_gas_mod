@@ -437,8 +437,22 @@ namespace MixedAtmospheres.Oni
         internal static void ValidatePublication(OniNativeColony.Status published)
         {
             if (!Active || !control || pendingChecks.Count == 0) return;
+            // The census `published` committed. Under overlapped pacing the
+            // readers' publication lags the owner's latest by up to two frames
+            // (docs/colony-owner.md#overlapped-pacing), and CopyActivity names
+            // the latest's sequence. Every completed frame commits exactly one
+            // census, so the readers' is that sequence less the frames between
+            // them, read from one latest publication: one that moves between
+            // the two status reads is checked at a later publication.
+            var latest = OniNativeColony.Status.Empty; OniNativeColony.Check(OniNativeColony.CopyStatus(ref latest));
             var state = OniNativeColony.ActivityState.Empty; OniNativeColony.Check(OniNativeColony.CopyActivity(ref state));
-            if (state.Session != published.Session || !pendingChecks.TryGetValue(state.LastCommittedSequence, out var snapshot)) return;
+            var again = OniNativeColony.Status.Empty; OniNativeColony.Check(OniNativeColony.CopyStatus(ref again));
+            if (state.Session != published.Session || latest.Session != state.Session || again.Session != state.Session ||
+                again.CompletedFrames != latest.CompletedFrames || latest.CompletedFrames < published.CompletedFrames) return;
+            var lead = latest.CompletedFrames - published.CompletedFrames;
+            if (lead > state.LastCommittedSequence) return;
+            var sequence = state.LastCommittedSequence - lead;
+            if (!pendingChecks.TryGetValue(sequence, out var snapshot)) return;
             var expectedActors = ColonyActivityMask.Project(snapshot.Actors, Grid.WidthInCells, Grid.HeightInCells, ColonyOwner.PublishedActivityFluid);
             var all = ColonyActivityMask.Project(snapshot.Touched, Grid.WidthInCells, Grid.HeightInCells, ColonyOwner.PublishedActivityFluid);
             all.UnionWith(expectedActors); foreach (var cell in snapshot.Actors) all.Add(cell); foreach (var cell in snapshot.Touched) all.Add(cell);
@@ -450,7 +464,7 @@ namespace MixedAtmospheres.Oni
             }
             if (count != 0 && !ValidateBatch()) return;
             ++MaskChecks;
-            var obsolete = new List<ulong>(); foreach (var key in pendingChecks.Keys) if (key <= state.LastCommittedSequence) obsolete.Add(key);
+            var obsolete = new List<ulong>(); foreach (var key in pendingChecks.Keys) if (key <= sequence) obsolete.Add(key);
             foreach (var key in obsolete) pendingChecks.Remove(key);
             bool ValidateBatch()
             {
