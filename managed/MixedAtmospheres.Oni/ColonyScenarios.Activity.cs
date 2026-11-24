@@ -76,11 +76,17 @@ namespace MixedAtmospheres.Oni
                         ReferenceEquals(KPrefabIDTracker.Get().GetInstance(prefab.InstanceID),prefab);
                     Record("inactive prefab census follows the real game registry",(empty[Cell(1,4)].Actors!=0)==registered&&empty[Cell(6,4)].Actors==0,
                         $"tracked live brain {registered}, initial anchor actor {empty[Cell(1,4)].Actors}, destination actor {empty[Cell(6,4)].Actors}");
-                    activityCreature!.SetActive(true);
+                    activityCreature!.SetActive(true);recorded["activity activation posted"]=ColonyActivity.Frames.Posted;
                 }
                 finally{SpeedControlScreen.Instance.Unpause(false);}
             }
-            if(Once(12,"spawn, inactive motion and zero-time policy boundaries"))
+            // Unity spawns the activated creature (Start, OnSpawn) in its next
+            // frame. The flush above pins the readers at the owner's latest
+            // frame, two frames ahead of them with overlapped pacing, so frame
+            // 12 can arrive in this same update, before that spawn. Wait for
+            // the next game tick, as with serial pacing (one frame ahead).
+            if(recorded.TryGetValue("activity activation posted",out var activationPosted)&&ColonyActivity.Frames.Posted>(ulong)activationPosted&&
+                Once(12,"spawn, inactive motion and zero-time policy boundaries"))
             {
                 SpeedControlScreen.Instance.Pause(false);
                 try
@@ -157,9 +163,16 @@ namespace MixedAtmospheres.Oni
                     $"{path}; queued sequence {sequence}, committed {activity.LastCommittedSequence}, next {activity.NextSubmissionSequence}");
                 Record("activity controls retain closed ledgers",after.State==1&&after.MaximumRelativeMassError<=1e-12&&after.MaximumRelativeEnergyError<=1e-12,
                     $"mass {after.MaximumRelativeMassError:R}, energy {after.MaximumRelativeEnergyError:R}");
-                recorded["activity staged save frame"]=after.CompletedFrames;
+                recorded["activity staged save frame"]=after.CompletedFrames;recorded["activity staged sequence"]=sequence;
             }
-            if(recorded.ContainsKey("activity staged save frame")&&ColonyActivity.StagedDeliveries>0&&ColonyContinuationProbe.Done)
+            // The staged frame is delivered when the resumed game posts it;
+            // its owner frame reaches the readers later. With overlapped
+            // pacing the save barrier pins them at the saved frame until the
+            // frames handed after it catch up: the delivered frame shows once
+            // the frame after next is posted (docs/colony-owner.md#overlapped-pacing).
+            // Check then, or one tick later at the latest.
+            if(recorded.ContainsKey("activity staged save frame")&&ColonyActivity.StagedDeliveries>0&&ColonyContinuationProbe.Done&&
+                (ColonyOwner.Status.CompletedFrames>(ulong)recorded["activity staged save frame"]||ColonyActivity.Frames.Posted>=(ulong)recorded["activity staged sequence"]+3))
             {
                 Record("uninterrupted resume delivers the prepared frame once",ColonyActivity.StagedDeliveries==1&&
                     ColonyOwner.Status.CompletedFrames>(ulong)recorded["activity staged save frame"],
