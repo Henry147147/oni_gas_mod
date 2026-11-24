@@ -291,13 +291,14 @@ affected systems. `plan --tier patch` accepts the same scenario selection.
 Use the quick/release tiers for the complete gameplay and starting-asteroid
 matrix, UI, DLC and long-run coverage. Since 1.13.5 the release tier also
 runs every in-game scenario that the fifteen original batches leave out
-(`LINUX_EXTRA_BATCHES`, steps `linux-x1` onwards: 33 Linux games, the
+(`LINUX_EXTRA_BATCHES`, steps `linux-x1` onwards: 35 Linux games, the
 Spaced Out! ones with that content selected, a chain's scenarios in one game
-in the order they build on each other). Until then no tier ran those 61
-scenarios and five had stopped passing unnoticed
-([what was found](playtest-1.13.5.md#test-harness-repairs)). `--scenario`
-finds them as well. A new scenario belongs in one of the two lists: a test
-compares them with the driver's scenario list. Sustained player speed still requires
+in the order they build on each other, a control with the switch its notes
+ask for). Until then no tier ran those 61 scenarios and five had stopped
+passing unnoticed ([what was found](playtest-1.13.5.md#test-harness-repairs));
+60 run now, and `UNTIERED_SCENARIOS` says why the last one does not.
+`--scenario` finds them as well. A new scenario belongs in one of the lists:
+a test compares them with the driver's scenario list. Sustained player speed still requires
 a live colony measurement. Historical-build qualification runs separately.
 
 To run just the fixed benchmarks on the private regression host:

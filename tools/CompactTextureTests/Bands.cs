@@ -70,6 +70,7 @@ static partial class Proof {
             // Off: nothing is kept.
             ColonyTextureBands.Enabled = false;
             Check(!ColonyTextureBands.TryReuse(first.Table, in first.Cell, epoch, x, y, out _), "the switch turns the bands off");
+            Console.WriteLine($"PASS gas colour bands: an appearance is kept inside each band and computed again outside it, at another pattern position, for another cell of the same slot and for another presentation model; a 40-point drift recomputed {recomputed} times, {worst:R} off at most");
         }
         finally { ColonyTextureBands.Enabled = saved; ColonyTextureBands.Reset(); }
     }

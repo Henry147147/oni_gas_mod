@@ -472,7 +472,8 @@ asserts: every comet has landed, the site gets back at least ONI's own share
   samples to 1e-6. Since natural sublimation (2026-11-09) a corium tile beside
   open gas sublimates into nuclear waste at the element's efficiency of one
   half, the game's own rule, so the site loses half of what such a tile gives
-  off: the check failed whenever a comet's tile lay open (2 runs of 3). A
+  off: the check failed whenever a comet's tile lay open (2 runs of 3, one of
+  them 1.13.3's package). A
   corium tile is now counted at the half its sublimation leaves, and a sample
   may lack the product of the tile mass lost in the four ticks before it (the
   owned cells are read that much later than the native tile). The bound is

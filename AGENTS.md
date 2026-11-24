@@ -58,12 +58,24 @@ few that your task touches, starting here.
   `publish/update-1.13.0` and `releases/1.13.0`; every release step has
   passed ([what ran](docs/playtest-1.13.0.md#staged-package)) and the upload
   waits for the user's go-ahead.
+  [1.13.5](docs/playtest-1.13.5.md) is the candidate of the frame-rate
+  round, held back by the user (2026-11-24): **no release or upload until
+  every error found in that round is fixed.** It adds to 1.13.4 the user's
+  decisions of that day (a germ culture's count is one double; the gas map
+  keeps a cell's colour inside a band of about 5 %), a cheaper publication
+  of each tick (the mod's work per tick on the game thread of the November
+  22 colony: 79 ms in 1.13.3, 51 in 1.13.4, 32 here), and repairs to the
+  test harness. 61 in-game scenarios were in no acceptance tier and five of
+  their checks had gone stale; the release tier now runs every scenario
+  (`LINUX_EXTRA_BATCHES`, 35 more games, each with the content, order and
+  switches it needs).
   [1.13.4](docs/playtest-1.13.4.md) is 1.13.3 with less work on the game's
   own thread in the frame of each simulation tick (the user's report of
   2026-11-24: frames a little slow while the solver had time to spare); the
   solver and the save format are those of 1.13.3. Its notes say how to
   profile the game's main thread, what each part of a tick frame costs on
-  the November 22 colony and which parts remain.
+  the November 22 colony and which parts remain. It was staged and never
+  uploaded.
   [1.13.3](docs/playtest-1.13.3.md) is 1.13.2 with the first fix from the
   user's Windows playtest of it (a liquid trace in mid-air no longer draws a
   liquid tile); the user uploaded it to the Workshop on 2026-11-24.

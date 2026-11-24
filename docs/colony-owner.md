@@ -586,7 +586,9 @@ several; there is no competition between them):
   window. A mixed cell weights each constituent's rule by its mass, like pipe
   biology. A whole-germ culture keeps the game's binary32 count with its
   fractional residue; a culture whose count is not whole (flow splits counts
-  by mass) follows the expected population in binary64 until it dies out.
+  by mass) follows the expected population in binary64 until it dies out
+  (the pipes' and the stored cultures' expected populations are one binary64
+  value too since 1.13.5, [rounded at each step](mixed-pipes.md)).
   A culture left below one germ dies, as the game keeps whole germs.
 
 The frames run in a flat form (`biology::Evolution`): the cultures and the
@@ -1489,16 +1491,29 @@ stuttering camera at 0.85x) and the fixes:
   The frame log now times the pipe bookkeeping (`pipes`, part of `mod_ms`)
   and reports the tick frames on their own (`tick_frames`, `tick_frame_ms`,
   `tick_mod_ms`, `quiet_frame_ms`).
+- **The tick frame, second part** (version 1.13.5,
+  [the measurements](playtest-1.13.5.md)).
+  - *Germ counts are one number* (user decision 2026-11-24). A culture's
+    expected population was an exact sum that grew by a word with every
+    step; a step's result is rounded to the nearest double, with the
+    rounding inside the step's booked change ([the rule](mixed-pipes.md)).
+  - *The gas map keeps a cell's colour inside a band* (user decision
+    2026-11-24; `ColonyTextureBands`,
+    [the bands](native-fluid-rendering.md#gas-colour-bands)). Only the map's
+    textures read the kept values.
+  - *The publication* runs its overlay pass in parts on up to four threads
+    (the same writes, events and order), receives the radiation field as an
+    array and copies the presentation's readings on a worker beside its
+    other parts.
 - What remains on the game thread is ONI's own synchronous wait in
   `PrepareGameData` for the native frame (the end-of-frame projection, about
   9 ms and up to about 30 ms, which vanilla ONI also waits for its native
-  frame), and on a tick frame the publication (the snapshot copy, the
-  overlay, receipts and the copies of views and readings: 14 ms on the
-  November 22 colony on the test host), the pipes' germ steps (exact sums
-  of about twenty binary64 words a culture, 80 µs a step), the gas map's
-  colours for the cells in view and the census of the mobile actors; then
-  the remaining allocation of ONI itself and of the lazily built cells (a
-  few MB per second).
+  frame), and on a tick frame, on the November 22 colony on the test host:
+  the publication (9 ms: the copy of the game's data, receipts, the copy of
+  the views and the overlay), the pipes' heat (6 ms), the gas map's
+  textures and the hover (6 ms), the germ steps (3.5 ms) and the census of
+  the mobile actors (2 ms); then the remaining allocation of ONI itself and
+  of the lazily built cells (a few MB per second).
 
 Measured on the Linux dev machine (Ryzen 9 5900X, RTX 5090, base-game Terra colony
 at fast speed, 900 owner frames, the game on cores 0-11 with other agents' jobs

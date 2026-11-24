@@ -62,6 +62,12 @@ harness. Milliseconds on the game thread per tick, from 60 s of samples each:
 | Frames over 100 ms per window | 21 | 1 |
 | Longest hold of the game thread by a space exposure update | 90.6 ms | 3.2 ms |
 
+(The frame rows above come from a selection of each run's windows that was
+not recorded. Over every window of the same runs they are 82.5 / 108.4 ms
+and 55.5 / 69.3 ms for a tick frame, 58.3 and 32.2 ms for the mod's part,
+8 and 1 frames over 100 ms: the [1.13.5 notes](playtest-1.13.5.md) use
+those.)
+
 The test host's game thread is slower than the user's, and the harness
 window is small, so the ratios carry over better than the milliseconds. On
 the session of 2026-11-22 the same parts were about 20 ms (census) and 13 ms
