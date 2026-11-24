@@ -60,8 +60,8 @@ namespace MixedAtmospheres.Oni
             {
                 var change=expectedMaterialChange(population).Plus(population.Times((double)temperatureMultiplier-1))
                     .Plus(new PipeAmount(clock.NativeResidue));
-                if(change.Sign<0&&population.Plus(change).Sign<=0)change=population.Negated();
                 var after=population.Plus(change);
+                if(change.Sign<0&&after.Sign<=0){change=population.Negated();after=population.Plus(change);}
                 if(after.Sign<0)throw new InvalidOperationException("Germ death exceeded exact population.");
                 next=new GermPopulationStep(after,change,new GermPopulationClock(true,0));return true;
             }

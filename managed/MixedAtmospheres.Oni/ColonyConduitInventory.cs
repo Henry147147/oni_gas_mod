@@ -41,17 +41,21 @@ namespace MixedAtmospheres.Oni
         private readonly double low, high; // count 1: low; count 2: low, high
         private readonly double[]? many;   // count 3 or more
         private readonly int count;
+        // Three or more atoms known to be the canonical expansion of their
+        // value (Peel made them, or they negate such atoms): normalizing them
+        // again would rebuild the same atoms.
+        private readonly bool canonical;
         internal static PipeAmount Zero => default;
         // Scratch expansions up to this many atoms live on the stack.
         private const int StackAtoms = 128;
         internal PipeAmount(double value)
         {
             if (double.IsNaN(value) || double.IsInfinity(value)) throw new ArgumentOutOfRangeException(nameof(value));
-            low = value == 0 ? 0 : value; high = 0; many = null; count = value == 0 ? 0 : 1;
+            low = value == 0 ? 0 : value; high = 0; many = null; count = value == 0 ? 0 : 1; canonical = false;
         }
-        private PipeAmount(double single, bool _) { low = single; high = 0; many = null; count = 1; }
-        private PipeAmount(double low, double high) { this.low = low; this.high = high; many = null; count = 2; }
-        private PipeAmount(double[] atoms) { low = high = 0; many = atoms; count = atoms.Length; }
+        private PipeAmount(double single, bool _) { low = single; high = 0; many = null; count = 1; canonical = false; }
+        private PipeAmount(double low, double high) { this.low = low; this.high = high; many = null; count = 2; canonical = false; }
+        private PipeAmount(double[] atoms, bool canonical = false) { low = high = 0; many = atoms; count = atoms.Length; this.canonical = canonical; }
         // A private copy of atoms (validated by the caller).
         private static PipeAmount From(ReadOnlySpan<double> atoms) => atoms.Length switch
         {
@@ -69,6 +73,8 @@ namespace MixedAtmospheres.Oni
             return count;
         }
         internal int Sign => count == 0 ? 0 : Math.Sign(Top);
+        // The binary64 words of the expansion (diagnostics: an exact sum's cost grows with them).
+        internal int Words => count;
         internal double Value
         {
             get
@@ -96,6 +102,17 @@ namespace MixedAtmospheres.Oni
                 if (rounded - high == doubled) high = rounded;
             }
             return high;
+        }
+        // The sign of this amount minus a finite value, as Minus(value).Sign:
+        // the readout is the exact value correctly rounded, and rounding is
+        // monotonic, so a readout clearly above or below the value decides
+        // it; anything close is subtracted exactly.
+        internal int CompareTo(double value)
+        {
+            if (double.IsNaN(value) || double.IsInfinity(value)) throw new ArgumentOutOfRangeException(nameof(value));
+            var readout = Value; var scale = Math.Max(Math.Abs(readout), Math.Abs(value));
+            if (scale > 1e-280 && !double.IsInfinity(readout) && Math.Abs(readout - value) > 1e-12 * scale) return readout > value ? 1 : -1;
+            return Minus(new PipeAmount(value)).Sign;
         }
         internal PipeAmount Plus(PipeAmount other) => Sum(other, false);
         internal PipeAmount Minus(PipeAmount other) => Sum(other, true);
@@ -175,7 +192,7 @@ namespace MixedAtmospheres.Oni
         }
         private PipeAmount Canonical()
         {
-            if (count < 2) return this;
+            if (count < 2 || canonical) return this;
             // TwoSum already produced a canonical expansion when its leading
             // atom is the correctly rounded total. Avoid rebuilding that pair.
             if (count == 2 && Value == high) return this;
@@ -219,7 +236,7 @@ namespace MixedAtmospheres.Oni
             if (produced == 2) return new PipeAmount(descending[1], descending[0]);
             var result = new double[produced];
             for (var i = 0; i < produced; ++i) result[i] = descending[produced - 1 - i];
-            return new PipeAmount(result);
+            return new PipeAmount(result, true);
         }
         private static Span<double> Larger(Span<double> atoms, int length)
         {
@@ -234,7 +251,7 @@ namespace MixedAtmospheres.Oni
             if (count == 2) return new PipeAmount(-low, -high);
             var result = new double[count];
             for (var i = 0; i < result.Length; ++i) result[i] = -many![i];
-            return new PipeAmount(result);
+            return new PipeAmount(result, canonical); // rounding to nearest is symmetric
         }
         // The rounded products define the shared flux. Subtraction and addition
         // of that same flux are exact; no endpoint is clipped or renormalized.
@@ -362,6 +379,32 @@ namespace MixedAtmospheres.Oni
             if (parts.Length == 0 && (energy.Sign != 0 || diseases.Length != 0)) throw new InvalidDataException("Massless pipe inventory carries energy or germs.");
             Total = total;
         }
+        // The same constituents with another energy or other germs (heat
+        // exchange and germ changes, every tick for every filled pipe): the
+        // constituents were validated and summed when `same` was made, and
+        // their heat capacity and energy offset, once computed, are theirs
+        // whatever the energy is. Every value is the one the full constructor
+        // and ComputeTemperature would compute again.
+        private PipeInventory(PipeInventory same, PipeAmount energy, PipePart[] diseases)
+        {
+            parts = same.parts; germs = diseases; Energy = energy; Total = same.Total;
+            if (!ReferenceEquals(diseases, same.germs))
+            {
+                var previous = int.MinValue;
+                foreach (var germ in germs)
+                {
+                    if (germ.Id <= previous || germ.Amount.Sign <= 0) throw new InvalidDataException("Invalid pipe passive inventory.");
+                    previous = germ.Id;
+                }
+            }
+            if (parts.Length == 0 && (energy.Sign != 0 || diseases.Length != 0)) throw new InvalidDataException("Massless pipe inventory carries energy or germs.");
+            var generation = System.Threading.Volatile.Read(ref same.thermalGeneration);
+            if (generation != 0)
+            {
+                thermalCapacity = same.thermalCapacity; thermalOffsets = same.thermalOffsets;
+                System.Threading.Volatile.Write(ref thermalGeneration, generation);
+            }
+        }
         // Boundary parcels already carry native committed U and all passives.
         // Never reconstruct them from a float temperature compatibility view.
         internal static PipeInventory Conserved(PipePart[] masses,PipeAmount energy,PipePart[] diseases)
@@ -397,25 +440,46 @@ namespace MixedAtmospheres.Oni
         { rememberedMaterial = material; System.Threading.Interlocked.Increment(ref rememberedGeneration); }
         private double temperatureValue;
         private int temperatureGeneration; // 0: none
+        // The constituents' heat capacity and energy offset under the
+        // remembered catalogue (thermalGeneration; 0: none). They depend on the
+        // constituents alone, so an inventory made from this one with the same
+        // constituents starts with them.
+        private PipeAmount thermalCapacity, thermalOffsets;
+        private int thermalGeneration;
         internal double Temperature(Func<int, PipeMaterial> material)
         {
             if (parts.Length == 0) return 0;
             if (!ReferenceEquals(material, rememberedMaterial)) return ComputeTemperature(material);
             var generation = System.Threading.Volatile.Read(ref rememberedGeneration);
             if (System.Threading.Volatile.Read(ref temperatureGeneration) == generation) return temperatureValue;
-            var temperature = ComputeTemperature(material);
+            double temperature;
+            if (System.Threading.Volatile.Read(ref thermalGeneration) == generation) temperature = TemperatureOf(thermalCapacity, thermalOffsets);
+            else
+            {
+                Thermal(material, out var capacity, out var offsets);
+                temperature = TemperatureOf(capacity, offsets);
+                thermalCapacity = capacity; thermalOffsets = offsets; System.Threading.Volatile.Write(ref thermalGeneration, generation);
+            }
             temperatureValue = temperature; System.Threading.Volatile.Write(ref temperatureGeneration, generation);
             return temperature;
         }
-        private double ComputeTemperature(Func<int, PipeMaterial> material)
+        private void Thermal(Func<int, PipeMaterial> material, out PipeAmount capacity, out PipeAmount offsets)
         {
-            var capacity = PipeAmount.Zero; var offsets = PipeAmount.Zero;
+            capacity = PipeAmount.Zero; offsets = PipeAmount.Zero;
             foreach (var part in parts)
             {
                 var entry = material(part.Id);
                 capacity = capacity.Plus(part.Amount.Times(entry.HeatCapacity));
                 offsets = offsets.Plus(part.Amount.Times(entry.EnergyOffset));
             }
+        }
+        private double ComputeTemperature(Func<int, PipeMaterial> material)
+        {
+            Thermal(material, out var capacity, out var offsets);
+            return TemperatureOf(capacity, offsets);
+        }
+        private double TemperatureOf(PipeAmount capacity, PipeAmount offsets)
+        {
             var temperature = Energy.Minus(offsets).Value / capacity.Value;
             if (!(temperature > 0) || double.IsInfinity(temperature))
                 throw new InvalidOperationException($"Invalid pipe temperature {temperature:R} K: energy {Energy.Value:R} J, offsets {offsets.Value:R} J, " +
@@ -424,12 +488,12 @@ namespace MixedAtmospheres.Oni
         }
         internal PipeInventory WithHeat(double heat)=>WithHeat(new PipeAmount(heat));
         internal PipeInventory WithHeat(PipeAmount heat) => parts.Length == 0 && heat.Sign != 0
-            ? throw new InvalidOperationException("Cannot heat an empty pipe.") : new PipeInventory(parts, Energy.Plus(heat), germs);
+            ? throw new InvalidOperationException("Cannot heat an empty pipe.") : new PipeInventory(this, Energy.Plus(heat), germs);
         internal PipeInventory WithDiseaseDelta(int id, double delta)=>WithDiseaseDelta(id,new PipeAmount(delta));
         internal PipeInventory WithDiseaseDelta(int id, PipeAmount delta)
         {
             var changes = new[] { new PipePart(id, delta) };
-            return new PipeInventory(parts, Energy, Join(germs, changes, false));
+            return new PipeInventory(this, Energy, Join(germs, changes, false));
         }
         internal PipeInventory Joined(PipeInventory other)
         {

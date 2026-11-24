@@ -33,11 +33,11 @@ namespace MixedAtmospheres.Oni
             // half-life regimes. Below the minimum, death is an absolute rate;
             // scaling the population and mass together would change that rate.
             var minimum=growth.minCountPerKG*mass;var maximum=growth.maxCountPerKG*mass;
-            var below=!float.IsNaN(minimum)&&minimum>0&&(float.IsPositiveInfinity(minimum)||population.Minus(new PipeAmount(minimum)).Sign<0);
+            var below=!float.IsNaN(minimum)&&minimum>0&&(float.IsPositiveInfinity(minimum)||population.CompareTo(minimum)<0);
             if(below)return new PipeAmount(-growth.underPopulationDeathRate*seconds);
             // Native unordered density comparisons choose the over-population
             // branch, including a public infinite cutoff multiplied by zero kg.
-            var over=float.IsNaN(minimum)||float.IsNaN(maximum)||maximum<0||!float.IsPositiveInfinity(maximum)&&population.Minus(new PipeAmount(maximum)).Sign>0;
+            var over=float.IsNaN(minimum)||float.IsNaN(maximum)||maximum<0||!float.IsPositiveInfinity(maximum)&&population.CompareTo(maximum)>0;
             var multiplier=Klei.AI.Disease.HalfLifeToGrowthRate(over?growth.overPopulationHalfLife:growth.populationHalfLife,seconds);
             return population.Times((double)(multiplier-1f));
         }

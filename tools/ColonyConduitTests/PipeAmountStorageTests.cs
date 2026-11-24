@@ -15,7 +15,7 @@ static class PipeAmountStorageTests
     static LegacyPipeAmount ReadOld(byte[] image){using var stream=new MemoryStream(image);using var reader=new BinaryReader(stream);return LegacyPipeAmount.Read(reader);}
     static byte[] Atoms(params double[] atoms)
     {using var stream=new MemoryStream();using(var writer=new BinaryWriter(stream)){writer.Write(atoms.Length);foreach(var atom in atoms)writer.Write(atom);}return stream.ToArray();}
-    static long compared,longest,longResults,failures;
+    static long compared,longest,longResults,failures,comparisons;
     // Same atoms, readout bits and sign.
     static void Same(PipeAmount actual,LegacyPipeAmount expected,string operation)
     {
@@ -115,7 +115,7 @@ static class PipeAmountStorageTests
         for(var step=0;step<1000000;++step)
         {
             var (a,b)=pool[random.Next(pool.Count)];var (c,d)=pool[random.Next(pool.Count)];
-            switch(random.Next(9))
+            switch(random.Next(10))
             {
                 case 0:{var v=Scalar(random);Add(Both(()=>new PipeAmount(v),()=>new LegacyPipeAmount(v),"scalar"));break;}
                 case 1:Add(Both(()=>a.Plus(c),()=>b.Plus(d),"plus"));break;
@@ -129,10 +129,20 @@ static class PipeAmountStorageTests
                 }
                 case 6:{var v=Scalar(random);Add(Both(()=>a.Plus(new PipeAmount(v)),()=>b.Plus(new LegacyPipeAmount(v)),"plus scalar"));break;}
                 case 7:{var v=Scalar(random);Add(Both(()=>a.Minus(new PipeAmount(v)),()=>b.Minus(new LegacyPipeAmount(v)),"minus scalar"));break;}
+                case 8:
+                {
+                    // The comparison with a value is the sign of the exact difference: far from the
+                    // amount, at its readout and one step to either side of it.
+                    var v=random.Next(4) switch{0=>Scalar(random),1=>a.Value,2=>Math.BitIncrement(a.Value),_=>Math.BitDecrement(a.Value)};
+                    if(double.IsNaN(v)||double.IsInfinity(v))break;
+                    int? expected=null;try{expected=b.Minus(new LegacyPipeAmount(v)).Sign;}catch(InvalidOperationException){}
+                    if(expected.HasValue){Check(a.CompareTo(v)==expected.Value,$"comparison with {v:R} differs from the exact difference");++comparisons;}
+                    break;
+                }
                 default:Add(Both(()=>ReadNew(Image(a)),()=>ReadOld(Image(b)),"round trip"));break;
             }
         }
         Check(longest>16&&longResults>0&&failures>0,"storage fuzz did not reach long expansions and failures");
-        Console.WriteLine($"PASS pipe amount inline storage: {compared} results identical to the array-per-expansion oracle (atoms, readout, sign); {failures} identical failures; longest expansion {longest} atoms ({longResults} longer than 16)");
+        Console.WriteLine($"PASS pipe amount inline storage: {compared} results identical to the array-per-expansion oracle (atoms, readout, sign); {failures} identical failures; longest expansion {longest} atoms ({longResults} longer than 16); {comparisons} comparisons with a value equal to the sign of the exact difference");
     }
 }

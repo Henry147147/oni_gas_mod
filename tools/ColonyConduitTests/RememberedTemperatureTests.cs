@@ -25,9 +25,9 @@ static class RememberedTemperatureTests
                 var split=joined.Split(joined.Mass*random.NextDouble(),registered);
                 inventories.Add(joined);inventories.Add(split.Remaining);inventories.Add(split.Parcel);
             }
-            void Compare(string stage)
+            void Compare(string stage,List<PipeInventory>? list=null)
             {
-                foreach(var inventory in inventories)
+                foreach(var inventory in list??inventories)
                 {
                     double? first=null,second=null,expected=null;
                     try{first=inventory.Temperature(registered);}catch(InvalidOperationException){}
@@ -40,8 +40,25 @@ static class RememberedTemperatureTests
                 }
             }
             Compare("first");
+            // An inventory made from another with the same constituents (heat
+            // exchange, a germ change) starts with their heat capacity and
+            // energy offset: its temperature is still the fresh computation's,
+            // also when its source never computed one.
+            var derived=new List<PipeInventory>();
+            foreach(var inventory in inventories)
+            {
+                if(inventory.Count==0)continue;
+                derived.Add(inventory.WithHeat(random.NextDouble()*200-100));
+                derived.Add(inventory.WithDiseaseDelta(3,1+random.Next(100)).WithHeat(random.NextDouble()*50));
+                var unread=inventory.Joined(PipeInventory.Single(table[1+random.Next(3)],random.NextDouble(),250));
+                derived.Add(unread.WithHeat(random.NextDouble()*10));
+            }
+            Compare("derived",derived);
             // The same delegate over a changed catalogue: renewed, never reused.
             table[2]=new PipeMaterial(2,2500,1e6);PipeInventory.RememberTemperatures(registered);Compare("renewed");
+            Compare("derived, renewed",derived);
+            var late=new List<PipeInventory>();foreach(var inventory in derived)late.Add(inventory.WithHeat(random.NextDouble()*20-10));
+            Compare("derived after the renewal",late);
             // A cold mixture below zero kelvin fails every time.
             var cold=PipeInventory.Single(table[1],1,1).WithHeat(-5000);
             for(var i=0;i<2;++i){try{cold.Temperature(registered);throw new Exception("invalid temperature remembered");}catch(InvalidOperationException){}}
