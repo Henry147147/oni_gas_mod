@@ -72,11 +72,47 @@ class PlanTests(unittest.TestCase):
             self.assertIn(name, names(steps))
         self.assertEqual(len(set(names(steps))), len(steps))
 
-    def test_release_adds_only_the_ten_cycle_run(self):
+    def test_release_adds_the_remaining_scenarios_and_the_ten_cycle_run(self):
         quick, release = names(suite.plan("quick")), suite.plan("release")
         extra = [s for s in release if s.name not in quick]
-        self.assertEqual([(s.name, s.options["frames"]) for s in extra], [("linux-ten-cycle", 30000)])
+        self.assertEqual([s.name for s in extra],
+                         [f"linux-x{i}" for i in range(1, len(suite.LINUX_EXTRA_BATCHES) + 1)] + ["linux-ten-cycle"])
+        self.assertEqual(extra[-1].options["frames"], 30000)
         self.assertEqual(set(quick) - set(names(release)), set())
+        self.assertEqual(names(suite.plan("release", ("windows",))), names(suite.plan("quick", ("windows",))))
+
+    def test_every_in_game_scenario_runs_in_the_release_tier(self):
+        import oni_headless
+        ran = [name for s in suite.plan("release") if s.kind == "batch" for name in s.options["scenario"].split(",")]
+        self.assertEqual(set(oni_headless.SCENARIOS) - set(ran), set(suite.UNTIERED_SCENARIOS))
+        self.assertEqual(len(ran), len(set(ran)) + 3)  # the three rocket chains each build their rocket first
+        self.assertEqual(set(ran) - set(oni_headless.SCENARIOS), set())
+        first = {name for batch in suite.LINUX_BATCHES for name in batch.split(",")}
+        self.assertEqual({name for batch, *_ in suite.LINUX_EXTRA_BATCHES for name in batch.split(",")} & first, set())
+
+    def test_remaining_scenarios_carry_their_content_arguments_and_environment(self):
+        steps = {s.options["scenario"]: s for s in suite.plan("release") if s.name.startswith("linux-x")}
+        package, out = Path("/p"), Path("/o")
+        for scenario, step in steps.items():
+            command = suite.linux_command(step, package, out, CommandTests.infra)
+            spaced_out = scenario.startswith("spaced-out-") or scenario == "full-colony-spacedout"
+            self.assertEqual(command[command.index("--dlc-mask") + 1], "1" if spaced_out else "0", scenario)
+            self.assertEqual(command[command.index("--scenario") + 1], scenario)
+        lifecycle = suite.linux_command(steps["activity-lifecycle"], package, out, CommandTests.infra)
+        self.assertEqual(lifecycle[lifecycle.index("--scenario") + 2:], ["--save-colony", "--frames", "450", "--speed", "3"])
+        self.assertEqual(steps["germ-oracle"].options["env"], {"MA_COLONY_GERM_ORACLE": "1"})
+        self.assertEqual(steps["mixed-pipe-save-guard"].options["env"], {"MA_COLONY_PIPE_SAVES": "0"})
+        self.assertEqual(steps["playtest-ui"].options["env"], {})
+        # A chain's scenarios stay in the order that builds on each other.
+        abandon = next(s for s in steps if s.endswith("spaced-out-rocket-abandon")).split(",")
+        self.assertEqual(abandon, ["spaced-out-rocket", "spaced-out-rocket-ports", "spaced-out-rocket-flight", "spaced-out-rocket-abandon"])
+
+    def test_patch_scenario_selection_reaches_the_remaining_scenarios(self):
+        steps = suite.plan("patch", scenarios=("spaced-out-hep",))
+        added = [s for s in steps if s.name not in names(suite.plan("patch"))]
+        self.assertEqual(len(added), 1)
+        self.assertEqual((added[0].platform, added[0].options["dlc_mask"]), ("linux", 1))
+        self.assertIn("spaced-out-hep", added[0].options["scenario"].split(","))
 
     def test_platform_selection_and_unknown_values(self):
         self.assertTrue(all(s.platform == "linux" for s in suite.plan("quick", ("linux",))))

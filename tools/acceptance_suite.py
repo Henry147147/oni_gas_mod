@@ -78,6 +78,60 @@ LINUX_BATCHES = (
     "fault-containment",
     "base",
 )
+# The scenarios the batches above leave out: every Spaced Out! one, the playtest reproductions and
+# the storage, save and pipe controls. No tier ran them until 1.13.5, and five had gone stale
+# unnoticed (docs/playtest-1.13.5.md). The release tier runs them, each entry in one game:
+# the scenarios in the order their chain needs, the DLC mask, further driver arguments and the
+# game's environment. A Spaced Out! start asteroid has room for few arenas, so those stay short.
+LINUX_EXTRA_BATCHES = (
+    ("spaced-out-worlds,spaced-out-input-flush,spaced-out-warp-ports", 1, (), {}),
+    ("spaced-out-rocket,spaced-out-rocket-ports,spaced-out-rocket-retire", 1, (), {}),
+    ("spaced-out-rocket,spaced-out-rocket-ports,spaced-out-rocket-flight,spaced-out-rocket-abandon", 1, (), {}),
+    ("spaced-out-rocket,spaced-out-cargo-gas,spaced-out-cargo-liquid", 1, (), {}),
+    ("spaced-out-critters,spaced-out-plants,spaced-out-hep", 1, (), {}),
+    ("spaced-out-radiation", 1, (), {}),
+    ("spaced-out-reactor", 1, (), {}),
+    ("spaced-out-reactor-meltdown", 1, (), {}),
+    ("spaced-out-engine-exhaust", 1, (), {}),
+    ("spaced-out-sublimation-station,spaced-out-centrifuge", 1, (), {}),
+    ("spaced-out-sludge-press", 1, (), {}),
+    ("spaced-out-landers,spaced-out-poi-harvest,spaced-out-rail-gun", 1, (), {}),
+    ("spaced-out-comets-geysers", 1, (), {}),
+    ("spaced-out-vacuum-pocket", 1, (), {}),
+    ("spaced-out-intakes", 1, (), {}),
+    ("spaced-out-dehydrator", 1, (), {}),
+    ("full-colony-spacedout", 1, (), {}),
+    ("activity-lifecycle", 0, ("--save-colony", "--frames", "450", "--speed", "3"), {}),
+    ("dlc-fluid-readers", 0, (), {}),
+    ("playtest-ui", 0, (), {}),
+    ("playtest-diffusers,playtest-pump-vent", 0, (), {}),
+    ("storage-options,terrain-order,breath-particle,flood-pocket,flood-co2-corner", 0, (), {}),
+    ("liquid-settling,pool-step,sealed-drain,side-opening", 0, (), {}),
+    # starting-air reads the pod's air as the game generated it: first in its game.
+    ("starting-air,face-forces,shown-liquid,byproduct-merge", 0, (), {}),
+    # The refusal this control asks for exists only while pipe saves are off (docs/mixed-pipes.md).
+    ("mixed-pipe-save-guard", 0, (), {"MA_COLONY_PIPE_SAVES": "0"}),
+    ("mixed-pipe-owned-storage,mixed-storage-transfer-heat", 0, (), {}),
+    ("owned-storage-retirement,owned-storage-readers,owned-storage-biology", 0, (), {}),
+    # The exact storage writer is development-only (user decision 2026-11-04); its save controls
+    # ask for its switch, which no player's package can set (test_owned_storage_development_only).
+    ("owned-storage-active-outlet", 0, (), {"MA_COLONY_NATIVE_SCHEDULE_CONTROL": "1"}),
+    ("owned-storage-drained-save", 0, (), {"MA_COLONY_NATIVE_SCHEDULE_CONTROL": "1"}),
+    ("owned-storage-retired-save", 0, (), {"MA_COLONY_NATIVE_SCHEDULE_CONTROL": "1"}),
+    # The body-rounding control reads the native body-heat observer's trace ("{output}" is the run's folder).
+    ("pipe-schedule", 0, (), {}),
+    ("pipe-body-rounding", 0, (), {"MA_ONI_BODY_HEAT_TRACE": "{output}/body-heat.tsv"}),
+    ("pipe-small-heat-save", 0, (), {}),
+    ("germ-oracle", 0, (), {"MA_COLONY_GERM_ORACLE": "1"}),
+    ("full-colony-base", 0, (), {}),
+)
+# In-game scenarios that no Linux batch runs, and why.
+UNTIERED_SCENARIOS = {
+    "windows-contact": "the WindowsPlayer contact step's own scenario",
+    "mixed-storage-heat": "a strict diagnostic of development-only exact storage that exceeds its own bound by the "
+                          "0.703 J the user accepted on 2026-10-26 (docs/mixed-pipes.md); it needs the paired heat "
+                          "traces of the Proton runner's --storage-heat-control",
+}
 ASTEROIDS = ("SandstoneDefault", "Oceania", "SandstoneFrozen", "ForestDefault", "ForestLush",
              "ForestHot", "Volcanic", "Badlands", "Oasis")
 ASTEROID_FRAMES = 3000
@@ -178,7 +232,7 @@ def plan(tier: str, platforms: tuple[str, ...] = PLATFORMS, scenarios: tuple[str
         steps = []
         if "linux" in platforms:
             steps.append(Step("linux-offline", "linux", "offline"))
-        quick = plan("quick", platforms)
+        quick = plan("quick", platforms) + ([s for s in extra_batches()] if "linux" in platforms else [])
         wanted = ["linux-b1", "linux-b13"] if "linux" in platforms else []
         if "windows" in platforms:
             wanted.append("windows-build")
@@ -205,6 +259,7 @@ def plan(tier: str, platforms: tuple[str, ...] = PLATFORMS, scenarios: tuple[str
                   for name in ASTEROIDS]
         steps.append(Step("linux-one-cycle", "linux", "cycle", build, {"frames": CYCLE_FRAMES["one-cycle"]}))
         if tier == "release":
+            steps += extra_batches()
             steps.append(Step("linux-ten-cycle", "linux", "cycle", build, {"frames": CYCLE_FRAMES["ten-cycle"]}))
     if "windows" in platforms:
         build = ("windows-build",)
@@ -224,6 +279,12 @@ def plan(tier: str, platforms: tuple[str, ...] = PLATFORMS, scenarios: tuple[str
             Step("windows-spacedout-ui-load", "windows", "proton-spacedout-ui-load", ("windows-spacedout-ui",)),
         ]
     return steps
+
+
+def extra_batches() -> list[Step]:
+    return [Step(f"linux-x{i}", "linux", "batch", ("linux-build",),
+                 {"scenario": scenario, "dlc_mask": mask, "arguments": tuple(arguments), "env": dict(env)})
+            for i, (scenario, mask, arguments, env) in enumerate(LINUX_EXTRA_BATCHES, 1)]
 
 
 def select(steps: list[Step], only: str | None) -> list[Step]:
@@ -595,13 +656,14 @@ def linux_command(step: Step, package: Path, output: Path, infra: Infra, load: P
         return command + ["--dlc-mask", "0", "--mode", "colony-owner-load", "--load-save", str(load), "--long-run",
                           "--frames", str(step.options["frames"]), "--timeout", str(LONG_RUN_TIMEOUT),
                           "--gpu-display", infra.gpu_display, "--output", str(output)]
-    # The scenario batches and the worldgen clusters are base-game runs. The Linux copy of the game
-    # includes Spaced Out! since build 763796 and the Linux runner leaves the game's own selection
-    # alone unless told, so pin the base game here as the Proton runner does by default.
-    command += ["--dlc-mask", "0", "--mode", "colony-owner", "--gpu-display", infra.gpu_display, "--timeout", str(LINUX_TIMEOUT),
-                "--output", str(output)]
+    # The scenario batches and the worldgen clusters are base-game runs unless a batch names its
+    # content. The Linux copy of the game includes Spaced Out! since build 763796 and the Linux
+    # runner leaves the game's own selection alone unless told, so pin the base game here as the
+    # Proton runner does by default.
+    command += ["--dlc-mask", str(step.options.get("dlc_mask", 0)), "--mode", "colony-owner", "--gpu-display", infra.gpu_display,
+                "--timeout", str(LINUX_TIMEOUT), "--output", str(output)]
     if step.kind == "batch":
-        return command + ["--scenario", step.options["scenario"]]
+        return command + ["--scenario", step.options["scenario"], *step.options.get("arguments", ())]
     return command + ["--cluster", step.options["cluster"], "--frames", str(step.options["frames"])]
 
 
@@ -1115,7 +1177,8 @@ class Suite:
                                   stderr=subprocess.STDOUT).returncode
 
     def linux(self, step: Step, package: Path, manifest: dict, output: Path, log: Path) -> tuple[dict, dict]:
-        env = clean_env({"MA_COLONY_FAULT_DUMP": str(output / "fault-dump.bin")})
+        env = clean_env({"MA_COLONY_FAULT_DUMP": str(output / "fault-dump.bin"),
+                         **{key: value.replace("{output}", str(output)) for key, value in step.options.get("env", {}).items()}})
         common = {"output": str(output), "log": str(log), "package_source": manifest["source_revision"]}
         if step.kind != "cycle":
             rc = self.game(linux_command(step, package, output, self.infra), log, env)
