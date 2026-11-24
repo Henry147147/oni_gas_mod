@@ -23,6 +23,7 @@ namespace MixedAtmospheres.Oni
             CacheHits = System.Threading.Interlocked.Read(ref hits),
             CacheMisses = System.Threading.Interlocked.Read(ref misses),
             RawSamples = System.Threading.Interlocked.Read(ref rawSamples),
+            Banded = ColonyTextureBands.Enabled, BandReuses = ColonyTextureBands.Counts.Reused, BandAnchors = ColonyTextureBands.Counts.Anchored,
             CumulativeAllocatedSlots = System.Threading.Interlocked.Read(ref cacheSlots),
             LivePooledSlots = ColonyReadingPool.CompactSlots,
             MaximumPooledSlots = ColonyReadingPool.SharedCompactSlots,
@@ -208,7 +209,14 @@ namespace MixedAtmospheres.Oni
                     return slot.Value;
                 }
                 System.Threading.Interlocked.Increment(ref misses);
-                var result = Sample(table, buffer.Readings[index], revision, model, x, y, out constructorRejected);
+                // A cell still inside the bands of the reading its appearance was
+                // computed from keeps that appearance (ColonyTextureBands).
+                var banded = ColonyTextureBands.Enabled; var bandEpoch = banded ? ColonyTextureBands.Epoch(model, table) : 0;
+                if (!banded || !ColonyTextureBands.TryReuse(table, in buffer.Readings[index], bandEpoch, xb, yb, out var result))
+                {
+                    result = Sample(table, buffer.Readings[index], revision, model, x, y, out constructorRejected);
+                    if (banded) ColonyTextureBands.Anchor(table, in buffer.Readings[index], bandEpoch, xb, yb, in result);
+                }
                 if (System.Threading.Volatile.Read(ref buffer.Lease) == lease)
                 {
                     slot.Value = result;

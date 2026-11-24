@@ -153,6 +153,33 @@ to 1.68 ms a frame, rendering after `LateUpdate` from 2.35 to 2.15 ms and the
 whole frame from 11.8 to 10.5 ms (median 9.8 to 8.6 ms; 86-97 to 94-99 fps).
 The cost saved grows with the visible cells, so a zoomed-out view saves more.
 
+## Gas colour bands
+
+A new publication (one a tick) changes almost every cell's reading a little,
+so every visible cell's appearance was computed again in the tick's frame:
+its constituents built and validated, their colours blended, about a
+microsecond a cell on the game's job threads and the game thread, growing
+with the area in view. Most of those changes cannot be seen.
+
+Since 1.13.5 (user decision 2026-11-24: a gas that rises or falls by a
+percent is not noticeable on the map, and ranges of about 5 % may be used) a
+cell keeps its appearance while its reading stays near the one the
+appearance was computed from (`ColonyTextureBands`): the same constituents,
+every gas's mole share within 2 points, every liquid's volume and the cell's
+occupied and liquid volume within 2 % of the cell, and the gas pressure and
+gas mass within 2.5 %. The first reading outside any of those is computed in
+full and becomes the new anchor, so a slow drift never shows a value more
+than one tolerance from the truth. The bands are 4 points and 5 % wide.
+
+Only the three gas textures read these values. The hover card, the status
+panel, breathing, sensors and every overlay legend read the cell's own
+reading. A hazard tint on the map can lag its threshold by at most the
+tolerance (a toxic share that crosses 5 % shows by 7 % at the latest).
+`MA_COLONY_TEXTURE_BANDS=0` computes every cell as before, as do the
+validation probes and the compact texture proof, which compare each written
+byte with the full computation. `MA_FRAME_LOG=1` reports `gas_cells_computed`
+and `gas_cells_kept` per window.
+
 ## Full-map texture uploads
 
 ONI's `PropertyTextures.UpdateProperty` copies five textures the native

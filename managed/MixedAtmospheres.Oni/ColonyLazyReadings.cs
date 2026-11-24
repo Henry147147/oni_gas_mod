@@ -101,7 +101,7 @@ namespace MixedAtmospheres.Oni
         // Live compact slots: the shared table, once a pooled cache uses it.
         internal static long CompactSlots { get { lock(buffers)return sharedSlots?.Length??0; } }
         internal static void RetireCompactModels() {lock(buffers)foreach(var buffer in buffers)buffer.CompactCache?.RetireModel();}
-        internal static void Reset() { lock (buffers) {foreach(var buffer in buffers)buffer.CompactCache?.RetireModel();buffers.Clear();sharedSlots=null;} }
+        internal static void Reset() { lock (buffers) {foreach(var buffer in buffers)buffer.CompactCache?.RetireModel();buffers.Clear();sharedSlots=null;} ColonyTextureBands.Reset(); }
     }
 
     // The readings of one completed frame, built on demand per cell.

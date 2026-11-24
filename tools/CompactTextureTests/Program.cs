@@ -39,6 +39,9 @@ static partial class Proof
     }
     internal static int Run(string[] args)
     {
+        // The exactness controls below compare every value with the full computation; the map's
+        // bands have their own control (TextureBands).
+        ColonyTextureBands.Enabled = false;
         var ids = new[] { "oxygen", "nitrogen", "carbon_dioxide", "hydrogen", "chlorine", "water", "oil" };
         var mm = new[] { .0319988, .0280134, .0440095, .002016, .0709, .01801528, .1 };
         var phases = ids.Select((x, i) => i < 5 ? NativeMatterPhase.Gas : NativeMatterPhase.Liquid).ToArray();
@@ -157,6 +160,7 @@ static partial class Proof
         AboveOldCap(models, success);
         Boundaries(models[0], success);
         PairedControls(models[0], success);
+        TextureBands(models, catalog, ids, phases, mm);
         Console.WriteLine($"PASS texture scalar exact same-process {checks} checks, {success.Count} valid cases, {rejected} model rejections, warmed allocation {allocated} bytes/20000 samples, parallel workers8");
         if (args.Contains("--benchmark"))
         {

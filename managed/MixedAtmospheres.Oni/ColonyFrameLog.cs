@@ -71,7 +71,7 @@ namespace MixedAtmospheres.Oni
         private static int collections0, collections1, collections2, lastCollections;
         private static long gcFrames, gcFrameTicks, gcWorstTicks;
         private static long lastHeap, allocated, publicationAllocated;
-        private static long heapStart, gasUploadsStart, gasReusesStart, mapUploadsStart, mapReusesStart;
+        private static long heapStart, gasUploadsStart, gasReusesStart, mapUploadsStart, mapReusesStart, bandReusesStart, bandAnchorsStart;
         private static bool started;
 
         // Installed from Mod.OnLoad so the log also covers games without an owner.
@@ -190,6 +190,7 @@ namespace MixedAtmospheres.Oni
             heapStart = GC.GetTotalMemory(false);
             gasUploadsStart = MixtureWorldRendering.GasTextureUploads; gasReusesStart = MixtureWorldRendering.GasTextureReuses;
             mapUploadsStart = PropertyTextureUploads.Uploaded; mapReusesStart = PropertyTextureUploads.Reused;
+            (bandReusesStart, bandAnchorsStart) = ColonyTextureBands.Counts;
             Interlocked.Exchange(ref counted, 0);
             lock (tracks) tracks.Clear();
             lock (byproducts) { byproducts.Clear(); byproductsMerged = byproductsNew = 0; Array.Clear(byproductDecades, 0, byproductDecades.Length); }
@@ -234,7 +235,10 @@ namespace MixedAtmospheres.Oni
                     .Append(" gas_texture_uploads ").Append((MixtureWorldRendering.GasTextureUploads - gasUploadsStart).ToString(c))
                     .Append(" gas_texture_reuses ").Append((MixtureWorldRendering.GasTextureReuses - gasReusesStart).ToString(c))
                     .Append(" map_texture_uploads ").Append((PropertyTextureUploads.Uploaded - mapUploadsStart).ToString(c))
-                    .Append(" map_texture_reuses ").Append((PropertyTextureUploads.Reused - mapReusesStart).ToString(c));
+                    .Append(" map_texture_reuses ").Append((PropertyTextureUploads.Reused - mapReusesStart).ToString(c))
+                    // Gas map cells whose appearance was computed, and those that kept it inside their bands.
+                    .Append(" gas_cells_computed ").Append(Math.Max(0, ColonyTextureBands.Counts.Anchored - bandAnchorsStart).ToString(c))
+                    .Append(" gas_cells_kept ").Append(Math.Max(0, ColonyTextureBands.Counts.Reused - bandReusesStart).ToString(c));
                 line.Append(" per_frame_ms");
                 for (var k = 0; k < sums.Length; ++k) line.Append(' ').Append(Names[k]).Append(' ').Append((sums[k] / frames.Count).ToString("0.000", c));
                 line.Append(" worst_frame_ms ").Append((worstFrameTicks * 1000.0 / Stopwatch.Frequency).ToString("0.0", c)).Append(" worst_parts_ms");
