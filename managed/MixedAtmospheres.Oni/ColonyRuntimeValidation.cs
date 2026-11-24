@@ -429,6 +429,17 @@ namespace MixedAtmospheres.Oni
                 ToStorageKg = now.In - first.In, FromStorageKg = now.Out - first.Out };
         }
         private static System.DateTime colonyOwnerWallStart;
+        // Seconds between owner reports (0: every Unity frame, as the acceptance runs read it).
+        private static readonly float ownerReportSeconds = float.TryParse(System.Environment.GetEnvironmentVariable("MA_COLONY_REPORT_SECONDS"),
+            System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var spacing) && spacing > 0 ? spacing : 0;
+        private static float nextOwnerReport;
+        private static bool OwnerReportDue()
+        {
+            if (ownerReportSeconds == 0) return true;
+            var now = Time.realtimeSinceStartup;
+            if (now < nextOwnerReport) return false;
+            nextOwnerReport = now + ownerReportSeconds; return true;
+        }
         private static void ColonyOwnerScene()
         {
             Report.Kind = "actual-game-colony-owner-validation";
@@ -458,6 +469,12 @@ namespace MixedAtmospheres.Oni
             // publish zero-time edits before returning. Report that completed
             // publication, rather than its stale entry snapshot.
             status=ColonyOwner.Status;faulted=status.State==2&&!ColonyScenarios.FaultExpected;
+            // The report is rebuilt and rewritten every Unity frame. A frame-rate
+            // measurement spaces it out (MA_COLONY_REPORT_SECONDS): a fault, a
+            // finished scenario and the run's last frame still write it at once.
+            var reported = faulted || scenarioDone || OwnerReportDue();
+            void WriteOwnerReport()
+            {
             var owner = new {
                 SchemaVersion = 1, status.State, Faulted = faulted, status.Session, status.CompletedFrames, status.Substeps, status.RejectedAttempts, status.Species,
                 status.TimeSeconds, status.LastAdvanceMilliseconds, status.MaximumAdvanceMilliseconds, status.StageMilliseconds,
@@ -469,6 +486,7 @@ namespace MixedAtmospheres.Oni
                 DlcFluidReaders=new {ColonyDlcFluidReaders.AquaticReads,ColonyDlcFluidReaders.BionicSamples},
                 ClusterWorlds=ColonyClusterWorlds.Report(),
                 ReleasedOutsideCells=ColonyOwner.ReleasedOutsideCells,ReleasedOutsideKg=ColonyOwner.ReleasedOutsideKg,
+                ColonyOwner.SpaceExposureDeferred,
                 ColonyPacing.HeldTicks, ColonyPacing.UnityFrames, ColonyPacing.OwnerRate, ColonyPacing.TimeScale,
                 WallSeconds = (System.DateTime.UtcNow - colonyOwnerWallStart).TotalSeconds,
                 Performance = ColonyPerformanceLog.Timerun(),
@@ -504,6 +522,8 @@ namespace MixedAtmospheres.Oni
                 Error = status.Error
             };
             ReportJson.WriteAtomic(Path.Combine(OutputDirectory, "colony-owner.json"), owner);
+            }
+            if (reported) WriteOwnerReport();
             if (faulted) throw new InvalidOperationException("Colony owner faulted: " + status.Error);
             var loading = configuration.Mode == "colony-owner-load";
             if (loading && ColonyOwnerPersistence.Loads != (OwnerReloadRequested && ownerReload.Stage>=2 ? 2 : 1)) throw new InvalidOperationException("The loaded colony did not restore its owner.");
@@ -541,6 +561,7 @@ namespace MixedAtmospheres.Oni
                 if (Time.frameCount % 60 == 0) WriteReport();
                 return;
             }
+            if (!reported) WriteOwnerReport();
             if (loading && ModSettingsRuntime.ValidationPreset.Length != 0)
                 ReportJson.WriteAtomic(Path.Combine(OutputDirectory, "container-capacities.json"), ColonyScenarios.RestoredContainerCapacities());
             if (configuration.SaveOnComplete && Report.ColonySavePath.Length == 0) { SaveColony(); Report.ColonySaveFrame = ColonyOwnerPersistence.LastSavedFrame; }
@@ -777,10 +798,15 @@ namespace MixedAtmospheres.Oni
         private bool menuQuitRequested;
         private float minionsReadyAt = -1;
         private readonly HashSet<int> visited = new HashSet<int>();
+        // The menu steps below search every object of the scene, a few tenths
+        // of a second each in a large colony. They end once the colony runs:
+        // a loaded one when its game has started, a new one when its intro
+        // has been dismissed. A return to the main menu starts them again.
+        private bool introDismissed, colonyReached;
         internal void Initialize(MainMenu mainMenu)
         {
             menu=mainMenu;started=Time.realtimeSinceStartup;nextAction=started+3;
-            completionWaitFrames=0;minionsReadyAt=-1;visited.Clear();
+            completionWaitFrames=0;minionsReadyAt=-1;visited.Clear();introDismissed=colonyReached=false;
         }
         private void Update()
         {
@@ -822,8 +848,10 @@ namespace MixedAtmospheres.Oni
                 nextWaitingCapture = Time.realtimeSinceStartup + 10;
                 ColonyRuntimeValidation.RecordWaitingScreens();
             }
-            if (!config.AutoStartNewColony || Time.realtimeSinceStartup < nextAction) return;
+            if (!config.AutoStartNewColony || colonyReached || Time.realtimeSinceStartup < nextAction) return;
             nextAction = Time.realtimeSinceStartup + 1;
+            if (Game.Instance != null && Game.Instance.GameStarted() &&
+                (introDismissed || config.Mode == "native-load-domain" || config.Mode == "colony-owner-load")) { colonyReached = true; return; }
             try
             {
                 // Steam can refresh subscribed workshop metadata during a
@@ -910,7 +938,7 @@ namespace MixedAtmospheres.Oni
                     if (Path.GetDirectoryName(folder) != saveRoot.TrimEnd(Path.DirectorySeparatorChar) || Directory.Exists(folder))
                         throw new InvalidDataException("The disposable colony save directory is not a fresh immediate child.");
                     SaveLoader.SetActiveSaveFilePath(Path.Combine(folder, config.ColonyName + ".sav"));
-                    intro.Deactivate();
+                    intro.Deactivate(); introDismissed = true;
                 }
             }
             catch (Exception error) { ColonyRuntimeValidation.Fail(error); }
