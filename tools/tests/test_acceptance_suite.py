@@ -287,6 +287,20 @@ class SettingsClickTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "requested Settings tab"):
                 desktop.shot_settings_tab("solver-readonly", 0)
 
+    def test_intro_is_seen_by_its_begin_button(self):
+        desktop = object.__new__(suite.Desktop)
+        desktop.output = self.output
+        dark = bytearray(bytes((0x3e, 0x43, 0x57)) * 510)
+        button = bytearray(bytes((0x87, 0x45, 0x66)) * 510)
+        one_place = bytearray(dark); one_place[3 * 50:3 * 50 + 3] = bytes((0x87, 0x45, 0x66))
+        for pixels, expected in ((button, True), (dark, False), (one_place, False)):
+            with self.subTest(expected=expected, first=bytes(pixels[:3])), mock.patch.object(desktop, "shot"), \
+                    mock.patch.object(suite.subprocess, "check_output", return_value=bytes(pixels)):
+                self.assertEqual(desktop.intro_showing("check"), expected)
+        with mock.patch.object(desktop, "shot"), mock.patch.object(suite.subprocess, "check_output", return_value=b""):
+            with self.assertRaisesRegex(RuntimeError, "could not be sampled"):
+                desktop.intro_showing("check")
+
     def test_wrong_resolution_aborts_before_clicking_game(self):
         for resolution, geometry in (("640x480", "1920 1080"),
                                      ("1920x1080\nApplying resolution 640x480", "1920 1080"),

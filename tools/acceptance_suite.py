@@ -1284,6 +1284,10 @@ def ordinary_ui_wrapper(source: Path, arguments: list[str]) -> int:
     return code
 
 
+# The fill of the Begin button of ONI's new-colony message (1280x720 screenshots).
+INTRO_BEGIN_FILL = bytes((0x87, 0x45, 0x66))
+
+
 class Desktop:
     """xdotool/scrot on the GPU display, in the 1280x720 coordinates of the recorded clicks."""
 
@@ -1322,6 +1326,18 @@ class Desktop:
         width, height = map(int, self.run(str(self.bin / "xdotool"), "getdisplaygeometry").split())
         self.run(str(self.bin / "xdotool"), "mousemove", str(600 * width // 1280), str(219 * height // 720))
         time.sleep(.4)
+
+    def intro_showing(self, name: str) -> bool:
+        """Whether ONI's new-colony message is on screen: its Begin button's fill at two places."""
+        self.shot(name)
+        pixels = subprocess.check_output([
+            "ffmpeg", "-loglevel", "error", "-i", str(self.output / (name + ".png")),
+            "-vf", "format=rgb24,crop=51:10:612:441", "-frames:v", "1", "-f", "rawvideo", "-",
+        ])
+        if len(pixels) != 51 * 10 * 3:
+            raise RuntimeError(f"{name} could not be sampled")
+        samples = [pixels[3 * (9 * 51):3 * (9 * 51) + 3], pixels[3 * 50:3 * 50 + 3]]
+        return all(abs(sample[k] - INTRO_BEGIN_FILL[k]) <= 16 for sample in samples for k in range(3))
 
     def shot_settings_tab(self, name: str, selected: int) -> None:
         self.park()
@@ -1461,6 +1477,22 @@ def ordinary_clicks(desktop: Desktop, log, wait) -> None:
             desktop.click(641, 584)
         return False
     wait(begun, 120)
+    # The initial save can be written while the intro is still on screen (the
+    # Begin click above had not taken effect yet): every later click would then
+    # land on the message and the explicit save below never happen
+    # (windows-spacedout-ui in the release runs of 1.12.1 and 1.13.0). Look.
+    dismissed = False
+    for _ in range(10):
+        if not desktop.intro_showing("ordinary-intro-check"):
+            break
+        desktop.click(637, 449); time.sleep(2)
+        desktop.click(641, 584); time.sleep(2)
+        dismissed = True
+    else:
+        raise RuntimeError("ONI's new-colony message stayed on screen")
+    if dismissed:
+        # The mod's start dialog follows the message; its OK may have come up late.
+        time.sleep(3); desktop.click(641, 584); time.sleep(1.5)
     shot("colony-owner-active")
     # Settings can also open after the initial save. Close them before the
     # pause menu; an absent settings window requires no Escape toggle.
